@@ -236,10 +236,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Makes the snow cap a single 40 cm clump off-centre on the input.
+/// Makes the snow cap a single scattered clump, 40 cm in radius.
 fn small_clump(options: &mut ClumpOptions) {
-    options.shape.at = Some([0.3, 0.0, -0.2]);
-    options.shape.radius = Some(0.4);
+    options.placement.mode = procgena_clump::Placement::Scatter;
+    options.placement.count = 1;
+    options.placement.radius = 0.4;
 }
 
 /// Returns the fraction of triangles whose corners all lie below the input surface.

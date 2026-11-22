@@ -117,15 +117,17 @@ impl<'a> Surface<'a> {
     /// Same as [`is_closed`](Self::is_closed), for a caller that already has
     /// `welded`, the per-vertex position ids from [`welded`](Self::welded).
     pub(crate) fn is_closed_welded(&self, welded: &[u32]) -> bool {
-        // Count how many triangles use each welded edge.
-        let mut uses = std::collections::HashMap::<(u32, u32), u32>::new();
+        // Sort the welded edges so copies sit together, then check that each
+        // appears exactly twice.
+        let mut edges: Vec<u64> = Vec::with_capacity(self.indices.len());
         for &tri in self.indices.as_chunks::<3>().0 {
             let [a, b, c] = tri.map(|i| welded[i as usize]);
             for (x, y) in [(a, b), (b, c), (c, a)] {
-                *uses.entry((x.min(y), x.max(y))).or_default() += 1;
+                edges.push((u64::from(x.min(y)) << 32) | u64::from(x.max(y)));
             }
         }
-        uses.values().all(|&n| n == 2)
+        edges.sort_unstable();
+        edges.chunk_by(|x, y| x == y).all(|run| run.len() == 2)
     }
 
     /// Gives every distinct position one id: returns, per vertex, the id of

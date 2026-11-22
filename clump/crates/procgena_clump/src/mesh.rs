@@ -52,4 +52,9 @@ pub struct BuildStats {
     /// [`MeshOptions::strict`](crate::MeshOptions::strict) is on. Always 0
     /// when it is off, because the check doesn't run.
     pub crossings: usize,
+    /// Separate clumps grown, for
+    /// [`Placement::Scatter`](crate::Placement::Scatter). This can be fewer
+    /// than asked for when the surface has no room for more. Always 0 for
+    /// [`Placement::Everywhere`](crate::Placement::Everywhere).
+    pub clumps: usize,
 }

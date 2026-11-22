@@ -9,6 +9,7 @@ use glam::Vec3;
 use crate::bvh::{Bvh, triangles_cross};
 use crate::field::{ClumpField, SurfacePoint};
 use crate::mesh::{BuildStats, ClumpMesh};
+use crate::patch::{Patch, Tri};
 use crate::surface::Surface;
 
 /// Most refinement passes. Each pass halves the longest edges, so this allows
@@ -48,18 +49,10 @@ const MAX_BLUR_PASSES: u32 = 256;
 /// clumps on facing walls of a crevice don't pass through each other.
 const GAP_FILL: f32 = 0.5;
 
-/// A triangle being refined: its corners and the face normal of the input
-/// triangle it came from.
-#[derive(Debug, Clone, Copy)]
-struct Tri {
-    corners: [u32; 3],
-    source_normal: Vec3,
-}
-
-/// Builds the clump mesh: copies the triangles the clump may cover, splits
-/// them until no edge is longer than `edge_length`, and pushes every vertex
-/// out by the clump's height there. The result is a single open sheet whose
-/// edges sink below the surface.
+/// Builds a layer clump's mesh from the working surface `patch`: splits its
+/// triangles until no edge is longer than `edge_length`, and pushes every
+/// vertex out by the clump's height there. The result is a single open sheet
+/// whose edges sink below the surface.
 ///
 /// With `closed`, the sheet also gets a buried underside and side walls, so
 /// the result is watertight.
@@ -70,24 +63,27 @@ struct Tri {
 /// them until none do or the pass limit is reached.
 pub(crate) fn displaced_shell(
     field: &ClumpField,
+    patch: Patch,
     edge_length: f32,
     max_slope: f32,
     closed: bool,
     strict: bool,
 ) -> (ClumpMesh, BuildStats) {
-    let (mut points, mut tris) = covered_triangles(field);
+    let Patch {
+        mut points,
+        mut tris,
+    } = patch;
     refine(field, &mut points, &mut tris, edge_length);
 
-    // Push along normals blurred over about the clump's thickness, so pushes
-    // in tight hollows don't converge and cross.
+    // Push along normals blurred over about the clump's tallest height, so
+    // pushes in tight hollows don't converge and cross.
     let neighbours = neighbour_lists(points.len(), &tris);
-    // Averaging spreads about one edge per sqrt(pass), so reaching the
-    // thickness takes (thickness / edge)² passes.
+    let max_rise = points.iter().map(|p| p.rise).fold(0.0, f32::max);
+    let tallest = field.thickness() + field.max_lump_height() + max_rise;
+    // Averaging spreads about one edge per sqrt(pass), so reaching that
+    // height takes (height / edge)² passes.
     let edge = mean_edge_length(&points, &tris).max(f32::MIN_POSITIVE);
-    let passes = (field.thickness() / edge)
-        .powi(2)
-        .ceil()
-        .min(MAX_BLUR_PASSES as f32) as u32;
+    let passes = (tallest / edge).powi(2).ceil().min(MAX_BLUR_PASSES as f32) as u32;
     let blurred = smooth_directions(
         points.iter().map(|p| p.normal).collect(),
         &neighbours,
@@ -111,7 +107,7 @@ pub(crate) fn displaced_shell(
         .zip(&dirs)
         .zip(&weights)
         .map(|((p, &dir), &w)| {
-            let top = field.top(w);
+            let top = layer_top(field, p, w);
             // Both limits are 0 or more, so they can't lower a top at or
             // below the surface, and a surface farther than the top's share
             // of the gap can't limit it.
@@ -165,6 +161,8 @@ pub(crate) fn displaced_shell(
     let mut depths = vec![0.0; points.len()];
     let mut sink_dirs = dirs.clone();
     if closed {
+        // Go deeper by the dip, so the underside clears input the
+        // simplified surface passes over.
         let full_depth = field.sink() + BOTTOM_GAP * field.thickness();
         let mut done = vec![false; points.len()];
         for v in kept.iter().flat_map(|t| t.corners) {
@@ -172,7 +170,8 @@ pub(crate) fn displaced_shell(
             if std::mem::replace(&mut done[v], true) {
                 continue;
             }
-            let (dir, depth) = sink(field, &points[v], dirs[v], full_depth);
+            let wanted = full_depth + points[v].dip;
+            let (dir, depth) = sink(field, &points[v], dirs[v], wanted);
             sink_dirs[v] = dir;
             depths[v] = depth;
             if tops[v] < min_solid[v] - depth {
@@ -239,6 +238,7 @@ pub(crate) fn displaced_shell(
             folded,
             thinned,
             crossings,
+            clumps: 0,
         },
     )
 }
@@ -644,39 +644,6 @@ fn split_pinches(
     }
 }
 
-/// Copies every input triangle the clump may cover, sharing vertices.
-fn covered_triangles(field: &ClumpField) -> (Vec<SurfacePoint>, Vec<Tri>) {
-    let surface = field.surface();
-    let mut points = Vec::new();
-    let mut tris = Vec::new();
-    // Key vertices by position, so copies at the same position (as at texture
-    // seams) become one clump vertex and the clump doesn't split along them.
-    let mut local: HashMap<u32, u32> = HashMap::new();
-    for t in 0..surface.triangle_count() {
-        let ids = surface.triangle(t).map(|v| field.position_id(v));
-        if ids[0] == ids[1] || ids[1] == ids[2] || ids[2] == ids[0] {
-            // Collapsed to a line or point once copies are merged.
-            continue;
-        }
-        let input = surface.triangle(t).map(|v| field.vertex_point(v));
-        if !field.may_cover([&input[0], &input[1], &input[2]]) {
-            continue;
-        }
-        let corners = surface.triangle(t).map(|v| {
-            *local.entry(field.position_id(v)).or_insert_with(|| {
-                points.push(field.vertex_point(v));
-                (points.len() - 1) as u32
-            })
-        });
-        let [a, b, c] = surface.triangle_positions(t);
-        tris.push(Tri {
-            corners,
-            source_normal: (b - a).cross(c - a),
-        });
-    }
-    (points, tris)
-}
-
 /// Splits triangles the clump may cover until no edge is longer than
 /// `edge_length`.
 ///
@@ -811,17 +778,39 @@ fn mean_edge_length(points: &[SurfacePoint], tris: &[Tri]) -> f32 {
 
 /// Picks how to sink surface point `p` up to `wanted` below the surface.
 /// Tries against the push direction `dir` first, then against the surface
-/// normal, taking the first that really leads behind the surface; the depth
-/// is capped at [`GAP_FILL`] of the way to where the input ends. Returns the
-/// outward direction to move against and the depth, which is 0 if neither
-/// direction leads behind the surface (a sharp ridge, for example).
+/// normal, taking the first that really leads into the input; the depth is
+/// capped at [`GAP_FILL`] of the way through the input, counted from where
+/// the ray enters it (the point itself, unless it lies over a hollow in a
+/// simplified surface). Returns the outward direction to move against and
+/// the depth, which is 0 if neither direction leads into the input (a sharp
+/// ridge, for example).
 fn sink(field: &ClumpField, p: &SurfacePoint, dir: Vec3, wanted: f32) -> (Vec3, f32) {
     for d in [dir, p.normal] {
-        if let Some(run) = field.inside_run(p.point, -d) {
-            return (d, wanted.min(GAP_FILL * run));
+        if let Some((enter, leave)) = field.inside_span(p.point, -d) {
+            return (d, wanted.min(enter + GAP_FILL * (leave - enter)));
         }
     }
     (dir, 0.0)
+}
+
+/// Returns the wanted top height of a layer clump at `p`, which has coverage
+/// weight `w`, before any limits: the base height plus lumps, which shrink
+/// with the weight. Visible tops are raised by `p`'s rise, in step with how
+/// visible they are, so bumps of the input that the simplified surface cuts
+/// through stay covered. Buried tops are lowered by up to its dip, so the
+/// clump's edges stay under the input.
+fn layer_top(field: &ClumpField, p: &SurfacePoint, w: f32) -> f32 {
+    let top = field.top(w) + w * field.lump_height(p.point);
+    if top > 0.0 {
+        top + p.rise * field.fade(top)
+    } else {
+        let buried = if field.sink() > 0.0 {
+            (-top / field.sink()).min(1.0)
+        } else {
+            1.0
+        };
+        top - p.dip * buried
+    }
 }
 
 /// Returns unit direction `dir` turned toward unit normal `normal` just enough
@@ -893,7 +882,7 @@ impl Ord for OrderedHeight {
 
 /// Removes vertices that no triangle uses, keeping the rest in order.
 /// Expects positions and fade filled and normals not yet computed.
-fn remove_unused_vertices(mesh: &mut ClumpMesh) {
+pub(crate) fn remove_unused_vertices(mesh: &mut ClumpMesh) {
     let mut used = vec![false; mesh.positions.len()];
     for &i in &mesh.indices {
         used[i as usize] = true;
@@ -916,7 +905,7 @@ fn remove_unused_vertices(mesh: &mut ClumpMesh) {
 }
 
 /// Returns area-weighted vertex normals from the triangles.
-fn face_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {
+pub(crate) fn face_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {
     let mut normals = vec![Vec3::ZERO; positions.len()];
     for tri in indices.as_chunks::<3>().0 {
         let [a, b, c] = tri.map(|i| Vec3::from(positions[i as usize]));

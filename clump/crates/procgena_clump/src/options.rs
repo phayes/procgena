@@ -22,6 +22,8 @@ pub struct ClumpOptions {
     pub scale: f32,
     /// Where on the surface clumps may grow.
     pub mask: MaskOptions,
+    /// Whether to cover the surface as one layer or grow separate clumps.
+    pub placement: PlacementOptions,
     /// Size and profile of the clump.
     pub shape: ShapeOptions,
     /// How the clump is turned into triangles.
@@ -36,6 +38,7 @@ impl Default for ClumpOptions {
             directions: vec![Direction::default()],
             scale: 1.0,
             mask: MaskOptions::default(),
+            placement: PlacementOptions::default(),
             shape: ShapeOptions::default(),
             mesh: MeshOptions::default(),
         }
@@ -84,6 +87,11 @@ impl Default for Direction {
 /// toward it), times the direction's strength. The directions' masks add up.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MaskOptions {
+    /// Whether clumps grow on every side of the surface, whichever way it
+    /// faces. When true the facing term is 1 everywhere, so `facing_min` and
+    /// `facing_full` have no effect; use it for growths such as burls on a
+    /// trunk. Each direction's strength and exposure still apply.
+    pub any_facing: bool,
     /// Facing value (cosine of the angle between the surface normal and the
     /// direction the material comes from) below which nothing grows. From -1
     /// to 1, and less than `facing_full`.
@@ -106,6 +114,7 @@ pub struct MaskOptions {
 impl Default for MaskOptions {
     fn default() -> Self {
         Self {
+            any_facing: false,
             facing_min: 0.3,
             facing_full: 0.7,
             exposure_rays: 64,
@@ -114,18 +123,60 @@ impl Default for MaskOptions {
     }
 }
 
-/// Size and profile of a single clump.
+/// How clumps are laid out on the surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Placement {
+    /// One continuous layer over everything the mask allows, such as a snow
+    /// cap or a moss carpet. This is the default.
+    #[default]
+    Everywhere,
+    /// A set number of separate, rounded clumps, such as moss cushions or
+    /// burls. Each is its own closed blob, partly sunk into the surface.
+    Scatter,
+}
+
+/// Whether to cover the surface as one layer or grow separate clumps, and
+/// how many.
+///
+/// Every field except `mode` applies only to [`Placement::Scatter`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacementOptions {
+    /// One layer, or separate clumps.
+    pub mode: Placement,
+    /// Number of clumps to grow. Fewer are grown when the surface has no
+    /// room for more at `min_spacing`, so check the mesh if the exact number
+    /// matters. Must be at least 1.
+    pub count: u32,
+    /// Typical distance from a clump's centre to its edge, along the surface.
+    /// Must be greater than 0.
+    pub radius: f32,
+    /// How much clump sizes vary, from 0 (all the same size) to 1 (from
+    /// nothing up to twice the typical size). Applies to radius and height
+    /// together.
+    pub size_variation: f32,
+    /// Closest two clump centres may be. A spacing of at least twice the
+    /// largest radius keeps clumps from touching. Must be 0 or more.
+    pub min_spacing: f32,
+}
+
+impl Default for PlacementOptions {
+    fn default() -> Self {
+        Self {
+            mode: Placement::Everywhere,
+            count: 1,
+            radius: 0.15,
+            size_variation: 0.3,
+            min_spacing: 0.3,
+        }
+    }
+}
+
+/// Size and profile of the clump.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapeOptions {
-    /// Centre of the clump. `None` picks the most open, most up-facing vertex.
-    pub at: Option<[f32; 3]>,
-    /// Distance from the centre at which the clump ends. `None` covers the
-    /// whole surface. Must be greater than 0.
-    pub radius: Option<f32>,
-    /// Fraction of `radius`, at its outer edge, over which the clump thins to
-    /// nothing. From 0 to 1.
-    pub edge_width: f32,
-    /// Height of the clump above the surface where the mask is 1. Must be greater than 0.
+    /// Height of the clump above the surface where the mask is 1, not
+    /// counting lumps. For scattered clumps, the height of a typical clump.
+    /// Must be greater than 0.
     pub thickness: f32,
     /// Depth below the surface that the clump's edges sink to, so no seam
     /// shows where the clump ends. Must be 0 or more.
@@ -143,24 +194,32 @@ pub struct ShapeOptions {
     /// a clump is at most half as thick as the input under it, so thin parts
     /// get a thin layer. 0 skips nothing else. Must be 0 or more.
     pub min_support: f32,
-    /// How much the thickness varies with noise, from 0 (smooth) to 1.
+    /// How tall the rounded lumps on the clump's surface are, from 0 (smooth)
+    /// to 1 (lumps as tall as they are wide, like moss cushions). Lumps rise
+    /// above `thickness` and shrink toward the clump's edges.
     pub lumpiness: f32,
     /// Typical width of a lump. Must be greater than 0.
     pub lump_size: f32,
+    /// How much a scattered clump narrows where it meets the surface, from 0
+    /// (a dome sitting flat) to 0.9 (a ball on a thin stalk). Values above 0
+    /// make the clump bulge out past its base, like a burl. Has no effect on
+    /// [`Placement::Everywhere`].
+    pub neck: f32,
 }
+
+/// Largest allowed [`ShapeOptions::neck`].
+pub const MAX_NECK: f32 = 0.9;
 
 impl Default for ShapeOptions {
     fn default() -> Self {
         Self {
-            at: None,
-            radius: None,
-            edge_width: 0.3,
             thickness: 0.12,
             sink: 0.03,
             max_slope: 1.0,
             min_support: 0.0,
             lumpiness: 0.3,
             lump_size: 0.25,
+            neck: 0.0,
         }
     }
 }
@@ -168,10 +227,14 @@ impl Default for ShapeOptions {
 /// How the clump is turned into triangles.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeshOptions {
-    /// Longest triangle edge in the clump mesh. Larger input triangles are
-    /// split until they fit. Smaller values give smoother rims and lumps, and
-    /// cost more: halving it gives about four times the triangles. Must be
-    /// greater than 0.
+    /// Target triangle edge length in the clump mesh, and the main setting
+    /// for trading detail against triangle count and build time. Finer input
+    /// is simplified up to this length before the clump is grown, and larger
+    /// input triangles are split until they fit, so no edge of the top is
+    /// longer. Halving it gives about four times the triangles. Where the
+    /// input is simplified, the clump is raised over bumps the simpler shape
+    /// cuts through, so coarse clumps sit a little higher on rough input.
+    /// Must be greater than 0.
     pub edge_length: f32,
     /// Whether to close the clump into a watertight solid. When true, each
     /// clump gets an underside, buried `shape.sink` plus a quarter of
@@ -180,6 +243,10 @@ pub struct MeshOptions {
     /// and mass, or voxelizing. When false, the clump is only its visible
     /// top: an open sheet with about half the triangles, enough for drawing
     /// and static collision.
+    ///
+    /// A closed clump overlaps the input under it. For a solid that sits
+    /// exactly on the input instead, subtract the input from the clump with
+    /// a boolean (CSG) tool afterwards; turn on `strict` first.
     pub closed: bool,
     /// Whether to make sure no part of the clump passes through another part.
     /// When true, the finished mesh is checked for triangles that cross each
@@ -264,17 +331,31 @@ impl ClumpOptions {
             "must be 0 or more",
         )?;
 
-        // Shape.
-        let s = &self.shape;
+        // Placement.
+        let p = &self.placement;
+        check(p.count >= 1, "placement.count", "must be at least 1")?;
         check(
-            s.radius.is_none_or(finite_positive),
-            "shape.radius",
+            finite_positive(p.radius),
+            "placement.radius",
             "must be greater than 0",
         )?;
         check(
-            (0.0..=1.0).contains(&s.edge_width),
-            "shape.edge_width",
+            (0.0..=1.0).contains(&p.size_variation),
+            "placement.size_variation",
             "must be from 0 to 1",
+        )?;
+        check(
+            p.min_spacing.is_finite() && p.min_spacing >= 0.0,
+            "placement.min_spacing",
+            "must be 0 or more",
+        )?;
+
+        // Shape.
+        let s = &self.shape;
+        check(
+            (0.0..=MAX_NECK).contains(&s.neck),
+            "shape.neck",
+            "must be from 0 to MAX_NECK (0.9)",
         )?;
         check(
             finite_positive(s.thickness),

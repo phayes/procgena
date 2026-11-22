@@ -18,24 +18,27 @@
 //!
 //! This crate is under construction; see `plan.md` in the repository.
 
+mod blob;
 mod bvh;
 mod field;
 mod hash;
 mod mesh;
 mod options;
+mod patch;
 mod presets;
 mod shell;
 mod surface;
 
 pub use mesh::{BuildStats, ClumpMesh};
 pub use options::{
-    ClumpError, ClumpOptions, Direction, MAX_DIRECTIONS, MaskOptions, MeshOptions, OptionsError,
-    ShapeOptions,
+    ClumpError, ClumpOptions, Direction, MAX_DIRECTIONS, MAX_NECK, MaskOptions, MeshOptions,
+    OptionsError, Placement, PlacementOptions, ShapeOptions,
 };
 pub use presets::ClumpPreset;
 pub use surface::{Surface, SurfaceError, SurfaceMesh};
 
 use field::ClumpField;
+use patch::Patch;
 
 /// A generated clump: its settings, mesh and build measurements.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,16 +56,24 @@ impl Clump {
     pub fn new(surface: Surface, options: &ClumpOptions) -> Result<Self, ClumpError> {
         options.validate()?;
         let field = ClumpField::new(surface, options);
-        let (mesh, stats) = if field.is_empty() {
-            (ClumpMesh::default(), BuildStats::default())
-        } else {
-            shell::displaced_shell(
-                &field,
-                options.mesh.edge_length * options.scale,
-                options.shape.max_slope,
-                options.mesh.closed,
-                options.mesh.strict,
-            )
+        let edge_length = options.mesh.edge_length * options.scale;
+        let (mesh, stats) = match options.placement.mode {
+            Placement::Everywhere => {
+                let patch = Patch::new(&field, edge_length);
+                if patch.is_empty() {
+                    (ClumpMesh::default(), BuildStats::default())
+                } else {
+                    shell::displaced_shell(
+                        &field,
+                        patch,
+                        edge_length,
+                        options.shape.max_slope,
+                        options.mesh.closed,
+                        options.mesh.strict,
+                    )
+                }
+            }
+            Placement::Scatter => blob::scatter(&field, options),
         };
         Ok(Self {
             options: options.clone(),
@@ -563,5 +574,239 @@ mod tests {
             })
             .fold(0.0, f32::max);
         assert!(longest <= options.mesh.edge_length * 1.001, "{longest}");
+    }
+
+    /// A finely divided `size` metre ground patch with gentle bumps, with
+    /// matching smooth normals. Its steepest slope is about 0.4, so every
+    /// point faces up enough for full snow-cap coverage.
+    fn bumpy_ground(size: f32, divisions: u32) -> SurfaceMesh {
+        let (amp, kx, kz) = (0.05, 5.0, 4.0);
+        let mut ground = SurfaceMesh::ground(size, divisions);
+        for (p, n) in ground.positions.iter_mut().zip(&mut ground.normals) {
+            let (x, z) = (p[0], p[2]);
+            p[1] = amp * (kx * x).sin() * (kz * z).cos();
+            let dx = amp * kx * (kx * x).cos() * (kz * z).cos();
+            let dz = -amp * kz * (kx * x).sin() * (kz * z).sin();
+            *n = glam::Vec3::new(-dx, 1.0, -dz).normalize().to_array();
+        }
+        ground
+    }
+
+    /// Options for an even snow cap: no exposure rays, so only facing counts.
+    fn even_cap(edge_length: f32, lumpiness: f32) -> ClumpOptions {
+        let mut options = ClumpOptions::default();
+        options.mask.exposure_rays = 0;
+        options.shape.lumpiness = lumpiness;
+        options.mesh.edge_length = edge_length;
+        options
+    }
+
+    /// Returns the tallest point of `mesh` above the flat ground at y = 0.
+    fn highest(mesh: &ClumpMesh) -> f32 {
+        mesh.positions.iter().map(|p| p[1]).fold(f32::MIN, f32::max)
+    }
+
+    #[test]
+    fn lumps_rise_above_the_thickness() {
+        let ground = SurfaceMesh::ground(2.0, 4);
+        let surface = ground.surface().unwrap();
+        let thickness = ClumpOptions::default().shape.thickness;
+
+        // Without lumps the cap is flat at the thickness.
+        let flat = Clump::new(surface, &even_cap(0.04, 0.0)).unwrap();
+        assert!((highest(flat.mesh()) - thickness).abs() < 1e-4);
+
+        // Lumps add height on top, more as lumpiness rises.
+        let some = highest(Clump::new(surface, &even_cap(0.04, 0.5)).unwrap().mesh());
+        let full = highest(Clump::new(surface, &even_cap(0.04, 1.0)).unwrap().mesh());
+        assert!(some > thickness + 0.01, "{some}");
+        assert!(full > some, "{full} vs {some}");
+    }
+
+    /// Returns how many separate pieces `indices` form, counting triangles
+    /// joined through shared vertices as one piece.
+    fn pieces(indices: &[u32], vertex_count: usize) -> usize {
+        let mut parent: Vec<usize> = (0..vertex_count).collect();
+        fn root(parent: &mut [usize], mut v: usize) -> usize {
+            while parent[v] != v {
+                parent[v] = parent[parent[v]];
+                v = parent[v];
+            }
+            v
+        }
+        for &[a, b, c] in indices.as_chunks::<3>().0 {
+            for (x, y) in [(a, b), (b, c)] {
+                let (rx, ry) = (root(&mut parent, x as usize), root(&mut parent, y as usize));
+                parent[rx] = ry;
+            }
+        }
+        let mut used = vec![false; vertex_count];
+        for &i in indices {
+            used[i as usize] = true;
+        }
+        (0..vertex_count)
+            .filter(|&v| used[v] && root(&mut parent, v) == v)
+            .count()
+    }
+
+    /// Options for `count` well-spaced, same-sized clumps on flat ground.
+    fn scattered(count: u32) -> ClumpOptions {
+        let mut options = even_cap(0.04, 0.0);
+        options.placement = PlacementOptions {
+            mode: Placement::Scatter,
+            count,
+            radius: 0.1,
+            size_variation: 0.0,
+            min_spacing: 0.4,
+        };
+        options
+    }
+
+    #[test]
+    fn scatter_grows_the_requested_number_of_separate_clumps() {
+        let ground = SurfaceMesh::ground(2.0, 4);
+        let surface = ground.surface().unwrap();
+        for count in [1, 5] {
+            let clump = Clump::new(surface, &scattered(count)).unwrap();
+            let mesh = clump.mesh();
+            assert_eq!(clump.stats().clumps, count as usize);
+            assert_eq!(pieces(&mesh.indices, mesh.vertex_count()), count as usize);
+
+            // Each clump is a closed solid, and the same settings repeat.
+            assert_eq!(unpaired_edges(&mesh.indices), (0, 0));
+            assert!(enclosed_volume(mesh) > 0.0);
+            assert_eq!(Clump::new(surface, &scattered(count)).unwrap().mesh(), mesh);
+        }
+
+        // More clumps than fit at the spacing gives as many as fit.
+        let crowded = Clump::new(surface, &scattered(200)).unwrap();
+        assert!(crowded.stats().clumps < 200);
+        assert!(crowded.stats().clumps >= 5);
+    }
+
+    #[test]
+    fn scattered_clumps_follow_the_triangle_size() {
+        let ground = SurfaceMesh::ground(2.0, 4);
+        let surface = ground.surface().unwrap();
+        let triangles = |edge_length: f32| {
+            let mut options = scattered(1);
+            options.mesh.edge_length = edge_length;
+            Clump::new(surface, &options)
+                .unwrap()
+                .mesh()
+                .triangle_count()
+        };
+        let (fine, coarse) = (triangles(0.01), triangles(0.2));
+        assert!(coarse < 50, "{coarse}");
+        assert!(fine > 10 * coarse, "{fine} vs {coarse}");
+    }
+
+    #[test]
+    fn a_neck_makes_the_clump_bulge_past_its_base() {
+        let ground = SurfaceMesh::ground(2.0, 4);
+        let surface = ground.surface().unwrap();
+        let mut options = scattered(1);
+        options.shape.thickness = 0.3;
+        options.placement.radius = 0.2;
+        options.mesh.edge_length = 0.02;
+
+        // Widest distance from the clump's axis, overall and just above the ground.
+        let mut widths = |neck: f32| {
+            options.shape.neck = neck;
+            let clump = Clump::new(surface, &options).unwrap();
+            let mesh = clump.mesh();
+            let top = mesh
+                .positions
+                .iter()
+                .copied()
+                .max_by(|a, b| a[1].total_cmp(&b[1]))
+                .unwrap();
+            let from_axis = |p: &[f32; 3]| glam::Vec2::new(p[0] - top[0], p[2] - top[2]).length();
+            let widest = mesh.positions.iter().map(from_axis).fold(0.0, f32::max);
+            let base = mesh
+                .positions
+                .iter()
+                .filter(|p| p[1].abs() < 0.02)
+                .map(from_axis)
+                .fold(0.0, f32::max);
+            (widest, base)
+        };
+
+        // Without a neck the clump is widest at its base; with one it bulges.
+        let (widest, base) = widths(0.0);
+        assert!(base > 0.9 * widest, "{base} vs {widest}");
+        let (widest, base) = widths(0.7);
+        assert!(base < 0.6 * widest, "{base} vs {widest}");
+    }
+
+    #[test]
+    fn any_facing_grows_clumps_on_undersides() {
+        // Flat ground turned upside down: nothing faces up.
+        let mut ceiling = SurfaceMesh::ground(2.0, 4);
+        for n in &mut ceiling.normals {
+            n[1] = -1.0;
+        }
+        for tri in ceiling.indices.as_chunks_mut::<3>().0 {
+            tri.swap(1, 2);
+        }
+        let surface = ceiling.surface().unwrap();
+        let mut options = scattered(3);
+        assert_eq!(Clump::new(surface, &options).unwrap().stats().clumps, 0);
+        options.mask.any_facing = true;
+        let clump = Clump::new(surface, &options).unwrap();
+        assert_eq!(clump.stats().clumps, 3);
+        let lowest = clump
+            .mesh()
+            .positions
+            .iter()
+            .map(|p| p[1])
+            .fold(f32::MAX, f32::min);
+        assert!(lowest < -0.1, "clumps hang below the ceiling: {lowest}");
+    }
+
+    #[test]
+    fn triangle_size_coarsens_fine_input() {
+        // 2 cm input triangles.
+        let ground = bumpy_ground(2.0, 100);
+        let surface = ground.surface().unwrap();
+        let triangles = |edge_length: f32| {
+            let clump = Clump::new(surface, &even_cap(edge_length, 0.0)).unwrap();
+            assert_eq!(unpaired_edges(&clump.mesh().indices), (0, 0));
+            clump.mesh().triangle_count()
+        };
+        let (fine, coarse) = (triangles(0.04), triangles(0.2));
+        assert!(coarse * 8 < fine, "{coarse} vs {fine}");
+    }
+
+    #[test]
+    fn coarse_clumps_still_cover_the_input() {
+        // Every input point away from the patch border should sit under the
+        // clump: straight up from it, the first thing met is the clump's top.
+        let ground = bumpy_ground(2.0, 100);
+        let surface = ground.surface().unwrap();
+        let mut options = even_cap(0.3, 0.0);
+        options.mesh.closed = false;
+        let clump = Clump::new(surface, &options).unwrap();
+        let mesh = clump.mesh();
+        let sheet = Surface::new(&mesh.positions, &mesh.normals, &mesh.indices).unwrap();
+        let bvh = bvh::Bvh::new(&sheet);
+
+        let mut uncovered = 0;
+        let mut checked = 0;
+        for (p, n) in ground.positions.iter().zip(&ground.normals) {
+            if p[0].abs() > 0.6 || p[2].abs() > 0.6 {
+                continue;
+            }
+            checked += 1;
+            let (p, n) = (glam::Vec3::from(*p), glam::Vec3::from(*n));
+            if bvh.ray_hit(p, n, 1.0).is_none() {
+                uncovered += 1;
+            }
+        }
+        assert!(checked > 1000);
+        assert_eq!(
+            uncovered, 0,
+            "{uncovered} of {checked} input points poke through"
+        );
     }
 }
