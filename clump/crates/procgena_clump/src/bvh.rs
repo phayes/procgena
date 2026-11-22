@@ -225,6 +225,7 @@ impl Bvh {
         // The hit's position in `triangles`; ties go to the lowest position.
         let mut hit: Option<(f32, usize)> = None;
         let entry = self.nodes[0].bounds.ray_entry(origin, inv_dir, nearest)?;
+        let ray = Ray::new(origin, dir);
 
         // Walk nodes nearest first, with each node's entry distance.
         let mut stack = Stack::new((0usize, entry));
@@ -237,9 +238,7 @@ impl Bvh {
             if node.count > 0 {
                 let run = node.start as usize..(node.start + node.count) as usize;
                 for slot in run {
-                    let Some(d) =
-                        ray_triangle(origin, dir, self.corners[self.triangles[slot] as usize])
-                    else {
+                    let Some(d) = ray.hit(self.corners[self.triangles[slot] as usize]) else {
                         continue;
                     };
                     let better = match hit {
@@ -302,6 +301,7 @@ impl Bvh {
     /// Returns whether a ray from `origin` along `dir` hits any triangle before `t_max`.
     pub(crate) fn ray_blocked(&self, origin: Vec3, dir: Vec3, t_max: f32) -> bool {
         let inv_dir = dir.recip();
+        let ray = Ray::new(origin, dir);
         let mut stack = Stack::new(0usize);
         while let Some(n) = stack.pop() {
             let node = self.nodes[n];
@@ -310,9 +310,10 @@ impl Bvh {
             }
             if node.count > 0 {
                 let run = node.start as usize..(node.start + node.count) as usize;
-                if self.triangles[run].iter().any(|&t| {
-                    ray_triangle(origin, dir, self.corners[t as usize]).is_some_and(|d| d < t_max)
-                }) {
+                if self.triangles[run]
+                    .iter()
+                    .any(|&t| ray.hit(self.corners[t as usize]).is_some_and(|d| d < t_max))
+                {
                     return true;
                 }
             } else {
@@ -386,30 +387,96 @@ pub(crate) fn closest_on_triangle(p: Vec3, [a, b, c]: [Vec3; 3]) -> (Vec3, [f32;
     (a + ab * v + ac * w, [1.0 - v - w, v, w])
 }
 
-/// Returns the distance along `dir` where the ray meets triangle `[a, b, c]`,
-/// from either side, using the Möller–Trumbore test. A ray starting on the
-/// triangle hits it at distance 0.
-fn ray_triangle(origin: Vec3, dir: Vec3, [a, b, c]: [Vec3; 3]) -> Option<f32> {
-    let e1 = b - a;
-    let e2 = c - a;
-    let pvec = dir.cross(e2);
-    let det = e1.dot(pvec);
-    if det.abs() < 1e-12 {
-        return None;
+/// A ray set up for testing against many triangles.
+///
+/// The test is watertight: a ray that meets an edge or corner shared by
+/// several triangles hits at least one of them, so rays can't slip through a
+/// closed mesh between its triangles. This follows Woop, Benthin and Wald,
+/// "Watertight Ray/Triangle Intersection" (2013).
+struct Ray {
+    origin: Vec3,
+    /// Rows that map a point relative to `origin` into the ray's frame, where
+    /// the ray runs along the third axis: x and y say how far the point lies
+    /// off the ray, and z how far along it.
+    x: Vec3,
+    y: Vec3,
+    z: Vec3,
+    /// Reciprocal of the direction's largest component, which turns the
+    /// frame's z into distance along the ray.
+    z_scale: f32,
+}
+
+impl Ray {
+    /// Prepares a ray from `origin` along `dir`, which must be normalized.
+    fn new(origin: Vec3, dir: Vec3) -> Self {
+        // Run the ray along its largest axis, and swap the other two when it
+        // points the negative way, so triangles keep their winding.
+        let abs = dir.abs();
+        let kz = if abs.x >= abs.y && abs.x >= abs.z {
+            0
+        } else if abs.y >= abs.z {
+            1
+        } else {
+            2
+        };
+        let (mut kx, mut ky) = ((kz + 1) % 3, (kz + 2) % 3);
+        if dir[kz] < 0.0 {
+            std::mem::swap(&mut kx, &mut ky);
+        }
+
+        // Shear so the ray becomes the frame's third axis.
+        let unit = |k: usize| {
+            let mut v = Vec3::ZERO;
+            v[k] = 1.0;
+            v
+        };
+        Self {
+            origin,
+            x: unit(kx) - unit(kz) * (dir[kx] / dir[kz]),
+            y: unit(ky) - unit(kz) * (dir[ky] / dir[kz]),
+            z: unit(kz),
+            z_scale: 1.0 / dir[kz],
+        }
     }
-    let inv_det = 1.0 / det;
-    let tvec = origin - a;
-    let u = tvec.dot(pvec) * inv_det;
-    if !(0.0..=1.0).contains(&u) {
-        return None;
+
+    /// Returns the distance along the ray where it meets triangle
+    /// `[a, b, c]`, from either side. A ray starting on the triangle hits it
+    /// at distance 0. A triangle seen exactly edge-on is never hit.
+    fn hit(&self, [a, b, c]: [Vec3; 3]) -> Option<f32> {
+        // Move the corners into the ray's frame.
+        let [a, b, c] = [a, b, c].map(|p| {
+            let p = p - self.origin;
+            Vec3::new(self.x.dot(p), self.y.dot(p), self.z.dot(p))
+        });
+
+        // Which side of each edge the ray passes. A corner shared by two
+        // triangles maps to the same point for both, so a shared edge gives
+        // them the same value with opposite signs. A nonzero value always
+        // has the right sign, so two of opposite sign already mean a miss.
+        let edge = |p: Vec3, q: Vec3| p.x * q.y - p.y * q.x;
+        let (mut u, mut v) = (edge(c, b), edge(a, c));
+        if (u < 0.0 && v > 0.0) || (u > 0.0 && v < 0.0) {
+            return None;
+        }
+        let mut w = edge(b, a);
+        if u == 0.0 || v == 0.0 || w == 0.0 {
+            // Exactly on an edge in f32: decide in f64 instead.
+            let edge =
+                |p: Vec3, q: Vec3| (p.x as f64 * q.y as f64 - p.y as f64 * q.x as f64) as f32;
+            (u, v, w) = (edge(c, b), edge(a, c), edge(b, a));
+        }
+
+        // The ray hits only if it is inside or on all three edges.
+        if (u < 0.0 || v < 0.0 || w < 0.0) && (u > 0.0 || v > 0.0 || w > 0.0) {
+            return None;
+        }
+        let det = u + v + w;
+        if det == 0.0 {
+            return None;
+        }
+        let t = (u * a.z + v * b.z + w * c.z) * self.z_scale / det;
+        (t >= 0.0).then_some(t)
     }
-    let qvec = tvec.cross(e1);
-    let v = dir.dot(qvec) * inv_det;
-    if v < 0.0 || u + v > 1.0 {
-        return None;
-    }
-    let t = e2.dot(qvec) * inv_det;
-    (t >= 0.0).then_some(t)
 }
 
 /// Returns whether two triangles pass through each other: an edge of one
@@ -519,8 +586,9 @@ mod tests {
         for _ in 0..200 {
             let origin = Vec3::new(rng.range(-2.0, 2.0), 2.0, rng.range(-2.0, 2.0));
             let dir = Vec3::new(rng.range(-0.5, 0.5), -1.0, rng.range(-0.5, 0.5)).normalize();
+            let ray = Ray::new(origin, dir);
             let brute = (0..surface.triangle_count())
-                .filter_map(|t| ray_triangle(origin, dir, surface.triangle_positions(t)))
+                .filter_map(|t| ray.hit(surface.triangle_positions(t)))
                 .fold(f32::INFINITY, f32::min);
             let found = bvh
                 .ray_hit(origin, dir, f32::INFINITY)
@@ -533,6 +601,73 @@ mod tests {
                 bvh.ray_blocked(origin, dir, f32::INFINITY),
                 brute.is_finite()
             );
+        }
+    }
+
+    /// A closed tube with `sides` sides around the y axis, from y = 0 to
+    /// y = 1, turned by `turn` radians about each axis, with rings at y = 0,
+    /// 0.5 and 1 and flat caps. Returns the mesh and the middle ring's
+    /// vertices.
+    fn tube(
+        sides: u32,
+        radius: f32,
+        turn: Vec3,
+    ) -> (Vec<[f32; 3]>, Vec<u32>, std::ops::Range<u32>) {
+        let rotate = glam::Quat::from_euler(glam::EulerRot::XYZ, turn.x, turn.y, turn.z);
+        let mut positions = Vec::new();
+        for ring in 0..3 {
+            for i in 0..sides {
+                let a = i as f32 * std::f32::consts::TAU / sides as f32;
+                let p = Vec3::new(a.cos() * radius, ring as f32 * 0.5, a.sin() * radius);
+                positions.push((rotate * p).to_array());
+            }
+        }
+        let mut indices = Vec::new();
+        for ring in 0..2 {
+            for i in 0..sides {
+                let (a, b) = (ring * sides + i, ring * sides + (i + 1) % sides);
+                indices.extend_from_slice(&[a, a + sides, b, b, a + sides, b + sides]);
+            }
+        }
+        for i in 1..sides - 1 {
+            indices.extend_from_slice(&[0, i, i + 1]);
+            indices.extend_from_slice(&[2 * sides, 2 * sides + i + 1, 2 * sides + i]);
+        }
+        (positions, indices, sides..2 * sides)
+    }
+
+    #[test]
+    fn rays_through_a_closed_tube_never_slip_between_triangles() {
+        // From each middle-ring vertex, straight in toward the axis: with an
+        // even side count, the ray meets the far wall exactly on an edge.
+        let mut rng = Rng::new(5);
+        for sides in [6, 8, 12, 16, 24] {
+            for _ in 0..40 {
+                let turn = Vec3::new(
+                    rng.range(-3.0, 3.0),
+                    rng.range(-3.0, 3.0),
+                    rng.range(-3.0, 3.0),
+                );
+                let radius = rng.range(0.001, 2.0);
+                let (positions, indices, middle) = tube(sides, radius, turn);
+                let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
+                let surface = Surface::new(&positions, &normals, &indices).unwrap();
+                let bvh = Bvh::new(&surface);
+                let axis =
+                    (Vec3::from(positions[0]) + Vec3::from(positions[(sides / 2) as usize])) * 0.5;
+                for v in middle {
+                    let p = Vec3::from(positions[v as usize]);
+                    let centre = axis
+                        + (Vec3::from(positions[(2 * sides) as usize]) - Vec3::from(positions[0]))
+                            * 0.5;
+                    let inward = (centre - p).normalize();
+                    let start = p + inward * radius * 1e-3;
+                    assert!(
+                        bvh.ray_hit(start, inward, f32::INFINITY).is_some(),
+                        "{sides} sides, radius {radius}, turn {turn}: ray from vertex {v} escaped"
+                    );
+                }
+            }
         }
     }
 }
