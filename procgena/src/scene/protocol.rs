@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use procgena_clump::ClumpOptions;
+use procgena_mushroom::MushroomOptions;
+use procgena_mushroom_bevy::MushroomBuildError;
 use procgena_plant::prelude::{FieldPreset, PlantField};
 use procgena_stone::{OptionsError as StoneOptionsError, StoneOptions};
 use procgena_tree::{OptionsError, TreeOptions, TreePreset};
@@ -28,6 +30,8 @@ pub struct SceneStart {
     pub stone: Arc<StoneOptions>,
     /// Clump subject and settings, as for [`ViewerCommand::SetClump`].
     pub clump: Arc<ClumpSettings>,
+    /// Mushroom settings, as for [`ViewerCommand::SetMushroom`].
+    pub mushroom: Arc<MushroomOptions>,
     /// Lighting, ground, wind and auto-rotation, as for [`ViewerCommand::SetEnvironment`].
     pub environment: EnvironmentSettings,
     /// The tree detail level to show, as for [`ViewerCommand::SetLod`].
@@ -45,6 +49,7 @@ impl Default for SceneStart {
             field: Arc::default(),
             stone: Arc::default(),
             clump: Arc::default(),
+            mushroom: Arc::default(),
             environment: EnvironmentSettings::default(),
             lod: None,
             plant_lod: None,
@@ -64,6 +69,8 @@ pub enum SceneMode {
     Stone,
     /// A tree or rock with a clump, such as snow or moss, grown on it.
     Clump,
+    /// A single mushroom generated from the current mushroom settings.
+    Mushroom,
 }
 
 /// A change requested by the host application.
@@ -97,6 +104,13 @@ pub enum ViewerCommand {
     /// a [`ViewerEvent::ClumpBuilt`]. In other modes, saves the settings until
     /// clump mode is shown.
     SetClump(Arc<ClumpSettings>),
+    /// Sets the mushroom settings. In mushroom mode, builds a replacement in
+    /// the background and reports the result through
+    /// [`ViewerEvent::MushroomBuilt`]; the previous mushroom stays visible if
+    /// the new settings are rejected. In other modes, saves the settings
+    /// until mushroom mode is shown. The scene uses its own detail levels,
+    /// scaled to the mushroom's size, and ignores `options.detail`.
+    SetMushroom(Arc<MushroomOptions>),
     /// Replaces the lighting, ground, wind and auto-rotation settings.
     SetEnvironment(EnvironmentSettings),
     /// Shows only the tree's detail level `n` (0 is the most detailed; see
@@ -204,6 +218,10 @@ pub enum ViewerEvent {
     /// or its subject could not be built. A rejected clump leaves the
     /// subject shown without one.
     ClumpBuilt(Result<BuildStats, ClumpBuildError>),
+    /// Reports the result of generating a mushroom: mesh sizes per detail
+    /// level and build time on success, or why its settings were rejected.
+    /// A rejected replacement leaves the previous mushroom visible.
+    MushroomBuilt(Result<BuildStats, MushroomBuildError>),
     /// The tree's detail level now on screen changed, because of
     /// [`ViewerCommand::SetLod`] or because the camera moved. Also sent when
     /// tree mode is shown.

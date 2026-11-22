@@ -1,4 +1,4 @@
-//! The subject being shown (a tree, a grass field or a rock), the camera, and command handling.
+//! The subject being shown (a tree, a grass field, a rock or a mushroom), the camera, and command handling.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -12,6 +12,10 @@ use super::protocol::{
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
+use procgena_mushroom::{Mushroom, MushroomOptions};
+use procgena_mushroom_bevy::{
+    MushroomFinished, MushroomGenerating, MushroomMaterial, MushroomParams, MushroomPart,
+};
 use procgena_plant::prelude::{PlantField, PlantGround, PlantSettings};
 use procgena_stone::StoneOptions;
 use procgena_stone_bevy::{
@@ -61,6 +65,10 @@ pub(crate) struct SceneState {
     clump: Arc<ClumpSettings>,
     /// Camera view restored when returning to clump mode.
     clump_view: OrbitCamera,
+    /// Mushroom settings, retained while another mode is shown.
+    mushroom: Arc<MushroomOptions>,
+    /// Camera view restored when returning to mushroom mode.
+    mushroom_view: OrbitCamera,
     /// The tree detail level last reported with [`ViewerEvent::LodShown`].
     lod_reported: Option<usize>,
 }
@@ -82,8 +90,12 @@ impl SceneState {
     }
 }
 
-/// Matches tree or rock entities whose meshes are still being built.
-type Generating = Or<(With<TreeGenerating>, With<StoneGenerating>)>;
+/// Matches tree, rock or mushroom entities whose meshes are still being built.
+type Generating = Or<(
+    With<TreeGenerating>,
+    With<StoneGenerating>,
+    With<MushroomGenerating>,
+)>;
 
 /// The tree detail level to show at every distance, or `None` to switch by
 /// camera distance.
@@ -112,15 +124,29 @@ pub(crate) fn apply_plant_lod(
 #[derive(Component)]
 pub(crate) struct SavedRange(VisibilityRange);
 
-/// Returns the starting camera view for a mode. In stone mode, the focus
-/// and distance follow the size setting in `stone`. Clump mode uses the tree
-/// or stone view for its subject.
-fn default_view(mode: SceneMode, stone: &StoneOptions, clump: &ClumpSettings) -> OrbitCamera {
+/// The settings that decide each mode's starting camera view.
+struct ViewSubjects<'a> {
+    stone: &'a StoneOptions,
+    clump: &'a ClumpSettings,
+    mushroom: &'a MushroomOptions,
+}
+
+/// Returns the starting camera view for a mode. In stone and mushroom mode,
+/// the focus and distance follow the subject's size. Clump mode uses the
+/// tree or stone view for its subject.
+fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
     match mode {
-        SceneMode::Clump => match &clump.subject {
-            ClumpSubject::Tree(_) => default_view(SceneMode::Tree, stone, clump),
-            ClumpSubject::Stone(rock) => default_view(SceneMode::Stone, rock, clump),
+        SceneMode::Clump => match &subjects.clump.subject {
+            ClumpSubject::Tree(_) => default_view(SceneMode::Tree, subjects),
+            ClumpSubject::Stone(rock) => default_view(
+                SceneMode::Stone,
+                &ViewSubjects {
+                    stone: rock,
+                    ..*subjects
+                },
+            ),
         },
+        SceneMode::Mushroom => mushroom_view(subjects.mushroom),
         SceneMode::Tree => OrbitCamera {
             focus: Vec3::new(0.0, 2.5, 0.0),
             yaw: 0.6,
@@ -144,14 +170,38 @@ fn default_view(mode: SceneMode, stone: &StoneOptions, clump: &ClumpSettings) ->
         },
         // Aim above the ground and scale the viewing distance with the rock size.
         SceneMode::Stone => OrbitCamera {
-            focus: Vec3::new(0.0, 0.3 * stone.scale, 0.0),
+            focus: Vec3::new(0.0, 0.3 * subjects.stone.scale, 0.0),
             yaw: 0.6,
             pitch: 0.3,
-            distance: 2.2 * stone.scale,
+            distance: 2.2 * subjects.stone.scale,
             limits: OrbitLimits {
                 distance: (0.1, 150.0),
                 pitch: (-0.05, 1.5),
             },
+        },
+    }
+}
+
+/// The camera's nearest allowed distance in mushroom mode, kept clear of the
+/// camera's 0.1 m near clipping plane.
+const MUSHROOM_NEAREST: f32 = 0.15;
+
+/// Returns the starting view for the mushroom built from `options`: aimed at
+/// half its height and far enough out to show all of it. Settings that can't
+/// be built fall back to a view sized from the cap width alone.
+fn mushroom_view(options: &MushroomOptions) -> OrbitCamera {
+    let height = Mushroom::new(options.clone())
+        .map(|mushroom| mushroom.apex().y)
+        .unwrap_or(2.0 * options.size);
+    let extent = height.max(options.size);
+    OrbitCamera {
+        focus: Vec3::new(0.0, 0.5 * height, 0.0),
+        yaw: 0.6,
+        pitch: 0.2,
+        distance: (2.5 * extent).max(MUSHROOM_NEAREST),
+        limits: OrbitLimits {
+            distance: (MUSHROOM_NEAREST, (60.0 * extent).max(2.0)),
+            pitch: (-0.05, 1.5),
         },
     }
 }
@@ -163,7 +213,12 @@ pub(crate) struct Start(pub SceneStart);
 /// Spawns the camera and the starting subject, and records the starting state.
 pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
     let start = &start.0;
-    let view_for = |mode| default_view(mode, &start.stone, &start.clump);
+    let subjects = ViewSubjects {
+        stone: &start.stone,
+        clump: &start.clump,
+        mushroom: &start.mushroom,
+    };
+    let view_for = |mode| default_view(mode, &subjects);
     let state = SceneState {
         mode: start.mode,
         subject: Entity::PLACEHOLDER,
@@ -175,8 +230,10 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         plants_view: view_for(SceneMode::Plants),
         stone_view: view_for(SceneMode::Stone),
         clump_view: view_for(SceneMode::Clump),
+        mushroom_view: view_for(SceneMode::Mushroom),
         stone: start.stone.clone(),
         clump: start.clump.clone(),
+        mushroom: start.mushroom.clone(),
         lod_reported: None,
     };
 
@@ -194,8 +251,8 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
     commands.remove_resource::<Start>();
 }
 
-/// Adds the tree, plant field or stone for the selected scene mode, or in
-/// clump mode, the clump's subject. Plant fields are square, with each side
+/// Adds the tree, plant field, stone or mushroom for the selected scene mode,
+/// or in clump mode, the clump's subject. Plant fields are square, with each side
 /// `field_size` metres long.
 fn spawn_subject(commands: &mut Commands, state: &SceneState, field_size: f32) -> Entity {
     match state.mode {
@@ -203,6 +260,9 @@ fn spawn_subject(commands: &mut Commands, state: &SceneState, field_size: f32) -
         SceneMode::Plants => commands.spawn(grass_field(state, field_size)).id(),
         SceneMode::Stone => commands
             .spawn(StoneParams::Options(state.stone.clone()))
+            .id(),
+        SceneMode::Mushroom => commands
+            .spawn(MushroomParams::Options(state.mushroom.clone()))
             .id(),
         SceneMode::Clump => match &state.clump.subject {
             ClumpSubject::Tree(options) => commands.spawn(TreeParams::Options(options.clone())),
@@ -282,6 +342,16 @@ pub(crate) fn apply_commands(
                         .insert(StoneParams::Options(options.clone()));
                 }
             }
+            ViewerCommand::SetMushroom(options) => {
+                // Keep the settings in every mode; rebuild only when the mushroom is shown.
+                state.mushroom = options.clone();
+                if state.mode == SceneMode::Mushroom {
+                    let target = replacement(&mut commands, state, &generating);
+                    commands
+                        .entity(target)
+                        .insert(MushroomParams::Options(options.clone()));
+                }
+            }
             ViewerCommand::SetClump(settings) => {
                 let old = std::mem::replace(&mut state.clump, settings.clone());
 
@@ -345,7 +415,12 @@ pub(crate) fn apply_commands(
             }
             ViewerCommand::ResetCamera => {
                 if let Ok(mut orbit) = camera.single_mut() {
-                    *orbit = default_view(state.mode, &state.stone, &state.clump);
+                    let subjects = ViewSubjects {
+                        stone: &state.stone,
+                        clump: &state.clump,
+                        mushroom: &state.mushroom,
+                    };
+                    *orbit = default_view(state.mode, &subjects);
                 }
             }
         }
@@ -374,17 +449,21 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
         SceneMode::Plants => &mut state.plants_view,
         SceneMode::Stone => &mut state.stone_view,
         SceneMode::Clump => &mut state.clump_view,
+        SceneMode::Mushroom => &mut state.mushroom_view,
     }
 }
 
-/// Requests more frames while tree or rock meshes or textures are loading,
-/// so an idle viewport still shows the completed result.
+/// Requests more frames while tree, rock or mushroom meshes or textures are
+/// loading, so an idle viewport still shows the completed result.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_while_loading(
     generating: Query<(), Generating>,
     parts: Query<&MeshMaterial3d<TreeMaterial>, With<TreePart>>,
     materials: Res<Assets<TreeMaterial>>,
     stone_parts: Query<&MeshMaterial3d<StoneMaterial>, With<StonePart>>,
     stone_materials: Res<Assets<StoneMaterial>>,
+    mushroom_parts: Query<&MeshMaterial3d<MushroomMaterial>, With<MushroomPart>>,
+    mushroom_materials: Res<Assets<MushroomMaterial>>,
     server: Res<AssetServer>,
     mut activity: ResMut<ViewportActivity>,
 ) {
@@ -412,7 +491,18 @@ pub(crate) fn render_while_loading(
             let textures = &material.extension;
             loading(&textures.color) || loading(&textures.normal) || loading(&textures.orh)
         });
-    if !generating.is_empty() || textures_loading || stone_textures_loading {
+    let mushroom_textures_loading = mushroom_parts
+        .iter()
+        .filter_map(|part| mushroom_materials.get(&part.0))
+        .any(|material| {
+            let cap = &material.extension;
+            loading(&cap.cap_color) || loading(&cap.cap_normal) || loading(&cap.cap_orh)
+        });
+    if !generating.is_empty()
+        || textures_loading
+        || stone_textures_loading
+        || mushroom_textures_loading
+    {
         activity.request_frames(ViewportActivity::SETTLE_FRAMES);
     }
 }
@@ -635,6 +725,53 @@ pub(crate) fn report_stone(
         ))));
     }
     events.write(ViewerEvent::StoneBuilt(result));
+}
+
+/// Displays a successfully built mushroom in place of the previous one, and
+/// reports its mesh counts per detail level and build time. Reports rejected
+/// settings without replacing the old mushroom.
+pub(crate) fn report_mushroom(
+    event: On<MushroomFinished>,
+    mut commands: Commands,
+    mut state: ResMut<SceneState>,
+    mut events: MessageWriter<ViewerEvent>,
+    children: Query<&Children>,
+    parts: Query<(&MushroomPart, &Mesh3d)>,
+    meshes: Res<Assets<Mesh>>,
+) {
+    // Remove the old mushroom only after its replacement has built successfully.
+    if state.pending == Some(event.entity) {
+        state.pending = None;
+        if event.result.is_ok() {
+            commands.entity(state.subject).despawn();
+            state.subject = event.entity;
+        } else {
+            commands.entity(event.entity).despawn();
+        }
+    } else if event.entity != state.subject {
+        return;
+    }
+
+    // Add up each level's parts: a flat level has a cap and a stem strip.
+    let result = event.result.clone().map(|()| {
+        let mut levels: Vec<MeshSize> = Vec::new();
+        let kids = children.get(event.entity).into_iter().flatten();
+        for (part, mesh) in parts.iter_many(kids).flatten() {
+            let Some(mesh) = meshes.get(&mesh.0) else {
+                continue;
+            };
+            if levels.len() <= part.lod {
+                levels.resize(part.lod + 1, MeshSize::default());
+            }
+            levels[part.lod].vertices += mesh.count_vertices();
+            levels[part.lod].triangles += mesh.indices().map_or(0, |i| i.len() / 3);
+        }
+        BuildStats {
+            levels,
+            build_time: state.requested.elapsed(),
+        }
+    });
+    events.write(ViewerEvent::MushroomBuilt(result));
 }
 
 #[cfg(test)]

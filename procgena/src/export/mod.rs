@@ -4,6 +4,7 @@
 //! does the work in the background and reports the outcome as a toast.
 
 pub mod images;
+pub mod mushroom;
 pub mod stone;
 pub mod stone_panel;
 pub mod tree;
@@ -32,7 +33,11 @@ impl Plugin for FileOpsPlugin {
                 tree: images::ImageStore::new(images::TREE_IMAGES, "tree").map(Arc::new),
                 stone: images::ImageStore::new(images::STONE_IMAGES, "stone").map(Arc::new),
             })
-            .add_plugins((tree_panel::TreeExportPlugin, stone_panel::StoneExportPlugin))
+            .add_plugins((
+                tree_panel::TreeExportPlugin,
+                stone_panel::StoneExportPlugin,
+                mushroom::MushroomExportPlugin,
+            ))
             .add_systems(Update, finish_file_ops);
     }
 }

@@ -170,8 +170,8 @@ cargo test -p procgena_mushroom_bevy --test gpu -- --include-ignored
 
 ## Status
 
-See [plan.md](plan.md) for the design, what is done, and what is left (the studio
-tab and texture sets).
+The procgena studio has a Mushrooms tab for designing mushrooms and exporting
+them. See [plan.md](plan.md) for the design, what is done, and what is left.
 
 ## Credits
 

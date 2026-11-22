@@ -16,16 +16,19 @@ pub enum StudioTab {
     Stones,
     /// A tree or rock with a clump, such as snow or moss, grown on it.
     Clumps,
+    /// A single mushroom.
+    Mushrooms,
 }
 
 impl StudioTab {
     /// Every tab, left to right.
-    pub const ALL: [StudioTab; 5] = [
+    pub const ALL: [StudioTab; 6] = [
         StudioTab::Trees,
         StudioTab::Plant,
         StudioTab::PlantField,
         StudioTab::Stones,
         StudioTab::Clumps,
+        StudioTab::Mushrooms,
     ];
 
     /// The tab's label.
@@ -36,6 +39,7 @@ impl StudioTab {
             Self::PlantField => "Plant Field",
             Self::Stones => "Stones",
             Self::Clumps => "Clumps",
+            Self::Mushrooms => "Mushrooms",
         }
     }
 
@@ -47,6 +51,7 @@ impl StudioTab {
             Self::Plant | Self::PlantField => SceneMode::Plants,
             Self::Stones => SceneMode::Stone,
             Self::Clumps => SceneMode::Clump,
+            Self::Mushrooms => SceneMode::Mushroom,
         }
     }
 

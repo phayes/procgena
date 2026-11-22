@@ -12,8 +12,8 @@ detail, down to a very cheap open "flat" form for mass instancing.
 | 1–7 — Core: options, presets, profiles, Solid/Shell/Flat meshing, ring, warts, colours, object, cluster, scatter | ✅ |
 | 8 — Bevy crate: plugin, material + WESL, ribbon billboard, LOD, cluster/scatter components, viewer | ✅ |
 | 9 — OBJ/glTF export + example | ✅ |
-| 10 — Studio tab | 🟡 mushroom-only files written, not yet compiled; shared wiring waits on the clump-in-studio and texture sessions (see below) |
-| 11 — `textures.yml` + texture sets | ⬜ (UVs and `mushroom_material(.., texture)` are ready; no sets chosen) |
+| 10 — Studio tab | ✅ Mushrooms tab with preset, seed, every setting, cap texture, save/load and GLB/OBJ export (see below) |
+| 11 — `textures.yml` + texture sets | ✅ one cap set, `mushroom_top_001` (done in the texture session) |
 | 12 — Docs polish | ✅ comment rewrite (by Claude; Codex was out of credits) and `mushroom/README.md` |
 | Extra tests | ✅ silhouette overlap per level, cluster cap spacing, GPU shader-pipeline test (`--include-ignored`) |
 
@@ -23,32 +23,28 @@ Deviations from the design below:
 - The billboard code is copied from procgena_tree (open question 1 still stands).
 - Gill lines and patterns are drawn in the fragment shader using a zone id in UV1.
 
-### Studio tab: what's written and what's left
+### Studio tab
 
-Written (new files, not compiled until wired in):
-- `procgena/src/mushrooms/{mod,params,editor}.rs`: preset picker, seed, and a
-  settings panel (Cap, Underside, Stem, Ring, Warts, Colours, Pattern), mirroring
-  the Stones tab. `MushroomEdited`, `load_mushroom`, `MushroomEditorPlugin`.
-- `procgena/src/export/mushroom.rs`: Save/Load JSON and GLB/OBJ export
-  (vertex colours, optional detail levels), `MushroomExportPlugin`, with tests.
+- `procgena/src/mushrooms/`: preset picker, seed, Random Seed, and a settings
+  panel (Cap, Underside, Stem, Ring, Warts, Colours, Pattern, Cap Texture).
+- `procgena/src/export/mushroom.rs`: Save/Load JSON, GLB (optionally every
+  detail level) and OBJ. Exports carry vertex colours, not the cap texture.
+- Scene: `SceneMode::Mushroom`, `ViewerCommand::SetMushroom`,
+  `ViewerEvent::MushroomBuilt`. Textures load from `mushroom/assets/textures`
+  through the `procgena_mushroom://` asset source. The camera view is sized
+  from the mushroom's height. The scene uses `MushroomPlugin`'s default detail
+  levels, so `options.detail` is ignored there too.
+- The tab bar now wraps onto a second row when tabs don't fit the panel.
+- Tests: control checks for every preset, status line, export, a studio test
+  (preset, reframe, seed), and GPU render tests (texture drawn when idle,
+  rejected settings keep the old mushroom).
 
-Left, in shared files other sessions are editing (do in one pass):
-1. `procgena/Cargo.toml`: `procgena_mushroom` (features `export-obj`,
-   `export-gltf`) and `procgena_mushroom_bevy`.
-2. `main.rs`: `mod mushrooms;`. `export/mod.rs`: `pub mod mushroom;`.
-3. `studio/tabs.rs`: `StudioTab::Mushrooms`, label, `SceneMode::Mushroom`.
-4. `studio/editing.rs`: spawn the editor and export panel; add both plugins; an
-   observer sending `ViewerCommand::SetMushroom` on `MushroomEdited`.
-5. `scene/protocol.rs`: `SceneMode::Mushroom`, `ViewerCommand::SetMushroom`,
-   `ViewerEvent::MushroomBuilt`, a `SceneStart` field.
-6. `scene/subject.rs`: spawn `MushroomParams`, default view, apply the command,
-   report on `MushroomFinished`.
-7. `scene/mod.rs` + `scene/assets.rs`: add `MushroomPlugin`, plus the texture
-   root once the texture session's plugin setting lands.
-8. `environment.rs`: which controls the mode shows.
-9. Texture settings in the panel (`material.cap_texture`, `cap_texture_size`)
-   once the texture API settles.
-10. Studio tests in `studio/editing.rs` and the ignored GPU render tests.
+The `mushroom_top_001` files are published in `gs://ze_textures/mushroom/`,
+so the studio downloads them on first use on a machine without a local copy.
+
+Not done: no Detail Level picker for mushrooms (the overlay shows the most
+detailed level only); exports leave out the cap texture; no cluster or
+scatter in the studio.
 
 ## Bottom line
 

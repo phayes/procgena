@@ -49,6 +49,8 @@ pub struct BuildState {
     pub stone: BuildStatus,
     /// The Clumps tab's build status, covering its subject and its clump.
     pub clump: BuildStatus,
+    /// The mushroom's build status.
+    pub mushroom: BuildStatus,
     /// The tree detail level on screen; the overlay shows that level's size.
     pub lod_shown: usize,
     /// What the plant tabs show, as last sent to the scene.
@@ -108,6 +110,9 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
             ViewerEvent::TreeBuilt(result) => state.tree = BuildStatus::from_result(result),
             ViewerEvent::StoneBuilt(result) => state.stone = BuildStatus::from_result(result),
             ViewerEvent::ClumpBuilt(result) => state.clump = BuildStatus::from_result(result),
+            ViewerEvent::MushroomBuilt(result) => {
+                state.mushroom = BuildStatus::from_result(result);
+            }
             ViewerEvent::LodShown(level) => state.lod_shown = *level,
         }
     }
@@ -211,6 +216,7 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
     let (status, noun, level) = match tab {
         StudioTab::Stones => (&state.stone, "rock", None),
         StudioTab::Clumps => (&state.clump, "clump", None),
+        StudioTab::Mushrooms => (&state.mushroom, "mushroom", None),
         StudioTab::Trees | StudioTab::Plant | StudioTab::PlantField => {
             (&state.tree, "tree", Some(state.lod_shown))
         }
@@ -281,6 +287,10 @@ mod tests {
                 levels: vec![size(2000)],
                 build_time: Duration::from_millis(40),
             }),
+            mushroom: BuildStatus::Built(BuildStats {
+                levels: vec![size(3000), size(800)],
+                build_time: Duration::from_millis(5),
+            }),
             lod_shown: 1,
             plants: PlantsShown::default(),
         };
@@ -298,6 +308,11 @@ mod tests {
         assert_eq!(
             status_line(&state, StudioTab::Clumps),
             ("2,000 vertices · 1,000 triangles · 40 ms".into(), false)
+        );
+        // Mushrooms report their most detailed level, whatever the tree shows.
+        assert_eq!(
+            status_line(&state, StudioTab::Mushrooms),
+            ("3,000 vertices · 1,500 triangles · 5 ms".into(), false)
         );
     }
 

@@ -6,6 +6,7 @@ use crate::clump::editor::{ClumpEdited, ClumpEditor, ClumpEditorPlugin, spawn_cl
 use crate::scene::{ClumpSettings, FieldSettings, SceneMode, ViewerCommand};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use procgena_mushroom::MushroomOptions;
 use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams};
 use procgena_stone::StoneOptions;
 use procgena_tree::TreeOptions;
@@ -14,9 +15,13 @@ use super::layout::TabPage;
 use super::status::{BuildState, BuildStatus};
 use super::{ActiveTab, StudioTab};
 use crate::export::FileOpsPlugin;
+use crate::export::mushroom::spawn_mushroom_export;
 use crate::export::stone_panel::spawn_stone_export;
 use crate::export::tree_panel::spawn_tree_export;
 use crate::field::editor::{FieldEdited, FieldEditorPlugin, FieldReader, spawn_field_editor};
+use crate::mushrooms::editor::{
+    MushroomEdited, MushroomEditor, MushroomEditorPlugin, spawn_mushroom_editor,
+};
 use crate::params::ParamPanel;
 use crate::plant::editor::{PlantEdited, PlantEditor, PlantEditorPlugin, spawn_plant_editor};
 use crate::stones::editor::{StoneEdited, StoneEditor, StoneEditorPlugin, spawn_stone_editor};
@@ -33,18 +38,20 @@ impl Plugin for EditingPlugin {
             PlantEditorPlugin,
             FieldEditorPlugin,
             ClumpEditorPlugin,
+            MushroomEditorPlugin,
             FileOpsPlugin,
         ))
         .add_observer(send_tree)
         .add_observer(send_stone)
         .add_observer(send_clump)
+        .add_observer(send_mushroom)
         .add_observer(send_plant)
         .add_observer(send_field);
     }
 }
 
-/// Spawns each tab's editor at the end of its page, followed on the Trees and
-/// Stones tabs by the save, load and export controls.
+/// Spawns each tab's editor at the end of its page, followed on the Trees,
+/// Stones and Mushrooms tabs by the save, load and export controls.
 pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
     for (page, tab) in &pages {
         match tab.0 {
@@ -59,6 +66,10 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
                 spawn_stone_export(&mut commands, page);
             }
             StudioTab::Clumps => spawn_clump_editor(&mut commands, page),
+            StudioTab::Mushrooms => {
+                spawn_mushroom_editor(&mut commands, page);
+                spawn_mushroom_export(&mut commands, page);
+            }
         }
     }
 }
@@ -131,6 +142,30 @@ fn send_stone(
         *sent = panel.value().clone();
         state.stone = BuildStatus::Building;
         viewer.write(ViewerCommand::SetStone(Arc::new(sent.clone())));
+    }
+    if edited.reframe {
+        viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Rebuilds the mushroom when an edit changed it, and fits the camera to it
+/// when asked.
+fn send_mushroom(
+    edited: On<MushroomEdited>,
+    editor: Single<&MushroomEditor>,
+    panels: Query<&ParamPanel<MushroomOptions>>,
+    mut sent: Local<Option<MushroomOptions>>,
+    mut state: ResMut<BuildState>,
+    mut viewer: MessageWriter<ViewerCommand>,
+) {
+    let Ok(panel) = panels.get(editor.panel()) else {
+        return;
+    };
+    let sent = sent.get_or_insert_with(|| crate::mushrooms::START_PRESET.options());
+    if panel.value() != sent {
+        *sent = panel.value().clone();
+        state.mushroom = BuildStatus::Building;
+        viewer.write(ViewerCommand::SetMushroom(Arc::new(sent.clone())));
     }
     if edited.reframe {
         viewer.write(ViewerCommand::ResetCamera);
@@ -325,6 +360,55 @@ mod tests {
         assert!(scrubbed.seed > options.seed);
         assert!(lock(&sent).iter().any(
             |command| matches!(command, ViewerCommand::SetStone(built) if built.seed == scrubbed.seed)
+        ));
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn mushroom_presets_rebuild_the_mushroom_and_refit_the_camera() {
+        use procgena_mushroom::MushroomPreset;
+
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        studio.click("Mushrooms").unwrap();
+        let sent = studio.record::<ViewerCommand>();
+        let texts = studio.texts();
+        assert!(
+            texts.iter().any(|t| t.text.ends_with(" ms")),
+            "no mushroom size shown: {texts:?}"
+        );
+
+        // Turn the camera away, then choose a preset.
+        studio.drag(Vec2::new(300.0, 400.0), Vec2::new(600.0, 300.0));
+        let turned = camera(&mut studio);
+        studio.click("Fly agaric").unwrap();
+        studio.click("Enoki").unwrap();
+        let options: MushroomOptions = panel_value(&mut studio);
+        assert_eq!(options, MushroomPreset::Enoki.options());
+        assert!(lock(&sent).iter().any(
+            |command| matches!(command, ViewerCommand::SetMushroom(built) if **built == options)
+        ));
+
+        // The camera fits the new mushroom, as Reset Camera would.
+        let refit = camera(&mut studio);
+        assert_ne!(refit, turned);
+        studio.click("Reset Camera").unwrap();
+        assert_eq!(camera(&mut studio), refit);
+
+        // Random Seed changes only the seed, and sends it.
+        studio.click("Random Seed").unwrap();
+        let reseeded: MushroomOptions = panel_value(&mut studio);
+        assert_ne!(reseeded.seed, options.seed);
+        assert_eq!(
+            MushroomOptions {
+                seed: options.seed,
+                ..reseeded.clone()
+            },
+            options
+        );
+        assert!(studio.find(&reseeded.seed.to_string()).is_ok());
+        assert!(matches!(
+            lock(&sent).last(),
+            Some(ViewerCommand::SetMushroom(built)) if **built == reseeded
         ));
     }
 

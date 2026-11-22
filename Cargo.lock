@@ -5278,9 +5278,12 @@ name = "procgena"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "blocking",
  "dirs",
  "procgena_clump",
  "procgena_clump_bevy",
+ "procgena_mushroom",
+ "procgena_mushroom_bevy",
  "procgena_plant",
  "procgena_stone",
  "procgena_stone_bevy",

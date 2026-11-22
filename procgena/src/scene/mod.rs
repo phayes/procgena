@@ -1,5 +1,5 @@
 //! The 3D scene: environment, orbit camera, and a tree, a plant field, a rock,
-//! or a tree or rock with a clump grown on it.
+//! a tree or rock with a clump grown on it, or a mushroom.
 //!
 //! Add [`ScenePlugin`] to the app, show the scene in a UI node marked
 //! [`SceneViewport`], and drive it with [`ViewerCommand`] messages. The scene
@@ -20,17 +20,22 @@ mod protocol;
 #[cfg(test)]
 mod render_tests;
 mod subject;
+mod texture_reader;
 mod viewport;
 
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
 use procgena_clump_bevy::ClumpPlugin;
+use procgena_mushroom_bevy::MushroomPlugin;
 use procgena_plant::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
 use procgena_tree::TextureCompression;
 use procgena_tree_bevy::TreePlugin;
 
-pub use assets::{CLUMP_TEXTURE_ROOT, STONE_TEXTURE_ROOT, TREE_TEXTURE_ROOT, add_asset_sources};
+pub use assets::{
+    CLUMP_TEXTURE_ROOT, MUSHROOM_TEXTURE_ROOT, STONE_TEXTURE_ROOT, TREE_TEXTURE_ROOT,
+    add_asset_sources,
+};
 pub use environment::EnvironmentSettings;
 pub use protocol::{
     BuildStats, ClumpSettings, ClumpSubject, FieldSettings, SceneMode, SceneStart, ViewerCommand,
@@ -101,6 +106,10 @@ impl Plugin for ScenePlugin {
                 texture_root: self.clump_textures.then(|| CLUMP_TEXTURE_ROOT.to_owned()),
                 ..default()
             },
+            MushroomPlugin {
+                texture_root: Some(MUSHROOM_TEXTURE_ROOT.to_owned()),
+                ..default()
+            },
             viewport::ViewportPlugin,
         ))
         .insert_resource(self.start.environment)
@@ -140,6 +149,7 @@ impl Plugin for ScenePlugin {
         )
         .add_observer(subject::report_tree)
         .add_observer(subject::report_stone)
+        .add_observer(subject::report_mushroom)
         .add_observer(clump::report_clump);
     }
 }

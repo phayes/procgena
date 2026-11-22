@@ -37,7 +37,7 @@ pub struct EnvironmentSettings {
     /// Whether trees and plants move in the wind.
     pub wind: bool,
     /// Side length of the square plant field, in metres, for
-    /// [`SceneMode::Plants`](super::SceneMode::Plants). For example, 40 makes a
+    /// [`SceneMode::Plants`]. For example, 40 makes a
     /// 40-by-40-metre field. Must be greater than zero.
     pub field_size: f32,
 }

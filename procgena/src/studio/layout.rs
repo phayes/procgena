@@ -76,7 +76,8 @@ pub fn spawn_layout(mut commands: Commands) {
                 Node { padding: px(8), flex_shrink: 0.0 }
                 Children [
                     @tab_bar(&labels, 0)
-                    Node { flex_grow: 1.0 }
+                    // Narrow to the panel, so tabs that don't fit wrap.
+                    Node { flex_grow: 1.0, flex_shrink: 1.0 }
                     on(|picked: On<TabSelected>, mut tab: ResMut<ActiveTab>| {
                         if let Some(picked) = StudioTab::at(picked.index) {
                             tab.0 = picked;
@@ -115,6 +116,8 @@ pub fn spawn_layout(mut commands: Commands) {
                         @page(StudioTab::Stones)
                         --
                         @page(StudioTab::Clumps)
+                        --
+                        @page(StudioTab::Mushrooms)
                         --
                         @shared_settings()
                     ]

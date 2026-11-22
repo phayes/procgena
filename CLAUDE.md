@@ -47,9 +47,11 @@ cargo test -p <package> --doc
 | `tree/`  | `procgena_tree`      | Features `export-obj`, `export-gltf`. One file per area in `tests/`.     |
 | `tree/`  | `procgena_tree_bevy` | Feature `gltf`                                                            |
 | `clump/` | `procgena_clump`     |                                                                           |
+| `mushroom/` | `procgena_mushroom` | Features `export-obj`, `export-gltf`. One file per area in `tests/`.   |
+| `mushroom/` | `procgena_mushroom_bevy` | Headless spawn tests in `src/spawn.rs`. `--example viewer -- --screenshot <png>` checks the shaders. |
 | `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing it. |
 | `plant/` | `procgena_plant_web` | Wasm demo                                                                 |
-| `procgena/` | `procgena`        | Desktop studio app (binary). Its 27 GPU tests are `#[ignore]`d: run with `-- --include-ignored`, after `uv run --project tools textures download tree` and `... stone`. Use `cargo clippy -p procgena --all-targets --no-deps`. |
+| `procgena/` | `procgena`        | Desktop studio app (binary). Its GPU tests are `#[ignore]`d: run with `-- --include-ignored`. Textures missing from `<project>/assets/textures/` are downloaded into the user's cache folder on first use, so the first run needs the network; `missing_textures_are_downloaded_and_drawn` always does. Use `cargo clippy -p procgena --all-targets --no-deps`. |
 
 ### The comment-rewrite step
 

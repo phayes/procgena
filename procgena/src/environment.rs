@@ -11,12 +11,13 @@ const FIELD_SIZE: &str = "fieldSize";
 const WIND: &str = "wind";
 
 /// Lists shared environment controls that do not apply to the selected tab.
-/// Field Size is hidden on Trees, Stones and Clumps because it affects only
-/// plant previews. Wind is hidden on Clumps, which always shows still air.
+/// Field Size is hidden on Trees, Stones, Clumps and Mushrooms because it
+/// affects only plant previews. Wind is hidden on Clumps, which always shows
+/// still air.
 pub fn hidden_keys(mode: SceneMode) -> &'static [&'static str] {
     match mode {
         SceneMode::Plants => &[],
-        SceneMode::Tree | SceneMode::Stone => &[FIELD_SIZE],
+        SceneMode::Tree | SceneMode::Stone | SceneMode::Mushroom => &[FIELD_SIZE],
         // The clump would not sway with its tree, so clump mode has no wind.
         SceneMode::Clump => &[FIELD_SIZE, WIND],
     }
@@ -74,6 +75,7 @@ mod tests {
             SceneMode::Plants,
             SceneMode::Stone,
             SceneMode::Clump,
+            SceneMode::Mushroom,
         ];
         for mode in modes {
             for hidden in hidden_keys(mode) {

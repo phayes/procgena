@@ -6,11 +6,9 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::path::PathBuf;
 
-use sha2::{Digest, Sha256};
+use crate::download::{FetchFn, cached_or_fetch, http_fetch, write_atomically};
 
 /// Base URL for tree bark and leaf textures and their published image list.
 pub const TREE_IMAGES: &str = "https://storage.googleapis.com/ze_textures/tree/images/";
@@ -18,15 +16,6 @@ pub const TREE_IMAGES: &str = "https://storage.googleapis.com/ze_textures/tree/i
 pub const STONE_IMAGES: &str = "https://storage.googleapis.com/ze_textures/stone/images/";
 /// The file list containing image paths and checksums, used to verify downloads.
 const MANIFEST: &str = "images_manifest.json";
-/// The browser identification header included in download requests.
-const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36";
-/// The maximum download size for a single file, in bytes.
-const MAX_BYTES: u64 = 64 * 1024 * 1024;
-/// The time limit for each download request.
-const TIMEOUT: Duration = Duration::from_secs(60);
-
-/// Fetches file contents using a path relative to the texture download location.
-type FetchFn = dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync;
 
 /// Available texture images and explanations for any that could not be loaded.
 #[derive(Debug, Default)]
@@ -55,25 +44,7 @@ impl ImageStore {
             .join("procgena")
             .join("export_images")
             .join(cache_name);
-        let agent = ureq::Agent::config_builder()
-            .user_agent(USER_AGENT)
-            .timeout_global(Some(TIMEOUT))
-            .build()
-            .new_agent();
-        let fetch = move |path: &str| -> Result<Vec<u8>, String> {
-            agent
-                .get(format!("{base_url}{path}"))
-                .call()
-                .and_then(|mut response| {
-                    response
-                        .body_mut()
-                        .with_config()
-                        .limit(MAX_BYTES)
-                        .read_to_vec()
-                })
-                .map_err(|error| error.to_string())
-        };
-        Some(Self::with_fetch(cache, fetch))
+        Some(Self::with_fetch(cache, http_fetch(base_url)))
     }
 
     /// Creates a store with a chosen cache location and file-fetching function.
@@ -140,20 +111,7 @@ impl ImageStore {
     /// Reuses a cached image if its checksum matches the published version.
     /// Otherwise downloads and verifies a replacement before trying to cache it.
     fn image(&self, path: &str, sha256: &str) -> Result<Vec<u8>, String> {
-        let cached = self.cache.join(path);
-        if let Ok(bytes) = fs::read(&cached)
-            && hex_sha256(&bytes) == sha256
-        {
-            return Ok(bytes);
-        }
-
-        let bytes = (self.fetch)(path)?;
-        if hex_sha256(&bytes) != sha256 {
-            return Err("the download was damaged (its checksum does not match)".to_owned());
-        }
-        // The downloaded image remains usable even if saving a local copy fails.
-        let _ = write_atomically(&cached, &bytes);
-        Ok(bytes)
+        cached_or_fetch(Some(&self.cache.join(path)), path, sha256, &*self.fetch)
     }
 }
 
@@ -205,35 +163,13 @@ fn parse_manifest(bytes: &[u8]) -> Result<HashMap<String, String>, String> {
     Ok(listed)
 }
 
-/// Computes a SHA-256 checksum in the lowercase hexadecimal format used by the list.
-fn hex_sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-/// Writes to a temporary file before renaming it to the destination, so readers
-/// do not see a file while it is still being written. Each write uses its own
-/// temporary file, so exports running at the same time do not interfere.
-fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    static WRITES: AtomicU64 = AtomicU64::new(0);
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let write = WRITES.fetch_add(1, Ordering::Relaxed);
-    let mut partial = path.as_os_str().to_owned();
-    partial.push(format!(".{}-{write}.part", std::process::id()));
-    fs::write(&partial, bytes)?;
-    fs::rename(&partial, path)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::download::hex_sha256;
 
     /// Provides an empty temporary cache folder for this test.
     fn cache_dir(name: &str) -> PathBuf {
@@ -368,13 +304,5 @@ mod tests {
             .store(cache_dir("unlisted"))
             .images(&["bark/b-1k-color.jpg".to_owned()]);
         assert!(images.problems[0].contains("not a published texture"));
-    }
-
-    #[test]
-    fn checksums_are_lowercase_hex_sha256() {
-        assert_eq!(
-            hex_sha256(b"abc"),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
     }
 }

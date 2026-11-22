@@ -1,10 +1,37 @@
 //! Mushroom controls and allowed input ranges for the Mushrooms tab.
 
 use procgena_mushroom::{
-    CapFamily, MAX_GILL_LINES, MAX_LOBES, MAX_WARTS, MushroomOptions, Pattern,
+    CAP_TEXTURE_SETS, CapFamily, MAX_GILL_LINES, MAX_LOBES, MAX_WARTS, MushroomOptions, Pattern,
 };
 
 use crate::params::{Group, Param, Section, choice, count, number, toggle};
+
+/// The Cap Texture choices: "None", then each of [`CAP_TEXTURE_SETS`] in
+/// order.
+const CAP_TEXTURE_CHOICES: [&str; 1 + CAP_TEXTURE_SETS.len()] = ["None", "mushroom_top_001"];
+
+/// The Cap Texture control: no texture, or one of [`CAP_TEXTURE_SETS`].
+/// A set name the list doesn't know shows as "None".
+fn cap_texture() -> Param<MushroomOptions> {
+    Param::choice(
+        "material.cap_texture",
+        "Texture",
+        &CAP_TEXTURE_CHOICES,
+        |o: &MushroomOptions| {
+            o.material
+                .cap_texture
+                .as_deref()
+                .and_then(|set| CAP_TEXTURE_SETS.iter().position(|s| *s == set))
+                .map_or(0, |i| i + 1)
+        },
+        |o: &mut MushroomOptions, index| {
+            o.material.cap_texture = index
+                .checked_sub(1)
+                .and_then(|i| CAP_TEXTURE_SETS.get(i))
+                .map(|set| (*set).to_owned());
+        },
+    )
+}
 
 /// A colour picker for a `"#rrggbb"` text field of [`MushroomOptions`].
 macro_rules! hex_colour {
@@ -353,6 +380,23 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
                 .shown_if(|o: &MushroomOptions| o.material.pattern != Pattern::None),
             ],
         },
+        Section {
+            title: "Cap Texture",
+            groups: vec![
+                Group::plain(vec![cap_texture()]),
+                Group::plain(vec![
+                    number!(
+                        MushroomOptions,
+                        "material.cap_texture_size",
+                        "Repeat Width (m)",
+                        (0.01, 1.0, 0.005),
+                        |o| o.material.cap_texture_size
+                    )
+                    .exponential(),
+                ])
+                .shown_if(|o: &MushroomOptions| o.material.cap_texture.is_some()),
+            ],
+        },
     ]
 }
 
@@ -365,4 +409,67 @@ fn hex_to_picker(text: &str) -> u32 {
 /// Writes the colour picker's `0xRRGGBB` as `"#rrggbb"`.
 fn picker_to_hex(value: u32) -> String {
     format!("#{:06x}", value & 0x00ff_ffff)
+}
+
+#[cfg(test)]
+mod tests {
+    use procgena_mushroom::MushroomPreset;
+
+    use super::*;
+    use crate::params::checks;
+
+    #[test]
+    fn the_texture_choices_follow_the_texture_sets() {
+        assert_eq!(CAP_TEXTURE_CHOICES[1..], CAP_TEXTURE_SETS);
+    }
+
+    #[test]
+    fn colours_survive_the_picker() {
+        for text in ["#000000", "#c8102e", "#ffffff"] {
+            assert_eq!(picker_to_hex(hex_to_picker(text)), text);
+        }
+        assert_eq!(hex_to_picker("#C8102E"), 0xc8102e);
+    }
+
+    fn all_params() -> Vec<Param<MushroomOptions>> {
+        sections()
+            .into_iter()
+            .flat_map(|section| section.groups)
+            .flat_map(|group| group.params)
+            .collect()
+    }
+
+    /// Every preset, named for failure messages.
+    fn presets() -> Vec<(String, MushroomOptions)> {
+        MushroomPreset::ALL
+            .iter()
+            .map(|preset| (preset.name().to_owned(), preset.options()))
+            .collect()
+    }
+
+    /// Whether the mushroom generator accepts `options`.
+    fn accepted(options: MushroomOptions) -> Result<(), String> {
+        options.validate().map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn keys_are_unique() {
+        checks::keys_are_unique(&all_params());
+    }
+
+    #[test]
+    fn every_preset_fits_the_controls() {
+        checks::cases_fit_the_controls(&all_params(), &presets());
+    }
+
+    #[test]
+    fn every_control_value_is_accepted() {
+        checks::range_ends_are_valid(&all_params(), &presets(), accepted);
+    }
+
+    #[test]
+    fn controls_show_and_hide_sensibly() {
+        checks::settings_follow_what_shows_them(&all_params(), &presets());
+        checks::no_setting_hides_itself(&all_params(), &presets());
+    }
 }

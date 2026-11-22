@@ -353,6 +353,167 @@ fn rejected_stone_options_keep_the_shown_rock() {
     );
 }
 
+/// The share of the view that is strongly red, like a fly agaric's cap.
+fn red_share(frame: &Frame) -> f32 {
+    fraction(frame, 0..frame.height, |r, g, b| r > g + 70 && r > b + 70)
+}
+
+/// Waits for a mushroom build result, ignoring other viewer events.
+fn mushroom_event(scene: &mut HeadlessScene) -> ViewerEvent {
+    scene.next_event(|event| matches!(event, ViewerEvent::MushroomBuilt(_)))
+}
+
+/// What a scene in mushroom mode showing `preset`, with wind off, starts with.
+fn mushroom_start(preset: procgena_mushroom::MushroomPreset) -> SceneStart {
+    SceneStart {
+        mode: SceneMode::Mushroom,
+        mushroom: Arc::new(preset.options()),
+        environment: EnvironmentSettings {
+            wind: false,
+            ..default()
+        },
+        ..default()
+    }
+}
+
+/// Starts mushroom mode showing `preset`, with wind off.
+fn start_mushroom(preset: procgena_mushroom::MushroomPreset) -> HeadlessScene {
+    HeadlessScene::new(mushroom_start(preset), SIZE)
+}
+
+/// Checks that a textured mushroom is drawn, texture included, once the
+/// scene goes idle, with every detail level built.
+#[test]
+#[ignore = "needs a GPU"]
+fn idle_mushroom_mode_draws_the_textured_mushroom() {
+    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::FlyAgaric);
+    assert_fly_agaric_is_textured(&mut scene);
+}
+
+/// Checks that with no textures on disk, the scene downloads the rock's
+/// textures into its cache and draws the rock looking as it does with the
+/// workspace's copies.
+#[test]
+#[ignore = "needs a GPU and the network"]
+fn missing_textures_are_downloaded_and_drawn() {
+    let root = std::env::temp_dir()
+        .join("procgena-tests")
+        .join(format!("texture-download-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (assets, cache) = (root.join("assets"), root.join("cache"));
+
+    // The rock as drawn from the workspace's textures.
+    let mut local = start(SceneMode::Stone);
+    assert!(matches!(
+        stone_event(&mut local),
+        ViewerEvent::StoneBuilt(Ok(_))
+    ));
+    let expected = local.settled_frame();
+
+    // The same rock, starting with no textures at all.
+    let empty = SceneStart {
+        mode: SceneMode::Stone,
+        environment: EnvironmentSettings {
+            wind: false,
+            ..default()
+        },
+        ..default()
+    };
+    let mut downloaded = HeadlessScene::with_sources(empty, SIZE, |app| {
+        super::assets::add_asset_sources_in(app, &assets, &cache);
+    });
+    assert!(matches!(
+        stone_event(&mut downloaded),
+        ViewerEvent::StoneBuilt(Ok(_))
+    ));
+    let frame = downloaded.settled_frame();
+    let differing = expected
+        .bgra
+        .chunks(4)
+        .zip(frame.bgra.chunks(4))
+        .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 8))
+        .count();
+    assert!(
+        differing < (SIZE.x * SIZE.y / 200) as usize,
+        "{differing} pixels differ from the rock drawn with local textures"
+    );
+    let saved = std::fs::read_dir(cache.join("stone/rock")).map_or(0, Iterator::count);
+    assert!(saved > 0, "no rock textures were saved to the cache");
+}
+
+/// Checks that `scene`, started showing the fly agaric, builds every detail
+/// level and draws its cap texture, then shows it without the texture.
+fn assert_fly_agaric_is_textured(scene: &mut HeadlessScene) {
+    use procgena_mushroom::{MushroomLod, MushroomPreset};
+
+    let ViewerEvent::MushroomBuilt(Ok(stats)) = mushroom_event(scene) else {
+        panic!("the fly agaric was rejected");
+    };
+    assert_eq!(stats.levels.len(), MushroomLod::default().levels.len());
+    assert!(
+        stats.levels.iter().all(|level| level.triangles > 0),
+        "{stats:?}"
+    );
+    let textured = scene.settled_frame();
+    let red = red_share(&textured);
+    assert!(
+        red > 0.01,
+        "only {:.1}% of the view is red cap",
+        red * 100.0
+    );
+
+    // The same mushroom without its texture looks different on the cap.
+    let mut plain = MushroomPreset::FlyAgaric.options();
+    plain.material.cap_texture = None;
+    scene.send(ViewerCommand::SetMushroom(Arc::new(plain)));
+    assert!(matches!(
+        mushroom_event(scene),
+        ViewerEvent::MushroomBuilt(Ok(_))
+    ));
+    let untextured = scene.settled_frame();
+    let changed = textured
+        .bgra
+        .chunks(4)
+        .zip(untextured.bgra.chunks(4))
+        .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 30))
+        .count();
+    let changed = changed as f32 / (SIZE.x * SIZE.y) as f32;
+    assert!(
+        changed > 0.002,
+        "the texture changed only {:.2}% of the view",
+        changed * 100.0
+    );
+}
+
+/// Checks that invalid replacement settings report an error and leave the
+/// mushroom visible.
+#[test]
+#[ignore = "needs a GPU"]
+fn rejected_mushroom_options_keep_the_shown_mushroom() {
+    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::FlyAgaric);
+    assert!(matches!(
+        mushroom_event(&mut scene),
+        ViewerEvent::MushroomBuilt(Ok(_))
+    ));
+    let before = red_share(&scene.settled_frame());
+
+    let options = procgena_mushroom::MushroomOptions {
+        size: -1.0,
+        ..procgena_mushroom::MushroomPreset::FlyAgaric.options()
+    };
+    scene.send(ViewerCommand::SetMushroom(Arc::new(options)));
+    let built = mushroom_event(&mut scene);
+    assert!(
+        matches!(built, ViewerEvent::MushroomBuilt(Err(_))),
+        "{built:?}"
+    );
+    let after = red_share(&scene.settled_frame());
+    assert!(
+        after > before * 0.9,
+        "the mushroom vanished: {before} then {after}"
+    );
+}
+
 /// The share of the view that is bright, nearly grey pixels, such as snow.
 fn snow_share(frame: &Frame) -> f32 {
     fraction(frame, 0..frame.height, |r, g, b| {

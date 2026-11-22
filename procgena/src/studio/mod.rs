@@ -6,6 +6,7 @@ mod layout;
 mod quit;
 mod status;
 mod tabs;
+mod textures;
 
 use std::sync::Arc;
 
@@ -69,6 +70,7 @@ impl Plugin for StudioPlugin {
                 )
                     .chain(),
             )
+            .add_systems(Update, textures::report_texture_failures)
             .add_observer(layout::scroll_settings);
     }
 }
@@ -85,6 +87,7 @@ pub fn scene_start() -> SceneStart {
         field: Arc::new(FieldSettings { field }),
         stone: Arc::new(crate::stones::START_PRESET.options()),
         clump: Arc::new(crate::clump::start_settings()),
+        mushroom: Arc::new(crate::mushrooms::START_PRESET.options()),
         environment: EnvironmentSettings::default(),
         lod: None,
         plant_lod: None,
@@ -129,6 +132,7 @@ fn apply_tab(
         state.tree = BuildStatus::Building;
         state.stone = BuildStatus::Building;
         state.clump = BuildStatus::Building;
+        state.mushroom = BuildStatus::Building;
     }
     *shown_mode = Some(mode);
 
@@ -157,6 +161,7 @@ mod tests {
         assert_eq!(*start.tree, crate::tree::START_PRESET.options());
         assert_eq!(*start.stone, crate::stones::START_PRESET.options());
         assert_eq!(*start.clump, crate::clump::start_settings());
+        assert_eq!(*start.mushroom, crate::mushrooms::START_PRESET.options());
         assert!(FieldPreset::named(crate::field::START_PRESET).is_some());
     }
 }

@@ -76,6 +76,12 @@ impl HeadlessScene {
     ///
     /// Panics if Bevy cannot start its renderer, for example without a GPU.
     pub fn new(start: SceneStart, size: UVec2) -> Self {
+        Self::with_sources(start, size, super::add_asset_sources)
+    }
+
+    /// Like [`new`](Self::new), but registers the asset sources with
+    /// `sources` instead of [`add_asset_sources`](super::add_asset_sources).
+    pub fn with_sources(start: SceneStart, size: UVec2, sources: impl FnOnce(&mut App)) -> Self {
         let size = size.max(UVec2::ONE);
         let frames = Arc::new(Mutex::new(FrameLog::default()));
         let events = EventSink::default();
@@ -84,7 +90,7 @@ impl HeadlessScene {
         // asynchronously. Clumps are drawn in flat colours, which tests
         // recognise more reliably than textures.
         let mut app = App::new();
-        super::add_asset_sources(&mut app);
+        sources(&mut app);
         let scene = ScenePlugin::new(start).without_clump_textures();
         app.add_plugins((headless_plugins(), scene))
             .insert_resource(FrameSink {

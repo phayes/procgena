@@ -38,6 +38,9 @@ impl Plugin for TabsPlugin {
 
 /// A tab bar with one button per label, with tab `selected` picked.
 /// Observe [`TabSelected`] on it to learn when the user picks another tab.
+///
+/// Tabs that don't fit the bar's width wrap onto further rows, and each
+/// row's tabs stretch to fill it.
 pub fn tab_bar(labels: &[&'static str], selected: usize) -> impl Scene {
     let last = labels.len().saturating_sub(1);
     let buttons: Vec<Box<dyn Scene>> = labels
@@ -67,8 +70,10 @@ pub fn tab_bar(labels: &[&'static str], selected: usize) -> impl Scene {
         Node {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::Wrap,
             flex_shrink: 0.0,
             column_gap: px(1),
+            row_gap: px(1),
         }
         TabBar { selected: {selected} }
         Children [ {buttons} ]
