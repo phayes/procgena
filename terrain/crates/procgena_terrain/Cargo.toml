@@ -1,0 +1,19 @@
+[package]
+name = "procgena_terrain"
+version = "0.1.0"
+description = "Labelled procedural terrain regions that join seamlessly and build in chunks"
+edition.workspace = true
+
+[features]
+default = ["rayon"]
+# Sample tiles across multiple CPU threads. The results are the same without it.
+rayon = ["dep:rayon"]
+
+[dependencies]
+glam = { workspace = true }
+rayon = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
