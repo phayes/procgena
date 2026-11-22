@@ -6,7 +6,8 @@
 //! below the surface, so no seam shows where the two meet.
 //!
 //! ```
-//! use procgena_clump::{Clump, ClumpOptions, SurfaceMesh};
+//! use procgena_clump::{Clump, ClumpOptions};
+//! use procgena_mesh::SurfaceMesh;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let ground = SurfaceMesh::ground(2.0, 8);
@@ -22,23 +23,27 @@ mod blob;
 mod bvh;
 mod field;
 mod hash;
+mod material;
 mod mesh;
 mod options;
 mod patch;
 mod presets;
 mod shell;
-mod surface;
 
+pub use material::{
+    MaterialOptions, TEXTURE_SETS, TextureCompression, TextureMap, TextureSet, TextureSize,
+    texture_set,
+};
 pub use mesh::{BuildStats, ClumpMesh};
 pub use options::{
     ClumpError, ClumpOptions, Direction, MAX_DIRECTIONS, MAX_NECK, MaskOptions, MeshOptions,
     OptionsError, Placement, PlacementOptions, ShapeOptions,
 };
 pub use presets::ClumpPreset;
-pub use surface::{Surface, SurfaceError, SurfaceMesh};
 
 use field::ClumpField;
 use patch::Patch;
+use procgena_mesh::{Object, Part, Surface, SurfaceMesh};
 
 /// A generated clump: its settings, mesh and build measurements.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,10 +87,54 @@ impl Clump {
         })
     }
 
+    /// Generates a clump on the parts of `object`'s most detailed level that
+    /// [`ClumpOptions::grows_on`] picks, joined into one surface.
+    ///
+    /// Returns an error if `object` is malformed (see
+    /// [`Object::validate`]) or a setting is out of range. If no part
+    /// matches, or nothing on them passes the mask, the clump mesh is empty.
+    pub fn on(object: &Object, options: &ClumpOptions) -> Result<Self, ClumpError> {
+        options.validate()?;
+        object.validate()?;
+        match object.merged(0, &options.grows_on) {
+            Some(part) => Self::new(part.surface()?, options),
+            None => Ok(Self {
+                options: options.clone(),
+                mesh: ClumpMesh::default(),
+                stats: BuildStats::default(),
+            }),
+        }
+    }
+
     /// Generates a clump on `surface` with a preset's settings.
     pub fn from_preset(surface: Surface, preset: ClumpPreset) -> Self {
         // Presets are checked by this crate's tests.
         Self::new(surface, &preset.options()).expect("presets have valid settings")
+    }
+
+    /// Returns the clump as a tagged [`Object`], so other clumps can grow on
+    /// it, such as snow on moss.
+    ///
+    /// The object has one level. It holds one part with
+    /// [`ClumpOptions::tags`], or no parts if the clump mesh is empty. The
+    /// part is marked closed when [`MeshOptions::closed`] is on; its shells
+    /// are left unknown.
+    pub fn object(&self) -> Object {
+        let parts = (!self.mesh.is_empty())
+            .then(|| {
+                let mesh = SurfaceMesh {
+                    positions: self.mesh.positions.clone(),
+                    normals: self.mesh.normals.clone(),
+                    indices: self.mesh.indices.clone(),
+                };
+                Part {
+                    closed: self.options.mesh.closed,
+                    ..Part::new(self.options.tags.clone(), mesh)
+                }
+            })
+            .into_iter()
+            .collect();
+        Object::single(parts)
     }
 
     /// Returns the settings the clump was built with.
@@ -111,8 +160,9 @@ impl Clump {
 pub mod diagnostics {
     use glam::Vec3;
 
+    use procgena_mesh::Surface;
+
     use crate::bvh::Bvh;
-    use crate::surface::Surface;
 
     /// Returns the signed distance from each point to `surface`: positive on
     /// the side its normals face, negative behind it.
@@ -191,7 +241,67 @@ pub mod diagnostics {
 
 #[cfg(test)]
 mod tests {
+    use procgena_mesh::{ObjectError, tags};
+
     use super::*;
+
+    /// A small flat card hovering 30 cm over the ground, tagged as a leaf.
+    fn leaf_card() -> Part {
+        let mut card = SurfaceMesh::ground(0.3, 1);
+        for p in &mut card.positions {
+            p[1] = 0.3;
+        }
+        Part::new([tags::LEAF, tags::CARD], card)
+    }
+
+    #[test]
+    fn clumps_grow_only_on_the_parts_they_pick() {
+        let ground = SurfaceMesh::ground(1.0, 4);
+        let object = Object::single(vec![Part::new([tags::GROUND], ground.clone()), leaf_card()]);
+
+        // Snow skips the leaf card, so it is the same as snow on the ground alone.
+        let snow = Clump::on(&object, &ClumpOptions::default()).unwrap();
+        let bare = Clump::new(ground.surface().unwrap(), &ClumpOptions::default()).unwrap();
+        assert!(!snow.mesh().is_empty());
+        assert_eq!(snow.mesh(), bare.mesh());
+
+        // A clump that grows only on bark finds nothing here.
+        let burl = Clump::on(&object, &ClumpPreset::Burl.options()).unwrap();
+        assert!(burl.mesh().is_empty());
+        assert!(burl.object().levels[0].parts.is_empty());
+    }
+
+    #[test]
+    fn malformed_objects_are_rejected() {
+        let mut object = Object::single(vec![leaf_card()]);
+        // The card has two triangles, so a shell list must cover 0..2.
+        object.levels[0].parts[0].shells = vec![0..1, 2..3];
+        assert!(matches!(
+            Clump::on(&object, &ClumpOptions::default()),
+            Err(ClumpError::Object(ObjectError::Shells {
+                level: 0,
+                part: 0
+            }))
+        ));
+    }
+
+    #[test]
+    fn a_clump_is_an_object_other_clumps_grow_on() {
+        let ground = Object::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(1.0, 4))]);
+        let moss = Clump::on(&ground, &ClumpPreset::MossPatches.options()).unwrap();
+        let object = moss.object();
+        object.validate().unwrap();
+        let [part] = &object.levels[0].parts[..] else {
+            panic!("expected one part");
+        };
+        assert_eq!(part.tags, [tags::CLUMP, tags::MOSS].into());
+        assert!(part.closed);
+        assert_eq!(part.mesh.indices, moss.mesh().indices);
+
+        // Snow grows on moss.
+        let snow = Clump::on(&object, &ClumpOptions::default()).unwrap();
+        assert!(!snow.mesh().is_empty());
+    }
 
     #[test]
     fn same_settings_give_the_same_clump() {

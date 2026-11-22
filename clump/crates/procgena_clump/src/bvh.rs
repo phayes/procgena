@@ -3,7 +3,7 @@
 
 use glam::Vec3;
 
-use crate::surface::Surface;
+use procgena_mesh::Surface;
 
 /// Most triangles stored in one leaf before it is split.
 const LEAF_SIZE: usize = 4;
@@ -535,7 +535,7 @@ mod tests {
         assert!(!triangles_cross(flat, sharing_edge));
     }
     use crate::hash::Rng;
-    use crate::surface::SurfaceMesh;
+    use procgena_mesh::SurfaceMesh;
 
     /// A bumpy ground patch, so triangles are not all coplanar.
     fn bumpy() -> SurfaceMesh {

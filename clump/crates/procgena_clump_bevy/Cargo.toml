@@ -1,0 +1,31 @@
+[package]
+name = "procgena_clump_bevy"
+version = "0.1.0"
+description = "Bevy plugin for procgena_clump: snow, moss and other clumps grown on generated rocks, trees and your own meshes"
+edition.workspace = true
+
+[dependencies]
+procgena_clump = { path = "../procgena_clump" }
+procgena_mesh = { path = "../../../mesh/crates/procgena_mesh", features = ["bevy"] }
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_pbr",
+    "ktx2",
+    "zstd_rust",
+] }
+
+[dev-dependencies]
+bevy = { version = "0.20.1", features = ["free_camera"] }
+# Rocks and trees to grow clumps on in the viewer example and tests.
+procgena_stone = { path = "../../../stone/crates/procgena_stone" }
+procgena_stone_bevy = { path = "../../../stone/crates/procgena_stone_bevy" }
+procgena_tree = { path = "../../../tree/crates/procgena_tree" }
+procgena_tree_bevy = { path = "../../../tree/crates/procgena_tree_bevy" }
+# PNG support for saving viewer screenshots.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[package.metadata.docs.rs]
+all-features = true

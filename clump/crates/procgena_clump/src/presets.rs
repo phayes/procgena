@@ -1,5 +1,8 @@
 //! Ready-made clump settings.
 
+use procgena_mesh::{TagFilter, tags};
+
+use crate::material::MaterialOptions;
 use crate::options::{
     ClumpOptions, Direction, MaskOptions, MeshOptions, Placement, PlacementOptions, ShapeOptions,
 };
@@ -80,6 +83,15 @@ impl ClumpPreset {
                     closed: true,
                     strict: false,
                 },
+                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND, tags::MOSS])
+                    .excluding([tags::CARD]),
+                tags: [tags::CLUMP, tags::SNOW].into(),
+                material: MaterialOptions {
+                    texture: Some("snow_02".to_owned()),
+                    color: [1.0; 3],
+                    roughness: 1.0,
+                    texture_size: 1.0,
+                },
             },
             Self::MossPatches => ClumpOptions {
                 seed: 3,
@@ -106,6 +118,15 @@ impl ClumpPreset {
                     edge_length: 0.02,
                     closed: true,
                     strict: false,
+                },
+                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND])
+                    .excluding([tags::CARD]),
+                tags: [tags::CLUMP, tags::MOSS].into(),
+                material: MaterialOptions {
+                    texture: Some("moss_002".to_owned()),
+                    color: [1.0; 3],
+                    roughness: 1.0,
+                    texture_size: 0.5,
                 },
             },
             Self::MossCushions => ClumpOptions {
@@ -140,6 +161,15 @@ impl ClumpPreset {
                     closed: true,
                     strict: false,
                 },
+                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND])
+                    .excluding([tags::CARD]),
+                tags: [tags::CLUMP, tags::MOSS].into(),
+                material: MaterialOptions {
+                    texture: Some("moss_004".to_owned()),
+                    color: [1.0; 3],
+                    roughness: 1.0,
+                    texture_size: 0.5,
+                },
             },
             Self::Burl => ClumpOptions {
                 seed: 1,
@@ -172,6 +202,15 @@ impl ClumpPreset {
                     edge_length: 0.03,
                     closed: true,
                     strict: false,
+                },
+                // A burl swells out of wood or stone thick enough to carry it.
+                grows_on: TagFilter::any_of([tags::TRUNK, tags::LIMB, tags::ROCK]),
+                tags: [tags::CLUMP, tags::BURL].into(),
+                material: MaterialOptions {
+                    texture: None,
+                    color: [0.25, 0.17, 0.1],
+                    roughness: 0.9,
+                    texture_size: 1.0,
                 },
             },
         }

@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 glam = { workspace = true }
+procgena_mesh = { path = "../../../mesh/crates/procgena_mesh" }
 
 [dev-dependencies]
 # Real rock meshes as test inputs for the spike example.

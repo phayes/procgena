@@ -5,7 +5,9 @@
 
 use std::fmt;
 
-use crate::surface::SurfaceError;
+use procgena_mesh::{ObjectError, SurfaceError, TagFilter, TagSet, tags};
+
+use crate::material::{MaterialOptions, texture_set};
 
 /// Settings for one generation pass, such as a snow cap.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +30,14 @@ pub struct ClumpOptions {
     pub shape: ShapeOptions,
     /// How the clump is turned into triangles.
     pub mesh: MeshOptions,
+    /// Which parts of an [`Object`](procgena_mesh::Object) the clump grows on,
+    /// by their tags, when built with [`Clump::on`](crate::Clump::on).
+    pub grows_on: TagFilter,
+    /// The tags the clump's own part carries in
+    /// [`Clump::object`](crate::Clump::object), such as `clump` and `snow`.
+    pub tags: TagSet,
+    /// How the clump looks.
+    pub material: MaterialOptions,
 }
 
 impl Default for ClumpOptions {
@@ -41,6 +51,10 @@ impl Default for ClumpOptions {
             placement: PlacementOptions::default(),
             shape: ShapeOptions::default(),
             mesh: MeshOptions::default(),
+            grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND, tags::MOSS])
+                .excluding([tags::CARD]),
+            tags: [tags::CLUMP, tags::SNOW].into(),
+            material: MaterialOptions::default(),
         }
     }
 }
@@ -394,6 +408,31 @@ impl ClumpOptions {
             "mesh.edge_length",
             "must be greater than 0",
         )?;
+
+        // Material.
+        let m = &self.material;
+        check(
+            m.texture
+                .as_deref()
+                .is_none_or(|t| texture_set(t).is_some()),
+            "material.texture",
+            "must name one of TEXTURE_SETS, or be None",
+        )?;
+        check(
+            m.color.iter().all(|c| c.is_finite() && *c >= 0.0),
+            "material.color",
+            "must have every channel 0 or more",
+        )?;
+        check(
+            (0.0..=1.0).contains(&m.roughness),
+            "material.roughness",
+            "must be from 0 to 1",
+        )?;
+        check(
+            finite_positive(m.texture_size),
+            "material.texture_size",
+            "must be greater than 0",
+        )?;
         Ok(())
     }
 }
@@ -421,6 +460,8 @@ impl std::error::Error for OptionsError {}
 pub enum ClumpError {
     /// The input surface is invalid.
     Surface(SurfaceError),
+    /// The input object is invalid.
+    Object(ObjectError),
     /// A setting is out of range.
     Options(OptionsError),
 }
@@ -429,6 +470,7 @@ impl fmt::Display for ClumpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Surface(e) => write!(f, "invalid surface: {e}"),
+            Self::Object(e) => write!(f, "invalid object: {e}"),
             Self::Options(e) => write!(f, "invalid options: {e}"),
         }
     }
@@ -438,8 +480,15 @@ impl std::error::Error for ClumpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Surface(e) => Some(e),
+            Self::Object(e) => Some(e),
             Self::Options(e) => Some(e),
         }
+    }
+}
+
+impl From<ObjectError> for ClumpError {
+    fn from(e: ObjectError) -> Self {
+        Self::Object(e)
     }
 }
 
@@ -473,5 +522,24 @@ mod tests {
         let mut options = ClumpOptions::default();
         options.mesh.edge_length = 0.0;
         assert_eq!(options.validate().unwrap_err().field, "mesh.edge_length");
+
+        // Material settings.
+        let material = |change: fn(&mut MaterialOptions)| {
+            let mut options = ClumpOptions::default();
+            change(&mut options.material);
+            options.validate().unwrap_err().field
+        };
+        assert_eq!(
+            material(|m| m.texture = Some("rock_01".to_owned())),
+            "material.texture"
+        );
+        assert_eq!(material(|m| m.color[2] = -0.1), "material.color");
+        assert_eq!(material(|m| m.roughness = f32::NAN), "material.roughness");
+        assert_eq!(material(|m| m.texture_size = 0.0), "material.texture_size");
+
+        // No texture is allowed.
+        let mut options = ClumpOptions::default();
+        options.material.texture = None;
+        options.validate().unwrap();
     }
 }
