@@ -1,0 +1,50 @@
+[package]
+name = "procgena"
+description = "Desktop studio for procedural trees, plants and rocks"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+# The procgena crates' Bevy features, plus the window, UI and feathers widgets
+# the studio is built from.
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "multi_threaded",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_mikktspace",
+    "tonemapping_luts",
+    "ktx2",
+    "zstd_rust",
+    "bevy_winit",
+    "bevy_window",
+    # bevy_winit 0.20.1 does not compile without it once picking is enabled.
+    "custom_cursor",
+    "x11",
+    "wayland",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_text",
+    "bevy_picking",
+    "ui_picking",
+    "bevy_input_focus",
+    "bevy_feathers",
+    "bevy_scene",
+] }
+procgena_tree = { path = "../tree/crates/procgena_tree", features = ["export-obj", "export-gltf"] }
+procgena_tree_bevy = { path = "../tree/crates/procgena_tree_bevy" }
+procgena_plant = { path = "../plant" }
+procgena_stone = { path = "../stone/crates/procgena_stone", features = ["export-obj", "export-gltf"] }
+procgena_stone_bevy = { path = "../stone/crates/procgena_stone_bevy" }
+# Download texture images, verify their contents and cache them for later exports.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+sha2 = "0.11"
+dirs = "6"
+serde_json = { workspace = true }
+# Native file dialogs.
+rfd = "0.18"

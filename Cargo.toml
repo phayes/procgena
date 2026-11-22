@@ -8,6 +8,7 @@ members = [
     "tree/crates/procgena_tree_bevy",
     "plant",
     "plant/web",
+    "procgena",
 ]
 
 [workspace.package]
