@@ -90,12 +90,16 @@ pub struct MaskOptions {
     /// Facing value at and above which the facing term is 1. From -1 to 1.
     pub facing_full: f32,
     /// Number of rays cast from each surface vertex toward each direction's
-    /// source, to measure how open the vertex is to it. 0 skips the test and
-    /// treats every point as fully open.
-    pub sky_rays: u32,
+    /// source, to measure how exposed the vertex is to it (how much of the
+    /// way toward the source is unblocked). This is usually most of the build
+    /// time, so it is the main setting for trading look against speed: fewer
+    /// rays are faster but measure exposure in coarser steps, so the edges of
+    /// sheltered areas get blockier. 0 skips the test and treats every point
+    /// as fully exposed.
+    pub exposure_rays: u32,
     /// Exponent applied to exposure (0 to 1). Higher values push clumps
     /// further out of sheltered spots, and 0 ignores shelter. Must be 0 or more.
-    pub sky_power: f32,
+    pub exposure_power: f32,
 }
 
 impl Default for MaskOptions {
@@ -103,8 +107,8 @@ impl Default for MaskOptions {
         Self {
             facing_min: 0.3,
             facing_full: 0.7,
-            sky_rays: 64,
-            sky_power: 1.0,
+            exposure_rays: 64,
+            exposure_power: 1.0,
         }
     }
 }
@@ -129,6 +133,15 @@ pub struct ShapeOptions {
     /// larger values allow steeper, cliff-like edges. Heights are lowered
     /// where they would be steeper. Must be greater than 0.
     pub max_slope: f32,
+    /// Thinnest the input may be for a clump to grow on it, measured straight
+    /// through the input at each point. Where the input is thinner (fine
+    /// twigs, thin lips) no clump is made, and those parts aren't processed
+    /// at all. Whatever this is set to, no clump grows on parts of the input
+    /// that lie inside other parts, or where parts overlap (such as a branch
+    /// joining its trunk), because clumps there would fold and cross. Elsewhere
+    /// a clump is at most half as thick as the input under it, so thin parts
+    /// get a thin layer. 0 skips nothing else. Must be 0 or more.
+    pub min_support: f32,
     /// How much the thickness varies with noise, from 0 (smooth) to 1.
     pub lumpiness: f32,
     /// Typical width of a lump. Must be greater than 0.
@@ -144,6 +157,7 @@ impl Default for ShapeOptions {
             thickness: 0.12,
             sink: 0.03,
             max_slope: 1.0,
+            min_support: 0.0,
             lumpiness: 0.3,
             lump_size: 0.25,
         }
@@ -244,8 +258,8 @@ impl ClumpOptions {
             "must be less than mask.facing_full",
         )?;
         check(
-            m.sky_power >= 0.0 && m.sky_power.is_finite(),
-            "mask.sky_power",
+            m.exposure_power >= 0.0 && m.exposure_power.is_finite(),
+            "mask.exposure_power",
             "must be 0 or more",
         )?;
 
@@ -285,6 +299,11 @@ impl ClumpOptions {
             finite_positive(s.max_slope),
             "shape.max_slope",
             "must be greater than 0",
+        )?;
+        check(
+            s.min_support.is_finite() && s.min_support >= 0.0,
+            "shape.min_support",
+            "must be 0 or more",
         )?;
 
         // Mesh.

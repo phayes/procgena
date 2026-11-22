@@ -171,6 +171,54 @@ turns each clump into a watertight solid for physics, volume and voxelizing:
     is 0 in every test.
   - The crossing test ignores triangles lying in the same plane.
 
+**Thin input, junctions and seams (added 2026-11-22).** These came from
+snow on procgena_tree's OakSmall LOD0 bark (closed, 3,350 triangles, at
+`scale` 10).
+- **Thickness cap:** each input vertex gets a "room" value, the distance
+  straight in along its normal to the input's far side. A clump is at most
+  half the room thick. The closed underside and the minimum solid thickness
+  are capped the same way, so twigs get a thin dusting.
+- **`ShapeOptions::min_support`** (world units, × `scale`, default 0): where
+  room is below it, the mask is 0. Triangles whose corners all fall below
+  it are skipped before refinement.
+- **Never covered:** room is 0, so no clump grows, at a vertex where:
+  - a ray straight out first meets a surface from behind (the vertex is
+    inside another part);
+  - a ray straight in first meets another part's outside (parts overlap,
+    as at a branch joining its trunk);
+  - on a closed input, a ray straight in meets nothing.
+- **Why the junction rule matters:** treating junction vertices as "at
+  least that thick" instead put back about 340 oak vertices, raised the
+  dropped folds from 143 to 1,347 and the crossing triangles from 9,000 to
+  22,000.
+- **Seams:** the clump now merges input vertices at the same position (the
+  tree's texture seams and branch joins) into one clump vertex with an
+  averaged normal, and skips input triangles that collapse when merged.
+  Before this, the clump sheet split along every seam, and slivers there
+  folded.
+- **Ray offset:** the step off the surface before casting rays is now
+  1e-6 × the mesh diagonal, instead of 1e-4. The old 5 mm step on the
+  55-unit tree was larger than the branch tips' radius, so thickness rays
+  started past the far side.
+- **Folds that can't be lowered:** any top triangle still turned over after
+  24 lowering passes is left out of the mesh. These are tiny slivers where
+  two input vertices about a millimetre apart got different floors.
+  `BuildStats::folded` now counts these removals, and the mesh never has a
+  turned-over top triangle. A closed clump walls off the pinhole.
+- **Oak results, before → after:**
+  - dropped folds: 1,587 still inside out → 143 removed, 0 inside out in
+    the mesh;
+  - crossing triangles: 20,458 → 8,998;
+  - strict: 0 crossings, 5.4 s → 2.3 s.
+- **On the oak,** room has a median of 0.12 tree units and a 90th percentile
+  of 0.58. `min_support` 0.05 at `scale` 10 (0.5 units) leaves only the trunk
+  area: 1.4k triangles, with no folds.
+- **Rocks are unchanged:** 0 folds, 0 vertices outside, and strict reaches 0
+  crossings.
+- **Test:** `copies_at_the_same_position_act_as_one_vertex` checks that a
+  slab whose triangles each carry their own corner copies gives the same
+  clump as one with shared corners (same triangles; positions within 1e-5).
+
 **Directions (added 2026-11-21).** `ClumpOptions::directions` lists where
 material arrives from: falling snow, wind, or the damp side of a rock. Each
 direction has a travel vector and a strength (default 1). Each direction
@@ -178,7 +226,7 @@ computes its own facing and openness. The per-direction masks add up, the
 coverage weight is capped at 1, and one sheet is built from the total, so
 overlaps merge. Directions are evaluated in list order, but the result
 doesn't depend on that order. One shared `MaskOptions` (facing thresholds,
-sky rays, sky power) applies to every direction.
+exposure rays, exposure power) applies to every direction.
 
 ## Public API sketch
 
@@ -208,7 +256,8 @@ pub struct ClumpOptions { seed: u32, directions: Vec<Direction>, scale: f32, mas
                           detail: ClumpDetail, stalks: StalkOptions, material: MaterialOptions }
 // (done) Direction { vector: [f32; 3] (travel direction), strength: f32 (default 1) }
 //        Default [Direction::DOWN] = [0, -1, 0]; 1 to MAX_DIRECTIONS (8) entries.
-// (spike) MaskOptions { facing_min, facing_full, sky_rays, sky_power }
+// (spike) MaskOptions { facing_min, facing_full, exposure_rays, exposure_power }
+//         (renamed from sky_rays / sky_power on 2026-11-22: directions can point anywhere)
 // (spike) ShapeOptions { at, radius, edge_width, thickness, sink, max_slope, lumpiness, lump_size }
 //         `at` moves into Seeding::Single in phase 3.
 // (spike) MeshOptions { edge_length }   // clumps always grow along the (blurred) surface normal
@@ -220,11 +269,11 @@ Preset intent:
 
 | Preset | Seeding | Mask | Shape | Stalks |
 |---|---|---|---|---|
-| SnowCap | Single | up-ness, sky | wide, smooth, steep edge falloff | twigs (sparse) |
-| SnowPatches | Scatter | up-ness, sky, noise | medium, smooth | none |
+| SnowCap | Single | up-ness, exposure | wide, smooth, steep edge falloff | twigs (sparse) |
+| SnowPatches | Scatter | up-ness, exposure, noise | medium, smooth | none |
 | MossCushions | Scatter | cavity, moderate up-ness, noise | small, very lumpy domes | sporophytes |
 | MossCarpet | Single, large radius | cavity, noise | thin, even | sporophytes (sparse) |
-| **MossPatches** ✅ | Single, whole surface | up-ness (no sky term), strong noise | 3 cm, patchy islands | sporophytes |
+| **MossPatches** ✅ | Single, whole surface | up-ness (no exposure term), strong noise | 3 cm, patchy islands | sporophytes |
 | Mud | Scatter | cavity, low height, noise | thin, flattened | none |
 | Clods | Scatter | low height, weak | small, thick, lumpy | grass (sparse) |
 | LeafPile | Single | low height, up-ness | mound, soft falloff | leaf cards |
@@ -388,9 +437,10 @@ Still open:
 - **Fold residue:** about 0.1% (see the fold guarantee above).
 - **Open borders:** the sheet stops at an input border (a ground patch edge
   or an open tube end) with a visible cut. A lip would need extra geometry.
-- **Speed:** sky visibility casts 64 rays per input vertex and dominates on
-  dense inputs (1.5 s at 82k triangles). Rayon (already planned as an
-  optional feature) or fewer rays on dense inputs would fix it.
+- **Speed:** exposure (formerly "sky visibility") casts 64 rays per input
+  vertex and dominates on dense inputs (1.5 s at 82k triangles). See
+  `/opt/procgena/clump_performance.md` for measured stages and the ranked
+  wins. `exposure_rays` is the user's look-versus-speed setting.
 
 ### Tests (phase 5 onwards)
 

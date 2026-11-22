@@ -227,13 +227,13 @@ mod tests {
         out
     }
 
-    /// Returns options for `directions` with sky rays off, so only facing counts.
+    /// Returns options for `directions` with exposure rays off, so only facing counts.
     fn facing_only(directions: Vec<Direction>) -> ClumpOptions {
         let mut options = ClumpOptions {
             directions,
             ..ClumpOptions::default()
         };
-        options.mask.sky_rays = 0;
+        options.mask.exposure_rays = 0;
         options
     }
 
@@ -344,11 +344,11 @@ mod tests {
 
     #[test]
     fn closed_clumps_are_watertight_with_the_expected_volume() {
-        // An even cap: no lumps, no sky test, full coverage on flat ground.
+        // An even cap: no lumps, no exposure test, full coverage on flat ground.
         let ground = SurfaceMesh::ground(1.0, 4);
         let mut options = ClumpOptions::default();
         options.shape.lumpiness = 0.0;
-        options.mask.sky_rays = 0;
+        options.mask.exposure_rays = 0;
         let clump = Clump::new(ground.surface().unwrap(), &options).unwrap();
         let mesh = clump.mesh();
         assert_eq!(unpaired_edges(&mesh.indices), (0, 0));
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn closed_clumps_on_a_rough_input_are_watertight() {
-        // Lumpy snow over a bumpy patch, with sky rays and partial coverage.
+        // Lumpy snow over a bumpy patch, with exposure rays and partial coverage.
         let mut ground = SurfaceMesh::ground(2.0, 24);
         for p in &mut ground.positions {
             p[1] = (p[0] * 3.1).sin() * 0.15 + (p[2] * 2.3).cos() * 0.1;
@@ -424,13 +424,42 @@ mod tests {
     }
 
     #[test]
+    fn copies_at_the_same_position_act_as_one_vertex() {
+        // The same slab twice: once with shared corners, once with every
+        // triangle on its own copies of the corners, as at texture seams.
+        let shared = sharp_box(0.3);
+        let mut seamed = SurfaceMesh::default();
+        for &i in &shared.indices {
+            seamed.positions.push(shared.positions[i as usize]);
+            seamed.normals.push(shared.normals[i as usize]);
+            seamed.indices.push(seamed.indices.len() as u32);
+        }
+
+        // The copies are merged, so the clump has the same triangles, with
+        // positions equal up to rounding in the merged normals.
+        let mut options = ClumpOptions::default();
+        options.mask.exposure_rays = 0;
+        let a = Clump::new(shared.surface().unwrap(), &options).unwrap();
+        let b = Clump::new(seamed.surface().unwrap(), &options).unwrap();
+        let (a, b) = (a.mesh(), b.mesh());
+        assert!(!a.is_empty());
+        assert_eq!(a.indices, b.indices);
+        for (p, q) in a.positions.iter().zip(&b.positions) {
+            assert!(
+                glam::Vec3::from(*p).distance(glam::Vec3::from(*q)) < 1e-5,
+                "{p:?} vs {q:?}"
+            );
+        }
+    }
+
+    #[test]
     fn buried_parts_stay_inside_sharp_edged_inputs() {
         // A slab thinner than the underside wants to go, with sharp edges.
         let slab = sharp_box(0.04);
         let surface = slab.surface().unwrap();
         assert!(surface.is_closed());
         let mut options = ClumpOptions::default();
-        options.mask.sky_rays = 0;
+        options.mask.exposure_rays = 0;
         let mesh = Clump::new(surface, &options).unwrap().mesh().clone();
         assert!(!mesh.is_empty());
 

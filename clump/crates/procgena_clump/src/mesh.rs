@@ -39,11 +39,14 @@ impl ClumpMesh {
 /// Measurements taken while building a clump, for tuning settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BuildStats {
-    /// Top triangles still turned over, inside out, after the build has
-    /// lowered the clump around every fold it found. Normally 0.
+    /// Top triangles left out of the mesh because they stayed turned over,
+    /// inside out, even after the clump around them was lowered as far as it
+    /// goes. These are tiny slivers, and each leaves a pinhole that a closed
+    /// clump walls off. The mesh itself never has a turned-over top triangle.
     pub folded: usize,
     /// Vertices kept thinner than the settings ask for, because another part
-    /// of the surface faces them across a narrow gap.
+    /// of the surface faces them across a narrow gap, or because the input
+    /// under them is thin.
     pub thinned: usize,
     /// Pairs of triangles that still pass through each other, when
     /// [`MeshOptions::strict`](crate::MeshOptions::strict) is on. Always 0

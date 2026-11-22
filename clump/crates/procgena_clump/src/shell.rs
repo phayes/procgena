@@ -28,6 +28,10 @@ const MIN_SOLID: f32 = 0.05;
 /// surface normal (60°).
 const MAX_PUSH_TILT: f32 = std::f32::consts::FRAC_PI_3;
 
+/// Thickest a clump may be, as a fraction of how thick the input is at that
+/// point, so thin parts such as twigs get a thin dusting.
+const ROOM_FILL: f32 = 0.5;
+
 /// Most passes when repairing folds or crossings. Each pass halves the
 /// height left above the floor at every vertex involved.
 const MAX_REPAIR_PASSES: u32 = 24;
@@ -95,7 +99,7 @@ pub(crate) fn displaced_shell(
         .collect();
 
     // Work out each vertex's height, staying under part of the gap to any
-    // surface facing it.
+    // surface facing it and under part of the input's own thickness.
     let weights: Vec<f32> = points.iter().map(|p| field.weight(p)).collect();
     let mut thinned = 0;
     let mut tops: Vec<f32> = points
@@ -104,7 +108,7 @@ pub(crate) fn displaced_shell(
         .zip(&weights)
         .map(|((p, &dir), &w)| {
             let top = field.top(w);
-            let limit = GAP_FILL * field.clearance(p.point, dir);
+            let limit = (GAP_FILL * field.clearance(p.point, dir)).min(ROOM_FILL * p.room);
             if top > limit {
                 thinned += 1;
                 return limit;
@@ -141,8 +145,12 @@ pub(crate) fn displaced_shell(
 
     // For a closed clump, place the underside below each kept vertex, never
     // more than part of the way through the input, and keep every top above
-    // its underside.
-    let min_solid = MIN_SOLID * field.thickness();
+    // its underside. The minimum solid thickness shrinks on thin input, like
+    // the clump itself.
+    let min_solid: Vec<f32> = points
+        .iter()
+        .map(|p| (MIN_SOLID * field.thickness()).min(ROOM_FILL * p.room))
+        .collect();
     let mut depths = vec![0.0; points.len()];
     let mut sink_dirs = dirs.clone();
     if closed {
@@ -156,8 +164,8 @@ pub(crate) fn displaced_shell(
             let (dir, depth) = sink(field, &points[v], dirs[v], full_depth);
             sink_dirs[v] = dir;
             depths[v] = depth;
-            if tops[v] < min_solid - depth {
-                tops[v] = min_solid - depth;
+            if tops[v] < min_solid[v] - depth {
+                tops[v] = min_solid[v] - depth;
                 along[v] = if tops[v] < 0.0 { dir } else { dirs[v] };
             }
         }
@@ -237,8 +245,8 @@ struct Sheet<'a> {
     /// Underside depths below the surface (closed clumps only).
     depths: Vec<f32>,
     closed: bool,
-    /// Thinnest a closed clump may be.
-    min_solid: f32,
+    /// Thinnest a closed clump may be at each vertex.
+    min_solid: Vec<f32>,
 }
 
 impl Sheet<'_> {
@@ -256,7 +264,7 @@ impl Sheet<'_> {
     /// surface, or for a closed clump, just thick enough above its underside.
     fn floor(&self, v: usize) -> f32 {
         if self.closed {
-            (self.min_solid - self.depths[v]).max(0.0)
+            (self.min_solid[v] - self.depths[v]).max(0.0)
         } else {
             0.0
         }
@@ -275,28 +283,40 @@ impl Sheet<'_> {
 
     /// Lowers the corners of every top triangle that has turned over relative
     /// to the input triangle it came from, repeating until none have or the
-    /// pass limit is reached. Returns how many remain turned over.
+    /// pass limit is reached. Any still turned over after that, which are
+    /// tiny slivers whose corners can't be lowered further, are removed.
+    /// Returns how many were removed.
     fn remove_folds(&mut self) -> usize {
-        let mut folded = 0;
         for pass in 0..=MAX_REPAIR_PASSES {
-            let mut corners = Vec::new();
-            for t in &self.tris {
-                let [a, b, c] = t.corners.map(|v| self.top_position(v as usize));
-                if (b - a).cross(c - a).dot(t.source_normal) < 0.0 {
-                    corners.extend(t.corners);
-                }
+            let folded: Vec<usize> = (0..self.tris.len())
+                .filter(|&t| self.is_folded(t))
+                .collect();
+            if folded.is_empty() {
+                return 0;
             }
-            folded = corners.len() / 3;
-            if folded == 0 || pass == MAX_REPAIR_PASSES {
-                break;
+            if pass == MAX_REPAIR_PASSES {
+                // Leave out what lowering couldn't fix. Removing a triangle
+                // moves no vertex, so no other triangle turns over.
+                let mut keep = (0..self.tris.len()).map(|t| folded.binary_search(&t).is_err());
+                self.tris.retain(|_| keep.next().unwrap_or(true));
+                return folded.len();
             }
+            let mut corners: Vec<u32> = folded.iter().flat_map(|&t| self.tris[t].corners).collect();
             corners.sort_unstable();
             corners.dedup();
             for v in corners {
                 self.lower(v as usize);
             }
         }
-        folded
+        0
+    }
+
+    /// Returns whether top triangle `t` has turned over relative to the input
+    /// triangle it came from.
+    fn is_folded(&self, t: usize) -> bool {
+        let tri = &self.tris[t];
+        let [a, b, c] = tri.corners.map(|v| self.top_position(v as usize));
+        (b - a).cross(c - a).dot(tri.source_normal) < 0.0
     }
 
     /// Thins the clump around the triangles in `crossing`, which index
@@ -318,7 +338,7 @@ impl Sheet<'_> {
             if o.bottom {
                 // Bring the underside up, keeping the top above it.
                 self.depths[v] *= 0.5;
-                self.tops[v] = self.tops[v].max(self.min_solid - self.depths[v]);
+                self.tops[v] = self.tops[v].max(self.min_solid[v] - self.depths[v]);
             } else {
                 self.lower(v);
             }
@@ -607,14 +627,21 @@ fn covered_triangles(field: &ClumpField) -> (Vec<SurfacePoint>, Vec<Tri>) {
     let surface = field.surface();
     let mut points = Vec::new();
     let mut tris = Vec::new();
-    let mut local: HashMap<usize, u32> = HashMap::new();
+    // Key vertices by position, so copies at the same position (as at texture
+    // seams) become one clump vertex and the clump doesn't split along them.
+    let mut local: HashMap<u32, u32> = HashMap::new();
     for t in 0..surface.triangle_count() {
+        let ids = surface.triangle(t).map(|v| field.position_id(v));
+        if ids[0] == ids[1] || ids[1] == ids[2] || ids[2] == ids[0] {
+            // Collapsed to a line or point once copies are merged.
+            continue;
+        }
         let input = surface.triangle(t).map(|v| field.vertex_point(v));
         if !field.may_cover([&input[0], &input[1], &input[2]]) {
             continue;
         }
         let corners = surface.triangle(t).map(|v| {
-            *local.entry(v).or_insert_with(|| {
+            *local.entry(field.position_id(v)).or_insert_with(|| {
                 points.push(field.vertex_point(v));
                 (points.len() - 1) as u32
             })

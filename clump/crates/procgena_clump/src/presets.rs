@@ -15,7 +15,7 @@ pub enum ClumpPreset {
     /// the sky. On rough rocks it breaks into patches and flecks.
     SnowCap,
     /// Thin moss, about 3 cm deep, in irregular patches over tops and upper
-    /// sides. Ignores how open the sky is.
+    /// sides. Ignores how sheltered the surface is.
     MossPatches,
 }
 
@@ -46,8 +46,8 @@ impl ClumpPreset {
                 mask: MaskOptions {
                     facing_min: 0.3,
                     facing_full: 0.7,
-                    sky_rays: 64,
-                    sky_power: 1.0,
+                    exposure_rays: 64,
+                    exposure_power: 1.0,
                 },
                 shape: ShapeOptions {
                     at: None,
@@ -56,6 +56,7 @@ impl ClumpPreset {
                     thickness: 0.12,
                     sink: 0.03,
                     max_slope: 1.0,
+                    min_support: 0.0,
                     lumpiness: 0.3,
                     lump_size: 0.25,
                 },
@@ -72,8 +73,8 @@ impl ClumpPreset {
                 mask: MaskOptions {
                     facing_min: 0.0,
                     facing_full: 0.6,
-                    sky_rays: 64,
-                    sky_power: 0.0,
+                    exposure_rays: 64,
+                    exposure_power: 0.0,
                 },
                 shape: ShapeOptions {
                     at: None,
@@ -82,6 +83,7 @@ impl ClumpPreset {
                     thickness: 0.03,
                     sink: 0.03,
                     max_slope: 2.0,
+                    min_support: 0.0,
                     lumpiness: 1.0,
                     lump_size: 0.2,
                 },

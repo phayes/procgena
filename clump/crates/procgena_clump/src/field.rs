@@ -15,14 +15,19 @@ const LUMP_OCTAVES: u32 = 3;
 use crate::options::MAX_DIRECTIONS;
 
 /// A point on the surface with its smooth normal and, for each direction,
-/// how open it is toward that direction's source.
+/// how exposed it is toward that direction's source.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SurfacePoint {
     pub(crate) point: Vec3,
     pub(crate) normal: Vec3,
-    /// Openness per direction, from 0 (closed in) to 1 (fully open), in the
-    /// order of the field's directions. Entries past the last direction are unused.
-    pub(crate) sky: [f32; MAX_DIRECTIONS],
+    /// Exposure per direction, from 0 (closed in) to 1 (fully exposed), in
+    /// the order of the field's directions. Entries past the last direction
+    /// are unused.
+    pub(crate) exposure: [f32; MAX_DIRECTIONS],
+    /// How thick the input is here, measured straight in along the normal:
+    /// infinity where nothing limits it, and 0 where the point lies inside
+    /// another part of the input. Blended between vertices.
+    pub(crate) room: f32,
 }
 
 /// One direction material arrives from, prepared for evaluation.
@@ -38,12 +43,21 @@ pub(crate) struct ClumpField<'a> {
     surface: Surface<'a>,
     bvh: Bvh,
     sources: Vec<Source>,
-    /// Openness per surface vertex and direction; see [`SurfacePoint::sky`].
-    sky: Vec<[f32; MAX_DIRECTIONS]>,
+    /// Exposure per surface vertex and direction; see [`SurfacePoint::exposure`].
+    exposure: Vec<[f32; MAX_DIRECTIONS]>,
+    /// Input thickness per surface vertex; see [`SurfacePoint::room`].
+    room: Vec<f32>,
+    /// Position id per surface vertex: vertices at the same position (as at
+    /// texture seams) share one, and are treated as a single vertex.
+    weld: Vec<u32>,
+    /// Normal per position id: the normalized sum of its vertices' normals.
+    welded_normals: Vec<Vec3>,
+    /// Thinnest input a clump may grow on, after `scale`.
+    min_support: f32,
     seed: u32,
     facing_min: f32,
     facing_full: f32,
-    sky_power: f32,
+    exposure_power: f32,
     centre: Option<Vec3>,
     radius: Option<f32>,
     edge_width: f32,
@@ -63,7 +77,9 @@ impl<'a> ClumpField<'a> {
     pub(crate) fn new(surface: Surface<'a>, options: &ClumpOptions) -> Self {
         let bvh = Bvh::new(&surface);
         let (lo, hi) = surface.bounds();
-        let epsilon = (hi - lo).length().max(1e-6) * 1e-4;
+        // Small enough to stay inside fine features such as tapered branch
+        // tips, large enough to step off a triangle in f32.
+        let epsilon = (hi - lo).length().max(1e-6) * 1e-6;
         let sources = options
             .directions
             .iter()
@@ -78,11 +94,15 @@ impl<'a> ClumpField<'a> {
             surface,
             bvh,
             sources,
-            sky: Vec::new(),
+            exposure: Vec::new(),
+            room: Vec::new(),
+            weld: Vec::new(),
+            welded_normals: Vec::new(),
+            min_support: options.shape.min_support * scale,
             seed: options.seed,
             facing_min: options.mask.facing_min,
             facing_full: options.mask.facing_full,
-            sky_power: options.mask.sky_power,
+            exposure_power: options.mask.exposure_power,
             centre: None,
             radius: options.shape.radius.map(|r| r * scale),
             edge_width: options.shape.edge_width,
@@ -93,7 +113,18 @@ impl<'a> ClumpField<'a> {
             epsilon,
             closed_input: surface.is_closed(),
         };
-        field.sky = field.vertex_sky(options.mask.sky_rays);
+
+        // Treat vertices at the same position as one, with a shared normal.
+        let (weld, count) = surface.welded();
+        let mut sums = vec![Vec3::ZERO; count];
+        for (v, &id) in weld.iter().enumerate() {
+            sums[id as usize] += surface.normal(v);
+        }
+        field.welded_normals = sums.into_iter().map(|n| n.normalize_or_zero()).collect();
+        field.weld = weld;
+
+        field.room = field.vertex_room();
+        field.exposure = field.vertex_exposure(options.mask.exposure_rays);
         field.centre = options
             .shape
             .at
@@ -122,16 +153,57 @@ impl<'a> ClumpField<'a> {
         self.centre.is_none()
     }
 
-    /// Measures how open each vertex is toward each direction's source, from 0 to 1.
+    /// Measures how thick the input is at each vertex: the distance straight
+    /// in along the normal to the input's far side. Returns 0 where the input
+    /// can't carry a clump: a vertex inside another part (a ray straight out
+    /// first meets a surface from behind), a vertex where parts overlap (a
+    /// ray straight in first meets another part's outside), or, on a closed
+    /// input, a vertex where going straight in meets nothing. Returns
+    /// infinity on an open input where nothing is met.
+    fn vertex_room(&self) -> Vec<f32> {
+        (0..self.surface.positions().len())
+            .map(|v| {
+                let (p, n) = (self.surface.position(v), self.normal(v));
+                if n == Vec3::ZERO {
+                    return f32::INFINITY;
+                }
+                if self.exits_through(p, n) {
+                    return 0.0;
+                }
+                // Going straight in should reach this part's own far side. If
+                // it first meets the outside of another part, this point is
+                // where parts overlap, such as a branch joining its trunk,
+                // and clumps there fold and cross each other. If it meets
+                // nothing on a closed input, the shape is unclear. Neither
+                // carries a clump.
+                self.inside_run(p, -n).unwrap_or(0.0)
+            })
+            .collect()
+    }
+
+    /// Returns whether a ray from surface point `point` along unit direction
+    /// `dir` first meets a surface from behind, meaning `point` lies inside
+    /// some part of the input.
+    fn exits_through(&self, point: Vec3, dir: Vec3) -> bool {
+        self.bvh
+            .ray_hit(point + dir * self.epsilon, dir, f32::INFINITY)
+            .is_some_and(|(_, tri)| {
+                let [a, b, c] = self.surface.triangle_positions(tri);
+                (b - a).cross(c - a).dot(dir) > 0.0
+            })
+    }
+
+    /// Measures how exposed each vertex is toward each direction's source,
+    /// from 0 to 1.
     ///
     /// For each direction, casts `rays` rays over the hemisphere around the
     /// source, weighted toward its centre, and counts those that escape.
     /// Zero rays gives 1 everywhere.
-    fn vertex_sky(&self, rays: u32) -> Vec<[f32; MAX_DIRECTIONS]> {
+    fn vertex_exposure(&self, rays: u32) -> Vec<[f32; MAX_DIRECTIONS]> {
         let count = self.surface.positions().len();
-        let mut sky = vec![[1.0; MAX_DIRECTIONS]; count];
+        let mut exposure = vec![[1.0; MAX_DIRECTIONS]; count];
         if rays == 0 {
-            return sky;
+            return exposure;
         }
 
         for (d, source) in self.sources.iter().enumerate() {
@@ -151,8 +223,8 @@ impl<'a> ClumpField<'a> {
                 .collect();
 
             // Step off the surface along its normal, then count escaping rays.
-            for (v, open) in sky.iter_mut().enumerate() {
-                let origin = self.surface.position(v) + self.surface.normal(v) * self.epsilon;
+            for (v, open) in exposure.iter_mut().enumerate() {
+                let origin = self.surface.position(v) + self.normal(v) * self.epsilon;
                 let escaped = dirs
                     .iter()
                     .filter(|&&r| !self.bvh.ray_blocked(origin, r, f32::INFINITY))
@@ -160,7 +232,7 @@ impl<'a> ClumpField<'a> {
                 open[d] = escaped as f32 / rays as f32;
             }
         }
-        sky
+        exposure
     }
 
     /// Returns the vertex with the highest mask, or `None` if every mask is 0.
@@ -168,11 +240,7 @@ impl<'a> ClumpField<'a> {
         let mut best = None;
         let mut best_mask = 0.0;
         for v in 0..self.surface.positions().len() {
-            let point = SurfacePoint {
-                point: self.surface.position(v),
-                normal: self.surface.normal(v),
-                sky: self.sky[v],
-            };
+            let point = self.vertex_point(v);
             let m = self.mask(&point);
             if m > best_mask {
                 best_mask = m;
@@ -183,35 +251,53 @@ impl<'a> ClumpField<'a> {
     }
 
     /// Returns the surface point halfway along the edge from `a` to `b`, with
-    /// the normal and sky visibility blended. The point lies on the flat
-    /// triangle, not on a smoothed surface.
+    /// the normal, exposure and input thickness blended. The point lies on the
+    /// flat triangle, not on a smoothed surface.
     pub(crate) fn midpoint(&self, a: &SurfacePoint, b: &SurfacePoint) -> SurfacePoint {
         SurfacePoint {
             point: (a.point + b.point) * 0.5,
             normal: (a.normal + b.normal).normalize_or(a.normal),
-            sky: std::array::from_fn(|d| (a.sky[d] + b.sky[d]) * 0.5),
+            exposure: std::array::from_fn(|d| (a.exposure[d] + b.exposure[d]) * 0.5),
+            room: (a.room + b.room) * 0.5,
         }
+    }
+
+    /// Returns the normal of vertex `v`, shared by every vertex at its position.
+    fn normal(&self, v: usize) -> Vec3 {
+        self.welded_normals[self.weld[v] as usize]
+    }
+
+    /// Returns the id of vertex `v`'s position. Vertices at the same position
+    /// share an id and should be treated as one vertex.
+    pub(crate) fn position_id(&self, v: usize) -> u32 {
+        self.weld[v]
     }
 
     /// Returns the surface point of vertex `v`.
     pub(crate) fn vertex_point(&self, v: usize) -> SurfacePoint {
         SurfacePoint {
             point: self.surface.position(v),
-            normal: self.surface.normal(v),
-            sky: self.sky[v],
+            normal: self.normal(v),
+            exposure: self.exposure[v],
+            room: self.room[v],
         }
     }
 
     /// Returns where clumps may grow at `p`: the sum over directions of
-    /// strength × facing × openness. 0 means nothing grows; values above 1
+    /// strength × facing × exposure. 0 means nothing grows; values above 1
     /// are allowed and are capped later, in [`weight`](Self::weight).
     pub(crate) fn mask(&self, p: &SurfacePoint) -> f32 {
+        // Nothing grows where the input is thinner than the minimum, or on
+        // parts that lie inside other parts of the input.
+        if p.room <= 0.0 || p.room < self.min_support {
+            return 0.0;
+        }
         self.sources
             .iter()
             .enumerate()
             .map(|(d, s)| {
                 let facing = smoothstep(self.facing_min, self.facing_full, p.normal.dot(s.toward));
-                s.strength * facing * p.sky[d].clamp(0.0, 1.0).powf(self.sky_power)
+                s.strength * facing * p.exposure[d].clamp(0.0, 1.0).powf(self.exposure_power)
             })
             .sum()
     }

@@ -111,18 +111,7 @@ impl<'a> Surface<'a> {
     /// that repeats positions at texture seams or between joined parts (as
     /// procedural tree bark does) is still recognized as closed.
     pub fn is_closed(&self) -> bool {
-        // Give every distinct position one id. Adding 0.0 turns -0.0 into 0.0,
-        // so the two compare equal.
-        let mut ids = std::collections::HashMap::<[u32; 3], u32>::new();
-        let welded: Vec<u32> = self
-            .positions
-            .iter()
-            .map(|p| {
-                let key = p.map(|c| (c + 0.0).to_bits());
-                let next = ids.len() as u32;
-                *ids.entry(key).or_insert(next)
-            })
-            .collect();
+        let (welded, _) = self.welded();
 
         // Count how many triangles use each welded edge.
         let mut uses = std::collections::HashMap::<(u32, u32), u32>::new();
@@ -133,6 +122,25 @@ impl<'a> Surface<'a> {
             }
         }
         uses.values().all(|&n| n == 2)
+    }
+
+    /// Gives every distinct position one id: returns, per vertex, the id of
+    /// its position, and the number of distinct positions. Ids count up from
+    /// 0 in order of first appearance. Positions are compared bit for bit,
+    /// except that -0.0 equals 0.0.
+    pub(crate) fn welded(&self) -> (Vec<u32>, usize) {
+        let mut ids = std::collections::HashMap::<[u32; 3], u32>::new();
+        let welded = self
+            .positions
+            .iter()
+            .map(|p| {
+                // Adding 0.0 turns -0.0 into 0.0, so the two compare equal.
+                let key = p.map(|c| (c + 0.0).to_bits());
+                let next = ids.len() as u32;
+                *ids.entry(key).or_insert(next)
+            })
+            .collect();
+        (welded, ids.len())
     }
 
     /// Returns the smallest box that holds every vertex, as `(min, max)`.
