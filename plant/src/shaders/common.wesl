@@ -393,7 +393,7 @@ fn pack(blade: BladeData, origin: vec4<f32>, height_range: f32) -> vec4<u32> {
     );
 }
 
-/// An instance, unpacked into world units.
+/// An instance, unpacked into metres.
 struct Instance {
     root: vec3<f32>,
     facing: f32,

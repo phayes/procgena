@@ -126,7 +126,8 @@ impl Projection {
 /// Projects each triangle onto a cube face to add texture coordinates and tangents.
 ///
 /// Supply a finite, positive `texture_size` (see
-/// [`checked_texture_size`]), measured in world units per repeat
+/// [`checked_texture_size`]), measured in mesh units (metres for a
+/// [`crate::Stone`] mesh) per repeat
 /// along the projection axes, and unit vertex normals. Normals are not validated.
 /// A triangle chooses its projection from its geometric normal. Vertices shared
 /// across projection faces are copied without changing their positions or normals.

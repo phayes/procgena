@@ -18,10 +18,10 @@ pub struct DetailLevel {
     /// through [`crate::MAX_RESOLUTION`]. Doubling it needs about eight times
     /// the work and typically gives about four times as many triangles.
     pub resolution: u32,
-    /// Camera distance in world units where this level starts to be shown.
+    /// Camera distance in metres where this level starts to be shown.
     /// Must be finite and zero or more, and greater than the previous level's.
     /// Distances suit a rock with the default
-    /// [`StoneOptions::scale`](crate::StoneOptions::scale) of 2.5; renderers
+    /// [`StoneOptions::scale`](crate::StoneOptions::scale) of 2.5 m; renderers
     /// may scale them in proportion to each rock's size.
     pub distance: f32,
     /// Width of the switching band as a fraction of `distance`, on each side
@@ -58,7 +58,7 @@ impl DetailLevel {
 /// ```
 /// use procgena_stone::{DetailLevel, StoneDetail, TextureSize};
 ///
-/// // A close-up mesh and one simpler mesh from 20 world units away.
+/// // A close-up mesh and one simpler mesh from 20 metres away.
 /// let detail = StoneDetail::new(vec![
 ///     DetailLevel::new(128, 0.0, TextureSize::Size2k),
 ///     DetailLevel::new(32, 20.0, TextureSize::Size512),

@@ -154,7 +154,7 @@ fn bend_toward_axis(direction: Vec3, amount: f32) -> Vec3 {
 ///
 /// Supply positions in *stone space*: the containing cube spans -0.5 to 0.5
 /// on each axis. [`StoneOptions::scale`] is not applied. To sample a position
-/// relative to the rock’s centre in world units, divide it by that scale first.
+/// relative to the rock’s centre in metres, divide it by that scale first.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoneField {
     carve: CarveSet,
@@ -224,7 +224,7 @@ impl StoneField {
     /// of at least zero.
     ///
     /// The magnitude is not an exact distance to the surface, especially with
-    /// unequal stretch or surface roughness. It is not in world units and should
+    /// unequal stretch or surface roughness. It is not in metres and should
     /// not be treated as a guaranteed safe step size for ray tracing.
     pub fn distance(&self, p: Vec3) -> f32 {
         // Sample the carved shape in carve space. Transform its gradient back

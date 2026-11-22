@@ -148,13 +148,13 @@
 //! Each rock's [`MeshOptions::detail`](procgena_stone::MeshOptions::detail) sets its
 //! detail levels: the mesh resolution, the camera distance where each level
 //! starts, and its texture size. Bevy fades between levels. Distances are for
-//! the default rock size of 2.5 world units
+//! the default rock size of 2.5 m
 //! ([`StoneOptions::scale`](procgena_stone::StoneOptions::scale)); a rock twice that
 //! size switches twice as far away.
 //!
 //! The default, [`StoneDetail::MEDIUM`](procgena_stone::StoneDetail::MEDIUM), builds
-//! meshes at 96, 48 and 24 grid cells per axis, switching at 15 and 40 world
-//! units, with 1k textures up close and 512 farther away. Pick another preset
+//! meshes at 96, 48 and 24 grid cells per axis, switching at 15 and 40 metres,
+//! with 1k textures up close and 512 farther away. Pick another preset
 //! (`LOW`, `HIGH`, `ULTRA`) or define your own levels. For a single 128-cell
 //! mesh with 2k textures and no distance switching:
 //!

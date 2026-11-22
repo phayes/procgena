@@ -24,7 +24,7 @@ const AXES: [Vec3; 3] = [Vec3::X, Vec3::Y, Vec3::Z];
 /// triangle, and all indices within the positions buffer.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StoneMesh {
-    /// Vertex coordinates `[x, y, z]`. [`crate::Stone`] supplies world units;
+    /// Vertex coordinates `[x, y, z]`. [`crate::Stone`] supplies metres;
     /// [`mesh_field`] supplies coordinates in the unit-width stone cube.
     pub positions: Vec<[f32; 3]>,
     /// Outward unit directions `[x, y, z]`, one per vertex, for surface lighting.
@@ -61,7 +61,7 @@ impl StoneMesh {
     ///
     /// Use a finite, positive factor that keeps the resulting positions finite.
     /// Zero collapses the mesh; a negative factor reverses its orientation.
-    /// Use [`crate::StoneOptions::scale`] to turn a [`mesh_field`] result into world units.
+    /// Use [`crate::StoneOptions::scale`] to turn a [`mesh_field`] result into metres.
     pub fn scale(&mut self, factor: f32) {
         for p in &mut self.positions {
             *p = (Vec3::from(*p) * factor).to_array();

@@ -18,7 +18,7 @@
 //! Requests that differ only in mesh settings, material, or scale share one
 //! placement, so a rock's detail levels line up. Each mesh's
 //! [`GpuStoneStatus`] reports its suggested embed depth and bounding radius.
-//! To bury a rock, lower it by `embed_depth * scale` in world units.
+//! To bury a rock, lower it by `embed_depth * scale` metres.
 //!
 //! Each mesh needs room reserved in advance. If a mesh needs more room
 //! than its request reserved, it draws nothing and its [`GpuStoneStatus`] reports
@@ -148,9 +148,9 @@ pub struct GpuMeshRange {
     pub draw_args_offset: u64,
     /// Byte offset of this mesh's entry in [`GpuStoneBatch::status`].
     pub status_offset: u64,
-    /// Multiplier from unscaled mesh coordinates to world units, equal to
+    /// Multiplier from unscaled mesh coordinates to metres, equal to
     /// [`StoneOptions::scale`]. Apply when drawing and when converting embed
-    /// depth or bounding radius to world units. The placed mesh can extend
+    /// depth or bounding radius to metres. The placed mesh can extend
     /// beyond the original unit cube; see
     /// [`GpuStoneStatus::bounding_radius`].
     pub scale: f32,
@@ -201,7 +201,7 @@ pub struct GpuStoneStatus {
     /// [`StonePlacement::embed_depth`](crate::StonePlacement::embed_depth).
     pub embed_depth: f32,
     /// Conservative radius enclosing the placed mesh around its origin.
-    /// Multiply by [`GpuMeshRange::scale`] for world units. Useful for checking
+    /// Multiply by [`GpuMeshRange::scale`] for metres. Useful for checking
     /// whether the rock might be visible without inspecting every vertex.
     pub bounding_radius: f32,
 }

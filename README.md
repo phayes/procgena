@@ -9,6 +9,15 @@ Procedural content generators for Rust and Bevy, in one Cargo workspace.
 | `clump/` | `procgena_clump`                         | Clumps of snow, moss, mud and litter on top of a surface mesh   |
 | `plant/` | `procgena_plant`, `procgena_plant_web`   | Grass and foliage fields for Bevy, plus a browser demo          |
 
+## Units
+
+Every crate uses metres: mesh positions, and every setting that is a length,
+size or distance (including level-of-detail switching distances). Assets from
+different crates can share one scene without rescaling. Docs write "metres"
+(British spelling), or "m" and "cm" next to numbers.
+
+## Assets
+
 Each folder keeps its own `assets/` and docs. The large texture sets are not
 in the repository. Download a project's textures from the workspace root with
 the shared tools in `tools/` (see `tools/README.md`):

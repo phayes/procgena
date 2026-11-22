@@ -20,7 +20,7 @@
 //!
 //! Pass options after `--`, for example:
 //! `cargo run -p procgena_stone_bevy --example viewer -- --seed 3 --texture lichen_rock_02 --field`.
-//! Use `--dc` to start with dual contouring, `--size <world units>` to set the
+//! Use `--dc` to start with dual contouring, `--size <metres>` to set the
 //! rock size, and `--untextured` to draw material colours only. Use `--pool`
 //! to start with the stone pool, and `--twin` to show a CPU rock (left) next to
 //! the same shape drawn from a stone pool (right). Use `--embed` to start with

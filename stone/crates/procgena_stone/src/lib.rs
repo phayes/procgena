@@ -4,7 +4,7 @@
 //! This crate is a Rust port of
 //! [Unity-Procedural-Rock-Generation](https://github.com/przemyslawzaworski/Unity-Procedural-Rock-Generation).
 //!
-//! Create a [`Stone`] for a mesh in world units, ready to use in your application.
+//! Create a [`Stone`] for a mesh in metres, ready to use in your application.
 //! Choose a [`Mesher`] and a [`StoneDetail`] (a preset or your own levels) to
 //! balance surface detail and generation cost.
 //! For direct shape queries, use [`StoneField`]: its values are negative inside

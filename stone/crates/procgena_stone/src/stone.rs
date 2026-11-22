@@ -11,7 +11,7 @@ use crate::presets::StonePreset;
 
 /// A generated rock with validated settings, a sampleable shape, and a grounded mesh.
 ///
-/// The mesh uses world units and sits approximately at ground level (`y = 0`).
+/// The mesh is in metres and sits approximately at ground level (`y = 0`).
 /// Its centre of mass, the balance point assuming uniform density, is above
 /// the origin. With
 /// [`PlacementOptions::settle`](crate::PlacementOptions::settle), it is also
@@ -37,7 +37,7 @@ impl Stone {
     /// with one mesh for each level in
     /// [`MeshOptions::detail`](crate::MeshOptions::detail).
     ///
-    /// Meshes are placed on the ground and scaled to world units using
+    /// Meshes are placed on the ground and scaled to metres using
     /// [`StoneOptions::scale`]. The suggested embed depth is not applied.
     /// Every level is built, so use a single-level set such as
     /// [`StoneDetail::single`](crate::StoneDetail::single) when you need only one mesh.
@@ -110,7 +110,7 @@ impl Stone {
         &self.placement
     }
 
-    /// Returns the suggested burial depth in world units, ready to subtract from y.
+    /// Returns the suggested burial depth in metres, ready to subtract from y.
     ///
     /// This puts the ground near the widest horizontal slice within
     /// [`PlacementOptions::max_embed_fraction`](crate::PlacementOptions::max_embed_fraction).
@@ -119,14 +119,14 @@ impl Stone {
         self.placement.embed_depth() * self.options.scale
     }
 
-    /// Borrows the most detailed mesh in world units, placed at ground level without burial.
+    /// Borrows the most detailed mesh in metres, placed at ground level without burial.
     pub fn mesh(&self) -> &StoneMesh {
         &self.meshes[0]
     }
 
     /// Iterates over every detail level with its mesh, most detailed first.
     ///
-    /// Meshes use world units and the same placement as [`mesh`](Self::mesh).
+    /// Meshes are in metres and use the same placement as [`mesh`](Self::mesh).
     /// A simpler level's mesh can be empty if its resolution misses the rock.
     pub fn levels(&self) -> impl ExactSizeIterator<Item = (&DetailLevel, &StoneMesh)> {
         self.options.mesh.detail.levels().iter().zip(&self.meshes)
@@ -134,7 +134,7 @@ impl Stone {
 
     /// Builds another mesh using `mesher` and `resolution` grid cells per axis.
     ///
-    /// The result uses world units and the same rock shape and placement as the
+    /// The result is in metres and uses the same rock shape and placement as the
     /// stored meshes. This does not replace the stored meshes or change the rock's
     /// settings. Ground contact may differ slightly at a different resolution.
     ///
@@ -150,7 +150,7 @@ impl Stone {
     }
 
     /// Consumes the rock, returning its settings, original unscaled field,
-    /// placement, and grounded meshes in world units, in that order. There is
+    /// placement, and grounded meshes in metres, in that order. There is
     /// one mesh per detail level, most detailed first. The meshes already
     /// include placement; do not apply it again.
     pub fn into_parts(self) -> (StoneOptions, StoneField, StonePlacement, Vec<StoneMesh>) {

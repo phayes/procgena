@@ -145,7 +145,7 @@ fn load_repeating(asset_server: &AssetServer, path: String, srgb: bool) -> Handl
 /// uses [`MaterialOptions::color`], [`MaterialOptions::roughness`] and
 /// [`MaterialOptions::metallic`] alone.
 /// The texture size is measured in the units of the rock's mesh, which are
-/// world units for meshes made by [`StonePlugin`](crate::StonePlugin).
+/// metres for meshes made by [`StonePlugin`](crate::StonePlugin).
 pub fn stone_material(
     material: &MaterialOptions,
     textures: Option<&StoneTextures>,

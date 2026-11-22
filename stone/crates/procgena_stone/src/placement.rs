@@ -40,7 +40,7 @@ pub(crate) const NEARLY_WIDEST_PERCENT: u32 = 90;
 /// [`StoneField`]) with the estimated lowest point at `y = 0` and its centre
 /// of mass (its balance point, assuming uniform density) directly above the
 /// origin. Multiply by [`crate::StoneOptions::scale`]
-/// for world units; [`crate::Stone`] does this for you.
+/// for metres; [`crate::Stone`] does this for you.
 ///
 /// Settling approximates the resting side after a drop from the generated
 /// orientation. All mesh detail levels share the same placement; their lowest
@@ -111,8 +111,8 @@ impl StonePlacement {
     ///
     /// Lower the placed rock by this amount to put the ground near its widest
     /// horizontal slice within the configured height limit. Multiply by
-    /// [`crate::StoneOptions::scale`] for world units. For example, a depth of
-    /// `0.2` at scale `3.0` suggests lowering the rock by `0.6` world units.
+    /// [`crate::StoneOptions::scale`] for metres. For example, a depth of
+    /// `0.2` at scale `3.0` suggests lowering the rock by 0.6 m.
     /// This is an estimate, not a guarantee that all overhangs will be buried.
     pub fn embed_depth(&self) -> f32 {
         self.embed_depth
@@ -120,14 +120,14 @@ impl StonePlacement {
 
     /// Returns a conservative radius enclosing the placed rock at any mesh
     /// detail level, centred on the placed-space origin. Multiply by
-    /// [`crate::StoneOptions::scale`] to convert to world units.
+    /// [`crate::StoneOptions::scale`] to convert to metres.
     pub fn bounding_radius(&self) -> f32 {
         self.translation.length() + 0.75f32.sqrt()
     }
 
     /// Rotates and offsets an unplaced mesh from [`crate::mesh_field`] onto
     /// the ground, including rotating its normals. Apply once, before scaling
-    /// to world units. This does not sink the mesh by its embed depth.
+    /// to metres. This does not sink the mesh by its embed depth.
     pub fn apply(&self, mesh: &mut StoneMesh) {
         for p in &mut mesh.positions {
             *p = (self.rotation * Vec3::from(*p) + self.translation).to_array();

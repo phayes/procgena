@@ -35,7 +35,8 @@ pub struct StoneOptions {
     /// Seed for the shape and surface pattern. Reusing a seed with the same settings
     /// reproduces the same field.
     pub seed: u32,
-    /// Width of the containing cube in world units; must be finite and positive.
+    /// The rock's width: the width of the containing cube, in metres. Must be
+    /// finite and positive.
     /// [`crate::StoneField`] uses a unit-width cube and does not apply this scale.
     pub scale: f32,
     /// Relative dimensions along x, y, and z; each must be finite and positive.
@@ -121,7 +122,7 @@ pub struct CarveOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceOptions {
     /// Strength of the inward surface displacement; must be zero or positive.
-    /// Zero disables roughness. This is a strength factor, not a distance in world units.
+    /// Zero disables roughness. This is a strength factor, not a distance in metres.
     pub displacement_scale: f32,
     /// Frequency of the surface pattern; must be positive. Larger values produce
     /// smaller, more closely spaced details within the stone’s unit-width cube.
@@ -161,7 +162,7 @@ pub struct MaterialOptions {
     /// Metalness from 0 (stone and other non-metals) to 1 (bare metal). Applies
     /// to the whole surface. Defaults to 0.
     pub metallic: f32,
-    /// World units covered by one repeat of the texture; must be positive.
+    /// Metres covered by one repeat of the texture; must be positive.
     /// Larger values make the texture's features larger on the rock.
     pub texture_size: f32,
 }

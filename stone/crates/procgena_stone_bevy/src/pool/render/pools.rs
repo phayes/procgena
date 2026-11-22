@@ -102,7 +102,7 @@ pub(crate) struct RenderPool {
     pub lod_count: u32,
     pub variant_count: u32,
     /// Camera-distance limits of each detail level, as Bevy's visibility
-    /// ranges (`x..y` fade in, `z..w` fade out), in world units.
+    /// ranges (`x..y` fade in, `z..w` fade out), in metres.
     pub lod_ranges: Vec<Vec4>,
     /// Radius enclosing every variant about its origin, including the pool's
     /// option scale but excluding each entity's transform scale.

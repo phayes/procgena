@@ -99,6 +99,9 @@
   `mesh_with_detail(&LodDetail::default())`, its `branches` buffers as the
   `Surface`, `ClumpOptions::default()` with `scale = 10.0`, and
   `diagnostics::crossing_count`.
+- **Units note:** the oak numbers above were measured before procgena_tree
+  switched to metres (1 old tree unit = 0.1 m). The tree now comes out 10×
+  smaller, so the same snow is `scale` 1 instead of `scale` 10.
 
 ## Phases
 
@@ -190,7 +193,7 @@
   the skeleton if the tree exposes them. This replaces today's single
   outward-ray test.
 - **Test:**
-  - On OakSmall LOD0 at `scale` 10, no vertex of a branch's clump lies inside
+  - On OakSmall LOD0 at `scale` 1 (metres), no vertex of a branch's clump lies inside
     the trunk shell, by a per-shell parity check.
   - Folds drop well below today's 1,600. Find where the remaining ones are
     first.
