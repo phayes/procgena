@@ -1,0 +1,28 @@
+[package]
+name = "procgena_deadwood"
+version = "0.1.0"
+description = "Procedural dead wood: fallen logs, fallen branches, sticks and stumps, with decay and levels of detail"
+edition.workspace = true
+
+[features]
+# Create OBJ geometry and MTL material file contents for use in 3D tools.
+export-obj = []
+# Create glTF (.gltf + .bin) or GLB (.glb) contents, one node per detail level.
+export-gltf = ["dep:gltf-json"]
+
+[dependencies]
+glam = { workspace = true }
+procgena_mesh = { path = "../../../mesh/crates/procgena_mesh" }
+gltf-json = { version = "1.4.1", optional = true, features = ["names", "extras"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names", "extras"] }
+
+[[example]]
+name = "export"
+required-features = ["export-obj", "export-gltf"]
+
+[package.metadata.docs.rs]
+all-features = true

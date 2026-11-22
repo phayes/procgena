@@ -3,9 +3,13 @@ resolver = "3"
 members = [
     "clump/crates/procgena_clump",
     "clump/crates/procgena_clump_bevy",
+    "deadwood/crates/procgena_deadwood",
     "mesh/crates/procgena_mesh",
+    "mushroom/crates/procgena_mushroom",
+    "mushroom/crates/procgena_mushroom_bevy",
     "stone/crates/procgena_stone",
     "stone/crates/procgena_stone_bevy",
+    "terrain/crates/procgena_terrain",
     "tree/crates/procgena_tree",
     "tree/crates/procgena_tree_bevy",
     "plant",

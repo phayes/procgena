@@ -136,6 +136,19 @@ pub fn srgb_from_hex(hex: u32) -> bevy::color::Color {
     bevy::color::Color::srgb_u8(r, g, b)
 }
 
+/// Converts a linear RGB material colour, as procgena's material options
+/// store it, to the colour picker's sRGB `0xRRGGBB`. Out-of-range channels
+/// are clipped.
+pub fn linear_to_hex([r, g, b]: [f32; 3]) -> u32 {
+    srgb_to_hex(bevy::color::Color::linear_rgb(r, g, b))
+}
+
+/// Converts the colour picker's sRGB `0xRRGGBB` to a linear RGB material colour.
+pub fn linear_from_hex(hex: u32) -> [f32; 3] {
+    use bevy::color::ColorToComponents;
+    srgb_from_hex(hex).to_linear().to_vec3().to_array()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{srgb_from_hex, srgb_to_hex};

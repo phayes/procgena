@@ -1,0 +1,70 @@
+//! Conversion to `procgena_mesh::Object`, with tags other generators can
+//! grow on.
+
+use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, Piece};
+use procgena_mesh::{TagFilter, tags};
+
+/// The surfaces procgena_clump's moss presets grow on.
+fn moss_filter() -> TagFilter {
+    TagFilter::any_of([tags::ROCK, tags::BARK, tags::WOOD, tags::GROUND]).excluding([tags::CARD])
+}
+
+#[test]
+fn objects_are_valid_closed_and_tagged() {
+    for preset in DeadwoodPreset::ALL {
+        let piece = Piece::from_preset(preset);
+        let lod = DeadwoodLod::for_options(piece.options());
+        let object = piece.object(&lod).unwrap();
+        object.validate().unwrap();
+        assert_eq!(object.levels.len(), lod.levels.len());
+        for part in &object.levels[0].parts {
+            assert!(part.closed, "{}", preset.name());
+            assert!(!part.shells.is_empty());
+            assert!(part.tags.contains(&tags::DEADWOOD));
+            assert!(part.tags.contains(&tags::WOOD));
+            assert!(
+                [tags::TRUNK, tags::LIMB, tags::BRANCH]
+                    .iter()
+                    .any(|t| part.tags.contains(t))
+            );
+            assert!(part.surface().unwrap().is_closed(), "{}", preset.name());
+        }
+    }
+}
+
+#[test]
+fn bark_tag_follows_the_bark() {
+    let fresh = Piece::from_preset(DeadwoodPreset::FreshCutLog);
+    let rotten = Piece::from_preset(DeadwoodPreset::RottenLog);
+    let lod = DeadwoodLod::default();
+    let has_bark = |p: &Piece| {
+        p.object(&lod).unwrap().levels[0]
+            .parts
+            .iter()
+            .any(|part| part.tags.contains(&tags::BARK))
+    };
+    assert!(has_bark(&fresh));
+    assert!(!has_bark(&rotten));
+}
+
+#[test]
+fn moss_can_grow_on_bare_rotten_logs() {
+    for preset in [DeadwoodPreset::RottenLog, DeadwoodPreset::MossyLog] {
+        let piece = Piece::from_preset(preset);
+        let object = piece.object(&DeadwoodLod::default()).unwrap();
+        let merged = object
+            .merged(0, &moss_filter())
+            .expect("moss finds a surface");
+        assert!(merged.closed);
+        assert!(merged.triangle_count() > 0);
+    }
+}
+
+#[test]
+fn trunk_moss_grows_on_stumps_but_not_roots() {
+    let piece = Piece::from_preset(DeadwoodPreset::NotchedStump);
+    let object = piece.object(&DeadwoodLod::default()).unwrap();
+    let trunk = TagFilter::any_of([tags::TRUNK, tags::LIMB]);
+    let merged = object.merged(0, &trunk).unwrap();
+    assert!(!merged.tags.contains(&tags::BRANCH));
+}

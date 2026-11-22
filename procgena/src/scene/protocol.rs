@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use procgena_clump::{ClumpError, ClumpOptions};
+use procgena_clump::ClumpOptions;
 use procgena_plant::prelude::{FieldPreset, PlantField};
 use procgena_stone::{OptionsError as StoneOptionsError, StoneOptions};
 use procgena_tree::{OptionsError, TreeOptions, TreePreset};
@@ -138,10 +138,9 @@ impl Default for FieldSettings {
 pub struct ClumpSettings {
     /// The tree or rock the clump grows on.
     pub subject: ClumpSubject,
-    /// The clump's settings. Lengths are in metres, like the subject.
+    /// The clump's settings, including how it looks. Lengths are in metres,
+    /// like the subject.
     pub clump: ClumpOptions,
-    /// The clump's colour.
-    pub color: Color,
 }
 
 impl Default for ClumpSettings {
@@ -150,7 +149,6 @@ impl Default for ClumpSettings {
         Self {
             subject: ClumpSubject::Stone(Arc::default()),
             clump: ClumpOptions::default(),
-            color: Color::WHITE,
         }
     }
 }
@@ -174,8 +172,8 @@ pub enum ClumpBuildError {
     Tree(OptionsError),
     /// The subject rock's settings were rejected.
     Stone(StoneOptionsError),
-    /// The clump's settings were rejected, or its subject's mesh can't carry one.
-    Clump(ClumpError),
+    /// The clump's settings were rejected, or its subject can't carry one.
+    Clump(procgena_clump_bevy::ClumpBuildError),
 }
 
 impl fmt::Display for ClumpBuildError {

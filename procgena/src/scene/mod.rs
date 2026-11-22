@@ -24,12 +24,13 @@ mod viewport;
 
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
+use procgena_clump_bevy::ClumpPlugin;
 use procgena_plant::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
 use procgena_tree::TextureCompression;
 use procgena_tree_bevy::TreePlugin;
 
-pub use assets::{STONE_TEXTURE_ROOT, TREE_TEXTURE_ROOT, add_asset_sources};
+pub use assets::{CLUMP_TEXTURE_ROOT, STONE_TEXTURE_ROOT, TREE_TEXTURE_ROOT, add_asset_sources};
 pub use environment::EnvironmentSettings;
 pub use protocol::{
     BuildStats, ClumpSettings, ClumpSubject, FieldSettings, SceneMode, SceneStart, ViewerCommand,
@@ -60,12 +61,25 @@ pub use {
 /// [`SceneViewport`] UI node displays.
 pub struct ScenePlugin {
     start: SceneStart,
+    /// Whether clumps load their textures; without them they are flat colours.
+    clump_textures: bool,
 }
 
 impl ScenePlugin {
     /// Creates a scene that first shows what `start` describes.
     pub fn new(start: SceneStart) -> Self {
-        Self { start }
+        Self {
+            start,
+            clump_textures: true,
+        }
+    }
+
+    /// Draws clumps in their plain material colours, without textures, so
+    /// tests can recognise them by colour.
+    #[cfg(test)]
+    pub fn without_clump_textures(mut self) -> Self {
+        self.clump_textures = false;
+        self
     }
 }
 
@@ -83,13 +97,17 @@ impl Plugin for ScenePlugin {
                 texture_root: Some(STONE_TEXTURE_ROOT.to_owned()),
                 texture_compression: procgena_stone::TextureCompression::Bc7,
             },
+            ClumpPlugin {
+                texture_root: self.clump_textures.then(|| CLUMP_TEXTURE_ROOT.to_owned()),
+                ..default()
+            },
             viewport::ViewportPlugin,
         ))
         .insert_resource(self.start.environment)
         .insert_resource(subject::LodChoice(self.start.lod))
         .insert_resource(subject::PlantLodChoice(self.start.plant_lod))
         .insert_resource(subject::Start(self.start.clone()))
-        .init_resource::<clump::ClumpJob>()
+        .init_resource::<clump::ShownClump>()
         .add_message::<ViewerCommand>()
         .add_message::<ViewerEvent>()
         .add_systems(
@@ -106,9 +124,9 @@ impl Plugin for ScenePlugin {
             (
                 (orbit::drive_orbit, environment::apply_environment),
                 orbit::follow_orbit,
-                subject::render_while_loading,
+                (subject::render_while_loading, clump::render_while_loading),
                 subject::report_lod,
-                clump::grow_clump,
+                clump::show_clump,
             )
                 .chain(),
         )
@@ -121,6 +139,7 @@ impl Plugin for ScenePlugin {
                 .before(VisibilitySystems::VisibilityPropagate),
         )
         .add_observer(subject::report_tree)
-        .add_observer(subject::report_stone);
+        .add_observer(subject::report_stone)
+        .add_observer(clump::report_clump);
     }
 }

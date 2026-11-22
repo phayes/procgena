@@ -6,7 +6,6 @@ pub mod params;
 
 use std::sync::Arc;
 
-use bevy::color::Color;
 use procgena_clump::ClumpPreset;
 use procgena_stone::StonePreset;
 use procgena_tree::TreePreset;
@@ -93,23 +92,12 @@ pub fn preset_label(preset: ClumpPreset) -> String {
         .join(" ")
 }
 
-/// The colour a clump preset is drawn with: white snow, green moss, brown
-/// bark for burls.
-pub fn preset_color(preset: ClumpPreset) -> Color {
-    match preset {
-        ClumpPreset::MossPatches => Color::srgb(0.29, 0.40, 0.14),
-        ClumpPreset::MossCushions => Color::srgb(0.36, 0.48, 0.16),
-        ClumpPreset::Burl => Color::srgb(0.35, 0.27, 0.20),
-        _ => Color::srgb(0.93, 0.95, 0.98),
-    }
-}
-
-/// The clump settings for `preset` grown on `subject`, with the preset's colour.
+/// The clump settings for `preset` grown on `subject`. The preset's own
+/// material sets its look: a texture, tinted by its colour.
 pub fn settings(subject: ClumpSubject, preset: ClumpPreset) -> ClumpSettings {
     ClumpSettings {
         subject,
         clump: preset.options(),
-        color: preset_color(preset),
     }
 }
 

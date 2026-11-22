@@ -2,7 +2,9 @@
 
 use procgena_clump::{MAX_NECK, Placement};
 
-use crate::params::{Group, Param, Section, choice, count, number, srgb, toggle};
+use crate::params::{
+    Group, Param, Section, choice, count, linear_from_hex, linear_to_hex, number, toggle,
+};
 use crate::scene::ClumpSettings;
 
 /// Returns the clump controls grouped in display order, with labels and input
@@ -15,7 +17,12 @@ pub fn sections() -> Vec<Section<ClumpSettings>> {
         Section {
             title: "Shape",
             groups: vec![Group::plain(vec![
-                srgb!(ClumpSettings, "color", "Colour", |s| s.color),
+                Param::color(
+                    "clump.material.color",
+                    "Tint",
+                    |s: &ClumpSettings| linear_to_hex(s.clump.material.color),
+                    |s: &mut ClumpSettings, hex| s.clump.material.color = linear_from_hex(hex),
+                ),
                 number!(
                     ClumpSettings,
                     "clump.scale",

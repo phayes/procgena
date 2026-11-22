@@ -70,6 +70,7 @@ pub struct HeadlessScene {
 
 impl HeadlessScene {
     /// Starts the scene described by `start`, rendering at `size` pixels.
+    /// Clumps are drawn in their plain material colours, without textures.
     ///
     /// # Panics
     ///
@@ -79,10 +80,13 @@ impl HeadlessScene {
         let frames = Arc::new(Mutex::new(FrameLog::default()));
         let events = EventSink::default();
 
-        // Build the app and finish its plugins; the renderer starts asynchronously.
+        // Build the app and finish its plugins; the renderer starts
+        // asynchronously. Clumps are drawn in flat colours, which tests
+        // recognise more reliably than textures.
         let mut app = App::new();
         super::add_asset_sources(&mut app);
-        app.add_plugins((headless_plugins(), ScenePlugin::new(start)))
+        let scene = ScenePlugin::new(start).without_clump_textures();
+        app.add_plugins((headless_plugins(), scene))
             .insert_resource(FrameSink {
                 log: frames.clone(),
                 size,

@@ -2,12 +2,14 @@
 
 use std::sync::LazyLock;
 
-use bevy::color::{Color, ColorToComponents, ColorToPacked, LinearRgba};
 use procgena_stone::{
     MAX_CARVE_STEPS, MAX_OCTAVES, Mesher, StoneDetail, StoneOptions, TEXTURE_SETS,
 };
 
-use crate::params::{Group, Param, Section, choice, count, name_choice, number, toggle};
+use crate::params::{
+    Group, Param, Section, choice, count, linear_from_hex, linear_to_hex, name_choice, number,
+    toggle,
+};
 
 /// Names of the detail presets, in [`StoneDetail::PRESETS`] order.
 static DETAIL_NAMES: LazyLock<Vec<&'static str>> =
@@ -146,8 +148,8 @@ pub fn sections() -> Vec<Section<StoneOptions>> {
                 Param::color(
                     "material.color",
                     "Tint",
-                    |o: &StoneOptions| to_hex(o.material.color),
-                    |o: &mut StoneOptions, hex| o.material.color = from_hex(hex),
+                    |o: &StoneOptions| linear_to_hex(o.material.color),
+                    |o: &mut StoneOptions, hex| o.material.color = linear_from_hex(hex),
                 ),
                 number!(
                     StoneOptions,
@@ -212,21 +214,6 @@ fn stretch(axis: usize, label: &'static str) -> Param<StoneOptions> {
         move |o: &StoneOptions| o.stretch[axis],
         move |o: &mut StoneOptions, value| o.stretch[axis] = value,
     )
-}
-
-/// Converts the material tint to the colour picker's `0xRRGGBB` format.
-/// Converts from linear light values to screen colour values, clipping out-of-range channels.
-fn to_hex(color: [f32; 3]) -> u32 {
-    let [r, g, b, _] = Color::LinearRgba(LinearRgba::rgb(color[0], color[1], color[2]))
-        .to_srgba()
-        .to_u8_array();
-    u32::from_be_bytes([0, r, g, b])
-}
-
-/// Converts the colour picker's `0xRRGGBB` screen colour to linear light values for the material.
-fn from_hex(hex: u32) -> [f32; 3] {
-    let [_, r, g, b] = hex.to_be_bytes();
-    Color::srgb_u8(r, g, b).to_linear().to_vec3().to_array()
 }
 
 #[cfg(test)]

@@ -1,0 +1,41 @@
+# Textures for procgena_mushroom's caps, used by the `textures` tool:
+#   uv run --project tools textures <command> mushroom
+# See tools/README.md for the commands. Only add CC0 textures: free to use,
+# including in commercial projects.
+#
+# Most mushrooms need no textures: their colours come from vertex colours,
+# and gill lines and cap patterns are drawn by procgena_mushroom_bevy's
+# shader. A set here is for presets whose cap looks better with a painted,
+# detailed surface, named by MaterialOptions::cap_texture.
+
+# Folder in the public gs://ze_textures bucket that holds these textures.
+bucket: mushroom
+
+# How surface maps are stored. `orh` packs ambient occlusion, roughness and
+# height into one image (and occlusion, roughness and zero metalness into the
+# exported `orm` JPEG).
+layout: orh
+
+# Folder under assets/textures/ for every set below.
+category: cap
+
+# Cap texture sets, in manifest order. The id names the output files and
+# MaterialOptions::cap_texture. Sources:
+#   manual  downloaded by hand from `source_url`; save the files named in
+#           `originals` in prior_art/textures/<id>/original/
+sets:
+  # A fly agaric cap: red with white warts. Download the five maps from the
+  # page's Google Drive folder ("Mushroom_Top_001_SD").
+  - id: mushroom_top_001
+    source: manual
+    title: Mushroom Top 001
+    authors: [3dtextures.me]
+    site: 3dtextures
+    source_url: https://3dtextures.me/2020/03/23/mushroom-top-001/
+    license: CC0-1.0
+    originals:
+      color: Mushroom_Top_001_basecolor.jpg
+      normal: Mushroom_Top_001_normal.jpg
+      roughness: Mushroom_Top_001_roughness.jpg
+      occlusion: Mushroom_Top_001_ambientOcclusion.jpg
+      height: Mushroom_Top_001_height.png

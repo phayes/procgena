@@ -5280,7 +5280,7 @@ dependencies = [
  "bevy",
  "dirs",
  "procgena_clump",
- "procgena_mesh",
+ "procgena_clump_bevy",
  "procgena_plant",
  "procgena_stone",
  "procgena_stone_bevy",
@@ -5296,9 +5296,13 @@ dependencies = [
 name = "procgena_clump"
 version = "0.1.0"
 dependencies = [
+ "futures-lite",
  "glam 0.33.12",
+ "naga",
  "procgena_mesh",
  "procgena_stone",
+ "wesl",
+ "wgpu",
 ]
 
 [[package]]
@@ -5316,11 +5320,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "procgena_deadwood"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+ "gltf",
+ "gltf-json",
+ "procgena_mesh",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "procgena_mesh"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "glam 0.33.12",
+]
+
+[[package]]
+name = "procgena_mushroom"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+ "gltf",
+ "gltf-json",
+ "procgena_mesh",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "procgena_mushroom_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "procgena_mesh",
+ "procgena_mushroom",
+ "serde_json",
 ]
 
 [[package]]
@@ -5375,6 +5413,16 @@ dependencies = [
  "procgena_mesh",
  "procgena_stone",
  "procgena_stone_bevy",
+]
+
+[[package]]
+name = "procgena_terrain"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+ "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

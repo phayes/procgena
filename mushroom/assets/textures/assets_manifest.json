@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "baseUrl": "https://storage.googleapis.com/ze_textures/mushroom/",
+  "pathPatterns": {
+    "surfaces": "<category>/<id>-<size>-<map>-<format>.ktx2"
+  },
+  "sizes": {
+    "512": "fits within 512 x 512 pixels",
+    "1k": "fits within 1024 x 1024 pixels",
+    "2k": "fits within 2048 x 2048 pixels"
+  },
+  "maps": {
+    "color": "surface colour, with straight-alpha transparency for cards; load as sRGB",
+    "normal": "surface lighting detail, OpenGL (+Y) convention; load as linear data",
+    "orh": "R occlusion (shades hollows), G roughness (light is matte), B height (0-1, light is raised); linear data"
+  },
+  "formats": {
+    "bc7": "BC7 with Zstandard compression, for GPUs that support BC7, commonly desktops",
+    "uastc": "Basis Universal UASTC with Zstandard compression; the loader converts it to a format the GPU supports"
+  },
+  "assets": [
+    {
+      "id": "mushroom_top_001",
+      "category": "cap",
+      "title": "Mushroom Top 001",
+      "authors": [
+        "3dtextures.me"
+      ],
+      "source": "3dtextures",
+      "sourceUrl": "https://3dtextures.me/2020/03/23/mushroom-top-001/",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "cap/mushroom_top_001-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 275672,
+          "sha256": "04a309743a4d4223535c622bc99576981ec664059e31dd1e884deaa801d98bc9"
+        },
+        {
+          "path": "cap/mushroom_top_001-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 187722,
+          "sha256": "72418b7b2f3e948fb41bf294d6f04d0653549fe9b1a0b68f66c223980e46cd16"
+        },
+        {
+          "path": "cap/mushroom_top_001-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 280311,
+          "sha256": "828849f32bf23fdf5d299cb518401d8e5547c931d2a707a2bebdc17d3756bca3"
+        },
+        {
+          "path": "cap/mushroom_top_001-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 288392,
+          "sha256": "b17bd33a65da89395ca26a949bcb9cf8b78f3adee32fe52bb0514bcec9ad4a4f"
+        },
+        {
+          "path": "cap/mushroom_top_001-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 309097,
+          "sha256": "51cceeaea1870cbed9355739fa1508c9ab277c5b14f7417e926548e81e2211d1"
+        },
+        {
+          "path": "cap/mushroom_top_001-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 302516,
+          "sha256": "a552d8b969fc769249a8d1a6d1a4a4fe7ba2f8e2db116949fa94b51c42329edc"
+        },
+        {
+          "path": "cap/mushroom_top_001-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 939106,
+          "sha256": "073ccbd3ba90b65644ba7bad2e2591eee0039d377d1cffc131145ac65afc8ec6"
+        },
+        {
+          "path": "cap/mushroom_top_001-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 621386,
+          "sha256": "edaec407dcab2f7a985706a692b4a8d29667ec000d5dc57a139072baa823a2a1"
+        },
+        {
+          "path": "cap/mushroom_top_001-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1059972,
+          "sha256": "6e9d2e9f1e7cca07ce94287a67c5cfa9e698117d649b6d4d2b198cf8e772c688"
+        },
+        {
+          "path": "cap/mushroom_top_001-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1089798,
+          "sha256": "5b9a12b40c2c8e8b0a4260e464c429d6d82c00a8eebf750638f1630f5129daac"
+        },
+        {
+          "path": "cap/mushroom_top_001-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1188922,
+          "sha256": "1d1b2edc27b0a581114b090bf4ac4c28fc9c23e7a9e0275e2b6799e80015068e"
+        },
+        {
+          "path": "cap/mushroom_top_001-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1171778,
+          "sha256": "8170431b1dee9e6e9e1b78b5e8ad62900d4042041d760b0474b592e664d620b9"
+        },
+        {
+          "path": "cap/mushroom_top_001-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3086748,
+          "sha256": "93122bce6e4d56415f5b34f609b73f2215cf1309e5db76f4ec2fd891b7aa142f"
+        },
+        {
+          "path": "cap/mushroom_top_001-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2054575,
+          "sha256": "d51dcb3ef9decd4cbd0940007cd7d46f01854bf1f6e884e62dbf01fe23b2bd3b"
+        },
+        {
+          "path": "cap/mushroom_top_001-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3815076,
+          "sha256": "a51f507f6471c862764a9cad725b4bdbaf1eaf85bd4d658677f2727535115c32"
+        },
+        {
+          "path": "cap/mushroom_top_001-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3980285,
+          "sha256": "35ef18dbaa24ef390cafeced929c7ed65b0efb7349dd455fd138056fb8bec36e"
+        },
+        {
+          "path": "cap/mushroom_top_001-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4351228,
+          "sha256": "a3d3c28e188e98ab88ce106777b2200e888f52baeddfdbfd0bcd2e048215110c"
+        },
+        {
+          "path": "cap/mushroom_top_001-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4451649,
+          "sha256": "ae511489c230fadac473c4e607f27c5c413eba40614ac0c685d3dfc4337f92c7"
+        }
+      ]
+    }
+  ]
+}
