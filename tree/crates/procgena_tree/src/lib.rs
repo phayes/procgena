@@ -204,6 +204,7 @@ pub mod export;
 mod jiggle;
 mod material;
 mod mesh;
+mod object;
 mod options;
 mod part;
 mod presets;

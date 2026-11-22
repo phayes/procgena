@@ -42,6 +42,7 @@ procgena_plant = { path = "../plant" }
 procgena_stone = { path = "../stone/crates/procgena_stone", features = ["export-obj", "export-gltf"] }
 procgena_stone_bevy = { path = "../stone/crates/procgena_stone_bevy" }
 procgena_clump = { path = "../clump/crates/procgena_clump" }
+procgena_mesh = { path = "../mesh/crates/procgena_mesh" }
 # Download texture images, verify their contents and cache them for later exports.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 sha2 = "0.11"

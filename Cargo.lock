@@ -5280,6 +5280,7 @@ dependencies = [
  "bevy",
  "dirs",
  "procgena_clump",
+ "procgena_mesh",
  "procgena_plant",
  "procgena_stone",
  "procgena_stone_bevy",
@@ -5296,7 +5297,30 @@ name = "procgena_clump"
 version = "0.1.0"
 dependencies = [
  "glam 0.33.12",
+ "procgena_mesh",
  "procgena_stone",
+]
+
+[[package]]
+name = "procgena_clump_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "image",
+ "procgena_clump",
+ "procgena_mesh",
+ "procgena_stone",
+ "procgena_stone_bevy",
+ "procgena_tree",
+ "procgena_tree_bevy",
+]
+
+[[package]]
+name = "procgena_mesh"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "glam 0.33.12",
 ]
 
 [[package]]
@@ -5334,6 +5358,7 @@ dependencies = [
  "gltf",
  "gltf-json",
  "naga",
+ "procgena_mesh",
  "rayon",
  "serde",
  "serde_json",
@@ -5347,6 +5372,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "image",
+ "procgena_mesh",
  "procgena_stone",
  "procgena_stone_bevy",
 ]
@@ -5359,6 +5385,7 @@ dependencies = [
  "gltf",
  "gltf-json",
  "naga",
+ "procgena_mesh",
  "serde",
  "serde_json",
  "twox-hash",
@@ -5371,6 +5398,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "image",
+ "procgena_mesh",
  "procgena_tree",
  "serde_json",
 ]

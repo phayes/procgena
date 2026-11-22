@@ -1,0 +1,18 @@
+[package]
+name = "procgena_mesh"
+version = "0.1.0"
+description = "Tagged triangle meshes that procgena generators hand to each other"
+edition.workspace = true
+
+[dependencies]
+glam = { workspace = true }
+# Only the ECS, with a subset of the features Bevy 0.20.1 turns on, so it
+# builds together with the Bevy crates instead of as a separate copy.
+bevy_ecs = { version = "0.20.1", default-features = false, features = ["std"], optional = true }
+
+[features]
+# A `GeneratedObject` component for putting a generated object on a Bevy entity.
+bevy = ["dep:bevy_ecs"]
+
+[package.metadata.docs.rs]
+all-features = true

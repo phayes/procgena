@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 procgena_tree = { path = "../procgena_tree" }
+procgena_mesh = { path = "../../../mesh/crates/procgena_mesh", features = ["bevy"] }
 serde_json = { workspace = true }
 bevy = { version = "0.20.1", default-features = false, features = [
     "std",

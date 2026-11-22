@@ -1,14 +1,15 @@
-//! The input mesh that clumps are placed on.
+//! Plain triangle meshes: positions, normals and indices.
 
 use std::fmt;
 
 use glam::Vec3;
 
-/// A borrowed triangle mesh that clumps grow on.
+/// A borrowed triangle mesh, checked when it is created.
 ///
 /// Positions and normals are in metres and in the mesh's final
 /// orientation. Triangles are counter-clockwise when seen from outside, and
-/// normals point outward. Clumps grow on the side the normals point to.
+/// normals point outward. Generators that grow on a surface, such as
+/// clumps, grow on the side the normals point to.
 #[derive(Debug, Clone, Copy)]
 pub struct Surface<'a> {
     positions: &'a [[f32; 3]],
@@ -83,23 +84,35 @@ impl<'a> Surface<'a> {
     /// # Panics
     ///
     /// Panics if `t` is not less than [`triangle_count`](Self::triangle_count).
-    pub(crate) fn triangle(&self, t: usize) -> [usize; 3] {
+    pub fn triangle(&self, t: usize) -> [usize; 3] {
         let i = &self.indices[t * 3..t * 3 + 3];
         [i[0] as usize, i[1] as usize, i[2] as usize]
     }
 
     /// Returns the corner positions of triangle `t`.
-    pub(crate) fn triangle_positions(&self, t: usize) -> [Vec3; 3] {
+    ///
+    /// # Panics
+    ///
+    /// Panics if `t` is not less than [`triangle_count`](Self::triangle_count).
+    pub fn triangle_positions(&self, t: usize) -> [Vec3; 3] {
         self.triangle(t).map(|v| self.position(v))
     }
 
     /// Returns the position of vertex `v`.
-    pub(crate) fn position(&self, v: usize) -> Vec3 {
+    ///
+    /// # Panics
+    ///
+    /// Panics if `v` is not less than the number of positions.
+    pub fn position(&self, v: usize) -> Vec3 {
         Vec3::from(self.positions[v])
     }
 
     /// Returns the normal of vertex `v`, normalized. A zero normal stays zero.
-    pub(crate) fn normal(&self, v: usize) -> Vec3 {
+    ///
+    /// # Panics
+    ///
+    /// Panics if `v` is not less than the number of positions.
+    pub fn normal(&self, v: usize) -> Vec3 {
         Vec3::from(self.normals[v]).normalize_or_zero()
     }
 
@@ -116,7 +129,11 @@ impl<'a> Surface<'a> {
 
     /// Same as [`is_closed`](Self::is_closed), for a caller that already has
     /// `welded`, the per-vertex position ids from [`welded`](Self::welded).
-    pub(crate) fn is_closed_welded(&self, welded: &[u32]) -> bool {
+    ///
+    /// # Panics
+    ///
+    /// Panics if `welded` has fewer entries than there are positions.
+    pub fn is_closed_welded(&self, welded: &[u32]) -> bool {
         // Sort the welded edges so copies sit together, then check that each
         // appears exactly twice.
         let mut edges: Vec<u64> = Vec::with_capacity(self.indices.len());
@@ -134,7 +151,7 @@ impl<'a> Surface<'a> {
     /// its position, and the number of distinct positions. Ids count up from
     /// 0 in order of first appearance. Positions are compared bit for bit,
     /// except that -0.0 equals 0.0.
-    pub(crate) fn welded(&self) -> (Vec<u32>, usize) {
+    pub fn welded(&self) -> (Vec<u32>, usize) {
         let mut ids = std::collections::HashMap::<[u32; 3], u32>::new();
         let welded = self
             .positions
@@ -150,7 +167,7 @@ impl<'a> Surface<'a> {
     }
 
     /// Returns the smallest box that holds every vertex, as `(min, max)`.
-    pub(crate) fn bounds(&self) -> (Vec3, Vec3) {
+    pub fn bounds(&self) -> (Vec3, Vec3) {
         self.positions.iter().fold(
             (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
             |(lo, hi), &p| (lo.min(Vec3::from(p)), hi.max(Vec3::from(p))),
@@ -160,7 +177,8 @@ impl<'a> Surface<'a> {
 
 /// An owned triangle mesh that can be borrowed as a [`Surface`].
 ///
-/// Use it to hold a generated input such as [`SurfaceMesh::ground`].
+/// It holds the geometry of each [`Part`](crate::Part), and generated meshes
+/// such as [`SurfaceMesh::ground`].
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SurfaceMesh {
     /// Vertex positions in metres.

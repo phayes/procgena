@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use procgena_mesh::{Level, Object, Part, SurfaceMesh, tags};
+
 use crate::detail::DetailLevel;
 use crate::field::StoneField;
 use crate::mesh::{StoneMesh, mesh_field};
@@ -132,6 +134,47 @@ impl Stone {
         self.options.mesh.detail.levels().iter().zip(&self.meshes)
     }
 
+    /// Returns the rock as a tagged [`Object`], for generators that grow on
+    /// it, such as procgena_clump.
+    ///
+    /// There is one object level per detail level, most detailed first. Each
+    /// level holds a single part tagged [`tags::ROCK`], or no parts if that
+    /// level's mesh is empty. Level start distances are in metres, scaled to
+    /// this rock's size the same way the Bevy plugin scales them. A part is
+    /// marked closed only if its mesh is watertight; its shells are left
+    /// unknown.
+    pub fn object(&self) -> Object {
+        let size_factor = self.options.scale / StoneOptions::default().scale;
+        let levels = self
+            .levels()
+            .enumerate()
+            .map(|(i, (detail, mesh))| {
+                let start = if i == 0 {
+                    0.0
+                } else {
+                    detail.distance * size_factor
+                };
+                let parts = self.rock_part(mesh).into_iter().collect();
+                Level { start, parts }
+            })
+            .collect();
+        Object { levels }
+    }
+
+    /// Wraps `mesh` as a part tagged `rock`, or returns `None` if it is empty.
+    fn rock_part(&self, mesh: &StoneMesh) -> Option<Part> {
+        let mesh = SurfaceMesh {
+            positions: mesh.positions.clone(),
+            normals: mesh.normals.clone(),
+            indices: mesh.indices.clone(),
+        };
+        let closed = mesh.surface().ok()?.is_closed();
+        Some(Part {
+            closed,
+            ..Part::new([tags::ROCK], mesh)
+        })
+    }
+
     /// Builds another mesh using `mesher` and `resolution` grid cells per axis.
     ///
     /// The result is in metres and uses the same rock shape and placement as the
@@ -244,6 +287,38 @@ mod tests {
             levels[1].1,
             &stone.mesh_with(Mesher::MarchingCubes, 16).unwrap()
         );
+    }
+
+    #[test]
+    fn the_object_has_one_closed_rock_part_per_level() {
+        let mut options = StoneOptions {
+            scale: 5.0,
+            ..StoneOptions::default()
+        };
+        options.mesh.detail = StoneDetail::new(vec![
+            DetailLevel::new(32, 0.0, TextureSize::Size1k),
+            DetailLevel::new(16, 10.0, TextureSize::Size512),
+        ]);
+        let stone = Stone::new(options).unwrap();
+        let object = stone.object();
+        object.validate().unwrap();
+        assert_eq!(object.levels.len(), 2);
+
+        // Level starts are scaled to the rock's size: 5 m is twice the default.
+        assert_eq!(object.levels[0].start, 0.0);
+        assert_eq!(object.levels[1].start, 20.0);
+
+        // Each level is the matching mesh, as one watertight rock part.
+        for (level, (_, mesh)) in object.levels.iter().zip(stone.levels()) {
+            let [part] = &level.parts[..] else {
+                panic!("expected one part, got {}", level.parts.len());
+            };
+            assert_eq!(part.tags, [tags::ROCK].into());
+            assert!(part.closed);
+            assert!(part.shells.is_empty());
+            assert_eq!(part.mesh.positions, mesh.positions);
+            assert_eq!(part.mesh.indices, mesh.indices);
+        }
     }
 
     #[test]

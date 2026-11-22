@@ -7,7 +7,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, futures::check_ready};
-use procgena_clump::{Clump, ClumpError, ClumpMesh, ClumpOptions, Surface};
+use procgena_clump::{Clump, ClumpError, ClumpMesh, ClumpOptions};
+use procgena_mesh::Surface;
 use procgena_stone_bevy::{StoneGenerating, StonePart};
 use procgena_tree_bevy::{TreeGenerating, TreePart, TreePartKind};
 
@@ -238,7 +239,7 @@ fn bevy_mesh(mesh: ClumpMesh) -> Mesh {
 
 #[cfg(test)]
 mod tests {
-    use procgena_clump::SurfaceMesh;
+    use procgena_mesh::SurfaceMesh;
 
     use super::*;
 
