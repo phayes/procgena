@@ -8,8 +8,8 @@ use glam::{Quat, Vec3};
 
 use crate::skeleton::{place, shuffled_indices};
 use crate::{
-    Attachment, ClusterKind, ClusterPlacement, ClusterShape, Facing, Rng, Section,
-    SkeletonBranch, TreeOptions, TreeType,
+    Attachment, ClusterKind, ClusterPlacement, ClusterShape, Facing, Rng, Section, SkeletonBranch,
+    TreeOptions, TreeType,
 };
 
 /// Angle between successive items around a stem, about 137.5°.

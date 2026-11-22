@@ -1,18 +1,18 @@
 //! The hosted `procgena_plant` demo: a meadow larger than the grass radius, a
 //! clearing, a walker trampling a trail, and far grass beyond the blades.
 //!
-//! It starts at `GrassSettings::ULTRA`, the highest tier, with the
+//! It starts at `PlantSettings::ULTRA`, the highest tier, with the
 //! `WILDFLOWER_MEADOW` preset. Grass has measured many times dearer in a
 //! browser than natively on the same GPU, for reasons not yet known (see
 //! `docs/web.md`); the page switches the tier and the preset, and natively
 //! 1 to 4 pick the tier and `[` and `]` step through the presets. WASD and
 //! the mouse fly the camera (hold the right button, or press M, to look), and
-//! the left button paints with a `GrassBrush`. In the browser the page's panel
+//! the left button paints with a `PlantBrush`. In the browser the page's panel
 //! tunes every public setting of grass, through `tune`.
 //!
 //! ```text
 //! cargo run -p procgena_plant_web --release        # natively
-//! python tools/web_demo.py serve               # in the browser
+//! python tools/plant/web_demo.py serve               # in the browser
 //! ```
 
 #[cfg(target_arch = "wasm32")]
@@ -29,11 +29,11 @@ use procgena_plant::prelude::*;
 use tune::{Brush, Tuning};
 
 /// The tiers the page offers, in its order.
-const QUALITIES: [(&str, GrassSettings); 4] = [
-    ("LOW", GrassSettings::LOW),
-    ("MEDIUM", GrassSettings::MEDIUM),
-    ("HIGH", GrassSettings::HIGH),
-    ("ULTRA", GrassSettings::ULTRA),
+const QUALITIES: [(&str, PlantSettings); 4] = [
+    ("LOW", PlantSettings::LOW),
+    ("MEDIUM", PlantSettings::MEDIUM),
+    ("HIGH", PlantSettings::HIGH),
+    ("ULTRA", PlantSettings::ULTRA),
 ];
 /// `ULTRA`, where the demo starts.
 const START_QUALITY: usize = 3;
@@ -63,8 +63,8 @@ fn main() {
             }),
             ..default()
         }),
-        GrassPlugins,
-        GrassDebugPlugin,
+        PlantPlugins,
+        PlantDebugPlugin,
         FreeCameraPlugin,
     ))
     // The sky is the colour of the mist, so the far ground fades into it.
@@ -109,12 +109,12 @@ struct Requests {
 /// shows now.
 #[derive(Resource, Debug)]
 struct Meadow {
-    ground: Handle<FarGrassMaterial>,
-    /// The `GrassField`, with its `GrassRegrowth`.
+    ground: Handle<FarPlantMaterial>,
+    /// The `PlantField`, with its `PlantRegrowth`.
     field: Entity,
-    /// The walker's `GrassInteractor`.
+    /// The walker's `PlantInteractor`.
     walker: Entity,
-    /// The camera's `GrassCamera`.
+    /// The camera's `PlantCamera`.
     camera: Entity,
     /// An index into `QUALITIES`.
     quality: usize,
@@ -131,14 +131,14 @@ fn preset(name: &str) -> Option<&'static FieldPreset> {
 }
 
 /// Creates the preview field from a preset, using the meadow's size.
-fn meadow_field(preset: &FieldPreset) -> GrassField {
-    GrassField::from_preset(preset, Vec2::splat(MEADOW))
+fn meadow_field(preset: &FieldPreset) -> PlantField {
+    PlantField::from_preset(preset, Vec2::splat(MEADOW))
 }
 
 /// Matches the meadow's distant ground shading to the field's plant colours.
-fn far_grass(field: &GrassField) -> FarGrass {
+fn far_plants(field: &PlantField) -> FarPlants {
     let half = MEADOW * 0.5;
-    FarGrass::new(field).with_area(Rect::new(-half, -half, half, half))
+    FarPlants::new(field).with_area(Rect::new(-half, -half, half, half))
 }
 
 /// Walks a person around the clearing, through the grass.
@@ -149,12 +149,12 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut far_materials: ResMut<Assets<FarGrassMaterial>>,
+    mut far_materials: ResMut<Assets<FarPlantMaterial>>,
 ) {
     let camera = commands
         .spawn((
             Camera3d::default(),
-            GrassCamera::default(),
+            PlantCamera::default(),
             Msaa::Sample4,
             Transform::from_xyz(-6.0, 3.0, 14.0).looking_at(Vec3::new(2.0, 0.0, 0.0), Vec3::Y),
             FreeCamera::default(),
@@ -185,25 +185,25 @@ fn setup(
 
     let start = preset(START_PRESET).expect("START_PRESET names a preset");
     let field = meadow_field(start);
-    let ground = far_materials.add(FarGrassMaterial {
+    let ground = far_materials.add(FarPlantMaterial {
         base: StandardMaterial {
             base_color: Color::srgb(0.20, 0.15, 0.09),
             perceptual_roughness: 0.95,
             ..default()
         },
-        extension: far_grass(&field),
+        extension: far_plants(&field),
     });
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(2000.0, 2000.0))),
         MeshMaterial3d(ground.clone()),
     ));
     // The meadow; regrowth closes what the brush clears.
-    let field = commands.spawn((field, GrassRegrowth::default())).id();
+    let field = commands.spawn((field, PlantRegrowth::default())).id();
     // A 1.8 m capsule, the height of a person.
     let walker = commands
         .spawn((
             Walker,
-            GrassInteractor::default(),
+            PlantInteractor::default(),
             Mesh3d(meshes.add(Capsule3d::new(0.25, 1.3))),
             MeshMaterial3d(materials.add(Color::srgb(0.15, 0.32, 0.75))),
             Transform::from_xyz(WALK_RADIUS, 0.9, 0.0),
@@ -261,9 +261,9 @@ fn keyboard(keys: Res<ButtonInput<KeyCode>>, meadow: Res<Meadow>, mut requests: 
 fn apply_requests(
     mut requests: ResMut<Requests>,
     mut meadow: ResMut<Meadow>,
-    mut settings: ResMut<GrassSettings>,
-    mut fields: Query<&mut GrassField>,
-    mut far_materials: ResMut<Assets<FarGrassMaterial>>,
+    mut settings: ResMut<PlantSettings>,
+    mut fields: Query<&mut PlantField>,
+    mut far_materials: ResMut<Assets<FarPlantMaterial>>,
     mut windows: Query<&mut Window>,
     mut tuning: ResMut<Tuning>,
     mut lights: Query<&mut DirectionalLight>,
@@ -305,7 +305,7 @@ fn apply_requests(
     if let Some(preset) = name.filter(|name| *name != meadow.preset).and_then(preset) {
         let field = meadow_field(preset);
         if let Some(mut ground) = far_materials.get_mut(&meadow.ground) {
-            ground.extension = far_grass(&field);
+            ground.extension = far_plants(&field);
         }
         if let Ok(mut meadow_field) = fields.get_mut(meadow.field) {
             *meadow_field = field;
@@ -333,7 +333,7 @@ fn paint(
     brush: Res<Brush>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    mut painting: Query<(Entity, &mut Transform, &mut GrassBrush), With<Painting>>,
+    mut painting: Query<(Entity, &mut Transform, &mut PlantBrush), With<Painting>>,
     mut gizmos: Gizmos,
 ) {
     let ground = buttons

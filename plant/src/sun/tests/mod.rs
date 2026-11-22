@@ -79,7 +79,7 @@ fn the_likely_mistakes_are_named() {
     let two = lights(&mut world, &[(true, false), (true, false)]);
     let problems = sun_problems(&two, true);
     assert_eq!(problems.len(), 1);
-    assert!(problems[0].contains("GrassSun"), "{problems:?}");
+    assert!(problems[0].contains("PlantSun"), "{problems:?}");
     assert!(
         sun_problems(&two, false).is_empty(),
         "no grass shadows, no problem"
@@ -96,8 +96,8 @@ fn the_likely_mistakes_are_named() {
 
     // Two marks.
     let twice = lights(&mut world, &[(true, true), (true, true)]);
-    assert!(sun_problems(&twice, true)[0].contains("2 lights carry GrassSun"));
-    assert!(sun_problems(&twice, false)[0].contains("2 lights carry GrassSun"));
+    assert!(sun_problems(&twice, true)[0].contains("2 lights carry PlantSun"));
+    assert!(sun_problems(&twice, false)[0].contains("2 lights carry PlantSun"));
 
     // One light and no mark is the common, fine case.
     let one = lights(&mut world, &[(true, false)]);
@@ -141,12 +141,12 @@ mod system {
 
     /// An app running `check_shadow_setup` over one field of blades
     /// `blade_width` metres wide.
-    fn app(shadows: GrassShadows, blade_width: f32) -> App {
+    fn app(shadows: PlantShadows, blade_width: f32) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .insert_resource(GrassSettings {
+            .insert_resource(PlantSettings {
                 shadows,
-                ..GrassSettings::HIGH
+                ..PlantSettings::HIGH
             })
             .insert_resource(FieldTables {
                 fields: Arc::new(vec![FieldGpu {
@@ -176,7 +176,7 @@ mod system {
             .build(),
         ));
         if marked {
-            light.insert(GrassSun);
+            light.insert(PlantSun);
         }
         light.id()
     }
@@ -187,7 +187,7 @@ mod system {
 
     #[test]
     fn a_deep_first_cascade_is_reported_once() {
-        let mut app = app(GrassShadows::Near, 0.012);
+        let mut app = app(PlantShadows::Near, 0.012);
         sun(&mut app, 60.0, true, true);
         app.update();
         let said_now = said(&app);
@@ -210,15 +210,15 @@ mod system {
 
     #[test]
     fn the_recommended_setup_is_quiet() {
-        let mut app = app(GrassShadows::Near, 0.012);
+        let mut app = app(PlantShadows::Near, 0.012);
         sun(&mut app, 12.0, true, true);
         app.update();
         assert!(said(&app).is_empty(), "{:?}", said(&app));
     }
 
     #[test]
-    fn nothing_is_said_about_shadows_grass_does_not_cast() {
-        let mut app = app(GrassShadows::Off, 0.012);
+    fn nothing_is_said_about_shadows_plants_do_not_cast() {
+        let mut app = app(PlantShadows::Off, 0.012);
         sun(&mut app, 60.0, true, false);
         sun(&mut app, 60.0, true, false);
         app.update();
@@ -227,17 +227,17 @@ mod system {
 
     #[test]
     fn a_sun_and_a_moon_without_a_mark_are_reported_and_a_mark_settles_it() {
-        let mut app = app(GrassShadows::Near, 0.06);
+        let mut app = app(PlantShadows::Near, 0.06);
         let moon = sun(&mut app, 12.0, true, false);
         sun(&mut app, 12.0, true, false);
         app.update();
         let before = said(&app);
         assert_eq!(before.len(), 1, "{before:?}");
-        assert!(before[0].contains("none carries GrassSun"), "{before:?}");
+        assert!(before[0].contains("none carries PlantSun"), "{before:?}");
 
         // Marking one is the fix: the same problem is not said again, and
         // no new one appears.
-        app.world_mut().entity_mut(moon).insert(GrassSun);
+        app.world_mut().entity_mut(moon).insert(PlantSun);
         app.update();
         assert_eq!(said(&app), before);
     }
@@ -245,12 +245,12 @@ mod system {
     #[test]
     fn narrow_blades_make_a_cascade_that_wide_blades_forgive() {
         // The same 30 m cascade: fine for 6 cm blades, not for 1 cm ones.
-        let mut wide = app(GrassShadows::Near, 0.06);
+        let mut wide = app(PlantShadows::Near, 0.06);
         sun(&mut wide, 30.0, true, true);
         wide.update();
         assert!(said(&wide).is_empty(), "{:?}", said(&wide));
 
-        let mut narrow = app(GrassShadows::Near, 0.01);
+        let mut narrow = app(PlantShadows::Near, 0.01);
         sun(&mut narrow, 30.0, true, true);
         narrow.update();
         assert_eq!(said(&narrow).len(), 1, "{:?}", said(&narrow));
@@ -266,7 +266,7 @@ mod adapter {
 
     fn app() -> App {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, GrassLightPlugin));
+        app.add_plugins((MinimalPlugins, PlantLightPlugin));
         configure_light_systems(&mut app);
         app
     }
@@ -283,15 +283,15 @@ mod adapter {
             .id()
     }
 
-    fn frame(app: &App) -> GrassLightFrame {
-        *app.world().resource::<GrassLightFrame>()
+    fn frame(app: &App) -> PlantLightFrame {
+        *app.world().resource::<PlantLightFrame>()
     }
 
     #[test]
-    fn the_frame_follows_the_light_grass_would_pick() {
+    fn the_frame_follows_the_light_plants_would_pick() {
         let mut app = app();
         app.update();
-        assert_eq!(frame(&app), GrassLightFrame::default(), "no light yet");
+        assert_eq!(frame(&app), PlantLightFrame::default(), "no light yet");
 
         let moon = Vec3::new(0.3, -1.0, 0.0).normalize();
         let sun = Vec3::new(-0.5, -1.0, 0.2).normalize();
@@ -320,7 +320,7 @@ mod adapter {
         app.add_plugins(MinimalPlugins);
         configure_light_systems(&mut app);
         light(&mut app, true, Vec3::NEG_Y);
-        let own = GrassLightFrame {
+        let own = PlantLightFrame {
             shadow_direction: None,
             sun_direction: Some(Vec3::new(1.0, -1.0, 0.0)),
         };

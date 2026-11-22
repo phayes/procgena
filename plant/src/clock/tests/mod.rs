@@ -1,7 +1,7 @@
 use super::*;
 
-fn run(seconds: f64, step: f64) -> GrassClock {
-    let mut clock = GrassClock::default();
+fn run(seconds: f64, step: f64) -> PlantClock {
+    let mut clock = PlantClock::default();
     let mut elapsed = 0.0;
     while elapsed < seconds {
         elapsed += step;
@@ -16,7 +16,7 @@ fn time_wraps_into_one_period() {
     assert!((clock.time - 10.0).abs() < 1e-3, "{}", clock.time);
     assert!((clock.previous_time - 9.5).abs() < 1e-3);
     // Just after a wrap the previous frame is just before the end.
-    let mut clock = GrassClock::default();
+    let mut clock = PlantClock::default();
     clock.advance(3600.1, 0.2);
     assert!(clock.previous_time > 3599.0, "{}", clock.previous_time);
 }

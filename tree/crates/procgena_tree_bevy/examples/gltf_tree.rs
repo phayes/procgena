@@ -3,7 +3,7 @@
 //!
 //! Run `cargo run -p procgena_tree_bevy --example gltf_tree --features gltf` to export
 //! the Apple preset at its lowest default detail level and view the result.
-//! The file is saved to `target/ze_tree_gltf/apple_far.glb` in the workspace.
+//! The file is saved to `target/procgena_tree_gltf/apple_far.glb` in the workspace.
 //! Append `-- path/to/tree.glb` to view an existing file instead. Add
 //! `--screenshot output.png` after the `--` to capture a frame after five
 //! seconds and exit; this delay does not guarantee that loading has finished.
@@ -18,7 +18,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::world_serialization::WorldAssetRoot;
 use procgena_tree::export::gltf::{GltfOptions, to_glb};
 use procgena_tree::{Tree, TreePreset, default_lod_levels};
-use procgena_tree_bevy::{ZeTreePlugin, add_tree_gltf_attributes};
+use procgena_tree_bevy::{TreePlugin, add_tree_gltf_attributes};
 
 /// Scene file name relative to the asset folder, plus an optional screenshot path.
 #[derive(Resource)]
@@ -56,7 +56,7 @@ fn main() {
                 }),
             // The scene supplies its own meshes and materials; disable generated
             // detail levels and external tree textures.
-            ZeTreePlugin {
+            TreePlugin {
                 texture_root: None,
                 lod_levels: Vec::new(),
                 ..default()
@@ -83,7 +83,7 @@ fn export_apple() -> PathBuf {
         &GltfOptions::default(),
     )
     .expect("the tree exports");
-    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/ze_tree_gltf");
+    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/procgena_tree_gltf");
     std::fs::create_dir_all(&folder).expect("the export folder can be created");
     let path = folder.join("apple_far.glb");
     std::fs::write(&path, bytes).expect("the export can be saved");

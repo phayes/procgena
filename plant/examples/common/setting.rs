@@ -19,7 +19,7 @@ pub(crate) struct Setting {
     /// mask.
     pub(crate) rows: Option<f32>,
     /// The wind the preset is meant for, when it is not the usual breeze.
-    pub(crate) wind: Option<GrassWind>,
+    pub(crate) wind: Option<PlantWind>,
 }
 
 /// Water standing on the ground: how deep, and its colour (alpha is how much
@@ -45,7 +45,7 @@ const fn soil(red: f32, green: f32, blue: f32) -> Setting {
 
 /// A slow current for kelp: little push, long slow waves and a wide, slow
 /// sway, so the ribbons drift instead of flapping.
-pub(crate) const CURRENT: GrassWind = GrassWind {
+pub(crate) const CURRENT: PlantWind = PlantWind {
     strength: 0.45,
     gust_scale: 30.0,
     gust_speed: 1.2,
@@ -53,7 +53,7 @@ pub(crate) const CURRENT: GrassWind = GrassWind {
     sway_speed: 0.3,
     flutter: 0.0,
     gust_contrast: 1.5,
-    ..GrassWind::BREEZE
+    ..PlantWind::BREEZE
 };
 
 /// Where the preset called `name` is shown.

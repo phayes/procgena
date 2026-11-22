@@ -539,7 +539,10 @@ mod tests {
             texture_size: TextureSize::Size2k,
         }]);
         assert_eq!(options.mesh.detail, expected);
-        assert_eq!(StoneOptions::from_json(&options.to_json()).unwrap(), options);
+        assert_eq!(
+            StoneOptions::from_json(&options.to_json()).unwrap(),
+            options
+        );
     }
 
     #[test]

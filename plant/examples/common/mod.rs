@@ -7,19 +7,19 @@
 //! * `--fixed-time` advances the clock exactly 1/60 s per frame, so the wind in
 //!   a screenshot is the same on every run and every machine.
 //! * `--perf` logs Bevy's per-pass CPU and GPU times once a second; the grass
-//!   compute pass appears as `grass_indirect_args`.
+//!   compute pass appears as `plant_indirect_args`.
 //! * `--single-threaded` runs each app's systems on one thread (see
 //!   `single_threaded_schedules`); faster on CPUs with few cores.
 //! * `--record DIR` saves every second frame of the last `--record-frames`
 //!   (default 600) before `--frames` as numbered PNGs in `DIR`: with
 //!   `--fixed-time`, 30 frames for each second of game time, for a video.
-//! * `--no-grass` puts `NoGrass` on every camera: the same scene without
+//! * `--no-plants` puts `NoPlants` on every camera: the same scene without
 //!   grass, for what grass costs on a machine or in a browser.
 //! * `--max-storage-buffers N` asks the GPU for at most N storage buffers per
 //!   shader stage, the way a weaker device or browser would offer them.
 //!
 //! In a browser the flags come from the page's query string instead:
-//! `?perf&no-grass` is `--perf --no-grass`.
+//! `?perf&no-plants` is `--perf --no-plants`.
 //!
 //! Any other `--flag` is kept for the example itself (`ExampleArgs::has`).
 
@@ -42,7 +42,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::render::{ExtractSchedule, Render, RenderApp};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::{PresentMode, WindowResolution};
-use procgena_plant::{FieldPreset, GrassField, NoGrass};
+use procgena_plant::{FieldPreset, NoPlants, PlantField};
 
 #[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct ExampleArgs {
@@ -115,7 +115,7 @@ impl ExampleArgs {
     pub(crate) fn install(self, app: &mut App, title: &str) {
         let measuring = self.frames.is_some();
         // In a browser the page sizes the canvas and assets are fetched from
-        // `assets/` next to it (`tools/web_example.py` puts them there).
+        // `assets/` next to the page.
         let web = cfg!(target_arch = "wasm32");
         app.add_plugins(
             DefaultPlugins
@@ -178,8 +178,8 @@ impl ExampleArgs {
         if self.single_threaded {
             single_threaded_schedules(app);
         }
-        if self.has("--no-grass") {
-            app.add_systems(Update, hide_grass);
+        if self.has("--no-plants") {
+            app.add_systems(Update, hide_plants);
         }
         app.insert_resource(self)
             .init_resource::<FrameTimes>()
@@ -188,9 +188,12 @@ impl ExampleArgs {
 }
 
 /// Keeps every camera, including ones spawned later, from drawing grass.
-fn hide_grass(mut commands: Commands, cameras: Query<Entity, (With<Camera3d>, Without<NoGrass>)>) {
+fn hide_plants(
+    mut commands: Commands,
+    cameras: Query<Entity, (With<Camera3d>, Without<NoPlants>)>,
+) {
     for camera in &cameras {
-        commands.entity(camera).insert(NoGrass);
+        commands.entity(camera).insert(NoPlants);
     }
 }
 
@@ -322,7 +325,7 @@ pub(crate) struct FieldFile(pub(crate) Handle<FieldPreset>);
 pub(crate) fn follow_field_files(
     mut events: MessageReader<AssetEvent<FieldPreset>>,
     presets: Res<Assets<FieldPreset>>,
-    mut fields: Query<(&FieldFile, &mut GrassField)>,
+    mut fields: Query<(&FieldFile, &mut PlantField)>,
 ) {
     for event in events.read() {
         let (AssetEvent::LoadedWithDependencies { id } | AssetEvent::Modified { id }) = *event
@@ -334,7 +337,7 @@ pub(crate) fn follow_field_files(
         };
         for (file, mut field) in &mut fields {
             if file.0.id() == id {
-                *field = GrassField {
+                *field = PlantField {
                     size: field.size,
                     ground: field.ground.clone(),
                     density_map: field.density_map.clone(),

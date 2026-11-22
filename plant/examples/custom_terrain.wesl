@@ -1,10 +1,10 @@
 //! The `custom_terrain` example's own terrain shader: a ground lit by one
 //! sun, as a game's terrain shader might be, turning to far grass with
-//! distance through `procgena_plant::shaders::far::grass_far_color`.
+//! distance through `procgena_plant::shaders::far::plant_far_color`.
 
 import bevy_pbr::render::forward_io::VertexOutput;
 import bevy_pbr::render::mesh_view_bindings::view;
-import procgena_plant::shaders::far::{FarGrass, grass_far_color};
+import procgena_plant::shaders::far::{FarPlants, plant_far_color};
 
 struct Terrain {
     /// rgb: the soil's colour, linear.
@@ -13,14 +13,14 @@ struct Terrain {
     sun: vec4<f32>,
 }
 
-@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> far: FarGrass;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> far: FarPlants;
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var gust_texture: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var gust_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var<uniform> terrain: Terrain;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let ground = grass_far_color(
+    let ground = plant_far_color(
         in.world_position.xyz,
         view.world_position,
         terrain.soil.rgb,

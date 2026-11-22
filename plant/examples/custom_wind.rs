@@ -1,9 +1,9 @@
 //! A meadow driven by a wind model of your own instead of the built-in one.
 //!
-//! `GrassPlugin { wind: false, ..default() }` leaves the built-in wind out.
-//! From then on the grass reads `GrassWindFrame`, and this example writes it
-//! from a tiny `Weather` resource in `GrassWindSystems::Sample`. The blades
-//! and the `FarGrassMaterial` ground both follow the same frame.
+//! `PlantPlugin { wind: false, ..default() }` leaves the built-in wind out.
+//! From then on the grass reads `PlantWindFrame`, and this example writes it
+//! from a tiny `Weather` resource in `PlantWindSystems::Sample`. The blades
+//! and the `FarPlantMaterial` ground both follow the same frame.
 //!
 //! ```text
 //! cargo run --release --example custom_wind
@@ -20,7 +20,7 @@ fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: custom wind");
     app.add_plugins((
-        GrassPlugins.set(GrassPlugin {
+        PlantPlugins.set(PlantPlugin {
             // The built-in gusts, sway and flutter are off. We write the frame.
             wind: false,
             ..default()
@@ -29,7 +29,7 @@ fn main() {
     ))
     .insert_resource(Weather::default())
     .add_systems(Startup, setup)
-    .add_systems(Update, drive_wind.in_set(GrassWindSystems::Sample))
+    .add_systems(Update, drive_wind.in_set(PlantWindSystems::Sample))
     .run();
 }
 
@@ -57,7 +57,7 @@ impl Default for Weather {
 
 /// The whole custom wind model: turn the weather's direction slowly and
 /// breathe its strength, then hand the frame to the grass.
-fn drive_wind(time: Res<Time>, weather: Res<Weather>, mut wind: ResMut<GrassWindFrame>) {
+fn drive_wind(time: Res<Time>, weather: Res<Weather>, mut wind: ResMut<PlantWindFrame>) {
     let seconds = time.elapsed_secs();
     let turn = seconds * 0.08;
     let (sin, cos) = turn.sin_cos();
@@ -69,14 +69,14 @@ fn drive_wind(time: Res<Time>, weather: Res<Weather>, mut wind: ResMut<GrassWind
     wind.direction = direction;
     wind.strength = weather.strength * breath;
     // Roll the gusts across the field along the turning wind. The frame
-    // starts as `GrassWind::BREEZE`'s, which sets the gust size and the sway.
+    // starts as `PlantWind::BREEZE`'s, which sets the gust size and the sway.
     wind.advance(time.delta_secs(), weather.speed);
 }
 
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut far_materials: ResMut<Assets<FarGrassMaterial>>,
+    mut far_materials: ResMut<Assets<FarPlantMaterial>>,
 ) {
     commands.spawn((
         Camera3d::default(),
@@ -91,7 +91,7 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    let field = GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(100.0));
+    let field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(100.0));
     let soil = StandardMaterial {
         base_color: Color::srgb(0.2, 0.15, 0.09),
         perceptual_roughness: 0.95,
@@ -99,9 +99,9 @@ fn setup(
     };
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(300.0, 300.0))),
-        MeshMaterial3d(far_materials.add(FarGrassMaterial {
+        MeshMaterial3d(far_materials.add(FarPlantMaterial {
             base: soil,
-            extension: FarGrass::new(&field),
+            extension: FarPlants::new(&field),
         })),
     ));
     commands.spawn(field);

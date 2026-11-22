@@ -1,10 +1,10 @@
 //! Colliders as grass interactors, without depending on a physics engine.
 //!
-//! [`GrassInteractorFromCollider`] asks for an interactor that follows a
-//! collider, and a [`GrassColliderBounds`] says how big the collider is. The
+//! [`PlantInteractorFromCollider`] asks for an interactor that follows a
+//! collider, and a [`PlantColliderBounds`] says how big the collider is. The
 //! `rapier` and `avian` cargo features each add a backend that reads its
 //! engine's `Collider` and writes the bounds; this module turns the bounds
-//! into a [`GrassInteractor`] with a [`GrassInteractorFootprint`]. Everything
+//! into a [`PlantInteractor`] with a [`PlantInteractorFootprint`]. Everything
 //! that is policy (scale, what a disabled collider does) lives here, once, so
 //! a backend is only a translation, and another engine (or a game's own
 //! collider type) needs no change to the core.
@@ -22,17 +22,17 @@ use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::GlobalTransform;
 
-use crate::{GrassInteractor, GrassInteractorFootprint};
+use crate::{PlantInteractor, PlantInteractorFootprint};
 
 #[cfg(feature = "avian")]
 mod avian;
 #[cfg(feature = "rapier")]
 mod rapier;
 
-/// Derive a [`GrassInteractor`] from this entity's physics collider.
+/// Derive a [`PlantInteractor`] from this entity's physics collider.
 ///
 /// Add it next to a collider; the plugin fills in a
-/// [`GrassInteractorFootprint`] from the collider's size and shape, so the
+/// [`PlantInteractorFootprint`] from the collider's size and shape, so the
 /// grass is flattened under the whole body as one shape. A capsule character
 /// is a disc; a vehicle, crate, wall or large creature a box whose sides push
 /// the grass out while the grass under it lies the way it moves; a capsule or
@@ -40,7 +40,7 @@ mod rapier;
 /// body's scale. A disabled collider, a disabled rigid body or a sensor
 /// flattens nothing.
 ///
-/// The size comes from a [`GrassColliderBounds`], which a physics backend
+/// The size comes from a [`PlantColliderBounds`], which a physics backend
 /// writes: turn on the `rapier` cargo feature for `bevy_rapier3d` colliders
 /// or `avian` for `avian3d` colliders. With Rapier:
 ///
@@ -53,14 +53,14 @@ mod rapier;
 /// commands.spawn((
 ///     RigidBody::Dynamic,
 ///     Collider::capsule_y(0.5, 0.4),
-///     GrassInteractorFromCollider::default(),
+///     PlantInteractorFromCollider::default(),
 /// ));
 /// # }
 /// ```
 ///
 /// Put it on the entity that has the `Collider`; for a body made of several
 /// child colliders, put one on each child that should touch the grass. With
-/// no physics engine, or another one, insert a [`GrassColliderBounds`]
+/// no physics engine, or another one, insert a [`PlantColliderBounds`]
 /// yourself. If no bounds arrive within a few frames the plugin warns once,
 /// which is what a missing cargo feature or a `bevy_rapier3d`/`avian3d`
 /// version other than the one this crate is built against looks like.
@@ -70,7 +70,7 @@ mod rapier;
 /// local, and the grass lays it on the ground from `GlobalTransform` every
 /// frame.
 ///
-/// `GrassInteractor` is a required component: adding this one adds it too.
+/// `PlantInteractor` is a required component: adding this one adds it too.
 /// While the adapter is present it owns the interactor's strength, height and
 /// footprint; change this component's fields rather than editing the derived
 /// ones. Removing this component leaves the last derived interactor in place,
@@ -80,8 +80,8 @@ mod rapier;
 /// returns; removing the entity removes both.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-#[require(GrassInteractor, GrassInteractorFootprint, GrassInteractorFit)]
-pub struct GrassInteractorFromCollider {
+#[require(PlantInteractor, PlantInteractorFootprint, PlantInteractorFit)]
+pub struct PlantInteractorFromCollider {
     /// Scales the footprint around its centre. 1.0 uses the collider as it
     /// is; 1.2 makes a character's trail a little wider. Below 0 is 0, and a
     /// non-finite value is treated as 1.
@@ -94,7 +94,7 @@ pub struct GrassInteractorFromCollider {
     pub max_height: Option<f32>,
 }
 
-impl Default for GrassInteractorFromCollider {
+impl Default for PlantInteractorFromCollider {
     fn default() -> Self {
         Self {
             scale: 1.0,
@@ -104,11 +104,11 @@ impl Default for GrassInteractorFromCollider {
     }
 }
 
-/// The collider a [`GrassInteractorFromCollider`] flattens grass under: its
+/// The collider a [`PlantInteractorFromCollider`] flattens grass under: its
 /// bounding box along the entity's own axes, and how rounded it is.
 ///
 /// The `rapier` and `avian` backends write it from their engine's
-/// `Collider`, in [`GrassColliderSystems::Bounds`]. Write it yourself for a
+/// `Collider`, in [`PlantColliderSystems::Bounds`]. Write it yourself for a
 /// collider type of your own, or with no physics engine at all:
 ///
 /// ```
@@ -118,8 +118,8 @@ impl Default for GrassInteractorFromCollider {
 /// // A 6 × 2 × 3 m cart.
 /// commands.spawn((
 ///     Transform::from_xyz(0.0, 1.0, 0.0),
-///     GrassColliderBounds::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
-///     GrassInteractorFromCollider::default(),
+///     PlantColliderBounds::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
+///     PlantInteractorFromCollider::default(),
 /// ));
 /// # }
 /// ```
@@ -131,7 +131,7 @@ impl Default for GrassInteractorFromCollider {
 /// the component stops the interaction, as removing the collider does.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-pub struct GrassColliderBounds {
+pub struct PlantColliderBounds {
     /// The centre of the box, from the entity's origin, in metres along its
     /// local axes.
     pub center: Vec3,
@@ -139,14 +139,14 @@ pub struct GrassColliderBounds {
     pub half_extents: Vec3,
     /// How rounded the collider looks from above, in metres: 0 for a box, the
     /// radius for a ball or a capsule. See
-    /// [`GrassInteractorFootprint::rounding`].
+    /// [`PlantInteractorFootprint::rounding`].
     pub rounding: f32,
     /// Whether the collider pushes grass. A backend sets it to `false` for a
     /// disabled collider, a disabled rigid body and a sensor.
     pub active: bool,
 }
 
-impl GrassColliderBounds {
+impl PlantColliderBounds {
     /// An active box of `half_extents` around `center`, with square corners.
     #[must_use]
     pub fn new(center: Vec3, half_extents: Vec3) -> Self {
@@ -159,7 +159,7 @@ impl GrassColliderBounds {
     }
 }
 
-impl Default for GrassColliderBounds {
+impl Default for PlantColliderBounds {
     fn default() -> Self {
         Self::new(Vec3::ZERO, Vec3::ZERO)
     }
@@ -167,8 +167,8 @@ impl Default for GrassColliderBounds {
 
 /// The collider bridge's systems, in `Update`, in this order.
 ///
-/// A system that writes [`GrassColliderBounds`] for a collider type of your
-/// own belongs `.in_set(GrassColliderSystems::Bounds)`, so its bounds are
+/// A system that writes [`PlantColliderBounds`] for a collider type of your
+/// own belongs `.in_set(PlantColliderSystems::Bounds)`, so its bounds are
 /// fitted the same frame:
 ///
 /// ```no_run
@@ -176,15 +176,15 @@ impl Default for GrassColliderBounds {
 /// # use procgena_plant::prelude::*;
 /// # fn my_collider_bounds() {}
 /// # let mut app = App::new();
-/// app.add_systems(Update, my_collider_bounds.in_set(GrassColliderSystems::Bounds));
+/// app.add_systems(Update, my_collider_bounds.in_set(PlantColliderSystems::Bounds));
 /// ```
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum GrassColliderSystems {
-    /// The physics backends write [`GrassColliderBounds`] from their
+pub enum PlantColliderSystems {
+    /// The physics backends write [`PlantColliderBounds`] from their
     /// engine's colliders.
     Bounds,
-    /// Every [`GrassInteractorFromCollider`] is fitted to its bounds.
+    /// Every [`PlantInteractorFromCollider`] is fitted to its bounds.
     Fit,
 }
 
@@ -193,9 +193,9 @@ pub enum GrassColliderSystems {
 const MISSING_BOUNDS_FRAMES: u8 = 3;
 
 /// Whether bounds ever arrived for an adapter, and how long it has waited.
-/// Private: it is an implementation detail of [`GrassInteractorFromCollider`].
+/// Private: it is an implementation detail of [`PlantInteractorFromCollider`].
 #[derive(Component, Debug, Clone, Copy, Default, PartialEq)]
-struct GrassInteractorFit {
+struct PlantInteractorFit {
     bounded: bool,
     frames_waiting: u8,
 }
@@ -204,9 +204,9 @@ struct GrassInteractorFit {
 pub(super) fn plugin(app: &mut App) {
     app.configure_sets(
         Update,
-        (GrassColliderSystems::Bounds, GrassColliderSystems::Fit).chain(),
+        (PlantColliderSystems::Bounds, PlantColliderSystems::Fit).chain(),
     )
-    .add_systems(Update, fit_interactors.in_set(GrassColliderSystems::Fit));
+    .add_systems(Update, fit_interactors.in_set(PlantColliderSystems::Fit));
     #[cfg(feature = "rapier")]
     rapier::plugin(app);
     #[cfg(feature = "avian")]
@@ -222,12 +222,12 @@ pub(super) fn plugin(app: &mut App) {
 fn fit_interactors(
     mut query: Query<(
         Entity,
-        &GrassInteractorFromCollider,
-        Option<&GrassColliderBounds>,
+        &PlantInteractorFromCollider,
+        Option<&PlantColliderBounds>,
         &GlobalTransform,
-        &mut GrassInteractor,
-        &mut GrassInteractorFootprint,
-        &mut GrassInteractorFit,
+        &mut PlantInteractor,
+        &mut PlantInteractorFootprint,
+        &mut PlantInteractorFit,
     )>,
 ) {
     for (entity, source, bounds, transform, mut interactor, mut footprint, mut fit) in &mut query {
@@ -255,7 +255,7 @@ fn fit_interactors(
         // The bounds are in metres, scale applied; the footprint is in the
         // local space `GlobalTransform` maps to the world.
         let local = transform.scale().map(snapped);
-        let fitted = GrassInteractorFootprint {
+        let fitted = PlantInteractorFootprint {
             center: unscaled(bounds.center, local),
             half_extents: unscaled(bounds.half_extents * scale, local),
             rounding: bounds.rounding * scale,
@@ -313,13 +313,13 @@ fn warn_missing_bounds(entity: Entity) {
     ];
     if backends.is_empty() {
         warn!(
-            "procgena_plant: {entity} has a GrassInteractorFromCollider but no collider size, so it \
+            "procgena_plant: {entity} has a PlantInteractorFromCollider but no collider size, so it \
              flattens nothing. No physics backend is compiled in: turn on procgena_plant's `rapier` \
-             or `avian` cargo feature, or insert a GrassColliderBounds yourself."
+             or `avian` cargo feature, or insert a PlantColliderBounds yourself."
         );
     } else {
         warn!(
-            "procgena_plant: {entity} has a GrassInteractorFromCollider but no collider size, so it \
+            "procgena_plant: {entity} has a PlantInteractorFromCollider but no collider size, so it \
              flattens nothing. Put it on the entity that has the Collider, and check that the \
              game uses {}: with another version Cargo builds two copies, and procgena_plant cannot \
              see the game's colliders.",

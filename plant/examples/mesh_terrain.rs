@@ -1,7 +1,7 @@
 //! Grass on a mesh: rolling hills built as a `Mesh`, turned 30° about Y, with
 //! the grass field on the terrain's own entity.
 //!
-//! `GrassGround::mesh` bakes the top of the mesh into a heightmap once, on
+//! `PlantGround::mesh` bakes the top of the mesh into a heightmap once, on
 //! the CPU, so the blades stand on the hills and turn with the entity. Past
 //! the mesh's edge nothing grows.
 //!
@@ -23,7 +23,7 @@ const SIZE: f32 = 120.0;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: mesh terrain");
-    app.add_plugins((GrassPlugins, FreeCameraPlugin))
+    app.add_plugins((PlantPlugins, FreeCameraPlugin))
         .add_systems(Startup, setup)
         .run();
 }
@@ -50,7 +50,7 @@ fn hills() -> Mesh {
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<FarGrassMaterial>>,
+    mut materials: ResMut<Assets<FarPlantMaterial>>,
 ) {
     commands.spawn((
         Camera3d::default(),
@@ -69,19 +69,19 @@ fn setup(
     // transform, so the grass lies where the mesh is drawn, turn included.
     // The terrain fades to the grass colour past the last blade.
     let terrain = meshes.add(hills());
-    let field = GrassField {
-        ground: GrassGround::mesh(terrain.clone()),
-        ..GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(SIZE))
+    let field = PlantField {
+        ground: PlantGround::mesh(terrain.clone()),
+        ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(SIZE))
     };
     commands.spawn((
         Mesh3d(terrain.clone()),
-        MeshMaterial3d(materials.add(FarGrassMaterial {
+        MeshMaterial3d(materials.add(FarPlantMaterial {
             base: StandardMaterial {
                 base_color: Color::srgb(0.2, 0.15, 0.09),
                 perceptual_roughness: 0.95,
                 ..default()
             },
-            extension: FarGrass::new(&field),
+            extension: FarPlants::new(&field),
         })),
         field,
         Transform::from_rotation(Quat::from_rotation_y(30f32.to_radians())),

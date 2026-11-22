@@ -75,7 +75,7 @@ fn view_uniform_from_parts_builds_a_perspective_view() {
         position: Vec3::ZERO,
         forward: Vec3::NEG_Z,
     };
-    let settings = GrassSettings::HIGH;
+    let settings = PlantSettings::HIGH;
     // Reserve storage for blades and one branched shape.
     let slots = InstanceSlots::new(&settings, 1);
     let data = view_uniform_from_parts(&parts, &settings, 0.0, slots, 6, None);
@@ -155,7 +155,7 @@ fn view_uniform_from_parts_builds_an_orthographic_view() {
         position: Vec3::ZERO,
         forward: Vec3::NEG_Z,
     };
-    let settings = GrassSettings::HIGH;
+    let settings = PlantSettings::HIGH;
     let slots = InstanceSlots::new(&settings, 0);
     let data = view_uniform_from_parts(&parts, &settings, 0.0, slots, 3, None);
     assert_eq!(data.plant_capacity, 0, "no branched class, no plant slots");
@@ -203,9 +203,9 @@ fn a_forced_level_of_detail_wins_in_every_view() {
             position: Vec3::ZERO,
             forward: Vec3::NEG_Z,
         };
-        let settings = GrassSettings {
+        let settings = PlantSettings {
             forced_lod: Some(2),
-            ..GrassSettings::HIGH
+            ..PlantSettings::HIGH
         };
         let slots = InstanceSlots::new(&settings, 1);
         let data = view_uniform_from_parts(&parts, &settings, 0.0, slots, 6, None);
@@ -228,10 +228,10 @@ fn a_shadow_light_fills_the_shadow_offset() {
         forward: Vec3::NEG_Z,
     };
     // A light at a normal angle: down = max(0.5, 0.2) = 0.5.
-    let slots = InstanceSlots::new(&GrassSettings::HIGH, 0);
+    let slots = InstanceSlots::new(&PlantSettings::HIGH, 0);
     let data = view_uniform_from_parts(
         &parts,
-        &GrassSettings::HIGH,
+        &PlantSettings::HIGH,
         0.0,
         slots,
         3,
@@ -241,7 +241,7 @@ fn a_shadow_light_fills_the_shadow_offset() {
     // A light almost overhead clamps `down` to 0.2.
     let data = view_uniform_from_parts(
         &parts,
-        &GrassSettings::HIGH,
+        &PlantSettings::HIGH,
         0.0,
         slots,
         3,

@@ -22,7 +22,7 @@ use bevy::transform::TransformSystems;
 use bevy::transform::components::GlobalTransform;
 
 use crate::api::{
-    FieldPlant, GrassArrangement, GrassField, GrassGround, GrassPlant, GrassVariation, GroundTint,
+    FieldPlant, GroundTint, PlantArrangement, PlantField, PlantGround, PlantParams, PlantVariation,
 };
 use crate::edit::{self, EditLayers};
 use crate::gpu_layout::{ChunkGpu, FieldGpu, LevelGpu, MAX_BRANCHED_CLASSES, NO_CLASS, NO_MAP};
@@ -31,7 +31,7 @@ use crate::look::{MAX_BRANCHES, MAX_PLANTS, MAX_STEMS_PER_PLANT};
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{self, ChunkLayout, ShapeClass, drawn_children};
 use crate::stats::TableStats;
-use crate::{GrassStats, GrassSystems};
+use crate::{PlantStats, PlantSystems};
 
 /// Side of a chunk, in metres.
 ///
@@ -186,14 +186,14 @@ struct FieldLook {
     plants: Vec<FieldPlant>,
     /// The field-wide multiplier applied to every plant entry's density.
     density_scale: f32,
-    variation: GrassVariation,
+    variation: PlantVariation,
     ground_tint: GroundTint,
     toon_bands: u32,
     wind_scale: f32,
 }
 
 impl FieldLook {
-    fn of(field: &GrassField, plants: &[FieldPlant]) -> Self {
+    fn of(field: &PlantField, plants: &[FieldPlant]) -> Self {
         Self {
             plants: plants.to_vec(),
             density_scale: field.density_scale,
@@ -231,7 +231,7 @@ impl LookFeatures {
     pub(crate) const VARIATION: Self = Self(16);
 
     /// The terms `field` uses for one of its plants, `look`.
-    pub(crate) fn of(field: &GrassField, look: &GrassPlant) -> Self {
+    pub(crate) fn of(field: &PlantField, look: &PlantParams) -> Self {
         let mut features = Self::default();
         if field.ground_tint.amount > 0.0 {
             features.0 |= Self::GROUND_TINT.0;
@@ -272,11 +272,11 @@ impl LookFeatures {
     /// in: the one list `shader_defs` and the tests both read, so a term
     /// cannot be given a definition in one place and not the other.
     pub(crate) const TERMS: [(Self, &'static str); 5] = [
-        (Self::GROUND_TINT, "GRASS_GROUND_TINT"),
-        (Self::SHEEN, "GRASS_SHEEN"),
-        (Self::TOON, "GRASS_TOON"),
-        (Self::SHAPE, "GRASS_SHAPE"),
-        (Self::VARIATION, "GRASS_VARIATION"),
+        (Self::GROUND_TINT, "PLANT_GROUND_TINT"),
+        (Self::SHEEN, "PLANT_SHEEN"),
+        (Self::TOON, "PLANT_TOON"),
+        (Self::SHAPE, "PLANT_SHAPE"),
+        (Self::VARIATION, "PLANT_VARIATION"),
     ];
 
     /// The shader definitions that compile the terms in.
@@ -297,19 +297,19 @@ impl std::ops::BitOr for LookFeatures {
 }
 
 /// Registers the tables and the systems that keep them current, in
-/// [`GrassSystems`] order.
+/// [`PlantSystems`] order.
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<FieldTables>()
         .init_resource::<TablesDirty>()
         .init_resource::<MeshGrounds>()
-        .init_resource::<GrassStats>()
+        .init_resource::<PlantStats>()
         .init_resource::<PackedImages>()
         .configure_sets(
             PostUpdate,
             (
-                GrassSystems::DetectChanges,
-                GrassSystems::Edit,
-                GrassSystems::Rebuild,
+                PlantSystems::DetectChanges,
+                PlantSystems::Edit,
+                PlantSystems::Rebuild,
             )
                 .chain()
                 .after(TransformSystems::Propagate)
@@ -323,10 +323,10 @@ pub(crate) fn plugin(app: &mut App) {
                     warn_unsupported,
                     (bake_mesh_grounds, detect_changes).chain(),
                 )
-                    .in_set(GrassSystems::DetectChanges),
+                    .in_set(PlantSystems::DetectChanges),
                 (rebuild, edit::collect_patches)
                     .chain()
-                    .in_set(GrassSystems::Rebuild),
+                    .in_set(PlantSystems::Rebuild),
             ),
         );
     edit::plugin(app);
@@ -355,16 +355,16 @@ impl TablesDirty {
     }
 }
 
-/// A field whose settings or position changed. `With<GrassField>` matters:
+/// A field whose settings or position changed. `With<PlantField>` matters:
 /// without it, every moving camera or character would rebuild the tables.
 type FieldChanged = (
-    With<GrassField>,
-    Or<(Changed<GrassField>, Changed<GlobalTransform>)>,
+    With<PlantField>,
+    Or<(Changed<PlantField>, Changed<GlobalTransform>)>,
 );
 
 /// A field shown, hidden, or moved to other render layers.
 type AccessChanged = (
-    With<GrassField>,
+    With<PlantField>,
     Or<(Changed<InheritedVisibility>, Changed<RenderLayers>)>,
 );
 
@@ -393,7 +393,7 @@ fn access(visible: bool, layers: Option<&RenderLayers>) -> u32 {
 }
 
 /// A field's size on the ground: `size` times the transform's X and Z scale.
-fn scaled_size(field: &GrassField, transform: &GlobalTransform) -> Vec2 {
+fn scaled_size(field: &PlantField, transform: &GlobalTransform) -> Vec2 {
     let scale = transform.scale();
     field.size * Vec2::new(scale.x, scale.z).abs()
 }
@@ -411,7 +411,7 @@ pub(crate) struct FieldFrame {
 }
 
 impl FieldFrame {
-    pub(crate) fn of(field: &GrassField, transform: &GlobalTransform) -> Self {
+    pub(crate) fn of(field: &PlantField, transform: &GlobalTransform) -> Self {
         let size = scaled_size(field, transform);
         let axis = field_axis(transform);
         let origin = transform.translation();
@@ -459,7 +459,7 @@ fn is_tilted(transform: &GlobalTransform) -> bool {
 
 /// A field whose transform or layers changed, for `warn_unsupported`.
 type TransformOrLayersChanged = (
-    With<GrassField>,
+    With<PlantField>,
     Or<(Changed<GlobalTransform>, Changed<RenderLayers>)>,
 );
 
@@ -485,14 +485,14 @@ pub(crate) fn warn_unsupported(
     for (entity, transform, layers) in &fields {
         if first_time(&mut tilted, entity, is_tilted(transform)) {
             warn!(
-                "procgena_plant: the GrassField {entity} is tilted; grass grows upright, so only \
-                 its turn about Y is used. For a slope, use GrassGround::Heightmap or \
-                 GrassGround::Mesh."
+                "procgena_plant: the PlantField {entity} is tilted; grass grows upright, so only \
+                 its turn about Y is used. For a slope, use PlantGround::Heightmap or \
+                 PlantGround::Mesh."
             );
         }
         if first_time(&mut layered, entity, has_unsupported_layer(layers)) {
             warn!(
-                "procgena_plant: the GrassField {entity} is on a render layer above 31; grass \
+                "procgena_plant: the PlantField {entity} is on a render layer above 31; grass \
                  supports layers 0 to 31, so the others are ignored."
             );
         }
@@ -515,9 +515,9 @@ pub(crate) fn detect_changes(
     mut dirty: ResMut<TablesDirty>,
     changed: Query<(), FieldChanged>,
     access_changed: Query<(), AccessChanged>,
-    mut removed: RemovedComponents<GrassField>,
+    mut removed: RemovedComponents<PlantField>,
     mut images: MessageReader<AssetEvent<Image>>,
-    fields: Query<&GrassField>,
+    fields: Query<&PlantField>,
 ) {
     // Only images some field uses matter.
     for event in images.read() {
@@ -527,7 +527,7 @@ pub(crate) fn detect_changes(
                 .density_map
                 .as_ref()
                 .is_some_and(|mask| mask.id() == id)
-                || matches!(&field.ground, GrassGround::Heightmap { image, .. } if image.id() == id)
+                || matches!(&field.ground, PlantGround::Heightmap { image, .. } if image.id() == id)
         });
         if used {
             dirty.images.insert(id);
@@ -544,7 +544,7 @@ pub(crate) fn detect_changes(
 /// What `rebuild` reads of each field.
 type FieldInputs<'a> = (
     Entity,
-    &'a GrassField,
+    &'a PlantField,
     &'a GlobalTransform,
     &'a InheritedVisibility,
     Option<&'a RenderLayers>,
@@ -563,7 +563,7 @@ struct Placement {
 
 impl Placement {
     fn of(
-        field: &GrassField,
+        field: &PlantField,
         transform: &GlobalTransform,
         visibility: InheritedVisibility,
         layers: Option<&RenderLayers>,
@@ -602,7 +602,7 @@ fn patch_access(tables: &mut FieldTables, fields: &Query<FieldInputs>) {
 struct Input<'a> {
     entity: Entity,
     placement: Placement,
-    field: &'a GrassField,
+    field: &'a PlantField,
     mask: Option<MaskInput<'a>>,
     height: Option<(AssetId<Image>, &'a Image, f32)>,
 }
@@ -730,14 +730,14 @@ fn gather<'a>(
             }),
         };
         let height = match &field.ground {
-            GrassGround::Flat => None,
-            GrassGround::Heightmap {
+            PlantGround::Flat => None,
+            PlantGround::Heightmap {
                 image,
                 height_scale,
             } => Some((image.id(), images.get(image)?, *height_scale)),
             // A baked ground is in the mesh's units, which the transform's Y
             // scale turns into metres, as it does for the mesh itself.
-            GrassGround::Mesh { .. } => {
+            PlantGround::Mesh { .. } => {
                 let image = grounds.image(*entity)?;
                 Some((image.id(), images.get(image)?, transform.scale().y))
             }
@@ -776,7 +776,7 @@ fn plan<'a>(inputs: &'a [Input<'a>]) -> (Vec<Plan<'a>>, Dropped) {
         dropped.plants += all.len() - fitting.len();
         if fitting.len() < all.len() {
             warn!(
-                "procgena_plant: a GrassField grows at most {MAX_PLANTS} plants; {} of the {} \
+                "procgena_plant: a PlantField grows at most {MAX_PLANTS} plants; {} of the {} \
                  plants of {} are drawn",
                 fitting.len(),
                 all.len(),
@@ -995,7 +995,7 @@ pub(crate) fn rebuild(
     fields: Query<FieldInputs>,
     (images, grounds): (Res<Assets<Image>>, Res<MeshGrounds>),
     (mut cache, mut edits): (ResMut<PackedImages>, ResMut<EditLayers>),
-    mut stats: ResMut<GrassStats>,
+    mut stats: ResMut<PlantStats>,
 ) {
     if !dirty.rebuild() {
         if dirty.access {
@@ -1092,8 +1092,8 @@ pub(crate) fn rebuild(
 /// supplies the plant's shape, colours and tufting.
 fn look_entry(
     field_entry: &FieldGpu,
-    field: &GrassField,
-    look: &GrassPlant,
+    field: &PlantField,
+    look: &PlantParams,
     mix: Vec4,
 ) -> FieldGpu {
     let segment = &look.segment;
@@ -1153,14 +1153,14 @@ fn look_entry(
 
 /// Packs branch settings for the GPU. Disabled levels, including children of a disabled
 /// first level, become zeroed entries.
-pub(crate) fn level_entries(plant: &GrassPlant) -> [LevelGpu; 2] {
+pub(crate) fn level_entries(plant: &PlantParams) -> [LevelGpu; 2] {
     let first_on = plant.levels[0].is_on();
     std::array::from_fn(|index| {
         let level = &plant.levels[index];
         if !level.is_on() || !first_on {
             return LevelGpu::default();
         }
-        let opposite = level.arrangement == GrassArrangement::Opposite;
+        let opposite = level.arrangement == PlantArrangement::Opposite;
         let children = drawn_children(level.count.min(MAX_BRANCHES), opposite);
         let segment = &level.segment;
         let (root, tip) = (linear(segment.root_color), linear(segment.tip_color));
@@ -1313,7 +1313,7 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
 /// the placement and settings shared by every entry.
 fn plant_entries(
     field_entry: &FieldGpu,
-    field: &GrassField,
+    field: &PlantField,
     plants: &[FieldPlant],
 ) -> Vec<FieldGpu> {
     // The tallest stem of any plant or accent, for culling and the sampler.

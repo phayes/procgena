@@ -104,10 +104,19 @@ Snow and moss on the same input are two passes with two presets, giving two
 
 **Closed clumps (added 2026-11-21, on by default).** `MeshOptions::closed`
 turns each clump into a watertight solid for physics, volume and voxelizing:
-- **Underside:** the top sheet's triangles, reversed, with each vertex moved
-  straight in along the surface normal by `sink + thickness / 4`. The depth
-  is capped at half the input's thickness at that point, and every top is
-  kept at least `thickness / 20` above its underside.
+- **Underside:** the top sheet's triangles, reversed, with each vertex sunk
+  `sink + thickness / 4` into the input. The depth is capped at half the
+  input's thickness at that point, and every top is kept at least
+  `thickness / 20` above its underside.
+- **Sinking (rim and underside alike):**
+  - Push directions are tilted at most 60° from the surface normal.
+  - A vertex sinks against its push direction only if a ray that way really
+    goes behind the surface: the first face it meets is crossed from behind.
+    Otherwise it tries the surface normal, and failing that it stays on the
+    surface.
+  - On a closed input, a ray that meets nothing leads outside. On an open
+    input, such as a ground patch, it means there is room to sink.
+  - `Surface::is_closed` tells the two apart.
 - **Side walls:** a strip of quads along the sheet's border.
 - **Pinch vertices:** where the border touches itself at one vertex, each
   fan of triangles gets its own copy of the vertex, so every edge is shared
@@ -116,12 +125,51 @@ turns each clump into a watertight solid for physics, volume and voxelizing:
   volume matches the expected value.
 - **On the 8 procgena_stone rocks:** no open edges and no edge shared by three or
   more triangles, at about twice the triangles of the open sheet.
+- **Investigation (2026-11-22):** on the flat slab, 32–106 rim vertices
+  ended up outside the rock, on sharp ridges and thin lips. The cause:
+  sinking against a blurred push direction could leave through a nearby
+  face, and the depth cap treated "the ray meets nothing" as plenty of room.
+  A ray-parity inside test (`diagnostics::inside_closed`, three rays,
+  majority vote) confirmed it. The spike's `out` column now reports it, and
+  `buried_parts_stay_inside_sharp_edged_inputs` (a sharp 4 cm slab) fails
+  without the fix.
+- **Results:** 0 vertices outside on every closed input (8 procgena_stone
+  rocks and the synthetic crevice rocks).
 - **Known gaps:**
-  - Underside vertices still show 3.6 cm above the surface on one spot of
-    the flat slab (15 vertices) and 2.4 cm at branch-trunk junctions, where
-    input parts overlap.
-  - Folded top triangles (0.1–0.5%) mean the solid can self-intersect
-    slightly.
+  - Branch-trunk junctions still show underside vertices 2.4 cm outside the
+    trunk in the spike's open-tube fixture. With procgena_tree's closed bark
+    (overlapping closed shells), check against the union of the shells.
+
+**Welded closedness, fold removal and strict mode (added 2026-11-22).**
+- **Welded closedness:** `Surface::is_closed` counts vertices at
+  bitwise-equal positions as one, with −0.0 equal to +0.0. Closed tree bark,
+  which repeats positions at texture seams and branch joins, then counts as
+  closed.
+- **Fold removal (always on):** after the slope limit, any top triangle
+  turned over relative to its input triangle has its corners lowered halfway
+  toward their floor, repeating up to 24 passes. The floor is the surface,
+  or for a closed clump, the minimum solid thickness above the underside.
+  - It costs 0.03–9 ms per build, under 2% of build time.
+  - Folds dropped from 0.1–0.5% of top triangles to 0 everywhere, except 1–2
+    triangles on the flat slab (0.01%). `BuildStats::folded` reports what
+    remains.
+- **Self-crossings are common without strict mode:** a default build on a
+  procgena_stone rock has 300–3,400 triangles passing through another
+  triangle of the same clump. The rock surfaces have creases sharper than
+  the clump is thick.
+- **`MeshOptions::strict` (off by default):** a full self-intersection check
+  of the finished mesh.
+  - The check tests each triangle against those with overlapping boxes, via
+    a BVH, skipping pairs that share a corner position.
+  - Up to 24 passes then lower the top or raise the underside around every
+    crossing triangle.
+  - After that, the top triangles behind any remaining crossings are cut
+    out, and the solid is re-closed around the gap, until nothing crosses.
+  - Result on all procgena_stone rocks: 0 crossings, still closed and
+    edge-manifold. It removes about 20–40 top triangles per rock and costs
+    2–5× the build time. `BuildStats::crossings` reports what remains, which
+    is 0 in every test.
+  - The crossing test ignores triangles lying in the same plane.
 
 **Directions (added 2026-11-21).** `ClumpOptions::directions` lists where
 material arrives from: falling snow, wind, or the damp side of a rock. Each
@@ -216,11 +264,10 @@ Preset intent:
   sheet copied from the input's connectivity, so it is manifold wherever the
   input is. The spike's meshes have no edge shared by three or more
   triangles, and phase 5 asserts exactly that.
-- **Fold guarantee: open decision.** About 0.1% of triangles still fold on
-  the crevice rock (0.06–0.13% at every density). Either remove the residue
-  (for example by relaxing only the folded patches) and assert zero folds,
-  or settle on a different guarantee. Don't write the residue into a test as
-  an allowed failure.
+- **Fold guarantee: settled (2026-11-22).** Fold removal is always on, and
+  `no_top_triangle_is_left_inside_out` asserts 0 folds on a procgena_stone
+  slab. `strict` mode guarantees no self-crossings, which
+  `strict_clumps_never_pass_through_themselves` asserts.
 
 ### Phase 1 spike results (2026-11-21)
 
@@ -349,8 +396,8 @@ Still open:
 
 - The same seed and options give identical output, and a different seed gives
   different output.
-- No edge is shared by three or more triangles. The fold guarantee is still
-  open (see the phase 1 spike details).
+- No edge is shared by three or more triangles, no top triangle is inside
+  out, and strict builds have no self-crossings.
 - Edge burial: every vertex with `fade == 0` is at or below the input
   surface it was pushed from, and no vertex is more than `sink + ε` inside
   it. Measure against the vertex's own source triangle, not the nearest

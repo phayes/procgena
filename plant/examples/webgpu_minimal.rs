@@ -10,12 +10,9 @@
 //! bevy = { version = "0.20", features = ["webgpu"] }
 //! ```
 //!
-//! Build it for the browser and serve it on localhost (WebGPU needs HTTPS or
-//! localhost), then open <http://localhost:8080/webgpu_minimal/>:
-//!
-//! ```text
-//! python tools/web_example.py webgpu_minimal
-//! ```
+//! To run it in the browser, build it for `wasm32-unknown-unknown`, run
+//! `wasm-bindgen --target web` on it, and serve the page from localhost
+//! (WebGPU needs HTTPS or localhost); `docs/web.md` has the steps.
 //!
 //! Natively: `cargo run --release --example webgpu_minimal`. See
 //! `docs/web.md` for the browsers tested and how fast grass is there.
@@ -35,7 +32,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            GrassPlugins.set(GrassPlugin {
+            PlantPlugins.set(PlantPlugin {
                 settings: settings(),
                 ..default()
             }),
@@ -43,18 +40,18 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            tell_the_player.run_if(resource_changed::<GrassSupport>),
+            tell_the_player.run_if(resource_changed::<PlantSupport>),
         )
         .run();
 }
 
 /// Grass costs more in a browser than natively on the same GPU, and on an
 /// integrated GPU only `LOW` holds 60 Hz in a full window (`docs/web.md`).
-fn settings() -> GrassSettings {
+fn settings() -> PlantSettings {
     if cfg!(target_arch = "wasm32") {
-        GrassSettings::LOW
+        PlantSettings::LOW
     } else {
-        GrassSettings::default()
+        PlantSettings::default()
     }
 }
 
@@ -78,7 +75,7 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(64.0, 64.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
-    commands.spawn(GrassField::from_preset(
+    commands.spawn(PlantField::from_preset(
         &FieldPreset::MEADOW,
         Vec2::splat(64.0),
     ));
@@ -87,8 +84,8 @@ fn setup(
 /// On a browser or GPU that cannot draw grass (WebGL2, or fewer than 10
 /// storage buffers per shader stage), the rest of the scene still renders
 /// and grass logs one warning. This says why on the screen too.
-fn tell_the_player(support: Res<GrassSupport>, mut commands: Commands) {
-    if matches!(*support, GrassSupport::Unknown | GrassSupport::Supported) {
+fn tell_the_player(support: Res<PlantSupport>, mut commands: Commands) {
+    if matches!(*support, PlantSupport::Unknown | PlantSupport::Supported) {
         return;
     }
     commands.spawn((

@@ -1,7 +1,7 @@
 //! Explore biome, fantasy, toon and forest presets on matching terrain.
 //! Fly around each plot to inspect plants up close, from sand and snow to
 //! forest floor and seabed. With file watching enabled, saving its
-//! `.field.ron` file in `assets/grass_fields` updates the plot live.
+//! `.field.ron` file in `assets/fields` updates the plot live.
 //! A person walks a circle in each plot, trampling a trail.
 //!
 //! Tab and Shift+Tab fly to the next and previous plot; G switches between
@@ -24,8 +24,8 @@ use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin, FreeCam
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
-use procgena_plant::prelude::*;
 use common::setting::{setting, spawn_setting};
+use procgena_plant::prelude::*;
 
 /// The plots, near to far and left to right, four to a row: the preset and
 /// one line on what to look for.
@@ -164,26 +164,26 @@ fn vantage(index: usize, eye_level: bool) -> Transform {
     }
 }
 
-const WINDS: [(&str, GrassWind); 6] = [
-    ("calm", GrassWind::CALM),
-    ("breeze", GrassWind::BREEZE),
-    ("gusty", GrassWind::GUSTY),
-    ("storm", GrassWind::STORM),
+const WINDS: [(&str, PlantWind); 6] = [
+    ("calm", PlantWind::CALM),
+    ("breeze", PlantWind::BREEZE),
+    ("gusty", PlantWind::GUSTY),
+    ("storm", PlantWind::STORM),
     (
         "steady",
-        GrassWind {
+        PlantWind {
             sway: 0.0,
             gust_contrast: 0.0,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         },
     ),
     (
         "lively",
-        GrassWind {
+        PlantWind {
             sway: 2.5,
             sway_speed: 2.0,
             gust_contrast: 2.5,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         },
     ),
 ];
@@ -236,7 +236,7 @@ fn main() {
         wind: None,
         walking: true,
     })
-    .add_plugins((GrassPlugins, FreeCameraPlugin))
+    .add_plugins((PlantPlugins, FreeCameraPlugin))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.82)))
     .add_systems(Startup, setup)
     .add_systems(
@@ -316,14 +316,13 @@ fn setup(
         // The preset's own field until its file has loaded.
         let preset = FieldPreset::named(name).expect("every plot is a field preset");
         commands.spawn((
-            GrassField {
+            PlantField {
                 density_map,
-                ..GrassField::from_preset(preset, Vec2::splat(PLOT))
+                ..PlantField::from_preset(preset, Vec2::splat(PLOT))
             },
-            common::FieldFile(assets.load(format!(
-                "grass_fields/{}.field.ron",
-                name.to_ascii_lowercase()
-            ))),
+            common::FieldFile(
+                assets.load(format!("fields/{}.field.ron", name.to_ascii_lowercase())),
+            ),
             Transform::from_translation(center),
         ));
         // A 1.8 m person, for scale, trampling a trail.
@@ -331,7 +330,7 @@ fn setup(
             Mesh3d(body.clone()),
             MeshMaterial3d(person.clone()),
             Transform::from_translation(center + Vec3::Y * 0.9),
-            GrassInteractor::default(),
+            PlantInteractor::default(),
             Walker {
                 center,
                 radius: 4.5,
@@ -480,23 +479,23 @@ fn pick_wind(keys: Res<ButtonInput<KeyCode>>, mut tour: ResMut<Tour>) {
 fn follow_wind(
     tour: Res<Tour>,
     camera: Single<&Transform, With<Camera3d>>,
-    mut wind: ResMut<GrassWind>,
+    mut wind: ResMut<PlantWind>,
 ) {
     let wanted = match tour.wind {
         Some(index) => WINDS[index].1,
         None => setting(PLOTS[looked_at(&camera)].0)
             .wind
-            .unwrap_or(GrassWind::BREEZE),
+            .unwrap_or(PlantWind::BREEZE),
     };
     wind.set_if_neq(wanted);
 }
 
-fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut grass: ResMut<GrassSettings>) {
+fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<PlantSettings>) {
     if keys.just_pressed(KeyCode::KeyH) {
-        grass.shadows = if grass.shadows == GrassShadows::Off {
-            GrassShadows::Near
+        settings.shadows = if settings.shadows == PlantShadows::Off {
+            PlantShadows::Near
         } else {
-            GrassShadows::Off
+            PlantShadows::Off
         };
     }
 }
@@ -541,7 +540,7 @@ fn place_labels(
 
 fn update_hud(
     tour: Res<Tour>,
-    grass: Res<GrassSettings>,
+    settings: Res<PlantSettings>,
     camera: Single<&Transform, With<Camera3d>>,
     mut hud: Single<&mut Text, With<Hud>>,
 ) {
@@ -560,7 +559,7 @@ fn update_hud(
          1-6: wind (0: the plot's own)   H: shadows   P: walkers",
         plot + 1,
         PLOTS.len(),
-        grass.shadows,
+        settings.shadows,
         if tour.walking { "on" } else { "off" },
     );
     if hud.0 != text {

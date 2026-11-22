@@ -4,29 +4,29 @@
 //! the 64 threads in a workgroup must still count and draw all their shapes.
 
 use super::*;
-use crate::GrassSettings;
-use crate::api::{GrassArrangement, GrassBranches, GrassPlant};
+use crate::PlantSettings;
+use crate::api::{PlantArrangement, PlantBranches, PlantParams};
 use crate::gpu_layout::MAX_BRANCHED_CLASSES;
 use crate::render::view::{DRAW_ARGS_COUNT, bucket_count};
 
 /// Creates a small plant with a distinct shape class for each leaflet count.
 ///
 /// Alternate leaflets preserve odd counts instead of rounding them into pairs.
-fn leaflets(leaflets: u32) -> GrassPlant {
-    GrassPlant {
+fn leaflets(leaflets: u32) -> PlantParams {
+    PlantParams {
         height: Vec2::new(0.3, 0.5),
         width: 0.01,
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: leaflets,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 length: 0.3,
                 width: 0.3,
-                ..GrassBranches::NONE
+                ..PlantBranches::NONE
             },
-            GrassBranches::NONE,
+            PlantBranches::NONE,
         ],
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     }
 }
 
@@ -41,7 +41,7 @@ fn branched(table: &[u32; BUCKET_TABLE_WORDS], buckets: usize) -> Vec<(u32, u32)
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_a_busy_shape_gets_the_slots_an_even_split_would_withhold() {
     // Mix a common plant shape with a rare one to create uneven storage demand.
-    let field = GrassField::new(
+    let field = PlantField::new(
         Vec2::ZERO,
         vec![
             FieldPlant::new(leaflets(6)).scaled(0.05),
@@ -50,7 +50,7 @@ fn gpu_a_busy_shape_gets_the_slots_an_even_split_would_withhold() {
     )
     .with_density(3.0);
     let mut app = app_with_field(field);
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     for _ in 0..3 {
         app.update();
     }
@@ -71,9 +71,9 @@ fn gpu_a_busy_shape_gets_the_slots_an_even_split_would_withhold() {
         busiest > budget / demand.len() as u32,
         "an even split of {budget} would fit {demand:?}"
     );
-    app.insert_resource(GrassSettings {
+    app.insert_resource(PlantSettings {
         plant_capacity: budget,
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     });
     for _ in 0..4 {
         app.update();
@@ -112,12 +112,12 @@ fn gpu_more_buckets_than_lanes_are_all_counted_and_drawn() {
     let world = app.world_mut();
     for n in 1..=SHAPES {
         world.spawn((
-            GrassField::new(Vec2::new(70.0, 50.0), vec![FieldPlant::new(leaflets(n))])
+            PlantField::new(Vec2::new(70.0, 50.0), vec![FieldPlant::new(leaflets(n))])
                 .with_density(0.1),
             Transform::from_xyz(3.0, 0.5, -4.0),
         ));
     }
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     for _ in 0..3 {
         app.update();
     }
@@ -133,7 +133,7 @@ fn gpu_more_buckets_than_lanes_are_all_counted_and_drawn() {
         let world = app.sub_app_mut(RenderApp).world_mut();
         let device = world.resource::<RenderDevice>().clone();
         let queue = world.resource::<RenderQueue>().clone();
-        let mut views = world.query::<&GrassViewBuffers>();
+        let mut views = world.query::<&PlantViewBuffers>();
         let buffers = views.iter(world).next().expect("a grass view");
         read_buffer(
             &device,
@@ -171,5 +171,5 @@ fn gpu_more_buckets_than_lanes_are_all_counted_and_drawn() {
     }
 
     // Check generated instances in every bucket against the CPU placement model.
-    generation_matches_the_cpu_mirror_in(app, GrassSettings::HIGH);
+    generation_matches_the_cpu_mirror_in(app, PlantSettings::HIGH);
 }

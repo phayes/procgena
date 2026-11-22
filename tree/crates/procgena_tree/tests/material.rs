@@ -2,8 +2,9 @@
 //!
 //! The file checks read KTX2 metadata to verify compression, colour space, dimensions,
 //! and mipmaps (smaller images used when textures are viewed from a distance).
-//! Texture images must be downloaded separately. Run `tools/textures/download.sh`
-//! with its default sizes and formats, then run the file checks with
+//! Texture images must be downloaded separately. From the workspace root, run
+//! `uv run --project tools textures download tree` with its default sizes and
+//! formats, then run the file checks with
 //! `cargo test -p procgena_tree --test material -- --ignored`.
 
 use std::collections::HashSet;
@@ -341,7 +342,7 @@ fn manifest_lists_every_bark_file_once() {
 /// colour space, dimensions, and complete mipmaps. Requires downloaded colour
 /// and available normal maps in both BC7 and UASTC formats.
 #[test]
-#[ignore = "needs leaf textures from tools/textures/download.sh"]
+#[ignore = "needs leaf textures from uv run --project tools textures download tree"]
 fn downloaded_leaf_textures_have_the_documented_formats() {
     let manifest = manifest();
     let files = manifest_files(&manifest, "leaves");
@@ -363,10 +364,10 @@ fn downloaded_leaf_textures_have_the_documented_formats() {
 }
 
 /// Checks the downloaded bark files against the manifest. The 512 and 1k sizes
-/// that `tools/textures/download.sh` fetches by default must be present; 2k files
-/// are checked when present.
+/// that `uv run --project tools textures download tree` fetches by default
+/// must be present; 2k files are checked when present.
 #[test]
-#[ignore = "needs bark textures from tools/textures/download.sh"]
+#[ignore = "needs bark textures from uv run --project tools textures download tree"]
 fn downloaded_bark_textures_have_the_documented_formats() {
     let manifest = manifest();
     let mut checked = 0;

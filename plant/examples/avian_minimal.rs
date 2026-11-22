@@ -1,7 +1,7 @@
 //! The smallest Avian interaction example: a field, a ground collider, a
 //! capsule character and a large box, all trampling grass.
 //!
-//! `GrassInteractorFromCollider` derives the grass footprint from the Avian
+//! `PlantInteractorFromCollider` derives the grass footprint from the Avian
 //! collider. The physics engine already writes `Transform`/`GlobalTransform`,
 //! so there is no transform to copy: the adapter only decides how big the
 //! footprint is (and gives a large collider several discs). `rapier_minimal`
@@ -17,7 +17,7 @@ use procgena_plant::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, GrassPlugins, PhysicsPlugins::default()))
+        .add_plugins((DefaultPlugins, PlantPlugins, PhysicsPlugins::default()))
         .add_systems(Startup, setup)
         .add_systems(Update, orbit)
         .run();
@@ -67,13 +67,13 @@ fn setup(
         Transform::from_xyz(0.0, -0.5, 0.0),
     ));
 
-    commands.spawn(GrassField::from_preset(
+    commands.spawn(PlantField::from_preset(
         &FieldPreset::MEADOW,
         Vec2::splat(64.0),
     ));
 
     // A capsule character. The adapter reads the collider and adds the
-    // required `GrassInteractor` and `GrassInteractorSpread` for you.
+    // required `PlantInteractor` and `PlantInteractorSpread` for you.
     commands.spawn((
         Mesh3d(meshes.add(Capsule3d::new(0.25, 1.3))),
         MeshMaterial3d(materials.add(Color::srgb(0.15, 0.32, 0.75))),
@@ -81,7 +81,7 @@ fn setup(
         RigidBody::Kinematic,
         // A radius, and the length between the hemispheres.
         Collider::capsule(0.4, 1.0),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Orbit {
             center: Vec2::ZERO,
             radius: 4.0,
@@ -99,7 +99,7 @@ fn setup(
         Transform::from_xyz(8.0, 1.0, 0.0),
         RigidBody::Kinematic,
         Collider::cuboid(6.0, 2.0, 3.0),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Orbit {
             center: Vec2::ZERO,
             radius: 9.0,

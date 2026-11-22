@@ -140,7 +140,7 @@ pub fn remove_plant(index: usize) {
 /// readable error on failure; successful imports are applied on the next frame.
 #[wasm_bindgen]
 pub fn import_field(ron: &str) -> String {
-    match GrassField::from_ron(ron) {
+    match PlantField::from_ron(ron) {
         Ok(field) => {
             shared().edits.push(TuneEdit::Field(Box::new(field)));
             String::new()
@@ -204,7 +204,7 @@ pub fn presets() -> Vec<String> {
 
 /// The demo's status as JSON: whether this device draws grass and why not,
 /// the tier and preset shown, the blades of the latest GPU reading, and every
-/// `GrassStats` number.
+/// `PlantStats` number.
 #[wasm_bindgen]
 pub fn status() -> String {
     shared().status.clone()
@@ -226,8 +226,8 @@ pub(crate) fn take_requests(mut requests: ResMut<Requests>, mut tuning: ResMut<T
 
 pub(crate) fn publish_status(
     meadow: Option<Res<Meadow>>,
-    stats: Res<GrassStats>,
-    support: Res<GrassSupport>,
+    stats: Res<PlantStats>,
+    support: Res<PlantSupport>,
     tuning: Res<Tuning>,
     cameras: Query<Ref<Msaa>, With<Camera3d>>,
 ) {
@@ -261,7 +261,7 @@ pub(crate) fn publish_status(
          \"quality\":\"{}\",\"preset\":\"{}\",\"blades\":[{near},{mid},{far}],\
          \"readings\":{},\"overflows\":{},\
          \"shadows\":{},\"antialiasing\":{},\"stats\":",
-        *support != GrassSupport::Unknown,
+        *support != PlantSupport::Unknown,
         support.is_supported(),
         QUALITIES[meadow.quality].0,
         meadow.preset,

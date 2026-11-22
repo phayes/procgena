@@ -357,7 +357,8 @@ mod tests {
             let carve = CarveSet::new(seed, &options);
             let random = CarveSet::new(seed, &CarveOptions::default());
             for (sphere, unbent) in carve.spheres().iter().zip(random.spheres()) {
-                let off_axis = sphere.center.abs().element_sum() - sphere.center.abs().max_element();
+                let off_axis =
+                    sphere.center.abs().element_sum() - sphere.center.abs().max_element();
                 assert_eq!(off_axis, 0.0, "seed {seed}: centre {}", sphere.center);
                 // Turning a cut leaves its radius and its centre’s distance
                 // from the rock’s centre unchanged.
@@ -378,7 +379,14 @@ mod tests {
         for seed in SEEDS {
             options.seed = seed;
             let field = StoneField::new(&options).unwrap();
-            for axis in [Vec3::X, Vec3::NEG_X, Vec3::Y, Vec3::NEG_Y, Vec3::Z, Vec3::NEG_Z] {
+            for axis in [
+                Vec3::X,
+                Vec3::NEG_X,
+                Vec3::Y,
+                Vec3::NEG_Y,
+                Vec3::Z,
+                Vec3::NEG_Z,
+            ] {
                 let centre = surface_radius(&field, axis);
                 let side = axis.any_orthogonal_vector().normalize() * 0.06;
                 let shifted = surface_radius(&field, (axis * centre + side).normalize());

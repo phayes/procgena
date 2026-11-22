@@ -2,7 +2,7 @@
 //!
 //! Run `cargo run -p procgena_tree_bevy --example viewer` from the repository.
 //! The viewer uses the repository's `assets/textures` folder with BC7 textures.
-//! Run `tools/textures/download.sh` first to fetch the bark and leaf textures.
+//! Run `uv run --project tools textures download tree` first to fetch the bark and leaf textures.
 //!
 //! Controls:
 //! - Left / Right: choose the previous / next preset.
@@ -54,7 +54,7 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_tree::{BARK_KINDS, BarkUvMode, LEAF_KINDS, Rng, TreeOptions, TreePreset, WindParams};
 use procgena_tree_bevy::{
-    TreeGenerating, TreeMaterial, TreePart, Wind, ZeTree, ZeTreePlugin, default_tree_lod_levels,
+    TreeGenerating, TreeMaterial, TreeParams, TreePart, TreePlugin, Wind, default_tree_lod_levels,
 };
 
 /// Distance between neighbouring trees in the forest, in world units.
@@ -250,7 +250,7 @@ fn main() -> AppExit {
         ));
     }
 
-    app.add_plugins(ZeTreePlugin {
+    app.add_plugins(TreePlugin {
         texture_root: Some("textures".to_owned()),
         lod_levels,
         ..default()
@@ -433,7 +433,7 @@ fn show_trees(
         },
         if viewer.vary { "on" } else { "off" },
     );
-    let tree = ZeTree::new(options.clone());
+    let tree = TreeParams::new(options.clone());
     let half = if viewer.forest { FOREST_SIZE / 2 } else { 0 };
     for x in -half..=half {
         for z in -half..=half {
@@ -446,7 +446,7 @@ fn show_trees(
                 let mut rng = Rng::new(viewer.roll.wrapping_mul(1000).wrapping_add(cell));
                 let mut varied = options.clone();
                 varied.jiggle(JIGGLE, &mut rng);
-                ZeTree::new(varied)
+                TreeParams::new(varied)
             } else {
                 tree.clone()
             };
@@ -530,16 +530,17 @@ fn screenshot(
     // Save the screenshot and close the viewer, reporting an error if saving fails.
     let path = path.clone();
     commands.spawn(target).observe(
-        move |captured: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            match save_png(&captured.image, &path) {
-                Ok(()) => {
-                    info!("screenshot saved to {path}");
-                    exit.write(AppExit::Success);
-                }
-                Err(message) => {
-                    error!("screenshot failed: could not save {path}: {message}");
-                    exit.write(AppExit::error());
-                }
+        move |captured: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| match save_png(
+            &captured.image,
+            &path,
+        ) {
+            Ok(()) => {
+                info!("screenshot saved to {path}");
+                exit.write(AppExit::Success);
+            }
+            Err(message) => {
+                error!("screenshot failed: could not save {path}: {message}");
+                exit.write(AppExit::error());
             }
         },
     );

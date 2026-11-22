@@ -8,7 +8,7 @@
 //! cargo run --example bench                       # perspective flythrough, High tier
 //! cargo run --example bench -- --ortho            # DEMO ARPG GAME's camera, light and blades panning the same terrain
 //! cargo run --example bench -- --tier medium --csv target/bench-medium.csv
-//! cargo run --example bench -- --no-grass         # the same frames without grass
+//! cargo run --example bench -- --no-plants         # the same frames without grass
 //! cargo run --example bench -- --interactors 512  # a horde trampling around the view
 //! cargo run --example bench -- --screenshot shots/bench.png   # the last frame
 //! cargo run --example bench -- --sheen --tint --toon  # add optional look terms
@@ -17,18 +17,18 @@
 //! cargo run --profile release-lto --example bench -- --single-threaded  # the fastest frame on few-core CPUs
 //! cargo run --example bench -- --tier competitive --target-hz 240 --machine t1200
 //!     # the 240 Hz acceptance gate: exits non-zero when frame p95 exceeds 4.167 ms
-//! cargo run --example bench -- --tier competitive --target-hz 240 --baseline-csv target/no-grass.csv
-//!     # also report grass cost against a previous --no-grass run
+//! cargo run --example bench -- --tier competitive --target-hz 240 --baseline-csv target/no-plants.csv
+//!     # also report grass cost against a previous --no-plants run
 //! ```
 //!
-//! The 240 Hz gate is also driven by `tools/bench_240.py`, which runs the
-//! three reference configurations (High, Competitive and no-grass) for a
+//! The 240 Hz gate is also driven by `tools/plant/bench_240.py`, which runs the
+//! three reference configurations (High, Competitive and no-plants) for a
 //! named machine and both scenes. CI runners cannot enforce GPU frame times
 //! reliably, so the gate is manual or nightly on the labelled machines
 //! described in `docs/performance.md`.
 //!
 //! What sets the frame-time floor, beyond grass (see "The frame-time floor"
-//! in `docs/performance.md`): `--no-plugin` leaves `GrassPlugin` out
+//! in `docs/performance.md`): `--no-plugin` leaves `PlantPlugin` out
 //! entirely, `--no-gpu-timing` leaves out the GPU timestamp and statistics
 //! queries (the GPU columns are then empty), `--no-terrain` and
 //! `--no-shadows` take the terrain mesh and the sun's shadows away.
@@ -48,7 +48,7 @@
 //!
 //! Columns: frame, frame time, and the GPU time of trampling, grass culling,
 //! blade generation and the whole main opaque pass (terrain included), in ms. The
-//! grass's share of the main pass is its time minus a `--no-grass` run's.
+//! grass's share of the main pass is its time minus a `--no-plants` run's.
 //! Shadow-pass time is not in the CSV: Bevy records it as two spans a frame,
 //! so read it from `BENCH_PERF=1`'s log instead.
 
@@ -115,7 +115,7 @@ impl FrameBudget {
 #[derive(Resource, Debug, Clone)]
 struct Bench {
     orthographic: bool,
-    grass: bool,
+    plants: bool,
     /// The terrain mesh and the sun's shadows, both on unless `--no-terrain`
     /// or `--no-shadows`.
     terrain: bool,
@@ -147,7 +147,7 @@ struct Bench {
     budget: Option<FrameBudget>,
     /// A name for the reference machine, included in the summary and results.
     machine: String,
-    /// A previous `--no-grass` CSV, for the finite grass-cost percentiles.
+    /// A previous `--no-plants` CSV, for the finite grass-cost percentiles.
     baseline_csv: Option<String>,
     csv_path: String,
     rows: Vec<[f32; 6]>,
@@ -157,10 +157,10 @@ struct Bench {
 #[derive(Debug, Clone)]
 struct Cli {
     orthographic: bool,
-    grass: bool,
+    plants: bool,
     interactors: u32,
     screenshot: Option<String>,
-    quality: GrassQuality,
+    quality: PlantQuality,
     csv_path: String,
     budget: Option<FrameBudget>,
     machine: String,
@@ -186,10 +186,10 @@ impl Default for Cli {
     fn default() -> Self {
         Self {
             orthographic: false,
-            grass: true,
+            plants: true,
             interactors: 0,
             screenshot: None,
-            quality: GrassQuality::High,
+            quality: PlantQuality::High,
             csv_path: "target/bench.csv".to_string(),
             budget: None,
             machine: "unspecified".to_string(),
@@ -219,7 +219,7 @@ fn parse_cli() -> Cli {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--ortho" => cli.orthographic = true,
-            "--no-grass" => cli.grass = false,
+            "--no-plants" => cli.plants = false,
             "--interactors" => {
                 cli.interactors = args
                     .next()
@@ -269,11 +269,11 @@ fn parse_cli() -> Cli {
             }
             "--tier" => {
                 cli.quality = match args.next().as_deref() {
-                    Some("competitive" | "240") => GrassQuality::Competitive,
-                    Some("low") => GrassQuality::Low,
-                    Some("medium") => GrassQuality::Medium,
-                    Some("high") => GrassQuality::High,
-                    Some("ultra") => GrassQuality::Ultra,
+                    Some("competitive" | "240") => PlantQuality::Competitive,
+                    Some("low") => PlantQuality::Low,
+                    Some("medium") => PlantQuality::Medium,
+                    Some("high") => PlantQuality::High,
+                    Some("ultra") => PlantQuality::Ultra,
                     other => panic!(
                         "unknown tier {other:?}; use competitive, low, medium, high or ultra"
                     ),
@@ -303,8 +303,8 @@ fn main() {
     }
     .install(&mut app, "procgena_plant: benchmark");
     if cli.plugin {
-        app.add_plugins(GrassPlugins.set(GrassPlugin {
-            settings: GrassSettings {
+        app.add_plugins(PlantPlugins.set(PlantPlugin {
+            settings: PlantSettings {
                 max_interactors: cli.interactors.max(64),
                 ..cli.quality.settings()
             },
@@ -316,7 +316,7 @@ fn main() {
     }
     app.insert_resource(Bench {
         orthographic: cli.orthographic,
-        grass: cli.grass && cli.plugin,
+        plants: cli.plants && cli.plugin,
         terrain: cli.terrain,
         prepass: cli.prepass,
         shadows: cli.shadows,
@@ -358,7 +358,7 @@ fn main() {
 /// Enabled by `--lod-rings`. Red marks the start of mid detail, yellow far
 /// detail, and blue fading out. Rings follow the ground around the camera
 /// and remain visible over the grass. Detail transitions blend over
-/// `GrassSettings::lod_blend`, rather than changing abruptly at a ring.
+/// `PlantSettings::lod_blend`, rather than changing abruptly at a ring.
 fn draw_lod_rings(
     bench: Res<Bench>,
     cameras: Query<&Transform, With<Camera3d>>,
@@ -467,14 +467,14 @@ fn terrain_mesh() -> Mesh {
 
 /// Selects the requested preset or the camera mode's default benchmark field,
 /// then applies the look and variation flags.
-fn bench_field(bench: &Bench) -> GrassField {
+fn bench_field(bench: &Bench) -> PlantField {
     // DEMO ARPG GAME's blades are wider and fewer than a perspective game's (the
     // `arpg_camera` example's field); its camera asks for 2-pixel minimum width.
     let mut field = if let Some(preset) = bench.field {
         preset.field.clone()
     } else if bench.orthographic {
         let prairie = &FieldPreset::TALL_PRAIRIE.field;
-        let plant = GrassPlant {
+        let plant = PlantParams {
             // 36, not 45: the look approved at gate G1 drew 36 per m² while a
             // rounding bug capped 45 (fixed in the perf pass).
             density: 36.0,
@@ -482,7 +482,7 @@ fn bench_field(bench: &Bench) -> GrassField {
             width: 0.05,
             ..prairie.plants[0].plant
         };
-        GrassField {
+        PlantField {
             plants: vec![FieldPlant::new(plant)].into(),
             ..prairie.clone()
         }
@@ -555,7 +555,7 @@ fn setup(
     }
     if bench.orthographic {
         // DEMO ARPG GAME's 2-pixel minimum blade width.
-        camera.insert(GrassCamera {
+        camera.insert(PlantCamera {
             min_width_px: Some(2.0),
             ..default()
         });
@@ -596,14 +596,14 @@ fn setup(
         ));
     }
     for _ in 0..bench.interactors {
-        commands.spawn(GrassInteractor::default());
+        commands.spawn(PlantInteractor::default());
     }
-    if !bench.grass {
+    if !bench.plants {
         return;
     }
-    commands.spawn(GrassField {
+    commands.spawn(PlantField {
         size: Vec2::splat(TERRAIN_SIZE),
-        ground: GrassGround::Heightmap {
+        ground: PlantGround::Heightmap {
             image: images.add(heightmap()),
             height_scale: HEIGHT_SCALE,
         },
@@ -642,7 +642,7 @@ fn fly(mut bench: ResMut<Bench>, mut cameras: Query<&mut Transform, With<Camera3
 /// its own speed, so they leave trails across the view.
 fn move_interactors(
     bench: Res<Bench>,
-    mut interactors: Query<&mut Transform, With<GrassInteractor>>,
+    mut interactors: Query<&mut Transform, With<PlantInteractor>>,
 ) {
     let count = interactors.iter().len().max(1) as f32;
     let frame = bench.frame as f32;
@@ -715,9 +715,9 @@ fn record(
     }
     let row = [
         time.delta_secs() * 1000.0,
-        gpu_ms(&store, "render/grass_trample/elapsed_gpu"),
-        gpu_ms(&store, "render/grass_cull/elapsed_gpu"),
-        gpu_ms(&store, "render/grass_generate/elapsed_gpu"),
+        gpu_ms(&store, "render/plant_trample/elapsed_gpu"),
+        gpu_ms(&store, "render/plant_cull/elapsed_gpu"),
+        gpu_ms(&store, "render/plant_generate/elapsed_gpu"),
         gpu_ms(&store, "render/main_opaque_pass_3d/elapsed_gpu"),
         gpu_ms(&store, "render/per_view_shadow_pass/elapsed_gpu"),
     ];
@@ -783,7 +783,7 @@ fn report(bench: &Bench) -> (String, bool) {
         } else {
             "perspective"
         },
-        if bench.grass { "" } else { ", no grass" },
+        if bench.plants { "" } else { ", no grass" },
         bench.machine,
         bench.rows.len()
     );
@@ -796,7 +796,7 @@ fn report(bench: &Bench) -> (String, bool) {
             "\n  {name:<15} p50 {p50:6.3} ms   p95 {p95:6.3} ms"
         );
     }
-    if let Some((p50, p95, _)) = grass_cost(bench) {
+    if let Some((p50, p95, _)) = plant_cost(bench) {
         let _ = write!(
             summary,
             "\n  grass cost      p50 {p50:6.3} ms   p95 {p95:6.3} ms"
@@ -823,9 +823,9 @@ fn report(bench: &Bench) -> (String, bool) {
     (summary, !pass)
 }
 
-/// Grass cost is a paired difference against a `--no-grass` run of the same
+/// Grass cost is a paired difference against a `--no-plants` run of the same
 /// frames. The two runs must have the same number of rows.
-fn grass_cost(bench: &Bench) -> Option<(f32, f32, f32)> {
+fn plant_cost(bench: &Bench) -> Option<(f32, f32, f32)> {
     let path = bench.baseline_csv.as_deref()?;
     match read_frame_csv(path) {
         Ok(baseline) if baseline.len() == bench.rows.len() => percentiles(
@@ -834,7 +834,7 @@ fn grass_cost(bench: &Bench) -> Option<(f32, f32, f32)> {
                 .iter()
                 .map(|row| row[0])
                 .zip(baseline)
-                .map(|(with_grass, without_grass)| with_grass - without_grass),
+                .map(|(with_plants, without_plants)| with_plants - without_plants),
         ),
         Ok(baseline) => {
             warn!(
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn a_missing_frame_column_is_an_error() {
-        let path = std::env::temp_dir().join("bevy_grass_bench_test.csv");
+        let path = std::env::temp_dir().join("procgena_plant_bench_test.csv");
         std::fs::write(&path, "frame,other\n1,2\n").expect("write test csv");
         let error = read_frame_csv(path.to_str().expect("utf-8 temp path"))
             .expect_err("no frame_ms column");

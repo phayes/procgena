@@ -45,7 +45,7 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 
-# The hosted procgena_plant web demo (`plant/tools/web_demo.py`): a smaller
+# The hosted procgena_plant web demo (`tools/plant/web_demo.py`): a smaller
 # download. Whole-program optimisation drops the parts of Bevy the demo never
 # calls, and "s" trades some CPU speed for size.
 [profile.web]

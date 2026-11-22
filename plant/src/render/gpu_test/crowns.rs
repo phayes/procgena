@@ -2,31 +2,31 @@
 //! whole-plant overflow handling. A crown is the set of stems sharing one root.
 
 use super::*;
-use crate::api::{GrassBranches, GrassPlant};
+use crate::api::{PlantBranches, PlantParams};
 use crate::shader_model::ShapeClass;
 
 /// Five stems per crown exercise multi-stem expansion and whole-crown accounting.
 const STEMS: u32 = 5;
 
 /// A sparse fern field with `STEMS` fronds per plant and 12 leaflets per frond.
-fn fern_field() -> GrassField {
-    let fern = GrassPlant {
+fn fern_field() -> PlantField {
+    let fern = PlantParams {
         height: Vec2::new(0.5, 0.9),
         width: 0.01,
         lean: 0.4,
         stems_per_plant: STEMS,
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 12,
                 length: 0.3,
                 width: 0.3,
-                ..GrassBranches::NONE
+                ..PlantBranches::NONE
             },
-            GrassBranches::NONE,
+            PlantBranches::NONE,
         ],
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
-    GrassField::new(Vec2::ZERO, vec![FieldPlant::new(fern)]).with_density(3.0)
+    PlantField::new(Vec2::ZERO, vec![FieldPlant::new(fern)]).with_density(3.0)
 }
 
 /// Counts non-zero-height stems by their packed root coordinates. The key keeps word 0
@@ -43,7 +43,7 @@ fn stems_by_root(words: &[[u32; 4]]) -> HashMap<(u32, u32), u32> {
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_ferns_grow_in_their_own_class_as_whole_crowns_as_the_mirror_places_them() {
     let mut app = app_with_field(fern_field());
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     let tables = app.world().resource::<FieldTables>().clone();
     assert_eq!(
         *tables.shape_classes,
@@ -69,7 +69,7 @@ fn gpu_ferns_grow_in_their_own_class_as_whole_crowns_as_the_mirror_places_them()
     );
 
     // Check placement and packed dimensions against the CPU prediction.
-    generation_matches_the_cpu_mirror_in(app, crate::GrassSettings::HIGH);
+    generation_matches_the_cpu_mirror_in(app, crate::PlantSettings::HIGH);
 }
 
 #[test]
@@ -77,11 +77,11 @@ fn gpu_ferns_grow_in_their_own_class_as_whole_crowns_as_the_mirror_places_them()
 fn gpu_crowns_that_do_not_fit_are_dropped_whole() {
     // Limit storage to 304 stems, forcing this dense scene to drop plants.
     let mut app = app_with_field(fern_field());
-    app.insert_resource(crate::GrassSettings {
+    app.insert_resource(crate::PlantSettings {
         plant_capacity: 304,
-        ..crate::GrassSettings::HIGH
+        ..crate::PlantSettings::HIGH
     });
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     for _ in 0..3 {
         app.update();
     }

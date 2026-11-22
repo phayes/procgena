@@ -1,18 +1,18 @@
 //! Runtime editing: grass cleared, mowed, grown and put back while the game
 //! runs, and read back for gameplay.
 //!
-//! - A lawnmower drives in circles with a `GrassBrush` that mows, its deck a
-//!   `GrassBrushFootprint`.
+//! - A lawnmower drives in circles with a `PlantBrush` that mows, its deck a
+//!   `PlantBrushFootprint`.
 //! - A walker paces between two points with a slow brush: each passing wears
 //!   the grass down a little, and over a minute or two a path forms.
-//! - At start, a building's plot is cleared with one `GrassEdit` and a strip
+//! - At start, a building's plot is cleared with one `PlantEdit` and a strip
 //!   is mowed.
-//! - The field has `GrassRegrowth`: mowed grass grows back in about half a
+//! - The field has `PlantRegrowth`: mowed grass grows back in about half a
 //!   minute, cleared ground fills in over a few minutes. R turns it off and on.
 //!
 //! Paint with the left mouse button: 1 clears, 2 mows, 3 grows grass, 4 puts
 //! back what was there. The mouse wheel sizes the brush. The text reads the
-//! grass under the cursor with `GrassSampler`, the way a game decides whether
+//! grass under the cursor with `PlantSampler`, the way a game decides whether
 //! a player is hidden.
 //!
 //! ```text
@@ -30,7 +30,7 @@ use procgena_plant::prelude::*;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: editing");
-    app.add_plugins(GrassPlugins)
+    app.add_plugins(PlantPlugins)
         .init_resource::<Tool>()
         .add_systems(Startup, setup)
         .add_systems(
@@ -43,7 +43,7 @@ fn main() {
 /// What the mouse does.
 #[derive(Resource)]
 struct Tool {
-    op: GrassEditOp,
+    op: PlantEditOp,
     name: &'static str,
     radius: f32,
 }
@@ -51,7 +51,7 @@ struct Tool {
 impl Default for Tool {
     fn default() -> Self {
         Self {
-            op: GrassEditOp::Density(0.0),
+            op: PlantEditOp::Density(0.0),
             name: "clear",
             radius: 1.5,
         }
@@ -74,7 +74,7 @@ struct Walker {
 #[derive(Component)]
 struct Readout;
 
-const REGROWTH: GrassRegrowth = GrassRegrowth {
+const REGROWTH: PlantRegrowth = PlantRegrowth {
     density_rate: 0.004,
     height_rate: 0.03,
 };
@@ -83,7 +83,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut edits: MessageWriter<GrassEdit>,
+    mut edits: MessageWriter<PlantEdit>,
 ) {
     commands.spawn((
         Camera3d::default(),
@@ -108,7 +108,7 @@ fn setup(
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
     commands.spawn((
-        GrassField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::splat(64.0)),
+        PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::splat(64.0)),
         REGROWTH,
         Meadow,
     ));
@@ -120,13 +120,13 @@ fn setup(
         MeshMaterial3d(materials.add(Color::srgb(0.55, 0.5, 0.45))),
         plot,
     ));
-    edits.write(GrassEdit::clear(GrassBrushShape::rect(
+    edits.write(PlantEdit::clear(PlantBrushShape::rect(
         plot.translation.xz(),
         Vec2::new(5.0, 3.5),
         0.4,
     )));
-    edits.write(GrassEdit::mow(
-        GrassBrushShape::stroke(Vec2::new(-24.0, 14.0), Vec2::new(24.0, 14.0), 2.0),
+    edits.write(PlantEdit::mow(
+        PlantBrushShape::stroke(Vec2::new(-24.0, 14.0), Vec2::new(24.0, 14.0), 2.0),
         0.1,
     ));
 
@@ -136,8 +136,8 @@ fn setup(
         Mesh3d(meshes.add(Cuboid::new(1.6, 0.6, 1.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.8, 0.15, 0.1))),
         Transform::from_xyz(20.0, 0.3, -6.0),
-        GrassBrush::new(GrassEditOp::Mow(0.1), 0.0),
-        GrassBrushFootprint::new(Vec2::new(0.8, 0.5)),
+        PlantBrush::new(PlantEditOp::Mow(0.1), 0.0),
+        PlantBrushFootprint::new(Vec2::new(0.8, 0.5)),
         Mower,
     ));
     // A walker who wears a path: each passing takes about a quarter of the
@@ -146,7 +146,7 @@ fn setup(
         Mesh3d(meshes.add(Capsule3d::new(0.25, 1.2))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.3, 0.8))),
         Transform::from_xyz(-20.0, 0.85, 4.0),
-        GrassBrush::new(GrassEditOp::Density(0.0), 0.35).with_rate(1.0),
+        PlantBrush::new(PlantEditOp::Density(0.0), 0.35).with_rate(1.0),
         Walker {
             from: Vec2::new(-20.0, 4.0),
             to: Vec2::new(6.0, 24.0),
@@ -172,10 +172,10 @@ fn choose_tool(
     mut tool: ResMut<Tool>,
 ) {
     let choices = [
-        (KeyCode::Digit1, GrassEditOp::Density(0.0), "clear"),
-        (KeyCode::Digit2, GrassEditOp::Mow(0.2), "mow"),
-        (KeyCode::Digit3, GrassEditOp::Density(1.0), "grow"),
-        (KeyCode::Digit4, GrassEditOp::Restore, "restore"),
+        (KeyCode::Digit1, PlantEditOp::Density(0.0), "clear"),
+        (KeyCode::Digit2, PlantEditOp::Mow(0.2), "mow"),
+        (KeyCode::Digit3, PlantEditOp::Density(1.0), "grow"),
+        (KeyCode::Digit4, PlantEditOp::Restore, "restore"),
     ];
     for (key, op, name) in choices {
         if keys.just_pressed(key) {
@@ -209,7 +209,7 @@ fn paint(
     camera: Single<(&Camera, &GlobalTransform)>,
     tool: Res<Tool>,
     mut last: Local<Option<Vec2>>,
-    mut edits: MessageWriter<GrassEdit>,
+    mut edits: MessageWriter<PlantEdit>,
 ) {
     let held = buttons.pressed(MouseButton::Left);
     let Some(at) = cursor_on_ground(&window, *camera).filter(|_| held) else {
@@ -217,8 +217,8 @@ fn paint(
         return;
     };
     let from = last.replace(at).unwrap_or(at);
-    edits.write(GrassEdit::new(
-        GrassBrushShape::stroke(from, at, tool.radius),
+    edits.write(PlantEdit::new(
+        PlantBrushShape::stroke(from, at, tool.radius),
         tool.op,
     ));
 }
@@ -242,7 +242,7 @@ fn walk(time: Res<Time>, mut walkers: Query<(&mut Transform, &Walker)>) {
 
 fn toggle_regrowth(
     keys: Res<ButtonInput<KeyCode>>,
-    meadow: Single<(Entity, Has<GrassRegrowth>), With<Meadow>>,
+    meadow: Single<(Entity, Has<PlantRegrowth>), With<Meadow>>,
     mut commands: Commands,
 ) {
     if !keys.just_pressed(KeyCode::KeyR) {
@@ -250,7 +250,7 @@ fn toggle_regrowth(
     }
     let (entity, regrowing) = *meadow;
     if regrowing {
-        commands.entity(entity).remove::<GrassRegrowth>();
+        commands.entity(entity).remove::<PlantRegrowth>();
     } else {
         commands.entity(entity).insert(REGROWTH);
     }
@@ -258,15 +258,15 @@ fn toggle_regrowth(
 
 /// The tool, the grass under the cursor, and what editing costs.
 fn show(
-    grass: GrassSampler,
+    sampler: PlantSampler,
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Single<(&Camera, &GlobalTransform)>,
     tool: Res<Tool>,
-    stats: Res<GrassStats>,
-    regrowing: Query<(), (With<Meadow>, With<GrassRegrowth>)>,
+    stats: Res<PlantStats>,
+    regrowing: Query<(), (With<Meadow>, With<PlantRegrowth>)>,
     mut readout: Single<&mut Text, With<Readout>>,
 ) {
-    let under = cursor_on_ground(&window, *camera).and_then(|at| grass.sample(at));
+    let under = cursor_on_ground(&window, *camera).and_then(|at| sampler.sample(at));
     let cursor = match under {
         Some(sample) => format!(
             "density {:.2} ({:.0} blades per m2), height {:.2} m{}",

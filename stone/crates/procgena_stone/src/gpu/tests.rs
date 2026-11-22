@@ -533,7 +533,12 @@ fn gpu_placement_matches_cpu() {
 
         // For these shapes, CPU and GPU placement should agree within rounding tolerance.
         let placed = |p: glam::Vec3| rotation * p + translation;
-        let probe = [glam::Vec3::X, glam::Vec3::Y, glam::Vec3::Z, glam::Vec3::ZERO];
+        let probe = [
+            glam::Vec3::X,
+            glam::Vec3::Y,
+            glam::Vec3::Z,
+            glam::Vec3::ZERO,
+        ];
         for p in probe.map(|p| p * 0.4) {
             let cpu_placed = cpu.field_position(placed(p));
             assert!(
@@ -634,7 +639,10 @@ fn requests_that_cannot_run_are_rejected() {
     assert!(matches!(err, GpuError::Options { request: 0, .. }));
 
     let err = BatchPlan::new(
-        &[GpuStoneRequest::new(StoneOptions::default(), MIN_RESOLUTION - 1)],
+        &[GpuStoneRequest::new(
+            StoneOptions::default(),
+            MIN_RESOLUTION - 1,
+        )],
         &limits,
     )
     .unwrap_err();
@@ -657,7 +665,11 @@ fn largest_resolution_fits_default_limits() {
     let limits = BufferLimits::from(&wgpu::Limits::default());
     let mut options = StoneOptions::default();
     options.mesh.mesher = Mesher::DualContouring;
-    BatchPlan::new(&[GpuStoneRequest::new(options, MAX_GPU_RESOLUTION)], &limits).unwrap();
+    BatchPlan::new(
+        &[GpuStoneRequest::new(options, MAX_GPU_RESOLUTION)],
+        &limits,
+    )
+    .unwrap();
     // One step higher, the prefix buffer would exceed the limit.
     let samples = (MAX_GPU_RESOLUTION as u64 + 2).pow(3);
     assert!((samples + 1) * 8 > limits.storage);

@@ -18,13 +18,12 @@ use crate::grid::SampleGrid;
 use crate::hash::{PCG_INCREMENT, PCG_MULTIPLIER, pcg3d, pcg3d_unit};
 use crate::mesh::dc::REGULARIZATION;
 use crate::mesh::tables::{MC_CORNERS, MC_EDGES, TRI_TABLE};
-use crate::noise::{FBM_OFFSET, FBM_ROTATION, Roughness, TRIPLANAR_MIN_WEIGHT, fbm, value_noise};
 use crate::mesh::{crossing_edges, crossing_position};
+use crate::noise::{FBM_OFFSET, FBM_ROTATION, Roughness, TRIPLANAR_MIN_WEIGHT, fbm, value_noise};
 use crate::options::{MAX_CARVE_STEPS, PlacementOptions};
 use crate::placement::{
     DIRECTION_COUNT, GOLDEN_FRACTION, MAX_DESCENT_STEPS, NEARLY_WIDEST_PERCENT, NEIGHBOUR_COS,
-    PROFILE_KERNEL,
-    REFINE_CANDIDATES, REFINE_ROUNDS, REFINE_SPREAD, StonePlacement,
+    PROFILE_KERNEL, REFINE_CANDIDATES, REFINE_ROUNDS, REFINE_SPREAD, StonePlacement,
 };
 use crate::{Mesher, StoneField, StoneMesh, StoneOptions, mesh_field};
 
@@ -278,15 +277,9 @@ fn constants_match_rust() {
 
     let place = compile("package::place");
     assert_eq!(eval_words(&place, "DIRECTION_COUNT"), [DIRECTION_COUNT]);
-    assert_eq!(
-        eval_words(&place, "MAX_DESCENT_STEPS"),
-        [MAX_DESCENT_STEPS]
-    );
+    assert_eq!(eval_words(&place, "MAX_DESCENT_STEPS"), [MAX_DESCENT_STEPS]);
     assert_eq!(eval_f32(&place, "NEIGHBOUR_COS"), NEIGHBOUR_COS);
-    assert_eq!(
-        eval_words(&place, "REFINE_CANDIDATES"),
-        [REFINE_CANDIDATES]
-    );
+    assert_eq!(eval_words(&place, "REFINE_CANDIDATES"), [REFINE_CANDIDATES]);
     assert_eq!(eval_f32(&place, "REFINE_SPREAD"), REFINE_SPREAD);
     assert_eq!(eval_f32(&place, "GOLDEN_FRACTION"), GOLDEN_FRACTION);
     assert_eq!(eval_f32(&place, "TAU"), std::f32::consts::TAU);

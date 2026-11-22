@@ -1,12 +1,12 @@
-//! Render policy for the public `GrassShadows` setting.
+//! Render policy for the public `PlantShadows` setting.
 
-impl crate::GrassShadows {
+impl crate::PlantShadows {
     /// Directional cascades grass is drawn into, counted from the nearest.
     pub(crate) fn cascades(self) -> usize {
         match self {
-            crate::GrassShadows::Off => 0,
-            crate::GrassShadows::Near => 1,
-            crate::GrassShadows::Full => 2,
+            crate::PlantShadows::Off => 0,
+            crate::PlantShadows::Near => 1,
+            crate::PlantShadows::Full => 2,
         }
     }
 
@@ -14,8 +14,8 @@ impl crate::GrassShadows {
     /// put every blade in bucket 0, so they always cast all of them.
     pub(crate) fn buckets(self) -> u64 {
         match self {
-            crate::GrassShadows::Off | crate::GrassShadows::Near => 1,
-            crate::GrassShadows::Full => 2,
+            crate::PlantShadows::Off | crate::PlantShadows::Near => 1,
+            crate::PlantShadows::Full => 2,
         }
     }
 }

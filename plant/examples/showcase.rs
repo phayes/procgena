@@ -135,7 +135,7 @@ fn main() {
         &format!("procgena_plant: showcase (page {page}/{})", PAGES.len()),
     );
     app.insert_resource(ShowcasePage(page - 1))
-        .add_plugins(GrassPlugins)
+        .add_plugins(PlantPlugins)
         .insert_resource(ClearColor(BACKDROP))
         .add_systems(Startup, setup)
         .add_systems(Update, place_labels)
@@ -177,9 +177,9 @@ fn setup(
                 Vec2::splat(layout.patch),
             );
             commands.spawn((
-                GrassField {
+                PlantField {
                     density_map,
-                    ..GrassField::from_preset(preset, Vec2::splat(layout.patch))
+                    ..PlantField::from_preset(preset, Vec2::splat(layout.patch))
                 },
                 Transform::from_translation(center),
             ));
@@ -236,7 +236,7 @@ fn spawn_camera_and_ground(
     commands.spawn((
         Camera3d::default(),
         // Far from the ground, blades are thin on screen: at least 2 pixels.
-        GrassCamera {
+        PlantCamera {
             min_width_px: Some(2.0),
             ..default()
         },

@@ -1,4 +1,4 @@
-//! What grass is doing, as numbers: the [`GrassStats`] resource, and the same
+//! What grass is doing, as numbers: the [`PlantStats`] resource, and the same
 //! numbers as Bevy [`Diagnostic`]s for `LogDiagnosticsPlugin` and overlays.
 //!
 //! "Why is there no grass here?" and "why did my frame spike?" should be
@@ -17,7 +17,7 @@ use bevy::ecs::reflect::ReflectResource;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 
-use crate::GrassSystems;
+use crate::PlantSystems;
 use crate::edit::EditStats;
 use crate::render::view::{COUNTERS, MAX_BUCKETS, SLICE_COUNTER};
 
@@ -26,14 +26,14 @@ use crate::render::view::{COUNTERS, MAX_BUCKETS, SLICE_COUNTER};
 ///
 /// The `gpu` numbers come from reading counters back from the GPU, which is
 /// done every couple of seconds (120 frames by default, see
-/// [`GrassSettings::readback_interval`](crate::GrassSettings::readback_interval))
+/// [`PlantSettings::readback_interval`](crate::PlantSettings::readback_interval))
 /// per camera, not every frame:
 /// they are the latest reading, summed over cameras.
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
-/// fn hud(stats: Res<GrassStats>) {
+/// fn hud(stats: Res<PlantStats>) {
 ///     if stats.gpu.overflows > 0 {
 ///         warn!("grass buffers overflowed {} times", stats.gpu.overflows);
 ///     }
@@ -41,12 +41,12 @@ use crate::render::view::{COUNTERS, MAX_BUCKETS, SLICE_COUNTER};
 /// ```
 #[derive(Resource, Debug, Clone, PartialEq, Default, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
-pub struct GrassStats {
+pub struct PlantStats {
     /// What the CPU built: the tables of fields and chunks.
     pub tables: TableStats,
     /// What the GPU generated, as of its latest reading.
     pub gpu: GpuStats,
-    /// What runtime edits did: [`GrassEdit`](crate::GrassEdit)s, brushes
+    /// What runtime edits did: [`PlantEdit`](crate::PlantEdit)s, brushes
     /// and regrowth.
     pub edits: EditStats,
 }
@@ -107,7 +107,7 @@ pub struct GpuStats {
     /// several slices of 512 candidates.
     pub slices: u32,
     /// Readings with buffer overflow that dropped blades or branched stems. Increase
-    /// `GrassSettings::instance_capacity` or `GrassSettings::plant_capacity`,
+    /// `PlantSettings::instance_capacity` or `PlantSettings::plant_capacity`,
     /// respectively, or reduce density.
     pub overflows: u64,
     /// Readings taken so far; the numbers above change when this does.
@@ -126,7 +126,7 @@ impl GpuStats {
     /// ```no_run
     /// # use bevy::prelude::*;
     /// # use procgena_plant::prelude::*;
-    /// fn check_grass(stats: Res<GrassStats>) {
+    /// fn check_plants(stats: Res<PlantStats>) {
     ///     if stats.gpu.readings > 0 && stats.gpu.total_blades() == 0 {
     ///         warn!("no grass drawn: is the field hidden, on other layers, or out of reach?");
     ///     }
@@ -154,54 +154,54 @@ impl GpuStats {
 /// # use bevy::diagnostic::LogDiagnosticsPlugin;
 /// # use procgena_plant::prelude::*;
 /// # let mut app = App::new();
-/// app.add_plugins((GrassPlugins, LogDiagnosticsPlugin::default()));
+/// app.add_plugins((PlantPlugins, LogDiagnosticsPlugin::default()));
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct GrassDiagnostics;
+pub struct PlantDiagnostics;
 
-impl GrassDiagnostics {
+impl PlantDiagnostics {
     /// Blades generated at the near level of detail (LOD 0).
-    pub const BLADES_NEAR: DiagnosticPath = DiagnosticPath::const_new("grass/blades/near");
+    pub const BLADES_NEAR: DiagnosticPath = DiagnosticPath::const_new("plant/blades/near");
     /// Blades generated at the mid level of detail (LOD 1).
-    pub const BLADES_MID: DiagnosticPath = DiagnosticPath::const_new("grass/blades/mid");
+    pub const BLADES_MID: DiagnosticPath = DiagnosticPath::const_new("plant/blades/mid");
     /// Blades generated at the far level of detail (LOD 2).
-    pub const BLADES_FAR: DiagnosticPath = DiagnosticPath::const_new("grass/blades/far");
+    pub const BLADES_FAR: DiagnosticPath = DiagnosticPath::const_new("plant/blades/far");
     /// Generated branched stems across all detail levels.
     ///
     /// Counts each stem separately, including every frond of a fern.
-    pub const STEMS: DiagnosticPath = DiagnosticPath::const_new("grass/stems");
+    pub const STEMS: DiagnosticPath = DiagnosticPath::const_new("plant/stems");
     /// Slices of visible chunks.
-    pub const VISIBLE_SLICES: DiagnosticPath = DiagnosticPath::const_new("grass/visible_slices");
+    pub const VISIBLE_SLICES: DiagnosticPath = DiagnosticPath::const_new("plant/visible_slices");
     /// Readings in which a buffer overflowed, cumulative.
-    pub const OVERFLOWS: DiagnosticPath = DiagnosticPath::const_new("grass/overflows");
+    pub const OVERFLOWS: DiagnosticPath = DiagnosticPath::const_new("plant/overflows");
     /// Full table rebuilds, cumulative.
-    pub const TABLE_REBUILDS: DiagnosticPath = DiagnosticPath::const_new("grass/table_rebuilds");
+    pub const TABLE_REBUILDS: DiagnosticPath = DiagnosticPath::const_new("plant/table_rebuilds");
     /// CPU time of the latest full table rebuild, in milliseconds.
-    pub const REBUILD_TIME: DiagnosticPath = DiagnosticPath::const_new("grass/rebuild_time");
+    pub const REBUILD_TIME: DiagnosticPath = DiagnosticPath::const_new("plant/rebuild_time");
 }
 
-/// Registers the diagnostics and publishes [`GrassStats`] to them. Added by
-/// `GrassPlugin`.
+/// Registers the diagnostics and publishes [`PlantStats`] to them. Added by
+/// `PlantPlugin`.
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct GrassDiagnosticsPlugin;
+pub(crate) struct PlantDiagnosticsPlugin;
 
-impl Plugin for GrassDiagnosticsPlugin {
+impl Plugin for PlantDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
         let count = |path: DiagnosticPath| Diagnostic::new(path).with_smoothing_factor(0.0);
-        app.init_resource::<GrassStats>()
+        app.init_resource::<PlantStats>()
             .init_resource::<GpuReadings>()
-            .register_type::<GrassStats>()
+            .register_type::<PlantStats>()
             .register_type::<TableStats>()
             .register_type::<GpuStats>()
-            .register_diagnostic(count(GrassDiagnostics::BLADES_NEAR))
-            .register_diagnostic(count(GrassDiagnostics::BLADES_MID))
-            .register_diagnostic(count(GrassDiagnostics::BLADES_FAR))
-            .register_diagnostic(count(GrassDiagnostics::STEMS))
-            .register_diagnostic(count(GrassDiagnostics::VISIBLE_SLICES))
-            .register_diagnostic(count(GrassDiagnostics::OVERFLOWS))
-            .register_diagnostic(count(GrassDiagnostics::TABLE_REBUILDS))
+            .register_diagnostic(count(PlantDiagnostics::BLADES_NEAR))
+            .register_diagnostic(count(PlantDiagnostics::BLADES_MID))
+            .register_diagnostic(count(PlantDiagnostics::BLADES_FAR))
+            .register_diagnostic(count(PlantDiagnostics::STEMS))
+            .register_diagnostic(count(PlantDiagnostics::VISIBLE_SLICES))
+            .register_diagnostic(count(PlantDiagnostics::OVERFLOWS))
+            .register_diagnostic(count(PlantDiagnostics::TABLE_REBUILDS))
             .register_diagnostic(
-                Diagnostic::new(GrassDiagnostics::REBUILD_TIME)
+                Diagnostic::new(PlantDiagnostics::REBUILD_TIME)
                     .with_suffix(" ms")
                     .with_smoothing_factor(0.0),
             )
@@ -209,7 +209,7 @@ impl Plugin for GrassDiagnosticsPlugin {
                 PostUpdate,
                 (collect_gpu_readings, publish)
                     .chain()
-                    .after(GrassSystems::Rebuild),
+                    .after(PlantSystems::Rebuild),
             );
     }
 }
@@ -271,34 +271,34 @@ impl GpuReadings {
     }
 }
 
-/// Copies the render world's readings into [`GrassStats`] when there is a new
+/// Copies the render world's readings into [`PlantStats`] when there is a new
 /// one. Reading `stats` first keeps its change flag quiet otherwise.
-fn collect_gpu_readings(readings: Res<GpuReadings>, mut stats: ResMut<GrassStats>) {
+fn collect_gpu_readings(readings: Res<GpuReadings>, mut stats: ResMut<PlantStats>) {
     let total = readings.total();
     if total != stats.gpu {
         stats.gpu = total;
     }
 }
 
-/// Measures the diagnostics from [`GrassStats`] when it changed.
-fn publish(stats: Res<GrassStats>, mut diagnostics: Diagnostics, mut published: Local<(u64, u64)>) {
+/// Measures the diagnostics from [`PlantStats`] when it changed.
+fn publish(stats: Res<PlantStats>, mut diagnostics: Diagnostics, mut published: Local<(u64, u64)>) {
     let (rebuilds, readings) = *published;
     if stats.tables.rebuilds != rebuilds {
-        diagnostics.add_measurement(&GrassDiagnostics::TABLE_REBUILDS, || {
+        diagnostics.add_measurement(&PlantDiagnostics::TABLE_REBUILDS, || {
             stats.tables.rebuilds as f64
         });
-        diagnostics.add_measurement(&GrassDiagnostics::REBUILD_TIME, || {
+        diagnostics.add_measurement(&PlantDiagnostics::REBUILD_TIME, || {
             stats.tables.last_rebuild.as_secs_f64() * 1000.0
         });
     }
     if stats.gpu.readings != readings {
         let gpu = stats.gpu;
-        diagnostics.add_measurement(&GrassDiagnostics::BLADES_NEAR, || f64::from(gpu.blades[0]));
-        diagnostics.add_measurement(&GrassDiagnostics::BLADES_MID, || f64::from(gpu.blades[1]));
-        diagnostics.add_measurement(&GrassDiagnostics::BLADES_FAR, || f64::from(gpu.blades[2]));
-        diagnostics.add_measurement(&GrassDiagnostics::STEMS, || gpu.total_stems() as f64);
-        diagnostics.add_measurement(&GrassDiagnostics::VISIBLE_SLICES, || f64::from(gpu.slices));
-        diagnostics.add_measurement(&GrassDiagnostics::OVERFLOWS, || gpu.overflows as f64);
+        diagnostics.add_measurement(&PlantDiagnostics::BLADES_NEAR, || f64::from(gpu.blades[0]));
+        diagnostics.add_measurement(&PlantDiagnostics::BLADES_MID, || f64::from(gpu.blades[1]));
+        diagnostics.add_measurement(&PlantDiagnostics::BLADES_FAR, || f64::from(gpu.blades[2]));
+        diagnostics.add_measurement(&PlantDiagnostics::STEMS, || gpu.total_stems() as f64);
+        diagnostics.add_measurement(&PlantDiagnostics::VISIBLE_SLICES, || f64::from(gpu.slices));
+        diagnostics.add_measurement(&PlantDiagnostics::OVERFLOWS, || gpu.overflows as f64);
     }
     *published = (stats.tables.rebuilds, stats.gpu.readings);
 }

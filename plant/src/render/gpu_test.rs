@@ -26,13 +26,13 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 
 use super::platform::STORAGE_BUFFER_BUDGET;
-use super::resources::GrassShared;
+use super::resources::PlantShared;
 use super::view::{
-    BASE_AT, BUCKET_TABLE_WORDS, CAPACITY_AT, GrassViewBuffers, MAX_BUCKETS, ViewUniformData,
+    BASE_AT, BUCKET_TABLE_WORDS, CAPACITY_AT, MAX_BUCKETS, PlantViewBuffers, ViewUniformData,
 };
-use crate::GrassPlugin;
-use crate::GrassWind;
-use crate::api::{FieldPlant, GrassField, GrassGround, GrassInteractor, GrassInteractorFootprint};
+use crate::PlantPlugin;
+use crate::PlantWind;
+use crate::api::{FieldPlant, PlantField, PlantGround, PlantInteractor, PlantInteractorFootprint};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::gpu_layout::{FieldGpu, NO_CLASS};
 use crate::mirror;
@@ -47,7 +47,7 @@ fn read_buffer(
     size: u64,
 ) -> Vec<u32> {
     let staging = device.create_buffer(&BufferDescriptor {
-        label: Some("grass_test_staging"),
+        label: Some("plant_test_staging"),
         size,
         usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
@@ -75,7 +75,7 @@ fn bucket_table(app: &mut App) -> [u32; BUCKET_TABLE_WORDS] {
     let world = app.sub_app_mut(RenderApp).world_mut();
     let device = world.resource::<RenderDevice>().clone();
     let queue = world.resource::<RenderQueue>().clone();
-    let mut views = world.query::<&GrassViewBuffers>();
+    let mut views = world.query::<&PlantViewBuffers>();
     let buffers = views.iter(world).next().expect("a grass view");
     let words = read_buffer(
         &device,
@@ -98,7 +98,7 @@ fn gpu_words_of(app: &mut App, camera: Option<Entity>) -> Option<(ViewUniformDat
     let world = app.sub_app_mut(RenderApp).world_mut();
     let device = world.resource::<RenderDevice>().clone();
     let queue = world.resource::<RenderQueue>().clone();
-    let mut views = world.query::<(&bevy::render::sync_world::MainEntity, &GrassViewBuffers)>();
+    let mut views = world.query::<(&bevy::render::sync_world::MainEntity, &PlantViewBuffers)>();
     let (_, buffers) = views
         .iter(world)
         .find(|(main, _)| camera.is_none_or(|camera| main.id() == camera))?;
@@ -356,7 +356,7 @@ fn crown_words(field: &FieldGpu, crown: &Crown, view: &ViewUniformData, out: &mu
 
 /// A headless app with one camera rendering to an image and one field.
 fn headless_app() -> App {
-    headless_app_with(Transform::from_xyz(3.0, 0.5, -4.0), GrassGround::Flat)
+    headless_app_with(Transform::from_xyz(3.0, 0.5, -4.0), PlantGround::Flat)
 }
 
 /// [`headless_app`] with the field at `transform`, on `ground`.
@@ -365,7 +365,7 @@ fn headless_app() -> App {
 /// `STORAGE_BUFFER_BUDGET`, as most of the devices grass is built for do, so
 /// every GPU test also checks that the pipelines fit it. A limit changes what
 /// wgpu validates, not what the GPU computes.
-fn headless_app_with(transform: Transform, ground: GrassGround) -> App {
+fn headless_app_with(transform: Transform, ground: PlantGround) -> App {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -388,7 +388,7 @@ fn headless_app_with(transform: Transform, ground: GrassGround) -> App {
             .disable::<WinitPlugin>()
             .disable::<PipelinedRenderingPlugin>(),
     )
-    .add_plugins(GrassPlugin::default())
+    .add_plugins(PlantPlugin::default())
     .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
         1.0 / 60.0,
     )));
@@ -408,7 +408,7 @@ fn headless_app_with(transform: Transform, ground: GrassGround) -> App {
         Transform::from_xyz(-5.0, 1.7, 30.0).looking_at(Vec3::new(5.0, 0.0, 0.0), Vec3::Y),
     ));
     world.spawn((
-        GrassField {
+        PlantField {
             size: Vec2::new(70.0, 50.0),
             ground,
             ..default()
@@ -422,20 +422,20 @@ fn headless_app_with(transform: Transform, ground: GrassGround) -> App {
 
 /// Creates a headless scene with the supplied plants and appearance.
 /// Keeps the harness's field size and ground.
-fn app_with_field(field: GrassField) -> App {
+fn app_with_field(field: PlantField) -> App {
     let mut app = headless_app();
     set_harness_field(&mut app, field);
     app
 }
 
 /// Updates the harness's plants and appearance without changing size or ground.
-fn set_harness_field(app: &mut App, field: GrassField) {
+fn set_harness_field(app: &mut App, field: PlantField) {
     let world = app.world_mut();
     let mut harness = world
-        .query_filtered::<&mut GrassField, ()>()
+        .query_filtered::<&mut PlantField, ()>()
         .single_mut(world)
         .expect("the harness's field");
-    *harness = GrassField {
+    *harness = PlantField {
         size: harness.size,
         ground: harness.ground.clone(),
         density_map: harness.density_map.clone(),
@@ -443,11 +443,11 @@ fn set_harness_field(app: &mut App, field: GrassField) {
     };
 }
 
-fn generation_matches_the_cpu_mirror(settings: crate::GrassSettings) {
+fn generation_matches_the_cpu_mirror(settings: crate::PlantSettings) {
     generation_matches_the_cpu_mirror_in(headless_app(), settings);
 }
 
-fn generation_matches_the_cpu_mirror_in(mut app: App, settings: crate::GrassSettings) {
+fn generation_matches_the_cpu_mirror_in(mut app: App, settings: crate::PlantSettings) {
     app.insert_resource(settings);
 
     // Shaders compile asynchronously; wait until a frame has produced grass.
@@ -559,7 +559,7 @@ fn view_after(app: &mut App, frames: usize) -> (ViewUniformData, usize) {
 
 /// Updates until the first grass view holds blades: the shaders compile
 /// asynchronously, so how many frames that takes varies.
-fn wait_for_grass(app: &mut App) {
+fn wait_for_plants(app: &mut App) {
     for _ in 0..600 {
         app.update();
         if gpu_instances(app).is_some_and(|(_, instances)| !instances.is_empty()) {
@@ -584,7 +584,7 @@ fn draw_index_counts(app: &mut App) -> [u32; 3] {
     let world = app.sub_app_mut(RenderApp).world_mut();
     let device = world.resource::<RenderDevice>().clone();
     let queue = world.resource::<RenderQueue>().clone();
-    let mut views = world.query::<&GrassViewBuffers>();
+    let mut views = world.query::<&PlantViewBuffers>();
     let buffers = views.iter(world).next().expect("a grass view");
     // Each bucket has five indirect-draw words, starting with its index count.
     // Unbranched class 0 occupies buckets 0–2.

@@ -10,7 +10,8 @@ use procgena_stone::{MaterialOptions, TextureCompression, TextureMap, TextureSiz
 /// Fragment shader for rocks in the main pass and in deferred rendering.
 pub(crate) const STONE_SHADER: &str = "embedded://procgena_stone_bevy/shaders/stone.wesl";
 /// Fragment shader that writes textured rock normals to the normal prepass.
-pub(crate) const STONE_PREPASS_SHADER: &str = "embedded://procgena_stone_bevy/shaders/stone_prepass.wesl";
+pub(crate) const STONE_PREPASS_SHADER: &str =
+    "embedded://procgena_stone_bevy/shaders/stone_prepass.wesl";
 
 /// Bevy's [`StandardMaterial`] with textures projected onto the rock along its
 /// x, y and z axes ("triplanar" texturing).
@@ -144,7 +145,7 @@ fn load_repeating(asset_server: &AssetServer, path: String, srgb: bool) -> Handl
 /// uses [`MaterialOptions::color`], [`MaterialOptions::roughness`] and
 /// [`MaterialOptions::metallic`] alone.
 /// The texture size is measured in the units of the rock's mesh, which are
-/// world units for meshes made by [`ZeStonePlugin`](crate::ZeStonePlugin).
+/// world units for meshes made by [`StonePlugin`](crate::StonePlugin).
 pub fn stone_material(
     material: &MaterialOptions,
     textures: Option<&StoneTextures>,

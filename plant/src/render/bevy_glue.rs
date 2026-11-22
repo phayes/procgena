@@ -16,7 +16,7 @@
 //! prepass and shadow views draws the camera's blades there too.
 //!
 //! Binned phases keep items between frames, so each frame the item is
-//! removed and re-added: that keeps it correct when a camera gains `NoGrass`,
+//! removed and re-added: that keeps it correct when a camera gains `NoPlants`,
 //! its MSAA or prepasses change, or the grass goes away, at the cost of a few
 //! map operations.
 
@@ -64,16 +64,16 @@ use bevy::render::view::{ExtractedView, ViewUniformOffset};
 use bevy::shader::{Shader, ShaderDefVal};
 
 use super::resources::{
-    ExtractedGrass, GrassLayouts, GrassShaders, GrassShared, GrassSharedBindGroups,
+    ExtractedPlants, PlantLayouts, PlantShaders, PlantShared, PlantSharedBindGroups,
 };
-use super::view::{DRAW_ARGS_SIZE, GrassViewBindGroups, GrassViewBuffers, MAX_BUCKETS};
-use crate::api::{GrassCamera, NoGrass};
+use super::view::{DRAW_ARGS_SIZE, MAX_BUCKETS, PlantViewBindGroups, PlantViewBuffers};
+use crate::api::{NoPlants, PlantCamera};
 use crate::fields::LookFeatures;
 
 /// A grass draw pipeline's key: the view's, plus the optional look terms
 /// enabled by any field, plus the choice of unbranched or branched geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct GrassPipelineKey {
+pub(crate) struct PlantPipelineKey {
     pub mesh: MeshPipelineKey,
     pub features: LookFeatures,
     pub branched: bool,
@@ -93,10 +93,10 @@ fn vertex_entry(branched: bool) -> std::borrow::Cow<'static, str> {
 /// shader definitions match what its PBR functions expect, with the vertex
 /// buffers removed and the mesh bind group replaced by the grass one.
 #[derive(Resource, Clone)]
-pub(crate) struct GrassMainPipeline {
+pub(crate) struct PlantMainPipeline {
     mesh_pipeline: MeshPipeline,
     shader: Handle<Shader>,
-    grass_layout: BindGroupLayoutDescriptor,
+    plant_layout: BindGroupLayoutDescriptor,
     /// The layout of a mesh with positions and normals, which is what
     /// `MeshPipeline::specialize` needs to produce a lit pipeline. No vertex
     /// buffer is bound; the grass shader builds vertices from indices.
@@ -105,8 +105,8 @@ pub(crate) struct GrassMainPipeline {
 
 // Not a `SpecializedMeshPipeline`: Bevy's cache for those assumes a vertex
 // buffer, and grass has none.
-impl SpecializedRenderPipeline for GrassMainPipeline {
-    type Key = GrassPipelineKey;
+impl SpecializedRenderPipeline for PlantMainPipeline {
+    type Key = PlantPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
         let mut descriptor = self
@@ -115,9 +115,9 @@ impl SpecializedRenderPipeline for GrassMainPipeline {
             .expect("the template layout has every attribute the mesh pipeline requires");
         descriptor.label = Some(
             if key.branched {
-                "grass_main_branched"
+                "plant_main_branched"
             } else {
-                "grass_main"
+                "plant_main"
             }
             .into(),
         );
@@ -138,7 +138,7 @@ impl SpecializedRenderPipeline for GrassMainPipeline {
         descriptor.layout = main_pass_layout(
             &descriptor.layout,
             self.mesh_pipeline.get_view_layout(key.mesh.into()),
-            self.grass_layout.clone(),
+            self.plant_layout.clone(),
         );
         descriptor.primitive.cull_mode = None;
         // Grass writes and tests depth itself, also when the view has a
@@ -155,7 +155,7 @@ impl SpecializedRenderPipeline for GrassMainPipeline {
 }
 
 /// The main pass's bind group layouts: Bevy's view (0) and binding-array (1)
-/// groups, which `DrawGrassMain` binds with Bevy's own render commands, then
+/// groups, which `DrawPlantMain` binds with Bevy's own render commands, then
 /// the grass group where the mesh group was.
 ///
 /// `MeshPipeline::specialize` (`bevy_pbr` 0.20, `render/mesh.rs`) builds
@@ -165,37 +165,37 @@ impl SpecializedRenderPipeline for GrassMainPipeline {
 fn main_pass_layout(
     bevy_layout: &[BindGroupLayoutDescriptor],
     view: MeshPipelineViewLayout,
-    grass: BindGroupLayoutDescriptor,
+    plants: BindGroupLayoutDescriptor,
 ) -> Vec<BindGroupLayoutDescriptor> {
     debug_assert!(
         bevy_layout.len() == 3
             && bevy_layout[0] == view.main_layout
             && bevy_layout[1] == view.binding_array_layout,
         "procgena_plant: MeshPipeline::specialize no longer builds [view, binding array, mesh] \
-         ({} groups); update main_pass_layout and DrawGrassMain",
+         ({} groups); update main_pass_layout and DrawPlantMain",
         bevy_layout.len()
     );
-    vec![view.main_layout, view.binding_array_layout, grass]
+    vec![view.main_layout, view.binding_array_layout, plants]
 }
 
 /// The prepass and deferred pipeline: depth, and normals, motion vectors and
 /// the G-buffer when the view has them. Specialized by the view's prepass
 /// key, as Bevy's own prepass pipeline is.
 #[derive(Resource, Clone)]
-pub(crate) struct GrassPrepassPipeline {
+pub(crate) struct PlantPrepassPipeline {
     view_layout_motion_vectors: BindGroupLayoutDescriptor,
     view_layout_no_motion_vectors: BindGroupLayoutDescriptor,
     empty_layout: BindGroupLayoutDescriptor,
-    grass_layout: BindGroupLayoutDescriptor,
+    plant_layout: BindGroupLayoutDescriptor,
     shader: Handle<Shader>,
 }
 
-impl SpecializedRenderPipeline for GrassPrepassPipeline {
-    type Key = GrassPipelineKey;
+impl SpecializedRenderPipeline for PlantPrepassPipeline {
+    type Key = PlantPipelineKey;
 
     fn specialize(
         &self,
-        GrassPipelineKey {
+        PlantPipelineKey {
             mesh: key,
             features,
             branched,
@@ -221,10 +221,10 @@ impl SpecializedRenderPipeline for GrassPrepassPipeline {
         RenderPipelineDescriptor {
             label: Some(
                 match (deferred, branched) {
-                    (true, false) => "grass_deferred",
-                    (true, true) => "grass_deferred_branched",
-                    (false, false) => "grass_prepass",
-                    (false, true) => "grass_prepass_branched",
+                    (true, false) => "plant_deferred",
+                    (true, true) => "plant_deferred_branched",
+                    (false, false) => "plant_prepass",
+                    (false, true) => "plant_prepass_branched",
                 }
                 .into(),
             ),
@@ -235,7 +235,7 @@ impl SpecializedRenderPipeline for GrassPrepassPipeline {
                     self.view_layout_no_motion_vectors.clone()
                 },
                 self.empty_layout.clone(),
-                self.grass_layout.clone(),
+                self.plant_layout.clone(),
             ],
             vertex: VertexState {
                 shader: self.shader.clone(),
@@ -289,7 +289,7 @@ fn prepass_shader_defs(key: MeshPipelineKey, features: LookFeatures) -> Vec<Shad
     defs.extend(
         features
             .shader_defs()
-            .filter(|def| *def != "GRASS_TOON")
+            .filter(|def| *def != "PLANT_TOON")
             .map(ShaderDefVal::from),
     );
     for (on, name) in [
@@ -317,10 +317,10 @@ fn prepass_shader_defs(key: MeshPipelineKey, features: LookFeatures) -> Vec<Shad
 /// Specialized by the terms that move blades (`LookFeatures::geometry`), so
 /// shadows have the blades' shape.
 #[derive(Resource, Clone)]
-pub(crate) struct GrassShadowPipeline {
+pub(crate) struct PlantShadowPipeline {
     shadow_view_layout: BindGroupLayoutDescriptor,
     empty_layout: BindGroupLayoutDescriptor,
-    grass_layout: BindGroupLayoutDescriptor,
+    plant_layout: BindGroupLayoutDescriptor,
     shader: Handle<Shader>,
     /// Directional shadow maps need geometry behind the near plane clamped
     /// rather than clipped, as Bevy's own shadow pipelines do. Without the
@@ -331,38 +331,38 @@ pub(crate) struct GrassShadowPipeline {
 /// Shadow pipeline key: movement features and the choice of unbranched or branched
 /// geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct GrassShadowKey {
+pub(crate) struct PlantShadowKey {
     pub features: LookFeatures,
     pub branched: bool,
 }
 
-impl SpecializedRenderPipeline for GrassShadowPipeline {
-    type Key = GrassShadowKey;
+impl SpecializedRenderPipeline for PlantShadowPipeline {
+    type Key = PlantShadowKey;
 
     fn specialize(
         &self,
-        GrassShadowKey { features, branched }: GrassShadowKey,
+        PlantShadowKey { features, branched }: PlantShadowKey,
     ) -> RenderPipelineDescriptor {
         RenderPipelineDescriptor {
             label: Some(
                 if branched {
-                    "grass_shadow_branched"
+                    "plant_shadow_branched"
                 } else {
-                    "grass_shadow"
+                    "plant_shadow"
                 }
                 .into(),
             ),
             layout: vec![
                 self.shadow_view_layout.clone(),
                 self.empty_layout.clone(),
-                self.grass_layout.clone(),
+                self.plant_layout.clone(),
             ],
             vertex: VertexState {
                 shader: self.shader.clone(),
                 // `bevy_bridge` binds the light's view instead of the mesh view.
                 shader_defs: features
                     .shader_defs()
-                    .chain(["GRASS_SHADOW_PASS"])
+                    .chain(["PLANT_SHADOW_PASS"])
                     .map(ShaderDefVal::from)
                     .collect(),
                 entry_point: Some(vertex_entry(branched)),
@@ -391,8 +391,8 @@ pub(crate) fn init_pipelines(
     mut commands: Commands,
     mesh_pipeline: Res<MeshPipeline>,
     prepass_pipeline: Res<PrepassPipeline>,
-    shaders: Res<GrassShaders>,
-    layouts: Res<GrassLayouts>,
+    shaders: Res<PlantShaders>,
+    layouts: Res<PlantLayouts>,
     mut vertex_layouts: ResMut<MeshVertexBufferLayouts>,
     device: Res<RenderDevice>,
 ) {
@@ -402,25 +402,25 @@ pub(crate) fn init_pipelines(
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]])
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]]);
-    commands.insert_resource(GrassMainPipeline {
+    commands.insert_resource(PlantMainPipeline {
         mesh_pipeline: mesh_pipeline.clone(),
         shader: shaders.main.clone(),
-        grass_layout: layouts.draw.clone(),
+        plant_layout: layouts.draw.clone(),
         vertex_layout: template.get_mesh_vertex_buffer_layout(&mut vertex_layouts),
     });
     // Bevy's own prepass layouts, so its prepass view bind groups fit.
-    commands.insert_resource(GrassPrepassPipeline {
+    commands.insert_resource(PlantPrepassPipeline {
         view_layout_motion_vectors: prepass_pipeline.view_layout_motion_vectors.clone(),
         view_layout_no_motion_vectors: prepass_pipeline.view_layout_no_motion_vectors.clone(),
         empty_layout: prepass_pipeline.empty_layout.clone(),
-        grass_layout: layouts.draw.clone(),
+        plant_layout: layouts.draw.clone(),
         shader: shaders.prepass.clone(),
     });
 
-    commands.insert_resource(GrassShadowPipeline {
+    commands.insert_resource(PlantShadowPipeline {
         shadow_view_layout: layouts.shadow_view.clone(),
         empty_layout: layouts.empty.clone(),
-        grass_layout: layouts.draw.clone(),
+        plant_layout: layouts.draw.clone(),
         shader: shaders.shadow.clone(),
         supported: device.features().contains(WgpuFeatures::DEPTH_CLIP_CONTROL),
     });
@@ -432,7 +432,7 @@ pub(crate) const PASS_MAIN: u8 = 0;
 pub(crate) const PASS_PREPASS: u8 = 1;
 pub(crate) const PASS_SHADOW: u8 = 2;
 
-/// Per-camera branched pipelines, populated by `queue_grass` for the passes that need
+/// Per-camera branched pipelines, populated by `queue_plants` for the passes that need
 /// them.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct BranchedPipelines {
@@ -455,26 +455,26 @@ impl BranchedPipelines {
 /// item to draw both blades and branches, switching pipelines between them; separate
 /// items would collide on the same entity key.
 #[derive(Resource, Debug, Default)]
-pub(crate) struct GrassBranchedPipelines(HashMap<Entity, BranchedPipelines>);
+pub(crate) struct PlantBranchedPipelines(HashMap<Entity, BranchedPipelines>);
 
 /// Draws each mesh class's detail buckets for this camera. Main and prepass paths draw
 /// all three; shadows use the configured subset. Blades use the phase item's pipeline,
 /// then branched classes use the camera's compiled pipeline for `PASS`.
-pub(crate) struct DrawGrassBuckets<const PASS: u8>;
+pub(crate) struct DrawPlantBuckets<const PASS: u8>;
 
-impl<P: PhaseItem, const PASS: u8> RenderCommand<P> for DrawGrassBuckets<PASS> {
+impl<P: PhaseItem, const PASS: u8> RenderCommand<P> for DrawPlantBuckets<PASS> {
     type Param = (
-        SRes<GrassShared>,
-        SRes<ExtractedGrass>,
-        SRes<GrassBranchedPipelines>,
+        SRes<PlantShared>,
+        SRes<ExtractedPlants>,
+        SRes<PlantBranchedPipelines>,
         SRes<PipelineCache>,
     );
     type ViewQuery = ();
     /// The camera whose blades these are (the phase item is the camera).
     type ItemQuery = (
-        Read<GrassViewBuffers>,
-        Read<GrassViewBindGroups>,
-        Option<Read<GrassCamera>>,
+        Read<PlantViewBuffers>,
+        Read<PlantViewBindGroups>,
+        Option<Read<PlantCamera>>,
     );
 
     fn render<'w>(
@@ -484,7 +484,7 @@ impl<P: PhaseItem, const PASS: u8> RenderCommand<P> for DrawGrassBuckets<PASS> {
         (shared, extracted, branched, cache): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some((buffers, groups, grass_camera)) = camera else {
+        let Some((buffers, groups, plant_camera)) = camera else {
             return RenderCommandResult::Skip;
         };
         let Some(draw) = groups.draw.as_ref() else {
@@ -497,7 +497,7 @@ impl<P: PhaseItem, const PASS: u8> RenderCommand<P> for DrawGrassBuckets<PASS> {
             extracted
                 .into_inner()
                 .settings
-                .for_camera(grass_camera)
+                .for_camera(plant_camera)
                 .shadows
                 .buckets()
         } else {
@@ -536,10 +536,10 @@ impl<P: PhaseItem, const PASS: u8> RenderCommand<P> for DrawGrassBuckets<PASS> {
 }
 
 /// Binds the light view's uniform for the shadow pass.
-pub(crate) struct SetGrassShadowView<const I: usize>;
+pub(crate) struct SetPlantShadowView<const I: usize>;
 
-impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetGrassShadowView<I> {
-    type Param = SRes<GrassSharedBindGroups>;
+impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetPlantShadowView<I> {
+    type Param = SRes<PlantSharedBindGroups>;
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
 
@@ -560,38 +560,38 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetGrassShadowView<I> {
     }
 }
 
-pub(crate) type DrawGrassMain = (
+pub(crate) type DrawPlantMain = (
     SetItemPipeline,
     SetMeshViewBindGroup<0>,
     SetMeshViewBindingArrayBindGroup<1>,
-    DrawGrassBuckets<PASS_MAIN>,
+    DrawPlantBuckets<PASS_MAIN>,
 );
 
 /// Draws grass into the prepass and the deferred G-buffer, with Bevy's
 /// prepass view bindings.
-pub(crate) type DrawGrassPrepass = (
+pub(crate) type DrawPlantPrepass = (
     SetItemPipeline,
     SetPrepassViewBindGroup<0>,
     SetPrepassViewEmptyBindGroup<1>,
-    DrawGrassBuckets<PASS_PREPASS>,
+    DrawPlantBuckets<PASS_PREPASS>,
 );
 
-pub(crate) type DrawGrassShadow = (
+pub(crate) type DrawPlantShadow = (
     SetItemPipeline,
-    SetGrassShadowView<0>,
-    DrawGrassBuckets<PASS_SHADOW>,
+    SetPlantShadowView<0>,
+    DrawPlantBuckets<PASS_SHADOW>,
 );
 
-/// What `queue_grass` reads from each view.
+/// What `queue_plants` reads from each view.
 type CameraItems = (
     Entity,
     &'static MainEntity,
     &'static ExtractedView,
     Option<&'static ViewLightEntities>,
-    Has<NoGrass>,
+    Has<NoPlants>,
     Has<DeferredPrepass>,
-    Option<&'static GrassViewBindGroups>,
-    Option<&'static GrassCamera>,
+    Option<&'static PlantViewBindGroups>,
+    Option<&'static PlantCamera>,
 );
 
 /// Whether opaque materials render deferred by default. Grass follows the
@@ -616,24 +616,24 @@ fn deferred_by_default(method: &DefaultOpaqueRendererMethod) -> bool {
     method.is_some_and(|method| *method == OpaqueRendererMethod::Deferred)
 }
 
-/// The pipelines `queue_grass` specializes.
+/// The pipelines `queue_plants` specializes.
 #[derive(SystemParam)]
-pub(crate) struct GrassPipelines<'w> {
+pub(crate) struct PlantPipelines<'w> {
     cache: Res<'w, PipelineCache>,
-    main: Res<'w, GrassMainPipeline>,
-    main_specialized: ResMut<'w, SpecializedRenderPipelines<GrassMainPipeline>>,
-    prepass: Res<'w, GrassPrepassPipeline>,
-    prepass_specialized: ResMut<'w, SpecializedRenderPipelines<GrassPrepassPipeline>>,
-    shadow: Res<'w, GrassShadowPipeline>,
-    shadow_specialized: ResMut<'w, SpecializedRenderPipelines<GrassShadowPipeline>>,
+    main: Res<'w, PlantMainPipeline>,
+    main_specialized: ResMut<'w, SpecializedRenderPipelines<PlantMainPipeline>>,
+    prepass: Res<'w, PlantPrepassPipeline>,
+    prepass_specialized: ResMut<'w, SpecializedRenderPipelines<PlantPrepassPipeline>>,
+    shadow: Res<'w, PlantShadowPipeline>,
+    shadow_specialized: ResMut<'w, SpecializedRenderPipelines<PlantShadowPipeline>>,
     view_keys: Res<'w, ViewKeyCache>,
     prepass_view_keys: Res<'w, ViewKeyPrepassCache>,
     renderer_method: Res<'w, DefaultOpaqueRendererMethod>,
 }
 
-/// The phases `queue_grass` fills, and their draw functions.
+/// The phases `queue_plants` fills, and their draw functions.
 #[derive(SystemParam)]
-pub(crate) struct GrassPhases<'w> {
+pub(crate) struct PlantPhases<'w> {
     opaque: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
     prepass: ResMut<'w, ViewBinnedRenderPhases<Opaque3dPrepass>>,
     deferred: ResMut<'w, ViewBinnedRenderPhases<Opaque3dDeferred>>,
@@ -675,20 +675,20 @@ fn add_prepass_item<P>(
 /// Puts the grass item into the opaque phase of every camera (or, for a
 /// deferred camera, its deferred phase), into its prepass when it has one,
 /// and into the shadow phase of every directional-light view it owns.
-pub(crate) fn queue_grass(
-    mut pipelines: GrassPipelines,
-    mut phases: GrassPhases,
+pub(crate) fn queue_plants(
+    mut pipelines: PlantPipelines,
+    mut phases: PlantPhases,
     views: Query<CameraItems>,
     light_views: Query<(&ExtractedView, &LightEntity)>,
-    shared: Res<GrassShared>,
-    extracted: Res<ExtractedGrass>,
-    mut branched_pipelines: ResMut<GrassBranchedPipelines>,
+    shared: Res<PlantShared>,
+    extracted: Res<ExtractedPlants>,
+    mut branched_pipelines: ResMut<PlantBranchedPipelines>,
 ) {
-    let draw_main = phases.opaque_draws.read().id::<DrawGrassMain>();
-    let draw_prepass = phases.prepass_draws.read().id::<DrawGrassPrepass>();
-    let draw_deferred = phases.deferred_draws.read().id::<DrawGrassPrepass>();
-    let draw_shadow = phases.shadow_draws.read().id::<DrawGrassShadow>();
-    let has_grass = shared.chunk_count > 0;
+    let draw_main = phases.opaque_draws.read().id::<DrawPlantMain>();
+    let draw_prepass = phases.prepass_draws.read().id::<DrawPlantPrepass>();
+    let draw_deferred = phases.deferred_draws.read().id::<DrawPlantPrepass>();
+    let draw_shadow = phases.shadow_draws.read().id::<DrawPlantShadow>();
+    let has_plants = shared.chunk_count > 0;
     let branched = shared.branched_classes() > 0;
     let features = extracted.tables.features;
     let deferred_default = deferred_by_default(&pipelines.renderer_method);
@@ -699,7 +699,7 @@ pub(crate) fn queue_grass(
     // Rebuild camera pipeline choices each frame alongside the phase items.
     branched_pipelines.0.clear();
 
-    for (entity, &main_entity, view, lights, no_grass, deferred_prepass, groups, grass_camera) in
+    for (entity, &main_entity, view, lights, no_plants, deferred_prepass, groups, plant_camera) in
         &views
     {
         let mut ids = BranchedPipelines::default();
@@ -708,7 +708,7 @@ pub(crate) fn queue_grass(
         let camera = CameraQueue {
             entity,
             main_entity,
-            draws: has_grass && ready && !no_grass,
+            draws: has_plants && ready && !no_plants,
             deferred_prepass,
             view_key: pipelines.view_keys.get(&retained).copied(),
             prepass_key: pipelines
@@ -716,7 +716,7 @@ pub(crate) fn queue_grass(
                 .get(&retained)
                 .map(|key| *key | triangles),
             lights,
-            grass_camera,
+            plant_camera,
             branched,
         };
 
@@ -760,7 +760,7 @@ pub(crate) fn queue_grass(
                 pipelines.shadow_specialized.specialize(
                     &pipelines.cache,
                     &pipelines.shadow,
-                    GrassShadowKey {
+                    PlantShadowKey {
                         features: features.geometry(),
                         branched,
                     },
@@ -777,7 +777,7 @@ pub(crate) fn queue_grass(
                 draw_shadow,
                 extracted
                     .settings
-                    .for_camera(camera.grass_camera)
+                    .for_camera(camera.plant_camera)
                     .shadows
                     .cascades(),
             );
@@ -797,7 +797,7 @@ struct CameraQueue<'a> {
     view_key: Option<MeshPipelineKey>,
     prepass_key: Option<MeshPipelineKey>,
     lights: Option<&'a ViewLightEntities>,
-    grass_camera: Option<&'a GrassCamera>,
+    plant_camera: Option<&'a PlantCamera>,
     /// Whether active branched classes require additional pipeline variants.
     branched: bool,
 }
@@ -805,7 +805,7 @@ struct CameraQueue<'a> {
 /// A deferred camera draws grass into its G-buffer and nowhere else. Returns
 /// whether the item was queued there.
 fn queue_deferred(
-    pipelines: &mut GrassPipelines,
+    pipelines: &mut PlantPipelines,
     phase: &mut BinnedRenderPhase<Opaque3dDeferred>,
     camera: &CameraQueue,
     deferred_default: bool,
@@ -839,7 +839,7 @@ fn queue_deferred(
 /// Specialises the prepass or deferred pipeline, selecting branched geometry when
 /// requested.
 fn specialize_prepass(
-    pipelines: &mut GrassPipelines,
+    pipelines: &mut PlantPipelines,
     mesh_key: MeshPipelineKey,
     features: LookFeatures,
     branched: bool,
@@ -848,7 +848,7 @@ fn specialize_prepass(
         pipelines.prepass_specialized.specialize(
             &pipelines.cache,
             &pipelines.prepass,
-            GrassPipelineKey {
+            PlantPipelineKey {
                 mesh: mesh_key,
                 features,
                 branched,
@@ -862,7 +862,7 @@ fn specialize_prepass(
 /// A forward camera with a prepass draws grass there too, so SSAO, TAA and
 /// anything else reading the prepass sees it.
 fn queue_prepass(
-    pipelines: &mut GrassPipelines,
+    pipelines: &mut PlantPipelines,
     phase: &mut BinnedRenderPhase<Opaque3dPrepass>,
     camera: &CameraQueue,
     deferred: bool,
@@ -889,7 +889,7 @@ fn queue_prepass(
 
 /// A forward camera draws grass into its opaque phase.
 fn queue_opaque(
-    pipelines: &mut GrassPipelines,
+    pipelines: &mut PlantPipelines,
     phase: &mut BinnedRenderPhase<Opaque3d>,
     camera: &CameraQueue,
     deferred: bool,
@@ -912,7 +912,7 @@ fn queue_opaque(
         pipelines.main_specialized.specialize(
             &pipelines.cache,
             &pipelines.main,
-            GrassPipelineKey {
+            PlantPipelineKey {
                 mesh: view_key | triangles,
                 features,
                 branched,

@@ -1,6 +1,6 @@
 //! Choose a grass quality tier, then adjust individual settings.
 //!
-//! [`GrassSettings`] controls rendering cost across all fields without
+//! [`PlantSettings`] controls rendering cost across all fields without
 //! changing the plants and appearance stored in each field.
 
 use bevy::ecs::reflect::ReflectResource;
@@ -8,7 +8,7 @@ use bevy::ecs::resource::Resource;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 
-use crate::api::GrassCamera;
+use crate::api::PlantCamera;
 
 /// How much grass is drawn, how far, and at what cost.
 ///
@@ -17,24 +17,24 @@ use crate::api::GrassCamera;
 /// `max_interactors` also reallocates each camera's buffers, once.
 ///
 /// Start from a tier and change what you want, as with
-/// [`GrassField`](crate::GrassField) and [`GrassWind`](crate::GrassWind):
+/// [`PlantField`](crate::PlantField) and [`PlantWind`](crate::PlantWind):
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
 /// // High density, but a longer reach for a camera high above the ground.
 /// # let mut app = App::new();
-/// app.add_plugins(GrassPlugins.set(GrassPlugin {
-///     settings: GrassSettings {
+/// app.add_plugins(PlantPlugins.set(PlantPlugin {
+///     settings: PlantSettings {
 ///         radius: 140.0,
-///         ..GrassSettings::HIGH
+///         ..PlantSettings::HIGH
 ///     },
 ///     ..default()
 /// }));
 ///
 /// // And later, from the graphics menu:
-/// fn apply(mut grass: ResMut<GrassSettings>) {
-///     *grass = GrassSettings::LOW;
+/// fn apply(mut settings: ResMut<PlantSettings>) {
+///     *settings = PlantSettings::LOW;
 /// }
 /// ```
 ///
@@ -48,14 +48,14 @@ use crate::api::GrassCamera;
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
 /// # let mut app = App::new();
-/// app.insert_resource(GrassSettings {
+/// app.insert_resource(PlantSettings {
 ///     // Full detail twice as far, for a camera that rarely looks far.
 ///     lod1_start: 0.4,
 ///     lod2_start: 0.7,
 ///     // Trails in deep snow last six seconds, and a vehicle flattens five metres.
 ///     trample_recovery: 6.0,
 ///     max_interactor_radius: 5.0,
-///     ..GrassSettings::HIGH
+///     ..PlantSettings::HIGH
 /// });
 /// ```
 ///
@@ -63,7 +63,7 @@ use crate::api::GrassCamera;
 /// names the setting.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
-pub struct GrassSettings {
+pub struct PlantSettings {
     /// How far grass reaches from a perspective camera, in metres; at
     /// least 1. The distances below that shape the thinning and the levels
     /// of detail ([`lod1_start`](Self::lod1_start),
@@ -78,10 +78,10 @@ pub struct GrassSettings {
     /// Minimum on-screen width of a blade, in pixels, 0 (no minimum) and up.
     /// Blades narrower than a pixel shimmer; raise this for cameras far from
     /// the ground. A pixel width depends on the camera, not on the grass, so
-    /// it lives here and, per camera, in [`GrassCamera`](crate::GrassCamera).
+    /// it lives here and, per camera, in [`PlantCamera`](crate::PlantCamera).
     pub min_width_px: f32,
     /// Which blades cast shadows.
-    pub shadows: GrassShadows,
+    pub shadows: PlantShadows,
     /// The level of detail orthographic cameras draw everything at, 0 (most
     /// detail) to 2; every blade is the same size on their screen, so
     /// distance cannot pick it. How many rows each level has is
@@ -100,12 +100,12 @@ pub struct GrassSettings {
     /// surroundings at the coarsest detail.
     pub forced_lod: Option<u32>,
     /// Visible blades each camera's buffers hold, 2 to
-    /// [`GrassSettings::MAX_INSTANCE_CAPACITY`]. Blades beyond it are dropped
+    /// [`PlantSettings::MAX_INSTANCE_CAPACITY`]. Blades beyond it are dropped
     /// with a warning. Costs 32 bytes of GPU memory per blade, per camera.
     pub instance_capacity: u32,
     /// Maximum number of branched stems stored per camera.
     ///
-    /// Ranges from 0 to [`GrassSettings::MAX_PLANT_CAPACITY`]. Each fern frond counts
+    /// Ranges from 0 to [`PlantSettings::MAX_PLANT_CAPACITY`]. Each fern frond counts
     /// as one stem. Plants with matching branch counts share storage at each detail
     /// level. Each frame, storage is divided according to last frame's demand,
     /// including stems that did not fit, with spare room for growth when possible.
@@ -114,9 +114,9 @@ pub struct GrassSettings {
     /// readback. Each stem slot costs 16 bytes per camera; none are allocated when
     /// there are no branched plants.
     pub plant_capacity: u32,
-    /// Most [`GrassInteractor`](crate::GrassInteractor)s a camera stamps a
+    /// Most [`PlantInteractor`](crate::PlantInteractor)s a camera stamps a
     /// frame, nearest to the camera first, 1 to
-    /// [`GrassSettings::MAX_INTERACTORS`]. A game with a horde wants more,
+    /// [`PlantSettings::MAX_INTERACTORS`]. A game with a horde wants more,
     /// and 512 costs about the same as 64.
     pub max_interactors: u32,
 
@@ -181,7 +181,7 @@ pub struct GrassSettings {
     // Limits of the view.
     /// Half the side of the square around an orthographic camera in which
     /// blades are stored, in metres, 8 to
-    /// [`GrassSettings::MAX_ORTHOGRAPHIC_EXTENT`]. A blade further from the
+    /// [`PlantSettings::MAX_ORTHOGRAPHIC_EXTENT`]. A blade further from the
     /// camera than this (horizontally, and vertically down to a floor of
     /// 256 m) is misplaced, so a strategy game that sees a kilometre wants
     /// it raised. Blade positions take 16 bits, so a bigger extent is
@@ -189,18 +189,18 @@ pub struct GrassSettings {
     /// use their radius instead.
     pub orthographic_extent: f32,
     /// Slices of visible chunks each camera generates in a frame, 1 to
-    /// [`GrassSettings::MAX_CHUNK_SLICES`]. A chunk is one slice for every
+    /// [`PlantSettings::MAX_CHUNK_SLICES`]. A chunk is one slice for every
     /// 512 blades it may hold, so a very dense field or a long radius needs
     /// more; the rest of the grass is dropped with a warning. Costs 16 bytes
     /// of GPU memory per slice, per camera. The bench peaks at 739 at Ultra.
     pub max_chunk_slices: u32,
     /// Frames between the checks that read the GPU's counters back for
-    /// [`GrassStats`](crate::GrassStats) and the overflow warnings; 0 never
+    /// [`PlantStats`](crate::PlantStats) and the overflow warnings; 0 never
     /// reads them (a shipped game that does not show the numbers). A debug
     /// overlay wants a small number.
     pub readback_interval: u32,
 
-    // Trampling by [`GrassInteractor`](crate::GrassInteractor)s.
+    // Trampling by [`PlantInteractor`](crate::PlantInteractor)s.
     /// Seconds of game time a fully flattened blade takes to spring back, at
     /// least 0.01. Raise it for deep snow or mud, lower it for stiff stalks.
     pub trample_recovery: f32,
@@ -208,14 +208,14 @@ pub struct GrassSettings {
     /// The window is 256 cells across, so 0.25 m gives a 64 m window; a
     /// bigger cell reaches further, a smaller one makes narrower trails.
     pub trample_cell_size: f32,
-    /// Largest [`GrassInteractor`](crate::GrassInteractor) radius stamped,
-    /// in metres, 0.1 to [`GrassSettings::MAX_INTERACTOR_RADIUS`]. A bigger
+    /// Largest [`PlantInteractor`](crate::PlantInteractor) radius stamped,
+    /// in metres, 0.1 to [`PlantSettings::MAX_INTERACTOR_RADIUS`]. A bigger
     /// radius is cut to it. The cost of an interactor grows with the square
     /// of its radius.
     pub max_interactor_radius: f32,
 }
 
-impl GrassSettings {
+impl PlantSettings {
     /// Most blades a camera can hold: the buffers must fit in a storage
     /// binding, which is 128 MiB on the GPUs Bevy supports by default.
     pub const MAX_INSTANCE_CAPACITY: u32 = 4_000_000;
@@ -245,7 +245,7 @@ impl GrassSettings {
         radius: 40.0,
         density_scale: 0.6,
         min_width_px: 1.0,
-        shadows: GrassShadows::Off,
+        shadows: PlantShadows::Off,
         orthographic_lod: 1,
         instance_capacity: 80_000,
         plant_capacity: 30_000,
@@ -257,7 +257,7 @@ impl GrassSettings {
         radius: 70.0,
         density_scale: 0.8,
         min_width_px: 1.0,
-        shadows: GrassShadows::Near,
+        shadows: PlantShadows::Near,
         orthographic_lod: 1,
         instance_capacity: 250_000,
         plant_capacity: 80_000,
@@ -270,7 +270,7 @@ impl GrassSettings {
         radius: 100.0,
         density_scale: 1.0,
         min_width_px: 1.0,
-        shadows: GrassShadows::Near,
+        shadows: PlantShadows::Near,
         orthographic_lod: 1,
         forced_lod: None,
         instance_capacity: 600_000,
@@ -299,7 +299,7 @@ impl GrassSettings {
         radius: 150.0,
         density_scale: 1.0,
         min_width_px: 1.0,
-        shadows: GrassShadows::Full,
+        shadows: PlantShadows::Full,
         orthographic_lod: 0,
         instance_capacity: 1_200_000,
         plant_capacity: 300_000,
@@ -308,13 +308,13 @@ impl GrassSettings {
     };
     /// A 240 Hz / competitive-game tier: the shortest reach, half density and
     /// no grass shadow casting. It still receives shadows. Measure it with
-    /// `tools/bench_240.py`; the numbers are deliberately conservative and
+    /// `tools/plant/bench_240.py`; the numbers are deliberately conservative and
     /// may be tuned after those runs.
     pub const COMPETITIVE: Self = Self {
         radius: 40.0,
         density_scale: 0.5,
         min_width_px: 1.0,
-        shadows: GrassShadows::Off,
+        shadows: PlantShadows::Off,
         orthographic_lod: 1,
         instance_capacity: 100_000,
         plant_capacity: 30_000,
@@ -369,10 +369,10 @@ impl GrassSettings {
         }
     }
 
-    /// These settings as one camera draws with them: its [`GrassCamera`]
+    /// These settings as one camera draws with them: its [`PlantCamera`]
     /// overrides, where it has any, over this resource.
     #[must_use]
-    pub fn for_camera(&self, camera: Option<&GrassCamera>) -> Self {
+    pub fn for_camera(&self, camera: Option<&PlantCamera>) -> Self {
         let Some(camera) = camera else {
             return *self;
         };
@@ -442,25 +442,25 @@ impl GrassSettings {
     }
 }
 
-impl Default for GrassSettings {
+impl Default for PlantSettings {
     fn default() -> Self {
         Self::HIGH
     }
 }
 
-impl From<GrassQuality> for GrassSettings {
-    fn from(quality: GrassQuality) -> Self {
+impl From<PlantQuality> for PlantSettings {
+    fn from(quality: PlantQuality) -> Self {
         quality.settings()
     }
 }
 
 /// A hardware tier, for a graphics menu that offers "Competitive / Low /
-/// Medium / High / Ultra". [`GrassSettings`] is what the plugin uses;
-/// `GrassSettings::from` turns a tier into one, and `GrassSettings::LOW` and
+/// Medium / High / Ultra". [`PlantSettings`] is what the plugin uses;
+/// `PlantSettings::from` turns a tier into one, and `PlantSettings::LOW` and
 /// the others are the same presets without the enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub enum GrassQuality {
+pub enum PlantQuality {
     /// 240 Hz and competitive games: 40 m of half-density grass, no grass
     /// shadow casting. The cheapest tier.
     Competitive,
@@ -475,16 +475,16 @@ pub enum GrassQuality {
     Ultra,
 }
 
-impl GrassQuality {
-    /// The tier's [`GrassSettings`].
+impl PlantQuality {
+    /// The tier's [`PlantSettings`].
     #[must_use]
-    pub const fn settings(self) -> GrassSettings {
+    pub const fn settings(self) -> PlantSettings {
         match self {
-            Self::Competitive => GrassSettings::COMPETITIVE,
-            Self::Low => GrassSettings::LOW,
-            Self::Medium => GrassSettings::MEDIUM,
-            Self::High => GrassSettings::HIGH,
-            Self::Ultra => GrassSettings::ULTRA,
+            Self::Competitive => PlantSettings::COMPETITIVE,
+            Self::Low => PlantSettings::LOW,
+            Self::Medium => PlantSettings::MEDIUM,
+            Self::High => PlantSettings::HIGH,
+            Self::Ultra => PlantSettings::ULTRA,
         }
     }
 
@@ -509,7 +509,7 @@ impl GrassQuality {
 
     /// Which blades cast shadows.
     #[must_use]
-    pub const fn shadows(self) -> GrassShadows {
+    pub const fn shadows(self) -> PlantShadows {
         self.settings().shadows
     }
 
@@ -529,23 +529,23 @@ impl GrassQuality {
 /// Which blades cast shadows from directional lights. Grass always
 /// receives shadows; casting is the expensive part.
 ///
-/// A field of [`GrassSettings`]: change it at any time, from a settings menu
+/// A field of [`PlantSettings`]: change it at any time, from a settings menu
 /// for instance, and the next frame draws with the new mode.
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
-/// fn toggle_grass_shadows(mut grass: ResMut<GrassSettings>) {
-///     grass.shadows = if grass.shadows == GrassShadows::Off {
-///         GrassShadows::Near
+/// fn toggle_plant_shadows(mut settings: ResMut<PlantSettings>) {
+///     settings.shadows = if settings.shadows == PlantShadows::Off {
+///         PlantShadows::Near
 ///     } else {
-///         GrassShadows::Off
+///         PlantShadows::Off
 ///     };
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub enum GrassShadows {
+pub enum PlantShadows {
     /// No grass shadows.
     Off,
     /// Full-detail blades (LOD 0) into the first shadow cascade only: the

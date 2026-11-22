@@ -2,7 +2,7 @@
 //! runs, and read back on the CPU for gameplay.
 //!
 //! A field's density mask says where grass grows and how tall: red is
-//! density, green a height multiplier (`GrassField::density_map`). Edits
+//! density, green a height multiplier (`PlantField::density_map`). Edits
 //! change that mask and nothing else, so the shaders draw an edited field
 //! exactly as they draw a painted one, and a game that edits nothing pays
 //! nothing.
@@ -10,12 +10,12 @@
 //! - **One copy, on the CPU.** A field's first edit gives it an edit layer:
 //!   its mask packed as the GPU reads it (`packed`), or a full mask of
 //!   [`EDIT_TEXEL`] texels for a field that had none. The authored image is
-//!   never written; it is what `GrassEditOp::Restore` and regrowth return to.
+//!   never written; it is what `PlantEditOp::Restore` and regrowth return to.
 //! - **Only what changed goes up.** The rows an edit touched are written
 //!   into the mask buffer the shaders already read ([`MaskPatches`]), so an
 //!   edit costs its own texels, not the field's. Nothing is read back from
 //!   the GPU.
-//! - **Queries are cheap.** The mask is on the CPU, so [`GrassSampler`]
+//! - **Queries are cheap.** The mask is on the CPU, so [`PlantSampler`]
 //!   answers "how much grass is here, and how tall?" without the GPU.
 
 use std::collections::HashMap;
@@ -37,13 +37,13 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::time::Time;
 use bevy::transform::components::{GlobalTransform, Transform};
 
-use crate::api::GrassField;
+use crate::api::PlantField;
 use crate::fields::{FieldFrame, FieldSlot, FieldTables, TablesDirty};
 use crate::gpu_layout::{FieldGpu, NO_MAP};
 use crate::ground::HOLE;
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{bare_noise, gust_noise_table, hash2, unit};
-use crate::{GrassStats, GrassSystems};
+use crate::{PlantStats, PlantSystems};
 
 /// Texel size, in metres, of the mask a field without one gets on its first
 /// edit: one trample cell, about a footprint.
@@ -81,7 +81,7 @@ const DEFAULT_SOFTNESS: f32 = 0.3;
 /// The area an edit covers, in world X and Z (`translation.xz()`).
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Debug, PartialEq)]
-pub enum GrassBrushShape {
+pub enum PlantBrushShape {
     /// A disc.
     Circle {
         /// Its centre.
@@ -111,7 +111,7 @@ pub enum GrassBrushShape {
     },
 }
 
-impl GrassBrushShape {
+impl PlantBrushShape {
     /// A disc of `radius` metres around `center`.
     #[must_use]
     pub fn circle(center: Vec2, radius: f32) -> Self {
@@ -144,7 +144,7 @@ impl GrassBrushShape {
 /// at a time thins evenly and never flickers.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Debug, PartialEq)]
-pub enum GrassEditOp {
+pub enum PlantEditOp {
     /// Moves the density toward this value, up or down: 0 clears the ground,
     /// 1 grows the field's full density.
     Density(f32),
@@ -164,10 +164,10 @@ pub enum GrassEditOp {
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
 /// // Clear the ground under a building as it is placed.
-/// fn place_building(mut edits: MessageWriter<GrassEdit>, placed: Query<&Transform, Added<Building>>) {
+/// fn place_building(mut edits: MessageWriter<PlantEdit>, placed: Query<&Transform, Added<Building>>) {
 ///     for transform in &placed {
 ///         let yaw = transform.rotation.to_euler(EulerRot::YXZ).0;
-///         edits.write(GrassEdit::clear(GrassBrushShape::rect(
+///         edits.write(PlantEdit::clear(PlantBrushShape::rect(
 ///             transform.translation.xz(),
 ///             Vec2::new(6.0, 4.0),
 ///             yaw,
@@ -177,22 +177,22 @@ pub enum GrassEditOp {
 /// # #[derive(Component)] struct Building;
 /// ```
 ///
-/// Edits are applied in [`GrassSystems::Edit`], in the order they were
-/// written, to every field under the shape (or only [`GrassEdit::field`]).
-/// They reach the screen the same frame, and [`GrassSampler`] sees them as
+/// Edits are applied in [`PlantSystems::Edit`], in the order they were
+/// written, to every field under the shape (or only [`PlantEdit::field`]).
+/// They reach the screen the same frame, and [`PlantSampler`] sees them as
 /// soon as they are applied. An edit for a field whose mask has not loaded
 /// waits for it.
 ///
 /// A field remembers its edits until it is despawned or its
-/// [`density_map`](GrassField::density_map) changes (a different image, or
+/// [`density_map`](PlantField::density_map) changes (a different image, or
 /// that image modified or reloaded), which starts it again from the new mask.
 #[derive(Message, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Debug, PartialEq)]
-pub struct GrassEdit {
+pub struct PlantEdit {
     /// Where.
-    pub shape: GrassBrushShape,
+    pub shape: PlantBrushShape,
     /// What.
-    pub op: GrassEditOp,
+    pub op: PlantEditOp,
     /// How far the edit goes, 0 to 1.
     ///
     /// At 1, the default, it sets the grass to the op's target inside the
@@ -214,10 +214,10 @@ pub struct GrassEdit {
     pub field: Option<Entity>,
 }
 
-impl GrassEdit {
+impl PlantEdit {
     /// `op` over `shape`, at full strength and the default softness.
     #[must_use]
-    pub fn new(shape: GrassBrushShape, op: GrassEditOp) -> Self {
+    pub fn new(shape: PlantBrushShape, op: PlantEditOp) -> Self {
         Self {
             shape,
             op,
@@ -229,35 +229,35 @@ impl GrassEdit {
 
     /// Removes the grass: paths, plots, burnt ground.
     #[must_use]
-    pub fn clear(shape: GrassBrushShape) -> Self {
-        Self::new(shape, GrassEditOp::Density(0.0))
+    pub fn clear(shape: PlantBrushShape) -> Self {
+        Self::new(shape, PlantEditOp::Density(0.0))
     }
 
     /// Grows grass, or thins it, to `density` (0 to 1).
     #[must_use]
-    pub fn paint(shape: GrassBrushShape, density: f32) -> Self {
-        Self::new(shape, GrassEditOp::Density(density))
+    pub fn paint(shape: PlantBrushShape, density: f32) -> Self {
+        Self::new(shape, PlantEditOp::Density(density))
     }
 
     /// Cuts the grass to `height`, a share of its full height (0 to 1).
     #[must_use]
-    pub fn mow(shape: GrassBrushShape, height: f32) -> Self {
-        Self::new(shape, GrassEditOp::Mow(height))
+    pub fn mow(shape: PlantBrushShape, height: f32) -> Self {
+        Self::new(shape, PlantEditOp::Mow(height))
     }
 
     /// Puts back the grass the field had before any edit.
     #[must_use]
-    pub fn restore(shape: GrassBrushShape) -> Self {
-        Self::new(shape, GrassEditOp::Restore)
+    pub fn restore(shape: PlantBrushShape) -> Self {
+        Self::new(shape, PlantEditOp::Restore)
     }
 
-    /// With [`GrassEdit::strength`] `strength`.
+    /// With [`PlantEdit::strength`] `strength`.
     #[must_use]
     pub fn with_strength(self, strength: f32) -> Self {
         Self { strength, ..self }
     }
 
-    /// With [`GrassEdit::softness`] `softness`.
+    /// With [`PlantEdit::softness`] `softness`.
     #[must_use]
     pub fn with_softness(self, softness: f32) -> Self {
         Self { softness, ..self }
@@ -283,35 +283,35 @@ impl GrassEdit {
 /// // A mower: cuts a 1.2 m swath to a fifth of the grass's height.
 /// commands.spawn((
 ///     Transform::default(),
-///     GrassBrush::new(GrassEditOp::Mow(0.2), 0.6),
+///     PlantBrush::new(PlantEditOp::Mow(0.2), 0.6),
 /// ));
 /// // Villagers: each passing wears the grass down a little, so paths form
 /// // where they walk most.
 /// commands.spawn((
 ///     Transform::default(),
-///     GrassBrush::new(GrassEditOp::Density(0.0), 0.4).with_rate(0.3),
+///     PlantBrush::new(PlantEditOp::Density(0.0), 0.4).with_rate(0.3),
 /// ));
 /// # }
 /// ```
 ///
-/// Without a [`rate`](GrassBrush::rate) the brush works at once, along the
+/// Without a [`rate`](PlantBrush::rate) the brush works at once, along the
 /// whole way it moved since the last frame, so a fast brush leaves no gaps; a
 /// brush that stands still does nothing more. With one, it works on the disc
 /// under it for as long as it stays, a fire burning in place.
 ///
 /// A brush edits at the entity's position, at any height: remove the
-/// component (or the entity) to stop it. Add a [`GrassBrushFootprint`] to edit
+/// component (or the entity) to stop it. Add a [`PlantBrushFootprint`] to edit
 /// a rectangle instead of a disc.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform)]
-pub struct GrassBrush {
+pub struct PlantBrush {
     /// What it does.
-    pub op: GrassEditOp,
+    pub op: PlantEditOp,
     /// Its radius, in metres.
     pub radius: f32,
     /// The outer share of the radius that fades out (see
-    /// [`GrassEdit::softness`]).
+    /// [`PlantEdit::softness`]).
     pub softness: f32,
     /// How fast it works, as the most it moves the grass per second, 0 to 1
     /// of the range from none to full: 0.25 takes four seconds. `None` (the
@@ -319,10 +319,10 @@ pub struct GrassBrush {
     pub rate: Option<f32>,
 }
 
-impl GrassBrush {
+impl PlantBrush {
     /// A brush of `radius` metres doing `op` at once.
     #[must_use]
-    pub fn new(op: GrassEditOp, radius: f32) -> Self {
+    pub fn new(op: PlantEditOp, radius: f32) -> Self {
         Self {
             op,
             radius,
@@ -341,14 +341,14 @@ impl GrassBrush {
     }
 }
 
-impl Default for GrassBrush {
+impl Default for PlantBrush {
     /// Clears a disc of half a metre.
     fn default() -> Self {
-        Self::new(GrassEditOp::Density(0.0), 0.5)
+        Self::new(PlantEditOp::Density(0.0), 0.5)
     }
 }
 
-/// The rectangle a [`GrassBrush`] edits instead of a disc: a mower's deck, a
+/// The rectangle a [`PlantBrush`] edits instead of a disc: a mower's deck, a
 /// tank's tracks, a plough, a bulldozer's blade.
 ///
 /// ```no_run
@@ -358,8 +358,8 @@ impl Default for GrassBrush {
 /// // A ride-on mower whose deck is 1.4 m wide (along its X) and 0.8 m long.
 /// commands.spawn((
 ///     Transform::default(),
-///     GrassBrush::new(GrassEditOp::Mow(0.2), 0.0),
-///     GrassBrushFootprint::new(Vec2::new(0.7, 0.4)),
+///     PlantBrush::new(PlantEditOp::Mow(0.2), 0.0),
+///     PlantBrushFootprint::new(Vec2::new(0.7, 0.4)),
 /// ));
 /// # }
 /// ```
@@ -377,8 +377,8 @@ impl Default for GrassBrush {
 /// rate are, and the softness is a share of the smaller half size.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-#[require(GrassBrush)]
-pub struct GrassBrushFootprint {
+#[require(PlantBrush)]
+pub struct PlantBrushFootprint {
     /// The rectangle's centre, in the entity's local space.
     pub center: Vec3,
     /// Half its size along the entity's local X and Z, in local units (the
@@ -386,7 +386,7 @@ pub struct GrassBrushFootprint {
     pub half_size: Vec2,
 }
 
-impl GrassBrushFootprint {
+impl PlantBrushFootprint {
     /// A rectangle `half_size` either side of the entity's origin.
     #[must_use]
     pub fn new(half_size: Vec2) -> Self {
@@ -397,7 +397,7 @@ impl GrassBrushFootprint {
     }
 }
 
-impl Default for GrassBrushFootprint {
+impl Default for PlantBrushFootprint {
     /// A 1 m square under the entity.
     fn default() -> Self {
         Self::new(Vec2::splat(0.5))
@@ -412,10 +412,10 @@ impl Default for GrassBrushFootprint {
 /// # use procgena_plant::prelude::*;
 /// # fn setup(mut commands: Commands) {
 /// commands.spawn((
-///     GrassField::from_preset(&FieldPreset::LAWN, Vec2::splat(64.0)),
+///     PlantField::from_preset(&FieldPreset::LAWN, Vec2::splat(64.0)),
 ///     // Mowed lawn is back to full height in about a minute; paths through
 ///     // it never close.
-///     GrassRegrowth { density_rate: 0.0, height_rate: 0.015 },
+///     PlantRegrowth { density_rate: 0.0, height_rate: 0.015 },
 /// ));
 /// # }
 /// ```
@@ -424,7 +424,7 @@ impl Default for GrassBrushFootprint {
 /// stays. It runs on the game's clock, so it pauses when the game does.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-pub struct GrassRegrowth {
+pub struct PlantRegrowth {
     /// Density regained per second, 0 to 1 of the range from bare to full:
     /// 0.02, the default, regrows bare ground in 50 s. 0 keeps cleared ground
     /// bare.
@@ -433,7 +433,7 @@ pub struct GrassRegrowth {
     pub height_rate: f32,
 }
 
-impl Default for GrassRegrowth {
+impl Default for PlantRegrowth {
     fn default() -> Self {
         Self {
             density_rate: 0.02,
@@ -442,9 +442,9 @@ impl Default for GrassRegrowth {
     }
 }
 
-/// The grass at one point of one field, from [`GrassSampler`].
+/// The grass at one point of one field, from [`PlantSampler`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GrassSample {
+pub struct PlantSample {
     /// The field's entity.
     pub field: Entity,
     /// How much of the field's grass grows here, 0 (bare) to 1 (its full
@@ -453,7 +453,7 @@ pub struct GrassSample {
     /// distance or quality.
     pub density: f32,
     /// Plants per square metre here: the field's
-    /// [`density`](crate::GrassField::density) times `density`.
+    /// [`density`](crate::PlantField::density) times `density`.
     pub blades_per_m2: f32,
     /// How tall the grass is here, as a share of its full height: the mask's
     /// height with every edit. Mowed grass is below 1.
@@ -477,13 +477,13 @@ pub struct GrassSample {
 /// # #[derive(Component)] struct Player;
 /// # #[derive(Component)] struct Hidden;
 /// fn hide_in_tall_grass(
-///     grass: GrassSampler,
+///     sampler: PlantSampler,
 ///     player: Single<(Entity, &Transform), With<Player>>,
 ///     mut commands: Commands,
 /// ) {
 ///     let (entity, transform) = *player;
-///     let cover = grass.sample(transform.translation.xz());
-///     if cover.is_some_and(|grass| grass.density > 0.5 && grass.height > 1.0) {
+///     let cover = sampler.sample(transform.translation.xz());
+///     if cover.is_some_and(|sample| sample.density > 0.5 && sample.height > 1.0) {
 ///         commands.entity(entity).insert(Hidden);
 ///     } else {
 ///         commands.entity(entity).remove::<Hidden>();
@@ -492,32 +492,32 @@ pub struct GrassSample {
 /// ```
 ///
 /// A sample costs about a microsecond per field, whatever the field's size.
-/// It reads the fields as the last [`GrassSystems::Rebuild`] left them and
-/// the edits as of the last [`GrassSystems::Edit`]: a system ordered after
-/// `GrassSystems::Edit` sees this frame's edits.
+/// It reads the fields as the last [`PlantSystems::Rebuild`] left them and
+/// the edits as of the last [`PlantSystems::Edit`]: a system ordered after
+/// `PlantSystems::Edit` sees this frame's edits.
 #[derive(SystemParam)]
-pub struct GrassSampler<'w> {
+pub struct PlantSampler<'w> {
     tables: Res<'w, FieldTables>,
     edits: Res<'w, EditLayers>,
 }
 
-impl std::fmt::Debug for GrassSampler<'_> {
+impl std::fmt::Debug for PlantSampler<'_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("GrassSampler")
+            .debug_struct("PlantSampler")
             .field("fields", &self.tables.slots.len())
             .field("edited", &self.edits.layers.len())
             .finish()
     }
 }
 
-impl GrassSampler<'_> {
+impl PlantSampler<'_> {
     /// The grass at `point` (world X and Z), of the field with the tallest
     /// grass there if several overlap. `None` outside every field that is
     /// drawn (a hidden field has no grass).
     #[must_use]
-    pub fn sample(&self, point: Vec2) -> Option<GrassSample> {
-        let cover = |sample: &GrassSample| {
+    pub fn sample(&self, point: Vec2) -> Option<PlantSample> {
+        let cover = |sample: &PlantSample| {
             if sample.density > 0.0 {
                 sample.height
             } else {
@@ -529,7 +529,7 @@ impl GrassSampler<'_> {
     }
 
     /// The grass at `point` (world X and Z) in each field there.
-    pub fn samples(&self, point: Vec2) -> impl Iterator<Item = GrassSample> + '_ {
+    pub fn samples(&self, point: Vec2) -> impl Iterator<Item = PlantSample> + '_ {
         self.tables
             .slots
             .iter()
@@ -539,7 +539,7 @@ impl GrassSampler<'_> {
     /// `field`'s density mask as it is now, edits and all, as an RGBA image
     /// (red density, green height, linear): save it with a game, or keep what
     /// was painted in the game as the field's new
-    /// [`density_map`](GrassField::density_map). `None` for a field with no
+    /// [`density_map`](PlantField::density_map). `None` for a field with no
     /// mask and no edits, or not drawn yet.
     #[must_use]
     pub fn mask_image(&self, field: Entity) -> Option<Image> {
@@ -575,7 +575,7 @@ impl GrassSampler<'_> {
         ))
     }
 
-    fn sample_field(&self, slot: &FieldSlot, point: Vec2) -> Option<GrassSample> {
+    fn sample_field(&self, slot: &FieldSlot, point: Vec2) -> Option<PlantSample> {
         let entry = self.tables.fields.get(slot.first)?;
         if entry.access.x == 0 {
             return None;
@@ -640,7 +640,7 @@ impl GrassSampler<'_> {
             typical += share * height;
             left -= share;
         }
-        Some(GrassSample {
+        Some(PlantSample {
             field: slot.entity,
             density,
             blades_per_m2: entry.shape.w * density,
@@ -998,7 +998,7 @@ fn toward(value: u8, goal: f32, step: f32, dither: f32) -> u8 {
     next.clamp(0.0, 255.0) as u8
 }
 
-impl GrassEditOp {
+impl PlantEditOp {
     /// A texel's red and green after this op moved them `how`, given what
     /// they were before any edit.
     fn apply(self, (red, green): (u8, u8), original: (u8, u8), how: Move) -> (u8, u8) {
@@ -1054,18 +1054,18 @@ enum Shape {
 }
 
 impl Shape {
-    fn of(shape: GrassBrushShape) -> Option<Self> {
+    fn of(shape: PlantBrushShape) -> Option<Self> {
         let shape = match shape {
-            GrassBrushShape::Circle { center, radius } => Self::Disc {
+            PlantBrushShape::Circle { center, radius } => Self::Disc {
                 center,
                 radius: radius.max(0.0),
             },
-            GrassBrushShape::Stroke { from, to, radius } => Self::Segment {
+            PlantBrushShape::Stroke { from, to, radius } => Self::Segment {
                 from,
                 to,
                 radius: radius.max(0.0),
             },
-            GrassBrushShape::Rect {
+            PlantBrushShape::Rect {
                 center,
                 half_size,
                 yaw,
@@ -1190,18 +1190,18 @@ fn slid_depth(point: Vec2, (from, to): (Vec2, Vec2), half: Vec2, axis: Vec2) -> 
     deepest
 }
 
-/// One edit as applied: a `GrassEdit`, or a brush's work this frame.
+/// One edit as applied: a `PlantEdit`, or a brush's work this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Edit {
     shape: Shape,
-    op: GrassEditOp,
+    op: PlantEditOp,
     strength: f32,
     softness: f32,
     field: Option<Entity>,
 }
 
 impl Edit {
-    fn of(edit: &GrassEdit) -> Option<Self> {
+    fn of(edit: &PlantEdit) -> Option<Self> {
         let usable = edit.op.is_finite() && edit.strength.is_finite();
         Some(Self {
             shape: Shape::of(edit.shape).filter(|_| usable)?,
@@ -1213,7 +1213,7 @@ impl Edit {
     }
 
     /// A brush's work this frame over `shape`.
-    fn brush(shape: Shape, brush: &GrassBrush, strength: f32) -> Option<Self> {
+    fn brush(shape: Shape, brush: &PlantBrush, strength: f32) -> Option<Self> {
         let usable = shape.is_finite() && brush.op.is_finite() && strength.is_finite();
         usable.then(|| Self {
             shape,
@@ -1279,7 +1279,7 @@ pub(crate) struct EditLayers {
 
 impl EditLayers {
     /// `entity`'s layer, if it was made from the mask `field` has now.
-    pub(crate) fn layer_of(&self, entity: Entity, field: &GrassField) -> Option<&Layer> {
+    pub(crate) fn layer_of(&self, entity: Entity, field: &PlantField) -> Option<&Layer> {
         let source = field.density_map.as_ref().map(Handle::id);
         self.layers
             .get(&entity)
@@ -1291,7 +1291,7 @@ impl EditLayers {
     fn layer_mut(
         &mut self,
         entity: Entity,
-        field: &GrassField,
+        field: &PlantField,
         frame: &FieldFrame,
         sources: &mut Sources,
     ) -> Option<&mut Layer> {
@@ -1319,7 +1319,7 @@ impl EditLayers {
     /// loaded. Edits for a field keep their order.
     fn apply(
         &mut self,
-        (entity, field, frame): (Entity, &GrassField, &FieldFrame),
+        (entity, field, frame): (Entity, &PlantField, &FieldFrame),
         edit: &Edit,
         sources: &mut Sources,
         seed: u32,
@@ -1345,7 +1345,7 @@ impl EditLayers {
         } else if !std::mem::replace(&mut self.warned, true) {
             warn!(
                 "procgena_plant: {MAX_WAITING} edits are waiting for the density map of the \
-                 GrassField {entity} to load; further edits to it are dropped until it does."
+                 PlantField {entity} to load; further edits to it are dropped until it does."
             );
         }
     }
@@ -1403,14 +1403,14 @@ pub(crate) struct MaskPatches(pub(crate) Arc<PatchList>);
 
 /// Registers the edit types and systems. Part of the tables' plugin.
 pub(crate) fn plugin(app: &mut App) {
-    app.add_message::<GrassEdit>()
+    app.add_message::<PlantEdit>()
         .init_resource::<EditLayers>()
         .init_resource::<MaskPatches>()
         .add_systems(
             PostUpdate,
             (forget_stale_layers, apply_edits, regrow)
                 .chain()
-                .in_set(GrassSystems::Edit),
+                .in_set(PlantSystems::Edit),
         );
 }
 
@@ -1419,10 +1419,10 @@ pub(crate) fn plugin(app: &mut App) {
 /// new mask. Regrowth whose rates changed looks at every tile again.
 pub(crate) fn forget_stale_layers(
     mut edits: ResMut<EditLayers>,
-    mut removed: RemovedComponents<GrassField>,
-    changed: Query<(Entity, &GrassField), Changed<GrassField>>,
+    mut removed: RemovedComponents<PlantField>,
+    changed: Query<(Entity, &PlantField), Changed<PlantField>>,
     mut images: MessageReader<AssetEvent<Image>>,
-    regrowth: Query<Entity, Changed<GrassRegrowth>>,
+    regrowth: Query<Entity, Changed<PlantRegrowth>>,
 ) {
     for entity in removed.read() {
         edits.layers.remove(&entity);
@@ -1448,20 +1448,20 @@ pub(crate) fn forget_stale_layers(
 /// Applies the edits written since the last pass, then every brush's work
 /// this frame.
 pub(crate) fn apply_edits(
-    mut messages: MessageReader<GrassEdit>,
+    mut messages: MessageReader<PlantEdit>,
     brushes: Query<(
         Entity,
-        &GrassBrush,
+        &PlantBrush,
         &GlobalTransform,
-        Option<&GrassBrushFootprint>,
+        Option<&PlantBrushFootprint>,
     )>,
-    fields: Query<(Entity, &GrassField, &GlobalTransform)>,
+    fields: Query<(Entity, &PlantField, &GlobalTransform)>,
     (images, mut cache, mut dirty): (
         Res<Assets<Image>>,
         ResMut<PackedImages>,
         ResMut<TablesDirty>,
     ),
-    (mut edits, mut stats): (ResMut<EditLayers>, ResMut<GrassStats>),
+    (mut edits, mut stats): (ResMut<EditLayers>, ResMut<PlantStats>),
     time: Res<Time>,
     mut swept: Local<HashMap<Entity, (Vec2, Vec2)>>,
 ) {
@@ -1573,12 +1573,12 @@ pub(crate) fn apply_edits(
     }
 }
 
-/// Grows the grass of fields with [`GrassRegrowth`] back toward their masks.
+/// Grows the grass of fields with [`PlantRegrowth`] back toward their masks.
 pub(crate) fn regrow(
-    fields: Query<(Entity, &GrassRegrowth)>,
+    fields: Query<(Entity, &PlantRegrowth)>,
     mut edits: ResMut<EditLayers>,
     time: Res<Time>,
-    mut stats: ResMut<GrassStats>,
+    mut stats: ResMut<PlantStats>,
 ) {
     let started = Instant::now();
     let (mut changed, mut budget) = (0, REGROW_BUDGET);
@@ -1617,7 +1617,7 @@ pub(crate) fn collect_patches(
     mut edits: ResMut<EditLayers>,
     tables: Res<FieldTables>,
     mut patches: ResMut<MaskPatches>,
-    mut stats: ResMut<GrassStats>,
+    mut stats: ResMut<PlantStats>,
 ) {
     if !edits.layers.values().any(|layer| layer.any_dirty) {
         if !patches.0.is_empty() {
@@ -1643,11 +1643,11 @@ pub(crate) fn collect_patches(
     patches.0 = Arc::new(list);
 }
 
-/// What edits are doing, in [`GrassStats::edits`].
+/// What edits are doing, in [`PlantStats::edits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
 pub struct EditStats {
-    /// Edits applied so far: each [`GrassEdit`], and each brush's work in a
+    /// Edits applied so far: each [`PlantEdit`], and each brush's work in a
     /// frame.
     pub applied: u64,
     /// Mask texels changed so far, by edits and regrowth.

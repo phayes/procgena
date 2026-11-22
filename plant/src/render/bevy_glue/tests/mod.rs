@@ -26,8 +26,8 @@ fn view_layout() -> MeshPipelineViewLayout {
 fn the_main_pass_keeps_bevys_view_groups_and_replaces_the_mesh_group() {
     let bevy = [layout("view"), layout("binding_array"), layout("mesh")];
     assert_eq!(
-        main_pass_layout(&bevy, view_layout(), layout("grass")),
-        [layout("view"), layout("binding_array"), layout("grass")]
+        main_pass_layout(&bevy, view_layout(), layout("plants")),
+        [layout("view"), layout("binding_array"), layout("plants")]
     );
 }
 
@@ -36,7 +36,7 @@ fn the_main_pass_keeps_bevys_view_groups_and_replaces_the_mesh_group() {
 #[should_panic(expected = "no longer builds [view, binding array, mesh]")]
 fn a_mesh_pipeline_with_its_groups_reordered_fails_loudly() {
     let bevy = [layout("binding_array"), layout("view"), layout("mesh")];
-    let _ = main_pass_layout(&bevy, view_layout(), layout("grass"));
+    let _ = main_pass_layout(&bevy, view_layout(), layout("plants"));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn a_mesh_pipeline_with_another_group_fails_loudly() {
         layout("mesh"),
         layout("new"),
     ];
-    let _ = main_pass_layout(&bevy, view_layout(), layout("grass"));
+    let _ = main_pass_layout(&bevy, view_layout(), layout("plants"));
 }
 
 fn names(defs: &[ShaderDefVal]) -> Vec<String> {
@@ -110,7 +110,7 @@ fn the_prepass_compiles_in_every_look_term_but_toon_shading() {
         ));
         assert_eq!(
             defs.iter().any(|name| name == def),
-            def != "GRASS_TOON",
+            def != "PLANT_TOON",
             "{def}"
         );
     }
@@ -122,10 +122,13 @@ fn the_main_pass_and_the_prepass_place_blades_identically() {
     // the prepass's. Without `@invariant` the two shaders may round a blade's
     // position differently, and the clear colour flashes through the holes.
     for (name, source) in [
-        ("grass.wesl", include_str!("../../../shaders/grass.wesl")),
         (
-            "grass_prepass.wesl",
-            include_str!("../../../shaders/grass_prepass.wesl"),
+            "plant_main.wesl",
+            include_str!("../../../shaders/plant_main.wesl"),
+        ),
+        (
+            "plant_prepass.wesl",
+            include_str!("../../../shaders/plant_prepass.wesl"),
         ),
     ] {
         assert!(

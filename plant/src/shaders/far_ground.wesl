@@ -1,4 +1,4 @@
-//! procgena_plant::shaders::far_ground — `FarGrassMaterial`: a `StandardMaterial`
+//! procgena_plant::shaders::far_ground — `FarPlantMaterial`: a `StandardMaterial`
 //! whose colour turns to far grass with distance (`far.wesl`). Forward and
 //! deferred.
 
@@ -7,7 +7,7 @@ import bevy_pbr::render::{
     pbr_fragment::pbr_input_from_standard_material,
     mesh_view_bindings::view,
 };
-import package::shaders::far::{FarGrass, grass_far_color};
+import package::shaders::far::{FarPlants, plant_far_color};
 
 @if(PREPASS_PIPELINE)
 import bevy_pbr::{
@@ -20,7 +20,7 @@ import bevy_pbr::render::{
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
 };
 
-@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> far: FarGrass;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> far: FarPlants;
 @group(constants::MATERIAL_BIND_GROUP) @binding(101) var gust_texture: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var gust_sampler: sampler;
 
@@ -34,7 +34,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     );
     let ground = pbr_input.material.base_color.rgb;
     pbr_input.material.base_color = vec4<f32>(
-        grass_far_color(in.world_position.xyz, view.world_position, ground, far, gust_texture, gust_sampler),
+        plant_far_color(in.world_position.xyz, view.world_position, ground, far, gust_texture, gust_sampler),
         pbr_input.material.base_color.a,
     );
 

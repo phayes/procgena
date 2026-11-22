@@ -4,9 +4,9 @@ procgena_plant ships 40 field presets, from lawn to prairie to wildflower meadow
 forest-floor moss and ferns, understory bushes, a Baltic bog, a reed marsh, dunes, pampas,
 spinifex, frost, kelp, crystal and cel-shaded fields, and 26 plant presets to
 build your own from. Each field preset is a `const` on `FieldPreset` and a
-`.field.ron` file in [`assets/grass_fields`](../assets/grass_fields); each
-plant preset a `const` on `PlantPreset` (and the same plant on `GrassPlant`)
-and a `.plant.ron` file in [`assets/grass_plants`](../assets/grass_plants).
+`.field.ron` file in [`assets/fields`](../assets/fields); each
+plant preset a `const` on `PlantPreset` (and the same plant on `PlantParams`)
+and a `.plant.ron` file in [`assets/plants`](../assets/plants).
 [Plants and fields](fields.md) shows how to change one or load one from a
 file.
 
@@ -54,7 +54,7 @@ Field presets:
 | `FieldPreset::FANTASY` | `CRYSTAL_SPIRES` (rigid, faceted, glassy), `CORKSCREW_ALIEN` (ribbons twisted two turns, toon), `KELP_BED` (soft ribbons for under water; pair with a slow, lively wind), `BLIGHTED` (corrupted violet grass with bone-white heads) |
 | `FieldPreset::TOON` | `CEL_FIELD` (chunky two-band tufts and flowers), `COZY_PASTEL` (soft pastel grass and flowers, four bands) |
 
-Plant presets, to grow alone with `GrassField::new` or to mix into any field
+Plant presets, to grow alone with `PlantField::new` or to mix into any field
 as a `FieldPlant`:
 
 | Group | Presets |
@@ -166,5 +166,5 @@ presets) or `plant_preset_group!` block (plant presets) for its group: the
 constant, its key, name, group and description, the group array, the list
 `all()` walks and the embedded asset are all generated from it, and
 `BLESS_PRESETS=1 cargo test` writes its `.field.ron` file in
-`assets/grass_fields` or its `.plant.ron` file in `assets/grass_plants`.
+`assets/fields` or its `.plant.ron` file in `assets/plants`.
 There is no second list to update.

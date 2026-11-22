@@ -1,15 +1,15 @@
 //! The wind that moves the grass: the settings, the per-frame values the
 //! shaders read, and the built-in model that produces them.
 //!
-//! The grass renderer never reads [`GrassWind`] directly. It reads one
-//! [`GrassWindFrame`] a frame, which is the seam between a wind model and the
+//! The grass renderer never reads [`PlantWind`] directly. It reads one
+//! [`PlantWindFrame`] a frame, which is the seam between a wind model and the
 //! blades:
 //!
-//! - [`GrassWindPlugin`] (part of [`GrassPlugin`](crate::GrassPlugin) by
-//!   default) samples [`GrassWind`] into [`GrassWindFrame`] every frame.
+//! - [`PlantWindPlugin`] (part of [`PlantPlugin`](crate::PlantPlugin) by
+//!   default) samples [`PlantWind`] into [`PlantWindFrame`] every frame.
 //! - A game with its own wind leaves that plugin out, with
-//!   `GrassPlugin { wind: false, ..default() }`, and writes
-//!   [`GrassWindFrame`] itself, in [`GrassWindSystems::Sample`]. A weather
+//!   `PlantPlugin { wind: false, ..default() }`, and writes
+//!   [`PlantWindFrame`] itself, in [`PlantWindSystems::Sample`]. A weather
 //!   library can drive the grass that way without the built-in gust model.
 //!
 //! The built-in model is self-contained: `wind/clock.rs` owns its scrolling
@@ -33,22 +33,22 @@ use clock::WindClock;
 /// The wind, shared by every field.
 ///
 /// The presets are constants, so a wind is changed like a style, by struct
-/// update: `GrassWind { strength: 0.8, ..GrassWind::GUSTY }`.
+/// update: `PlantWind { strength: 0.8, ..PlantWind::GUSTY }`.
 ///
 /// `strength` and the gusts decide how far the grass leans; the last four
 /// settings shape how it moves, and are 1 in every preset (the wind as it
-/// was designed). `GrassWind { sway: 2.0, ..GrassWind::BREEZE }` is a field
+/// was designed). `PlantWind { sway: 2.0, ..PlantWind::BREEZE }` is a field
 /// that shivers more, `flutter: 0.0` one whose tips hold still.
 ///
 /// This is the built-in model's input. The grass renderer reads
-/// [`GrassWindFrame`] instead, so a game can replace the model without using
+/// [`PlantWindFrame`] instead, so a game can replace the model without using
 /// this resource.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
-pub struct GrassWind {
+pub struct PlantWind {
     /// Direction the wind blows toward, in the XZ plane (X, Z). Any length:
     /// it is normalized on use, and (0, 0) blows along +X. To set it from a
-    /// `Dir2`, use [`GrassWind::toward`].
+    /// `Dir2`, use [`PlantWind::toward`].
     pub direction: Vec2,
     /// Overall strength, 0 (still) to 1 (storm).
     pub strength: f32,
@@ -74,7 +74,7 @@ pub struct GrassWind {
     pub gust_contrast: f32,
 }
 
-impl GrassWind {
+impl PlantWind {
     /// The same wind, blowing toward `direction` (X and Z of the world).
     #[must_use]
     pub fn toward(self, direction: Dir2) -> Self {
@@ -130,7 +130,7 @@ impl GrassWind {
     };
 }
 
-impl Default for GrassWind {
+impl Default for PlantWind {
     fn default() -> Self {
         Self::BREEZE
     }
@@ -145,8 +145,8 @@ impl Default for GrassWind {
 /// the wind, per-blade sway and tip flutter), not a general description of
 /// wind: a weather system maps its wind onto them, and
 /// [`advance`](Self::advance) scrolls the gusts for it. The built-in
-/// [`GrassWindPlugin`] fills it from [`GrassWind`] every frame; a game using
-/// another wind model turns that plugin off (`GrassPlugin { wind: false,
+/// [`PlantWindPlugin`] fills it from [`PlantWind`] every frame; a game using
+/// another wind model turns that plugin off (`PlantPlugin { wind: false,
 /// ..default() }`) and writes this resource itself.
 ///
 /// ```no_run
@@ -155,17 +155,17 @@ impl Default for GrassWind {
 /// # #[derive(Resource)] struct Weather { gust: f32, direction: Vec2 }
 /// fn sample_weather(
 ///     weather: Res<Weather>,
-///     mut wind: ResMut<GrassWindFrame>,
+///     mut wind: ResMut<PlantWindFrame>,
 /// ) {
-///     *wind = GrassWindFrame {
+///     *wind = PlantWindFrame {
 ///         direction: weather.direction,
 ///         strength: weather.gust,
-///         ..GrassWind::BREEZE.into()
+///         ..PlantWind::BREEZE.into()
 ///     };
 /// }
 /// ```
 ///
-/// A custom source updates this in [`GrassWindSystems::Sample`], once a
+/// A custom source updates this in [`PlantWindSystems::Sample`], once a
 /// frame, so the far-grass material and the blades see the same wind.
 ///
 /// `gust_offset` and `previous_gust_offset` are how far the gust texture has
@@ -177,7 +177,7 @@ impl Default for GrassWind {
 /// the wind changes speed or direction.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
-pub struct GrassWindFrame {
+pub struct PlantWindFrame {
     /// Direction the wind blows toward, in world XZ. Any length: it is
     /// normalized on use, and (0, 0) blows along +X.
     pub direction: Vec2,
@@ -201,9 +201,9 @@ pub struct GrassWindFrame {
     pub gust_contrast: f32,
 }
 
-impl From<GrassWind> for GrassWindFrame {
+impl From<PlantWind> for PlantWindFrame {
     /// The wind as a frame, at rest: the gusts have not scrolled yet.
-    fn from(wind: GrassWind) -> Self {
+    fn from(wind: PlantWind) -> Self {
         Self {
             direction: wind.direction,
             strength: wind.strength,
@@ -218,7 +218,7 @@ impl From<GrassWind> for GrassWindFrame {
     }
 }
 
-impl GrassWindFrame {
+impl PlantWindFrame {
     /// Scrolls the gusts `delta` seconds along the wind, at `gust_speed` metres per second.
     ///
     /// The gusts move toward [`direction`](Self::direction) by
@@ -236,7 +236,7 @@ impl GrassWindFrame {
     /// fn sample_weather(
     ///     time: Res<Time>,
     ///     weather: Res<Weather>,
-    ///     mut wind: ResMut<GrassWindFrame>,
+    ///     mut wind: ResMut<PlantWindFrame>,
     /// ) {
     ///     wind.direction = weather.direction;
     ///     wind.advance(time.delta_secs(), weather.speed);
@@ -256,28 +256,28 @@ impl GrassWindFrame {
     }
 }
 
-impl Default for GrassWindFrame {
+impl Default for PlantWindFrame {
     fn default() -> Self {
-        GrassWind::default().into()
+        PlantWind::default().into()
     }
 }
 
 /// The wind systems, in `Update`.
 ///
-/// [`Sample`](Self::Sample) is where the wind becomes a [`GrassWindFrame`]:
-/// the built-in [`GrassWindPlugin`] puts its own system there, and a custom
+/// [`Sample`](Self::Sample) is where the wind becomes a [`PlantWindFrame`]:
+/// the built-in [`PlantWindPlugin`] puts its own system there, and a custom
 /// wind plugin should put its system there too, so the far-grass material and
 /// the blades read the same frame.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum GrassWindSystems {
-    /// Samples this frame's wind into [`GrassWindFrame`].
+pub enum PlantWindSystems {
+    /// Samples this frame's wind into [`PlantWindFrame`].
     Sample,
 }
 
-/// Adds the built-in wind: [`GrassWind`], its scrolling gusts, and a system
-/// that writes [`GrassWindFrame`] every frame. Part of
-/// [`GrassPlugin`](crate::GrassPlugin) unless it is built with `wind: false`.
+/// Adds the built-in wind: [`PlantWind`], its scrolling gusts, and a system
+/// that writes [`PlantWindFrame`] every frame. Part of
+/// [`PlantPlugin`](crate::PlantPlugin) unless it is built with `wind: false`.
 ///
 /// Leave it out to replace the model:
 ///
@@ -286,33 +286,33 @@ pub enum GrassWindSystems {
 /// # use procgena_plant::prelude::*;
 /// App::new()
 ///     .add_plugins(DefaultPlugins)
-///     .add_plugins(GrassPlugins.set(GrassPlugin {
+///     .add_plugins(PlantPlugins.set(PlantPlugin {
 ///         wind: false,
 ///         ..default()
 ///     }))
-///     // Your own wind: write `GrassWindFrame` in `GrassWindSystems::Sample`.
-///     .add_systems(Update, sample_weather.in_set(GrassWindSystems::Sample))
+///     // Your own wind: write `PlantWindFrame` in `PlantWindSystems::Sample`.
+///     .add_systems(Update, sample_weather.in_set(PlantWindSystems::Sample))
 ///     .run();
 /// # fn sample_weather() {}
 /// ```
 #[derive(Debug, Default, Clone, Copy)]
-pub struct GrassWindPlugin;
+pub struct PlantWindPlugin;
 
-impl Plugin for GrassWindPlugin {
+impl Plugin for PlantWindPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GrassWind>()
-            .init_resource::<GrassWindFrame>()
+        app.init_resource::<PlantWind>()
+            .init_resource::<PlantWindFrame>()
             .init_resource::<WindClock>()
-            .add_systems(Update, sample_wind.in_set(GrassWindSystems::Sample));
+            .add_systems(Update, sample_wind.in_set(PlantWindSystems::Sample));
     }
 }
 
 /// Turns the wind settings and the gust clock into this frame's shader values.
 fn sample_wind(
     time: Res<Time>,
-    wind: Res<GrassWind>,
+    wind: Res<PlantWind>,
     mut clock: ResMut<WindClock>,
-    mut frame: ResMut<GrassWindFrame>,
+    mut frame: ResMut<PlantWindFrame>,
 ) {
     clock.advance(time.delta().as_secs_f64(), &wind);
     *frame = clock.frame(&wind);

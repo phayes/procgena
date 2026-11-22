@@ -71,21 +71,21 @@ fn the_readme_quick_start_is_the_minimal_example() {
 #[test]
 fn fields_and_presets_can_be_compared() {
     // `set_if_neq` and plain `==` in games and tests.
-    let field = GrassField {
+    let field = PlantField {
         size: Vec2::splat(8.0),
         ..Default::default()
     };
     assert_eq!(field, field.clone());
     assert_ne!(
         field,
-        GrassField {
+        PlantField {
             size: Vec2::splat(9.0),
             ..field.clone()
         }
     );
     assert_ne!(
-        GrassGround::Flat,
-        GrassGround::Heightmap {
+        PlantGround::Flat,
+        PlantGround::Heightmap {
             image: bevy::asset::Handle::default(),
             height_scale: 1.0
         }
@@ -101,19 +101,19 @@ fn fields_and_presets_can_be_compared() {
 
 #[test]
 fn a_field_can_be_built_from_a_preset_or_plants_in_one_call() {
-    let field = GrassField::from_preset(&FieldPreset::WHEAT, Vec2::splat(8.0));
+    let field = PlantField::from_preset(&FieldPreset::WHEAT, Vec2::splat(8.0));
     assert_eq!(field.size, Vec2::splat(8.0));
-    assert_eq!(field.ground, GrassGround::Flat);
+    assert_eq!(field.ground, PlantGround::Flat);
     assert_eq!(field.density_map, None);
     assert_eq!(field.plants, FieldPreset::WHEAT.field.plants);
     assert_eq!(field.density_scale, FieldPreset::WHEAT.field.density_scale);
 
-    let plants = vec![FieldPlant::new(GrassPlant::FERN)];
-    let field = GrassField::new(Vec2::splat(4.0), plants.clone());
+    let plants = vec![FieldPlant::new(PlantParams::FERN)];
+    let field = PlantField::new(Vec2::splat(4.0), plants.clone());
     assert_eq!(field.size, Vec2::splat(4.0));
     assert_eq!(field.plants.to_vec(), plants);
-    assert_eq!(field.variation, GrassField::default().variation);
-    assert_eq!(GrassField::default().size, Vec2::ZERO);
+    assert_eq!(field.variation, PlantField::default().variation);
+    assert_eq!(PlantField::default().size, Vec2::ZERO);
 }
 
 #[test]
@@ -134,40 +134,40 @@ fn every_public_type_has_the_type_data_tools_look_for() {
         }};
     }
     // Components: scenes, BSN, Blender exporters and inspectors.
-    check!(GrassField: ReflectComponent, ReflectDefault);
-    check!(GrassInteractor: ReflectComponent, ReflectDefault);
-    check!(GrassInteractorSpread: ReflectComponent, ReflectDefault);
-    check!(GrassInteractorFootprint: ReflectComponent, ReflectDefault);
-    check!(GrassInteractorFromCollider: ReflectComponent, ReflectDefault);
-    check!(GrassColliderBounds: ReflectComponent, ReflectDefault);
-    check!(NoGrass: ReflectComponent, ReflectDefault);
-    check!(GrassCamera: ReflectComponent, ReflectDefault);
+    check!(PlantField: ReflectComponent, ReflectDefault);
+    check!(PlantInteractor: ReflectComponent, ReflectDefault);
+    check!(PlantInteractorSpread: ReflectComponent, ReflectDefault);
+    check!(PlantInteractorFootprint: ReflectComponent, ReflectDefault);
+    check!(PlantInteractorFromCollider: ReflectComponent, ReflectDefault);
+    check!(PlantColliderBounds: ReflectComponent, ReflectDefault);
+    check!(NoPlants: ReflectComponent, ReflectDefault);
+    check!(PlantCamera: ReflectComponent, ReflectDefault);
     // Resources: inspector resource panels.
-    check!(GrassWind: ReflectResource, ReflectComponent, ReflectDefault);
-    check!(GrassWindFrame: ReflectResource, ReflectDefault);
-    check!(GrassSettings: ReflectResource, ReflectComponent, ReflectDefault);
+    check!(PlantWind: ReflectResource, ReflectComponent, ReflectDefault);
+    check!(PlantWindFrame: ReflectResource, ReflectDefault);
+    check!(PlantSettings: ReflectResource, ReflectComponent, ReflectDefault);
     // The preset assets: inspector asset panels.
     check!(FieldPreset: ReflectAsset);
     check!(PlantPreset: ReflectAsset);
     // What they contain.
-    check!(GrassPlant: ReflectDefault);
-    check!(GrassSegment: ReflectDefault);
-    check!(GrassBranches: ReflectDefault);
-    check!(GrassArrangement: ReflectDefault);
-    check!(GrassVariation: ReflectDefault);
+    check!(PlantParams: ReflectDefault);
+    check!(PlantSegment: ReflectDefault);
+    check!(PlantBranches: ReflectDefault);
+    check!(PlantArrangement: ReflectDefault);
+    check!(PlantVariation: ReflectDefault);
     check!(GroundTint: ReflectDefault);
-    check!(GrassGround: ReflectDefault);
-    check!(GrassShadows: ReflectDefault);
-    check!(GrassQuality: ReflectDefault);
+    check!(PlantGround: ReflectDefault);
+    check!(PlantShadows: ReflectDefault);
+    check!(PlantQuality: ReflectDefault);
     check!(FieldPlant: ReflectDefault);
 }
 
 #[test]
 fn a_field_survives_a_scene_file_and_can_be_inserted_from_it() {
     let mut app = app();
-    let field = GrassField {
+    let field = PlantField {
         size: Vec2::new(48.0, 24.0),
-        ground: GrassGround::Flat,
+        ground: PlantGround::Flat,
         ..Default::default()
     };
     let registry = app.world().resource::<AppTypeRegistry>().clone();
@@ -178,12 +178,12 @@ fn a_field_survives_a_scene_file_and_can_be_inserted_from_it() {
     let mut entity = app.world_mut().spawn_empty();
     let registry = registry.read();
     let component = registry
-        .get_type_data::<ReflectComponent>(TypeId::of::<GrassField>())
+        .get_type_data::<ReflectComponent>(TypeId::of::<PlantField>())
         .expect("ReflectComponent");
     component.insert(&mut entity, read.as_ref(), &registry);
-    let inserted = entity.get::<GrassField>().expect("inserted");
+    let inserted = entity.get::<PlantField>().expect("inserted");
     assert_eq!(inserted.size, Vec2::new(48.0, 24.0));
-    assert!(matches!(inserted.ground, GrassGround::Flat));
+    assert!(matches!(inserted.ground, PlantGround::Flat));
 }
 
 #[test]
@@ -191,52 +191,52 @@ fn the_small_components_and_the_settings_round_trip() {
     let app = app();
     let registry = app.world().resource::<AppTypeRegistry>().read();
 
-    let camera = GrassCamera {
+    let camera = PlantCamera {
         radius: Some(30.0),
-        shadows: Some(GrassShadows::Off),
+        shadows: Some(PlantShadows::Off),
         ..Default::default()
     };
     let read = through_ron(camera.as_partial_reflect(), &registry);
-    assert_eq!(GrassCamera::from_reflect(read.as_ref()), Some(camera));
+    assert_eq!(PlantCamera::from_reflect(read.as_ref()), Some(camera));
 
-    let interactor = GrassInteractor {
+    let interactor = PlantInteractor {
         radius: 1.5,
         strength: 0.5,
         max_height: Some(1.0),
     };
     let read = through_ron(interactor.as_partial_reflect(), &registry);
     assert_eq!(
-        GrassInteractor::from_reflect(read.as_ref()),
+        PlantInteractor::from_reflect(read.as_ref()),
         Some(interactor)
     );
 
-    let spread = GrassInteractorSpread {
+    let spread = PlantInteractorSpread {
         offsets: vec![Vec3::X, Vec3::new(0.0, 1.0, 2.0)],
     };
     let read = through_ron(spread.as_partial_reflect(), &registry);
     assert_eq!(
-        GrassInteractorSpread::from_reflect(read.as_ref()),
+        PlantInteractorSpread::from_reflect(read.as_ref()),
         Some(spread)
     );
 
-    let settings = GrassSettings {
+    let settings = PlantSettings {
         radius: 140.0,
-        ..GrassSettings::ULTRA
+        ..PlantSettings::ULTRA
     };
     let read = through_ron(settings.as_partial_reflect(), &registry);
-    assert_eq!(GrassSettings::from_reflect(read.as_ref()), Some(settings));
+    assert_eq!(PlantSettings::from_reflect(read.as_ref()), Some(settings));
 
-    let read = through_ron(GrassWind::STORM.as_partial_reflect(), &registry);
-    let wind = GrassWind::from_reflect(read.as_ref()).expect("a wind");
-    assert_eq!(wind.strength, GrassWind::STORM.strength);
-    assert_eq!(wind.gust_speed, GrassWind::STORM.gust_speed);
+    let read = through_ron(PlantWind::STORM.as_partial_reflect(), &registry);
+    let wind = PlantWind::from_reflect(read.as_ref()).expect("a wind");
+    assert_eq!(wind.strength, PlantWind::STORM.strength);
+    assert_eq!(wind.gust_speed, PlantWind::STORM.gust_speed);
 
-    let frame = GrassWindFrame::from(GrassWind::GUSTY);
+    let frame = PlantWindFrame::from(PlantWind::GUSTY);
     let read = through_ron(frame.as_partial_reflect(), &registry);
-    assert_eq!(GrassWindFrame::from_reflect(read.as_ref()), Some(frame));
+    assert_eq!(PlantWindFrame::from_reflect(read.as_ref()), Some(frame));
 
-    let read = through_ron(NoGrass.as_partial_reflect(), &registry);
-    assert!(NoGrass::from_reflect(read.as_ref()).is_some());
+    let read = through_ron(NoPlants.as_partial_reflect(), &registry);
+    assert!(NoPlants::from_reflect(read.as_ref()).is_some());
 }
 
 #[test]
@@ -293,11 +293,11 @@ fn every_preset_survives_a_save_file_and_can_be_edited_like_an_inspector_does() 
 
 #[test]
 fn a_resource_is_edited_through_reflection_like_an_inspector_does() {
-    let mut wind = GrassWind::BREEZE;
-    let storm = GrassWind::STORM;
+    let mut wind = PlantWind::BREEZE;
+    let storm = PlantWind::STORM;
     // An inspector applies a reflected value onto the live one.
     wind.apply(storm.as_partial_reflect());
-    assert_eq!(wind.strength, GrassWind::STORM.strength);
+    assert_eq!(wind.strength, PlantWind::STORM.strength);
     *wind
         .reflect_path_mut("gust_scale")
         .unwrap()
@@ -305,18 +305,18 @@ fn a_resource_is_edited_through_reflection_like_an_inspector_does() {
         .unwrap() = 99.0;
     assert_eq!(wind.gust_scale, 99.0);
 
-    let mut settings = GrassSettings::LOW;
-    settings.apply(GrassSettings::ULTRA.as_partial_reflect());
-    assert_eq!(settings, GrassSettings::ULTRA);
+    let mut settings = PlantSettings::LOW;
+    settings.apply(PlantSettings::ULTRA.as_partial_reflect());
+    assert_eq!(settings, PlantSettings::ULTRA);
     // `Default` through reflection is the type's default.
     let app = app();
     let registry = app.world().resource::<AppTypeRegistry>().read();
     let make_default = registry
-        .get_type_data::<ReflectDefault>(TypeId::of::<GrassSettings>())
+        .get_type_data::<ReflectDefault>(TypeId::of::<PlantSettings>())
         .unwrap();
     let value = make_default.default();
     assert_eq!(
-        GrassSettings::from_reflect(value.as_partial_reflect()),
-        Some(GrassSettings::HIGH)
+        PlantSettings::from_reflect(value.as_partial_reflect()),
+        Some(PlantSettings::HIGH)
     );
 }

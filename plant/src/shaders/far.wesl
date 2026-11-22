@@ -1,14 +1,14 @@
 //! procgena_plant::shaders::far — the colour of grass seen from too far away to
 //! draw blades, for terrain materials. Beyond the grass radius there are no
-//! blades; `grass_far_color` tints the ground toward the grass's colour as
+//! blades; `plant_far_color` tints the ground toward the grass's colour as
 //! the blades thin out, with the same gusts rolling across it, so there is no
 //! seam where the blades end.
 //!
-//! `FarGrassMaterial` (Rust) is a ready-made terrain material that calls it.
+//! `FarPlantMaterial` (Rust) is a ready-made terrain material that calls it.
 //! A custom terrain shader can import it:
 //!
 //! ```wgsl
-//! import procgena_plant::shaders::far::{FarGrass, grass_far_color};
+//! import procgena_plant::shaders::far::{FarPlants, plant_far_color};
 //! ```
 
 import package::shaders::wind::{Wind, wind_gust};
@@ -18,8 +18,8 @@ import package::shaders::wind::{Wind, wind_gust};
 /// under the blades, and seen from high above.
 const SHEEN_UNSEEN: f32 = 0.004;
 
-/// Mirrors `FarGrassUniform` in Rust.
-struct FarGrass {
+/// Mirrors `FarPlantUniform` in Rust.
+struct FarPlants {
     /// rgb: the grass's colour from afar, linear; w: how far the ground
     /// takes it on (0–1).
     color: vec4<f32>,
@@ -29,19 +29,19 @@ struct FarGrass {
     /// The rectangle with grass, world XZ: min x, min z, max x, max z. The
     /// tint fades out over `fade.y * 0.02` metres at its edge.
     area: vec4<f32>,
-    /// The wind, kept equal to `GrassWindFrame` by `FarGrassPlugin`.
+    /// The wind, kept equal to `PlantWindFrame` by `FarPlantPlugin`.
     wind: Wind,
 }
 
 /// The ground's colour `ground` at `world_position`, tinted toward the far
 /// grass seen from `eye`, with the gusts where `far.wind.gust_offset` has
-/// scrolled them (kept equal to the blades' by `FarGrassPlugin`). `gusts` is
+/// scrolled them (kept equal to the blades' by `FarPlantPlugin`). `gusts` is
 /// the grass's gust texture.
-fn grass_far_color(
+fn plant_far_color(
     world_position: vec3<f32>,
     eye: vec3<f32>,
     ground: vec3<f32>,
-    far: FarGrass,
+    far: FarPlants,
     gusts: texture_2d<f32>,
     gust_sampler: sampler,
 ) -> vec3<f32> {

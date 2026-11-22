@@ -29,7 +29,8 @@ mod surface;
 
 pub use mesh::{BuildStats, ClumpMesh};
 pub use options::{
-    ClumpError, ClumpOptions, Direction, MAX_DIRECTIONS, MaskOptions, MeshOptions, OptionsError, ShapeOptions,
+    ClumpError, ClumpOptions, Direction, MAX_DIRECTIONS, MaskOptions, MeshOptions, OptionsError,
+    ShapeOptions,
 };
 pub use presets::ClumpPreset;
 pub use surface::{Surface, SurfaceError, SurfaceMesh};
@@ -60,9 +61,14 @@ impl Clump {
                 options.mesh.edge_length * options.scale,
                 options.shape.max_slope,
                 options.mesh.closed,
+                options.mesh.strict,
             )
         };
-        Ok(Self { options: options.clone(), mesh, stats })
+        Ok(Self {
+            options: options.clone(),
+            mesh,
+            stats,
+        })
     }
 
     /// Generates a clump on `surface` with a preset's settings.
@@ -115,6 +121,45 @@ pub mod diagnostics {
                 if (p - c.point).dot(n) < 0.0 { -d } else { d }
             })
             .collect()
+    }
+
+    /// Returns, for each point, whether it is inside `surface`, which must be
+    /// closed. Rays are cast from the point in three fixed, skewed directions;
+    /// an odd number of crossings counts as inside, and the majority decides.
+    pub fn inside_closed(surface: &Surface, points: &[[f32; 3]]) -> Vec<bool> {
+        let bvh = Bvh::new(surface);
+        let dirs = [
+            Vec3::new(0.137, 0.981, 0.093).normalize(),
+            Vec3::new(-0.713, 0.212, 0.668).normalize(),
+            Vec3::new(0.402, -0.587, -0.703).normalize(),
+        ];
+        let (lo, hi) = surface.bounds();
+        let step = (hi - lo).length() * 1e-5;
+        points
+            .iter()
+            .map(|&p| {
+                // Count crossings along each ray, stepping just past each hit.
+                let votes = dirs
+                    .iter()
+                    .filter(|&&dir| {
+                        let mut origin = Vec3::from(p);
+                        let mut crossings = 0;
+                        while let Some((t, _)) = bvh.ray_hit(origin, dir, f32::INFINITY) {
+                            crossings += 1;
+                            origin += dir * (t + step);
+                        }
+                        crossings % 2 == 1
+                    })
+                    .count();
+                votes >= 2
+            })
+            .collect()
+    }
+
+    /// Counts the triangles of `mesh` that pass through another of its
+    /// triangles, using the same test as strict mode.
+    pub fn crossing_count(mesh: &crate::ClumpMesh) -> usize {
+        crate::shell::crossing_triangles(mesh).len()
     }
 
     /// Counts edges shared by other than exactly two triangles.
@@ -184,7 +229,10 @@ mod tests {
 
     /// Returns options for `directions` with sky rays off, so only facing counts.
     fn facing_only(directions: Vec<Direction>) -> ClumpOptions {
-        let mut options = ClumpOptions { directions, ..ClumpOptions::default() };
+        let mut options = ClumpOptions {
+            directions,
+            ..ClumpOptions::default()
+        };
         options.mask.sky_rays = 0;
         options
     }
@@ -209,24 +257,55 @@ mod tests {
         let mesh = Clump::new(surface, &options).unwrap().mesh().clone();
 
         // Visible clump on the ground (pushed up) and on the wall (pushed toward -X).
-        let on_ground = mesh.positions.iter().zip(&mesh.fade).any(|(p, &f)| f > 0.5 && p[1] > 0.05 && p[1] < 0.2 && p[0] > 0.1);
-        let on_wall = mesh.positions.iter().zip(&mesh.fade).any(|(p, &f)| f > 0.5 && p[0] < -0.05 && p[1] > 0.3);
+        let on_ground = mesh
+            .positions
+            .iter()
+            .zip(&mesh.fade)
+            .any(|(p, &f)| f > 0.5 && p[1] > 0.05 && p[1] < 0.2 && p[0] > 0.1);
+        let on_wall = mesh
+            .positions
+            .iter()
+            .zip(&mesh.fade)
+            .any(|(p, &f)| f > 0.5 && p[0] < -0.05 && p[1] > 0.3);
         assert!(on_ground && on_wall);
 
         // A strength of 0 switches a direction off.
-        let off = facing_only(vec![Direction { strength: 0.0, ..Direction::new([1.0, 0.0, 0.0]) }]);
-        assert!(Clump::new(wall().surface().unwrap(), &off).unwrap().mesh().is_empty());
+        let off = facing_only(vec![Direction {
+            strength: 0.0,
+            ..Direction::new([1.0, 0.0, 0.0])
+        }]);
+        assert!(
+            Clump::new(wall().surface().unwrap(), &off)
+                .unwrap()
+                .mesh()
+                .is_empty()
+        );
     }
 
     #[test]
     fn direction_lists_are_checked() {
         let error = |directions: Vec<Direction>| {
-            ClumpOptions { directions, ..ClumpOptions::default() }.validate().unwrap_err().field
+            ClumpOptions {
+                directions,
+                ..ClumpOptions::default()
+            }
+            .validate()
+            .unwrap_err()
+            .field
         };
         assert_eq!(error(vec![]), "directions");
-        assert_eq!(error(vec![Direction::DOWN; MAX_DIRECTIONS + 1]), "directions");
+        assert_eq!(
+            error(vec![Direction::DOWN; MAX_DIRECTIONS + 1]),
+            "directions"
+        );
         assert_eq!(error(vec![Direction::new([0.0; 3])]), "directions.vector");
-        assert_eq!(error(vec![Direction { strength: -1.0, ..Direction::DOWN }]), "directions.strength");
+        assert_eq!(
+            error(vec![Direction {
+                strength: -1.0,
+                ..Direction::DOWN
+            }]),
+            "directions.strength"
+        );
         assert_eq!(Direction::default(), Direction::DOWN);
         assert_eq!(Direction::new([1.0, 0.0, 0.0]).strength, 1.0);
     }
@@ -241,7 +320,10 @@ mod tests {
                 *count.entry(e).or_default() += 1;
             }
         }
-        let unmatched = count.keys().filter(|&&(a, b)| !count.contains_key(&(b, a))).count();
+        let unmatched = count
+            .keys()
+            .filter(|&&(a, b)| !count.contains_key(&(b, a)))
+            .count();
         let repeated = count.values().filter(|&&n| n > 1).count();
         (unmatched, repeated)
     }
@@ -275,7 +357,10 @@ mod tests {
         let s = &options.shape;
         let expected = 1.0 * (s.thickness + s.sink + 0.25 * s.thickness);
         let volume = enclosed_volume(mesh);
-        assert!((volume - expected).abs() < expected * 0.01, "{volume} vs {expected}");
+        assert!(
+            (volume - expected).abs() < expected * 0.01,
+            "{volume} vs {expected}"
+        );
     }
 
     #[test]
@@ -285,11 +370,124 @@ mod tests {
         for p in &mut ground.positions {
             p[1] = (p[0] * 3.1).sin() * 0.15 + (p[2] * 2.3).cos() * 0.1;
         }
-        let options = ClumpOptions { directions: vec![Direction::DOWN, Direction::new([1.0, -0.5, 0.0])], ..ClumpOptions::default() };
-        let mesh = Clump::new(ground.surface().unwrap(), &options).unwrap().mesh().clone();
+        let options = ClumpOptions {
+            directions: vec![Direction::DOWN, Direction::new([1.0, -0.5, 0.0])],
+            ..ClumpOptions::default()
+        };
+        let mesh = Clump::new(ground.surface().unwrap(), &options)
+            .unwrap()
+            .mesh()
+            .clone();
         assert!(!mesh.is_empty());
         assert_eq!(unpaired_edges(&mesh.indices), (0, 0));
         assert!(enclosed_volume(&mesh) > 0.0);
+    }
+
+    /// A closed 1 m square box `height` tall resting on y = 0, with shared
+    /// corners and smoothed normals, so every edge is a sharp ridge.
+    fn sharp_box(height: f32) -> SurfaceMesh {
+        let corners: Vec<[f32; 3]> = (0..8)
+            .map(|i| {
+                [
+                    (i & 1) as f32 - 0.5,
+                    ((i >> 1) & 1) as f32 * height,
+                    ((i >> 2) & 1) as f32 - 0.5,
+                ]
+            })
+            .collect();
+        let normals = corners
+            .iter()
+            .map(|&[x, y, z]| {
+                glam::Vec3::new(x, if y > 0.0 { 0.5 } else { -0.5 }, z)
+                    .normalize()
+                    .to_array()
+            })
+            .collect();
+        // Two outward-facing triangles per face.
+        let faces = [
+            [0, 2, 3, 1],
+            [4, 5, 7, 6],
+            [0, 1, 5, 4],
+            [2, 6, 7, 3],
+            [0, 4, 6, 2],
+            [1, 3, 7, 5],
+        ];
+        let indices = faces
+            .iter()
+            .flat_map(|&[a, b, c, d]| [a, b, c, a, c, d])
+            .collect();
+        SurfaceMesh {
+            positions: corners,
+            normals,
+            indices,
+        }
+    }
+
+    #[test]
+    fn buried_parts_stay_inside_sharp_edged_inputs() {
+        // A slab thinner than the underside wants to go, with sharp edges.
+        let slab = sharp_box(0.04);
+        let surface = slab.surface().unwrap();
+        assert!(surface.is_closed());
+        let mut options = ClumpOptions::default();
+        options.mask.sky_rays = 0;
+        let mesh = Clump::new(surface, &options).unwrap().mesh().clone();
+        assert!(!mesh.is_empty());
+
+        // Every rim and underside vertex is inside the slab or on its surface.
+        let rim: Vec<[f32; 3]> = mesh
+            .positions
+            .iter()
+            .zip(&mesh.fade)
+            .filter(|&(_, &f)| f == 0.0)
+            .map(|(p, _)| *p)
+            .collect();
+        let inside = diagnostics::inside_closed(&surface, &rim);
+        let distance = diagnostics::signed_distances(&surface, &rim);
+        for ((p, inside), d) in rim.iter().zip(inside).zip(distance) {
+            assert!(inside || d.abs() < 1e-4, "{p:?} is outside the slab");
+        }
+    }
+
+    #[test]
+    fn no_top_triangle_is_left_inside_out() {
+        let slab = low_detail_slab();
+        let clump = Clump::new(slab.surface().unwrap(), &ClumpOptions::default()).unwrap();
+        assert!(!clump.mesh().is_empty());
+        assert_eq!(clump.stats().folded, 0);
+    }
+
+    /// A procgena_stone flat slab meshed at a low resolution, as a surface mesh.
+    fn low_detail_slab() -> SurfaceMesh {
+        let mut options = procgena_stone::StonePreset::FlatSlab.options();
+        options.mesh.detail =
+            procgena_stone::StoneDetail::single(48, procgena_stone::TextureSize::Size1k);
+        let stone = procgena_stone::Stone::new(options).unwrap();
+        let mesh = stone.mesh();
+        SurfaceMesh {
+            positions: mesh.positions.clone(),
+            normals: mesh.normals.clone(),
+            indices: mesh.indices.clone(),
+        }
+    }
+
+    #[test]
+    fn strict_clumps_never_pass_through_themselves() {
+        let slab = low_detail_slab();
+        let surface = slab.surface().unwrap();
+
+        // The default build crosses itself on these creases.
+        let loose = Clump::new(surface, &ClumpOptions::default()).unwrap();
+        assert!(diagnostics::crossing_count(loose.mesh()) > 0);
+
+        // Strict mode removes every crossing and keeps the solid closed.
+        let mut options = ClumpOptions::default();
+        options.mesh.strict = true;
+        let strict = Clump::new(surface, &options).unwrap();
+        assert!(!strict.mesh().is_empty());
+        assert_eq!(strict.stats().crossings, 0);
+        assert_eq!(diagnostics::crossing_count(strict.mesh()), 0);
+        assert_eq!(unpaired_edges(&strict.mesh().indices), (0, 0));
     }
 
     #[test]

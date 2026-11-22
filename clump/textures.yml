@@ -1,0 +1,65 @@
+# Textures for procgena_clump's snow, moss and leaf-litter clumps, used by the
+# `textures` tool:
+#   uv run --project tools textures <command> clump
+# See tools/README.md for the commands. Only add CC0 textures: free to use,
+# including in commercial projects.
+
+# Folder in the public gs://ze_textures bucket that holds these textures.
+bucket: clump
+
+# How surface maps are stored. `orh` packs ambient occlusion, roughness and
+# height into one image (and occlusion, roughness and zero metalness into the
+# exported `orm` JPEG). A set without an ambient occlusion map gets plain white.
+layout: orh
+
+# Surface texture sets, in manifest order. The id names the output files and
+# the clump material options; `category` is the material and names the folder
+# under assets/textures/. `source` defaults to polyhaven and `source_id` to the
+# id. Sources:
+#   polyhaven  https://polyhaven.com/a/<source_id>
+#   ambientcg  https://ambientcg.com/a/<source_id>
+# Choose textures that provide 2k JPEG colour, OpenGL normal, roughness and
+# height maps.
+sets:
+  - {id: snow_02, category: snow}
+  - {id: snow_005, category: snow, source: ambientcg, source_id: Snow005}
+  - {id: snow_014, category: snow, source: ambientcg, source_id: Snow014}
+  - {id: moss_002, category: moss, source: ambientcg, source_id: Moss002}
+  - {id: moss_003, category: moss, source: ambientcg, source_id: Moss003}
+  - {id: moss_004, category: moss, source: ambientcg, source_id: Moss004}
+  - {id: leaves_dry_decay, category: leaves, source_id: dry_decay_leaves}
+  - {id: leaves_forest_ground, category: leaves}
+  - {id: leaves_forest_03, category: leaves, source_id: forest_leaves_03}
+
+# Stalk cards: transparent images of twigs, sporophytes and similar shapes that
+# stick out of clumps, one size each. Each card stands upright, with the stalk
+# bases at the bottom centre. `path` is relative to prior_art/:
+#   nobiax     a folder with diffuse.tga (colour with transparency) and
+#              normal.tga (OpenGL +Y) from Nobiax's "Free 3D branches
+#              textures" pack 04 (CC0). Extract the pack's .7z into prior_art/.
+#   generated  <path>.png (colour with transparency) and, when present,
+#              <path>-normal.png (OpenGL +Y), made for this project. The
+#              sporophyte cards were cut out of photos with
+#                uv run --project tools textures key-card \
+#                  clump/prior_art/sporophytes/source_<name>.png \
+#                  clump/prior_art/sporophytes/sporophyte_<name>
+#              Generated cards give their own attribution.
+cards:
+  category: stalks
+  kinds:
+    - {kind: twig_bare, source: nobiax, path: "free_3d_branches_textures_04_by_yughues_d4rlc6o/#36", title: Bare twig}
+    - {kind: twig_budding, source: nobiax, path: "free_3d_branches_textures_04_by_yughues_d4rlc6o/#37", title: Budding twig}
+    - kind: sporophyte_sparse
+      source: generated
+      path: sporophytes/sporophyte_sparse
+      title: Sporophytes, sparse
+      authors: [procgena_clump]
+      source_url: assets/textures/LICENSE.md
+      license: see LICENSE.md
+    - kind: sporophyte_dense
+      source: generated
+      path: sporophytes/sporophyte_dense
+      title: Sporophytes, dense
+      authors: [procgena_clump]
+      source_url: assets/textures/LICENSE.md
+      license: see LICENSE.md

@@ -22,7 +22,7 @@ fn gpu_draws_a_field_only_where_visibility_and_render_layers_allow() {
         .single(world)
         .unwrap();
     let field = world
-        .query_filtered::<Entity, With<GrassField>>()
+        .query_filtered::<Entity, With<PlantField>>()
         .single(world)
         .unwrap();
 
@@ -72,7 +72,7 @@ fn gpu_draws_a_field_only_where_visibility_and_render_layers_allow() {
 fn gpu_camera_components_reach_the_render_world_and_leave_it() {
     use bevy::render::sync_world::MainEntity;
 
-    use crate::api::{GrassCamera, NoGrass};
+    use crate::api::{NoPlants, PlantCamera};
 
     let mut app = headless_app();
     let camera = app
@@ -83,28 +83,28 @@ fn gpu_camera_components_reach_the_render_world_and_leave_it() {
     let in_render_world = |app: &mut App| {
         let world = app.sub_app_mut(RenderApp).world_mut();
         world
-            .query::<(&MainEntity, Has<NoGrass>, Option<&GrassCamera>)>()
+            .query::<(&MainEntity, Has<NoPlants>, Option<&PlantCamera>)>()
             .iter(world)
             .find(|(main, ..)| main.id() == camera)
-            .map(|(_, no_grass, grass_camera)| (no_grass, grass_camera.copied()))
+            .map(|(_, no_plants, plant_camera)| (no_plants, plant_camera.copied()))
             .expect("the camera has a render entity")
     };
     app.update();
     assert_eq!(in_render_world(&mut app), (false, None));
 
-    let grass_camera = GrassCamera {
+    let plant_camera = PlantCamera {
         radius: Some(12.0),
         ..default()
     };
     app.world_mut()
         .entity_mut(camera)
-        .insert((NoGrass, grass_camera));
+        .insert((NoPlants, plant_camera));
     app.update();
-    assert_eq!(in_render_world(&mut app), (true, Some(grass_camera)));
+    assert_eq!(in_render_world(&mut app), (true, Some(plant_camera)));
 
     app.world_mut()
         .entity_mut(camera)
-        .remove::<(NoGrass, GrassCamera)>();
+        .remove::<(NoPlants, PlantCamera)>();
     app.update();
     assert_eq!(in_render_world(&mut app), (false, None));
 }

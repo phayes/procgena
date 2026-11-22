@@ -35,32 +35,28 @@
   references of its own: on an Apple M2 Pro every preset came within a mean
   PSNR of 40.5 dB of WARP's (lowest 29.14 dB, `elephant_grass`), and the
   unit, doc and GPU tests pass there.
-- **240 Hz gate.** `tools/bench_240.py` runs High, Competitive and no-grass on
+- **240 Hz gate.** `tools/plant/bench_240.py` runs High, Competitive and no-plants on
   a named reference machine and fails unless frame p95 is at most 4.167 ms.
   It is manual or nightly on self-hosted GPUs, because hosted CI runners
   cannot enforce frame times; see
   [The 240 Hz gate](performance.md#the-240-hz-gate).
 - **Browser (WebGPU).** CI checks that the library and examples build for
   `wasm32-unknown-unknown`; it cannot run them, because hosted runners have
-  no WebGPU. `python tools/web_example.py` builds `minimal` and `meadow`
-  (or the examples named) and serves them on localhost. Each page shows a
-  report of the browser's limits, its errors and the frame time, with a
-  button that copies it as JSON. The examples' flags go in the query string:
-  `meadow/?no-grass` is the same scene without grass. The browsers run so
-  far are listed in [Running in the browser](web.md#browsers).
+  no WebGPU. To check a browser, run the web demo's smoke test (below). The
+  browsers run so far are listed in [Running in the browser](web.md#browsers).
 - **Web demo smoke test.** The hosted demo (`web/`, published to GitHub
   Pages by `.github/workflows/pages.yml`) has its own check, run by hand
-  since hosted runners have no WebGPU. `python tools/web_demo.py smoke`
+  since hosted runners have no WebGPU. `python tools/plant/web_demo.py smoke`
   builds the demo, opens it with `?smoke` in Edge, Chrome or Brave on a fresh
   profile, and passes if every quality tier drew blades and the page logged
   no error; it prints the adapter, its storage-buffer limit and each tier's
-  frame time. For any other browser or a phone, `python tools/web_demo.py
+  frame time. For any other browser or a phone, `python tools/plant/web_demo.py
   serve` and open `http://localhost:8080/?smoke`: the page posts the same
   report back, and the terminal prints and saves it under
   `target/web-smoke/`. A shader the browser rejects is logged with the
   compiler's reason and line. The demo also runs natively:
   `cargo run -p procgena_plant_web --release`.
-- **Weaker devices.** `GrassSupport`'s check has unit tests against wgpu's
+- **Weaker devices.** `PlantSupport`'s check has unit tests against wgpu's
   WebGL2 limits and against too few storage buffers. An example run with
   `--max-storage-buffers 8` asks the GPU for no more than a weaker device or
   browser offers: it must log one `procgena_plant` warning, draw no grass and

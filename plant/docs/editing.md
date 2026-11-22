@@ -19,13 +19,13 @@ cargo run --release --example editing
 
 ## Clear, paint, mow and restore
 
-Write a `GrassEdit` message from any system:
+Write a `PlantEdit` message from any system:
 
 ```rust
-fn place_building(mut edits: MessageWriter<GrassEdit>, placed: Query<&Transform, Added<Building>>) {
+fn place_building(mut edits: MessageWriter<PlantEdit>, placed: Query<&Transform, Added<Building>>) {
     for transform in &placed {
         let yaw = transform.rotation.to_euler(EulerRot::YXZ).0;
-        edits.write(GrassEdit::clear(GrassBrushShape::rect(
+        edits.write(PlantEdit::clear(PlantBrushShape::rect(
             transform.translation.xz(),
             Vec2::new(6.0, 4.0),
             yaw,
@@ -36,18 +36,18 @@ fn place_building(mut edits: MessageWriter<GrassEdit>, placed: Query<&Transform,
 
 | Constructor | Op | What it does |
 | --- | --- | --- |
-| `GrassEdit::clear(shape)` | `Density(0.0)` | Removes the grass: paths, plots, burnt ground |
-| `GrassEdit::paint(shape, density)` | `Density(d)` | Grows grass, or thins it, to `d` (0 to 1 of the field's density) |
-| `GrassEdit::mow(shape, height)` | `Mow(h)` | Cuts blades taller than `h` (a share of full height) down to it; shorter ones are left alone |
-| `GrassEdit::new(shape, GrassEditOp::Height(h))` | `Height(h)` | Moves the height to `h`, up or down |
-| `GrassEdit::restore(shape)` | `Restore` | Puts back what the field had before any edit: its own mask, or full grass |
+| `PlantEdit::clear(shape)` | `Density(0.0)` | Removes the grass: paths, plots, burnt ground |
+| `PlantEdit::paint(shape, density)` | `Density(d)` | Grows grass, or thins it, to `d` (0 to 1 of the field's density) |
+| `PlantEdit::mow(shape, height)` | `Mow(h)` | Cuts blades taller than `h` (a share of full height) down to it; shorter ones are left alone |
+| `PlantEdit::new(shape, PlantEditOp::Height(h))` | `Height(h)` | Moves the height to `h`, up or down |
+| `PlantEdit::restore(shape)` | `Restore` | Puts back what the field had before any edit: its own mask, or full grass |
 
 The shapes are in world X and Z (`translation.xz()`):
 
-- `GrassBrushShape::circle(center, radius)`
-- `GrassBrushShape::stroke(from, to, radius)`: a path or a track, every point
+- `PlantBrushShape::circle(center, radius)`
+- `PlantBrushShape::stroke(from, to, radius)`: a path or a track, every point
   within `radius` of the segment.
-- `GrassBrushShape::rect(center, half_size, yaw)`: turned as
+- `PlantBrushShape::rect(center, half_size, yaw)`: turned as
   `Quat::from_rotation_y(yaw)` turns things, so a building's own yaw fits.
 
 Each edit has three more settings:
@@ -64,21 +64,21 @@ Each edit has three more settings:
 - **`field`**: one field only (`.on_field(entity)`). By default an edit
   changes every field under it, so overlapping fields are cleared together.
 
-Edits are applied in `GrassSystems::Edit`, in the order they were written,
+Edits are applied in `PlantSystems::Edit`, in the order they were written,
 and drawn the same frame. A system in `Update` needs no ordering.
 
 ## Brushes: things that edit as they move
 
-A `GrassBrush` on an entity edits wherever the entity goes:
+A `PlantBrush` on an entity edits wherever the entity goes:
 
 ```rust
 // A mower: cuts a 1.2 m swath to a fifth of the grass's height.
-commands.spawn((Transform::default(), GrassBrush::new(GrassEditOp::Mow(0.2), 0.6)));
+commands.spawn((Transform::default(), PlantBrush::new(PlantEditOp::Mow(0.2), 0.6)));
 
 // Villagers wear paths: each passing takes a little grass.
 commands.spawn((
     Transform::default(),
-    GrassBrush::new(GrassEditOp::Density(0.0), 0.4).with_rate(0.3),
+    PlantBrush::new(PlantEditOp::Density(0.0), 0.4).with_rate(0.3),
 ));
 ```
 
@@ -93,15 +93,15 @@ seconds. That is a path worn in by feet, or a fire burning in place.
 
 ### Box brushes: decks, tracks and blades
 
-A `GrassBrushFootprint` makes the brush a rectangle instead of a disc, under
+A `PlantBrushFootprint` makes the brush a rectangle instead of a disc, under
 the entity and turned and scaled with it:
 
 ```rust
 // A ride-on mower whose deck is 1.4 m wide (its X) and 0.8 m long.
 commands.spawn((
     Transform::default(),
-    GrassBrush::new(GrassEditOp::Mow(0.2), 0.0),
-    GrassBrushFootprint::new(Vec2::new(0.7, 0.4)),
+    PlantBrush::new(PlantEditOp::Mow(0.2), 0.0),
+    PlantBrushFootprint::new(Vec2::new(0.7, 0.4)),
 ));
 ```
 
@@ -114,14 +114,14 @@ entity per track, each with its own brush and footprint.
 
 ## Regrowth
 
-`GrassRegrowth` on a field undoes its edits over time, back to the field's
+`PlantRegrowth` on a field undoes its edits over time, back to the field's
 own mask:
 
 ```rust
 commands.spawn((
-    GrassField::from_preset(&FieldPreset::LAWN, Vec2::splat(64.0)),
+    PlantField::from_preset(&FieldPreset::LAWN, Vec2::splat(64.0)),
     // Mowed lawn is back to full height in about a minute; paths never close.
-    GrassRegrowth { density_rate: 0.0, height_rate: 0.015 },
+    PlantRegrowth { density_rate: 0.0, height_rate: 0.015 },
 ));
 ```
 
@@ -131,18 +131,18 @@ so it pauses with the game.
 
 ## Read the grass
 
-`GrassSampler` is a system parameter that reads the grass at a point, with
+`PlantSampler` is a system parameter that reads the grass at a point, with
 every edit:
 
 ```rust
 fn hide_in_tall_grass(
-    grass: GrassSampler,
+    sampler: PlantSampler,
     player: Single<(Entity, &Transform), With<Player>>,
     mut commands: Commands,
 ) {
     let (entity, transform) = *player;
-    let cover = grass.sample(transform.translation.xz());
-    if cover.is_some_and(|grass| grass.density > 0.5 && grass.height > 1.0) {
+    let cover = sampler.sample(transform.translation.xz());
+    if cover.is_some_and(|sample| sample.density > 0.5 && sample.height > 1.0) {
         commands.entity(entity).insert(Hidden);
     } else {
         commands.entity(entity).remove::<Hidden>();
@@ -150,11 +150,11 @@ fn hide_in_tall_grass(
 }
 ```
 
-A `GrassSample` has:
+A `PlantSample` has:
 
 | Field | Meaning |
 | --- | --- |
-| `field` | The field's entity: read its `GrassField` for its plants, to pick a footstep sound |
+| `field` | The field's entity: read its `PlantField` for its plants, to pick a footstep sound |
 | `density` | How much of the field's grass grows here, 0 to 1: the mask, edits and the field's bare patches; 0 where the ground has a hole (past a mesh's edge, or a height function's `NaN`) |
 | `blades_per_m2` | The field's density times `density` |
 | `height_scale` | The mask's height with edits: below 1 where it was mowed |
@@ -170,20 +170,20 @@ microsecond per field, whatever its size.
 ## Burning
 
 There is no burn op: burning is a clear plus what the game shows. A fire is a
-`GrassBrush` with a rate (or edits of strength below 1, spreading as the
+`PlantBrush` with a rate (or edits of strength below 1, spreading as the
 game's fire spreads), and the flames, smoke and embers are the game's
 particles. For charred stubble, lay a second field of
 `FieldPreset::BURNT_REGROWTH` over the first, cleared everywhere at the start,
 and paint it in where the fire clears the living grass:
 
 ```rust
-edits.write(GrassEdit::clear(burning).on_field(meadow));
-edits.write(GrassEdit::paint(burning, 1.0).on_field(stubble));
+edits.write(PlantEdit::clear(burning).on_field(meadow));
+edits.write(PlantEdit::paint(burning, 1.0).on_field(stubble));
 ```
 
 ## Saving
 
-`GrassSampler::mask_image(field)` returns a field's mask as it is now, edits
+`PlantSampler::mask_image(field)` returns a field's mask as it is now, edits
 and all, as an RGBA image. Save it with the game; on loading, make it the
 field's `density_map`. Keep the original mask's handle too if the field
 regrows: regrowth returns to whatever mask the field has, so with the saved
@@ -202,8 +202,8 @@ how a level designer keeps what was painted in the running game.
   mask. Despawning the field drops them too.
 - **Edits wait for their mask.** An edit for a field whose `density_map` has
   not loaded waits for it, in order, so clearing ground under buildings at
-  level load works. `GrassStats::edits.waiting` counts them.
-- **`FarGrassMaterial`** keeps the grass colour on ground beyond the blades;
+  level load works. `PlantStats::edits.waiting` counts them.
+- **`FarPlantMaterial`** keeps the grass colour on ground beyond the blades;
   it does not follow edits.
 
 ## Cost
@@ -221,5 +221,5 @@ with a 2048 × 2048 mask:
 Only the rows an edit changed are written to the GPU, into the buffer the
 shaders already read; nothing is read back. Regrowth visits at most 8192
 texels a frame over all fields, so a large area regrows in coarser steps
-rather than costing more. `GrassStats::edits` has the running totals and
+rather than costing more. `PlantStats::edits` has the running totals and
 this frame's time.

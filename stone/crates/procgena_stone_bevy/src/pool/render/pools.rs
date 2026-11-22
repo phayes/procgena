@@ -233,7 +233,7 @@ impl RenderPool {
         self.batches.clear();
         let wgpu_device = device.wgpu_device();
         let mut encoder = wgpu_device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("ze_stone_pool_generate"),
+            label: Some("procgena_stone_pool_generate"),
         });
 
         // Generate the meshes in batches whose buffers fit the device.
@@ -264,7 +264,7 @@ impl RenderPool {
         // Copy every batch's status into one buffer the CPU can read.
         let status_bytes = u64::from(self.mesh_count()) * GPU_STATUS_SIZE;
         let readback = device.create_buffer(&BufferDescriptor {
-            label: Some("ze_stone_pool_status_readback"),
+            label: Some("procgena_stone_pool_status_readback"),
             size: status_bytes,
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -511,7 +511,7 @@ pub(crate) fn prepare_pool_bind_groups(
         };
         let [color, normal, orh] = textures.unwrap_or([&fallback.d2; 3]);
         pool.draw_group = Some(device.create_bind_group(
-            "ze_stone_pool_draw",
+            "procgena_stone_pool_draw",
             &pipeline_cache.get_bind_group_layout(&layouts.draw),
             &BindGroupEntries::sequential((
                 instances,

@@ -5,6 +5,67 @@ break the API; each breaking change below says what to write instead.
 
 ## Unreleased
 
+The crate is now `procgena_plant`, part of the procgena workspace, and every
+`Grass` type is renamed to match. The rest of this section was written before
+the rename and uses the old names; read them through this table.
+
+**Breaking, and what to write instead**
+
+| Before | Now |
+|--------|-----|
+| `FarGrass` | `FarPlants` |
+| `FarGrassMaterial` | `FarPlantMaterial` |
+| `FarGrassPlugin` | `FarPlantPlugin` |
+| `FarGrassUniform` | `FarPlantUniform` |
+| `GrassAccent` | `PlantAccent` |
+| `GrassArrangement` | `PlantArrangement` |
+| `GrassBranches` | `PlantBranches` |
+| `GrassBrush` | `PlantBrush` |
+| `GrassBrushFootprint` | `PlantBrushFootprint` |
+| `GrassBrushShape` | `PlantBrushShape` |
+| `GrassCamera` | `PlantCamera` |
+| `GrassColliderBounds` | `PlantColliderBounds` |
+| `GrassColliderSystems` | `PlantColliderSystems` |
+| `GrassDebug` | `PlantDebug` |
+| `GrassDebugPlugin` | `PlantDebugPlugin` |
+| `GrassDiagnostics` | `PlantDiagnostics` |
+| `GrassEdit` | `PlantEdit` |
+| `GrassEditOp` | `PlantEditOp` |
+| `GrassField` | `PlantField` |
+| `GrassFieldLoader` | `PlantFieldLoader` |
+| `GrassFileError` | `PlantFileError` |
+| `GrassFilePlugin` | `PlantFilePlugin` |
+| `GrassGizmos` | `PlantGizmos` |
+| `GrassGround` | `PlantGround` |
+| `GrassInteractor` | `PlantInteractor` |
+| `GrassInteractorFootprint` | `PlantInteractorFootprint` |
+| `GrassInteractorFromCollider` | `PlantInteractorFromCollider` |
+| `GrassInteractorSpread` | `PlantInteractorSpread` |
+| `GrassLightFrame` | `PlantLightFrame` |
+| `GrassLightPlugin` | `PlantLightPlugin` |
+| `GrassLightSystems` | `PlantLightSystems` |
+| `GrassPlant` | `PlantParams` |
+| `GrassPlantLoader` | `PlantParamsLoader` |
+| `GrassPlugin` | `PlantPlugin` |
+| `GrassPlugins` | `PlantPlugins` |
+| `GrassQuality` | `PlantQuality` |
+| `GrassRegrowth` | `PlantRegrowth` |
+| `GrassSample` | `PlantSample` |
+| `GrassSampler` | `PlantSampler` |
+| `GrassSegment` | `PlantSegment` |
+| `GrassSettings` | `PlantSettings` |
+| `GrassShadows` | `PlantShadows` |
+| `GrassStats` | `PlantStats` |
+| `GrassSun` | `PlantSun` |
+| `GrassSupport` | `PlantSupport` |
+| `GrassSystems` | `PlantSystems` |
+| `GrassVariation` | `PlantVariation` |
+| `GrassWind` | `PlantWind` |
+| `GrassWindFrame` | `PlantWindFrame` |
+| `GrassWindPlugin` | `PlantWindPlugin` |
+| `GrassWindSystems` | `PlantWindSystems` |
+| `NoGrass` | `NoPlants` |
+
 Plants and fields. A `GrassPlant` is now everything that makes one plant read
 as that plant, its tufts and its accents included, and a `GrassField` holds
 its own plants and look instead of pointing at a shared `GrassStyle` asset.

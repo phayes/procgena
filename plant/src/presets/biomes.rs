@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GrassAccent, GrassBranches, GrassField,
-    GrassPlant, GrassSegment, GrassVariation, GroundTint, Vec2,
+    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantAccent, PlantBranches,
+    PlantField, PlantParams, PlantSegment, PlantVariation, Vec2,
 };
 
 preset_group! {
@@ -13,11 +13,11 @@ BIOMES "Biomes" {
         description: "A Baltic raised bog: low sedge in tussocks over red and ochre \
                       sphagnum, white tufts of cotton grass, and dark pools where the ground \
                       shows through.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             // Sedge in tussocks.
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 40.0,
                     height: Vec2::new(0.15, 0.4),
                     width: 0.01,
@@ -29,7 +29,7 @@ BIOMES "Biomes" {
                     head_width: 0.03,
                     head_color: Color::srgb(0.85, 0.80, 0.60),
                     stems_per_plant: 1,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         profile: 0.0,
                         stiffness: 0.4,
                         root_color: Color::srgb(0.10, 0.10, 0.04),
@@ -38,34 +38,34 @@ BIOMES "Biomes" {
                         droop: 0.3,
                         fold: 0.4,
                     },
-                    levels: [GrassBranches::NONE, GrassBranches::NONE],
+                    levels: [PlantBranches::NONE, PlantBranches::NONE],
                     tufts: 0.45,
                     tuft_size: 0.5,
-                    accent: GrassAccent::NONE,
+                    accent: PlantAccent::NONE,
                 },
             )
             .clustered(0.6),
-            FieldPlant::new(GrassPlant::COTTON_GRASS)
+            FieldPlant::new(PlantParams::COTTON_GRASS)
                 .scaled(0.3)
                 .clustered(0.5),
             // Sphagnum: a carpet of red moss, ochre-green in patches.
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 151.0,
                     height: Vec2::new(0.03, 0.08),
                     width: 0.03,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         root_color: Color::srgb(0.32, 0.07, 0.04),
                         tip_color: Color::srgb(0.78, 0.26, 0.12),
-                        ..GrassPlant::MOSS.segment
+                        ..PlantParams::MOSS.segment
                     },
                     tufts: 0.45,
                     tuft_size: 0.5,
-                    ..GrassPlant::MOSS
+                    ..PlantParams::MOSS
                 },
             ),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.52, 0.46, 0.16),
             patch_amount: 0.55,
             patch_size: 3.0,
@@ -84,13 +84,13 @@ BIOMES "Biomes" {
         name: "Reed marsh",
         description: "Reeds taller than a person in dense clumps, with cattails among them \
                       and open water between the clumps.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(GrassPlant::CATTAIL)
+            FieldPlant::new(PlantParams::CATTAIL)
                 .scaled(0.33)
                 .clustered(0.7),
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 35.1,
                     height: Vec2::new(1.2, 2.0),
                     width: 0.025,
@@ -98,22 +98,22 @@ BIOMES "Biomes" {
                     root_occlusion: 0.7,
                     translucency: 0.55,
                     specular: 0.35,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         stiffness: 0.6,
                         root_color: Color::srgb(0.08, 0.12, 0.05),
                         tip_color: Color::srgb(0.42, 0.50, 0.24),
                         twist: 0.1,
                         droop: 0.3,
                         fold: 0.3,
-                        ..GrassPlant::MEADOW_GRASS.segment
+                        ..PlantParams::MEADOW_GRASS.segment
                     },
                     tufts: 0.7,
                     tuft_size: 0.8,
-                    ..GrassPlant::MEADOW_GRASS
+                    ..PlantParams::MEADOW_GRASS
                 },
             ),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.55, 0.50, 0.28),
             patch_amount: 0.35,
             patch_size: 8.0,
@@ -132,9 +132,9 @@ BIOMES "Biomes" {
         name: "Dune marram",
         description: "Coastal dune grass: blue-grey, rolled, waxy blades in separate clumps \
                       on open sand, like marram on the Curonian Spit.",
-    } => GrassField {
-        plants: Cow::Borrowed(&[FieldPlant::new(GrassPlant::MARRAM)]),
-        variation: GrassVariation {
+    } => PlantField {
+        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::MARRAM)]),
+        variation: PlantVariation {
             patch_color: Color::srgb(0.70, 0.66, 0.48),
             patch_amount: 0.25,
             patch_size: 6.0,
@@ -153,16 +153,16 @@ BIOMES "Biomes" {
         name: "Rye and cornflowers",
         description: "Ripening rye, green-gold with seed heads, with blue cornflowers and \
                       red poppies growing through it.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(GrassPlant::CORNFLOWER)
+            FieldPlant::new(PlantParams::CORNFLOWER)
                 .scaled(0.24)
                 .clustered(0.45),
-            FieldPlant::new(GrassPlant::POPPY)
+            FieldPlant::new(PlantParams::POPPY)
                 .scaled(0.14)
                 .clustered(0.55),
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 72.4,
                     height: Vec2::new(1.1, 1.6),
                     width: 0.012,
@@ -173,18 +173,18 @@ BIOMES "Biomes" {
                     head_length: 0.15,
                     head_width: 0.018,
                     head_color: Color::srgb(0.72, 0.64, 0.40),
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         stiffness: 0.55,
                         root_color: Color::srgb(0.18, 0.22, 0.08),
                         tip_color: Color::srgb(0.70, 0.68, 0.36),
                         droop: 0.15,
-                        ..GrassPlant::MEADOW_GRASS.segment
+                        ..PlantParams::MEADOW_GRASS.segment
                     },
-                    ..GrassPlant::MEADOW_GRASS
+                    ..PlantParams::MEADOW_GRASS
                 },
             ),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.55, 0.62, 0.30),
             patch_amount: 0.3,
             patch_size: 10.0,
@@ -201,9 +201,9 @@ BIOMES "Biomes" {
         name: "Pampas",
         description: "Pampas grass: every tuft a fountain of long arching leaves, with tall \
                       cream plumes standing out of it.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[FieldPlant::new(
-            GrassPlant {
+            PlantParams {
                 density: 70.0,
                 height: Vec2::new(1.6, 2.6),
                 width: 0.018,
@@ -211,25 +211,25 @@ BIOMES "Biomes" {
                 root_occlusion: 0.75,
                 translucency: 0.5,
                 specular: 0.4,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     stiffness: 0.3,
                     root_color: Color::srgb(0.10, 0.14, 0.06),
                     tip_color: Color::srgb(0.48, 0.54, 0.34),
                     twist: 0.1,
                     droop: 0.9,
                     fold: 0.4,
-                    ..GrassPlant::MEADOW_GRASS.segment
+                    ..PlantParams::MEADOW_GRASS.segment
                 },
                 tufts: 1.0,
                 tuft_size: 1.8,
                 // Cream plumes standing out of each tussock.
-                accent: GrassAccent {
+                accent: PlantAccent {
                     share: 0.06,
                     height: Vec2::new(2.2, 3.0),
                     width: 0.01,
                     lean: 0.12,
                     translucency: 0.7,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         profile: 0.0,
                         stiffness: 0.45,
                         root_color: Color::srgb(0.30, 0.30, 0.18),
@@ -242,10 +242,10 @@ BIOMES "Biomes" {
                     head_width: 0.045,
                     head_color: Color::srgb(0.94, 0.88, 0.74),
                 },
-                ..GrassPlant::MEADOW_GRASS
+                ..PlantParams::MEADOW_GRASS
             },
         )]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.55, 0.56, 0.36),
             patch_amount: 0.2,
             patch_size: 8.0,
@@ -264,9 +264,9 @@ BIOMES "Biomes" {
         name: "Spinifex",
         description: "Spinifex: stiff, needle-thin blades splayed out of round hummocks on \
                       bare red earth. Outback, desert and wasteland.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[FieldPlant::new(
-            GrassPlant {
+            PlantParams {
                 density: 130.0,
                 height: Vec2::new(0.4, 0.7),
                 width: 0.01,
@@ -274,21 +274,21 @@ BIOMES "Biomes" {
                 root_occlusion: 0.45,
                 translucency: 0.3,
                 specular: 0.35,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     stiffness: 0.9,
                     root_color: Color::srgb(0.32, 0.30, 0.18),
                     tip_color: Color::srgb(0.76, 0.70, 0.42),
                     twist: 0.0,
                     droop: 0.0,
                     fold: 0.9,
-                    ..GrassPlant::MEADOW_GRASS.segment
+                    ..PlantParams::MEADOW_GRASS.segment
                 },
                 tufts: 1.0,
                 tuft_size: 0.9,
-                ..GrassPlant::MEADOW_GRASS
+                ..PlantParams::MEADOW_GRASS
             },
         )]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.62, 0.62, 0.40),
             patch_amount: 0.3,
             patch_size: 6.0,
@@ -307,19 +307,19 @@ BIOMES "Biomes" {
         name: "Elephant grass",
         description: "Elephant grass: a wall of broad, arching blades twice as tall as a \
                       person, with sunlight glowing through it. Something to hide in.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     height: Vec2::new(0.4, 0.9),
                     width: 0.09,
-                    ..GrassPlant::BROAD_LEAF
+                    ..PlantParams::BROAD_LEAF
                 },
             )
             .scaled(0.16)
             .clustered(0.6),
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 36.8,
                     height: Vec2::new(2.4, 3.6),
                     width: 0.045,
@@ -327,22 +327,22 @@ BIOMES "Biomes" {
                     root_occlusion: 0.8,
                     translucency: 0.85,
                     specular: 0.35,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         stiffness: 0.3,
                         root_color: Color::srgb(0.04, 0.09, 0.02),
                         tip_color: Color::srgb(0.30, 0.52, 0.12),
                         twist: 0.2,
                         droop: 0.75,
                         fold: 0.45,
-                        ..GrassPlant::MEADOW_GRASS.segment
+                        ..PlantParams::MEADOW_GRASS.segment
                     },
                     tufts: 0.6,
                     tuft_size: 0.9,
-                    ..GrassPlant::MEADOW_GRASS
+                    ..PlantParams::MEADOW_GRASS
                 },
             ),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.45, 0.55, 0.16),
             patch_amount: 0.3,
             patch_size: 8.0,
@@ -362,9 +362,9 @@ BIOMES "Biomes" {
         description: "A meadow on a frosty morning: stiff, glinting, near-white blades \
                       growing out of snow, with straw stalks and frosted seed heads, and \
                       green where the frost has melted.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[FieldPlant::new(
-            GrassPlant {
+            PlantParams {
                 density: 130.0,
                 height: Vec2::new(0.12, 0.32),
                 width: 0.022,
@@ -372,38 +372,38 @@ BIOMES "Biomes" {
                 root_occlusion: 0.5,
                 translucency: 0.15,
                 specular: 0.9,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     stiffness: 0.95,
                     root_color: Color::srgb(0.40, 0.48, 0.44),
                     tip_color: Color::srgb(0.94, 0.97, 1.00),
                     twist: 0.05,
                     droop: 0.2,
                     fold: 0.3,
-                    ..GrassPlant::MEADOW_GRASS.segment
+                    ..PlantParams::MEADOW_GRASS.segment
                 },
                 tufts: 0.3,
                 tuft_size: 0.6,
                 // Straw stalks with frosted seed heads.
-                accent: GrassAccent {
+                accent: PlantAccent {
                     share: 0.06,
                     height: Vec2::new(0.35, 0.7),
-                    width: GrassPlant::SEED_HEADS.width,
-                    lean: GrassPlant::SEED_HEADS.lean,
+                    width: PlantParams::SEED_HEADS.width,
+                    lean: PlantParams::SEED_HEADS.lean,
                     translucency: 0.15,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         stiffness: 0.95,
                         root_color: Color::srgb(0.30, 0.28, 0.20),
                         tip_color: Color::srgb(0.85, 0.88, 0.90),
-                        ..GrassPlant::SEED_HEADS.segment
+                        ..PlantParams::SEED_HEADS.segment
                     },
-                    head_length: GrassPlant::SEED_HEADS.head_length,
-                    head_width: GrassPlant::SEED_HEADS.head_width,
+                    head_length: PlantParams::SEED_HEADS.head_length,
+                    head_width: PlantParams::SEED_HEADS.head_width,
                     head_color: Color::srgb(0.90, 0.92, 0.94),
                 },
-                ..GrassPlant::MEADOW_GRASS
+                ..PlantParams::MEADOW_GRASS
             },
         )]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.35, 0.50, 0.38),
             patch_amount: 0.35,
             patch_size: 6.0,
@@ -422,11 +422,11 @@ BIOMES "Biomes" {
         name: "Burnt regrowth",
         description: "After a grass fire: charcoal stubble in grey ash, scorched stalks, and \
                       bright new shoots coming through in patches.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             // New shoots.
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 19.8,
                     height: Vec2::new(0.08, 0.28),
                     width: 0.012,
@@ -438,7 +438,7 @@ BIOMES "Biomes" {
                     head_width: 0.03,
                     head_color: Color::srgb(0.85, 0.80, 0.60),
                     stems_per_plant: 1,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         profile: 0.0,
                         stiffness: 0.5,
                         root_color: Color::srgb(0.10, 0.25, 0.05),
@@ -447,16 +447,16 @@ BIOMES "Biomes" {
                         droop: 0.0,
                         fold: 0.0,
                     },
-                    levels: [GrassBranches::NONE, GrassBranches::NONE],
+                    levels: [PlantBranches::NONE, PlantBranches::NONE],
                     tufts: 0.0,
                     tuft_size: 0.6,
-                    accent: GrassAccent::NONE,
+                    accent: PlantAccent::NONE,
                 },
             )
             .clustered(0.85),
             // Scorched stalks still standing.
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 5.4,
                     height: Vec2::new(0.5, 0.9),
                     width: 0.008,
@@ -468,7 +468,7 @@ BIOMES "Biomes" {
                     head_width: 0.03,
                     head_color: Color::srgb(0.85, 0.80, 0.60),
                     stems_per_plant: 1,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         profile: 0.0,
                         stiffness: 0.9,
                         root_color: Color::srgb(0.03, 0.03, 0.03),
@@ -477,16 +477,16 @@ BIOMES "Biomes" {
                         droop: 0.0,
                         fold: 0.0,
                     },
-                    levels: [GrassBranches::NONE, GrassBranches::NONE],
+                    levels: [PlantBranches::NONE, PlantBranches::NONE],
                     tufts: 0.0,
                     tuft_size: 0.6,
-                    accent: GrassAccent::NONE,
+                    accent: PlantAccent::NONE,
                 },
             )
             .clustered(0.3),
             // Charcoal stubble.
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 64.8,
                     height: Vec2::new(0.08, 0.3),
                     width: 0.015,
@@ -494,22 +494,22 @@ BIOMES "Biomes" {
                     root_occlusion: 0.3,
                     translucency: 0.0,
                     specular: 0.05,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         stiffness: 0.8,
                         root_color: Color::srgb(0.02, 0.02, 0.02),
                         tip_color: Color::srgb(0.10, 0.09, 0.08),
                         twist: 0.2,
                         droop: 0.3,
                         fold: 0.2,
-                        ..GrassPlant::MEADOW_GRASS.segment
+                        ..PlantParams::MEADOW_GRASS.segment
                     },
                     tufts: 0.2,
                     tuft_size: 0.6,
-                    ..GrassPlant::MEADOW_GRASS
+                    ..PlantParams::MEADOW_GRASS
                 },
             ),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.40, 0.39, 0.37),
             patch_amount: 0.35,
             patch_size: 5.0,
@@ -528,9 +528,9 @@ BIOMES "Biomes" {
         name: "Lavender",
         description: "Lavender: grey-green bushes of stiff stems with long purple heads. \
                       A density mask with stripes plants it in rows.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[FieldPlant::new(
-            GrassPlant {
+            PlantParams {
                 density: 160.0,
                 height: Vec2::new(0.35, 0.6),
                 width: 0.008,
@@ -541,18 +541,18 @@ BIOMES "Biomes" {
                 head_length: 0.4,
                 head_width: 0.022,
                 head_color: Color::srgb(0.52, 0.38, 0.78),
-                segment: GrassSegment {
+                segment: PlantSegment {
                     stiffness: 0.75,
                     root_color: Color::srgb(0.22, 0.28, 0.20),
                     tip_color: Color::srgb(0.48, 0.55, 0.45),
-                    ..GrassPlant::MEADOW_GRASS.segment
+                    ..PlantParams::MEADOW_GRASS.segment
                 },
                 tufts: 1.0,
                 tuft_size: 0.45,
-                ..GrassPlant::MEADOW_GRASS
+                ..PlantParams::MEADOW_GRASS
             },
         )]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.46, 0.52, 0.42),
             patch_amount: 0.0,
             patch_size: 12.0,

@@ -1,4 +1,4 @@
-//! The Avian backend: `avian3d` colliders as [`GrassColliderBounds`].
+//! The Avian backend: `avian3d` colliders as [`PlantColliderBounds`].
 //!
 //! The `avian` cargo feature compiles this module. It never changes how Bevy
 //! is compiled: `avian3d` is brought in with `default-features = false` and
@@ -12,11 +12,11 @@ use avian3d::prelude::{Collider, ColliderDisabled, ColliderOf, RigidBodyDisabled
 use bevy::app::{App, Update};
 use bevy::ecs::prelude::*;
 
-use super::{GrassColliderBounds, GrassColliderSystems, GrassInteractorFromCollider};
+use super::{PlantColliderBounds, PlantColliderSystems, PlantInteractorFromCollider};
 
 /// Adds the Avian backend to the collider bridge.
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, write_bounds.in_set(GrassColliderSystems::Bounds))
+    app.add_systems(Update, write_bounds.in_set(PlantColliderSystems::Bounds))
         .add_observer(forget_bounds);
 }
 
@@ -25,7 +25,7 @@ pub(super) fn plugin(app: &mut App) {
 ///
 /// `Collider::shape_scaled` is the shape Avian simulates: Avian scales the
 /// collider by its transform, so its local box already has the scale applied,
-/// as [`GrassColliderBounds`] wants. (Avian's `ColliderAabb` is a world box
+/// as [`PlantColliderBounds`] wants. (Avian's `ColliderAabb` is a world box
 /// that grows as the body turns; the local one keeps the body's own axes.)
 #[expect(clippy::type_complexity, reason = "Bevy query types are verbose")]
 fn write_bounds(
@@ -34,13 +34,13 @@ fn write_bounds(
         (
             Entity,
             &Collider,
-            Option<&mut GrassColliderBounds>,
+            Option<&mut PlantColliderBounds>,
             Option<&ColliderOf>,
             Has<ColliderDisabled>,
             Has<RigidBodyDisabled>,
             Has<Sensor>,
         ),
-        With<GrassInteractorFromCollider>,
+        With<PlantInteractorFromCollider>,
     >,
     disabled_bodies: Query<(), With<RigidBodyDisabled>>,
 ) {
@@ -53,7 +53,7 @@ fn write_bounds(
         // child collider stops with its parent body.
         let body_disabled =
             body_disabled || body.is_some_and(|of| disabled_bodies.contains(of.body));
-        let measured = GrassColliderBounds {
+        let measured = PlantColliderBounds {
             center: (min + max) * 0.5,
             half_extents: (max - min) * 0.5,
             // How rounded it looks from above: a ball's or a capsule's
@@ -81,13 +81,13 @@ fn write_bounds(
 /// Removing a collider removes its bounds, which stops the interaction.
 fn forget_bounds(
     removed: On<Remove<Collider>>,
-    adapted: Query<(), With<GrassColliderBounds>>,
+    adapted: Query<(), With<PlantColliderBounds>>,
     mut commands: Commands,
 ) {
     if adapted.contains(removed.entity) {
         commands
             .entity(removed.entity)
-            .try_remove::<GrassColliderBounds>();
+            .try_remove::<PlantColliderBounds>();
     }
 }
 

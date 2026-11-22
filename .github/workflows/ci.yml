@@ -40,15 +40,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
       - run: cargo fmt --check
-      # Clippy, warnings as errors, per feature set: see tools/lint.py.
-      - run: python tools/lint.py
+      # Clippy, warnings as errors, per feature set: see tools/plant/lint.py.
+      - run: python ../tools/plant/lint.py
       - run: cargo test
       - run: cargo test --features rapier
       - run: cargo test --features avian
       # The bench's budget/percentile tests live in the example, which the
       # plain `cargo test` does not run.
       - run: cargo test --example bench
-      - run: python -m py_compile tools/bench_240.py
+      - run: python -m py_compile ../tools/plant/bench_240.py
       - run: cargo doc --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
@@ -69,7 +69,7 @@ jobs:
 
   # The library, the examples and the web demo build for the browser
   # (WebGPU). This checks that they compile; whether the browser accepts the
-  # pipelines is checked by hand with tools/web_demo.py smoke, since hosted
+  # pipelines is checked by hand with tools/plant/web_demo.py smoke, since hosted
   # runners have no WebGPU.
   wasm:
     runs-on: ubuntu-latest
@@ -84,7 +84,7 @@ jobs:
       - run: cargo check --target wasm32-unknown-unknown --lib --examples
       # The demo's calls from the page exist only on wasm.
       - run: cargo clippy -p procgena_plant_web --target wasm32-unknown-unknown -- -D warnings
-      - run: python -m py_compile tools/web_example.py tools/web_demo.py
+      - run: python -m py_compile ../tools/plant/web_demo.py
 
   msrv:
     runs-on: ubuntu-latest

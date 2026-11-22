@@ -69,7 +69,10 @@ pub(crate) const COMPILED_WGSL: [(&str, &str); 5] = [
     ("mc", include_str!(concat!(env!("OUT_DIR"), "/mc.wgsl"))),
     ("dc", include_str!(concat!(env!("OUT_DIR"), "/dc.wgsl"))),
     ("scan", include_str!(concat!(env!("OUT_DIR"), "/scan.wgsl"))),
-    ("place", include_str!(concat!(env!("OUT_DIR"), "/place.wgsl"))),
+    (
+        "place",
+        include_str!(concat!(env!("OUT_DIR"), "/place.wgsl")),
+    ),
 ];
 
 #[cfg(any(test, feature = "gpu"))]

@@ -62,7 +62,10 @@ impl Direction {
 
     /// Creates a direction travelling along `vector`, at full strength (1).
     pub const fn new(vector: [f32; 3]) -> Self {
-        Self { vector, strength: 1.0 }
+        Self {
+            vector,
+            strength: 1.0,
+        }
     }
 }
 
@@ -97,7 +100,12 @@ pub struct MaskOptions {
 
 impl Default for MaskOptions {
     fn default() -> Self {
-        Self { facing_min: 0.3, facing_full: 0.7, sky_rays: 64, sky_power: 1.0 }
+        Self {
+            facing_min: 0.3,
+            facing_full: 0.7,
+            sky_rays: 64,
+            sky_power: 1.0,
+        }
     }
 }
 
@@ -158,11 +166,26 @@ pub struct MeshOptions {
     /// top: an open sheet with about half the triangles, enough for drawing
     /// and static collision.
     pub closed: bool,
+    /// Whether to make sure no part of the clump passes through another part.
+    /// When true, the finished mesh is checked for triangles that cross each
+    /// other, and the clump is thinned around any crossing until none remain.
+    /// Turn it on before signed distance fields, booleans (CSG) or other tools
+    /// that need a clean solid. It costs extra build time. Crossings between
+    /// parts of the input that themselves overlap, such as a branch entering
+    /// a trunk, may not be removable; [`BuildStats::crossings`] reports any
+    /// that remain.
+    ///
+    /// [`BuildStats::crossings`]: crate::BuildStats::crossings
+    pub strict: bool,
 }
 
 impl Default for MeshOptions {
     fn default() -> Self {
-        Self { edge_length: 0.04, closed: true }
+        Self {
+            edge_length: 0.04,
+            closed: true,
+            strict: false,
+        }
     }
 }
 
@@ -170,7 +193,11 @@ impl ClumpOptions {
     /// Checks that every setting is in range.
     pub fn validate(&self) -> Result<(), OptionsError> {
         let check = |ok: bool, field: &'static str, requirement: &'static str| {
-            if ok { Ok(()) } else { Err(OptionsError { field, requirement }) }
+            if ok {
+                Ok(())
+            } else {
+                Err(OptionsError { field, requirement })
+            }
         };
         let finite_positive = |v: f32| v.is_finite() && v > 0.0;
 
@@ -182,30 +209,90 @@ impl ClumpOptions {
         )?;
         for d in &self.directions {
             let v = glam::Vec3::from(d.vector);
-            check(v.is_finite() && v.length_squared() > 0.0, "directions.vector", "must be finite and not zero")?;
-            check(d.strength.is_finite() && d.strength >= 0.0, "directions.strength", "must be 0 or more")?;
+            check(
+                v.is_finite() && v.length_squared() > 0.0,
+                "directions.vector",
+                "must be finite and not zero",
+            )?;
+            check(
+                d.strength.is_finite() && d.strength >= 0.0,
+                "directions.strength",
+                "must be 0 or more",
+            )?;
         }
-        check(finite_positive(self.scale), "scale", "must be greater than 0")?;
+        check(
+            finite_positive(self.scale),
+            "scale",
+            "must be greater than 0",
+        )?;
 
         // Mask.
         let m = &self.mask;
-        check((-1.0..=1.0).contains(&m.facing_min), "mask.facing_min", "must be from -1 to 1")?;
-        check((-1.0..=1.0).contains(&m.facing_full), "mask.facing_full", "must be from -1 to 1")?;
-        check(m.facing_min < m.facing_full, "mask.facing_min", "must be less than mask.facing_full")?;
-        check(m.sky_power >= 0.0 && m.sky_power.is_finite(), "mask.sky_power", "must be 0 or more")?;
+        check(
+            (-1.0..=1.0).contains(&m.facing_min),
+            "mask.facing_min",
+            "must be from -1 to 1",
+        )?;
+        check(
+            (-1.0..=1.0).contains(&m.facing_full),
+            "mask.facing_full",
+            "must be from -1 to 1",
+        )?;
+        check(
+            m.facing_min < m.facing_full,
+            "mask.facing_min",
+            "must be less than mask.facing_full",
+        )?;
+        check(
+            m.sky_power >= 0.0 && m.sky_power.is_finite(),
+            "mask.sky_power",
+            "must be 0 or more",
+        )?;
 
         // Shape.
         let s = &self.shape;
-        check(s.radius.is_none_or(finite_positive), "shape.radius", "must be greater than 0")?;
-        check((0.0..=1.0).contains(&s.edge_width), "shape.edge_width", "must be from 0 to 1")?;
-        check(finite_positive(s.thickness), "shape.thickness", "must be greater than 0")?;
-        check((0.0..=1.0).contains(&s.lumpiness), "shape.lumpiness", "must be from 0 to 1")?;
-        check(finite_positive(s.lump_size), "shape.lump_size", "must be greater than 0")?;
-        check(s.sink.is_finite() && s.sink >= 0.0, "shape.sink", "must be 0 or more")?;
-        check(finite_positive(s.max_slope), "shape.max_slope", "must be greater than 0")?;
+        check(
+            s.radius.is_none_or(finite_positive),
+            "shape.radius",
+            "must be greater than 0",
+        )?;
+        check(
+            (0.0..=1.0).contains(&s.edge_width),
+            "shape.edge_width",
+            "must be from 0 to 1",
+        )?;
+        check(
+            finite_positive(s.thickness),
+            "shape.thickness",
+            "must be greater than 0",
+        )?;
+        check(
+            (0.0..=1.0).contains(&s.lumpiness),
+            "shape.lumpiness",
+            "must be from 0 to 1",
+        )?;
+        check(
+            finite_positive(s.lump_size),
+            "shape.lump_size",
+            "must be greater than 0",
+        )?;
+        check(
+            s.sink.is_finite() && s.sink >= 0.0,
+            "shape.sink",
+            "must be 0 or more",
+        )?;
+        check(
+            finite_positive(s.max_slope),
+            "shape.max_slope",
+            "must be greater than 0",
+        )?;
 
         // Mesh.
-        check(finite_positive(self.mesh.edge_length), "mesh.edge_length", "must be greater than 0")?;
+        check(
+            finite_positive(self.mesh.edge_length),
+            "mesh.edge_length",
+            "must be greater than 0",
+        )?;
         Ok(())
     }
 }

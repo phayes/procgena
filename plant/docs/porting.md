@@ -14,7 +14,7 @@ files here hide Bevy's details from the rest
 | --- | --- | --- |
 | `src/render/bevy_glue.rs` | Phase items and their keys (`Opaque3dBatchSetKey`, `OpaqueNoLightmap3dBatchSetKey`, `ShadowBatchSetKey` and the bin keys), `MeshPipeline::specialize`, the prepass's shader definitions, `DefaultOpaqueRendererMethod`, Bevy's view bind-group render commands, `ViewKeyCache`, `ViewKeyPrepassCache`, `ViewLightEntities`, `LightEntity` cascades | Key fields fail to compile, the good kind. The bind-group order, the prepass definitions and the deferred default compile and fail at runtime; each has a debug assertion or unit test (below) |
 | `src/render/mod.rs` | The render app's scheduling: `RenderStartup` after `MeshPipelineSystems` and `init_prepass_pipeline`, `ExtractSchedule`, `RenderSystems` sets, and `compute::run_generate` in the `RenderGraph` schedule before `camera_driver`; `add_render_command` per phase | Renamed sets fail to compile. A reordered schedule compiles and runs the compute passes at the wrong time: blades a frame late, or none |
-| `src/render/extract.rs` | `Extract`, `RenderEntity` (`extract_cameras` copies `GrassCamera` and `NoGrass`) | Compile errors |
+| `src/render/extract.rs` | `Extract`, `RenderEntity` (`extract_cameras` copies `PlantCamera` and `NoPlants`) | Compile errors |
 | `src/render/resources.rs`, `view.rs`, `compute.rs` | Buffers, bind group layouts, `PipelineCache`, `ViewUniforms`, `ExtractedView`, `RenderContext`, render diagnostics | Mostly compile errors. `WindUniform` and the other `ShaderType`s are checked by the GPU tests |
 | `src/render/platform.rs` | wgpu limits and downlevel flags | A limit renamed fails to compile; one whose meaning changes shows in the storage-buffer tests |
 | `src/shaders/bevy_bridge.wesl` | Every Bevy shader import of the grass draws: the view, lights, `PbrInput`, `apply_pbr_lighting`, `main_pass_post_lighting_processing`, the G-buffer, the prepass bindings and conventions | Only at runtime: no grass and an `ERROR` in the log |
@@ -58,8 +58,8 @@ The checks that catch what compiles but is wrong:
    differences (`target/golden/`), and say so in the CHANGELOG.
 6. Run the examples that cover what the goldens do not: `passes` with
    `--ssao` and `--deferred`, `meadow`, `editing`, and the web demo
-   (`python tools/web_demo.py smoke`).
-7. Measure against the previous release with `tools/bench_ab.py`
+   (`python tools/plant/web_demo.py smoke`).
+7. Measure against the previous release with `tools/plant/bench_ab.py`
    ([Performance notes](performance.md)) and run the 240 Hz gate before
    tagging ([Testing](testing.md)).
 8. Update the versions named in this page and in the comments it lists

@@ -6,7 +6,7 @@ use bevy::math::Vec3Swizzles;
 use bevy::transform::components::Transform;
 
 use super::*;
-use crate::api::GrassAccent;
+use crate::api::PlantAccent;
 use crate::presets::FieldPreset;
 
 /// Stands in for Bevy's visibility propagation, which needs the whole
@@ -60,7 +60,7 @@ fn app() -> App {
 fn spawn_field(app: &mut App, extra: impl Bundle) -> Entity {
     app.world_mut()
         .spawn((
-            GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(32.0)),
+            PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(32.0)),
             GlobalTransform::IDENTITY,
             extra,
         ))
@@ -114,7 +114,7 @@ fn only_a_field_moving_rebuilds_the_tables() {
 fn clover_weighing(weights: &[f32]) -> Vec<FieldPlant> {
     weights
         .iter()
-        .map(|weight| FieldPlant::new(GrassPlant::CLOVER).scaled(*weight))
+        .map(|weight| FieldPlant::new(PlantParams::CLOVER).scaled(*weight))
         .collect()
 }
 
@@ -139,13 +139,13 @@ fn plant_chances_give_each_its_share_of_the_density() {
 #[test]
 fn a_plants_own_density_and_its_scale_both_set_its_share() {
     // 30 sparse plants and 90 dense ones per square metre: a quarter sparse.
-    let sparse = GrassPlant {
+    let sparse = PlantParams {
         density: 30.0,
-        ..GrassPlant::CLOVER
+        ..PlantParams::CLOVER
     };
-    let dense = GrassPlant {
+    let dense = PlantParams {
         density: 90.0,
-        ..GrassPlant::CLOVER
+        ..PlantParams::CLOVER
     };
     let chances = plant_chances(&[FieldPlant::new(sparse), FieldPlant::new(dense)]);
     assert!((chances[0] - 0.25).abs() < 1e-6, "{chances:?}");
@@ -175,7 +175,7 @@ fn the_last_growing_plant_takes_what_is_left_and_a_zero_density_draws_nothing() 
 fn a_field_with_nothing_to_grow_has_no_entries_and_no_chunks() {
     for plants in [vec![], clover_weighing(&[0.0, 0.0])] {
         let mut app = app();
-        spawn_with(&mut app, GrassField::new(Vec2::splat(32.0), plants.clone()));
+        spawn_with(&mut app, PlantField::new(Vec2::splat(32.0), plants.clone()));
         let meadow = spawn_field(&mut app, ());
         settle(&mut app);
         let tables = tables_now(&app);
@@ -199,7 +199,7 @@ fn a_field_with_nothing_to_grow_has_no_entries_and_no_chunks() {
 fn every_plant_is_an_entry_after_its_field() {
     let mut app = app();
     app.world_mut().spawn((
-        GrassField::from_preset(&FieldPreset::SUMMER_WILD, Vec2::splat(32.0)),
+        PlantField::from_preset(&FieldPreset::SUMMER_WILD, Vec2::splat(32.0)),
         GlobalTransform::IDENTITY,
     ));
     app.update();
@@ -210,18 +210,18 @@ fn every_plant_is_an_entry_after_its_field() {
     assert!(tables.chunks.iter().all(|chunk| chunk.ids.x == 0));
     let first = tables.fields[0];
     assert_eq!(first.mix.z, count as f32);
-    assert_eq!(first.mix.w, GrassPlant::SEED_HEADS.height.y);
+    assert_eq!(first.mix.w, PlantParams::SEED_HEADS.height.y);
     // The seed heads' entry has their look and the field's placement.
     let heads = tables.fields[0];
-    assert_eq!(heads.shape.y, GrassPlant::SEED_HEADS.height.y);
-    assert_eq!(heads.form.w, GrassPlant::SEED_HEADS.head_length);
+    assert_eq!(heads.shape.y, PlantParams::SEED_HEADS.height.y);
+    assert_eq!(heads.form.w, PlantParams::SEED_HEADS.head_length);
     // Each plant has its own tufts, and the field its bare patches.
     let grass = tables.fields[count - 1];
     let main = plants[count - 1].plant;
     assert_eq!(heads.placement, grass.placement);
     assert_eq!(
         (heads.tufts.x, heads.tufts.y),
-        (0.0, GrassPlant::SEED_HEADS.tuft_size)
+        (0.0, PlantParams::SEED_HEADS.tuft_size)
     );
     assert_eq!((grass.tufts.x, grass.tufts.y), (main.tufts, main.tuft_size));
     assert_eq!(
@@ -348,23 +348,23 @@ fn a_field_is_drawn_on_the_render_layers_it_names() {
 #[test]
 fn an_accent_is_an_entry_after_the_plants_that_its_plant_points_at() {
     let mut app = app();
-    let plumed = GrassPlant {
+    let plumed = PlantParams {
         tufts: 0.8,
         tuft_size: 1.5,
-        accent: GrassAccent {
+        accent: PlantAccent {
             share: 0.25,
             height: Vec2::new(2.0, 2.5),
             head_length: 0.3,
-            ..GrassAccent::NONE
+            ..PlantAccent::NONE
         },
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
     let plants = vec![
         FieldPlant::new(plumed).scaled(0.5),
-        FieldPlant::new(GrassPlant::CLOVER).scaled(0.2),
+        FieldPlant::new(PlantParams::CLOVER).scaled(0.2),
         FieldPlant::new(plumed).scaled(0.3),
     ];
-    spawn_with(&mut app, GrassField::new(Vec2::splat(32.0), plants));
+    spawn_with(&mut app, PlantField::new(Vec2::splat(32.0), plants));
     settle(&mut app);
     let tables = tables_now(&app);
     assert_eq!(tables.fields.len(), 5, "three plants, then two accents");
@@ -396,7 +396,7 @@ fn an_accent_is_an_entry_after_the_plants_that_its_plant_points_at() {
 fn every_plant_of_a_hidden_field_is_hidden() {
     let mut app = app();
     app.world_mut().spawn((
-        GrassField::from_preset(&FieldPreset::SUMMER_WILD, Vec2::splat(32.0)),
+        PlantField::from_preset(&FieldPreset::SUMMER_WILD, Vec2::splat(32.0)),
         GlobalTransform::IDENTITY,
         Visibility::Hidden,
     ));
@@ -485,7 +485,7 @@ fn version(app: &App) -> u64 {
 /// Moves the first field once, when run.
 fn move_the_field(
     mut moved: Local<bool>,
-    mut fields: Query<&mut GlobalTransform, With<GrassField>>,
+    mut fields: Query<&mut GlobalTransform, With<PlantField>>,
 ) {
     if !*moved {
         *moved = true;
@@ -503,7 +503,7 @@ fn a_system_ordered_before_the_plugins_sets_is_seen_the_same_frame() {
     let before = version(&app);
     app.add_systems(
         PostUpdate,
-        move_the_field.before(GrassSystems::DetectChanges),
+        move_the_field.before(PlantSystems::DetectChanges),
     );
     app.update();
     assert_eq!(
@@ -523,7 +523,7 @@ fn a_system_ordered_after_the_plugins_sets_is_seen_the_next_frame() {
     spawn_field(&mut app, ());
     settle(&mut app);
     let before = version(&app);
-    app.add_systems(PostUpdate, move_the_field.after(GrassSystems::Rebuild));
+    app.add_systems(PostUpdate, move_the_field.after(PlantSystems::Rebuild));
     app.update();
     assert_eq!(version(&app), before, "too late for this frame");
     app.update();
@@ -532,7 +532,7 @@ fn a_system_ordered_after_the_plugins_sets_is_seen_the_next_frame() {
 
 #[test]
 fn a_definition_edited_before_the_plugins_sets_is_rebuilt_the_same_frame() {
-    fn thin_the_grass(mut fields: Query<&mut GrassField>) {
+    fn thin_the_plants(mut fields: Query<&mut PlantField>) {
         for mut field in &mut fields {
             if field.density_scale != 0.5 {
                 field.density_scale = 0.5;
@@ -549,7 +549,7 @@ fn a_definition_edited_before_the_plugins_sets_is_rebuilt_the_same_frame() {
     );
     app.add_systems(
         PostUpdate,
-        thin_the_grass.before(GrassSystems::DetectChanges),
+        thin_the_plants.before(PlantSystems::DetectChanges),
     );
     app.update();
     assert_eq!(
@@ -559,7 +559,7 @@ fn a_definition_edited_before_the_plugins_sets_is_rebuilt_the_same_frame() {
     );
 }
 fn stats(app: &App) -> TableStats {
-    app.world().resource::<GrassStats>().tables
+    app.world().resource::<PlantStats>().tables
 }
 
 #[test]
@@ -613,7 +613,7 @@ fn the_limits_that_drop_content_are_visible_to_the_game() {
     let mut app = self::app();
     spawn_with(
         &mut app,
-        GrassField::new(Vec2::splat(16.0), clover_weighing(&[0.05; 20])),
+        PlantField::new(Vec2::splat(16.0), clover_weighing(&[0.05; 20])),
     );
     settle(&mut app);
     let built = stats(&app);
@@ -630,23 +630,23 @@ fn the_limits_that_drop_content_are_visible_to_the_game() {
     // every pattern distinct.
     let alternate = |leaflets| {
         let mut plant = branched(leaflets);
-        plant.levels[0].arrangement = GrassArrangement::Alternate;
+        plant.levels[0].arrangement = PlantArrangement::Alternate;
         plant
     };
-    let mut kinds: Vec<GrassPlant> = (1..=MAX_BRANCHED_CLASSES as u32).map(alternate).collect();
+    let mut kinds: Vec<PlantParams> = (1..=MAX_BRANCHED_CLASSES as u32).map(alternate).collect();
     let mut pair = alternate(1);
-    pair.levels[1] = crate::GrassBranches {
+    pair.levels[1] = crate::PlantBranches {
         count: 1,
-        arrangement: GrassArrangement::Alternate,
+        arrangement: PlantArrangement::Alternate,
         length: 0.3,
-        ..crate::GrassBranches::NONE
+        ..crate::PlantBranches::NONE
     };
     kinds.push(pair);
     let mut huge = branched(32);
-    huge.levels[1] = crate::GrassBranches {
+    huge.levels[1] = crate::PlantBranches {
         count: 8,
         length: 0.3,
-        ..crate::GrassBranches::NONE
+        ..crate::PlantBranches::NONE
     };
     kinds.push(huge);
     for group in kinds.chunks(MAX_PLANTS - 1) {
@@ -654,8 +654,8 @@ fn the_limits_that_drop_content_are_visible_to_the_game() {
             .iter()
             .map(|&plant| FieldPlant::new(plant).scaled(0.05))
             .collect();
-        plants.push(FieldPlant::new(GrassPlant::MEADOW_GRASS).scaled(0.3));
-        spawn_with(&mut app, GrassField::new(Vec2::splat(16.0), plants));
+        plants.push(FieldPlant::new(PlantParams::MEADOW_GRASS).scaled(0.3));
+        spawn_with(&mut app, PlantField::new(Vec2::splat(16.0), plants));
     }
     settle(&mut app);
     let tables = tables_now(&app);
@@ -705,7 +705,7 @@ fn add_image(app: &mut App, size: u32, value: u8) -> Handle<Image> {
         .add(mask_image(size, value))
 }
 
-fn spawn_with(app: &mut App, field: GrassField) -> Entity {
+fn spawn_with(app: &mut App, field: PlantField) -> Entity {
     app.world_mut()
         .spawn((field, GlobalTransform::IDENTITY))
         .id()
@@ -716,16 +716,16 @@ fn tables_now(app: &App) -> FieldTables {
 }
 
 /// Edits a field's component; taking it mutably is what announces the change.
-fn edit_field(app: &mut App, field: Entity, edit: impl FnOnce(&mut GrassField)) {
+fn edit_field(app: &mut App, field: Entity, edit: impl FnOnce(&mut PlantField)) {
     let mut field = app
         .world_mut()
-        .get_mut::<GrassField>(field)
+        .get_mut::<PlantField>(field)
         .expect("the field");
     edit(&mut field);
 }
 
 /// Sets the main (last) plant's tip colour.
-fn set_tip_color(field: &mut GrassField, color: Color) {
+fn set_tip_color(field: &mut PlantField, color: Color) {
     field
         .plants
         .to_mut()
@@ -742,10 +742,10 @@ fn rich_field(app: &mut App) -> (Entity, Handle<Image>, Handle<Image>) {
     let heightmap = add_image(app, 64, 128);
     let field = spawn_with(
         app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(32.0),
             density_map: Some(mask.clone()),
-            ground: GrassGround::Heightmap {
+            ground: PlantGround::Heightmap {
                 image: heightmap.clone(),
                 height_scale: 5.0,
             },
@@ -811,7 +811,7 @@ fn a_big_mask_is_read_once_however_often_the_field_changes() {
     let mask = add_image(&mut app, 2048, 200);
     let field = spawn_with(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(64.0),
             density_map: Some(mask),
             ..Default::default()
@@ -845,7 +845,7 @@ fn only_the_image_that_changed_is_read_again() {
     let heightmap_b = add_image(&mut app, 32, 128);
     spawn_with(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(16.0),
             density_map: Some(mask_a.clone()),
             ..Default::default()
@@ -853,10 +853,10 @@ fn only_the_image_that_changed_is_read_again() {
     );
     spawn_with(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(16.0),
             density_map: Some(mask_b),
-            ground: GrassGround::Heightmap {
+            ground: PlantGround::Heightmap {
                 image: heightmap_b,
                 height_scale: 3.0,
             },
@@ -925,7 +925,7 @@ fn only_the_image_that_changed_is_read_again() {
 fn only_the_entries_of_the_edited_field_are_rewritten() {
     let mut app = app();
     let one = |app: &mut App, preset: &FieldPreset| {
-        spawn_with(app, GrassField::from_preset(preset, Vec2::splat(16.0)))
+        spawn_with(app, PlantField::from_preset(preset, Vec2::splat(16.0)))
     };
     let plain = one(&mut app, &FieldPreset::MEADOW);
     let wild = one(&mut app, &FieldPreset::SUMMER_WILD);
@@ -983,7 +983,7 @@ fn a_field_touched_without_a_change_uploads_nothing() {
     assert_eq!(stats(&app).entries_rewritten, counted.entries_rewritten);
     app.world_mut()
         .entity_mut(field)
-        .insert(GrassField::from_preset(
+        .insert(PlantField::from_preset(
             &FieldPreset::MEADOW,
             Vec2::splat(32.0),
         ));
@@ -1086,7 +1086,7 @@ fn the_highest_ground_under_a_point_is_found_in_the_right_chunk() {
     let field = |app: &mut App, size: Vec2, x: f32, y: f32| {
         let id = spawn_with(
             app,
-            GrassField {
+            PlantField {
                 size,
                 ..Default::default()
             },
@@ -1150,25 +1150,25 @@ fn same_tables(incremental: &FieldTables, fresh: &FieldTables, step: &str) {
 }
 
 /// Adds the requested number of leaflets to a meadow plant.
-fn branched(leaflets: u32) -> GrassPlant {
-    GrassPlant {
+fn branched(leaflets: u32) -> PlantParams {
+    PlantParams {
         stems_per_plant: 3,
         levels: [
-            crate::GrassBranches {
+            crate::PlantBranches {
                 count: leaflets,
                 length: 0.4,
                 width: 0.2,
-                ..crate::GrassBranches::NONE
+                ..crate::PlantBranches::NONE
             },
-            crate::GrassBranches::NONE,
+            crate::PlantBranches::NONE,
         ],
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     }
 }
 
 /// A 16 m field growing `plants`.
 fn small_field(app: &mut App, plants: Vec<FieldPlant>) -> Entity {
-    spawn_with(app, GrassField::new(Vec2::splat(16.0), plants))
+    spawn_with(app, PlantField::new(Vec2::splat(16.0), plants))
 }
 
 #[test]
@@ -1177,16 +1177,16 @@ fn branched_plants_get_shape_classes_and_reach_past_their_height() {
     // Combine a field containing 10-leaflet ferns with a field whose plants have 4
     // branches carrying 3 leaves each.
     let mut twigs = branched(4);
-    twigs.levels[1] = crate::GrassBranches {
+    twigs.levels[1] = crate::PlantBranches {
         count: 3,
         length: 0.5,
-        ..crate::GrassBranches::NONE
+        ..crate::PlantBranches::NONE
     };
     let mixed = small_field(
         &mut app,
         vec![
             FieldPlant::new(branched(10)).scaled(0.2),
-            FieldPlant::new(GrassPlant::MEADOW_GRASS).scaled(0.8),
+            FieldPlant::new(PlantParams::MEADOW_GRASS).scaled(0.8),
         ],
     );
     let bushy = small_field(&mut app, vec![FieldPlant::new(twigs)]);
@@ -1224,7 +1224,7 @@ fn branched_plants_get_shape_classes_and_reach_past_their_height() {
     assert_eq!([meadow.access.w, fern.access.w], [1, 3], "stems per plant");
     // The branch bound adds 40% to the stem height for culling. The field's maximum
     // stem height remains unchanged.
-    let fern_height = GrassPlant::MEADOW_GRASS.height.y;
+    let fern_height = PlantParams::MEADOW_GRASS.height.y;
     assert_eq!(meadow.mix.w, fern_height);
     assert!((meadow.min_corner.w - fern_height * 1.4).abs() < 1e-6);
     assert!((bush.min_corner.w - fern_height * (1.0 + 0.4 * 1.5)).abs() < 1e-6);
@@ -1246,10 +1246,10 @@ fn branched_plants_get_shape_classes_and_reach_past_their_height() {
 #[test]
 fn a_second_level_on_a_level_that_is_off_grows_nothing() {
     let mut plant = branched(0);
-    plant.levels[1] = crate::GrassBranches {
+    plant.levels[1] = crate::PlantBranches {
         count: 6,
         length: 0.5,
-        ..crate::GrassBranches::NONE
+        ..crate::PlantBranches::NONE
     };
     let mut app = app();
     small_field(&mut app, vec![FieldPlant::new(plant)]);
@@ -1269,10 +1269,10 @@ fn building_incrementally_gives_exactly_what_building_from_scratch_gives() {
     let small_mask = add_image(&mut app, 16, 90);
     let second = spawn_with(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::new(48.0, 20.0),
             density_map: Some(small_mask.clone()),
-            ..GrassField::from_preset(&FieldPreset::SUMMER_WILD, Vec2::ZERO)
+            ..PlantField::from_preset(&FieldPreset::SUMMER_WILD, Vec2::ZERO)
         },
     );
     settle(&mut app);
@@ -1319,7 +1319,7 @@ fn building_incrementally_gives_exactly_what_building_from_scratch_gives() {
     *app.world_mut().get_mut::<GlobalTransform>(second).unwrap() =
         GlobalTransform::from_xyz(-30.0, 1.0, 5.0);
     check(&mut app, "moved");
-    app.world_mut().get_mut::<GrassField>(rich).unwrap().size = Vec2::new(64.0, 16.0);
+    app.world_mut().get_mut::<PlantField>(rich).unwrap().size = Vec2::new(64.0, 16.0);
     check(&mut app, "resized");
 
     app.world_mut()
@@ -1340,19 +1340,19 @@ fn building_incrementally_gives_exactly_what_building_from_scratch_gives() {
     // A different mask on a field, with a different size.
     let bigger = add_image(&mut app, 128, 30);
     app.world_mut()
-        .get_mut::<GrassField>(second)
+        .get_mut::<PlantField>(second)
         .unwrap()
         .density_map = Some(bigger);
     check(&mut app, "mask swapped for a bigger one");
     app.world_mut()
-        .get_mut::<GrassField>(second)
+        .get_mut::<PlantField>(second)
         .unwrap()
         .density_map = None;
     check(&mut app, "mask removed");
 
     let third = spawn_with(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(24.0),
             density_map: Some(small_mask),
             ..Default::default()
@@ -1382,7 +1382,7 @@ fn branched_plants_build_incrementally_exactly_as_from_scratch() {
     let [plain, wild] = [FieldPreset::MEADOW, FieldPreset::SUMMER_WILD].map(|preset| {
         spawn_with(
             &mut app,
-            GrassField::from_preset(&preset, Vec2::new(40.0, 24.0)),
+            PlantField::from_preset(&preset, Vec2::new(40.0, 24.0)),
         )
     });
     settle(&mut app);
@@ -1440,9 +1440,9 @@ fn turned_and_mesh_fields_build_incrementally_exactly_as_from_scratch() {
         .add(crate::ground::tests::slope(Vec2::splat(20.0), 3.0));
     let on_mesh = spawn_with(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(20.0),
-            ground: GrassGround::mesh(hill.clone()),
+            ground: PlantGround::mesh(hill.clone()),
             ..Default::default()
         },
     );
@@ -1453,9 +1453,9 @@ fn turned_and_mesh_fields_build_incrementally_exactly_as_from_scratch() {
         .unwrap();
     check(&mut app, "its mesh changed");
     app.world_mut()
-        .get_mut::<GrassField>(on_mesh)
+        .get_mut::<PlantField>(on_mesh)
         .unwrap()
-        .ground = GrassGround::Flat;
+        .ground = PlantGround::Flat;
     check(&mut app, "the mesh ground taken off");
 }
 
@@ -1465,7 +1465,7 @@ fn a_turned_field_holds_the_points_of_its_turned_rectangle() {
     // 40 by 4 m, turned a quarter turn: it lies along Z.
     let field = spawn_with(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::new(40.0, 4.0),
             ..Default::default()
         },
@@ -1499,7 +1499,7 @@ fn a_turned_field_holds_the_points_of_its_turned_rectangle() {
 }
 
 /// The field change that turns one optional look term on.
-type TurnOn = fn(&mut GrassField, &mut GrassPlant);
+type TurnOn = fn(&mut PlantField, &mut PlantParams);
 
 /// One example setting for each optional shader feature in `LookFeatures::TERMS`.
 /// The tests below check that each setting enables its feature.
@@ -1516,43 +1516,43 @@ const TERM_ENABLERS: [(LookFeatures, TurnOn); 5] = [
 ];
 
 /// A plant that uses no optional look term, whatever the presets do.
-fn plain_plant() -> GrassPlant {
-    GrassPlant {
+fn plain_plant() -> PlantParams {
+    PlantParams {
         specular: 0.0,
         head_length: 0.0,
-        segment: crate::GrassSegment {
+        segment: crate::PlantSegment {
             twist: 0.0,
             droop: 0.0,
             fold: 0.0,
-            ..GrassPlant::MEADOW_GRASS.segment
+            ..PlantParams::MEADOW_GRASS.segment
         },
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     }
 }
 
 /// A field that uses no optional look term, whatever the presets do.
-fn plain_field() -> GrassField {
-    GrassField {
+fn plain_field() -> PlantField {
+    PlantField {
         toon_bands: 0,
         ground_tint: GroundTint {
             amount: 0.0,
             ..FieldPreset::MEADOW.field.ground_tint
         },
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_amount: 0.0,
             dry_tips: 0.0,
             dead_share: 0.0,
             ..FieldPreset::MEADOW.field.variation
         },
-        ..GrassField::new(Vec2::ZERO, vec![FieldPlant::new(plain_plant())])
+        ..PlantField::new(Vec2::ZERO, vec![FieldPlant::new(plain_plant())])
     }
 }
 
-/// Every `GRASS_...` name in a shader source, comments included.
-fn grass_definitions(source: &str) -> Vec<&str> {
+/// Every `PLANT_...` name in a shader source, comments included.
+fn plant_definitions(source: &str) -> Vec<&str> {
     let mut names = Vec::new();
     let mut rest = source;
-    while let Some(at) = rest.find("GRASS_") {
+    while let Some(at) = rest.find("PLANT_") {
         let tail = &rest[at..];
         let end = tail
             .find(|c: char| !(c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'))
@@ -1614,8 +1614,8 @@ fn every_look_term_has_a_definition_a_shader_and_a_setting_that_asks_for_it() {
     let sources = [
         include_str!("../../shaders/blade.wesl"),
         include_str!("../../shaders/common.wesl"),
-        include_str!("../../shaders/grass.wesl"),
-        include_str!("../../shaders/grass_prepass.wesl"),
+        include_str!("../../shaders/plant_main.wesl"),
+        include_str!("../../shaders/plant_prepass.wesl"),
         include_str!("../../shaders/look.wesl"),
     ];
     let mut definitions: Vec<&str> = LookFeatures::TERMS.iter().map(|(_, def)| *def).collect();
@@ -1627,14 +1627,14 @@ fn every_look_term_has_a_definition_a_shader_and_a_setting_that_asks_for_it() {
     }
     let mut named: Vec<&str> = sources
         .iter()
-        .flat_map(|source| grass_definitions(source))
+        .flat_map(|source| plant_definitions(source))
         .collect();
     named.sort_unstable();
     named.dedup();
     definitions.sort_unstable();
     assert_eq!(
         named, definitions,
-        "a shader names a GRASS_ definition that no look term emits, or a term has no shader"
+        "a shader names a PLANT_ definition that no look term emits, or a term has no shader"
     );
 }
 
@@ -1642,7 +1642,7 @@ fn every_look_term_has_a_definition_a_shader_and_a_setting_that_asks_for_it() {
 fn a_field_on_a_ground_from_a_function_stands_on_it() {
     let mut app = app();
     let world = app.world_mut();
-    let field = GrassField {
+    let field = PlantField {
         size: Vec2::splat(64.0),
         ..Default::default()
     }
@@ -1664,13 +1664,13 @@ fn heights_draw_the_same_in_either_order() {
     // Sort the height limits before passing them to the shaders, which draw
     // the plants, so reversing the limits does not change their appearance.
     let field = FieldPreset::SUMMER_TALL.field;
-    let plant = GrassPlant::SUMMER_TALL_GRASS;
-    let swapped = GrassPlant {
+    let plant = PlantParams::SUMMER_TALL_GRASS;
+    let swapped = PlantParams {
         height: Vec2::new(plant.height.y, plant.height.x),
         ..plant
     };
     assert_ne!(swapped.height, plant.height);
     let entry = FieldGpu::default();
-    let drawn = |plant: &GrassPlant| look_entry(&entry, &field, plant, Vec4::ZERO);
+    let drawn = |plant: &PlantParams| look_entry(&entry, &field, plant, Vec4::ZERO);
     assert_eq!(drawn(&swapped), drawn(&plant));
 }

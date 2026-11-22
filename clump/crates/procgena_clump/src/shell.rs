@@ -6,8 +6,10 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use glam::Vec3;
 
+use crate::bvh::{Bvh, triangles_cross};
 use crate::field::{ClumpField, SurfacePoint};
 use crate::mesh::{BuildStats, ClumpMesh};
+use crate::surface::Surface;
 
 /// Most refinement passes. Each pass halves the longest edges, so this allows
 /// edges 2^16 times longer than the target.
@@ -21,6 +23,14 @@ const BOTTOM_GAP: f32 = 0.25;
 /// Thinnest a closed clump may be anywhere, as a fraction of the thickness.
 /// Applies where the input is too thin for the full underside depth.
 const MIN_SOLID: f32 = 0.05;
+
+/// Largest angle, in radians, between a vertex's push direction and its
+/// surface normal (60°).
+const MAX_PUSH_TILT: f32 = std::f32::consts::FRAC_PI_3;
+
+/// Most passes when repairing folds or crossings. Each pass halves the
+/// height left above the floor at every vertex involved.
+const MAX_REPAIR_PASSES: u32 = 24;
 
 /// Most passes when blurring push directions, to bound the cost on meshes
 /// whose edges are much shorter than the thickness.
@@ -45,11 +55,17 @@ struct Tri {
 ///
 /// With `closed`, the sheet also gets a buried underside and side walls, so
 /// the result is watertight.
+///
+/// Top triangles that turn over are always repaired by lowering the clump
+/// around them. With `strict`, the finished mesh is also checked for
+/// triangles that pass through each other, and the clump is thinned around
+/// them until none do or the pass limit is reached.
 pub(crate) fn displaced_shell(
     field: &ClumpField,
     edge_length: f32,
     max_slope: f32,
     closed: bool,
+    strict: bool,
 ) -> (ClumpMesh, BuildStats) {
     let (mut points, mut tris) = covered_triangles(field);
     refine(field, &mut points, &mut tris, edge_length);
@@ -60,10 +76,25 @@ pub(crate) fn displaced_shell(
     // Averaging spreads about one edge per sqrt(pass), so reaching the
     // thickness takes (thickness / edge)² passes.
     let edge = mean_edge_length(&points, &tris).max(f32::MIN_POSITIVE);
-    let passes = (field.thickness() / edge).powi(2).ceil().min(MAX_BLUR_PASSES as f32) as u32;
-    let dirs = smooth_directions(points.iter().map(|p| p.normal).collect(), &neighbours, passes);
+    let passes = (field.thickness() / edge)
+        .powi(2)
+        .ceil()
+        .min(MAX_BLUR_PASSES as f32) as u32;
+    let blurred = smooth_directions(
+        points.iter().map(|p| p.normal).collect(),
+        &neighbours,
+        passes,
+    );
 
-    // Work out each vertex's height, never more than part of the way to a
+    // Keep each push direction close to its surface normal, so pushing
+    // against it always goes into the input, even on thin lips.
+    let dirs: Vec<Vec3> = points
+        .iter()
+        .zip(blurred)
+        .map(|(p, d)| limit_tilt(d, p.normal))
+        .collect();
+
+    // Work out each vertex's height, staying under part of the gap to any
     // surface facing it.
     let weights: Vec<f32> = points.iter().map(|p| field.weight(p)).collect();
     let mut thinned = 0;
@@ -73,9 +104,6 @@ pub(crate) fn displaced_shell(
         .zip(&weights)
         .map(|((p, &dir), &w)| {
             let top = field.top(w);
-            if top <= 0.0 {
-                return top;
-            }
             let limit = GAP_FILL * field.clearance(p.point, dir);
             if top > limit {
                 thinned += 1;
@@ -88,62 +116,329 @@ pub(crate) fn displaced_shell(
     // Lower heights so no edge of the clump is steeper than `max_slope`.
     limit_slope(&points, &neighbours, &mut tops, max_slope);
 
+    // Sink buried vertices into the input along a direction that really leads
+    // inside it, and no more than part of the way through.
+    let mut along = dirs.clone();
+    for v in 0..points.len() {
+        if tops[v] < 0.0 {
+            let (dir, depth) = sink(field, &points[v], dirs[v], -tops[v]);
+            along[v] = dir;
+            tops[v] = -depth;
+        }
+    }
+
     // Drop triangles sunk well below the surface; they can't be seen. Keeping
     // those only slightly below stops flat triangles poking out of hollows.
     let hidden = -0.5 * field.sink();
     let kept: Vec<&Tri> = tris
         .iter()
-        .filter(|t| t.corners.iter().any(|&v| weights[v as usize] > 0.0 && tops[v as usize] >= hidden))
+        .filter(|t| {
+            t.corners
+                .iter()
+                .any(|&v| weights[v as usize] > 0.0 && tops[v as usize] >= hidden)
+        })
         .collect();
 
     // For a closed clump, place the underside below each kept vertex, never
     // more than part of the way through the input, and keep every top above
-    // its underside. The underside goes straight in along the surface normal:
-    // the blurred push direction can lie almost along the surface on tight
-    // curves, where pushing against it would leave the input.
-    let mut bottoms = Vec::new();
+    // its underside.
+    let min_solid = MIN_SOLID * field.thickness();
+    let mut depths = vec![0.0; points.len()];
+    let mut sink_dirs = dirs.clone();
     if closed {
         let full_depth = field.sink() + BOTTOM_GAP * field.thickness();
-        let min_solid = MIN_SOLID * field.thickness();
-        bottoms = vec![Vec3::ZERO; points.len()];
         let mut done = vec![false; points.len()];
         for v in kept.iter().flat_map(|t| t.corners) {
             let v = v as usize;
             if std::mem::replace(&mut done[v], true) {
                 continue;
             }
-            let (p, n) = (points[v].point, points[v].normal);
-            let depth = full_depth.min(GAP_FILL * field.clearance(p, -n));
-            bottoms[v] = p - n * depth;
-            tops[v] = tops[v].max(min_solid - depth);
+            let (dir, depth) = sink(field, &points[v], dirs[v], full_depth);
+            sink_dirs[v] = dir;
+            depths[v] = depth;
+            if tops[v] < min_solid - depth {
+                tops[v] = min_solid - depth;
+                along[v] = if tops[v] < 0.0 { dir } else { dirs[v] };
+            }
         }
     }
 
-    // Push every vertex out.
-    let mut mesh = ClumpMesh::default();
-    for ((p, dir), &top) in points.iter().zip(&dirs).zip(&tops) {
-        mesh.positions.push((p.point + *dir * top).to_array());
-        mesh.fade.push(field.fade(top));
-    }
+    let mut sheet = Sheet {
+        points: &points,
+        tris: kept.into_iter().copied().collect(),
+        dirs: &dirs,
+        along,
+        sink_dirs,
+        tops,
+        depths,
+        closed,
+        min_solid,
+    };
 
-    // Copy the kept triangles, counting any that turned over.
-    let mut folded = 0;
-    for tri in kept {
-        let [d, e, f] = tri.corners.map(|v| Vec3::from(mesh.positions[v as usize]));
-        if (e - d).cross(f - d).dot(tri.source_normal) < 0.0 {
-            folded += 1;
+    // Lower the clump around any top triangle that turned over, until none do.
+    let folded = sheet.remove_folds();
+
+    // Build the mesh. In strict mode, thin the clump around any triangles
+    // that pass through each other; then cut out any that still do, and
+    // rebuild until none do. Every cut removes at least one triangle, so this
+    // ends.
+    let mut crossings = 0;
+    let mut built = sheet.assemble(field);
+    if strict {
+        for pass in 0.. {
+            let crossing = crossing_triangles(&built.0);
+            crossings = crossing.len();
+            if crossings == 0 {
+                break;
+            }
+            if pass < MAX_REPAIR_PASSES {
+                sheet.relax_around(&built.0, &built.1, &crossing);
+            } else {
+                sheet.cut_out(&built.0, &built.1, &crossing);
+            }
+            built = sheet.assemble(field);
         }
-        mesh.indices.extend_from_slice(&tri.corners);
     }
 
-    // Give a closed clump its underside and side walls.
-    if closed {
-        close_volume(&mut mesh, &bottoms);
-    }
-
+    let (mut mesh, _) = built;
     remove_unused_vertices(&mut mesh);
     mesh.normals = face_normals(&mesh.positions, &mesh.indices);
-    (mesh, BuildStats { folded, thinned })
+    (
+        mesh,
+        BuildStats {
+            folded,
+            thinned,
+            crossings,
+        },
+    )
+}
+
+/// Where a vertex of an assembled clump mesh came from: a sheet vertex, and
+/// whether it is that vertex's copy on the underside.
+#[derive(Debug, Clone, Copy)]
+struct Origin {
+    point: u32,
+    bottom: bool,
+}
+
+/// A clump's sheet before it becomes a mesh: the kept triangles and, per
+/// vertex, its height and underside depth, which the repair passes adjust.
+struct Sheet<'a> {
+    points: &'a [SurfacePoint],
+    tris: Vec<Tri>,
+    /// Outward push directions.
+    dirs: &'a [Vec3],
+    /// Directions to move along at negative heights (sunk into the input).
+    along: Vec<Vec3>,
+    /// Directions the underside is sunk along (closed clumps only).
+    sink_dirs: Vec<Vec3>,
+    /// Heights above the surface; negative is sunk into it.
+    tops: Vec<f32>,
+    /// Underside depths below the surface (closed clumps only).
+    depths: Vec<f32>,
+    closed: bool,
+    /// Thinnest a closed clump may be.
+    min_solid: f32,
+}
+
+impl Sheet<'_> {
+    /// Returns where top vertex `v` sits.
+    fn top_position(&self, v: usize) -> Vec3 {
+        let dir = if self.tops[v] < 0.0 {
+            self.along[v]
+        } else {
+            self.dirs[v]
+        };
+        self.points[v].point + dir * self.tops[v]
+    }
+
+    /// Returns the height that lowering top vertex `v` heads toward: the
+    /// surface, or for a closed clump, just thick enough above its underside.
+    fn floor(&self, v: usize) -> f32 {
+        if self.closed {
+            (self.min_solid - self.depths[v]).max(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Moves top vertex `v` halfway toward its floor, or onto it when close.
+    fn lower(&mut self, v: usize) {
+        let floor = self.floor(v);
+        let top = floor + (self.tops[v] - floor) * 0.5;
+        self.tops[v] = if (top - floor).abs() < 1e-6 {
+            floor
+        } else {
+            top
+        };
+    }
+
+    /// Lowers the corners of every top triangle that has turned over relative
+    /// to the input triangle it came from, repeating until none have or the
+    /// pass limit is reached. Returns how many remain turned over.
+    fn remove_folds(&mut self) -> usize {
+        let mut folded = 0;
+        for pass in 0..=MAX_REPAIR_PASSES {
+            let mut corners = Vec::new();
+            for t in &self.tris {
+                let [a, b, c] = t.corners.map(|v| self.top_position(v as usize));
+                if (b - a).cross(c - a).dot(t.source_normal) < 0.0 {
+                    corners.extend(t.corners);
+                }
+            }
+            folded = corners.len() / 3;
+            if folded == 0 || pass == MAX_REPAIR_PASSES {
+                break;
+            }
+            corners.sort_unstable();
+            corners.dedup();
+            for v in corners {
+                self.lower(v as usize);
+            }
+        }
+        folded
+    }
+
+    /// Thins the clump around the triangles in `crossing`, which index
+    /// `mesh`'s triangles: lowers their top corners and raises their
+    /// underside corners. `origin` maps `mesh`'s vertices back to the sheet.
+    fn relax_around(&mut self, mesh: &ClumpMesh, origin: &[Origin], crossing: &[usize]) {
+        let mut touched: Vec<Origin> = crossing
+            .iter()
+            .flat_map(|&t| {
+                mesh.indices[t * 3..t * 3 + 3]
+                    .iter()
+                    .map(|&i| origin[i as usize])
+            })
+            .collect();
+        touched.sort_unstable_by_key(|o| (o.point, o.bottom));
+        touched.dedup_by_key(|o| (o.point, o.bottom));
+        for o in touched {
+            let v = o.point as usize;
+            if o.bottom {
+                // Bring the underside up, keeping the top above it.
+                self.depths[v] *= 0.5;
+                self.tops[v] = self.tops[v].max(self.min_solid - self.depths[v]);
+            } else {
+                self.lower(v);
+            }
+        }
+    }
+
+    /// Removes the top triangles behind the triangles in `crossing`, which
+    /// index `mesh`'s triangles, so the next build leaves a gap there. An
+    /// underside triangle stands for the top triangle above it, and a wall
+    /// triangle for the top triangles at its top corners. `origin` maps
+    /// `mesh`'s vertices back to the sheet.
+    ///
+    /// `mesh` must come from [`assemble`](Self::assemble) on this sheet: its
+    /// first triangles are the top triangles in order, followed, for a closed
+    /// clump, by the matching underside triangles and then the walls.
+    fn cut_out(&mut self, mesh: &ClumpMesh, origin: &[Origin], crossing: &[usize]) {
+        let n = self.tris.len();
+        let mut remove = vec![false; n];
+        let mut wall_points = HashSet::new();
+        for &t in crossing {
+            if t < 2 * n {
+                remove[t % n] = true;
+            } else {
+                // A wall: find the top triangles that use its top corners.
+                let tops = mesh.indices[t * 3..t * 3 + 3]
+                    .iter()
+                    .map(|&i| origin[i as usize])
+                    .filter(|o| !o.bottom)
+                    .map(|o| o.point);
+                wall_points.extend(tops);
+            }
+        }
+        for (i, tri) in self.tris.iter().enumerate() {
+            if tri.corners.iter().any(|c| wall_points.contains(c)) {
+                remove[i] = true;
+            }
+        }
+        let mut keep = remove.iter().map(|&r| !r);
+        self.tris.retain(|_| keep.next().unwrap_or(true));
+    }
+
+    /// Builds the mesh: the top sheet and, for a closed clump, its underside
+    /// and walls. Returns the mesh, which still has unused vertices, and the
+    /// origin of each of its vertices.
+    fn assemble(&self, field: &ClumpField) -> (ClumpMesh, Vec<Origin>) {
+        let mut mesh = ClumpMesh::default();
+        let mut origin = Vec::with_capacity(self.points.len());
+        for v in 0..self.points.len() {
+            mesh.positions.push(self.top_position(v).to_array());
+            mesh.fade.push(field.fade(self.tops[v]));
+            origin.push(Origin {
+                point: v as u32,
+                bottom: false,
+            });
+        }
+        for tri in &self.tris {
+            mesh.indices.extend_from_slice(&tri.corners);
+        }
+        if self.closed {
+            let bottoms: Vec<Vec3> = (0..self.points.len())
+                .map(|v| self.points[v].point - self.sink_dirs[v] * self.depths[v])
+                .collect();
+            origin.extend(close_volume(&mut mesh, &bottoms));
+        }
+        (mesh, origin)
+    }
+}
+
+/// Returns the triangles of `mesh` that pass through another of its
+/// triangles. Triangles sharing a corner position are never tested against
+/// each other.
+pub(crate) fn crossing_triangles(mesh: &ClumpMesh) -> Vec<usize> {
+    if mesh.indices.is_empty() {
+        return Vec::new();
+    }
+
+    // Give every distinct position one id, so neighbours that share a corner
+    // through a copied vertex are recognized.
+    let mut ids = HashMap::<[u32; 3], u32>::new();
+    let welded: Vec<u32> = mesh
+        .positions
+        .iter()
+        .map(|p| {
+            let next = ids.len() as u32;
+            *ids.entry(p.map(|c| (c + 0.0).to_bits())).or_insert(next)
+        })
+        .collect();
+
+    // Test each triangle against the triangles whose boxes overlap it.
+    let normals = vec![[0.0, 1.0, 0.0]; mesh.positions.len()];
+    let surface = Surface::new(&mesh.positions, &normals, &mesh.indices)
+        .expect("assembled clump meshes have valid buffers");
+    let bvh = Bvh::new(&surface);
+    let mut crossing = vec![false; surface.triangle_count()];
+    let mut nearby = Vec::new();
+    for t in 0..surface.triangle_count() {
+        let corners = bvh.corners(t);
+        let ids_t = surface.triangle(t).map(|i| welded[i]);
+        nearby.clear();
+        bvh.overlapping(
+            corners[0].min(corners[1]).min(corners[2]),
+            corners[0].max(corners[1]).max(corners[2]),
+            &mut nearby,
+        );
+        for &u in &nearby {
+            if u <= t
+                || surface
+                    .triangle(u)
+                    .iter()
+                    .any(|&i| ids_t.contains(&welded[i]))
+            {
+                continue;
+            }
+            if triangles_cross(corners, bvh.corners(u)) {
+                crossing[t] = true;
+                crossing[u] = true;
+            }
+        }
+    }
+    (0..crossing.len()).filter(|&t| crossing[t]).collect()
 }
 
 /// Turns the top sheet in `mesh` into a closed solid. Adds an underside: a
@@ -153,44 +448,63 @@ pub(crate) fn displaced_shell(
 ///
 /// `mesh` must hold one vertex per entry of `bottoms` and the sheet's
 /// triangles (before unused vertices are removed). Underside vertices get a
-/// fade of 0.
-fn close_volume(mesh: &mut ClumpMesh, bottoms: &[Vec3]) {
+/// fade of 0. Returns the origin of every vertex this adds, in order.
+fn close_volume(mesh: &mut ClumpMesh, bottoms: &[Vec3]) -> Vec<Origin> {
     let mut top: Vec<[u32; 3]> = mesh.indices.as_chunks::<3>().0.to_vec();
 
     // Give each fan of triangles at a pinch vertex its own copy of the
     // vertex, so every wall edge is shared by exactly two triangles.
     let source = split_pinches(mesh, &mut top, bottoms.len());
     mesh.indices = top.iter().flatten().copied().collect();
+    let mut added: Vec<Origin> = (bottoms.len()..mesh.positions.len())
+        .map(|i| Origin {
+            point: source(i as u32) as u32,
+            bottom: false,
+        })
+        .collect();
 
     // Make one underside vertex per sheet vertex, on demand.
     let mut below: HashMap<u32, u32> = HashMap::new();
-    let mut bottom_of = |v: u32, mesh: &mut ClumpMesh| {
+    let mut bottom_of = |v: u32, mesh: &mut ClumpMesh, added: &mut Vec<Origin>| {
         *below.entry(v).or_insert_with(|| {
-            let p = bottoms[source(v)];
-            mesh.positions.push(p.to_array());
+            let s = source(v);
+            mesh.positions.push(bottoms[s].to_array());
             mesh.fade.push(0.0);
+            added.push(Origin {
+                point: s as u32,
+                bottom: true,
+            });
             (mesh.positions.len() - 1) as u32
         })
     };
 
     // Underside triangles, wound the other way so they face into the input.
     for &[a, b, c] in &top {
-        let (a2, b2, c2) = (bottom_of(a, mesh), bottom_of(b, mesh), bottom_of(c, mesh));
+        let [a2, b2, c2] = [a, b, c].map(|v| bottom_of(v, mesh, &mut added));
         mesh.indices.extend_from_slice(&[a2, c2, b2]);
     }
 
     // Find border edges: directed sheet edges whose reverse isn't in the sheet.
-    let directed: HashSet<(u32, u32)> =
-        top.iter().flat_map(|&[a, b, c]| [(a, b), (b, c), (c, a)]).collect();
-    let mut border: Vec<(u32, u32)> =
-        directed.iter().copied().filter(|&(a, b)| !directed.contains(&(b, a))).collect();
+    let directed: HashSet<(u32, u32)> = top
+        .iter()
+        .flat_map(|&[a, b, c]| [(a, b), (b, c), (c, a)])
+        .collect();
+    let mut border: Vec<(u32, u32)> = directed
+        .iter()
+        .copied()
+        .filter(|&(a, b)| !directed.contains(&(b, a)))
+        .collect();
     border.sort_unstable();
 
     // Wall quad for each border edge a→b, using b→a on top and a'→b' below.
     for (a, b) in border {
-        let (a2, b2) = (bottom_of(a, mesh), bottom_of(b, mesh));
+        let (a2, b2) = (
+            bottom_of(a, mesh, &mut added),
+            bottom_of(b, mesh, &mut added),
+        );
         mesh.indices.extend_from_slice(&[b, a, a2, b, a2, b2]);
     }
+    added
 }
 
 /// Finds pinch vertices in the sheet `top`, where its border passes through
@@ -207,15 +521,21 @@ fn split_pinches(
     original_count: usize,
 ) -> impl Fn(u32) -> usize + use<> {
     // Count outgoing border edges per vertex; more than one marks a pinch.
-    let directed: HashSet<(u32, u32)> =
-        top.iter().flat_map(|&[a, b, c]| [(a, b), (b, c), (c, a)]).collect();
+    let directed: HashSet<(u32, u32)> = top
+        .iter()
+        .flat_map(|&[a, b, c]| [(a, b), (b, c), (c, a)])
+        .collect();
     let mut outgoing: HashMap<u32, u32> = HashMap::new();
     for &(a, b) in &directed {
         if !directed.contains(&(b, a)) {
             *outgoing.entry(a).or_default() += 1;
         }
     }
-    let mut pinches: Vec<u32> = outgoing.into_iter().filter(|&(_, n)| n > 1).map(|(v, _)| v).collect();
+    let mut pinches: Vec<u32> = outgoing
+        .into_iter()
+        .filter(|&(_, n)| n > 1)
+        .map(|(v, _)| v)
+        .collect();
     pinches.sort_unstable();
 
     // Triangles touching each vertex.
@@ -261,7 +581,10 @@ fn split_pinches(
             copies.push(v);
             for (i, &t) in tris.iter().enumerate() {
                 if fan[i] == f {
-                    top[t].iter_mut().filter(|x| **x == v).for_each(|x| *x = copy);
+                    top[t]
+                        .iter_mut()
+                        .filter(|x| **x == v)
+                        .for_each(|x| *x = copy);
                 }
             }
         }
@@ -271,7 +594,11 @@ fn split_pinches(
     debug_assert_eq!(mesh.positions.len() - copies.len(), original_count);
     move |i: u32| {
         let i = i as usize;
-        if i < original_count { i } else { copies[i - original_count] as usize }
+        if i < original_count {
+            i
+        } else {
+            copies[i - original_count] as usize
+        }
     }
 }
 
@@ -293,7 +620,10 @@ fn covered_triangles(field: &ClumpField) -> (Vec<SurfacePoint>, Vec<Tri>) {
             })
         });
         let [a, b, c] = surface.triangle_positions(t);
-        tris.push(Tri { corners, source_normal: (b - a).cross(c - a) });
+        tris.push(Tri {
+            corners,
+            source_normal: (b - a).cross(c - a),
+        });
     }
     (points, tris)
 }
@@ -306,11 +636,19 @@ fn covered_triangles(field: &ClumpField) -> (Vec<SurfacePoint>, Vec<Tri>) {
 /// clump has no cracks. Triangles the clump can't cover are left whole; they
 /// are dropped later, so the unmatched split points along their edges never
 /// show.
-fn refine(field: &ClumpField, points: &mut Vec<SurfacePoint>, tris: &mut Vec<Tri>, edge_length: f32) {
+fn refine(
+    field: &ClumpField,
+    points: &mut Vec<SurfacePoint>,
+    tris: &mut Vec<Tri>,
+    edge_length: f32,
+) {
     let limit = edge_length * edge_length;
     for _ in 0..MAX_PASSES {
         let too_long = |a: u32, b: u32, points: &[SurfacePoint]| {
-            points[a as usize].point.distance_squared(points[b as usize].point) > limit
+            points[a as usize]
+                .point
+                .distance_squared(points[b as usize].point)
+                > limit
         };
         let active: Vec<bool> = tris
             .iter()
@@ -337,7 +675,10 @@ fn refine(field: &ClumpField, points: &mut Vec<SurfacePoint>, tris: &mut Vec<Tri
                 })
             };
             let push = |next: &mut Vec<Tri>, corners: [u32; 3]| {
-                next.push(Tri { corners, source_normal: tri.source_normal });
+                next.push(Tri {
+                    corners,
+                    source_normal: tri.source_normal,
+                });
             };
             match marked.iter().filter(|&&m| m).count() {
                 0 => next.push(*tri),
@@ -387,8 +728,9 @@ fn refine(field: &ClumpField, points: &mut Vec<SurfacePoint>, tris: &mut Vec<Tri
 /// times the path length between them.
 fn limit_slope(points: &[SurfacePoint], neighbours: &[Vec<u32>], tops: &mut [f32], max_slope: f32) {
     // Spread the low heights outward, lowest first.
-    let mut queue: BinaryHeap<Reverse<(OrderedHeight, u32)>> =
-        (0..tops.len() as u32).map(|v| Reverse((OrderedHeight(tops[v as usize]), v))).collect();
+    let mut queue: BinaryHeap<Reverse<(OrderedHeight, u32)>> = (0..tops.len() as u32)
+        .map(|v| Reverse((OrderedHeight(tops[v as usize]), v)))
+        .collect();
     while let Some(Reverse((OrderedHeight(h), v))) = queue.pop() {
         if h > tops[v as usize] {
             continue;
@@ -416,6 +758,36 @@ fn mean_edge_length(points: &[SurfacePoint], tris: &[Tri]) -> f32 {
         .map(|(a, b)| points[a as usize].point.distance(points[b as usize].point))
         .sum();
     total / (tris.len() * 3) as f32
+}
+
+/// Picks how to sink surface point `p` up to `wanted` below the surface.
+/// Tries against the push direction `dir` first, then against the surface
+/// normal, taking the first that really leads behind the surface; the depth
+/// is capped at [`GAP_FILL`] of the way to where the input ends. Returns the
+/// outward direction to move against and the depth, which is 0 if neither
+/// direction leads behind the surface (a sharp ridge, for example).
+fn sink(field: &ClumpField, p: &SurfacePoint, dir: Vec3, wanted: f32) -> (Vec3, f32) {
+    for d in [dir, p.normal] {
+        if let Some(run) = field.inside_run(p.point, -d) {
+            return (d, wanted.min(GAP_FILL * run));
+        }
+    }
+    (dir, 0.0)
+}
+
+/// Returns unit direction `dir` turned toward unit normal `normal` just enough
+/// that the angle between them is at most [`MAX_PUSH_TILT`] radians.
+fn limit_tilt(dir: Vec3, normal: Vec3) -> Vec3 {
+    let cos = dir.dot(normal);
+    if cos >= MAX_PUSH_TILT.cos() {
+        return dir;
+    }
+    // Rotate within the plane of the two vectors to sit at the limit.
+    let side = (dir - normal * cos).normalize_or_zero();
+    if side == Vec3::ZERO {
+        return normal;
+    }
+    normal * MAX_PUSH_TILT.cos() + side * MAX_PUSH_TILT.sin()
 }
 
 /// Returns each vertex's neighbours along triangle edges, sorted.
@@ -504,7 +876,10 @@ fn face_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {
             normals[i as usize] += n;
         }
     }
-    normals.into_iter().map(|n| n.normalize_or_zero().to_array()).collect()
+    normals
+        .into_iter()
+        .map(|n| n.normalize_or_zero().to_array())
+        .collect()
 }
 
 #[cfg(test)]
@@ -514,8 +889,17 @@ mod tests {
     #[test]
     fn a_pinched_sheet_closes_into_a_manifold_solid() {
         // Two flat triangles that touch only at vertex 0: a bowtie.
-        let corners = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [-1.0, 0.0, 1.0]];
-        let bottoms: Vec<Vec3> = corners.iter().map(|&[x, _, z]| Vec3::new(x, -0.05, z)).collect();
+        let corners = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, -1.0],
+            [-1.0, 0.0, 0.0],
+            [-1.0, 0.0, 1.0],
+        ];
+        let bottoms: Vec<Vec3> = corners
+            .iter()
+            .map(|&[x, _, z]| Vec3::new(x, -0.05, z))
+            .collect();
         let mut mesh = ClumpMesh {
             positions: corners.iter().map(|&[x, _, z]| [x, 0.1, z]).collect(),
             fade: vec![1.0; corners.len()],

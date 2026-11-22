@@ -41,10 +41,10 @@
 //! ```
 //!
 //! Colours are sRGB, as in `Color::srgb`, or hexadecimal text. The crate's
-//! `assets/grass_plants` and `assets/grass_fields` folders hold every preset
+//! `assets/plants` and `assets/fields` folders hold every preset
 //! as a file to copy from.
 //!
-//! [`GrassPlant::to_json`], [`GrassField::to_json`] and their `from_json`
+//! [`PlantParams::to_json`], [`PlantField::to_json`] and their `from_json`
 //! counterparts save and load the same settings as JSON. Field files omit
 //! size, ground and density maps; set those on the field in the game.
 
@@ -63,7 +63,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{
-    FieldPlant, GrassAccent, GrassArrangement, GrassBranches, GrassField, GrassPlant, GrassSegment,
+    FieldPlant, PlantAccent, PlantArrangement, PlantBranches, PlantField, PlantParams, PlantSegment,
 };
 use crate::look::{MAX_BRANCHES, MAX_PLANTS, MAX_STEMS_PER_PLANT};
 use crate::presets::{FieldPreset, PlantPreset};
@@ -71,7 +71,7 @@ use crate::presets::{FieldPreset, PlantPreset};
 /// The group of a preset loaded from a file.
 const FILE_GROUP: &str = "File";
 
-impl GrassPlant {
+impl PlantParams {
     /// Reads a plant from the text of a `.plant.ron` file.
     ///
     /// A `name` or `description` in the file is ignored; use
@@ -79,10 +79,10 @@ impl GrassPlant {
     ///
     /// # Errors
     ///
-    /// Returns [`GrassFileError`] for malformed RON, unknown settings or
+    /// Returns [`PlantFileError`] for malformed RON, unknown settings or
     /// base presets, or out-of-range values.
-    pub fn from_ron(text: &str) -> Result<Self, GrassFileError> {
-        parse_ron::<GrassPlantFile>(text)?.resolve()
+    pub fn from_ron(text: &str) -> Result<Self, PlantFileError> {
+        parse_ron::<PlantParamsFile>(text)?.resolve()
     }
 
     /// Writes all plant settings as a `.plant.ron` file.
@@ -95,7 +95,7 @@ impl GrassPlant {
     /// settings are serialisable, so this is not expected in normal use.
     #[must_use]
     pub fn to_ron(&self) -> String {
-        write_ron(&GrassPlantFile::from_plant(self))
+        write_ron(&PlantParamsFile::from_plant(self))
     }
 
     /// Reads plant settings from JSON.
@@ -106,10 +106,10 @@ impl GrassPlant {
     ///
     /// # Errors
     ///
-    /// Returns [`GrassFileError`] for malformed JSON, unknown settings or
+    /// Returns [`PlantFileError`] for malformed JSON, unknown settings or
     /// presets, or out-of-range values.
-    pub fn from_json(text: &str) -> Result<Self, GrassFileError> {
-        parse_json::<GrassPlantFile>(text)?.resolve()
+    pub fn from_json(text: &str) -> Result<Self, PlantFileError> {
+        parse_json::<PlantParamsFile>(text)?.resolve()
     }
 
     /// Writes all plant settings as formatted JSON.
@@ -122,12 +122,12 @@ impl GrassPlant {
     /// settings are serialisable, so this is not expected in normal use.
     #[must_use]
     pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(&GrassPlantFile::from_plant(self))
+        serde_json::to_string_pretty(&PlantParamsFile::from_plant(self))
             .expect("a plant always serializes")
     }
 }
 
-impl GrassField {
+impl PlantField {
     /// Reads a field's plants and look from the text of a `.field.ron` file.
     ///
     /// A file holds what a [`FieldPreset`] holds, so the field it gives has
@@ -137,10 +137,10 @@ impl GrassField {
     ///
     /// # Errors
     ///
-    /// Returns [`GrassFileError`] for malformed RON, unknown settings or
+    /// Returns [`PlantFileError`] for malformed RON, unknown settings or
     /// presets, or out-of-range values.
-    pub fn from_ron(text: &str) -> Result<Self, GrassFileError> {
-        parse_ron::<GrassFieldFile>(text)?.resolve()
+    pub fn from_ron(text: &str) -> Result<Self, PlantFileError> {
+        parse_ron::<PlantFieldFile>(text)?.resolve()
     }
 
     /// Writes the field's plants and appearance as a `.field.ron` file.
@@ -154,7 +154,7 @@ impl GrassField {
     /// settings are serialisable, so this is not expected in normal use.
     #[must_use]
     pub fn to_ron(&self) -> String {
-        write_ron(&GrassFieldFile::from_field(self))
+        write_ron(&PlantFieldFile::from_field(self))
     }
 
     /// Reads the field's plants and appearance from JSON.
@@ -164,10 +164,10 @@ impl GrassField {
     ///
     /// # Errors
     ///
-    /// Returns [`GrassFileError`] for malformed JSON, unknown settings or
+    /// Returns [`PlantFileError`] for malformed JSON, unknown settings or
     /// presets, or out-of-range values.
-    pub fn from_json(text: &str) -> Result<Self, GrassFileError> {
-        parse_json::<GrassFieldFile>(text)?.resolve()
+    pub fn from_json(text: &str) -> Result<Self, PlantFileError> {
+        parse_json::<PlantFieldFile>(text)?.resolve()
     }
 
     /// Writes the field's plants and appearance as formatted JSON.
@@ -182,7 +182,7 @@ impl GrassField {
     /// settings are serialisable, so this is not expected in normal use.
     #[must_use]
     pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(&GrassFieldFile::from_field(self))
+        serde_json::to_string_pretty(&PlantFieldFile::from_field(self))
             .expect("a field always serializes")
     }
 }
@@ -196,10 +196,10 @@ impl PlantPreset {
     ///
     /// # Errors
     ///
-    /// Returns [`GrassFileError`] for malformed RON, unknown settings or
+    /// Returns [`PlantFileError`] for malformed RON, unknown settings or
     /// base presets, or out-of-range values.
-    pub fn from_ron(key: &str, text: &str) -> Result<Self, GrassFileError> {
-        let file = parse_ron::<GrassPlantFile>(text)?;
+    pub fn from_ron(key: &str, text: &str) -> Result<Self, PlantFileError> {
+        let file = parse_ron::<PlantParamsFile>(text)?;
         Ok(Self {
             key: Cow::Owned(key.to_owned()),
             name: Cow::Owned(file.name.clone().unwrap_or_else(|| key.to_owned())),
@@ -219,10 +219,10 @@ impl PlantPreset {
     /// settings are serialisable, so this is not expected in normal use.
     #[must_use]
     pub fn to_ron(&self) -> String {
-        write_ron(&GrassPlantFile {
+        write_ron(&PlantParamsFile {
             name: Some(self.name.to_string()),
             description: Some(self.description.to_string()),
-            ..GrassPlantFile::from_plant(&self.plant)
+            ..PlantParamsFile::from_plant(&self.plant)
         })
     }
 }
@@ -236,10 +236,10 @@ impl FieldPreset {
     ///
     /// # Errors
     ///
-    /// Returns [`GrassFileError`] for malformed RON, unknown settings or
+    /// Returns [`PlantFileError`] for malformed RON, unknown settings or
     /// presets, or out-of-range values.
-    pub fn from_ron(key: &str, text: &str) -> Result<Self, GrassFileError> {
-        let file = parse_ron::<GrassFieldFile>(text)?;
+    pub fn from_ron(key: &str, text: &str) -> Result<Self, PlantFileError> {
+        let file = parse_ron::<PlantFieldFile>(text)?;
         let name = file.name.clone().unwrap_or_else(|| key.to_owned());
         let description = file.description.clone().unwrap_or_default();
         Ok(Self {
@@ -262,10 +262,10 @@ impl FieldPreset {
     /// settings are serialisable, so this is not expected in normal use.
     #[must_use]
     pub fn to_ron(&self) -> String {
-        write_ron(&GrassFieldFile {
+        write_ron(&PlantFieldFile {
             name: Some(self.name.to_string()),
             description: Some(self.description.to_string()),
-            ..GrassFieldFile::from_field(&self.field)
+            ..PlantFieldFile::from_field(&self.field)
         })
     }
 }
@@ -276,10 +276,10 @@ fn options() -> ron::Options {
 }
 
 /// Parses RON settings and preserves the line and column of parse errors.
-fn parse_ron<T: DeserializeOwned>(text: &str) -> Result<T, GrassFileError> {
+fn parse_ron<T: DeserializeOwned>(text: &str) -> Result<T, PlantFileError> {
     options()
         .from_str(text)
-        .map_err(|error| GrassFileError::Parse {
+        .map_err(|error| PlantFileError::Parse {
             line: error.span.start.line,
             column: error.span.start.col,
             message: error.code.to_string(),
@@ -287,8 +287,8 @@ fn parse_ron<T: DeserializeOwned>(text: &str) -> Result<T, GrassFileError> {
 }
 
 /// Parses JSON settings and preserves the line and column of parse errors.
-fn parse_json<T: DeserializeOwned>(text: &str) -> Result<T, GrassFileError> {
-    serde_json::from_str(text).map_err(|error| GrassFileError::Parse {
+fn parse_json<T: DeserializeOwned>(text: &str) -> Result<T, PlantFileError> {
+    serde_json::from_str(text).map_err(|error| PlantFileError::Parse {
         line: error.line(),
         column: error.column(),
         message: error.to_string(),
@@ -352,18 +352,18 @@ impl FileValue for Color {
     }
 }
 
-impl FileValue for GrassArrangement {
+impl FileValue for PlantArrangement {
     type File = FileArrangement;
     fn to_file(&self) -> FileArrangement {
         match self {
-            GrassArrangement::Opposite => FileArrangement::Opposite,
-            GrassArrangement::Alternate => FileArrangement::Alternate,
+            PlantArrangement::Opposite => FileArrangement::Opposite,
+            PlantArrangement::Alternate => FileArrangement::Alternate,
         }
     }
-    fn from_file(file: FileArrangement) -> GrassArrangement {
+    fn from_file(file: FileArrangement) -> PlantArrangement {
         match file {
-            FileArrangement::Opposite => GrassArrangement::Opposite,
-            FileArrangement::Alternate => GrassArrangement::Alternate,
+            FileArrangement::Opposite => PlantArrangement::Opposite,
+            FileArrangement::Alternate => PlantArrangement::Alternate,
         }
     }
 }
@@ -482,7 +482,7 @@ macro_rules! settings_file {
 
 settings_file! {
     /// Optional `segment: (...)` overrides for a main stem or branch level.
-    struct GrassSegmentFile for GrassSegment {
+    struct PlantSegmentFile for PlantSegment {
         profile: f32,
         stiffness: f32,
         droop: f32,
@@ -496,9 +496,9 @@ settings_file! {
 
 settings_file! {
     /// Optional overrides for one entry in a plant's `levels` list.
-    struct GrassBranchesFile for GrassBranches {
+    struct PlantBranchesFile for PlantBranches {
         count: u32,
-        arrangement: GrassArrangement,
+        arrangement: PlantArrangement,
         attachment_start: f32,
         length: f32,
         length_envelope: f32,
@@ -508,14 +508,14 @@ settings_file! {
     }
     extra {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        segment: Option<GrassSegmentFile>,
+        segment: Option<PlantSegmentFile>,
     }
 }
 
 settings_file! {
     /// A plant: a `.plant.ron` file, or a plant written inline in a field
     /// file. `base` selects a plant preset before these overrides apply.
-    struct GrassPlantFile for GrassPlant {
+    struct PlantParamsFile for PlantParams {
         density: f32,
         height: Vec2,
         width: f32,
@@ -540,17 +540,17 @@ settings_file! {
     }
     extra {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        segment: Option<GrassSegmentFile>,
+        segment: Option<PlantSegmentFile>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        levels: Option<Vec<GrassBranchesFile>>,
+        levels: Option<Vec<PlantBranchesFile>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        accent: Option<GrassAccentFile>,
+        accent: Option<PlantAccentFile>,
     }
 }
 
 settings_file! {
     /// Optional `accent: (...)` overrides for a plant's accent stems.
-    struct GrassAccentFile for GrassAccent {
+    struct PlantAccentFile for PlantAccent {
         share: f32,
         height: Vec2,
         width: f32,
@@ -562,21 +562,21 @@ settings_file! {
     }
     extra {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        segment: Option<GrassSegmentFile>,
+        segment: Option<PlantSegmentFile>,
     }
 }
 
-impl GrassAccentFile {
+impl PlantAccentFile {
     /// Captures every accent setting, including its segment, for serialisation.
-    fn from_accent(accent: &GrassAccent) -> Self {
+    fn from_accent(accent: &PlantAccent) -> Self {
         Self {
-            segment: Some(GrassSegmentFile::plain_from(&accent.segment)),
+            segment: Some(PlantSegmentFile::plain_from(&accent.segment)),
             ..Self::plain_from(accent)
         }
     }
 
     /// Applies accent and segment overrides while preserving omitted values.
-    fn apply(&self, accent: &mut GrassAccent) {
+    fn apply(&self, accent: &mut PlantAccent) {
         self.apply_plain(accent);
         if let Some(segment) = &self.segment {
             segment.apply(&mut accent.segment);
@@ -584,24 +584,24 @@ impl GrassAccentFile {
     }
 }
 
-impl GrassSegmentFile {
+impl PlantSegmentFile {
     /// Applies supplied segment settings without replacing omitted values.
-    fn apply(&self, segment: &mut GrassSegment) {
+    fn apply(&self, segment: &mut PlantSegment) {
         self.apply_plain(segment);
     }
 }
 
-impl GrassBranchesFile {
+impl PlantBranchesFile {
     /// Captures every branch setting, including its segment, for serialisation.
-    fn from_branches(branches: &GrassBranches) -> Self {
+    fn from_branches(branches: &PlantBranches) -> Self {
         Self {
-            segment: Some(GrassSegmentFile::plain_from(&branches.segment)),
+            segment: Some(PlantSegmentFile::plain_from(&branches.segment)),
             ..Self::plain_from(branches)
         }
     }
 
     /// Applies branch and segment overrides while preserving omitted values.
-    fn apply(&self, branches: &mut GrassBranches) {
+    fn apply(&self, branches: &mut PlantBranches) {
         self.apply_plain(branches);
         if let Some(segment) = &self.segment {
             segment.apply(&mut branches.segment);
@@ -609,37 +609,37 @@ impl GrassBranchesFile {
     }
 }
 
-impl GrassPlantFile {
+impl PlantParamsFile {
     /// Captures all plant settings without relying on a base preset. Omits
-    /// `levels` only when both exactly equal `GrassBranches::NONE`, and
-    /// `accent` only when it exactly equals `GrassAccent::NONE`, matching the
+    /// `levels` only when both exactly equal `PlantBranches::NONE`, and
+    /// `accent` only when it exactly equals `PlantAccent::NONE`, matching the
     /// defaults when the file is read again.
-    fn from_plant(plant: &GrassPlant) -> Self {
+    fn from_plant(plant: &PlantParams) -> Self {
         let unbranched = plant
             .levels
             .iter()
-            .all(|level| *level == GrassBranches::NONE);
+            .all(|level| *level == PlantBranches::NONE);
         Self {
-            segment: Some(GrassSegmentFile::plain_from(&plant.segment)),
+            segment: Some(PlantSegmentFile::plain_from(&plant.segment)),
             levels: (!unbranched).then(|| {
                 plant
                     .levels
                     .iter()
-                    .map(GrassBranchesFile::from_branches)
+                    .map(PlantBranchesFile::from_branches)
                     .collect()
             }),
-            accent: (plant.accent != GrassAccent::NONE)
-                .then(|| GrassAccentFile::from_accent(&plant.accent)),
+            accent: (plant.accent != PlantAccent::NONE)
+                .then(|| PlantAccentFile::from_accent(&plant.accent)),
             ..Self::plain_from(plant)
         }
     }
 
     /// Applies overrides to the named base plant, or `MEADOW_GRASS`, then
     /// validates the result.
-    fn resolve(&self) -> Result<GrassPlant, GrassFileError> {
+    fn resolve(&self) -> Result<PlantParams, PlantFileError> {
         let mut plant = match &self.base {
             Some(key) => plant_preset(key)?.plant,
-            None => GrassPlant::MEADOW_GRASS,
+            None => PlantParams::MEADOW_GRASS,
         };
         self.apply_plain(&mut plant);
         if let Some(segment) = &self.segment {
@@ -647,7 +647,7 @@ impl GrassPlantFile {
         }
         if let Some(levels) = &self.levels {
             if levels.len() > plant.levels.len() {
-                return Err(GrassFileError::Invalid(
+                return Err(PlantFileError::Invalid(
                     "a plant has at most 2 levels of branches",
                 ));
             }
@@ -664,13 +664,13 @@ impl GrassPlantFile {
 }
 
 /// Looks up a plant preset by key, reporting an unknown key as an error.
-fn plant_preset(key: &str) -> Result<&'static PlantPreset, GrassFileError> {
-    PlantPreset::named(key).ok_or_else(|| GrassFileError::UnknownPlant(key.to_owned()))
+fn plant_preset(key: &str) -> Result<&'static PlantPreset, PlantFileError> {
+    PlantPreset::named(key).ok_or_else(|| PlantFileError::UnknownPlant(key.to_owned()))
 }
 
 /// Looks up a field preset by key, reporting an unknown key as an error.
-fn field_preset(key: &str) -> Result<&'static FieldPreset, GrassFileError> {
-    FieldPreset::named(key).ok_or_else(|| GrassFileError::UnknownField(key.to_owned()))
+fn field_preset(key: &str) -> Result<&'static FieldPreset, PlantFileError> {
+    FieldPreset::named(key).ok_or_else(|| PlantFileError::UnknownField(key.to_owned()))
 }
 
 /// A built-in plant key or inline plant settings in a field file.
@@ -680,19 +680,19 @@ fn field_preset(key: &str) -> Result<&'static FieldPreset, GrassFileError> {
 #[derive(Debug)]
 enum PlantRef {
     Preset(String),
-    Inline(Box<GrassPlantFile>),
+    Inline(Box<PlantParamsFile>),
 }
 
 impl PlantRef {
     /// The key of the preset equal to `plant`, or the plant written out.
-    fn from_plant(plant: &GrassPlant) -> Self {
+    fn from_plant(plant: &PlantParams) -> Self {
         match PlantPreset::all().find(|preset| preset.plant == *plant) {
             Some(preset) => Self::Preset(preset.key.to_string()),
-            None => Self::Inline(Box::new(GrassPlantFile::from_plant(plant))),
+            None => Self::Inline(Box::new(PlantParamsFile::from_plant(plant))),
         }
     }
 
-    fn resolve(&self) -> Result<GrassPlant, GrassFileError> {
+    fn resolve(&self) -> Result<PlantParams, PlantFileError> {
         match self {
             Self::Preset(key) => Ok(plant_preset(key)?.plant),
             Self::Inline(file) => file.resolve(),
@@ -728,7 +728,7 @@ impl<'de> Deserialize<'de> for PlantRef {
             }
 
             fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<PlantRef, A::Error> {
-                GrassPlantFile::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+                PlantParamsFile::deserialize(serde::de::value::MapAccessDeserializer::new(map))
                     .map(|file| PlantRef::Inline(Box::new(file)))
             }
         }
@@ -759,16 +759,16 @@ impl FieldPlantFile {
         }
     }
 
-    fn resolve(&self) -> Result<FieldPlant, GrassFileError> {
+    fn resolve(&self) -> Result<FieldPlant, PlantFileError> {
         let density_scale = self.density_scale.unwrap_or(1.0);
         if density_scale < 0.0 || !density_scale.is_finite() {
-            return Err(GrassFileError::Invalid(
+            return Err(PlantFileError::Invalid(
                 "a plant's density_scale must be at least 0",
             ));
         }
         let clustering = self.clustering.unwrap_or(0.0);
         if !(0.0..=1.0).contains(&clustering) {
-            return Err(GrassFileError::Invalid(
+            return Err(PlantFileError::Invalid(
                 "a plant's clustering must be from 0 to 1",
             ));
         }
@@ -778,7 +778,7 @@ impl FieldPlantFile {
     }
 }
 
-/// Maps a field file's settings to their paths in `GrassField`.
+/// Maps a field file's settings to their paths in `PlantField`.
 macro_rules! field_file {
     (
         $( $fname:ident : $fty:ty => $($fpath:ident).+ ),* $(,)?
@@ -787,7 +787,7 @@ macro_rules! field_file {
         /// optional.
         #[derive(Debug, Default, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct GrassFieldFile {
+        struct PlantFieldFile {
             #[serde(default, skip_serializing_if = "Option::is_none")]
             name: Option<String>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -802,10 +802,10 @@ macro_rules! field_file {
             plants: Option<Vec<FieldPlantFile>>,
         }
 
-        impl GrassFieldFile {
+        impl PlantFieldFile {
             /// A file that sets every setting of `field` but its size,
             /// ground and map.
-            fn from_field(field: &GrassField) -> Self {
+            fn from_field(field: &PlantField) -> Self {
                 Self {
                     name: None,
                     description: None,
@@ -816,7 +816,7 @@ macro_rules! field_file {
             }
 
             /// The settings the file gives, over `field`.
-            fn apply_plain(&self, field: &mut GrassField) {
+            fn apply_plain(&self, field: &mut PlantField) {
                 $(
                     if let Some(value) = self.$fname {
                         field.$($fpath).+ = <$fty as FileValue>::from_file(value);
@@ -842,9 +842,9 @@ field_file! {
     bare_patch_size: f32 => variation.bare_patch_size,
 }
 
-impl GrassFieldFile {
+impl PlantFieldFile {
     /// The base preset's field with the file's settings over it, validated.
-    fn resolve(&self) -> Result<GrassField, GrassFileError> {
+    fn resolve(&self) -> Result<PlantField, PlantFileError> {
         // Start from the base preset, then apply the plain settings and plants.
         let base = self
             .base
@@ -854,7 +854,7 @@ impl GrassFieldFile {
         self.apply_plain(&mut field);
         if let Some(plants) = &self.plants {
             if plants.len() > MAX_PLANTS {
-                return Err(GrassFileError::Invalid("a field grows at most 16 plants"));
+                return Err(PlantFileError::Invalid("a field grows at most 16 plants"));
             }
             field.plants = Cow::Owned(
                 plants
@@ -866,19 +866,19 @@ impl GrassFieldFile {
 
         // Check the field-wide settings.
         if !field.plants.iter().any(|entry| entry.density() > 0.0) {
-            return Err(GrassFileError::Invalid(
+            return Err(PlantFileError::Invalid(
                 "a field needs a plant with a density above 0",
             ));
         }
         if field.density_scale < 0.0 || !field.density_scale.is_finite() {
-            return Err(GrassFileError::Invalid("density_scale must be at least 0"));
+            return Err(PlantFileError::Invalid("density_scale must be at least 0"));
         }
         if field.wind_scale < 0.0 || field.wind_scale.is_nan() {
-            return Err(GrassFileError::Invalid("wind_scale must be at least 0"));
+            return Err(PlantFileError::Invalid("wind_scale must be at least 0"));
         }
         let variation = &field.variation;
         if !(variation.patch_size > 0.0 && variation.bare_patch_size > 0.0) {
-            return Err(GrassFileError::Invalid(
+            return Err(PlantFileError::Invalid(
                 "patch_size and bare_patch_size must be above 0",
             ));
         }
@@ -889,34 +889,34 @@ impl GrassFieldFile {
 /// Checks supported plant dimensions, stem counts and shape settings.
 /// Accepts height limits in either order and keeps valid settings for hidden
 /// branches or heads so they can be used again when enabled.
-fn validate_plant(plant: &GrassPlant) -> Result<(), GrassFileError> {
+fn validate_plant(plant: &PlantParams) -> Result<(), PlantFileError> {
     if plant.density < 0.0 || !plant.density.is_finite() {
-        return Err(GrassFileError::Invalid("density must be at least 0"));
+        return Err(PlantFileError::Invalid("density must be at least 0"));
     }
     let (shortest, tallest) = plant.height_range();
     if !(shortest >= 0.0 && tallest > 0.0) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "height must be two lengths of at least 0, one of them above 0",
         ));
     }
     if plant.width.is_nan() || plant.width <= 0.0 {
-        return Err(GrassFileError::Invalid("width must be above 0"));
+        return Err(PlantFileError::Invalid("width must be above 0"));
     }
     if !(0.0..0.9).contains(&plant.head_length) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "head_length must be at least 0 and below 0.9",
         ));
     }
     if !(1..=MAX_STEMS_PER_PLANT).contains(&plant.stems_per_plant) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "stems_per_plant must be from 1 to 8",
         ));
     }
     if !(0.0..=1.0).contains(&plant.tufts) {
-        return Err(GrassFileError::Invalid("tufts must be from 0 to 1"));
+        return Err(PlantFileError::Invalid("tufts must be from 0 to 1"));
     }
     if plant.tuft_size <= 0.0 || plant.tuft_size.is_nan() {
-        return Err(GrassFileError::Invalid("tuft_size must be above 0"));
+        return Err(PlantFileError::Invalid("tuft_size must be above 0"));
     }
     validate_segment(&plant.segment)?;
     for level in &plant.levels {
@@ -926,23 +926,23 @@ fn validate_plant(plant: &GrassPlant) -> Result<(), GrassFileError> {
 }
 
 /// Checks an accent's share, and, as for a plant, its size, head and shape.
-fn validate_accent(accent: &GrassAccent) -> Result<(), GrassFileError> {
+fn validate_accent(accent: &PlantAccent) -> Result<(), PlantFileError> {
     if !(0.0..=1.0).contains(&accent.share) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "an accent's share must be from 0 to 1",
         ));
     }
     let (shortest, tallest) = (accent.height.min_element(), accent.height.max_element());
     if !(shortest >= 0.0 && tallest > 0.0) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "an accent's height must be two lengths of at least 0, one of them above 0",
         ));
     }
     if accent.width.is_nan() || accent.width <= 0.0 {
-        return Err(GrassFileError::Invalid("an accent's width must be above 0"));
+        return Err(PlantFileError::Invalid("an accent's width must be above 0"));
     }
     if !(0.0..0.9).contains(&accent.head_length) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "an accent's head_length must be at least 0 and below 0.9",
         ));
     }
@@ -950,22 +950,22 @@ fn validate_accent(accent: &GrassAccent) -> Result<(), GrassFileError> {
 }
 
 /// Checks the segment profile range for main stems and both branch levels.
-fn validate_segment(segment: &GrassSegment) -> Result<(), GrassFileError> {
+fn validate_segment(segment: &PlantSegment) -> Result<(), PlantFileError> {
     if !(0.0..=1.0).contains(&segment.profile) {
-        return Err(GrassFileError::Invalid("profile must be from 0 to 1"));
+        return Err(PlantFileError::Invalid("profile must be from 0 to 1"));
     }
     Ok(())
 }
 
 /// Checks branch counts, attachment positions, dimensions and segment settings.
-fn validate_branches(branches: &GrassBranches) -> Result<(), GrassFileError> {
+fn validate_branches(branches: &PlantBranches) -> Result<(), PlantFileError> {
     if branches.count > MAX_BRANCHES {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "a level of branches has a count of at most 32",
         ));
     }
     if !(0.0..1.0).contains(&branches.attachment_start) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "attachment_start must be at least 0 and below 1",
         ));
     }
@@ -973,12 +973,12 @@ fn validate_branches(branches: &GrassBranches) -> Result<(), GrassFileError> {
         .iter()
         .all(|value| (0.0..=1.0).contains(value))
     {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "length_envelope, angle and spread must be from 0 to 1",
         ));
     }
     if !(branches.length >= 0.0 && branches.width >= 0.0) {
-        return Err(GrassFileError::Invalid(
+        return Err(PlantFileError::Invalid(
             "a level's length and width must be at least 0",
         ));
     }
@@ -991,7 +991,7 @@ fn validate_branches(branches: &GrassBranches) -> Result<(), GrassFileError> {
 /// invalid setting values.
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum GrassFileError {
+pub enum PlantFileError {
     /// The file could not be read.
     Io(std::io::Error),
     /// The text could not be parsed as plant or field settings.
@@ -1013,7 +1013,7 @@ pub enum GrassFileError {
     Invalid(&'static str),
 }
 
-impl fmt::Display for GrassFileError {
+impl fmt::Display for PlantFileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let keys =
             |keys: &mut dyn Iterator<Item = &'static str>| keys.collect::<Vec<_>>().join(", ");
@@ -1039,7 +1039,7 @@ impl fmt::Display for GrassFileError {
     }
 }
 
-impl std::error::Error for GrassFileError {}
+impl std::error::Error for PlantFileError {}
 
 /// The key of a loaded file: its name without the `.plant.ron` or
 /// `.field.ron` extension.
@@ -1054,35 +1054,35 @@ fn file_key(load_context: &LoadContext<'_>, extension: &str) -> String {
 }
 
 /// Reads a whole asset as UTF-8 text.
-async fn read_text(reader: &mut dyn Reader) -> Result<String, GrassFileError> {
+async fn read_text(reader: &mut dyn Reader) -> Result<String, PlantFileError> {
     let mut bytes = Vec::new();
     reader
         .read_to_end(&mut bytes)
         .await
-        .map_err(GrassFileError::Io)?;
+        .map_err(PlantFileError::Io)?;
     String::from_utf8(bytes).map_err(|error| {
-        GrassFileError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+        PlantFileError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
     })
 }
 
 /// Loads `.plant.ron` files as [`PlantPreset`] assets.
 ///
-/// Registered by [`GrassFilePlugin`]. The asset key is the filename without
+/// Registered by [`PlantFilePlugin`]. The asset key is the filename without
 /// the `.plant.ron` extension.
 #[derive(Debug, Default, TypePath)]
-pub struct GrassPlantLoader;
+pub struct PlantParamsLoader;
 
-impl AssetLoader for GrassPlantLoader {
+impl AssetLoader for PlantParamsLoader {
     type Asset = PlantPreset;
     type Settings = ();
-    type Error = GrassFileError;
+    type Error = PlantFileError;
 
     async fn load(
         &self,
         reader: &mut dyn Reader,
         _settings: &(),
         load_context: &mut LoadContext<'_>,
-    ) -> Result<PlantPreset, GrassFileError> {
+    ) -> Result<PlantPreset, PlantFileError> {
         let text = read_text(reader).await?;
         PlantPreset::from_ron(&file_key(load_context, ".plant.ron"), &text)
     }
@@ -1094,22 +1094,22 @@ impl AssetLoader for GrassPlantLoader {
 
 /// Loads `.field.ron` files as [`FieldPreset`] assets.
 ///
-/// Registered by [`GrassFilePlugin`]. The asset key is the filename without
+/// Registered by [`PlantFilePlugin`]. The asset key is the filename without
 /// the `.field.ron` extension.
 #[derive(Debug, Default, TypePath)]
-pub struct GrassFieldLoader;
+pub struct PlantFieldLoader;
 
-impl AssetLoader for GrassFieldLoader {
+impl AssetLoader for PlantFieldLoader {
     type Asset = FieldPreset;
     type Settings = ();
-    type Error = GrassFileError;
+    type Error = PlantFileError;
 
     async fn load(
         &self,
         reader: &mut dyn Reader,
         _settings: &(),
         load_context: &mut LoadContext<'_>,
-    ) -> Result<FieldPreset, GrassFileError> {
+    ) -> Result<FieldPreset, PlantFileError> {
         let text = read_text(reader).await?;
         FieldPreset::from_ron(&file_key(load_context, ".field.ron"), &text)
     }
@@ -1121,13 +1121,13 @@ impl AssetLoader for GrassFieldLoader {
 
 /// Loads plant and field files and provides the built-in preset assets.
 ///
-/// Part of [`GrassPlugins`](crate::GrassPlugins); requires
-/// [`GrassPlugin`](crate::GrassPlugin).
+/// Part of [`PlantPlugins`](crate::PlantPlugins); requires
+/// [`PlantPlugin`](crate::PlantPlugin).
 ///
 /// Every preset is an asset of the `embedded` source, whatever the game's own
 /// asset folder holds, so a game can load one by path, to use as it is or to
 /// copy. A loaded field is a [`FieldPreset`]; copy its field onto a
-/// [`GrassField`] once it has loaded. Keep watching for asset changes and
+/// [`PlantField`] once it has loaded. Keep watching for asset changes and
 /// copy the settings again if the field should follow live file edits:
 ///
 /// ```no_run
@@ -1143,7 +1143,7 @@ impl AssetLoader for GrassFieldLoader {
 ///
 /// fn spawn(mut commands: Commands, loading: Res<Loading>, presets: Res<Assets<FieldPreset>>) {
 ///     if let Some(preset) = presets.get(&loading.0) {
-///         commands.spawn(GrassField::from_preset(preset, Vec2::splat(64.0)));
+///         commands.spawn(PlantField::from_preset(preset, Vec2::splat(64.0)));
 ///         commands.remove_resource::<Loading>();
 ///     }
 /// }
@@ -1153,12 +1153,12 @@ impl AssetLoader for GrassFieldLoader {
 /// `embedded://procgena_plant/fields/meadow.field.ron` and
 /// `embedded://procgena_plant/plants/fern.plant.ron`, for example.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct GrassFilePlugin;
+pub struct PlantFilePlugin;
 
-impl Plugin for GrassFilePlugin {
+impl Plugin for PlantFilePlugin {
     fn build(&self, app: &mut App) {
-        app.init_asset_loader::<GrassPlantLoader>()
-            .init_asset_loader::<GrassFieldLoader>();
+        app.init_asset_loader::<PlantParamsLoader>()
+            .init_asset_loader::<PlantFieldLoader>();
         if let Some(registry) = app.world().get_resource::<EmbeddedAssetRegistry>() {
             // Generated from the presets, so an embedded preset cannot drift
             // from its constant or from the shipped file.

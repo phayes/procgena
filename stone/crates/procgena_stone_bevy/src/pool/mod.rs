@@ -44,7 +44,7 @@ pub(crate) use render::{PoolRenderPlugin, PoolShaders};
 pub struct StonePool {
     /// Settings shared by every variant. Variant `v` uses seed
     /// `options.seed + v`. [`MeshOptions::detail`](procgena_stone::MeshOptions::detail)
-    /// sets the detail levels, as for a [`ZeStone`](crate::ZeStone); their
+    /// sets the detail levels, as for a [`StoneParams`](crate::StoneParams); their
     /// resolutions must not exceed [`MAX_GPU_RESOLUTION`], and every level uses
     /// the nearest level's texture size. The material's colour, roughness,
     /// metalness, texture set and texture repeat size apply to every variant.
@@ -164,7 +164,7 @@ impl std::error::Error for StonePoolError {
 /// Draws one variant of a [`StonePool`] at this entity's transform.
 ///
 /// The rock appears once the pool is loaded and generated. Like a
-/// [`ZeStone`](crate::ZeStone), it sits approximately at local ground level
+/// [`StoneParams`](crate::StoneParams), it sits approximately at local ground level
 /// (`y = 0`), with settling controlled by the pool's placement settings.
 /// Burial is not applied automatically. Hidden entities are not drawn.
 /// Entities whose `variant` is not below the pool's

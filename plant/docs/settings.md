@@ -1,9 +1,9 @@
 # Quality and settings
 
-`GrassSettings` sets how far grass reaches, how dense it is, which blades cast
+`PlantSettings` sets how far grass reaches, how dense it is, which blades cast
 shadows, and how many blades and interactors each camera's buffers hold. It
 has a preset per hardware tier, every setting can change at runtime, and
-`GrassCamera` overrides some of them for one camera.
+`PlantCamera` overrides some of them for one camera.
 
 ## Pick a quality tier
 
@@ -11,11 +11,11 @@ Start from a tier and change what you like with struct update syntax, the
 same as for fields and wind:
 
 ```rust
-app.add_plugins(GrassPlugins.set(GrassPlugin {
-    settings: GrassSettings {
-        shadows: GrassShadows::Off,
+app.add_plugins(PlantPlugins.set(PlantPlugin {
+    settings: PlantSettings {
+        shadows: PlantShadows::Off,
         max_interactors: 512,
-        ..GrassSettings::MEDIUM
+        ..PlantSettings::MEDIUM
     },
     ..default()
 }));
@@ -29,12 +29,12 @@ app.add_plugins(GrassPlugins.set(GrassPlugin {
 | `High` (default) | RTX 3060 / RX 6700 | 100 m | 600,000 | 150,000 | 100% | Near |
 | `Ultra` | RTX 4070 and up | 150 m | 1,200,000 | 300,000 | 100% | Full |
 
-These are the `GrassSettings` constants `COMPETITIVE`, `LOW`, `MEDIUM`,
+These are the `PlantSettings` constants `COMPETITIVE`, `LOW`, `MEDIUM`,
 `HIGH` and `ULTRA`. `orthographic_lod` (the detail level orthographic cameras
 use: 3-row blades, or 7-row at Ultra) and `max_interactors` are not shown, and
 the [other settings](#tune-the-distances-the-blades-and-the-trampling) are
-the same in every tier. For a graphics menu, `GrassQuality` names the tiers
-(`GrassSettings::from(GrassQuality::High)`) and has a `const fn` for each
+the same in every tier. For a graphics menu, `PlantQuality` names the tiers
+(`PlantSettings::from(PlantQuality::High)`) and has a `const fn` for each
 column: `settings()`, `radius()`, `instance_capacity()`, `plant_capacity()`, `density_scale()`,
 `shadows()` and `orthographic_lod()`.
 
@@ -44,16 +44,16 @@ The settings are also a resource, so a graphics menu can change any of them
 while the game runs:
 
 ```rust
-fn apply_graphics_menu(mut grass: ResMut<GrassSettings>) {
-    *grass = GrassSettings::LOW;
-    grass.radius = 60.0; // Low, but reaching a little further
+fn apply_graphics_menu(mut settings: ResMut<PlantSettings>) {
+    *settings = PlantSettings::LOW;
+    settings.radius = 60.0; // Low, but reaching a little further
 }
 
-fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut grass: ResMut<GrassSettings>) {
+fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<PlantSettings>) {
     if keys.just_pressed(KeyCode::KeyG) {
-        grass.shadows = match grass.shadows {
-            GrassShadows::Off => GrassShadows::Near,
-            _ => GrassShadows::Off,
+        settings.shadows = match settings.shadows {
+            PlantShadows::Off => PlantShadows::Near,
+            _ => PlantShadows::Off,
         };
     }
 }
@@ -73,7 +73,7 @@ not that game. A small-grass game seen from a few metres, a strategy map seen
 from a kilometre, and a stylized low-poly meadow want different numbers:
 
 ```rust
-app.insert_resource(GrassSettings {
+app.insert_resource(PlantSettings {
     // A third-person camera that rarely looks far: full detail twice as far,
     // and no fade-out until nearly the edge.
     lod1_start: 0.4,
@@ -83,7 +83,7 @@ app.insert_resource(GrassSettings {
     blade_rows: [3, 2, 1],
     // Deep snow: trails take 6 s to fill in.
     trample_recovery: 6.0,
-    ..GrassSettings::HIGH
+    ..PlantSettings::HIGH
 });
 ```
 
@@ -110,8 +110,8 @@ The first eight are set by the tier:
 | `max_widening` | 2.5 | The most thinned blades widen, as a multiple of their width (1 to 3.2) |
 | `turn_to_camera` | 0.4 | How far an edge-on blade turns toward the camera: 0 thins to lines, 1 always faces it |
 | `orthographic_extent` | 256 m | Half the side of the square around an orthographic camera in which blades are stored (8 to 4,096). Blades further away are misplaced, so a map camera that sees a kilometre raises it; positions take 16 bits, so a bigger extent is coarser (8 mm at 256 m, 12 cm at 4,096 m) |
-| `max_chunk_slices` | 8,192 | Slices of visible chunks a camera generates a frame (1 to 65,535; 16 bytes each). A very dense field or a long radius needs more; `GrassStats::gpu.slices` shows what is used |
-| `readback_interval` | 120 | Frames between the GPU counter readbacks behind `GrassStats` and the overflow warnings; 0 never reads them |
+| `max_chunk_slices` | 8,192 | Slices of visible chunks a camera generates a frame (1 to 65,535; 16 bytes each). A very dense field or a long radius needs more; `PlantStats::gpu.slices` shows what is used |
+| `readback_interval` | 120 | Frames between the GPU counter readbacks behind `PlantStats` and the overflow warnings; 0 never reads them |
 | `trample_recovery` | 1.5 s | Time a fully flattened blade takes to spring back (0.01 and up) |
 | `trample_cell_size` | 0.25 m | Cell of the trample window, 0.05 to 2. The window is 256 cells across: 64 m by default, 512 m at 2 |
 | `max_interactor_radius` | 2 m | Largest interactor disc radius stamped, 0.1 to 16; the cost grows with its square. Footprints are not limited by it (they are clipped at 16 m per side) |
@@ -121,18 +121,18 @@ The wind has its own tunables; see [Wind](wind.md).
 ## Draw differently on one camera
 
 Settings that are about a view live on the camera, as Bevy's own `Msaa` and
-`Bloom` do. `GrassCamera` overrides any of `radius`, `density_scale`,
+`Bloom` do. `PlantCamera` overrides any of `radius`, `density_scale`,
 `min_width_px` and `shadows` for that camera; what it leaves at `None` follows
-`GrassSettings`, including when that changes:
+`PlantSettings`, including when that changes:
 
 ```rust
 // A minimap at low detail beside a main camera at the settings' High.
 commands.spawn((
     Camera3d::default(),
-    GrassCamera {
+    PlantCamera {
         radius: Some(30.0),
         density_scale: Some(0.4),
-        shadows: Some(GrassShadows::Off),
+        shadows: Some(PlantShadows::Off),
         ..default()
     },
 ));
@@ -141,7 +141,7 @@ commands.spawn((
 A camera far above the ground, like an ARPG's, wants thicker blades: its
 blades are thin on screen, so it asks for `min_width_px: Some(2.0)`. That is a
 property of the camera, not of the grass, which is why it is not on
-`GrassField`.
+`PlantField`.
 
 A perspective camera draws grass only within `radius` of the camera itself,
 in 3D: a camera 150 m above the ground reaches none at High's 100 m, however
@@ -157,19 +157,19 @@ A strategy or city-builder camera looks down on the grass from tens or
 hundreds of metres, and zooms. Four settings make grass work there:
 
 ```rust
-app.add_plugins(GrassPlugins.set(GrassPlugin {
-    settings: GrassSettings {
+app.add_plugins(PlantPlugins.set(PlantPlugin {
+    settings: PlantSettings {
         // The trample window follows the ground in view; 1 m cells make it
         // 256 m across instead of 64.
         trample_cell_size: 1.0,
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     },
     ..default()
 }));
 
 commands.spawn((
     Camera3d::default(),
-    GrassCamera {
+    PlantCamera {
         // Grass reaches `radius` across the ground, at any height.
         radius_from_ground: true,
         // Blades at least 2 pixels wide, however far.
@@ -186,14 +186,14 @@ commands.spawn((
   the ground would over `radius`. The ground in view grows with the square
   of the height, so the blades also thin by `(radius / (radius + h))²` and
   widen to cover: the number of blades stays about the same at any zoom,
-  and so does the cost. `GrassCamera::density_scale` buys density back where
+  and so does the cost. `PlantCamera::density_scale` buys density back where
   the GPU allows.
 - **`min_width_px`**: from 100 m a 1 cm blade is a tenth of a pixel. Two
   pixels keeps it visible.
 - **`trample_cell_size`**: the trample window moves onto the ground the
   camera shows (see [Trampling](trampling.md)), but at 0.25 m cells it is
   64 m across, less than such a camera sees.
-- **The ground.** Past the grass, `FarGrassMaterial` carries its colour and
+- **The ground.** Past the grass, `FarPlantMaterial` carries its colour and
   gusts ([Terrain](terrain.md#keep-the-grass-colour-past-the-last-blade)).
   Seen from above, the soil shows between the blades more than from the
   side: a soil close to the roots' colour keeps the field green.

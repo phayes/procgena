@@ -117,7 +117,7 @@ impl PoolLayouts {
     fn new() -> Self {
         // Binding numbers match `pool_draw.wesl` and `pool_cull.wesl`.
         let draw = BindGroupLayoutDescriptor::new(
-            "ze_stone_pool_draw",
+            "procgena_stone_pool_draw",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
                 (
@@ -134,7 +134,7 @@ impl PoolLayouts {
             ),
         );
         let cull = BindGroupLayoutDescriptor::new(
-            "ze_stone_pool_cull",
+            "procgena_stone_pool_cull",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
@@ -147,13 +147,13 @@ impl PoolLayouts {
             ),
         );
         let shadow_view = BindGroupLayoutDescriptor::new(
-            "ze_stone_pool_shadow_view",
+            "procgena_stone_pool_shadow_view",
             &BindGroupLayoutEntries::single(
                 ShaderStages::VERTEX,
                 uniform_buffer::<ViewUniform>(true),
             ),
         );
-        let empty = BindGroupLayoutDescriptor::new("ze_stone_pool_empty", &[]);
+        let empty = BindGroupLayoutDescriptor::new("procgena_stone_pool_empty", &[]);
         Self {
             draw,
             cull,

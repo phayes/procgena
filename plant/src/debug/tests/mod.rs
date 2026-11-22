@@ -23,10 +23,10 @@ fn camera_at(position: Vec3, forward: Vec3, orthographic: bool) -> TrampleView {
     TrampleView::new(
         &GlobalTransform::from(transform),
         &clip_from_view,
-        GrassSettings::HIGH.radius,
+        PlantSettings::HIGH.radius,
     )
 }
-use crate::api::{GrassField, GrassGround};
+use crate::api::{PlantField, PlantGround};
 
 /// An app with the plugin's tables, and fields visible as Bevy's
 /// visibility propagation would leave them.
@@ -35,12 +35,12 @@ fn app() -> App {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Image>()
         .init_asset::<bevy::mesh::Mesh>()
-        .init_resource::<GrassSettings>()
+        .init_resource::<PlantSettings>()
         .add_plugins(crate::fields::plugin);
     app
 }
 
-fn spawn(app: &mut App, field: GrassField, transform: Transform, visible: bool) {
+fn spawn(app: &mut App, field: PlantField, transform: Transform, visible: bool) {
     let mut entity = app
         .world_mut()
         .spawn((field, GlobalTransform::from(transform)));
@@ -74,7 +74,7 @@ fn rects(shapes: &[Shape]) -> Vec<(Vec2, Vec2, f32, Color)> {
 #[test]
 fn a_field_is_drawn_where_the_tables_have_it_scale_and_visibility_included() {
     let mut app = app();
-    let field = || GrassField {
+    let field = || PlantField {
         size: Vec2::splat(32.0),
         ..Default::default()
     };
@@ -123,9 +123,9 @@ fn a_heightmap_field_also_shows_its_highest_ground() {
         ));
     spawn(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(16.0),
-            ground: GrassGround::Heightmap {
+            ground: PlantGround::Heightmap {
                 image,
                 height_scale: 7.0,
             },
@@ -145,7 +145,7 @@ fn chunks_are_the_squares_the_gpu_culls_and_the_cap_holds() {
     let mut app = app();
     spawn(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(32.0),
             ..Default::default()
         },
@@ -183,7 +183,7 @@ fn an_interactor_is_drawn_as_the_disc_it_flattens_and_the_cut_off_part_is_red() 
             (at, 0.6, 0.0), // flattens nothing: grey
         ]
         .into_iter(),
-        GrassSettings::HIGH.max_interactor_radius,
+        PlantSettings::HIGH.max_interactor_radius,
     );
     let circle = |i: usize| match shapes[i] {
         Shape::Circle {
@@ -201,7 +201,7 @@ fn an_interactor_is_drawn_as_the_disc_it_flattens_and_the_cut_off_part_is_red() 
     );
     assert_eq!(
         circle(1).1,
-        GrassSettings::HIGH.max_interactor_radius,
+        PlantSettings::HIGH.max_interactor_radius,
         "what is flattened"
     );
     assert_eq!(circle(1).3, Color::from(css::YELLOW));
@@ -215,7 +215,7 @@ fn a_trample_window_is_where_the_renderer_puts_it() {
     let mut app = app();
     spawn(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(400.0),
             ..Default::default()
         },
@@ -229,7 +229,7 @@ fn a_trample_window_is_where_the_renderer_puts_it() {
     let window = trample_shapes(
         [camera_at(position, Vec3::NEG_Z, false)].into_iter(),
         &tables,
-        GrassSettings::HIGH.trample_cell_size,
+        PlantSettings::HIGH.trample_cell_size,
     );
     let [(min, size, y, _)] = rects(&window)[..] else {
         panic!("one window");
@@ -247,7 +247,7 @@ fn a_trample_window_is_where_the_renderer_puts_it() {
     let window = trample_shapes(
         [camera_at(high, forward, true)].into_iter(),
         &tables,
-        GrassSettings::HIGH.trample_cell_size,
+        PlantSettings::HIGH.trample_cell_size,
     );
     let [(min, size, ..)] = rects(&window)[..] else {
         panic!("one window");
@@ -293,7 +293,7 @@ fn the_toggles_decide_what_is_shown() {
     let mut app = app();
     spawn(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(32.0),
             ..Default::default()
         },
@@ -304,33 +304,33 @@ fn the_toggles_decide_what_is_shown() {
     let camera = || [camera_at(Vec3::new(0.0, 1.7, 0.0), Vec3::NEG_Z, false)].into_iter();
     let bunny = || [(Vec3::ZERO, 0.6, 1.0)].into_iter();
     let count =
-        |debug: GrassDebug| shapes(&debug, &GrassSettings::HIGH, &tables, bunny(), camera()).len();
+        |debug: PlantDebug| shapes(&debug, &PlantSettings::HIGH, &tables, bunny(), camera()).len();
 
-    let none = GrassDebug {
+    let none = PlantDebug {
         enabled: true,
         fields: false,
         chunks: false,
         interactors: false,
         trample_windows: false,
-        ..GrassDebug::default()
+        ..PlantDebug::default()
     };
     assert_eq!(count(none), 0);
     assert_eq!(
-        count(GrassDebug {
+        count(PlantDebug {
             fields: true,
             ..none
         }),
         1
     );
     assert_eq!(
-        count(GrassDebug {
+        count(PlantDebug {
             chunks: true,
             ..none
         }),
         4
     );
     assert_eq!(
-        count(GrassDebug {
+        count(PlantDebug {
             chunks: true,
             max_chunks: 3,
             ..none
@@ -338,27 +338,27 @@ fn the_toggles_decide_what_is_shown() {
         3
     );
     assert_eq!(
-        count(GrassDebug {
+        count(PlantDebug {
             interactors: true,
             ..none
         }),
         1
     );
     assert_eq!(
-        count(GrassDebug {
+        count(PlantDebug {
             trample_windows: true,
             ..none
         }),
         1
     );
     // The default shows fields, interactors and windows, not chunks.
-    assert_eq!(count(GrassDebug::default()), 3);
+    assert_eq!(count(PlantDebug::default()), 3);
     // And the master switch turns all of it off at once.
     assert_eq!(
-        count(GrassDebug {
+        count(PlantDebug {
             enabled: false,
             chunks: true,
-            ..GrassDebug::default()
+            ..PlantDebug::default()
         }),
         0
     );
@@ -366,7 +366,7 @@ fn the_toggles_decide_what_is_shown() {
 
 #[test]
 fn what_is_drawn_is_lines_in_the_right_place() {
-    let mut buffer = GizmoBuffer::<GrassGizmos, ()>::default();
+    let mut buffer = GizmoBuffer::<PlantGizmos, ()>::default();
     draw(
         &mut buffer,
         &[
@@ -413,11 +413,11 @@ fn the_plugin_runs_and_the_resource_is_reflected() {
     // Not `GizmoPlugin`, which wants a renderer: the plugin needs only
     // the gizmo config store to draw into the buffers.
     app.init_asset::<GizmoAsset>()
-        .add_plugins(GrassDebugPlugin)
+        .add_plugins(PlantDebugPlugin)
         .add_systems(Update, || ());
     spawn(
         &mut app,
-        GrassField {
+        PlantField {
             size: Vec2::splat(16.0),
             ..Default::default()
         },
@@ -425,15 +425,15 @@ fn the_plugin_runs_and_the_resource_is_reflected() {
         true,
     );
     app.world_mut()
-        .spawn((GlobalTransform::IDENTITY, GrassInteractor::default()));
+        .spawn((GlobalTransform::IDENTITY, PlantInteractor::default()));
     for _ in 0..3 {
         app.update();
     }
-    assert_eq!(*app.world().resource::<GrassDebug>(), GrassDebug::default());
+    assert_eq!(*app.world().resource::<PlantDebug>(), PlantDebug::default());
     let registry = app.world().resource::<AppTypeRegistry>().read();
     assert!(
         registry
-            .get_type_data::<ReflectResource>(std::any::TypeId::of::<GrassDebug>())
+            .get_type_data::<ReflectResource>(std::any::TypeId::of::<PlantDebug>())
             .is_some()
     );
 }

@@ -23,22 +23,22 @@ use bevy::render::view::{ViewUniform, ViewUniforms};
 use bevy::shader::Shader;
 
 use super::compute::ComputePass;
-pub(crate) use super::extract::{ExtractedGrass, extract_cameras, extract_grass};
+pub(crate) use super::extract::{ExtractedPlants, extract_cameras, extract_plants};
 use super::platform;
 use super::view::{
     BUCKET_WORDS, CLASS_WORDS, MAX_BUCKETS, SHAPE_CLASSES, ViewUniformData, bucket_words,
     class_words,
 };
-use crate::GrassSettings;
+use crate::PlantSettings;
 use crate::edit::PatchList;
 use crate::fields::FieldTables;
 use crate::gpu_layout::{ChunkGpu, FieldGpu, MAX_BRANCHED_CLASSES, NO_MAP};
 use crate::shader_model::{self, GUST_SIZE, ShapeClass, gust_noise};
-use crate::wind::GrassWindFrame;
+use crate::wind::PlantWindFrame;
 
 /// The embedded shaders, loaded in the main app and handed to the render app.
 #[derive(Resource, Debug, Clone)]
-pub(crate) struct GrassShaders {
+pub(crate) struct PlantShaders {
     pub main: Handle<Shader>,
     pub prepass: Handle<Shader>,
     pub shadow: Handle<Shader>,
@@ -56,11 +56,11 @@ pub(crate) struct FrameUniform {
     pub lod_rows: UVec4,
 }
 
-/// Mirrors `Wind` in `wind.wesl`: [`GrassWindFrame`] as the shaders read it.
+/// Mirrors `Wind` in `wind.wesl`: [`PlantWindFrame`] as the shaders read it.
 ///
 /// The public frame is plain data and this is its GPU layout, so a new wind
 /// term in the shaders changes this struct, not the type every custom wind
-/// source writes. Built once a frame, in `extract_grass` and for each
+/// source writes. Built once a frame, in `extract_plants` and for each
 /// far-grass material.
 #[derive(Debug, Clone, Copy, Default, PartialEq, ShaderType)]
 pub(crate) struct WindUniform {
@@ -75,8 +75,8 @@ pub(crate) struct WindUniform {
     pub gust_contrast: f32,
 }
 
-impl From<GrassWindFrame> for WindUniform {
-    fn from(wind: GrassWindFrame) -> Self {
+impl From<PlantWindFrame> for WindUniform {
+    fn from(wind: PlantWindFrame) -> Self {
         Self {
             direction: wind.direction,
             strength: wind.strength,
@@ -106,7 +106,7 @@ struct ShapeTable {
 
 /// Bind group layouts, shared by the pipelines and the bind groups.
 #[derive(Resource, Debug, Clone)]
-pub(crate) struct GrassLayouts {
+pub(crate) struct PlantLayouts {
     /// Group 0 of the compute passes: everything shared by the views.
     pub shared: BindGroupLayoutDescriptor,
     /// Group 1 of `cull` and `generate`: the view's buffers they fill.
@@ -126,12 +126,12 @@ pub(crate) struct GrassLayouts {
     pub empty: BindGroupLayoutDescriptor,
 }
 
-impl GrassLayouts {
+impl PlantLayouts {
     pub(crate) fn new() -> Self {
         let read = || storage_buffer_read_only_sized(false, None);
         let read_write = || storage_buffer_sized(false, None);
         let shared = BindGroupLayoutDescriptor::new(
-            "grass_shared",
+            "plant_shared",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
@@ -159,7 +159,7 @@ impl GrassLayouts {
         // 5 = trample cells, 6 = interactors.
         let view = || (0, uniform_buffer::<ViewUniformData>(false));
         let generate_view = BindGroupLayoutDescriptor::new(
-            "grass_generate_view",
+            "plant_generate_view",
             &BindGroupLayoutEntries::with_indices(
                 ShaderStages::COMPUTE,
                 (
@@ -172,25 +172,25 @@ impl GrassLayouts {
             ),
         );
         let args_view = BindGroupLayoutDescriptor::new(
-            "grass_args_view",
+            "plant_args_view",
             &BindGroupLayoutEntries::with_indices(
                 ShaderStages::COMPUTE,
                 (view(), (2, read_write()), (4, read_write())),
             ),
         );
         let trample_view = BindGroupLayoutDescriptor::new(
-            "grass_trample_view",
+            "plant_trample_view",
             &BindGroupLayoutEntries::with_indices(
                 ShaderStages::COMPUTE,
                 (view(), (5, read_write()), (6, read_write())),
             ),
         );
         let dispatch = BindGroupLayoutDescriptor::new(
-            "grass_dispatch",
+            "plant_dispatch",
             &BindGroupLayoutEntries::single(ShaderStages::COMPUTE, read_write()),
         );
         let draw = BindGroupLayoutDescriptor::new(
-            "grass_draw",
+            "plant_draw",
             // Vertex only, but for the view: the blade's look is worked out
             // per vertex, and the fragment shaders read only the view. A
             // fragment-stage storage buffer would add to Bevy's own there.
@@ -212,13 +212,13 @@ impl GrassLayouts {
             ),
         );
         let shadow_view = BindGroupLayoutDescriptor::new(
-            "grass_shadow_view",
+            "plant_shadow_view",
             &BindGroupLayoutEntries::single(
                 ShaderStages::VERTEX,
                 uniform_buffer::<ViewUniform>(true),
             ),
         );
-        let empty = BindGroupLayoutDescriptor::new("grass_empty", &[]);
+        let empty = BindGroupLayoutDescriptor::new("plant_empty", &[]);
         Self {
             shared,
             generate_view,
@@ -251,7 +251,7 @@ impl GrassLayouts {
 
 /// The shared GPU buffers.
 #[derive(Resource)]
-pub(crate) struct GrassShared {
+pub(crate) struct PlantShared {
     pub frame: UniformBuffer<FrameUniform>,
     pub wind: UniformBuffer<WindUniform>,
     pub fields: StorageBuffer<Vec<FieldGpu>>,
@@ -278,7 +278,7 @@ pub(crate) struct GrassShared {
     pub chunk_count: u32,
 }
 
-impl GrassShared {
+impl PlantShared {
     /// Number of branched classes in the index buffer and available for drawing.
     pub(crate) fn branched_classes(&self) -> usize {
         self.shape_classes.len().min(MAX_BRANCHED_CLASSES)
@@ -286,7 +286,7 @@ impl GrassShared {
 }
 
 #[cfg(test)]
-impl GrassShared {
+impl PlantShared {
     /// The scene buffer, masks first, for a test to read back.
     pub(crate) fn masks_buffer(&self) -> Option<&Buffer> {
         self.scene.buffer()
@@ -295,7 +295,7 @@ impl GrassShared {
 
 /// Bind groups shared by every view, rebuilt when their buffers might move.
 #[derive(Resource, Default)]
-pub(crate) struct GrassSharedBindGroups {
+pub(crate) struct PlantSharedBindGroups {
     pub compute: Option<BindGroup>,
     pub shadow_view: Option<BindGroup>,
     pub empty: Option<BindGroup>,
@@ -307,7 +307,7 @@ pub(crate) fn init_shared(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
-    let rows = GrassSettings::HIGH.blade_rows;
+    let rows = PlantSettings::HIGH.blade_rows;
     let (indices, table) = plant_indices(&device, rows, &[]);
     let mut shapes = UniformBuffer::from(table);
     shapes.write_buffer(&device, &queue);
@@ -317,19 +317,19 @@ pub(crate) fn init_shared(
         .map(Vec2::to_array)
         .collect();
     let tile = device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("grass_blue_noise_tile"),
+        label: Some("plant_blue_noise_tile"),
         contents: bytemuck::cast_slice(&tile_points),
         usage: BufferUsages::STORAGE,
     });
 
     let clumps = device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("grass_clumps"),
+        label: Some("plant_clumps"),
         contents: bytemuck::cast_slice(shader_model::clump_table()),
         usage: BufferUsages::STORAGE,
     });
 
     let tufts = device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("grass_tufts"),
+        label: Some("plant_tufts"),
         contents: bytemuck::cast_slice(shader_model::tuft_table()),
         usage: BufferUsages::STORAGE,
     });
@@ -337,7 +337,7 @@ pub(crate) fn init_shared(
     let gust = device.create_texture_with_data(
         &queue,
         &TextureDescriptor {
-            label: Some("grass_gust_noise"),
+            label: Some("plant_gust_noise"),
             size: Extent3d {
                 width: GUST_SIZE,
                 height: GUST_SIZE,
@@ -355,7 +355,7 @@ pub(crate) fn init_shared(
     );
     let gust_view = gust.create_view(&TextureViewDescriptor::default());
     let gust_sampler = device.create_sampler(&SamplerDescriptor {
-        label: Some("grass_gust_sampler"),
+        label: Some("plant_gust_sampler"),
         address_mode_u: AddressMode::Repeat,
         address_mode_v: AddressMode::Repeat,
         mag_filter: FilterMode::Linear,
@@ -363,7 +363,7 @@ pub(crate) fn init_shared(
         ..Default::default()
     });
 
-    let mut shared = GrassShared {
+    let mut shared = PlantShared {
         frame: UniformBuffer::default(),
         wind: UniformBuffer::default(),
         fields: StorageBuffer::default(),
@@ -387,7 +387,7 @@ pub(crate) fn init_shared(
     #[cfg(test)]
     shared.scene.add_usages(BufferUsages::COPY_SRC);
     upload_tables(&mut shared, &FieldTables::default(), &device, &queue);
-    commands.insert_resource(GrassLayouts::new());
+    commands.insert_resource(PlantLayouts::new());
     commands.insert_resource(shared);
 }
 
@@ -402,7 +402,7 @@ fn non_empty<T: Clone + Default>(items: &Arc<Vec<T>>) -> Vec<T> {
 }
 
 fn upload_tables(
-    shared: &mut GrassShared,
+    shared: &mut PlantShared,
     tables: &FieldTables,
     device: &RenderDevice,
     queue: &RenderQueue,
@@ -431,7 +431,7 @@ fn upload_tables(
     if let Some(bytes) = platform::scene_too_large(tables.masks.len(), tables.heights.len(), limit)
     {
         warn!(
-            "procgena_plant: the density masks and heightmaps of every GrassField take {bytes} \
+            "procgena_plant: the density masks and heightmaps of every PlantField take {bytes} \
              bytes together, and a storage binding on this GPU holds {limit}; no grass is \
              drawn. Use fewer or smaller masks and heightmaps."
         );
@@ -459,7 +459,7 @@ fn upload_tables(
 /// Writes the rows edits changed into the masks at the start of the scene
 /// buffer, after the tables, so they win over masks the tables still hold from
 /// before the edit.
-fn write_mask_patches(shared: &GrassShared, patches: &PatchList, queue: &RenderQueue) {
+fn write_mask_patches(shared: &PlantShared, patches: &PatchList, queue: &RenderQueue) {
     let Some(buffer) = shared.scene.buffer() else {
         return;
     };
@@ -513,7 +513,7 @@ fn plant_indices(
         index_data.extend(indices);
     }
     let indices = device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("grass_indices"),
+        label: Some("plant_indices"),
         contents: bytemuck::cast_slice(&index_data),
         usage: BufferUsages::INDEX,
     });
@@ -530,8 +530,8 @@ fn plant_indices(
 
 /// Uploads rebuilt tables and this frame's uniform.
 pub(crate) fn prepare_shared(
-    mut shared: ResMut<GrassShared>,
-    extracted: Res<ExtractedGrass>,
+    mut shared: ResMut<PlantShared>,
+    extracted: Res<ExtractedPlants>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
@@ -558,9 +558,9 @@ pub(crate) fn prepare_shared(
 /// Rebuilds the shared bind groups. Cheap, and a write can reallocate the
 /// uniform and storage buffers, so this runs every frame.
 pub(crate) fn prepare_shared_bind_groups(
-    mut groups: ResMut<GrassSharedBindGroups>,
-    shared: Res<GrassShared>,
-    layouts: Res<GrassLayouts>,
+    mut groups: ResMut<PlantSharedBindGroups>,
+    shared: Res<PlantShared>,
+    layouts: Res<PlantLayouts>,
     pipeline_cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
     view_uniforms: Res<ViewUniforms>,
@@ -577,7 +577,7 @@ pub(crate) fn prepare_shared_bind_groups(
         bindings
     {
         groups.compute = Some(device.create_bind_group(
-            "grass_shared",
+            "plant_shared",
             &pipeline_cache.get_bind_group_layout(&layouts.shared),
             &BindGroupEntries::sequential((
                 frame,
@@ -596,14 +596,14 @@ pub(crate) fn prepare_shared_bind_groups(
     }
     if groups.empty.is_none() {
         groups.empty = Some(device.create_bind_group(
-            "grass_empty",
+            "plant_empty",
             &pipeline_cache.get_bind_group_layout(&layouts.empty),
             &[],
         ));
     }
     groups.shadow_view = view_uniforms.uniforms.binding().map(|view| {
         device.create_bind_group(
-            "grass_shadow_view",
+            "plant_shadow_view",
             &pipeline_cache.get_bind_group_layout(&layouts.shadow_view),
             &BindGroupEntries::single(view),
         )

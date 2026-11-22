@@ -60,7 +60,7 @@ pub(crate) struct FieldGpu {
     /// x: shortest blade, y: tallest blade, z: root width, w: blades per m².
     pub shape: Vec4,
     /// x: lean, y: stiffness, z: how much less the wind moves the field's
-    /// blades, `1 - GrassField::wind_scale` (so 0, an entry's default, is the
+    /// blades, `1 - PlantField::wind_scale` (so 0, an entry's default, is the
     /// full wind), w: root occlusion.
     pub motion: Vec4,
     pub root_color: Vec4,

@@ -10,7 +10,7 @@ use procgena_plant::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, GrassPlugins))
+        .add_plugins((DefaultPlugins, PlantPlugins))
         .add_systems(Startup, setup)
         .run();
 }
@@ -35,7 +35,7 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(64.0, 64.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
-    commands.spawn(GrassField::from_preset(
+    commands.spawn(PlantField::from_preset(
         &FieldPreset::MEADOW,
         Vec2::splat(64.0),
     ));

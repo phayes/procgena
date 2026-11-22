@@ -10,7 +10,7 @@ import package::shaders::wind::{Wind, wind_flutter};
 
 @group(2) @binding(0) var<uniform> frame: Frame;
 /// The camera whose blades these are, even when a light view draws them.
-@group(2) @binding(1) var<uniform> grass_view: View;
+@group(2) @binding(1) var<uniform> plant_view: View;
 @group(2) @binding(2) var<storage, read> instances: array<vec4<u32>>;
 @group(2) @binding(3) var<storage, read> fields: array<Field>;
 /// Smooth noise, wrapping: the gust noise, which colour patches come from.
@@ -18,7 +18,7 @@ import package::shaders::wind::{Wind, wind_flutter};
 @group(2) @binding(5) var noise_sampler: sampler;
 @group(2) @binding(6) var<uniform> wind: Wind;
 /// Locates each bucket's instances using the storage allocation computed this frame.
-@group(2) @binding(7) var<storage, read> grass_buckets: BucketTable;
+@group(2) @binding(7) var<storage, read> plant_buckets: BucketTable;
 
 /// One vertex of one blade, before it is placed: which blade, which LOD and
 /// which vertex of its strip.
@@ -47,9 +47,9 @@ fn plant_ref(vertex_index: u32, instance_index: u32, stride: u32) -> BladeRef {
     out.lod = code % 3u;
     out.local = vertex_index % stride;
     out.instance = unpack(
-        instances[grass_buckets.base[bucket] + instance_index],
-        grass_view.instance_origin,
-        grass_view.limits.w,
+        instances[plant_buckets.base[bucket] + instance_index],
+        plant_view.instance_origin,
+        plant_view.limits.w,
     );
     return out;
 }
@@ -92,13 +92,13 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     var t = f32(row) / f32(rows);
     let side = select(f32(blade.local % 2u) - 0.5, 0.0, is_tip);
 
-    // The shape (`GRASS_SHAPE`): without it, every term below is the plain
+    // The shape (`PLANT_SHAPE`): without it, every term below is the plain
     // blade's.
     var twist = 0.0;
     var droop = vec2<f32>(0.0);
     var fold = 0.0;
     var in_head = false;
-@if(GRASS_SHAPE) {
+@if(PLANT_SHAPE) {
     let form = field.form;
     // Each blade twists its own way and droops its own amount; tall blades
     // droop the most.
@@ -122,11 +122,11 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     var face = vec2<f32>(sin(yaw), cos(yaw));
     let facing_eye = dot(face, to_eye);
     let edge_on = 1.0 - abs(facing_eye);
-    face = normalize(mix(face, to_eye * select(-1.0, 1.0, facing_eye >= 0.0), edge_on * grass_view.limits.z));
+    face = normalize(mix(face, to_eye * select(-1.0, 1.0, facing_eye >= 0.0), edge_on * plant_view.limits.z));
     // The blade leans and bends one way along its length; twist turns only
     // its cross-section, and a head turns to face the eye.
     var turned = face;
-@if(GRASS_SHAPE) {
+@if(PLANT_SHAPE) {
     let c = cos(twist * t);
     let s = sin(twist * t);
     turned = select(vec2<f32>(face.x * c + face.y * s, face.y * c - face.x * s), to_eye, in_head);
@@ -148,12 +148,12 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     // Widen blades narrower than the camera's minimum on-screen width, keeping
     // the taper; sub-pixel blades shimmer.
     let metres_per_pixel = (eye.clip_from_world * vec4<f32>(instance.root, 1.0)).w * eye.pixel_scale;
-    let widen = max(1.0, grass_view.min_width_px * metres_per_pixel / max(root_width, 1e-6));
+    let widen = max(1.0, plant_view.min_width_px * metres_per_pixel / max(root_width, 1e-6));
     var width = root_width * widen * (1.0 - pow(t, 1.4));
     // Rounded normals: each edge tilts its normal outward by about 30°, so the
     // flat strip shades like a curved leaf.
     var cup = 0.577;
-@if(GRASS_SHAPE) {
+@if(PLANT_SHAPE) {
     // Blend the pointed taper towards an oval leaf outline. Profile 0 preserves the
     // original blade shape exactly.
     width = root_width * widen * profile_width(t, field.look.z);

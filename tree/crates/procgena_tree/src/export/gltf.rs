@@ -256,7 +256,7 @@ pub fn to_glb(
 /// should draw both. Joint animation normally moves only `POSITION`; combining it
 /// with billboards requires the renderer to transform the custom pivots and axes too.
 /// In Bevy, enable `procgena_tree_bevy`’s `gltf` feature, configure `GltfPlugin` with
-/// `procgena_tree_bevy::add_tree_gltf_attributes`, and add `procgena_tree_bevy::ZeTreePlugin`
+/// `procgena_tree_bevy::add_tree_gltf_attributes`, and add `procgena_tree_bevy::TreePlugin`
 /// after it to animate these billboards when loading a scene. Export with wind
 /// data enabled; meshes using animation joints keep their original shapes.
 /// Successfully converted billboard nodes no longer need their fallback partners,

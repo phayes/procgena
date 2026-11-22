@@ -1,4 +1,4 @@
-//! `GrassDebugPlugin`: gizmos that show what grass thinks, so "why is there no
+//! `PlantDebugPlugin`: gizmos that show what grass thinks, so "why is there no
 //! grass here?" is answered by looking.
 //!
 //! Needs the `debug` cargo feature, which turns on Bevy's `bevy_gizmos`. A
@@ -11,12 +11,12 @@
 //!   turned with it. A heightmap or mesh field also gets its highest ground.
 //! - **chunks** (blue, off by default): the 16 m squares the GPU culls.
 //! - **interactors** (yellow): every disc an interactor flattens, at most
-//!   [`GrassSettings::max_interactor_radius`] (2 m by default), red where the
+//!   [`PlantSettings::max_interactor_radius`] (2 m by default), red where the
 //!   radius asked for is cut off; and the outline of every footprint, as it
 //!   lies on the ground.
 //! - **trample windows** (magenta): the square around each camera's focus
 //!   where interactors leave trails, 64 m across by default
-//!   ([`GrassSettings::trample_cell_size`]). Interactors outside it leave
+//!   ([`PlantSettings::trample_cell_size`]). Interactors outside it leave
 //!   none.
 
 use std::f32::consts::FRAC_PI_2;
@@ -37,29 +37,29 @@ use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::GlobalTransform;
 
 use crate::api::{
-    GrassCamera, GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, NoGrass,
+    NoPlants, PlantCamera, PlantInteractor, PlantInteractorFootprint, PlantInteractorSpread,
     interactor_offsets,
 };
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::trample::{self, TrampleView};
-use crate::{GrassSettings, GrassSystems};
+use crate::{PlantSettings, PlantSystems};
 
-/// Adds the grass debug gizmos. Toggle what they show with [`GrassDebug`].
+/// Adds the grass debug gizmos. Toggle what they show with [`PlantDebug`].
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
-/// # use procgena_plant::GrassDebugPlugin;
+/// # use procgena_plant::PlantDebugPlugin;
 /// # let mut app = App::new();
-/// app.add_plugins((DefaultPlugins, GrassPlugins, GrassDebugPlugin));
+/// app.add_plugins((DefaultPlugins, PlantPlugins, PlantDebugPlugin));
 /// ```
 #[derive(Debug, Default, Clone, Copy)]
-pub struct GrassDebugPlugin;
+pub struct PlantDebugPlugin;
 
-/// What [`GrassDebugPlugin`] draws. A resource: change it at any time.
+/// What [`PlantDebugPlugin`] draws. A resource: change it at any time.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
-pub struct GrassDebug {
+pub struct PlantDebug {
     /// Draw anything at all. Off, nothing below is drawn: bind a key to this.
     pub enabled: bool,
     /// The rectangle of every field.
@@ -74,7 +74,7 @@ pub struct GrassDebug {
     pub max_chunks: usize,
 }
 
-impl Default for GrassDebug {
+impl Default for PlantDebug {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -90,14 +90,14 @@ impl Default for GrassDebug {
 /// The gizmo group the grass debug view draws in, for its line width and
 /// on/off switch in `GizmoConfigStore`.
 #[derive(Debug, Default, Reflect, GizmoConfigGroup)]
-pub struct GrassGizmos;
+pub struct PlantGizmos;
 
-impl Plugin for GrassDebugPlugin {
+impl Plugin for PlantDebugPlugin {
     fn build(&self, app: &mut App) {
-        app.init_gizmo_group::<GrassGizmos>()
-            .init_resource::<GrassDebug>()
-            .register_type::<GrassDebug>()
-            .add_systems(PostUpdate, draw_debug.after(GrassSystems::Rebuild));
+        app.init_gizmo_group::<PlantGizmos>()
+            .init_resource::<PlantDebug>()
+            .register_type::<PlantDebug>()
+            .add_systems(PostUpdate, draw_debug.after(PlantSystems::Rebuild));
     }
 }
 
@@ -192,7 +192,7 @@ pub(crate) fn chunk_shapes(tables: &FieldTables, max: usize) -> Vec<Shape> {
 }
 
 /// A disc an interactor flattens: `(position, radius, strength)`. Grass
-/// is pushed at most `largest` away (`GrassSettings::max_interactor_radius`), so a bigger radius
+/// is pushed at most `largest` away (`PlantSettings::max_interactor_radius`), so a bigger radius
 /// is drawn cut off, with the radius asked for in red; one that flattens
 /// nothing (no radius or strength) is grey.
 pub(crate) fn interactor_shapes(
@@ -253,7 +253,7 @@ pub(crate) fn trample_shapes(
 }
 
 /// Draws `shapes`.
-pub(crate) fn draw(buffer: &mut GizmoBuffer<GrassGizmos, ()>, shapes: &[Shape]) {
+pub(crate) fn draw(buffer: &mut GizmoBuffer<PlantGizmos, ()>, shapes: &[Shape]) {
     // A circle is drawn in the XY plane of its isometry; turn it to lie flat.
     let flat = Quat::from_rotation_arc(Vec3::Z, Vec3::Y);
     for shape in shapes {
@@ -344,8 +344,8 @@ pub(crate) fn footprint_shapes(stamps: impl Iterator<Item = (trample::Stamp, f32
 
 /// Everything the debug view shows this frame.
 pub(crate) fn shapes(
-    debug: &GrassDebug,
-    settings: &GrassSettings,
+    debug: &PlantDebug,
+    settings: &PlantSettings,
     tables: &FieldTables,
     interactors: impl Iterator<Item = (Vec3, f32, f32)>,
     cameras: impl Iterator<Item = TrampleView>,
@@ -381,18 +381,18 @@ struct DebugQueries<'w, 's> {
         's,
         (
             &'static GlobalTransform,
-            &'static GrassInteractor,
-            Option<&'static GrassInteractorSpread>,
+            &'static PlantInteractor,
+            Option<&'static PlantInteractorSpread>,
         ),
-        Without<GrassInteractorFootprint>,
+        Without<PlantInteractorFootprint>,
     >,
     footprints: Query<
         'w,
         's,
         (
             &'static GlobalTransform,
-            &'static GrassInteractor,
-            &'static GrassInteractorFootprint,
+            &'static PlantInteractor,
+            &'static PlantInteractorFootprint,
         ),
     >,
     cameras: Query<
@@ -401,16 +401,16 @@ struct DebugQueries<'w, 's> {
         (
             &'static GlobalTransform,
             &'static Camera,
-            Option<&'static GrassCamera>,
+            Option<&'static PlantCamera>,
         ),
-        (With<Camera3d>, Without<NoGrass>),
+        (With<Camera3d>, Without<NoPlants>),
     >,
 }
 
 fn draw_debug(
-    mut gizmos: Gizmos<GrassGizmos>,
-    debug: Res<GrassDebug>,
-    settings: Res<GrassSettings>,
+    mut gizmos: Gizmos<PlantGizmos>,
+    debug: Res<PlantDebug>,
+    settings: Res<PlantSettings>,
     tables: Res<FieldTables>,
     queries: DebugQueries,
 ) {
@@ -432,10 +432,10 @@ fn draw_debug(
         queries
             .cameras
             .iter()
-            .map(|(transform, camera, grass_camera)| {
+            .map(|(transform, camera, plant_camera)| {
                 let clip_from_view = camera.clip_from_view();
                 let offset = crate::reach::distance_offset(
-                    grass_camera,
+                    plant_camera,
                     transform.translation(),
                     clip_from_view.w_axis.w == 1.0,
                     &tables,
@@ -443,7 +443,7 @@ fn draw_debug(
                 TrampleView::new(
                     transform,
                     &clip_from_view,
-                    settings.for_camera(grass_camera).radius + offset,
+                    settings.for_camera(plant_camera).radius + offset,
                 )
             }),
     );

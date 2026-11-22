@@ -2,21 +2,21 @@ use super::*;
 
 #[test]
 fn a_frame_is_the_wind_without_its_speed_or_a_scroll() {
-    let frame = GrassWindFrame::from(GrassWind::STORM);
-    assert_eq!(frame.direction, GrassWind::STORM.direction);
-    assert_eq!(frame.strength, GrassWind::STORM.strength);
-    assert_eq!(frame.gust_scale, GrassWind::STORM.gust_scale);
-    assert_eq!(frame.sway, GrassWind::STORM.sway);
-    assert_eq!(frame.sway_speed, GrassWind::STORM.sway_speed);
-    assert_eq!(frame.flutter, GrassWind::STORM.flutter);
-    assert_eq!(frame.gust_contrast, GrassWind::STORM.gust_contrast);
+    let frame = PlantWindFrame::from(PlantWind::STORM);
+    assert_eq!(frame.direction, PlantWind::STORM.direction);
+    assert_eq!(frame.strength, PlantWind::STORM.strength);
+    assert_eq!(frame.gust_scale, PlantWind::STORM.gust_scale);
+    assert_eq!(frame.sway, PlantWind::STORM.sway);
+    assert_eq!(frame.sway_speed, PlantWind::STORM.sway_speed);
+    assert_eq!(frame.flutter, PlantWind::STORM.flutter);
+    assert_eq!(frame.gust_contrast, PlantWind::STORM.gust_contrast);
     // Speed only decides how the built-in model scrolls the gusts; it is not
     // something a shader reads.
     assert_eq!(frame.gust_offset, Vec2::ZERO);
     assert_eq!(frame.previous_gust_offset, Vec2::ZERO);
     assert_eq!(
-        GrassWindFrame::default(),
-        GrassWindFrame::from(GrassWind::BREEZE)
+        PlantWindFrame::default(),
+        PlantWindFrame::from(PlantWind::BREEZE)
     );
 }
 
@@ -24,9 +24,9 @@ fn a_frame_is_the_wind_without_its_speed_or_a_scroll() {
 fn advancing_a_frame_scrolls_the_gusts_as_the_built_in_wind_does() {
     // A custom source that calls `advance` with the built-in wind's speed
     // gets the built-in wind's gusts.
-    let wind = GrassWind::GUSTY;
+    let wind = PlantWind::GUSTY;
     let mut clock = WindClock::default();
-    let mut frame = GrassWindFrame::from(wind);
+    let mut frame = PlantWindFrame::from(wind);
     for _ in 0..600 {
         clock.advance(1.0 / 60.0, &wind);
         frame.advance(1.0 / 60.0, wind.gust_speed);
@@ -58,12 +58,12 @@ fn the_plugin_samples_the_wind_into_the_frame() {
 
     use bevy::app::App;
 
-    let wind = GrassWind {
+    let wind = PlantWind {
         gust_speed: 2.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     };
     let mut app = App::new();
-    app.add_plugins(GrassWindPlugin).insert_resource(wind);
+    app.add_plugins(PlantWindPlugin).insert_resource(wind);
     // Insert a clock with a known delta instead of relying on `TimePlugin`:
     // its first update only primes the clock and reports a zero delta.
     let mut time: Time = Time::default();
@@ -71,7 +71,7 @@ fn the_plugin_samples_the_wind_into_the_frame() {
     app.insert_resource(time);
 
     app.update();
-    let frame = *app.world().resource::<GrassWindFrame>();
+    let frame = *app.world().resource::<PlantWindFrame>();
     let expected = clock::gust_step(wind.direction, wind.gust_speed, wind.gust_scale, 0.5);
     // The plugin's system carried the wind into the frame and scrolled the
     // gusts by one step.
@@ -92,13 +92,13 @@ fn the_plugin_samples_the_wind_into_the_frame() {
         .resource_mut::<Time>()
         .advance_by(Duration::from_secs_f64(0.5));
     app.update();
-    let frame = *app.world().resource::<GrassWindFrame>();
+    let frame = *app.world().resource::<PlantWindFrame>();
     assert!((frame.previous_gust_offset - first).length() < 1e-5);
 }
 
 #[test]
 fn toward_normalizes_direction_and_preserves_the_rest_of_the_wind() {
-    let original = GrassWind {
+    let original = PlantWind {
         direction: Vec2::new(3.0, -4.0),
         strength: 0.7,
         gust_scale: 12.0,
@@ -119,10 +119,10 @@ fn toward_normalizes_direction_and_preserves_the_rest_of_the_wind() {
 #[test]
 fn every_preset_stays_in_valid_ranges() {
     for wind in [
-        GrassWind::CALM,
-        GrassWind::BREEZE,
-        GrassWind::GUSTY,
-        GrassWind::STORM,
+        PlantWind::CALM,
+        PlantWind::BREEZE,
+        PlantWind::GUSTY,
+        PlantWind::STORM,
     ] {
         assert!((0.0..=1.0).contains(&wind.strength), "{wind:?}");
         assert!(wind.gust_scale >= 0.0, "{wind:?}");

@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FieldPlant, FieldPreset, GrassArrangement, GrassBranches, GrassField, GrassPlant,
-    GrassSegment, GrassVariation, GroundTint, PlantPreset, Vec2,
+    Color, Cow, FieldPlant, FieldPreset, GroundTint, PlantArrangement, PlantBranches, PlantField,
+    PlantParams, PlantPreset, PlantSegment, PlantVariation, Vec2,
 };
 
 // Each matching field preset grows the named plant in clumps, with moss
@@ -21,7 +21,7 @@ UNDERSTORY "Understory" {
         root_occlusion: 0.6,
         translucency: 0.2,
         specular: 0.45,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.55,
             droop: 0.35,
@@ -32,16 +32,16 @@ UNDERSTORY "Understory" {
         },
         // Spiralling shoots and seven leaves per shoot give the shrub volume.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 5,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.3,
                 length: 0.4,
                 length_envelope: 0.6,
                 width: 0.03,
                 angle: 0.35,
                 spread: 0.24,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.0,
                     stiffness: 0.6,
                     droop: 0.2,
@@ -51,16 +51,16 @@ UNDERSTORY "Understory" {
                     tip_color: Color::srgb(0.20, 0.20, 0.08),
                 },
             },
-            GrassBranches {
+            PlantBranches {
                 count: 7,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.05,
                 length: 0.38,
                 length_envelope: 0.55,
                 width: 0.6,
                 angle: 0.25,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 1.0,
                     stiffness: 0.75,
                     droop: 0.15,
@@ -71,7 +71,7 @@ UNDERSTORY "Understory" {
                 },
             },
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 
     SAPLING {
@@ -87,7 +87,7 @@ UNDERSTORY "Understory" {
         root_occlusion: 0.6,
         translucency: 0.45,
         specular: 0.15,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.5,
             droop: 0.4,
@@ -98,16 +98,16 @@ UNDERSTORY "Understory" {
         },
         // Six spiralling leaf stalks carry three leaflets each, forming an open crown.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 6,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.35,
                 length: 0.25,
                 length_envelope: 0.6,
                 width: 0.04,
                 angle: 0.35,
                 spread: 0.24,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.0,
                     stiffness: 0.5,
                     droop: 0.3,
@@ -117,16 +117,16 @@ UNDERSTORY "Understory" {
                     tip_color: Color::srgb(0.16, 0.26, 0.08),
                 },
             },
-            GrassBranches {
+            PlantBranches {
                 count: 3,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.4,
                 length: 0.55,
                 length_envelope: 0.7,
                 width: 0.5,
                 angle: 0.45,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.6,
                     stiffness: 0.5,
                     droop: 0.2,
@@ -137,7 +137,7 @@ UNDERSTORY "Understory" {
                 },
             },
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 
     HUCKLEBERRY {
@@ -153,7 +153,7 @@ UNDERSTORY "Understory" {
         root_occlusion: 0.5,
         translucency: 0.55,
         specular: 0.15,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.7,
             droop: 0.15,
@@ -165,16 +165,16 @@ UNDERSTORY "Understory" {
         // Nearly flat sprays of eight twigs, each with eight leaves, keep the crown
         // open.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 8,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.25,
                 length: 0.45,
                 length_envelope: 0.45,
                 width: 0.03,
                 angle: 0.45,
                 spread: 0.1,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.0,
                     stiffness: 0.55,
                     droop: 0.15,
@@ -184,16 +184,16 @@ UNDERSTORY "Understory" {
                     tip_color: Color::srgb(0.24, 0.44, 0.12),
                 },
             },
-            GrassBranches {
+            PlantBranches {
                 count: 8,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.1,
                 length: 0.14,
                 length_envelope: 0.5,
                 width: 0.55,
                 angle: 0.3,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 1.0,
                     stiffness: 0.6,
                     droop: 0.05,
@@ -204,7 +204,7 @@ UNDERSTORY "Understory" {
                 },
             },
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 
     OREGON_GRAPE {
@@ -220,7 +220,7 @@ UNDERSTORY "Understory" {
         root_occlusion: 0.6,
         translucency: 0.2,
         specular: 0.5,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.6,
             droop: 0.3,
@@ -231,16 +231,16 @@ UNDERSTORY "Understory" {
         },
         // Seven pairs of stiff, creased leaflets give the stalk a holly-like outline.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 14,
-                arrangement: GrassArrangement::Opposite,
+                arrangement: PlantArrangement::Opposite,
                 attachment_start: 0.3,
                 length: 0.2,
                 length_envelope: 0.45,
                 width: 0.42,
                 angle: 0.25,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.75,
                     stiffness: 0.75,
                     droop: 0.1,
@@ -250,9 +250,9 @@ UNDERSTORY "Understory" {
                     tip_color: Color::srgb(0.10, 0.26, 0.10),
                 },
             },
-            GrassBranches::NONE,
+            PlantBranches::NONE,
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 
     NETTLE {
@@ -268,7 +268,7 @@ UNDERSTORY "Understory" {
         root_occlusion: 0.6,
         translucency: 0.4,
         specular: 0.1,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.7,
             droop: 0.05,
@@ -279,16 +279,16 @@ UNDERSTORY "Understory" {
         },
         // Eight pairs, longest near the base, make the plant taper upwards.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 16,
-                arrangement: GrassArrangement::Opposite,
+                arrangement: PlantArrangement::Opposite,
                 attachment_start: 0.12,
                 length: 0.2,
                 length_envelope: 0.35,
                 width: 0.55,
                 angle: 0.25,
                 spread: 0.5,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.6,
                     stiffness: 0.55,
                     droop: 0.45,
@@ -298,9 +298,9 @@ UNDERSTORY "Understory" {
                     tip_color: Color::srgb(0.14, 0.30, 0.08),
                 },
             },
-            GrassBranches::NONE,
+            PlantBranches::NONE,
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 
     BRAMBLE {
@@ -319,7 +319,7 @@ UNDERSTORY "Understory" {
         specular: 0.3,
         // Droop 2 brings every cane's tip down to the ground; fully stiff canes keep
         // the arch steady in the wind.
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 1.0,
             droop: 2.0,
@@ -331,16 +331,16 @@ UNDERSTORY "Understory" {
         // Eight stubby side shoots per cane, each with a cluster of eight large
         // leaves. The counts match huckleberry's, so the two share one mesh.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 8,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.12,
                 length: 0.07,
                 length_envelope: 0.5,
                 width: 0.09,
                 angle: 0.35,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.0,
                     stiffness: 0.8,
                     droop: 0.1,
@@ -352,16 +352,16 @@ UNDERSTORY "Understory" {
             },
             // Leaves longer than their stubby shoot, bunched from a third of the way
             // along it.
-            GrassBranches {
+            PlantBranches {
                 count: 8,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.3,
                 length: 1.1,
                 length_envelope: 0.6,
                 width: 0.6,
                 angle: 0.3,
                 spread: 0.24,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.8,
                     stiffness: 0.6,
                     droop: 0.2,
@@ -372,7 +372,7 @@ UNDERSTORY "Understory" {
                 },
             },
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 
     MATURE_BRACKEN {
@@ -389,7 +389,7 @@ UNDERSTORY "Understory" {
         translucency: 0.45,
         specular: 0.15,
         // Strong droop makes the stalk arch under the broad frond.
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.4,
             droop: 0.8,
@@ -401,16 +401,16 @@ UNDERSTORY "Understory" {
         // Five branch pairs shorten towards the tip to form a triangular frond. Six
         // leaflet pairs on each branch add the finer outline.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 10,
-                arrangement: GrassArrangement::Opposite,
+                arrangement: PlantArrangement::Opposite,
                 attachment_start: 0.5,
                 length: 0.36,
                 length_envelope: 0.12,
                 width: 0.02,
                 angle: 0.2,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.0,
                     stiffness: 0.45,
                     droop: 0.35,
@@ -420,16 +420,16 @@ UNDERSTORY "Understory" {
                     tip_color: Color::srgb(0.22, 0.42, 0.10),
                 },
             },
-            GrassBranches {
+            PlantBranches {
                 count: 12,
-                arrangement: GrassArrangement::Opposite,
+                arrangement: PlantArrangement::Opposite,
                 attachment_start: 0.08,
                 length: 0.28,
                 length_envelope: 0.3,
                 width: 0.5,
                 angle: 0.25,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.3,
                     stiffness: 0.5,
                     droop: 0.15,
@@ -440,29 +440,29 @@ UNDERSTORY "Understory" {
                 },
             },
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 }
 }
 
 /// Clusters a plant among the moss, at `density_scale` of its own density.
-const fn over_moss(plant: &GrassPlant, density_scale: f32) -> FieldPlant {
+const fn over_moss(plant: &PlantParams, density_scale: f32) -> FieldPlant {
     FieldPlant::new(*plant).scaled(density_scale).clustered(0.6)
 }
 
 /// Moss under shrubs: 120 plants per square metre, sparser than a moss
 /// carpet, clustered to leave gaps for the plant listed after it.
 const fn moss_around(clustering: f32) -> FieldPlant {
-    FieldPlant::new(GrassPlant::MOSS)
+    FieldPlant::new(PlantParams::MOSS)
         .scaled(0.6)
         .clustered(clustering)
 }
 
 /// A moss base with bare patches, shared by the understory presets, leaving
 /// room for larger plants.
-const UNDER_MOSS: GrassField = GrassField {
+const UNDER_MOSS: PlantField = PlantField {
     density_scale: 1.0,
-    variation: GrassVariation {
+    variation: PlantVariation {
         bare_share: 0.12,
         ..FieldPreset::FOREST_MOSS.field.variation
     },
@@ -482,11 +482,11 @@ UNDERSTORY "Understory" {
         name: "Salal",
         description: "Salal thickets above moss.\n\n\
                       Glossy leaves form dense clumps among the ground cover.",
-    } => GrassField {
+    } => PlantField {
         // Moss fills the gaps between salal clumps.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(GrassPlant::SALAL),
+            FieldPlant::new(PlantParams::SALAL),
         ]),
         ..UNDER_MOSS
     };
@@ -494,11 +494,11 @@ UNDERSTORY "Understory" {
         name: "Saplings",
         description: "Scattered young trees above moss.\n\n\
                       Sparse sapling clumps leave the ground cover visible.",
-    } => GrassField {
+    } => PlantField {
         // Mostly moss, with small groups of young trees.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(GrassPlant::SAPLING),
+            FieldPlant::new(PlantParams::SAPLING),
         ]),
         ..UNDER_MOSS
     };
@@ -506,11 +506,11 @@ UNDERSTORY "Understory" {
         name: "Huckleberry",
         description: "Airy red huckleberry bushes above moss.\n\n\
                       Loose clumps add taller foliage without hiding all the ground cover.",
-    } => GrassField {
+    } => PlantField {
         // Moss leaves room for sparse groups of huckleberry bushes.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(GrassPlant::HUCKLEBERRY),
+            FieldPlant::new(PlantParams::HUCKLEBERRY),
         ]),
         ..UNDER_MOSS
     };
@@ -518,11 +518,11 @@ UNDERSTORY "Understory" {
         name: "Oregon grape",
         description: "Low Oregon grape patches above moss.\n\n\
                       Glossy, paired leaflets form broad clumps close to the ground.",
-    } => GrassField {
+    } => PlantField {
         // Moss grows between patches of low Oregon grape shrubs.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(GrassPlant::OREGON_GRAPE),
+            FieldPlant::new(PlantParams::OREGON_GRAPE),
         ]),
         ..UNDER_MOSS
     };
@@ -530,11 +530,11 @@ UNDERSTORY "Understory" {
         name: "Nettles",
         description: "Dense nettle beds above moss.\n\n\
                       Strong clustering leaves gaps between groups of upright stems.",
-    } => GrassField {
+    } => PlantField {
         // Strong clustering gathers nettles into beds, with moss between them.
         plants: Cow::Borrowed(&[
             moss_around(0.85),
-            FieldPlant::new(GrassPlant::NETTLE),
+            FieldPlant::new(PlantParams::NETTLE),
         ]),
         ..UNDER_MOSS
     };
@@ -542,11 +542,11 @@ UNDERSTORY "Understory" {
         name: "Mature bracken",
         description: "Loose stands of head-high bracken above moss.\n\n\
                       Broad fronds provide a tall layer of forest ground cover.",
-    } => GrassField {
+    } => PlantField {
         // Moss surrounds loose groups of tall bracken ferns.
         plants: Cow::Borrowed(&[
             moss_around(0.5),
-            FieldPlant::new(GrassPlant::MATURE_BRACKEN),
+            FieldPlant::new(PlantParams::MATURE_BRACKEN),
         ]),
         ..UNDER_MOSS
     };
@@ -555,11 +555,11 @@ UNDERSTORY "Understory" {
         description: "Bramble thickets of arching canes above moss.\n\n\
                       Canes loop out from each crown and back into the ground, in tangled \
                       clumps.",
-    } => GrassField {
+    } => PlantField {
         // Widely spaced bramble plants spread their arching stems over the moss.
         plants: Cow::Borrowed(&[
             moss_around(0.75),
-            FieldPlant::new(GrassPlant::BRAMBLE),
+            FieldPlant::new(PlantParams::BRAMBLE),
         ]),
         ..UNDER_MOSS
     };
@@ -568,20 +568,20 @@ UNDERSTORY "Understory" {
         description: "Mixed forest shrubs and ferns above moss and fallen leaves.\n\n\
                       Combines all understory plants in clumps, with leaf litter between \
                       them.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             // Together about 3 shrubs and ferns per square metre before thinning.
-            over_moss(&GrassPlant::FERN, 0.3),
-            over_moss(&GrassPlant::SALAL, 0.4),
-            over_moss(&GrassPlant::OREGON_GRAPE, 0.25),
-            over_moss(&GrassPlant::HUCKLEBERRY, 0.5),
-            over_moss(&GrassPlant::SAPLING, 0.4),
-            over_moss(&GrassPlant::MATURE_BRACKEN, 0.1),
-            over_moss(&GrassPlant::NETTLE, 0.1),
-            FieldPlant::new(GrassPlant::LEAF_LITTER)
+            over_moss(&PlantParams::FERN, 0.3),
+            over_moss(&PlantParams::SALAL, 0.4),
+            over_moss(&PlantParams::OREGON_GRAPE, 0.25),
+            over_moss(&PlantParams::HUCKLEBERRY, 0.5),
+            over_moss(&PlantParams::SAPLING, 0.4),
+            over_moss(&PlantParams::MATURE_BRACKEN, 0.1),
+            over_moss(&PlantParams::NETTLE, 0.1),
+            FieldPlant::new(PlantParams::LEAF_LITTER)
                 .scaled(0.25)
                 .clustered(0.35),
-            FieldPlant::new(GrassPlant::MOSS).scaled(0.55),
+            FieldPlant::new(PlantParams::MOSS).scaled(0.55),
         ]),
         ..UNDER_MOSS
     };

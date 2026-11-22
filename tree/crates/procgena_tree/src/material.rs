@@ -127,7 +127,7 @@ impl BarkMap {
 /// `"bark/sakura_bark-1k-color-bc7.ktx2"`.
 ///
 /// Pass a name from [`BARK_KINDS`] as `kind`. The repository's texture folder is
-/// `assets/textures/`; its bark files come from `tools/textures/download.sh`.
+/// `assets/textures/`; its bark files come from `uv run --project tools textures download tree`.
 pub fn bark_texture_path(
     kind: &str,
     size: TextureSize,
@@ -185,7 +185,8 @@ impl LeafMap {
 /// Builds a path relative to `assets/textures/`, such as `"leaves/oak-color-bc7.ktx2"`.
 ///
 /// Use a name from [`LEAF_KINDS`] for `kind`. Leaf textures have one size per kind,
-/// so no size argument is needed. Download the files with `tools/textures/download.sh`.
+/// so no size argument is needed. Download the files with
+/// `uv run --project tools textures download tree` from the workspace root.
 ///
 /// This function only builds a path; it does not check that the file exists. Request
 /// [`LeafMap::Normal`] only when [`leaf_has_normal_map`] returns true for `kind`.
@@ -259,7 +260,7 @@ pub fn bark_average_color(kind: &str) -> Option<[f32; 3]> {
 }
 
 /// Precomputed average bark colours in linear RGB. Regenerate with
-/// `tools/textures/bark_colors.sh` after changing the source textures.
+/// `uv run --project tools textures average-colors tree` after changing the source textures.
 const BARK_AVERAGE_COLORS: [(&str, [f32; 3]); BARK_KINDS.len()] = [
     ("bark_brown_02", [0.1298, 0.1069, 0.0647]),
     ("bark_brown_01", [0.1888, 0.1261, 0.0468]),

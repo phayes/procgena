@@ -50,8 +50,8 @@ use bevy::render::settings::WgpuFeatures;
 use bevy::render::sync_world::MainEntity;
 use bevy::render::view::{ExtractedView, RetainedViewEntity, ViewUniformOffset, ViewUniforms};
 use bevy::shader::{Shader, ShaderDefVal};
-use std::collections::HashSet;
 use procgena_stone::gpu::GPU_VERTEX_SIZE;
+use std::collections::HashSet;
 
 use super::pools::{RenderPools, draw_args_offset};
 use super::views::{PoolViews, VISIBLE_ENTRY_SIZE};
@@ -110,7 +110,7 @@ impl SpecializedRenderPipeline for PoolMainPipeline {
             .mesh_pipeline
             .specialize(key, &self.vertex_layout)
             .expect("the template layout has every attribute the mesh pipeline requires");
-        descriptor.label = Some("ze_stone_pool_main".into());
+        descriptor.label = Some("procgena_stone_pool_main".into());
         descriptor.vertex.shader = self.shader.clone();
         descriptor.vertex.entry_point = Some("vertex".into());
         descriptor.vertex.buffers = vertex_buffers();
@@ -180,9 +180,9 @@ impl SpecializedRenderPipeline for PoolPrepassPipeline {
         RenderPipelineDescriptor {
             label: Some(
                 if deferred {
-                    "ze_stone_pool_deferred"
+                    "procgena_stone_pool_deferred"
                 } else {
-                    "ze_stone_pool_prepass"
+                    "procgena_stone_pool_prepass"
                 }
                 .into(),
             ),
@@ -289,7 +289,7 @@ impl SpecializedRenderPipeline for PoolShadowPipeline {
 
     fn specialize(&self, directional: bool) -> RenderPipelineDescriptor {
         RenderPipelineDescriptor {
-            label: Some("ze_stone_pool_shadow".into()),
+            label: Some("procgena_stone_pool_shadow".into()),
             layout: vec![
                 self.shadow_view_layout.clone(),
                 self.empty_layout.clone(),
@@ -377,14 +377,14 @@ pub(crate) fn prepare_shadow_bind_groups(
 ) {
     if groups.empty.is_none() {
         groups.empty = Some(device.create_bind_group(
-            "ze_stone_pool_empty",
+            "procgena_stone_pool_empty",
             &pipeline_cache.get_bind_group_layout(&layouts.empty),
             &[],
         ));
     }
     groups.view = view_uniforms.uniforms.binding().map(|view| {
         device.create_bind_group(
-            "ze_stone_pool_shadow_view",
+            "procgena_stone_pool_shadow_view",
             &pipeline_cache.get_bind_group_layout(&layouts.shadow_view),
             &BindGroupEntries::single(view),
         )

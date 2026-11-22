@@ -20,14 +20,14 @@ of its release**. The port comes first, whatever else is in progress.
   240 Hz gate before it is tagged ([Testing](testing.md)).
   [Porting to a new Bevy](porting.md) lists every place grass touches Bevy's
   renderer and the order to port them in.
-- New fields in the design types (`GrassField`, `GrassPlant`,
-  `FieldPlant`, `GrassAccent`, `GrassSegment`, `GrassBranches`,
-  `GrassSettings`, `GrassShadows`, `GrassPlugin`, `GrassCamera`) arrive in a
+- New fields in the design types (`PlantField`, `PlantParams`,
+  `FieldPlant`, `PlantAccent`, `PlantSegment`, `PlantBranches`,
+  `PlantSettings`, `PlantShadows`, `PlantPlugin`, `PlantCamera`) arrive in a
   minor release
   only, which is breaking anyway, and the CHANGELOG says what to add. Write
-  their literals with `..default()` (or `..GrassSettings::HIGH`, a preset)
+  their literals with `..default()` (or `..PlantSettings::HIGH`, a preset)
   and a new field never breaks your code. They are not `#[non_exhaustive]`,
-  because that would forbid `..GrassSettings::HIGH` outside the crate.
+  because that would forbid `..PlantSettings::HIGH` outside the crate.
   `.field.ron` and `.plant.ron` files usually keep loading across releases:
   a missing setting takes its base preset's value. A change to the shape of
   the format, such as the move from `.grass.ron` styles to plants and
@@ -54,11 +54,11 @@ In order:
   [Plants that branch](fields.md#plants-that-branch).
 - **More branched plant shapes per scene** (unreleased): a scene draws up
   to 32 kinds of branched plant, and they share
-  `GrassSettings::plant_capacity` by what each asked for the frame before
+  `PlantSettings::plant_capacity` by what each asked for the frame before
   instead of splitting it evenly. See [Rendering](rendering.md).
 
 - **Strategy cameras and terrain from code** (0.20.6): grass across the
-  ground a high camera sees (`GrassCamera::radius_from_ground`), fields on
+  ground a high camera sees (`PlantCamera::radius_from_ground`), fields on
   terrain built from a height or density function, and a sun or wind the
   game drives itself. See [Settings](settings.md#strategy-cameras) and
   [Fields, terrain and visibility](terrain.md#grow-grass-on-terrain-built-from-code).
@@ -74,7 +74,7 @@ In order:
 
 - **Rotated fields** (0.20.2): a field follows its transform's rotation about
   Y.
-- **Mesh terrain** (0.20.2): `GrassGround::Mesh` bakes a mesh into a
+- **Mesh terrain** (0.20.2): `PlantGround::Mesh` bakes a mesh into a
   heightmap on the CPU, once, so grass grows on terrain that is not a
   heightmap. See [Fields, terrain and visibility](terrain.md#grow-grass-on-a-mesh).
 - **Rapier and Avian** (0.20.2): physics bodies trample the grass in the
@@ -90,7 +90,7 @@ Requests for these are declined, so the crate stays one thing done well:
 - **Terrain:** rendering or generating it. procgena_plant grows on yours.
 - **Splatmaps,** or blending several fields' looks across one field. Overlap fields
   with density masks instead.
-- **Impostor cards** for distant grass. `FarGrassMaterial` already carries
+- **Impostor cards** for distant grass. `FarPlantMaterial` already carries
   the colour and the gusts past the last blade.
 - **WebGL2.**
 - **Mesh shaders or meshlets** as a requirement. The frame is dominated by

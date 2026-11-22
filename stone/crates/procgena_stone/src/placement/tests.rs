@@ -289,7 +289,6 @@ fn empty_rocks_get_no_placement() {
     assert_eq!(placement(&options), StonePlacement::EMPTY);
 }
 
-
 #[test]
 fn blocky_rocks_sink_only_a_little() {
     // Box-like rocks have nearly straight sides, so a low slice is already

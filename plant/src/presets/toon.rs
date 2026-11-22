@@ -1,18 +1,18 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GrassAccent, GrassBranches, GrassField,
-    GrassPlant, GrassSegment, GrassVariation, GroundTint, Vec2,
+    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantAccent, PlantBranches,
+    PlantField, PlantParams, PlantSegment, PlantVariation, Vec2,
 };
 
 /// A flower for the toon fields: a short stem and a big, flat-coloured head,
 /// 20 to the square metre on its own.
-const fn toon_flower(height: Vec2, head_color: Color) -> GrassPlant {
-    GrassPlant {
+const fn toon_flower(height: Vec2, head_color: Color) -> PlantParams {
+    PlantParams {
         density: 20.0,
         height,
         width: 0.015,
         lean: 0.1,
         stems_per_plant: 1,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.4,
             droop: 0.0,
@@ -21,7 +21,7 @@ const fn toon_flower(height: Vec2, head_color: Color) -> GrassPlant {
             root_color: Color::srgb(0.05, 0.30, 0.20),
             tip_color: Color::srgb(0.35, 0.70, 0.30),
         },
-        levels: [GrassBranches::NONE, GrassBranches::NONE],
+        levels: [PlantBranches::NONE, PlantBranches::NONE],
         root_occlusion: 0.3,
         translucency: 0.3,
         specular: 0.0,
@@ -30,7 +30,7 @@ const fn toon_flower(height: Vec2, head_color: Color) -> GrassPlant {
         head_color,
         tufts: 0.0,
         tuft_size: 0.6,
-        accent: GrassAccent::NONE,
+        accent: PlantAccent::NONE,
     }
 }
 
@@ -42,7 +42,7 @@ TOON "Toon" {
         description: "A cel-shaded field in the manner of open-world adventure games: wide, \
                       saturated blades gathered into chunky tufts, two bands of light, and \
                       red and white flowers in clumps.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             FieldPlant::new(toon_flower(Vec2::new(0.5, 0.9), Color::srgb(0.95, 0.25, 0.25)))
                 .scaled(0.055)
@@ -51,7 +51,7 @@ TOON "Toon" {
                 .scaled(0.055)
                 .clustered(0.7),
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 19.8,
                     height: Vec2::new(0.35, 0.75),
                     width: 0.09,
@@ -59,22 +59,22 @@ TOON "Toon" {
                     root_occlusion: 0.35,
                     translucency: 0.4,
                     specular: 0.0,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         stiffness: 0.3,
                         root_color: Color::srgb(0.05, 0.30, 0.30),
                         tip_color: Color::srgb(0.62, 0.92, 0.30),
                         twist: 0.0,
                         droop: 0.35,
                         fold: 0.0,
-                        ..GrassPlant::MEADOW_GRASS.segment
+                        ..PlantParams::MEADOW_GRASS.segment
                     },
                     tufts: 0.7,
                     tuft_size: 0.55,
-                    ..GrassPlant::MEADOW_GRASS
+                    ..PlantParams::MEADOW_GRASS
                 },
             ),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.75, 0.95, 0.35),
             patch_amount: 0.3,
             patch_size: 10.0,
@@ -91,7 +91,7 @@ TOON "Toon" {
         name: "Cosy pastel",
         description: "Short, soft, floppy mint grass with pastel flowers and four soft bands \
                       of light: cosy and casual games.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             FieldPlant::new(toon_flower(Vec2::new(0.25, 0.45), Color::srgb(0.98, 0.62, 0.78)))
                 .scaled(0.15)
@@ -103,7 +103,7 @@ TOON "Toon" {
                 .scaled(0.12)
                 .clustered(0.7),
             FieldPlant::new(
-                GrassPlant {
+                PlantParams {
                     density: 52.2,
                     height: Vec2::new(0.15, 0.35),
                     width: 0.05,
@@ -111,22 +111,22 @@ TOON "Toon" {
                     root_occlusion: 0.3,
                     translucency: 0.3,
                     specular: 0.0,
-                    segment: GrassSegment {
+                    segment: PlantSegment {
                         stiffness: 0.35,
                         root_color: Color::srgb(0.18, 0.48, 0.42),
                         tip_color: Color::srgb(0.66, 0.90, 0.60),
                         twist: 0.0,
                         droop: 0.4,
                         fold: 0.0,
-                        ..GrassPlant::MEADOW_GRASS.segment
+                        ..PlantParams::MEADOW_GRASS.segment
                     },
                     tufts: 0.5,
                     tuft_size: 0.35,
-                    ..GrassPlant::MEADOW_GRASS
+                    ..PlantParams::MEADOW_GRASS
                 },
             ),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.95, 0.92, 0.70),
             patch_amount: 0.25,
             patch_size: 6.0,

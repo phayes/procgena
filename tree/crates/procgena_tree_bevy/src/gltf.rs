@@ -33,18 +33,18 @@ const ATTRIBUTES: [(&str, MeshVertexAttribute); 3] = [
 /// and `_BILLBOARD_AXIS` vertex data in exported procgena_tree meshes.
 ///
 /// Use the returned plugin in `DefaultPlugins`, then add
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) to animate eligible billboards. Export
+/// [`TreePlugin`](crate::TreePlugin) to animate eligible billboards. Export
 /// with wind data enabled; registering attributes alone does not animate meshes.
 /// This function is available with this crate's `gltf` feature.
 ///
 /// ```no_run
 /// use bevy::gltf::GltfPlugin;
 /// use bevy::prelude::*;
-/// use procgena_tree_bevy::{ZeTreePlugin, add_tree_gltf_attributes};
+/// use procgena_tree_bevy::{TreePlugin, add_tree_gltf_attributes};
 ///
 /// App::new().add_plugins((
 ///     DefaultPlugins.set(add_tree_gltf_attributes(GltfPlugin::default())),
-///     ZeTreePlugin::default(),
+///     TreePlugin::default(),
 /// ));
 /// ```
 pub fn add_tree_gltf_attributes(plugin: GltfPlugin) -> GltfPlugin {
@@ -69,7 +69,9 @@ pub(crate) fn register(app: &mut App) {
         fit_billboard_bounds.before(bevy::camera::visibility::VisibilitySystems::CalculateBounds),
     );
     let Some(handlers) = app.world_mut().get_resource_mut::<GltfExtensionHandlers>() else {
-        warn!("procgena_tree_bevy: add ZeTreePlugin after GltfPlugin to turn billboards in glTF files");
+        warn!(
+            "procgena_tree_bevy: add TreePlugin after GltfPlugin to turn billboards in glTF files"
+        );
         return;
     };
     let handler = Box::new(BillboardGltfHandler::default());
@@ -261,7 +263,7 @@ impl BillboardGltfHandler {
         }) else {
             return false;
         };
-        let tree_label = format!("{label}/ze_tree_billboard");
+        let tree_label = format!("{label}/procgena_tree_billboard");
         let handle = if load_context.has_labeled_asset(&tree_label) {
             load_context.get_label_handle::<TreeMaterial>(tree_label)
         } else {

@@ -53,6 +53,9 @@ pub(crate) struct ClumpField<'a> {
     lump_size: f32,
     /// Small distance used to step off the surface before casting rays.
     epsilon: f32,
+    /// Whether the input is closed: every edge is shared by exactly two
+    /// triangles, so it encloses a solid.
+    closed_input: bool,
 }
 
 impl<'a> ClumpField<'a> {
@@ -64,7 +67,10 @@ impl<'a> ClumpField<'a> {
         let sources = options
             .directions
             .iter()
-            .map(|d| Source { toward: -Vec3::from(d.vector).normalize(), strength: d.strength })
+            .map(|d| Source {
+                toward: -Vec3::from(d.vector).normalize(),
+                strength: d.strength,
+            })
             .collect();
         let scale = options.scale;
 
@@ -85,9 +91,14 @@ impl<'a> ClumpField<'a> {
             lumpiness: options.shape.lumpiness,
             lump_size: options.shape.lump_size * scale,
             epsilon,
+            closed_input: surface.is_closed(),
         };
         field.sky = field.vertex_sky(options.mask.sky_rays);
-        field.centre = options.shape.at.map(Vec3::from).or_else(|| field.best_vertex());
+        field.centre = options
+            .shape
+            .at
+            .map(Vec3::from)
+            .or_else(|| field.best_vertex());
         field
     }
 
@@ -132,15 +143,20 @@ impl<'a> ClumpField<'a> {
                     let u = (i as f32 + 0.5) / rays as f32;
                     let r = u.sqrt();
                     let a = i as f32 * golden;
-                    (tangent * (r * a.cos()) + bitangent * (r * a.sin()) + source.toward * (1.0 - u).sqrt())
-                        .normalize()
+                    (tangent * (r * a.cos())
+                        + bitangent * (r * a.sin())
+                        + source.toward * (1.0 - u).sqrt())
+                    .normalize()
                 })
                 .collect();
 
             // Step off the surface along its normal, then count escaping rays.
             for (v, open) in sky.iter_mut().enumerate() {
                 let origin = self.surface.position(v) + self.surface.normal(v) * self.epsilon;
-                let escaped = dirs.iter().filter(|&&r| !self.bvh.ray_blocked(origin, r, f32::INFINITY)).count();
+                let escaped = dirs
+                    .iter()
+                    .filter(|&&r| !self.bvh.ray_blocked(origin, r, f32::INFINITY))
+                    .count();
                 open[d] = escaped as f32 / rays as f32;
             }
         }
@@ -202,7 +218,9 @@ impl<'a> ClumpField<'a> {
 
     /// Returns the coverage weight at `p`, from 0 (bare) to 1 (full thickness).
     pub(crate) fn weight(&self, p: &SurfacePoint) -> f32 {
-        let Some(centre) = self.centre else { return 0.0 };
+        let Some(centre) = self.centre else {
+            return 0.0;
+        };
 
         // Thin out toward the edge of the radius.
         let falloff = match self.radius {
@@ -231,6 +249,24 @@ impl<'a> ClumpField<'a> {
         (top / self.thickness).clamp(0.0, 1.0)
     }
 
+    /// Returns how far `point`, on the surface, can travel along unit
+    /// direction `dir` behind the surface before coming out again. Returns
+    /// `None` if `dir` doesn't lead behind the surface: the first surface it
+    /// meets is crossed from the front, or, on a closed input, it meets
+    /// nothing. On an open input (such as a ground patch), meeting nothing
+    /// returns infinity.
+    pub(crate) fn inside_run(&self, point: Vec3, dir: Vec3) -> Option<f32> {
+        let Some((t, tri)) = self
+            .bvh
+            .ray_hit(point + dir * self.epsilon, dir, f32::INFINITY)
+        else {
+            return (!self.closed_input).then_some(f32::INFINITY);
+        };
+        let [a, b, c] = self.surface.triangle_positions(tri);
+        let leaving = (b - a).cross(c - a).dot(dir) > 0.0;
+        leaving.then_some(t + self.epsilon)
+    }
+
     /// Returns the distance from `point` along unit direction `dir` to the
     /// first surface in the way, or infinity if nothing is. The search starts
     /// just off the surface so `point`'s own triangle doesn't count.
@@ -247,7 +283,9 @@ impl<'a> ClumpField<'a> {
     /// which holds closely because its terms are blended from the corners.
     /// Lumps never reach zero unless `lumpiness` is 1.
     pub(crate) fn may_cover(&self, corners: [&SurfacePoint; 3]) -> bool {
-        let Some(centre) = self.centre else { return false };
+        let Some(centre) = self.centre else {
+            return false;
+        };
         if corners.iter().all(|p| self.mask(p) <= 0.0) {
             return false;
         }

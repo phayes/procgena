@@ -6,19 +6,19 @@ targets Bevy 0.20.1.
 
 ## Display a tree
 
-Add `ZeTreePlugin` after Bevy's default plugins, then spawn a `ZeTree` component.
+Add `TreePlugin` after Bevy's default plugins, then spawn a `TreeParams` component.
 This complete example includes a camera and light and runs without texture files:
 
 ```no_run
 use bevy::prelude::*;
 use procgena_tree::TreePreset;
-use procgena_tree_bevy::{ZeTree, ZeTreePlugin};
+use procgena_tree_bevy::{TreeParams, TreePlugin};
 
 fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            ZeTreePlugin {
+            TreePlugin {
                 texture_root: None,
                 ..default()
             },
@@ -28,7 +28,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(ZeTree::preset(TreePreset::OakSmall));
+    commands.spawn(TreeParams::preset(TreePreset::OakSmall));
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(35.0, 25.0, 55.0)
@@ -57,14 +57,14 @@ rectangles. Add textures to give leaves their outline and bark its surface detai
 Bark and leaf textures are not stored in the repository. Download them first:
 
 ```sh
-tools/textures/download.sh
+uv run --project tools textures download tree
 ```
 
 This fetches every leaf into `assets/textures/leaves/` and the 512 and 1k bark
 sizes into `assets/textures/bark/`; add `--sizes 512,1k,2k` to include 2k bark.
 Then copy the repository's `assets/textures`
 directory to `assets/procgena_tree/textures` in your app and use
-`ZeTreePlugin::default()`. The default texture root is `procgena_tree/textures`,
+`TreePlugin::default()`. The default texture root is `procgena_tree/textures`,
 relative to Bevy's asset directory. Set `texture_root` to another path if you
 store textures elsewhere. Missing textures cause asset-loading errors.
 
@@ -83,13 +83,13 @@ automatically for leaf kinds that have one, such as `white_oak`; see
 
 ## Customize and position trees
 
-Edit a preset's options and wrap them with `ZeTree::new`. Add a `Transform` to
+Edit a preset's options and wrap them with `TreeParams::new`. Add a `Transform` to
 position each tree. Register this function as a startup system in your app:
 
 ```no_run
 use bevy::prelude::*;
 use procgena_tree::TreePreset;
-use procgena_tree_bevy::ZeTree;
+use procgena_tree_bevy::TreeParams;
 
 fn plant_trees(mut commands: Commands) {
     for i in 0..5 {
@@ -98,14 +98,14 @@ fn plant_trees(mut commands: Commands) {
         options.branch.length[0] = 12.0; // Trunk length.
 
         commands.spawn((
-            ZeTree::new(options),
+            TreeParams::new(options),
             Transform::from_xyz(i as f32 * 20.0, 0.0, 0.0),
         ));
     }
 }
 ```
 
-The same options and seed produce the same shape. Changing a tree's `ZeTree`
+The same options and seed produce the same shape. Changing a tree's `TreeParams`
 component rebuilds its generated parts; removing the component removes those
 children. Moving the parent entity moves the whole tree.
 
@@ -125,11 +125,11 @@ Load the file through Bevy's asset server in a startup system:
 
 ```no_run
 use bevy::prelude::*;
-use procgena_tree_bevy::ZeTree;
+use procgena_tree_bevy::TreeParams;
 
 fn load_tree(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
-        ZeTree::Asset(asset_server.load("trees/oak.tree.json")),
+        TreeParams::Asset(asset_server.load("trees/oak.tree.json")),
         Transform::from_xyz(20.0, 0.0, 0.0),
     ));
 }
@@ -173,15 +173,15 @@ shapes, called billboards, turn toward the camera to help preserve the tree’s
 outline as the view changes. For shadow rendering, they turn toward the light.
 To see shadows at this distance, extend the directional light’s shadow cascades
 far enough to cover the trees.
-Set `ZeTreePlugin::lod_levels` when adding the plugin to choose mesh detail,
+Set `TreePlugin::lod_levels` when adding the plugin to choose mesh detail,
 switching distances, bark appearance and leaf images. For a single full-detail
 mesh with 2k bark textures and no distance switching:
 
 ```rust
 use procgena_tree::{LodLevel, TextureSize};
-use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLodLevel, ZeTreePlugin};
+use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLodLevel, TreePlugin};
 
-let plugin = ZeTreePlugin {
+let plugin = TreePlugin {
     lod_levels: vec![TreeLodLevel {
         level: LodLevel::default(),
         bark: BarkTexture::Textured(TextureSize::Size2k),
@@ -205,7 +205,7 @@ From the repository, run:
 cargo run -p procgena_tree_bevy --example viewer
 ```
 
-The viewer uses the repository's textures; run `tools/textures/download.sh`
+The viewer uses the repository's textures; run `uv run --project tools textures download tree`
 first to fetch the bark textures. Press Left/Right to switch presets,
 F to toggle a forest, Space to toggle trunk and branch movement, and N to toggle
 bark normal maps. Hold the left mouse button to look around and use WASD and Q/E
@@ -233,7 +233,7 @@ See the top of `examples/viewer.rs` for all available options.
 
 For direct control, convert a `procgena_tree::TreeMesh` with `bark_mesh` and `leaf_mesh`,
 create materials with `bark_material` and `leaf_material`, and attach the mesh
-handles and `MeshMaterial3d<TreeMaterial>` to your entities. Keep `ZeTreePlugin`
+handles and `MeshMaterial3d<TreeMaterial>` to your entities. Keep `TreePlugin`
 installed to register shaders and synchronize wind settings.
 
 ## Load exported glTF trees
@@ -244,16 +244,16 @@ this integration lets them turn toward the camera and move with the wind.
 Export with `GltfOptions::wind` enabled (the default).
 
 Register the tree's custom vertex attributes with Bevy's `GltfPlugin`, then add
-`ZeTreePlugin` after Bevy's default plugins:
+`TreePlugin` after Bevy's default plugins:
 
 ```rust,ignore
 use bevy::gltf::GltfPlugin;
 use bevy::prelude::*;
-use procgena_tree_bevy::{ZeTreePlugin, add_tree_gltf_attributes};
+use procgena_tree_bevy::{TreePlugin, add_tree_gltf_attributes};
 
 App::new().add_plugins((
     DefaultPlugins.set(add_tree_gltf_attributes(GltfPlugin::default())),
-    ZeTreePlugin::default(),
+    TreePlugin::default(),
 ));
 ```
 

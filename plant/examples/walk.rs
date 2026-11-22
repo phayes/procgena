@@ -13,7 +13,7 @@
 //! reeds stand in almost still air instead, against the waving fields.
 //!
 //! `--fields A,B,C` picks the field presets (any number), `--shot SECONDS` how long
-//! each is shown (3). `tools/record_walk.py` records the film and makes the
+//! each is shown (3). `tools/plant/record_walk.py` records the film and makes the
 //! WebP.
 //!
 //! ```text
@@ -26,8 +26,8 @@ mod common;
 
 use bevy::light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap};
 use bevy::prelude::*;
-use procgena_plant::prelude::*;
 use common::setting::{setting, spawn_setting};
+use procgena_plant::prelude::*;
 
 const PRESETS: [&str; 3] = ["WILDFLOWER_MEADOW", "RYE_AND_CORNFLOWERS", "REED_MARSH"];
 
@@ -40,34 +40,34 @@ const GROUND: f32 = 300.0;
 /// Presets are filmed at this many times their density, and at least
 /// `MIN_DENSITY` blades a square metre before it: from 4.5 m up, a short
 /// meadow at its own 60 shows its soil between the blades. (The field's
-/// density, not `GrassSettings::density_scale`, which cannot add blades
+/// density, not `PlantSettings::density_scale`, which cannot add blades
 /// beyond the ones the field's chunk layout has.)
 const DENSITY: f32 = 2.0;
 const MIN_DENSITY: f32 = 100.0;
 
 /// A stronger wind than the breeze, with deeper waves rolling through.
-const WIND: GrassWind = GrassWind {
+const WIND: PlantWind = PlantWind {
     strength: 0.55,
     gust_scale: 20.0,
     gust_speed: 5.0,
     gust_contrast: 1.4,
-    ..GrassWind::BREEZE
+    ..PlantWind::BREEZE
 };
 
 /// Almost still air, for presets that should stand against the waving
 /// ones: the reeds barely sway.
-const STILL: GrassWind = GrassWind {
+const STILL: PlantWind = PlantWind {
     strength: 0.04,
     gust_speed: 1.0,
     gust_contrast: 0.5,
     sway: 0.6,
     flutter: 0.3,
-    ..GrassWind::CALM
+    ..PlantWind::CALM
 };
 
 /// The wind preset `name` is filmed in. One wind blows on every field, so
 /// it changes at each cut.
-fn wind_for(name: &str) -> GrassWind {
+fn wind_for(name: &str) -> PlantWind {
     match name {
         "REED_MARSH" => STILL,
         _ => setting(name).wind.unwrap_or(WIND),
@@ -80,7 +80,7 @@ fn wind_for(name: &str) -> GrassWind {
 struct Film {
     presets: Vec<String>,
     /// The wind of each preset, in the same order.
-    winds: Vec<GrassWind>,
+    winds: Vec<PlantWind>,
     shot: f32,
     /// Seconds of game time before the first shot: when `--record` starts
     /// saving frames, so the shots fall where the recording does.
@@ -139,23 +139,23 @@ fn main() {
     let winds = presets.iter().map(|name| wind_for(name)).collect();
     let mut app = App::new();
     args.install(&mut app, "procgena_plant: walk");
-    app.add_plugins(GrassPlugins)
+    app.add_plugins(PlantPlugins)
         .insert_resource(Film {
             presets,
             winds,
             shot,
             lead,
         })
-        .insert_resource(GrassSettings {
+        .insert_resource(PlantSettings {
             mid_range_density: 1.0,
             instance_capacity: 3_000_000,
             max_chunk_slices: 32_768,
-            ..GrassSettings::ULTRA
+            ..PlantSettings::ULTRA
         })
         .insert_resource(DirectionalLightShadowMap { size: 4096 })
         .add_systems(Startup, setup)
         // The wind is read in the same frame, so it changes with the picture.
-        .add_systems(Update, (walk, cut).chain().before(GrassWindSystems::Sample))
+        .add_systems(Update, (walk, cut).chain().before(PlantWindSystems::Sample))
         .run();
 }
 
@@ -200,10 +200,10 @@ fn setup(
             Vec2::splat(GROUND),
         );
         let preset = FieldPreset::named(name).expect("checked in main");
-        let field = GrassField::from_preset(preset, Vec2::splat(FIELD));
+        let field = PlantField::from_preset(preset, Vec2::splat(FIELD));
         let density = field.density().max(MIN_DENSITY) * DENSITY;
         commands.spawn((
-            GrassField {
+            PlantField {
                 density_map,
                 ..field.with_density(density)
             },
@@ -212,7 +212,7 @@ fn setup(
         let person = common::spawn_person(&mut commands, &mut meshes, &mut materials, center);
         commands
             .entity(person)
-            .insert((Walker(index), GrassInteractor::default()));
+            .insert((Walker(index), PlantInteractor::default()));
         commands.spawn((
             Camera3d::default(),
             Camera {
@@ -277,7 +277,7 @@ fn cut(
     film: Res<Film>,
     mut cameras: Query<(&mut Camera, &Follower)>,
     mut captions: Query<&mut Text, With<Caption>>,
-    mut wind: ResMut<GrassWind>,
+    mut wind: ResMut<PlantWind>,
 ) {
     let shot = film.shot_at(time.elapsed_secs());
     if *wind != film.winds[shot] {

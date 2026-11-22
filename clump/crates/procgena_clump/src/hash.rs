@@ -43,7 +43,10 @@ pub(crate) struct Rng {
     counter: u32,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "scatter seeding uses it in phase 3"))]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "scatter seeding uses it in phase 3")
+)]
 impl Rng {
     /// Starts a stream for `seed`.
     pub(crate) fn new(seed: u32) -> Self {
@@ -72,7 +75,11 @@ pub(crate) fn value_noise(p: Vec3, seed: u32) -> f32 {
     // Hash the eight cell corners. The casts keep the bit pattern of negative coordinates.
     let [x, y, z] = [ip.x as i32 as u32, ip.y as i32 as u32, ip.z as i32 as u32];
     let corner = |dx: u32, dy: u32, dz: u32| {
-        let h = pcg3d([x.wrapping_add(dx), y.wrapping_add(dy), z.wrapping_add(dz) ^ seed.rotate_left(16)]);
+        let h = pcg3d([
+            x.wrapping_add(dx),
+            y.wrapping_add(dy),
+            z.wrapping_add(dz) ^ seed.rotate_left(16),
+        ]);
         unit_float(h[0] ^ seed)
     };
 
@@ -112,9 +119,18 @@ mod tests {
 
     #[test]
     fn rng_repeats_for_a_seed() {
-        let a: Vec<f32> = { let mut r = Rng::new(3); (0..8).map(|_| r.next_f32()).collect() };
-        let b: Vec<f32> = { let mut r = Rng::new(3); (0..8).map(|_| r.next_f32()).collect() };
-        let c: Vec<f32> = { let mut r = Rng::new(4); (0..8).map(|_| r.next_f32()).collect() };
+        let a: Vec<f32> = {
+            let mut r = Rng::new(3);
+            (0..8).map(|_| r.next_f32()).collect()
+        };
+        let b: Vec<f32> = {
+            let mut r = Rng::new(3);
+            (0..8).map(|_| r.next_f32()).collect()
+        };
+        let c: Vec<f32> = {
+            let mut r = Rng::new(4);
+            (0..8).map(|_| r.next_f32()).collect()
+        };
         assert_eq!(a, b);
         assert_ne!(a, c);
         assert!(a.iter().all(|v| (0.0..1.0).contains(v)));

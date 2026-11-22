@@ -8,23 +8,23 @@
 //! grass. Here, the rest of the grass shaders see Bevy through a few small
 //! functions in grass's own terms, so a Bevy port edits this file alone.
 //! (`far_ground.wesl` is the exception: it is a `StandardMaterial`
-//! extension, a Bevy material by nature, like `FarGrassMaterial` in Rust.)
+//! extension, a Bevy material by nature, like `FarPlantMaterial` in Rust.)
 //!
 //! Which view this is depends on the pass: Bevy's mesh view in the main pass
 //! and the prepasses, the light's view in the shadow pass
-//! (`GRASS_SHADOW_PASS`, set by `GrassShadowPipeline`).
+//! (`PLANT_SHADOW_PASS`, set by `PlantShadowPipeline`).
 
-@if(GRASS_SHADOW_PASS)
+@if(PLANT_SHADOW_PASS)
 import bevy_render::view::View;
-@if(!GRASS_SHADOW_PASS)
+@if(!PLANT_SHADOW_PASS)
 import bevy_pbr::render::mesh_view_bindings::view;
-@if(!GRASS_SHADOW_PASS)
+@if(!PLANT_SHADOW_PASS)
 import bevy_pbr::render::{
     pbr_types::{PbrInput, pbr_input_new, STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT},
     pbr_functions::calculate_view,
     mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
 };
-@if(!PREPASS_PIPELINE && !GRASS_SHADOW_PASS)
+@if(!PREPASS_PIPELINE && !PLANT_SHADOW_PASS)
 import bevy_pbr::render::{
     mesh_view_bindings::lights,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
@@ -36,7 +36,7 @@ import bevy_pbr::deferred::functions::deferred_gbuffer_from_pbr_input;
 
 /// The directional light's view, in the shadow pass. Group 1 is empty so
 /// the grass group sits at 2 in every grass pipeline.
-@if(GRASS_SHADOW_PASS)
+@if(PLANT_SHADOW_PASS)
 @group(0) @binding(0) var<uniform> view: View;
 
 // --- The view ------------------------------------------------------------
@@ -64,9 +64,9 @@ fn view_is_orthographic() -> bool {
 
 // --- The surface Bevy lights -----------------------------------------------
 
-/// A blade's surface, in grass's terms: what `grass_pbr_input` hands to
+/// A blade's surface, in grass's terms: what `plant_pbr_input` hands to
 /// Bevy's lighting.
-struct GrassSurface {
+struct PlantSurface {
     base_color: vec3<f32>,
     perceptual_roughness: f32,
     reflectance: f32,
@@ -81,8 +81,8 @@ struct GrassSurface {
 
 /// `surface` as Bevy's `PbrInput`: a matte, fogged, shadow-receiving
 /// dielectric.
-@if(!GRASS_SHADOW_PASS)
-fn grass_pbr_input(surface: GrassSurface) -> PbrInput {
+@if(!PLANT_SHADOW_PASS)
+fn plant_pbr_input(surface: PlantSurface) -> PbrInput {
     var pbr_input = pbr_input_new();
     pbr_input.material.base_color = vec4<f32>(surface.base_color, 1.0);
     pbr_input.material.perceptual_roughness = surface.perceptual_roughness;
@@ -106,7 +106,7 @@ fn grass_pbr_input(surface: GrassSurface) -> PbrInput {
 
 /// Whether a surface facing `normal` faces away from the first directional
 /// light, the one grass treats as the sun. False without one.
-@if(!PREPASS_PIPELINE && !GRASS_SHADOW_PASS)
+@if(!PREPASS_PIPELINE && !PLANT_SHADOW_PASS)
 fn faces_away_from_sun(normal: vec3<f32>) -> bool {
     return lights.n_directional_lights > 0u
         && dot(normal, lights.directional_lights[0].direction_to_light) < 0.0;
@@ -114,22 +114,22 @@ fn faces_away_from_sun(normal: vec3<f32>) -> bool {
 
 /// The ambient light, exposed: what a white, unoccluded diffuse surface
 /// receives from it.
-@if(!PREPASS_PIPELINE && !GRASS_SHADOW_PASS)
+@if(!PREPASS_PIPELINE && !PLANT_SHADOW_PASS)
 fn ambient_light() -> vec3<f32> {
     return view.exposure * lights.ambient_color.rgb;
 }
 
 /// Every light, shadow and environment map Bevy has for this view, applied
 /// to `pbr_input`.
-@if(!PREPASS_PIPELINE && !GRASS_SHADOW_PASS)
-fn grass_lit(pbr_input: PbrInput) -> vec4<f32> {
+@if(!PREPASS_PIPELINE && !PLANT_SHADOW_PASS)
+fn plant_lit(pbr_input: PbrInput) -> vec4<f32> {
     return apply_pbr_lighting(pbr_input);
 }
 
 /// Fog, tonemapping and the rest of Bevy's view settings, applied to a lit
 /// `color`.
-@if(!PREPASS_PIPELINE && !GRASS_SHADOW_PASS)
-fn grass_post(pbr_input: PbrInput, color: vec4<f32>) -> vec4<f32> {
+@if(!PREPASS_PIPELINE && !PLANT_SHADOW_PASS)
+fn plant_post(pbr_input: PbrInput, color: vec4<f32>) -> vec4<f32> {
     return main_pass_post_lighting_processing(pbr_input, color);
 }
 
@@ -167,7 +167,7 @@ fn prepass_motion_vector(world_position: vec4<f32>, previous_world_position: vec
 
 /// `pbr_input` packed into Bevy's G-buffer.
 @if(DEFERRED_PREPASS)
-fn grass_gbuffer(pbr_input: PbrInput) -> vec4<u32> {
+fn plant_gbuffer(pbr_input: PbrInput) -> vec4<u32> {
     return deferred_gbuffer_from_pbr_input(pbr_input);
 }
 

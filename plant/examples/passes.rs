@@ -48,11 +48,11 @@ fn main() {
     if deferred {
         app.insert_resource(DefaultOpaqueRendererMethod::deferred());
     }
-    app.add_plugins((GrassPlugins, MaterialPlugin::<ShowPrepass>::default()))
+    app.add_plugins((PlantPlugins, MaterialPlugin::<ShowPrepass>::default()))
         .insert_resource(if args.has("--storm") {
-            GrassWind::STORM
+            PlantWind::STORM
         } else {
-            GrassWind::GUSTY
+            PlantWind::GUSTY
         })
         .add_systems(Startup, setup)
         .add_systems(Update, (pan, fit_overlay));
@@ -156,12 +156,12 @@ fn setup(
         Transform::from_xyz(-1.5, 0.5, -1.0).with_rotation(Quat::from_rotation_y(0.5)),
     ));
 
-    commands.spawn(GrassField::from_preset(
+    commands.spawn(PlantField::from_preset(
         &FieldPreset::MEADOW,
         Vec2::splat(60.0),
     ));
     commands.spawn((
-        GrassField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(8.0, 6.0)),
+        PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(8.0, 6.0)),
         Transform::from_xyz(4.0, 0.0, -5.0),
     ));
 }

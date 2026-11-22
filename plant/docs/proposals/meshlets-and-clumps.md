@@ -74,7 +74,7 @@ Relevant code:
   index, then `blade_vertex` rebuilds the curved blade, normals and minimum
   screen width procedurally.
 - `src/render/resources.rs`: one shared index buffer with three LOD
-  topologies; `blade_indices` builds it from `GrassSettings::blade_rows`.
+  topologies; `blade_indices` builds it from `PlantSettings::blade_rows`.
 - `src/render/bevy_glue.rs`: one `NonMesh` phase item per camera and three
   `draw_indexed_indirect` calls, one per LOD bucket.
 
@@ -121,7 +121,7 @@ mesh shaders can be a later experiment, not the base design.
 
 Replace the per-blade instance buffer with two levels:
 
-- **`GrassClump`**: one instance per 4–16 blades. Holds a world transform or
+- **`PlantClump`**: one instance per 4–16 blades. Holds a world transform or
   root, a bounding sphere/box, field index, LOD, and an offset into a static
   clump vertex/index table.
 - **`ClumpBlade`**: static per-blade data inside the clump: local root, height,
@@ -174,7 +174,7 @@ it should not be assumed to be the final look.
 ### 4.3 Data layout sketch
 
 ```wgsl
-struct GrassClump {
+struct PlantClump {
     // xyz: world-space centre; w: bounding radius.
     bounds: vec4<f32>,
     // x: first index; y: index count; z: base vertex; w: LOD / bucket.
@@ -250,7 +250,7 @@ Before building the full cache:
 
 1. Build one combined clump from 8 blades and draw it with the existing draw
    path, but decode `ClumpBlade` instead of the per-blade instance.
-2. Compare against the current build with `tools/bench_ab.py`, both scenes, at
+2. Compare against the current build with `tools/plant/bench_ab.py`, both scenes, at
    least four paired rounds.
 3. Record instance count, generation time, vertex time and main-pass time
    separately, not just total frame time.
@@ -286,7 +286,7 @@ an indirect-count argument, depending on the draw API used.
 
 ### 5.2 Drawing
 
-The current `DrawGrassBuckets` in `src/render/bevy_glue.rs` records three
+The current `DrawPlantBuckets` in `src/render/bevy_glue.rs` records three
 `draw_indexed_indirect` calls. A clump renderer wants one of:
 
 - `multi_draw_indexed_indirect` per LOD, with one argument per visible clump;
@@ -390,7 +390,7 @@ CPU at startup or on style change is preferable to per-frame GPU work.
 The proposal should not be judged only by "did generation get faster". The
 target is frame time. Use the existing measurement method:
 
-- `tools/bench_ab.py` with paired, interleaved rounds.
+- `tools/plant/bench_ab.py` with paired, interleaved rounds.
 - Perspective and DEMO ARPG GAME scenes.
 - At least 4 rounds; reject runs that log shader errors.
 - Report p50 and p95 as a share of grass cost.
@@ -427,7 +427,7 @@ culling alone.
 
 ### Phase 1: baked clumps, no new culling
 
-- Introduce `GrassClump` and `ClumpBlade` tables.
+- Introduce `PlantClump` and `ClumpBlade` tables.
 - Build per-chunk clumps on the CPU for small fields first, or GPU-build into a
   cached pool.
 - Reuse the existing three indirect draws by making each draw's instances be

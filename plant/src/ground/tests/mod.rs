@@ -159,10 +159,10 @@ fn app() -> App {
     app
 }
 
-fn spawn(app: &mut App, ground: GrassGround, transform: Transform) -> Entity {
+fn spawn(app: &mut App, ground: PlantGround, transform: Transform) -> Entity {
     app.world_mut()
         .spawn((
-            GrassField {
+            PlantField {
                 size: Vec2::splat(32.0),
                 ground,
                 ..Default::default()
@@ -194,7 +194,7 @@ fn a_field_on_a_mesh_stands_on_it_and_is_baked_again_only_when_the_mesh_changes(
         .add(slope(Vec2::splat(32.0), 8.0));
     let field = spawn(
         &mut app,
-        GrassGround::mesh(hill.clone()),
+        PlantGround::mesh(hill.clone()),
         Transform::from_xyz(0.0, 10.0, 0.0),
     );
     let tables = update(&mut app);
@@ -233,7 +233,7 @@ fn a_field_on_a_mesh_stands_on_it_and_is_baked_again_only_when_the_mesh_changes(
     assert!((tables.chunks[1].bounds.w - 4.0).abs() < 0.2);
 
     // So is a new cell size.
-    app.world_mut().get_mut::<GrassField>(field).unwrap().ground = GrassGround::Mesh {
+    app.world_mut().get_mut::<PlantField>(field).unwrap().ground = PlantGround::Mesh {
         mesh: hill,
         cell_size: 1.0,
     };
@@ -241,7 +241,7 @@ fn a_field_on_a_mesh_stands_on_it_and_is_baked_again_only_when_the_mesh_changes(
     assert_eq!(tables.fields[0].map_sizes.zw(), UVec2::splat(32));
 
     // A field off the mesh lets its bake go.
-    app.world_mut().get_mut::<GrassField>(field).unwrap().ground = GrassGround::Flat;
+    app.world_mut().get_mut::<PlantField>(field).unwrap().ground = PlantGround::Flat;
     let tables = update(&mut app);
     assert_eq!(bakes(&app), 0);
     assert!(tables.heights.is_empty());
@@ -257,10 +257,10 @@ fn a_mesh_that_cannot_be_baked_draws_nothing_and_holds_no_other_field_back() {
             PrimitiveTopology::LineList,
             RenderAssetUsages::default(),
         ));
-    spawn(&mut app, GrassGround::mesh(lines), Transform::IDENTITY);
+    spawn(&mut app, PlantGround::mesh(lines), Transform::IDENTITY);
     spawn(
         &mut app,
-        GrassGround::Flat,
+        PlantGround::Flat,
         Transform::from_xyz(100.0, 0.0, 0.0),
     );
     let tables = update(&mut app);
@@ -284,7 +284,7 @@ fn a_field_waits_for_its_mesh_to_load() {
         .reserve_handle();
     spawn(
         &mut app,
-        GrassGround::mesh(later.clone()),
+        PlantGround::mesh(later.clone()),
         Transform::IDENTITY,
     );
     assert!(

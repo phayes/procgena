@@ -2,7 +2,7 @@
 //!
 //! Run `cargo run -p procgena_stone_bevy --example viewer` from the repository.
 //! The viewer uses the repository's `assets/textures` folder with BC7 textures;
-//! download them first with `tools/textures/download.sh`.
+//! download them first with `uv run --project tools textures download stone`.
 //!
 //! Controls:
 //! - Left / Right: choose the previous / next seed.
@@ -55,8 +55,8 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_stone::{Mesher, StoneOptions, TEXTURE_SETS};
 use procgena_stone_bevy::{
-    PooledStone, StoneEmbedDepth, StoneGenerating, StoneMaterial, StonePart, StonePool, ZeStone,
-    ZeStonePlugin,
+    PooledStone, StoneEmbedDepth, StoneGenerating, StoneMaterial, StoneParams, StonePart,
+    StonePlugin, StonePool,
 };
 
 /// Number of rows and columns in the square rock field.
@@ -249,7 +249,7 @@ fn main() -> AppExit {
             FreeCameraPlugin,
         ));
     }
-    app.add_plugins(ZeStonePlugin {
+    app.add_plugins(StonePlugin {
         texture_root: viewer.textured.then(|| "textures".to_owned()),
         ..default()
     });
@@ -416,7 +416,7 @@ fn show_rocks(
         let pool = StonePool::new(options.clone(), 1);
         let offset = Vec3::X * viewer.size * 0.6;
         commands.spawn((
-            ZeStone::new(pool.variant_options(0)),
+            StoneParams::new(pool.variant_options(0)),
             Transform::from_translation(-offset),
             Shown,
         ));
@@ -469,7 +469,7 @@ fn show_rocks(
             let position = Vec3::new(x as f32, 0.0, z as f32) * viewer.size * FIELD_SPACING;
             let turn = Quat::from_rotation_y((x * 7 + z * 13) as f32);
             commands.spawn((
-                ZeStone::new(rock),
+                StoneParams::new(rock),
                 Transform::from_translation(position).with_rotation(turn),
                 Shown,
             ));
@@ -564,16 +564,17 @@ fn screenshot(
     // Exit after saving, reporting whether the PNG was written successfully.
     let path = path.clone();
     commands.spawn(target).observe(
-        move |captured: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            match save_png(&captured.image, &path) {
-                Ok(()) => {
-                    info!("screenshot saved to {path}");
-                    exit.write(AppExit::Success);
-                }
-                Err(message) => {
-                    error!("screenshot failed: could not save {path}: {message}");
-                    exit.write(AppExit::error());
-                }
+        move |captured: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| match save_png(
+            &captured.image,
+            &path,
+        ) {
+            Ok(()) => {
+                info!("screenshot saved to {path}");
+                exit.write(AppExit::Success);
+            }
+            Err(message) => {
+                error!("screenshot failed: could not save {path}: {message}");
+                exit.write(AppExit::error());
             }
         },
     );

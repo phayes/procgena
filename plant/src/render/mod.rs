@@ -25,19 +25,19 @@ use bevy::render::render_resource::SpecializedRenderPipelines;
 use bevy::render::renderer::{RenderAdapter, RenderDevice, RenderGraph};
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
-use platform::GrassSupport;
+use platform::PlantSupport;
 
-/// Wires the render app. Added by `GrassPlugin`.
-pub(crate) struct GrassRenderPlugin {
-    pub shaders: resources::GrassShaders,
+/// Wires the render app. Added by `PlantPlugin`.
+pub(crate) struct PlantRenderPlugin {
+    pub shaders: resources::PlantShaders,
 }
 
-impl Plugin for GrassRenderPlugin {
+impl Plugin for PlantRenderPlugin {
     fn build(&self, app: &mut App) {
         // The stats the render world reads back go to the main world through
         // this shared handle.
         let readings = app.world().resource::<crate::stats::GpuReadings>().clone();
-        app.init_resource::<GrassSupport>()
+        app.init_resource::<PlantSupport>()
             .init_resource::<msaa::MsaaSupport>()
             .add_systems(PostUpdate, msaa::fit_msaa);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -46,16 +46,16 @@ impl Plugin for GrassRenderPlugin {
         render_app
             .insert_resource(readings)
             .insert_resource(self.shaders.clone())
-            .init_resource::<resources::ExtractedGrass>()
-            .init_resource::<resources::GrassSharedBindGroups>()
-            .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassMainPipeline>>()
-            .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassPrepassPipeline>>()
-            .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassShadowPipeline>>()
-            .init_resource::<bevy_glue::GrassBranchedPipelines>()
-            .add_render_command::<Opaque3d, bevy_glue::DrawGrassMain>()
-            .add_render_command::<Opaque3dPrepass, bevy_glue::DrawGrassPrepass>()
-            .add_render_command::<Opaque3dDeferred, bevy_glue::DrawGrassPrepass>()
-            .add_render_command::<Shadow, bevy_glue::DrawGrassShadow>()
+            .init_resource::<resources::ExtractedPlants>()
+            .init_resource::<resources::PlantSharedBindGroups>()
+            .init_resource::<SpecializedRenderPipelines<bevy_glue::PlantMainPipeline>>()
+            .init_resource::<SpecializedRenderPipelines<bevy_glue::PlantPrepassPipeline>>()
+            .init_resource::<SpecializedRenderPipelines<bevy_glue::PlantShadowPipeline>>()
+            .init_resource::<bevy_glue::PlantBranchedPipelines>()
+            .add_render_command::<Opaque3d, bevy_glue::DrawPlantMain>()
+            .add_render_command::<Opaque3dPrepass, bevy_glue::DrawPlantPrepass>()
+            .add_render_command::<Opaque3dDeferred, bevy_glue::DrawPlantPrepass>()
+            .add_render_command::<Shadow, bevy_glue::DrawPlantShadow>()
             .add_systems(
                 RenderStartup,
                 (
@@ -72,12 +72,12 @@ impl Plugin for GrassRenderPlugin {
             )
             .add_systems(
                 ExtractSchedule,
-                (resources::extract_grass, resources::extract_cameras).run_if(platform::supported),
+                (resources::extract_plants, resources::extract_cameras).run_if(platform::supported),
             )
             .add_systems(
                 Render,
                 (
-                    bevy_glue::queue_grass.in_set(RenderSystems::Queue),
+                    bevy_glue::queue_plants.in_set(RenderSystems::Queue),
                     (resources::prepare_shared, view::prepare_views)
                         .in_set(RenderSystems::PrepareResources),
                     (
@@ -96,7 +96,7 @@ impl Plugin for GrassRenderPlugin {
             );
     }
 
-    /// Decides [`GrassSupport`] once the render device exists, which
+    /// Decides [`PlantSupport`] once the render device exists, which
     /// `RenderPlugin` sees to in its own `finish`, before this one.
     fn finish(&self, app: &mut App) {
         let world = app.world();
@@ -109,11 +109,11 @@ impl Plugin for GrassRenderPlugin {
         let support = platform::check(
             adapter.get_downlevel_capabilities().flags,
             &device.limits(),
-            &resources::GrassLayouts::new(),
+            &resources::PlantLayouts::new(),
         );
         let msaa = msaa::MsaaSupport::of(adapter);
         if !support.is_supported() {
-            warn!("procgena_plant: no grass is drawn on this GPU: {support}. See GrassSupport.");
+            warn!("procgena_plant: no grass is drawn on this GPU: {support}. See PlantSupport.");
         }
         app.insert_resource(support).insert_resource(msaa);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {

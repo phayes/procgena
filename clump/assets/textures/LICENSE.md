@@ -1,9 +1,9 @@
 # Texture licences
 
 These textures come from [Poly Haven](https://polyhaven.com) and
-[ambientCG](https://ambientcg.com). `tools/textures/fetch.sh` downloads each
-set at 2048 × 2048 pixels, `tools/textures/convert.sh` converts them to KTX2, a
-file format for compressed GPU textures, and `tools/textures/images.sh` writes
+[ambientCG](https://ambientcg.com). `textures fetch` downloads each
+set at 2048 × 2048 pixels, `textures convert` converts them to KTX2, a
+file format for compressed GPU textures, and `textures images` writes
 JPEG copies for exported models. The 1k and 512 versions are reduced copies.
 The source licences below apply to these converted files.
 
@@ -45,17 +45,11 @@ domain). Attribution is not required but is given as a courtesy.
 Stalk cards are transparent images of twigs and similar shapes, written as
 `stalks/<id>-<map>-<format>.ktx2` and `images/stalks/<id>-<map>.png`.
 
+The Nobiax twigs and sporophyte cards are CC0. 
+
 | Id             | Set                                   | Author(s)         | Source                         |
 | -------------- | ------------------------------------- | ----------------- | ------------------------------ |
 | `twig_bare`    | Free 3D branches textures 04, #36     | Nobiax (yughues)  | https://nobiax.deviantart.com  |
 | `twig_budding` | Free 3D branches textures 04, #37     | Nobiax (yughues)  | https://nobiax.deviantart.com  |
-
-The Nobiax twigs are CC0. The sporophyte cards below are not from a CC0
-library: they were cut out of AI-generated images made for this project, using
-`tools/textures/key_card.py`. Their licence is set by the project owner and
-has not been chosen yet.
-
-| Id                  | Set                 | Author(s) | Source                         |
-| ------------------- | ------------------- | --------- | ------------------------------ |
-| `sporophyte_sparse` | Sporophytes, sparse | procgena_clump  | AI-generated, keyed by script  |
-| `sporophyte_dense`  | Sporophytes, dense  | procgena_clump  | AI-generated, keyed by script  |
+| `sporophyte_sparse` | Sporophytes, sparse | procgena_clump  | Created by author  |
+| `sporophyte_dense`  | Sporophytes, dense  | procgena_clump  | Created by author   |

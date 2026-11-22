@@ -318,7 +318,7 @@ fn mask_texel(field: Field, x: u32, y: u32) -> vec2<f32> {
 
 /// Ground height in world units at a point of the field (bilinear), or
 /// `HOLE` where a mesh ground does not reach. The hole test has a CPU twin,
-/// `edit::ground_is_hole`, for `GrassSampler`.
+/// `edit::ground_is_hole`, for `PlantSampler`.
 fn ground_height(field: Field, local: vec2<f32>) -> f32 {
     if field.placement.w == NO_MAP {
         return field.min_corner.y;

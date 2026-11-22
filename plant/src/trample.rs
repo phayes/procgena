@@ -3,7 +3,7 @@
 //! `shaders/generate.wesl`.
 //!
 //! Each camera owns a square of `TEXELS × TEXELS` cells, each
-//! `GrassSettings::trample_cell_size` metres across (0.25 by default, so the
+//! `PlantSettings::trample_cell_size` metres across (0.25 by default, so the
 //! window covers 64 m), centred near what the camera looks at. Cells are addressed
 //! toroidally (a world cell's slot is its coordinates modulo `TEXELS`), so
 //! when the window moves no data is copied: the decay pass clears only the
@@ -13,8 +13,8 @@
 use bevy::math::{IVec2, Mat3, Mat4, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use bevy::transform::components::GlobalTransform;
 
-use crate::GrassInteractorFootprint;
-use crate::GrassSettings;
+use crate::PlantInteractorFootprint;
+use crate::PlantSettings;
 use crate::fields::{CHUNK_SIZE, FieldTables};
 
 /// Cells along each side of the window. The WESL twin is `TRAMPLE_TEXELS`.
@@ -41,7 +41,7 @@ pub(crate) struct TrampleView {
     /// for a perspective camera; `None` for an orthographic one.
     pub bottom: Option<Vec3>,
     /// The camera's grass radius, measured from the camera (its
-    /// `GrassCamera::radius_from_ground` offset included): no grass, so no
+    /// `PlantCamera::radius_from_ground` offset included): no grass, so no
     /// trampling, beyond it.
     pub radius: f32,
 }
@@ -171,7 +171,7 @@ pub(crate) fn reach(max_height: Option<f32>, feet: f32, ground: Option<f32>) -> 
 /// One interactor's stamp, as `trample_stamp` reads it: three `vec4`s.
 ///
 /// A disc is `disc` alone (x, z, radius, strength), the rest zero. A box (a
-/// [`GrassInteractorFootprint`] on the ground) also has its `shape` (its axis
+/// [`PlantInteractorFootprint`] on the ground) also has its `shape` (its axis
 /// on the ground, then its core half extents along and across it) and its
 /// `motion` (how it moves on the ground, 0 to 1 m/s-ish, then its rounding
 /// and the margin its push fades over); its `disc` radius is how far from
@@ -208,7 +208,7 @@ impl Stamp {
 /// more out from the box's edges, as under a box at rest.
 pub(crate) const MOVING_SPEED: f32 = 0.5;
 
-/// The stamp of a [`GrassInteractorFootprint`] under `transform`, pushing
+/// The stamp of a [`PlantInteractorFootprint`] under `transform`, pushing
 /// with `strength`, moving on the ground by `motion` (0 to 1, see
 /// [`MOVING_SPEED`]).
 ///
@@ -218,7 +218,7 @@ pub(crate) const MOVING_SPEED: f32 = 0.5;
 /// vertical keeps its size; one lying on its side covers its length.
 pub(crate) fn box_stamp(
     transform: &GlobalTransform,
-    footprint: &GrassInteractorFootprint,
+    footprint: &PlantInteractorFootprint,
     strength: f32,
     motion: Vec2,
 ) -> Stamp {
@@ -242,7 +242,7 @@ pub(crate) fn box_stamp(
         .fold(Vec2::ZERO, |extent, axis| {
             extent + Vec2::new(axis.dot(along).abs(), axis.dot(across).abs())
         })
-        .min(Vec2::splat(GrassSettings::MAX_INTERACTOR_RADIUS));
+        .min(Vec2::splat(PlantSettings::MAX_INTERACTOR_RADIUS));
     let rounding = finite(footprint.rounding).clamp(0.0, extent.min_element());
     let core = extent - rounding;
     // Grass beside a box is pushed aside a little, more beside a bigger one.
@@ -309,7 +309,7 @@ impl Tracked {
 
 /// The interactors a camera stamps: those that reach its window of
 /// `cell`-metre cells, nearest to `center` first, at most `max`. A disc's
-/// radius is clamped to `max_radius` (`GrassSettings::max_interactor_radius`);
+/// radius is clamped to `max_radius` (`PlantSettings::max_interactor_radius`);
 /// a box is already clipped, in [`box_stamp`]. Strengths are clamped to 1.
 pub(crate) fn select_interactors(
     all: &[Stamp],

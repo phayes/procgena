@@ -10,13 +10,13 @@ investigation behind the suggestion
 and proposes a small, ECS-shaped bridge from physics colliders to the
 interaction system that already exists.
 
-Implementation note: both engines are implemented (`GrassInteractorSpread`,
-the `rapier` and `avian` features, `GrassInteractorFromCollider`, examples,
+Implementation note: both engines are implemented (`PlantInteractorSpread`,
+the `rapier` and `avian` features, `PlantInteractorFromCollider`, examples,
 tests and CI). The design moved one step past §7 when Avian arrived: the
 adapter component and the fit are in the core, always compiled, and each
-engine is a backend that only writes an engine-neutral `GrassColliderBounds`
+engine is a backend that only writes an engine-neutral `PlantColliderBounds`
 (the collider's local box, scale applied, and whether it is active) in
-`GrassColliderSystems::Bounds`. Two features defining the same component would
+`PlantColliderSystems::Bounds`. Two features defining the same component would
 not have compiled together, and the policy would have been duplicated. The
 core fit reads `GlobalTransform` for rotation and scale: the footprint is the
 box's shadow on the ground, so a body lying on its side is covered along its
@@ -32,12 +32,12 @@ are from before that release.
 The spread of §7.3 turned out to look wrong for one large solid body: every
 disc pushes grass away from its own centre, so a vehicle drew several radial
 fans with seams between them, as if it were several small objects. The
-adapter now writes a `GrassInteractorFootprint` instead, one box stamp on the
+adapter now writes a `PlantInteractorFootprint` instead, one box stamp on the
 GPU (a rounded rectangle laid on the ground from the body's transform every
 frame). Under a moving box the grass lies the way it moves and only the
 sides push outward; at rest it pushes out from the nearest edge. The motion
 comes from the stamp's position frame to frame, so the bridge still reads no
-physics velocity. `GrassInteractorSpread` stays for a few separate contacts.
+physics velocity. `PlantInteractorSpread` stays for a few separate contacts.
 The rest of §7 is the history of how it got there.
 
 ## 1. Short version
@@ -45,7 +45,7 @@ The rest of §7 is the history of how it got there.
 - **The transform plumbing already works.** Both Avian and Rapier write
   `Transform`/`GlobalTransform`; `procgena_plant` already reads
   `GlobalTransform` when it extracts interactors. Adding
-  `GrassInteractor` to a physics body works today. No collider-transform
+  `PlantInteractor` to a physics body works today. No collider-transform
   sync is needed.
 - **The real gap is shape and lifecycle.** Users have to derive a useful
   `radius`/`max_height` from a collider by hand, and a single disc is wrong
@@ -60,8 +60,8 @@ The rest of §7 is the history of how it got there.
   Do not add an `avian` feature until Avian has a Bevy 0.20 release; the
   adapter code itself will then be nearly identical to the Rapier one.
 - **Recommended shape of the work:** add a `rapier` optional feature now,
-  plus a backend-neutral `GrassInteractorFromCollider` adapter component and
-  a core `GrassInteractorSpread` footprint component for large objects. Add
+  plus a backend-neutral `PlantInteractorFromCollider` adapter component and
+  a core `PlantInteractorSpread` footprint component for large objects. Add
   `avian` when it can compile. Keep physics types out of the core crate and
   keep the existing per-disc trample pipeline unchanged.
 - **Do not auto-spawn proxy entities** as the default design. A data
@@ -72,22 +72,22 @@ Estimated effort:
 
 | Piece | Effort |
 | --- | ---: |
-| `GrassInteractorSpread` in the core (component, extraction, debug, tests) | 2–3 days |
+| `PlantInteractorSpread` in the core (component, extraction, debug, tests) | 2–3 days |
 | Rapier optional feature and adapter system | 0.5–1 day |
 | Rapier example, README/docs, reflection | 1 day |
 | CI (feature build, tests, docs) | 0.5 day |
 | Avian adapter, once Avian supports Bevy 0.20 | 0.5–1 day + review |
 | Total for the Rapier release | roughly 4–6 focused days |
 
-The single-disc adapter alone (without `GrassInteractorSpread`) is about a
+The single-disc adapter alone (without `PlantInteractorSpread`) is about a
 day; the spread component is what makes large objects behave.
 
 ## 2. What exists today
 
 The interaction model is deliberately simple:
 
-- `GrassInteractor { radius, strength, max_height }` is a disc.
-- `src/render/extract.rs` reads `(&GrassInteractor, &GlobalTransform)` and
+- `PlantInteractor { radius, strength, max_height }` is a disc.
+- `src/render/extract.rs` reads `(&PlantInteractor, &GlobalTransform)` and
   produces `(x, z, radius, strength)` stamps once per frame.
 - `src/trample.rs` selects the nearest stamps per camera and
   `src/shaders/trample.wesl` stamps them into the per-camera trample texture.
@@ -101,7 +101,7 @@ Because the main-world side reads `GlobalTransform`, this already works:
 commands.spawn((
     RigidBody::Dynamic,               // Avian or Rapier
     Collider::capsule_y(0.5, 0.4),
-    GrassInteractor { radius: 0.4, ..default() },
+    PlantInteractor { radius: 0.4, ..default() },
 ));
 ```
 
@@ -179,8 +179,8 @@ Both engines already use this idea for colliders:
 
 This is the pattern to copy for grass: a small adapter component that says
 "derive my interactor from this collider", and a system that owns the
-derived `GrassInteractor`. Users explicitly opt in; nothing overrides a
-hand-written `GrassInteractor` by accident.
+derived `PlantInteractor`. Users explicitly opt in; nothing overrides a
+hand-written `PlantInteractor` by accident.
 
 ## 5. Compatibility findings
 
@@ -195,7 +195,7 @@ files, and small probe crates:
 
 The Avian failure is not an API mismatch in the adapter; it is a hard ECS
 type mismatch. `Collider`, `ColliderAabb` and the entity they belong to are
-from `bevy_ecs 0.19`, while `GrassInteractor` and the `App` are from
+from `bevy_ecs 0.19`, while `PlantInteractor` and the `App` are from
 `bevy_ecs 0.20`. Rust reports:
 
 ```text
@@ -209,7 +209,7 @@ Consequences:
 
 - An `avian` feature cannot be enabled in CI's `--all-features` builds
   today.
-- A separate `bevy_grass_avian` crate would hit the same wall: the mismatch
+- A separate `procgena_plant_avian` crate would hit the same wall: the mismatch
   is in Avian, not in how the grass bridge is packaged.
 - The correct time to add Avian is when `avian3d` depends on Bevy 0.20.
   Watch `avian3d`'s `Cargo.toml` and add the feature in the same release
@@ -222,7 +222,7 @@ release cadence, but it does not solve the current Bevy-version blocker.
 
 ### A. Documentation and examples only
 
-Add an Avian/Rapier example that attaches a hand-written `GrassInteractor`
+Add an Avian/Rapier example that attaches a hand-written `PlantInteractor`
 to a capsule, and a "physics" README section. No dependency, no feature.
 
 - **Pros:** zero risk, zero dependency, no version coupling.
@@ -235,7 +235,7 @@ to a capsule, and a "physics" README section. No dependency, no feature.
 
 Add `rapier` (and later `avian`) features. Add one adapter component and a
 system that reads the collider's local AABB, writes
-`GrassInteractor { radius, strength, max_height }`, and disables itself for
+`PlantInteractor { radius, strength, max_height }`, and disables itself for
 disabled colliders.
 
 - **Pros:** small, additive, one component for users; no render changes; no
@@ -247,8 +247,8 @@ disabled colliders.
 
 ### C. Optional feature plus a footprint component (recommended)
 
-Add `GrassInteractorSpread` to the core: a component holding local-space
-disc centres. `GrassInteractor` keeps its radius/strength/max_height; the
+Add `PlantInteractorSpread` to the core: a component holding local-space
+disc centres. `PlantInteractor` keeps its radius/strength/max_height; the
 spread says "stamp this disc here, and here, and here". Extraction emits
 several stamps per entity. The shader, buffers and selection are unchanged:
 the spread is just more entries in the existing `Vec<Vec4>`.
@@ -267,7 +267,7 @@ gets a row. A core helper makes the same footprint usable without physics.
 
 ### D. Adapter spawns proxy interactor entities
 
-The adapter spawns child entities with `Transform` + `GrassInteractor` for
+The adapter spawns child entities with `Transform` + `PlantInteractor` for
 each part of a large collider, and despawns/rebuilds them when the collider
 changes.
 
@@ -281,7 +281,7 @@ changes.
 
 ### E. Separate integration crates
 
-Publish `bevy_grass_rapier` / `bevy_grass_avian` in the tnua style.
+Publish `procgena_plant_rapier` / `procgena_plant_avian` in the tnua style.
 
 - **Pros:** each can release on its own schedule; `--all-features` on the
   core stays clean; users who do not use physics never see the dependency.
@@ -321,7 +321,7 @@ physics collider.
 
 ```toml
 [features]
-# `GrassDebugPlugin` as today.
+# `PlantDebugPlugin` as today.
 debug = ["bevy/bevy_gizmos"]
 
 # Physics bridges. Off by default; enabling one must not change how Bevy is
@@ -361,14 +361,14 @@ Keep the core free of physics types. Put the adapter behind the feature:
 #[cfg(any(feature = "avian", feature = "rapier"))]
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-#[require(GrassInteractor, GrassInteractorSpread)]
-pub struct GrassInteractorFromCollider {
+#[require(PlantInteractor, PlantInteractorSpread)]
+pub struct PlantInteractorFromCollider {
     /// Multiplies the footprint derived from the collider. 1.0 uses the
     /// collider as it is; 1.2 makes a character's trail a little wider.
     pub radius_scale: f32,
-    /// Passed to `GrassInteractor::strength`. 0 disables trampling.
+    /// Passed to `PlantInteractor::strength`. 0 disables trampling.
     pub strength: f32,
-    /// Passed to `GrassInteractor::max_height`. `None` means any height,
+    /// Passed to `PlantInteractor::max_height`. `None` means any height,
     /// as for a hand-written interactor.
     pub max_height: Option<f32>,
 }
@@ -382,18 +382,18 @@ Usage:
 commands.spawn((
     RigidBody::Dynamic,
     Collider::capsule_y(0.5, 0.4),
-    GrassInteractorFromCollider::default(),
+    PlantInteractorFromCollider::default(),
 ));
 ```
 
-The required `GrassInteractor` is inserted automatically. The adapter is a
+The required `PlantInteractor` is inserted automatically. The adapter is a
 **source**, not a second interaction system: it only writes the three fields
 of the existing component.
 
-Naming: `GrassInteractorFromCollider` is deliberately engine-neutral. With
+Naming: `PlantInteractorFromCollider` is deliberately engine-neutral. With
 both features enabled, both systems can write it; an entity normally has a
 collider from one engine only. If that ambiguity is uncomfortable, use
-`AvianGrassInteractor` / `RapierGrassInteractor` instead; the trade-off is
+`AvianPlantInteractor` / `RapierPlantInteractor` instead; the trade-off is
 two names for users who switch engines.
 
 ### 7.3 Footprint component
@@ -403,8 +403,8 @@ Add to the core, independent of physics:
 ```rust
 #[derive(Component, Debug, Clone, Default, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-#[require(GrassInteractor)]
-pub struct GrassInteractorSpread {
+#[require(PlantInteractor)]
+pub struct PlantInteractorSpread {
     /// Disc centres in the interactor's local space. An empty list means
     /// "one disc at the entity's origin", the current behaviour.
     pub offsets: Vec<Vec3>,
@@ -439,9 +439,9 @@ scaled physics body moves them correctly.
 A pure helper covers an AABB without physics:
 
 ```rust
-impl GrassInteractorSpread {
+impl PlantInteractorSpread {
     /// Disc centres covering a local AABB, and the disc radius to use.
-    /// `max_radius` is `GrassSettings::max_interactor_radius`.
+    /// `max_radius` is `PlantSettings::max_interactor_radius`.
     pub fn covering_aabb(
         center: Vec3,
         half_extents: Vec3,
@@ -470,22 +470,22 @@ extents; Avian's `capsule` takes a length excluding hemispheres; Rapier's
 
 ```rust
 fn sync_rapier_interactors(
-    settings: Res<GrassSettings>,
+    settings: Res<PlantSettings>,
     mut query: Query<(
         &Collider,
-        &GrassInteractorFromCollider,
-        &mut GrassInteractor,
-        &mut GrassInteractorSpread,
+        &PlantInteractorFromCollider,
+        &mut PlantInteractor,
+        &mut PlantInteractorSpread,
         Has<ColliderDisabled>,
         Has<Sensor>,
-    ), Or<(Changed<Collider>, Changed<GrassInteractorFromCollider>)>>,
+    ), Or<(Changed<Collider>, Changed<PlantInteractorFromCollider>)>>,
 ) {
     let max_radius = settings.sanitized().max_interactor_radius;
     for (collider, source, mut interactor, mut spread, disabled, sensor) in &mut query {
         let local = collider.local_aabb();
         let center = Vec3::from((local.min + local.max) * 0.5);
         let half = Vec3::from((local.max - local.min) * 0.5);
-        let (radius, cover) = GrassInteractorSpread::covering_aabb(center, half, max_radius);
+        let (radius, cover) = PlantInteractorSpread::covering_aabb(center, half, max_radius);
         let radius = (radius * source.radius_scale).min(max_radius);
         let strength = if disabled || sensor { 0.0 } else { source.strength };
         // Write only on a real change, so a moving body costs three
@@ -513,21 +513,21 @@ Notes:
   Rapier's `apply_scale` mutably touches the collider when the transform
   changes. Comparing the derived values before writing keeps the steady
   state cheap and avoids `Vec` allocation.
-- React to `GrassSettings` changes (especially `max_interactor_radius`) with
+- React to `PlantSettings` changes (especially `max_interactor_radius`) with
   a second system that runs when the resource changes, or with a dynamic
   filter. Otherwise a settings-menu change does not resize existing
   adapters.
-- Add the system in `GrassPlugin::build` under `#[cfg(feature = "rapier")]`,
-  or expose a `GrassRapierPlugin` and add it to `GrassPlugins`. Auto-adding
+- Add the system in `PlantPlugin::build` under `#[cfg(feature = "rapier")]`,
+  or expose a `PlantRapierPlugin` and add it to `PlantPlugins`. Auto-adding
   is the better DX; the system is a cheap no-op when no entity has the
   adapter.
 - Disabled colliders and sensors set `strength = 0`, which the existing
-  selection already filters out. Do not remove `GrassInteractor`; a user may
+  selection already filters out. Do not remove `PlantInteractor`; a user may
   have added it by hand.
 - Removing only the `Collider` (rather than the whole entity) leaves the
   last radius in place. This is an edge case; either document it or add a
   `RemovedComponents<Collider>` cleanup later. Removing the adapter should
-  probably leave the last `GrassInteractor` alone, so users can switch from
+  probably leave the last `PlantInteractor` alone, so users can switch from
   auto to manual without losing their tuning.
 
 ### 7.5 Avian adapter (once compatible)
@@ -536,12 +536,12 @@ The same shape, with Avian's types:
 
 ```rust
 fn sync_avian_interactors(
-    settings: Res<GrassSettings>,
+    settings: Res<PlantSettings>,
     mut query: Query<(
         &Collider,
-        &GrassInteractorFromCollider,
-        &mut GrassInteractor,
-        &mut GrassInteractorSpread,
+        &PlantInteractorFromCollider,
+        &mut PlantInteractor,
+        &mut PlantInteractorSpread,
         Has<ColliderDisabled>,
         Has<Sensor>,
     )>, /* changed filter, same as Rapier */,
@@ -560,24 +560,24 @@ disc is needed, the world AABB center/radius is also a valid fallback.
 
 ### 7.6 Debug plugin
 
-`src/debug.rs` currently draws one circle per `GrassInteractor`. It should
+`src/debug.rs` currently draws one circle per `PlantInteractor`. It should
 draw each spread disc, using the same `(transform, interactor, spread) ->
 discs` helper as extraction. The debug feature must keep working with and
-without the physics features; `GrassInteractorSpread` is in the core, so it
+without the physics features; `PlantInteractorSpread` is in the core, so it
 does.
 
 ### 7.7 Reflection and scenes
 
-Register `GrassInteractorFromCollider` (when compiled) and
-`GrassInteractorSpread` with `ReflectComponent` and `Default`. The adapter
+Register `PlantInteractorFromCollider` (when compiled) and
+`PlantInteractorSpread` with `ReflectComponent` and `Default`. The adapter
 component is a normal component, so a scene can spawn it next to a collider
-and the system derives the rest on the next frame. `GrassInteractorSpread`'s
+and the system derives the rest on the next frame. `PlantInteractorSpread`'s
 `Vec<Vec3>` reflects with `bevy_reflect`.
 
 ### 7.8 Ordering
 
 With a local AABB, the adapter only reads collider data and writes
-`GrassInteractor`; it does not need `GlobalTransform`. Run it in `Update`.
+`PlantInteractor`; it does not need `GlobalTransform`. Run it in `Update`.
 That is before `PostUpdate` extraction and is independent of whether physics
 runs in `FixedUpdate`, `FixedPostUpdate`, `PostUpdate`, or a custom schedule.
 A collider whose shape/scale changes during physics is therefore reflected
@@ -593,15 +593,15 @@ plugin's schedule for the local-AABB design.
 ## 8. Work breakdown
 
 1. **Core footprint**
-   - `GrassInteractorSpread` component, `covering_aabb` helper, extraction,
+   - `PlantInteractorSpread` component, `covering_aabb` helper, extraction,
      debug, reflection, docs.
    - Tests for one-disc, grid, degenerate zero-size, scale/rotation, and
      disc-count cap.
 2. **Rapier feature**
    - `Cargo.toml` optional dependency and feature.
-   - `GrassInteractorFromCollider` component and Rapier sync system.
+   - `PlantInteractorFromCollider` component and Rapier sync system.
    - App-level test (spawn a `Collider` + adapter, run the system, assert the
-     derived `GrassInteractor`).
+     derived `PlantInteractor`).
 3. **Examples and docs**
    - `examples/rapier.rs` behind `required-features = ["rapier"]`: a dynamic
      capsule on a plane, a static box/truck showing the spread, a field and
@@ -626,10 +626,10 @@ plugin's schedule for the local-AABB design.
 - Extraction test: an entity with a spread produces multiple stamps at the
   transformed offsets; an entity without a spread produces one as today.
 - Rapier adapter test with a minimal `App` (no renderer, no physics plugin):
-  spawn `Collider` + `GrassInteractorFromCollider`, run the sync system,
+  spawn `Collider` + `PlantInteractorFromCollider`, run the sync system,
   assert `radius`, `strength`, `max_height`, and spread offsets. Toggle
   `ColliderDisabled`/`Sensor` and assert `strength == 0`. Change
-  `GrassSettings::max_interactor_radius` and assert the spread is rebuilt.
+  `PlantSettings::max_interactor_radius` and assert the spread is rebuilt.
 - A headless example/bench is not necessary; the interaction path is CPU
   data plus the existing trample shader. The existing golden images should
   not change because no shader or field path changes.
@@ -639,31 +639,31 @@ plugin's schedule for the local-AABB design.
 ## 10. Open questions
 
 1. **Sensors.** Should a `Sensor` collider trample by default? Recommendation:
-   no; `GrassInteractorFromCollider` sets strength to 0 for sensors. A user
-   who wants a trigger volume to part grass can add `GrassInteractor`
+   no; `PlantInteractorFromCollider` sets strength to 0 for sensors. A user
+   who wants a trigger volume to part grass can add `PlantInteractor`
    manually. Add an opt-in field only if someone asks.
 2. **Automatic `max_height`.** A collider's height is a good default for
-   "only trample while near the ground", but `GrassInteractor`'s default is
+   "only trample while near the ground", but `PlantInteractor`'s default is
    `None` (any height). Keep `None` for consistency and document how to set
    `Some(height)`; consider an opt-in `Auto` enum later.
 3. **One component or two per backend.** The engine-neutral
-   `GrassInteractorFromCollider` is the best DX. If both engines are enabled
+   `PlantInteractorFromCollider` is the best DX. If both engines are enabled
    and an entity has both colliders, one system wins; that is pathological.
    Backend-specific marker components are the safer but noisier alternative.
 4. **Spread cap.** Pick a default (16 or 32 discs per entity) and warn once
    when a collider is too large. The alternative is to let
    `max_interactors` sort it out, which lets one wall starve a crowd.
-5. **`GrassInteractorSpread` vs a shape enum.** A list of local disc centres
+5. **`PlantInteractorSpread` vs a shape enum.** A list of local disc centres
    keeps the renderer unchanged and is easy to test. A `Capsule`/`Box` enum
-   in `GrassInteractor` would be more "declarative" but would need sampling
+   in `PlantInteractor` would be more "declarative" but would need sampling
    in the hot extraction path and would change the existing public struct.
    The list is the smaller, more data-oriented step.
 6. **Separate crates.** If Bevy/Rapier/Avian release schedules diverge
    enough that optional features hold back the core release, split the
-   backend adapters into `bevy_grass_rapier` / `bevy_grass_avian` later.
+   backend adapters into `procgena_plant_rapier` / `procgena_plant_avian` later.
    That is an additive change and does not have to be decided now.
 7. **2D.** `avian2d`/`bevy_rapier2d` are out of scope. A 2.5D game can add
-   `GrassInteractor` manually. If there is demand, a 2D adapter can map the
+   `PlantInteractor` manually. If there is demand, a 2D adapter can map the
    XZ footprint from the 2D shapes.
 
 ## 11. What not to do

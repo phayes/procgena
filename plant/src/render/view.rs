@@ -17,9 +17,9 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::view::ExtractedView;
 
-use super::resources::{ExtractedGrass, GrassLayouts, GrassShared};
-use crate::GrassSettings;
-use crate::api::{GrassCamera, NoGrass};
+use super::resources::{ExtractedPlants, PlantLayouts, PlantShared};
+use crate::PlantSettings;
+use crate::api::{NoPlants, PlantCamera};
 use crate::fields::{has_unsupported_layer, layer_mask};
 use crate::gpu_layout::MAX_BRANCHED_CLASSES;
 use crate::shader_model::DistanceLod;
@@ -77,11 +77,11 @@ pub(crate) const BUCKET_TABLE_WORDS: usize = CAPACITY_AT + MAX_BUCKETS;
 /// Bytes per instance.
 const INSTANCE_SIZE: u64 = 16;
 /// Bytes of the largest instance buffer a camera can have:
-/// `GrassSettings::MAX_INSTANCE_CAPACITY` blades at LOD 0 and half as many at
-/// each of LODs 1 and 2, plus up to `GrassSettings::MAX_PLANT_CAPACITY` branched stems.
+/// `PlantSettings::MAX_INSTANCE_CAPACITY` blades at LOD 0 and half as many at
+/// each of LODs 1 and 2, plus up to `PlantSettings::MAX_PLANT_CAPACITY` branched stems.
 /// This is the view's largest storage binding.
-pub(crate) const MAX_INSTANCE_BYTES: u64 = (2 * GrassSettings::MAX_INSTANCE_CAPACITY as u64
-    + GrassSettings::MAX_PLANT_CAPACITY as u64)
+pub(crate) const MAX_INSTANCE_BYTES: u64 = (2 * PlantSettings::MAX_INSTANCE_CAPACITY as u64
+    + PlantSettings::MAX_PLANT_CAPACITY as u64)
     * INSTANCE_SIZE;
 /// Bytes per `DrawIndexedIndirectArgs`.
 pub(crate) const DRAW_ARGS_SIZE: u64 = 20;
@@ -116,7 +116,7 @@ pub(crate) struct ViewUniformData {
     pub min_width_px: f32,
     /// Metres taken off every distance to the camera before the radius,
     /// the thinning and the levels of detail apply
-    /// (`GrassCamera::radius_from_ground`).
+    /// (`PlantCamera::radius_from_ground`).
     pub distance_offset: f32,
     /// Number of buckets in use.
     ///
@@ -189,7 +189,7 @@ const READBACK_READY: u8 = 3;
 
 /// A view's GPU buffers.
 #[derive(Component)]
-pub(crate) struct GrassViewBuffers {
+pub(crate) struct PlantViewBuffers {
     pub uniform: UniformBuffer<ViewUniformData>,
     visible: Buffer,
     /// GPU table of demand, instance offsets and storage limits for this frame.
@@ -230,7 +230,7 @@ pub(crate) struct GrassViewBuffers {
 
 /// A view's bind groups.
 #[derive(Component, Default)]
-pub(crate) struct GrassViewBindGroups {
+pub(crate) struct PlantViewBindGroups {
     /// Group 1 of `cull` and `generate`.
     pub generate: Option<BindGroup>,
     /// Group 1 of `size_dispatch` and `write_draw_args`.
@@ -269,7 +269,7 @@ impl InstanceSlots {
     /// Builds storage budgets from the settings and active branched classes.
     ///
     /// Reserves no plant storage when there are no branched classes.
-    pub(crate) fn new(settings: &GrassSettings, branched_classes: usize) -> Self {
+    pub(crate) fn new(settings: &PlantSettings, branched_classes: usize) -> Self {
         Self {
             blade: settings.instance_capacity,
             plant: if branched_classes > 0 {
@@ -288,8 +288,8 @@ impl InstanceSlots {
     }
 }
 
-impl GrassViewBuffers {
-    fn new(device: &RenderDevice, settings: &GrassSettings, branched_classes: usize) -> Self {
+impl PlantViewBuffers {
+    fn new(device: &RenderDevice, settings: &PlantSettings, branched_classes: usize) -> Self {
         let slots = InstanceSlots::new(settings, branched_classes);
         let total = slots.total();
         let buffer = |label: &'static str, size: u64, usage: BufferUsages| {
@@ -303,24 +303,24 @@ impl GrassViewBuffers {
         Self {
             uniform: UniformBuffer::default(),
             visible: buffer(
-                "grass_visible_chunks",
+                "plant_visible_chunks",
                 // A `VisibleChunk`: one slice of a visible chunk, 16 bytes.
                 u64::from(settings.max_chunk_slices) * 16,
                 BufferUsages::STORAGE,
             ),
             // A new buffer has zero demand, so plant buckets start with equal shares.
             buckets: buffer(
-                "grass_buckets",
+                "plant_buckets",
                 BUCKET_TABLE_WORDS as u64 * 4,
                 BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             dispatch: buffer(
-                "grass_dispatch",
+                "plant_dispatch",
                 12,
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
             ),
             instances: buffer(
-                "grass_instances",
+                "plant_instances",
                 u64::from(total) * INSTANCE_SIZE,
                 // The GPU readback test copies instances out.
                 if cfg!(test) {
@@ -330,7 +330,7 @@ impl GrassViewBuffers {
                 },
             ),
             draw_args: buffer(
-                "grass_draw_args",
+                "plant_draw_args",
                 DRAW_ARGS_COUNT as u64 * DRAW_ARGS_SIZE,
                 // The GPU readback test copies the arguments out.
                 if cfg!(test) {
@@ -341,12 +341,12 @@ impl GrassViewBuffers {
             ),
             // Zeroed on creation: nothing is flattened yet.
             trample: buffer(
-                "grass_trample",
+                "plant_trample",
                 (trample::TEXELS * trample::TEXELS) as u64 * 4,
                 BufferUsages::STORAGE,
             ),
             interactors: buffer(
-                "grass_interactors",
+                "plant_interactors",
                 u64::from(settings.max_interactors) * 48,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ),
@@ -354,7 +354,7 @@ impl GrassViewBuffers {
             trample_origin: None,
             trample_cell: settings.trample_cell_size,
             readback: buffer(
-                "grass_readback",
+                "plant_readback",
                 BUCKET_TABLE_WORDS as u64 * 4,
                 BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             ),
@@ -371,7 +371,7 @@ impl GrassViewBuffers {
 
     /// Checks whether current allocations match the requested capacities and active
     /// class count. Changes require new buffers and bind groups.
-    fn fits(&self, settings: &GrassSettings, branched_classes: usize) -> bool {
+    fn fits(&self, settings: &PlantSettings, branched_classes: usize) -> bool {
         self.slots == InstanceSlots::new(settings, branched_classes)
             && self.max_interactors == settings.max_interactors
             && self.max_slices == settings.max_chunk_slices
@@ -435,15 +435,15 @@ pub(crate) struct PrepareViews<'w, 's> {
             Entity,
             &'static ExtractedView,
             Option<&'static RenderLayers>,
-            Option<&'static GrassCamera>,
-            Option<&'static mut GrassViewBuffers>,
+            Option<&'static PlantCamera>,
+            Option<&'static mut PlantViewBuffers>,
         ),
-        (With<Camera3d>, Without<NoGrass>),
+        (With<Camera3d>, Without<NoPlants>),
     >,
     warned_layers: Local<'s, bool>,
-    gone: RemovedComponents<'w, 's, GrassViewBuffers>,
+    gone: RemovedComponents<'w, 's, PlantViewBuffers>,
     readings: Res<'w, GpuReadings>,
-    extracted: Res<'w, ExtractedGrass>,
+    extracted: Res<'w, ExtractedPlants>,
     device: Res<'w, RenderDevice>,
     queue: Res<'w, RenderQueue>,
 }
@@ -473,8 +473,8 @@ pub(crate) fn prepare_views(
             buffers.filter(|buffers| buffers.fits(&extracted.settings, branched_classes))
         else {
             commands.entity(entity).insert((
-                GrassViewBuffers::new(&device, &extracted.settings, branched_classes),
-                GrassViewBindGroups::default(),
+                PlantViewBuffers::new(&device, &extracted.settings, branched_classes),
+                PlantViewBindGroups::default(),
             ));
             continue;
         };
@@ -535,7 +535,7 @@ struct ViewParts {
 
 fn view_uniform(
     view: &ExtractedView,
-    settings: &GrassSettings,
+    settings: &PlantSettings,
     distance_offset: f32,
     slots: InstanceSlots,
     bucket_count: u32,
@@ -563,7 +563,7 @@ fn view_uniform(
 /// matrices without a Bevy view.
 fn view_uniform_from_parts(
     parts: &ViewParts,
-    settings: &GrassSettings,
+    settings: &PlantSettings,
     distance_offset: f32,
     slots: InstanceSlots,
     bucket_count: u32,
@@ -653,12 +653,12 @@ fn view_uniform_from_parts(
 /// Moves the view's trample window, uploads the interactors it stamps this
 /// frame and fills the uniform's trample fields.
 fn update_trample(
-    buffers: &mut GrassViewBuffers,
+    buffers: &mut PlantViewBuffers,
     data: &mut ViewUniformData,
     view: &ExtractedView,
-    settings: &GrassSettings,
+    settings: &PlantSettings,
     distance_offset: f32,
-    extracted: &ExtractedGrass,
+    extracted: &ExtractedPlants,
     queue: &RenderQueue,
 ) {
     let cell = settings.trample_cell_size;
@@ -703,7 +703,7 @@ fn update_trample(
 }
 
 /// Advances the overflow check: maps a copied buffer, or reports a mapped one.
-fn check_readback(buffers: &mut GrassViewBuffers, view: Entity, readings: &GpuReadings) {
+fn check_readback(buffers: &mut PlantViewBuffers, view: Entity, readings: &GpuReadings) {
     match buffers.readback_state.load(Ordering::Acquire) {
         READBACK_COPIED => {
             buffers
@@ -769,7 +769,7 @@ fn check_readback(buffers: &mut GrassViewBuffers, view: Entity, readings: &GpuRe
                 buffers.warned = true;
                 warn!(
                     "procgena_plant: instance buffers overflowed ({}); the extra plants are dropped. \
-                     Raise GrassSettings::instance_capacity for blades or plant_capacity for \
+                     Raise PlantSettings::instance_capacity for blades or plant_capacity for \
                      branched plants, or lower the style density.",
                     over.join(", ")
                 );
@@ -779,7 +779,7 @@ fn check_readback(buffers: &mut GrassViewBuffers, view: Entity, readings: &GpuRe
                 warn!(
                     "procgena_plant: {slices} visible chunk slices for {}; the grass of the rest is \
                      dropped. Lower the style density or the grass radius, or raise \
-                     GrassSettings::max_chunk_slices.",
+                     PlantSettings::max_chunk_slices.",
                     buffers.max_slices
                 );
             }
@@ -790,9 +790,9 @@ fn check_readback(buffers: &mut GrassViewBuffers, view: Entity, readings: &GpuRe
 
 /// Builds each view's compute and draw bind groups.
 pub(crate) fn prepare_view_bind_groups(
-    mut views: Query<(&GrassViewBuffers, &mut GrassViewBindGroups)>,
-    shared: Res<GrassShared>,
-    layouts: Res<GrassLayouts>,
+    mut views: Query<(&PlantViewBuffers, &mut PlantViewBindGroups)>,
+    shared: Res<PlantShared>,
+    layouts: Res<PlantLayouts>,
     pipeline_cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
 ) {
@@ -808,7 +808,7 @@ pub(crate) fn prepare_view_bind_groups(
             continue;
         };
         groups.generate = Some(device.create_bind_group(
-            "grass_generate_view",
+            "plant_generate_view",
             &pipeline_cache.get_bind_group_layout(&layouts.generate_view),
             &BindGroupEntries::with_indices((
                 (0, uniform.clone()),
@@ -819,7 +819,7 @@ pub(crate) fn prepare_view_bind_groups(
             )),
         ));
         groups.args = Some(device.create_bind_group(
-            "grass_args_view",
+            "plant_args_view",
             &pipeline_cache.get_bind_group_layout(&layouts.args_view),
             &BindGroupEntries::with_indices((
                 (0, uniform.clone()),
@@ -828,7 +828,7 @@ pub(crate) fn prepare_view_bind_groups(
             )),
         ));
         groups.trample = Some(device.create_bind_group(
-            "grass_trample_view",
+            "plant_trample_view",
             &pipeline_cache.get_bind_group_layout(&layouts.trample_view),
             &BindGroupEntries::with_indices((
                 (0, uniform.clone()),
@@ -837,12 +837,12 @@ pub(crate) fn prepare_view_bind_groups(
             )),
         ));
         groups.dispatch = Some(device.create_bind_group(
-            "grass_dispatch",
+            "plant_dispatch",
             &pipeline_cache.get_bind_group_layout(&layouts.dispatch),
             &BindGroupEntries::single(buffers.dispatch.as_entire_binding()),
         ));
         groups.draw = Some(device.create_bind_group(
-            "grass_draw",
+            "plant_draw",
             &pipeline_cache.get_bind_group_layout(&layouts.draw),
             &BindGroupEntries::sequential((
                 frame.clone(),

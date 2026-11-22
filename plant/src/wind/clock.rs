@@ -10,7 +10,7 @@
 use bevy::ecs::resource::Resource;
 use bevy::math::{DVec2, Vec2};
 
-use super::{GrassWind, GrassWindFrame};
+use super::{PlantWind, PlantWindFrame};
 
 /// How far the gust offsets run before they wrap, in repeats of the gust
 /// texture. The WESL twin is `GUST_WRAP` in `wind.wesl`.
@@ -36,7 +36,7 @@ pub(super) struct WindClock {
 
 impl WindClock {
     /// Moves the gusts `delta` seconds along `wind`.
-    pub(super) fn advance(&mut self, delta: f64, wind: &GrassWind) {
+    pub(super) fn advance(&mut self, delta: f64, wind: &PlantWind) {
         let step = gust_step(wind.direction, wind.gust_speed, wind.gust_scale, delta);
         self.gust = (self.gust + step).rem_euclid(DVec2::splat(GUST_WRAP));
         self.gust_offset = self.gust.as_vec2();
@@ -46,8 +46,8 @@ impl WindClock {
     }
 
     /// This frame's shader values.
-    pub(super) fn frame(&self, wind: &GrassWind) -> GrassWindFrame {
-        GrassWindFrame {
+    pub(super) fn frame(&self, wind: &PlantWind) -> PlantWindFrame {
+        PlantWindFrame {
             gust_offset: self.gust_offset,
             previous_gust_offset: self.previous_gust_offset,
             ..(*wind).into()
@@ -57,7 +57,7 @@ impl WindClock {
 
 /// How far gusts of `gust_scale` metres, moving at `gust_speed` metres per
 /// second toward `direction`, scroll in `delta` seconds, in repeats of the
-/// texture. Shared by the built-in clock and [`GrassWindFrame::advance`].
+/// texture. Shared by the built-in clock and [`PlantWindFrame::advance`].
 pub(super) fn gust_step(direction: Vec2, gust_speed: f32, gust_scale: f32, delta: f64) -> DVec2 {
     let direction = direction.as_dvec2();
     let direction = if direction.length_squared() > 1e-8 {
@@ -72,7 +72,7 @@ pub(super) fn gust_step(direction: Vec2, gust_speed: f32, gust_scale: f32, delta
 mod tests {
     use super::*;
 
-    fn run(seconds: f64, step: f64, wind: &GrassWind) -> WindClock {
+    fn run(seconds: f64, step: f64, wind: &PlantWind) -> WindClock {
         let mut clock = WindClock::default();
         let mut elapsed = 0.0;
         while elapsed < seconds {
@@ -86,7 +86,7 @@ mod tests {
     fn the_gusts_do_not_jump_when_the_time_wraps() {
         // The scroll between two frames is the same from the start to the
         // end of the clock, and equals one frame's step.
-        let wind = GrassWind::GUSTY;
+        let wind = PlantWind::GUSTY;
         let step = gust_step(wind.direction, wind.gust_speed, wind.gust_scale, 1.0 / 60.0);
         let mut clock = WindClock::default();
         for _ in 0..(3600 * 60 + 120) {
@@ -104,13 +104,13 @@ mod tests {
     fn changing_the_wind_changes_the_pace_not_the_place() {
         // Doubling the speed doubles the step from then on, and the gusts do
         // not jump back to where they would be had the wind always been so.
-        let slow = GrassWind {
+        let slow = PlantWind {
             gust_speed: 2.0,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         };
-        let fast = GrassWind {
+        let fast = PlantWind {
             gust_speed: 4.0,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         };
         let mut clock = run(100.0, 0.25, &slow);
         let before = clock.gust_offset;
@@ -123,14 +123,14 @@ mod tests {
 
     #[test]
     fn a_still_clock_does_not_scroll_and_a_zero_direction_blows_along_x() {
-        let still = GrassWind {
+        let still = PlantWind {
             gust_speed: 0.0,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         };
         assert_eq!(run(50.0, 0.1, &still).gust_offset, Vec2::ZERO);
-        let none = GrassWind {
+        let none = PlantWind {
             direction: Vec2::ZERO,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         };
         let step = gust_step(none.direction, none.gust_speed, none.gust_scale, 1.0);
         assert!(step.x > 0.0 && step.y == 0.0);
@@ -138,9 +138,9 @@ mod tests {
 
     #[test]
     fn the_frame_carries_the_wind_and_the_scroll() {
-        let wind = GrassWind {
+        let wind = PlantWind {
             sway: 2.0,
-            ..GrassWind::STORM
+            ..PlantWind::STORM
         };
         let clock = run(1.0, 0.25, &wind);
         let frame = clock.frame(&wind);

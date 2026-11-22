@@ -35,7 +35,9 @@ impl<'a> Surface<'a> {
             });
         }
         if !indices.len().is_multiple_of(3) {
-            return Err(SurfaceError::PartialTriangle { indices: indices.len() });
+            return Err(SurfaceError::PartialTriangle {
+                indices: indices.len(),
+            });
         }
         if indices.is_empty() {
             return Err(SurfaceError::Empty);
@@ -49,7 +51,11 @@ impl<'a> Surface<'a> {
             });
         }
 
-        Ok(Self { positions, normals, indices })
+        Ok(Self {
+            positions,
+            normals,
+            indices,
+        })
     }
 
     /// Returns the vertex positions.
@@ -95,6 +101,38 @@ impl<'a> Surface<'a> {
     /// Returns the normal of vertex `v`, normalized. A zero normal stays zero.
     pub(crate) fn normal(&self, v: usize) -> Vec3 {
         Vec3::from(self.normals[v]).normalize_or_zero()
+    }
+
+    /// Returns whether the mesh is closed: every edge, ignoring direction, is
+    /// shared by exactly two triangles. A closed mesh encloses one or more
+    /// solids.
+    ///
+    /// Vertices at exactly the same position count as one vertex, so a mesh
+    /// that repeats positions at texture seams or between joined parts (as
+    /// procedural tree bark does) is still recognized as closed.
+    pub fn is_closed(&self) -> bool {
+        // Give every distinct position one id. Adding 0.0 turns -0.0 into 0.0,
+        // so the two compare equal.
+        let mut ids = std::collections::HashMap::<[u32; 3], u32>::new();
+        let welded: Vec<u32> = self
+            .positions
+            .iter()
+            .map(|p| {
+                let key = p.map(|c| (c + 0.0).to_bits());
+                let next = ids.len() as u32;
+                *ids.entry(key).or_insert(next)
+            })
+            .collect();
+
+        // Count how many triangles use each welded edge.
+        let mut uses = std::collections::HashMap::<(u32, u32), u32>::new();
+        for &tri in self.indices.as_chunks::<3>().0 {
+            let [a, b, c] = tri.map(|i| welded[i as usize]);
+            for (x, y) in [(a, b), (b, c), (c, a)] {
+                *uses.entry((x.min(y), x.max(y))).or_default() += 1;
+            }
+        }
+        uses.values().all(|&n| n == 2)
     }
 
     /// Returns the smallest box that holds every vertex, as `(min, max)`.
@@ -181,10 +219,16 @@ impl fmt::Display for SurfaceError {
         match self {
             Self::Empty => write!(f, "the surface has no triangles"),
             Self::NormalCount { positions, normals } => {
-                write!(f, "the surface has {positions} positions but {normals} normals")
+                write!(
+                    f,
+                    "the surface has {positions} positions but {normals} normals"
+                )
             }
             Self::PartialTriangle { indices } => {
-                write!(f, "the surface has {indices} indices, which is not a multiple of 3")
+                write!(
+                    f,
+                    "the surface has {indices} indices, which is not a multiple of 3"
+                )
             }
             Self::IndexOutOfRange { index, vertices } => {
                 write!(f, "index {index} is out of range for {vertices} vertices")
@@ -217,13 +261,47 @@ mod tests {
     }
 
     #[test]
+    fn closedness_counts_repeated_positions_as_one_vertex() {
+        let normals = [[0.0, 1.0, 0.0]; 7];
+
+        // An open patch is not closed.
+        assert!(!SurfaceMesh::ground(1.0, 2).surface().unwrap().is_closed());
+
+        // A tetrahedron with shared corners is closed.
+        let corners = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let faces = [0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3];
+        let shared = Surface::new(&corners, &normals[..4], &faces).unwrap();
+        assert!(shared.is_closed());
+
+        // The same tetrahedron with its last face on its own copies of the
+        // corners, one written as -0.0, as at a texture seam, is still closed.
+        let mut seamed = corners.to_vec();
+        seamed.extend([[1.0, -0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+        let faces_seamed = [0, 2, 1, 0, 1, 3, 0, 3, 2, 4, 5, 6];
+        let seamed = Surface::new(&seamed, &normals, &faces_seamed).unwrap();
+        assert!(seamed.is_closed());
+
+        // Removing a face opens it.
+        let open = Surface::new(&corners, &normals[..4], &faces[..9]).unwrap();
+        assert!(!open.is_closed());
+    }
+
+    #[test]
     fn bad_buffers_are_rejected() {
         let p = [[0.0; 3]; 3];
         let n = [[0.0, 1.0, 0.0]; 3];
         assert_eq!(Surface::new(&p, &n, &[]).unwrap_err(), SurfaceError::Empty);
         assert_eq!(
             Surface::new(&p, &n[..2], &[0, 1, 2]).unwrap_err(),
-            SurfaceError::NormalCount { positions: 3, normals: 2 }
+            SurfaceError::NormalCount {
+                positions: 3,
+                normals: 2
+            }
         );
         assert_eq!(
             Surface::new(&p, &n, &[0, 1]).unwrap_err(),
@@ -231,7 +309,10 @@ mod tests {
         );
         assert_eq!(
             Surface::new(&p, &n, &[0, 1, 3]).unwrap_err(),
-            SurfaceError::IndexOutOfRange { index: 3, vertices: 3 }
+            SurfaceError::IndexOutOfRange {
+                index: 3,
+                vertices: 3
+            }
         );
         assert!(Surface::new(&p, &n, &[0, 1, 2]).is_ok());
     }

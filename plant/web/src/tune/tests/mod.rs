@@ -9,7 +9,7 @@ fn registry() -> TypeRegistry {
     let mut registry = TypeRegistry::new();
     registry.register::<f32>();
     registry.register::<Color>();
-    registry.register::<GrassShadows>();
+    registry.register::<PlantShadows>();
     registry
 }
 
@@ -34,7 +34,7 @@ fn sets_numbers_colours_and_list_items_by_path() {
     assert!((grass.height.y - 0.9).abs() < f32::EPSILON);
     assert_eq!(grass.segment.tip_color.to_srgba().to_hex(), "#FF8000");
     assert_eq!(grass.levels[0].count, 12);
-    assert_eq!(grass.levels[0].arrangement, GrassArrangement::Alternate);
+    assert_eq!(grass.levels[0].arrangement, PlantArrangement::Alternate);
     assert_eq!(field.toon_bands, 3);
     assert!((field.plants[0].density_scale - 0.25).abs() < f32::EPSILON);
     assert!(set(&mut field, "density", "lots").is_err());
@@ -42,7 +42,7 @@ fn sets_numbers_colours_and_list_items_by_path() {
 
 #[test]
 fn switches_enum_variants_and_their_values() {
-    let mut camera = GrassCamera::default();
+    let mut camera = PlantCamera::default();
     set(&mut camera, "radius", "Some:150").unwrap();
     assert_eq!(camera.radius, Some(150.0));
     set(&mut camera, "radius.0", "90").unwrap();
@@ -50,15 +50,15 @@ fn switches_enum_variants_and_their_values() {
     set(&mut camera, "radius", "None").unwrap();
     assert_eq!(camera.radius, None);
 
-    let mut settings = GrassSettings::HIGH;
+    let mut settings = PlantSettings::HIGH;
     set(&mut settings, "shadows", "Full").unwrap();
-    assert_eq!(settings.shadows, GrassShadows::Full);
+    assert_eq!(settings.shadows, PlantShadows::Full);
 
-    let mut brush = GrassBrush::new(GrassEditOp::Density(0.0), 2.0);
+    let mut brush = PlantBrush::new(PlantEditOp::Density(0.0), 2.0);
     set(&mut brush, "op", "Mow:0.3").unwrap();
-    assert_eq!(brush.op, GrassEditOp::Mow(0.3));
+    assert_eq!(brush.op, PlantEditOp::Mow(0.3));
     set(&mut brush, "op", "Restore").unwrap();
-    assert_eq!(brush.op, GrassEditOp::Restore);
+    assert_eq!(brush.op, PlantEditOp::Restore);
 }
 
 #[test]
@@ -75,8 +75,8 @@ fn rust_names_only_what_changed_from_the_preset() {
     );
     assert_eq!(
         rust,
-        "GrassField {\n    plants: vec![\n        FieldPlant {\n            \
-         plant: GrassPlant {\n                width: 0.037,\n                \
+        "PlantField {\n    plants: vec![\n        FieldPlant {\n            \
+         plant: PlantParams {\n                width: 0.037,\n                \
          ..FieldPreset::MEADOW.field.plants[0].plant\n            },\n            \
          ..FieldPreset::MEADOW.field.plants[0]\n        },\n    ].into(),\n    \
          ..FieldPreset::MEADOW.field\n}"
@@ -113,13 +113,13 @@ fn rust_names_untuned_plants_of_a_mix_by_their_place() {
 #[test]
 fn json_describes_each_kind_of_value() {
     let mut json = String::new();
-    write_node(&GrassCamera::default(), &mut json);
-    assert!(json.starts_with("{\"t\":\"struct\",\"ty\":\"GrassCamera\""));
+    write_node(&PlantCamera::default(), &mut json);
+    assert!(json.starts_with("{\"t\":\"struct\",\"ty\":\"PlantCamera\""));
     assert!(json.contains(
         "{\"n\":\"radius\",\"v\":{\"t\":\"enum\",\"ty\":\"Option\",\"v\":\"None\",\"variants\":[\"None\",\"Some\"],\"f\":[]}}"
     ) || json.contains("\"n\":\"radius\",\"d\":"));
     json.clear();
-    write_node(&GrassSettings::HIGH.blade_rows, &mut json);
+    write_node(&PlantSettings::HIGH.blade_rows, &mut json);
     assert_eq!(
         json,
         "{\"t\":\"list\",\"fixed\":true,\"items\":[{\"t\":\"int\",\"v\":7},{\"t\":\"int\",\"v\":3},{\"t\":\"int\",\"v\":1}]}"

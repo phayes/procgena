@@ -1,7 +1,7 @@
 //! Grass trampled by Avian colliders: a kinematic character and a large
 //! vehicle drive through a meadow with a crate scaled to 2.5 m, and
 //! every few seconds a log is thrown in, tumbles and comes to rest across the
-//! grass. All of them carry `GrassInteractorFromCollider`, so the footprint
+//! grass. All of them carry `PlantInteractorFromCollider`, so the footprint
 //! comes from the collider: one disc for the capsule, one box for
 //! the vehicle, the crate at its scaled size, and a strip along the log once
 //! it lies down.
@@ -25,7 +25,7 @@ use procgena_plant::prelude::*;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: avian");
-    app.add_plugins((GrassPlugins, PhysicsPlugins::default()))
+    app.add_plugins((PlantPlugins, PhysicsPlugins::default()))
         .add_systems(Startup, setup)
         .add_systems(Update, (drive, throw))
         .run();
@@ -84,7 +84,7 @@ fn setup(
         Transform::from_xyz(0.0, -0.5, 0.0),
     ));
 
-    commands.spawn(GrassField::from_preset(
+    commands.spawn(PlantField::from_preset(
         &FieldPreset::MEADOW,
         Vec2::splat(64.0),
     ));
@@ -98,7 +98,7 @@ fn setup(
         RigidBody::Kinematic,
         // A radius, and the length between the hemispheres.
         Collider::capsule(0.4, 1.0),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Mover {
             center: Vec2::ZERO,
             radius: 4.0,
@@ -116,7 +116,7 @@ fn setup(
         Transform::from_xyz(8.0, 1.0, 0.0),
         RigidBody::Kinematic,
         Collider::cuboid(6.0, 2.0, 3.0),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Mover {
             center: Vec2::new(0.0, 1.0),
             radius: 9.0,
@@ -134,7 +134,7 @@ fn setup(
         Transform::from_xyz(-12.0, 1.25, -9.0).with_scale(Vec3::splat(2.5)),
         RigidBody::Kinematic,
         Collider::cuboid(1.0, 1.0, 1.0),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Mover {
             center: Vec2::new(-15.0, -9.0),
             radius: 3.0,
@@ -153,7 +153,7 @@ fn setup(
         from,
         RigidBody::Dynamic,
         Collider::capsule(0.3, 3.4),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Thrown {
             from,
             every: 6.0,

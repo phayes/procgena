@@ -20,7 +20,7 @@ bevy = { version = "0.20.1", default-features = false, features = [
 
 [features]
 # Enable wind animation and camera-facing billboards for exported procgena_tree glTF scenes.
-# Requires add_tree_gltf_attributes and ZeTreePlugin in the app.
+# Requires add_tree_gltf_attributes and TreePlugin in the app.
 gltf = ["bevy/bevy_gltf"]
 
 [dev-dependencies]

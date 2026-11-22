@@ -1,13 +1,13 @@
 //! The look of the grass: plants, and the field-wide settings that colour them.
 //!
-//! Use [`GrassPlant`] to choose a plant's size, colour, shape, branches and
-//! tufting, and how densely it grows. A [`GrassField`](crate::GrassField)
+//! Use [`PlantParams`] to choose a plant's size, colour, shape, branches and
+//! tufting, and how densely it grows. A [`PlantField`](crate::PlantField)
 //! lists its plants as [`FieldPlant`]s, each a plant with a scale on its
 //! density in that field, and adds the settings shared by the whole field:
-//! [`GrassVariation`] and [`GroundTint`].
+//! [`PlantVariation`] and [`GroundTint`].
 //!
-//! Plants are built from [`GrassSegment`]s: curved strips that represent blades, stalks
-//! or leaves. [`GrassBranches`] places smaller segments along a parent segment, such as
+//! Plants are built from [`PlantSegment`]s: curved strips that represent blades, stalks
+//! or leaves. [`PlantBranches`] places smaller segments along a parent segment, such as
 //! a fern's leaflets along its stalk.
 
 use bevy::color::Color;
@@ -19,36 +19,36 @@ use crate::presets::FieldPreset;
 
 /// Maximum number of plant kinds drawn in one field.
 ///
-/// Only the first 16 entries in [`GrassField::plants`](crate::GrassField::plants)
+/// Only the first 16 entries in [`PlantField::plants`](crate::PlantField::plants)
 /// are used. Accents do not count towards this limit.
 pub const MAX_PLANTS: usize = 16;
 
-/// Maximum stems sharing one root; bounds [`GrassPlant::stems_per_plant`].
+/// Maximum stems sharing one root; bounds [`PlantParams::stems_per_plant`].
 pub(crate) const MAX_STEMS_PER_PLANT: u32 = 8;
 
-/// Maximum children per segment; bounds [`GrassBranches::count`].
+/// Maximum children per segment; bounds [`PlantBranches::count`].
 pub(crate) const MAX_BRANCHES: u32 = 32;
 
 /// The size, appearance and branching of one kind of plant.
 ///
-/// Add a plant to [`GrassField::plants`](crate::GrassField::plants) with
-/// [`FieldPlant::new`]. It grows at its own [`density`](GrassPlant::density),
+/// Add a plant to [`PlantField::plants`](crate::PlantField::plants) with
+/// [`FieldPlant::new`]. It grows at its own [`density`](PlantParams::density),
 /// which the field can scale.
 ///
-/// Each stem starts with a main [`segment`](GrassPlant::segment), such as a grass blade
-/// or fern stalk. Up to two [`levels`](GrassPlant::levels) add branches to that segment
+/// Each stem starts with a main [`segment`](PlantParams::segment), such as a grass blade
+/// or fern stalk. Up to two [`levels`](PlantParams::levels) add branches to that segment
 /// and then to its children. Disable both levels for an unbranched blade.
 ///
-/// Start from a plant preset such as [`GrassPlant::MEADOW_GRASS`],
-/// [`GrassPlant::SEED_HEADS`] or [`GrassPlant::FERN`].
+/// Start from a plant preset such as [`PlantParams::MEADOW_GRASS`],
+/// [`PlantParams::SEED_HEADS`] or [`PlantParams::FERN`].
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub struct GrassPlant {
+pub struct PlantParams {
     /// The plant's natural density, in plants per square metre.
     ///
     /// For example, meadow grass uses 60 and ferns use 2. Adjust how densely
     /// it grows in a field with [`FieldPlant::density_scale`] and
-    /// [`GrassField::density_scale`](crate::GrassField::density_scale); both
+    /// [`PlantField::density_scale`](crate::PlantField::density_scale); both
     /// scales multiply this value. Each plant counts once, regardless of its
     /// [`stems_per_plant`](Self::stems_per_plant).
     pub density: f32,
@@ -65,12 +65,12 @@ pub struct GrassPlant {
     /// stem count.
     pub stems_per_plant: u32,
     /// Shape, colour and movement of each main stem, such as a blade or fern stalk.
-    pub segment: GrassSegment,
+    pub segment: PlantSegment,
     /// Two layers of branches: `levels[0]` grows from the main stem, and
     /// `levels[1]` grows from those branches, like leaves on twigs. Set a layer's
-    /// [`count`](GrassBranches::count) to 0 to hide it. The second layer is also
+    /// [`count`](PlantBranches::count) to 0 to hide it. The second layer is also
     /// hidden when the first is disabled, but its settings are kept.
-    pub levels: [GrassBranches; 2],
+    pub levels: [PlantBranches; 2],
     /// Darkening near the ground, from 0 (none) to 1 (black), to suggest shade from
     /// surrounding plants.
     pub root_occlusion: f32,
@@ -98,7 +98,7 @@ pub struct GrassPlant {
     /// Stems that grow differently from the rest, such as plumes rising from a
     /// grass tussock or kelp fronds that carry a float. They grow in place of
     /// some main stems, in the plant's own tufts.
-    pub accent: GrassAccent,
+    pub accent: PlantAccent,
 }
 
 /// Stems with a different appearance within one kind of plant.
@@ -109,27 +109,27 @@ pub struct GrassPlant {
 ///
 /// Accents are always unbranched. They keep the plant's root shading, sheen,
 /// stem count and tuft settings, but have their own size, shape and colours.
-/// Set [`share`](Self::share) to 0, or use [`GrassAccent::NONE`], to turn them off.
+/// Set [`share`](Self::share) to 0, or use [`PlantAccent::NONE`], to turn them off.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub struct GrassAccent {
+pub struct PlantAccent {
     /// The share of the plant's stems that are accents, from 0 (none) to 1
     /// (every stem).
     pub share: f32,
     /// The two limits for an accent stem's length in metres; either may be
     /// written first.
     pub height: Vec2,
-    /// Accent stem width, in metres, as [`GrassPlant::width`].
+    /// Accent stem width, in metres, as [`PlantParams::width`].
     pub width: f32,
     /// Resting tip lean as a fraction of the stem's length.
     pub lean: f32,
     /// Sunlight transmitted through a backlit accent, from 0 to 1, as
-    /// [`GrassPlant::translucency`].
+    /// [`PlantParams::translucency`].
     pub translucency: f32,
     /// Shape, colour and movement of each accent stem.
-    pub segment: GrassSegment,
+    pub segment: PlantSegment,
     /// Length of the accent's head relative to its stem, as
-    /// [`GrassPlant::head_length`]; 0 hides it.
+    /// [`PlantParams::head_length`]; 0 hides it.
     pub head_length: f32,
     /// Width of the accent's head, in metres.
     pub head_width: f32,
@@ -137,17 +137,17 @@ pub struct GrassAccent {
     pub head_color: Color,
 }
 
-impl GrassAccent {
+impl PlantAccent {
     /// An accent that replaces no stems.
     ///
-    /// Use this to disable accents when constructing a [`GrassPlant`].
+    /// Use this to disable accents when constructing a [`PlantParams`].
     pub const NONE: Self = Self {
         share: 0.0,
         height: Vec2::new(0.3, 0.6),
         width: 0.02,
         lean: 0.15,
         translucency: 0.6,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.3,
             droop: 0.0,
@@ -170,7 +170,7 @@ impl GrassAccent {
     }
 }
 
-impl Default for GrassAccent {
+impl Default for PlantAccent {
     fn default() -> Self {
         Self::NONE
     }
@@ -179,11 +179,11 @@ impl Default for GrassAccent {
 /// The shape, colour and movement of a curved strip of plant material.
 ///
 /// A segment can represent a grass blade, fern stalk or leaflet. Its dimensions come
-/// from [`GrassPlant`] or [`GrassBranches`]. Set its shape controls to 0 for a
+/// from [`PlantParams`] or [`PlantBranches`]. Set its shape controls to 0 for a
 /// straight, pointed strip.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub struct GrassSegment {
+pub struct PlantSegment {
     /// Outline from 0 (a grass blade tapering to a point) to 1 (an oval leaf, narrow at
     /// both ends and widest in the middle).
     pub profile: f32,
@@ -196,7 +196,7 @@ pub struct GrassSegment {
     /// A main stem also takes values from 1 to 2, which lower every stem's tip
     /// further, until at 2 each stem arches over and its tip rests on the ground, like
     /// a bramble cane. The arch needs some
-    /// [`lean`](GrassPlant::lean) to pick its direction. The arch is low: each stem
+    /// [`lean`](PlantParams::lean) to pick its direction. The arch is low: each stem
     /// leaves its root at 45° or less, and its top is at most a quarter of its span.
     /// Both ends stay rooted: wind and trampling sway only the top of the arch.
     /// Stems still vary: the less a stem would have drooped, the taller its arch.
@@ -215,7 +215,7 @@ pub struct GrassSegment {
     pub tip_color: Color,
 }
 
-impl GrassPlant {
+impl PlantParams {
     /// Returns the stem length limits in ascending order, without changing the plant.
     pub(crate) fn height_range(&self) -> (f32, f32) {
         (self.height.min_element(), self.height.max_element())
@@ -236,8 +236,8 @@ impl GrassPlant {
             head_length: accent.head_length,
             head_width: accent.head_width,
             head_color: accent.head_color,
-            levels: [GrassBranches::NONE, GrassBranches::NONE],
-            accent: GrassAccent::NONE,
+            levels: [PlantBranches::NONE, PlantBranches::NONE],
+            accent: PlantAccent::NONE,
             ..*self
         }
     }
@@ -246,15 +246,15 @@ impl GrassPlant {
 /// One level of branches attached along a parent segment.
 ///
 /// Use this for leaflets along a fern stalk or leaves along twigs. See
-/// [`GrassPlant::levels`] for how the two levels connect.
+/// [`PlantParams::levels`] for how the two levels connect.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub struct GrassBranches {
+pub struct PlantBranches {
     /// Children per parent segment, from 0 (disabled) to 32.
-    /// [`GrassArrangement::Opposite`] rounds odd counts up to complete pairs.
+    /// [`PlantArrangement::Opposite`] rounds odd counts up to complete pairs.
     pub count: u32,
     /// Whether children attach in pairs or alternate along the parent.
-    pub arrangement: GrassArrangement,
+    pub arrangement: PlantArrangement,
     /// Fraction of the parent left bare at its base, from 0 up to but excluding 1. For
     /// example, 0.25 leaves the bottom quarter of a fern stalk bare.
     pub attachment_start: f32,
@@ -276,7 +276,7 @@ pub struct GrassBranches {
     /// Positive values also orient leaves towards the sky.
     pub spread: f32,
     /// Shape, colour and wind response shared by the children at this level.
-    pub segment: GrassSegment,
+    pub segment: PlantSegment,
 }
 
 /// Placement of branches along their parent segment.
@@ -285,7 +285,7 @@ pub struct GrassBranches {
 /// along a twig.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub enum GrassArrangement {
+pub enum PlantArrangement {
     /// Paired children attached at the same point on opposite sides.
     #[default]
     Opposite,
@@ -293,20 +293,20 @@ pub enum GrassArrangement {
     Alternate,
 }
 
-impl GrassBranches {
+impl PlantBranches {
     /// A disabled branch level.
     ///
-    /// Use this in [`GrassPlant::levels`] wherever no branches should grow.
+    /// Use this in [`PlantParams::levels`] wherever no branches should grow.
     pub const NONE: Self = Self {
         count: 0,
-        arrangement: GrassArrangement::Opposite,
+        arrangement: PlantArrangement::Opposite,
         attachment_start: 0.0,
         length: 0.0,
         length_envelope: 0.5,
         width: 0.0,
         angle: 0.0,
         spread: 0.0,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.5,
             droop: 0.0,
@@ -340,10 +340,10 @@ pub struct GroundTint {
 /// Colour changes and bare patches across a field.
 ///
 /// Set all amounts and shares to 0 for an even field. Tufting belongs to
-/// each [`GrassPlant`], so different plants can form different-sized groups.
+/// each [`PlantParams`], so different plants can form different-sized groups.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
-pub struct GrassVariation {
+pub struct PlantVariation {
     /// The colour the blades drift toward in large patches, as the tip
     /// colour; the rest of each blade shifts with it. Real fields are greener
     /// in hollows and yellower on dry rises.
@@ -366,10 +366,10 @@ pub struct GrassVariation {
 
 /// A plant and its density and clustering settings within a field.
 ///
-/// Add entries to [`GrassField::plants`](crate::GrassField::plants). Each
-/// plant grows at its own [`density`](GrassPlant::density) times
+/// Add entries to [`PlantField::plants`](crate::PlantField::plants). Each
+/// plant grows at its own [`density`](PlantParams::density) times
 /// [`density_scale`](Self::density_scale) times the field's
-/// [`density_scale`](crate::GrassField::density_scale). For example, ferns
+/// [`density_scale`](crate::PlantField::density_scale). For example, ferns
 /// with a density of 2 and an entry scale of 0.5 contribute one fern per
 /// square metre when the field scale is 1. Colour variation applies to
 /// the whole field.
@@ -383,13 +383,13 @@ pub struct GrassVariation {
 pub struct FieldPlant {
     /// The plant's shape, appearance and natural density.
     ///
-    /// Use a [`GrassPlant`] preset or provide customised plant settings.
-    pub plant: GrassPlant,
+    /// Use a [`PlantParams`] preset or provide customised plant settings.
+    pub plant: PlantParams,
     /// Multiplies this plant's natural density in this field.
     ///
-    /// Use 1 for its [`density`](GrassPlant::density), 0.5 for half as many
+    /// Use 1 for its [`density`](PlantParams::density), 0.5 for half as many
     /// plants, or 0 to remove it. Negative scales count as 0. The field's
-    /// [`density_scale`](crate::GrassField::density_scale) also applies.
+    /// [`density_scale`](crate::PlantField::density_scale) also applies.
     pub density_scale: f32,
     /// How strongly this plant groups into patches, from 0 to 1.
     ///
@@ -407,7 +407,7 @@ impl FieldPlant {
     /// with no clustering and a density scale of 1; the field's scale
     /// still applies.
     #[must_use]
-    pub const fn new(plant: GrassPlant) -> Self {
+    pub const fn new(plant: PlantParams) -> Self {
         Self {
             plant,
             density_scale: 1.0,
@@ -419,7 +419,7 @@ impl FieldPlant {
     ///
     /// Pass a non-negative scale: 1 keeps the plant's natural density,
     /// 0.5 halves it, and 0 removes the plant. The field's
-    /// [`density_scale`](crate::GrassField::density_scale) also applies.
+    /// [`density_scale`](crate::PlantField::density_scale) also applies.
     #[must_use]
     pub const fn scaled(self, density_scale: f32) -> Self {
         Self {
@@ -452,23 +452,23 @@ impl FieldPlant {
 
 impl Default for FieldPlant {
     fn default() -> Self {
-        Self::new(GrassPlant::MEADOW_GRASS)
+        Self::new(PlantParams::MEADOW_GRASS)
     }
 }
 
-impl Default for GrassPlant {
+impl Default for PlantParams {
     fn default() -> Self {
         Self::MEADOW_GRASS
     }
 }
 
-impl Default for GrassSegment {
+impl Default for PlantSegment {
     fn default() -> Self {
-        GrassPlant::MEADOW_GRASS.segment
+        PlantParams::MEADOW_GRASS.segment
     }
 }
 
-impl Default for GrassBranches {
+impl Default for PlantBranches {
     fn default() -> Self {
         Self::NONE
     }
@@ -480,7 +480,7 @@ impl Default for GroundTint {
     }
 }
 
-impl Default for GrassVariation {
+impl Default for PlantVariation {
     fn default() -> Self {
         FieldPreset::MEADOW.field.variation
     }

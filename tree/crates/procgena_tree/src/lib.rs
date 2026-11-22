@@ -148,15 +148,15 @@
 //! cargo run -p procgena_tree --example export --features export-obj,export-gltf
 //! ```
 //!
-//! Files are written to `target/ze_tree_export` by default. The example accepts an
+//! Files are written to `target/procgena_tree_export` by default. The example accepts an
 //! output directory and an optional source texture directory as positional arguments.
 //!
 //! ## Materials and animation
 //!
 //! [`BarkMaterial`] and [`LeafMaterial`] describe appearance settings for a renderer.
-//! Texture images are not bundled with the crate. In the repository, run
-//! `tools/textures/download.sh` to save ready-made KTX2 textures in `assets/textures/`.
-//! The script downloads all leaf textures and the 512 and 1k bark sizes by default;
+//! Texture images are not bundled with the crate. From the workspace root, run
+//! `uv run --project tools textures download tree` to save ready-made KTX2
+//! textures in `tree/assets/textures/`. The command downloads all leaf textures and the 512 and 1k bark sizes by default;
 //! add `--sizes 512,1k,2k` to include 2k bark. Each image comes in two formats:
 //!
 //! - BC7 for GPUs that support it, including most desktop GPUs.
@@ -190,8 +190,8 @@
 //!
 //! ## Bevy integration
 //!
-//! The workspace also includes `procgena_tree_bevy`. Add its `ZeTreePlugin` after Bevy's
-//! default plugins and spawn a `ZeTree` component to generate and display trees.
+//! The workspace also includes `procgena_tree_bevy`. Add its `TreePlugin` after Bevy's
+//! default plugins and spawn a `TreeParams` component to generate and display trees.
 //! It handles background generation, materials, wind, and mesh detail switching.
 //! See that crate's documentation for setup and texture paths.
 

@@ -9,8 +9,8 @@ use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::TextureUsages;
 
 use super::*;
-use crate::GrassSettings;
-use crate::api::GrassPlant;
+use crate::PlantSettings;
+use crate::api::PlantParams;
 
 /// Side of the square render target, in pixels. 512 × 4 bytes is a whole number of
 /// 256-byte rows, so the readback has no row padding.
@@ -21,21 +21,21 @@ const BELOW: f32 = 0.1;
 
 /// Renders `plant` side-on and returns the height, in metres, of the highest drawn
 /// pixel's top edge, with the height of one pixel.
-fn drawn_top(plant: &GrassPlant, view_height: f32) -> (f32, f32) {
-    let mut app = headless_app_with(Transform::IDENTITY, GrassGround::Flat);
-    app.insert_resource(GrassWind {
+fn drawn_top(plant: &PlantParams, view_height: f32) -> (f32, f32) {
+    let mut app = headless_app_with(Transform::IDENTITY, PlantGround::Flat);
+    app.insert_resource(PlantWind {
         strength: 0.0,
-        ..GrassWind::CALM
+        ..PlantWind::CALM
     });
-    app.insert_resource(GrassSettings {
+    app.insert_resource(PlantSettings {
         orthographic_lod: 0,
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     });
 
     // Centre a narrow, deep patch under the camera so every stem's top is visible.
     // Grow each plant at 15 plants per square metre, regardless of its natural density.
     let world = app.world_mut();
-    let mut fields = world.query::<&mut GrassField>();
+    let mut fields = world.query::<&mut PlantField>();
     let mut field = fields.single_mut(world).expect("one field");
     field.size = Vec2::new(0.6, 4.0);
     field.plants = vec![FieldPlant::new(*plant)].into();
@@ -121,9 +121,9 @@ fn top_row(data: &[u8]) -> Option<u32> {
 /// Asserts that the GPU draws `plant` as tall as the CPU model says, within a pixel
 /// or two of edge blending and the few per cent by which the least drooping stem in
 /// the patch droops more than the plant's least drooping possible stem.
-fn tops_match(name: &str, plant: &GrassPlant) {
+fn tops_match(name: &str, plant: &PlantParams) {
     // Every stem at full height, so only the droop varies between them.
-    let plant = GrassPlant {
+    let plant = PlantParams {
         height: Vec2::splat(plant.height.y),
         ..*plant
     };
@@ -142,17 +142,17 @@ fn tops_match(name: &str, plant: &GrassPlant) {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_upright_branches_reach_the_modelled_height() {
-    tops_match("BROOM", &GrassPlant::BROOM);
+    tops_match("BROOM", &PlantParams::BROOM);
 }
 
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_drooping_fronds_reach_the_modelled_height() {
-    tops_match("MATURE_BRACKEN", &GrassPlant::MATURE_BRACKEN);
+    tops_match("MATURE_BRACKEN", &PlantParams::MATURE_BRACKEN);
 }
 
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_arching_canes_reach_the_modelled_height() {
-    tops_match("BRAMBLE", &GrassPlant::BRAMBLE);
+    tops_match("BRAMBLE", &PlantParams::BRAMBLE);
 }

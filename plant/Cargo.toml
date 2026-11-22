@@ -5,7 +5,6 @@ version = "0.20.6"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"
-repository = "https://github.com/GEMI/bevy-grass"
 readme = "README.md"
 keywords = ["bevy", "grass", "foliage", "gamedev", "rendering"]
 categories = ["game-development", "rendering"]
@@ -16,13 +15,11 @@ categories = ["game-development", "rendering"]
 # written from the preset constants, not read from these files.
 exclude = [
   "/.claude/",
-  "/.github/",
   "/.pi/",
   "/docs/",
   "/notes/",
   "/shots/",
   "/tests/golden/",
-  "/tools/",
   "/web/",
 ]
 
@@ -65,15 +62,15 @@ avian3d = { version = "0.8", optional = true, default-features = false, features
 ] }
 
 [features]
-# `GrassDebugPlugin`: gizmos for fields, chunks, interactors and trample
+# `PlantDebugPlugin`: gizmos for fields, chunks, interactors and trample
 # windows. It needs `bevy_gizmos`, which a game using `DefaultPlugins` has
 # already, so it is off by default: adding this crate must never change how
 # Bevy is compiled.
 debug = ["bevy/bevy_gizmos"]
-# `GrassInteractorFromCollider` for `bevy_rapier3d` colliders. 3D only;
+# `PlantInteractorFromCollider` for `bevy_rapier3d` colliders. 3D only;
 # grass is 3D.
 rapier = ["dep:bevy_rapier3d"]
-# `GrassInteractorFromCollider` for `avian3d` colliders. Both can be on.
+# `PlantInteractorFromCollider` for `avian3d` colliders. Both can be on.
 avian = ["dep:avian3d"]
 
 [dev-dependencies]

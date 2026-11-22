@@ -29,7 +29,7 @@ use procgena_stone::{DetailLevel, StoneDetail, StoneOptions, TextureSize};
 
 use super::pools::RenderPools;
 use super::views::PoolViews;
-use crate::{PooledStone, StonePool, ZeStonePlugin};
+use crate::{PooledStone, StonePlugin, StonePool};
 
 /// Frames to wait for generation, pipeline compilation and culling.
 const MAX_FRAMES: usize = 600;
@@ -42,7 +42,7 @@ const INDEX_COUNT_WORD: usize = 0;
 fn read_words(device: &RenderDevice, queue: &RenderQueue, source: &Buffer) -> Vec<u32> {
     let size = source.size();
     let staging = device.create_buffer(&BufferDescriptor {
-        label: Some("ze_stone_test_staging"),
+        label: Some("procgena_stone_test_staging"),
         size,
         usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
@@ -97,7 +97,7 @@ fn headless_app(positions: &[Vec3]) -> App {
             .disable::<WinitPlugin>()
             .disable::<PipelinedRenderingPlugin>(),
     )
-    .add_plugins(ZeStonePlugin {
+    .add_plugins(StonePlugin {
         texture_root: None,
         ..default()
     })

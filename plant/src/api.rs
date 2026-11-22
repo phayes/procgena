@@ -19,11 +19,11 @@ use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::Transform;
 
-use crate::{GrassSettings, GrassShadows};
+use crate::{PlantSettings, PlantShadows};
 
 pub use crate::look::{
-    FieldPlant, GrassAccent, GrassArrangement, GrassBranches, GrassPlant, GrassSegment,
-    GrassVariation, GroundTint, MAX_PLANTS,
+    FieldPlant, GroundTint, MAX_PLANTS, PlantAccent, PlantArrangement, PlantBranches, PlantParams,
+    PlantSegment, PlantVariation,
 };
 pub use crate::presets::{FieldPreset, PlantPreset};
 
@@ -31,12 +31,12 @@ pub use crate::presets::{FieldPreset, PlantPreset};
 ///
 /// The field is a rectangle of `size` metres centred on its [`Transform`]'s
 /// translation, lying in the XZ plane; the translation's Y is the ground level
-/// for [`GrassField::ground`] = [`GrassGround::Flat`].
+/// for [`PlantField::ground`] = [`PlantGround::Flat`].
 ///
 /// A field follows the conventions of Bevy's other renderables:
 /// - **Scale:** the rectangle is `size` times the transform's X and Z scale,
 ///   like a scaled `Plane3d` mesh. Y scale scales a
-///   [`GrassGround::Mesh`] as it scales the mesh, and does nothing else:
+///   [`PlantGround::Mesh`] as it scales the mesh, and does nothing else:
 ///   blade heights come from the plants.
 /// - **Rotation:** the field turns with the transform's rotation about Y,
 ///   masks and heightmaps with it. Grass grows upright, so a tilt is left out
@@ -56,9 +56,9 @@ pub use crate::presets::{FieldPreset, PlantPreset};
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
 /// # fn setup(mut commands: Commands) {
-/// commands.spawn(GrassField {
+/// commands.spawn(PlantField {
 ///     density_scale: 0.75,
-///     ..GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0))
+///     ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0))
 /// });
 /// # }
 /// ```
@@ -69,12 +69,12 @@ pub use crate::presets::{FieldPreset, PlantPreset};
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform, Visibility)]
-pub struct GrassField {
+pub struct PlantField {
     /// Width (X) and depth (Z) of the field, in metres, before the
     /// transform's scale.
     pub size: Vec2,
     /// Where the blade roots sit.
-    pub ground: GrassGround,
+    pub ground: PlantGround,
     /// Optional density mask covering the whole field: red is density
     /// (0 bare, 1 full), green is a height multiplier. `None` means full
     /// density everywhere. The first row of the image is the field's own −Z
@@ -82,7 +82,7 @@ pub struct GrassField {
     pub density_map: Option<Handle<Image>>,
     /// Scales wind movement for every plant: 0 is still, 0.3 is sheltered,
     /// and values above 1 give stronger movement. Negative values act as 0.
-    /// Gusts still follow the shared [`GrassWind`](crate::GrassWind), so
+    /// Gusts still follow the shared [`PlantWind`](crate::PlantWind), so
     /// neighbouring fields sway in step even with different strengths.
     pub wind_scale: f32,
     /// The plants that grow here, each at its own density times its
@@ -91,18 +91,18 @@ pub struct GrassField {
     /// nothing. Only the first [`MAX_PLANTS`] entries are used; the rest are
     /// left out and counted in [`TableStats`](crate::TableStats).
     ///
-    /// Build a list with [`GrassField::with_plants`], or in a constant with
+    /// Build a list with [`PlantField::with_plants`], or in a constant with
     /// `Cow::Borrowed(&[...])`.
     pub plants: Cow<'static, [FieldPlant]>,
     /// Multiplies every plant entry's density, keeping the same proportions of plants.
     ///
     /// Use 1 to keep each entry's [`FieldPlant::density`], 0.5 for half as
     /// many plants, or 0 for an empty field. Negative values act as 0.
-    /// Each entry's own scale still applies. See [`GrassField::density`]
+    /// Each entry's own scale still applies. See [`PlantField::density`]
     /// for the total plants per square metre.
     pub density_scale: f32,
     /// How the field varies across its area.
-    pub variation: GrassVariation,
+    pub variation: PlantVariation,
     /// Colour blended into the base of the plants to match the terrain.
     /// This changes the plants' shading, not the ground material.
     pub ground_tint: GroundTint,
@@ -112,14 +112,14 @@ pub struct GrassField {
     pub toon_bands: u32,
 }
 
-impl Default for GrassField {
+impl Default for PlantField {
     /// The [`FieldPreset::MEADOW`] field, 0 metres across.
     fn default() -> Self {
         FieldPreset::MEADOW.field
     }
 }
 
-impl GrassField {
+impl PlantField {
     /// Creates a field of the given size and plants.
     ///
     /// `size` gives the width and depth in metres. Other settings come from
@@ -130,11 +130,11 @@ impl GrassField {
     /// # use bevy::prelude::*;
     /// # use procgena_plant::prelude::*;
     /// # fn setup(mut commands: Commands) {
-    /// commands.spawn(GrassField::new(
+    /// commands.spawn(PlantField::new(
     ///     Vec2::splat(16.0),
     ///     vec![
-    ///         FieldPlant::new(GrassPlant::FERN).scaled(0.5).clustered(0.5),
-    ///         FieldPlant::new(GrassPlant::MOSS),
+    ///         FieldPlant::new(PlantParams::FERN).scaled(0.5).clustered(0.5),
+    ///         FieldPlant::new(PlantParams::MOSS),
     ///     ],
     /// ));
     /// # }
@@ -157,7 +157,7 @@ impl GrassField {
     /// # use bevy::prelude::*;
     /// # use procgena_plant::prelude::*;
     /// # fn setup(mut commands: Commands) {
-    /// commands.spawn(GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0)));
+    /// commands.spawn(PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0)));
     /// # }
     /// ```
     #[must_use]
@@ -188,7 +188,7 @@ impl GrassField {
     /// Returns approximate spacing between plant roots.
     ///
     /// The result is in metres: `1 / sqrt(density)`, using
-    /// [`GrassField::density`] before masks and thinning. Individual gaps
+    /// [`PlantField::density`] before masks and thinning. Individual gaps
     /// vary with tufting and density masks. An empty field returns a very
     /// large finite value rather than infinity.
     #[must_use]
@@ -248,10 +248,10 @@ impl GrassField {
     /// A game whose terrain comes from a height function, or is cut into
     /// many meshes, or keeps no CPU copy of its meshes, gives the field the
     /// same function instead of a heightmap file or a
-    /// [`GrassGround::Mesh`]. It is called once at the centre of each cell
+    /// [`PlantGround::Mesh`]. It is called once at the centre of each cell
     /// of `cell_size` metres (at most 4096 cells per side) and the heights
     /// go into a heightmap added to `images`, so nothing runs per frame; set
-    /// [`size`](GrassField::size) first.
+    /// [`size`](PlantField::size) first.
     ///
     /// - **The point** is in metres from the field's centre along its X and
     ///   Z, before the transform's scale. For a field neither turned nor
@@ -269,7 +269,7 @@ impl GrassField {
     ///     3.0 * (point.x * 0.07).sin() * (point.y * 0.05).cos()
     /// }
     /// commands.spawn(
-    ///     GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
+    ///     PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
     ///         .with_ground_from_fn(&mut images, 0.5, hills),
     /// );
     /// # }
@@ -291,7 +291,7 @@ impl GrassField {
             }
         });
         Self {
-            ground: GrassGround::Heightmap {
+            ground: PlantGround::Heightmap {
                 image: images.add(crate::ground::heights_image(&heights, texels)),
                 // The heights are metres already.
                 height_scale: 1.0,
@@ -306,11 +306,11 @@ impl GrassField {
     ///
     /// Called once at the centre of each cell of `cell_size` metres (at most
     /// 4096 cells per side), at the same points as
-    /// [`GrassField::with_ground_from_fn`], so the two can read the same
+    /// [`PlantField::with_ground_from_fn`], so the two can read the same
     /// terrain. The densities go into a mask added to `images` and set as
-    /// [`density_map`](GrassField::density_map), at full blade height; a
+    /// [`density_map`](PlantField::density_map), at full blade height; a
     /// `NaN` is 0. The mask can be edited afterwards like any other (see
-    /// [`GrassEdit`](crate::GrassEdit)).
+    /// [`PlantEdit`](crate::PlantEdit)).
     ///
     /// ```no_run
     /// # use bevy::prelude::*;
@@ -319,7 +319,7 @@ impl GrassField {
     /// # fn island(point: Vec2) -> f32 { 10.0 - point.length() * 0.1 }
     /// const SEA_LEVEL: f32 = 0.0;
     /// commands.spawn(
-    ///     GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
+    ///     PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
     ///         .with_ground_from_fn(&mut images, 0.5, island)
     ///         // Nothing below the tide line, and thinning up the beach.
     ///         .with_density_from_fn(&mut images, 0.5, |point| {
@@ -348,7 +348,7 @@ impl GrassField {
 #[derive(Debug, Clone, Default, PartialEq, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
 #[non_exhaustive]
-pub enum GrassGround {
+pub enum PlantGround {
     /// A flat plane at the field's height.
     #[default]
     Flat,
@@ -367,7 +367,7 @@ pub enum GrassGround {
     ///
     /// The mesh is baked once, on the CPU, into a heightmap of one height
     /// per `cell_size` (at most 4096 per side), and then drawn like
-    /// [`GrassGround::Heightmap`], at no extra cost per frame. Blades grow
+    /// [`PlantGround::Heightmap`], at no extra cost per frame. Blades grow
     /// on the highest surface over each point, so overhangs and the
     /// undersides of bridges get none, and nowhere the mesh does not reach.
     /// It is baked again when the mesh asset, the field's size or
@@ -376,7 +376,7 @@ pub enum GrassGround {
     /// The mesh must be triangles and keep its CPU copy
     /// (`RenderAssetUsages::MAIN_WORLD`, the default for loaded and built
     /// meshes); otherwise the field draws nothing and logs one warning.
-    /// [`GrassGround::mesh`] picks a 0.5 m cell.
+    /// [`PlantGround::mesh`] picks a 0.5 m cell.
     Mesh {
         /// The terrain mesh.
         mesh: Handle<Mesh>,
@@ -387,9 +387,9 @@ pub enum GrassGround {
     },
 }
 
-impl GrassGround {
+impl PlantGround {
     /// The top of `mesh`, baked at one height per half metre.
-    /// See [`GrassGround::Mesh`].
+    /// See [`PlantGround::Mesh`].
     #[must_use]
     pub fn mesh(mesh: Handle<Mesh>) -> Self {
         Self::Mesh {
@@ -399,7 +399,7 @@ impl GrassGround {
     }
 }
 
-/// What one camera draws differently from the [`GrassSettings`](crate::GrassSettings) resource.
+/// What one camera draws differently from the [`PlantSettings`](crate::PlantSettings) resource.
 /// Each setting left at `None` follows the resource, including when it
 /// changes at runtime.
 ///
@@ -413,10 +413,10 @@ impl GrassGround {
 /// # fn setup(mut commands: Commands) {
 /// commands.spawn((
 ///     Camera3d::default(),
-///     GrassCamera {
+///     PlantCamera {
 ///         radius: Some(30.0),
 ///         density_scale: Some(0.4),
-///         shadows: Some(GrassShadows::Off),
+///         shadows: Some(PlantShadows::Off),
 ///         ..default()
 ///     },
 /// ));
@@ -424,20 +424,20 @@ impl GrassGround {
 /// ```
 ///
 /// The buffers a camera draws with are sized by
-/// [`GrassSettings::instance_capacity`](crate::GrassSettings::instance_capacity), which is the same for every camera.
-/// To leave a camera out altogether, use [`NoGrass`] or `RenderLayers`.
+/// [`PlantSettings::instance_capacity`](crate::PlantSettings::instance_capacity), which is the same for every camera.
+/// To leave a camera out altogether, use [`NoPlants`] or `RenderLayers`.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Default, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-pub struct GrassCamera {
-    /// Overrides [`GrassSettings::radius`](crate::GrassSettings::radius).
+pub struct PlantCamera {
+    /// Overrides [`PlantSettings::radius`](crate::PlantSettings::radius).
     pub radius: Option<f32>,
-    /// Overrides [`GrassSettings::density_scale`](crate::GrassSettings::density_scale).
+    /// Overrides [`PlantSettings::density_scale`](crate::PlantSettings::density_scale).
     pub density_scale: Option<f32>,
-    /// Overrides [`GrassSettings::min_width_px`](crate::GrassSettings::min_width_px).
+    /// Overrides [`PlantSettings::min_width_px`](crate::PlantSettings::min_width_px).
     pub min_width_px: Option<f32>,
-    /// Overrides [`GrassSettings::shadows`](crate::GrassSettings::shadows): which blades this camera's
+    /// Overrides [`PlantSettings::shadows`](crate::PlantSettings::shadows): which blades this camera's
     /// view casts shadows for.
-    pub shadows: Option<GrassShadows>,
+    pub shadows: Option<PlantShadows>,
     /// Measures the grass radius from the ground below the camera instead of
     /// from the camera, for strategy and city-builder cameras that zoom.
     ///
@@ -457,7 +457,7 @@ pub struct GrassCamera {
 /// not draw that field either.
 #[derive(Component, Debug, Clone, Copy, Default, Reflect)]
 #[reflect(Component, Default, Debug)]
-pub struct NoGrass;
+pub struct NoPlants;
 
 /// Marks the directional light grass follows: the one whose shadows grass
 /// casts, and the one a deferred camera treats as the sun.
@@ -484,7 +484,7 @@ pub struct NoGrass;
 ///         ..default()
 ///     }
 ///     .build(),
-///     GrassSun,
+///     PlantSun,
 /// ));
 /// # }
 /// ```
@@ -493,13 +493,13 @@ pub struct NoGrass;
 /// several lights are marked, the one spawned first is used.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-pub struct GrassSun;
+pub struct PlantSun;
 
 /// Anything that flattens grass: the player, monsters, vehicles, items on
 /// the ground. Grass within `radius` of the entity's position lies down away
 /// from it and springs back over about 1.5 s of game time after it leaves, so
 /// moving interactors leave trails. (The 1.5 s is
-/// [`GrassSettings::trample_recovery`](crate::GrassSettings::trample_recovery),
+/// [`PlantSettings::trample_recovery`](crate::PlantSettings::trample_recovery),
 /// and the limits below are settings too.)
 ///
 /// ```no_run
@@ -510,27 +510,27 @@ pub struct GrassSun;
 ///     Transform::from_xyz(0.0, 0.0, 0.0),
 ///     // A walking person, who steps on the grass; a bird that flies higher
 ///     // than a metre above the ground does not.
-///     GrassInteractor { radius: 0.5, max_height: Some(1.0), ..default() },
+///     PlantInteractor { radius: 0.5, max_height: Some(1.0), ..default() },
 /// ));
 /// # }
 /// ```
 ///
 /// # Limits
 ///
-/// The numbers are the defaults of [`GrassSettings`](crate::GrassSettings).
+/// The numbers are the defaults of [`PlantSettings`](crate::PlantSettings).
 ///
 /// - **Radius: 2 m**
-///   ([`max_interactor_radius`](crate::GrassSettings::max_interactor_radius)).
+///   ([`max_interactor_radius`](crate::PlantSettings::max_interactor_radius)).
 ///   A bigger `radius` is cut to it, and the plugin warns once about the
 ///   entity. (Each interactor is stamped in a fixed footprint, which is why a
 ///   hundred cost what one does.) For one large object, use a
-///   [`GrassInteractorFootprint`]; for a few separate contacts, a
-///   [`GrassInteractorSpread`]; or raise the setting: the cost of an
+///   [`PlantInteractorFootprint`]; for a few separate contacts, a
+///   [`PlantInteractorSpread`]; or raise the setting: the cost of an
 ///   interactor grows with the square of its radius.
-/// - **Count: [`GrassSettings::max_interactors`](crate::GrassSettings::max_interactors).**
+/// - **Count: [`PlantSettings::max_interactors`](crate::PlantSettings::max_interactors).**
 ///   A camera stamps that many a frame, the ones nearest to it first.
 /// - **Distance: a 64 m window**
-///   ([`trample_cell_size`](crate::GrassSettings::trample_cell_size) × 256
+///   ([`trample_cell_size`](crate::PlantSettings::trample_cell_size) × 256
 ///   cells). Each camera tracks a 64 × 64 m square of ground, centred on the
 ///   camera (on the ground it looks at, for an orthographic one).
 ///   Interactors outside it do nothing, and trails outside it are forgotten.
@@ -539,9 +539,9 @@ pub struct GrassSun;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform)]
-pub struct GrassInteractor {
+pub struct PlantInteractor {
     /// Radius of the flattened disc, in metres. Pushes beyond
-    /// [`GrassSettings::max_interactor_radius`](crate::GrassSettings::max_interactor_radius)
+    /// [`PlantSettings::max_interactor_radius`](crate::PlantSettings::max_interactor_radius)
     /// (2 m by default) are clipped.
     pub radius: f32,
     /// How flat the grass lies at the centre, 0 (untouched) to 1 (flat).
@@ -559,7 +559,7 @@ pub struct GrassInteractor {
     pub max_height: Option<f32>,
 }
 
-impl Default for GrassInteractor {
+impl Default for PlantInteractor {
     fn default() -> Self {
         Self {
             radius: 0.6,
@@ -569,11 +569,11 @@ impl Default for GrassInteractor {
     }
 }
 
-/// Extra discs for one [`GrassInteractor`], in its local space. Use it for
+/// Extra discs for one [`PlantInteractor`], in its local space. Use it for
 /// something larger than one disc: a vehicle, a wall, a large creature.
 ///
-/// One [`GrassInteractor`] is one disc, and the grass pushes at most
-/// [`GrassSettings::max_interactor_radius`](crate::GrassSettings::max_interactor_radius)
+/// One [`PlantInteractor`] is one disc, and the grass pushes at most
+/// [`PlantSettings::max_interactor_radius`](crate::PlantSettings::max_interactor_radius)
 /// (2 m by default) from it. A spread says "stamp this interactor here, and
 /// here too", which covers a large object without adding entities or
 /// changing the interaction model. An empty `offsets` means one disc at the
@@ -584,13 +584,13 @@ impl Default for GrassInteractor {
 /// # use procgena_plant::prelude::*;
 /// # fn setup(mut commands: Commands) {
 /// // A wall-like box: its footprint covered with discs of at most 2 m.
-/// let (radius, spread) = GrassInteractorSpread::covering_aabb(
+/// let (radius, spread) = PlantInteractorSpread::covering_aabb(
 ///     Vec3::ZERO,
 ///     Vec3::new(4.0, 0.5, 0.5),
 ///     2.0,
 /// );
 /// commands.spawn((
-///     GrassInteractor { radius, ..default() },
+///     PlantInteractor { radius, ..default() },
 ///     spread,
 /// ));
 /// # }
@@ -598,19 +598,19 @@ impl Default for GrassInteractor {
 ///
 /// The offsets are local, so a moving, rotating or scaled body carries them
 /// along. Each disc pushes grass away from its own centre, which suits a few
-/// feet or wheels; for one large solid object a [`GrassInteractorFootprint`]
+/// feet or wheels; for one large solid object a [`PlantInteractorFootprint`]
 /// flattens it as one shape instead.
 #[derive(Component, Debug, Clone, Default, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-#[require(GrassInteractor)]
-pub struct GrassInteractorSpread {
+#[require(PlantInteractor)]
+pub struct PlantInteractorSpread {
     /// Disc centres in the interactor's local space. An empty list means one
     /// disc at the entity's origin.
     pub offsets: Vec<Vec3>,
 }
 
-impl GrassInteractorSpread {
-    /// Most discs [`GrassInteractorSpread::covering_aabb`] puts in one
+impl PlantInteractorSpread {
+    /// Most discs [`PlantInteractorSpread::covering_aabb`] puts in one
     /// spread. A larger footprint is sampled coarsely rather than making one
     /// object take every interactor slot in a camera.
     pub const MAX_DISCS: usize = 32;
@@ -625,9 +625,9 @@ impl GrassInteractorSpread {
     ///
     /// `center` and `half_extents` are in the interactor's local space,
     /// `radius` is the largest disc the grass may stamp (usually
-    /// [`GrassSettings::max_interactor_radius`](crate::GrassSettings::max_interactor_radius)).
+    /// [`PlantSettings::max_interactor_radius`](crate::PlantSettings::max_interactor_radius)).
     /// One disc covers a small AABB. A larger one gets a grid of discs of at
-    /// most `radius`, and at most [`GrassInteractorSpread::MAX_DISCS`] discs;
+    /// most `radius`, and at most [`PlantInteractorSpread::MAX_DISCS`] discs;
     /// a footprint too large for that is sampled coarsely.
     #[must_use]
     pub fn covering_aabb(center: Vec3, half_extents: Vec3, radius: f32) -> (f32, Self) {
@@ -693,7 +693,7 @@ impl GrassInteractorSpread {
     }
 }
 
-/// The box one [`GrassInteractor`] flattens instead of a disc: a vehicle, a
+/// The box one [`PlantInteractor`] flattens instead of a disc: a vehicle, a
 /// crate, a fallen log, a large creature.
 ///
 /// The grass under the box lies flat. Where the box moves, the grass under it
@@ -705,7 +705,7 @@ impl GrassInteractorSpread {
 /// The box is in the entity's local space and follows its `GlobalTransform`:
 /// the grass is flattened under the box's shadow on the ground, so a crate
 /// tipped onto its side or a log that falls over flattens where it lies.
-/// [`GrassInteractorFromCollider`](crate::GrassInteractorFromCollider) fills
+/// [`PlantInteractorFromCollider`](crate::PlantInteractorFromCollider) fills
 /// this in from a physics collider.
 ///
 /// ```
@@ -715,20 +715,20 @@ impl GrassInteractorSpread {
 /// // A 6 × 3 m cart.
 /// commands.spawn((
 ///     Transform::from_xyz(0.0, 1.0, 0.0),
-///     GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
+///     PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
 /// ));
 /// # }
 /// ```
 ///
 /// With a footprint, the interactor's `radius` and any
-/// [`GrassInteractorSpread`] are not used; its `strength` and `max_height`
+/// [`PlantInteractorSpread`] are not used; its `strength` and `max_height`
 /// are. A box is clipped to
-/// [`GrassSettings::MAX_INTERACTOR_RADIUS`](crate::GrassSettings::MAX_INTERACTOR_RADIUS)
+/// [`PlantSettings::MAX_INTERACTOR_RADIUS`](crate::PlantSettings::MAX_INTERACTOR_RADIUS)
 /// (16 m) from its centre along each side.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
-#[require(GrassInteractor)]
-pub struct GrassInteractorFootprint {
+#[require(PlantInteractor)]
+pub struct PlantInteractorFootprint {
     /// The centre of the box, in the entity's local space.
     pub center: Vec3,
     /// Half the size of the box along each local axis.
@@ -739,7 +739,7 @@ pub struct GrassInteractorFootprint {
     pub rounding: f32,
 }
 
-impl GrassInteractorFootprint {
+impl PlantInteractorFootprint {
     /// A box of `half_extents` around `center`, with square corners.
     #[must_use]
     pub fn new(center: Vec3, half_extents: Vec3) -> Self {
@@ -751,7 +751,7 @@ impl GrassInteractorFootprint {
     }
 }
 
-impl Default for GrassInteractorFootprint {
+impl Default for PlantInteractorFootprint {
     /// A 1 m cube on the entity's origin.
     fn default() -> Self {
         Self::new(Vec3::ZERO, Vec3::splat(0.5))
@@ -759,7 +759,7 @@ impl Default for GrassInteractorFootprint {
 }
 
 /// The local disc centres of an interactor: its spread, or one at the origin.
-pub(crate) fn interactor_offsets(spread: Option<&GrassInteractorSpread>) -> &[Vec3] {
+pub(crate) fn interactor_offsets(spread: Option<&PlantInteractorSpread>) -> &[Vec3] {
     spread
         .filter(|spread| !spread.offsets.is_empty())
         .map_or(&[Vec3::ZERO], |spread| spread.offsets.as_slice())
@@ -782,7 +782,7 @@ fn finite_extent(value: f32) -> f32 {
 }
 
 /// One axis of a grid that covers `length`: at least one cell, and never more
-/// than [`GrassInteractorSpread::MAX_DISCS`], which keeps a degenerate or
+/// than [`PlantInteractorSpread::MAX_DISCS`], which keeps a degenerate or
 /// enormous AABB from making an enormous list.
 fn cell_count(length: f32, cell: f32) -> usize {
     if length <= 0.0 || !cell.is_finite() {
@@ -790,14 +790,14 @@ fn cell_count(length: f32, cell: f32) -> usize {
     }
     (length / cell.max(1e-4))
         .ceil()
-        .clamp(1.0, GrassInteractorSpread::MAX_DISCS as f32) as usize
+        .clamp(1.0, PlantInteractorSpread::MAX_DISCS as f32) as usize
 }
 
 /// Warns, once per entity, about an interactor bigger than the grass can
 /// stamp.
 pub(crate) fn warn_oversized_interactors(
-    interactors: Query<(Entity, Ref<GrassInteractor>)>,
-    settings: Res<GrassSettings>,
+    interactors: Query<(Entity, Ref<PlantInteractor>)>,
+    settings: Res<PlantSettings>,
     mut warned: Local<HashSet<Entity>>,
 ) {
     let largest = settings.sanitized().max_interactor_radius;
@@ -811,10 +811,10 @@ pub(crate) fn warn_oversized_interactors(
         let too_big = interactor.radius > largest;
         if too_big && warned.insert(entity) {
             warn!(
-                "procgena_plant: the GrassInteractor on {entity} has radius {} m, but interactors \
-                 push at most {largest} m (GrassSettings::max_interactor_radius); the rest is \
-                 ignored. Use a GrassInteractorFootprint for one large object, or several \
-                 discs no bigger than that (see GrassInteractorSpread).",
+                "procgena_plant: the PlantInteractor on {entity} has radius {} m, but interactors \
+                 push at most {largest} m (PlantSettings::max_interactor_radius); the rest is \
+                 ignored. Use a PlantInteractorFootprint for one large object, or several \
+                 discs no bigger than that (see PlantInteractorSpread).",
                 interactor.radius,
             );
         } else if !too_big {

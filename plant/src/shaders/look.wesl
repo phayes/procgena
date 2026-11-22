@@ -10,16 +10,16 @@
 //! The optional terms are compiled in only when some field uses them, so a
 //! game that uses none pays nothing for them:
 //!
-//! * `GRASS_GROUND_TINT`: roots blend toward the ground's colour.
-//! * `GRASS_SHEEN`: rough specular on the upper half of the blade.
-//! * `GRASS_TOON`: flat toon bands (forward only).
-//! * `GRASS_SHAPE`: heads, in their own colour.
-//! * `GRASS_VARIATION`: colour patches, dry tips and dead blades.
+//! * `PLANT_GROUND_TINT`: roots blend toward the ground's colour.
+//! * `PLANT_SHEEN`: rough specular on the upper half of the blade.
+//! * `PLANT_TOON`: flat toon bands (forward only).
+//! * `PLANT_SHAPE`: heads, in their own colour.
+//! * `PLANT_VARIATION`: colour patches, dry tips and dead blades.
 //!
 //! Grass logic only: what Bevy's lighting makes of the surface is in
 //! `bevy_bridge`.
 
-import package::shaders::bevy_bridge::GrassSurface;
+import package::shaders::bevy_bridge::PlantSurface;
 import package::shaders::common::{Field, Instance, instance_random, straw_of};
 import package::shaders::blade::{noise_texture, noise_sampler};
 
@@ -40,7 +40,7 @@ fn plant_color(instance: Instance, field: Field, root: vec3<f32>, tip: vec3<f32>
     let green = mix(root, tip, pow(t, 0.7)) * shade;
     let straw = vec3<f32>(dot(green, vec3<f32>(0.3, 0.59, 0.11))) * vec3<f32>(1.25, 1.1, 0.6);
     var color = mix(green, straw, 0.4 * step(0.8, fract(clump * 5.3)));
-@if(GRASS_VARIATION) {
+@if(PLANT_VARIATION) {
     // Patches several metres across, where the blades' colour drifts toward
     // the patch colour: the noise, turned so its repeat is not along the
     // world's axes.
@@ -53,16 +53,16 @@ fn plant_color(instance: Instance, field: Field, root: vec3<f32>, tip: vec3<f32>
     let dry = field.variation.y * smoothstep(0.45, 1.0, h) * (0.4 + 1.2 * instance_random(instance, 0x7d1u));
     color = mix(color, straw_of(color), min(dry, 1.0));
 }
-@if(GRASS_SHAPE) {
+@if(PLANT_SHAPE) {
     let head = field.form.w;
     color = select(color, field.head.rgb, own && head > 0.0 && t >= 1.0 - 0.5 * head - 1e-4);
 }
-@if(GRASS_VARIATION) {
+@if(PLANT_VARIATION) {
     // Dead blades, head and all.
     let dead = instance_random(instance, 0x7d2u) < field.variation.z;
     color = select(color, straw_of(color) * 0.85, dead);
 }
-@if(GRASS_GROUND_TINT)
+@if(PLANT_GROUND_TINT)
     // Blend the lowest third towards the ground colour, so the
     // field sits in the terrain instead of on it.
     color = mix(color, field.ground.rgb, field.ground.w * (1.0 - smoothstep(0.0, 0.35, h)));
@@ -96,14 +96,14 @@ struct Look {
     color: vec4<f32>,
     /// Fake ambient occlusion (`blade_occlusion`).
     occlusion: f32,
-    /// How much sheen shows (`blade_sheen`); 0 without `GRASS_SHEEN`.
+    /// How much sheen shows (`blade_sheen`); 0 without `PLANT_SHEEN`.
     sheen: f32,
 }
 
 /// Every per-vertex term of the blade at height `t`.
 fn blade_look(instance: Instance, field: Field, t: f32) -> Look {
     var look = Look(blade_color(instance, field, t), blade_occlusion(field, t), 0.0);
-@if(GRASS_SHEEN)
+@if(PLANT_SHEEN)
     look.sheen = blade_sheen(blade_style(field).x, t);
     return look;
 }
@@ -121,7 +121,7 @@ fn plant_look(instance: Instance, field: Field, level: u32, t: f32, h: f32) -> L
     }
     let color = plant_color(instance, field, root, tip, t, h, level == 0u);
     var look = Look(color, blade_occlusion(field, h), 0.0);
-@if(GRASS_SHEEN)
+@if(PLANT_SHEEN)
     look.sheen = blade_sheen(blade_style(field).x, h);
     return look;
 }
@@ -137,7 +137,7 @@ fn look_terms(look: Look) -> vec4<f32> {
 /// it did before the terms were packed.
 fn unpack_look(color: vec4<f32>, terms: vec4<f32>) -> Look {
     var look = Look(color, terms.x, 0.0);
-@if(GRASS_SHEEN)
+@if(PLANT_SHEEN)
     look.sheen = terms.y;
     return look;
 }
@@ -158,11 +158,11 @@ const MAX_SPREAD: f32 = 0.18;
 /// through about 60° inside a pixel, and a narrow sheen sampled once there
 /// lit single pixels white as the blade swayed. `normal` is the
 /// interpolated, unflipped vertex normal: a two-sided face's flip would read
-/// as a turn. Only with sheen (`GRASS_SHEEN`): a matte blade has no narrow
+/// as a turn. Only with sheen (`PLANT_SHEEN`): a matte blade has no narrow
 /// lobe to tame, and the derivatives cost about 5% of grass cost.
 fn normal_spread(normal: vec3<f32>) -> f32 {
     var spread = 0.0;
-@if(GRASS_SHEEN) {
+@if(PLANT_SHEEN) {
     let dx = dpdx(normal);
     let dy = dpdy(normal);
     spread = min(0.5 * (dot(dx, dx) + dot(dy, dy)), MAX_SPREAD);
@@ -170,7 +170,7 @@ fn normal_spread(normal: vec3<f32>) -> f32 {
     return spread;
 }
 
-/// The blade's surface for Bevy's lighting (`grass_pbr_input`). `normal` is
+/// The blade's surface for Bevy's lighting (`plant_pbr_input`). `normal` is
 /// the side being lit; `spread` is `normal_spread`.
 fn blade_surface(
     look: Look,
@@ -179,12 +179,12 @@ fn blade_surface(
     frag_coord: vec4<f32>,
     world_position: vec4<f32>,
     is_orthographic: bool,
-) -> GrassSurface {
+) -> PlantSurface {
     // With sheen, the upper blade is glossier and reflects more, so wind
     // waves show as a moving sheen. Without, the whole blade is a matte leaf.
     // The sheen's lobe is widened by `spread` (squared roughnesses add).
     let alpha = (0.7 - 0.25 * look.sheen) * (0.7 - 0.25 * look.sheen);
-    return GrassSurface(
+    return PlantSurface(
         look.color.rgb,
         sqrt(sqrt(min(alpha * alpha + spread, 1.0))),
         min(0.25 + 0.45 * look.sheen, GLINT_REFLECTANCE),

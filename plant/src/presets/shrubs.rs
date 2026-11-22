@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FieldPlant, FieldPreset, GrassArrangement, GrassBranches, GrassField, GrassPlant,
-    GrassSegment, PlantPreset, Vec2,
+    Color, Cow, FieldPlant, FieldPreset, PlantArrangement, PlantBranches, PlantField, PlantParams,
+    PlantPreset, PlantSegment, Vec2,
 };
 
 // Each matching field preset grows the named shrub in clumps, with grass
@@ -23,7 +23,7 @@ SHRUBS "Shrubs" {
         translucency: 0.25,
         specular: 0.25,
         // A stiff, brown woody trunk.
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.9,
             droop: 0.0,
@@ -36,16 +36,16 @@ SHRUBS "Shrubs" {
         // lowest longest so their tips end at a similar height. Three short twigs on
         // each rod also point upwards, so the bush branches only a little.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 6,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.35,
                 length: 2.2,
                 length_envelope: 0.15,
                 width: 0.012,
                 angle: 0.85,
                 spread: 0.24,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.0,
                     stiffness: 0.55,
                     droop: 0.08,
@@ -55,16 +55,16 @@ SHRUBS "Shrubs" {
                     tip_color: Color::srgb(0.15, 0.25, 0.08),
                 },
             },
-            GrassBranches {
+            PlantBranches {
                 count: 3,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.35,
                 length: 0.35,
                 length_envelope: 0.3,
                 width: 0.025,
                 angle: 0.8,
                 spread: 0.3,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.0,
                     stiffness: 0.5,
                     droop: 0.05,
@@ -75,7 +75,7 @@ SHRUBS "Shrubs" {
                 },
             },
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     };
 }
 }
@@ -87,11 +87,11 @@ SHRUBS "Shrubs" {
         name: "Broom",
         description: "Broom bushes scattered through meadow grass.\n\n\
                       Clumps of tall green rods stand well above the grass.",
-    } => GrassField {
+    } => PlantField {
         // Meadow grass fills most planting positions, leaving clumps of broom.
         plants: Cow::Borrowed(&[
-            FieldPlant::new(GrassPlant::MEADOW_GRASS).clustered(0.6),
-            FieldPlant::new(GrassPlant::BROOM),
+            FieldPlant::new(PlantParams::MEADOW_GRASS).clustered(0.6),
+            FieldPlant::new(PlantParams::BROOM),
         ]),
         ..FieldPreset::MEADOW.field
     };

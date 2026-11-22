@@ -77,7 +77,7 @@ impl PoolView {
         Self {
             uniform: UniformBuffer::default(),
             draw_args: buffer(
-                "ze_stone_pool_view_draw_args",
+                "procgena_stone_pool_view_draw_args",
                 draw_args_offset(meshes),
                 // The GPU tests copy the arguments out.
                 BufferUsages::STORAGE
@@ -86,7 +86,7 @@ impl PoolView {
                     | BufferUsages::COPY_SRC,
             ),
             visible: buffer(
-                "ze_stone_pool_visible",
+                "procgena_stone_pool_visible",
                 u64::from(entries) * VISIBLE_ENTRY_SIZE,
                 BufferUsages::STORAGE | BufferUsages::VERTEX,
             ),
@@ -274,7 +274,7 @@ pub(crate) fn prepare_view_bind_groups(
             continue;
         };
         view.cull_group = Some(device.create_bind_group(
-            "ze_stone_pool_cull",
+            "procgena_stone_pool_cull",
             &pipeline_cache.get_bind_group_layout(&layouts.cull),
             &BindGroupEntries::sequential((
                 uniform,
@@ -302,7 +302,7 @@ pub(crate) fn init_cull_pipelines(
 ) {
     let queue = |entry: &'static str| {
         pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some(format!("ze_stone_pool_{entry}").into()),
+            label: Some(format!("procgena_stone_pool_{entry}").into()),
             layout: vec![layouts.cull.clone()],
             shader: shaders.cull.clone(),
             entry_point: Some(entry.into()),
@@ -345,7 +345,7 @@ pub(crate) fn run_cull(
             );
         }
         let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-            label: Some("ze_stone_pool_cull"),
+            label: Some("procgena_stone_pool_cull"),
             ..Default::default()
         });
         pass.set_bind_group(0, group, &[]);

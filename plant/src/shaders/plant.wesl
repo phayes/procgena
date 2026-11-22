@@ -11,7 +11,7 @@ import package::shaders::common::{
     Field, Level, Instance, TAU, WIDTH_RANGE, blade_curve, instance_random, periodic, profile_width,
     stem_droop,
 };
-import package::shaders::blade::{BladeRef, BladeEye, grass_view, fields, frame, noise_texture, noise_sampler, wind};
+import package::shaders::blade::{BladeRef, BladeEye, plant_view, fields, frame, noise_texture, noise_sampler, wind};
 import package::shaders::wind::{Wind, wind_gust};
 
 /// Main-stem rows at near (0) or mid (1) detail. Twin of `shader_model::PLANT_ROWS`.
@@ -32,7 +32,7 @@ const SHADOW_LEAF_ROWS: u32 = 1u;
 /// `shader_model::ShapeClass::shadow_indices`. Twin of `shader_model::CHILD_ROWS`.
 fn child_rows(lod: u32, twigs: bool) -> u32 {
     var leaf = select(1u, 4u, lod == 0u);
-@if(GRASS_SHADOW_PASS)
+@if(PLANT_SHADOW_PASS)
     leaf = select(leaf, SHADOW_LEAF_ROWS, lod == 0u);
     let twig = select(1u, 2u, lod == 0u);
     return select(leaf, twig, twigs);
@@ -45,7 +45,7 @@ fn child_rows(lod: u32, twigs: bool) -> u32 {
 /// `shader_model::GRANDCHILD_ROWS`.
 fn grandchild_rows(lod: u32) -> u32 {
     var rows = select(1u, 3u, lod == 0u);
-@if(GRASS_SHADOW_PASS)
+@if(PLANT_SHADOW_PASS)
     rows = select(rows, SHADOW_LEAF_ROWS, lod == 0u);
     return rows;
 }
@@ -376,7 +376,7 @@ fn widen_for(instance: Instance, eye: BladeEye, width: f32) -> f32 {
         return 1.0;
     }
     let metres_per_pixel = (eye.clip_from_world * vec4<f32>(instance.root, 1.0)).w * eye.pixel_scale;
-    return max(1.0, grass_view.min_width_px * metres_per_pixel / max(width, 1e-6));
+    return max(1.0, plant_view.min_width_px * metres_per_pixel / max(width, 1e-6));
 }
 
 /// Builds vertex `local` of a stem at far detail: one of `FAR_PARTS` single triangles.

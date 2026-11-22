@@ -1,12 +1,12 @@
 name: Web demo
 
-# Builds the web demo (web/) with tools/web_demo.py and publishes it on
+# Builds the web demo (web/) with tools/plant/web_demo.py and publishes it on
 # GitHub Pages. It follows releases, so the demo shows the crate as published;
 # run it from the Actions tab to publish main in between. The repository's
 # Pages source must be "GitHub Actions" (Settings, Pages).
 #
 # This only builds and publishes. Whether browsers draw the demo is the smoke
-# test, run by hand: python tools/web_demo.py smoke, or serve and open
+# test, run by hand: python tools/plant/web_demo.py smoke, or serve and open
 # ?smoke in each browser (docs/testing.md).
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # The wasm-bindgen CLI must be the version in Cargo.lock.
       - id: versions
-        run: echo "wasm_bindgen=$(cd tools && python -c 'import web_example; print(web_example.locked_wasm_bindgen())')" >> "$GITHUB_OUTPUT"
+        run: echo "wasm_bindgen=$(cd ../tools/plant && python -c 'import web_demo; print(web_demo.locked_wasm_bindgen())')" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
@@ -54,7 +54,7 @@ jobs:
         run: |
           curl -sSfL "https://github.com/WebAssembly/binaryen/releases/download/$BINARYEN/binaryen-$BINARYEN-x86_64-linux.tar.gz" | tar xz -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/binaryen-$BINARYEN/bin" >> "$GITHUB_PATH"
-      - run: python tools/web_demo.py build
+      - run: python ../tools/plant/web_demo.py build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: target/web-demo

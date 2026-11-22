@@ -1,6 +1,6 @@
 //! Says so when a camera looks at grass it is too far away to draw.
 //!
-//! A perspective camera draws grass only within `GrassSettings::radius` of
+//! A perspective camera draws grass only within `PlantSettings::radius` of
 //! itself, and that is a distance in 3D. A strategy camera 150 m above the
 //! ground can have every field in view and none in reach, and then draws no
 //! grass and logs nothing: to the game it looks as if grass does not work, or
@@ -21,9 +21,9 @@ use bevy::platform::collections::{HashMap, HashSet};
 use bevy::time::{Real, Time};
 use bevy::transform::components::GlobalTransform;
 
-use crate::api::{GrassCamera, NoGrass};
+use crate::api::{NoPlants, PlantCamera};
 use crate::fields::{FieldTables, layer_mask};
-use crate::{GrassSettings, GrassSystems};
+use crate::{PlantSettings, PlantSystems};
 
 /// How long a camera must see fields and reach none before the warning.
 /// A camera passing through, or a zoom that overshoots for a moment, is
@@ -117,9 +117,9 @@ pub(crate) fn nearest_seen(
 
 /// How far the distances a camera draws grass by are measured from beyond
 /// the camera: its height above the ground with
-/// [`GrassCamera::radius_from_ground`], else 0.
+/// [`PlantCamera::radius_from_ground`], else 0.
 pub(crate) fn distance_offset(
-    camera: Option<&GrassCamera>,
+    camera: Option<&PlantCamera>,
     position: Vec3,
     orthographic: bool,
     tables: &FieldTables,
@@ -135,13 +135,13 @@ pub(crate) fn plugin(app: &mut bevy::app::App) {
     app.add_systems(
         bevy::app::PostUpdate,
         warn_out_of_reach
-            .after(GrassSystems::Rebuild)
+            .after(PlantSystems::Rebuild)
             .after(VisibilitySystems::UpdateFrusta),
     );
 }
 
 /// The cameras the check looks at: those that draw grass.
-type GrassCameras<'w, 's> = Query<
+type PlantCameras<'w, 's> = Query<
     'w,
     's,
     (
@@ -151,17 +151,17 @@ type GrassCameras<'w, 's> = Query<
         &'static Frustum,
         &'static GlobalTransform,
         Option<&'static RenderLayers>,
-        Option<&'static GrassCamera>,
+        Option<&'static PlantCamera>,
     ),
-    (With<Camera3d>, Without<NoGrass>),
+    (With<Camera3d>, Without<NoPlants>),
 >;
 
 /// Warns, once per camera, when a perspective camera has seen fields for
 /// [`WARN_AFTER_SECS`] and every one of them was beyond its grass radius.
 fn warn_out_of_reach(
-    cameras: GrassCameras,
+    cameras: PlantCameras,
     tables: Res<FieldTables>,
-    settings: Res<GrassSettings>,
+    settings: Res<PlantSettings>,
     time: Res<Time<Real>>,
     mut boxes: Local<(u64, Vec<FieldBox>)>,
     mut out_of_reach: Local<HashMap<Entity, f32>>,
@@ -172,7 +172,7 @@ fn warn_out_of_reach(
     }
     out_of_reach.retain(|camera, _| cameras.contains(*camera));
     warned.retain(|camera| cameras.contains(*camera));
-    for (entity, camera, projection, frustum, transform, layers, grass_camera) in &cameras {
+    for (entity, camera, projection, frustum, transform, layers, plant_camera) in &cameras {
         if !camera.is_active
             || !matches!(projection, Projection::Perspective(_))
             || warned.contains(&entity)
@@ -180,8 +180,8 @@ fn warn_out_of_reach(
             continue;
         }
         let position = transform.translation();
-        let radius = settings.for_camera(grass_camera).radius
-            + distance_offset(grass_camera, position, false, &tables);
+        let radius = settings.for_camera(plant_camera).radius
+            + distance_offset(plant_camera, position, false, &tables);
         let nearest = nearest_seen(&boxes.1, frustum, layer_mask(layers), position);
         let Some(distance) = nearest.filter(|distance| *distance >= radius) else {
             out_of_reach.remove(&entity);
@@ -195,7 +195,7 @@ fn warn_out_of_reach(
                 "procgena_plant: the camera {entity} sees grass fields, but the nearest is \
                  {distance:.0} m away, beyond its grass radius of {radius:.0} m, so it draws \
                  no grass. Grass is drawn within the radius of the camera itself; for a \
-                 camera high above the ground, set GrassCamera::radius_from_ground (see \
+                 camera high above the ground, set PlantCamera::radius_from_ground (see \
                  docs/settings.md, \"Strategy cameras\")."
             );
         }

@@ -5,21 +5,21 @@ fn webgl2_has_no_compute_shaders() {
     let support = check(
         DownlevelFlags::empty(),
         &WgpuLimits::downlevel_webgl2_defaults(),
-        &GrassLayouts::new(),
+        &PlantLayouts::new(),
     );
-    assert_eq!(support, GrassSupport::NoComputeShaders);
+    assert_eq!(support, PlantSupport::NoComputeShaders);
     assert!(!support.is_supported());
 }
 
 #[test]
 fn storage_buffers_are_counted_from_the_layouts() {
     // `generate`: group 0 (6) and its group 1 (4).
-    assert_eq!(storage_buffers_needed(&GrassLayouts::new()), 10);
+    assert_eq!(storage_buffers_needed(&PlantLayouts::new()), 10);
 }
 
 #[test]
 fn every_pipeline_fits_the_budget_and_draws_read_no_storage_per_fragment() {
-    let layouts = GrassLayouts::new();
+    let layouts = PlantLayouts::new();
     for pass in ComputePass::ALL {
         let count = storage_buffers(&layouts.compute(pass), ShaderStages::COMPUTE);
         assert!(count <= STORAGE_BUFFER_BUDGET, "{pass:?} binds {count}");
@@ -32,7 +32,7 @@ fn every_pipeline_fits_the_budget_and_draws_read_no_storage_per_fragment() {
 
 #[test]
 fn too_few_storage_buffers_names_both_numbers() {
-    let layouts = GrassLayouts::new();
+    let layouts = PlantLayouts::new();
     let needed = storage_buffers_needed(&layouts);
     let limits = WgpuLimits {
         max_storage_buffers_per_shader_stage: needed - 1,
@@ -41,7 +41,7 @@ fn too_few_storage_buffers_names_both_numbers() {
     let support = check(DownlevelFlags::all(), &limits, &layouts);
     assert_eq!(
         support,
-        GrassSupport::TooFewStorageBuffers {
+        PlantSupport::TooFewStorageBuffers {
             needed,
             limit: needed - 1
         }
@@ -55,13 +55,13 @@ fn too_few_storage_buffers_names_both_numbers() {
 }
 
 #[test]
-fn a_device_with_room_draws_grass() {
+fn a_device_with_room_draws_plants() {
     let limits = WgpuLimits {
         max_storage_buffers_per_shader_stage: 16,
         ..WgpuLimits::defaults()
     };
-    let support = check(DownlevelFlags::all(), &limits, &GrassLayouts::new());
-    assert_eq!(support, GrassSupport::Supported);
+    let support = check(DownlevelFlags::all(), &limits, &PlantLayouts::new());
+    assert_eq!(support, PlantSupport::Supported);
 }
 
 #[test]
@@ -71,10 +71,10 @@ fn small_storage_bindings_are_refused() {
         max_storage_buffer_binding_size: 64 << 20,
         ..WgpuLimits::defaults()
     };
-    let support = check(DownlevelFlags::all(), &limits, &GrassLayouts::new());
+    let support = check(DownlevelFlags::all(), &limits, &PlantLayouts::new());
     assert_eq!(
         support,
-        GrassSupport::StorageBindingTooSmall {
+        PlantSupport::StorageBindingTooSmall {
             needed: MAX_INSTANCE_BYTES,
             limit: 64 << 20
         }

@@ -6,20 +6,20 @@
 //!
 //! ## Display a rock
 //!
-//! Add `ZeStonePlugin` after Bevy's default plugins, then spawn a `ZeStone`
+//! Add `StonePlugin` after Bevy's default plugins, then spawn a `StoneParams`
 //! component. This complete example includes a camera and light and runs
 //! without texture files:
 //!
 //! ```no_run
 //! use bevy::prelude::*;
 //! use procgena_stone::StoneOptions;
-//! use procgena_stone_bevy::{ZeStone, ZeStonePlugin};
+//! use procgena_stone_bevy::{StoneParams, StonePlugin};
 //!
 //! fn main() {
 //!     App::new()
 //!         .add_plugins((
 //!             DefaultPlugins,
-//!             ZeStonePlugin {
+//!             StonePlugin {
 //!                 texture_root: None,
 //!                 ..default()
 //!             },
@@ -31,7 +31,7 @@
 //! fn setup(mut commands: Commands) {
 //!     let mut options = StoneOptions::default();
 //!     options.material.color = [0.35, 0.33, 0.3];
-//!     commands.spawn(ZeStone::new(options));
+//!     commands.spawn(StoneParams::new(options));
 //!     commands.spawn((
 //!         Camera3d::default(),
 //!         Transform::from_xyz(3.0, 2.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
@@ -60,13 +60,13 @@
 //! Rock textures are not stored in the repository. Download them first:
 //!
 //! ```sh
-//! tools/textures/download.sh
+//! uv run --project tools textures download stone
 //! ```
 //!
 //! This fetches the 512 and 1k sizes into `assets/textures/rock/`; add
 //! `--sizes 512,1k,2k` to include 2k. Then copy the repository's
 //! `assets/textures` folder to `assets/procgena_stone/textures` in your app and use
-//! `ZeStonePlugin::default()`.
+//! `StonePlugin::default()`.
 //! The default texture root is `procgena_stone/textures`, relative to Bevy's asset
 //! directory. Set `texture_root` to another path if you store textures
 //! elsewhere. Missing textures cause asset-loading errors.
@@ -84,13 +84,13 @@
 //!
 //! ## Customize and position rocks
 //!
-//! Edit options and wrap them with `ZeStone::new`. Add a `Transform` to
+//! Edit options and wrap them with `StoneParams::new`. Add a `Transform` to
 //! position each rock. Register this function as a startup system in your app:
 //!
 //! ```no_run
 //! use bevy::prelude::*;
 //! use procgena_stone::StoneOptions;
-//! use procgena_stone_bevy::ZeStone;
+//! use procgena_stone_bevy::StoneParams;
 //!
 //! fn place_rocks(mut commands: Commands) {
 //!     for i in 0..5 {
@@ -100,7 +100,7 @@
 //!         options.material.texture = "lichen_rock_02".to_owned();
 //!
 //!         commands.spawn((
-//!             ZeStone::new(options),
+//!             StoneParams::new(options),
 //!             Transform::from_xyz(i as f32 * 4.0, 0.0, 0.0),
 //!         ));
 //!     }
@@ -108,7 +108,7 @@
 //! ```
 //!
 //! The same options and seed produce the same shape. Changing a rock's
-//! `ZeStone` component rebuilds its generated parts; removing the component
+//! `StoneParams` component rebuilds its generated parts; removing the component
 //! removes those children. Moving the parent entity moves the whole rock.
 //!
 //! ## Load settings from JSON
@@ -128,11 +128,11 @@
 //!
 //! ```no_run
 //! use bevy::prelude::*;
-//! use procgena_stone_bevy::ZeStone;
+//! use procgena_stone_bevy::StoneParams;
 //!
 //! fn load_rock(mut commands: Commands, asset_server: Res<AssetServer>) {
 //!     commands.spawn((
-//!         ZeStone::Asset(asset_server.load("rocks/boulder.stone.json")),
+//!         StoneParams::Asset(asset_server.load("rocks/boulder.stone.json")),
 //!         Transform::from_xyz(5.0, 0.0, 0.0),
 //!     ));
 //! }
@@ -160,11 +160,11 @@
 //!
 //! ```rust
 //! use procgena_stone::{StoneDetail, StoneOptions, TextureSize};
-//! use procgena_stone_bevy::ZeStone;
+//! use procgena_stone_bevy::StoneParams;
 //!
 //! let mut options = StoneOptions::default();
 //! options.mesh.detail = StoneDetail::single(128, TextureSize::Size2k);
-//! let rock = ZeStone::new(options);
+//! let rock = StoneParams::new(options);
 //! ```
 //!
 //! Generated children have a `StonePart` component identifying their detail level.
@@ -215,7 +215,7 @@
 //! cargo run -p procgena_stone_bevy --example viewer
 //! ```
 //!
-//! The viewer uses the repository's textures; run `tools/textures/download.sh`
+//! The viewer uses the repository's textures; run `uv run --project tools textures download stone`
 //! first. See the example's documentation for its controls.
 //!
 //! ## Build your own entities
@@ -223,7 +223,7 @@
 //! For direct control, convert a [`procgena_stone::StoneMesh`] with [`stone_mesh`],
 //! create a material with [`stone_material`] and [`StoneTextures::load`], and
 //! attach the mesh handle and `MeshMaterial3d<StoneMaterial>` to your entities.
-//! Keep `ZeStonePlugin` installed to register the material's shaders.
+//! Keep `StonePlugin` installed to register the material's shaders.
 //!
 //! [`MaterialOptions::color`]: procgena_stone::MaterialOptions::color
 //! [`MaterialOptions::roughness`]: procgena_stone::MaterialOptions::roughness
@@ -252,16 +252,16 @@ pub use mesh::stone_mesh;
 #[cfg(feature = "gpu")]
 pub use pool::{PooledStone, StonePool, StonePoolError};
 pub use spawn::{
-    StoneEmbedDepth, StoneFinished, StoneGenerating, StoneOptionsAsset, StonePart, ZeStone,
+    StoneEmbedDepth, StoneFinished, StoneGenerating, StoneOptionsAsset, StoneParams, StonePart,
 };
 
 use spawn::{SpawnSettings, StoneCache, StoneOptionsLoader};
 
 /// Enables rock generation, rendering and `.stone.json` loading.
 ///
-/// Add after Bevy's default plugins, then spawn entities with [`ZeStone`].
+/// Add after Bevy's default plugins, then spawn entities with [`StoneParams`].
 #[derive(Debug, Clone)]
-pub struct ZeStonePlugin {
+pub struct StonePlugin {
     /// Folder holding the `rock/` texture folder, relative to Bevy's asset
     /// directory. Defaults to `procgena_stone/textures`; copy the repository's
     /// `assets/textures` folder there after downloading the textures.
@@ -272,7 +272,7 @@ pub struct ZeStonePlugin {
     pub texture_compression: TextureCompression,
 }
 
-impl Default for ZeStonePlugin {
+impl Default for StonePlugin {
     fn default() -> Self {
         Self {
             texture_root: Some("procgena_stone/textures".to_owned()),
@@ -281,7 +281,7 @@ impl Default for ZeStonePlugin {
     }
 }
 
-impl Plugin for ZeStonePlugin {
+impl Plugin for StonePlugin {
     fn build(&self, app: &mut App) {
         load_shader_library!(app, "shaders/stone_triplanar.wesl");
         load_shader_library!(app, "shaders/stone_material.wesl");

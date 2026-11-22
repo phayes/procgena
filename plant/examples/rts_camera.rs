@@ -1,11 +1,11 @@
 //! Grass under a strategy camera: a perspective camera that zooms from 15 m
 //! to 200 m over an 800 m map, with tanks trampling the grass.
 //!
-//! A perspective camera draws grass within `GrassSettings::radius` of
-//! itself, so from 150 m up it would draw none. `GrassCamera` measures the
+//! A perspective camera draws grass within `PlantSettings::radius` of
+//! itself, so from 150 m up it would draw none. `PlantCamera` measures the
 //! radius from the ground below the camera instead (`radius_from_ground`), so
 //! the same band of grass follows the zoom, and keeps blades 2 pixels wide.
-//! Past the grass, `FarGrassMaterial` carries its colour and gusts. The tanks
+//! Past the grass, `FarPlantMaterial` carries its colour and gusts. The tanks
 //! flatten the grass in the shape of their hulls, and the trample window
 //! follows the ground the camera shows, not the point below it.
 //!
@@ -47,13 +47,13 @@ fn main() {
     let from_ground = !args.has("--from-camera");
     let mut app = App::new();
     args.install(&mut app, "procgena_plant: RTS camera");
-    app.add_plugins(GrassPlugins.set(GrassPlugin {
-        settings: GrassSettings {
+    app.add_plugins(PlantPlugins.set(PlantPlugin {
+        settings: PlantSettings {
             // A strategy camera shows more ground than the default 64 m
             // window; 1 m cells make it 256 m, and the trails are coarser
             // than a person could see from up here anyway.
             trample_cell_size: 1.0,
-            ..GrassSettings::HIGH
+            ..PlantSettings::HIGH
         },
         ..default()
     }))
@@ -91,11 +91,11 @@ fn setup(
     rig: Res<Rig>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut ground: ResMut<Assets<FarGrassMaterial>>,
+    mut ground: ResMut<Assets<FarPlantMaterial>>,
 ) {
     commands.spawn((
         Camera3d::default(),
-        GrassCamera {
+        PlantCamera {
             radius_from_ground: rig.from_ground,
             min_width_px: Some(2.0),
             ..default()
@@ -111,14 +111,14 @@ fn setup(
 
     // The battlefield: shortened meadow over the whole map, and the
     // ground fading to its colour past the last blade.
-    let mut field = GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(MAP));
+    let mut field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(MAP));
     field.plants.to_mut().iter_mut().for_each(|entry| {
         entry.plant.height *= 0.6;
         entry.plant.accent.height *= 0.6;
     });
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(MAP * 2.0, MAP * 2.0))),
-        MeshMaterial3d(ground.add(FarGrassMaterial {
+        MeshMaterial3d(ground.add(FarPlantMaterial {
             // Seen from above, the ground shows between the blades:
             // a soil close to the roots' colour keeps the field green.
             base: StandardMaterial {
@@ -126,7 +126,7 @@ fn setup(
                 perceptual_roughness: 0.95,
                 ..default()
             },
-            extension: FarGrass::new(&field),
+            extension: FarPlants::new(&field),
         })),
     ));
     commands.spawn(field);
@@ -146,7 +146,7 @@ fn setup(
                 speed: if i % 2.0 == 0.0 { 6.0 } else { -5.0 },
                 phase: i,
             },
-            GrassInteractorFootprint::new(Vec3::ZERO, hull * 0.5),
+            PlantInteractorFootprint::new(Vec3::ZERO, hull * 0.5),
         ));
     }
 }
@@ -157,7 +157,7 @@ fn control(
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
     mut rig: ResMut<Rig>,
-    mut cameras: Query<&mut GrassCamera>,
+    mut cameras: Query<&mut PlantCamera>,
 ) {
     let dt = time.delta_secs();
     let mut zoom = -scroll.delta.y * 0.1;

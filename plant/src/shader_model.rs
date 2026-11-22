@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 use bevy::math::{IVec2, Vec2};
 
-use crate::GrassSettings;
+use crate::PlantSettings;
 
 /// Side of the gust texture, in texels.
 pub(crate) const GUST_SIZE: u32 = 256;
@@ -111,7 +111,7 @@ impl ChunkLayout {
 }
 
 /// Distance-based thinning and level of detail for perspective views, from a
-/// [`GrassSettings`]. The tier's own table is the architecture's: 100% to
+/// [`PlantSettings`]. The tier's own table is the architecture's: 100% to
 /// the start of LOD 1, 50% where LOD 2 starts, 15% where the fade starts.
 ///
 /// Orthographic views use none of it: every blade is the same size on screen,
@@ -141,7 +141,7 @@ pub(crate) struct DistanceLod {
 
 impl DistanceLod {
     /// The table `settings` ask for, scaled to its radius.
-    pub(crate) fn from_settings(settings: &GrassSettings) -> Self {
+    pub(crate) fn from_settings(settings: &PlantSettings) -> Self {
         Self {
             radius: settings.radius,
             lod_start: [

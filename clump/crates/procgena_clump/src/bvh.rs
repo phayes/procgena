@@ -35,7 +35,10 @@ impl Aabb {
     };
 
     fn grow(self, p: Vec3) -> Self {
-        Self { min: self.min.min(p), max: self.max.max(p) }
+        Self {
+            min: self.min.min(p),
+            max: self.max.max(p),
+        }
     }
 
     /// Squared distance from `p` to the box; zero inside it.
@@ -95,15 +98,19 @@ impl Bvh {
     /// Appends the subtree for `triangles[start..end]` and returns its node index.
     fn build(&mut self, start: usize, end: usize, centroids: &[Vec3]) -> usize {
         // Bound the triangles and their centroids.
-        let (bounds, centre_bounds) = self.triangles[start..end].iter().fold(
-            (Aabb::EMPTY, Aabb::EMPTY),
-            |(b, c), &t| {
-                let [p0, p1, p2] = self.corners[t as usize];
-                (b.grow(p0).grow(p1).grow(p2), c.grow(centroids[t as usize]))
-            },
-        );
+        let (bounds, centre_bounds) =
+            self.triangles[start..end]
+                .iter()
+                .fold((Aabb::EMPTY, Aabb::EMPTY), |(b, c), &t| {
+                    let [p0, p1, p2] = self.corners[t as usize];
+                    (b.grow(p0).grow(p1).grow(p2), c.grow(centroids[t as usize]))
+                });
         let index = self.nodes.len();
-        self.nodes.push(Node { bounds, start: start as u32, count: (end - start) as u32 });
+        self.nodes.push(Node {
+            bounds,
+            start: start as u32,
+            count: (end - start) as u32,
+        });
         let extent = centre_bounds.max - centre_bounds.min;
         if end - start <= LEAF_SIZE || extent.max_element() <= 0.0 {
             return index;
@@ -150,7 +157,12 @@ impl Bvh {
                     let (point, barycentric) = closest_on_triangle(p, self.corners[t as usize]);
                     let d = (point - p).length_squared();
                     if d < best.distance_squared {
-                        best = ClosestPoint { point, triangle: t as usize, barycentric, distance_squared: d };
+                        best = ClosestPoint {
+                            point,
+                            triangle: t as usize,
+                            barycentric,
+                            distance_squared: d,
+                        };
                     }
                 }
             } else {
@@ -197,6 +209,34 @@ impl Bvh {
         hit
     }
 
+    /// Returns the corner positions of triangle `t`.
+    pub(crate) fn corners(&self, t: usize) -> [Vec3; 3] {
+        self.corners[t]
+    }
+
+    /// Appends to `out` every triangle whose bounding box overlaps the box
+    /// from `lo` to `hi`. The triangles themselves may not touch the box.
+    pub(crate) fn overlapping(&self, lo: Vec3, hi: Vec3, out: &mut Vec<usize>) {
+        let mut stack = vec![0usize];
+        while let Some(n) = stack.pop() {
+            let node = self.nodes[n];
+            if node.bounds.max.cmplt(lo).any() || node.bounds.min.cmpgt(hi).any() {
+                continue;
+            }
+            if node.count > 0 {
+                let run = node.start as usize..(node.start + node.count) as usize;
+                for &t in &self.triangles[run] {
+                    let [a, b, c] = self.corners[t as usize];
+                    if !(a.min(b).min(c).cmpgt(hi).any() || a.max(b).max(c).cmplt(lo).any()) {
+                        out.push(t as usize);
+                    }
+                }
+            } else {
+                stack.extend([node.start as usize, n + 1]);
+            }
+        }
+    }
+
     /// Returns whether a ray from `origin` along `dir` hits any triangle before `t_max`.
     pub(crate) fn ray_blocked(&self, origin: Vec3, dir: Vec3, t_max: f32) -> bool {
         let inv_dir = dir.recip();
@@ -208,10 +248,9 @@ impl Bvh {
             }
             if node.count > 0 {
                 let run = node.start as usize..(node.start + node.count) as usize;
-                if self.triangles[run]
-                    .iter()
-                    .any(|&t| ray_triangle(origin, dir, self.corners[t as usize]).is_some_and(|d| d < t_max))
-                {
+                if self.triangles[run].iter().any(|&t| {
+                    ray_triangle(origin, dir, self.corners[t as usize]).is_some_and(|d| d < t_max)
+                }) {
                     return true;
                 }
             } else {
@@ -310,9 +349,61 @@ fn ray_triangle(origin: Vec3, dir: Vec3, [a, b, c]: [Vec3; 3]) -> Option<f32> {
     (t >= 0.0).then_some(t)
 }
 
+/// Returns whether two triangles pass through each other: an edge of one
+/// crosses the interior of the other. Triangles that only touch, at an edge
+/// or corner or within a tiny margin, don't count, and neither do triangles
+/// lying in the same plane.
+pub(crate) fn triangles_cross(a: [Vec3; 3], b: [Vec3; 3]) -> bool {
+    let edges = |t: [Vec3; 3]| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])];
+    edges(a).into_iter().any(|(p, q)| segment_crosses(p, q, b))
+        || edges(b).into_iter().any(|(p, q)| segment_crosses(p, q, a))
+}
+
+/// Returns whether the segment from `p` to `q` passes through the interior of
+/// triangle `[a, b, c]`, away from its edges and the segment's ends.
+fn segment_crosses(p: Vec3, q: Vec3, [a, b, c]: [Vec3; 3]) -> bool {
+    // Margin, as a fraction of the segment and of the triangle's barycentric
+    // range, inside which a meeting counts as touching rather than crossing.
+    const MARGIN: f32 = 1e-4;
+    let dir = q - p;
+    let e1 = b - a;
+    let e2 = c - a;
+    let pvec = dir.cross(e2);
+    let det = e1.dot(pvec);
+    if det.abs() < 1e-12 {
+        return false;
+    }
+    let inv_det = 1.0 / det;
+    let tvec = p - a;
+    let u = tvec.dot(pvec) * inv_det;
+    let qvec = tvec.cross(e1);
+    let v = dir.dot(qvec) * inv_det;
+    let t = e2.dot(qvec) * inv_det;
+    u > MARGIN && v > MARGIN && u + v < 1.0 - MARGIN && t > MARGIN && t < 1.0 - MARGIN
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crossing_triangles_are_told_apart_from_touching_ones() {
+        let flat = [
+            Vec3::new(-1.0, 0.0, -1.0),
+            Vec3::new(1.0, 0.0, -1.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        ];
+        let through = [
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.2, 1.0, 0.0),
+            Vec3::new(-0.2, 1.0, 0.1),
+        ];
+        let above = through.map(|p| p + Vec3::Y * 2.0);
+        let sharing_edge = [flat[0], flat[1], Vec3::new(0.0, 1.0, -1.0)];
+        assert!(triangles_cross(flat, through));
+        assert!(!triangles_cross(flat, above));
+        assert!(!triangles_cross(flat, sharing_edge));
+    }
     use crate::hash::Rng;
     use crate::surface::SurfaceMesh;
 
@@ -332,12 +423,22 @@ mod tests {
         let bvh = Bvh::new(&surface);
         let mut rng = Rng::new(7);
         for _ in 0..200 {
-            let p = Vec3::new(rng.range(-3.0, 3.0), rng.range(-1.0, 1.5), rng.range(-3.0, 3.0));
+            let p = Vec3::new(
+                rng.range(-3.0, 3.0),
+                rng.range(-1.0, 1.5),
+                rng.range(-3.0, 3.0),
+            );
             let found = bvh.closest_point(p);
             let brute = (0..surface.triangle_count())
-                .map(|t| (closest_on_triangle(p, surface.triangle_positions(t)).0 - p).length_squared())
+                .map(|t| {
+                    (closest_on_triangle(p, surface.triangle_positions(t)).0 - p).length_squared()
+                })
                 .fold(f32::INFINITY, f32::min);
-            assert!((found.distance_squared - brute).abs() < 1e-5, "{p}: {} vs {brute}", found.distance_squared);
+            assert!(
+                (found.distance_squared - brute).abs() < 1e-5,
+                "{p}: {} vs {brute}",
+                found.distance_squared
+            );
 
             // The barycentric weights reproduce the point.
             let [a, b, c] = surface.triangle_positions(found.triangle);
@@ -358,9 +459,17 @@ mod tests {
             let brute = (0..surface.triangle_count())
                 .filter_map(|t| ray_triangle(origin, dir, surface.triangle_positions(t)))
                 .fold(f32::INFINITY, f32::min);
-            let found = bvh.ray_hit(origin, dir, f32::INFINITY).map_or(f32::INFINITY, |h| h.0);
-            assert!(found == brute || (found - brute).abs() < 1e-5, "{found} vs {brute}");
-            assert_eq!(bvh.ray_blocked(origin, dir, f32::INFINITY), brute.is_finite());
+            let found = bvh
+                .ray_hit(origin, dir, f32::INFINITY)
+                .map_or(f32::INFINITY, |h| h.0);
+            assert!(
+                found == brute || (found - brute).abs() < 1e-5,
+                "{found} vs {brute}"
+            );
+            assert_eq!(
+                bvh.ray_blocked(origin, dir, f32::INFINITY),
+                brute.is_finite()
+            );
         }
     }
 }

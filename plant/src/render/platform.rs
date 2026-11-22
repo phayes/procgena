@@ -24,7 +24,7 @@ use bevy::render::render_resource::{
 use bevy::render::settings::WgpuLimits;
 
 use super::compute::ComputePass;
-use super::resources::GrassLayouts;
+use super::resources::PlantLayouts;
 use super::view::MAX_INSTANCE_BYTES;
 
 /// Whether this GPU can draw grass, decided once when the renderer starts.
@@ -38,18 +38,18 @@ use super::view::MAX_INSTANCE_BYTES;
 /// ```no_run
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
-/// fn grass_menu(support: Res<GrassSupport>) {
+/// fn plant_menu(support: Res<PlantSupport>) {
 ///     if !support.is_supported() {
 ///         info!("no grass on this device: {}", *support);
 ///     }
 /// }
 /// ```
 ///
-/// It is [`GrassSupport::Unknown`] until the renderer has started, and in an
+/// It is [`PlantSupport::Unknown`] until the renderer has started, and in an
 /// app without one.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
-pub enum GrassSupport {
+pub enum PlantSupport {
     /// Not decided yet: the renderer has not started, or there is none.
     #[default]
     Unknown,
@@ -73,7 +73,7 @@ pub enum GrassSupport {
         limit: u32,
     },
     /// The device's storage bindings are smaller than a camera's blade
-    /// buffer can be at `GrassSettings::MAX_INSTANCE_CAPACITY`.
+    /// buffer can be at `PlantSettings::MAX_INSTANCE_CAPACITY`.
     StorageBindingTooSmall {
         /// Bytes of the largest blade buffer.
         needed: u64,
@@ -82,17 +82,17 @@ pub enum GrassSupport {
     },
 }
 
-impl GrassSupport {
+impl PlantSupport {
     /// Whether grass draws on this device.
     ///
-    /// False while it is still [`GrassSupport::Unknown`].
+    /// False while it is still [`PlantSupport::Unknown`].
     #[must_use]
     pub fn is_supported(self) -> bool {
         self == Self::Supported
     }
 }
 
-impl fmt::Display for GrassSupport {
+impl fmt::Display for PlantSupport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unknown => f.write_str("not decided yet"),
@@ -133,30 +133,30 @@ pub(crate) const STORAGE_BUFFER_BUDGET: u32 = 10;
 pub(crate) fn check(
     flags: DownlevelFlags,
     limits: &WgpuLimits,
-    layouts: &GrassLayouts,
-) -> GrassSupport {
+    layouts: &PlantLayouts,
+) -> PlantSupport {
     if !flags.contains(DownlevelFlags::COMPUTE_SHADERS) {
-        return GrassSupport::NoComputeShaders;
+        return PlantSupport::NoComputeShaders;
     }
     if !flags.contains(DownlevelFlags::INDIRECT_EXECUTION) {
-        return GrassSupport::NoIndirectExecution;
+        return PlantSupport::NoIndirectExecution;
     }
     if !flags.contains(DownlevelFlags::VERTEX_STORAGE) {
-        return GrassSupport::NoVertexStorage;
+        return PlantSupport::NoVertexStorage;
     }
     let needed = storage_buffers_needed(layouts);
     let limit = limits.max_storage_buffers_per_shader_stage;
     if needed > limit {
-        return GrassSupport::TooFewStorageBuffers { needed, limit };
+        return PlantSupport::TooFewStorageBuffers { needed, limit };
     }
     let limit = limits.max_storage_buffer_binding_size;
     if MAX_INSTANCE_BYTES > limit {
-        return GrassSupport::StorageBindingTooSmall {
+        return PlantSupport::StorageBindingTooSmall {
             needed: MAX_INSTANCE_BYTES,
             limit,
         };
     }
-    GrassSupport::Supported
+    PlantSupport::Supported
 }
 
 /// The bytes of a scene buffer holding `mask_words` words of masks and
@@ -175,7 +175,7 @@ pub(crate) fn scene_too_large(mask_words: usize, heights: usize, limit: u64) -> 
 ///
 /// The draws count only the grass group: Bevy's own view groups are the same
 /// for every mesh, and Bevy fits them to the device itself.
-pub(crate) fn storage_buffers_needed(layouts: &GrassLayouts) -> u32 {
+pub(crate) fn storage_buffers_needed(layouts: &PlantLayouts) -> u32 {
     let compute =
         ComputePass::ALL.map(|pass| storage_buffers(&layouts.compute(pass), ShaderStages::COMPUTE));
     let draw = [ShaderStages::VERTEX, ShaderStages::FRAGMENT]
@@ -204,7 +204,7 @@ fn storage_buffers(layouts: &[BindGroupLayoutDescriptor], stage: ShaderStages) -
 
 /// Run condition for the render world's grass systems: only once the device
 /// is known to draw grass.
-pub(crate) fn supported(support: Option<Res<GrassSupport>>) -> bool {
+pub(crate) fn supported(support: Option<Res<PlantSupport>>) -> bool {
     support.is_some_and(|support| support.is_supported())
 }
 

@@ -1,6 +1,6 @@
 # Fields, terrain and visibility
 
-A `GrassField` is a rectangle of grass centred on its `Transform`, lying in
+A `PlantField` is a rectangle of grass centred on its `Transform`, lying in
 the XZ plane. Its size is `size` times the transform's X and Z scale, so a
 scaled field is bigger, like a scaled `Plane3d`. It turns with the
 transform's rotation about Y, and its mask and heightmap turn with it. Grass
@@ -18,13 +18,13 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
             .with_settings(|settings: &mut ImageLoaderSettings| settings.is_srgb = false)
             .load(path)
     };
-    commands.spawn(GrassField {
-        ground: GrassGround::Heightmap {
+    commands.spawn(PlantField {
+        ground: PlantGround::Heightmap {
             image: linear("terrain/height.png"),
             height_scale: 40.0,
         },
-        density_map: Some(linear("terrain/grass_mask.png")),
-        ..GrassField::from_preset(&FieldPreset::SUMMER_TALL, Vec2::splat(512.0))
+        density_map: Some(linear("terrain/plant_mask.png")),
+        ..PlantField::from_preset(&FieldPreset::SUMMER_TALL, Vec2::splat(512.0))
     });
 }
 ```
@@ -46,7 +46,7 @@ off cliffs, with no mask to paint:
 ```rust
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.spawn(
-        GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(240.0))
+        PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(240.0))
             // Metres above the field's own height; NaN is no ground at all.
             .with_ground_from_fn(&mut images, 0.5, |point| island.height(point))
             // 0 bare to 1 full: nothing below the tide line or on cliffs.
@@ -74,7 +74,7 @@ chunk meshes with one field over all of it, bare on the beach and the cliff.
 ## Grow grass on a mesh
 
 For terrain that is a mesh, put the field on the terrain's own entity and
-give it `GrassGround::mesh`. The field then lies where the mesh is drawn,
+give it `PlantGround::mesh`. The field then lies where the mesh is drawn,
 turn and scale included:
 
 ```rust
@@ -88,10 +88,10 @@ fn setup(
     commands.spawn((
         Mesh3d(terrain.clone()),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
-        GrassField {
-            ground: GrassGround::mesh(terrain),
+        PlantField {
+            ground: PlantGround::mesh(terrain),
             // The mesh's extent in X and Z.
-            ..GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
+            ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
         },
         Transform::from_rotation(Quat::from_rotation_y(0.5)),
     ));
@@ -99,7 +99,7 @@ fn setup(
 ```
 
 The mesh is baked once, on the CPU, into a heightmap of one height per half
-metre (`GrassGround::Mesh { mesh, cell_size }` picks another cell size, at
+metre (`PlantGround::Mesh { mesh, cell_size }` picks another cell size, at
 most 4096 cells per side), and from then on it is drawn exactly like a
 heightmap: there is no cost per frame. It is baked again when the mesh asset,
 the field's size or the cell size changes, not when the field moves. The
@@ -128,7 +128,7 @@ hills and grows a meadow on them.
 
 ## Keep the grass colour past the last blade
 
-Beyond the grass radius no blades are drawn. `FarGrassMaterial` is a
+Beyond the grass radius no blades are drawn. `FarPlantMaterial` is a
 `StandardMaterial` for your terrain that fades to the grass colour with
 distance, with the same gusts rolling across it, so there is no seam:
 
@@ -136,58 +136,58 @@ distance, with the same gusts rolling across it, so there is no seam:
 fn ground(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<FarGrassMaterial>>,
+    mut materials: ResMut<Assets<FarPlantMaterial>>,
 ) {
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(1000.0, 1000.0))),
-        MeshMaterial3d(materials.add(FarGrassMaterial {
+        MeshMaterial3d(materials.add(FarPlantMaterial {
             base: StandardMaterial::from_color(Color::srgb(0.20, 0.15, 0.09)),
-            extension: FarGrass::new(&FieldPreset::MEADOW.field),
+            extension: FarPlants::new(&FieldPreset::MEADOW.field),
         })),
     ));
 }
 ```
 
 A game with a terrain shader of its own calls the same WESL function,
-`procgena_plant::shaders::far::grass_far_color`, from it. Its material holds a
-`FarGrassUniform` and the gust texture, and a system rewrites the uniform
+`procgena_plant::shaders::far::plant_far_color`, from it. Its material holds a
+`FarPlantUniform` and the gust texture, and a system rewrites the uniform
 each frame, since the gusts scroll:
 
 ```rust
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
 struct Terrain {
     #[uniform(0)]
-    far: FarGrassUniform,          // `var<uniform> far: FarGrass;` in the shader
+    far: FarPlantUniform,          // `var<uniform> far: FarPlants;` in the shader
     #[texture(1)]
     #[sampler(2)]
-    gusts: Handle<Image>,          // FarGrass::GUSTS
+    gusts: Handle<Image>,          // FarPlants::GUSTS
     // ...the terrain's own bindings
 }
 
-fn follow_the_grass(
-    grass: Res<TerrainGrass>,      // your FarGrass, e.g. FarGrass::new(&field)
-    wind: Res<GrassWindFrame>,
-    settings: Res<GrassSettings>,
+fn follow_the_plants(
+    terrain_plants: Res<TerrainPlants>, // your FarPlants, e.g. FarPlants::new(&field)
+    wind: Res<PlantWindFrame>,
+    settings: Res<PlantSettings>,
     mut terrains: ResMut<Assets<Terrain>>,
 ) {
-    let far = grass.0.uniform(&wind, &settings);
+    let far = terrain_plants.0.uniform(&wind, &settings);
     for (_, terrain) in terrains.iter_mut() {
         terrain.far = far;
     }
 }
-// app.add_systems(Update, follow_the_grass.after(GrassWindSystems::Sample));
+// app.add_systems(Update, follow_the_plants.after(PlantWindSystems::Sample));
 ```
 
 and in the shader:
 
 ```wgsl
-import procgena_plant::shaders::far::{FarGrass, grass_far_color};
+import procgena_plant::shaders::far::{FarPlants, plant_far_color};
 
-@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> far: FarGrass;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> far: FarPlants;
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var gust_texture: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var gust_sampler: sampler;
 // ...
-let color = grass_far_color(world_position, view.world_position, soil, far, gust_texture, gust_sampler);
+let color = plant_far_color(world_position, view.world_position, soil, far, gust_texture, gust_sampler);
 ```
 
 [`examples/custom_terrain.rs`](../examples/custom_terrain.rs) is the whole
@@ -195,17 +195,17 @@ thing, with its shader beside it.
 
 | Item | What it does |
 | --- | --- |
-| `FarGrassMaterial` | `ExtendedMaterial<StandardMaterial, FarGrass>` for terrain, forward and deferred |
-| `FarGrassPlugin` | Registers the material. Part of `GrassPlugins` |
-| `FarGrass` | `color`, `amount` (0–1), `fade: Option<Vec2>` (where the tint starts and is full; `None` follows `GrassSettings::radius`), `sheen` (gusts brighten it, 0–1, where the ground is seen at a glancing angle; little from above), `area: Option<Rect>`. Its wind follows `GrassWindFrame`, the same frame the blades read |
-| `FarGrass::new(&field)` | Colour from a field's plants, each by its share; the fade follows the grass radius, also when it changes |
+| `FarPlantMaterial` | `ExtendedMaterial<StandardMaterial, FarPlants>` for terrain, forward and deferred |
+| `FarPlantPlugin` | Registers the material. Part of `PlantPlugins` |
+| `FarPlants` | `color`, `amount` (0–1), `fade: Option<Vec2>` (where the tint starts and is full; `None` follows `PlantSettings::radius`), `sheen` (gusts brighten it, 0–1, where the ground is seen at a glancing angle; little from above), `area: Option<Rect>`. Its wind follows `PlantWindFrame`, the same frame the blades read |
+| `FarPlants::new(&field)` | Colour from a field's plants, each by its share; the fade follows the grass radius, also when it changes |
 | `.with_fade(Vec2)` | A fade of your own, whatever the radius |
 | `.with_area(rect)` | Only inside this world-XZ rectangle |
 | `.with_sheen(f32)` | Another sheen; 0 for far grass without gusts |
-| `FarGrassUniform` | The material's GPU data, for a terrain material of your own |
-| `FarGrass::uniform(&wind, &settings)` | That data with this frame's wind and grass radius |
-| `FarGrass::GUSTS` | The gust texture `grass_far_color` reads |
-| `grass_far_color` (WESL) | `procgena_plant::shaders::far::grass_far_color`, for your own terrain shader |
+| `FarPlantUniform` | The material's GPU data, for a terrain material of your own |
+| `FarPlants::uniform(&wind, &settings)` | That data with this frame's wind and grass radius |
+| `FarPlants::GUSTS` | The gust texture `plant_far_color` reads |
+| `plant_far_color` (WESL) | `procgena_plant::shaders::far::plant_far_color`, for your own terrain shader |
 
 ## Hide a field, or leave a camera out
 
@@ -219,11 +219,11 @@ commands.entity(field).insert(Visibility::Hidden);
 // Split-screen, a minimap, a mirror: a camera draws the fields it shares a
 // render layer with. A field or camera without `RenderLayers` is on layer 0.
 commands.spawn((Camera3d::default(), RenderLayers::layer(1))); // a minimap
-commands.spawn((GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0)),
+commands.spawn((PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0)),
                 RenderLayers::from_layers(&[0, 1])));          // seen by both
 
 // Or keep a camera from drawing any grass at all.
-commands.spawn((Camera3d::default(), NoGrass));
+commands.spawn((Camera3d::default(), NoPlants));
 ```
 
 A field can be spawned at any time, not only at `Startup`. Behind a loading
@@ -232,9 +232,9 @@ than a system that checks a flag every frame, or spawn it with
 `Visibility::Hidden` and show it when the screen lifts:
 
 ```rust
-app.add_systems(OnEnter(GameState::Playing), spawn_grass);
+app.add_systems(OnEnter(GameState::Playing), spawn_plants);
 ```
 
 Layers 0 to 31 are supported. Every other 3D camera draws its own grass, with
-its own culling and level of detail; [`GrassCamera`](settings.md#draw-differently-on-one-camera)
+its own culling and level of detail; [`PlantCamera`](settings.md#draw-differently-on-one-camera)
 changes how much.

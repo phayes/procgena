@@ -46,8 +46,18 @@ pub fn branch_fork() -> SurfaceMesh {
     let mut indices = Vec::new();
     let tubes = [
         (Vec3::ZERO, Vec3::new(0.0, 2.4, 0.0), 0.16, 0.11),
-        (Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.1, 1.9, 0.2), 0.10, 0.05),
-        (Vec3::new(0.0, 1.5, 0.0), Vec3::new(-1.2, 1.75, -0.4), 0.09, 0.04),
+        (
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(1.1, 1.9, 0.2),
+            0.10,
+            0.05,
+        ),
+        (
+            Vec3::new(0.0, 1.5, 0.0),
+            Vec3::new(-1.2, 1.75, -0.4),
+            0.09,
+            0.04,
+        ),
     ];
     for (start, end, r0, r1) in tubes {
         tube(&mut positions, &mut indices, start, end, r0, r1, 16, 24);
@@ -120,27 +130,37 @@ fn tube(
 fn icosphere(subdivisions: u32) -> (Vec<Vec3>, Vec<u32>) {
     let t = (1.0 + 5f32.sqrt()) / 2.0;
     let mut positions: Vec<Vec3> = [
-        (-1.0, t, 0.0), (1.0, t, 0.0), (-1.0, -t, 0.0), (1.0, -t, 0.0),
-        (0.0, -1.0, t), (0.0, 1.0, t), (0.0, -1.0, -t), (0.0, 1.0, -t),
-        (t, 0.0, -1.0), (t, 0.0, 1.0), (-t, 0.0, -1.0), (-t, 0.0, 1.0),
+        (-1.0, t, 0.0),
+        (1.0, t, 0.0),
+        (-1.0, -t, 0.0),
+        (1.0, -t, 0.0),
+        (0.0, -1.0, t),
+        (0.0, 1.0, t),
+        (0.0, -1.0, -t),
+        (0.0, 1.0, -t),
+        (t, 0.0, -1.0),
+        (t, 0.0, 1.0),
+        (-t, 0.0, -1.0),
+        (-t, 0.0, 1.0),
     ]
     .into_iter()
     .map(|(x, y, z)| Vec3::new(x, y, z).normalize())
     .collect();
     let mut indices: Vec<u32> = vec![
-        0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6,
-        7, 1, 8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6,
-        7, 9, 8, 1,
+        0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7,
+        1, 8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9,
+        8, 1,
     ];
 
     // Split every triangle into four, sharing midpoints between neighbours.
     for _ in 0..subdivisions {
         let mut midpoints: HashMap<(u32, u32), u32> = HashMap::new();
         let mut next = Vec::with_capacity(indices.len() * 4);
-        for tri in indices.chunks_exact(3) {
+        for tri in indices.as_chunks::<3>().0 {
             let mut mid = |a: u32, b: u32| {
                 *midpoints.entry((a.min(b), a.max(b))).or_insert_with(|| {
-                    positions.push(((positions[a as usize] + positions[b as usize]) / 2.0).normalize());
+                    positions
+                        .push(((positions[a as usize] + positions[b as usize]) / 2.0).normalize());
                     positions.len() as u32 - 1
                 })
             };
@@ -156,8 +176,8 @@ fn icosphere(subdivisions: u32) -> (Vec<Vec3>, Vec<u32>) {
 /// Packs positions and indices into a mesh with area-weighted normals.
 fn finish(positions: Vec<Vec3>, indices: Vec<u32>) -> SurfaceMesh {
     let mut normals = vec![Vec3::ZERO; positions.len()];
-    for tri in indices.chunks_exact(3) {
-        let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| positions[i as usize]);
+    for tri in indices.as_chunks::<3>().0 {
+        let [a, b, c] = tri.map(|i| positions[i as usize]);
         let n = (b - a).cross(c - a);
         for &i in tri {
             normals[i as usize] += n;
@@ -165,7 +185,10 @@ fn finish(positions: Vec<Vec3>, indices: Vec<u32>) -> SurfaceMesh {
     }
     SurfaceMesh {
         positions: positions.iter().map(|p| p.to_array()).collect(),
-        normals: normals.iter().map(|n| n.normalize_or_zero().to_array()).collect(),
+        normals: normals
+            .iter()
+            .map(|n| n.normalize_or_zero().to_array())
+            .collect(),
         indices,
     }
 }

@@ -1,6 +1,6 @@
 # Trampling
 
-Anything with a `GrassInteractor` flattens the grass around it, and the grass
+Anything with a `PlantInteractor` flattens the grass around it, and the grass
 springs back over about 1.5 s after it leaves, so moving things leave trails.
 Trails are kept in world space, so they stay put while the camera moves. The
 cost is the same for one interactor or 512.
@@ -10,7 +10,7 @@ cost is the same for one interactor or 512.
 ```rust
 commands.spawn((
     Transform::from_xyz(0.0, 0.0, 0.0),
-    GrassInteractor { radius: 0.5, strength: 1.0, ..default() },
+    PlantInteractor { radius: 0.5, strength: 1.0, ..default() },
 ));
 ```
 
@@ -18,11 +18,11 @@ Grass within `radius` (0.6 m by default) lies down away from the entity.
 `strength` (0–1) is how far it goes down.
 
 The limits, which are also in the type's documentation. The numbers are the
-defaults of `GrassSettings`, and each can be changed (see
+defaults of `PlantSettings`, and each can be changed (see
 [Quality and settings](settings.md#tune-the-distances-the-blades-and-the-trampling)):
 
 - **Radius, 2 m** (`max_interactor_radius`). A bigger disc is cut to it, with
-  one warning naming the entity. Use a `GrassInteractorFootprint` for one large
+  one warning naming the entity. Use a `PlantInteractorFootprint` for one large
   object (below), which this limit does not apply to, or raise the setting (to
   16 m at most): the cost grows with the square of the radius.
 - **Count** (`max_interactors`). A camera stamps that many, the ones nearest
@@ -50,14 +50,14 @@ defaults of `GrassSettings`, and each can be changed (see
 
 A disc pushes grass away from its centre, which suits a character's feet. A
 vehicle, a crate or a fallen log is one solid shape: give it a
-`GrassInteractorFootprint`, a box in the entity's local space, and the grass
+`PlantInteractorFootprint`, a box in the entity's local space, and the grass
 is flattened under the whole box at once.
 
 ```rust
 commands.spawn((
     Transform::from_xyz(0.0, 1.0, 0.0),
     // A 6 × 3 m cart; `rounding` makes a ball or a capsule round from above.
-    GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
+    PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
 ));
 ```
 
@@ -69,16 +69,16 @@ scale: a crate tipped onto its side, or a log that falls over, flattens where
 it lies. It is one stamp on the GPU however large, clipped to 16 m from its
 centre per side.
 
-`GrassInteractorSpread` is there for a few separate discs (feet, wheels):
+`PlantInteractorSpread` is there for a few separate discs (feet, wheels):
 extra disc centres in the interactor's local space, each pushing away from its
-own centre. `GrassInteractorSpread::covering_aabb` covers a local box with at
+own centre. `PlantInteractorSpread::covering_aabb` covers a local box with at
 most 32 discs.
 
 ## Physics colliders: Rapier and Avian
 
 Avian and Rapier both write `Transform`/`GlobalTransform`, and grass reads
-`GlobalTransform`, so a hand-written `GrassInteractor` on a physics body works
-with no bridge at all. `GrassInteractorFromCollider` goes further and sizes
+`GlobalTransform`, so a hand-written `PlantInteractor` on a physics body works
+with no bridge at all. `PlantInteractorFromCollider` goes further and sizes
 the footprint from the collider. Turn on the feature for your engine:
 
 | Engine | Feature | Built against |
@@ -97,22 +97,22 @@ Then put the component next to a collider:
 commands.spawn((
     RigidBody::Dynamic,
     Collider::capsule(0.4, 1.0),
-    GrassInteractorFromCollider::default(),
+    PlantInteractorFromCollider::default(),
 ));
 
 // Rapier
 commands.spawn((
     RigidBody::Dynamic,
     Collider::capsule_y(0.5, 0.4),
-    GrassInteractorFromCollider::default(),
+    PlantInteractorFromCollider::default(),
 ));
 ```
 
-There is no plugin to add and nothing to order: `GrassPlugins` adds the bridge
+There is no plugin to add and nothing to order: `PlantPlugins` adds the bridge
 for each feature that is on, and it runs in `Update`, independent of the
 physics schedule and of interpolation. The footprint follows the collider:
 
-- **Shape.** The collider becomes a `GrassInteractorFootprint`: a capsule
+- **Shape.** The collider becomes a `PlantInteractorFootprint`: a capsule
   character a disc, a vehicle, a wall or a big creature one box (see
   [Large objects](#large-objects)). Balls and capsules stay round from above.
 - **Scale.** Both engines scale a collider by its transform, and so does the
@@ -148,14 +148,14 @@ examples show a character, a vehicle, a scaled crate and a thrown log;
 
 ### Another engine, or none
 
-The engine backends only write a `GrassColliderBounds`: the collider's box
+The engine backends only write a `PlantColliderBounds`: the collider's box
 along the entity's own axes, in metres with the scale applied, how rounded it
 is, and whether it is active. Everything else is engine-neutral, so a collider
 type of your own needs only a system that writes it, in
-`GrassColliderSystems::Bounds` so it is fitted the same frame:
+`PlantColliderSystems::Bounds` so it is fitted the same frame:
 
 ```rust
-app.add_systems(Update, my_collider_bounds.in_set(GrassColliderSystems::Bounds));
+app.add_systems(Update, my_collider_bounds.in_set(PlantColliderSystems::Bounds));
 
 fn my_collider_bounds(
     mut commands: Commands,
@@ -164,10 +164,10 @@ fn my_collider_bounds(
     for (entity, collider) in &added {
         commands
             .entity(entity)
-            .insert(GrassColliderBounds::new(Vec3::ZERO, collider.half_extents));
+            .insert(PlantColliderBounds::new(Vec3::ZERO, collider.half_extents));
     }
 }
 ```
 
-Without any collider at all, a `GrassInteractorFootprint` does the same job by
+Without any collider at all, a `PlantInteractorFootprint` does the same job by
 hand.

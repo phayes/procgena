@@ -29,8 +29,8 @@ const SUN_ELEVATION_DEGREES: f32 = 22.5;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: ARPG camera");
-    app.add_plugins(GrassPlugins)
-        .insert_resource(GrassWind::BREEZE)
+    app.add_plugins(PlantPlugins)
+        .insert_resource(PlantWind::BREEZE)
         .add_systems(Startup, setup)
         .add_systems(Update, walk)
         .run();
@@ -77,7 +77,7 @@ fn setup(
         Camera3d::default(),
         // The camera is far from the ground, so blades are thin on screen: at
         // least 2 pixels wide. A pixel width belongs to the camera, not the style.
-        GrassCamera {
+        PlantCamera {
             min_width_px: Some(2.0),
             ..default()
         },
@@ -135,7 +135,7 @@ fn setup(
             phase: 0.0,
             lift: 0.9,
         },
-        GrassInteractor {
+        PlantInteractor {
             radius: 0.5,
             strength: 1.0,
             ..default()
@@ -156,7 +156,7 @@ fn setup(
                 phase: i * 1.1,
                 lift: 0.5,
             },
-            GrassInteractor {
+            PlantInteractor {
                 radius: 0.6,
                 strength: 1.0,
                 ..default()
@@ -164,7 +164,7 @@ fn setup(
         ));
     }
 
-    let plant = GrassPlant {
+    let plant = PlantParams {
         // 36, not 45: the look approved at gate G1 drew 36 per m² while a
         // rounding bug capped 45 (fixed in the perf pass).
         density: 36.0,
@@ -172,8 +172,8 @@ fn setup(
         width: 0.05,
         ..FieldPreset::TALL_PRAIRIE.field.plants[0].plant
     };
-    commands.spawn(GrassField {
+    commands.spawn(PlantField {
         plants: vec![FieldPlant::new(plant)].into(),
-        ..GrassField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::splat(64.0))
+        ..PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::splat(64.0))
     });
 }

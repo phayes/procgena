@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::{GrassAccent, GrassPlant};
+use crate::api::{PlantAccent, PlantParams};
 
 /// Checks plant and accent proportions, and that accents follow their plant's tufts.
 /// Untufted clover provides a comparison with tufted grass and its 20% accent.
@@ -7,25 +7,25 @@ use crate::api::{GrassAccent, GrassPlant};
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_plants_and_accents_take_their_shares_and_accents_grow_in_their_tufts() {
     const TUFT_SIZE: f32 = 1.0;
-    let grass = GrassPlant {
+    let grass = PlantParams {
         tufts: 0.8,
         tuft_size: TUFT_SIZE,
-        accent: GrassAccent {
+        accent: PlantAccent {
             share: 0.2,
             height: Vec2::new(0.8, 0.9),
-            ..GrassAccent::NONE
+            ..PlantAccent::NONE
         },
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
-    let mut app = app_with_field(GrassField::new(
+    let mut app = app_with_field(PlantField::new(
         Vec2::ZERO,
         vec![
             // 18 clover and 42 grass plants per square metre: a 30% share.
-            FieldPlant::new(GrassPlant::CLOVER).scaled(18.0 / GrassPlant::CLOVER.density),
+            FieldPlant::new(PlantParams::CLOVER).scaled(18.0 / PlantParams::CLOVER.density),
             FieldPlant::new(grass).scaled(42.0 / grass.density),
         ],
     ));
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     for _ in 0..3 {
         app.update();
     }
@@ -73,7 +73,7 @@ fn gpu_plants_and_accents_take_their_shares_and_accents_grow_in_their_tufts() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_generation_matches_the_cpu_mirror() {
-    generation_matches_the_cpu_mirror(crate::GrassSettings::HIGH);
+    generation_matches_the_cpu_mirror(crate::PlantSettings::HIGH);
 }
 
 /// Every distance, density and width a game can set reaches the shaders: the
@@ -82,7 +82,7 @@ fn gpu_generation_matches_the_cpu_mirror() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_generation_matches_the_cpu_mirror_with_other_distances_and_densities() {
-    generation_matches_the_cpu_mirror(crate::GrassSettings {
+    generation_matches_the_cpu_mirror(crate::PlantSettings {
         radius: 80.0,
         lod1_start: 0.1,
         lod2_start: 0.35,
@@ -93,7 +93,7 @@ fn gpu_generation_matches_the_cpu_mirror_with_other_distances_and_densities() {
         mid_range_start: 0.15,
         mid_range_density: 0.8,
         max_widening: 1.6,
-        ..crate::GrassSettings::HIGH
+        ..crate::PlantSettings::HIGH
     });
 }
 
@@ -124,10 +124,10 @@ fn gpu_roots(app: &mut App) -> Vec<Vec3> {
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_a_turned_field_matches_the_cpu_mirror() {
     let turned = Transform::from_xyz(3.0, 0.5, -4.0).with_rotation(Quat::from_rotation_y(0.6));
-    let mut app = headless_app_with(turned, GrassGround::Flat);
+    let mut app = headless_app_with(turned, PlantGround::Flat);
     generation_matches_the_cpu_mirror_in(
         {
-            wait_for_grass(&mut app);
+            wait_for_plants(&mut app);
             let roots = gpu_roots(&mut app);
             let inverse = turned.rotation.inverse();
             let local = |root: Vec3| inverse * (root - turned.translation);
@@ -144,7 +144,7 @@ fn gpu_a_turned_field_matches_the_cpu_mirror() {
             );
             app
         },
-        crate::GrassSettings::HIGH,
+        crate::PlantSettings::HIGH,
     );
 }
 
@@ -158,9 +158,9 @@ fn gpu_blades_grow_on_a_mesh_ground_and_only_on_it() {
     let ledge = Mesh::from(Plane3d::default().mesh().size(35.0, 50.0))
         .translated_by(Vec3::new(17.5, 2.0, 0.0));
     let ledge = app.world_mut().resource_mut::<Assets<Mesh>>().add(ledge);
-    let mut fields = app.world_mut().query::<&mut GrassField>();
-    fields.single_mut(app.world_mut()).unwrap().ground = GrassGround::mesh(ledge);
-    wait_for_grass(&mut app);
+    let mut fields = app.world_mut().query::<&mut PlantField>();
+    fields.single_mut(app.world_mut()).unwrap().ground = PlantGround::mesh(ledge);
+    wait_for_plants(&mut app);
     // The tables are rebuilt from the bake within a frame or two.
     for _ in 0..3 {
         app.update();
@@ -206,11 +206,11 @@ fn gpu_a_field_with_a_mask_and_a_heightmap_reads_its_heights() {
         RenderAssetUsages::default(),
     );
     let mask = app.world_mut().resource_mut::<Assets<Image>>().add(mask);
-    let mut fields = app.world_mut().query::<&mut GrassField>();
+    let mut fields = app.world_mut().query::<&mut PlantField>();
     let mut field = fields.single_mut(app.world_mut()).unwrap();
-    field.ground = GrassGround::mesh(ledge);
+    field.ground = PlantGround::mesh(ledge);
     field.density_map = Some(mask);
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     for _ in 0..3 {
         app.update();
     }
@@ -232,7 +232,7 @@ fn gpu_a_field_with_a_mask_and_a_heightmap_reads_its_heights() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_a_raised_camera_matches_the_cpu_mirror() {
-    use crate::api::GrassCamera;
+    use crate::api::PlantCamera;
 
     let mut app = headless_app();
     let camera = app
@@ -242,13 +242,13 @@ fn gpu_a_raised_camera_matches_the_cpu_mirror() {
         .unwrap();
     app.world_mut().entity_mut(camera).insert((
         Transform::from_xyz(3.0, 40.5, 40.0).looking_at(Vec3::new(3.0, 0.5, -4.0), Vec3::Y),
-        GrassCamera {
+        PlantCamera {
             radius_from_ground: true,
             ..default()
         },
     ));
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     let (view, _) = view_after(&mut app, 1);
     assert_eq!(view.distance_offset, 40.0);
-    generation_matches_the_cpu_mirror_in(app, crate::GrassSettings::HIGH);
+    generation_matches_the_cpu_mirror_in(app, crate::PlantSettings::HIGH);
 }

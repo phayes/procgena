@@ -11,7 +11,7 @@ const TABLE_END: &str = "<!-- end of preset numbers -->";
 
 /// How high `plant` reaches: a branched plant's highest point at rest, or an
 /// unbranched plant's length, which also leaves room for its head.
-fn top_of(plant: &GrassPlant) -> f32 {
+fn top_of(plant: &PlantParams) -> f32 {
     if plant.levels[0].is_on() {
         crate::mirror::branched_top(plant)
     } else {
@@ -109,7 +109,7 @@ fn every_field_preset_grows_something_and_fits() {
             assert!((0.0..=1.0).contains(&entry.clustering), "{key}");
         }
         assert_eq!(preset.field.size, Vec2::ZERO, "{key}: a preset has no size");
-        assert_eq!(preset.field.ground, GrassGround::Flat, "{key}");
+        assert_eq!(preset.field.ground, PlantGround::Flat, "{key}");
         assert!(preset.field.density_map.is_none(), "{key}");
         assert!(
             !preset.name.is_empty() && !preset.description.is_empty(),
@@ -148,9 +148,9 @@ fn keys_and_names_are_unique_and_named_finds_every_preset() {
 
 #[test]
 fn a_plant_preset_is_its_plant_constant() {
-    assert_eq!(PlantPreset::FERN.plant, GrassPlant::FERN);
-    assert_eq!(PlantPreset::MEADOW_GRASS.plant, GrassPlant::MEADOW_GRASS);
-    assert_eq!(PlantPreset::BROOM.plant, GrassPlant::BROOM);
+    assert_eq!(PlantPreset::FERN.plant, PlantParams::FERN);
+    assert_eq!(PlantPreset::MEADOW_GRASS.plant, PlantParams::MEADOW_GRASS);
+    assert_eq!(PlantPreset::BROOM.plant, PlantParams::BROOM);
     assert_eq!(PlantPreset::FERN.key, "FERN");
     assert_eq!(PlantPreset::FERN.group, "Ground cover");
     assert_eq!(FieldPreset::MEADOW.key, "MEADOW");
@@ -169,7 +169,7 @@ fn every_plant_preset_grows_at_a_density_of_its_own() {
     for preset in PlantPreset::all() {
         let density = preset.plant.density;
         assert!(
-            density > 0.0 && density <= GrassPlant::LAWN_GRASS.density,
+            density > 0.0 && density <= PlantParams::LAWN_GRASS.density,
             "{}: {density} plants per m²",
             preset.key
         );
@@ -188,7 +188,7 @@ fn every_plant_preset_grows_at_a_density_of_its_own() {
     let broom = &FieldPreset::BROOM.field.plants;
     assert_eq!(
         broom.last().map(|entry| entry.plant),
-        Some(GrassPlant::BROOM)
+        Some(PlantParams::BROOM)
     );
-    assert_eq!(broom[0].plant, GrassPlant::MEADOW_GRASS);
+    assert_eq!(broom[0].plant, PlantParams::MEADOW_GRASS);
 }

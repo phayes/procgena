@@ -18,7 +18,7 @@ use crate::mesh::stone_mesh;
 
 /// Requests a generated rock positioned by the entity's transform.
 ///
-/// Add this component to an entity after installing [`ZeStonePlugin`](crate::ZeStonePlugin).
+/// Add this component to an entity after installing [`StonePlugin`](crate::StonePlugin).
 /// The rock appears when background generation finishes, as one child entity
 /// per detail level. Rocks with identical options share meshes and materials.
 ///
@@ -33,8 +33,8 @@ use crate::mesh::stone_mesh;
 /// level's mesh resolution, switching distance and texture size.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
-pub enum ZeStone {
-    /// Generate from options supplied in memory. Use [`ZeStone::new`] to wrap owned options.
+pub enum StoneParams {
+    /// Generate from options supplied in memory. Use [`StoneParams::new`] to wrap owned options.
     Options(Arc<StoneOptions>),
     /// Load options from a JSON file with a `.stone.json` extension.
     /// The rock waits for the asset to load and rebuilds when Bevy reports it modified.
@@ -42,21 +42,21 @@ pub enum ZeStone {
     Asset(Handle<StoneOptionsAsset>),
 }
 
-impl ZeStone {
+impl StoneParams {
     /// Creates a rock component from options. Generation starts after it is spawned.
     pub fn new(options: StoneOptions) -> Self {
         Self::Options(Arc::new(options))
     }
 }
 
-/// Rock settings loaded from a `.stone.json` file for [`ZeStone::Asset`].
+/// Rock settings loaded from a `.stone.json` file for [`StoneParams::Asset`].
 ///
 /// Omitted JSON fields use their defaults; see [`StoneOptions::from_json`].
 /// The loader validates the settings before making the asset available.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct StoneOptionsAsset(pub StoneOptions);
 
-/// Suggested burial depth for a generated [`ZeStone`], including its option scale.
+/// Suggested burial depth for a generated [`StoneParams`], including its option scale.
 ///
 /// Added when the rock's parts spawn and removed when the rock changes.
 /// No offset is applied automatically. For an unrotated entity with unit
@@ -67,7 +67,7 @@ pub struct StoneOptionsAsset(pub StoneOptions);
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct StoneEmbedDepth(pub f32);
 
-/// Identifies a generated child entity that draws one detail level of a [`ZeStone`].
+/// Identifies a generated child entity that draws one detail level of a [`StoneParams`].
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StonePart {
     /// Index into the rock's [`MeshOptions::detail`](procgena_stone::MeshOptions::detail)
@@ -115,16 +115,16 @@ pub(crate) struct SpawnSettings {
 #[derive(Component, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StoneKey(Arc<str>);
 
-/// Present on a [`ZeStone`] entity while its rock is being prepared.
+/// Present on a [`StoneParams`] entity while its rock is being prepared.
 ///
-/// The plugin adds this whenever a rock is spawned or its [`ZeStone`] changes,
+/// The plugin adds this whenever a rock is spawned or its [`StoneParams`] changes,
 /// and removes it once the rock's parts have been spawned or generation has
 /// failed. A [`StoneFinished`] event is triggered at the same moment. While a
 /// `.stone.json` asset has not loaded yet, the marker stays on.
 #[derive(Component, Debug, Default)]
 pub struct StoneGenerating;
 
-/// Triggered on a [`ZeStone`] entity when preparing its rock ends.
+/// Triggered on a [`StoneParams`] entity when preparing its rock ends.
 ///
 /// Observe it on the entity, or globally, to learn when a new or changed rock
 /// has appeared. On success the rock's [`StonePart`] children are queued with
@@ -205,7 +205,10 @@ struct MaterialKey {
 
 impl MaterialKey {
     /// Identifies the requested surface settings and optional texture images.
-    fn new(material: &procgena_stone::MaterialOptions, textures: Option<(String, TextureSize)>) -> Self {
+    fn new(
+        material: &procgena_stone::MaterialOptions,
+        textures: Option<(String, TextureSize)>,
+    ) -> Self {
         Self {
             textures,
             color: material.color.map(f32::to_bits),
@@ -216,12 +219,12 @@ impl MaterialKey {
     }
 }
 
-/// Removes generated children when a rock changes or loses its [`ZeStone`] component.
+/// Removes generated children when a rock changes or loses its [`StoneParams`] component.
 /// Changed rocks are marked to generate replacement parts; unrelated children are kept.
 pub(crate) fn reset_changed_stones(
     mut commands: Commands,
-    changed: Query<(Entity, Option<&Children>), Changed<ZeStone>>,
-    mut removed: RemovedComponents<ZeStone>,
+    changed: Query<(Entity, Option<&Children>), Changed<StoneParams>>,
+    mut removed: RemovedComponents<StoneParams>,
     children: Query<&Children>,
     parts: Query<(), With<StonePart>>,
 ) {
@@ -250,12 +253,12 @@ pub(crate) fn reset_changed_stones(
 /// Marks rocks for rebuilding when Bevy reports a change to their options asset.
 pub(crate) fn reload_modified_options(
     mut events: MessageReader<AssetEvent<StoneOptionsAsset>>,
-    mut stones: Query<&mut ZeStone>,
+    mut stones: Query<&mut StoneParams>,
 ) {
     for event in events.read() {
         if let AssetEvent::Modified { id } = event {
             for mut stone in &mut stones {
-                if matches!(&*stone, ZeStone::Asset(handle) if handle.id() == *id) {
+                if matches!(&*stone, StoneParams::Asset(handle) if handle.id() == *id) {
                     stone.set_changed();
                 }
             }
@@ -270,14 +273,14 @@ type AwaitingKey = (With<StoneGenerating>, Without<StoneKey>);
 /// when those options are not already cached.
 pub(crate) fn start_generation(
     mut commands: Commands,
-    waiting: Query<(Entity, &ZeStone), AwaitingKey>,
+    waiting: Query<(Entity, &StoneParams), AwaitingKey>,
     options_assets: Res<Assets<StoneOptionsAsset>>,
     mut cache: ResMut<StoneCache>,
 ) {
     for (entity, stone) in &waiting {
         let options = match stone {
-            ZeStone::Options(options) => options.clone(),
-            ZeStone::Asset(handle) => match options_assets.get(handle) {
+            StoneParams::Options(options) => options.clone(),
+            StoneParams::Asset(handle) => match options_assets.get(handle) {
                 Some(asset) => Arc::new(asset.0.clone()),
                 None => continue,
             },
@@ -575,7 +578,7 @@ mod tests {
     #[test]
     fn generating_marker_lasts_until_parts_spawn() {
         let mut app = spawn_app();
-        let stone = app.world_mut().spawn(ZeStone::new(quick())).id();
+        let stone = app.world_mut().spawn(StoneParams::new(quick())).id();
 
         app.update();
         assert!(app.world().entity(stone).contains::<StoneGenerating>());
@@ -588,7 +591,7 @@ mod tests {
         // Touching the rock replaces its parts. The options are cached, so
         // this finishes within one update.
         app.world_mut()
-            .get_mut::<ZeStone>(stone)
+            .get_mut::<StoneParams>(stone)
             .unwrap()
             .set_changed();
         app.update();
@@ -598,7 +601,7 @@ mod tests {
 
         // New options generate again.
         let options = StoneOptions { seed: 7, ..quick() };
-        *app.world_mut().get_mut::<ZeStone>(stone).unwrap() = ZeStone::new(options);
+        *app.world_mut().get_mut::<StoneParams>(stone).unwrap() = StoneParams::new(options);
         app.update();
         assert!(app.world().entity(stone).contains::<StoneGenerating>());
         update_until_finished(&mut app, stone);
@@ -607,7 +610,7 @@ mod tests {
         // A different detail set is a different rock: it generates its own levels.
         let mut options = StoneOptions { seed: 7, ..quick() };
         options.mesh.detail = StoneDetail::single(16, TextureSize::Size512);
-        *app.world_mut().get_mut::<ZeStone>(stone).unwrap() = ZeStone::new(options);
+        *app.world_mut().get_mut::<StoneParams>(stone).unwrap() = StoneParams::new(options);
         app.update();
         assert!(app.world().entity(stone).contains::<StoneGenerating>());
         update_until_finished(&mut app, stone);
@@ -632,7 +635,7 @@ mod tests {
         let mut app = spawn_app();
         app.add_systems(Update, prune_cache.after(spawn_parts));
         let spawn = |app: &mut App, options: StoneOptions| {
-            let stone = app.world_mut().spawn(ZeStone::new(options)).id();
+            let stone = app.world_mut().spawn(StoneParams::new(options)).id();
             update_until_finished(app, stone);
             stone
         };
@@ -662,7 +665,8 @@ mod tests {
     #[test]
     fn json_assets_load_partial_options() {
         // Write a partial settings file into a fresh asset folder.
-        let dir = std::env::temp_dir().join(format!("ze_stone_bevy_assets_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("procgena_stone_bevy_assets_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("rock.stone.json"),
@@ -678,7 +682,10 @@ mod tests {
             .world()
             .resource::<AssetServer>()
             .load::<StoneOptionsAsset>("rock.stone.json");
-        let stone = app.world_mut().spawn(ZeStone::Asset(handle.clone())).id();
+        let stone = app
+            .world_mut()
+            .spawn(StoneParams::Asset(handle.clone()))
+            .id();
         update_until_finished(&mut app, stone);
         std::fs::remove_dir_all(&dir).unwrap();
 
@@ -701,7 +708,7 @@ mod tests {
             scale: 0.0,
             ..quick()
         };
-        let stone = app.world_mut().spawn(ZeStone::new(options)).id();
+        let stone = app.world_mut().spawn(StoneParams::new(options)).id();
 
         update_until_finished(&mut app, stone);
         assert!(part_lods(&mut app, stone).is_empty());

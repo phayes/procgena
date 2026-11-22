@@ -2,18 +2,18 @@ use super::*;
 
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
-fn gpu_trampled_grass_lies_down_stays_put_and_recovers() {
+fn gpu_trampled_plants_lie_down_stay_put_and_recover() {
     let mut app = headless_app();
     // Without wind an untouched blade stands nearly straight.
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         strength: 0.0,
-        ..GrassWind::CALM
+        ..PlantWind::CALM
     });
     let at = Vec2::new(4.0, 12.0);
     let interactor = app
         .world_mut()
         .spawn((
-            GrassInteractor {
+            PlantInteractor {
                 radius: 1.0,
                 strength: 1.0,
                 ..Default::default()
@@ -98,16 +98,16 @@ fn gpu_trampled_grass_lies_down_stays_put_and_recovers() {
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_an_interactor_with_a_height_limit_only_tramples_near_the_ground() {
     let mut app = headless_app();
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         strength: 0.0,
-        ..GrassWind::CALM
+        ..PlantWind::CALM
     });
     let at = Vec2::new(4.0, 12.0);
     // A bird: five metres up, where the grass is a few tens of centimetres.
     let bird = app
         .world_mut()
         .spawn((
-            GrassInteractor {
+            PlantInteractor {
                 radius: 1.0,
                 max_height: Some(1.0),
                 ..Default::default()
@@ -158,8 +158,8 @@ fn gpu_an_interactor_with_a_height_limit_only_tramples_near_the_ground() {
 
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
-fn gpu_trample_settings_decide_how_far_and_how_long_grass_lies_down() {
-    use crate::GrassSettings;
+fn gpu_trample_settings_decide_how_far_and_how_long_plants_lie_down() {
+    use crate::PlantSettings;
 
     // A 4 m interactor in still air, and the bends of blades 2.6 to 3.4 m
     // from its centre, which a 2 m cap leaves alone.
@@ -172,13 +172,13 @@ fn gpu_trample_settings_decide_how_far_and_how_long_grass_lies_down() {
             .collect()
     };
     let spawn = |app: &mut App| {
-        app.insert_resource(GrassWind {
+        app.insert_resource(PlantWind {
             strength: 0.0,
-            ..GrassWind::CALM
+            ..PlantWind::CALM
         });
         app.world_mut()
             .spawn((
-                GrassInteractor {
+                PlantInteractor {
                     radius: 4.0,
                     strength: 1.0,
                     ..Default::default()
@@ -190,7 +190,7 @@ fn gpu_trample_settings_decide_how_far_and_how_long_grass_lies_down() {
 
     let mut capped = headless_app();
     spawn(&mut capped);
-    wait_for_grass(&mut capped);
+    wait_for_plants(&mut capped);
     for _ in 0..10 {
         capped.update();
     }
@@ -202,12 +202,12 @@ fn gpu_trample_settings_decide_how_far_and_how_long_grass_lies_down() {
     );
 
     let mut wide = headless_app();
-    wide.insert_resource(GrassSettings {
+    wide.insert_resource(PlantSettings {
         max_interactor_radius: 6.0,
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     });
     let interactor = spawn(&mut wide);
-    wait_for_grass(&mut wide);
+    wait_for_plants(&mut wide);
     for _ in 0..10 {
         wide.update();
     }
@@ -225,10 +225,10 @@ fn gpu_trample_settings_decide_how_far_and_how_long_grass_lies_down() {
     // Slower recovery: two seconds after the interactor leaves, the grass is
     // still down, where at the default 1.5 s it would have stood up again.
     wide.world_mut().despawn(interactor);
-    *wide.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *wide.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         max_interactor_radius: 6.0,
         trample_recovery: 12.0,
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     };
     for _ in 0..120 {
         wide.update();
@@ -250,10 +250,10 @@ fn gpu_trample_settings_decide_how_far_and_how_long_grass_lies_down() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_trample_cells_of_another_size_make_another_window() {
-    use crate::GrassSettings;
+    use crate::PlantSettings;
 
     let mut app = headless_app();
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     let (default_view, _) = gpu_instances(&mut app).expect("a grass view");
     assert_eq!(default_view.trample_step.x, 0.25);
     let camera = default_view.camera_position;
@@ -265,9 +265,9 @@ fn gpu_trample_cells_of_another_size_make_another_window() {
     ) * 0.25;
     assert!((origin + Vec2::splat(32.0) - camera).abs().max_element() <= 0.5);
 
-    app.insert_resource(GrassSettings {
+    app.insert_resource(PlantSettings {
         trample_cell_size: 1.0,
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     });
     for _ in 0..4 {
         app.update();
@@ -281,18 +281,18 @@ fn gpu_trample_cells_of_another_size_make_another_window() {
 
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
-fn gpu_a_box_lays_grass_its_way_and_pushes_only_its_sides_out() {
+fn gpu_a_box_lays_plants_its_way_and_pushes_only_its_sides_out() {
     let mut app = headless_app();
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         strength: 0.0,
-        ..GrassWind::CALM
+        ..PlantWind::CALM
     });
     // A 4 × 2 m sledge, long along X, resting in the grass.
     let start = Vec2::new(0.0, 14.0);
     let sledge = app
         .world_mut()
         .spawn((
-            GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(2.0, 0.5, 1.0)),
+            PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(2.0, 0.5, 1.0)),
             Transform::from_xyz(start.x, 0.5, start.y),
         ))
         .id();

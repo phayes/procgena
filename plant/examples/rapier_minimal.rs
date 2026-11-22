@@ -1,7 +1,7 @@
 //! The smallest Rapier interaction example: a field, a ground collider, a
 //! capsule character and a large box, all trampling grass.
 //!
-//! `GrassInteractorFromCollider` derives the grass footprint from the Rapier
+//! `PlantInteractorFromCollider` derives the grass footprint from the Rapier
 //! collider. The physics engine already writes `Transform`/`GlobalTransform`,
 //! so there is no transform to copy: the adapter only decides how big the
 //! footprint is (and gives a large collider several discs). `avian_minimal`
@@ -12,14 +12,14 @@
 //! ```
 
 use bevy::prelude::*;
-use procgena_plant::prelude::*;
 use bevy_rapier3d::prelude::*;
+use procgena_plant::prelude::*;
 
 fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            GrassPlugins,
+            PlantPlugins,
             RapierPhysicsPlugin::<NoUserData>::default(),
         ))
         .add_systems(Startup, setup)
@@ -71,20 +71,20 @@ fn setup(
         Transform::from_xyz(0.0, -0.5, 0.0),
     ));
 
-    commands.spawn(GrassField::from_preset(
+    commands.spawn(PlantField::from_preset(
         &FieldPreset::MEADOW,
         Vec2::splat(64.0),
     ));
 
     // A capsule character. The adapter reads the collider and adds the
-    // required `GrassInteractor` and `GrassInteractorSpread` for you.
+    // required `PlantInteractor` and `PlantInteractorSpread` for you.
     commands.spawn((
         Mesh3d(meshes.add(Capsule3d::new(0.25, 1.3))),
         MeshMaterial3d(materials.add(Color::srgb(0.15, 0.32, 0.75))),
         Transform::from_xyz(0.0, 0.9, 0.0),
         RigidBody::KinematicPositionBased,
         Collider::capsule_y(0.5, 0.4),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Orbit {
             center: Vec2::ZERO,
             radius: 4.0,
@@ -102,7 +102,7 @@ fn setup(
         Transform::from_xyz(8.0, 1.0, 0.0),
         RigidBody::KinematicPositionBased,
         Collider::cuboid(3.0, 1.0, 1.5),
-        GrassInteractorFromCollider::default(),
+        PlantInteractorFromCollider::default(),
         Orbit {
             center: Vec2::ZERO,
             radius: 9.0,

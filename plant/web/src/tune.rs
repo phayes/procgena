@@ -28,11 +28,11 @@ pub(crate) const TARGETS: [&str; 9] = [
 ];
 
 /// The wind presets, for the wind's base and the page's list.
-pub(crate) const WINDS: [(&str, GrassWind); 4] = [
-    ("CALM", GrassWind::CALM),
-    ("BREEZE", GrassWind::BREEZE),
-    ("GUSTY", GrassWind::GUSTY),
-    ("STORM", GrassWind::STORM),
+pub(crate) const WINDS: [(&str, PlantWind); 4] = [
+    ("CALM", PlantWind::CALM),
+    ("BREEZE", PlantWind::BREEZE),
+    ("GUSTY", PlantWind::GUSTY),
+    ("STORM", PlantWind::STORM),
 ];
 
 /// Density scale of a plant added from the page: a tenth of its own density,
@@ -40,8 +40,8 @@ pub(crate) const WINDS: [(&str, GrassWind); 4] = [
 const ADDED_PLANT_SCALE: f32 = 0.1;
 
 /// The debug view the demo starts with: hidden until the page turns it on.
-pub(crate) fn start_debug() -> GrassDebug {
-    GrassDebug {
+pub(crate) fn start_debug() -> PlantDebug {
+    PlantDebug {
         enabled: false,
         ..default()
     }
@@ -49,11 +49,11 @@ pub(crate) fn start_debug() -> GrassDebug {
 
 /// The brush the left mouse button paints with.
 #[derive(Resource, Debug, Clone, Copy)]
-pub(crate) struct Brush(pub(crate) GrassBrush);
+pub(crate) struct Brush(pub(crate) PlantBrush);
 
 impl Default for Brush {
     fn default() -> Self {
-        Self(GrassBrush::new(GrassEditOp::Density(0.0), 2.0))
+        Self(PlantBrush::new(PlantEditOp::Density(0.0), 2.0))
     }
 }
 
@@ -84,7 +84,7 @@ pub(crate) enum TuneEdit {
     /// The field's plant at this index taken out.
     RemovePlant(usize),
     /// A field read from a `.field.ron` file.
-    Field(Box<GrassField>),
+    Field(Box<PlantField>),
     /// The meadow's grass back as it grew, undoing the brush.
     RestoreField,
 }
@@ -155,7 +155,7 @@ pub(crate) fn apply_tuning(world: &mut World) {
                     .iter()
                     .find(|(preset, _)| *preset == name)
                     .map(|(preset, wind)| {
-                        *world.resource_mut::<GrassWind>() = *wind;
+                        *world.resource_mut::<PlantWind>() = *wind;
                         world.resource_mut::<Tuning>().wind = preset;
                     })
                     .ok_or_else(|| format!("no wind {name}"))
@@ -176,7 +176,7 @@ pub(crate) fn apply_tuning(world: &mut World) {
                 outside = true;
                 edit_field(world, |field| {
                     // Apply the file's appearance while preserving the preview's placement.
-                    *field = GrassField {
+                    *field = PlantField {
                         size: field.size,
                         ground: field.ground.clone(),
                         density_map: field.density_map.clone(),
@@ -186,7 +186,7 @@ pub(crate) fn apply_tuning(world: &mut World) {
             }
             TuneEdit::RestoreField => {
                 let half = crate::MEADOW * 0.5;
-                world.write_message(GrassEdit::restore(GrassBrushShape::rect(
+                world.write_message(PlantEdit::restore(PlantBrushShape::rect(
                     Vec2::ZERO,
                     Vec2::splat(half),
                     0.0,
@@ -237,7 +237,7 @@ fn write_tunables(world: &World, json: &mut String) {
         json.push_str(",\"rust\":");
         write_string(&rust, json);
         if *name == "field"
-            && let Some(field) = value.try_downcast_ref::<GrassField>()
+            && let Some(field) = value.try_downcast_ref::<PlantField>()
         {
             json.push_str(",\"ron\":");
             write_string(&field.to_ron(), json);
@@ -264,10 +264,10 @@ fn add_plant(world: &mut World, key: &str) -> Result<(), String> {
     })
 }
 
-fn edit_field(world: &mut World, change: impl FnOnce(&mut GrassField)) -> Result<(), String> {
+fn edit_field(world: &mut World, change: impl FnOnce(&mut PlantField)) -> Result<(), String> {
     let entity = world.resource::<Meadow>().field;
     let mut field = world
-        .get_mut::<GrassField>(entity)
+        .get_mut::<PlantField>(entity)
         .ok_or("the meadow has no field")?;
     change(&mut field);
     far_follows_field(world);
@@ -279,13 +279,13 @@ fn far_follows_field(world: &mut World) {
     let meadow = world.resource::<Meadow>();
     let (field, ground) = (meadow.field, meadow.ground.clone());
     let Some(color) = world
-        .get::<GrassField>(field)
-        .map(|field| FarGrass::new(field).color)
+        .get::<PlantField>(field)
+        .map(|field| FarPlants::new(field).color)
     else {
         return;
     };
     if let Some(mut material) = world
-        .resource_mut::<Assets<FarGrassMaterial>>()
+        .resource_mut::<Assets<FarPlantMaterial>>()
         .get_mut(&ground)
     {
         material.extension.color = color;
@@ -297,7 +297,7 @@ fn reset(world: &mut World, name: &str) -> Result<(), String> {
     let (quality, preset) = (meadow.quality, meadow.preset);
     let preset = crate::preset(preset);
     match name {
-        "settings" => *world.resource_mut::<GrassSettings>() = QUALITIES[quality].1,
+        "settings" => *world.resource_mut::<PlantSettings>() = QUALITIES[quality].1,
         "field" => {
             let preset = preset.ok_or("no preset")?;
             edit_field(world, |current| *current = crate::meadow_field(preset))?;
@@ -306,19 +306,19 @@ fn reset(world: &mut World, name: &str) -> Result<(), String> {
             let ground = world.resource::<Meadow>().ground.clone();
             let preset = preset.ok_or("no preset")?;
             if let Some(mut material) = world
-                .resource_mut::<Assets<FarGrassMaterial>>()
+                .resource_mut::<Assets<FarPlantMaterial>>()
                 .get_mut(&ground)
             {
-                material.extension = crate::far_grass(&preset.field);
+                material.extension = crate::far_plants(&preset.field);
             }
         }
         "wind" => {
             let wind = world.resource::<Tuning>().wind;
             let wind = WINDS.iter().find(|(preset, _)| *preset == wind);
-            *world.resource_mut::<GrassWind>() = wind.map_or_else(GrassWind::default, |w| w.1);
+            *world.resource_mut::<PlantWind>() = wind.map_or_else(PlantWind::default, |w| w.1);
         }
         // Where the demo starts differs from the type's default.
-        "debug" => *world.resource_mut::<GrassDebug>() = start_debug(),
+        "debug" => *world.resource_mut::<PlantDebug>() = start_debug(),
         "brush" => *world.resource_mut::<Brush>() = Brush::default(),
         _ => {
             let registry = world.resource::<AppTypeRegistry>().clone();
@@ -345,7 +345,7 @@ fn base(world: &World, name: &str) -> (Option<Box<dyn PartialReflect>>, String) 
     match name {
         "settings" => {
             let (tier, settings) = QUALITIES[meadow.quality];
-            (Some(Box::new(settings)), format!("GrassSettings::{tier}"))
+            (Some(Box::new(settings)), format!("PlantSettings::{tier}"))
         }
         // The preset's own field, so the meadow's size reads as a change.
         "field" => (
@@ -359,7 +359,7 @@ fn base(world: &World, name: &str) -> (Option<Box<dyn PartialReflect>>, String) 
                     .iter()
                     .find(|(preset, _)| *preset == wind)
                     .map(|(_, wind)| Box::new(*wind) as _),
-                format!("GrassWind::{wind}"),
+                format!("PlantWind::{wind}"),
             )
         }
         "far" => (None, String::new()),
@@ -379,26 +379,26 @@ fn target<'w>(world: &'w World, name: &str) -> Option<&'w dyn PartialReflect> {
     let meadow = world.get_resource::<Meadow>()?;
     match name {
         "settings" => world
-            .get_resource::<GrassSettings>()
+            .get_resource::<PlantSettings>()
             .map(|value| value as _),
-        "wind" => world.get_resource::<GrassWind>().map(|value| value as _),
-        "debug" => world.get_resource::<GrassDebug>().map(|value| value as _),
+        "wind" => world.get_resource::<PlantWind>().map(|value| value as _),
+        "debug" => world.get_resource::<PlantDebug>().map(|value| value as _),
         "brush" => world.get_resource::<Brush>().map(|brush| &brush.0 as _),
         "field" => world
-            .get::<GrassField>(meadow.field)
+            .get::<PlantField>(meadow.field)
             .map(|value| value as _),
         "far" => world
-            .resource::<Assets<FarGrassMaterial>>()
+            .resource::<Assets<FarPlantMaterial>>()
             .get(&meadow.ground)
             .map(|material| &material.extension as _),
         "regrowth" => world
-            .get::<GrassRegrowth>(meadow.field)
+            .get::<PlantRegrowth>(meadow.field)
             .map(|value| value as _),
         "walker" => world
-            .get::<GrassInteractor>(meadow.walker)
+            .get::<PlantInteractor>(meadow.walker)
             .map(|value| value as _),
         "camera" => world
-            .get::<GrassCamera>(meadow.camera)
+            .get::<PlantCamera>(meadow.camera)
             .map(|value| value as _),
         _ => None,
     }
@@ -415,19 +415,19 @@ fn with_target_mut<R>(
     let ground = meadow.ground.clone();
     let (field, walker, camera) = (meadow.field, meadow.walker, meadow.camera);
     match name {
-        "settings" => Some(change(&mut *world.resource_mut::<GrassSettings>())),
-        "wind" => Some(change(&mut *world.resource_mut::<GrassWind>())),
-        "debug" => Some(change(&mut *world.resource_mut::<GrassDebug>())),
+        "settings" => Some(change(&mut *world.resource_mut::<PlantSettings>())),
+        "wind" => Some(change(&mut *world.resource_mut::<PlantWind>())),
+        "debug" => Some(change(&mut *world.resource_mut::<PlantDebug>())),
         "brush" => Some(change(&mut world.resource_mut::<Brush>().0)),
-        "field" => Some(change(&mut *world.get_mut::<GrassField>(field)?)),
+        "field" => Some(change(&mut *world.get_mut::<PlantField>(field)?)),
         "far" => {
-            let mut materials = world.resource_mut::<Assets<FarGrassMaterial>>();
+            let mut materials = world.resource_mut::<Assets<FarPlantMaterial>>();
             let mut material = materials.get_mut(&ground)?;
             Some(change(&mut material.extension))
         }
-        "regrowth" => Some(change(&mut *world.get_mut::<GrassRegrowth>(field)?)),
-        "walker" => Some(change(&mut *world.get_mut::<GrassInteractor>(walker)?)),
-        "camera" => Some(change(&mut *world.get_mut::<GrassCamera>(camera)?)),
+        "regrowth" => Some(change(&mut *world.get_mut::<PlantRegrowth>(field)?)),
+        "walker" => Some(change(&mut *world.get_mut::<PlantInteractor>(walker)?)),
+        "camera" => Some(change(&mut *world.get_mut::<PlantCamera>(camera)?)),
         _ => None,
     }
 }

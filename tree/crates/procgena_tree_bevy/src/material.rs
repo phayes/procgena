@@ -24,7 +24,8 @@ use crate::mesh::{
 /// Vertex shader for drawing wind-animated trees in the main render pass.
 pub(crate) const TREE_SHADER: &str = "embedded://procgena_tree_bevy/shaders/tree.wesl";
 /// Vertex shader that keeps depth, shadows and deferred rendering aligned with wind motion.
-pub(crate) const TREE_PREPASS_SHADER: &str = "embedded://procgena_tree_bevy/shaders/tree_prepass.wesl";
+pub(crate) const TREE_PREPASS_SHADER: &str =
+    "embedded://procgena_tree_bevy/shaders/tree_prepass.wesl";
 
 /// Input slot for [`ATTRIBUTE_WIND`], after Bevy's vertex attribute slots 0–7.
 const WIND_LOCATION: u32 = 8;
@@ -46,7 +47,7 @@ pub type TreeMaterial = ExtendedMaterial<StandardMaterial, WindExtension>;
 
 /// Adds wind animation to a [`TreeMaterial`].
 ///
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) updates every tree material from the
+/// [`TreePlugin`](crate::TreePlugin) updates every tree material from the
 /// global [`Wind`](crate::Wind) resource, including materials you create yourself.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
 pub struct WindExtension {
@@ -283,7 +284,7 @@ fn load_repeating(asset_server: &AssetServer, path: String, srgb: bool) -> Handl
 /// omits the normal map to avoid reversed lighting detail on every other branch
 /// section. Pair this material with [`bark_mesh`](crate::bark_mesh) for texture
 /// repeat and flat shading.
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
+/// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
 pub fn bark_material(
     bark: &BarkOptions,
     textures: Option<&BarkTextures>,
@@ -317,7 +318,7 @@ pub fn bark_material(
 /// [`procgena_tree::BARK_KINDS`], the colour combines the bark tint with
 /// [`bark_average_color`], approximating textured bark viewed from a distance.
 /// Otherwise, the material uses the tint alone.
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
+/// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
 pub fn average_bark_material(bark: &BarkOptions, wind: WindParams) -> TreeMaterial {
     let settings = BarkMaterial::new(bark);
     let average = bark_average_color(&bark.kind).filter(|_| settings.textured);
@@ -348,7 +349,7 @@ pub fn average_bark_material(bark: &BarkOptions, wind: WindParams) -> TreeMateri
 /// pass textures with no normal map: these meshes have no tangents.
 /// With [`LeafOptions::rounded_normals`], back faces keep the front’s lighting
 /// direction for a softer canopy appearance.
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
+/// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
 pub fn leaf_material(
     leaves: &LeafOptions,
     textures: Option<&LeafTextures>,
@@ -376,7 +377,7 @@ pub fn leaf_material(
 /// Creates a wind-animated fruit material. Pair it with
 /// [`cluster_mesh`](crate::cluster_mesh): the colour comes from the mesh's
 /// vertex colours. Both sides of each triangle are visible.
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
+/// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
 pub fn fruit_material(wind: WindParams) -> TreeMaterial {
     let settings = FruitMaterial::default();
     vertex_color_material(
@@ -390,7 +391,7 @@ pub fn fruit_material(wind: WindParams) -> TreeMaterial {
 /// Creates a wind-animated flower material. Pair it with
 /// [`cluster_mesh`](crate::cluster_mesh): the colour comes from the mesh's
 /// vertex colours. Both sides of each triangle are visible.
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
+/// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
 pub fn flower_material(wind: WindParams) -> TreeMaterial {
     let settings = FlowerMaterial::default();
     vertex_color_material(

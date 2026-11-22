@@ -4,7 +4,7 @@
 //! cargo run -p procgena_tree --example export --features export-obj,export-gltf -- [OUT_DIR] [TEXTURE_DIR]
 //! ```
 //!
-//! Files are saved in `OUT_DIR`, which defaults to `target/ze_tree_export` in
+//! Files are saved in `OUT_DIR`, which defaults to `target/procgena_tree_export` in
 //! this workspace. Each preset produces:
 //!
 //! - `<preset>.obj` and `<preset>.mtl`: the full-detail model and its material
@@ -17,7 +17,7 @@
 //!
 //! `TEXTURE_DIR` is optional and defaults to `assets/textures/images` in this
 //! workspace. It must contain the paths given by [`TextureRef::image_path`];
-//! this example uses 1k bark images. Populate it with `tools/textures/images.sh`
+//! this example uses 1k bark images. Populate it with `uv run --project tools textures images tree`
 //! or download the images listed in its `images_manifest.json`. Missing images
 //! are omitted, leaving the material colours or surface settings in use.
 //!
@@ -39,9 +39,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .join("../..")
         .canonicalize()?;
     let mut args = std::env::args().skip(1);
-    let out_dir = args
-        .next()
-        .map_or_else(|| workspace.join("target/ze_tree_export"), PathBuf::from);
+    let out_dir = args.next().map_or_else(
+        || workspace.join("target/procgena_tree_export"),
+        PathBuf::from,
+    );
     let texture_dir = args
         .next()
         .map(PathBuf::from)

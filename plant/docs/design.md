@@ -71,8 +71,8 @@ numbers.
 2. **Rounded normals.** Normals tilt across the blade's width, so a flat strip
    shades like a curved leaf. Back faces are lit as well as front faces.
 3. **No paper-thin blades.** A blade turning edge-on to the camera rotates
-   slightly toward it (`GrassSettings::turn_to_camera`). Blades never get
-   narrower than `GrassSettings::min_width_px` (1 pixel by default) on screen,
+   slightly toward it (`PlantSettings::turn_to_camera`). Blades never get
+   narrower than `PlantSettings::min_width_px` (1 pixel by default) on screen,
    which removes most shimmer.
 4. **Even, natural spacing.** Positions come from a blue-noise tile, with no
    bald spots or accidental clumps, and the field reads equally dense at every
@@ -84,7 +84,7 @@ numbers.
    across the world, sampled twice, the second turned and larger, so the
    gusts do not repeat in a grid when seen from high above. Each blade also sways at its own phase and at a
    frequency set by its stiffness, so neighbours never move in lockstep. Near
-   tips get a small flutter. `GrassWind::sway`, `sway_speed`, `flutter` and
+   tips get a small flutter. `PlantWind::sway`, `sway_speed`, `flutter` and
    `gust_contrast` turn each layer up or down.
 7. **Bevy's own lighting.** Grass goes through Bevy's PBR functions, so it
    gets every light type, cascaded shadows, environment maps and fog, and
@@ -111,11 +111,11 @@ numbers.
     The stalk bends with the gusts and trampling as a blade does, each branch
     sways on its own by its stiffness, and leaves flutter.
 14. **Trampling with trails.** Grass parts around anything with a
-    `GrassInteractor` and recovers over about 1.5 s (`trample_recovery`), in
+    `PlantInteractor` and recovers over about 1.5 s (`trample_recovery`), in
     world space, so trails stay put while the camera moves. Large bodies
     flatten as one shape: the grass under a moving vehicle lies the way it
     drives, and only its sides push out.
-15. **No seam at the horizon.** `FarGrassMaterial` turns the ground the grass
+15. **No seam at the horizon.** `FarPlantMaterial` turns the ground the grass
     colour as the blades thin out, with the same gusts rolling across it,
     seen at a glancing angle as on real grass, and fading out seen from
     above.

@@ -695,7 +695,11 @@ impl Skeleton {
         let cull = &mut mesh.billboard_cull;
 
         // Decide each branch's surface, whether it is drawn, and which tube ends to seal.
-        let shapes: Vec<Shape> = self.branches.iter().map(|b| Shape::new(detail, b)).collect();
+        let shapes: Vec<Shape> = self
+            .branches
+            .iter()
+            .map(|b| Shape::new(detail, b))
+            .collect();
         let kept: Vec<bool> = self
             .branches
             .iter()
@@ -804,7 +808,10 @@ struct Caps {
 fn tube_caps(skeleton: &Skeleton, shapes: &[Shape], kept: &[bool], closed: bool) -> Vec<Caps> {
     let tube = |i: usize| kept[i] && shapes[i].kind == BranchShape::Tube;
     let mut caps: Vec<Caps> = (0..skeleton.branches.len())
-        .map(|i| Caps { base: closed && tube(i), tip: closed && tube(i) })
+        .map(|i| Caps {
+            base: closed && tube(i),
+            tip: closed && tube(i),
+        })
         .collect();
     if !closed {
         return caps;
@@ -977,7 +984,8 @@ fn connect_rings(out: &mut MeshBuffers, first: u32, rings: u32, ring: u32, sides
 /// `segments + 1` vertices, the last repeating the first position.
 fn fan_to_point(out: &mut MeshBuffers, ring: u32, point: u32, segments: u32) {
     for j in 0..segments {
-        out.indices.extend_from_slice(&[ring + j, point, ring + j + 1]);
+        out.indices
+            .extend_from_slice(&[ring + j, point, ring + j + 1]);
     }
 }
 
@@ -988,7 +996,11 @@ fn fan_to_point(out: &mut MeshBuffers, ring: u32, point: u32, segments: u32) {
 fn cap_ring(out: &mut MeshBuffers, first: u32, segments: u32, facing_tip: bool) {
     for j in 1..segments - 1 {
         let (a, b) = (first + j, first + j + 1);
-        let triangle = if facing_tip { [first, b, a] } else { [first, a, b] };
+        let triangle = if facing_tip {
+            [first, b, a]
+        } else {
+            [first, a, b]
+        };
         out.indices.extend_from_slice(&triangle);
     }
 }
@@ -1303,7 +1315,16 @@ mod tests {
         let shape = tube(&branch, 1.0);
         let mut cull = MeshBuffers::default();
         let buffers = [&mut out, &mut cull];
-        let span = mesh_branch(buffers, &branch, 0, 3, shape, Caps::default(), &mirrored, &wind(&branch));
+        let span = mesh_branch(
+            buffers,
+            &branch,
+            0,
+            3,
+            shape,
+            Caps::default(),
+            &mirrored,
+            &wind(&branch),
+        );
         assert_eq!(span.sections, vec![0, 3, 6, 7]);
         assert_eq!(span.vertices, 0..4 * 5);
         assert_eq!(span.indices, 0..3 * 4 * 6);
@@ -1315,7 +1336,16 @@ mod tests {
         let short = straight_branch(7, 4);
         let shape = tube(&short, 1.0);
         let buffers = [&mut out, &mut cull];
-        let span = mesh_branch(buffers, &short, 1, 3, shape, Caps::default(), &mirrored, &wind(&short));
+        let span = mesh_branch(
+            buffers,
+            &short,
+            1,
+            3,
+            shape,
+            Caps::default(),
+            &mirrored,
+            &wind(&short),
+        );
         assert_eq!(span.sections, vec![0, 3, 6]);
         assert_eq!(span.vertices, 20..35);
         // Tube branches must not add fallback ribbon geometry.
@@ -1331,7 +1361,16 @@ mod tests {
         let branch = straight_branch(2, 5);
         let shape = tube(&branch, 0.1);
         let buffers = [&mut out, &mut MeshBuffers::default()];
-        let span = mesh_branch(buffers, &branch, 0, 1, shape, Caps::default(), &mirrored, &wind(&branch));
+        let span = mesh_branch(
+            buffers,
+            &branch,
+            0,
+            1,
+            shape,
+            Caps::default(),
+            &mirrored,
+            &wind(&branch),
+        );
         assert_eq!(span.segments, 3);
     }
 

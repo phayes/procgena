@@ -1,12 +1,12 @@
 use super::*;
-use crate::api::{GrassVariation, GroundTint};
+use crate::api::{GroundTint, PlantVariation};
 
 fn srgb(color: Color) -> (f32, f32, f32) {
     let c = color.to_srgba();
     (c.red, c.green, c.blue)
 }
 
-/// Finds the shipped preset under `assets/grass_plants` or `assets/grass_fields`.
+/// Finds the shipped preset under `assets/plants` or `assets/fields`.
 fn shipped_path(folder: &str, key: &str, extension: &str) -> String {
     format!(
         "{}/assets/{folder}/{}.{extension}",
@@ -40,7 +40,7 @@ fn shipped(path: &str, text: impl FnOnce() -> String) -> String {
 fn every_shipped_plant_file_matches_its_constant() {
     // `BLESS_PRESETS=1 cargo test` rewrites the files from the constants.
     for preset in PlantPreset::all() {
-        let path = shipped_path("grass_plants", &preset.key, "plant.ron");
+        let path = shipped_path("plants", &preset.key, "plant.ron");
         let text = shipped(&path, || {
             format!(
                 "{}{}\n",
@@ -60,7 +60,7 @@ fn every_shipped_plant_file_matches_its_constant() {
 fn every_shipped_field_file_matches_its_constant() {
     // `BLESS_PRESETS=1 cargo test` rewrites the files from the constants.
     for preset in FieldPreset::all() {
-        let path = shipped_path("grass_fields", &preset.key, "field.ron");
+        let path = shipped_path("fields", &preset.key, "field.ron");
         let text = shipped(&path, || {
             format!(
                 "{}{}\n",
@@ -85,7 +85,7 @@ fn every_preset_is_shipped_as_an_embedded_file_that_is_the_preset() {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<PlantPreset>()
         .init_asset::<FieldPreset>()
-        .add_plugins(GrassFilePlugin);
+        .add_plugins(PlantFilePlugin);
     let (plants, fields): (Vec<Handle<PlantPreset>>, Vec<Handle<FieldPreset>>) = {
         let server = app.world().resource::<AssetServer>();
         let plants = PlantPreset::all()
@@ -148,7 +148,7 @@ fn every_preset_is_shipped_as_an_embedded_file_that_is_the_preset() {
 
 #[test]
 fn a_plant_is_given_by_key_or_written_inline() {
-    let field = GrassField::from_ron(
+    let field = PlantField::from_ron(
         r#"(
             base: "SUMMER_TALL",
             plants: [
@@ -161,16 +161,16 @@ fn a_plant_is_given_by_key_or_written_inline() {
     )
     .unwrap();
     assert_eq!(field.plants.len(), 3);
-    assert_eq!(field.plants[0].plant, GrassPlant::SEED_HEADS);
+    assert_eq!(field.plants[0].plant, PlantParams::SEED_HEADS);
     assert_eq!(field.plants[0].clustering, 0.0);
     assert_eq!(field.plants[1].clustering, 0.8);
     assert_eq!(srgb(field.plants[1].plant.head_color), (0.75, 0.55, 0.95));
     assert_eq!(
         field.plants[1].plant.height,
-        GrassPlant::WHITE_FLOWERS.height
+        PlantParams::WHITE_FLOWERS.height
     );
     // An inline plant without a base starts from meadow grass.
-    assert_eq!(field.plants[2].plant, GrassPlant::MEADOW_GRASS);
+    assert_eq!(field.plants[2].plant, PlantParams::MEADOW_GRASS);
     // A density scale not given is 1.
     let scales: Vec<f32> = field
         .plants
@@ -184,14 +184,14 @@ fn a_plant_is_given_by_key_or_written_inline() {
     );
 
     // The same in JSON.
-    let json = GrassField::from_json(
+    let json = PlantField::from_json(
         r#"{"plants": [{"plant": "FERN", "density_scale": 0.5},
                        {"plant": {"base": "MOSS", "lean": 0.1, "density": 80.0}}]}"#,
     )
     .unwrap();
-    assert_eq!(json.plants[0].plant, GrassPlant::FERN);
+    assert_eq!(json.plants[0].plant, PlantParams::FERN);
     assert_eq!(json.plants[1].plant.lean, 0.1);
-    assert_eq!(json.plants[1].plant.height, GrassPlant::MOSS.height);
+    assert_eq!(json.plants[1].plant.height, PlantParams::MOSS.height);
     assert_eq!(json.plants[0].density_scale, 0.5);
     assert_eq!(json.plants[1].plant.density, 80.0);
 
@@ -205,7 +205,7 @@ fn a_plant_is_given_by_key_or_written_inline() {
 
 #[test]
 fn colours_can_be_hex_as_artists_copy_them() {
-    let field = GrassField::from_ron(
+    let field = PlantField::from_ron(
         r##"(patch_color: "#5c8f24",
              plants: [(plant: (head_color: "#ff8000", segment: (root_color: (0.1, 0.2, 0.3))))])"##,
     )
@@ -223,8 +223,8 @@ fn colours_can_be_hex_as_artists_copy_them() {
         "tuples still work"
     );
 
-    let Err(GrassFileError::Parse { message, .. }) =
-        GrassPlant::from_ron(r##"(segment: (tip_color: "#5c8f2"))"##)
+    let Err(PlantFileError::Parse { message, .. }) =
+        PlantParams::from_ron(r##"(segment: (tip_color: "#5c8f2"))"##)
     else {
         panic!("a bad hex colour must be an error");
     };
@@ -232,8 +232,8 @@ fn colours_can_be_hex_as_artists_copy_them() {
 }
 
 /// Distinct segment values, offset by `k`, expose settings lost during serialisation.
-fn odd_segment(k: f32) -> GrassSegment {
-    GrassSegment {
+fn odd_segment(k: f32) -> PlantSegment {
+    PlantSegment {
         profile: 0.41 + k,
         stiffness: 0.13 + k,
         droop: 0.18 + k,
@@ -245,8 +245,8 @@ fn odd_segment(k: f32) -> GrassSegment {
 }
 
 /// A plant whose every setting differs from every preset's.
-fn odd_plant() -> GrassPlant {
-    let level = |k: f32, arrangement| GrassBranches {
+fn odd_plant() -> PlantParams {
+    let level = |k: f32, arrangement| PlantBranches {
         count: 7 + k as u32,
         arrangement,
         attachment_start: 0.21 + k,
@@ -257,7 +257,7 @@ fn odd_plant() -> GrassPlant {
         spread: 0.26 + k,
         segment: odd_segment(0.02 + k),
     };
-    GrassPlant {
+    PlantParams {
         density: 0.1,
         height: Vec2::new(0.11, 0.22),
         width: 0.011,
@@ -265,8 +265,8 @@ fn odd_plant() -> GrassPlant {
         stems_per_plant: 3,
         segment: odd_segment(0.0),
         levels: [
-            level(0.0, GrassArrangement::Alternate),
-            level(1.0 / 64.0, GrassArrangement::Opposite),
+            level(0.0, PlantArrangement::Alternate),
+            level(1.0 / 64.0, PlantArrangement::Opposite),
         ],
         root_occlusion: 0.14,
         translucency: 0.15,
@@ -278,7 +278,7 @@ fn odd_plant() -> GrassPlant {
         head_color: Color::srgb(0.7, 0.8, 0.9),
         tufts: 0.38,
         tuft_size: 0.39,
-        accent: GrassAccent {
+        accent: PlantAccent {
             share: 0.41,
             height: Vec2::new(0.42, 0.43),
             width: 0.044,
@@ -298,13 +298,13 @@ fn the_formats_hold_every_setting_of_a_plant_and_a_field() {
     // format, including nested plant, segment and branch settings.
     let plant = odd_plant();
     let text = plant.to_ron();
-    assert_eq!(GrassPlant::from_ron(&text).unwrap(), plant, "{text}");
-    assert_eq!(GrassPlant::from_json(&plant.to_json()).unwrap(), plant);
+    assert_eq!(PlantParams::from_ron(&text).unwrap(), plant, "{text}");
+    assert_eq!(PlantParams::from_json(&plant.to_json()).unwrap(), plant);
     assert!(text.contains("Alternate"), "arrangements by name: {text}");
 
-    let field = GrassField {
+    let field = PlantField {
         plants: Cow::Owned(vec![
-            FieldPlant::new(GrassPlant::CLOVER)
+            FieldPlant::new(PlantParams::CLOVER)
                 .scaled(0.4)
                 .clustered(0.41),
             FieldPlant::new(plant).scaled(0.6),
@@ -316,7 +316,7 @@ fn the_formats_hold_every_setting_of_a_plant_and_a_field() {
             color: Color::srgb(0.9, 0.8, 0.7),
             amount: 0.31,
         },
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.3, 0.2, 0.1),
             patch_amount: 0.32,
             patch_size: 7.0,
@@ -328,72 +328,73 @@ fn the_formats_hold_every_setting_of_a_plant_and_a_field() {
         ..FieldPreset::SUMMER_WILD.field
     };
     let text = field.to_ron();
-    assert_eq!(GrassField::from_ron(&text).unwrap(), field, "{text}");
-    assert_eq!(GrassField::from_json(&field.to_json()).unwrap(), field);
+    assert_eq!(PlantField::from_ron(&text).unwrap(), field, "{text}");
+    assert_eq!(PlantField::from_json(&field.to_json()).unwrap(), field);
 }
 
 #[test]
 fn an_accent_names_only_what_differs_and_is_left_out_when_off() {
-    let plant = GrassPlant::from_ron(
+    let plant = PlantParams::from_ron(
         r#"(base: "MEADOW_GRASS", accent: (share: 0.1, height: (0.9, 1.2), head_length: 0.2))"#,
     )
     .unwrap();
     assert_eq!(plant.accent.share, 0.1);
     assert_eq!(plant.accent.height, Vec2::new(0.9, 1.2));
     assert_eq!(plant.accent.head_length, 0.2);
-    assert_eq!(plant.accent.width, GrassAccent::NONE.width);
-    assert_eq!(plant.accent.segment, GrassAccent::NONE.segment);
+    assert_eq!(plant.accent.width, PlantAccent::NONE.width);
+    assert_eq!(plant.accent.segment, PlantAccent::NONE.segment);
     // A plant without an accent writes none; one with an accent writes it.
-    assert!(!GrassPlant::MEADOW_GRASS.to_ron().contains("accent"));
+    assert!(!PlantParams::MEADOW_GRASS.to_ron().contains("accent"));
     assert!(plant.to_ron().contains("accent"));
     let pampas = &FieldPreset::PAMPAS.field.plants[0].plant;
     assert!(pampas.accent.is_on());
-    assert_eq!(GrassPlant::from_ron(&pampas.to_ron()).unwrap(), *pampas);
+    assert_eq!(PlantParams::from_ron(&pampas.to_ron()).unwrap(), *pampas);
 }
 
 #[test]
 fn a_file_holds_no_size_ground_or_map() {
     // Field files store appearance only; the game supplies size and placement.
-    let field = GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0));
-    let read = GrassField::from_ron(&field.to_ron()).unwrap();
+    let field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0));
+    let read = PlantField::from_ron(&field.to_ron()).unwrap();
     assert_eq!(read.size, Vec2::ZERO);
     assert_eq!(read, FieldPreset::MEADOW.field);
 }
 
 #[test]
 fn a_variant_names_only_what_differs() {
-    let field = GrassField::from_ron(r#"(base: "AUTUMN_TALL", density_scale: 0.5)"#).unwrap();
+    let field = PlantField::from_ron(r#"(base: "AUTUMN_TALL", density_scale: 0.5)"#).unwrap();
     assert_eq!(field.density_scale, 0.5);
     assert_eq!(field.plants, FieldPreset::AUTUMN_TALL.field.plants);
     assert_eq!(field.variation, FieldPreset::AUTUMN_TALL.field.variation);
 
-    let plant = GrassPlant::from_ron(r#"(base: "FERN", segment: (tip_color: (0.70, 0.72, 0.74)))"#)
-        .unwrap();
-    assert_eq!(plant.height, GrassPlant::FERN.height);
-    assert_eq!(plant.segment.stiffness, GrassPlant::FERN.segment.stiffness);
-    assert_eq!(plant.levels, GrassPlant::FERN.levels);
+    let plant =
+        PlantParams::from_ron(r#"(base: "FERN", segment: (tip_color: (0.70, 0.72, 0.74)))"#)
+            .unwrap();
+    assert_eq!(plant.height, PlantParams::FERN.height);
+    assert_eq!(plant.segment.stiffness, PlantParams::FERN.segment.stiffness);
+    assert_eq!(plant.levels, PlantParams::FERN.levels);
     assert_eq!(srgb(plant.segment.tip_color), (0.70, 0.72, 0.74));
 }
 
 #[test]
 fn a_level_names_only_what_differs_from_its_base_level() {
     // Partial first-level overrides must preserve unspecified values from the base.
-    let plant = GrassPlant::from_ron(
+    let plant = PlantParams::from_ron(
         r"(levels: [(count: 12, arrangement: Alternate, segment: (profile: 0.8))])",
     )
     .unwrap();
     let [first, second] = plant.levels;
     assert_eq!(first.count, 12);
-    assert_eq!(first.arrangement, GrassArrangement::Alternate);
+    assert_eq!(first.arrangement, PlantArrangement::Alternate);
     assert_eq!(first.segment.profile, 0.8);
-    assert_eq!(first.length, GrassBranches::NONE.length);
+    assert_eq!(first.length, PlantBranches::NONE.length);
     assert_eq!(
         first.segment.stiffness,
-        GrassBranches::NONE.segment.stiffness
+        PlantBranches::NONE.segment.stiffness
     );
     assert_eq!(
         second,
-        GrassBranches::NONE,
+        PlantBranches::NONE,
         "a level not given is the base's"
     );
 }
@@ -401,24 +402,24 @@ fn a_level_names_only_what_differs_from_its_base_level() {
 #[test]
 fn mistakes_are_reported() {
     assert!(matches!(
-        GrassField::from_ron("(base: \"NOT_A_PRESET\")"),
-        Err(GrassFileError::UnknownField(_))
+        PlantField::from_ron("(base: \"NOT_A_PRESET\")"),
+        Err(PlantFileError::UnknownField(_))
     ));
     assert!(matches!(
-        GrassPlant::from_ron("(base: \"NOT_A_PRESET\")"),
-        Err(GrassFileError::UnknownPlant(_))
+        PlantParams::from_ron("(base: \"NOT_A_PRESET\")"),
+        Err(PlantFileError::UnknownPlant(_))
     ));
     assert!(matches!(
-        GrassField::from_ron("(plants: [(plant: \"NOT_A_PLANT\")])"),
-        Err(GrassFileError::UnknownPlant(_))
+        PlantField::from_ron("(plants: [(plant: \"NOT_A_PLANT\")])"),
+        Err(PlantFileError::UnknownPlant(_))
     ));
     assert!(matches!(
-        GrassField::from_ron("(plants: [(plant: (base: \"MEADOW\"))])"),
-        Err(GrassFileError::UnknownPlant(_))
+        PlantField::from_ron("(plants: [(plant: (base: \"MEADOW\"))])"),
+        Err(PlantFileError::UnknownPlant(_))
     ));
     assert!(matches!(
-        GrassPlant::from_ron("(hieght: (0.1, 0.2))"),
-        Err(GrassFileError::Parse { .. })
+        PlantParams::from_ron("(hieght: (0.1, 0.2))"),
+        Err(PlantFileError::Parse { .. })
     ));
     for invalid in [
         "(height: (-0.1, 0.2))",
@@ -438,13 +439,13 @@ fn mistakes_are_reported() {
     ] {
         assert!(
             matches!(
-                GrassPlant::from_ron(invalid),
-                Err(GrassFileError::Invalid(_))
+                PlantParams::from_ron(invalid),
+                Err(PlantFileError::Invalid(_))
             ),
             "{invalid}"
         );
     }
-    assert!(GrassPlant::from_ron("(levels: [(count: 4), (count: 3)])").is_ok());
+    assert!(PlantParams::from_ron("(levels: [(count: 4), (count: 3)])").is_ok());
     for invalid in [
         "(accent: (share: 1.5))",
         "(accent: (share: 0.1, height: (0.0, 0.0)))",
@@ -454,8 +455,8 @@ fn mistakes_are_reported() {
     ] {
         assert!(
             matches!(
-                GrassPlant::from_ron(invalid),
-                Err(GrassFileError::Invalid(_))
+                PlantParams::from_ron(invalid),
+                Err(PlantFileError::Invalid(_))
             ),
             "{invalid}"
         );
@@ -480,8 +481,8 @@ fn mistakes_are_reported() {
     ] {
         assert!(
             matches!(
-                GrassField::from_ron(invalid),
-                Err(GrassFileError::Invalid(_))
+                PlantField::from_ron(invalid),
+                Err(PlantFileError::Invalid(_))
             ),
             "{invalid}"
         );
@@ -490,7 +491,7 @@ fn mistakes_are_reported() {
 
 #[test]
 fn an_unknown_key_lists_the_valid_ones() {
-    let plant = GrassField::from_ron("(plants: [(plant: \"FERNS\")])")
+    let plant = PlantField::from_ron("(plants: [(plant: \"FERNS\")])")
         .expect_err("an unknown plant key")
         .to_string();
     assert!(
@@ -498,7 +499,7 @@ fn an_unknown_key_lists_the_valid_ones() {
         "{plant}"
     );
     assert!(plant.contains("MEADOW_GRASS"), "{plant}");
-    let field = GrassField::from_ron("(base: \"MEADOWS\")")
+    let field = PlantField::from_ron("(base: \"MEADOWS\")")
         .expect_err("an unknown field key")
         .to_string();
     assert!(
@@ -515,7 +516,7 @@ fn settings_the_plant_does_not_draw_are_kept_not_rejected() {
         // Keep the height limits in the order supplied.
         (
             "(height: (0.5, 0.2))",
-            (|p: &GrassPlant| p.height == Vec2::new(0.5, 0.2)) as fn(&GrassPlant) -> bool,
+            (|p: &PlantParams| p.height == Vec2::new(0.5, 0.2)) as fn(&PlantParams) -> bool,
         ),
         // Keep second-layer branch settings while the first layer is disabled.
         ("(levels: [(count: 0), (count: 3)])", |p| {
@@ -528,10 +529,10 @@ fn settings_the_plant_does_not_draw_are_kept_not_rejected() {
         // Keep the tuft size while the plant has no tufts.
         ("(tufts: 0.0, tuft_size: 2.5)", |p| p.tuft_size == 2.5),
     ] {
-        let plant = GrassPlant::from_ron(text).unwrap_or_else(|e| panic!("{text}: {e}"));
+        let plant = PlantParams::from_ron(text).unwrap_or_else(|e| panic!("{text}: {e}"));
         assert!(check(&plant), "{text}");
         assert_eq!(
-            GrassPlant::from_ron(&plant.to_ron()).unwrap(),
+            PlantParams::from_ron(&plant.to_ron()).unwrap(),
             plant,
             "{text}"
         );
@@ -540,9 +541,9 @@ fn settings_the_plant_does_not_draw_are_kept_not_rejected() {
 
 #[test]
 fn a_parse_error_says_where_and_why() {
-    let error = GrassField::from_ron("(\n    density_scale: 2.0,\n    dencity_scale: 3.0,\n)")
+    let error = PlantField::from_ron("(\n    density_scale: 2.0,\n    dencity_scale: 3.0,\n)")
         .expect_err("a misspelt setting must be an error");
-    let GrassFileError::Parse { line, message, .. } = &error else {
+    let PlantFileError::Parse { line, message, .. } = &error else {
         panic!("a misspelt setting is a parse error, not {error:?}");
     };
     assert_eq!(*line, 3, "{error}");
@@ -558,11 +559,11 @@ fn a_plant_in_a_field_is_a_plant_and_a_file_cannot_say_otherwise() {
     // Reject field settings inside plant files rather than silently
     // ignoring them. Rust keeps these settings on separate types too.
     let Err(error) =
-        GrassField::from_ron("(plants: [(plant: (base: \"CLOVER\", density_scale: 0.5))])")
+        PlantField::from_ron("(plants: [(plant: (base: \"CLOVER\", density_scale: 0.5))])")
     else {
         panic!("field settings in a plant must be an error");
     };
-    let GrassFileError::Parse { message, .. } = &error else {
+    let PlantFileError::Parse { message, .. } = &error else {
         panic!("wrong error: {error}");
     };
     assert!(message.contains("density_scale"), "{message}");
@@ -576,8 +577,8 @@ fn a_plant_in_a_field_is_a_plant_and_a_file_cannot_say_otherwise() {
     ] {
         assert!(
             matches!(
-                GrassField::from_ron(wrong),
-                Err(GrassFileError::Parse { .. })
+                PlantField::from_ron(wrong),
+                Err(PlantFileError::Parse { .. })
             ),
             "{wrong}"
         );
@@ -588,7 +589,7 @@ fn a_plant_in_a_field_is_a_plant_and_a_file_cannot_say_otherwise() {
 fn every_preset_survives_a_round_trip_through_a_file() {
     for preset in FieldPreset::all() {
         let text = preset.field.to_ron();
-        let read = GrassField::from_ron(&text).unwrap_or_else(|e| panic!("{}: {e}", preset.key));
+        let read = PlantField::from_ron(&text).unwrap_or_else(|e| panic!("{}: {e}", preset.key));
         assert_eq!(read, preset.field, "{}", preset.key);
         // A plant holds plant settings, without field-wide settings. (A
         // plant's own density belongs to it, and each entry has a
@@ -603,7 +604,7 @@ fn every_preset_survives_a_round_trip_through_a_file() {
         }
     }
     for preset in PlantPreset::all() {
-        let read = GrassPlant::from_ron(&preset.plant.to_ron())
+        let read = PlantParams::from_ron(&preset.plant.to_ron())
             .unwrap_or_else(|e| panic!("{}: {e}", preset.key));
         assert_eq!(read, preset.plant, "{}", preset.key);
     }
@@ -612,12 +613,12 @@ fn every_preset_survives_a_round_trip_through_a_file() {
 #[test]
 fn every_preset_survives_a_round_trip_through_json() {
     for preset in FieldPreset::all() {
-        let read = GrassField::from_json(&preset.field.to_json())
+        let read = PlantField::from_json(&preset.field.to_json())
             .unwrap_or_else(|e| panic!("{}: {e}", preset.key));
         assert_eq!(read, preset.field, "{}", preset.key);
     }
     for preset in PlantPreset::all() {
-        let read = GrassPlant::from_json(&preset.plant.to_json())
+        let read = PlantParams::from_json(&preset.plant.to_json())
             .unwrap_or_else(|e| panic!("{}: {e}", preset.key));
         assert_eq!(read, preset.plant, "{}", preset.key);
     }
@@ -634,7 +635,7 @@ fn a_preset_file_keeps_its_name_and_description() {
     assert_eq!(plant.name, "Blue fern");
     assert_eq!(plant.description, "A fern, but blue.");
     assert_eq!(plant.group, FILE_GROUP);
-    assert_eq!(plant.plant, GrassPlant::FERN);
+    assert_eq!(plant.plant, PlantParams::FERN);
     let again = PlantPreset::from_ron("blue_fern", &plant.to_ron()).unwrap();
     assert_eq!(again, plant);
 
@@ -649,8 +650,8 @@ fn a_preset_file_keeps_its_name_and_description() {
 
     // The plain loaders ignore the name.
     assert_eq!(
-        GrassPlant::from_ron(&PlantPreset::FERN.to_ron()).unwrap(),
-        GrassPlant::FERN
+        PlantParams::from_ron(&PlantPreset::FERN.to_ron()).unwrap(),
+        PlantParams::FERN
     );
 }
 
@@ -658,23 +659,23 @@ fn a_preset_file_keeps_its_name_and_description() {
 fn json_follows_the_same_rules_as_a_file() {
     // Omitted settings inherit the chosen preset; colours also accept hexadecimal text.
     let field =
-        GrassField::from_json(r##"{"base": "SUMMER_TALL", "patch_color": "#ff8000"}"##).unwrap();
+        PlantField::from_json(r##"{"base": "SUMMER_TALL", "patch_color": "#ff8000"}"##).unwrap();
     let mut expected = FieldPreset::SUMMER_TALL.field;
     expected.variation.patch_color = Color::Srgba(Srgba::hex("#ff8000").unwrap());
     assert_eq!(field, expected);
 
     // Report unknown presets and invalid values, and locate malformed settings in the text.
     assert!(matches!(
-        GrassField::from_json(r#"{"base": "NOT_A_PRESET"}"#),
-        Err(GrassFileError::UnknownField(_))
+        PlantField::from_json(r#"{"base": "NOT_A_PRESET"}"#),
+        Err(PlantFileError::UnknownField(_))
     ));
     assert!(matches!(
-        GrassPlant::from_json(r#"{"stems_per_plant": 0}"#),
-        Err(GrassFileError::Invalid(_))
+        PlantParams::from_json(r#"{"stems_per_plant": 0}"#),
+        Err(PlantFileError::Invalid(_))
     ));
-    let error = GrassField::from_json("{\n  \"density_scale\": 2.0,\n  \"dencity_scale\": 3.0\n}")
+    let error = PlantField::from_json("{\n  \"density_scale\": 2.0,\n  \"dencity_scale\": 3.0\n}")
         .expect_err("a misspelt setting must be an error");
-    let GrassFileError::Parse { line, message, .. } = &error else {
+    let PlantFileError::Parse { line, message, .. } = &error else {
         panic!("a misspelt setting is a parse error, not {error:?}");
     };
     assert_eq!(*line, 3, "{error}");

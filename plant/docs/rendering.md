@@ -3,10 +3,10 @@
 ## Shadows
 
 Grass receives shadows from every light. It casts them for one directional
-light, set by `GrassSettings::shadows` (`Off`, `Near`, `Full`), and a blade is
+light, set by `PlantSettings::shadows` (`Off`, `Near`, `Full`), and a blade is
 only a centimetre or two wide, so how that light's cascades are set up decides
 whether blade shadows look right. Use a shallow first cascade, and mark the
-light grass should follow with `GrassSun`:
+light grass should follow with `PlantSun`:
 
 ```rust
 commands.spawn((
@@ -18,7 +18,7 @@ commands.spawn((
         ..default()
     }
     .build(),
-    GrassSun,
+    PlantSun,
 ));
 ```
 
@@ -35,7 +35,7 @@ commands.spawn((
   instead of 269, and the outline of a shadow barely moves at the resolution a
   shadow map has.
 - **Which light.** With a sun and a moon there are two directional lights.
-  Without `GrassSun`, grass follows the first one that casts shadows (the one
+  Without `PlantSun`, grass follows the first one that casts shadows (the one
   spawned first); with it, the marked one, and a marked light that casts no
   shadows means grass casts none. A deferred camera also treats the marked
   light as the sun.
@@ -47,17 +47,17 @@ commands.spawn((
 ### A sun of your own
 
 The renderer reads the light it follows from one resource a frame,
-`GrassLightFrame`, as it reads the wind from `GrassWindFrame`. The built-in
-`GrassLightPlugin` fills it from Bevy's directional lights as above. A game
+`PlantLightFrame`, as it reads the wind from `PlantWindFrame`. The built-in
+`PlantLightPlugin` fills it from Bevy's directional lights as above. A game
 whose sun is something else (a sky, an atmosphere, a day/night cycle that
 drives a component of its own) turns it off and writes the frame in
-`GrassLightSystems::Sample`:
+`PlantLightSystems::Sample`:
 
 ```rust
-app.add_plugins(GrassPlugins.set(GrassPlugin { lights: false, ..default() }))
-    .add_systems(PostUpdate, follow_the_sky.in_set(GrassLightSystems::Sample));
+app.add_plugins(PlantPlugins.set(PlantPlugin { lights: false, ..default() }))
+    .add_systems(PostUpdate, follow_the_sky.in_set(PlantLightSystems::Sample));
 
-fn follow_the_sky(sky: Res<Sky>, mut light: ResMut<GrassLightFrame>) {
+fn follow_the_sky(sky: Res<Sky>, mut light: ResMut<PlantLightFrame>) {
     light.sun_direction = Some(sky.sun_shines);
 }
 ```
@@ -91,11 +91,11 @@ by how they branch.
 
 - **A kind of plant** is the branch counts of its two levels. Plants that
   branch alike are one kind, whatever their size, shape and colours: every
-  `GrassPlant::FERN` in a scene, and any plant with 28 leaflets and no second
+  `PlantParams::FERN` in a scene, and any plant with 28 leaflets and no second
   level, are one kind.
 - **At most 32 kinds** are drawn at once, across every field in use. A 33rd is
   left out with a warning (it says to give more plants the same counts), and
-  counted in `GrassStats::tables.branched_dropped`. So is a plant with more
+  counted in `PlantStats::tables.branched_dropped`. So is a plant with more
   than 1024 vertices a stem close up. With `c0` and `c1` the two counts
   (after `Opposite` rounds them up to even), a stem is `17 + 9 × c0`
   vertices with one level on, and `17 + 5 × c0 + 7 × c0 × c1` with two: a
@@ -120,8 +120,8 @@ by how they branch.
   6 times, so the band beyond `lod2_start` covers as much ground as mid
   detail would. Branched plants are not thinned at mid range; they fade out
   at the end of the radius only. Orthographic cameras draw them at
-  `GrassSettings::orthographic_lod`, as they draw grass.
-- **Buffers.** `GrassSettings::plant_capacity` holds the visible stems of
+  `PlantSettings::orthographic_lod`, as they draw grass.
+- **Buffers.** `PlantSettings::plant_capacity` holds the visible stems of
   every kind in use. Each frame, before anything is generated, the GPU gives
   each kind and level of detail the slots it asked for the frame before, a
   quarter more and 256 to spare, then shares out what is left evenly. When
@@ -134,7 +134,7 @@ by how they branch.
 
 Every grass pipeline binds at most 10 storage buffers in a shader stage: what
 98% of WebGPU devices offer (the spec promises 8). A device that offers fewer
-draws no grass and logs one warning; `GrassSupport` says why. A unit test keeps
+draws no grass and logs one warning; `PlantSupport` says why. A unit test keeps
 every pipeline within 10, and the GPU tests run on a device lowered to 10.
 [Running in the browser](web.md) has what else a device needs.
 

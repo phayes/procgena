@@ -10,11 +10,11 @@ use bevy::shape::ViewFrustum;
 use bevy::transform::components::Transform;
 
 use super::*;
-use crate::api::{GrassField, GrassPlant};
+use crate::api::{PlantField, PlantParams};
 
 /// The field systems with every field visible, and the tables they build.
 fn tables_for(fields: &[(Vec2, Transform)]) -> FieldTables {
-    fn show(mut fields: Query<&mut InheritedVisibility, With<GrassField>>) {
+    fn show(mut fields: Query<&mut InheritedVisibility, With<PlantField>>) {
         for mut visibility in &mut fields {
             *visibility = InheritedVisibility::VISIBLE;
         }
@@ -30,7 +30,7 @@ fn tables_for(fields: &[(Vec2, Transform)]) -> FieldTables {
         .add_plugins(crate::fields::plugin);
     for &(size, transform) in fields {
         app.world_mut().spawn((
-            GrassField {
+            PlantField {
                 size,
                 ..Default::default()
             },
@@ -60,7 +60,7 @@ fn a_field_box_spans_its_rectangle_and_its_tallest_blade() {
     let field = boxes[0];
     assert_eq!(field.corner, Vec3::new(10.0 - 32.0, 2.0, -6.0 - 16.0));
     assert_eq!(field.size, Vec2::new(64.0, 32.0));
-    assert_eq!(field.top, 2.0 + GrassPlant::MEADOW_GRASS.height.y);
+    assert_eq!(field.top, 2.0 + PlantParams::MEADOW_GRASS.height.y);
     assert_eq!(field.layers, 1, "visible, on layer 0");
 
     // Inside the rectangle the distance is the height above the blades.
@@ -91,14 +91,14 @@ fn a_high_camera_sees_a_field_it_cannot_reach() {
     let seen = nearest_seen(&boxes, &frustum(position, Vec3::ZERO), 1, position);
     let distance = seen.expect("the camera looks at the field");
     assert!(
-        distance > GrassSettings::HIGH.radius,
+        distance > PlantSettings::HIGH.radius,
         "{distance} m is beyond High's radius"
     );
 
     // Near the ground, the same camera is within reach.
     let low = Vec3::new(0.0, 5.0, 10.0);
     let seen = nearest_seen(&boxes, &frustum(low, Vec3::ZERO), 1, low).unwrap();
-    assert!(seen < GrassSettings::HIGH.radius);
+    assert!(seen < PlantSettings::HIGH.radius);
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn a_field_out_of_view_or_on_other_layers_is_not_seen() {
 #[test]
 fn the_distance_offset_is_the_height_above_the_ground_when_asked_for() {
     let tables = tables_for(&[(Vec2::splat(64.0), Transform::from_xyz(0.0, 2.0, 0.0))]);
-    let rts = GrassCamera {
+    let rts = PlantCamera {
         radius_from_ground: true,
         ..Default::default()
     };
@@ -135,7 +135,7 @@ fn the_distance_offset_is_the_height_above_the_ground_when_asked_for() {
     // Not asked for, or orthographic (which ignores the radius): nothing.
     assert_eq!(distance_offset(None, high, false, &tables), 0.0);
     assert_eq!(
-        distance_offset(Some(&GrassCamera::default()), high, false, &tables),
+        distance_offset(Some(&PlantCamera::default()), high, false, &tables),
         0.0
     );
     assert_eq!(distance_offset(Some(&rts), high, true, &tables), 0.0);

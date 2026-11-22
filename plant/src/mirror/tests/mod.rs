@@ -533,20 +533,20 @@ fn an_accent_takes_its_share_of_the_plants_roots() {
 #[test]
 fn lods_have_the_planned_vertex_and_triangle_counts() {
     let expected = [(15, 13), (7, 5), (3, 1)];
-    for (rows, (vertices, triangles)) in GrassSettings::HIGH.blade_rows.iter().zip(expected) {
+    for (rows, (vertices, triangles)) in PlantSettings::HIGH.blade_rows.iter().zip(expected) {
         let indices = lod_indices(*rows);
         assert_eq!(indices.len() / 3, triangles);
         assert_eq!(indices.iter().max().copied().unwrap() + 1, vertices);
         assert!(vertices < LOD_VERTEX_STRIDE);
     }
     // The most rows a game may ask for still fit the stride.
-    let most = lod_indices(GrassSettings::MAX_BLADE_ROWS);
+    let most = lod_indices(PlantSettings::MAX_BLADE_ROWS);
     assert!(most.iter().max().copied().unwrap() < LOD_VERTEX_STRIDE);
 }
 
 #[test]
 fn width_range_covers_variation_times_widening() {
-    assert!(WIDTH_RANGE >= 1.25 * coverage_width(0.0, GrassSettings::MAX_WIDENING));
+    assert!(WIDTH_RANGE >= 1.25 * coverage_width(0.0, PlantSettings::MAX_WIDENING));
 }
 #[test]
 fn trample_pushes_round_trip_within_quantization() {
@@ -605,23 +605,23 @@ fn a_raised_view_keeps_the_same_number_of_blades_at_any_height() {
 
 /// A 1 m upright stem with one straight child pointing up from three quarters
 /// of the way along it.
-fn upright_with_one_child(length: f32) -> GrassPlant {
-    use crate::look::{GrassArrangement, GrassBranches, GrassSegment};
-    let straight = GrassSegment {
+fn upright_with_one_child(length: f32) -> PlantParams {
+    use crate::look::{PlantArrangement, PlantBranches, PlantSegment};
+    let straight = PlantSegment {
         profile: 0.0,
         droop: 0.0,
         twist: 0.0,
         fold: 0.0,
-        ..GrassPlant::FERN.segment
+        ..PlantParams::FERN.segment
     };
-    GrassPlant {
+    PlantParams {
         height: Vec2::new(1.0, 1.0),
         lean: 0.0,
         segment: straight,
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 1,
-                arrangement: GrassArrangement::Alternate,
+                arrangement: PlantArrangement::Alternate,
                 attachment_start: 0.5,
                 length,
                 length_envelope: 0.5,
@@ -630,9 +630,9 @@ fn upright_with_one_child(length: f32) -> GrassPlant {
                 spread: 0.0,
                 segment: straight,
             },
-            GrassBranches::NONE,
+            PlantBranches::NONE,
         ],
-        ..GrassPlant::FERN
+        ..PlantParams::FERN
     }
 }
 
@@ -646,11 +646,11 @@ fn a_child_along_an_upright_stem_tops_it_by_its_length() {
 
 #[test]
 fn an_arching_stem_rests_its_tip_on_the_ground_well_below_its_length() {
-    let plant = GrassPlant {
+    let plant = PlantParams {
         lean: 0.4,
-        segment: crate::look::GrassSegment {
+        segment: crate::look::PlantSegment {
             droop: 2.0,
-            ..GrassPlant::FERN.segment
+            ..PlantParams::FERN.segment
         },
         ..upright_with_one_child(0.1)
     };
@@ -678,7 +678,7 @@ fn stem_droop_varies_up_to_one_and_arches_above_it() {
 
 #[test]
 fn long_branches_raise_a_plant_above_its_stem_but_within_its_reach() {
-    let plant = GrassPlant::BROOM;
+    let plant = PlantParams::BROOM;
     let top = branched_top(&plant);
     let levels = level_entries(&plant);
     assert!(top > plant.height.y, "top {top}");
@@ -734,8 +734,8 @@ proptest! {
     #[test]
     fn the_plant_slots_never_exceed_the_budget(
         counts in prop::collection::vec(any::<u32>(), MAX_BUCKETS),
-        blade_capacity in 0..=GrassSettings::MAX_INSTANCE_CAPACITY,
-        plant_capacity in 0..=GrassSettings::MAX_PLANT_CAPACITY,
+        blade_capacity in 0..=PlantSettings::MAX_INSTANCE_CAPACITY,
+        plant_capacity in 0..=PlantSettings::MAX_PLANT_CAPACITY,
         classes in 0..=MAX_BRANCHED_CLASSES as u32,
     ) {
         // Test builds check integer overflow, so these cases also check that the

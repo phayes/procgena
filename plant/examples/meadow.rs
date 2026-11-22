@@ -3,7 +3,7 @@
 //! patch of `TALL_PRAIRIE`. A low sun makes the grass shadows on the
 //! clearing's bare ground easy to see.
 //!
-//! The ground is a `FarGrassMaterial`: beyond the grass radius, where no
+//! The ground is a `FarPlantMaterial`: beyond the grass radius, where no
 //! blades are drawn, it takes on the meadow's colour and its gusts, so there
 //! is no seam where the blades end. `--no-far` uses a plain ground to compare
 //! with, and `--no-fog` clears the mist that would otherwise hide the seam.
@@ -32,9 +32,9 @@ use procgena_plant::prelude::*;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: meadow");
-    app.add_plugins((GrassPlugins, FreeCameraPlugin, GrassDebugPlugin))
+    app.add_plugins((PlantPlugins, FreeCameraPlugin, PlantDebugPlugin))
         // F3 shows what grass thinks: fields, interactors, trample windows.
-        .insert_resource(GrassDebug {
+        .insert_resource(PlantDebug {
             enabled: false,
             ..default()
         })
@@ -45,57 +45,57 @@ fn main() {
 
 /// What F4 steps through: a name and the settings it shows. Each is a tier
 /// with a few settings changed, the way a game would write it.
-const PROFILES: [(&str, GrassSettings); 5] = [
-    ("defaults", GrassSettings::HIGH),
+const PROFILES: [(&str, PlantSettings); 5] = [
+    ("defaults", PlantSettings::HIGH),
     // Full detail twice as far, and no fade until nearly the edge.
     (
         "sharp: LOD 1 at 40 m, LOD 2 at 70 m, fade at 95 m",
-        GrassSettings {
+        PlantSettings {
             lod1_start: 0.4,
             lod2_start: 0.7,
             fade_start: 0.95,
-            ..GrassSettings::HIGH
+            ..PlantSettings::HIGH
         },
     ),
     // Keep every mid-range blade: lusher, and dearer.
     (
         "lush mid-range: no extra thinning",
-        GrassSettings {
+        PlantSettings {
             mid_range_density: 1.0,
             lod2_density: 0.8,
-            ..GrassSettings::HIGH
+            ..PlantSettings::HIGH
         },
     ),
     // Low-poly blades.
     (
         "low-poly: 3, 2 and 1 rows",
-        GrassSettings {
+        PlantSettings {
             blade_rows: [3, 2, 1],
-            ..GrassSettings::HIGH
+            ..PlantSettings::HIGH
         },
     ),
     // Short reach, hard edge, no blades turning toward the camera.
     (
         "short and plain: 40 m, no fade, no turning",
-        GrassSettings {
+        PlantSettings {
             radius: 40.0,
             fade_start: 1.0,
             turn_to_camera: 0.0,
-            ..GrassSettings::HIGH
+            ..PlantSettings::HIGH
         },
     ),
 ];
 
 fn cycle_settings(
     keys: Res<ButtonInput<KeyCode>>,
-    mut grass: ResMut<GrassSettings>,
+    mut plant_settings: ResMut<PlantSettings>,
     mut windows: Query<&mut Window>,
     mut at: Local<usize>,
 ) {
     if keys.just_pressed(KeyCode::F4) {
         *at = (*at + 1) % PROFILES.len();
         let (name, settings) = &PROFILES[*at];
-        *grass = *settings;
+        *plant_settings = *settings;
         info!("grass settings: {name}");
         for mut window in &mut windows {
             window.title = format!("procgena_plant: meadow ({name})");
@@ -103,7 +103,7 @@ fn cycle_settings(
     }
 }
 
-fn toggle_debug(keys: Res<ButtonInput<KeyCode>>, mut debug: ResMut<GrassDebug>) {
+fn toggle_debug(keys: Res<ButtonInput<KeyCode>>, mut debug: ResMut<PlantDebug>) {
     if keys.just_pressed(KeyCode::F3) {
         debug.enabled = !debug.enabled;
     }
@@ -141,7 +141,7 @@ fn setup(
     args: Res<common::ExampleArgs>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut far_materials: ResMut<Assets<FarGrassMaterial>>,
+    mut far_materials: ResMut<Assets<FarPlantMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let mut camera = commands.spawn((
@@ -188,9 +188,9 @@ fn setup(
         commands.spawn((
             ground,
             MeshMaterial3d(
-                far_materials.add(FarGrassMaterial {
+                far_materials.add(FarPlantMaterial {
                     base: soil,
-                    extension: FarGrass::new(&FieldPreset::MEADOW.field)
+                    extension: FarPlants::new(&FieldPreset::MEADOW.field)
                         .with_area(Rect::new(-half, -half, half, half)),
                 }),
             ),
@@ -204,13 +204,13 @@ fn setup(
     );
 
     // The meadow, with a clearing 12 m across at its centre.
-    commands.spawn(GrassField {
+    commands.spawn(PlantField {
         density_map: Some(images.add(clearing_mask(1024, Vec2::splat(0.5), 6.0 / MEADOW))),
-        ..GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(MEADOW))
+        ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(MEADOW))
     });
     // A patch of tall prairie beyond the clearing.
     commands.spawn((
-        GrassField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(24.0, 16.0)),
+        PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(24.0, 16.0)),
         Transform::from_xyz(4.0, 0.0, -16.0),
     ));
 }

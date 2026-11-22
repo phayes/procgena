@@ -157,10 +157,10 @@ const RENDER_PATHS: [RenderPath; 8] = [
         },
     },
     RenderPath {
-        name: "no_grass_shadows",
+        name: "no_plant_shadows",
         camera: |camera| {
-            camera.insert(GrassCamera {
-                shadows: Some(GrassShadows::Off),
+            camera.insert(PlantCamera {
+                shadows: Some(PlantShadows::Off),
                 ..default()
             });
         },
@@ -225,8 +225,8 @@ fn main() {
             .disable::<WinitPlugin>(),
     )
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO))
-    .add_plugins(GrassPlugins.set(GrassPlugin {
-        settings: GrassSettings {
+    .add_plugins(PlantPlugins.set(PlantPlugin {
+        settings: PlantSettings {
             // One camera per preset, each seeing one 8 m patch: at most
             // 16,000 blades (LAWN, 250 per m²). With 60,000 per camera, WARP
             // crashed once there were 34 cameras.
@@ -364,7 +364,7 @@ fn setup(
             Transform::from_translation(at + Vec3::new(0.8, 0.9, 1.0)),
         ));
         commands.spawn((
-            GrassField::from_preset(preset, Vec2::splat(8.0)),
+            PlantField::from_preset(preset, Vec2::splat(8.0)),
             Transform::from_translation(at),
         ));
     }

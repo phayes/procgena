@@ -11,8 +11,8 @@ use bevy::render::render_resource::{
 };
 use bevy::render::renderer::RenderContext;
 
-use super::resources::{GrassLayouts, GrassShaders, GrassShared, GrassSharedBindGroups};
-use super::view::{BUCKET_TABLE_WORDS, GrassViewBindGroups, GrassViewBuffers};
+use super::resources::{PlantLayouts, PlantShaders, PlantShared, PlantSharedBindGroups};
+use super::view::{BUCKET_TABLE_WORDS, PlantViewBindGroups, PlantViewBuffers};
 use crate::trample;
 
 /// A compute pipeline: one entry point in `trample.wesl` or `generate.wesl`.
@@ -81,13 +81,13 @@ pub(crate) struct GeneratePipelines([CachedComputePipelineId; ComputePass::ALL.l
 pub(crate) fn init_generate_pipelines(
     mut commands: Commands,
     pipeline_cache: Res<PipelineCache>,
-    layouts: Res<GrassLayouts>,
-    shaders: Res<GrassShaders>,
+    layouts: Res<PlantLayouts>,
+    shaders: Res<PlantShaders>,
 ) {
     let queue = |pass: ComputePass| {
         let entry = pass.entry_point();
         pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some(format!("grass_{entry}").into()),
+            label: Some(format!("plant_{entry}").into()),
             layout: layouts.compute(pass),
             shader: if pass.is_trample() {
                 shaders.trample.clone()
@@ -106,9 +106,9 @@ pub(crate) fn run_generate(
     mut ctx: RenderContext,
     pipelines: Res<GeneratePipelines>,
     pipeline_cache: Res<PipelineCache>,
-    shared: Res<GrassShared>,
-    shared_groups: Res<GrassSharedBindGroups>,
-    mut views: Query<(&mut GrassViewBuffers, &GrassViewBindGroups)>,
+    shared: Res<PlantShared>,
+    shared_groups: Res<PlantSharedBindGroups>,
+    mut views: Query<(&mut PlantViewBuffers, &PlantViewBindGroups)>,
 ) {
     let get = |pass: ComputePass| pipeline_cache.get_compute_pipeline(pipelines.0[pass as usize]);
     let (
@@ -147,10 +147,10 @@ pub(crate) fn run_generate(
         };
         let encoder = ctx.command_encoder();
 
-        let span = diagnostics.time_span(encoder, "grass_trample");
+        let span = diagnostics.time_span(encoder, "plant_trample");
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("grass_trample"),
+                label: Some("plant_trample"),
                 ..Default::default()
             });
             pass.set_bind_group(0, shared_group, &[]);
@@ -164,10 +164,10 @@ pub(crate) fn run_generate(
         }
         span.end(encoder);
 
-        let span = diagnostics.time_span(encoder, "grass_cull");
+        let span = diagnostics.time_span(encoder, "plant_cull");
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("grass_cull"),
+                label: Some("plant_cull"),
                 ..Default::default()
             });
             pass.set_bind_group(0, shared_group, &[]);
@@ -188,10 +188,10 @@ pub(crate) fn run_generate(
         }
         span.end(encoder);
 
-        let span = diagnostics.time_span(encoder, "grass_generate");
+        let span = diagnostics.time_span(encoder, "plant_generate");
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("grass_generate"),
+                label: Some("plant_generate"),
                 ..Default::default()
             });
             pass.set_bind_group(0, shared_group, &[]);

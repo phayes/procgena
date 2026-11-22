@@ -11,21 +11,21 @@ use bevy::render::sync_world::RenderEntity;
 use bevy::transform::components::GlobalTransform;
 
 use super::resources::{FrameUniform, WindUniform};
-use crate::GrassSettings;
+use crate::PlantSettings;
 use crate::api::{
-    GrassCamera, GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, NoGrass,
+    NoPlants, PlantCamera, PlantInteractor, PlantInteractorFootprint, PlantInteractorSpread,
     interactor_offsets,
 };
-use crate::clock::GrassClock;
+use crate::clock::PlantClock;
 use crate::edit::{MaskPatches, PatchList};
 use crate::fields::{CHUNK_SIZE, FieldTables};
-use crate::sun::GrassLightFrame;
+use crate::sun::PlantLightFrame;
 use crate::trample::{self, Stamp, Tracked};
-use crate::wind::GrassWindFrame;
+use crate::wind::PlantWindFrame;
 
 /// What the main world handed over this frame.
 #[derive(Resource, Debug, Default)]
-pub(crate) struct ExtractedGrass {
+pub(crate) struct ExtractedPlants {
     pub tables: FieldTables,
     /// This frame's edits to the masks, written after `tables`.
     pub mask_patches: Arc<PatchList>,
@@ -43,28 +43,28 @@ pub(crate) struct ExtractedGrass {
     /// direction its stamp lays the grass.
     pub tracked: HashMap<Entity, Tracked>,
     /// This frame's settings, in range.
-    pub settings: GrassSettings,
+    pub settings: PlantSettings,
 }
 
 /// An interactor, with its spread or footprint if it has one.
 type Interactor = (
     Entity,
-    &'static GrassInteractor,
+    &'static PlantInteractor,
     &'static GlobalTransform,
-    Option<&'static GrassInteractorSpread>,
-    Option<&'static GrassInteractorFootprint>,
+    Option<&'static PlantInteractorSpread>,
+    Option<&'static PlantInteractorFootprint>,
 );
 
 /// Copies the tables (only when rebuilt, by reference), the wind, the clock,
 /// the shadow-casting light and mode, and the interactors.
-pub(crate) fn extract_grass(
-    mut extracted: ResMut<ExtractedGrass>,
+pub(crate) fn extract_plants(
+    mut extracted: ResMut<ExtractedPlants>,
     tables: Extract<Res<FieldTables>>,
-    wind: Extract<Res<GrassWindFrame>>,
-    clock: Extract<Res<GrassClock>>,
-    light: Extract<Res<GrassLightFrame>>,
+    wind: Extract<Res<PlantWindFrame>>,
+    clock: Extract<Res<PlantClock>>,
+    light: Extract<Res<PlantLightFrame>>,
     interactors: Extract<Query<Interactor>>,
-    (settings, patches): (Extract<Res<GrassSettings>>, Extract<Res<MaskPatches>>),
+    (settings, patches): (Extract<Res<PlantSettings>>, Extract<Res<MaskPatches>>),
 ) {
     extracted.settings = settings.sanitized();
     let rows = extracted.settings.blade_rows;
@@ -81,7 +81,7 @@ pub(crate) fn extract_grass(
     };
     // The renderer clamps the wind to non-negative values, as it does the
     // settings, so a custom source cannot make the blades misbehave.
-    extracted.wind = GrassWindFrame {
+    extracted.wind = PlantWindFrame {
         sway: wind.sway.max(0.0),
         sway_speed: wind.sway_speed.max(0.0),
         flutter: wind.flutter.max(0.0),
@@ -153,9 +153,9 @@ pub(crate) fn extract_grass(
 }
 
 /// A camera's render entity and the grass components it may carry.
-type CameraComponents = (RenderEntity, Option<&'static GrassCamera>, Has<NoGrass>);
+type CameraComponents = (RenderEntity, Option<&'static PlantCamera>, Has<NoPlants>);
 
-/// Copies each camera's [`GrassCamera`] and [`NoGrass`] to its render
+/// Copies each camera's [`PlantCamera`] and [`NoPlants`] to its render
 /// entity, and takes them off again when the camera loses them.
 ///
 /// A system rather than Bevy's `ExtractComponent`, so the public components
@@ -165,18 +165,18 @@ pub(crate) fn extract_cameras(
     mut commands: Commands,
     cameras: Extract<Query<CameraComponents, With<Camera>>>,
 ) {
-    for (entity, grass_camera, no_grass) in &cameras {
+    for (entity, plant_camera, no_plants) in &cameras {
         let Ok(mut camera) = commands.get_entity(entity) else {
             continue;
         };
-        match grass_camera {
-            Some(grass_camera) => camera.insert(*grass_camera),
-            None => camera.remove::<GrassCamera>(),
+        match plant_camera {
+            Some(plant_camera) => camera.insert(*plant_camera),
+            None => camera.remove::<PlantCamera>(),
         };
-        if no_grass {
-            camera.insert(NoGrass);
+        if no_plants {
+            camera.insert(NoPlants);
         } else {
-            camera.remove::<NoGrass>();
+            camera.remove::<NoPlants>();
         }
     }
 }

@@ -1,4 +1,4 @@
-//! The Rapier backend: `bevy_rapier3d` colliders as [`GrassColliderBounds`].
+//! The Rapier backend: `bevy_rapier3d` colliders as [`PlantColliderBounds`].
 //!
 //! The `rapier` cargo feature compiles this module. It never changes how Bevy
 //! is compiled: `bevy_rapier3d` is brought in with `default-features = false`
@@ -13,11 +13,11 @@ use bevy::ecs::prelude::*;
 use bevy::math::Vec3;
 use bevy_rapier3d::prelude::{Collider, ColliderDisabled, RigidBody, RigidBodyDisabled, Sensor};
 
-use super::{GrassColliderBounds, GrassColliderSystems, GrassInteractorFromCollider};
+use super::{PlantColliderBounds, PlantColliderSystems, PlantInteractorFromCollider};
 
 /// Adds the Rapier backend to the collider bridge.
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, write_bounds.in_set(GrassColliderSystems::Bounds))
+    app.add_systems(Update, write_bounds.in_set(PlantColliderSystems::Bounds))
         .add_observer(forget_bounds);
 }
 
@@ -26,7 +26,7 @@ pub(super) fn plugin(app: &mut App) {
 ///
 /// `Collider::local_aabb` is the shape Rapier simulates: Rapier scales the
 /// collider by its `GlobalTransform` (and any `ColliderScale`), so the box
-/// already has the scale applied, as [`GrassColliderBounds`] wants.
+/// already has the scale applied, as [`PlantColliderBounds`] wants.
 #[expect(clippy::type_complexity, reason = "Bevy query types are verbose")]
 fn write_bounds(
     mut commands: Commands,
@@ -34,17 +34,17 @@ fn write_bounds(
         (
             Entity,
             &Collider,
-            Option<&mut GrassColliderBounds>,
+            Option<&mut PlantColliderBounds>,
             Has<ColliderDisabled>,
             Has<Sensor>,
         ),
-        With<GrassInteractorFromCollider>,
+        With<PlantInteractorFromCollider>,
     >,
     bodies: Query<(Has<RigidBody>, Has<RigidBodyDisabled>, Option<&ChildOf>)>,
 ) {
     for (entity, collider, bounds, collider_disabled, sensor) in &mut colliders {
         let local = collider.local_aabb();
-        let measured = GrassColliderBounds {
+        let measured = PlantColliderBounds {
             center: Vec3::from((local.min + local.max) * 0.5),
             half_extents: Vec3::from((local.max - local.min) * 0.5),
             rounding: rounding(collider),
@@ -98,13 +98,13 @@ fn body_disabled(
 /// Removing a collider removes its bounds, which stops the interaction.
 fn forget_bounds(
     removed: On<Remove<Collider>>,
-    adapted: Query<(), With<GrassColliderBounds>>,
+    adapted: Query<(), With<PlantColliderBounds>>,
     mut commands: Commands,
 ) {
     if adapted.contains(removed.entity) {
         commands
             .entity(removed.entity)
-            .try_remove::<GrassColliderBounds>();
+            .try_remove::<PlantColliderBounds>();
     }
 }
 

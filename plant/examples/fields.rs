@@ -1,5 +1,5 @@
 //! Browse all field presets side by side and edit their appearance live.
-//! Each plot follows its `.field.ron` file in `assets/grass_fields`; save a
+//! Each plot follows its `.field.ron` file in `assets/fields`; save a
 //! file to update the plot while the example runs with file watching enabled.
 //!
 //! The rows are the preset groups of `FieldPreset::GROUPS`, near to far, each
@@ -26,29 +26,29 @@ use procgena_plant::prelude::*;
 const PATCH: f32 = 7.0;
 const GAP: f32 = 1.5;
 
-const WINDS: [(&str, GrassWind); 6] = [
-    ("calm", GrassWind::CALM),
-    ("breeze", GrassWind::BREEZE),
-    ("gusty", GrassWind::GUSTY),
-    ("storm", GrassWind::STORM),
-    // The breeze with its movement reshaped (see `GrassWind::sway` and the
+const WINDS: [(&str, PlantWind); 6] = [
+    ("calm", PlantWind::CALM),
+    ("breeze", PlantWind::BREEZE),
+    ("gusty", PlantWind::GUSTY),
+    ("storm", PlantWind::STORM),
+    // The breeze with its movement reshaped (see `PlantWind::sway` and the
     // other multipliers): steady, with no gusts and no sway ...
     (
         "steady",
-        GrassWind {
+        PlantWind {
             sway: 0.0,
             gust_contrast: 0.0,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         },
     ),
     // ... and a lively one, with deep waves and blades that sway fast.
     (
         "lively",
-        GrassWind {
+        PlantWind {
             sway: 2.5,
             sway_speed: 2.0,
             gust_contrast: 2.5,
-            ..GrassWind::BREEZE
+            ..PlantWind::BREEZE
         },
     ),
 ];
@@ -56,7 +56,7 @@ const WINDS: [(&str, GrassWind); 6] = [
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: fields (wind: breeze)");
-    app.add_plugins((GrassPlugins, FreeCameraPlugin))
+    app.add_plugins((PlantPlugins, FreeCameraPlugin))
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -65,20 +65,20 @@ fn main() {
         .run();
 }
 
-fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut grass: ResMut<GrassSettings>) {
+fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<PlantSettings>) {
     if keys.just_pressed(KeyCode::KeyS) {
-        grass.shadows = if grass.shadows == GrassShadows::Off {
-            GrassShadows::Near
+        settings.shadows = if settings.shadows == PlantShadows::Off {
+            PlantShadows::Near
         } else {
-            GrassShadows::Off
+            PlantShadows::Off
         };
-        info!("grass shadows: {:?}", grass.shadows);
+        info!("grass shadows: {:?}", settings.shadows);
     }
 }
 
 fn pick_wind(
     keys: Res<ButtonInput<KeyCode>>,
-    mut wind: ResMut<GrassWind>,
+    mut wind: ResMut<PlantWind>,
     mut windows: Query<&mut Window>,
 ) {
     let picked = [
@@ -160,12 +160,12 @@ fn setup(
             );
             // The preset's own field until its file has loaded.
             commands.spawn((
-                GrassField {
+                PlantField {
                     density_map,
-                    ..GrassField::from_preset(preset, Vec2::splat(PATCH))
+                    ..PlantField::from_preset(preset, Vec2::splat(PATCH))
                 },
                 common::FieldFile(assets.load(format!(
-                    "grass_fields/{}.field.ron",
+                    "fields/{}.field.ron",
                     preset.key.to_ascii_lowercase()
                 ))),
                 Transform::from_xyz(x, 0.0, z),

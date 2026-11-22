@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GrassField, GrassPlant, GrassSegment,
-    GrassVariation, GroundTint,
+    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantField, PlantParams,
+    PlantSegment, PlantVariation,
 };
 
 preset_group! {
@@ -9,10 +9,10 @@ FOREST "Forest" {
     FOREST_MOSS {
         name: "Forest moss",
         description: "A dense carpet of very short, wide moss, in dark patches.",
-    } => GrassField {
-        plants: Cow::Borrowed(&[FieldPlant::new(GrassPlant::MOSS)]),
+    } => PlantField {
+        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::MOSS)]),
         density_scale: 1.1,
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.20, 0.34, 0.15),
             patch_amount: 0.35,
             patch_size: 3.0,
@@ -31,23 +31,23 @@ FOREST "Forest" {
         name: "Forest ferns",
         description: "Arching fern crowns above broad leaves and clover.\n\n\
                       Sparse ferns leave space for the lower ground cover.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             // About 1.7 ferns per square metre before thinning.
-            FieldPlant::new(GrassPlant::FERN)
+            FieldPlant::new(PlantParams::FERN)
                 .scaled(0.84)
                 .clustered(0.5),
-            FieldPlant::new(GrassPlant::CLOVER)
+            FieldPlant::new(PlantParams::CLOVER)
                 .scaled(0.056)
                 .clustered(0.8),
-            FieldPlant::new(GrassPlant {
+            FieldPlant::new(PlantParams {
                 density: 20.72,
                 tufts: 0.3,
                 tuft_size: 0.6,
-                ..GrassPlant::BROAD_LEAF
+                ..PlantParams::BROAD_LEAF
             }),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.20, 0.36, 0.13),
             patch_amount: 0.35,
             patch_size: 4.0,
@@ -66,30 +66,30 @@ FOREST "Forest" {
         name: "Forest floor",
         description: "The whole floor as one field: moss, clumps of ferns, fallen leaves, \
                       clover and broad leaves among them.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             // About 1.4 ferns per square metre, grouped in patches.
-            FieldPlant::new(GrassPlant::FERN)
+            FieldPlant::new(PlantParams::FERN)
                 .scaled(0.7)
                 .clustered(0.55),
-            FieldPlant::new(GrassPlant::LEAF_LITTER)
+            FieldPlant::new(PlantParams::LEAF_LITTER)
                 .scaled(0.35)
                 .clustered(0.35),
-            FieldPlant::new(GrassPlant::CLOVER)
+            FieldPlant::new(PlantParams::CLOVER)
                 .scaled(0.084)
                 .clustered(0.7),
-            FieldPlant::new(GrassPlant::BROAD_LEAF)
+            FieldPlant::new(PlantParams::BROAD_LEAF)
                 .scaled(0.35)
                 .clustered(0.6),
-            FieldPlant::new(GrassPlant {
+            FieldPlant::new(PlantParams {
                 density: 109.2,
                 tufts: 0.35,
                 tuft_size: 0.45,
-                ..GrassPlant::MOSS
+                ..PlantParams::MOSS
             }),
         ]),
         density_scale: 1.0,
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.22, 0.34, 0.14),
             patch_amount: 0.45,
             bare_share: 0.08,
@@ -105,31 +105,31 @@ FOREST "Forest" {
     FOREST_BRACKEN {
         name: "Forest bracken",
         description: "Bracken in its autumn colour: rusty fern fronds over fallen leaves.",
-    } => GrassField {
+    } => PlantField {
         plants: Cow::Borrowed(&[
             // About 1.7 bracken plants per square metre before thinning.
-            FieldPlant::new(GrassPlant::BRACKEN)
+            FieldPlant::new(PlantParams::BRACKEN)
                 .scaled(0.42)
                 .clustered(0.5),
-            FieldPlant::new(GrassPlant {
+            FieldPlant::new(PlantParams {
                 translucency: 0.3,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     root_color: Color::srgb(0.14, 0.08, 0.03),
                     tip_color: Color::srgb(0.46, 0.27, 0.12),
-                    ..GrassPlant::BROAD_LEAF.segment
+                    ..PlantParams::BROAD_LEAF.segment
                 },
-                ..GrassPlant::BROAD_LEAF
+                ..PlantParams::BROAD_LEAF
             })
             .scaled(0.144)
             .clustered(0.6),
-            FieldPlant::new(GrassPlant {
+            FieldPlant::new(PlantParams {
                 density: 19.44,
                 tufts: 0.45,
                 tuft_size: 0.7,
-                ..GrassPlant::LEAF_LITTER
+                ..PlantParams::LEAF_LITTER
             }),
         ]),
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_color: Color::srgb(0.45, 0.28, 0.12),
             patch_amount: 0.4,
             patch_size: 5.0,

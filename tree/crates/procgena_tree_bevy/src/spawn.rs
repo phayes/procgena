@@ -24,15 +24,15 @@ use crate::wind::Wind;
 
 /// A generated tree positioned by this entity's transform.
 ///
-/// Add this component to an entity after installing [`ZeTreePlugin`](crate::ZeTreePlugin).
+/// Add this component to an entity after installing [`TreePlugin`](crate::TreePlugin).
 /// The tree appears when background generation finishes. Bark and leaf children
 /// provide each configured detail level; visible trellis wires get their own children.
 /// Trees with identical options share meshes and materials. Changing this component
 /// rebuilds its parts; removing it despawns the generated children.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
-pub enum ZeTree {
-    /// Generate from options supplied in memory. Use [`ZeTree::new`] to wrap owned options.
+pub enum TreeParams {
+    /// Generate from options supplied in memory. Use [`TreeParams::new`] to wrap owned options.
     Options(Arc<TreeOptions>),
     /// Load options from an ez-tree JSON file with a `.tree.json` extension.
     /// The tree waits for the asset to load and rebuilds when Bevy reports it modified.
@@ -40,7 +40,7 @@ pub enum ZeTree {
     Asset(Handle<TreeOptionsAsset>),
 }
 
-impl ZeTree {
+impl TreeParams {
     /// Creates a tree component from options. Generation starts after it is spawned.
     pub fn new(options: TreeOptions) -> Self {
         Self::Options(Arc::new(options))
@@ -52,14 +52,14 @@ impl ZeTree {
     }
 }
 
-/// Tree settings loaded from an ez-tree `.tree.json` file for [`ZeTree::Asset`].
+/// Tree settings loaded from an ez-tree `.tree.json` file for [`TreeParams::Asset`].
 ///
 /// Omitted JSON fields use their defaults. The loader validates the settings
 /// before making the asset available.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct TreeOptionsAsset(pub TreeOptions);
 
-/// Identifies a generated child entity that draws one part of a [`ZeTree`].
+/// Identifies a generated child entity that draws one part of a [`TreeParams`].
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TreePart {
     /// Index in the detail levels sorted by distance, starting at 0. Trellis wires use 0.
@@ -112,7 +112,7 @@ impl AssetLoader for TreeOptionsLoader {
 }
 
 /// Mesh and material settings for one entry in
-/// [`ZeTreePlugin::lod_levels`](crate::ZeTreePlugin::lod_levels).
+/// [`TreePlugin::lod_levels`](crate::TreePlugin::lod_levels).
 /// The plugin automatically renders [`BranchShape::Ribbons`] from both sides.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TreeLodLevel {
@@ -187,16 +187,16 @@ pub(crate) struct SpawnSettings {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TreeKey(u64);
 
-/// Present on a [`ZeTree`] entity while its tree is being prepared.
+/// Present on a [`TreeParams`] entity while its tree is being prepared.
 ///
-/// The plugin adds this whenever a tree is spawned or its [`ZeTree`] changes,
+/// The plugin adds this whenever a tree is spawned or its [`TreeParams`] changes,
 /// and removes it once the tree's parts have been spawned or generation has
 /// failed. A [`TreeFinished`] event is triggered at the same moment. While a
 /// `.tree.json` asset has not loaded yet, the marker stays on.
 #[derive(Component, Debug, Default)]
 pub struct TreeGenerating;
 
-/// Triggered on a [`ZeTree`] entity when preparing its tree ends.
+/// Triggered on a [`TreeParams`] entity when preparing its tree ends.
 ///
 /// Observe it on the entity, or globally, to learn when a new or changed tree
 /// has appeared. On success the tree's [`TreePart`] children are queued with
@@ -279,12 +279,12 @@ pub(crate) struct TreeCache {
     flower_material: Option<Handle<TreeMaterial>>,
 }
 
-/// Removes generated children when a tree changes or loses its [`ZeTree`] component.
+/// Removes generated children when a tree changes or loses its [`TreeParams`] component.
 /// Changed trees are marked to generate replacement parts; unrelated children are kept.
 pub(crate) fn reset_changed_trees(
     mut commands: Commands,
-    changed: Query<(Entity, Option<&Children>), Changed<ZeTree>>,
-    mut removed: RemovedComponents<ZeTree>,
+    changed: Query<(Entity, Option<&Children>), Changed<TreeParams>>,
+    mut removed: RemovedComponents<TreeParams>,
     children: Query<&Children>,
     parts: Query<(), With<TreePart>>,
 ) {
@@ -313,12 +313,12 @@ pub(crate) fn reset_changed_trees(
 /// Marks trees for rebuilding when Bevy reports a change to their options asset.
 pub(crate) fn reload_modified_options(
     mut events: MessageReader<AssetEvent<TreeOptionsAsset>>,
-    mut trees: Query<&mut ZeTree>,
+    mut trees: Query<&mut TreeParams>,
 ) {
     for event in events.read() {
         if let AssetEvent::Modified { id } = event {
             for mut tree in &mut trees {
-                if matches!(&*tree, ZeTree::Asset(handle) if handle.id() == *id) {
+                if matches!(&*tree, TreeParams::Asset(handle) if handle.id() == *id) {
                     tree.set_changed();
                 }
             }
@@ -333,15 +333,15 @@ type AwaitingKey = (With<TreeGenerating>, Without<TreeKey>);
 /// when those options are not already cached.
 pub(crate) fn start_generation(
     mut commands: Commands,
-    waiting: Query<(Entity, &ZeTree), AwaitingKey>,
+    waiting: Query<(Entity, &TreeParams), AwaitingKey>,
     options_assets: Res<Assets<TreeOptionsAsset>>,
     settings: Res<SpawnSettings>,
     mut cache: ResMut<TreeCache>,
 ) {
     for (entity, tree) in &waiting {
         let options = match tree {
-            ZeTree::Options(options) => options.clone(),
-            ZeTree::Asset(handle) => match options_assets.get(handle) {
+            TreeParams::Options(options) => options.clone(),
+            TreeParams::Asset(handle) => match options_assets.get(handle) {
                 Some(asset) => Arc::new(asset.0.clone()),
                 None => continue,
             },
@@ -754,7 +754,7 @@ mod tests {
         let mut app = spawn_app();
         let tree = app
             .world_mut()
-            .spawn(ZeTree::preset(TreePreset::OakSmall))
+            .spawn(TreeParams::preset(TreePreset::OakSmall))
             .id();
 
         app.update();
@@ -769,7 +769,7 @@ mod tests {
         // Touching the tree replaces its parts. The options are cached, so
         // this finishes within one update.
         app.world_mut()
-            .get_mut::<ZeTree>(tree)
+            .get_mut::<TreeParams>(tree)
             .unwrap()
             .set_changed();
         app.update();
@@ -780,7 +780,7 @@ mod tests {
         // New options generate again.
         let mut options = TreePreset::OakSmall.options();
         options.seed += 1;
-        *app.world_mut().get_mut::<ZeTree>(tree).unwrap() = ZeTree::new(options);
+        *app.world_mut().get_mut::<TreeParams>(tree).unwrap() = TreeParams::new(options);
         app.update();
         assert!(app.world().entity(tree).contains::<TreeGenerating>());
         update_until_finished(&mut app, tree);
@@ -794,7 +794,7 @@ mod tests {
         let mut app = spawn_app_with(default_tree_lod_levels());
         let tree = app
             .world_mut()
-            .spawn(ZeTree::preset(TreePreset::OakSmall))
+            .spawn(TreeParams::preset(TreePreset::OakSmall))
             .id();
         update_until_finished(&mut app, tree);
 
@@ -825,7 +825,7 @@ mod tests {
         let mut app = spawn_app_with(default_tree_lod_levels());
         let tree = app
             .world_mut()
-            .spawn(ZeTree::preset(TreePreset::Apple))
+            .spawn(TreeParams::preset(TreePreset::Apple))
             .id();
         update_until_finished(&mut app, tree);
 
@@ -872,7 +872,7 @@ mod tests {
         let mut options = TreePreset::OakSmall.options();
         options.leaves.kind = "white_oak".to_owned();
         assert!(procgena_tree::leaf_has_normal_map(&options.leaves.kind));
-        let tree = app.world_mut().spawn(ZeTree::new(options)).id();
+        let tree = app.world_mut().spawn(TreeParams::new(options)).id();
         update_until_finished(&mut app, tree);
 
         let mut parts = app
@@ -913,7 +913,7 @@ mod tests {
         let spawn = |app: &mut App, options: TreeOptions| {
             let tree = app
                 .world_mut()
-                .spawn(ZeTree::Options(Arc::new(options)))
+                .spawn(TreeParams::Options(Arc::new(options)))
                 .id();
             update_until_finished(app, tree);
             tree
@@ -966,7 +966,7 @@ mod tests {
         let mut app = spawn_app();
         let mut options = TreePreset::OakSmall.options();
         options.branch.sections[0] = 0;
-        let tree = app.world_mut().spawn(ZeTree::new(options)).id();
+        let tree = app.world_mut().spawn(TreeParams::new(options)).id();
 
         update_until_finished(&mut app, tree);
         assert_eq!(part_count(&mut app, tree), 0);

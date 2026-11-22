@@ -4,7 +4,7 @@
 //! then use [`texture_path`] to find its KTX2 images for rendering, or
 //! [`image_path`] to find its JPEG images for exported files. The repository's
 //! texture folder is `assets/textures/`; download its files with
-//! `tools/textures/download.sh`. `assets/textures/assets_manifest.json` and
+//! `uv run --project tools textures download stone`. `assets/textures/assets_manifest.json` and
 //! `assets/textures/images/images_manifest.json` list every file with its
 //! download address and checksum.
 
@@ -198,7 +198,7 @@ pub fn texture_path(
 /// supported, such as in exported OBJ and glTF files.
 ///
 /// The repository's image folder is `assets/textures/images/`; download its
-/// files with `tools/textures/download.sh --images`. Pass a set name as for
+/// files with `uv run --project tools textures download stone --images`. Pass a set name as for
 /// [`texture_path`]. The path is not checked.
 pub fn image_path(set: &str, size: TextureSize, map: ImageMap) -> String {
     format!("rock/{set}-{}-{}.jpg", size.as_str(), map.as_str())
@@ -238,14 +238,17 @@ mod tests {
         );
     }
 
+    /// The published manifest lists the sets of stone/textures.yml in order.
     #[test]
-    fn set_names_match_the_fetch_list() {
-        let list = include_str!("../../../tools/textures/sets.txt");
-        let names: Vec<&str> = list
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .filter_map(|line| line.split_whitespace().next())
+    fn set_names_match_the_published_sets() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../assets/textures/assets_manifest.json"))
+                .expect("valid manifest");
+        let names: Vec<&str> = manifest["assets"]
+            .as_array()
+            .expect("manifest assets")
+            .iter()
+            .map(|asset| asset["id"].as_str().expect("asset id"))
             .collect();
         assert_eq!(names, TEXTURE_SETS);
     }

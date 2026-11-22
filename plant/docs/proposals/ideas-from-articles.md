@@ -98,7 +98,7 @@ Sources:
   with alpha.
 - **Density by slope** [2]. Grass thins on steep ground with no mask
   painting. Not built; our heightmaps make it possible.
-- **Bake distant grass into the terrain texture** [2]. `FarGrassMaterial`
+- **Bake distant grass into the terrain texture** [2]. `FarPlantMaterial`
   does the same job procedurally, with gusts; retry a bake only for a tier
   that cannot afford the far material.
 - **Billboards for sparse far grass** [1, future work]. Impostor cards are a
@@ -148,7 +148,7 @@ Sources:
 - **Colour by slope** [2]. Drier or sparser-looking grass on steep ground.
   Not built.
 - **Match grass colour to the terrain palette** [2]. Done (ground tint,
-  `FarGrassMaterial`).
+  `FarPlantMaterial`).
 
 ## Scenes and interaction
 

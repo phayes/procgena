@@ -4,8 +4,8 @@ The bark textures come from [ambientCG](https://ambientcg.com) and
 [Poly Haven](https://polyhaven.com); the leaf textures come from the
 [ez-tree](https://github.com/dgreenheck/ez-tree) demo app and from Nobiax's
 "Free 3D branches textures" packs 01 to 04.
-`tools/textures/fetch.sh` downloads the bark at 2k, and
-`tools/textures/convert.sh` converts all of them to KTX2, a file format for
+`textures fetch` downloads the bark at 2k, and
+`textures convert` converts all of them to KTX2, a file format for
 compressed GPU textures. The bark's 1k and 512 versions are reduced copies.
 The source licences below apply to these converted files.
 

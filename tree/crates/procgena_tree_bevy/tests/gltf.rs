@@ -19,7 +19,7 @@ use bevy::world_serialization::WorldAssetRoot;
 use procgena_tree::export::gltf::{GltfOptions, to_glb};
 use procgena_tree::{Tree, TreePreset, default_lod_levels};
 use procgena_tree_bevy::{
-    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, TreeMaterial, ZeTreePlugin,
+    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, TreeMaterial, TreePlugin,
     add_tree_gltf_attributes,
 };
 
@@ -71,7 +71,7 @@ fn app(dir: &Path, register: bool) -> App {
                 .into(),
                 ..default()
             }),
-        ZeTreePlugin {
+        TreePlugin {
             texture_root: None,
             lod_levels: Vec::new(),
             ..default()

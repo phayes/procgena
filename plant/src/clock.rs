@@ -22,7 +22,7 @@ pub(crate) const TIME_PERIOD: f64 = 3600.0;
 
 /// What the shaders are told about time this frame.
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct GrassClock {
+pub(crate) struct PlantClock {
     /// Seconds since the app started, wrapped to `[0, TIME_PERIOD)`.
     pub time: f32,
     /// The same one frame ago. May be negative just after a wrap, which the
@@ -30,7 +30,7 @@ pub(crate) struct GrassClock {
     pub previous_time: f32,
 }
 
-impl GrassClock {
+impl PlantClock {
     /// Moves the clock to `elapsed` seconds since the start, `delta` seconds
     /// after the last tick.
     pub(crate) fn advance(&mut self, elapsed: f64, delta: f64) {
@@ -49,7 +49,7 @@ fn periodic(frequency: f32) -> f32 {
 
 /// Ticks the clock once a frame, with the game's time, so that pausing the
 /// game pauses the wind.
-pub(crate) fn tick(time: Res<Time>, mut clock: ResMut<GrassClock>) {
+pub(crate) fn tick(time: Res<Time>, mut clock: ResMut<PlantClock>) {
     clock.advance(time.elapsed().as_secs_f64(), time.delta().as_secs_f64());
 }
 

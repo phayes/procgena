@@ -3,9 +3,9 @@
 These textures come from [Poly Haven](https://polyhaven.com),
 [ambientCG](https://ambientcg.com), [ShareTextures](https://www.sharetextures.com),
 [TextureCan](https://www.texturecan.com) and [3dtextures.me](https://3dtextures.me).
-`tools/textures/fetch.sh` downloads each set at 2048 × 2048 pixels,
-`tools/textures/convert.sh` converts them to KTX2, a file format for compressed
-GPU textures, and `tools/textures/images.sh` writes JPEG copies for exported
+`textures fetch` downloads each set at 2048 × 2048 pixels,
+`textures convert` converts them to KTX2, a file format for compressed
+GPU textures, and `textures images` writes JPEG copies for exported
 models. The 1k and 512 versions are reduced copies. The source licences below
 apply to these converted files.
 

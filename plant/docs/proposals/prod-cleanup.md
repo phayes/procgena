@@ -14,8 +14,8 @@ bridge) is mostly free of Bevy's render code. The risk is in three places:
 
 1. **The render boundary is wider than its own docs say.** It spans about
    3,100 lines of Rust across 7 files in `src/render/`, plus 5 shaders.
-2. **Two public types depend on Bevy render code.** `GrassWindFrame` derives
-   a render-only trait, and `GrassCamera` and `NoGrass` use a render-only
+2. **Two public types depend on Bevy render code.** `PlantWindFrame` derives
+   a render-only trait, and `PlantCamera` and `NoPlants` use a render-only
    macro.
 3. **The most fragile render paths have no automated check.** These are
    deferred rendering, the prepass and motion vectors.
@@ -27,16 +27,16 @@ to break without anyone noticing.
 
 ```text
  Game code
-   │  GrassField · GrassStyle · GrassSettings · GrassCamera · GrassWind(Frame) · GrassSun · GrassInteractor
+   │  PlantField · PlantStyle · PlantSettings · PlantCamera · PlantWind(Frame) · PlantSun · PlantInteractor
    ▼
 ┌────────────────────────── main world (game-side logic) ──────────────────────────┐
 │ style / style_file / presets   fields (tables)   edit   ground   trample   physics │
 │ shader_model (CPU twin)        wind (built-in model)   sun (light choice)          │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
-                                   │  ExtractedGrass  ← the real hand-off point
+                                   │  ExtractedPlants  ← the real hand-off point
 ┌──────────────────────────────────▼──── render world (changes with Bevy) ──────────┐
 │ render/extract · resources · view · compute · platform · bevy_glue · mod          │
-│ shaders: grass / look / grass_prepass / grass_shadow (import bevy_pbr)            │
+│ shaders: grass / look / plant_prepass / plant_shadow (import bevy_pbr)            │
 │ far.rs + far_ground.wesl (ExtendedMaterial<StandardMaterial>)                     │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -46,11 +46,11 @@ to break without anyone noticing.
 Keep these as they are.
 
 - **The physics bridge** (`src/physics.rs`) is the best example in the crate.
-  A backend only reports `GrassColliderBounds`; every rule about what a
+  A backend only reports `PlantColliderBounds`; every rule about what a
   collider does lives once, in the core. Rapier and Avian are about 100 lines
   each. Wind and lights should follow this pattern.
 - **The style file format** (`src/style_file.rs`) is its own struct
-  (`GrassStyleFile`) with its own colour handling and field aliases. It does
+  (`PlantStyleFile`) with its own colour handling and field aliases. It does
   not depend on Bevy's `Color` serialisation, so a Bevy serde change cannot
   break players' or designers' style files.
 - **Bevy's render settings are inherited, not copied.** MSAA, HDR,
@@ -59,13 +59,13 @@ Keep these as they are.
   `main_pass_post_lighting_processing`. Grass has no settings of its own for
   any of them, which is right: they are Bevy's settings, and grass follows
   them.
-- **`ExtractedGrass` is the hand-off.** The main world gives the renderer one
+- **`ExtractedPlants` is the hand-off.** The main world gives the renderer one
   resource of plain data, so the logic does not know how it is drawn.
 - **The GPU support check** (`src/render/platform.rs`) counts storage buffers
   from the bind group layouts themselves, so a Bevy or wgpu limit change
   becomes one warning instead of a crash.
-- **The wind hand-off exists.** `GrassWindFrame`, `GrassWindSystems::Sample`
-  and `GrassPlugin { wind: false, .. }` let a game replace the wind model.
+- **The wind hand-off exists.** `PlantWindFrame`, `PlantWindSystems::Sample`
+  and `PlantPlugin { wind: false, .. }` let a game replace the wind model.
   C6 below covers its weak spots.
 
 ## The tight couplings
@@ -83,14 +83,14 @@ Highest risk: these change in nearly every Bevy release. All in
   `slabs: MeshSlabs` and `material_bind_group_index` have been added, renamed
   or removed in most recent releases. These break at compile time, which is
   the good kind of break.
-- **Borrowing the mesh pipeline.** `GrassMainPipeline::specialize` calls
+- **Borrowing the mesh pipeline.** `PlantMainPipeline::specialize` calls
   `MeshPipeline::specialize` with a template vertex layout, then
   `layout.truncate(2)` and pushes the grass group. This assumes Bevy keeps the
   view at group 0 and the binding array at group 1. If Bevy reorders its
   groups, it still compiles and fails only when the pipeline is validated at
   runtime.
 - **The prepass shader defs are copied by hand.**
-  `GrassPrepassPipeline::specialize` lists `MATERIAL_BIND_GROUP = 3`,
+  `PlantPrepassPipeline::specialize` lists `MATERIAL_BIND_GROUP = 3`,
   `DEPTH_PREPASS`, `NORMAL_PREPASS_OR_DEFERRED_PREPASS` and the rest itself,
   which copies part of Bevy's `PrepassPipeline::specialize`. When Bevy adds or
   renames a def, grass falls out of step with no compile error.
@@ -98,7 +98,7 @@ Highest risk: these change in nearly every Bevy release. All in
   of `DefaultOpaqueRendererMethod`, `deferred_by_default` quietly returns
   `false`, and deferred cameras stop drawing grass into the G-buffer with no
   error.
-- **The render schedule.** `GrassRenderPlugin` orders its systems against
+- **The render schedule.** `PlantRenderPlugin` orders its systems against
   `RenderGraph`, `camera_driver`, `init_prepass_pipeline` and
   `MeshPipelineSystems`. Bevy reworked the render graph into schedules
   recently, and that work may not be finished.
@@ -115,7 +115,7 @@ Highest risk: these change in nearly every Bevy release. All in
 
 ### C2. Shaders import Bevy's shader modules, and fail only at runtime
 
-`look.wesl`, `grass.wesl`, `grass_prepass.wesl`, `grass_shadow.wesl` and
+`look.wesl`, `plant_main.wesl`, `plant_prepass.wesl`, `plant_shadow.wesl` and
 `far_ground.wesl` rely on `PbrInput`'s field names, `pbr_input_new`,
 `apply_pbr_lighting`, `main_pass_post_lighting_processing`,
 `deferred_gbuffer_from_pbr_input`, `STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT`,
@@ -125,7 +125,7 @@ The imports are spread across five files, mixed in with grass maths.
 
 **Fix.** One `bevy_bridge.wesl`, the only file allowed to import `bevy_pbr`
 or `bevy_render`. It offers a few small functions with stable signatures
-(`grass_lit`, `grass_gbuffer`, `grass_post`, the view), and `blade_pbr_input`
+(`plant_lit`, `plant_gbuffer`, `plant_post`, the view), and `blade_pbr_input`
 moves into it. `look.wesl` becomes grass logic only (colour, sheen,
 variation), and a Bevy shader change means editing one file.
 
@@ -133,22 +133,22 @@ variation), and a Bevy shader change means editing one file.
 
 Medium risk, and fixing it is a breaking change.
 
-- **`GrassWindFrame`** (`src/wind/mod.rs`) derives `ShaderType` from
+- **`PlantWindFrame`** (`src/wind/mod.rs`) derives `ShaderType` from
   `bevy::render`. That makes the public wind hand-off the same thing as the
   GPU uniform layout: adding a wind term to the shader is a breaking change
   for every custom wind source, and the public type follows Bevy's render
   crate paths.
-- **`GrassCamera` and `NoGrass`** (`src/api.rs`) derive `ExtractComponent`
+- **`PlantCamera` and `NoPlants`** (`src/api.rs`) derive `ExtractComponent`
   with `#[extract_app(RenderApp)]`. `api.rs` is the game-facing file, yet it
   imports `bevy::render`, and that macro attribute is new enough to change.
 
 **Fix.**
 
-- `GrassWindFrame` becomes a plain struct, and a private
+- `PlantWindFrame` becomes a plain struct, and a private
   `WindUniform: ShaderType` in `src/render/` is built from it in
-  `extract_grass`: a 48-byte copy a frame.
+  `extract_plants`: a 48-byte copy a frame.
 - The two camera components are extracted from `src/render/`, by manual
-  `ExtractComponent` impls or by `extract_grass` reading them.
+  `ExtractComponent` impls or by `extract_plants` reading them.
 
 Afterwards the only files outside `src/render/` that import `bevy::render`
 are `far.rs`, which is a material by nature, and the texture types `edit.rs`
@@ -172,7 +172,7 @@ The dependency stays, but as one named seam instead of being spread through
 `src/sun.rs` and `src/render/extract.rs` each query `DirectionalLight` and
 `GlobalTransform` and build `SunCandidate`s themselves. Shadows also depend
 on Bevy's cascade model (`LightEntity::Directional { cascade_index }`,
-`ViewLightEntities`), and `GrassShadows` is defined in cascade indices.
+`ViewLightEntities`), and `PlantShadows` is defined in cascade indices.
 
 In practice:
 
@@ -183,9 +183,9 @@ In practice:
   both copies need editing.
 
 **Fix.** One adapter system turns Bevy's lights into a
-`GrassLightFrame { shadow_dir, sun_dir }` resource, the way the wind frame
+`PlantLightFrame { shadow_dir, sun_dir }` resource, the way the wind frame
 works: the built-in adapter can be turned off, and a game can write the
-resource itself. `extract_grass` reads the resource instead of querying
+resource itself. `extract_plants` reads the resource instead of querying
 lights. The cascade logic stays in `bevy_glue.rs`; it is render-side by
 nature.
 
@@ -193,27 +193,27 @@ nature.
 
 The design is right; two weak spots.
 
-- `GrassWindFrame`'s fields (`sway`, `flutter`, `gust_contrast`, and
+- `PlantWindFrame`'s fields (`sway`, `flutter`, `gust_contrast`, and
   `gust_offset` in repeats of the gust texture) are the built-in model's
   parameters, not a neutral description of wind. A weather crate has to
   imitate the gust texture's scrolling.
-- `GrassPlugin` always initialises `GrassWind`, even with `wind: false`.
+- `PlantPlugin` always initialises `PlantWind`, even with `wind: false`.
   Harmless, but the built-in model's input is always there.
 
 **Fix.** Document the frame as "the grass shader's wind parameters", and add
-a helper such as `GrassWindFrame::advance(dt, direction, speed)` so a custom
+a helper such as `PlantWindFrame::advance(dt, direction, speed)` so a custom
 source does not have to re-derive the scrolling. *Done:* `advance(delta,
 gust_speed)` takes the direction and gust size from the frame itself, so
 they cannot disagree, and shares `gust_step` with the built-in clock.
-`GrassWind` is still initialised with `wind: false`; it stays, as harmless,
+`PlantWind` is still initialised with `wind: false`; it stays, as harmless,
 since a game may read it.
 
 ### C7. The grass design API: stable logic, breaking growth
 
-`GrassStyle`, `GrassBlade`, `GrassSettings` and `GrassShadows` are
+`PlantStyle`, `PlantBlade`, `PlantSettings` and `PlantShadows` are
 public-field structs and enums without `#[non_exhaustive]`. Adding a field
 breaks any game that writes a literal without `..`. `#[non_exhaustive]` is
-not the fix: it would also forbid `..GrassSettings::HIGH` outside the crate,
+not the fix: it would also forbid `..PlantSettings::HIGH` outside the crate,
 which the docs teach.
 
 Every procgena_plant minor already tracks a Bevy minor and is breaking anyway, so
@@ -229,7 +229,7 @@ six places (`style.rs`, the `style_file.rs` file struct, `FieldGpu`, `Field`
 in `common.wesl`, `look.wesl`, `mirror.rs`). That is the price of the twin
 rules and is acceptable; a checklist in the house rules helps more than a
 refactor. *Done:* the policy is in [Roadmap and scope](../roadmap.md#keeping-up-with-bevy),
-and the house rules (`.claude/skills/bevy-grass-style/SKILL.md`) have the
+and the house rules (`.claude/skills/procgena-plant-style/SKILL.md`) have the
 checklist for a new look term.
 
 ## The four concerns
@@ -279,20 +279,20 @@ In order:
    built them in that order; `deferred_by_default` asserts the resource's
    shape; `prepass_shader_defs` names its Bevy source; unit tests in
    `src/render/bevy_glue/tests/`.
-3. **Render code out of the public types** (C3): `GrassWindFrame`,
-   `GrassCamera`, `NoGrass`. Breaking, so it goes in the 0.21 release.
+3. **Render code out of the public types** (C3): `PlantWindFrame`,
+   `PlantCamera`, `NoPlants`. Breaking, so it goes in the 0.21 release.
    *Done:* `WindUniform` in `render/resources.rs` is built from the frame in
-   `extract_grass` and for each far-grass material; `extract_cameras` in
+   `extract_plants` and for each far-grass material; `extract_cameras` in
    `render/extract.rs` copies the two camera components.
 4. **`bevy_bridge.wesl`** (C2), so the shaders import Bevy in one file.
    *Done,* for the grass draws; `far_ground.wesl` keeps its own imports, as
    a `StandardMaterial` extension whose entry point takes Bevy's
    `VertexOutput`. The shadow pass binds the light's view through the bridge
-   too, under `GRASS_SHADOW_PASS`. All 44 goldens unchanged.
-5. **One light adapter and `GrassLightFrame`** (C5). *Done:* `GrassLightFrame
-   { shadow_direction, sun_direction }`, `GrassLightPlugin` (off with
-   `GrassPlugin { lights: false, .. }`) and `GrassLightSystems::Sample` in
-   `PostUpdate` after transform propagation; `extract_grass` reads the frame.
+   too, under `PLANT_SHADOW_PASS`. All 44 goldens unchanged.
+5. **One light adapter and `PlantLightFrame`** (C5). *Done:* `PlantLightFrame
+   { shadow_direction, sun_direction }`, `PlantLightPlugin` (off with
+   `PlantPlugin { lights: false, .. }`) and `PlantLightSystems::Sample` in
+   `PostUpdate` after transform propagation; `extract_plants` reads the frame.
    `check_shadow_setup` still reads Bevy's cascades, which are Bevy's by
    nature, through the same `SunCandidate::of`.
 6. **A Bevy port checklist** in `docs/`, listing every Bevy touch point.

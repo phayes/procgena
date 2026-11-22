@@ -8,10 +8,10 @@
 //! field preset, add one entry to the block for its group:
 //!
 //! ```text
-//! MY_FIELD { name: "My field", description: "What it looks like." } => GrassField { /* ... */ };
+//! MY_FIELD { name: "My field", description: "What it looks like." } => PlantField { /* ... */ };
 //! ```
 //!
-//! A plant preset is the same, with a `GrassPlant` after the arrow, in a
+//! A plant preset is the same, with a `PlantParams` after the arrow, in a
 //! `plant_preset_group!` block. Then run `BLESS_PRESETS=1 cargo test` to write
 //! the shipped files from the constants. The group arrays, `all()`, `named()`
 //! and the embedded preset assets all come from these blocks, so no other file
@@ -24,16 +24,16 @@ use bevy::color::Color;
 use bevy::math::Vec2;
 use bevy::reflect::Reflect;
 
-use crate::api::{GrassField, GrassGround};
+use crate::api::{PlantField, PlantGround};
 use crate::look::{
-    FieldPlant, GrassAccent, GrassArrangement, GrassBranches, GrassPlant, GrassSegment,
-    GrassVariation, GroundTint,
+    FieldPlant, GroundTint, PlantAccent, PlantArrangement, PlantBranches, PlantParams,
+    PlantSegment, PlantVariation,
 };
 
 /// A named plant preset, ready to add to a field.
 ///
-/// Every built-in plant is a constant here and on [`GrassPlant`], with the same
-/// name: `PlantPreset::FERN.plant == GrassPlant::FERN`. Mix them into a field
+/// Every built-in plant is a constant here and on [`PlantParams`], with the same
+/// name: `PlantPreset::FERN.plant == PlantParams::FERN`. Mix them into a field
 /// with [`FieldPlant::new`]. A `.plant.ron` file loads as one of these, keyed
 /// by its filename without the `.plant.ron` extension.
 #[derive(Asset, Debug, Clone, PartialEq, Reflect)]
@@ -49,12 +49,12 @@ pub struct PlantPreset {
     /// a loaded file.
     pub group: Cow<'static, str>,
     /// The plant itself.
-    pub plant: GrassPlant,
+    pub plant: PlantParams,
 }
 
 /// A named, ready-made field: its plants, density, variation and colours.
 ///
-/// Spawn one with [`GrassField::from_preset`], which gives it a size. The
+/// Spawn one with [`PlantField::from_preset`], which gives it a size. The
 /// built-in preset's field has size 0, flat ground and no density map. A
 /// `.field.ron` file loads as one of these, keyed by its filename without
 /// that extension.
@@ -71,7 +71,7 @@ pub struct FieldPreset {
     /// loaded file.
     pub group: Cow<'static, str>,
     /// The field, with size 0.
-    pub field: GrassField,
+    pub field: PlantField,
 }
 
 /// Declares field presets and their catalogue group from one list.
@@ -125,7 +125,7 @@ macro_rules! plant_preset_group {
             )*
         }
     ) => {
-        impl GrassPlant {
+        impl PlantParams {
             $(
                 #[doc = $description]
                 pub const $key: Self = $value;
@@ -140,7 +140,7 @@ macro_rules! plant_preset_group {
                     name: Cow::Borrowed($name),
                     description: Cow::Borrowed($description),
                     group: Cow::Borrowed($group_name),
-                    plant: GrassPlant::$key,
+                    plant: PlantParams::$key,
                 };
             )*
 
@@ -229,14 +229,14 @@ impl PlantPreset {
 
 /// A field preset's settings that most presets share: size 0, flat ground, no
 /// density map and full wind.
-const FIELD_BASE: GrassField = GrassField {
+const FIELD_BASE: PlantField = PlantField {
     size: Vec2::ZERO,
-    ground: GrassGround::Flat,
+    ground: PlantGround::Flat,
     density_map: None,
     wind_scale: 1.0,
     plants: Cow::Borrowed(&[]),
     density_scale: 1.0,
-    variation: GrassVariation {
+    variation: PlantVariation {
         patch_color: Color::srgb(0.55, 0.55, 0.22),
         patch_amount: 0.0,
         patch_size: 12.0,

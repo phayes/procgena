@@ -11,54 +11,54 @@
 use bevy::render::render_resource::{CachedPipelineState, PipelineCache, PipelineDescriptor};
 
 use super::*;
-use crate::api::{GrassAccent, GrassPlant, GrassSegment, GrassVariation, GroundTint};
+use crate::api::{GroundTint, PlantAccent, PlantParams, PlantSegment, PlantVariation};
 use crate::fields::{FieldTables, LookFeatures};
 
 /// A plant enabling every optional plant appearance feature, including an accent.
-fn every_term_plant() -> GrassPlant {
-    GrassPlant {
+fn every_term_plant() -> PlantParams {
+    PlantParams {
         specular: 0.5,
         head_length: 0.3,
         head_width: 0.03,
         tufts: 0.5,
-        segment: GrassSegment {
+        segment: PlantSegment {
             twist: 0.5,
             droop: 0.5,
             fold: 0.5,
-            ..GrassPlant::MEADOW_GRASS.segment
+            ..PlantParams::MEADOW_GRASS.segment
         },
-        accent: GrassAccent {
+        accent: PlantAccent {
             share: 0.2,
             head_length: 0.2,
-            ..GrassAccent::NONE
+            ..PlantAccent::NONE
         },
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     }
 }
 
 /// A field enabling every optional field appearance feature for the given plants.
-fn every_term(plants: Vec<FieldPlant>) -> GrassField {
+fn every_term(plants: Vec<FieldPlant>) -> PlantField {
     let meadow = FieldPreset::MEADOW.field;
-    GrassField {
+    PlantField {
         toon_bands: 3,
         ground_tint: GroundTint {
             amount: 0.3,
             ..meadow.ground_tint
         },
-        variation: GrassVariation {
+        variation: PlantVariation {
             patch_amount: 0.5,
             dry_tips: 0.5,
             dead_share: 0.1,
             ..meadow.variation
         },
-        ..GrassField::new(Vec2::ZERO, plants)
+        ..PlantField::new(Vec2::ZERO, plants)
     }
 }
 
 /// How many grass pipelines are compiled, panicking on any that failed: a
 /// shader that does not compile draws no grass, logs an error and otherwise
 /// looks like a fast frame.
-fn compiled_grass_pipelines(app: &mut App) -> usize {
+fn compiled_plant_pipelines(app: &mut App) -> usize {
     let world = app.sub_app_mut(RenderApp).world();
     let cache = world.resource::<PipelineCache>();
     let mut compiled = 0;
@@ -67,7 +67,7 @@ fn compiled_grass_pipelines(app: &mut App) -> usize {
             continue;
         };
         let label = descriptor.label.as_deref().unwrap_or_default();
-        if !label.starts_with("grass") {
+        if !label.starts_with("plant") {
             continue;
         }
         match &pipeline.state {
@@ -103,7 +103,7 @@ fn gpu_a_field_using_every_look_term_compiles_and_draws() {
     let mut compiled = 0;
     for _ in 0..600 {
         app.update();
-        compiled = compiled_grass_pipelines(&mut app);
+        compiled = compiled_plant_pipelines(&mut app);
         if compiled > 0 && blades_after(&mut app, 1) > 0 {
             break;
         }
@@ -128,7 +128,7 @@ fn compiled_branched_pipelines(app: &mut App) -> Vec<String> {
             continue;
         };
         let label = descriptor.label.as_deref().unwrap_or_default();
-        if !label.starts_with("grass") {
+        if !label.starts_with("plant") {
             continue;
         }
         match &pipeline.state {
@@ -151,7 +151,7 @@ fn compiled_branched_pipelines(app: &mut App) -> Vec<String> {
 fn gpu_branched_plants_with_every_look_term_compile_in_every_pass() {
     use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass, NormalPrepass};
 
-    use crate::api::GrassBranches;
+    use crate::api::PlantBranches;
 
     let mut app = headless_app();
     let camera = app
@@ -171,13 +171,13 @@ fn gpu_branched_plants_with_every_look_term_compile_in_every_pass() {
         Transform::from_xyz(1.0, 3.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     // As dense as the other plant, so the 20% share below is a share of plants.
-    let mut fern = GrassPlant::FERN;
+    let mut fern = PlantParams::FERN;
     fern.density = every_term_plant().density;
-    fern.levels[1] = GrassBranches {
+    fern.levels[1] = PlantBranches {
         count: 3,
         length: 0.4,
         width: 0.3,
-        ..GrassBranches::NONE
+        ..PlantBranches::NONE
     };
     set_harness_field(
         &mut app,
@@ -197,9 +197,9 @@ fn gpu_branched_plants_with_every_look_term_compile_in_every_pass() {
     assert_eq!(
         labels,
         [
-            "grass_main_branched",
-            "grass_prepass_branched",
-            "grass_shadow_branched"
+            "plant_main_branched",
+            "plant_prepass_branched",
+            "plant_shadow_branched"
         ],
         "every pass's branched pipeline compiled"
     );

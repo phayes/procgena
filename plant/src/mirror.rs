@@ -9,10 +9,10 @@ use std::f32::consts::{PI, TAU};
 
 use bevy::math::{IVec2, Vec2, Vec3};
 
-use crate::GrassSettings;
+use crate::PlantSettings;
 use crate::fields::level_entries;
 use crate::gpu_layout::LevelGpu;
-use crate::look::GrassPlant;
+use crate::look::PlantParams;
 use crate::render::view::MAX_BUCKETS;
 
 use crate::shader_model::{
@@ -28,7 +28,7 @@ pub(crate) const HEIGHT_RANGE: f32 = 256.0;
 
 /// An instance's width encodes up to this many times its style's width, room
 /// for the ±25% per-blade variation times the coverage widening, up to
-/// `GrassSettings::MAX_WIDENING` (3.2×; 2.5× by default).
+/// `PlantSettings::MAX_WIDENING` (3.2×; 2.5× by default).
 pub(crate) const WIDTH_RANGE: f32 = 4.0;
 
 /// Reserved vertex-index stride for unbranched detail levels.
@@ -113,9 +113,9 @@ pub(crate) fn keep_fraction(density: f32, scale: f32, layout: &ChunkLayout) -> f
 impl DistanceLod {
     /// The High-tier table from the architecture, scaled to `radius`.
     pub(crate) fn for_radius(radius: f32) -> Self {
-        Self::from_settings(&GrassSettings {
+        Self::from_settings(&PlantSettings {
             radius,
-            ..GrassSettings::HIGH
+            ..PlantSettings::HIGH
         })
     }
 
@@ -173,7 +173,7 @@ impl DistanceLod {
 }
 
 /// The share of blades a view `offset` metres above the ground keeps with
-/// `GrassCamera::radius_from_ground`, for a grass `radius`: the square of
+/// `PlantCamera::radius_from_ground`, for a grass `radius`: the square of
 /// `radius / (radius + offset)`, so the number of blades stays about the
 /// same at any height. The WESL twin is `height_thinning`.
 pub(crate) fn height_thinning(radius: f32, offset: f32) -> f32 {
@@ -457,7 +457,7 @@ pub(crate) fn profile_width(t: f32, profile: f32) -> f32 {
 
 /// One curved strip of a branched plant at rest: no wind, no trampling.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct PlantSegment {
+pub(crate) struct MirrorSegment {
     pub points: [Vec3; 3],
     /// Length scale before bending, in metres.
     pub length: f32,
@@ -497,7 +497,7 @@ fn turn_about(v: Vec3, axis: Vec3, angle: f32) -> Vec3 {
 }
 
 /// The WESL twin is `plant::frame_at`.
-fn frame_at(s: &PlantSegment, t: f32) -> SegmentFrame {
+fn frame_at(s: &MirrorSegment, t: f32) -> SegmentFrame {
     let point = bezier(&s.points, t);
     let tangent = bezier_tangent(&s.points, t);
     let twisted = turn_about(s.across, tangent, s.twist * t);
@@ -537,11 +537,11 @@ pub(crate) struct RestingStem {
 
 /// A branched plant's main segment at rest, facing +Z from a root at the
 /// origin. The WESL twin is `plant::own_segment`, with no wind bend.
-pub(crate) fn resting_stem(plant: &GrassPlant, stem: &RestingStem) -> PlantSegment {
+pub(crate) fn resting_stem(plant: &PlantParams, stem: &RestingStem) -> MirrorSegment {
     let height = stem.height * plant.height_range().1;
     let setting = plant.segment.droop.clamp(0.0, 2.0);
     let (droop, arch) = stem_droop(setting, stem.droop_random, stem.height);
-    PlantSegment {
+    MirrorSegment {
         points: blade_curve(height, plant.lean, Vec2::ZERO, droop, arch),
         length: height,
         width: stem.width * plant.width,
@@ -555,12 +555,12 @@ pub(crate) fn resting_stem(plant: &GrassPlant, stem: &RestingStem) -> PlantSegme
 /// Child `index` of `count` on `parent`, at rest. The WESL twin is
 /// `plant::child_segment`, with no sway.
 pub(crate) fn resting_child(
-    parent: &PlantSegment,
+    parent: &MirrorSegment,
     level: &LevelGpu,
     index: u32,
     count: u32,
     key: f32,
-) -> PlantSegment {
+) -> MirrorSegment {
     // Attachment point and side, as the shader numbers them.
     let opposite = level.attach.y < 0.5;
     let points = if opposite { (count / 2).max(1) } else { count };
@@ -595,7 +595,7 @@ pub(crate) fn resting_child(
     }
     let turn = key * 7.31 + index as f32 * 0.618;
     let p1 = f.point + out_dir * (0.5 * length);
-    PlantSegment {
+    MirrorSegment {
         points: [f.point, p1, p1 + end_dir * (0.5 * length)],
         length,
         width: level.size.y * length,
@@ -609,7 +609,7 @@ pub(crate) fn resting_child(
 /// Every vertex of a segment's strip with `rows` rows, at nearest detail and
 /// with no minimum on-screen width. The WESL twins are `plant::strip_at` and
 /// `plant::strip_vertex`.
-fn strip_vertices(s: &PlantSegment, rows: u32, out: &mut Vec<Vec3>) {
+fn strip_vertices(s: &MirrorSegment, rows: u32, out: &mut Vec<Vec3>) {
     for local in 0..=2 * rows {
         let is_tip = local >= 2 * rows;
         let row = if is_tip { rows } else { local / 2 };
@@ -627,7 +627,7 @@ fn strip_vertices(s: &PlantSegment, rows: u32, out: &mut Vec<Vec3>) {
 
 /// Every vertex of one branched stem at rest and nearest detail, relative to
 /// its root. The WESL twin is `plant::plant_vertex`.
-pub(crate) fn resting_vertices(plant: &GrassPlant, stem: &RestingStem) -> Vec<Vec3> {
+pub(crate) fn resting_vertices(plant: &PlantParams, stem: &RestingStem) -> Vec<Vec3> {
     let levels = level_entries(plant);
     let first = levels[0].attach.x as u32;
     let second = levels[1].attach.x as u32;
@@ -653,7 +653,7 @@ pub(crate) fn resting_vertices(plant: &GrassPlant, stem: &RestingStem) -> Vec<Ve
 /// Takes the tallest, widest stem and every seed a stem can carry, over a
 /// sweep of its droop and twist random numbers. Panics if `plant` has no
 /// branches; an unbranched plant is drawn by `blade.wesl`, not modelled here.
-pub(crate) fn branched_top(plant: &GrassPlant) -> f32 {
+pub(crate) fn branched_top(plant: &PlantParams) -> f32 {
     assert!(
         plant.levels[0].is_on(),
         "branched_top needs a branched plant"

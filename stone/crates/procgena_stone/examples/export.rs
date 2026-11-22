@@ -4,11 +4,11 @@
 //! cargo run -p procgena_stone --example export --features export-obj,export-gltf -- [OUT_DIR] [IMAGE_DIR]
 //! ```
 //!
-//! The output directory defaults to `target/ze_stone_export` in this workspace.
+//! The output directory defaults to `target/procgena_stone_export` in this workspace.
 //! Rocks use the default texture set's 1k JPEG images, read from
 //! `IMAGE_DIR/rock/<set>-1k-<map>.jpg`. `IMAGE_DIR` defaults to the repository's
 //! `assets/textures/images`; download its files with
-//! `tools/textures/download.sh --images`.
+//! `uv run --project tools textures download stone --images`.
 //! Missing images, and images that cannot be copied or read, are omitted.
 //!
 //! The example generates each sample seed with both meshing methods:
@@ -40,9 +40,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .join("../..")
         .canonicalize()?;
     let mut args = std::env::args().skip(1);
-    let out_dir = args
-        .next()
-        .map_or_else(|| workspace.join("target/ze_stone_export"), PathBuf::from);
+    let out_dir = args.next().map_or_else(
+        || workspace.join("target/procgena_stone_export"),
+        PathBuf::from,
+    );
     let image_dir = args
         .next()
         .map_or_else(|| workspace.join("assets/textures/images"), PathBuf::from);

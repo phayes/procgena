@@ -10,7 +10,7 @@ use bevy::math::{Quat, Vec3};
 use bevy::time::TimeUpdateStrategy;
 
 use super::*;
-use crate::api::{FieldPlant, GrassAccent, GrassPlant};
+use crate::api::{FieldPlant, PlantAccent, PlantParams};
 use crate::fields::MaskKey;
 use crate::presets::FieldPreset;
 
@@ -51,7 +51,7 @@ fn app() -> App {
 fn spawn(app: &mut App, size: f32, mask: Option<Handle<Image>>) -> Entity {
     app.world_mut()
         .spawn((
-            GrassField {
+            PlantField {
                 size: Vec2::splat(size),
                 density_map: mask,
                 ..Default::default()
@@ -85,13 +85,13 @@ fn settle(app: &mut App) {
     app.update();
 }
 
-fn edit(app: &mut App, edit: GrassEdit) {
+fn edit(app: &mut App, edit: PlantEdit) {
     app.world_mut().write_message(edit);
     app.update();
 }
 
-fn sample(app: &mut App, point: Vec2) -> Option<GrassSample> {
-    let mut state = SystemState::<GrassSampler>::new(app.world_mut());
+fn sample(app: &mut App, point: Vec2) -> Option<PlantSample> {
+    let mut state = SystemState::<PlantSampler>::new(app.world_mut());
     state.get(app.world()).unwrap().sample(point)
 }
 
@@ -103,12 +103,12 @@ fn layer(app: &App, field: Entity) -> &Layer {
     &app.world().resource::<EditLayers>().layers[&field]
 }
 
-fn stats(app: &App) -> GrassStats {
-    app.world().resource::<GrassStats>().clone()
+fn stats(app: &App) -> PlantStats {
+    app.world().resource::<PlantStats>().clone()
 }
 
 #[test]
-fn a_clear_removes_the_grass_under_its_shape_and_nowhere_else() {
+fn a_clear_removes_the_plants_under_its_shape_and_nowhere_else() {
     let mut app = app();
     let field = spawn(&mut app, 32.0, None);
     settle(&mut app);
@@ -116,7 +116,7 @@ fn a_clear_removes_the_grass_under_its_shape_and_nowhere_else() {
 
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::new(4.0, -2.0), 2.0)).with_softness(0.0),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::new(4.0, -2.0), 2.0)).with_softness(0.0),
     );
     assert_eq!(density(&mut app, Vec2::new(4.0, -2.0)), 0.0);
     assert_eq!(density(&mut app, Vec2::new(5.5, -2.0)), 0.0);
@@ -139,7 +139,7 @@ fn a_soft_edge_fades_out() {
     settle(&mut app);
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 4.0)).with_softness(1.0),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 4.0)).with_softness(1.0),
     );
     let along: Vec<f32> = (0..9)
         .map(|step| density(&mut app, Vec2::new(step as f32 * 0.5, 0.0)))
@@ -161,7 +161,7 @@ fn the_first_edit_of_a_masked_field_moves_nothing_in_the_tables() {
 
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 1.0)),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 1.0)),
     );
     assert_eq!(density(&mut app, Vec2::ZERO), 0.0);
     assert_eq!(
@@ -244,7 +244,7 @@ fn the_gpu_always_holds_exactly_the_edited_masks() {
     let b = spawn(&mut app, 20.0, Some(second));
     let c = spawn(&mut app, 16.0, None);
     let height_map = mask(&mut app, 8, 128, 0);
-    app.world_mut().get_mut::<GrassField>(c).unwrap().ground = crate::api::GrassGround::Heightmap {
+    app.world_mut().get_mut::<PlantField>(c).unwrap().ground = crate::api::PlantGround::Heightmap {
         image: height_map,
         height_scale: 2.0,
     };
@@ -261,18 +261,18 @@ fn the_gpu_always_holds_exactly_the_edited_masks() {
     };
     step(&mut app, &mut gpu, "a clear", &|app| {
         app.world_mut()
-            .write_message(GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 3.0)));
+            .write_message(PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 3.0)));
     });
     step(&mut app, &mut gpu, "a stroke", &|app| {
-        app.world_mut().write_message(GrassEdit::mow(
-            GrassBrushShape::stroke(Vec2::new(-9.0, -9.0), Vec2::new(9.0, 7.0), 1.0),
+        app.world_mut().write_message(PlantEdit::mow(
+            PlantBrushShape::stroke(Vec2::new(-9.0, -9.0), Vec2::new(9.0, 7.0), 1.0),
             0.25,
         ));
     });
     // A colour change rewrites entries only, and keeps the old masks.
     step(&mut app, &mut gpu, "a colour change", &|app| {
         app.world_mut()
-            .get_mut::<GrassField>(a)
+            .get_mut::<PlantField>(a)
             .unwrap()
             .plants
             .to_mut()[0]
@@ -285,8 +285,8 @@ fn the_gpu_always_holds_exactly_the_edited_masks() {
         &mut gpu,
         "an edit after the colour change",
         &|app| {
-            app.world_mut().write_message(GrassEdit::paint(
-                GrassBrushShape::rect(Vec2::new(2.0, 1.0), Vec2::new(3.0, 1.0), 0.6),
+            app.world_mut().write_message(PlantEdit::paint(
+                PlantBrushShape::rect(Vec2::new(2.0, 1.0), Vec2::new(3.0, 1.0), 0.6),
                 0.4,
             ));
         },
@@ -298,7 +298,7 @@ fn the_gpu_always_holds_exactly_the_edited_masks() {
     });
     step(&mut app, &mut gpu, "a restore", &|app| {
         app.world_mut()
-            .write_message(GrassEdit::restore(GrassBrushShape::circle(
+            .write_message(PlantEdit::restore(PlantBrushShape::circle(
                 Vec2::new(1.0, 0.0),
                 2.0,
             )));
@@ -309,14 +309,14 @@ fn the_gpu_always_holds_exactly_the_edited_masks() {
     });
     step(&mut app, &mut gpu, "an edit after the shift", &|app| {
         app.world_mut()
-            .write_message(GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 5.0)));
+            .write_message(PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 5.0)));
     });
     step(&mut app, &mut gpu, "a field despawned", &|app| {
         app.world_mut().despawn(b);
     });
     step(&mut app, &mut gpu, "the last edit", &|app| {
-        app.world_mut().write_message(GrassEdit::paint(
-            GrassBrushShape::circle(Vec2::new(-3.0, 3.0), 2.0),
+        app.world_mut().write_message(PlantEdit::paint(
+            PlantBrushShape::circle(Vec2::new(-3.0, 3.0), 2.0),
             0.7,
         ));
     });
@@ -334,14 +334,14 @@ fn mowing_lowers_the_height_only_and_never_raises_it() {
     let image = mask(&mut app, 64, 255, 255);
     let field = spawn(&mut app, 16.0, Some(image));
     settle(&mut app);
-    let everywhere = GrassBrushShape::circle(Vec2::ZERO, 20.0);
-    edit(&mut app, GrassEdit::mow(everywhere, 0.3));
+    let everywhere = PlantBrushShape::circle(Vec2::ZERO, 20.0);
+    edit(&mut app, PlantEdit::mow(everywhere, 0.3));
     let words = &layer(&app, field).words;
     assert!(
         (0..64 * 64).all(|index| texel(words, index) == (255, 77)),
         "density stays, height is cut to 0.3"
     );
-    edit(&mut app, GrassEdit::mow(everywhere, 0.6));
+    edit(&mut app, PlantEdit::mow(everywhere, 0.6));
     assert!(
         (0..64 * 64).all(|index| texel(&layer(&app, field).words, index) == (255, 77)),
         "mowing higher than the grass does nothing"
@@ -358,14 +358,14 @@ fn restore_returns_to_the_authored_mask() {
     let field = spawn(&mut app, 16.0, Some(image.clone()));
     settle(&mut app);
     let authored = layer_words_of_image(&mut app, &image);
-    let everywhere = GrassBrushShape::circle(Vec2::ZERO, 20.0);
-    edit(&mut app, GrassEdit::clear(everywhere));
+    let everywhere = PlantBrushShape::circle(Vec2::ZERO, 20.0);
+    edit(&mut app, PlantEdit::clear(everywhere));
     edit(
         &mut app,
-        GrassEdit::new(everywhere, GrassEditOp::Height(1.0)),
+        PlantEdit::new(everywhere, PlantEditOp::Height(1.0)),
     );
     assert_ne!(layer(&app, field).words, authored);
-    edit(&mut app, GrassEdit::restore(everywhere));
+    edit(&mut app, PlantEdit::restore(everywhere));
     assert_eq!(layer(&app, field).words, authored);
 }
 
@@ -385,7 +385,7 @@ fn weak_edits_add_up_and_land_exactly_on_the_target() {
     let mut app = app();
     let field = spawn(&mut app, 16.0, None);
     settle(&mut app);
-    let everywhere = GrassBrushShape::circle(Vec2::ZERO, 20.0);
+    let everywhere = PlantBrushShape::circle(Vec2::ZERO, 20.0);
     let mean = |app: &App| {
         let layer = layer(app, field);
         let count = layer.size.x * layer.size.y;
@@ -397,7 +397,7 @@ fn weak_edits_add_up_and_land_exactly_on_the_target() {
     // A step of 0.255 texel units: less than one, and still felt.
     for _ in 0..400 {
         app.world_mut()
-            .write_message(GrassEdit::clear(everywhere).with_strength(0.001));
+            .write_message(PlantEdit::clear(everywhere).with_strength(0.001));
     }
     app.update();
     let worn = mean(&app);
@@ -405,7 +405,7 @@ fn weak_edits_add_up_and_land_exactly_on_the_target() {
 
     for _ in 0..12 {
         app.world_mut()
-            .write_message(GrassEdit::paint(everywhere, 0.5).with_strength(0.1));
+            .write_message(PlantEdit::paint(everywhere, 0.5).with_strength(0.1));
     }
     app.update();
     let layer = layer(&app, field);
@@ -420,19 +420,19 @@ fn edits_with_impossible_numbers_do_nothing() {
     let mut app = app();
     let field = spawn(&mut app, 16.0, None);
     settle(&mut app);
-    let everywhere = GrassBrushShape::circle(Vec2::ZERO, 20.0);
-    edit(&mut app, GrassEdit::paint(everywhere, f32::NAN));
+    let everywhere = PlantBrushShape::circle(Vec2::ZERO, 20.0);
+    edit(&mut app, PlantEdit::paint(everywhere, f32::NAN));
     edit(
         &mut app,
-        GrassEdit::clear(everywhere).with_strength(f32::NAN),
+        PlantEdit::clear(everywhere).with_strength(f32::NAN),
     );
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::NAN, 20.0)),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::NAN, 20.0)),
     );
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::rect(Vec2::ZERO, Vec2::ONE, f32::INFINITY)),
+        PlantEdit::clear(PlantBrushShape::rect(Vec2::ZERO, Vec2::ONE, f32::INFINITY)),
     );
     assert!(
         !app.world()
@@ -448,14 +448,14 @@ fn a_turned_field_is_edited_where_it_lies() {
     let mut app = app();
     let field = spawn(&mut app, 0.0, None);
     // 40 × 8 m, turned a quarter: it runs along Z.
-    app.world_mut().get_mut::<GrassField>(field).unwrap().size = Vec2::new(40.0, 8.0);
+    app.world_mut().get_mut::<PlantField>(field).unwrap().size = Vec2::new(40.0, 8.0);
     *app.world_mut().get_mut::<GlobalTransform>(field).unwrap() = GlobalTransform::from(
         Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
     );
     settle(&mut app);
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::new(0.0, 15.0), 1.5)).with_softness(0.0),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::new(0.0, 15.0), 1.5)).with_softness(0.0),
     );
     assert_eq!(density(&mut app, Vec2::new(0.0, 15.0)), 0.0);
     assert_eq!(density(&mut app, Vec2::new(0.0, -15.0)), 1.0);
@@ -471,7 +471,7 @@ fn a_rect_clears_a_turned_plot() {
     let yaw = std::f32::consts::FRAC_PI_2;
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::rect(Vec2::ZERO, Vec2::new(4.0, 1.0), yaw))
+        PlantEdit::clear(PlantBrushShape::rect(Vec2::ZERO, Vec2::new(4.0, 1.0), yaw))
             .with_softness(0.0),
     );
     assert_eq!(density(&mut app, Vec2::new(0.0, 3.5)), 0.0);
@@ -485,9 +485,9 @@ fn edits_wait_for_a_mask_that_has_not_loaded() {
     let handle = app.world().resource::<Assets<Image>>().reserve_handle();
     let field = spawn(&mut app, 16.0, Some(handle.clone()));
     settle(&mut app);
-    let here = GrassBrushShape::circle(Vec2::ZERO, 2.0);
-    edit(&mut app, GrassEdit::clear(here));
-    edit(&mut app, GrassEdit::paint(here, 0.5).with_softness(0.0));
+    let here = PlantBrushShape::circle(Vec2::ZERO, 2.0);
+    edit(&mut app, PlantEdit::clear(here));
+    edit(&mut app, PlantEdit::paint(here, 0.5).with_softness(0.0));
     assert_eq!(stats(&app).edits.waiting, 2);
 
     let loaded = mask(&mut app, 64, 255, 255);
@@ -516,7 +516,7 @@ fn a_new_density_map_starts_the_field_again() {
     settle(&mut app);
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 2.0)),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 2.0)),
     );
     assert_eq!(density(&mut app, Vec2::ZERO), 0.0);
 
@@ -538,11 +538,11 @@ fn a_new_density_map_starts_the_field_again() {
     // Another image.
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 2.0)),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 2.0)),
     );
     let other = mask(&mut app, 32, 100, 255);
     app.world_mut()
-        .get_mut::<GrassField>(field)
+        .get_mut::<PlantField>(field)
         .unwrap()
         .density_map = Some(other);
     settle(&mut app);
@@ -556,9 +556,9 @@ fn a_brush_sweeps_its_path_without_gaps_and_rests_without_work() {
     let brush = app
         .world_mut()
         .spawn((
-            GrassBrush {
+            PlantBrush {
                 softness: 0.0,
-                ..GrassBrush::new(GrassEditOp::Density(0.0), 0.5)
+                ..PlantBrush::new(PlantEditOp::Density(0.0), 0.5)
             },
             GlobalTransform::from_xyz(-20.0, 0.0, 0.0),
         ))
@@ -609,9 +609,9 @@ fn a_swept_soft_brush_fades_evenly_along_its_path() {
     let brush = app
         .world_mut()
         .spawn((
-            GrassBrush {
+            PlantBrush {
                 softness: 1.0,
-                ..GrassBrush::new(GrassEditOp::Density(0.0), 1.0)
+                ..PlantBrush::new(PlantEditOp::Density(0.0), 1.0)
             },
             GlobalTransform::from_xyz(-10.0, 0.0, 0.0),
         ))
@@ -640,9 +640,9 @@ fn a_brush_with_a_rate_works_for_as_long_as_it_stays() {
     let mut app = app();
     spawn(&mut app, 32.0, None);
     app.world_mut().spawn((
-        GrassBrush {
+        PlantBrush {
             softness: 0.0,
-            ..GrassBrush::new(GrassEditOp::Density(0.0), 1.0).with_rate(0.5)
+            ..PlantBrush::new(PlantEditOp::Density(0.0), 1.0).with_rate(0.5)
         },
         GlobalTransform::IDENTITY,
     ));
@@ -662,22 +662,22 @@ fn a_brush_with_a_rate_works_for_as_long_as_it_stays() {
 }
 
 #[test]
-fn regrowth_raises_the_grass_back_to_its_mask_and_stops() {
+fn regrowth_raises_the_plants_back_to_their_mask_and_stops() {
     let mut app = app();
     let image = mask(&mut app, 64, 200, 255);
     let field = spawn(&mut app, 16.0, Some(image));
-    app.world_mut().entity_mut(field).insert(GrassRegrowth {
+    app.world_mut().entity_mut(field).insert(PlantRegrowth {
         density_rate: 0.25,
         height_rate: 0.0,
     });
     settle(&mut app);
-    let here = GrassBrushShape::circle(Vec2::ZERO, 2.0);
-    let there = GrassBrushShape::circle(Vec2::new(5.0, 5.0), 1.0);
+    let here = PlantBrushShape::circle(Vec2::ZERO, 2.0);
+    let there = PlantBrushShape::circle(Vec2::new(5.0, 5.0), 1.0);
     app.world_mut()
-        .write_message(GrassEdit::clear(here).with_softness(0.0));
+        .write_message(PlantEdit::clear(here).with_softness(0.0));
     app.world_mut()
-        .write_message(GrassEdit::mow(here, 0.5).with_softness(0.0));
-    edit(&mut app, GrassEdit::paint(there, 1.0).with_softness(0.0));
+        .write_message(PlantEdit::mow(here, 0.5).with_softness(0.0));
+    edit(&mut app, PlantEdit::paint(there, 1.0).with_softness(0.0));
     // Two seconds at 0.25 a second: half way back to 200.
     for _ in 0..20 {
         app.update();
@@ -705,7 +705,7 @@ fn regrowth_raises_the_grass_back_to_its_mask_and_stops() {
 
     // Turning the height's regrowth on looks at every tile again.
     app.world_mut()
-        .get_mut::<GrassRegrowth>(field)
+        .get_mut::<PlantRegrowth>(field)
         .unwrap()
         .height_rate = 1.0;
     for _ in 0..10 {
@@ -722,7 +722,7 @@ fn the_sampler_reads_what_each_field_grows() {
     let tall = spawn(&mut app, 4.0, None);
     let prairie = FieldPreset::TALL_PRAIRIE.field;
     app.world_mut().entity_mut(tall).insert((
-        GrassField {
+        PlantField {
             size: Vec2::splat(4.0),
             density_scale: 0.5,
             ..prairie.clone()
@@ -737,7 +737,7 @@ fn the_sampler_reads_what_each_field_grows() {
     settle(&mut app);
 
     let sampled = sample(&mut app, Vec2::new(-5.0, -5.0)).unwrap();
-    let meadow_blade = GrassPlant::MEADOW_GRASS;
+    let meadow_blade = PlantParams::MEADOW_GRASS;
     assert_eq!(sampled.field, meadow);
     assert_eq!(sampled.density, 1.0);
     assert!((sampled.height_scale - 128.0 / 255.0).abs() < 1e-6);
@@ -751,7 +751,7 @@ fn the_sampler_reads_what_each_field_grows() {
     assert_eq!(sampled.field, tall);
     assert!((sampled.blades_per_m2 - prairie.density() * 0.5).abs() < 1e-3);
     assert!((sampled.tallest - prairie.plants[0].plant.height.y).abs() < 1e-5);
-    let mut state = SystemState::<GrassSampler>::new(app.world_mut());
+    let mut state = SystemState::<PlantSampler>::new(app.world_mut());
     let both = state
         .get(app.world())
         .unwrap()
@@ -762,7 +762,7 @@ fn the_sampler_reads_what_each_field_grows() {
     // Cleared grass is no cover, however tall it would be.
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::new(2.0, 0.0), 0.5)).on_field(tall),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::new(2.0, 0.0), 0.5)).on_field(tall),
     );
     assert_eq!(sample(&mut app, Vec2::new(2.0, 0.0)).unwrap().field, meadow);
 
@@ -771,7 +771,7 @@ fn the_sampler_reads_what_each_field_grows() {
         sample(&mut app, Vec2::new(-5.0, 5.0)).unwrap().field,
         meadow
     );
-    let mut state = SystemState::<GrassSampler>::new(app.world_mut());
+    let mut state = SystemState::<PlantSampler>::new(app.world_mut());
     let hidden_too = state
         .get(app.world())
         .unwrap()
@@ -784,7 +784,7 @@ fn the_sampler_reads_what_each_field_grows() {
 fn the_sampler_sees_bare_patches() {
     let mut app = app();
     let field = spawn(&mut app, 32.0, None);
-    let mut patchy = app.world_mut().get_mut::<GrassField>(field).unwrap();
+    let mut patchy = app.world_mut().get_mut::<PlantField>(field).unwrap();
     patchy.variation.bare_share = 0.5;
     patchy.variation.bare_patch_size = 2.0;
     settle(&mut app);
@@ -802,15 +802,15 @@ fn the_sampler_height_is_the_mean_of_the_plants_by_density() {
     let mut app = app();
     let field = spawn(&mut app, 16.0, None);
     // A quarter tall plants, three quarters short ones.
-    let tall = GrassPlant {
+    let tall = PlantParams {
         height: Vec2::new(1.0, 3.0),
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
-    let short = GrassPlant {
+    let short = PlantParams {
         height: Vec2::new(0.2, 0.6),
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
-    app.world_mut().get_mut::<GrassField>(field).unwrap().plants =
+    app.world_mut().get_mut::<PlantField>(field).unwrap().plants =
         vec![FieldPlant::new(tall), FieldPlant::new(short).scaled(3.0)].into();
     settle(&mut app);
     let sampled = sample(&mut app, Vec2::ZERO).unwrap();
@@ -824,15 +824,15 @@ fn the_sampler_height_is_the_mean_of_the_plants_by_density() {
 
     // Half of the short plant's stems use a 4 m accent. Its height contributes
     // to the weighted average, and it determines the maximum height.
-    let accented = GrassPlant {
-        accent: GrassAccent {
+    let accented = PlantParams {
+        accent: PlantAccent {
             share: 0.5,
             height: Vec2::new(4.0, 4.0),
-            ..GrassAccent::NONE
+            ..PlantAccent::NONE
         },
         ..short
     };
-    app.world_mut().get_mut::<GrassField>(field).unwrap().plants =
+    app.world_mut().get_mut::<PlantField>(field).unwrap().plants =
         vec![FieldPlant::new(tall), FieldPlant::new(accented).scaled(3.0)].into();
     settle(&mut app);
     let sampled = sample(&mut app, Vec2::ZERO).unwrap();
@@ -850,14 +850,14 @@ fn a_mask_image_holds_the_edits_and_reads_back_the_same() {
     let mut app = app();
     let field = spawn(&mut app, 16.0, None);
     settle(&mut app);
-    let mut state = SystemState::<GrassSampler>::new(app.world_mut());
+    let mut state = SystemState::<PlantSampler>::new(app.world_mut());
     assert!(state.get(app.world()).unwrap().mask_image(field).is_none());
 
     edit(
         &mut app,
-        GrassEdit::mow(GrassBrushShape::circle(Vec2::new(2.0, 3.0), 3.0), 0.4),
+        PlantEdit::mow(PlantBrushShape::circle(Vec2::new(2.0, 3.0), 3.0), 0.4),
     );
-    let mut state = SystemState::<GrassSampler>::new(app.world_mut());
+    let mut state = SystemState::<PlantSampler>::new(app.world_mut());
     let image = state.get(app.world()).unwrap().mask_image(field).unwrap();
     assert_eq!(image.size(), UVec2::splat(64));
     let mut cache = PackedImages::default();
@@ -873,7 +873,7 @@ fn a_despawned_or_unused_field_leaves_nothing_behind() {
     settle(&mut app);
     edit(
         &mut app,
-        GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 1.0)),
+        PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 1.0)),
     );
     assert_eq!(stats(&app).edits.waiting, 1);
     app.world_mut().despawn(field);
@@ -911,13 +911,13 @@ fn patches_join_rows_that_touch() {
 
 #[test]
 fn shapes_weigh_points_as_documented() {
-    let edit = |shape| Edit::of(&GrassEdit::clear(shape).with_softness(0.5)).unwrap();
-    let disc = edit(GrassBrushShape::circle(Vec2::ZERO, 2.0));
+    let edit = |shape| Edit::of(&PlantEdit::clear(shape).with_softness(0.5)).unwrap();
+    let disc = edit(PlantBrushShape::circle(Vec2::ZERO, 2.0));
     assert_eq!(disc.weight(Vec2::new(0.9, 0.0)), 1.0);
     assert!((disc.weight(Vec2::new(1.5, 0.0)) - 0.5).abs() < 1e-6);
     assert_eq!(disc.weight(Vec2::new(2.1, 0.0)), 0.0);
 
-    let stroke = edit(GrassBrushShape::stroke(
+    let stroke = edit(PlantBrushShape::stroke(
         Vec2::ZERO,
         Vec2::new(4.0, 0.0),
         1.0,
@@ -926,7 +926,7 @@ fn shapes_weigh_points_as_documented() {
     assert_eq!(stroke.weight(Vec2::new(-0.3, 0.0)), 1.0, "a round end");
     assert_eq!(stroke.weight(Vec2::new(2.0, 1.1)), 0.0);
 
-    let rect = edit(GrassBrushShape::rect(Vec2::ZERO, Vec2::new(4.0, 1.0), 0.0));
+    let rect = edit(PlantBrushShape::rect(Vec2::ZERO, Vec2::new(4.0, 1.0), 0.0));
     assert_eq!(rect.weight(Vec2::new(3.4, 0.0)), 1.0);
     assert!((rect.weight(Vec2::new(0.0, 0.75)) - 0.5).abs() < 1e-6);
     assert_eq!(rect.weight(Vec2::new(0.0, 1.1)), 0.0);
@@ -935,7 +935,7 @@ fn shapes_weigh_points_as_documented() {
 
     // Turned as `Quat::from_rotation_y` turns a building.
     let yaw = 0.7;
-    let turned = edit(GrassBrushShape::rect(Vec2::ZERO, Vec2::new(4.0, 1.0), yaw));
+    let turned = edit(PlantBrushShape::rect(Vec2::ZERO, Vec2::new(4.0, 1.0), yaw));
     let tip = Quat::from_rotation_y(yaw) * Vec3::new(3.0, 0.0, 0.0);
     assert_eq!(turned.weight(tip.xz()), 1.0);
 }
@@ -945,7 +945,7 @@ fn a_full_strength_edit_twice_is_the_same_edit_once() {
     let mut app = app();
     let field = spawn(&mut app, 16.0, None);
     settle(&mut app);
-    let soft = GrassEdit::clear(GrassBrushShape::circle(Vec2::ZERO, 3.0)).with_softness(1.0);
+    let soft = PlantEdit::clear(PlantBrushShape::circle(Vec2::ZERO, 3.0)).with_softness(1.0);
     edit(&mut app, soft);
     let once = layer(&app, field).words.clone();
     edit(&mut app, soft);
@@ -957,7 +957,7 @@ fn a_full_strength_edit_twice_is_the_same_edit_once() {
 }
 
 #[test]
-fn a_profile_never_moves_grass_away_from_the_target() {
+fn a_profile_never_moves_plants_away_from_the_target() {
     // Lowering toward 0: a ceiling from 255 at weight 0 to 0 at weight 1.
     assert_eq!(limit(255, 0.0, 0.25), 191);
     assert_eq!(limit(100, 0.0, 0.25), 100, "already below the ceiling");
@@ -1002,11 +1002,11 @@ fn a_slid_rectangle_is_as_deep_as_its_deepest_moment() {
 fn spawn_box_brush(app: &mut App, half_size: Vec2, transform: Transform) -> Entity {
     app.world_mut()
         .spawn((
-            GrassBrush {
+            PlantBrush {
                 softness: 0.0,
-                ..GrassBrush::new(GrassEditOp::Density(0.0), 0.0)
+                ..PlantBrush::new(PlantEditOp::Density(0.0), 0.0)
             },
-            GrassBrushFootprint::new(half_size),
+            PlantBrushFootprint::new(half_size),
             GlobalTransform::from(transform),
         ))
         .id()
@@ -1090,11 +1090,11 @@ fn a_box_brush_with_a_rate_works_where_it_stands() {
     let mut app = app();
     spawn(&mut app, 32.0, None);
     app.world_mut().spawn((
-        GrassBrush {
+        PlantBrush {
             softness: 0.0,
-            ..GrassBrush::new(GrassEditOp::Density(0.0), 0.0).with_rate(0.5)
+            ..PlantBrush::new(PlantEditOp::Density(0.0), 0.0).with_rate(0.5)
         },
-        GrassBrushFootprint::new(Vec2::new(2.0, 1.0)),
+        PlantBrushFootprint::new(Vec2::new(2.0, 1.0)),
         GlobalTransform::IDENTITY,
     ));
     settle(&mut app);
@@ -1108,10 +1108,10 @@ fn a_box_brush_with_a_rate_works_where_it_stands() {
 }
 
 #[test]
-fn the_sampler_finds_no_grass_where_the_ground_has_a_hole() {
+fn the_sampler_finds_no_plants_where_the_ground_has_a_hole() {
     let mut app = app();
     let world = app.world_mut();
-    let field = GrassField {
+    let field = PlantField {
         size: Vec2::splat(32.0),
         ..Default::default()
     }

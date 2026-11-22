@@ -22,7 +22,7 @@ fn kept_discs(kept: Vec<Stamp>) -> Vec<Vec4> {
 }
 
 #[test]
-fn an_interactor_fades_out_as_it_rises_above_the_grass() {
+fn an_interactor_fades_out_as_it_rises_above_the_plants() {
     // No limit, or no ground to measure from: always full.
     assert_eq!(reach(None, 50.0, Some(0.0)), 1.0);
     assert_eq!(reach(Some(1.0), 50.0, None), 1.0);
@@ -97,7 +97,7 @@ fn an_orthographic_camera_centres_the_window_on_the_ground_it_sees() {
 }
 
 #[test]
-fn a_camera_that_stands_in_its_grass_keeps_the_window_around_it() {
+fn a_camera_that_stands_in_its_field_keeps_the_window_around_it() {
     // First person, looking ahead, at the horizon and down at the feet;
     // third person behind a character; a perspective ARPG camera 20 m up.
     let views = [
@@ -224,7 +224,7 @@ fn the_radius_cap_and_the_window_follow_the_settings() {
 }
 
 /// A footprint stamp under `transform`, at rest, pushing fully.
-fn stamp_of(transform: Transform, footprint: GrassInteractorFootprint) -> Stamp {
+fn stamp_of(transform: Transform, footprint: PlantInteractorFootprint) -> Stamp {
     box_stamp(
         &GlobalTransform::from(transform),
         &footprint,
@@ -249,9 +249,9 @@ fn close(a: Vec2, b: Vec2) -> bool {
 
 #[test]
 fn an_upright_capsule_is_a_round_stamp() {
-    let capsule = GrassInteractorFootprint {
+    let capsule = PlantInteractorFootprint {
         rounding: 0.4,
-        ..GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(0.4, 0.9, 0.4))
+        ..PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(0.4, 0.9, 0.4))
     };
     let stamp = stamp_of(Transform::from_xyz(3.0, 0.9, -1.0), capsule);
 
@@ -266,7 +266,7 @@ fn an_upright_capsule_is_a_round_stamp() {
 
 #[test]
 fn a_box_is_one_stamp_of_its_size_wherever_it_is() {
-    let cart = GrassInteractorFootprint::new(Vec3::new(0.0, 0.0, 1.0), Vec3::new(3.0, 1.0, 1.5));
+    let cart = PlantInteractorFootprint::new(Vec3::new(0.0, 0.0, 1.0), Vec3::new(3.0, 1.0, 1.5));
     let stamp = stamp_of(Transform::from_xyz(10.0, 1.0, 5.0), cart);
 
     let (center, along, core, rounding) = shape_of(&stamp);
@@ -280,7 +280,7 @@ fn a_box_is_one_stamp_of_its_size_wherever_it_is() {
 
 #[test]
 fn turning_a_box_turns_its_stamp_and_keeps_its_size() {
-    let cart = GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5));
+    let cart = PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5));
     for yaw in [0.3, FRAC_PI_2, 2.0, -2.5] {
         let turned = Transform::from_rotation(Quat::from_rotation_y(yaw));
         let stamp = stamp_of(turned, cart);
@@ -298,7 +298,7 @@ fn turning_a_box_turns_its_stamp_and_keeps_its_size() {
 #[test]
 fn a_scaled_box_is_stamped_at_its_scaled_size() {
     // A 1 m crate scaled to 2.5 m.
-    let crate_box = GrassInteractorFootprint::default();
+    let crate_box = PlantInteractorFootprint::default();
     let stamp = stamp_of(Transform::from_scale(Vec3::splat(2.5)), crate_box);
     assert!(close(stamp.shape.zw(), Vec2::splat(1.25)));
 
@@ -312,9 +312,9 @@ fn a_scaled_box_is_stamped_at_its_scaled_size() {
 #[test]
 fn a_capsule_that_falls_over_is_stamped_along_its_length() {
     // A 4 m log, 0.6 m thick, along its local Y.
-    let log = GrassInteractorFootprint {
+    let log = PlantInteractorFootprint {
         rounding: 0.3,
-        ..GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(0.3, 2.0, 0.3))
+        ..PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(0.3, 2.0, 0.3))
     };
     let standing = stamp_of(Transform::IDENTITY, log);
     assert_eq!(standing.shape.zw(), Vec2::ZERO);
@@ -336,7 +336,7 @@ fn a_capsule_that_falls_over_is_stamped_along_its_length() {
 fn a_box_tipped_halfway_covers_its_whole_shadow() {
     // A 1 × 6 × 1 m pillar leaning 45° along X: its shadow runs from the
     // tip of one top corner to the opposite bottom corner.
-    let pillar = GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(0.5, 3.0, 0.5));
+    let pillar = PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(0.5, 3.0, 0.5));
     let stamp = stamp_of(
         Transform::from_rotation(Quat::from_rotation_z(FRAC_PI_4)),
         pillar,
@@ -351,11 +351,11 @@ fn a_box_tipped_halfway_covers_its_whole_shadow() {
 
 #[test]
 fn a_huge_box_is_clipped_and_nonsense_stays_finite() {
-    let wall = GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(500.0, 1.0, 0.5));
+    let wall = PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(500.0, 1.0, 0.5));
     let stamp = stamp_of(Transform::IDENTITY, wall);
-    assert_eq!(stamp.shape.z, GrassSettings::MAX_INTERACTOR_RADIUS);
+    assert_eq!(stamp.shape.z, PlantSettings::MAX_INTERACTOR_RADIUS);
 
-    let broken = GrassInteractorFootprint {
+    let broken = PlantInteractorFootprint {
         center: Vec3::ZERO,
         half_extents: Vec3::new(f32::NAN, f32::INFINITY, -2.0),
         rounding: f32::NAN,
@@ -371,7 +371,7 @@ fn a_huge_box_is_clipped_and_nonsense_stays_finite() {
 fn boxes_keep_their_size_when_selected_and_discs_are_capped() {
     let cart = stamp_of(
         Transform::IDENTITY,
-        GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(6.0, 1.0, 3.0)),
+        PlantInteractorFootprint::new(Vec3::ZERO, Vec3::new(6.0, 1.0, 3.0)),
     );
     let kept = select_interactors(
         &[cart, Stamp::disc(0.0, 0.0, 9.0, 1.0)],

@@ -39,10 +39,14 @@ impl ClumpMesh {
 /// Measurements taken while building a clump, for tuning settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BuildStats {
-    /// Triangles that turned over while being pushed out from the surface.
-    /// These show as creases or inside-out patches in tight hollows.
+    /// Top triangles still turned over, inside out, after the build has
+    /// lowered the clump around every fold it found. Normally 0.
     pub folded: usize,
     /// Vertices kept thinner than the settings ask for, because another part
     /// of the surface faces them across a narrow gap.
     pub thinned: usize,
+    /// Pairs of triangles that still pass through each other, when
+    /// [`MeshOptions::strict`](crate::MeshOptions::strict) is on. Always 0
+    /// when it is off, because the check doesn't run.
+    pub crossings: usize,
 }

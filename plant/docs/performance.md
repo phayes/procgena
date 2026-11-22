@@ -4,7 +4,7 @@ What has been tried to make grass cheaper, what it gained, and why. Read this be
 
 ## Summary
 
-Grass GPU time per frame at the High tier, 1920 × 1080, 4× MSAA, grass shadows on: the difference between a run with grass and a `--no-grass` run, from GPU timestamps.
+Grass GPU time per frame at the High tier, 1920 × 1080, 4× MSAA, grass shadows on: the difference between a run with grass and a `--no-plants` run, from GPU timestamps.
 
 | Scene | NVIDIA T1200 laptop | RTX 4070 Ti | RTX 4070 Ti, Ultra |
 | --- | --- | --- | --- |
@@ -14,9 +14,9 @@ Grass GPU time per frame at the High tier, 1920 × 1080, 4× MSAA, grass shadows
 
 The T1200 is roughly a third of an RTX 3060; its figures are from after the chunk slices ([G6](#g6-chunks-split-into-slices-kept)), and the 4070 Ti's from [On an RTX 4070 Ti at stock clocks](#on-an-rtx-4070-ti-at-stock-clocks-october-17-2026). The trampling pass itself is 0.01–0.02 ms with 512 interactors. Variation with everything off costs the same as no variation. Most of the cost is shading pixels, not geometry: GPUs shade thin blades in mostly empty 2 × 2 quads. The CPU cost per frame is a few uniform uploads. The design target, 1 ms at the High tier on RTX 3060 class hardware, has not been measured; the 4070 Ti uses a third of it.
 
-**240 FPS.** `GrassQuality::Competitive` is the 240 Hz tier: 40 m of half-density grass with no grass shadow casting. [The 240 Hz gate](#the-240-hz-gate) (`python tools/bench_240.py --machine rtx3060`) requires frame p95 of at most 4.167 ms on a named reference machine. On the RTX 4070 Ti, with a 2013 quad-core CPU, both High and Competitive pass in both scenes (frame p95 at most 3.00 ms, against 2.76–2.96 ms with no grass). Read that as "grass is not what stops a game reaching 240 FPS here", not "a game runs at 240 FPS here": the frame is limited by that CPU, and an empty Bevy scene alone takes 2.1 ms ([The frame-time floor](#the-frame-time-floor-october-15-2026)). On the T1200, the first run had High failing both scenes, while Competitive passed the perspective scene at 3.61 ms p95 and missed the ARPG scene at 4.33 ms; the [meshlet and clump proposal](proposals/meshlets-and-clumps.md) is meant to close that gap.
+**240 FPS.** `PlantQuality::Competitive` is the 240 Hz tier: 40 m of half-density grass with no grass shadow casting. [The 240 Hz gate](#the-240-hz-gate) (`python tools/plant/bench_240.py --machine rtx3060`) requires frame p95 of at most 4.167 ms on a named reference machine. On the RTX 4070 Ti, with a 2013 quad-core CPU, both High and Competitive pass in both scenes (frame p95 at most 3.00 ms, against 2.76–2.96 ms with no grass). Read that as "grass is not what stops a game reaching 240 FPS here", not "a game runs at 240 FPS here": the frame is limited by that CPU, and an empty Bevy scene alone takes 2.1 ms ([The frame-time floor](#the-frame-time-floor-october-15-2026)). On the T1200, the first run had High failing both scenes, while Competitive passed the perspective scene at 3.61 ms p95 and missed the ARPG scene at 4.33 ms; the [meshlet and clump proposal](proposals/meshlets-and-clumps.md) is meant to close that gap.
 
-**Measure on your machine** with `cargo run --release --example bench` (add `--ortho` for the top-down camera) against a `--no-grass` run. `tools/bench_ab.py` runs paired A/B rounds of two builds; `tools/bench_240.py` is the absolute gate.
+**Measure on your machine** with `cargo run --release --example bench` (add `--ortho` for the top-down camera) against a `--no-plants` run. `tools/plant/bench_ab.py` runs paired A/B rounds of two builds; `tools/plant/bench_240.py` is the absolute gate.
 
 ## How to measure
 
@@ -27,12 +27,12 @@ Grass cost is GPU time, and on the development laptop it is mostly fragment shad
 
 Both run at 1920 × 1080 with 4× MSAA and no vsync, measuring 1,380 frames after 120 warm-up frames.
 
-`tools/bench_ab.py` runs variants against a reference in paired, interleaved rounds. A result is the median paired difference in frame time p50 or p95 (`report REFERENCE p95`), as a share of the reference's grass cost: the reference minus a `--no-grass` run. A run takes about 10 seconds, so five rounds of four variants, the reference and `--no-grass` in both scenes take about 10 minutes. Frame time is used rather than per-pass GPU spans because it also captures costs that move between passes. For example, drawing grass in its own pass made the main-pass span look much cheaper while the frame got slower.
+`tools/plant/bench_ab.py` runs variants against a reference in paired, interleaved rounds. A result is the median paired difference in frame time p50 or p95 (`report REFERENCE p95`), as a share of the reference's grass cost: the reference minus a `--no-plants` run. A run takes about 10 seconds, so five rounds of four variants, the reference and `--no-plants` in both scenes take about 10 minutes. Frame time is used rather than per-pass GPU spans because it also captures costs that move between passes. For example, drawing grass in its own pass made the main-pass span look much cheaper while the frame got slower.
 
 Rules learned the hard way:
 
 - **Reject runs that log errors.** A shader that fails to compile draws no grass, which looks like a large speed-up.
-- **Use paired differences.** The `--no-grass` baseline drifts by up to 0.9 ms between runs, because without grass the frame is limited by the CPU, not the GPU. Use it only for the size of the grass cost, never as the per-run reference.
+- **Use paired differences.** The `--no-plants` baseline drifts by up to 0.9 ms between runs, because without grass the frame is limited by the CPU, not the GPU. Use it only for the size of the grass cost, never as the per-run reference.
 - **Expect noise of about ±2% of grass cost.** Four or five rounds resolve a 5% change.
 - **Keep a change if it cuts grass cost by at least 5% at p95** (the developer's ruling of October 15, 2026; it was 10% at p50 before) in the scene it targets, makes no scene worse, and does not visibly degrade the image. Changes that alter the look go to the developer even when they pass.
 - **Keep the machine quiet.** A video playing in the background invalidated one run; restart rather than average it in.
@@ -48,9 +48,9 @@ just for grass, so the project now has an explicit acceptance gate instead of
 only relative A/B measurements.
 
 ```text
-python tools/bench_240.py --machine t1200
-python tools/bench_240.py --machine rtx3060 --scene perspective
-python tools/bench_240.py --machine rtx4070 --profile release-lto --no-gpu-timing
+python tools/plant/bench_240.py --machine t1200
+python tools/plant/bench_240.py --machine rtx3060 --scene perspective
+python tools/plant/bench_240.py --machine rtx4070 --profile release-lto --no-gpu-timing
 ```
 
 The script builds the bench (or uses `--no-build`), runs three configurations
@@ -59,12 +59,12 @@ JSONL, CSV, logs and a Markdown table under `target/bench-240/`:
 
 | Configuration | What it separates |
 | --- | --- |
-| `no-grass` | The Bevy + terrain + camera floor. If this misses 4.167 ms, grass cannot fix the frame. |
-| `high` | `GrassQuality::High`, the default. |
-| `competitive` | `GrassQuality::Competitive`, the 240 Hz-oriented tier: 40 m reach, half density, no grass shadow casting. |
+| `no-plants` | The Bevy + terrain + camera floor. If this misses 4.167 ms, grass cannot fix the frame. |
+| `high` | `PlantQuality::High`, the default. |
+| `competitive` | `PlantQuality::Competitive`, the 240 Hz-oriented tier: 40 m reach, half density, no grass shadow casting. |
 
 Each run reports frame p50 and p95 against the budget, grass cost p50 and p95
-(paired against the no-grass CSV), the main pass and shadow pass, and a
+(paired against the no-plants CSV), the main pass and shadow pass, and a
 PASS/FAIL verdict based on **p95 within each run**, then the median of those
 p95s across rounds, not the frame median. A failed gate exits non-zero. `--report-only` is for bringing a target up without turning a
 nightly red; `--no-gpu-timing` removes Bevy's timestamp queries for the
@@ -74,7 +74,7 @@ The bench itself also accepts the gate flags directly:
 
 ```text
 cargo run --profile release-lto --example bench -- --tier competitive --target-hz 240
-cargo run --profile release-lto --example bench -- --tier competitive --target-hz 240 --baseline-csv target/no-grass.csv
+cargo run --profile release-lto --example bench -- --tier competitive --target-hz 240 --baseline-csv target/no-plants.csv
 ```
 
 `--budget-ms 4.167` is equivalent to `--target-hz 240`. Full output includes
@@ -85,7 +85,7 @@ the machine name from `--machine`.
 GPU frame times cannot be enforced on GitHub-hosted runners. The gate runs
 manually (or on a nightly schedule once the machines exist) through
 `.github/workflows/perf-240.yml` on self-hosted runners labelled with the
-names in `tools/reference-machines.json`:
+names in `tools/plant/reference-machines.json`:
 
 | Runner label | Machine | Why it is a reference |
 | --- | --- | --- |
@@ -100,7 +100,7 @@ mode itself.
 
 ### Recording runs
 
-`tools/bench_240.py` writes the Markdown table to
+`tools/plant/bench_240.py` writes the Markdown table to
 `target/bench-240/latest.md`. Append the current run to the table below (or
 replace the row for the same machine and date) so the gate's history lives
 with the measurements. Do not record a run whose log contains a shader error.
@@ -115,8 +115,8 @@ with the measurements. Do not record a run whose log contains a shader error.
 The first real gate run says two useful things. `High` is still far from the
 240 Hz budget in both scenes. `Competitive` **passes in perspective** on the
 T1200 with 0.56 ms of headroom, and misses the ARPG scene by 0.16 ms, with the
-no-grass floor already at 2.54 ms. One timing-instrumented run had a single 17 ms
-p95 spike in its no-grass baseline, which is why the gate takes the median of
+no-plants floor already at 2.54 ms. One timing-instrumented run had a single 17 ms
+p95 spike in its no-plants baseline, which is why the gate takes the median of
 three rounds instead of trusting one run.
 
 The instrumented diagnostic run (GPU timing on) put the Competitive main pass
@@ -130,7 +130,7 @@ success or failure unambiguous. The `High` row is the default-quality
 baseline; the Competitive row is the 240 Hz target that the clump/meshlet
 work is meant to improve.
 
-**RTX 4070 Ti note.** The 4070 Ti rows pass because the scene is empty, not because the frame is roomy. Their `no-grass` floor is 2.4–2.6 ms p50 (Bevy on a 2013 i5), about 60–65% of the 4.167 ms budget, and grass adds only 0.04–0.1 ms at p50 (about 0.3 ms of GPU time, mostly overlapped with the CPU). A real game's own frame has to fit in the remaining 1.2 ms at p95. So the gate shows that grass is not what stops a game reaching 240 FPS on this card; it does not show that a game reaches it. A faster CPU should lower the floor, but that has not been measured. `High` and `Competitive` are indistinguishable in frame time here (the run had no GPU timing), so the tier difference needs a run with GPU timing on.
+**RTX 4070 Ti note.** The 4070 Ti rows pass because the scene is empty, not because the frame is roomy. Their `no-plants` floor is 2.4–2.6 ms p50 (Bevy on a 2013 i5), about 60–65% of the 4.167 ms budget, and grass adds only 0.04–0.1 ms at p50 (about 0.3 ms of GPU time, mostly overlapped with the CPU). A real game's own frame has to fit in the remaining 1.2 ms at p95. So the gate shows that grass is not what stops a game reaching 240 FPS on this card; it does not show that a game reaches it. A faster CPU should lower the floor, but that has not been measured. `High` and `Competitive` are indistinguishable in frame time here (the run had no GPU timing), so the tier difference needs a run with GPU timing on.
 
 ## Where the time goes
 
@@ -159,7 +159,7 @@ The ideas come from a survey of AAA grass rendering (Ghost of Tsushima, Horizon 
 | # | Idea | What was built | Perspective | DEMO ARPG GAME | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Cheaper shadow filtering | Grass pipeline specialized with Bevy's `Hardware2x2` filter (4 samples) instead of the view's Gaussian (9 samples) | −0.45 ms, −9.6% | −0.30 ms, −9.5% | Rejected. Re-tested after experiment 7: −6.9%, −7.3%. |
-| 2 | No shadow casting from grass | `GrassShadows::Off` at High; grass still receives shadows and keeps its fake root occlusion | −0.34 ms, −7.3% | −0.44 ms, **−13.9%** | DEMO ARPG GAME only. The setting already exists; whether DEMO ARPG GAME grass casts shadows is decision D5. Defaults unchanged. |
+| 2 | No shadow casting from grass | `PlantShadows::Off` at High; grass still receives shadows and keeps its fake root occlusion | −0.34 ms, −7.3% | −0.44 ms, **−13.9%** | DEMO ARPG GAME only. The setting already exists; whether DEMO ARPG GAME grass casts shadows is decision D5. Defaults unchanged. |
 | 3 | Screen-size culling | Generation drops perspective blades projecting under 6 px tall | −0.08 ms, −1.7% | 0% | Rejected. Within a 100 m radius at a 45° field of view the smallest blade is about 4 px tall, so a 1–2 px cull removes nothing. |
 | 4 | Ground impostor beyond the grass | Grass radius 60 m instead of 100 m, LOD distances unchanged; no ground tint was built | −0.44 ms, −9.4% | 0% | Rejected, and it would cost the far field's look. |
 | 5 | Occlusion culling (Hi-Z), upper bound | Chunk cull ray-marches the heightmap to the chunk's top corners and skips chunks hidden from all five. The benchmark's only occluder is the terrain, so this is the best a Hi-Z pyramid could do here. | −0.08 ms, −1.8% | −0.03 ms, −1.0% | Rejected. It culled up to 25% of LOD 2 blades on some frames, but Bevy draws non-mesh phase items after meshes, so hidden grass already fails the depth test cheaply. A hillier scene would gain more; DEMO ARPG GAME's top-down camera gains nothing. |
@@ -198,7 +198,7 @@ These are features, not optimizations, so the 10% rule does not apply. Each was 
 
 ### Trampling (step 3.1)
 
-Each camera keeps 256 × 256 cells of 0.25 m (64 m; `GrassSettings::trample_cell_size`) around what it looks at. Cells are addressed modulo 256, so trails stay in world space without copying when the window moves. The 512-interactor case uses `bench --interactors 512`, with interactors walking rings around the view.
+Each camera keeps 256 × 256 cells of 0.25 m (64 m; `PlantSettings::trample_cell_size`) around what it looks at. Cells are addressed modulo 256, so trails stay in world space without copying when the window moves. The 512-interactor case uses `bench --interactors 512`, with interactors walking rings around the view.
 
 | Version | Blade generation, perspective | Blade generation, DEMO ARPG GAME | Notes |
 | --- | --- | --- | --- |
@@ -222,7 +222,7 @@ Blades in the same Voronoi cell of about 1 m share a brightness, and one clump i
 
 ### Translucency (step 3.2)
 
-Blades seen against the sun were nearly black. Bevy's own diffuse transmission evaluates the light and its 9-sample shadow a second time, which would cost far more than the arithmetic below, so it was not built. Instead, a face turned away from the sun is lit as its sunward side, through Bevy's normal lighting with one shadow lookup. The direct part of that light is then dimmed and tinted by the blade (`GrassStyle::translucency`), and an estimate of the ambient part is kept whole.
+Blades seen against the sun were nearly black. Bevy's own diffuse transmission evaluates the light and its 9-sample shadow a second time, which would cost far more than the arithmetic below, so it was not built. Instead, a face turned away from the sun is lit as its sunward side, through Bevy's normal lighting with one shadow lookup. The direct part of that light is then dimmed and tinted by the blade (`PlantStyle::translucency`), and an estimate of the ambient part is kept whole.
 
 | Version | Perspective | DEMO ARPG GAME | Notes |
 | --- | --- | --- | --- |
@@ -262,7 +262,7 @@ Lesson: **put optional look terms behind shader definitions from the start.** Ev
 
 ## Variation (October 15, 2026)
 
-Paired runs, four rounds each, T1200. Each bench flag takes `SUMMER_WILD`'s settings for one kind of variation; "grass cost" is the frame time minus a `--no-grass` run's.
+Paired runs, four rounds each, T1200. Each bench flag takes `SUMMER_WILD`'s settings for one kind of variation; "grass cost" is the frame time minus a `--no-plants` run's.
 
 | Change | Perspective | DEMO ARPG GAME | Notes |
 | --- | --- | --- | --- |
@@ -291,7 +291,7 @@ Grass cost with all of that on: about 4.3 ms in perspective (4.9 ms at p95) and 
 
 Not tried again, and why:
 
-- **2, no grass shadows; 4, a shorter grass radius; 8, fewer, wider blades at DEMO ARPG GAME's camera.** These change the look, and each is already a setting: `GrassShadows::Off`, the `Medium` or `Low` tier (70 m and 40 m), and the style's density and width.
+- **2, no grass shadows; 4, a shorter grass radius; 8, fewer, wider blades at DEMO ARPG GAME's camera.** These change the look, and each is already a setting: `PlantShadows::Off`, the `Medium` or `Low` tier (70 m and 40 m), and the style's density and width.
 - **6b, grass in a pass of its own, and a depth-only grass pre-pass.** Both made frames slower. The reasons (MSAA testing depth per sample, storing and reloading the multisampled targets) do not depend on the blades.
 
 Lesson: with variation on, the cost has moved further into the generation pass (+0.7 ms in perspective) and into pixels, not into work that culling can remove.
@@ -319,8 +319,8 @@ The GPU was busy 47% of the time at full clocks and no CPU thread was saturated,
 | Run | Frame p50 | Frame p95 |
 | --- | --- | --- |
 | Bench, as before | 2.91 ms | 3.55 ms |
-| `--no-grass` (plugin loaded, no field) | 2.89 ms | 3.60 ms |
-| `--no-plugin` (no `GrassPlugin` at all) | 2.71 ms | 3.34 ms |
+| `--no-plants` (plugin loaded, no field) | 2.89 ms | 3.60 ms |
+| `--no-plugin` (no `PlantPlugin` at all) | 2.71 ms | 3.34 ms |
 | `--no-plugin --no-gpu-timing` | 2.56 ms | 3.15 ms |
 | ... and `--no-terrain --no-shadows`: an empty scene | 2.13 ms | 2.69 ms |
 
@@ -336,7 +336,7 @@ Kept if the frame gets at least 10% faster (the developer's rule for this pass).
 | --- | --- | --- | --- | --- | --- |
 | L1 | The orthographic trample focus scans every chunk, three times a frame (15,625 chunks, 0.5 MB, more than Haswell's L2) | `chunk_height_at` indexes each field's chunk block directly | +0.0% / +0.8% | −2.9% / −3.3% | Rejected: under 10%, and the retest below found less. |
 | L2 | Grass rebuilds five bind groups every frame | Rebuilt only when a buffer they bind is reallocated (`BufferId`) | +2.4% / +1.5% | — | Rejected: noise. |
-| L3 | `GrassPlugin` always adds `FarGrassMaterial`'s material plugin and systems | Left out | −0.7% / −1.6% | — | Rejected: under 10%. |
+| L3 | `PlantPlugin` always adds `FarPlantMaterial`'s material plugin and systems | Left out | −0.7% / −1.6% | — | Rejected: under 10%. |
 | H1 | Unused Bevy plugins add systems | Picking, animation, text, gamepads and scenes disabled (gizmos cannot be: `LightPlugin` needs them) | −2.0% / +0.3% | — | Rejected: noise. |
 | H2 | The multi-threaded executor costs more than the systems on 4 cores | `--single-threaded`: one thread per app; pipelined rendering kept | −9.7% / −12.6% | −4.3% / −5.9% | Under 10% alone; see H2 + H3. |
 | H3 | Default release builds leave CPU time on the table | `--profile release-lto`: fat LTO, one codegen unit, no `target-cpu=native` (`native` gained nothing more) | −12.0% / −8.3% | −10.8% / −10.5% | **Kept** as an opt-in profile. |
@@ -351,11 +351,11 @@ Slower CPUs pay for the library's CPU work too, so three changes were retested t
 | Change | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 |
 | --- | --- | --- |
 | L1, chunk lookup by index | +0.2% / +1.0% | −1.8% / −2.0% |
-| L3, far grass in its own `FarGrassPlugin`, added only by games that use it | −1.1% / +0.2% | −1.0% / +0.2% |
+| L3, far grass in its own `FarPlantPlugin`, added only by games that use it | −1.1% / +0.2% | −1.0% / +0.2% |
 | L4, trample, cull and generate in one compute pass, timed inside it (`pass_span`); the GPU readback tests pass | −0.7% / −1.1% | −0.2% / +1.2% |
 | **All three** | **+1.7% / +1.3%** | **−0.6% / +2.6%** |
 
-Rejected: together they are within noise. The estimate of 4–6% was wrong. These three were the CPU work that the trace attributes to grass, but they are not where the library's 0.2 ms goes. What remains unexplained is the plugin's fixed cost: `--no-grass` (plugin loaded, no field) is still about 6% slower than `--no-plugin`. With no field, every frame still runs the trample decay over all 65,536 cells, records the compute encoder and the grass render-graph system, and schedules ten systems. Stub those out one at a time before building another fix.
+Rejected: together they are within noise. The estimate of 4–6% was wrong. These three were the CPU work that the trace attributes to grass, but they are not where the library's 0.2 ms goes. What remains unexplained is the plugin's fixed cost: `--no-plants` (plugin loaded, no field) is still about 6% slower than `--no-plugin`. With no field, every frame still runs the trample decay over all 65,536 cells, records the compute encoder and the grass render-graph system, and schedules ten systems. Stub those out one at a time before building another fix.
 
 Lessons:
 
@@ -367,7 +367,7 @@ Lessons:
 
 ### How it was measured
 
-The RTX 4070 Ti was locked to 300 MHz core and 5001 MHz memory (`sudo nvidia-smi -lgc 300,300` and `-lmc 5001,5001`; undo with `-rgc` and `-rmc`). That is about twice a T1200's shading rate with a similar ratio of arithmetic to memory bandwidth, and it makes the bench GPU-bound again: grass costs 6.5 ms in perspective and 4.1 ms at DEMO ARPG GAME's camera (p50), more than on the T1200. With frame time limited by the GPU, the usual method applies unchanged: paired rounds, frame time p50 and p95, grass cost against `--no-grass`. The card is a newer architecture (Ada) than the T1200 (Turing), so what is kept here should be confirmed on the T1200 with `tools/bench_ab.py`.
+The RTX 4070 Ti was locked to 300 MHz core and 5001 MHz memory (`sudo nvidia-smi -lgc 300,300` and `-lmc 5001,5001`; undo with `-rgc` and `-rmc`). That is about twice a T1200's shading rate with a similar ratio of arithmetic to memory bandwidth, and it makes the bench GPU-bound again: grass costs 6.5 ms in perspective and 4.1 ms at DEMO ARPG GAME's camera (p50), more than on the T1200. With frame time limited by the GPU, the usual method applies unchanged: paired rounds, frame time p50 and p95, grass cost against `--no-plants`. The card is a newer architecture (Ada) than the T1200 (Turing), so what is kept here should be confirmed on the T1200 with `tools/plant/bench_ab.py`.
 
 ### Where the time went
 
@@ -395,7 +395,7 @@ The surprise was generation: 3.9 ms at the locked clock (0.35 ms unlocked), almo
 | **512** | **−48.2% / −43.4%** (−3.1 ms, a third of the frame) | **−43.2% / −38.4%** |
 | 1024 | −46.8% / −41.3% | −39.0% / −39.0% |
 
-512 is kept: as fast as 256 within noise, with half the work items. Generation fell from 3.9 to 0.18 ms. The work list holds 8,192 slices (the default of `GrassSettings::max_chunk_slices`); the bench peaks at 420 at High, 739 at Ultra and 270 at DEMO ARPG GAME's camera. The overflow check now also warns when the list overflows.
+512 is kept: as fast as 256 within noise, with half the work items. Generation fell from 3.9 to 0.18 ms. The work list holds 8,192 slices (the default of `PlantSettings::max_chunk_slices`); the bench peaks at 420 at High, 739 at Ultra and 270 at DEMO ARPG GAME's camera. The overflow check now also warns when the list overflows.
 
 At stock clocks the frame stays CPU-bound, so the frame barely moves, but nothing gets worse. Five paired rounds against the pre-G6 build: generation fell from 0.36 to 0.034 ms in perspective and from 0.23 to 0.031 ms at DEMO ARPG GAME's camera. The frame went −3.6% / −4.0% (p50 / p95) in perspective and −4.2% / −3.7% at DEMO ARPG GAME, which is most of what grass cost there. The 22 presets again rendered pixel-identical.
 
@@ -431,7 +431,7 @@ Lessons:
 
 ## Five more hypotheses on the T1200 (October 15, 2026)
 
-Back on the development laptop (T1200, GPU-bound), after G6. Same method: `tools/bench_ab.py`, 6–10 interleaved paired rounds against the G6 build, shares of grass cost (reference minus `--no-grass`). Kept if both p50 and p95 improve by at least 3% in both scenes (the developer's bar for this pass).
+Back on the development laptop (T1200, GPU-bound), after G6. Same method: `tools/plant/bench_ab.py`, 6–10 interleaved paired rounds against the G6 build, shares of grass cost (reference minus `--no-plants`). Kept if both p50 and p95 improve by at least 3% in both scenes (the developer's bar for this pass).
 
 | # | Hypothesis | What was built | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 | Verdict |
 | --- | --- | --- | --- | --- | --- |
@@ -454,7 +454,7 @@ With one hardware-filtered tap per vertex it measured −5.6% / −20.3% in pers
 Comparing P5 with the build before it, the developer noticed that both blinked, and that blades vibrated rather than swayed. Two causes, neither a performance change:
 
 - **The bend was stored in 8 bits per axis**, since M0. A blade's tip could only move in steps of 1/127 of its height, about 1.2 cm on a 1.5 m blade: blades held still, then hopped, out of step with each other. It is now 12 bits, with last frame's bend (for motion vectors) as a 4-bit step from it, in the same 16-byte instance: steps of 0.7 mm. Paired rounds against the 8-bit build: −0.7% / −0.4% at DEMO ARPG GAME's camera and +0.3% / +0.5% in perspective (p50 / p95 of grass cost), noise. The goldens changed (blade edges moved up to a pixel) and were re-blessed.
-- **The `variation` example's shadow map was too coarse.** One cascade over 60 m in a 2048 map is about 4–5 cm per texel; a blade is 1–2 cm wide, so blade shadows popped on and off as blades crossed texel centres. It now uses three cascades, the first 12 m deep, as the bench's perspective scene already did with Bevy's defaults (first cascade 10 m), so its cost is in the numbers above. A 4096 map with `GrassShadows::Full` looked sharper still but cost +27% to +47% of grass cost and was not needed.
+- **The `variation` example's shadow map was too coarse.** One cascade over 60 m in a 2048 map is about 4–5 cm per texel; a blade is 1–2 cm wide, so blade shadows popped on and off as blades crossed texel centres. It now uses three cascades, the first 12 m deep, as the bench's perspective scene already did with Bevy's defaults (first cascade 10 m), so its cost is in the numbers above. A 4096 map with `PlantShadows::Full` looked sharper still but cost +27% to +47% of grass cost and was not needed.
 
 Lessons:
 
@@ -466,7 +466,7 @@ Lessons:
 
 The API work (settings, per-camera overrides, the split style, incremental tables, a plugin group, field overrides, interactor height, the wind clock) was measured against the build from before it, to check that nothing got slower.
 
-**Method.** `tools/bench_ab.py`, four interleaved rounds in both scenes (dev profile with optimised dependencies, T1200, 1920 × 1080, 4× MSAA, High tier, 1,380 frames a run), three builds: `4747d7d` (before), `5b61aba` (the P1 pass: settings, split style, tables) and the working tree after the P2 pass. Medians of the four rounds:
+**Method.** `tools/plant/bench_ab.py`, four interleaved rounds in both scenes (dev profile with optimised dependencies, T1200, 1920 × 1080, 4× MSAA, High tier, 1,380 frames a run), three builds: `4747d7d` (before), `5b61aba` (the P1 pass: settings, split style, tables) and the working tree after the P2 pass. Medians of the four rounds:
 
 | Scene | Before | After P1 | After P2 | No grass |
 | --- | --- | --- | --- | --- |
@@ -479,7 +479,7 @@ The API work (settings, per-camera overrides, the split style, incremental table
 
 Paired differences against the build before, as a share of grass cost: P1 +0.0% (perspective) and +0.6% (DEMO ARPG GAME's camera) at p50; P2 +0.6% and +0.8% at p50, and +1.8% and −1.5% at p95. All are inside the ±2% noise of this machine, so **nothing got slower**, which is what the design predicts: the changes are table work on the CPU when something changes, and in the shaders one `round` per blade (sway) and per full-detail vertex (flutter).
 
-The no-grass baseline drifted from 2.3 to 3.0 ms over the session (the laptop warming up); the builds were interleaved in each round, so the paired differences are not affected. The raw rows are in `target/bench-ab/results.jsonl` (not committed).
+The no-plants baseline drifted from 2.3 to 3.0 ms over the session (the laptop warming up); the builds were interleaved in each round, so the paired differences are not affected. The raw rows are in `target/bench-ab/results.jsonl` (not committed).
 
 The CPU side, per frame, is unchanged in kind: the main-world systems compare change flags, and tables are rebuilt only when something changed. P1-9's tests also pin that a style change every frame rewrites only the entries of the fields using it, and reads no image.
 
@@ -489,7 +489,7 @@ The README's numbers came from the T1200 laptop only. This section measures the 
 
 **Machine.** RTX 4070 Ti, stock clocks (not locked), Intel i5-4570S (4 cores, no hyper-threading, 2013), Linux X11, Vulkan. Quiet: browser closed, nothing else running.
 
-**Method.** `cargo build --profile release-lto --example bench`, then five interleaved rounds of the bench with and without `--no-grass`, in three scenes: the perspective flythrough, the ARPG camera (`--ortho`) and the ARPG camera with `--interactors 512`, at the High tier and again at Ultra (`--tier ultra`). 1920 × 1080, 4× MSAA, no vsync, 1,380 frames a run after warm-up. Medians of five paired differences (grass minus no-grass in the same round).
+**Method.** `cargo build --profile release-lto --example bench`, then five interleaved rounds of the bench with and without `--no-plants`, in three scenes: the perspective flythrough, the ARPG camera (`--ortho`) and the ARPG camera with `--interactors 512`, at the High tier and again at Ultra (`--tier ultra`). 1920 × 1080, 4× MSAA, no vsync, 1,380 frames a run after warm-up. Medians of five paired differences (grass minus no-plants in the same round).
 
 **Grass cost is read from GPU timestamps, not the frame.** The frame is limited by the CPU (see "The frame-time floor"), so frame time barely moves with grass: it stays at about 2.7–2.9 ms either way. The grass's GPU time is the difference in the main pass (terrain included), culling and blade generation. The trampling pass is left out of the sum: it runs whether or not grass is drawn (0.007 ms with no interactors, 0.010 ms with 512).
 
@@ -512,13 +512,13 @@ The GPU differences are steady to within 0.01 ms across the five rounds (main pa
 - 512 interactors lower the main pass (by 0.05 ms at High): probably because trampled blades lie lower and cover fewer pixels (not checked). This is not a saving to count on; it depends on the interactors' radius and where they walk.
 - On a CPU of this age the frame stays at about 340–360 fps with or without grass. A faster CPU would let the frame follow the GPU figures; that has not been tested here.
 
-Raw rows were kept in the scratchpad only; rerun with `tools/bench_ab.py` or the commands above.
+Raw rows were kept in the scratchpad only; rerun with `tools/plant/bench_ab.py` or the commands above.
 
 ## The look's varyings packed in one place (October 21, 2026)
 
-A refactor, measured to check it costs nothing. The per-vertex look terms (colour, occlusion, sheen) were declared, filled and unpacked separately in the forward and the prepass/deferred entry points; they now travel as a `Look` from `look.wesl`, packed into two `vec4` varyings both passes declare (`look_color`, `look_terms`). In the forward pass this turns the scalar occlusion and sheen varyings into one `vec4` with two spare components, and sends the sheen slot (as 0) even without `GRASS_SHEEN`. The fragment side still uses a constant 0 for sheen when it is off, so the compiler folds it as before.
+A refactor, measured to check it costs nothing. The per-vertex look terms (colour, occlusion, sheen) were declared, filled and unpacked separately in the forward and the prepass/deferred entry points; they now travel as a `Look` from `look.wesl`, packed into two `vec4` varyings both passes declare (`look_color`, `look_terms`). In the forward pass this turns the scalar occlusion and sheen varyings into one `vec4` with two spare components, and sends the sheen slot (as 0) even without `PLANT_SHEEN`. The fragment side still uses a constant 0 for sheen when it is off, so the compiler folds it as before.
 
-**Method.** `tools/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `4098655` (before) against the refactor, with the bench's default style and with `--sheen` and `--toon`. Six interleaved rounds, and eight more of the sheen pair, whose first p95 result was the only one above noise. Grass cost (reference minus `--no-grass`, p50): 2.89 ms in perspective, 2.37 ms at DEMO ARPG GAME's camera.
+**Method.** `tools/plant/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `4098655` (before) against the refactor, with the bench's default style and with `--sheen` and `--toon`. Six interleaved rounds, and eight more of the sheen pair, whose first p95 result was the only one above noise. Grass cost (reference minus `--no-plants`, p50): 2.89 ms in perspective, 2.37 ms at DEMO ARPG GAME's camera.
 
 | Paired against the same style before | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 |
 | --- | --- | --- |
@@ -532,7 +532,7 @@ All inside the ±2% noise. The sheen pair's p95 at the ARPG camera was +2.7% aft
 
 A refactor for WebGPU, measured to check it costs nothing. Every grass pipeline now binds at most 10 storage buffers per shader stage, down from 14 (see [the budget](rendering.md#bind-groups-and-the-storage-buffer-budget)), in three steps: A, a group-1 layout per family of compute passes; B, the masks and heightmaps in one scene buffer, with `bitcast<f32>` for the heights; C, the draws' storage buffers visible to the vertex stage only.
 
-**Method.** `tools/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `9622419` (before) against each step. Four interleaved rounds. Grass cost (reference minus `--no-grass`, p50): 2.88 ms in perspective, 2.31 ms at DEMO ARPG GAME's camera.
+**Method.** `tools/plant/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `9622419` (before) against each step. Four interleaved rounds. Grass cost (reference minus `--no-plants`, p50): 2.88 ms in perspective, 2.31 ms at DEMO ARPG GAME's camera.
 
 | Paired against before | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 |
 | --- | --- | --- |
@@ -546,7 +546,7 @@ Every result is inside the 3% bar, and all but one inside the ±2% noise; the on
 
 A measurement, not a change: grass has drawn into Bevy's deferred G-buffer since M4, but the bench could not draw deferred, so its cost was unknown. The hypothesis: a deferred pass writes only the G-buffer for each grass fragment and lights each pixel once, so blades hidden behind nearer ones cost less, and lighting is about half the main pass.
 
-**Method.** For this pass only, the bench gained `--deferred` (Bevy's deferred renderer, with the depth prepass and MSAA off, which it needs) and `--no-msaa` (forward with MSAA off), and `tools/bench_ab.py` a `nograss+flag` baseline, because deferred changes what the terrain costs too. All three were removed afterwards as not worth keeping. T1200, dev profile with optimised dependencies, `90fcd59`, six interleaved rounds of all six runs in both scenes. Each renderer's grass cost is its run minus the no-grass run with the same flags in the same round. A first set of four rounds was discarded: something else on the machine pushed no-grass frames from 2.7 to 5–13 ms in three of them.
+**Method.** For this pass only, the bench gained `--deferred` (Bevy's deferred renderer, with the depth prepass and MSAA off, which it needs) and `--no-msaa` (forward with MSAA off), and `tools/plant/bench_ab.py` a `noplants+flag` baseline, because deferred changes what the terrain costs too. All three were removed afterwards as not worth keeping. T1200, dev profile with optimised dependencies, `90fcd59`, six interleaved rounds of all six runs in both scenes. Each renderer's grass cost is its run minus the no-plants run with the same flags in the same round. A first set of four rounds was discarded: something else on the machine pushed no-plants frames from 2.7 to 5–13 ms in three of them.
 
 | Grass cost (p50 / p95) | Perspective | DEMO ARPG GAME |
 | --- | --- | --- |
@@ -573,7 +573,7 @@ The three levers that belong to the library rather than to a game setting such a
 
 **Method.** T1200, dev profile with optimised dependencies, `90fcd59`, every build (the reference too) against the patched `bevy_pbr`, which on its own renders all 36 goldens identically. The bench gained `--no-msaa` again for this pass and lost it afterwards. Four interleaved rounds of ten runs (the reference, three variants and no grass, each with 4× MSAA and with it off) in both scenes; each variant is paired with the reference in the same round, as a share of the reference's grass cost with the same MSAA. A stub that made the 4-tap filter return full shadow darkened only the grass, so L3's define did take effect.
 
-Two earlier attempts were discarded: the laptop had gone into Modern Standby (idle timeout, screen off) a few minutes before the first, which held the CPU at 20–40% of its base clock and pushed no-grass frames from 2.1–3.0 to 6–8 ms. The run that counts kept the machine awake with `SetThreadExecutionState` for its duration.
+Two earlier attempts were discarded: the laptop had gone into Modern Standby (idle timeout, screen off) a few minutes before the first, which held the CPU at 20–40% of its base clock and pushed no-plants frames from 2.1–3.0 to 6–8 ms. The run that counts kept the machine awake with `SetThreadExecutionState` for its duration.
 
 **Frame time could not judge L1 and L3 with MSAA off in perspective.** The reference's frame sat at 4.0–4.7 ms and both variants stepped below it, so their frame time fell by 0.6–0.7 ms while their main pass fell by 0.18–0.20 ms: frame pacing, not grass. L1 and L3 change only the main pass, so they are judged on its GPU timestamps, which agreed across rounds to within about 3 points. The grass shadow pass has no timestamp of its own, so L2 is judged on the frame.
 
@@ -600,15 +600,15 @@ Looks, from the 36 goldens against the T1200's (mean difference of 255, and pixe
 
 Verdicts:
 
-- **L1 is kept.** It passes in perspective; DEMO ARPG GAME's orthographic camera has no distance LOD, so it is the control here, not a failure. The developer accepted the look. It shipped as a setting of its own, `GrassSettings::mid_range_start` (0.1 of the radius in every tier), so blades still keep full detail to `lod1_start`; lowering `lod1_start` instead would also have switched them to 3 rows from 10 m. The shipped build renders the 36 goldens pixel-identically to the measured variant.
+- **L1 is kept.** It passes in perspective; DEMO ARPG GAME's orthographic camera has no distance LOD, so it is the control here, not a failure. The developer accepted the look. It shipped as a setting of its own, `PlantSettings::mid_range_start` (0.1 of the radius in every tier), so blades still keep full detail to `lod1_start`; lowering `lod1_start` instead would also have switched them to 3 rows from 10 m. The shipped build renders the 36 goldens pixel-identically to the measured variant.
 - **L2 is rejected.** The frame moved by less than its noise, and the main pass got 1–3% slower. As P4 found, the shadow map's cost is its pixels, and half the blades at 1.41× the width cover about as many shadow-map texels.
 - **L3 is rejected by the developer.** It passes in both scenes with both MSAA settings, but it cannot ship as measured: it needs a filter that Bevy does not have, so it would take an upstream Bevy change, or grass sampling the sun's shadow itself with Bevy's cascade selection and biases copied, which then has to follow Bevy's shadow code at every release.
 
 ## Production cleanup: grass separated from Bevy (October 23, 2026)
 
-A refactor, measured to check it costs nothing: the steps of [Production cleanup](proposals/prod-cleanup.md). Tripwires in `bevy_glue.rs`; the public wind frame and camera components without render code (a private `WindUniform`, a camera extract system); the tables' layout in `gpu_layout.rs`; every Bevy shader import in `bevy_bridge.wesl`; `GrassLightFrame` and its adapter; `GrassWindFrame::advance`. Images are unchanged: the 36 preset goldens and the 8 new render-path goldens match, also with `--max-storage-buffers 10`.
+A refactor, measured to check it costs nothing: the steps of [Production cleanup](proposals/prod-cleanup.md). Tripwires in `bevy_glue.rs`; the public wind frame and camera components without render code (a private `WindUniform`, a camera extract system); the tables' layout in `gpu_layout.rs`; every Bevy shader import in `bevy_bridge.wesl`; `PlantLightFrame` and its adapter; `PlantWindFrame::advance`. Images are unchanged: the 36 preset goldens and the 8 new render-path goldens match, also with `--max-storage-buffers 10`.
 
-**Method.** `tools/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `20c4aa3` (before) against each step and against the end (`f19b523`). The rounds of the middle steps were noisy: twice the laptop throttled between rounds, no-grass frames going from 2.8 to 6.3 ms, and those rounds were discarded. Each step that changed per-frame work was within its noise (steps 2 to 4 and C4, −1.9% to +2.0% of grass cost at p50 over 3 to 8 rounds, with an unchanged step as the control); the light adapter's own rounds were all throttled, so it is judged by the final run. The final run, six interleaved rounds, had steady no-grass frames (2.8–3.1 ms). Grass cost (reference minus `--no-grass`, p50): 2.71 ms in perspective, 2.35 ms at DEMO ARPG GAME's camera.
+**Method.** `tools/plant/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `20c4aa3` (before) against each step and against the end (`f19b523`). The rounds of the middle steps were noisy: twice the laptop throttled between rounds, no-plants frames going from 2.8 to 6.3 ms, and those rounds were discarded. Each step that changed per-frame work was within its noise (steps 2 to 4 and C4, −1.9% to +2.0% of grass cost at p50 over 3 to 8 rounds, with an unchanged step as the control); the light adapter's own rounds were all throttled, so it is judged by the final run. The final run, six interleaved rounds, had steady no-plants frames (2.8–3.1 ms). Grass cost (reference minus `--no-plants`, p50): 2.71 ms in perspective, 2.35 ms at DEMO ARPG GAME's camera.
 
 | Final against before | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 |
 | --- | --- | --- |
@@ -619,11 +619,11 @@ The perspective main pass was slower in all six rounds, by 0.014 to 0.063 ms, ab
 
 ## Strategy cameras: `radius_from_ground` (October 24, 2026)
 
-A feature, not a lever: `GrassCamera::radius_from_ground` takes the camera's height above the ground off every distance the reach, thinning and LOD bands use, and thins by `(radius / (radius + height))²` so a raised camera keeps about the same number of blades. Off by default, it adds a uniform field and a few uniform operations per chunk and blade in `generate.wesl`, with an offset of 0 and a thinning of exactly 1. The 36 preset goldens and the render-path goldens match pixel for pixel.
+A feature, not a lever: `PlantCamera::radius_from_ground` takes the camera's height above the ground off every distance the reach, thinning and LOD bands use, and thins by `(radius / (radius + height))²` so a raised camera keeps about the same number of blades. Off by default, it adds a uniform field and a few uniform operations per chunk and blade in `generate.wesl`, with an offset of 0 and a thinning of exactly 1. The 36 preset goldens and the render-path goldens match pixel for pixel.
 
-**The default path.** `tools/bench_ab.py`, T1200, four interleaved rounds, both scenes, `820825f` against the change: +0.1% (DEMO ARPG GAME) and +0.8% (perspective) of grass cost at p50, −1.5% and +1.0% at p95, all within the noise. **Kept.**
+**The default path.** `tools/plant/bench_ab.py`, T1200, four interleaved rounds, both scenes, `820825f` against the change: +0.1% (DEMO ARPG GAME) and +0.8% (perspective) of grass cost at p50, −1.5% and +1.0% at p95, all within the noise. **Kept.**
 
-**The feature itself,** in the new `rts_camera` example (800 m map, High, `MEADOW` at 0.6 height, `min_width_px` 2, 1920 × 1080 on the T1200; grass is the main pass less the no-grass 0.81 ms):
+**The feature itself,** in the new `rts_camera` example (800 m map, High, `MEADOW` at 0.6 height, `min_width_px` 2, 1920 × 1080 on the T1200; grass is the main pass less the no-plants 0.81 ms):
 
 | Variant | 40 m up | 120 m | 200 m |
 | --- | --- | --- | --- |
@@ -631,29 +631,29 @@ A feature, not a lever: `GrassCamera::radius_from_ground` takes the camera's hei
 | ...LOD by the real distance as well | 181k, 2.8 ms | 409k, all in LOD 2, overflows its 300k | 815k, overflows |
 | ...and thinned for the height (shipped) | 92k, 1.5 ms | 85k, 0.5 ms | 91k, 0.2 ms |
 
-The first two keep the density of a camera standing on the ground, but a raised camera sees ground that grows with the square of its height, so blades, cost and overflows grow with it. The shipped variant draws as many blades at 200 m as at 40, wider; from about 100 m a blade is a pixel or two tall and the field reads as texture, blending into `FarGrassMaterial`. `GrassCamera::density_scale` buys density back on GPUs that can afford it.
+The first two keep the density of a camera standing on the ground, but a raised camera sees ground that grows with the square of its height, so blades, cost and overflows grow with it. The shipped variant draws as many blades at 200 m as at 40, wider; from about 100 m a blade is a pixel or two tall and the field reads as texture, blending into `FarPlantMaterial`. `PlantCamera::density_scale` buys density back on GPUs that can afford it.
 
-**`GrassFieldOverrides::wind_scale`**, measured the same way against `9d3c248`: one multiply per blade in `generate.wesl` and per full-detail vertex in `blade.wesl`, +0.3% (DEMO ARPG GAME) and −0.5% (perspective) of grass cost at p50, +0.2% and +0.8% at p95, within the noise; goldens identical. **Kept.**
+**`PlantFieldOverrides::wind_scale`**, measured the same way against `9d3c248`: one multiply per blade in `generate.wesl` and per full-detail vertex in `blade.wesl`, +0.3% (DEMO ARPG GAME) and −0.5% (perspective) of grass cost at p50, +0.2% and +0.8% at p95, within the noise; goldens identical. **Kept.**
 
 ## Gusts without a grid, far sheen from the side (October 24, 2026)
 
-A look fix, measured to check its cost: from a strategy camera the gusts showed as squares, the gust texture repeating every `gust_scale` metres. `wind_gust` now samples the texture a second time, turned and larger, so two samples per `wind_bend` call instead of one: four per blade in `generate.wesl`, with last frame's bend. `tools/bench_ab.py`, T1200, four interleaved rounds, both scenes, `a89266f` against the change: −0.3% (DEMO ARPG GAME) and +1.0% (perspective) of grass cost at p50, −0.2% and +0.2% at p95, within the noise. **Kept;** the developer accepted the look.
+A look fix, measured to check its cost: from a strategy camera the gusts showed as squares, the gust texture repeating every `gust_scale` metres. `wind_gust` now samples the texture a second time, turned and larger, so two samples per `wind_bend` call instead of one: four per blade in `generate.wesl`, with last frame's bend. `tools/plant/bench_ab.py`, T1200, four interleaved rounds, both scenes, `a89266f` against the change: −0.3% (DEMO ARPG GAME) and +1.0% (perspective) of grass cost at p50, −0.2% and +0.2% at p95, within the noise. **Kept;** the developer accepted the look.
 
-The far sheen now fades as the camera looks down on the ground, and `far.wesl` skips the gust sample where the sheen would change the colour by under 0.4%: under the blades, and nearly everywhere seen from a strategy camera. The bench draws no `FarGrassMaterial`, so this is not in the numbers; it is one or two texture reads per ground pixel, about 0.02 ms at 1080p on the T1200 at most, a look change rather than a saving.
+The far sheen now fades as the camera looks down on the ground, and `far.wesl` skips the gust sample where the sheen would change the colour by under 0.4%: under the blades, and nearly everywhere seen from a strategy camera. The bench draws no `FarPlantMaterial`, so this is not in the numbers; it is one or two texture reads per ground pixel, about 0.02 ms at 1080p on the T1200 at most, a look change rather than a saving.
 
 ## The blinking fixes, and 0.20.6 against 0.20.5 (October 24, 2026)
 
-Two look fixes, measured to check their cost: the sheen's specular antialiasing with its reflectance cap (`fd3d7b7`), and `@invariant` blade positions in the main pass and the prepass (`42e0085`). `tools/bench_ab.py`, T1200, four interleaved rounds per pass, both scenes, against `61923f6` (main before the fixes), as a share of grass cost at p50:
+Two look fixes, measured to check their cost: the sheen's specular antialiasing with its reflectance cap (`fd3d7b7`), and `@invariant` blade positions in the main pass and the prepass (`42e0085`). `tools/plant/bench_ab.py`, T1200, four interleaved rounds per pass, both scenes, against `61923f6` (main before the fixes), as a share of grass cost at p50:
 
 | Variant | DEMO ARPG GAME | Perspective |
 | --- | --- | --- |
 | Sheen fix alone, as first written | +4.3% | +6.0% |
 | Both fixes, without `@invariant` | +5.0% | +5.0% |
 | Both fixes (n = 8) | +4.2% | +6.7% |
-| Both, antialiasing only with `GRASS_SHEEN` (shipped) | +1.0% | +3.0% |
+| Both, antialiasing only with `PLANT_SHEEN` (shipped) | +1.0% | +3.0% |
 | ...with the bench's `--sheen`, against `61923f6 --sheen` | +4.2% | −0.6% |
 
-`@invariant` costs nothing measurable. The antialiasing's two derivatives and square roots cost about 5%, and as first written every style paid them, though the bench's style has no sheen and a matte blade (roughness 0.7) has no narrow lobe to tame. Compiled only with `GRASS_SHEEN`, matte styles are back within the noise (+3.4% and +1.2% at p95), and a style with sheen pays about 4% at DEMO ARPG GAME's camera for not flashing white. The goldens are identical with and without the gate. **Kept.**
+`@invariant` costs nothing measurable. The antialiasing's two derivatives and square roots cost about 5%, and as first written every style paid them, though the bench's style has no sheen and a matte blade (roughness 0.7) has no narrow lobe to tame. Compiled only with `PLANT_SHEEN`, matte styles are back within the noise (+3.4% and +1.2% at p95), and a style with sheen pays about 4% at DEMO ARPG GAME's camera for not flashing white. The goldens are identical with and without the gate. **Kept.**
 
 Against 0.20.5 (`v0.20.5`, same rounds), `61923f6` is 20.7% of grass cost faster in perspective and 1.3% faster at DEMO ARPG GAME's camera at p50 (18.2% and 2.4% at p95), mostly the mid-range thinning from 10 m (`mid_range_start`).
 

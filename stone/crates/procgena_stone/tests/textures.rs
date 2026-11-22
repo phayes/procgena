@@ -4,7 +4,7 @@
 //! rendering.
 //!
 //! Texture files are not in the repository. Download them with
-//! `tools/textures/download.sh`, then run the ignored test with
+//! `uv run --project tools textures download stone`, then run the ignored test with
 //! `cargo test -p procgena_stone --test textures -- --ignored`.
 
 use std::collections::HashSet;
@@ -255,10 +255,10 @@ fn image_manifest_lists_every_image_once() {
 }
 
 /// Checks the downloaded texture files against the manifest. The 512 and 1k
-/// sizes that `tools/textures/download.sh` fetches by default must be present;
+/// sizes that `uv run --project tools textures download stone` fetches by default must be present;
 /// 2k files are checked when present.
 #[test]
-#[ignore = "needs textures from tools/textures/download.sh"]
+#[ignore = "needs textures from uv run --project tools textures download stone"]
 fn downloaded_textures_have_the_documented_formats() {
     let manifest = manifest("assets_manifest.json");
     let mut checked = 0;

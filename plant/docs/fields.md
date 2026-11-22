@@ -2,12 +2,12 @@
 
 Two types describe grass:
 
-- A **`GrassPlant`** is one plant: a grass blade, a fern, a small bush. It
+- A **`PlantParams`** is one plant: a grass blade, a fern, a small bush. It
   holds everything that makes the plant read as that plant: its size, shape,
   colours, branches, how it gathers into tufts, its accent (a share of its
   stems that grow differently, such as the plumes of pampas grass), and the
   density it looks right at on its own.
-- A **`GrassField`** is a component, the patch of ground that plants grow on.
+- A **`PlantField`** is a component, the patch of ground that plants grow on.
   It says where (`size`, `ground`, `density_map`), which plants grow there and
   how densely (`plants`, a list of `FieldPlant`), and what belongs to the
   whole field: a scale on every plant's density, colour variation, bare
@@ -20,16 +20,16 @@ you need.
 
 ## Make your own field
 
-A field preset is a constant; `GrassField::from_preset` gives a field of it at
+A field preset is a constant; `PlantField::from_preset` gives a field of it at
 the size you ask for. The plant is one level in, and its shape and colours one
 more, in its `segment`:
 
 ```rust
 fn setup(mut commands: Commands) {
     let prairie = FieldPreset::TALL_PRAIRIE.field.plants[0].plant;
-    let plant = GrassPlant {
+    let plant = PlantParams {
         height: Vec2::new(0.6, 1.2),
-        segment: GrassSegment {
+        segment: PlantSegment {
             tip_color: Color::srgb(0.75, 0.70, 0.35),
             stiffness: 0.6,
             ..prairie.segment
@@ -37,7 +37,7 @@ fn setup(mut commands: Commands) {
         ..prairie
     };
     commands.spawn((
-        GrassField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(120.0, 80.0))
+        PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(120.0, 80.0))
             .with_plants(vec![FieldPlant::new(plant, 1.0)])
             .with_spacing(0.15), // plants about 15 cm apart
         Transform::from_xyz(40.0, 2.0, -10.0),
@@ -45,8 +45,8 @@ fn setup(mut commands: Commands) {
 }
 ```
 
-`GrassPlant`, `GrassSegment`, `GrassBranches`, `GrassAccent` and `FieldPlant`
-are `Copy`. `GrassField` is not, so to reuse a field held in a variable after
+`PlantParams`, `PlantSegment`, `PlantBranches`, `PlantAccent` and `FieldPlant`
+are `Copy`. `PlantField` is not, so to reuse a field held in a variable after
 `..field`, write `..field.clone()`.
 
 ## Change a field at runtime
@@ -56,7 +56,7 @@ the next frame. It is cheap enough to do every frame, for a season or
 day/night blend or wet grass:
 
 ```rust
-fn season(time: Res<Time>, mut fields: Query<&mut GrassField>) {
+fn season(time: Res<Time>, mut fields: Query<&mut PlantField>) {
     let t = (time.elapsed_secs() * 0.1).sin() * 0.5 + 0.5;
     for mut field in &mut fields {
         for entry in field.plants.to_mut() {
@@ -73,7 +73,7 @@ field's plants or look rewrites only that field's entries, and the chunks,
 masks and heightmaps are neither rebuilt nor uploaded again; a change to
 colours alone is cheaper still. Moving a field sideways rewrites only its
 entries. Setting a field to what it already was costs nothing.
-`GrassStats::tables` counts it: `images_read`, `entries_rewritten`, `rebuilds`
+`PlantStats::tables` counts it: `images_read`, `entries_rewritten`, `rebuilds`
 and the expensive `layout_rebuilds`.
 
 ## How tall the grass grows
@@ -85,14 +85,14 @@ narrowest one that does what you need:
 | --- | --- | --- |
 | of a plant in a field | `plant.height` of its `FieldPlant` (and `plant.accent.height` for its accent) | That field |
 | in places within a field | the density mask's green channel | Each texel of the mask |
-| where the game cuts it, while it runs | `GrassEdit::mow`, or a `GrassBrush` with `GrassEditOp::Mow` | The grass under the edit, until restored or regrown |
+| where the game cuts it, while it runs | `PlantEdit::mow`, or a `PlantBrush` with `PlantEditOp::Mow` | The grass under the edit, until restored or regrown |
 
 [Presets](presets.md#sizes) lists each preset's tallest plant. Units 2 m tall
 stand well above `MEADOW` (0.6 m at most); to keep grass under 0.4 m there as
 well, scale the heights of the field's plants:
 
 ```rust
-let mut field = GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(800.0));
+let mut field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(800.0));
 for entry in field.plants.to_mut() {
     entry.plant.height *= 0.4 / 0.6;
     entry.plant.accent.height *= 0.4 / 0.6;
@@ -105,39 +105,39 @@ a copy of its field; changing the copy never changes the constant.
 
 ## Mix plants
 
-A field grows one or more plants, each a `FieldPlant`: a `GrassPlant`, a
+A field grows one or more plants, each a `FieldPlant`: a `PlantParams`, a
 `density_scale` on that plant's own density, and how much it grows in patches
 (`clustering`). Every plant has a `density`, the plants per m² that suit it
 on its own: 60 for `MEADOW_GRASS`, 40 for `SEED_HEADS`, 2 for `FERN`. In a
 field it grows at its density times its `density_scale` (1 by default):
 
 ```rust
-let field = GrassField::from_preset(&FieldPreset::SUMMER_TALL, Vec2::splat(100.0))
+let field = PlantField::from_preset(&FieldPreset::SUMMER_TALL, Vec2::splat(100.0))
     .with_plants(vec![
         // 40 × 0.1 = 4 seed heads per m².
-        FieldPlant::new(GrassPlant::SEED_HEADS).scaled(0.1),
+        FieldPlant::new(PlantParams::SEED_HEADS).scaled(0.1),
         // 30 × 0.04 = 1.2 white flowers per m², in patches.
-        FieldPlant::new(GrassPlant::WHITE_FLOWERS).scaled(0.04).clustered(0.8),
+        FieldPlant::new(PlantParams::WHITE_FLOWERS).scaled(0.04).clustered(0.8),
         // A plant of your own sets its own density: 0.8 purple flowers per m².
-        FieldPlant::new(GrassPlant {
+        FieldPlant::new(PlantParams {
             density: 0.8,
             head_color: Color::srgb(0.70, 0.45, 0.95),
-            ..GrassPlant::WHITE_FLOWERS
+            ..PlantParams::WHITE_FLOWERS
         })
         .clustered(0.8),
         // 40 × 0.85 = 34 grass plants per m².
-        FieldPlant::new(GrassPlant {
+        FieldPlant::new(PlantParams {
             tufts: 0.3, // gather the grass into tufts
-            segment: GrassSegment {
+            segment: PlantSegment {
                 droop: 0.25, // tall blades arch over
-                ..GrassPlant::SUMMER_TALL_GRASS.segment
+                ..PlantParams::SUMMER_TALL_GRASS.segment
             },
-            ..GrassPlant::SUMMER_TALL_GRASS
+            ..PlantParams::SUMMER_TALL_GRASS
         })
         .scaled(0.85),
     ]);
-let wild = GrassField {
-    variation: GrassVariation {
+let wild = PlantField {
+    variation: PlantVariation {
         bare_share: 0.05,  // 5% of the ground bare
         patch_amount: 0.4, // colour drifts in patches several metres across
         dry_tips: 0.2,
@@ -172,39 +172,39 @@ A mix is not made by adding two whole fields together. `FOREST_FLOOR`, for
 example, starts from `FOREST_MOSS` and grows ferns, leaf litter, clover and
 broad leaves among its moss (see
 [`src/presets/forest.rs`](../src/presets/forest.rs)). Each plant has its own
-`GrassPlant`, so its shape, height, colours and tufts can differ from every
+`PlantParams`, so its shape, height, colours and tufts can differ from every
 other plant's:
 
 ```rust
-let mixed = GrassField {
+let mixed = PlantField {
     density_scale: 1.0, // FOREST_MOSS grows its moss at 1.1
     plants: vec![
         // 2 × 0.7 = 1.4 ferns per m².
-        FieldPlant::new(GrassPlant::FERN).scaled(0.7).clustered(0.5),
+        FieldPlant::new(PlantParams::FERN).scaled(0.7).clustered(0.5),
         // 20 × 0.7 = 14 rust-coloured broad leaves per m².
-        FieldPlant::new(GrassPlant {
+        FieldPlant::new(PlantParams {
             height: Vec2::new(0.12, 0.30),
             width: 0.07,
-            segment: GrassSegment {
+            segment: PlantSegment {
                 tip_color: Color::srgb(0.45, 0.22, 0.08),
-                ..GrassPlant::BROAD_LEAF.segment
+                ..PlantParams::BROAD_LEAF.segment
             },
-            ..GrassPlant::BROAD_LEAF
+            ..PlantParams::BROAD_LEAF
         })
         .scaled(0.7)
         .clustered(0.4),
         // 30 × 0.2 = 6 pink flowers per m².
-        FieldPlant::new(GrassPlant {
+        FieldPlant::new(PlantParams {
             head_color: Color::srgb(0.80, 0.30, 0.55),
-            ..GrassPlant::WHITE_FLOWERS
+            ..PlantParams::WHITE_FLOWERS
         })
         .scaled(0.2)
         .clustered(0.8),
         // 200 × 0.6 = 120 moss plants per m².
-        FieldPlant::new(GrassPlant::MOSS).scaled(0.6),
+        FieldPlant::new(PlantParams::MOSS).scaled(0.6),
     ]
     .into(),
-    ..GrassField::from_preset(&FieldPreset::FOREST_MOSS, Vec2::splat(30.0))
+    ..PlantField::from_preset(&FieldPreset::FOREST_MOSS, Vec2::splat(30.0))
 };
 ```
 
@@ -242,7 +242,7 @@ colour, dry tips, dead share, bare patches, the ground tint, toon bands,
 `wind_scale`, and a `density_scale` on all its plants. A `FieldPlant` adds
 how much denser or sparser that plant grows here, and its clustering.
 
-So a plant's density travels with it: drop `GrassPlant::FERN` into any field
+So a plant's density travels with it: drop `PlantParams::FERN` into any field
 and it grows at its own 2 per m² unless the field scales it. `clustering`
 changes where they grow, not how many. That is why `FOREST_FLOOR` scales
 its moss to 109 per m² under the ferns instead of the carpet's 220.
@@ -266,17 +266,17 @@ Accent stems grow in place of some of the plant's own stems, in its tufts, so
 they stand out of the same clumps:
 
 ```rust
-let pampas = GrassPlant {
+let pampas = PlantParams {
     tufts: 1.0,
     tuft_size: 1.8,
-    accent: GrassAccent {
+    accent: PlantAccent {
         share: 0.06, // six stems in a hundred are plumes
         height: Vec2::new(2.2, 3.0),
         width: 0.01,
         head_length: 0.3,
         head_width: 0.045,
         head_color: Color::srgb(0.94, 0.88, 0.74),
-        ..GrassAccent::NONE
+        ..PlantAccent::NONE
     },
     ..FieldPreset::PAMPAS.field.plants[0].plant
 };
@@ -284,7 +284,7 @@ let pampas = GrassPlant {
 
 An accent has its own height, width, lean, translucency, segment and head. It
 is never branched, and keeps the plant's root occlusion, sheen, stems per
-plant and tufts. `GrassAccent::NONE` (share 0) is an accent that is off.
+plant and tufts. `PlantAccent::NONE` (share 0) is an accent that is off.
 
 Use an accent when the stems belong to the plant; use another `FieldPlant`
 when they are a plant of their own (cattails among reeds, flowers among
@@ -292,42 +292,42 @@ grass), which can then cluster and tuft on its own.
 
 ## Plants that branch
 
-Every plant is built from one part, a `GrassSegment`: a tapered, curved
+Every plant is built from one part, a `PlantSegment`: a tapered, curved
 strip with a shape (`profile`, `droop`, `twist`, `fold`), a stiffness and two
 colours. A grass blade is one segment. A fern is a segment, its stalk, with
 a row of smaller segments, its leaflets, along it. A bush is a stem with
 twigs along it and leaves along the twigs.
 
-A `GrassPlant` has its own segment and two `levels` of `GrassBranches`:
+A `PlantParams` has its own segment and two `levels` of `PlantBranches`:
 `levels[0]` grows along the plant's own segment, `levels[1]` along each of
-those. A level with `count: 0` is off, and `GrassBranches::NONE` is a level
+those. A level with `count: 0` is off, and `PlantBranches::NONE` is a level
 that is off. `stems_per_plant` grows several stems from one root, spread
 around it like the ring of fronds of a fern:
 
 ```rust
-let fern = GrassPlant {
+let fern = PlantParams {
     height: Vec2::new(0.5, 0.95), // the stalk's length
     width: 0.007,                 // the stalk; the leaflets make the frond wide
     stems_per_plant: 6,
     levels: [
-        GrassBranches {
+        PlantBranches {
             count: 28,              // 14 pairs of leaflets
-            arrangement: GrassArrangement::Opposite,
+            arrangement: PlantArrangement::Opposite,
             attachment_start: 0.25, // a bare quarter of stalk at the base
             length: 0.3,            // the longest leaflet, a share of the stalk
             length_envelope: 0.3,   // longest a third of the way up
             width: 0.22,            // a share of the leaflet's own length
             angle: 0.22,
-            segment: GrassSegment {
+            segment: PlantSegment {
                 profile: 0.3,
                 droop: 0.25,
-                ..GrassBranches::NONE.segment
+                ..PlantBranches::NONE.segment
             },
-            ..GrassBranches::NONE
+            ..PlantBranches::NONE
         },
-        GrassBranches::NONE,
+        PlantBranches::NONE,
     ],
-    ..GrassPlant::FERN
+    ..PlantParams::FERN
 };
 ```
 
@@ -359,7 +359,7 @@ optional setting over the base plant's level:
 
 Every branched plant preset (`FERN`, `SALAL`, `MATURE_BRACKEN` and the others
 in [Presets](presets.md)) has its settings written out this way in its file
-in [`assets/grass_plants`](../assets/grass_plants), to copy from.
+in [`assets/plants`](../assets/plants), to copy from.
 
 What to know about branched plants:
 
@@ -370,14 +370,14 @@ What to know about branched plants:
   close up, a blade 15. Branched plants thin with distance only at the far
   end, fading out, not at mid range as grass does. Measure a dense mix with
   the `bench` example's `--field` option.
-- **They have their own buffer.** `GrassSettings::plant_capacity` holds the
+- **They have their own buffer.** `PlantSettings::plant_capacity` holds the
   visible stems of every kind of branched plant in use, shared by how many
   each kind asked for the frame before. A warning names the setting when it runs
   out.
 - **At most 32 kinds at once.** Plants that branch alike (the same `count` on
   each level) are drawn together as one kind, whatever their sizes and
   colours. A 33rd kind in use is left out with a warning and counted in
-  `GrassStats::tables.branched_dropped`. A plant with more segments than one
+  `PlantStats::tables.branched_dropped`. A plant with more segments than one
   draw holds (about 1000 vertices close up) is left out the same way.
 - **No head.** A plant with `levels[0]` on has no seed head or flower; a
   file that sets both is an error.
@@ -388,8 +388,8 @@ What to know about branched plants:
 ## Load plants and fields from files, and edit them live
 
 Every preset ships as a file: plants in
-[`assets/grass_plants`](../assets/grass_plants) as `.plant.ron`, fields in
-[`assets/grass_fields`](../assets/grass_fields) as `.field.ron`. Copy one into
+[`assets/plants`](../assets/plants) as `.plant.ron`, fields in
+[`assets/fields`](../assets/fields) as `.field.ron`. Copy one into
 your game's assets and load it like any asset: a `.plant.ron` loads as a
 `PlantPreset`, a `.field.ron` as a `FieldPreset`. The loaded preset's `key` is
 the file's name without its extensions, and its `group` is `"File"`.
@@ -414,7 +414,7 @@ struct FieldFile(Handle<FieldPreset>);
 fn follow_field_files(
     mut events: MessageReader<AssetEvent<FieldPreset>>,
     presets: Res<Assets<FieldPreset>>,
-    mut fields: Query<(&FieldFile, &mut GrassField)>,
+    mut fields: Query<(&FieldFile, &mut PlantField)>,
 ) {
     for event in events.read() {
         let (AssetEvent::LoadedWithDependencies { id } | AssetEvent::Modified { id }) = *event
@@ -424,7 +424,7 @@ fn follow_field_files(
         let Some(preset) = presets.get(id) else { continue };
         for (file, mut field) in &mut fields {
             if file.0.id() == id {
-                *field = GrassField {
+                *field = PlantField {
                     size: field.size,
                     ground: field.ground.clone(),
                     density_map: field.density_map.clone(),
@@ -460,7 +460,7 @@ which default to the key and to nothing.
 
 With Bevy's `file_watcher` feature, saving the file changes the grass in the
 running game. A broken file logs what is wrong (an unknown preset key lists
-the valid ones) and leaves the grass as it was. `GrassPlant` and `GrassField`
+the valid ones) and leaves the grass as it was. `PlantParams` and `PlantField`
 also read and write these settings in code: `from_ron`, `to_ron`,
 `from_json` and `to_json`. To make a file a named preset in this crate
 instead, see [Adding a preset](presets.md#adding-a-preset-to-the-crate).
@@ -469,7 +469,7 @@ instead, see [Adding a preset](presets.md#adding-a-preset-to-the-crate).
 
 Units are metres unless stated.
 
-**`GrassPlant`** (a `FieldPlant`'s `plant`):
+**`PlantParams`** (a `FieldPlant`'s `plant`):
 
 | Setting | Meaning |
 | --- | --- |
@@ -478,16 +478,16 @@ Units are metres unless stated.
 | `width` | Width of its own segment at the root; each plant varies ±25% |
 | `lean` | How far the tip leans at rest, as a share of the height |
 | `stems_per_plant` | Stems from one root, spread around it, 1 to 8; 1 for grass |
-| `segment` | The plant's own segment (`GrassSegment`, below): a blade, a fern's stalk |
-| `levels` | Two levels of `GrassBranches` (below); `levels[0]` on the plant's segment, `levels[1]` on each of those |
+| `segment` | The plant's own segment (`PlantSegment`, below): a blade, a fern's stalk |
+| `levels` | Two levels of `PlantBranches` (below); `levels[0]` on the plant's segment, `levels[1]` on each of those |
 | `root_occlusion` | How much darker the plant is near the ground, 0–1 |
 | `translucency` | How much sunlight shows through a backlit segment, 0–1 |
 | `specular` | Rough sheen on the upper half of the plant, 0–1 |
 | `head_length`, `head_width`, `head_color` | A seed head or flower at the top: its share of the length, width and colour. It turns toward the camera. Plants without branches only |
 | `tufts`, `tuft_size` | How strongly its stems gather into tufts (0–1), and the distance between tufts. The plant count stays the same |
-| `accent` | Stems that grow differently (`GrassAccent`, below) |
+| `accent` | Stems that grow differently (`PlantAccent`, below) |
 
-**`GrassAccent`** (a plant's accent):
+**`PlantAccent`** (a plant's accent):
 
 | Setting | Meaning |
 | --- | --- |
@@ -495,9 +495,9 @@ Units are metres unless stated.
 | `height`, `width`, `lean`, `translucency` | As the plant's, for accent stems |
 | `segment` | What each accent stem looks like |
 | `head_length`, `head_width`, `head_color` | A head on each accent stem; `head_length` 0 has none |
-| `GrassAccent::NONE` | An accent that is off |
+| `PlantAccent::NONE` | An accent that is off |
 
-**`GrassSegment`** (a plant's own segment, each level's, and an accent's):
+**`PlantSegment`** (a plant's own segment, each level's, and an accent's):
 
 | Setting | Meaning |
 | --- | --- |
@@ -508,12 +508,12 @@ Units are metres unless stated.
 | `fold` | How far it folds along the midrib, 0–1; branches rise along the V |
 | `root_color`, `tip_color` | Colours along it |
 
-**`GrassBranches`** (one level):
+**`PlantBranches`** (one level):
 
 | Setting | Meaning |
 | --- | --- |
 | `count` | Children on each parent segment, 0 (off) to 32 |
-| `arrangement` | `GrassArrangement::Opposite` (in pairs; an odd count rounds up) or `Alternate` |
+| `arrangement` | `PlantArrangement::Opposite` (in pairs; an odd count rounds up) or `Alternate` |
 | `attachment_start` | Share of the parent left bare at its base, 0 to below 1 |
 | `length` | The longest child, as a share of its parent's length |
 | `length_envelope` | Where along the parent children are longest, 0 (base) to 1 (tip) |
@@ -521,13 +521,13 @@ Units are metres unless stated.
 | `angle` | 0 at right angles to the parent, 1 along it toward its tip |
 | `spread` | How far each child turns round the parent from the last, 0–1 in half turns: 0 flat like a fern, 0.5 crossed pairs like a nettle. Above 0, leaves face the sky |
 | `segment` | What each child looks like |
-| `GrassBranches::NONE` | A level that is off |
+| `PlantBranches::NONE` | A level that is off |
 
 **`FieldPlant`:**
 
 | Item | What it does |
 | --- | --- |
-| `plant` | What it looks like: a `GrassPlant`. In a file, a plant preset's key or the plant's settings |
+| `plant` | What it looks like: a `PlantParams`. In a file, a plant preset's key or the plant's settings |
 | `density_scale` | Multiplies the plant's own `density` in this field: 1 as it is, 0.5 half as dense, 0 removes it |
 | `clustering` | 0: scattered evenly. 1: grows in patches about a metre across. Unused on the last plant |
 | `FieldPlant::new(plant)` | A scattered plant at its own density (`const`) |
@@ -535,7 +535,7 @@ Units are metres unless stated.
 | `.clustered(amount)` | The same plant, growing in patches |
 | `density()` | Its plants per m², before the field's own scale |
 
-**`GrassField`:**
+**`PlantField`:**
 
 | Setting | Meaning |
 | --- | --- |
@@ -555,13 +555,13 @@ accents) is off at 0, and costs nothing while no field uses it.
 
 | Method | What it does |
 | --- | --- |
-| `GrassField::new(size, plants)` | A field of these plants, with the `MEADOW` field's look |
-| `GrassField::from_preset(&preset, size)` | A preset's field at this size |
+| `PlantField::new(size, plants)` | A field of these plants, with the `MEADOW` field's look |
+| `PlantField::from_preset(&preset, size)` | A preset's field at this size |
 | `density()` | Plants per m² of all its plants together at full density; a plant with several stems counts once |
 | `spacing()` | Average distance between neighbouring plants at full density (`1 / √density()`) |
 | `with_spacing(metres)`, `with_density(per_m2)` | The same field and mix, denser or sparser (sets `density_scale`) |
 | `with_plants(list)` | The same field with these plants |
-| `from_ron(text)`, `to_ron()`, `from_json(text)`, `to_json()` | Read or write the plants and look as `.field.ron` or JSON (`GrassPlant` has the same, as `.plant.ron`) |
+| `from_ron(text)`, `to_ron()`, `from_json(text)`, `to_json()` | Read or write the plants and look as `.field.ron` or JSON (`PlantParams` has the same, as `.plant.ron`) |
 
 **Presets** (`FieldPreset` and `PlantPreset`):
 
@@ -569,6 +569,6 @@ accents) is off at 0, and costs nothing while no field uses it.
 | --- | --- |
 | `key`, `name`, `description`, `group` | The constant's name (`"MEADOW"`), a display name, one paragraph, and the group it is listed in |
 | `field` / `plant` | The preset's field or plant |
-| `FieldPreset::MEADOW`, `PlantPreset::FERN`, … | Each preset, as a constant; `GrassPlant::FERN` is the same plant |
+| `FieldPreset::MEADOW`, `PlantPreset::FERN`, … | Each preset, as a constant; `PlantParams::FERN` is the same plant |
 | `GROUPS`, `all()`, `named(key)` | Every group of presets, every preset, and a preset by its key |
 | `from_ron(key, text)`, `to_ron()` | Read or write a preset as its file |

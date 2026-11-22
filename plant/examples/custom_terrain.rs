@@ -1,10 +1,10 @@
 //! Far grass in a terrain material of the game's own: a ground with its own
-//! shader (`custom_terrain.wesl`) that calls `grass_far_color`, as a game
-//! with its own terrain shader would, instead of using `FarGrassMaterial`.
+//! shader (`custom_terrain.wesl`) that calls `plant_far_color`, as a game
+//! with its own terrain shader would, instead of using `FarPlantMaterial`.
 //!
-//! The material holds a `FarGrassUniform` and the gust texture
-//! (`FarGrass::GUSTS`); a system rewrites the uniform every frame from the
-//! wind and the grass radius (`FarGrass::uniform`), so the gusts roll across
+//! The material holds a `FarPlantUniform` and the gust texture
+//! (`FarPlants::GUSTS`); a system rewrites the uniform every frame from the
+//! wind and the grass radius (`FarPlants::uniform`), so the gusts roll across
 //! the far ground in step with the blades.
 //!
 //! ```text
@@ -18,7 +18,7 @@ use bevy::asset::uuid_handle;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
-use procgena_plant::FarGrassUniform;
+use procgena_plant::FarPlantUniform;
 use procgena_plant::prelude::*;
 
 /// The terrain shader, added from the file next to this example.
@@ -27,10 +27,10 @@ const TERRAIN_SHADER: Handle<Shader> = uuid_handle!("4f1e2a9c-7b3d-4c6e-8a5f-2d9
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: custom terrain material");
-    app.add_plugins((GrassPlugins, MaterialPlugin::<Terrain>::default()))
-        .insert_resource(TerrainGrass(FarGrass::new(&FieldPreset::MEADOW.field)))
+    app.add_plugins((PlantPlugins, MaterialPlugin::<Terrain>::default()))
+        .insert_resource(TerrainPlants(FarPlants::new(&FieldPreset::MEADOW.field)))
         .add_systems(Startup, setup)
-        .add_systems(Update, follow_the_grass.after(GrassWindSystems::Sample))
+        .add_systems(Update, follow_the_plants.after(PlantWindSystems::Sample))
         .run();
 }
 
@@ -38,7 +38,7 @@ fn main() {
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
 struct Terrain {
     #[uniform(0)]
-    far: FarGrassUniform,
+    far: FarPlantUniform,
     #[texture(1)]
     #[sampler(2)]
     gusts: Handle<Image>,
@@ -61,16 +61,16 @@ impl Material for Terrain {
 
 /// What the far grass on the terrain looks like.
 #[derive(Resource)]
-struct TerrainGrass(FarGrass);
+struct TerrainPlants(FarPlants);
 
 /// Keeps the terrain's far grass on this frame's wind and radius.
-fn follow_the_grass(
-    grass: Res<TerrainGrass>,
-    wind: Res<GrassWindFrame>,
-    settings: Res<GrassSettings>,
+fn follow_the_plants(
+    terrain_plants: Res<TerrainPlants>,
+    wind: Res<PlantWindFrame>,
+    settings: Res<PlantSettings>,
     mut terrains: ResMut<Assets<Terrain>>,
 ) {
-    let far = grass.0.uniform(&wind, &settings);
+    let far = terrain_plants.0.uniform(&wind, &settings);
     for (_, terrain) in terrains.iter_mut() {
         terrain.far = far;
     }
@@ -81,7 +81,7 @@ fn setup(
     mut shaders: ResMut<Assets<Shader>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut terrains: ResMut<Assets<Terrain>>,
-    grass: Res<TerrainGrass>,
+    terrain_plants: Res<TerrainPlants>,
 ) {
     shaders
         .insert(
@@ -105,11 +105,11 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(1000.0, 1000.0))),
         MeshMaterial3d(
             terrains.add(Terrain {
-                // `follow_the_grass` brings it up to date every frame.
-                far: grass
+                // `follow_the_plants` brings it up to date every frame.
+                far: terrain_plants
                     .0
-                    .uniform(&GrassWindFrame::default(), &GrassSettings::default()),
-                gusts: FarGrass::GUSTS,
+                    .uniform(&PlantWindFrame::default(), &PlantSettings::default()),
+                gusts: FarPlants::GUSTS,
                 look: TerrainLook {
                     soil: LinearRgba::from(Color::srgb(0.2, 0.15, 0.09)).to_vec4(),
                     sun: sun.normalize().extend(0.0),
@@ -117,7 +117,7 @@ fn setup(
             }),
         ),
     ));
-    commands.spawn(GrassField::from_preset(
+    commands.spawn(PlantField::from_preset(
         &FieldPreset::MEADOW,
         Vec2::splat(400.0),
     ));

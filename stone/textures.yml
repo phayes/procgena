@@ -1,0 +1,88 @@
+# Textures for procgena_stone's rocks, used by the `textures` tool:
+#   uv run --project tools textures <command> stone
+# See tools/README.md for the commands. Only add CC0 textures: free to use,
+# including in commercial projects.
+
+# Folder in the public gs://ze_textures bucket that holds these textures.
+bucket: stone
+
+# How surface maps are stored. `orh` packs ambient occlusion, roughness and
+# height into one image (and occlusion, roughness and metalness into the
+# exported `orm` JPEG); `roughness` keeps roughness as its own image.
+layout: orh
+
+# Folder under assets/textures/ for every set below, unless a set names its own.
+category: rock
+
+# Surface texture sets, in manifest order. The id names the output files and
+# MaterialOptions::texture. `source` defaults to polyhaven and `source_id` to
+# the id. Sources:
+#   polyhaven      https://polyhaven.com/a/<source_id>
+#   ambientcg      https://ambientcg.com/a/<source_id>
+#   sharetextures  <source_id> is the download's name before -2K.zip
+#   texturecan     <source_id> ends the page address, e.g. 249 for
+#                  https://www.texturecan.com/details/249/
+#   manual         downloaded by hand from `source_url`; save the files named
+#                  in `originals` in prior_art/textures/<id>/original/
+# sharetextures, texturecan and manual sets also give their attribution:
+# title, authors, source_url and license. `site` names the website in the
+# attribution when it differs from the source.
+sets:
+  - id: rock_face_03
+  - id: rock_boulder_dry
+  - id: rock_01
+  - id: lichen_rock_02
+    source_id: mossy_rock
+  - id: rock_05
+  - id: rock_08
+  - id: rock_04
+  - id: rock_06
+  - id: rock_pitted_mossy
+  - id: lichen_rock
+  - id: rock_boulder_cracked
+  - id: worn_rock_natural_01
+  - id: seaside_rock
+  - id: rock_surface
+  - id: rock_2
+  - id: rock_3
+  - id: rock_face
+  - id: marble_rock_01
+  - id: dark_rock
+  - id: metal
+    source: ambientcg
+    source_id: Metal052C
+  - id: amethyst_1
+    source: sharetextures
+    source_id: amethyst_texture_1
+    title: Amethyst Texture 1
+    authors: [M.Tolga Arslan]
+    source_url: https://www.sharetextures.com/textures/gems/amethyst-1
+    license: CC0-1.0
+  - id: rock_ore_002
+    source: manual
+    title: Rock Ore 002
+    authors: [3dtextures.me]
+    site: 3dtextures
+    source_url: https://3dtextures.me/2018/01/15/rock-ore-002/
+    license: CC0-1.0
+    normal_convention: directx
+    originals:
+      color: Rock_Ore_002_COLOR.png
+      normal: Rock_Ore_002_NORM.png
+      roughness: Rock_Ore_002_ROUGH.png
+      occlusion: Rock_Ore_002_OCC.png
+      height: Rock_Ore_002_DISP.png
+  - id: ice
+    source: manual
+    title: Ice 001
+    authors: [3dtextures.me]
+    site: 3dtextures
+    source_url: https://3dtextures.me/2017/11/19/ice-001/
+    license: CC0-1.0
+    normal_convention: directx
+    originals:
+      color: Ice_001_COLOR.jpg
+      normal: Ice_001_NRM.jpg
+      specular: Ice_001_SPEC.jpg
+      occlusion: Ice_001_OCC.jpg
+      height: Ice_001_DISP.png

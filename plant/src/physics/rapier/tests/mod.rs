@@ -6,7 +6,7 @@ use bevy::transform::components::{GlobalTransform, Transform};
 use bevy_rapier3d::prelude::{Collider, ColliderDisabled, Sensor};
 
 use crate::physics::tests::{close, ground_stamp, on_ground};
-use crate::{GrassInteractor, GrassInteractorFootprint};
+use crate::{PlantInteractor, PlantInteractorFootprint};
 
 use super::*;
 
@@ -18,8 +18,8 @@ fn app() -> App {
     app
 }
 
-fn footprint(app: &App, entity: Entity) -> GrassInteractorFootprint {
-    *app.world().get::<GrassInteractorFootprint>(entity).unwrap()
+fn footprint(app: &App, entity: Entity) -> PlantInteractorFootprint {
+    *app.world().get::<PlantInteractorFootprint>(entity).unwrap()
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn a_character_capsule_becomes_a_round_footprint() {
         .world_mut()
         .spawn((
             Collider::capsule_y(0.5, 0.4),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
         ))
         .id();
     app.update();
@@ -41,7 +41,7 @@ fn a_character_capsule_becomes_a_round_footprint() {
     let stamp = ground_stamp(&app, entity);
     assert_eq!(stamp.shape.zw(), Vec2::ZERO, "upright: a disc");
     assert_eq!(
-        app.world().get::<GrassInteractor>(entity).unwrap().strength,
+        app.world().get::<PlantInteractor>(entity).unwrap().strength,
         1.0
     );
 }
@@ -54,7 +54,7 @@ fn a_large_box_is_one_square_footprint() {
         .spawn((
             // Rapier calls these half extents: a 6 m by 3 m footprint.
             Collider::cuboid(3.0, 0.5, 1.5),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
         ))
         .id();
     app.update();
@@ -71,7 +71,7 @@ fn the_adapter_passes_scale_strength_and_height_through() {
         .world_mut()
         .spawn((
             Collider::ball(0.3),
-            GrassInteractorFromCollider {
+            PlantInteractorFromCollider {
                 scale: 0.5,
                 strength: 0.4,
                 max_height: Some(1.5),
@@ -83,7 +83,7 @@ fn the_adapter_passes_scale_strength_and_height_through() {
     let fitted = footprint(&app, entity);
     assert!((fitted.half_extents.x - 0.15).abs() < 1e-6);
     assert!((fitted.rounding - 0.15).abs() < 1e-6, "a ball is round");
-    let interactor = app.world().get::<GrassInteractor>(entity).unwrap();
+    let interactor = app.world().get::<PlantInteractor>(entity).unwrap();
     assert_eq!(interactor.strength, 0.4);
     assert_eq!(interactor.max_height, Some(1.5));
 }
@@ -95,7 +95,7 @@ fn a_disabled_collider_body_or_sensor_flattens_nothing() {
         .world_mut()
         .spawn((
             Collider::ball(0.3),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
             ColliderDisabled,
         ))
         .id();
@@ -103,7 +103,7 @@ fn a_disabled_collider_body_or_sensor_flattens_nothing() {
         .world_mut()
         .spawn((
             Collider::ball(0.3),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
             RigidBodyDisabled,
         ))
         .id();
@@ -111,7 +111,7 @@ fn a_disabled_collider_body_or_sensor_flattens_nothing() {
         .world_mut()
         .spawn((
             Collider::ball(0.3),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
             Sensor,
         ))
         .id();
@@ -119,7 +119,7 @@ fn a_disabled_collider_body_or_sensor_flattens_nothing() {
 
     for entity in [disabled, body, sensor] {
         assert_eq!(
-            app.world().get::<GrassInteractor>(entity).unwrap().strength,
+            app.world().get::<PlantInteractor>(entity).unwrap().strength,
             0.0
         );
     }
@@ -130,7 +130,7 @@ fn a_disabled_collider_body_or_sensor_flattens_nothing() {
     app.update();
     assert_eq!(
         app.world()
-            .get::<GrassInteractor>(disabled)
+            .get::<PlantInteractor>(disabled)
             .unwrap()
             .strength,
         1.0
@@ -145,13 +145,13 @@ fn a_child_collider_stops_with_its_disabled_parent_body() {
         .world_mut()
         .spawn((
             Collider::ball(0.3),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
             ChildOf(body),
         ))
         .id();
     app.update();
     assert_eq!(
-        app.world().get::<GrassInteractor>(child).unwrap().strength,
+        app.world().get::<PlantInteractor>(child).unwrap().strength,
         1.0
     );
 
@@ -159,7 +159,7 @@ fn a_child_collider_stops_with_its_disabled_parent_body() {
     app.update();
 
     assert_eq!(
-        app.world().get::<GrassInteractor>(child).unwrap().strength,
+        app.world().get::<PlantInteractor>(child).unwrap().strength,
         0.0
     );
 }
@@ -169,28 +169,28 @@ fn removing_the_collider_stops_the_interaction_until_it_returns() {
     let mut app = app();
     let entity = app
         .world_mut()
-        .spawn((Collider::ball(0.3), GrassInteractorFromCollider::default()))
+        .spawn((Collider::ball(0.3), PlantInteractorFromCollider::default()))
         .id();
     app.update();
     assert_eq!(
-        app.world().get::<GrassInteractor>(entity).unwrap().strength,
+        app.world().get::<PlantInteractor>(entity).unwrap().strength,
         1.0
     );
 
     app.world_mut().entity_mut(entity).remove::<Collider>();
     app.update();
     assert_eq!(
-        app.world().get::<GrassInteractor>(entity).unwrap().strength,
+        app.world().get::<PlantInteractor>(entity).unwrap().strength,
         0.0
     );
-    assert!(app.world().get::<GrassColliderBounds>(entity).is_none());
+    assert!(app.world().get::<PlantColliderBounds>(entity).is_none());
 
     app.world_mut()
         .entity_mut(entity)
         .insert(Collider::ball(0.5));
     app.update();
     assert_eq!(
-        app.world().get::<GrassInteractor>(entity).unwrap().strength,
+        app.world().get::<PlantInteractor>(entity).unwrap().strength,
         1.0
     );
     assert_eq!(footprint(&app, entity).half_extents, Vec3::splat(0.5));
@@ -210,7 +210,7 @@ fn a_scaled_collider_is_covered_once_not_twice() {
             collider,
             transform,
             GlobalTransform::from(transform),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
         ))
         .id();
     app.update();
@@ -230,7 +230,7 @@ fn a_capsule_that_falls_over_flattens_along_its_length() {
             Collider::capsule_y(1.7, 0.3),
             standing,
             GlobalTransform::from(standing),
-            GrassInteractorFromCollider::default(),
+            PlantInteractorFromCollider::default(),
         ))
         .id();
     app.update();

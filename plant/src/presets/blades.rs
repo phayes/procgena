@@ -1,5 +1,5 @@
 use super::{
-    Color, Cow, GrassArrangement, GrassBranches, GrassPlant, GrassSegment, PlantPreset, Vec2,
+    Color, Cow, PlantArrangement, PlantBranches, PlantParams, PlantPreset, PlantSegment, Vec2,
 };
 
 plant_preset_group! {
@@ -17,13 +17,13 @@ GROUND_COVER "Ground cover" {
         head_length: 0.2,
         head_width: 0.022,
         head_color: Color::srgb(0.62, 0.56, 0.36),
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.45,
             root_color: Color::srgb(0.07, 0.12, 0.04),
             tip_color: Color::srgb(0.40, 0.50, 0.20),
-            ..GrassPlant::SUMMER_TALL_GRASS.segment
+            ..PlantParams::SUMMER_TALL_GRASS.segment
         },
-        ..GrassPlant::SUMMER_TALL_GRASS
+        ..PlantParams::SUMMER_TALL_GRASS
     };
     WHITE_FLOWERS {
         name: "White flowers",
@@ -37,13 +37,13 @@ GROUND_COVER "Ground cover" {
         head_length: 0.12,
         head_width: 0.05,
         head_color: Color::srgb(0.92, 0.92, 0.86),
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.5,
             root_color: Color::srgb(0.05, 0.11, 0.03),
             tip_color: Color::srgb(0.24, 0.42, 0.12),
-            ..GrassPlant::SUMMER_TALL_GRASS.segment
+            ..PlantParams::SUMMER_TALL_GRASS.segment
         },
-        ..GrassPlant::SUMMER_TALL_GRASS
+        ..PlantParams::SUMMER_TALL_GRASS
     };
     YELLOW_FLOWERS {
         name: "Yellow flowers",
@@ -54,7 +54,7 @@ GROUND_COVER "Ground cover" {
         head_length: 0.1,
         head_width: 0.035,
         head_color: Color::srgb(0.95, 0.78, 0.12),
-        ..GrassPlant::WHITE_FLOWERS
+        ..PlantParams::WHITE_FLOWERS
     };
     CLOVER {
         name: "Clover",
@@ -66,14 +66,14 @@ GROUND_COVER "Ground cover" {
         lean: 0.35,
         root_occlusion: 0.5,
         translucency: 0.4,
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.5,
             root_color: Color::srgb(0.04, 0.10, 0.04),
             tip_color: Color::srgb(0.16, 0.34, 0.12),
             droop: 0.7,
-            ..GrassPlant::SUMMER_TALL_GRASS.segment
+            ..PlantParams::SUMMER_TALL_GRASS.segment
         },
-        ..GrassPlant::SUMMER_TALL_GRASS
+        ..PlantParams::SUMMER_TALL_GRASS
     };
     BROAD_LEAF {
         name: "Broad leaf",
@@ -85,16 +85,16 @@ GROUND_COVER "Ground cover" {
         lean: 0.3,
         root_occlusion: 0.55,
         translucency: 0.5,
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.4,
             root_color: Color::srgb(0.04, 0.09, 0.03),
             tip_color: Color::srgb(0.20, 0.38, 0.10),
             twist: 0.1,
             droop: 0.6,
             fold: 0.5,
-            ..GrassPlant::SUMMER_TALL_GRASS.segment
+            ..PlantParams::SUMMER_TALL_GRASS.segment
         },
-        ..GrassPlant::SUMMER_TALL_GRASS
+        ..PlantParams::SUMMER_TALL_GRASS
     };
     MOSS {
         name: "Moss",
@@ -108,17 +108,17 @@ GROUND_COVER "Ground cover" {
         root_occlusion: 0.55,
         translucency: 0.35,
         specular: 0.15,
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.45,
             root_color: Color::srgb(0.03, 0.07, 0.03),
             tip_color: Color::srgb(0.14, 0.30, 0.13),
             droop: 0.45,
             fold: 0.35,
-            ..GrassPlant::MEADOW_GRASS.segment
+            ..PlantParams::MEADOW_GRASS.segment
         },
         tufts: 0.25,
         tuft_size: 0.35,
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
     FERN {
         name: "Fern",
@@ -135,7 +135,7 @@ GROUND_COVER "Ground cover" {
         root_occlusion: 0.6,
         translucency: 0.5,
         specular: 0.2,
-        segment: GrassSegment {
+        segment: PlantSegment {
             profile: 0.0,
             stiffness: 0.3,
             droop: 0.55,
@@ -147,16 +147,16 @@ GROUND_COVER "Ground cover" {
         // Leave the bottom quarter bare and place the longest leaflets near the base of
         // the leafy region for a fern-like outline.
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 28,
-                arrangement: GrassArrangement::Opposite,
+                arrangement: PlantArrangement::Opposite,
                 attachment_start: 0.25,
                 length: 0.3,
                 length_envelope: 0.3,
                 width: 0.22,
                 angle: 0.22,
                 spread: 0.0,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     profile: 0.3,
                     stiffness: 0.45,
                     droop: 0.25,
@@ -166,9 +166,9 @@ GROUND_COVER "Ground cover" {
                     tip_color: Color::srgb(0.22, 0.44, 0.14),
                 },
             },
-            GrassBranches::NONE,
+            PlantBranches::NONE,
         ],
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
     BRACKEN {
         name: "Bracken",
@@ -182,7 +182,7 @@ GROUND_COVER "Ground cover" {
         lean: 0.35,
         stems_per_plant: 4,
         translucency: 0.35,
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.4,
             droop: 0.45,
             root_color: Color::srgb(0.20, 0.11, 0.05),
@@ -190,14 +190,14 @@ GROUND_COVER "Ground cover" {
             ..Self::FERN.segment
         },
         levels: [
-            GrassBranches {
+            PlantBranches {
                 count: 24,
                 attachment_start: 0.3,
                 length: 0.34,
                 length_envelope: 0.15,
                 width: 0.2,
                 angle: 0.3,
-                segment: GrassSegment {
+                segment: PlantSegment {
                     stiffness: 0.5,
                     droop: 0.35,
                     root_color: Color::srgb(0.30, 0.15, 0.06),
@@ -206,7 +206,7 @@ GROUND_COVER "Ground cover" {
                 },
                 ..Self::FERN.levels[0]
             },
-            GrassBranches::NONE,
+            PlantBranches::NONE,
         ],
         ..Self::FERN
     };
@@ -221,16 +221,16 @@ GROUND_COVER "Ground cover" {
         root_occlusion: 0.5,
         translucency: 0.25,
         specular: 0.1,
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.3,
             root_color: Color::srgb(0.12, 0.08, 0.04),
             tip_color: Color::srgb(0.40, 0.28, 0.14),
             twist: 0.15,
             droop: 0.7,
             fold: 0.3,
-            ..GrassPlant::MEADOW_GRASS.segment
+            ..PlantParams::MEADOW_GRASS.segment
         },
-        ..GrassPlant::MEADOW_GRASS
+        ..PlantParams::MEADOW_GRASS
     };
     COTTON_GRASS {
         name: "Cotton grass",
@@ -244,13 +244,13 @@ GROUND_COVER "Ground cover" {
         head_length: 0.14,
         head_width: 0.035,
         head_color: Color::srgb(0.96, 0.96, 0.93),
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.4,
             root_color: Color::srgb(0.08, 0.10, 0.04),
             tip_color: Color::srgb(0.32, 0.36, 0.16),
-            ..GrassPlant::SUMMER_TALL_GRASS.segment
+            ..PlantParams::SUMMER_TALL_GRASS.segment
         },
-        ..GrassPlant::SUMMER_TALL_GRASS
+        ..PlantParams::SUMMER_TALL_GRASS
     };
     CATTAIL {
         name: "Cattail",
@@ -266,13 +266,13 @@ GROUND_COVER "Ground cover" {
         head_length: 0.16,
         head_width: 0.035,
         head_color: Color::srgb(0.30, 0.17, 0.08),
-        segment: GrassSegment {
+        segment: PlantSegment {
             stiffness: 0.85,
             root_color: Color::srgb(0.10, 0.14, 0.05),
             tip_color: Color::srgb(0.30, 0.38, 0.14),
-            ..GrassPlant::SUMMER_TALL_GRASS.segment
+            ..PlantParams::SUMMER_TALL_GRASS.segment
         },
-        ..GrassPlant::SUMMER_TALL_GRASS
+        ..PlantParams::SUMMER_TALL_GRASS
     };
     CORNFLOWER {
         name: "Cornflower",
@@ -284,7 +284,7 @@ GROUND_COVER "Ground cover" {
         head_length: 0.1,
         head_width: 0.05,
         head_color: Color::srgb(0.22, 0.38, 0.92),
-        ..GrassPlant::WHITE_FLOWERS
+        ..PlantParams::WHITE_FLOWERS
     };
     POPPY {
         name: "Poppy",
@@ -296,7 +296,7 @@ GROUND_COVER "Ground cover" {
         head_length: 0.1,
         head_width: 0.065,
         head_color: Color::srgb(0.86, 0.10, 0.06),
-        ..GrassPlant::WHITE_FLOWERS
+        ..PlantParams::WHITE_FLOWERS
     };
 }
 }

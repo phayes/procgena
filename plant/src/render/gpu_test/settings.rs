@@ -3,7 +3,7 @@ use super::*;
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_every_setting_takes_effect_at_runtime() {
-    use crate::{GrassSettings, GrassShadows};
+    use crate::{PlantSettings, PlantShadows};
 
     let mut app = headless_app();
     let mut start = (ViewUniformData::default(), 0);
@@ -15,13 +15,13 @@ fn gpu_every_setting_takes_effect_at_runtime() {
     }
     let (view, all) = start;
     assert!(all > 10_000, "the test scene should place many blades");
-    let high = GrassSettings::HIGH;
+    let high = PlantSettings::HIGH;
     assert_eq!(view.blade_capacity, high.instance_capacity);
     assert_eq!(view.radius, DistanceLod::for_radius(high.radius).radius);
 
     // Density scale: half the density keeps about half the blades.
     app.world_mut()
-        .resource_mut::<GrassSettings>()
+        .resource_mut::<PlantSettings>()
         .density_scale = 0.5;
     let (view, half) = view_after(&mut app, 4);
     assert_eq!(view.density_scale, 0.5);
@@ -31,7 +31,7 @@ fn gpu_every_setting_takes_effect_at_runtime() {
     );
 
     // Radius: a shorter reach draws fewer blades.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         radius: 20.0,
         ..high
     };
@@ -44,7 +44,7 @@ fn gpu_every_setting_takes_effect_at_runtime() {
 
     // Capacity: the buffers are made again at the new size, and the view
     // never draws past it.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         instance_capacity: 4_000,
         ..high
     };
@@ -54,7 +54,7 @@ fn gpu_every_setting_takes_effect_at_runtime() {
         small > 0 && small <= 4_000 + 2_000 + 2_000,
         "{small} blades"
     );
-    *app.world_mut().resource_mut::<GrassSettings>() = high;
+    *app.world_mut().resource_mut::<PlantSettings>() = high;
     let (view, again) = view_after(&mut app, 6);
     assert_eq!(view.blade_capacity, high.instance_capacity);
     assert_eq!(
@@ -64,24 +64,24 @@ fn gpu_every_setting_takes_effect_at_runtime() {
 
     // Shadows are read every frame too (no light here, so only the setting
     // itself can be checked, through the extracted copy).
-    app.world_mut().resource_mut::<GrassSettings>().shadows = GrassShadows::Full;
+    app.world_mut().resource_mut::<PlantSettings>().shadows = PlantShadows::Full;
     app.update();
     app.update();
     let extracted = app
         .sub_app(RenderApp)
         .world()
-        .resource::<crate::render::resources::ExtractedGrass>();
-    assert_eq!(extracted.settings.shadows, GrassShadows::Full);
+        .resource::<crate::render::resources::ExtractedPlants>();
+    assert_eq!(extracted.settings.shadows, PlantShadows::Full);
 
     // Nonsense is clamped, not trusted: a NaN radius falls back to the
     // default and a negative density draws nothing.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         radius: f32::NAN,
         ..high
     };
     let (_, nan) = view_after(&mut app, 4);
     assert_eq!(nan, all, "a NaN radius must act like the default");
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         density_scale: -3.0,
         ..high
     };
@@ -92,8 +92,8 @@ fn gpu_every_setting_takes_effect_at_runtime() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_two_cameras_draw_with_their_own_settings() {
-    use crate::GrassSettings;
-    use crate::api::GrassCamera;
+    use crate::PlantSettings;
+    use crate::api::PlantCamera;
 
     let mut app = headless_app();
     let main = app
@@ -121,7 +121,7 @@ fn gpu_two_cameras_draw_with_their_own_settings() {
                 ..default()
             },
             Transform::from_xyz(-5.0, 1.7, 30.0).looking_at(Vec3::new(5.0, 0.0, 0.0), Vec3::Y),
-            GrassCamera {
+            PlantCamera {
                 radius: Some(20.0),
                 density_scale: Some(0.5),
                 min_width_px: Some(3.0),
@@ -153,7 +153,7 @@ fn gpu_two_cameras_draw_with_their_own_settings() {
         seen.expect("both cameras should draw grass");
 
     // Each draws with its own radius, density and minimum width.
-    let high = GrassSettings::HIGH;
+    let high = PlantSettings::HIGH;
     assert_eq!(
         main_view.radius,
         DistanceLod::for_radius(high.radius).radius
@@ -172,7 +172,7 @@ fn gpu_two_cameras_draw_with_their_own_settings() {
     // The camera that names nothing follows the resource as it changes; the
     // one that named a setting keeps it.
     {
-        let mut settings = app.world_mut().resource_mut::<GrassSettings>();
+        let mut settings = app.world_mut().resource_mut::<PlantSettings>();
         settings.min_width_px = 2.0;
         settings.radius = 60.0;
     }
@@ -184,7 +184,7 @@ fn gpu_two_cameras_draw_with_their_own_settings() {
     assert_eq!(map_view.radius, DistanceLod::for_radius(20.0).radius);
 
     // Removing the component hands the camera back to the resource.
-    app.world_mut().entity_mut(minimap).remove::<GrassCamera>();
+    app.world_mut().entity_mut(minimap).remove::<PlantCamera>();
     let (map_view, _) = view(&mut app, minimap).unwrap();
     assert_eq!(map_view.min_width_px, 2.0);
     assert_eq!(map_view.radius, DistanceLod::for_radius(60.0).radius);
@@ -194,7 +194,7 @@ fn gpu_two_cameras_draw_with_their_own_settings() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_distance_and_budget_settings_change_what_is_drawn() {
-    use crate::GrassSettings;
+    use crate::PlantSettings;
 
     let mut app = headless_app();
     let mut start = (ViewUniformData::default(), 0);
@@ -207,11 +207,11 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
     let (_, all) = start;
     assert!(all > 10_000, "the test scene should place many blades");
     let lods = blades_per_lod(&mut app);
-    let high = GrassSettings::HIGH;
+    let high = PlantSettings::HIGH;
 
     // The first level of detail starting sooner leaves fewer full-detail
     // blades, and the uniform carries the new distance.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         lod1_start: 0.05,
         ..high
     };
@@ -226,7 +226,7 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
     );
 
     // Keeping all of the mid-range blades draws more of them.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         mid_range_density: 1.0,
         ..high
     };
@@ -239,7 +239,7 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
 
     // Starting the mid-range thinning further out keeps more blades, and the
     // uniform carries the new distance.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         mid_range_start: 0.3,
         ..high
     };
@@ -251,7 +251,7 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
     );
 
     // No thinning at all by distance: nothing is lost before the fade.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         lod2_density: 1.0,
         fade_density: 1.0,
         mid_range_density: 1.0,
@@ -262,14 +262,14 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
 
     // A narrower budget of chunk slices makes buffers of that size and drops
     // the grass that does not fit.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         max_chunk_slices: 32,
         ..high
     };
     let (view, limited) = view_after(&mut app, 6);
     assert_eq!(view.max_visible_chunks, 32, "the buffers were not remade");
     assert!(limited > 0 && limited < all, "{limited} of {all} blades");
-    *app.world_mut().resource_mut::<GrassSettings>() = high;
+    *app.world_mut().resource_mut::<PlantSettings>() = high;
     let (view, again) = view_after(&mut app, 6);
     assert_eq!(view.max_visible_chunks, high.max_chunk_slices);
     assert_eq!(
@@ -279,7 +279,7 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
 
     // How far blades turn toward the camera, and how wide thin ones grow, are
     // in the view's limits.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         turn_to_camera: 1.0,
         max_widening: 3.0,
         ..high
@@ -288,7 +288,7 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
     assert_eq!((view.limits.x, view.limits.z), (3.0, 1.0));
 
     // Distances given out of order are put in order.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         lod1_start: 0.6,
         lod2_start: 0.3,
         fade_start: 0.1,
@@ -309,14 +309,14 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
 fn gpu_an_orthographic_camera_stores_blades_over_the_extent_the_settings_give() {
     use bevy::camera::{OrthographicProjection, Projection, ScalingMode};
 
-    use crate::GrassSettings;
+    use crate::PlantSettings;
 
     // A map camera 600 m above a field 0.5 m high: further down than the
     // 256 m a default view stores, so only a bigger extent places the grass.
     let mut app = headless_app();
-    app.insert_resource(GrassSettings {
+    app.insert_resource(PlantSettings {
         orthographic_extent: 1_024.0,
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     });
     let target = app
         .world_mut()
@@ -372,7 +372,7 @@ fn gpu_an_orthographic_camera_stores_blades_over_the_extent_the_settings_give() 
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_the_rows_of_a_blade_are_a_setting_and_the_meshes_follow_it() {
-    use crate::GrassSettings;
+    use crate::PlantSettings;
 
     let mut app = headless_app();
     let mut start = (ViewUniformData::default(), 0);
@@ -388,35 +388,35 @@ fn gpu_the_rows_of_a_blade_are_a_setting_and_the_meshes_follow_it() {
 
     // Fewer rows: the meshes are built again, and the same blades are drawn
     // with them.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         blade_rows: [4, 2, 1],
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     };
     let (_, same) = view_after(&mut app, 4);
     assert_eq!(draw_index_counts(&mut app), [21, 9, 3]);
     assert_eq!(same, all, "the rows change the mesh, not the placement");
 
     // More rows than the default.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings {
         blade_rows: [16, 8, 2],
-        ..GrassSettings::HIGH
+        ..PlantSettings::HIGH
     };
     view_after(&mut app, 4);
     assert_eq!(draw_index_counts(&mut app), [93, 45, 9]);
 
     // And back.
-    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings::HIGH;
+    *app.world_mut().resource_mut::<PlantSettings>() = PlantSettings::HIGH;
     view_after(&mut app, 4);
     assert_eq!(draw_index_counts(&mut app), [39, 15, 3]);
 }
 
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
-fn gpu_a_high_camera_draws_grass_measured_from_the_ground() {
-    use crate::api::GrassCamera;
+fn gpu_a_high_camera_draws_plants_measured_from_the_ground() {
+    use crate::api::PlantCamera;
 
     let mut app = headless_app();
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     let camera = app
         .world_mut()
         .query_filtered::<Entity, With<Camera3d>>()
@@ -431,7 +431,7 @@ fn gpu_a_high_camera_draws_grass_measured_from_the_ground() {
     assert_eq!(blades, 0, "every blade is beyond the radius");
 
     // Measured from the ground below, the radius reaches the field again.
-    app.world_mut().entity_mut(camera).insert(GrassCamera {
+    app.world_mut().entity_mut(camera).insert(PlantCamera {
         radius_from_ground: true,
         ..default()
     });

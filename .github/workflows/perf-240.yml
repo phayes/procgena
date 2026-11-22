@@ -2,7 +2,7 @@ name: 240 Hz performance gate
 
 # GPU frame times cannot be enforced on GitHub-hosted runners. This is a
 # manual gate on the project's self-hosted reference machines, labelled with
-# the names in tools/reference-machines.json: t1200, rtx3060, rtx4070.
+# the names in tools/plant/reference-machines.json: t1200, rtx3060, rtx4070.
 #
 # To make it nightly, uncomment the schedule block and set `machine` to the
 # runner label of the nightly machine. Keep it manual until those runners
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run the 240 Hz gate
         shell: bash
-        run: python tools/bench_240.py --machine "${{ inputs.machine }}" --scene "${{ inputs.scene }}" --profile "${{ inputs.profile }}" ${{ inputs.no_gpu_timing && '--no-gpu-timing' || '' }}
+        run: python ../tools/plant/bench_240.py --machine "${{ inputs.machine }}" --scene "${{ inputs.scene }}" --profile "${{ inputs.profile }}" ${{ inputs.no_gpu_timing && '--no-gpu-timing' || '' }}
       - name: Keep the measurements
         if: always()
         uses: actions/upload-artifact@v4

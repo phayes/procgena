@@ -1,7 +1,7 @@
 //! Variation, one kind at a time: a wild field with each kind of variation
 //! switched on and off, to see what each adds.
 //!
-//! The field is loaded from its `.field.ron` file in `assets/grass_fields`,
+//! The field is loaded from its `.field.ron` file in `assets/fields`,
 //! so editing the file and saving it changes the running example; the
 //! switches apply on top.
 //!
@@ -82,7 +82,7 @@ fn main() {
     };
     let mut app = App::new();
     args.install(&mut app, "procgena_plant: variation");
-    app.add_plugins((GrassPlugins, FreeCameraPlugin))
+    app.add_plugins((PlantPlugins, FreeCameraPlugin))
         .insert_resource(start)
         .add_systems(Startup, setup)
         .add_systems(Update, ((switch, refresh, title).chain(), walk))
@@ -148,7 +148,7 @@ fn setup(
     if start.walk {
         commands.entity(person).insert((
             Walking,
-            GrassInteractor {
+            PlantInteractor {
                 radius: 0.5,
                 strength: 1.0,
                 ..default()
@@ -157,11 +157,11 @@ fn setup(
     }
 
     // Empty until the file has loaded; `refresh` fills it in.
-    commands.spawn(GrassField::new(Vec2::splat(80.0), Vec::new()));
+    commands.spawn(PlantField::new(Vec2::splat(80.0), Vec::new()));
     commands.insert_resource(Shown {
         files: FIELDS
             .iter()
-            .map(|name| assets.load(format!("grass_fields/{name}.field.ron")))
+            .map(|name| assets.load(format!("fields/{name}.field.ron")))
             .collect(),
         file: start.file,
         switches: start.switches,
@@ -206,7 +206,7 @@ fn walk(
 fn switch(
     keys: Res<ButtonInput<KeyCode>>,
     mut shown: ResMut<Shown>,
-    mut grass: ResMut<GrassSettings>,
+    mut settings: ResMut<PlantSettings>,
 ) {
     let before = (shown.file, shown.switches);
     for (key, file) in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3]
@@ -232,10 +232,10 @@ fn switch(
         shown.dirty = true;
     }
     if keys.just_pressed(KeyCode::KeyS) {
-        grass.shadows = if grass.shadows == GrassShadows::Off {
-            GrassShadows::Near
+        settings.shadows = if settings.shadows == PlantShadows::Off {
+            PlantShadows::Near
         } else {
-            GrassShadows::Off
+            PlantShadows::Off
         };
     }
 }
@@ -245,7 +245,7 @@ fn refresh(
     mut shown: ResMut<Shown>,
     mut events: MessageReader<AssetEvent<FieldPreset>>,
     presets: Res<Assets<FieldPreset>>,
-    mut fields: Query<&mut GrassField>,
+    mut fields: Query<&mut PlantField>,
 ) {
     let file = shown.files[shown.file].id();
     if events
@@ -261,7 +261,7 @@ fn refresh(
         return;
     };
     for mut field in &mut fields {
-        *field = GrassField {
+        *field = PlantField {
             size: field.size,
             ..apply(&preset.field, shown.switches)
         };
@@ -270,14 +270,14 @@ fn refresh(
 }
 
 /// `base` with the kinds of variation that are off taken out.
-fn apply(base: &GrassField, on: Switches) -> GrassField {
+fn apply(base: &PlantField, on: Switches) -> PlantField {
     let mut field = base.clone();
     if !on.plants
-        && let Some(grass) = field.plants.last().copied()
+        && let Some(background) = field.plants.last().copied()
     {
         // Only the background plant, as dense as the whole mix was.
         let density = field.density();
-        field.plants = vec![grass].into();
+        field.plants = vec![background].into();
         field = field.with_density(density);
     }
     if !on.tufts {

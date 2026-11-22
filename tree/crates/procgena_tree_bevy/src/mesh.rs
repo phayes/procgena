@@ -12,7 +12,7 @@ use procgena_tree::{BarkMaterial, BarkOptions, MeshBuffers};
 /// branch timing offset and leaf flutter. See [`MeshBuffers::wind`] for the layout.
 /// Every mesh drawn with [`TreeMaterial`](crate::TreeMaterial) needs this attribute.
 pub const ATTRIBUTE_WIND: MeshVertexAttribute = MeshVertexAttribute::new(
-    "ZeTree_Wind",
+    "ProcgenaTree_Wind",
     0x5a45_5452_4545_0001,
     VertexFormat::Float32x4,
 );
@@ -24,7 +24,7 @@ pub const ATTRIBUTE_WIND: MeshVertexAttribute = MeshVertexAttribute::new(
 /// [`TreeMaterial`](crate::TreeMaterial) rotate the mesh toward each render view,
 /// including shadow views. Billboard meshes do not need stored normals.
 pub const ATTRIBUTE_BILLBOARD_PIVOT: MeshVertexAttribute = MeshVertexAttribute::new(
-    "ZeTree_BillboardPivot",
+    "ProcgenaTree_BillboardPivot",
     0x5a45_5452_4545_0002,
     VertexFormat::Float32x4,
 );
@@ -33,7 +33,7 @@ pub const ATTRIBUTE_BILLBOARD_PIVOT: MeshVertexAttribute = MeshVertexAttribute::
 /// be unit length, or zero for full camera-facing rotation. Supply this together
 /// with [`ATTRIBUTE_BILLBOARD_PIVOT`]; both use tree coordinates.
 pub const ATTRIBUTE_BILLBOARD_AXIS: MeshVertexAttribute = MeshVertexAttribute::new(
-    "ZeTree_BillboardAxis",
+    "ProcgenaTree_BillboardAxis",
     0x5a45_5452_4545_0003,
     VertexFormat::Float32x4,
 );
@@ -47,7 +47,7 @@ pub const ATTRIBUTE_BILLBOARD_AXIS: MeshVertexAttribute = MeshVertexAttribute::n
 /// it replaces. Billboard meshes store it here instead of in
 /// [`Mesh::ATTRIBUTE_NORMAL`].
 pub const ATTRIBUTE_BILLBOARD_NORMAL: MeshVertexAttribute = MeshVertexAttribute::new(
-    "ZeTree_BillboardNormal",
+    "ProcgenaTree_BillboardNormal",
     0x5a45_5452_4545_0004,
     VertexFormat::Float32x3,
 );
@@ -115,7 +115,7 @@ pub fn cluster_mesh(buffers: &MeshBuffers) -> Mesh {
 /// Attach the returned bounds and Bevy’s `NoAutoAabb` to custom billboard mesh
 /// entities to prevent shapes disappearing while they turn toward the camera.
 /// Bevy’s automatic bounds only cover the original vertex positions.
-/// [`ZeTreePlugin`](crate::ZeTreePlugin) sets these bounds for generated billboard
+/// [`TreePlugin`](crate::TreePlugin) sets these bounds for generated billboard
 /// parts automatically. The bounds do not cover wind movement or vertices absent
 /// from `buffers.billboard`.
 pub fn billboard_aabb(buffers: &MeshBuffers) -> Option<Aabb> {

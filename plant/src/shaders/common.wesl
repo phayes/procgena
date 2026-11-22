@@ -47,7 +47,7 @@ struct Frame {
     previous_time: f32,
     chunk_size: f32,
     chunk_count: u32,
-    /// Rows in a blade of each LOD (`GrassSettings::blade_rows`), x for LOD 0.
+    /// Rows in a blade of each LOD (`PlantSettings::blade_rows`), x for LOD 0.
     lod_rows: vec4<u32>,
 }
 
@@ -94,10 +94,10 @@ struct View {
     /// Number of buckets in use: three for blades and three per branched shape class.
     /// Later buckets hold no instances and are not drawn.
     bucket_count: u32,
-    /// Slots reserved for the first blade bucket (`GrassSettings::instance_capacity`).
+    /// Slots reserved for the first blade bucket (`PlantSettings::instance_capacity`).
     /// The other two blade buckets each receive half this number.
     blade_capacity: u32,
-    /// Total stem slots shared by branched buckets (`GrassSettings::plant_capacity`).
+    /// Total stem slots shared by branched buckets (`PlantSettings::plant_capacity`).
     /// Zero when there are no branched shape classes.
     plant_capacity: u32,
     /// Drawing detail level for each bucket, packed four values per vector.
@@ -109,7 +109,7 @@ struct View {
     trample_step: vec4<f32>,
     /// xyz: direction to the first directional light; w: 1 when there is one.
     sun: vec4<f32>,
-    /// Density along the distance table (`GrassSettings`): x: the share kept
+    /// Density along the distance table (`PlantSettings`): x: the share kept
     /// where LOD 2 starts; y: the share kept where the last fade starts; z:
     /// the extra share kept from LOD 1 on; w: where the last fade starts, as
     /// a share of the radius.
@@ -441,7 +441,7 @@ fn stem_droop(setting: f32, random: f32, height: f32) -> vec2<f32> {
 
 /// The three control points of a blade, in world space relative to its root.
 /// Twin of `mirror::blade_curve`, with the lean and bend already in world XZ.
-/// `droop` is 0 without `GRASS_SHAPE`, and the curve is then exactly the
+/// `droop` is 0 without `PLANT_SHAPE`, and the curve is then exactly the
 /// plain blade's. `arch_wanted` (0 to 1) lowers the tip onto the ground; with 0
 /// the curve is exactly the drooping blade's.
 fn blade_curve(height: f32, lean: vec2<f32>, bend: vec2<f32>, droop_wanted: f32, arch_wanted: f32) -> array<vec3<f32>, 3> {

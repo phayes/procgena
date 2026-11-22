@@ -14,7 +14,7 @@ default = ["docs"]
 docs = ["bevy/reflect_documentation"]
 
 [dependencies]
-# `debug` for `GrassDebug`, which the panel turns on.
+# `debug` for `PlantDebug`, which the panel turns on.
 procgena_plant = { path = "..", features = ["debug"] }
 # Only what the demo draws: no audio, gamepads, scenes, picking, text or UI,
 # each of which would add to the download. `tonemapping_luts` is the default

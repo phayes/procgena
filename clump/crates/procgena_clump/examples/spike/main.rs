@@ -23,13 +23,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&out_dir)?;
 
     let cases = [
-        Case { name: "ground", input: SurfaceMesh::ground(3.0, 48), adjust: |_| {} },
-        Case { name: "ground_1quad", input: SurfaceMesh::ground(3.0, 1), adjust: |_| {} },
-        Case { name: "ground_small", input: SurfaceMesh::ground(3.0, 48), adjust: small_clump },
-        Case { name: "1quad_small", input: SurfaceMesh::ground(3.0, 1), adjust: small_clump },
-        Case { name: "crevice", input: shapes::rock(1.0, 5, true), adjust: |_| {} },
-        Case { name: "crevice_coarse", input: shapes::rock(1.0, 4, true), adjust: |_| {} },
-        Case { name: "crevice_fine", input: shapes::rock(1.0, 6, true), adjust: |_| {} },
+        Case {
+            name: "ground",
+            input: SurfaceMesh::ground(3.0, 48),
+            adjust: |_| {},
+        },
+        Case {
+            name: "ground_1quad",
+            input: SurfaceMesh::ground(3.0, 1),
+            adjust: |_| {},
+        },
+        Case {
+            name: "ground_small",
+            input: SurfaceMesh::ground(3.0, 48),
+            adjust: small_clump,
+        },
+        Case {
+            name: "1quad_small",
+            input: SurfaceMesh::ground(3.0, 1),
+            adjust: small_clump,
+        },
+        Case {
+            name: "crevice",
+            input: shapes::rock(1.0, 5, true),
+            adjust: |_| {},
+        },
+        Case {
+            name: "crevice_coarse",
+            input: shapes::rock(1.0, 4, true),
+            adjust: |_| {},
+        },
+        Case {
+            name: "crevice_fine",
+            input: shapes::rock(1.0, 6, true),
+            adjust: |_| {},
+        },
         Case {
             name: "crevice_edge2cm",
             input: shapes::rock(1.0, 5, true),
@@ -40,7 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             input: shapes::rock(1.0, 5, true),
             adjust: |o| o.mesh.edge_length = 0.08,
         },
-        Case { name: "branches", input: shapes::branch_fork(), adjust: |o| o.scale = 0.4 },
+        Case {
+            name: "branches",
+            input: shapes::branch_fork(),
+            adjust: |o| o.scale = 0.4,
+        },
         Case {
             name: "thin_ground",
             input: SurfaceMesh::ground(3.0, 48),
@@ -49,7 +81,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 o.shape.sink = 0.005;
             },
         },
-        Case { name: "upside_down", input: shapes::upside_down_plane(), adjust: |_| {} },
+        Case {
+            name: "upside_down",
+            input: shapes::upside_down_plane(),
+            adjust: |_| {},
+        },
     ];
     let stones = [
         ("stone_boulder", StonePreset::Boulder),
@@ -61,16 +97,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("stone_shard", StonePreset::Shard),
         ("stone_pebble", StonePreset::Pebble),
     ];
+    let strict_stones = [
+        ("strict_boulder", StonePreset::Boulder),
+        ("strict_lichen_boulder", StonePreset::LichenBoulder),
+        ("strict_flat_slab", StonePreset::FlatSlab),
+        ("strict_cliff_chunk", StonePreset::CliffChunk),
+        ("strict_pebble", StonePreset::Pebble),
+    ];
     let cases: Vec<Case> = cases
         .into_iter()
-        .chain(stones.map(|(name, preset)| Case { name, input: shapes::stone(preset).0, adjust: |_| {} }))
+        .chain(stones.map(|(name, preset)| Case {
+            name,
+            input: shapes::stone(preset).0,
+            adjust: |_| {},
+        }))
+        .chain(strict_stones.map(|(name, preset)| Case {
+            name,
+            input: shapes::stone(preset).0,
+            adjust: |o| o.mesh.strict = true,
+        }))
         .collect();
     let mut gallery = Vec::new();
 
     println!(
-        "{:<16} {:>6} {:>7} {:>8} {:>6} {:>6} {:>5} {:>5} {:>7} {:>6} {:>8} {:>7}",
-        "input", "in", "tris", "ms", "fold%", "thin", "bound", "over", "buried", "wrong",
-        "edge_max", "deepest"
+        "{:<16} {:>6} {:>7} {:>8} {:>6} {:>6} {:>5} {:>5} {:>7} {:>6} {:>8} {:>7} {:>4} {:>5}",
+        "input",
+        "in",
+        "tris",
+        "ms",
+        "fold%",
+        "thin",
+        "bound",
+        "over",
+        "buried",
+        "wrong",
+        "edge_max",
+        "deepest",
+        "out",
+        "cross"
     );
     for case in &cases {
         // Build the snow cap.
@@ -96,8 +160,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|(_, h)| *h)
             .fold(f32::NEG_INFINITY, f32::max);
         let deepest = heights.iter().copied().fold(f32::INFINITY, f32::min);
+        // On closed inputs, count rim and underside vertices (fade 0) that a
+        // robust inside test puts outside the input. Only those near or above
+        // the surface by the nearest-normal measure need checking.
+        let outside = if surface.is_closed() {
+            let candidates: Vec<[f32; 3]> = (0..heights.len())
+                .filter(|&i| mesh.fade[i] == 0.0 && heights[i] > -1e-3)
+                .map(|i| mesh.positions[i])
+                .collect();
+            let inside = procgena_clump::diagnostics::inside_closed(&surface, &candidates);
+            let surfaced = signed_distances(&surface, &candidates);
+            inside
+                .iter()
+                .zip(&surfaced)
+                .filter(|&(&inside, &h)| !inside && h > 1e-4)
+                .count()
+                .to_string()
+        } else {
+            "-".to_string()
+        };
         println!(
-            "{:<16} {:>6} {:>7} {:>8.1} {:>6.2} {:>6} {:>5} {:>5} {:>6.1}% {:>5.1}% {:>8.4} {:>7.2}",
+            "{:<16} {:>6} {:>7} {:>8.1} {:>6.2} {:>6} {:>5} {:>5} {:>6.1}% {:>5.1}% {:>8.4} {:>7.2} {:>4} {:>5}",
             case.name,
             surface.triangle_count(),
             mesh.triangle_count(),
@@ -110,6 +193,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             misplaced_share(mesh, &heights, thickness, sink) * 100.0,
             edge_max,
             deepest / sink,
+            outside,
+            procgena_clump::diagnostics::crossing_count(mesh),
         );
 
         // Write the input and clump together for viewing.
@@ -143,6 +228,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  the nearest surface is off by more than a quarter of the thickness.");
     println!("edge_max: highest rim vertex (fade 0), should be <= 0.");
     println!("deepest: lowest vertex in sink depths, about -1 expected.");
+    println!("out: rim or underside vertices outside a closed input by a ray-parity test;");
+    println!("  should be 0. '-' for open inputs.");
+    println!("cross: triangles that pass through another triangle of the clump.");
+    println!("  strict_* rows build with mesh.strict on, which should bring it to 0.");
     println!("OBJ files are in {}", out_dir.display());
     Ok(())
 }
@@ -160,7 +249,9 @@ fn buried_share(mesh: &ClumpMesh, heights: &[f32]) -> f32 {
     }
     let buried = mesh
         .indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter(|tri| tri.iter().all(|&i| heights[i as usize] < 0.0))
         .count();
     buried as f32 / mesh.triangle_count() as f32
@@ -180,13 +271,20 @@ fn misplaced_share(mesh: &ClumpMesh, heights: &[f32], thickness: f32, sink: f32)
     if top.is_empty() {
         return 0.0;
     }
-    let wrong = top.iter().filter(|&&(f, h)| (h - f * thickness).abs() > 0.25 * thickness).count();
+    let wrong = top
+        .iter()
+        .filter(|&&(f, h)| (h - f * thickness).abs() > 0.25 * thickness)
+        .count();
     wrong as f32 / top.len() as f32
 }
 
 /// Returns the lowest and highest x of the mesh's vertices.
 fn x_extent(mesh: &SurfaceMesh) -> (f32, f32) {
-    mesh.positions.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), p| (lo.min(p[0]), hi.max(p[0])))
+    mesh.positions
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), p| {
+            (lo.min(p[0]), hi.max(p[0]))
+        })
 }
 
 /// Returns a copy of `mesh` moved `dx` along x.
@@ -207,13 +305,20 @@ fn shifted_clump(clump: &ClumpMesh, dx: f32) -> ClumpMesh {
 /// with a snow cap or a moss layer. Each rock's OBJ object is named
 /// `input:<procgena_stone texture set>`, so the viewer can texture it.
 fn write_gallery(out_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-    let presets =
-        [StonePreset::Boulder, StonePreset::LichenBoulder, StonePreset::CliffChunk, StonePreset::RiverStone];
+    let presets = [
+        StonePreset::Boulder,
+        StonePreset::LichenBoulder,
+        StonePreset::CliffChunk,
+        StonePreset::RiverStone,
+    ];
     let rocks: Vec<(SurfaceMesh, String)> = presets.map(shapes::stone).into_iter().collect();
     let spacing = 3.2;
     // Snow falling from above plus wind-blown snow arriving from -X.
     let mut wind = ClumpPreset::SnowCap.options();
-    wind.directions.push(Direction { vector: [1.0, -0.3, 0.2], strength: 0.8 });
+    wind.directions.push(Direction {
+        vector: [1.0, -0.3, 0.2],
+        strength: 0.8,
+    });
     for (file, options) in [
         ("stones_snow.obj", ClumpPreset::SnowCap.options()),
         ("stones_moss.obj", ClumpPreset::MossPatches.options()),
@@ -223,7 +328,11 @@ fn write_gallery(out_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Er
         for (i, (rock, texture)) in rocks.iter().enumerate() {
             let clump = Clump::new(rock.surface()?, &options)?;
             let offset = [(i % 2) as f32 * spacing, 0.0, (i / 2) as f32 * spacing];
-            placed.push((format!("input:{texture}"), moved(rock, offset), moved_clump(clump.mesh(), offset)));
+            placed.push((
+                format!("input:{texture}"),
+                moved(rock, offset),
+                moved_clump(clump.mesh(), offset),
+            ));
         }
         let refs: Vec<_> = placed.iter().map(|(n, i, c)| (n.as_str(), i, c)).collect();
         std::fs::write(out_dir.join(file), to_obj(&refs))?;
@@ -234,14 +343,18 @@ fn write_gallery(out_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Er
 /// Returns a copy of `mesh` moved by `offset`.
 fn moved(mesh: &SurfaceMesh, offset: [f32; 3]) -> SurfaceMesh {
     let mut out = mesh.clone();
-    out.positions.iter_mut().for_each(|p| (0..3).for_each(|k| p[k] += offset[k]));
+    out.positions
+        .iter_mut()
+        .for_each(|p| (0..3).for_each(|k| p[k] += offset[k]));
     out
 }
 
 /// Returns a copy of `clump` moved by `offset`.
 fn moved_clump(clump: &ClumpMesh, offset: [f32; 3]) -> ClumpMesh {
     let mut out = clump.clone();
-    out.positions.iter_mut().for_each(|p| (0..3).for_each(|k| p[k] += offset[k]));
+    out.positions
+        .iter_mut()
+        .for_each(|p| (0..3).for_each(|k| p[k] += offset[k]));
     out
 }
 
@@ -264,8 +377,8 @@ fn to_obj(pairs: &[(&str, &SurfaceMesh, &ClumpMesh)]) -> String {
         for n in normals {
             let _ = writeln!(s, "vn {} {} {}", n[0], n[1], n[2]);
         }
-        for tri in indices.chunks_exact(3) {
-            let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| i as usize + base);
+        for tri in indices.as_chunks::<3>().0 {
+            let [a, b, c] = tri.map(|i| i as usize + base);
             let _ = writeln!(s, "f {a}//{a} {b}//{b} {c}//{c}");
         }
         base += positions.len();

@@ -2,7 +2,7 @@
 //! as 16 chunk meshes, with one field over all of it.
 //!
 //! The chunks keep no CPU copy of their meshes, as many games build them, so
-//! `GrassGround::mesh` could not bake them, and one field per chunk would be
+//! `PlantGround::mesh` could not bake them, and one field per chunk would be
 //! sixteen fields. The field is given the height function instead, and a
 //! density function keeps grass out of the sea, off the beach and off the
 //! cliffs. Both are sampled once, at spawn.
@@ -32,7 +32,7 @@ const STEEPEST: f32 = 0.85;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: terrain built from code");
-    app.add_plugins((GrassPlugins, FreeCameraPlugin))
+    app.add_plugins((PlantPlugins, FreeCameraPlugin))
         .add_systems(Startup, setup)
         .run();
 }
@@ -75,7 +75,7 @@ fn chunk(center: Vec2, side: f32) -> Mesh {
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut ground: ResMut<Assets<FarGrassMaterial>>,
+    mut ground: ResMut<Assets<FarPlantMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -103,14 +103,14 @@ fn setup(
     ));
 
     // The terrain, in chunks, fading to the grass colour past the last blade.
-    let field = GrassField::from_preset(&FieldPreset::MEADOW, Vec2::splat(SIZE));
-    let terrain = ground.add(FarGrassMaterial {
+    let field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(SIZE));
+    let terrain = ground.add(FarPlantMaterial {
         base: StandardMaterial {
             base_color: Color::srgb(0.2, 0.15, 0.09),
             perceptual_roughness: 0.95,
             ..default()
         },
-        extension: FarGrass::new(&field),
+        extension: FarPlants::new(&field),
     });
     let side = SIZE / CHUNKS as f32;
     for z in 0..CHUNKS {

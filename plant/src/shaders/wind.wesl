@@ -1,7 +1,7 @@
 //! procgena_plant::shaders::wind — the model that bends the grass.
 //!
 //! The grass renderer reads one `Wind` uniform per frame. The built-in
-//! `GrassWindPlugin` fills it from `GrassWind`; a game with another wind
+//! `PlantWindPlugin` fills it from `PlantWind`; a game with another wind
 //! model fills it itself and leaves the built-in plugin out.
 //!
 //! There are no bindings here: the gust texture is passed in, so the blade

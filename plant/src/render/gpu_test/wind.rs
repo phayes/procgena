@@ -3,16 +3,16 @@ use super::*;
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
-    use crate::render::resources::ExtractedGrass;
+    use crate::render::resources::ExtractedPlants;
 
     let mut app = headless_app();
     // A steady wind: no gusts to differ, no sway to tell blades apart.
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         sway: 0.0,
         gust_contrast: 0.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     });
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     for _ in 0..10 {
         app.update();
     }
@@ -23,20 +23,20 @@ fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
     );
 
     // Sway alone tells blades apart, and more of it more so.
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         sway: 1.0,
         gust_contrast: 0.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     });
     for _ in 0..4 {
         app.update();
     }
     let swaying = bend_spread(&mut app);
     assert!(swaying > 0.01, "{swaying}");
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         sway: 3.0,
         gust_contrast: 0.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     });
     for _ in 0..4 {
         app.update();
@@ -49,20 +49,20 @@ fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
 
     // Gusts alone make the waves across the field, and a higher contrast
     // makes them deeper.
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         sway: 0.0,
         gust_contrast: 1.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     });
     for _ in 0..4 {
         app.update();
     }
     let gusting = bend_spread(&mut app);
     assert!(gusting > 0.02, "{gusting}");
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         sway: 0.0,
         gust_contrast: 3.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     });
     for _ in 0..4 {
         app.update();
@@ -75,10 +75,10 @@ fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
 
     // The speed of the sway and the flutter of the tips are in the frame the
     // shaders read, clamped at zero.
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         sway_speed: 0.5,
         flutter: -3.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     });
     for _ in 0..3 {
         app.update();
@@ -86,7 +86,7 @@ fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
     let wind = app
         .sub_app(RenderApp)
         .world()
-        .resource::<ExtractedGrass>()
+        .resource::<ExtractedPlants>()
         .wind;
     assert_eq!((wind.sway_speed, wind.flutter), (0.5, 0.0));
     assert_eq!((wind.sway, wind.gust_contrast), (1.0, 1.0));
@@ -95,16 +95,16 @@ fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_a_field_moves_by_its_own_wind_scale() {
-    use crate::api::GrassField;
+    use crate::api::PlantField;
 
     let mut app = headless_app();
     // A steady storm, so every blade bends alike, and far.
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         sway: 0.0,
         gust_contrast: 0.0,
-        ..GrassWind::STORM
+        ..PlantWind::STORM
     });
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     let mean_bend = |app: &mut App| {
         for _ in 0..4 {
             app.update();
@@ -121,12 +121,12 @@ fn gpu_a_field_moves_by_its_own_wind_scale() {
 
     let field = app
         .world_mut()
-        .query_filtered::<Entity, With<GrassField>>()
+        .query_filtered::<Entity, With<PlantField>>()
         .single(app.world())
         .unwrap();
     for scale in [0.5f32, 0.0, 2.0] {
         app.world_mut()
-            .get_mut::<GrassField>(field)
+            .get_mut::<PlantField>(field)
             .expect("the harness's field")
             .wind_scale = scale;
         let scaled = mean_bend(&mut app);
@@ -148,12 +148,12 @@ fn gpu_the_gusts_do_not_repeat_every_gust_scale() {
     const CELLS_PER_SCALE: i32 = 12;
     let mut app = headless_app();
     // No sway, so a blade's bend is the gusts at its root.
-    app.insert_resource(GrassWind {
+    app.insert_resource(PlantWind {
         gust_scale: SCALE,
         sway: 0.0,
-        ..GrassWind::BREEZE
+        ..PlantWind::BREEZE
     });
-    wait_for_grass(&mut app);
+    wait_for_plants(&mut app);
     for _ in 0..4 {
         app.update();
     }

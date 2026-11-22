@@ -33,7 +33,7 @@ struct Label {
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: forest floor");
-    app.add_plugins(GrassPlugins)
+    app.add_plugins(PlantPlugins)
         .insert_resource(ClearColor(Color::srgb(0.10, 0.08, 0.05)))
         .add_systems(Startup, setup)
         .add_systems(Update, (place_labels, common::follow_field_files))
@@ -77,9 +77,9 @@ fn setup(
     // Show the built-in preset immediately, then follow its file when it loads.
     let field = |preset: &FieldPreset, size: f32| {
         (
-            GrassField::from_preset(preset, Vec2::splat(size)),
+            PlantField::from_preset(preset, Vec2::splat(size)),
             common::FieldFile(assets.load(format!(
-                "grass_fields/{}.field.ron",
+                "fields/{}.field.ron",
                 preset.key.to_ascii_lowercase()
             ))),
         )

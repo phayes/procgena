@@ -63,7 +63,7 @@
 //! The example above creates bytes in memory. Each detail level is included as
 //! a scene node; the receiving tool must select which one to show.
 //!
-//! To write sample OBJ, MTL, and GLB files to `target/ze_stone_export` in this
+//! To write sample OBJ, MTL, and GLB files to `target/procgena_stone_export` in this
 //! workspace, run:
 //!
 //! ```text
@@ -88,11 +88,11 @@ mod presets;
 pub mod shaders;
 mod stone;
 
+pub use detail::{DetailLevel, StoneDetail};
 pub use field::{CarveSet, CarveSphere, StoneField};
 pub use material::{
     ImageMap, TEXTURE_SETS, TextureCompression, TextureMap, TextureSize, image_path, texture_path,
 };
-pub use detail::{DetailLevel, StoneDetail};
 pub use mesh::{StoneMesh, mesh_field};
 pub use options::{
     CarveOptions, MAX_CARVE_STEPS, MAX_DETAIL_LEVELS, MAX_OCTAVES, MAX_RESOLUTION, MIN_RESOLUTION,

@@ -47,7 +47,7 @@ cargo test -p <package> --doc
 | `tree/`  | `procgena_tree`      | Features `export-obj`, `export-gltf`. One file per area in `tests/`.     |
 | `tree/`  | `procgena_tree_bevy` | Feature `gltf`                                                            |
 | `clump/` | `procgena_clump`     |                                                                           |
-| `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/bevy-grass-style/SKILL.md` before changing it. |
+| `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing it. |
 | `plant/` | `procgena_plant_web` | Wasm demo                                                                 |
 
 ### The comment-rewrite step

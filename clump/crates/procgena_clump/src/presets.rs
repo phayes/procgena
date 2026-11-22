@@ -43,7 +43,12 @@ impl ClumpPreset {
                 seed: 0,
                 directions: vec![Direction::DOWN],
                 scale: 1.0,
-                mask: MaskOptions { facing_min: 0.3, facing_full: 0.7, sky_rays: 64, sky_power: 1.0 },
+                mask: MaskOptions {
+                    facing_min: 0.3,
+                    facing_full: 0.7,
+                    sky_rays: 64,
+                    sky_power: 1.0,
+                },
                 shape: ShapeOptions {
                     at: None,
                     radius: None,
@@ -54,13 +59,22 @@ impl ClumpPreset {
                     lumpiness: 0.3,
                     lump_size: 0.25,
                 },
-                mesh: MeshOptions { edge_length: 0.04, closed: true },
+                mesh: MeshOptions {
+                    edge_length: 0.04,
+                    closed: true,
+                    strict: false,
+                },
             },
             Self::MossPatches => ClumpOptions {
                 seed: 3,
                 directions: vec![Direction::DOWN],
                 scale: 1.0,
-                mask: MaskOptions { facing_min: 0.0, facing_full: 0.6, sky_rays: 64, sky_power: 0.0 },
+                mask: MaskOptions {
+                    facing_min: 0.0,
+                    facing_full: 0.6,
+                    sky_rays: 64,
+                    sky_power: 0.0,
+                },
                 shape: ShapeOptions {
                     at: None,
                     radius: None,
@@ -71,7 +85,11 @@ impl ClumpPreset {
                     lumpiness: 1.0,
                     lump_size: 0.2,
                 },
-                mesh: MeshOptions { edge_length: 0.02, closed: true },
+                mesh: MeshOptions {
+                    edge_length: 0.02,
+                    closed: true,
+                    strict: false,
+                },
             },
         }
     }

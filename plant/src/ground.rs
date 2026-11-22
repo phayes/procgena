@@ -1,5 +1,5 @@
 //! Mesh grounds: a mesh baked once, on the CPU, into a heightmap that the GPU
-//! reads like any other (`GrassGround::Mesh`).
+//! reads like any other (`PlantGround::Mesh`).
 //!
 //! The bake is an `Image` in `Assets<Image>`, one height per texel in the
 //! mesh's own units, so everything after it (packing, chunk bounds, upload,
@@ -18,7 +18,7 @@ use bevy::math::{UVec2, Vec2, Vec3};
 use bevy::mesh::{Mesh, MeshAccessError, PrimitiveTopology};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
-use crate::api::{GrassField, GrassGround};
+use crate::api::{PlantField, PlantGround};
 use crate::fields::TablesDirty;
 
 /// The height a baked ground has where the mesh does not reach: no blade
@@ -210,7 +210,7 @@ pub(crate) fn heights_image(heights: &[f32], texels: UVec2) -> Image {
 /// its field draws nothing instead of holding every other field back, and one
 /// warning.
 pub(crate) fn bake_mesh_grounds(
-    fields: Query<(Entity, &GrassField)>,
+    fields: Query<(Entity, &PlantField)>,
     meshes: Res<Assets<Mesh>>,
     mut events: MessageReader<AssetEvent<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -231,14 +231,14 @@ pub(crate) fn bake_mesh_grounds(
     grounds.baked.retain(|entity, _| {
         fields
             .get(*entity)
-            .is_ok_and(|(_, field)| matches!(field.ground, GrassGround::Mesh { .. }))
+            .is_ok_and(|(_, field)| matches!(field.ground, PlantGround::Mesh { .. }))
     });
     warned.retain(|entity| grounds.baked.contains_key(entity) || fields.contains(*entity));
     if grounds.baked.len() != before {
         dirty.mark_fields();
     }
     for (entity, field) in &fields {
-        let GrassGround::Mesh { mesh, cell_size } = &field.ground else {
+        let PlantGround::Mesh { mesh, cell_size } = &field.ground else {
             continue;
         };
         let key = BakeKey {
@@ -260,7 +260,7 @@ pub(crate) fn bake_mesh_grounds(
         let heights = bake(mesh, key.size, texels).unwrap_or_else(|error| {
             if warned.insert(entity) {
                 warn!(
-                    "procgena_plant: the mesh ground of the GrassField {entity} cannot be baked: \
+                    "procgena_plant: the mesh ground of the PlantField {entity} cannot be baked: \
                      {error}. The field draws nothing."
                 );
             }
