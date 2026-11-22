@@ -1,0 +1,15 @@
+{
+  "title": "Ice 001",
+  "authors": ["3dtextures.me"],
+  "source": "3dtextures",
+  "sourceUrl": "https://3dtextures.me/2017/11/19/ice-001/",
+  "license": "CC0-1.0",
+  "originals": {
+    "color": "Ice_001_COLOR.jpg",
+    "normal": "Ice_001_NRM.jpg",
+    "specular": "Ice_001_SPEC.jpg",
+    "occlusion": "Ice_001_OCC.jpg",
+    "height": "Ice_001_DISP.png"
+  },
+  "normalConvention": "directx"
+}

@@ -1,0 +1,29 @@
+// PlantPreset::MOSS, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.plant.ron")`. Every setting is
+// optional: a missing one comes from `base`, a preset's key.
+(
+    name: "Moss",
+    description: "Very short, wide and folded: a moss or lichen carpet, gathered into small cushions.",
+    density: 200.0,
+    height: (0.02, 0.07),
+    width: 0.025,
+    lean: 0.25,
+    stems_per_plant: 1,
+    root_occlusion: 0.55,
+    translucency: 0.35,
+    specular: 0.15,
+    head_length: 0.0,
+    head_width: 0.03,
+    head_color: (0.85, 0.8, 0.6),
+    tufts: 0.25,
+    tuft_size: 0.35,
+    segment: (
+        profile: 0.0,
+        stiffness: 0.45,
+        droop: 0.45,
+        twist: 0.0,
+        fold: 0.35,
+        root_color: (0.03, 0.07, 0.03),
+        tip_color: (0.14, 0.3, 0.13),
+    ),
+)

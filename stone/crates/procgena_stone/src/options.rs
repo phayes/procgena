@@ -1,0 +1,689 @@
+//! Settings for a rock's shape, roughness, world size, and mesh detail.
+//!
+//! Start with [`StoneOptions::default()`] or load a partial JSON object with
+//! [`StoneOptions::from_json`]. Creating a [`crate::Stone`] validates the settings;
+//! use [`StoneOptions::validate`] to check edits before generating a rock.
+
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
+use crate::detail::{DetailLevel, StoneDetail};
+
+/// Minimum allowed number of grid cells per axis in [`DetailLevel::resolution`].
+pub const MIN_RESOLUTION: u32 = 8;
+/// Maximum allowed number of grid cells per axis in [`DetailLevel::resolution`].
+pub const MAX_RESOLUTION: u32 = 512;
+/// Maximum number of levels in [`MeshOptions::detail`].
+pub const MAX_DETAIL_LEVELS: u32 = 8;
+/// Maximum allowed number of cuts in [`CarveOptions::steps`].
+pub const MAX_CARVE_STEPS: u32 = 72;
+/// Maximum allowed number of noise layers in [`SurfaceOptions::octaves`].
+pub const MAX_OCTAVES: u32 = 8;
+
+/// Settings used to generate a repeatable rock shape and mesh.
+///
+/// Reuse the same settings to reproduce a rock, or change [`seed`](Self::seed)
+/// for a variation. Start with [`Self::default()`] and edit fields, or load a
+/// partial JSON object with [`from_json`](Self::from_json).
+///
+/// Floating-point settings must be finite and within their documented ranges.
+/// Assigning fields or parsing JSON does not validate them; call
+/// [`validate`](Self::validate) or create a [`crate::Stone`] to check them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoneOptions {
+    /// Seed for the shape and surface pattern. Reusing a seed with the same settings
+    /// reproduces the same field.
+    pub seed: u32,
+    /// Width of the containing cube in world units; must be finite and positive.
+    /// [`crate::StoneField`] uses a unit-width cube and does not apply this scale.
+    pub scale: f32,
+    /// Relative dimensions along x, y, and z; each must be finite and positive.
+    /// The largest component sets the reference size, and the other axes shrink
+    /// in proportion. For example, `[1.0, 0.5, 1.0]` halves the y dimension.
+    /// Multiplying all three components by the same factor preserves the shape.
+    /// Surface roughness keeps its spacing rather than stretching with the shape.
+    pub stretch: [f32; 3],
+    /// Ground orientation and suggested burial depth; burial is not applied automatically.
+    pub placement: PlacementOptions,
+    /// Cuts and edge rounding that define the rock’s basic shape.
+    pub carve: CarveOptions,
+    /// Surface roughness applied to the carved shape.
+    pub surface: SurfaceOptions,
+    /// Meshing method and detail level used when creating a [`crate::Stone`].
+    pub mesh: MeshOptions,
+    /// Surface appearance for renderers and exporters. It does not affect the shape.
+    pub material: MaterialOptions,
+}
+
+/// Settings for orienting a rock on flat ground and suggesting how far to bury it.
+///
+/// Placement lifts the rock to `y = 0` without changing its shape. Ground
+/// contact is approximate; see [`crate::StonePlacement`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlacementOptions {
+    /// Turns the rock onto an estimated resting side, as if dropped onto flat
+    /// ground. Defaults to true. Set false to keep its generated orientation,
+    /// for example for a standing stone. Either way, the rock is lifted to ground level.
+    pub settle: bool,
+    /// Limits suggested burial to this fraction of the placed rock's height.
+    /// Must be finite and between 0 and 1, inclusive. The suggestion selects
+    /// the lowest slice that is nearly as wide as the widest horizontal slice
+    /// within that lower portion of the rock.
+    /// Defaults to 1 (the whole height); 0.25 allows at most a quarter of its
+    /// height, and 0 disables burial. The caller applies the suggested depth.
+    pub max_embed_fraction: f32,
+    /// Smallest suggested burial, as a fraction of the placed rock's height.
+    /// Must be finite, from 0 through [`max_embed_fraction`](Self::max_embed_fraction).
+    /// Rocks with straight sides, which do not get wider above the ground,
+    /// are sunk by this much so their contact with the ground is hidden.
+    /// Defaults to 0.05.
+    pub min_embed_fraction: f32,
+}
+
+/// Settings for shaping a sphere by removing material with spherical cuts.
+///
+/// Distances use carve space: coordinates where the containing cube runs from
+/// -1 to 1 on each axis before stretching. Large cutting spheres can leave
+/// nearly flat facets. All floating-point settings must be finite.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarveOptions {
+    /// Number of cuts, from 0 through [`MAX_CARVE_STEPS`]. Zero leaves the starting
+    /// sphere uncut; surface roughness still applies.
+    pub steps: u32,
+    /// Width of the rounded transitions between cuts, in carve-space units.
+    /// Larger values soften edges and remove more material. Must be positive.
+    pub smoothness: f32,
+    /// Radius of the starting sphere in carve-space units; must be positive.
+    /// A radius of 1 reaches the cube faces before cuts and roughness.
+    /// [`crate::StoneField`] clips any remaining shape to its containing cube.
+    pub base_radius: f32,
+    /// Minimum distance from the origin to a cutting sphere’s centre, in carve-space
+    /// units; must be positive. Its radius is this distance times [`depth`](Self::depth).
+    pub radius_min: f32,
+    /// Maximum random addition to [`radius_min`](Self::radius_min) for each cut’s
+    /// centre distance; must be zero or positive. Zero makes all cuts the same size.
+    pub radius_jitter: f32,
+    /// Ratio of a cutting sphere’s radius to its distance from the origin; must
+    /// be positive. Larger values cut deeper and can remove the entire rock.
+    pub depth: f32,
+    /// How strongly cut directions turn toward the nearest positive or negative
+    /// x, y, or z axis, from 0 through 1. Defaults to 0, which keeps the original
+    /// random directions. Higher values make the rock more box-like; at 1, all
+    /// cuts come from these six directions. The rock’s proportions follow
+    /// [`StoneOptions::stretch`]; for example, `[1.0, 0.5, 1.0]` makes it shorter
+    /// along y. Cuts remain spherical, so sides can still curve. With few
+    /// [`steps`](Self::steps), some sides may receive no cuts and stay rounded.
+    pub blockiness: f32,
+}
+
+/// Settings for surface roughness. All floating-point values must be finite.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SurfaceOptions {
+    /// Strength of the inward surface displacement; must be zero or positive.
+    /// Zero disables roughness. This is a strength factor, not a distance in world units.
+    pub displacement_scale: f32,
+    /// Frequency of the surface pattern; must be positive. Larger values produce
+    /// smaller, more closely spaced details within the stone’s unit-width cube.
+    pub displacement_spread: f32,
+    /// Number of noise layers (octaves), from 1 through [`MAX_OCTAVES`].
+    /// Each additional layer contributes finer, weaker detail and takes more work to sample.
+    pub octaves: u32,
+}
+
+/// Controls how a rock surface is approximated by triangles and how much detail is captured.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct MeshOptions {
+    /// Surface-to-triangle conversion method; see [`Mesher`] for the tradeoffs.
+    pub mesher: Mesher,
+    /// Mesh levels to build, most detailed first: a preset such as
+    /// [`StoneDetail::MEDIUM`] (the default) or your own levels. In JSON, an
+    /// array of levels that replaces the whole default list.
+    pub detail: StoneDetail,
+}
+
+/// Surface appearance: a texture set and adjustments to it.
+///
+/// Textures are projected onto the rock along its three axes, so meshes need
+/// no texture coordinates. All floating-point values must be finite.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MaterialOptions {
+    /// Name of the texture set, usually one of [`crate::TEXTURE_SETS`]. Use
+    /// [`crate::texture_path`] to find its images. The name is not validated.
+    pub texture: String,
+    /// Linear RGB colour that multiplies the colour texture, with each channel
+    /// zero or positive. Without textures this is the rock's colour. Defaults to
+    /// white, which keeps the texture's colours unchanged.
+    pub color: [f32; 3],
+    /// Roughness from 0 (polished) to 1 (fully matte). Multiplies the roughness
+    /// texture; without textures this is the rock's roughness. Defaults to 1.
+    pub roughness: f32,
+    /// Metalness from 0 (stone and other non-metals) to 1 (bare metal). Applies
+    /// to the whole surface. Defaults to 0.
+    pub metallic: f32,
+    /// World units covered by one repeat of the texture; must be positive.
+    /// Larger values make the texture's features larger on the rock.
+    pub texture_size: f32,
+}
+
+/// Methods for approximating a rock surface with triangles.
+///
+/// Both generate outward surface normals. Resolution affects how much detail
+/// is captured, and small features can disappear. JSON names are
+/// `"marching_cubes"` and `"dual_contouring"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mesher {
+    /// Approximates the surface with triangles whose vertices lie on sampling
+    /// grid edges. This is the default method and generally produces softer
+    /// corners than dual contouring.
+    #[default]
+    MarchingCubes,
+    /// Fits vertices to local surface directions to better preserve corners
+    /// and creases. Nearby surface parts can become joined at a vertex or edge,
+    /// creating non-manifold geometry: connections that some collider and mesh
+    /// processing tools cannot handle.
+    DualContouring,
+}
+
+impl Default for StoneOptions {
+    fn default() -> Self {
+        Self {
+            seed: 880,
+            scale: 2.5,
+            stretch: [1.0, 1.0, 1.0],
+            placement: PlacementOptions::default(),
+            carve: CarveOptions::default(),
+            surface: SurfaceOptions::default(),
+            mesh: MeshOptions::default(),
+            material: MaterialOptions::default(),
+        }
+    }
+}
+
+impl Default for PlacementOptions {
+    fn default() -> Self {
+        Self {
+            settle: true,
+            max_embed_fraction: 1.0,
+            min_embed_fraction: 0.05,
+        }
+    }
+}
+
+impl Default for MaterialOptions {
+    fn default() -> Self {
+        Self {
+            texture: "rock_01".to_owned(),
+            color: [1.0, 1.0, 1.0],
+            roughness: 1.0,
+            metallic: 0.0,
+            texture_size: 1.0,
+        }
+    }
+}
+
+impl Default for CarveOptions {
+    fn default() -> Self {
+        Self {
+            steps: 20,
+            smoothness: 0.05,
+            base_radius: 0.95,
+            radius_min: 2.5,
+            radius_jitter: 1.0,
+            depth: 0.8,
+            blockiness: 0.0,
+        }
+    }
+}
+
+impl Default for SurfaceOptions {
+    fn default() -> Self {
+        Self {
+            displacement_scale: 0.15,
+            displacement_spread: 10.0,
+            octaves: 6,
+        }
+    }
+}
+
+/// A setting that fails the range checks in [`StoneOptions::validate`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum OptionsError {
+    /// A whole-number setting is below its minimum or above its maximum.
+    IntOutOfRange {
+        /// Name of the invalid setting, for example `"mesh.resolution"`.
+        field: &'static str,
+        /// The rejected value.
+        value: u32,
+        /// Inclusive lower limit.
+        min: u32,
+        /// Inclusive upper limit.
+        max: u32,
+    },
+    /// A floating-point setting is NaN, infinite, or outside its allowed range.
+    FloatOutOfRange {
+        /// Name of the invalid setting, for example `"carve.smoothness"`.
+        field: &'static str,
+        /// The rejected value, which may be NaN or infinite.
+        value: f32,
+        /// Allowed range in words, such as `"positive"`; the value must also be finite.
+        requirement: &'static str,
+    },
+}
+
+impl fmt::Display for OptionsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IntOutOfRange {
+                field,
+                value,
+                min,
+                max,
+            } => write!(f, "{field} is {value}, but must be from {min} to {max}"),
+            Self::FloatOutOfRange {
+                field,
+                value,
+                requirement,
+            } => write!(
+                f,
+                "{field} is {value}, but must be finite and {requirement}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for OptionsError {}
+
+impl StoneOptions {
+    /// Checks all settings for allowed ranges and finite floating-point values.
+    ///
+    /// Passing validation does not guarantee a nonempty rock or that extreme
+    /// values will remain finite during field evaluation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first invalid setting as [`OptionsError::IntOutOfRange`] or
+    /// [`OptionsError::FloatOutOfRange`]. No settings are changed.
+    pub fn validate(&self) -> Result<(), OptionsError> {
+        positive("scale", self.scale)?;
+        positive("stretch[0]", self.stretch[0])?;
+        positive("stretch[1]", self.stretch[1])?;
+        positive("stretch[2]", self.stretch[2])?;
+
+        let carve = &self.carve;
+        int_range("carve.steps", carve.steps, 0, MAX_CARVE_STEPS)?;
+        positive("carve.smoothness", carve.smoothness)?;
+        positive("carve.base_radius", carve.base_radius)?;
+        positive("carve.radius_min", carve.radius_min)?;
+        non_negative("carve.radius_jitter", carve.radius_jitter)?;
+        positive("carve.depth", carve.depth)?;
+        unit_interval("carve.blockiness", carve.blockiness)?;
+
+        let surface = &self.surface;
+        non_negative("surface.displacement_scale", surface.displacement_scale)?;
+        positive("surface.displacement_spread", surface.displacement_spread)?;
+        int_range("surface.octaves", surface.octaves, 1, MAX_OCTAVES)?;
+
+        let placement = &self.placement;
+        unit_interval("placement.max_embed_fraction", placement.max_embed_fraction)?;
+        unit_interval("placement.min_embed_fraction", placement.min_embed_fraction)?;
+        if placement.min_embed_fraction > placement.max_embed_fraction {
+            return Err(OptionsError::FloatOutOfRange {
+                field: "placement.min_embed_fraction",
+                value: placement.min_embed_fraction,
+                requirement: "at most placement.max_embed_fraction",
+            });
+        }
+
+        check_detail(&self.mesh.detail)?;
+
+        let material = &self.material;
+        non_negative("material.color[0]", material.color[0])?;
+        non_negative("material.color[1]", material.color[1])?;
+        non_negative("material.color[2]", material.color[2])?;
+        unit_interval("material.roughness", material.roughness)?;
+        unit_interval("material.metallic", material.metallic)?;
+        positive("material.texture_size", material.texture_size)
+    }
+}
+
+/// Checks the inclusive [`MIN_RESOLUTION`] to [`MAX_RESOLUTION`] range.
+///
+/// Returns [`OptionsError::IntOutOfRange`] on failure, using `field` as the
+/// setting name in the error.
+pub(crate) fn check_resolution(field: &'static str, resolution: u32) -> Result<(), OptionsError> {
+    int_range(field, resolution, MIN_RESOLUTION, MAX_RESOLUTION)
+}
+
+/// Checks the level count, each level's resolution, distance and hysteresis,
+/// and that distances strictly increase.
+fn check_detail(detail: &StoneDetail) -> Result<(), OptionsError> {
+    let levels = detail.levels();
+    let count = u32::try_from(levels.len()).unwrap_or(u32::MAX);
+    int_range("mesh.detail", count, 1, MAX_DETAIL_LEVELS)?;
+
+    let mut previous: Option<&DetailLevel> = None;
+    for level in levels {
+        check_resolution("mesh.detail.resolution", level.resolution)?;
+        non_negative("mesh.detail.distance", level.distance)?;
+        if previous.is_some_and(|p| level.distance <= p.distance) {
+            return Err(OptionsError::FloatOutOfRange {
+                field: "mesh.detail.distance",
+                value: level.distance,
+                requirement: "greater than the previous level's distance",
+            });
+        }
+        if !(0.0..1.0).contains(&level.hysteresis) {
+            return Err(OptionsError::FloatOutOfRange {
+                field: "mesh.detail.hysteresis",
+                value: level.hysteresis,
+                requirement: "from 0 up to but not including 1",
+            });
+        }
+        previous = Some(level);
+    }
+    Ok(())
+}
+
+fn int_range(field: &'static str, value: u32, min: u32, max: u32) -> Result<(), OptionsError> {
+    if (min..=max).contains(&value) {
+        Ok(())
+    } else {
+        Err(OptionsError::IntOutOfRange {
+            field,
+            value,
+            min,
+            max,
+        })
+    }
+}
+
+fn positive(field: &'static str, value: f32) -> Result<(), OptionsError> {
+    if value.is_finite() && value > 0.0 {
+        Ok(())
+    } else {
+        Err(OptionsError::FloatOutOfRange {
+            field,
+            value,
+            requirement: "positive",
+        })
+    }
+}
+
+fn non_negative(field: &'static str, value: f32) -> Result<(), OptionsError> {
+    if value.is_finite() && value >= 0.0 {
+        Ok(())
+    } else {
+        Err(OptionsError::FloatOutOfRange {
+            field,
+            value,
+            requirement: "zero or positive",
+        })
+    }
+}
+
+fn unit_interval(field: &'static str, value: f32) -> Result<(), OptionsError> {
+    if (0.0..=1.0).contains(&value) {
+        Ok(())
+    } else {
+        Err(OptionsError::FloatOutOfRange {
+            field,
+            value,
+            requirement: "from 0 to 1",
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JSON support
+
+impl StoneOptions {
+    /// Loads a full or partial JSON options object, filling omitted settings with defaults.
+    ///
+    /// Nested objects may also be partial: `{"seed": 7, "mesh": {"mesher": "dual_contouring"}}`
+    /// changes only those two settings. Arrays such as `stretch` and
+    /// `mesh.detail` must be supplied in full. Use `"marching_cubes"` or `"dual_contouring"` for `mesh.mesher`.
+    ///
+    /// Names this crate does not use are ignored, so the JSON can carry your
+    /// own metadata alongside the settings. Such names are not kept: they are
+    /// missing from [`to_json`](Self::to_json). A misspelled setting name is
+    /// also ignored, leaving that setting at its default.
+    ///
+    /// Successful parsing does not check setting ranges. Call
+    /// [`validate`](Self::validate), or pass the result to [`crate::StoneField::new`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed JSON, a non-object root, or incompatible
+    /// values. For example, `{"seed": "12"}` supplies a string where an integer
+    /// is required; `null` does not mean “use the default”.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        // Fill omitted settings from defaults, then let deserialization reject
+        // values of the wrong type.
+        let source: serde_json::Value = serde_json::from_str(json)?;
+        let mut merged = serde_json::to_value(Self::default())?;
+        merge_json(&mut merged, source);
+        serde_json::from_value(merged)
+    }
+
+    /// Returns all settings as indented JSON, including settings at their defaults.
+    ///
+    /// This does not validate the settings. Finite values can be read back with
+    /// [`from_json`](Self::from_json). NaN and infinities become `null`, which
+    /// `from_json` rejects for numeric settings.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).expect("stone options always serialize to JSON")
+    }
+}
+
+/// Copies supplied JSON values over the defaults in `target`.
+///
+/// Objects merge recursively; arrays and other values replace the whole slot.
+/// Incompatible values are retained so deserialization can report them instead
+/// of silently using defaults.
+fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
+    use serde_json::Value;
+
+    match (target, source) {
+        (Value::Object(target), Value::Object(source)) => {
+            for (key, value) in source {
+                match target.get_mut(&key) {
+                    Some(slot) => merge_json(slot, value),
+                    None => {
+                        target.insert(key, value);
+                    }
+                }
+            }
+        }
+        (target, source) => *target = source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TextureSize;
+
+    #[test]
+    fn defaults_are_valid() {
+        assert_eq!(StoneOptions::default().validate(), Ok(()));
+    }
+
+    #[test]
+    fn partial_json_keeps_nested_defaults() {
+        let options =
+            StoneOptions::from_json(r#"{"seed": 7, "mesh": {"mesher": "dual_contouring"}}"#)
+                .unwrap();
+        let mut expected = StoneOptions {
+            seed: 7,
+            ..StoneOptions::default()
+        };
+        expected.mesh.mesher = Mesher::DualContouring;
+        assert_eq!(options, expected);
+    }
+
+    #[test]
+    fn json_detail_replaces_the_whole_list() {
+        let options = StoneOptions::from_json(
+            r#"{"mesh": {"detail": [
+                {"resolution": 64, "distance": 0.0, "hysteresis": 0.1, "texture_size": "2k"}
+            ]}}"#,
+        )
+        .unwrap();
+        let expected = StoneDetail::new(vec![DetailLevel {
+            resolution: 64,
+            distance: 0.0,
+            hysteresis: 0.1,
+            texture_size: TextureSize::Size2k,
+        }]);
+        assert_eq!(options.mesh.detail, expected);
+        assert_eq!(StoneOptions::from_json(&options.to_json()).unwrap(), options);
+    }
+
+    #[test]
+    fn presets_are_valid() {
+        for (name, detail) in StoneDetail::PRESETS {
+            let options = StoneOptions {
+                mesh: MeshOptions {
+                    mesher: Mesher::default(),
+                    detail,
+                },
+                ..StoneOptions::default()
+            };
+            assert_eq!(options.validate(), Ok(()), "{name}");
+        }
+    }
+
+    #[test]
+    fn json_round_trips() {
+        let mut options = StoneOptions {
+            seed: 12345,
+            stretch: [1.0, 0.5, 0.75],
+            ..StoneOptions::default()
+        };
+        options.mesh.mesher = Mesher::DualContouring;
+        options.surface.octaves = 3;
+        options.material.texture = "lichen_rock_02".to_owned();
+        let json = options.to_json();
+        assert!(json.contains(r#""mesher": "dual_contouring""#));
+        assert!(json.contains(r#""texture": "lichen_rock_02""#));
+        assert_eq!(StoneOptions::from_json(&json).unwrap(), options);
+    }
+
+    #[test]
+    fn json_ignores_unknown_names() {
+        let options = StoneOptions::from_json(
+            r#"{"seed": 7, "name": "boulder", "tags": ["a"], "carve": {"note": {"x": 1}}}"#,
+        )
+        .unwrap();
+        let expected = StoneOptions {
+            seed: 7,
+            ..StoneOptions::default()
+        };
+        assert_eq!(options, expected);
+        assert!(!options.to_json().contains("boulder"));
+    }
+
+    #[test]
+    fn json_rejects_bad_values() {
+        for json in [
+            r#"{"seed": "12"}"#,
+            r#"{"seed": -1}"#,
+            r#"{"mesh": {"mesher": "voxels"}}"#,
+            r#"{"carve": 3}"#,
+            r#"[1, 2]"#,
+            r#"{"seed": 1"#,
+        ] {
+            assert!(StoneOptions::from_json(json).is_err(), "accepted {json}");
+        }
+    }
+
+    #[test]
+    fn validate_reports_out_of_range_settings() {
+        let check = |edit: fn(&mut StoneOptions), field: &str| {
+            let mut options = StoneOptions::default();
+            edit(&mut options);
+            let error = options.validate().unwrap_err();
+            let reported = match &error {
+                OptionsError::IntOutOfRange { field, .. }
+                | OptionsError::FloatOutOfRange { field, .. } => *field,
+            };
+            assert_eq!(reported, field, "{error}");
+        };
+        check(|o| o.scale = 0.0, "scale");
+        check(|o| o.stretch[2] = -1.0, "stretch[2]");
+        check(|o| o.carve.steps = MAX_CARVE_STEPS + 1, "carve.steps");
+        check(|o| o.carve.smoothness = f32::NAN, "carve.smoothness");
+        check(|o| o.carve.radius_jitter = -0.1, "carve.radius_jitter");
+        check(|o| o.carve.blockiness = 1.5, "carve.blockiness");
+        check(|o| o.carve.blockiness = f32::NAN, "carve.blockiness");
+        check(
+            |o| o.surface.displacement_scale = f32::INFINITY,
+            "surface.displacement_scale",
+        );
+        check(|o| o.surface.octaves = 0, "surface.octaves");
+        check(|o| o.mesh.detail = StoneDetail::new(vec![]), "mesh.detail");
+        check(
+            |o| o.mesh.detail = StoneDetail::new(vec![level(32, 0.0); 9]),
+            "mesh.detail",
+        );
+        check(
+            |o| o.mesh.detail = StoneDetail::new(vec![level(MIN_RESOLUTION - 1, 0.0)]),
+            "mesh.detail.resolution",
+        );
+        check(
+            |o| o.mesh.detail = StoneDetail::new(vec![level(MAX_RESOLUTION + 1, 0.0)]),
+            "mesh.detail.resolution",
+        );
+        check(
+            |o| o.mesh.detail = StoneDetail::new(vec![level(32, -1.0)]),
+            "mesh.detail.distance",
+        );
+        check(
+            |o| o.mesh.detail = StoneDetail::new(vec![level(32, 10.0), level(16, 10.0)]),
+            "mesh.detail.distance",
+        );
+        check(
+            |o| {
+                let mut bad = level(32, 0.0);
+                bad.hysteresis = 1.0;
+                o.mesh.detail = StoneDetail::new(vec![bad]);
+            },
+            "mesh.detail.hysteresis",
+        );
+        check(|o| o.material.color[1] = -0.5, "material.color[1]");
+        check(|o| o.material.roughness = 1.5, "material.roughness");
+        check(|o| o.material.roughness = f32::NAN, "material.roughness");
+        check(|o| o.material.metallic = -0.1, "material.metallic");
+        check(|o| o.material.metallic = 1.5, "material.metallic");
+        check(|o| o.material.texture_size = 0.0, "material.texture_size");
+    }
+
+    #[test]
+    fn validate_accepts_range_limits() {
+        let mut options = StoneOptions::default();
+        options.carve.steps = 0;
+        options.carve.radius_jitter = 0.0;
+        options.carve.blockiness = 1.0;
+        options.surface.displacement_scale = 0.0;
+        options.surface.octaves = MAX_OCTAVES;
+        options.mesh.detail = StoneDetail::new(
+            (0..MAX_DETAIL_LEVELS)
+                .map(|i| level(MAX_RESOLUTION, i as f32))
+                .collect(),
+        );
+        options.material.color = [0.0; 3];
+        options.material.roughness = 0.0;
+        options.material.metallic = 1.0;
+        assert_eq!(options.validate(), Ok(()));
+        options.mesh.detail = StoneDetail::new(vec![level(MIN_RESOLUTION, 0.0)]);
+        assert_eq!(options.validate(), Ok(()));
+    }
+
+    /// A level at `resolution` starting at `distance`, with 512 textures.
+    fn level(resolution: u32, distance: f32) -> DetailLevel {
+        DetailLevel::new(resolution, distance, TextureSize::Size512)
+    }
+}

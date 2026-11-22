@@ -1,0 +1,1959 @@
+{
+  "version": 1,
+  "baseUrl": "https://storage.googleapis.com/ze_textures/clump/",
+  "pathPatterns": {
+    "surface": "<category>/<id>-<size>-<map>-<format>.ktx2",
+    "stalks": "stalks/<id>-<map>-<format>.ktx2"
+  },
+  "sizes": {
+    "512": "512 x 512 pixels",
+    "1k": "1024 x 1024 pixels",
+    "2k": "2048 x 2048 pixels"
+  },
+  "maps": {
+    "color": "surface colour, with transparency for stalk cards; load as sRGB",
+    "normal": "surface bumps, OpenGL (+Y); load as linear data",
+    "orh": "R occlusion (shades hollows), G roughness (light is matte), B height (0-1, light is raised); linear data"
+  },
+  "formats": {
+    "bc7": "BC7 with Zstandard compression, for GPUs that support BC7, commonly desktops",
+    "uastc": "Basis Universal UASTC with Zstandard compression; the loader converts it to a format the GPU supports"
+  },
+  "assets": [
+    {
+      "id": "snow_02",
+      "category": "snow",
+      "title": "Snow 02",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/snow_02",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "snow/snow_02-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 236710,
+          "sha256": "d2f3862f06ee28f57d647623f2c37bd42477952e84e412456c82ea398f95c526"
+        },
+        {
+          "path": "snow/snow_02-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 179901,
+          "sha256": "d5434cdbed9f604c46511ebc70047e3e5d30cad6c5a5cd57ed9ca3835608d9bc"
+        },
+        {
+          "path": "snow/snow_02-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 309873,
+          "sha256": "6165e3e6795adba622df0b97dbe60b56d121e215508d583fa83e901419411cab"
+        },
+        {
+          "path": "snow/snow_02-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 316761,
+          "sha256": "328045a9a7c80dee0ab26495af97e7868fecd1003be00da50d6b5d57afd8aa9d"
+        },
+        {
+          "path": "snow/snow_02-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 310063,
+          "sha256": "6791b03267b2d496a693cb4bbd197dd0dc45bcb731bc00ee064a4dfc4983379b"
+        },
+        {
+          "path": "snow/snow_02-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 310035,
+          "sha256": "20dce3e9a3449092e1d94ce13e897204e26cdc7a7e00871be9481150c1829746"
+        },
+        {
+          "path": "snow/snow_02-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 924463,
+          "sha256": "aee9cd0d0648bccd19a3dfbd3e4816f99219056b013fbae5c0e164d19b60bc48"
+        },
+        {
+          "path": "snow/snow_02-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 789004,
+          "sha256": "af12d66c4714c6c43081ddd1959f345ca2351c8c243e2586539db44a313ecb41"
+        },
+        {
+          "path": "snow/snow_02-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1237804,
+          "sha256": "195eb5f4fb67efd3a4205b699b4dac0578cd297a04b080378477e7bda5ae35c5"
+        },
+        {
+          "path": "snow/snow_02-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1243065,
+          "sha256": "ce8069761923f37f369af4acdc0497cd3d6311224446b2645ef798ca34caa627"
+        },
+        {
+          "path": "snow/snow_02-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1207645,
+          "sha256": "a4021ad68dbd1f1957597de45fb96799d8b667b0b4e8487981b80fc23b542d84"
+        },
+        {
+          "path": "snow/snow_02-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1247338,
+          "sha256": "27065d75e130e18ee1139b01c2a154cd22103a3ad522177b2387e9383945957b"
+        },
+        {
+          "path": "snow/snow_02-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3632984,
+          "sha256": "02721a3b8879dbb7c20727319cc98773105c64e1cfcd496851b8ac1a3d8f065e"
+        },
+        {
+          "path": "snow/snow_02-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3205166,
+          "sha256": "690dc49389bc9e6f87a2e96233bd2a2681ee361b157aa9e689f3922917d4ab39"
+        },
+        {
+          "path": "snow/snow_02-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5014250,
+          "sha256": "eb89681feff2d1e29f39d86899bab948900ae01d65363ef0fe217c2a1ec3ac24"
+        },
+        {
+          "path": "snow/snow_02-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5068479,
+          "sha256": "41ee95c63fb1b5968cfbdc95c64b52426f1e42233e69d8a2cc980ae07fa5c8cf"
+        },
+        {
+          "path": "snow/snow_02-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4657709,
+          "sha256": "1567f425b9e5014cf6dde719fd0a34671c09ba6da2fc012f58f7324da4f68c4f"
+        },
+        {
+          "path": "snow/snow_02-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4799473,
+          "sha256": "ac2ee4ed1211fa0b4c411d075c2d65498b54018c6cc8ab510aea5062c4209f49"
+        }
+      ]
+    },
+    {
+      "id": "snow_005",
+      "category": "snow",
+      "title": "Snow 005",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Snow005",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "snow/snow_005-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 193695,
+          "sha256": "54655370688430a2fe529ca524e3eee542b08c9569badf3a80f5203a5fd9fa4d"
+        },
+        {
+          "path": "snow/snow_005-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 80625,
+          "sha256": "2a920aad3b1b04a185b2c8acb17d066dee96bfa9ec0455f4e10425a1c493ad0c"
+        },
+        {
+          "path": "snow/snow_005-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 269952,
+          "sha256": "d119db399fc1eb0375910f77dac3b21f9f76c0df3b707cb4a1adad17033527fd"
+        },
+        {
+          "path": "snow/snow_005-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 269172,
+          "sha256": "e7e96cff148a0b1a6f69b6e568e3588d85318d801a4febdf9c20646d6935c26b"
+        },
+        {
+          "path": "snow/snow_005-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 257503,
+          "sha256": "65146720328d636dcb9033c46402950b33d9441aa5d51740dc9c7f0ec02d68cc"
+        },
+        {
+          "path": "snow/snow_005-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 244882,
+          "sha256": "2f1b0744a4679dac378b304bc16732141d0fdffa9fe5bc22c01856ecf1ddaf22"
+        },
+        {
+          "path": "snow/snow_005-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 784837,
+          "sha256": "6c0720889871d3b58803cfd89b854d84b989a4f9e7354fd56e1ca4d19591e66b"
+        },
+        {
+          "path": "snow/snow_005-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 332370,
+          "sha256": "397dca25252f063098d8a97f2d7b126bae408ec53eb8c204e5bf272133b11394"
+        },
+        {
+          "path": "snow/snow_005-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1071531,
+          "sha256": "b5676c24847a13ed0c4ddb8c16f95ada0b02c9acdc66de09d2f353f51523a7c6"
+        },
+        {
+          "path": "snow/snow_005-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1077185,
+          "sha256": "44bfe7eba1606a7acb584760262b3fe77eaa72a5b28c182158fae5683f3f5be4"
+        },
+        {
+          "path": "snow/snow_005-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1011006,
+          "sha256": "43166f4c4d99d0560b780466020fb6999e077c1beb1c93f399009ee561601699"
+        },
+        {
+          "path": "snow/snow_005-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 974114,
+          "sha256": "1b203ec1b57c066e2860701aab057bcda19d4236746449080cb01941ed6792ec"
+        },
+        {
+          "path": "snow/snow_005-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3229102,
+          "sha256": "cfe4d79ba7cfb21e93ee7d671d8bc6c15e122bf5b95b635bc77282a1e3409cb5"
+        },
+        {
+          "path": "snow/snow_005-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1360540,
+          "sha256": "e297b5676185f269de8180c873319ae91c1a62bf3817953d319c0b64291daacb"
+        },
+        {
+          "path": "snow/snow_005-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4310585,
+          "sha256": "14e6ce92219522636350e2bf9380fd273c787eb5bcdd76e2125ade45a52c2d5d"
+        },
+        {
+          "path": "snow/snow_005-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4317404,
+          "sha256": "c41251ce602fae65e911a831af33e35bcf510df2e9def78bb980ebba5567b444"
+        },
+        {
+          "path": "snow/snow_005-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4048349,
+          "sha256": "c79535aee9c14e64697c8d6477063bed63a71f337194bc9d9141bff95ddd15ea"
+        },
+        {
+          "path": "snow/snow_005-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3898928,
+          "sha256": "a1e6f977ccb6c4d12f49bf5c0c2b36bfa925e92189c907bf46d61faff19f51d8"
+        }
+      ]
+    },
+    {
+      "id": "snow_014",
+      "category": "snow",
+      "title": "Snow 014",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Snow014",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "snow/snow_014-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 247758,
+          "sha256": "9c0c26ecad73b46417017dde0171808fc4674b1caca5db2566ce48f9a29ee7d7"
+        },
+        {
+          "path": "snow/snow_014-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 170518,
+          "sha256": "472a85b024b5b4dd18de1ec559d7f568ca2213251bad739b159540e9823a0708"
+        },
+        {
+          "path": "snow/snow_014-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 302866,
+          "sha256": "112edf7e15d838ff849e119f7c69e3e06c4047265b09c35a396b2986464adcee"
+        },
+        {
+          "path": "snow/snow_014-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 302978,
+          "sha256": "ddc91c9ca1b169cf4e7ef6341ea5ff691de31123f2516e1e1db3bd53cd1ae7ac"
+        },
+        {
+          "path": "snow/snow_014-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 313247,
+          "sha256": "79ee90f65be0ea5c2117019ef6361f17f531bb5ac5266e561a821ef224c2d572"
+        },
+        {
+          "path": "snow/snow_014-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 304923,
+          "sha256": "2df6c50d132e4c8b38e73e4d15444a6c3c6ce255fae5fb700f740834e33d6a3d"
+        },
+        {
+          "path": "snow/snow_014-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 954320,
+          "sha256": "a77a52290d916237759062a386d2b838df71c59aa45b4fbc172a1d614c3baea3"
+        },
+        {
+          "path": "snow/snow_014-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 639387,
+          "sha256": "b854e63e0b3a169e3c940503ffed21147afe36c1a781fc00d14577bb90ce275f"
+        },
+        {
+          "path": "snow/snow_014-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1196810,
+          "sha256": "957108dad827dc5652df11db95f3d235f1f0fcd7bcdcb14ff748da45352d173c"
+        },
+        {
+          "path": "snow/snow_014-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1233980,
+          "sha256": "b8ee2e840e4af9971052d5f91c68f60c5deba7cfa1d1742ab26d3b58d6deb454"
+        },
+        {
+          "path": "snow/snow_014-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1227174,
+          "sha256": "a384a6eb931f19ff21e299202667604373ada4a0d026548aee0b193e62b2b6c3"
+        },
+        {
+          "path": "snow/snow_014-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1238717,
+          "sha256": "54211ec71152ca1b23cae1fab02d4ce3c4cce2fe2927f84e6fb1b31454169f3b"
+        },
+        {
+          "path": "snow/snow_014-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3794558,
+          "sha256": "aa62635bcd4cd430c8790d584e35dd8ab715ab7610d6c716900a905c96cebc3c"
+        },
+        {
+          "path": "snow/snow_014-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2326595,
+          "sha256": "aff2b6cc36687818d6513a2c4d8e26dee91de162277432cf6949f9771195ad4f"
+        },
+        {
+          "path": "snow/snow_014-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4755067,
+          "sha256": "1dd135b437b7a82ff95226654386523cd8ce69f31df99ff02c76bf5c973e1bcf"
+        },
+        {
+          "path": "snow/snow_014-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4855730,
+          "sha256": "152cb2073ac3a57c530820b03a10ca4054112a4c46685c91693c8643270515ab"
+        },
+        {
+          "path": "snow/snow_014-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4840655,
+          "sha256": "b68ab4ac685d44bd6ccbdb8b6b04cc960f47ac4907a780ed52e7c5d7b8dbb9e3"
+        },
+        {
+          "path": "snow/snow_014-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4953767,
+          "sha256": "d816e8e8d4b0c5be7ee6db5efe92ebb468d635e7e7733235f25f77fbdae2a214"
+        }
+      ]
+    },
+    {
+      "id": "moss_002",
+      "category": "moss",
+      "title": "Moss 002",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Moss002",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "moss/moss_002-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 315316,
+          "sha256": "4267c8ff0682d3f7808d1162a8463d6201b8637f593623080824b9e1a9f842c5"
+        },
+        {
+          "path": "moss/moss_002-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323248,
+          "sha256": "c0abbb164e1b3ca1d78f922647a176d28febefaff50725cacc9d1ef14187180f"
+        },
+        {
+          "path": "moss/moss_002-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 335056,
+          "sha256": "1e8ab57bf69ae70bacca7395cbdc870bb31ddbe7df14ea025ec7abeaeb8f1ec5"
+        },
+        {
+          "path": "moss/moss_002-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 321682,
+          "sha256": "c531f8e5e3eecc62a236064342f857b19a2b331527ff86243a555ee713a38fee"
+        },
+        {
+          "path": "moss/moss_002-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 342852,
+          "sha256": "13b7914411af37e7b0cb53ce80292e585726ed370320e429141cd7296dce99de"
+        },
+        {
+          "path": "moss/moss_002-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 326826,
+          "sha256": "5c5bfba5fdcabccfb99aee25742b7fabe243ef83ccbde8887c55b8248fdbe5b5"
+        },
+        {
+          "path": "moss/moss_002-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1271959,
+          "sha256": "6aa5d7264794dd1e0cce5d06aaf160cbdbfa5533cd8d9df327694c75e444c05e"
+        },
+        {
+          "path": "moss/moss_002-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1292477,
+          "sha256": "0093a84e769b69bea41ec6ce091700d65bc16332e3e988de7ff2786973dd1f0a"
+        },
+        {
+          "path": "moss/moss_002-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1365574,
+          "sha256": "6fa27ef4b618c6ff61bd4205929ef8d19376cadeeefeeabf08cf4ec558d102fb"
+        },
+        {
+          "path": "moss/moss_002-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1300379,
+          "sha256": "b8abca8aa728fbf49ea070e02e29b2551b1cf7889a6cc207d141b8b2a1584df1"
+        },
+        {
+          "path": "moss/moss_002-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1376490,
+          "sha256": "df3119421565d81244eaaa6d6f8c2fae337e04218c299530da9a73aa6a9fc303"
+        },
+        {
+          "path": "moss/moss_002-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1321055,
+          "sha256": "fe32b8361a3ba31dd7dd1cfa9749b99810d8fc7bb5fffc725490928ab941b4a6"
+        },
+        {
+          "path": "moss/moss_002-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5069510,
+          "sha256": "b0c606de0da42cbbb120e1dfe76d5d0778d7122f009fdb80509e4cedcf9f9632"
+        },
+        {
+          "path": "moss/moss_002-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5082030,
+          "sha256": "bcf0e4b474ecd0493b6f240c1907c88cd5034d61b76f9788eb8eeb0154cddf97"
+        },
+        {
+          "path": "moss/moss_002-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5512171,
+          "sha256": "670c848897aa51ef5f98176897747537232a350f20a19089a0bf424b4bc805a2"
+        },
+        {
+          "path": "moss/moss_002-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5296594,
+          "sha256": "293931b8146018ccca1fbd49931b88cb11b6b6bd25c00de4d7f3d79b08ff644c"
+        },
+        {
+          "path": "moss/moss_002-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5475787,
+          "sha256": "cc5bcde596f5484f15fa9af2cd5afbada05adf5223ca23444a23ca15958299cf"
+        },
+        {
+          "path": "moss/moss_002-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5344017,
+          "sha256": "d8ab7b2c677b6bf6bf1c40c0170bba6b64f7ad3921e2e434e63980d054164d37"
+        }
+      ]
+    },
+    {
+      "id": "moss_003",
+      "category": "moss",
+      "title": "Moss 003",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Moss003",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "moss/moss_003-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 324221,
+          "sha256": "329a7227ed3df8f3549d093dd61e1330bb6d63d6528fdbffc092e109f4ae2e37"
+        },
+        {
+          "path": "moss/moss_003-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 328239,
+          "sha256": "448eef3a36e36f997b47e03d7c43e7ff00aa4a1ebd43066b5a3a58493a9c0f85"
+        },
+        {
+          "path": "moss/moss_003-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 340188,
+          "sha256": "c439f87e4f2dde7c66ee7e30d423c3a2a3711a6fcb797cd44c37da5095e9640e"
+        },
+        {
+          "path": "moss/moss_003-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 320802,
+          "sha256": "f69783e1a3fd7dbafdc4ddb29494fb230c096e4b4d862cdf5be5135f32315167"
+        },
+        {
+          "path": "moss/moss_003-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 345255,
+          "sha256": "45660e2f9395c5be8c3e3dd6bb603fe6247930eaef7bde9cfcf4b0d8d37b17b0"
+        },
+        {
+          "path": "moss/moss_003-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 330090,
+          "sha256": "95f7aab7fb77ebd2e76cb8121212fa5fd95b039aebfbb0f319cc9172f8816479"
+        },
+        {
+          "path": "moss/moss_003-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1301241,
+          "sha256": "5329f2fe2fdd1d7b8a9a388ee1fc39e93d61fc7c75ec8ddb3bc019f7aa34eea5"
+        },
+        {
+          "path": "moss/moss_003-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1303028,
+          "sha256": "87b4e1d59839f5e49db65d8e8b70e22cfbaf8e4d90eb99daef0d550400453484"
+        },
+        {
+          "path": "moss/moss_003-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1374720,
+          "sha256": "4aa185997d283cfab6e0c0216e7272f0e4c793188bdd611f955448bdd741d371"
+        },
+        {
+          "path": "moss/moss_003-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1311226,
+          "sha256": "8e33b06c9276f6c86a863b90b7fb9b2ce764a06723f6174320dbe2dbf12db8bf"
+        },
+        {
+          "path": "moss/moss_003-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1383962,
+          "sha256": "3747ae193ffe967f1090ede412538ca0ba7fb7456de739a192c03e42822f529c"
+        },
+        {
+          "path": "moss/moss_003-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1329176,
+          "sha256": "005f8a741b7cd2870be7194e405721162a17fa8a189101ca961617f30f50059e"
+        },
+        {
+          "path": "moss/moss_003-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5156755,
+          "sha256": "b75eed73c8d0d26b02cbcb652d5197bee2f93fb7dff61204c9834eccf17fe7f5"
+        },
+        {
+          "path": "moss/moss_003-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5068459,
+          "sha256": "d59c4b2e0e0d6cad05bcd88b50f839e3f9a5e4ef18e72624900a06c1d77e7ca3"
+        },
+        {
+          "path": "moss/moss_003-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5529483,
+          "sha256": "6500ad8d0dec5e8bf41c3c55f889c9aee228514a1b57b0d5d36821a1d25758bd"
+        },
+        {
+          "path": "moss/moss_003-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5291366,
+          "sha256": "918754c2dfb86c76485b87e10e18c0412742109091cf85d64744cd6a7d9141ae"
+        },
+        {
+          "path": "moss/moss_003-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5498410,
+          "sha256": "bcf262ef3e922f9f61ef68089382691c0eb378ec962e59c6be269187eee1d9b8"
+        },
+        {
+          "path": "moss/moss_003-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5310957,
+          "sha256": "0f894b482161d20dc4cd05d19a708a766d2b6f3ccf657b7a8870ef62549ae51b"
+        }
+      ]
+    },
+    {
+      "id": "moss_004",
+      "category": "moss",
+      "title": "Moss 004",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Moss004",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "moss/moss_004-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 293345,
+          "sha256": "4f4015c9e7748aac68bc2bc5b3aae14e8c81d03c722df3fe59a17361762dadc1"
+        },
+        {
+          "path": "moss/moss_004-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 306272,
+          "sha256": "e901f070fc8abe7abbe701575fb6dafbf87b0d2a42e4db78469a48917215bf68"
+        },
+        {
+          "path": "moss/moss_004-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 323486,
+          "sha256": "0954dcdf6201a3f83436f39393da00871bf5a397f38c6cf2ae720dd3999bd681"
+        },
+        {
+          "path": "moss/moss_004-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 319276,
+          "sha256": "9e5eeb3a1527b85edd747358b3064c7d07a73b6919f83ce62e5dbe01083c1022"
+        },
+        {
+          "path": "moss/moss_004-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 336921,
+          "sha256": "de929e112aaa22082c1da7ede1d24efe934b224870a9365682ec734308e48931"
+        },
+        {
+          "path": "moss/moss_004-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 322034,
+          "sha256": "24c74d21d1c2c29db56dd5a83ed690b63505dc483678a0689e7b7dfe76c573c3"
+        },
+        {
+          "path": "moss/moss_004-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1234813,
+          "sha256": "910aadbfa96150616bef393919a44b316bca8767b184e0d20e502044ed688b78"
+        },
+        {
+          "path": "moss/moss_004-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1242312,
+          "sha256": "83d083930f762bc50b8d142c97cb23848c6c64498612d6b54fc6432e113c4a97"
+        },
+        {
+          "path": "moss/moss_004-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1327960,
+          "sha256": "4d82c26114e7b6b6dcb8c46b9eec081e7de4bf1f3715b8cd7a4929e039fabc71"
+        },
+        {
+          "path": "moss/moss_004-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1303110,
+          "sha256": "0a5df58631a65b2c03f4383fc00d3e59fe4390231782e249d88c507eae482b55"
+        },
+        {
+          "path": "moss/moss_004-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1365211,
+          "sha256": "a379f295b5101375fd781394b5e9021c393392671e914a3e6d63e5479235afa7"
+        },
+        {
+          "path": "moss/moss_004-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1307456,
+          "sha256": "48299495457b6212d0387569aba0951211d3b3c14af67f5a90afc402b3aa9910"
+        },
+        {
+          "path": "moss/moss_004-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5016005,
+          "sha256": "3934f1966aa67f6633df114ffc3b7ea970b85f6beee02c095c53cf855f62f370"
+        },
+        {
+          "path": "moss/moss_004-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4980078,
+          "sha256": "1f3541bcf8f669dc41d19d4fa846dd8d1a04a22481311bec8c5bf1c756336ffc"
+        },
+        {
+          "path": "moss/moss_004-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5450894,
+          "sha256": "39b71df0d6a3685881d40d43dcbfd1597d6c0f092131b3b9147b3048817d17f5"
+        },
+        {
+          "path": "moss/moss_004-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5268761,
+          "sha256": "5b934d575499c6149f3aeaeb746f4f883ff0ee1d96022fdaee0b9c79215211b8"
+        },
+        {
+          "path": "moss/moss_004-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5456063,
+          "sha256": "02a44ae7187f4aa0a3cae09cb8cbd1df56a865994294f3e1befcf08a63c6dde6"
+        },
+        {
+          "path": "moss/moss_004-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5288253,
+          "sha256": "ccbdba29ff73dc1af8212baaea37e68d34edec7be2cce08ebdb72eb101288d9d"
+        }
+      ]
+    },
+    {
+      "id": "leaves_dry_decay",
+      "category": "leaves",
+      "title": "Dry Decay Leaves",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/dry_decay_leaves",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "leaves/leaves_dry_decay-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 321322,
+          "sha256": "fc65bfedc939a30e105354233c90ed3ead91c3f1ba01bd2b95fa09bd89271ffd"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 291932,
+          "sha256": "3c66e22d362bb167d703c2292d38927433814dd808b01de6889c8a7bccb21d81"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 333065,
+          "sha256": "5c5486039554cb6d3a7488a2f469d293e5bdaac854ea76b5346607eada50fa48"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 330792,
+          "sha256": "8316cdbc583589d002527cb5b0bf25d939decb52f37af17efbc86bdb41d6dbd0"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 344500,
+          "sha256": "c28d593dee40a5a648acc26765b27fea4385c39a7ac26ba3cc277e7508ece403"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 321489,
+          "sha256": "dc3a9de961b91f55c5ab396654442b1444753b52869eb84e3f41948d82c4f029"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1237853,
+          "sha256": "41f2c055f0d1f766049e44855ae15cf8f90b88165e60053d98d8d470acf09b24"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1090153,
+          "sha256": "7eb144e5412e8ffa78013094661f62b8aed1db4e8adbe3a9966e51554fe089a4"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1323389,
+          "sha256": "9cfdabec74acbdc5dc1a38785249bd3c77f72c82093bae7e4fbe6d6fa7ee0109"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1297170,
+          "sha256": "9440cdbfb5c4307944654d1390c2abf6e1175d9867f4b00b70006f5dde83d268"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1363682,
+          "sha256": "fb31bd594f878b59afbb5af5e8ee1197541b6dd99e22259cb013ef61c5960f91"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1291209,
+          "sha256": "820d65fd026af6592023c8a684367e9588180a91faebc226f7a16dfb63ac5296"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4761641,
+          "sha256": "62c3a5b33e8c641adff9ccd5314cd974216cc3d03163aec5458c3b03a1e82659"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4118464,
+          "sha256": "0e653224113d6a3d7cdf3ac1bb11d54251dd023e5aaf49baa6abe0d2a03942c7"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5214381,
+          "sha256": "26f54f5da5253ddd78d62a22e562b75e1626cacfb89cda9a4c42286012e58c83"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5030907,
+          "sha256": "78d2d0fd7e5330d9ffa887885295867ef3d894e888e0df7be734e489f23ce5fb"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5293257,
+          "sha256": "171a4af580901f32d743e39fceeb41239eaaa13866526e63d99239b59c6668f2"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5165700,
+          "sha256": "b5556b5b38990c456a95e541e3c75e9de7de581971596134fc9b322c27600365"
+        }
+      ]
+    },
+    {
+      "id": "leaves_forest_ground",
+      "category": "leaves",
+      "title": "Leaves Forest Ground",
+      "authors": [
+        "Dario Barresi",
+        "Dimitrios Savva"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/leaves_forest_ground",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "leaves/leaves_forest_ground-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 341355,
+          "sha256": "06caccd6817a8fc602ec113e3cc3e917faeb39202bbb2f603f93c1ec205bbebc"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 337366,
+          "sha256": "4da83e9b09dc9c0544e562d207ca7c8780078c78848b182ef1b1d0ba617c6065"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 344923,
+          "sha256": "7ee2d135deee9ccb625d36128c803e4f57d4e677553cf33adbd9b48cce3973ef"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 330500,
+          "sha256": "a3ec8cef68e87b638348cce26d986e9716343dc3f75d564313299b457513eb39"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 339013,
+          "sha256": "94a6afb368909858fa6f9c40e4da024fa6b0cb9850e549d2582eda731f349eb0"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323107,
+          "sha256": "0513aa4c6ccd9ce4c3dcac411603f3c2f44560aa7a562ffbb9c4b521c71b3c01"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1336631,
+          "sha256": "8904d21c0271baaf1b9924acc81a0bf126f50d147133275c99473f8c140e5144"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1326606,
+          "sha256": "a7598a01595f6be7d5198f0a5d6b7352c33ab3cf7b6ee3f3bb204de85d47e08b"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1377026,
+          "sha256": "25b9ccfe3fb784c786f16d2ab38ac3472f3e520707a466281c304f706cd68645"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1318816,
+          "sha256": "866969850459f7d88e13186d007b46b34d44e0a9056ed95a5e3345b771d4fb43"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1350431,
+          "sha256": "bbfae6e1a04db53526a0a1823264ac48ab9dc653b0a870269a9fa303abf70a9b"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1291671,
+          "sha256": "eb304d390feff41b8d1a601e70de42eabe2abd3fff97af65214644cd21eacbb6"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5184069,
+          "sha256": "ec40f647f6e36eb9b46036df2552e1e8c24665a1352c5b9f5d0b495a639f23a1"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5140597,
+          "sha256": "a94de89642ba8e85cbf9e7f8dccd0f60b001093fc52aba0db3ec338cc9c05957"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5477538,
+          "sha256": "80f814de72b29424f7231779becb3c9d090359e91012563c28a90263755ffb06"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5207801,
+          "sha256": "cbdf929c7a8b034b9dbea0c0f01e3507821c858c4dd46a72dbbcedd6c07652ee"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5323438,
+          "sha256": "767ad2939b78c1ed304b1bdd895da904678e4cf8736a2007720f33164a3f1ba3"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5210924,
+          "sha256": "657bee938656bb1e72fc4c0b140069b42ed574b00534662266bca13c64a682d8"
+        }
+      ]
+    },
+    {
+      "id": "leaves_forest_03",
+      "category": "leaves",
+      "title": "Forest Leaves 03",
+      "authors": [
+        "Dimitrios Savva",
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/forest_leaves_03",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "leaves/leaves_forest_03-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 327122,
+          "sha256": "bf11ae31d8fbc400ba9e1a92080fda2226b1be87043a30f5ba6c55eb99849f7a"
+        },
+        {
+          "path": "leaves/leaves_forest_03-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 325209,
+          "sha256": "a535086c772719ae3e8990da7562e354987d6d3d5eec4ab48ee295ee6730e5e3"
+        },
+        {
+          "path": "leaves/leaves_forest_03-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 345238,
+          "sha256": "250b70b71beca061c3e06227cac2b944e6a9e747cac76a326e177976dbbedc7b"
+        },
+        {
+          "path": "leaves/leaves_forest_03-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 331160,
+          "sha256": "5c37258cf733343c845104102836d890c7564dc881f3479c3842cae64d074599"
+        },
+        {
+          "path": "leaves/leaves_forest_03-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 344022,
+          "sha256": "7d04f0511789bed927ef1236971dd8d0eaa495bdd27eeb5d760d9c552f97a0dc"
+        },
+        {
+          "path": "leaves/leaves_forest_03-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 329257,
+          "sha256": "a6cec73ec3db06028a12b0482d72a1e1cae6a6047f3ccfffc17c49187f27bba1"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1286755,
+          "sha256": "bea9b542f5e0f9330018b45417715320bb935094e089fb2fe2edc336169775ea"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1235297,
+          "sha256": "a6f3cdb869b1db41597a70a1e6991c79de445c9300eba40061548f3181191db0"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1381919,
+          "sha256": "0c0f028b3179e1d277dd8e23e911edbea72742b3a38b373dd440b4b48b43a65b"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1322120,
+          "sha256": "16d57f4b5145abddf2f3d8a17ebc0278fe7cc4d94993171959eb5a2f1d3324d6"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1370339,
+          "sha256": "d44700bde3179af5fbd455d7fb2f4d21fd48e56c48ac282e965da301c6283d5b"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1306058,
+          "sha256": "898dbcaa75dc7d1e545ab70e9b9d399e072a7abbcc792dadd0c2dbd45630c895"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4965934,
+          "sha256": "9c79fc680ca1a0307f76a5b8f642785debfe60eebe72c5fdeb3d9b8e8b8a2689"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4499431,
+          "sha256": "1178d9934ae5740de12dc631e535f22ade8815b20dfe94964659c1dd91ef3e87"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5502307,
+          "sha256": "05964c1d8604a7ae74fdc5cc4f61a465f6d8374a0dacb2982f0432768a22e84b"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5224924,
+          "sha256": "bf68c04a722647aaf12d69435ba4ede4861b5c422b958538f06dce363f2e190e"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5416869,
+          "sha256": "e42207661ebc65dbefb244d5c18fc371da1a9511aeb06ecc3b481dd85e02a8f4"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5122552,
+          "sha256": "2e868e442e4447c0586db510b579fe245a7a1f4df01f0f7eb9a6349ddf79f5e3"
+        }
+      ]
+    },
+    {
+      "id": "twig_bare",
+      "category": "stalks",
+      "title": "Bare twig",
+      "authors": [
+        "Nobiax (yughues)"
+      ],
+      "source": "nobiax",
+      "sourceUrl": "https://nobiax.deviantart.com",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "stalks/twig_bare-color-bc7.ktx2",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 162479,
+          "sha256": "905b1b6675dc1dd89a232ce985bd9cc8877e9ab27d381d12109d9c991629f32a"
+        },
+        {
+          "path": "stalks/twig_bare-color-uastc.ktx2",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 214999,
+          "sha256": "a9904da6c29d1cb78d9ec3ff721273fa3a201dd9d247878a05d0e62d0d6684ba"
+        },
+        {
+          "path": "stalks/twig_bare-normal-bc7.ktx2",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 199560,
+          "sha256": "0ded2ba019d1a642d6306fd3b22d8d4f19748151cf2d6407a420479390b9ff01"
+        },
+        {
+          "path": "stalks/twig_bare-normal-uastc.ktx2",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 204918,
+          "sha256": "8e07aeeca59f9408d597e0fe2ab2816bbe79c61ceb13093ecc80916d9edc6442"
+        }
+      ]
+    },
+    {
+      "id": "twig_budding",
+      "category": "stalks",
+      "title": "Budding twig",
+      "authors": [
+        "Nobiax (yughues)"
+      ],
+      "source": "nobiax",
+      "sourceUrl": "https://nobiax.deviantart.com",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "stalks/twig_budding-color-bc7.ktx2",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 216714,
+          "sha256": "e58b5c8028e8e5f091fa37d56149f925ed46dbccf3c2e11675a4612eb0365683"
+        },
+        {
+          "path": "stalks/twig_budding-color-uastc.ktx2",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 357590,
+          "sha256": "3b55acff532916d43e605a9011556515883aa9ffbab09a19472c5535b12c8ade"
+        },
+        {
+          "path": "stalks/twig_budding-normal-bc7.ktx2",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 272349,
+          "sha256": "4bff621e678074401738a4b2cf48e4b2c7f6ecdc4da4c97fee84477b11a4d02d"
+        },
+        {
+          "path": "stalks/twig_budding-normal-uastc.ktx2",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 279966,
+          "sha256": "6ab4f9d1e966f57661fcc54ea1c852b2f62253df636d7cc757e701364c42ad5c"
+        }
+      ]
+    },
+    {
+      "id": "sporophyte_sparse",
+      "category": "stalks",
+      "title": "Sporophytes, sparse",
+      "authors": [
+        "procgena_clump"
+      ],
+      "source": "generated",
+      "sourceUrl": "tools/textures/LICENSE.md",
+      "license": "see LICENSE.md",
+      "files": [
+        {
+          "path": "stalks/sporophyte_sparse-color-bc7.ktx2",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 358874,
+          "sha256": "615055c471a0b33c6dbad9bdc92389b6be8653c0f28ff330c88c0c56b22aa3e9"
+        },
+        {
+          "path": "stalks/sporophyte_sparse-color-uastc.ktx2",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 523104,
+          "sha256": "5f1540959893df194906fb33e1283cc84a8b42560f0e9b3a030d2d7ca4743ac2"
+        },
+        {
+          "path": "stalks/sporophyte_sparse-normal-bc7.ktx2",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 350553,
+          "sha256": "e92b8e0e9403c3bf04fc91f20b4266d6b483839021250d1df3a6094299b3bf0d"
+        },
+        {
+          "path": "stalks/sporophyte_sparse-normal-uastc.ktx2",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 322959,
+          "sha256": "8846054b469151f141baf4ab87d46ee51aac423635c8bc8e47e2fd65235b3a4c"
+        }
+      ]
+    },
+    {
+      "id": "sporophyte_dense",
+      "category": "stalks",
+      "title": "Sporophytes, dense",
+      "authors": [
+        "procgena_clump"
+      ],
+      "source": "generated",
+      "sourceUrl": "tools/textures/LICENSE.md",
+      "license": "see LICENSE.md",
+      "files": [
+        {
+          "path": "stalks/sporophyte_dense-color-bc7.ktx2",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 362989,
+          "sha256": "fa12299913f989a58620a7b106987ff3fe562c23d8a1d7a56e135a32522509db"
+        },
+        {
+          "path": "stalks/sporophyte_dense-color-uastc.ktx2",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 498569,
+          "sha256": "ab52907db42cb1e482858a308562f591fd62212716906213e51a862710a9b088"
+        },
+        {
+          "path": "stalks/sporophyte_dense-normal-bc7.ktx2",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 381482,
+          "sha256": "8ff1c0596a00d40af10b7e6dbdd4db9918ec4ac008187949e4ce38cf450e0394"
+        },
+        {
+          "path": "stalks/sporophyte_dense-normal-uastc.ktx2",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 354674,
+          "sha256": "a55ed7541957cdbce141413b790aadbb6ffcb71dce05959611cb01d4116372c5"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,696 @@
+//! Generate a tree's branch structure and placements for leaves, fruit, and flowers.
+//! The resulting skeleton describes shapes and positions, without drawable surfaces.
+
+use std::collections::VecDeque;
+use std::f32::consts::TAU;
+
+use glam::{EulerRot, Mat3, Quat, Vec3};
+
+use crate::cluster::{SkeletonCluster, grow_clusters};
+use crate::{OptionsError, Rng, TreeOptions, TreeType};
+
+/// Combines with the tree seed to give fruit its own repeatable random sequence.
+const FRUIT_SALT: i32 = 0x2f6b_3c1d;
+/// Combines with the tree seed to give flowers a separate repeatable random sequence.
+const FLOWER_SALT: i32 = 0x5a1e_7b93;
+/// Combines with the tree seed to give stem placement its own repeatable random sequence.
+const STEM_SALT: i32 = 0x3c97_e215;
+
+/// A tree's branch structure, with positions for leaves, fruit, and flowers.
+///
+/// Branches are described by circular slices along their length. Fruit and
+/// flower clusters include supporting stalks and individual item placements.
+/// Use [`Skeleton::generate`] to create this structure from settings and a seed;
+/// the result contains no drawable surfaces.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Skeleton {
+    /// Generated branches, with the trunks first and each parent before its children.
+    /// Most trees have one trunk; see [`BranchOptions::stems`](crate::BranchOptions::stems).
+    pub branches: Vec<SkeletonBranch>,
+    /// Generated leaves, in the order they were placed.
+    pub leaves: Vec<SkeletonLeaf>,
+    /// Fruit clusters ordered by their supporting branch. Empty when fruit
+    /// placement is disabled or no eligible positions receive a cluster.
+    pub fruit: Vec<SkeletonCluster>,
+    /// Flower clusters ordered by their supporting branch. Empty when flower
+    /// placement is disabled or no eligible positions receive a cluster.
+    pub flowers: Vec<SkeletonCluster>,
+}
+
+/// A branch represented by a sequence of circular cross-sections from base to tip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkeletonBranch {
+    /// Number of parent branches back to a trunk: 0 for a trunk, 1 for its children.
+    pub level: u32,
+    /// Attachment to the parent branch; `None` identifies a trunk.
+    pub parent: Option<Attachment>,
+    /// Cross-sections ordered from base to tip. Generated branches have at least two.
+    pub sections: Vec<Section>,
+    /// Intended number of sides around each cross-section when building a mesh.
+    pub segment_count: u32,
+    /// Branch thickness at its base, measured as a radius in tree units.
+    pub base_radius: f32,
+}
+
+/// A circular slice through a branch, describing its position, direction, and thickness.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Section {
+    /// Centre of the slice in tree coordinates, with the base of the tree at the origin.
+    pub origin: Vec3,
+    /// Rotation from local to tree coordinates. Local +Y points along branch growth.
+    pub orientation: Quat,
+    /// Radius in tree units. Generated tips at the deepest level have radius 0.001;
+    /// evergreen tips at other levels have radius 0.
+    pub radius: f32,
+}
+
+/// A leaf placement and size, ready for conversion into a drawable surface.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SkeletonLeaf {
+    /// Attachment identifying the supporting branch and position along it.
+    pub parent: Attachment,
+    /// Point where the leaf meets the branch, in tree coordinates.
+    pub origin: Vec3,
+    /// Rotation from local to tree coordinates. The leaf extends along local +Y
+    /// and faces local +Z.
+    pub orientation: Quat,
+    /// Leaf width and length in tree units, including the generated size variation.
+    pub size: f32,
+}
+
+/// A position along a parent branch where a child branch or leaf is attached.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Attachment {
+    /// Parent branch index in the owning [`Skeleton::branches`] list.
+    pub branch: usize,
+    /// Index into the parent branch's sections. The final index identifies its tip.
+    pub section: usize,
+    /// Fraction from `section` to the next section: 0 is the start, 1 is the end.
+    /// A tip continuation uses the final section with `t = 0`.
+    pub t: f32,
+}
+
+impl Skeleton {
+    /// Generates branches and placements for leaves, fruit, and flowers.
+    /// The same settings and seed produce the same skeleton. Changing fruit
+    /// settings does not move flowers, branches, or leaves; changing flower
+    /// settings does not move fruit, branches, or leaves.
+    ///
+    /// Fruit and flower appearance and maturity do not affect this skeleton.
+    /// Settings are checked with [`TreeOptions::validate`] first. That check
+    /// does not cover branch or leaf dimensions, so invalid dimensions can
+    /// still produce non-finite coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`OptionsError`] found by validation: unsupported branch
+    /// depth, a zero section count at a configured level, an invalid stem setting,
+    /// or an invalid fruit or flower setting, even if fruit or flowers are disabled.
+    pub fn generate(options: &TreeOptions) -> Result<Self, OptionsError> {
+        options.validate()?;
+
+        let branch = &options.branch;
+        let mut grower = Grower {
+            options,
+            rng: Rng::new(options.seed),
+            queue: VecDeque::new(),
+            skeleton: Skeleton::default(),
+        };
+
+        // Process the trunks, then their children, then their children. Preserve this
+        // ez-tree order so each branch receives the same random draws.
+        for (origin, orientation) in stem_placements(options) {
+            grower.queue.push_back(Bud {
+                origin,
+                orientation,
+                length: branch.length[0],
+                radius: branch.radius[0],
+                level: 0,
+                section_count: branch.sections[0],
+                segment_count: branch.segments[0],
+                parent: None,
+            });
+        }
+        while let Some(bud) = grower.queue.pop_front() {
+            grower.grow_branch(bud);
+        }
+
+        // Use separate random sequences for fruit and flowers so changes to one
+        // do not alter the other or the already generated branches and leaves.
+        let mut skeleton = grower.skeleton;
+        let (fruit, flowers) = (&options.fruit, &options.flowers);
+        skeleton.fruit = grow_clusters(
+            &skeleton.branches,
+            options,
+            &fruit.placement,
+            &fruit.cluster,
+            Rng::new(options.seed ^ FRUIT_SALT),
+        );
+        skeleton.flowers = grow_clusters(
+            &skeleton.branches,
+            options,
+            &flowers.placement,
+            &flowers.cluster,
+            Rng::new(options.seed ^ FLOWER_SALT),
+        );
+        Ok(skeleton)
+    }
+}
+
+/// Starting position, dimensions, and settings for a branch that has not grown yet.
+struct Bud {
+    origin: Vec3,
+    orientation: Quat,
+    length: f32,
+    radius: f32,
+    level: usize,
+    section_count: u32,
+    segment_count: u32,
+    parent: Option<Attachment>,
+}
+
+/// An attachment position with the local radius and orientation used for new growth.
+pub(crate) struct Placement {
+    pub(crate) attachment: Attachment,
+    pub(crate) origin: Vec3,
+    pub(crate) orientation: Quat,
+    pub(crate) radius: f32,
+}
+
+/// Options, random sequence, pending branches, and results for one generation run.
+struct Grower<'a> {
+    options: &'a TreeOptions,
+    rng: Rng,
+    queue: VecDeque<Bud>,
+    skeleton: Skeleton,
+}
+
+impl Grower<'_> {
+    /// Builds and stores one branch, queues its children, and places any leaves.
+    fn grow_branch(&mut self, bud: Bud) {
+        let options = self.options;
+        let levels = options.branch.levels as usize;
+        let level = bud.level;
+        let section_count = bud.section_count as usize;
+        let index = self.skeleton.branches.len();
+
+        // TODO: ez-tree intends to divide deciduous section length by `levels - 1`,
+        // but checks 'Deciduous' (capital D), which never matches the tree type.
+        // Keep that behaviour for compatibility. Enabling the division requires
+        // handling `levels <= 1` (for example with `max(1, levels - 1)`) and
+        // retuning the deciduous presets, which would otherwise grow much shorter.
+        let section_length = bud.length / bud.section_count as f32;
+
+        // Store each slice before advancing and bending toward the following slice.
+        let mut origin = bud.origin;
+        let mut orientation = bud.orientation;
+        let mut sections = Vec::with_capacity(section_count + 1);
+        for i in 0..=section_count {
+            let radius = self.section_radius(&bud, i);
+            sections.push(Section {
+                origin,
+                orientation,
+                radius,
+            });
+
+            // Draw random bends even at the tip to keep later draws aligned with ez-tree.
+            // Tip draws are discarded; a zero tip radius can make them non-finite.
+            let gnarliness = (1.0 / radius.sqrt()).max(1.0) * options.branch.gnarliness[level];
+            let bend_x = self.rng.range(-gnarliness, gnarliness);
+            let bend_z = self.rng.range(-gnarliness, gnarliness);
+            if i == section_count {
+                break;
+            }
+
+            origin += orientation * Vec3::new(0.0, section_length, 0.0);
+            let turned = self.next_orientation(orientation, bend_x, bend_z, level, origin, radius);
+
+            // Keep the next slice from tilting back across this one.
+            let widest = radius.max(self.section_radius(&bud, i + 1));
+            orientation = limit_turn(orientation, turned, section_length, widest);
+        }
+
+        // A deciduous tip carries a continuation branch at the next level, or one
+        // terminal leaf when no deeper level remains. A tip tapered to a point
+        // ends the branch, as evergreen tips do.
+        let tip = *sections.last().expect("a branch has at least two sections");
+        let tip_attachment = Attachment {
+            branch: index,
+            section: section_count,
+            t: 0.0,
+        };
+        if options.tree_type == TreeType::Deciduous {
+            if level < levels && tip.radius > 0.0 {
+                self.queue.push_back(Bud {
+                    origin: tip.origin,
+                    orientation: tip.orientation,
+                    length: options.branch.length[level + 1],
+                    radius: tip.radius,
+                    level: level + 1,
+                    // Inherit the parent's division and side counts, matching ez-tree.
+                    section_count: bud.section_count,
+                    segment_count: bud.segment_count,
+                    parent: Some(tip_attachment),
+                });
+            } else if level == levels {
+                self.record_leaf(tip_attachment, tip.origin, tip.orientation);
+            }
+        }
+
+        // Place side leaves on the deepest level and side branches on earlier levels.
+        if level == levels {
+            self.generate_leaves(&sections, index);
+        } else {
+            let count = options.branch.children[level];
+            self.generate_child_branches(count, level + 1, &sections, index);
+        }
+
+        // Queuing children has not changed the branch list, so `index` is still valid.
+        self.skeleton.branches.push(SkeletonBranch {
+            level: level as u32,
+            parent: bud.parent,
+            sections,
+            segment_count: bud.segment_count,
+            base_radius: bud.radius,
+        });
+    }
+
+    /// Computes thickness at section `i`, from 0 through the bud's section count.
+    fn section_radius(&self, bud: &Bud, i: usize) -> f32 {
+        let options = self.options;
+        let section_count = bud.section_count as usize;
+        let along = i as f32 / bud.section_count as f32;
+
+        if i == section_count && bud.level == options.branch.levels as usize {
+            // ez-tree uses a small nonzero tip radius at the deepest level for both types.
+            0.001
+        } else {
+            match options.tree_type {
+                TreeType::Deciduous => bud.radius * (1.0 - options.branch.taper[bud.level] * along),
+                // Other evergreen tips taper to zero and have no continuation branch.
+                TreeType::Evergreen => bud.radius * (1.0 - along),
+            }
+        }
+    }
+
+    /// Applies random bends, twist, growth force, and trellis pull to a section.
+    /// Uses the current `radius` for bending strength and `next_origin` for trellis distance.
+    fn next_orientation(
+        &self,
+        orientation: Quat,
+        bend_x: f32,
+        bend_z: f32,
+        level: usize,
+        next_origin: Vec3,
+        radius: f32,
+    ) -> Quat {
+        let branch = &self.options.branch;
+
+        // Match ez-tree by adding random bends to the three.js XYZ Euler angles.
+        let euler = euler_xyz(orientation);
+        let mut q = Quat::from_euler(EulerRot::XYZ, euler.x + bend_x, euler.y, euler.z + bend_z);
+
+        // Apply twist around local +Y, the branch's growth axis.
+        q *= Quat::from_rotation_y(branch.twist[level]);
+
+        // Positive force turns toward the target; negative force turns away.
+        // Thin sections bend more.
+        let target = branch.force.direction.normalize_or_zero();
+        q = turn_growth(q, target, branch.force.strength / radius);
+
+        // Level the branch off toward the horizontal direction it already leans in.
+        // Branches pointing straight up or down have no such direction and stay put.
+        let flatten = branch.flatten[level];
+        if flatten > 0.0 {
+            let growth = q * Vec3::Y;
+            let level_target = Vec3::new(growth.x, 0.0, growth.z).normalize_or_zero();
+            q = turn_growth(q, level_target, flatten);
+        }
+
+        // Apply the trellis influence only when enabled and within reach.
+        let trellis = &self.options.trellis;
+        if trellis.enabled
+            && let Some(pull) = trellis.pull(next_origin, radius)
+        {
+            q = rotate_towards(q, rotation_from_y(pull.direction), pull.strength);
+        }
+
+        q
+    }
+
+    /// Queues `count` children at `level` along the supplied parent branch sections.
+    /// `parent` is the branch index used in each child's attachment.
+    fn generate_child_branches(
+        &mut self,
+        count: u32,
+        level: usize,
+        sections: &[Section],
+        parent: usize,
+    ) {
+        let branch = &self.options.branch;
+
+        // Divide the length and circumference into slots for the children. Draw the
+        // angular offset even when count is zero to preserve ez-tree's random sequence.
+        let radial_offset = self.rng.next_f32();
+        let start_min = branch.start[level];
+        let height_step = (1.0 - start_min) / count as f32;
+        let angle_slots = shuffled_indices(&mut self.rng, count);
+
+        for (i, slot) in angle_slots.into_iter().enumerate() {
+            // Randomly position the child within its lengthwise slot.
+            let start = start_min + (i as f32 + self.rng.next_f32()) * height_step;
+            let placement = place(sections, start, parent);
+
+            // Randomly vary the angle within the child's assigned slot around the branch.
+            let radial_jitter = self.rng.range(-0.5, 0.5);
+            let radial_angle = TAU * (radial_offset + (slot as f32 + radial_jitter) / count as f32);
+            let orientation = placement.orientation
+                * (Quat::from_rotation_y(radial_angle)
+                    * Quat::from_rotation_x(branch.angle[level].to_radians()));
+
+            // Scale evergreen child length by the distance remaining to the parent tip.
+            let length = match self.options.tree_type {
+                TreeType::Deciduous => branch.length[level],
+                TreeType::Evergreen => branch.length[level] * (1.0 - start),
+            };
+
+            self.queue.push_back(Bud {
+                origin: placement.origin,
+                orientation,
+                length,
+                radius: branch.radius[level] * placement.radius,
+                level,
+                section_count: branch.sections[level],
+                segment_count: branch.segments[level],
+                parent: Some(placement.attachment),
+            });
+        }
+    }
+
+    /// Places side leaves along `sections`, attaching each to branch index `parent`.
+    fn generate_leaves(&mut self, sections: &[Section], parent: usize) {
+        let leaves = &self.options.leaves;
+
+        // Use the same lengthwise and angular slots as side branches. Keep the offset
+        // draw even for zero leaves so subsequent random draws match ez-tree.
+        let radial_offset = self.rng.next_f32();
+        let count = leaves.count;
+        let start_min = leaves.start;
+        let height_step = (1.0 - start_min) / count as f32;
+        let angle_slots = shuffled_indices(&mut self.rng, count);
+
+        for (i, slot) in angle_slots.into_iter().enumerate() {
+            let start = start_min + (i as f32 + self.rng.next_f32()) * height_step;
+            let placement = place(sections, start, parent);
+
+            let radial_jitter = self.rng.range(-0.5, 0.5);
+            let radial_angle = TAU * (radial_offset + (slot as f32 + radial_jitter) / count as f32);
+            let orientation = placement.orientation
+                * (Quat::from_rotation_y(radial_angle)
+                    * Quat::from_rotation_x(leaves.angle.to_radians()));
+
+            self.record_leaf(placement.attachment, placement.origin, orientation);
+        }
+    }
+
+    /// Stores a leaf at the supplied attachment, position, and rotation with a random size.
+    /// With a leaf count of zero (only tip leaves reach here), nothing is stored,
+    /// but the size is still drawn so later branches keep their random sequence.
+    fn record_leaf(&mut self, parent: Attachment, origin: Vec3, orientation: Quat) {
+        let leaves = &self.options.leaves;
+        let variance = leaves.size_variance;
+        let size = leaves.size * (1.0 + self.rng.range(-variance, variance));
+        if leaves.count == 0 {
+            return;
+        }
+        let orientation = flatten_leaf(orientation, leaves.flatten);
+        self.skeleton.leaves.push(SkeletonLeaf {
+            parent,
+            origin,
+            orientation,
+            size,
+        });
+    }
+}
+
+/// Returns the base position and orientation of each trunk.
+///
+/// A single stem stands upright at the origin. Several stems take evenly spaced
+/// directions around the base with random jitter, each tilted by a random angle
+/// up to `stem_angle`. A stem starts further out the more it tilts, up to the
+/// trunk radius from the origin, so stems spread from a small crown.
+fn stem_placements(options: &TreeOptions) -> Vec<(Vec3, Quat)> {
+    let branch = &options.branch;
+    if branch.stems <= 1 {
+        return vec![(Vec3::ZERO, Quat::IDENTITY)];
+    }
+
+    let mut rng = Rng::new(options.seed ^ STEM_SALT);
+    let count = branch.stems;
+    let radial_offset = rng.next_f32();
+    let max_tilt = branch.stem_angle.to_radians();
+    shuffled_indices(&mut rng, count)
+        .into_iter()
+        .map(|slot| {
+            // Spread directions evenly, then tilt; the square root favours larger
+            // tilts so stems fill the cone rather than crowding the centre.
+            let jitter = rng.range(-0.5, 0.5);
+            let azimuth = TAU * (radial_offset + (slot as f32 + jitter) / count as f32);
+            let spread = rng.next_f32().sqrt();
+            let heading = Quat::from_rotation_y(azimuth);
+            let orientation = heading * Quat::from_rotation_x(max_tilt * spread);
+            let origin = heading * Vec3::Z * (branch.radius[0] * spread);
+            (origin, orientation)
+        })
+        .collect()
+}
+
+/// Returns each index in `0..count` once, in a random order determined by `rng`.
+pub(crate) fn shuffled_indices(rng: &mut Rng, count: u32) -> Vec<u32> {
+    let mut indices: Vec<u32> = (0..count).collect();
+    for k in (1..count as usize).rev() {
+        // Preserve f64 precision so rounding cannot select index `k + 1`.
+        let r = (rng.next_f64() * (k + 1) as f64) as usize;
+        indices.swap(k, r);
+    }
+    indices
+}
+
+/// Finds a placement along a branch with at least two sections.
+/// `t` runs from 0 at the base to 1 at the tip; `branch` identifies the parent.
+/// Negative `t` extrapolates from the first pair; values above 1 use the final section.
+pub(crate) fn place(sections: &[Section], t: f32, branch: usize) -> Placement {
+    // Map the length fraction to a section index and a fraction within that interval.
+    let last = sections.len() - 1;
+    let scaled = t * last as f32;
+    let index = (scaled.floor().max(0.0) as usize).min(last);
+    let a = &sections[index];
+    let b = sections.get(index + 1).unwrap_or(a);
+    let alpha = scaled - index as f32;
+
+    // Position and radius interpolate from `a` to `b`. Preserve ez-tree's reversed
+    // orientation interpolation: slerp from `b` toward `a` at the same fraction.
+    // At alpha = 0 the position is at `a`, but the orientation is that of `b`.
+    Placement {
+        attachment: Attachment {
+            branch,
+            section: index,
+            t: alpha,
+        },
+        origin: a.origin.lerp(b.origin, alpha),
+        orientation: b.orientation.slerp(a.orientation, alpha),
+        radius: (1.0 - alpha) * a.radius + alpha * b.radius,
+    }
+}
+
+/// Turns a leaf `orientation` (tip along local +Y, face along local +Z) the
+/// fraction `amount` (0–1) of the way toward lying level with its face up.
+/// The level leaf points in the horizontal direction its tip already leans; an
+/// upright leaf has no such direction and tips over backwards instead.
+fn flatten_leaf(orientation: Quat, amount: f32) -> Quat {
+    if amount <= 0.0 {
+        return orientation;
+    }
+
+    // Pick the level tip direction. Tip and face are perpendicular, so at
+    // most one of them can be vertical and the fallback is never zero.
+    let level = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+    let tip = orientation * Vec3::Y;
+    let forward = level(tip)
+        .try_normalize()
+        .unwrap_or_else(|| -level(orientation * Vec3::Z).normalize());
+
+    // Build the level, face-up frame and turn part of the way toward it.
+    let flat = Quat::from_mat3(&Mat3::from_cols(forward.cross(Vec3::Y), forward, Vec3::Y));
+    orientation.slerp(flat, amount.min(1.0))
+}
+
+/// Largest growth-direction turn between neighbouring slices, as a fraction of
+/// the turn at which a slice's edge would reach back to the previous slice.
+const MAX_TURN_FRACTION: f32 = 0.8;
+
+/// Returns `to`, swung back toward `from` if needed so the branch's growth
+/// direction turns by no more than a tube of `radius` can take across a slice
+/// of `length` without folding over itself. Twist around the growth direction
+/// is kept. A zero `radius` allows turns of up to 90 degrees, scaled by
+/// [`MAX_TURN_FRACTION`].
+fn limit_turn(from: Quat, to: Quat, length: f32, radius: f32) -> Quat {
+    // A slice tilted by `angle` moves its inner edge back by `radius * sin(angle)`.
+    let limit = (length / radius).min(1.0).asin() * MAX_TURN_FRACTION;
+    let (a, b) = (from * Vec3::Y, to * Vec3::Y);
+    let angle = a.angle_between(b);
+    if !(angle > limit) {
+        return to;
+    }
+
+    // Swing back about the axis perpendicular to both directions.
+    match b.cross(a).try_normalize() {
+        Some(axis) => (Quat::from_axis_angle(axis, angle - limit) * to).normalize(),
+        // Opposite directions: any perpendicular axis works.
+        None => (Quat::from_axis_angle(from * Vec3::X, angle - limit) * to).normalize(),
+    }
+}
+
+/// Turns the growth axis (local +Y) of `orientation` toward the unit vector
+/// `target` by `step` radians, stopping at `target` rather than passing it.
+/// Negative steps turn away from `target`. Returns `orientation` unchanged when
+/// `target` is zero or parallel to the growth axis.
+fn turn_growth(orientation: Quat, target: Vec3, step: f32) -> Quat {
+    let up = orientation * Vec3::Y;
+    let axis = up.cross(target);
+    let sin_full = axis.length();
+    if sin_full <= 1e-6 {
+        return orientation;
+    }
+    let full_angle = sin_full.atan2(up.dot(target));
+    let angle = step.clamp(-full_angle, full_angle);
+    Quat::from_axis_angle(axis / sin_full, angle) * orientation
+}
+
+/// Converts a unit quaternion to XYZ Euler angles in radians using three.js conventions.
+fn euler_xyz(q: Quat) -> Vec3 {
+    // three.js uses q = Rx * Ry * Rz. Here `mRC` names matrix row R, column C,
+    // counting from 1; keep its angle selection and gimbal-lock threshold.
+    let m = Mat3::from_quat(q);
+    let (m11, m12, m13) = (m.x_axis.x, m.y_axis.x, m.z_axis.x);
+    let (m22, m23) = (m.y_axis.y, m.z_axis.y);
+    let (m32, m33) = (m.y_axis.z, m.z_axis.z);
+
+    let y = m13.clamp(-1.0, 1.0).asin();
+    if m13.abs() < 0.999_999_9 {
+        Vec3::new((-m23).atan2(m33), y, (-m12).atan2(m11))
+    } else {
+        // Near gimbal lock, X and Z cannot be distinguished. Match three.js by
+        // setting Z to zero and assigning the remaining rotation to X.
+        Vec3::new(m32.atan2(m22), y, 0.0)
+    }
+}
+
+/// Returns a rotation aligning +Y with `to`, which must be a unit vector.
+fn rotation_from_y(to: Vec3) -> Quat {
+    let w = to.y + 1.0;
+    // For the opposite direction, choose a half turn around +Z, as three.js does.
+    if w < f32::EPSILON {
+        Quat::from_xyzw(0.0, 0.0, 1.0, 0.0)
+    } else {
+        // Build the shortest rotation from the cross product and dot product with +Y.
+        Quat::from_xyzw(to.z, 0.0, -to.x, w).normalize()
+    }
+}
+
+/// Moves between unit rotations by `step` radians, stopping at `to` for positive steps.
+/// Negative steps rotate away; identical rotations remain unchanged.
+fn rotate_towards(from: Quat, to: Quat, step: f32) -> Quat {
+    let angle = 2.0 * from.dot(to).clamp(-1.0, 1.0).abs().acos();
+    if angle == 0.0 {
+        return from;
+    }
+    from.slerp(to, (step / angle).min(1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn angles() -> impl Iterator<Item = Vec3> {
+        let values = [-3.0_f32, -1.5, -0.7, 0.0, 0.3, 1.2, 2.9];
+        values.into_iter().flat_map(move |x| {
+            values
+                .into_iter()
+                .flat_map(move |y| values.into_iter().map(move |z| Vec3::new(x, y * 0.5, z)))
+        })
+    }
+
+    /// Measures the smallest angle between unit rotations, in radians.
+    fn rotation_angle(a: Quat, b: Quat) -> f32 {
+        // Use the relative rotation's vector part to retain precision for small angles.
+        2.0 * (a.conjugate() * b).xyz().length().min(1.0).asin()
+    }
+
+    #[test]
+    fn glam_euler_xyz_matches_three_convention() {
+        // Verify the multiplication order used by three.js for XYZ Euler rotations.
+        for e in angles() {
+            let glam = Quat::from_euler(EulerRot::XYZ, e.x, e.y, e.z);
+            let three = Quat::from_rotation_x(e.x)
+                * Quat::from_rotation_y(e.y)
+                * Quat::from_rotation_z(e.z);
+            assert!(rotation_angle(glam, three) < 1e-5, "{e}");
+        }
+    }
+
+    #[test]
+    fn euler_xyz_round_trips() {
+        for e in angles() {
+            let q = Quat::from_euler(EulerRot::XYZ, e.x, e.y, e.z);
+            let back = euler_xyz(q);
+            let q2 = Quat::from_euler(EulerRot::XYZ, back.x, back.y, back.z);
+            assert!(rotation_angle(q, q2) < 1e-5, "{e} -> {back}");
+            // These inputs avoid gimbal lock, so the original angles should also be recovered.
+            assert!((back - e).abs().max_element() < 1e-4, "{e} -> {back}");
+        }
+    }
+
+    #[test]
+    fn euler_xyz_at_gimbal_lock_puts_rotation_in_x() {
+        let q = Quat::from_rotation_x(0.4) * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let e = euler_xyz(q);
+        assert_eq!(e.z, 0.0);
+        assert!((e.x - 0.4).abs() < 1e-3, "{e}");
+    }
+
+    #[test]
+    fn rotation_from_y_maps_y_onto_target() {
+        for to in [
+            Vec3::X,
+            Vec3::Z,
+            Vec3::new(1.0, 2.0, -3.0).normalize(),
+            Vec3::NEG_Y,
+        ] {
+            let q = rotation_from_y(to);
+            assert!((q * Vec3::Y).abs_diff_eq(to, 1e-6), "{to}");
+        }
+        assert_eq!(rotation_from_y(Vec3::Y), Quat::IDENTITY);
+    }
+
+    #[test]
+    fn rotate_towards_steps_without_overshoot() {
+        let to = Quat::from_rotation_z(1.0);
+        let half = rotate_towards(Quat::IDENTITY, to, 0.25);
+        assert!(rotation_angle(half, Quat::from_rotation_z(0.25)) < 1e-5);
+        let full = rotate_towards(Quat::IDENTITY, to, 5.0);
+        assert!(rotation_angle(full, to) < 1e-5);
+        let away = rotate_towards(Quat::IDENTITY, to, -0.25);
+        assert!(rotation_angle(away, Quat::from_rotation_z(-0.25)) < 1e-5);
+    }
+
+    #[test]
+    fn shuffle_is_a_permutation() {
+        let mut rng = Rng::new(5);
+        for count in [0, 1, 2, 7, 30] {
+            let mut v = shuffled_indices(&mut rng, count);
+            v.sort_unstable();
+            assert_eq!(v, (0..count).collect::<Vec<_>>());
+        }
+    }
+}

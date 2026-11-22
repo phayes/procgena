@@ -1,0 +1,24 @@
+// FieldPreset::FOREST_MOSS, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.field.ron")`. Every setting is
+// optional: a missing one comes from `base`, a preset's key.
+(
+    name: "Forest moss",
+    description: "A dense carpet of very short, wide moss, in dark patches.",
+    wind_scale: 1.0,
+    density_scale: 1.1,
+    ground_color: (0.12, 0.09, 0.05),
+    ground_tint: 0.35,
+    toon_bands: 0,
+    patch_color: (0.2, 0.34, 0.15),
+    patch_amount: 0.35,
+    patch_size: 3.0,
+    dry_tips: 0.05,
+    dead_share: 0.02,
+    bare_share: 0.05,
+    bare_patch_size: 1.2,
+    plants: [
+        (
+            plant: "MOSS",
+        ),
+    ],
+)

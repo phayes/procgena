@@ -1,0 +1,49 @@
+[package]
+name = "procgena_stone"
+version = "0.1.0"
+description = "Procedural rock generator, a Rust port of Unity-Procedural-Rock-Generation"
+edition.workspace = true
+
+[features]
+default = ["rayon"]
+# Use multiple CPU threads for field sampling and vertex generation.
+# Disabling this feature keeps the same mesh output and uses the calling thread.
+rayon = ["dep:rayon"]
+# Create OBJ geometry and MTL material file contents for use in 3D tools.
+export-obj = []
+# Create glTF (.gltf + .bin) or GLB (.glb) contents, with optional textures and detail levels.
+export-gltf = ["dep:gltf-json"]
+# Generate rock meshes on the GPU with wgpu. Compiles the WESL shaders to WGSL
+# at build time. Enables no wgpu backends; the application that creates the
+# device chooses them.
+gpu = ["dep:wesl", "dep:wgpu"]
+
+[dependencies]
+glam = { workspace = true }
+gltf-json = { version = "1.4.1", optional = true, features = ["names", "extras"] }
+rayon = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wgpu = { workspace = true, optional = true, features = ["std", "wgsl"] }
+
+[build-dependencies]
+wesl = { version = "0.6", optional = true }
+
+[dev-dependencies]
+futures-lite = "2.6.1"
+# Default backends, so GPU tests and examples can create a device.
+wgpu = { workspace = true, default-features = true }
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names", "extras"] }
+naga = { version = "30", features = ["wgsl-in"] }
+wesl = { version = "0.6", features = ["eval"] }
+
+[[example]]
+name = "bench_gpu"
+required-features = ["gpu"]
+
+[[example]]
+name = "export"
+required-features = ["export-obj", "export-gltf"]
+
+[package.metadata.docs.rs]
+all-features = true

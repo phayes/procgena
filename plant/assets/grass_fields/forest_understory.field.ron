@@ -1,0 +1,65 @@
+// FieldPreset::FOREST_UNDERSTORY, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.field.ron")`. Every setting is
+// optional: a missing one comes from `base`, a preset's key.
+(
+    name: "Forest understory",
+    description: "Mixed forest shrubs and ferns above moss and fallen leaves.\n\nCombines all understory plants in clumps, with leaf litter between them.",
+    wind_scale: 1.0,
+    density_scale: 1.0,
+    ground_color: (0.12, 0.09, 0.05),
+    ground_tint: 0.4,
+    toon_bands: 0,
+    patch_color: (0.2, 0.34, 0.15),
+    patch_amount: 0.35,
+    patch_size: 3.0,
+    dry_tips: 0.05,
+    dead_share: 0.02,
+    bare_share: 0.12,
+    bare_patch_size: 1.2,
+    plants: [
+        (
+            plant: "FERN",
+            density_scale: 0.3,
+            clustering: 0.6,
+        ),
+        (
+            plant: "SALAL",
+            density_scale: 0.4,
+            clustering: 0.6,
+        ),
+        (
+            plant: "OREGON_GRAPE",
+            density_scale: 0.25,
+            clustering: 0.6,
+        ),
+        (
+            plant: "HUCKLEBERRY",
+            density_scale: 0.5,
+            clustering: 0.6,
+        ),
+        (
+            plant: "SAPLING",
+            density_scale: 0.4,
+            clustering: 0.6,
+        ),
+        (
+            plant: "MATURE_BRACKEN",
+            density_scale: 0.1,
+            clustering: 0.6,
+        ),
+        (
+            plant: "NETTLE",
+            density_scale: 0.1,
+            clustering: 0.6,
+        ),
+        (
+            plant: "LEAF_LITTER",
+            density_scale: 0.25,
+            clustering: 0.35,
+        ),
+        (
+            plant: "MOSS",
+            density_scale: 0.55,
+        ),
+    ],
+)

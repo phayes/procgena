@@ -1,0 +1,2185 @@
+{
+  "version": 1,
+  "baseUrl": "https://storage.googleapis.com/ze_textures/stone/images/",
+  "pathPattern": "<category>/<id>-<size>-<map>.jpg",
+  "sizes": {
+    "512": "512 x 512 pixels",
+    "1k": "1024 x 1024 pixels",
+    "2k": "2048 x 2048 pixels"
+  },
+  "maps": {
+    "color": "surface colour, sRGB",
+    "normal": "surface bumps, OpenGL (+Y); load as linear data",
+    "orm": "R occlusion (shades hollows), G roughness (light is matte), B metalness (light is metal, zero for rock); linear data"
+  },
+  "assets": [
+    {
+      "id": "rock_face_03",
+      "category": "rock",
+      "title": "Rock Face 03",
+      "authors": [
+        "Dario Barresi",
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_face_03",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_face_03-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 94776,
+          "sha256": "4126db0ee3ad5a59d46b32663ca5d39da1fef280fe4a8b66e4e97d904cee5c17"
+        },
+        {
+          "path": "rock/rock_face_03-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 277989,
+          "sha256": "9aa398ce26d4ba1c497c92ca770fae4496e650b9fdc676196f95b7f6178da3cc"
+        },
+        {
+          "path": "rock/rock_face_03-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 159371,
+          "sha256": "4c1febb77259c6375c7dec81bc920a1f3739986c29e32b4301bcc66c57ee703f"
+        },
+        {
+          "path": "rock/rock_face_03-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 386360,
+          "sha256": "e800bcf6e9895632b2153409d45215fc537bc7d0999eef71bce1b0517d42adce"
+        },
+        {
+          "path": "rock/rock_face_03-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1002888,
+          "sha256": "fbcd10b1c45235c76d303ee1c6717700cf89d00864cdbfd55fc5df51f26b0d3c"
+        },
+        {
+          "path": "rock/rock_face_03-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 642077,
+          "sha256": "d329bb4d2458475114a3044b16e9f607f70f2debc4dff2499787336cece4fbce"
+        },
+        {
+          "path": "rock/rock_face_03-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1608589,
+          "sha256": "c7f9a907ffcf7a5942eca99751a8cdf6af2a618ede23185945d40dd1c61f7317"
+        },
+        {
+          "path": "rock/rock_face_03-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3161371,
+          "sha256": "61d6f35670e3b49b8e278fa8a9e9189e1c6bca8cd91deb0751302fc769d641ea"
+        },
+        {
+          "path": "rock/rock_face_03-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2562309,
+          "sha256": "e3cd24cb13d8e12ac92b6b81e074ff9580b51f77d65465b69b184b07e9e1ee17"
+        }
+      ]
+    },
+    {
+      "id": "rock_boulder_dry",
+      "category": "rock",
+      "title": "Rock Boulder Dry",
+      "authors": [
+        "Dimitrios Savva",
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_boulder_dry",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_boulder_dry-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 99736,
+          "sha256": "aa6abbea1bbd809cf3168e86d0044983b1ad92ff160c49fec68471500fd04f14"
+        },
+        {
+          "path": "rock/rock_boulder_dry-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 151549,
+          "sha256": "701552bcc96703ca9567ab76a1f703a2e88ab14d4e4b2c80277da7b3f2b86c23"
+        },
+        {
+          "path": "rock/rock_boulder_dry-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 154936,
+          "sha256": "50e830b95c767878d7dc47fa1a8a5a18cbbe373b3e7ed1befae94517202ca461"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 379231,
+          "sha256": "b58b2a049a1aeec8f318a3c865ef2a6f7b30a6237f8450db5469b8c8a91fbb38"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 556024,
+          "sha256": "a8e5d4ddeea00c8d7282b6b1753a96a2989ea5e4c3d8484cb0eeccba0bb5d908"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 584617,
+          "sha256": "60972c59ead3f4dc45bd2e182b9a4e8fd070590f7abe15ad22de3b0f069cdda7"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1574125,
+          "sha256": "4c0de00a52b5423213b70562b76ca475ea0e6fad22c1580e3322d10458288223"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2105910,
+          "sha256": "967f9456ee41c470917ef224c982db6cedbdb05c40f9a20655620e04c2675f3f"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2408775,
+          "sha256": "398df7c9c047b67c341d4dbf686d93b9c8a3c886ae32897ddec0d38c2971e025"
+        }
+      ]
+    },
+    {
+      "id": "rock_01",
+      "category": "rock",
+      "title": "Rock 01",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_01",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_01-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 118101,
+          "sha256": "f4e37e3335565d960bf798c831f5aad3e4ca4199a2c9c0eeb0af052f9a1483f6"
+        },
+        {
+          "path": "rock/rock_01-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 175012,
+          "sha256": "8a8ee4589e20b15129fcf8b6309eeb641c4f4f47cec2be70ee7463dab231f0e4"
+        },
+        {
+          "path": "rock/rock_01-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 184832,
+          "sha256": "bd1ea06bcfa446c7aa2f47532c0a6aba013864c3d92a41f433996d091094c455"
+        },
+        {
+          "path": "rock/rock_01-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 553107,
+          "sha256": "0f5c769309e0c7d9284485f1249ac4b6ca77a711e331b47a54fbc0912c544640"
+        },
+        {
+          "path": "rock/rock_01-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 809040,
+          "sha256": "d9f9d5160f5efb2c4c704a122342a198f0e32af4779c711b6bc173f5de645911"
+        },
+        {
+          "path": "rock/rock_01-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 801230,
+          "sha256": "d04bf2ddad160f6bfaf5c5c70d74757ba92178133a51e5d4c36423c39c9ae814"
+        },
+        {
+          "path": "rock/rock_01-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2580298,
+          "sha256": "151d1713ee4d9e5dbd341629037be80f2b3c5e8dfdc180141e2a6496aee612ae"
+        },
+        {
+          "path": "rock/rock_01-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2989636,
+          "sha256": "45f8b65b8268464b36d8a435ab4eee0fb8f7a258c94200f30fc6d59b8777ab86"
+        },
+        {
+          "path": "rock/rock_01-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3202165,
+          "sha256": "1f9eb53bbbf383a3aeb2c2ac1932c61f0f02a06d127494610afa01c6c5ea3941"
+        }
+      ]
+    },
+    {
+      "id": "lichen_rock_02",
+      "category": "rock",
+      "title": "Mossy Rock",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/mossy_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/lichen_rock_02-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 132449,
+          "sha256": "184d8c999b81d179f6a4f96cc3c2597648120c44e69c8a65bdb05832ed252324"
+        },
+        {
+          "path": "rock/lichen_rock_02-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 220777,
+          "sha256": "bb41dfad2e9833268749493e2442045d39254d81be1778abbf72611288012c14"
+        },
+        {
+          "path": "rock/lichen_rock_02-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 195291,
+          "sha256": "9611f9d841fce4b2fd915726517e78a22438ad861fb03301b130f46dd7ef97cc"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 520346,
+          "sha256": "b2f3bc81cea12bf3acce5a3a50dd1a5fd6f4ace66206aeb45255cb278dedc8e3"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 805332,
+          "sha256": "1ad48695ab1f9453d283815784f8ba2b128622b139d649562eda20b275bbc359"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 780709,
+          "sha256": "90c5746e174f0b7bf0328ce3906bf8ea6a996699338c94fc8e49c0d14b6db4de"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2108085,
+          "sha256": "a6817e5d9fb435a9045e997b4f60a183cd2c4789108af1ded643acc16992bf0f"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2764953,
+          "sha256": "e36064988391ea05e667269d999f286f24f511f3783c1488970af8e066992f57"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3375278,
+          "sha256": "3f575f5e6556df064361c8995d2e0f8fa8f940856d30584bcfd183c371bf64bf"
+        }
+      ]
+    },
+    {
+      "id": "rock_05",
+      "category": "rock",
+      "title": "Rock 05",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_05",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_05-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 161134,
+          "sha256": "a732e68fff8b574abf2435d4ceadd74074e915e4adc855d3e54fbddc859d1dbc"
+        },
+        {
+          "path": "rock/rock_05-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 217356,
+          "sha256": "b1d9da9e496ac5adcd15ae841931e57746571db014c97bcb0d5eef87140c0f09"
+        },
+        {
+          "path": "rock/rock_05-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 152894,
+          "sha256": "41586ead35ca20f1e8afb3ce846527eba163d8e8782eeb02d40320e2aa916ee5"
+        },
+        {
+          "path": "rock/rock_05-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 647091,
+          "sha256": "2c73df5f4d2e91ed73d89c8aa3fc9612fb30098adbc86fbea1fc7f09904a38f8"
+        },
+        {
+          "path": "rock/rock_05-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 842553,
+          "sha256": "47b1b783d598b2dae157bbf3b9691077d833f70c445c8274c06e6c132ffd76df"
+        },
+        {
+          "path": "rock/rock_05-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 583227,
+          "sha256": "5f702971ff929ba07962f0dfcaa307cba33333ee77c52a4f600f910862b4c587"
+        },
+        {
+          "path": "rock/rock_05-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2711454,
+          "sha256": "b9807d562b84a7d813e02720018edc9106177cf90132a14b2398f3165dc1adf4"
+        },
+        {
+          "path": "rock/rock_05-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2980556,
+          "sha256": "8224a8c1b562f8a1ba376c095531e0341e8ca34263ae92c841cf074d3b88ee4e"
+        },
+        {
+          "path": "rock/rock_05-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2177495,
+          "sha256": "a5120d3443d1a82d391aea16b0c655ce13406a7649819802c6d4ab68a37e11d0"
+        }
+      ]
+    },
+    {
+      "id": "rock_08",
+      "category": "rock",
+      "title": "Rock 08",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_08",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_08-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 124512,
+          "sha256": "6a0db8936b2fafef0479e99a59b5b6c3c7e71f0fc1c14801722d8aea55255c51"
+        },
+        {
+          "path": "rock/rock_08-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 227253,
+          "sha256": "c9f387700dddbec1659ff9bbc409b2c10784e2ec3555e45ed4fd9c1c5d13f6be"
+        },
+        {
+          "path": "rock/rock_08-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 163827,
+          "sha256": "e7af67eb10d418926a9be2ecbf2f097903f1a6b12324a9ab237f0312f26f8f0b"
+        },
+        {
+          "path": "rock/rock_08-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 516949,
+          "sha256": "da2b3488647111867413167813f1196d0fb9e3b35c52a0fa6b872fdee735ecc0"
+        },
+        {
+          "path": "rock/rock_08-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 960038,
+          "sha256": "2202e564d094f7a3714fe3b8bf37b9a01d3ddfc586b6dc7f9908c18e6bd6542f"
+        },
+        {
+          "path": "rock/rock_08-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 636878,
+          "sha256": "6ca360aa37041c65b5b1a193642e3e83e53937b7a7505c326bc039685f3417ba"
+        },
+        {
+          "path": "rock/rock_08-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2256273,
+          "sha256": "95a773858576463d346841f77d717157effcdc560c1a2b7b518830b12615095b"
+        },
+        {
+          "path": "rock/rock_08-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3407584,
+          "sha256": "90b961ed37fd120a0d6301eeb4fb1e2222613e7fb81c4c1a1d4e1aa478487305"
+        },
+        {
+          "path": "rock/rock_08-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2365610,
+          "sha256": "1b92cd35fd4b76b7363d895d1e476d8b21fad584c53b940d633b1cb50b558d76"
+        }
+      ]
+    },
+    {
+      "id": "rock_04",
+      "category": "rock",
+      "title": "Rock 04",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_04",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_04-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 164021,
+          "sha256": "4a21a152c613362735058ad812c9ab90158c5ce39392fccc00fe4a8492c12ffa"
+        },
+        {
+          "path": "rock/rock_04-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 278925,
+          "sha256": "37ff878fab5a8710bc26944d9f81708a98353512f164d0a66693f77caefe8d2b"
+        },
+        {
+          "path": "rock/rock_04-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 221275,
+          "sha256": "d7e3e8e6587c8fa0c6744a555e4fbcc53f72300ababe9ac978563f21fd55adb3"
+        },
+        {
+          "path": "rock/rock_04-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 649064,
+          "sha256": "1d7b307b69786013a29471e776f2ad6c79b66e2806f0b7dbef4b65eafd2c7893"
+        },
+        {
+          "path": "rock/rock_04-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1153725,
+          "sha256": "4b88c1e921fb4c4894c34b9b75e971501133ed1636935f38a08bb2f7267fc99a"
+        },
+        {
+          "path": "rock/rock_04-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 827243,
+          "sha256": "869831ca87728a927ae19216b84e2ffbea974bce38b0bcf91cb0f5108f000cf0"
+        },
+        {
+          "path": "rock/rock_04-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2581712,
+          "sha256": "b45ba5c2c8ff8c9bb6b5c6a77b69b4896d5357066c9f5079f65f9d97bd77a6ba"
+        },
+        {
+          "path": "rock/rock_04-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4026540,
+          "sha256": "c3d6301679e17ee39db7827712f2c8a5210b14984474b77c0733af075d57495a"
+        },
+        {
+          "path": "rock/rock_04-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2851432,
+          "sha256": "ea63af5c610a4dab1448c33d984358c9f139f3f2e149e3146e40dc9ed61dddd0"
+        }
+      ]
+    },
+    {
+      "id": "rock_06",
+      "category": "rock",
+      "title": "Rock 06",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_06",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_06-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 192688,
+          "sha256": "5aebafbf9d7f3d5b2441a221a58ed511380a1634bd37048219dd77d8ad8d1aea"
+        },
+        {
+          "path": "rock/rock_06-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 175188,
+          "sha256": "df7bc136f9732ed5fb75aec203ed62998964178c11250c20bf9dc1ff03814441"
+        },
+        {
+          "path": "rock/rock_06-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 102217,
+          "sha256": "ddf947cd2f9094017bceaf2c5e3baf5323c9e7a204a823674099ef1fa7061168"
+        },
+        {
+          "path": "rock/rock_06-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 712128,
+          "sha256": "dbed8e2e0388e0c99328738a27ee5ef220cff67748ea942ae9afe6bafa88c2d8"
+        },
+        {
+          "path": "rock/rock_06-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 716566,
+          "sha256": "7c51c90248290dad47f3a5565a0e3763c37b22d9758a56803d7359cffd804420"
+        },
+        {
+          "path": "rock/rock_06-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 360634,
+          "sha256": "1ca337a1e5b198a9e25743222063e3a4472635f5fbef7d79e7b60b1d23bba629"
+        },
+        {
+          "path": "rock/rock_06-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2844400,
+          "sha256": "d46aa651b90c0ab5f562b623a44e0eb28c4d75b091b3a9a5d1c0a466a6bae45d"
+        },
+        {
+          "path": "rock/rock_06-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2765765,
+          "sha256": "c0e263eda22af40797f1be1a3f62abafddfb8ac488bdcab446146a10c137a2bd"
+        },
+        {
+          "path": "rock/rock_06-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1376128,
+          "sha256": "36ec1057b7a882d64fbe069b31731b95cf45c8718a8720bae710e53bbaec5d5d"
+        }
+      ]
+    },
+    {
+      "id": "rock_pitted_mossy",
+      "category": "rock",
+      "title": "Rock Pitted Mossy",
+      "authors": [
+        "Dimitrios Savva",
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_pitted_mossy",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_pitted_mossy-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 122037,
+          "sha256": "f1a24b2b219bf5b68b579ba034630cd57babaa15af6c515e247817144930597b"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 292451,
+          "sha256": "f4d79489cc817dd103c3e65a11750f1a80900385bcf3cc2f59d96fa12afb0ef1"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 157369,
+          "sha256": "f1c12c7411afb927f9855e11f5bb6ba7cb416fb458599af5e8898059aeff1fa5"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 472906,
+          "sha256": "d457ac0c6de170e37e4aa916189cf386dd7d8fad00abc2c5d541991dd3995f54"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 970160,
+          "sha256": "df6cc8a58d42e5102e612cc57d00a1a840e23dbefea5f05c15334e733f5a098e"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 578131,
+          "sha256": "ace71b7fcc2429872e9098ebf38d856888121f6c3f34302d899d52ed97fe9bc1"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1874361,
+          "sha256": "c0ed52a55ccdd9404c2f7d7ef2d5ea837aff6d372f8c79e7857fccea56190b87"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3194389,
+          "sha256": "098d7cb14e19352538f36120fea728abe4697db05bfed9cb0c6ee24b3199f713"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2208201,
+          "sha256": "039fa86c37d01d0dd43fb0068f81c347e8ced9c621823952cba69333ae47196f"
+        }
+      ]
+    },
+    {
+      "id": "lichen_rock",
+      "category": "rock",
+      "title": "Lichen Rock",
+      "authors": [
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/lichen_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/lichen_rock-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 140601,
+          "sha256": "3d2b7a4a6d909df0a0941710bfc98cfc136184a7d9cd3a4dd0f17f3b53d8a3d0"
+        },
+        {
+          "path": "rock/lichen_rock-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 311742,
+          "sha256": "e76b76ae1032c1c537d6bfb46978b2f9a7e8496e0cc7f34ea5683053ff28298c"
+        },
+        {
+          "path": "rock/lichen_rock-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 174556,
+          "sha256": "1807b9b0631739aedfb4f32574c253435476dbe5c17058f7672942649f774893"
+        },
+        {
+          "path": "rock/lichen_rock-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 525950,
+          "sha256": "7f2a974e26c9b5383214978c27228714046bd74fff0c3489703c84b90108cc3d"
+        },
+        {
+          "path": "rock/lichen_rock-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1146907,
+          "sha256": "d77e22f9886e64271e71062f2635e0b0e229f13f947d82078e0a34759e7fb069"
+        },
+        {
+          "path": "rock/lichen_rock-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 660888,
+          "sha256": "bd4227ed98e53241ef7aa3f90af7930432bd39c78b34d928b4f8604118d8ee16"
+        },
+        {
+          "path": "rock/lichen_rock-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1846357,
+          "sha256": "9f257ed7992587de6a1267aba2a34ebbd8a7e3a77349a6e7d16bd3f352e934b6"
+        },
+        {
+          "path": "rock/lichen_rock-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3499895,
+          "sha256": "35d8396f81372c6f8bd0cf463824af3bf0e0aaf2be06eb5ae5a4909eb96afa65"
+        },
+        {
+          "path": "rock/lichen_rock-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2299487,
+          "sha256": "025c8319da76c23c48f5cb33e4085dc5361fd23cc4b3b0a57b5ed72dbee8add5"
+        }
+      ]
+    },
+    {
+      "id": "rock_boulder_cracked",
+      "category": "rock",
+      "title": "Rock Boulder Cracked",
+      "authors": [
+        "Dario Barresi",
+        "Dimitrios Savva"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_boulder_cracked",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_boulder_cracked-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 109099,
+          "sha256": "4b70eb70cc58530a3177388144144fbede2936081f7df5db459817213d53d16d"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 279631,
+          "sha256": "983c389aca9050a002c74b743a7512036a9072ec3a1d50b16ee9d54ec33f0f45"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 89869,
+          "sha256": "3ea525b3029ea37e0537e4a67b2d292ebacc2155cd7b7d097abc59b0e6d8a0b4"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 421984,
+          "sha256": "3653ca7927fe61f1a492b3ada85e9a30cacc8e777adea03a238d988daad1d741"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 892658,
+          "sha256": "3f3898b6fec6984e7df91b78ebde95c38fe204139b5e67020cad03f452dd5a03"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 313111,
+          "sha256": "723820cfbdcb2062b28cc0252e4be60a9441f4958853dc28751f40495602200c"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1700474,
+          "sha256": "66c3e3ffd3ae0d83cd0a57008f4e223b6c72113a5a1a434da6c612c3eb6ee58e"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2899801,
+          "sha256": "cff705f1836bd2ff0972a8dc6623a517350067e3b80033d06c2bb23738ab83ff"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1178933,
+          "sha256": "09af34b2b97a0f8897f8a04db280e8786edadb5333373409223bee8b54b8c695"
+        }
+      ]
+    },
+    {
+      "id": "worn_rock_natural_01",
+      "category": "rock",
+      "title": "Worn Rock Natural 01",
+      "authors": [
+        "Dimitrios Savva",
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/worn_rock_natural_01",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/worn_rock_natural_01-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 89850,
+          "sha256": "fde6215c7a68406678da9a6463b7e6d5c8b554a10db220bd5d0b5e65c0a88251"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 206416,
+          "sha256": "b75518c75a8fe8a7f638b5173f6d7d6edff2f8badfe7c0045d7d74302356fe48"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 113471,
+          "sha256": "4f28f843b1dbdd0f89a4880ae80faecfe282339924214a4f85e27f687301569d"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 345867,
+          "sha256": "fae8e7b6cea5d6147ecffba3034e915fbecc25ab0aa255d516a0e632e3c48b66"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 681095,
+          "sha256": "11aedd1e798fff89b25cec3788d2d91cd98322a42670bc18e13b02af7ad44151"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 411807,
+          "sha256": "a8e5f40a26db3a265d79def89cf4388c8b677888db31ad6bbc40739bade285ba"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1391955,
+          "sha256": "b2c64ac75325475b9d7cdb4aeebfece127298599e0ffcfd4bab7e7595afa8962"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2289741,
+          "sha256": "e6aa1a79ac15f5102a1122ea5594618ceffe0befdc957797b3959561a539ce13"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1528308,
+          "sha256": "adc712ae4fd1ca939e40d7aa5abd53b2eaf918650b7ae5ee113745745581651b"
+        }
+      ]
+    },
+    {
+      "id": "seaside_rock",
+      "category": "rock",
+      "title": "Seaside Rock",
+      "authors": [
+        "Dimitrios Savva"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/seaside_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/seaside_rock-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 98069,
+          "sha256": "16266031b93db6608e153076c9254bff5ef46795b831b5976cab208fa4764fe9"
+        },
+        {
+          "path": "rock/seaside_rock-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 278382,
+          "sha256": "15d8c30f6993e0c208562c480680773602ab76617e5d46b17b86d5c28bd829aa"
+        },
+        {
+          "path": "rock/seaside_rock-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 104584,
+          "sha256": "80fe6151e41d76e41a49bca471073fe68ba85e8aae4604d56a4d3aba18f16a33"
+        },
+        {
+          "path": "rock/seaside_rock-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 428205,
+          "sha256": "000a6d3412913df6a2493dac625bc24348de0110fdb9cd885dbb2b2ca805e461"
+        },
+        {
+          "path": "rock/seaside_rock-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1021546,
+          "sha256": "a9e38e5ea43cc699e6d43c39d44682a2fdd5d99dfe13eb8618dc709a91e0e860"
+        },
+        {
+          "path": "rock/seaside_rock-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 448046,
+          "sha256": "1fa8a6895b2db68abcaaf1f33608f87187167eaef5975475e4a592ed2593d67e"
+        },
+        {
+          "path": "rock/seaside_rock-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1724934,
+          "sha256": "eca527f52c4372dbfb19e7cf4e5de007e0f547034239b32bdd717d0d9812983d"
+        },
+        {
+          "path": "rock/seaside_rock-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3213547,
+          "sha256": "ae0908efda0ff54aa0009afee238ddac2cbd602e2d28037ab23bcd65d3db34ae"
+        },
+        {
+          "path": "rock/seaside_rock-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1768170,
+          "sha256": "22dbe7506caea034a013b0e3db31c2f873730aa20a1309b0d6fa0c9dd9aeec44"
+        }
+      ]
+    },
+    {
+      "id": "rock_surface",
+      "category": "rock",
+      "title": "Rock Surface",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_surface",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_surface-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 79734,
+          "sha256": "36794c8f16a8763ee15bc93f800c7699515f17d59eb7e9887fa6b87b7c4cb871"
+        },
+        {
+          "path": "rock/rock_surface-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 263081,
+          "sha256": "4c0aa6478b53cd594bad962329691be20c5ad1be62d0a0661d866a97c2b9056e"
+        },
+        {
+          "path": "rock/rock_surface-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 153297,
+          "sha256": "5ce524427d3d4aaa13e716d323c22916556c42ba724fe8750c0acd532bdb60c1"
+        },
+        {
+          "path": "rock/rock_surface-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 373486,
+          "sha256": "df164cb7f7525a3cb852ff27edad91657a79f8aa3be111347a6607155bd1246a"
+        },
+        {
+          "path": "rock/rock_surface-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1030802,
+          "sha256": "d9292278790c63aaac9433e613bee62d5dedc4cf3b60fa91b3c2ae4c45d8bdb5"
+        },
+        {
+          "path": "rock/rock_surface-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 660778,
+          "sha256": "733e0181f8ac5b28ca1f3a24bb42c6fc669197c6091cbc8b832aa12d4403b826"
+        },
+        {
+          "path": "rock/rock_surface-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1626344,
+          "sha256": "4ad3d68ecc1f26185cfedfc64f12a35662640df241bf5e8d8586cb554daa9337"
+        },
+        {
+          "path": "rock/rock_surface-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3383603,
+          "sha256": "c2477d6e0e16fadb08874958794dee3ea6a968e8360fdf404e96bbd57519a723"
+        },
+        {
+          "path": "rock/rock_surface-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2444191,
+          "sha256": "a23d29348bafd9445d10f89fead862e8ad3db79727fc8c7eb478a3195ebf2cc6"
+        }
+      ]
+    },
+    {
+      "id": "rock_2",
+      "category": "rock",
+      "title": "Rock 2",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_2",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_2-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 155932,
+          "sha256": "edd4ee4d329b9c9aebc6ca004225f1415f45eaea40da1f17d1744d59462b4fe6"
+        },
+        {
+          "path": "rock/rock_2-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 313997,
+          "sha256": "9f6cfb083cee279f19878df097636859ca307326cc4155c44028c466362ac2eb"
+        },
+        {
+          "path": "rock/rock_2-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 181878,
+          "sha256": "10e3fb72c22703783512f308bc85b5eaaeeeee3cfb28668b41109e1740e7ebea"
+        },
+        {
+          "path": "rock/rock_2-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 651624,
+          "sha256": "c34c9676f693fbdb24d620c3e1c1f2923e4a5aea25fdbf6ca1c40d5ace2f8595"
+        },
+        {
+          "path": "rock/rock_2-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1248482,
+          "sha256": "ab00df3a2f60149402f0bbf3e969a4b0bedea2c313699e0bb0abef4fb3de0414"
+        },
+        {
+          "path": "rock/rock_2-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 684532,
+          "sha256": "868fd5b61eeb9e3fcc9d5948f01986e871f516a2244c7a896195cf480fe2309f"
+        },
+        {
+          "path": "rock/rock_2-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2920011,
+          "sha256": "ca1d451f644ce1027e524dedb917af9cfbc893545d19bda4d32f570c686de4ed"
+        },
+        {
+          "path": "rock/rock_2-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4112382,
+          "sha256": "f6719186e426869907f518b7546dc41814f0ff4b92c7292405af06d658b073b5"
+        },
+        {
+          "path": "rock/rock_2-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2386030,
+          "sha256": "6f52529a62b2c88d7b8817fe4f19acbcfcb9d03d712de8680d533f52a03401b0"
+        }
+      ]
+    },
+    {
+      "id": "rock_3",
+      "category": "rock",
+      "title": "Rock 3",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_3",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_3-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 168192,
+          "sha256": "757e5e26b0397a0ece5ec8dc7952e59e8783890b6162a6256fc0a3cea777e761"
+        },
+        {
+          "path": "rock/rock_3-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 286481,
+          "sha256": "48a6cc0f6da8222732d7a095216b0d88ca57c2827b915f8a6dca62700ae97f73"
+        },
+        {
+          "path": "rock/rock_3-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 202836,
+          "sha256": "3b28c33fafd4a01090e8778694000449e617b7e28e3bcab8fcf0f62deab15f68"
+        },
+        {
+          "path": "rock/rock_3-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 675051,
+          "sha256": "f5ad65972f89e9c8fb1b52c9d79381185679cc3a5d899df04459cf83490bca9d"
+        },
+        {
+          "path": "rock/rock_3-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1196938,
+          "sha256": "37eb03727fd1945f23a17b3b7ed721996a5336f1f0b7269783e44b9b9fe7cb0d"
+        },
+        {
+          "path": "rock/rock_3-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 760708,
+          "sha256": "e362c02c3f8a28a67e1eb04ee6283b8688a1d2f5ad7e0e6359ef17b3c66001ec"
+        },
+        {
+          "path": "rock/rock_3-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2837716,
+          "sha256": "f68ad8416c82aa908060659046830fe4c975ade7e2e01aae2303f5cb71978c73"
+        },
+        {
+          "path": "rock/rock_3-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4269153,
+          "sha256": "5d1d43dc0dbdabe892dda6f3d19e9e3b1ff8359a2e08e4b8d8dd1a0f80ddc6ee"
+        },
+        {
+          "path": "rock/rock_3-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2727592,
+          "sha256": "16d0cc7cb57436cb1cac7b67a41ebb4056d410c95c7e3897903878e54446b72b"
+        }
+      ]
+    },
+    {
+      "id": "rock_face",
+      "category": "rock",
+      "title": "Rock Face",
+      "authors": [
+        "Dario Barresi",
+        "Greg Zaal"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_face",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_face-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 65462,
+          "sha256": "d05ffe15c62b97520e15d79a05b13dbbca190328f06d24917e09d2ad14d570f1"
+        },
+        {
+          "path": "rock/rock_face-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 284416,
+          "sha256": "7bf30b54aa4a7aa5e4c8b05d295c466c3a7d16986e24e4f4bfd995781d12f4fa"
+        },
+        {
+          "path": "rock/rock_face-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 85152,
+          "sha256": "2f69f695f709d8aa7241b8e87be5aa2b5ca2e5e8bb802e7ed5cfe21a42325537"
+        },
+        {
+          "path": "rock/rock_face-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 266313,
+          "sha256": "91dde0c5627c59d001dc91e419e43665fc00d773d35d8ce74bb68a7fbb986d6d"
+        },
+        {
+          "path": "rock/rock_face-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 987871,
+          "sha256": "54ef2fe1aa165df76beb8e3a04fe7f64be036ab3c310472155c859248c45b05e"
+        },
+        {
+          "path": "rock/rock_face-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 304470,
+          "sha256": "365f7dc6086d1a5d2cf8c700f0821c15863b29ec43269c98c08a5c23ede88ccd"
+        },
+        {
+          "path": "rock/rock_face-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1078219,
+          "sha256": "87f34adc03782dc189fc7e9ce1e9ed159dd9c98cd2b71c23df71d76d2c72ea37"
+        },
+        {
+          "path": "rock/rock_face-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2869102,
+          "sha256": "b1b66fa579756b6a4eacfe19a9a4a08a89cba227d7c27516927ed5d9c716eef6"
+        },
+        {
+          "path": "rock/rock_face-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1019541,
+          "sha256": "b37961ac7c0da827a06b39d5f6f8278096706e7c1fa19881157912327777f1c1"
+        }
+      ]
+    },
+    {
+      "id": "marble_rock_01",
+      "category": "rock",
+      "title": "Marble Rock 01",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/marble_rock_01",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/marble_rock_01-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 124811,
+          "sha256": "73a10ab2c1bd82e361cc653bf52837c79ffbaa35987e0f200944f00e44f27b7f"
+        },
+        {
+          "path": "rock/marble_rock_01-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 201194,
+          "sha256": "c578102bb76cf5dab651f14572480fca18891399109edf516300ad22ae976ea1"
+        },
+        {
+          "path": "rock/marble_rock_01-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 145683,
+          "sha256": "0bad2463127e0e616697353cb5d753be361a26248ddbd105ca2b975a7e1da148"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 452567,
+          "sha256": "6fc8bd6d2839987611d68dd9403811b8150151fe039a5247d5abf62f5a0b3eb9"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 681109,
+          "sha256": "c971e0423cb398ef90bee2c72e524d4764eef0d1c8d125ddb10c53008063a8ef"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 507109,
+          "sha256": "162ced41b28532a5c79f6bb62691c9e8539a792159a2f526c8c4ccf5d3cdeb88"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1656900,
+          "sha256": "004df371381535193a097bc17cb74dfeeb7cc9cd4501584dce9b539074c5c0c4"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2276601,
+          "sha256": "151bfb2caf2e24f5984e197333c4539cf7e1084a2a0babd982e898f4ce465469"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1798316,
+          "sha256": "37c7b8f0354d00af2732496482fc22db0d27526a453a91b07360fc48fb4bc777"
+        }
+      ]
+    },
+    {
+      "id": "dark_rock",
+      "category": "rock",
+      "title": "Dark Rock",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/dark_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/dark_rock-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 46102,
+          "sha256": "78d16abeef9c8783977e96d9f9d8f8629698951d0d30c6bb5ef2f2a66382c4bb"
+        },
+        {
+          "path": "rock/dark_rock-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 232839,
+          "sha256": "9667dc7de06bb289a668150dcccc9d73a124eabad27cd6748779fc14a490b8bd"
+        },
+        {
+          "path": "rock/dark_rock-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 149130,
+          "sha256": "a9a0a8e482f81e8d6550e56b63cd9400073ae0293a34d8d13d92120aac36a70f"
+        },
+        {
+          "path": "rock/dark_rock-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 178597,
+          "sha256": "710db085223e59d4108996ecb70004aad97807a9cae9835a2d0bc10f5071598b"
+        },
+        {
+          "path": "rock/dark_rock-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 814707,
+          "sha256": "aee49feca7d29bf0110e8a06a41cde52407f8503958f39926fc37e92a5ef7761"
+        },
+        {
+          "path": "rock/dark_rock-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 538938,
+          "sha256": "730162d7a33ebd5769dbfd5aba879c73f218ea347d7e3f76dc54294e026c55f6"
+        },
+        {
+          "path": "rock/dark_rock-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 716061,
+          "sha256": "017c4db25ea4e6f5f796628179477d7d8ba7a8f3f6e02df95cb2d5f44ffb2403"
+        },
+        {
+          "path": "rock/dark_rock-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2567339,
+          "sha256": "c78a4cdcbf292f90b2dd8475615cd7ab4b2782110ecba2cbb4e2539e8686020a"
+        },
+        {
+          "path": "rock/dark_rock-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1996426,
+          "sha256": "08944a0b09d6a77cc5f6e28530892c33d3c836fe466a3744061fc99d733227b2"
+        }
+      ]
+    },
+    {
+      "id": "metal",
+      "category": "rock",
+      "title": "Metal 052 C",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Metal052C",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/metal-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 59701,
+          "sha256": "deaf3efb44e393c18d9e41a23134187710683729a6df5bde90e9e1fec1d72302"
+        },
+        {
+          "path": "rock/metal-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 40360,
+          "sha256": "875f44346293a6ae621374f8427b1e42f4fe8b10fc273c94e3c470b6060a91a5"
+        },
+        {
+          "path": "rock/metal-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 184585,
+          "sha256": "8c044d4fba9837b56224eced98781c324f3fe88736e87b1681bb2ce4dffd0753"
+        },
+        {
+          "path": "rock/metal-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 215929,
+          "sha256": "e67430cffce93b888eef9505eadce35fab3ec4ba34d203870c4391aedfe4c831"
+        },
+        {
+          "path": "rock/metal-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 178598,
+          "sha256": "b370428b582919dd3455db760ad8d38c89802fa9535b9c77539cafa2f08739e6"
+        },
+        {
+          "path": "rock/metal-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 657315,
+          "sha256": "e79e7b59abcde9c5bc4e630b7f6579930e7c0b486dd50b9c01f8b5536897bc54"
+        },
+        {
+          "path": "rock/metal-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 740692,
+          "sha256": "74907c4d5aa55ce3477022d9f3fbe20cea86d840c4d36e635ed63e07f51760a3"
+        },
+        {
+          "path": "rock/metal-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 733142,
+          "sha256": "b08f702c4510a93220bce22d7d5e9a62e46fdce69ac14e65ac2546c5690bdbb7"
+        },
+        {
+          "path": "rock/metal-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2513063,
+          "sha256": "ec49ba46eecaa2019167e1c59607e9d333a1e428aa151d469169bf14e0ea4534"
+        }
+      ]
+    },
+    {
+      "id": "amethyst_1",
+      "category": "rock",
+      "title": "Amethyst Texture 1",
+      "authors": [
+        "M.Tolga Arslan"
+      ],
+      "source": "sharetextures",
+      "sourceUrl": "https://www.sharetextures.com/textures/gems/amethyst-1",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/amethyst_1-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 167498,
+          "sha256": "58680fb850f31054e8f3754f380c8e983f43dde2575a0a4368336f279b66881e"
+        },
+        {
+          "path": "rock/amethyst_1-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 249263,
+          "sha256": "cde053f75f1a2af3d654a9aa73fdf1df7d6fb188b069871eb1dd5ec87d8e4f61"
+        },
+        {
+          "path": "rock/amethyst_1-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 115275,
+          "sha256": "f52af7d6897ff55c3d8db1830327933b940a69173f734d9022ece206834cd7b0"
+        },
+        {
+          "path": "rock/amethyst_1-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 544387,
+          "sha256": "98f51c95c228fe15a8435829ec482942c69641958443bcee3c8df4b9428eea1a"
+        },
+        {
+          "path": "rock/amethyst_1-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 606894,
+          "sha256": "30bfdb0e823ce0f6bff834212fe0fd2b90477d25e73699982af0bdc4dee76eb9"
+        },
+        {
+          "path": "rock/amethyst_1-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 318492,
+          "sha256": "272aa30fb0ceadb56a32015fe6fa96777fab4d754e9bbef2ca8497e8cc27162f"
+        },
+        {
+          "path": "rock/amethyst_1-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1691802,
+          "sha256": "44a9f1d448d34be8fb6f0a55c5aff047cc1f49f0da7f8007cb1078363347884d"
+        },
+        {
+          "path": "rock/amethyst_1-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1591440,
+          "sha256": "710c9bd5dac0f4e2cc1fb52a6394dc7675edbcffee22c7b2d7c739da558e8723"
+        },
+        {
+          "path": "rock/amethyst_1-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 902688,
+          "sha256": "e4f55136d6872384bbda3c4a788b0e4f30da01f43da3f206f981f32b02a8ae5f"
+        }
+      ]
+    },
+    {
+      "id": "rock_ore_002",
+      "category": "rock",
+      "title": "Rock Ore 002",
+      "authors": [
+        "3dtextures.me"
+      ],
+      "source": "3dtextures",
+      "sourceUrl": "https://3dtextures.me/2018/01/15/rock-ore-002/",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_ore_002-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 86586,
+          "sha256": "a64e035538d572fb8d0a3ee29061b965f4be64dfdb5aeba92c3536b4d3c3ef23"
+        },
+        {
+          "path": "rock/rock_ore_002-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 261562,
+          "sha256": "333c4ebdcce2c91159b40e76afc36bd116d5b1b9fc70ddd76a51a9f00067bf49"
+        },
+        {
+          "path": "rock/rock_ore_002-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 144793,
+          "sha256": "f65a16f28fe68bc6eec039da709025c40c13092f45437b7b0fa0738bffe68a2b"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 271143,
+          "sha256": "d97e40cc4991b7641fb1fe2b78eb3439f9faf3f15b2d9e9fc29f54b299e8bad4"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 927792,
+          "sha256": "06c9150d4c1eef3522e46a28e669d17b349856ca97731e9c131434c6df66fdb5"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 439394,
+          "sha256": "e9a3486a867fb2865050edbf4ea5dc25b28c5b054ae0aa3ff7bb74118cff8fe7"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 849785,
+          "sha256": "1e3eddebacb21f4df2a7b7b52745359574e663a13fecf7dc04fa88d7d3ec57b7"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3212232,
+          "sha256": "619b8cfe1f7b4f5942b0774be9026e9e93fb5451cb412d50ba1cf10fae61d301"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1363444,
+          "sha256": "fcd2515bc40033f25682fe3a29d9f131b8a1f64ee4dea37aae9371e645d95901"
+        }
+      ]
+    },
+    {
+      "id": "ice",
+      "category": "rock",
+      "title": "Ice 001",
+      "authors": [
+        "3dtextures.me"
+      ],
+      "source": "3dtextures",
+      "sourceUrl": "https://3dtextures.me/2017/11/19/ice-001/",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/ice-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 56118,
+          "sha256": "92fbb3b329ce07ac7b2e930132c033132def577c0ecec060326769376e108cab"
+        },
+        {
+          "path": "rock/ice-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 95132,
+          "sha256": "efc407284e0bdafbd49d6cf4dfeb7c25968e9fcb7b2bc6a6d6f28f8c90d3a790"
+        },
+        {
+          "path": "rock/ice-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 197228,
+          "sha256": "0de0e3261825cc28a8ca9fb8cb92dd067e56bcb50744278b410bb30652e6ae7f"
+        },
+        {
+          "path": "rock/ice-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 168185,
+          "sha256": "b4e1495abab2bd9b2dacbdc6b30de9c8eafd15e66c828e255b93a209dc90059a"
+        },
+        {
+          "path": "rock/ice-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 317133,
+          "sha256": "22388d3c2eb9fc78efd706ef1d57d88e286fc7733519cc8dc236b5ed18873c68"
+        },
+        {
+          "path": "rock/ice-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 549036,
+          "sha256": "1f3b5b24b433f18594a79c10f37d4bdf62143d83e92c08bbc0a77edbf4a89c58"
+        },
+        {
+          "path": "rock/ice-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 460053,
+          "sha256": "308297ee9b0f61ea114adcb232b548bafef5e604464e8765e8b638c73fe58a5d"
+        },
+        {
+          "path": "rock/ice-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 805403,
+          "sha256": "747291ee0bcd682ea22dd59c7a9ecc0401f573993a52c7207a1891f40d0b92a6"
+        },
+        {
+          "path": "rock/ice-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1629940,
+          "sha256": "ce460358981dfec5a21af6dece29fb3129f496d245cf532391a11984bb3ec0b3"
+        }
+      ]
+    }
+  ]
+}

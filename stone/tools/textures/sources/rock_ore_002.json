@@ -1,0 +1,15 @@
+{
+  "title": "Rock Ore 002",
+  "authors": ["3dtextures.me"],
+  "source": "3dtextures",
+  "sourceUrl": "https://3dtextures.me/2018/01/15/rock-ore-002/",
+  "license": "CC0-1.0",
+  "originals": {
+    "color": "Rock_Ore_002_COLOR.png",
+    "normal": "Rock_Ore_002_NORM.png",
+    "roughness": "Rock_Ore_002_ROUGH.png",
+    "occlusion": "Rock_Ore_002_OCC.png",
+    "height": "Rock_Ore_002_DISP.png"
+  },
+  "normalConvention": "directx"
+}

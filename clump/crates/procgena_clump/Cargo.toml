@@ -1,0 +1,15 @@
+[package]
+name = "procgena_clump"
+version = "0.1.0"
+description = "Procedural clumps of snow, moss, mud and litter on top of a surface mesh"
+edition.workspace = true
+
+[dependencies]
+glam = { workspace = true }
+
+[dev-dependencies]
+# Real rock meshes as test inputs for the spike example.
+procgena_stone = { path = "../../../stone/crates/procgena_stone" }
+
+[[example]]
+name = "spike"

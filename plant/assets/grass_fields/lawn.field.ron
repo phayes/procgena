@@ -1,0 +1,24 @@
+// FieldPreset::LAWN, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.field.ron")`. Every setting is
+// optional: a missing one comes from `base`, a preset's key.
+(
+    name: "Lawn",
+    description: "Uniform, short and dense. Gardens, towns, sports fields.",
+    wind_scale: 1.0,
+    density_scale: 1.0,
+    ground_color: (0.2, 0.15, 0.09),
+    ground_tint: 0.0,
+    toon_bands: 0,
+    patch_color: (0.55, 0.55, 0.22),
+    patch_amount: 0.0,
+    patch_size: 12.0,
+    dry_tips: 0.0,
+    dead_share: 0.0,
+    bare_share: 0.0,
+    bare_patch_size: 3.0,
+    plants: [
+        (
+            plant: "LAWN_GRASS",
+        ),
+    ],
+)

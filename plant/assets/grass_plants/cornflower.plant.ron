@@ -1,0 +1,29 @@
+// PlantPreset::CORNFLOWER, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.plant.ron")`. Every setting is
+// optional: a missing one comes from `base`, a preset's key.
+(
+    name: "Cornflower",
+    description: "Blue flowers on tall stems, like cornflowers in a rye field.",
+    density: 20.0,
+    height: (0.7, 1.1),
+    width: 0.01,
+    lean: 0.08,
+    stems_per_plant: 1,
+    root_occlusion: 0.65,
+    translucency: 0.4,
+    specular: 0.0,
+    head_length: 0.1,
+    head_width: 0.05,
+    head_color: (0.22, 0.38, 0.92),
+    tufts: 0.0,
+    tuft_size: 0.6,
+    segment: (
+        profile: 0.0,
+        stiffness: 0.5,
+        droop: 0.0,
+        twist: 0.0,
+        fold: 0.0,
+        root_color: (0.05, 0.11, 0.03),
+        tip_color: (0.24, 0.42, 0.12),
+    ),
+)

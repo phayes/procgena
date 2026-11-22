@@ -1,0 +1,37 @@
+[package]
+name = "procgena_tree_bevy"
+version = "0.1.0"
+description = "Bevy plugin for procgena_tree procedural trees: meshes, materials, wind and LOD"
+edition.workspace = true
+
+[dependencies]
+procgena_tree = { path = "../procgena_tree" }
+serde_json = { workspace = true }
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_pbr",
+    "bevy_mikktspace",
+    "ktx2",
+    "zstd_rust",
+] }
+
+[features]
+# Enable wind animation and camera-facing billboards for exported procgena_tree glTF scenes.
+# Requires add_tree_gltf_attributes and ZeTreePlugin in the app.
+gltf = ["bevy/bevy_gltf"]
+
+[dev-dependencies]
+procgena_tree = { path = "../procgena_tree", features = ["export-gltf"] }
+bevy = { version = "0.20.1", features = ["free_camera"] }
+# Allows the viewer example to save screenshots as PNG files.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[[example]]
+name = "gltf_tree"
+required-features = ["gltf"]
+
+[package.metadata.docs.rs]
+all-features = true

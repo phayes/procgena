@@ -1,0 +1,55 @@
+[workspace]
+resolver = "3"
+members = [
+    "clump/crates/procgena_clump",
+    "stone/crates/procgena_stone",
+    "stone/crates/procgena_stone_bevy",
+    "tree/crates/procgena_tree",
+    "tree/crates/procgena_tree_bevy",
+    "plant",
+    "plant/web",
+]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+# Keep in step with the versions used by the targeted bevy release (bevy 0.20.1).
+glam = "0.33"
+rayon = "1.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wgpu = { version = "30.0.2", default-features = false }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# Optimize the WESL interpreter in test builds; the procgena_stone shader tests
+# run every kernel invocation through it.
+[profile.dev.package.wesl]
+opt-level = 3
+
+[profile.dev.package.wgsl-types]
+opt-level = 3
+
+# Whole-program optimization, for measuring the frame a shipped game gets: on
+# a CPU-bound machine it makes the whole frame faster (see "The frame-time
+# floor" in plant/docs/performance.md). Cargo ignores a dependency's profiles,
+# so a game sets this in its own Cargo.toml.
+[profile.release-lto]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
+# The hosted procgena_plant web demo (`plant/tools/web_demo.py`): a smaller
+# download. Whole-program optimisation drops the parts of Bevy the demo never
+# calls, and "s" trades some CPU speed for size.
+[profile.web]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1

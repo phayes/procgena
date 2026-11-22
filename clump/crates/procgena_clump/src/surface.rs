@@ -1,0 +1,238 @@
+//! The input mesh that clumps are placed on.
+
+use std::fmt;
+
+use glam::Vec3;
+
+/// A borrowed triangle mesh that clumps grow on.
+///
+/// Positions and normals are in world units and in the mesh's final
+/// orientation. Triangles are counter-clockwise when seen from outside, and
+/// normals point outward. Clumps grow on the side the normals point to.
+#[derive(Debug, Clone, Copy)]
+pub struct Surface<'a> {
+    positions: &'a [[f32; 3]],
+    normals: &'a [[f32; 3]],
+    indices: &'a [u32],
+}
+
+impl<'a> Surface<'a> {
+    /// Wraps mesh buffers as a surface.
+    ///
+    /// `normals` must have one entry per position, `indices` must hold whole
+    /// triangles, and every index must name a position. Returns an error
+    /// otherwise, or if the mesh has no triangles.
+    pub fn new(
+        positions: &'a [[f32; 3]],
+        normals: &'a [[f32; 3]],
+        indices: &'a [u32],
+    ) -> Result<Self, SurfaceError> {
+        // Check buffer shapes.
+        if normals.len() != positions.len() {
+            return Err(SurfaceError::NormalCount {
+                positions: positions.len(),
+                normals: normals.len(),
+            });
+        }
+        if !indices.len().is_multiple_of(3) {
+            return Err(SurfaceError::PartialTriangle { indices: indices.len() });
+        }
+        if indices.is_empty() {
+            return Err(SurfaceError::Empty);
+        }
+
+        // Check that every index names a vertex.
+        if let Some(&index) = indices.iter().find(|&&i| i as usize >= positions.len()) {
+            return Err(SurfaceError::IndexOutOfRange {
+                index,
+                vertices: positions.len(),
+            });
+        }
+
+        Ok(Self { positions, normals, indices })
+    }
+
+    /// Returns the vertex positions.
+    pub fn positions(&self) -> &'a [[f32; 3]] {
+        self.positions
+    }
+
+    /// Returns the vertex normals, one per position.
+    pub fn normals(&self) -> &'a [[f32; 3]] {
+        self.normals
+    }
+
+    /// Returns the triangle indices, three per triangle.
+    pub fn indices(&self) -> &'a [u32] {
+        self.indices
+    }
+
+    /// Returns the number of triangles.
+    pub fn triangle_count(&self) -> usize {
+        self.indices.len() / 3
+    }
+
+    /// Returns the vertex indices of triangle `t`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `t` is not less than [`triangle_count`](Self::triangle_count).
+    pub(crate) fn triangle(&self, t: usize) -> [usize; 3] {
+        let i = &self.indices[t * 3..t * 3 + 3];
+        [i[0] as usize, i[1] as usize, i[2] as usize]
+    }
+
+    /// Returns the corner positions of triangle `t`.
+    pub(crate) fn triangle_positions(&self, t: usize) -> [Vec3; 3] {
+        self.triangle(t).map(|v| self.position(v))
+    }
+
+    /// Returns the position of vertex `v`.
+    pub(crate) fn position(&self, v: usize) -> Vec3 {
+        Vec3::from(self.positions[v])
+    }
+
+    /// Returns the normal of vertex `v`, normalized. A zero normal stays zero.
+    pub(crate) fn normal(&self, v: usize) -> Vec3 {
+        Vec3::from(self.normals[v]).normalize_or_zero()
+    }
+
+    /// Returns the smallest box that holds every vertex, as `(min, max)`.
+    pub(crate) fn bounds(&self) -> (Vec3, Vec3) {
+        self.positions.iter().fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(lo, hi), &p| (lo.min(Vec3::from(p)), hi.max(Vec3::from(p))),
+        )
+    }
+}
+
+/// An owned triangle mesh that can be borrowed as a [`Surface`].
+///
+/// Use it to hold a generated input such as [`SurfaceMesh::ground`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SurfaceMesh {
+    /// Vertex positions in world units.
+    pub positions: Vec<[f32; 3]>,
+    /// Outward vertex normals, one per position.
+    pub normals: Vec<[f32; 3]>,
+    /// Counter-clockwise triangle indices, three per triangle.
+    pub indices: Vec<u32>,
+}
+
+impl SurfaceMesh {
+    /// Creates a flat, square ground patch at height 0 facing +Y.
+    ///
+    /// `size` is the side length in world units and `divisions` the number of
+    /// cells along each side. The patch is centred on the origin.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `divisions` is zero.
+    pub fn ground(size: f32, divisions: u32) -> Self {
+        assert!(divisions > 0, "a ground patch needs at least one division");
+        let n = divisions + 1;
+        let mut mesh = Self::default();
+
+        // Lay out vertices row by row along +Z.
+        for j in 0..n {
+            for i in 0..n {
+                let x = (i as f32 / divisions as f32 - 0.5) * size;
+                let z = (j as f32 / divisions as f32 - 0.5) * size;
+                mesh.positions.push([x, 0.0, z]);
+                mesh.normals.push([0.0, 1.0, 0.0]);
+            }
+        }
+
+        // Two counter-clockwise triangles per cell, seen from above.
+        for j in 0..divisions {
+            for i in 0..divisions {
+                let a = j * n + i;
+                let b = a + 1;
+                let c = a + n;
+                let d = c + 1;
+                mesh.indices.extend_from_slice(&[a, c, b, b, c, d]);
+            }
+        }
+        mesh
+    }
+
+    /// Borrows the mesh as a [`Surface`], checking it as [`Surface::new`] does.
+    pub fn surface(&self) -> Result<Surface<'_>, SurfaceError> {
+        Surface::new(&self.positions, &self.normals, &self.indices)
+    }
+}
+
+/// Why mesh buffers can't be used as a [`Surface`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SurfaceError {
+    /// The mesh has no triangles.
+    Empty,
+    /// The number of normals differs from the number of positions.
+    NormalCount { positions: usize, normals: usize },
+    /// The index count is not a multiple of three.
+    PartialTriangle { indices: usize },
+    /// A triangle refers to a vertex that doesn't exist.
+    IndexOutOfRange { index: u32, vertices: usize },
+}
+
+impl fmt::Display for SurfaceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => write!(f, "the surface has no triangles"),
+            Self::NormalCount { positions, normals } => {
+                write!(f, "the surface has {positions} positions but {normals} normals")
+            }
+            Self::PartialTriangle { indices } => {
+                write!(f, "the surface has {indices} indices, which is not a multiple of 3")
+            }
+            Self::IndexOutOfRange { index, vertices } => {
+                write!(f, "index {index} is out of range for {vertices} vertices")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SurfaceError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ground_is_a_valid_upward_grid() {
+        let ground = SurfaceMesh::ground(2.0, 4);
+        let surface = ground.surface().unwrap();
+        assert_eq!(surface.positions().len(), 25);
+        assert_eq!(surface.triangle_count(), 32);
+
+        // Every triangle faces +Y.
+        for t in 0..surface.triangle_count() {
+            let [a, b, c] = surface.triangle_positions(t);
+            assert!((b - a).cross(c - a).y > 0.0);
+        }
+        let (lo, hi) = surface.bounds();
+        assert_eq!(lo, Vec3::new(-1.0, 0.0, -1.0));
+        assert_eq!(hi, Vec3::new(1.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn bad_buffers_are_rejected() {
+        let p = [[0.0; 3]; 3];
+        let n = [[0.0, 1.0, 0.0]; 3];
+        assert_eq!(Surface::new(&p, &n, &[]).unwrap_err(), SurfaceError::Empty);
+        assert_eq!(
+            Surface::new(&p, &n[..2], &[0, 1, 2]).unwrap_err(),
+            SurfaceError::NormalCount { positions: 3, normals: 2 }
+        );
+        assert_eq!(
+            Surface::new(&p, &n, &[0, 1]).unwrap_err(),
+            SurfaceError::PartialTriangle { indices: 2 }
+        );
+        assert_eq!(
+            Surface::new(&p, &n, &[0, 1, 3]).unwrap_err(),
+            SurfaceError::IndexOutOfRange { index: 3, vertices: 3 }
+        );
+        assert!(Surface::new(&p, &n, &[0, 1, 2]).is_ok());
+    }
+}

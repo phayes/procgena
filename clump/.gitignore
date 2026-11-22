@@ -1,0 +1,9 @@
+/target
+/assets/textures/snow
+/assets/textures/moss
+/assets/textures/leaves
+/assets/textures/stalks
+/assets/textures/images/*
+!/assets/textures/images/images_manifest.json
+/prior_art
+/temp_downloads

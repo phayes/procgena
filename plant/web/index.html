@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>procgena_plant</title>
+<link rel="icon" href="data:,">
+<meta name="description" content="Grass and foliage for Bevy 3D games, running in the browser through WebGPU.">
+<style>
+  :root { color-scheme: dark; --panel: rgba(12, 16, 12, 0.82); --text: #eef2ea; --dim: #a9b4a2;
+    --accent: #9ccc65; --bad: #ff8a80; --line: rgba(255, 255, 255, 0.12); --field: rgba(255, 255, 255, 0.08); }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2418; color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas#grass { display: block; width: 100%; height: 100%; outline: none; }
+  #panel { position: fixed; top: 12px; left: 12px; width: min(360px, calc(100vw - 48px));
+    max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain;
+    padding: 12px 14px; border-radius: 8px; background: var(--panel); backdrop-filter: blur(6px);
+    scrollbar-width: thin; }
+  #panel.folded > :not(header) { display: none; }
+  #panel header { display: flex; align-items: baseline; gap: 8px; }
+  #panel h1 { margin: 0 0 2px; font-size: 17px; flex: 1; }
+  #panel h1 a { color: inherit; text-decoration: none; }
+  #panel p { margin: 0 0 10px; color: var(--dim); }
+  #panel > label, .heading { display: block; margin: 10px 0 4px; color: var(--dim); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.04em; }
+  #tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  button, select, textarea, input[type="number"] { font: inherit; color: var(--text); background: var(--field);
+    border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 5px; }
+  button { padding: 5px 8px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  #tiers button { padding: 5px 0; }
+  #tiers button[aria-pressed="true"] { background: var(--accent); color: #111; border-color: var(--accent); }
+  select { width: 100%; padding: 4px 6px; }
+  option { background: #1b2418; }
+  #panel > label input[type="checkbox"] { margin-right: 6px; vertical-align: middle; }
+  #status { margin-top: 10px; font: 12px/1.5 ui-monospace, monospace; color: var(--dim); white-space: pre-wrap; }
+  #status .bad, #notice .bad, .error { color: var(--bad); }
+  #panel details { margin-top: 8px; color: var(--dim); font-size: 13px; }
+  #panel summary { cursor: pointer; }
+  #notice { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
+    text-align: center; pointer-events: none; }
+  #notice div { max-width: 520px; padding: 16px 20px; border-radius: 8px; background: var(--panel); }
+  #notice[hidden] { display: none; }
+
+  /* The tuning panel, built from the demo's reflected settings. */
+  #tune { margin-top: 12px; border-top: 1px solid var(--line); }
+  #tune > p { margin: 10px 0 0; font-size: 12px; }
+  details.section { border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  details.section > summary { color: var(--text); font-weight: 600; padding: 4px 0; }
+  details.section > summary code, details.group > summary code { color: var(--dim); font-weight: 400; font-size: 11px; }
+  details.group { margin: 6px 0 2px 6px; padding-left: 8px; border-left: 2px solid var(--line); }
+  details.group > summary { color: var(--text); }
+  .tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+  .tools button, .tools select { font-size: 12px; padding: 3px 7px; width: auto; }
+  .row { display: grid; grid-template-columns: 40% 1fr 78px; gap: 6px; align-items: center; margin: 3px 0; }
+  .row.wide { grid-template-columns: 40% 1fr; }
+  .row .name { font: 12px ui-monospace, monospace; color: var(--text); overflow-wrap: anywhere; cursor: help; }
+  .row .name.nodoc { cursor: default; }
+  .row input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
+  .row input[type="number"] { width: 100%; box-sizing: border-box; padding: 2px 4px; font-size: 12px; }
+  .row input[type="color"] { width: 48px; height: 22px; padding: 0; border: 0; background: none; }
+  .row select { font-size: 12px; padding: 2px 4px; }
+  .doc { margin: 0 0 6px; font-size: 12px; color: var(--dim); }
+  .doc[hidden] { display: none; }
+  .doc.error { color: var(--bad); }
+  #status .warning { color: var(--bad); }
+  pre.code { height: 160px; overflow: auto; margin: 4px 0; padding: 6px 8px; border-radius: 5px;
+    background: rgba(0, 0, 0, 0.35); color: var(--text); font: 11px/1.4 ui-monospace, monospace; }
+  textarea { width: 100%; box-sizing: border-box; height: 90px; font: 11px ui-monospace, monospace; }
+  .stats { font: 11px/1.5 ui-monospace, monospace; color: var(--dim); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="grass" tabindex="0"></canvas>
+<div id="panel">
+  <header>
+    <h1><a href="https://github.com/GEMI/bevy-grass">procgena_plant</a></h1>
+    <button id="fold" title="Hide or show the panel">Hide</button>
+  </header>
+  <p>Grass for Bevy, drawn by the GPU in your browser through WebGPU.</p>
+  <label>Quality</label>
+  <div id="tiers" role="group" aria-label="Quality"></div>
+  <label for="preset">Preset</label>
+  <select id="preset"></select>
+  <label><input type="checkbox" id="shadows" checked> Shadows</label>
+  <label for="antialiasing">Antialiasing</label>
+  <!-- WebGPU supports MSAA with 1 or 4 samples only (docs/web.md). -->
+  <select id="antialiasing">
+    <option value="1">Off</option>
+    <option value="4" selected>4x</option>
+  </select>
+  <div id="status"></div>
+  <details>
+    <summary>Controls</summary>
+    WASD to fly, Q and E down and up, Shift faster. Hold the right mouse
+    button to look around, or press M to keep looking. Hold the left mouse
+    button to paint with the brush. 1 to 4 pick the quality, [ and ] the
+    preset.
+  </details>
+  <div id="tune">
+    <p>Every public setting of the crate, read from its types. Click a
+    name for its documentation. Changes are kept in the address, so the
+    link shares them.</p>
+    <div id="sections"></div>
+  </div>
+</div>
+<div id="notice"><div id="notice-text">Loading</div></div>
+
+<script type="module">
+  import init, * as demo from "./procgena_plant_web.js";
+
+  const params = new URLSearchParams(location.search);
+  const smoke = params.has("smoke");
+  const $ = (id) => document.getElementById(id);
+  const notice = (html) => { $("notice-text").innerHTML = html; $("notice").hidden = !html; };
+
+  // What the page saw, for the panel and the smoke test. Set up before the
+  // demo loads, so nothing it logs is missed.
+  const report = { page: "demo", url: location.href, userAgent: navigator.userAgent, adapter: null,
+    limits: {}, features: [], errors: [], warnings: [], status: null, tiers: [], pass: false, outcome: "" };
+  // The newest warning grass logged, which the panel shows for a while: a
+  // setting out of range says so there. The shadow cascade warning is about
+  // the demo's light, not anything the panel sets.
+  let grassWarning = null;
+  const keep = (list, args) => {
+    const text = Array.from(args, String).join(" ");
+    // winit ends its start-up with this exception on purpose.
+    if (text.includes("Using exceptions for control flow")) return;
+    if (list === report.warnings && text.includes("procgena_plant: ") && !text.includes("shadow cascade")) {
+      grassWarning = { text: text.split("procgena_plant: ")[1].split(". ")[0], at: performance.now() };
+    }
+    if (list.length < 50) list.push(text.slice(0, 2000));
+  };
+  for (const [level, list] of [["error", report.errors], ["warn", report.warnings]]) {
+    const original = console[level].bind(console);
+    console[level] = (...args) => { keep(list, args); original(...args); };
+  }
+  // Bevy logs every level through console.log, as "%cERROR%c origin%c text"
+  // with a style per %c.
+  const log = console.log.bind(console);
+  console.log = (...args) => {
+    const level = typeof args[0] === "string" && args[0].match(/^%c(ERROR|WARN)%c/);
+    if (level) keep(level[1] === "ERROR" ? report.errors : report.warnings, [args[0].replaceAll("%c", "")]);
+    log(...args);
+  };
+  addEventListener("error", (e) => keep(report.errors, [e.message]));
+  addEventListener("unhandledrejection", (e) => keep(report.errors, [e.reason]));
+
+  // A browser names a shader module it rejects but not why ("Fragment module
+  // is invalid" in Safari); its compiler's messages, with line and column,
+  // are only in getCompilationInfo. Each rejected module's source is kept in
+  // `rejectedShaders`, to copy from the console.
+  const rejectedShaders = [];
+  window.rejectedShaders = rejectedShaders;
+  if (navigator.gpu) {
+    const createShaderModule = GPUDevice.prototype.createShaderModule;
+    GPUDevice.prototype.createShaderModule = function (descriptor) {
+      const module = createShaderModule.call(this, descriptor);
+      module.getCompilationInfo().then((info) => {
+        const errors = info.messages.filter((m) => m.type === "error");
+        if (errors.length) rejectedShaders.push({ label: descriptor.label, code: String(descriptor.code) });
+        for (const m of errors) {
+          const line = String(descriptor.code).split("\n")[m.lineNum - 1] ?? "";
+          console.error(`shader ${descriptor.label || "(no label)"} ${m.lineNum}:${m.linePos}: ` +
+            `${m.message}\n  ${line.trim()}`);
+        }
+      }, () => {});
+      return module;
+    };
+  }
+
+  // Frame time from requestAnimationFrame over the last 300 frames: the
+  // whole page, not only the GPU.
+  const deltas = [];
+  let last = 0;
+  const frame = (now) => {
+    if (last) { deltas.push(now - last); if (deltas.length > 300) deltas.shift(); }
+    last = now;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  const frameMs = () => {
+    if (deltas.length < 30) return null;
+    const sorted = [...deltas].sort((a, b) => a - b);
+    const at = (q) => +sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))].toFixed(2);
+    return { p50: at(0.5), p95: at(0.95) };
+  };
+
+  // `?max-storage-buffers=N` asks WebGPU for a device with at most N storage
+  // buffers per shader stage, so the browser checks every pipeline against
+  // N: a test of the budget on a device that offers more, as a Mac that
+  // reports 10 would.
+  const storageCap = Number(params.get("max-storage-buffers")) || 0;
+  report.maxStorageBuffers = storageCap || null;
+  if (storageCap && navigator.gpu) {
+    const requestDevice = GPUAdapter.prototype.requestDevice;
+    GPUAdapter.prototype.requestDevice = function (descriptor = {}) {
+      const requiredLimits = { ...descriptor.requiredLimits };
+      requiredLimits.maxStorageBuffersPerShaderStage =
+        Math.min(storageCap, requiredLimits.maxStorageBuffersPerShaderStage ?? storageCap);
+      return requestDevice.call(this, { ...descriptor, requiredLimits });
+    };
+  }
+
+  // The limits grass depends on, read the way the demo's renderer reads them.
+  const LIMITS = ["maxStorageBuffersPerShaderStage", "maxStorageBufferBindingSize", "maxBufferSize"];
+  async function probe() {
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) return false;
+    const info = adapter.info || {};
+    report.adapter = [info.vendor, info.architecture, info.device, info.description]
+      .filter(Boolean).join(" / ") || "(no adapter info)";
+    for (const name of LIMITS) report.limits[name] = adapter.limits[name];
+    report.features = [...adapter.features].sort();
+    return true;
+  }
+
+  // The wasm is tens of megabytes, so count it in as it arrives.
+  async function download(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    const reader = response.body.getReader();
+    const chunks = [];
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      bytes += value.length;
+      notice(`Loading ${(bytes / 2 ** 20).toFixed(1)} MB`);
+    }
+    return new Blob(chunks).arrayBuffer();
+  }
+
+  let shown = null;
+  function showStatus() {
+    const text = demo.status();
+    if (!text) return;
+    const status = JSON.parse(text);
+    report.status = status;
+    if (status.quality !== shown?.quality) {
+      for (const button of $("tiers").children) {
+        button.setAttribute("aria-pressed", button.textContent.toUpperCase() === status.quality);
+      }
+    }
+    if (status.preset !== shown?.preset) $("preset").value = status.preset;
+    if (status.shadows !== undefined && status.shadows !== shown?.shadows) {
+      $("shadows").checked = status.shadows;
+    }
+    if (status.antialiasing !== undefined && status.antialiasing !== shown?.antialiasing) {
+      $("antialiasing").value = status.antialiasing;
+    }
+    shown = status;
+    showStats(status.stats);
+    if (status.decided && !status.supported) {
+      $("status").innerHTML = `<span class="bad">No grass on this device:</span> ${status.support}.`;
+      return;
+    }
+    const [near, mid, far] = status.blades;
+    const ms = frameMs();
+    $("status").textContent = (status.readings ? `${(near + mid + far).toLocaleString()} blades: `
+      + `${near.toLocaleString()} near,\n${mid.toLocaleString()} mid, ${far.toLocaleString()} far`
+      : "Counting blades") + (ms ? `\nframe ${ms.p50} ms, p95 ${ms.p95} ms` : "");
+    if (grassWarning && performance.now() - grassWarning.at < 15000) {
+      $("status").append(el("div", { className: "warning", textContent: grassWarning.text + "." }));
+    }
+  }
+
+  function choose(key, value) {
+    if (value) params.set(key, value); else params.delete(key);
+    history.replaceState(null, "", `${location.pathname}${params.size ? "?" + params : ""}${location.hash}`);
+  }
+
+  function controls() {
+    for (const tier of demo.qualities()) {
+      const button = document.createElement("button");
+      button.textContent = tier[0] + tier.slice(1).toLowerCase();
+      button.addEventListener("click", () => {
+        demo.set_quality(tier);
+        choose("quality", tier);
+        forget("settings");
+      });
+      $("tiers").append(button);
+    }
+    for (const preset of demo.presets()) {
+      const option = document.createElement("option");
+      option.value = preset;
+      option.textContent = preset.toLowerCase().replaceAll("_", " ");
+      $("preset").append(option);
+    }
+    $("preset").addEventListener("change", (e) => {
+      demo.set_preset(e.target.value);
+      choose("preset", e.target.value);
+      forget("field");
+      forget("far");
+      $("grass").focus();
+    });
+    $("shadows").addEventListener("change", (e) => {
+      demo.set_shadows(e.target.checked);
+    });
+    $("antialiasing").addEventListener("change", (e) => {
+      demo.set_antialiasing(parseInt(e.target.value));
+    });
+    $("fold").addEventListener("click", () => {
+      const folded = $("panel").classList.toggle("folded");
+      $("fold").textContent = folded ? "Show" : "Hide";
+    });
+    if (matchMedia("(max-width: 600px)").matches) $("fold").click();
+  }
+
+  // The tuning panel. The demo describes every setting it can change
+  // (`tunables()`): each target's value as a tree of structs, lists, enums
+  // and numbers, read from the crate's types by reflection. The page turns
+  // the tree into controls, and each control calls `set(target, path,
+  // value)` with the setting's reflect path. Only the ranges below are the
+  // page's own; a setting without one gets a number box.
+  //
+  // [min, max, step], or { r: [min, max, step], some } where `some` is what
+  // an `Option` starts at when switched on: a number, or values by path
+  // under the option.
+  const HINTS = {
+    "settings.radius": [1, 500, 1],
+    "settings.density_scale": [0, 2, 0.01],
+    "settings.min_width_px": [0, 4, 0.05],
+    "settings.orthographic_lod": [0, 2, 1],
+    "settings.instance_capacity": [1000, 4000000, 1000],
+    "settings.max_interactors": [1, 65536, 1],
+    "settings.blade_rows": [1, 31, 1],
+    "settings.lod1_start": [0, 1, 0.01],
+    "settings.lod2_start": [0, 1, 0.01],
+    "settings.fade_start": [0, 1, 0.01],
+    "settings.lod_blend": [0.01, 20, 0.01],
+    "settings.lod2_density": [0, 1, 0.01],
+    "settings.fade_density": [0, 1, 0.01],
+    "settings.mid_range_start": [0, 1, 0.01],
+    "settings.mid_range_density": [0, 1, 0.01],
+    "settings.max_widening": [1, 3.2, 0.01],
+    "settings.turn_to_camera": [0, 1, 0.01],
+    "settings.orthographic_extent": [8, 4096, 1],
+    "settings.max_chunk_slices": [1, 65535, 1],
+    "settings.readback_interval": [0, 240, 1],
+    "settings.trample_recovery": [0.01, 10, 0.01],
+    "settings.trample_cell_size": [0.05, 2, 0.01],
+    "settings.max_interactor_radius": [0.1, 16, 0.1],
+    "field.size": [1, 1000, 1],
+    "field.wind_scale": [0, 3, 0.01],
+    "field.plants.density_scale": [0, 2, 0.01],
+    "field.plants.clustering": [0, 1, 0.01],
+    "field.plants.plant.density": [0, 300, 0.1],
+    "field.plants.plant.height": [0, 4, 0.01],
+    "field.plants.plant.width": [0.001, 0.2, 0.001],
+    "field.plants.plant.lean": [0, 1, 0.01],
+    "field.plants.plant.stems_per_plant": [1, 8, 1],
+    "field.plants.plant.root_occlusion": [0, 1, 0.01],
+    "field.plants.plant.translucency": [0, 1, 0.01],
+    "field.plants.plant.specular": [0, 1, 0.01],
+    "field.plants.plant.head_length": [0, 1, 0.01],
+    "field.plants.plant.head_width": [0, 0.2, 0.001],
+    "field.plants.plant.tufts": [0, 1, 0.01],
+    "field.plants.plant.tuft_size": [0.05, 5, 0.01],
+    "field.plants.plant.accent.share": [0, 1, 0.01],
+    "field.plants.plant.segment.profile": [0, 1, 0.01],
+    "field.plants.plant.segment.stiffness": [0, 1, 0.01],
+    "field.plants.plant.segment.twist": [0, 2, 0.01],
+    "field.plants.plant.segment.droop": [0, 2, 0.01],
+    "field.plants.plant.segment.fold": [0, 1, 0.01],
+    "field.plants.plant.levels.segment.droop": [0, 1, 0.01],
+    "field.plants.plant.levels.count": [0, 32, 1],
+    "field.plants.plant.levels.attachment_start": [0, 0.99, 0.01],
+    "field.plants.plant.levels.length": [0, 1, 0.01],
+    "field.plants.plant.levels.length_envelope": [0, 1, 0.01],
+    "field.plants.plant.levels.width": [0, 1, 0.01],
+    "field.plants.plant.levels.angle": [0, 1, 0.01],
+    "field.density_scale": [0, 2, 0.01],
+    "field.variation.patch_amount": [0, 1, 0.01],
+    "field.variation.patch_size": [0.5, 100, 0.5],
+    "field.variation.dry_tips": [0, 1, 0.01],
+    "field.variation.dead_share": [0, 1, 0.01],
+    "field.variation.bare_share": [0, 1, 0.01],
+    "field.variation.bare_patch_size": [0.5, 50, 0.1],
+    "field.ground_tint.amount": [0, 1, 0.01],
+    "field.toon_bands": [0, 8, 1],
+    "wind.direction": [-1, 1, 0.01],
+    "wind.strength": [0, 1, 0.01],
+    "wind.gust_scale": [1, 100, 0.5],
+    "wind.gust_speed": [0, 30, 0.1],
+    "wind.sway": [0, 3, 0.01],
+    "wind.sway_speed": [0, 3, 0.01],
+    "wind.flutter": [0, 3, 0.01],
+    "wind.gust_contrast": [0, 3, 0.01],
+    "far.amount": [0, 1, 0.01],
+    "far.fade": { r: [0, 500, 1], some: { "0.x": 75, "0.y": 140 } },
+    "far.sheen": [0, 1, 0.01],
+    "far.area": { r: [-1000, 1000, 1], some: { "0.min.x": -200, "0.min.y": -200, "0.max.x": 200, "0.max.y": 200 } },
+    "regrowth.density_rate": [0, 0.5, 0.001],
+    "regrowth.height_rate": [0, 0.5, 0.001],
+    "walker.radius": [0, 5, 0.05],
+    "walker.strength": [0, 1, 0.01],
+    "walker.max_height": { r: [0, 5, 0.05], some: 1 },
+    "camera.radius": { r: [1, 500, 1], some: 150 },
+    "camera.density_scale": { r: [0, 2, 0.01], some: 1 },
+    "camera.min_width_px": { r: [0, 4, 0.05], some: 1 },
+    "camera.shadows": { some: "Near" },
+    "brush.op": { r: [0, 1, 0.01], some: 0, variants: { Height: 0.5, Mow: 0.3 } },
+    "brush.radius": [0.1, 20, 0.1],
+    "brush.softness": [0, 1, 0.01],
+    "brush.rate": { r: [0, 1, 0.01], some: 0.3 },
+    "debug.max_chunks": [0, 10000, 1],
+  };
+  const TITLES = {
+    settings: "Quality", field: "Field", wind: "Wind", far: "Far grass",
+    regrowth: "Regrowth", walker: "Walker", camera: "Camera", brush: "Brush", debug: "Debug view",
+  };
+  const NOTES = {
+    settings: "The quality buttons above start these again from a tier.",
+    field: "The meadow's GrassField: its plants and their look. The preset picker above starts this again from a preset.",
+    far: "The ground beyond the blades, in a FarGrassMaterial. It follows the field's colours as you change them.",
+    regrowth: "On the meadow's field: how fast what the brush cleared grows back.",
+    walker: "The GrassInteractor on the blue capsule.",
+    camera: "On the camera: overrides of GrassSettings for this view.",
+    brush: "Hold the left mouse button on the ground to paint with this GrassBrush.",
+    debug: "Gizmos of the crate's debug feature.",
+  };
+
+  // The settings the page has set, by "target|path", kept in the address so
+  // a link reproduces them.
+  const tweaks = new Map(new URLSearchParams(location.hash.slice(1)));
+  const saveTweaks = () => {
+    const hash = new URLSearchParams([...tweaks]).toString();
+    history.replaceState(null, "", `${location.pathname}${location.search}${hash ? "#" + hash : ""}`);
+  };
+  // A target started again from its tier or preset loses what the page set.
+  function forget(target) {
+    const prefix = target.includes("|") ? target : target + "|";
+    for (const key of [...tweaks.keys()]) if (key.startsWith(prefix)) tweaks.delete(key);
+    saveTweaks();
+  }
+
+  // Changes are sent once a frame, the last value of each setting.
+  const pending = new Map();
+  let flushing = false;
+  function send(target, path, value) {
+    const key = `${target}|${path}`;
+    pending.delete(key);
+    pending.set(key, String(value));
+    tweaks.delete(key);
+    tweaks.set(key, String(value));
+    if (!flushing) {
+      flushing = true;
+      requestAnimationFrame(() => {
+        flushing = false;
+        for (const [key, value] of pending) {
+          const at = key.indexOf("|");
+          demo.set(key.slice(0, at), key.slice(at + 1), value);
+        }
+        pending.clear();
+        saveTweaks();
+      });
+    }
+  }
+
+  // "plants[1].plant.width" and "fade.0.x" look up "plants.plant.width"
+  // and "fade": list indices and an option's value share their hint.
+  function hintFor(target, path) {
+    const plain = path.replace(/\[\d+\]/g, "").replace(/\.0(?=\.|$)/g, "");
+    const parts = plain.split(".");
+    for (let n = parts.length; n > 0; n--) {
+      const key = `${target}.${parts.slice(0, n).join(".")}`;
+      if (key in HINTS) return Array.isArray(HINTS[key]) ? { r: HINTS[key] } : HINTS[key];
+      // A plant's accent has the plant's own ranges, and a level's segment
+      // the plant's own segment's.
+      const plant = key
+        .replace(/\.plant\.accent\./, ".plant.")
+        .replace(/\.levels\.segment\./, ".segment.");
+      if (plant in HINTS) return Array.isArray(HINTS[plant]) ? { r: HINTS[plant] } : HINTS[plant];
+    }
+    return {};
+  }
+
+  const el = (tag, props = {}, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  };
+  // Rustdoc links read as their text.
+  const plainDoc = (doc) => doc.replace(/\[`?([^\]`]+)`?\]\([^)]*\)/g, "$1")
+    .replace(/\[`([^\]`]+)`\]/g, "$1").replaceAll("`", "");
+  const tidy = (v) => String(Math.round(v * 10000) / 10000);
+  const join = (path, name) => (path ? `${path}.${name}` : name);
+
+  // The details the reader has opened, kept open when the panel is rebuilt.
+  const open = new Set();
+  function details(key, className, summary) {
+    const node = el("details", { className });
+    node.dataset.key = key;
+    node.open = open.has(key);
+    node.addEventListener("toggle", () => (node.open ? open.add(key) : open.delete(key)));
+    node.append(el("summary", {}, ...summary));
+    return node;
+  }
+
+  // A labelled row; clicking the name shows the setting's documentation.
+  function row(parent, name, doc, ...controls) {
+    const label = el("span", { className: doc ? "name" : "name nodoc", textContent: name });
+    const line = el("div", { className: controls.length > 1 ? "row" : "row wide" }, label, ...controls);
+    parent.append(line);
+    if (doc) {
+      const text = el("div", { className: "doc", hidden: true, textContent: plainDoc(doc) });
+      label.title = plainDoc(doc).split(". ")[0];
+      label.addEventListener("click", () => (text.hidden = !text.hidden));
+      parent.append(text);
+    }
+  }
+
+  function number(parent, target, path, name, doc, value, integer) {
+    const [min, max, step] = hintFor(target, path).r ?? [];
+    const box = el("input", { type: "number", value: tidy(value), step: step ?? (integer ? 1 : "any") });
+    if (min === undefined) {
+      box.addEventListener("change", () => send(target, path, box.value));
+      return row(parent, name, doc, box);
+    }
+    const slider = el("input", { type: "range", min, max, step, value });
+    slider.addEventListener("input", () => {
+      box.value = tidy(slider.value);
+      send(target, path, slider.value);
+    });
+    box.addEventListener("change", () => {
+      slider.value = box.value;
+      send(target, path, box.value);
+    });
+    row(parent, name, doc, slider, box);
+  }
+
+  // Renders one value of the tree, and everything under it.
+  function render(parent, node, target, path, name, doc) {
+    switch (node.t) {
+      case "f32":
+        return number(parent, target, path, name, doc, node.v ?? 0, false);
+      case "int":
+        return number(parent, target, path, name, doc, node.v, true);
+      case "bool": {
+        const box = el("input", { type: "checkbox", checked: node.v });
+        box.addEventListener("change", () => send(target, path, box.checked));
+        return row(parent, name, doc, box);
+      }
+      case "color": {
+        const picker = el("input", { type: "color", value: node.v.slice(0, 7).toLowerCase() });
+        picker.addEventListener("input", () => send(target, path, picker.value));
+        return row(parent, name, doc, picker);
+      }
+      case "enum":
+        return renderEnum(parent, node, target, path, name, doc);
+      case "list":
+        return renderList(parent, node, target, path, name, doc);
+      case "struct": {
+        // Vectors are a row per component.
+        if (node.ty === "Vec2" || node.ty === "Vec3") {
+          node.f.forEach((f, at) => render(parent, f.v, target, join(path, f.n), at ? `  .${f.n}` : `${name}.${f.n}`,
+            at ? null : doc));
+          return;
+        }
+        if (!path) {
+          for (const f of node.f) render(parent, f.v, target, f.n, f.n, f.d);
+          return;
+        }
+        const group = details(`${target}|${path}`, "group", [`${name} `, el("code", { textContent: node.ty })]);
+        if (doc) group.append(el("div", { className: "doc", textContent: plainDoc(doc) }));
+        for (const f of node.f) render(group, f.v, target, join(path, f.n), f.n, f.d);
+        parent.append(group);
+        return;
+      }
+      default:
+        // Handles and other values a page cannot edit.
+        return;
+    }
+  }
+
+  function renderEnum(parent, node, target, path, name, doc) {
+    const choice = el("select");
+    for (const variant of node.variants) choice.append(el("option", { value: variant, textContent: variant }));
+    choice.value = node.v;
+    choice.addEventListener("change", () => {
+      const hint = hintFor(target, path);
+      const some = hint.variants?.[choice.value] ?? hint.some;
+      if (some !== undefined && typeof some === "object") {
+        send(target, path, choice.value);
+        if (choice.value !== "None") for (const [under, v] of Object.entries(some)) send(target, `${path}.${under}`, v);
+      } else {
+        send(target, path, some !== undefined && choice.value !== "None" ? `${choice.value}:${some}` : choice.value);
+      }
+    });
+    row(parent, name, doc, choice);
+    node.f.forEach((f) => render(parent, f.v, target, `${path}.${f.n}`, `  ${node.ty === "Option" ? "value" : node.v}`, null));
+  }
+
+  function renderList(parent, node, target, path, name, doc) {
+    if (node.fixed) {
+      node.items.forEach((item, at) => render(parent, item, target, `${path}[${at}]`, `${name}[${at}]`, at ? null : doc));
+      return;
+    }
+    // A growable list: the field's plants.
+    const group = details(`${target}|${path}`, "group", [`${name} `, el("code", { textContent: `${node.items.length}` })]);
+    if (doc) group.append(el("div", { className: "doc", textContent: plainDoc(doc) }));
+    node.items.forEach((item, at) => {
+      const remove = el("button", { textContent: "Remove" });
+      remove.addEventListener("click", () => {
+        demo.remove_plant(at);
+        ronAfter = revision;
+      });
+      const entry = details(`${target}|${path}[${at}]`, "group", [`${name}[${at}]`]);
+      entry.append(el("div", { className: "tools" }, remove));
+      for (const f of item.f) render(entry, f.v, target, `${path}[${at}].${f.n}`, f.n, f.d);
+      group.append(entry);
+    });
+    const plant = el("select");
+    for (const name of demo.plants()) plant.append(el("option", { value: name, textContent: name.toLowerCase().replaceAll("_", " ") }));
+    const add = el("button", { textContent: "Add" });
+    add.addEventListener("click", () => {
+      demo.add_plant(plant.value);
+      ronAfter = revision;
+    });
+    group.append(el("div", { className: "tools" }, plant, add));
+    parent.append(group);
+  }
+
+  // A button that copies text, and says so.
+  function copyButton(label, text) {
+    const button = el("button", { textContent: label });
+    button.addEventListener("click", async () => {
+      refreshTunables();
+      try {
+        await navigator.clipboard.writeText(text());
+        button.textContent = "Copied";
+      } catch {
+        button.textContent = "Copy failed";
+      }
+      setTimeout(() => (button.textContent = label), 1200);
+    });
+    return button;
+  }
+
+  let tunables = null;
+  let tunablesText = "";
+  let revision = -1;
+  let shape = "";
+  // Set when the field changed in a way no single setting describes (a
+  // plant added or removed, a file loaded): the revision it changed after.
+  let ronAfter = null;
+  const codeOf = (name, kind) => tunables.targets.find((t) => t.name === name)?.[kind] ?? "";
+
+  // The variants and list lengths: what decides which controls there are.
+  function shapeOf(node) {
+    if (node.t === "struct") return node.f.map((f) => shapeOf(f.v)).join("");
+    if (node.t === "list") return `[${node.items.map(shapeOf).join("")}]`;
+    if (node.t === "enum") return `${node.v}(${node.f.map((f) => shapeOf(f.v)).join("")})`;
+    return "";
+  }
+
+  function refreshTunables() {
+    const text = demo.tunables();
+    if (!text || text === tunablesText) return;
+    tunablesText = text;
+    tunables = JSON.parse(text);
+    // Values the page did not set (a tier, a preset, a reset) or a new set
+    // of controls (a variant switched, a plant added): build it again.
+    const now = tunables.targets.map((t) => shapeOf(t.value)).join("|");
+    if (ronAfter !== null && tunables.revision > ronAfter) {
+      ronAfter = null;
+      forget("field");
+      tweaks.set("field|ron", codeOf("field", "ron"));
+      saveTweaks();
+    }
+    if (tunables.revision !== revision || now !== shape) {
+      revision = tunables.revision;
+      shape = now;
+      buildPanel();
+    }
+    // The Rust and RON follow every change.
+    for (const pre of document.querySelectorAll("pre.code")) {
+      const code = codeOf(pre.dataset.target, pre.dataset.kind);
+      if (pre.textContent !== code) pre.textContent = code;
+    }
+  }
+
+  function buildPanel() {
+    const scroll = $("panel").scrollTop;
+    const sections = $("sections");
+    sections.replaceChildren();
+    for (const target of tunables.targets) {
+      const section = details(target.name, "section",
+        [`${TITLES[target.name] ?? target.name} `, el("code", { textContent: target.value.ty })]);
+      const tools = el("div", { className: "tools" });
+      const reset = el("button", { textContent: "Reset" });
+      reset.addEventListener("click", () => {
+        demo.reset(target.name);
+        forget(target.name);
+      });
+      tools.append(reset);
+      if (target.name === "wind") {
+        const preset = el("select", {}, el("option", { value: "", textContent: "preset…" }));
+        for (const wind of demo.winds()) preset.append(el("option", { value: wind, textContent: wind.toLowerCase() }));
+        preset.addEventListener("change", () => {
+          if (!preset.value) return;
+          demo.set_wind(preset.value);
+          forget("wind");
+        });
+        tools.append(preset);
+      }
+      if (target.name === "brush") {
+        const restore = el("button", { textContent: "Grow the field back" });
+        restore.addEventListener("click", () => demo.restore_field());
+        tools.append(restore);
+      }
+      section.append(tools);
+      if (NOTES[target.name]) section.append(el("div", { className: "doc", textContent: NOTES[target.name] }));
+      render(section, target.value, target.name, "", target.name, null);
+      section.append(codeBlock(target.name, "rust", "Rust"));
+      if (target.name === "field") {
+        section.append(codeBlock(target.name, "ron", ".field.ron"));
+        section.append(importBlock());
+      }
+      sections.append(section);
+    }
+    const stats = details("stats", "section", ["Stats ", el("code", { textContent: "GrassStats" })]);
+    stats.append(el("div", { className: "stats", id: "stats" }));
+    sections.append(stats);
+    $("panel").scrollTop = scroll;
+    if (shown) showStats(shown.stats);
+  }
+
+  function codeBlock(target, kind, label) {
+    const block = details(`${target}|${kind}`, "group", [label]);
+    const pre = el("pre", { className: "code", textContent: codeOf(target, kind) });
+    pre.dataset.target = target;
+    pre.dataset.kind = kind;
+    block.append(el("div", { className: "tools" }, copyButton("Copy", () => codeOf(target, kind))), pre);
+    return block;
+  }
+
+  function importBlock() {
+    const block = details("field|import", "group", ["Load a .field.ron"]);
+    const text = el("textarea", { placeholder: "(base: \"MEADOW\", density_scale: 2.0)", spellcheck: false });
+    const error = el("div", { className: "doc error" });
+    const load = el("button", { textContent: "Load" });
+    load.addEventListener("click", () => {
+      error.textContent = demo.import_field(text.value);
+      if (!error.textContent) ronAfter = revision;
+    });
+    block.append(text, el("div", { className: "tools" }, load), error);
+    return block;
+  }
+
+  // GrassStats, flattened to one line per number.
+  function showStats(node) {
+    const box = $("stats");
+    if (!node || !box || !box.closest("details").open) return;
+    const lines = [];
+    const walk = (n, path) => {
+      if (n.t === "struct") n.f.forEach((f) => walk(f.v, join(path, f.n)));
+      else if (n.t === "list") n.items.forEach((item, at) => walk(item, `${path}[${at}]`));
+      else if (n.t === "ms") lines.push(`${path}: ${n.v.toFixed(2)} ms`);
+      else if (n.t !== "opaque") lines.push(`${path}: ${typeof n.v === "number" ? n.v.toLocaleString() : n.v}`);
+    };
+    walk(node, "");
+    box.textContent = lines.join("\n");
+  }
+
+  // Replays the settings in the address, after the tier and preset.
+  function replayTweaks() {
+    for (const [key, value] of tweaks) {
+      const at = key.indexOf("|");
+      if (key === "field|ron") demo.import_field(value);
+      else if (at > 0) demo.set(key.slice(0, at), key.slice(at + 1), value);
+    }
+  }
+
+  // `?smoke`: show each tier until the GPU has counted its blades twice,
+  // then send the report to the server that served the page
+  // (`tools/web_demo.py`), which decides pass or fail.
+  const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+  async function until(test, seconds) {
+    for (let waited = 0; waited < seconds * 1000; waited += 250) {
+      showStatus();
+      if (test(report.status)) return true;
+      await wait(250);
+    }
+    return false;
+  }
+  async function smokeTest() {
+    const decided = await until((s) => s?.decided, 60);
+    if (!decided) return "the renderer did not start within 60 s";
+    if (!report.status.supported) return `no grass: ${report.status.support}`;
+    for (const quality of demo.qualities()) {
+      demo.set_quality(quality);
+      await until((s) => s.quality === quality, 10);
+      const start = report.status.readings;
+      const counted = await until((s) => s.readings >= start + 2, 60);
+      const blades = report.status.blades.reduce((a, b) => a + b, 0);
+      // The frame times of the last tier's start-up are behind it by now.
+      deltas.length = 0;
+      await wait(3000);
+      report.tiers.push({ quality, blades, frameMs: frameMs() });
+      if (!counted) return `${quality}: the GPU counted no blades within 60 s`;
+      if (!blades) return `${quality}: no blades drawn`;
+    }
+    return "";
+  }
+  async function finishSmoke(failure) {
+    report.outcome = failure || (report.errors.length ? `${report.errors.length} errors logged` : "ok");
+    report.pass = report.outcome === "ok";
+    document.title = `smoke: ${report.pass ? "pass" : "fail"}`;
+    window.smokeReport = report;
+    await fetch("smoke", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(report) }).catch(() => {});
+  }
+
+  async function main() {
+    // Three different failures, each with its own advice: an in-app browser
+    // (an Android WebView) has no navigator.gpu even where Chrome has it.
+    const problem = !navigator.gpu
+      ? `This browser has no WebGPU.</span><br>The demo needs WebGPU, which current
+        Chrome and Edge have. If this page opened inside another app, open it in the
+        browser itself.`
+      : await probe().then(
+        (found) => found ? null : `WebGPU gave this page no GPU.</span><br>The browser has
+          WebGPU, but not for this device's graphics chip or driver.`,
+        (e) => `WebGPU failed to start:</span> ${String(e).replace(/[&<>]/g, "")}`);
+    if (problem) {
+      notice(`<span class="bad">${problem}`);
+      return smoke && finishSmoke(problem.split("<")[0]);
+    }
+    const module_or_path = await download(new URL("procgena_plant_web_bg.wasm", import.meta.url));
+    notice("Starting");
+    try {
+      await init({ module_or_path });
+    } catch (e) {
+      // Bevy's event loop starts by throwing this on purpose; the demo runs on.
+      if (!String(e).includes("Using exceptions for control flow")) throw e;
+    }
+    notice("");
+    controls();
+    if (params.get("quality")) demo.set_quality(params.get("quality").toUpperCase());
+    if (params.get("preset")) demo.set_preset(params.get("preset").toUpperCase());
+    if (params.get("shadows")) demo.set_shadows(params.get("shadows") === "true");
+    if (params.get("antialiasing")) demo.set_antialiasing(parseInt(params.get("antialiasing")));
+    replayTweaks();
+    setInterval(showStatus, 500);
+    setInterval(refreshTunables, 250);
+    $("grass").focus();
+    if (smoke) finishSmoke(await smokeTest());
+  }
+  window.grassReport = report;
+  main().catch((e) => {
+    console.error("demo: " + e);
+    notice(`<span class="bad">The demo stopped:</span> ${String(e).replace(/[&<>]/g, "")}`);
+    if (smoke) finishSmoke(String(e));
+  });
+</script>
+</body>
+</html>

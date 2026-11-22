@@ -1,0 +1,984 @@
+{
+  "version": 1,
+  "baseUrl": "https://storage.googleapis.com/ze_textures/clump/images/",
+  "pathPatterns": {
+    "surface": "<category>/<id>-<size>-<map>.jpg",
+    "stalks": "stalks/<id>-<map>.png"
+  },
+  "sizes": {
+    "512": "512 x 512 pixels",
+    "1k": "1024 x 1024 pixels",
+    "2k": "2048 x 2048 pixels"
+  },
+  "maps": {
+    "color": "surface colour, sRGB, with straight-alpha transparency for stalk cards",
+    "normal": "surface bumps, OpenGL (+Y); load as linear data",
+    "orm": "R occlusion (shades hollows), G roughness (light is matte), B metalness (always zero); linear data"
+  },
+  "assets": [
+    {
+      "id": "snow_02",
+      "category": "snow",
+      "title": "Snow 02",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/snow_02",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "snow/snow_02-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 51934,
+          "sha256": "ead57efb7fb8d83eded7d861bdf1d9e943daf199685e160abeed1654e6d23860"
+        },
+        {
+          "path": "snow/snow_02-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 250429,
+          "sha256": "b0270b004159a31973d8ae6f33b0eed405b7210021732a7cd7339a0676d26155"
+        },
+        {
+          "path": "snow/snow_02-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 81263,
+          "sha256": "43d35f03dbaa68ca56def8322b4bf3d3ab11be26836ce2e6db0e80a8e582eedc"
+        },
+        {
+          "path": "snow/snow_02-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 232576,
+          "sha256": "490f4970091ac685e84e3ec8971508bf664b43a76a35a4fb9b5283ad1e3515e3"
+        },
+        {
+          "path": "snow/snow_02-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1092672,
+          "sha256": "cee4d3fb35c5953df9ce14c3929894f58087c508a2892e151d6c964ce95dfbd1"
+        },
+        {
+          "path": "snow/snow_02-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 343388,
+          "sha256": "4f3d83a57b18b24734bff3710d780af8a776533a5147d548af168685ba9dbabf"
+        },
+        {
+          "path": "snow/snow_02-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1111564,
+          "sha256": "c81d8f1bbc28d6daed18978dda860607ef338a7de322b66dae1fe5dd42adca7c"
+        },
+        {
+          "path": "snow/snow_02-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4762794,
+          "sha256": "abf0e2a095a91d5187c6b969d7eebefb82e43b69c9f1140daedf0905673c3437"
+        },
+        {
+          "path": "snow/snow_02-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1458174,
+          "sha256": "99f64f8f089f260f35c99072865ec0757188ddfaae9a609f17b1c292c10427ae"
+        }
+      ]
+    },
+    {
+      "id": "snow_005",
+      "category": "snow",
+      "title": "Snow 005",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Snow005",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "snow/snow_005-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 16335,
+          "sha256": "a997cbd68183a0c15d9f798dd1fa2ab473a8ade9800e57a00edda6fc0b1c2143"
+        },
+        {
+          "path": "snow/snow_005-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 220897,
+          "sha256": "62e9a6d36d571d6a862c52743e3efe797424be2114a90e5b74b32aa9c206491b"
+        },
+        {
+          "path": "snow/snow_005-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 59782,
+          "sha256": "3a892a41bbe9a5ebd59992d1c43ddd9827bc3070c3c1d066135960c233f3649d"
+        },
+        {
+          "path": "snow/snow_005-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 80020,
+          "sha256": "e8d4460d53836ad5e5d627c1ca013ab565e3c3bfb36aa54770ac56e6437e8ef4"
+        },
+        {
+          "path": "snow/snow_005-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1122499,
+          "sha256": "6ff218fa54cbfe8451b6465385617ba95578078a5e3fc9029ce0d7fcf786b0b0"
+        },
+        {
+          "path": "snow/snow_005-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 315417,
+          "sha256": "ecb03edcfc911d3a90d896c254647fb8b721ef00279d33e428d22169c49d757d"
+        },
+        {
+          "path": "snow/snow_005-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 370170,
+          "sha256": "b69fa6db532db364ff14643f9b4d7ad2bd8d8c23fbb7bb33bab7fd934699718f"
+        },
+        {
+          "path": "snow/snow_005-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5131898,
+          "sha256": "3ef314e89d3586a1f636d0f795e65a0851b410878e363110f7d33caa9a1b715c"
+        },
+        {
+          "path": "snow/snow_005-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1870907,
+          "sha256": "daed21350bcd5e8060972e8e930266e60113b3e35e5be00fa1edcd38eec5249d"
+        }
+      ]
+    },
+    {
+      "id": "snow_014",
+      "category": "snow",
+      "title": "Snow 014",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Snow014",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "snow/snow_014-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 45065,
+          "sha256": "56c4852d172a2786215d4e78ed7ad88b6a2d1b04923fb9724bb8260d75f98c33"
+        },
+        {
+          "path": "snow/snow_014-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 152374,
+          "sha256": "c6bef6739b8a7aff5f872d12e05b2dbe341cf26747a66900071db01731126c73"
+        },
+        {
+          "path": "snow/snow_014-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 102345,
+          "sha256": "0fee59ab2425a1b419aca69ab8b936e9cc78100ec9e494716ef9035493b66144"
+        },
+        {
+          "path": "snow/snow_014-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 182007,
+          "sha256": "45d780ddadfa792e076b42300660099d7a8f514497763c0535f08507ae038689"
+        },
+        {
+          "path": "snow/snow_014-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 788909,
+          "sha256": "2dc8191e5988d37550d021668553e66741751588a7a259e525a5dd7581d7fed2"
+        },
+        {
+          "path": "snow/snow_014-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 657888,
+          "sha256": "33c291f17a49301bd7c53b77cb17ec3db5726c3d7bd5c136de281b6acd7f7967"
+        },
+        {
+          "path": "snow/snow_014-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 674633,
+          "sha256": "8ac92b88581b86abc61fc2870c03d7eaf88c8f45d94fa3e72754672b914412f1"
+        },
+        {
+          "path": "snow/snow_014-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3139686,
+          "sha256": "f3e3afe20f16f9159976a0acc9cc6e04dc1b2243e35dee4f60cf477a047067bc"
+        },
+        {
+          "path": "snow/snow_014-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3745894,
+          "sha256": "1dd40340584a56706a2fa88cd32b8056a133d1f861bbdf535277a95d1d0bca15"
+        }
+      ]
+    },
+    {
+      "id": "moss_002",
+      "category": "moss",
+      "title": "Moss 002",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Moss002",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "moss/moss_002-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 160672,
+          "sha256": "f5932019fc770d7f3df2441122a950953990f41d426193ff47552a35f58eddd9"
+        },
+        {
+          "path": "moss/moss_002-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 293835,
+          "sha256": "53d79a8807e5be588d0c3ad50ba573b15e934b27482060d473eb4f7703a27aa0"
+        },
+        {
+          "path": "moss/moss_002-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 275621,
+          "sha256": "cece8cee97be85eecb152f7071a705a1720982dcc27f840eec3420c547c0a161"
+        },
+        {
+          "path": "moss/moss_002-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 703494,
+          "sha256": "3b6e069c9b2875970be2814fa4b9b62b71e35d06f9ac34dec437ae79411c8f62"
+        },
+        {
+          "path": "moss/moss_002-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1473691,
+          "sha256": "1569c72fddd8f2e5acac852032e3df961bdadb574cbc6683232a87bb2ae68956"
+        },
+        {
+          "path": "moss/moss_002-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1318425,
+          "sha256": "273bb70db8f7a801963c7faee45945dbff00e5c2bc249dc2870db66d71828666"
+        },
+        {
+          "path": "moss/moss_002-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2824203,
+          "sha256": "d6505a90949ec99cb84a33339a51d55d9c4bebf2387d841242f49bc7292cc1eb"
+        },
+        {
+          "path": "moss/moss_002-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 6939604,
+          "sha256": "a9ebccfdfe9066fcbf3ba8636ae28242fd87d3f4bc573d7974fa565e170e02d5"
+        },
+        {
+          "path": "moss/moss_002-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5706509,
+          "sha256": "320d6f0d7bd5d010848fda24f0106b36d367e9637992f4ef996057c4f61a023f"
+        }
+      ]
+    },
+    {
+      "id": "moss_003",
+      "category": "moss",
+      "title": "Moss 003",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Moss003",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "moss/moss_003-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 169563,
+          "sha256": "fc9f8df6aba64e47e9c50ed4fd05a7fc63a3cf4bd6fb7a1409ce44b9506bc5bb"
+        },
+        {
+          "path": "moss/moss_003-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 336316,
+          "sha256": "8602d81116b924fa8c7ebcf997dc90c6bf1ab68427b38612e2d0156d300af859"
+        },
+        {
+          "path": "moss/moss_003-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 295605,
+          "sha256": "92c5f0ac7d7083367a408394a5d95c7236204b99be03729f347210d8230ea3c2"
+        },
+        {
+          "path": "moss/moss_003-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 685293,
+          "sha256": "0c64e03893dc73fd8527eaf4152458496f39013f7334d756c1ac247ae97fe4ab"
+        },
+        {
+          "path": "moss/moss_003-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1606532,
+          "sha256": "9963498ada68e36d13d7993fb9d28bf409850f2a36e03a1002b1f42bab5bb4a6"
+        },
+        {
+          "path": "moss/moss_003-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1382286,
+          "sha256": "88982f90b2f045522b4943100c0029471464ad03e26cd72b2ac418d0c21304ca"
+        },
+        {
+          "path": "moss/moss_003-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2441368,
+          "sha256": "4be67b748ab18e77fcc2ffa360bacdbccb0b02351a6ebd89bd09ff3c05d3869c"
+        },
+        {
+          "path": "moss/moss_003-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 6930426,
+          "sha256": "8374b95eb33bc4812c097719884f4e9628e475de4e7c08818d034da5df8ff1cc"
+        },
+        {
+          "path": "moss/moss_003-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5371516,
+          "sha256": "a6fc93cd5a642caaa1f97549323a89d752a100803591f0fe60eb437af498e3f7"
+        }
+      ]
+    },
+    {
+      "id": "moss_004",
+      "category": "moss",
+      "title": "Moss 004",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Moss004",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "moss/moss_004-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 122573,
+          "sha256": "4b207e4f717ccccbb776d8dd02a1c1ed24589ea50e93d8fd7ba9aefcc500fc44"
+        },
+        {
+          "path": "moss/moss_004-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 234362,
+          "sha256": "316fd10d31ebffb3d1ee6aafa030383e8576ffc5bf4a405666be5b5cb040ffc3"
+        },
+        {
+          "path": "moss/moss_004-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 237578,
+          "sha256": "22070850f5c8b108fa0d9938534e17b89ca87c615875905f9f01f13874aa0ded"
+        },
+        {
+          "path": "moss/moss_004-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 579297,
+          "sha256": "ba42dce75116cd5f5469fedbe03ca21f594da2a2e5f73bb0a9cf94c2ea0108f8"
+        },
+        {
+          "path": "moss/moss_004-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1273420,
+          "sha256": "aafed8fc9dba56196af1c39f034af42108d25f2306a9fa8d322d9cc8be7c880b"
+        },
+        {
+          "path": "moss/moss_004-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1213325,
+          "sha256": "1e343979f73df9b48cd3754f2bc76082ea3b642325d2aff09235ad56aea74cb0"
+        },
+        {
+          "path": "moss/moss_004-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2517485,
+          "sha256": "ba61a64d9da9b911b39c83058f0df7eec15b65f74613d90df5e39a9086d51db8"
+        },
+        {
+          "path": "moss/moss_004-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 6425905,
+          "sha256": "5eee03d551ded37e3f6df694fc9c7ca8bc0157e25b8b62246b76c1d0ed8771b6"
+        },
+        {
+          "path": "moss/moss_004-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5568101,
+          "sha256": "7a1c8a7a62bfe870df2a5626ba311b325b16644113607ce7fdaa0b338b6f6338"
+        }
+      ]
+    },
+    {
+      "id": "leaves_dry_decay",
+      "category": "leaves",
+      "title": "Dry Decay Leaves",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/dry_decay_leaves",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "leaves/leaves_dry_decay-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 78614,
+          "sha256": "8964b89a203e2e6a8e4353027e3714070dea961e06f47a09a28ab8a836ee1284"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 273666,
+          "sha256": "cd4af8fad88814130d21d8930df8919a425008802a5108530bb2ac8f70637165"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 232641,
+          "sha256": "e08ed1ee1efeeb82c0df5b6f36bfa4625c233e6c2ab598044573f0bc43f4f5a4"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 288367,
+          "sha256": "5593f20009db1470a321b33ab67d895a90140c0b44e792d1034ebbef1ec78d87"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 899420,
+          "sha256": "4ebf51999744246083d9f58ad936bd15006e20bec1d225321b118304a90129f6"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 761308,
+          "sha256": "f87c33b434b6d68c2b12316d41cdb4ee306127d38f0a9188eb009b5c12b7d2fe"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1068078,
+          "sha256": "1f758205e097b39a6e7e961fe9ecd8166471dd9c2c7b8273308c28d5dc78efa8"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2676168,
+          "sha256": "6264611322aeab022138f09564e222d3bafde6ff6acb7cc1f2a9a39d09cd2e6d"
+        },
+        {
+          "path": "leaves/leaves_dry_decay-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2399535,
+          "sha256": "4a1d3b2f7530da6b77470662fc0589523fe910d9221b24db566a33d04fe64ce4"
+        }
+      ]
+    },
+    {
+      "id": "leaves_forest_ground",
+      "category": "leaves",
+      "title": "Leaves Forest Ground",
+      "authors": [
+        "Dario Barresi",
+        "Dimitrios Savva"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/leaves_forest_ground",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "leaves/leaves_forest_ground-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 146137,
+          "sha256": "061468ca339a24a4fcda6684c7b6b2e6d4098ed4680f17afdbbaf58acf16f3b9"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 377623,
+          "sha256": "c804d94810653f4c1edfaaf328c39fd20703bb919a1c127bc55c58b52406f6cf"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 261946,
+          "sha256": "c275ef8c977511a3bfe78c708f442e5474320d57ae373d0f5de2d7dba4319704"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 530144,
+          "sha256": "14499907a2266179aa9e667d121e27a3cebb0f26f04e9ef79aa74d25df0468a4"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1296495,
+          "sha256": "f4a7919778d3af9f0cca21e9b0f090151dd7415602b8cf52a028533a0306c6b6"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 905239,
+          "sha256": "6767aa1fa22b9d33b34d71cb3cff9f9978a48dd22fd73c865f238ebc89277acf"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1912009,
+          "sha256": "2d64e4ff6e55cff780651ae7edcfdc9670fddc0e223ad32d1cd2b20943647073"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3875873,
+          "sha256": "847ed5f66e9975fdd3b594b5ec95676bf7f08aa5d818dd2301420e35b82e8e94"
+        },
+        {
+          "path": "leaves/leaves_forest_ground-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3117331,
+          "sha256": "a727203b75840a4350de5733305c579b910bee51ce8d1670cc8b3d7cba01b33b"
+        }
+      ]
+    },
+    {
+      "id": "leaves_forest_03",
+      "category": "leaves",
+      "title": "Forest Leaves 03",
+      "authors": [
+        "Dimitrios Savva",
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/forest_leaves_03",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "leaves/leaves_forest_03-512-color.jpg",
+          "size": "512",
+          "map": "color",
+          "width": 512,
+          "height": 512,
+          "bytes": 134655,
+          "sha256": "96798569262f2b4823b5553457e7123cf399d26b7b2e1010364d0ea273c65e05"
+        },
+        {
+          "path": "leaves/leaves_forest_03-512-normal.jpg",
+          "size": "512",
+          "map": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 383105,
+          "sha256": "45a0dc77412cf9c58538942ada591a9fa69484c60b6a38ce63ec6eb4ca1a99ec"
+        },
+        {
+          "path": "leaves/leaves_forest_03-512-orm.jpg",
+          "size": "512",
+          "map": "orm",
+          "width": 512,
+          "height": 512,
+          "bytes": 300758,
+          "sha256": "5253c904c138111c01123970f10dbd0e4d73395d9eabd96917f14a33919dda78"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-color.jpg",
+          "size": "1k",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 452187,
+          "sha256": "3fcd4a1e11a1586d31c027d34a80c8ef5dcc456ba5080eca3eff0214b39c3729"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-normal.jpg",
+          "size": "1k",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1330699,
+          "sha256": "4de4c867c158ba65efdb7534451793bbf18f7b95596964a9993ad3c239731dfb"
+        },
+        {
+          "path": "leaves/leaves_forest_03-1k-orm.jpg",
+          "size": "1k",
+          "map": "orm",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 972977,
+          "sha256": "d637a3b55e06379391c0bda42dff85f1561072439d0e17f7dd66fca4270456b6"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-color.jpg",
+          "size": "2k",
+          "map": "color",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1415415,
+          "sha256": "e5580e31b8992f89a914859a17eeaf6dfda2f79d170e2c9b7615a450ff1790de"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-normal.jpg",
+          "size": "2k",
+          "map": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3886003,
+          "sha256": "d820931d499c054bab8945eb6940f888b3c6a6cceb4115356e6be8849f22de0c"
+        },
+        {
+          "path": "leaves/leaves_forest_03-2k-orm.jpg",
+          "size": "2k",
+          "map": "orm",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2919256,
+          "sha256": "1f35cb35142a19189c00f4f43ae029cada42705281910775f09c36369856fc0f"
+        }
+      ]
+    },
+    {
+      "id": "twig_bare",
+      "category": "stalks",
+      "title": "Bare twig",
+      "authors": [
+        "Nobiax (yughues)"
+      ],
+      "source": "nobiax",
+      "sourceUrl": "https://nobiax.deviantart.com",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "stalks/twig_bare-color.png",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 360828,
+          "sha256": "76826c3267f208e3e06bc5c38e378a486bbbdf1ff9ae095f5030658ea0cda714"
+        },
+        {
+          "path": "stalks/twig_bare-normal.png",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 195849,
+          "sha256": "4f20f9c2021f2462d2253f0913b18903d676cfd29864ab71f679c89b10b7a626"
+        }
+      ]
+    },
+    {
+      "id": "twig_budding",
+      "category": "stalks",
+      "title": "Budding twig",
+      "authors": [
+        "Nobiax (yughues)"
+      ],
+      "source": "nobiax",
+      "sourceUrl": "https://nobiax.deviantart.com",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "stalks/twig_budding-color.png",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 575599,
+          "sha256": "809be142c8a42e9f59f5e00911a03d6fc82a8400673878fb4c5b8f29e57a990c"
+        },
+        {
+          "path": "stalks/twig_budding-normal.png",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 274302,
+          "sha256": "3d4e1282643890cade890ef0f319333c43d895f9a8b68d1681670dac25d3c1b2"
+        }
+      ]
+    },
+    {
+      "id": "sporophyte_sparse",
+      "category": "stalks",
+      "title": "Sporophytes, sparse",
+      "authors": [
+        "procgena_clump"
+      ],
+      "source": "generated",
+      "sourceUrl": "tools/textures/LICENSE.md",
+      "license": "see LICENSE.md",
+      "files": [
+        {
+          "path": "stalks/sporophyte_sparse-color.png",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 781590,
+          "sha256": "cfd9ebb47cd5a1a8946c1c95c6d2211dfe5ace31b71d53dab1b2648b167b35d5"
+        },
+        {
+          "path": "stalks/sporophyte_sparse-normal.png",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 387098,
+          "sha256": "97d3cb69ad74ec355edf18e11ff7dc57560a19f415ea0569f681546a816fd2be"
+        }
+      ]
+    },
+    {
+      "id": "sporophyte_dense",
+      "category": "stalks",
+      "title": "Sporophytes, dense",
+      "authors": [
+        "procgena_clump"
+      ],
+      "source": "generated",
+      "sourceUrl": "tools/textures/LICENSE.md",
+      "license": "see LICENSE.md",
+      "files": [
+        {
+          "path": "stalks/sporophyte_dense-color.png",
+          "map": "color",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 791351,
+          "sha256": "989ca1746c5b476f8a2b90dcc5c304ac03c04faf224bfaffb97192f34aa4e37a"
+        },
+        {
+          "path": "stalks/sporophyte_dense-normal.png",
+          "map": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 445661,
+          "sha256": "93d18bf5dceac2949cdb8028ffb9e09ae7ca0d3fc32b6bcb37ddb96998caa96d"
+        }
+      ]
+    }
+  ]
+}

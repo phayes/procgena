@@ -1,0 +1,4466 @@
+{
+  "version": 1,
+  "baseUrl": "https://storage.googleapis.com/ze_textures/stone/",
+  "pathPattern": "<category>/<id>-<size>-<map>-<format>.ktx2",
+  "sizes": {
+    "512": "512 x 512 pixels",
+    "1k": "1024 x 1024 pixels",
+    "2k": "2048 x 2048 pixels"
+  },
+  "maps": {
+    "color": "surface colour; load as sRGB",
+    "normal": "surface bumps, OpenGL (+Y); load as linear data",
+    "orh": "R occlusion (shades hollows), G roughness (light is matte), B height (0-1, light is raised); linear data"
+  },
+  "formats": {
+    "bc7": "BC7 with Zstandard compression, for GPUs that support BC7, commonly desktops",
+    "uastc": "Basis Universal UASTC with Zstandard compression; the loader converts it to a format the GPU supports"
+  },
+  "assets": [
+    {
+      "id": "rock_face_03",
+      "category": "rock",
+      "title": "Rock Face 03",
+      "authors": [
+        "Dario Barresi",
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_face_03",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_face_03-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 324327,
+          "sha256": "8d5458f0bd3da2af28bf379d4d3b5b6c3c4d927dfd2332dbf212c50ce53aced9"
+        },
+        {
+          "path": "rock/rock_face_03-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 317049,
+          "sha256": "1c72d023d8c3e61912575303a22fb341b491b7775fa12633f6f119ef3f906697"
+        },
+        {
+          "path": "rock/rock_face_03-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 333114,
+          "sha256": "98b869e5895e77f241700a288e45db6b6ccacd6e6a0e073085a536b5d807ac67"
+        },
+        {
+          "path": "rock/rock_face_03-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 321624,
+          "sha256": "8654a3bc6f5dfc7ecf317438dcaffaffeefeeaab16da636f43b6c29ac91e136a"
+        },
+        {
+          "path": "rock/rock_face_03-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 335209,
+          "sha256": "536450bf104d71f89e459177ffa372084734c4613e8363a0d967d122d48083d1"
+        },
+        {
+          "path": "rock/rock_face_03-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 322594,
+          "sha256": "a553289e873fff258573b7c9a38194ccf695bc4bbf0264fa49e50e2ec719089f"
+        },
+        {
+          "path": "rock/rock_face_03-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1270578,
+          "sha256": "b38a5b1c7cf2b254daedd8e60d3a32f78f44def55a9b2af0fa61b52814be0aae"
+        },
+        {
+          "path": "rock/rock_face_03-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1245571,
+          "sha256": "336d3e503b13ad642da998be9025a905445cf1524c6682438f050a4c9a78cde1"
+        },
+        {
+          "path": "rock/rock_face_03-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1323535,
+          "sha256": "3cef3924ac78265c09eb28b598aea8fe5d0bbff36b1ed79b82602206196a3be4"
+        },
+        {
+          "path": "rock/rock_face_03-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1297086,
+          "sha256": "5c33767f1d064613d49a06df45dc06ebd47982332d26a30af3a8f10e430582d2"
+        },
+        {
+          "path": "rock/rock_face_03-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1310091,
+          "sha256": "be206505938b221c15cf9ed79f52563844dc43fcf811cb630f0b620aa72afca0"
+        },
+        {
+          "path": "rock/rock_face_03-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1296032,
+          "sha256": "e72ca4e569cc1014a9470b5c2b52c24e81183e092957bea4f392069d2dfd756c"
+        },
+        {
+          "path": "rock/rock_face_03-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4906749,
+          "sha256": "0717d5c305a793961772e3f36df45082ee5650229e63efa639c98521a9cb6523"
+        },
+        {
+          "path": "rock/rock_face_03-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4876404,
+          "sha256": "ce74eca726222991b1b75e142eaa6e7f3adb22cf8aeae5913dd4c22bb646883f"
+        },
+        {
+          "path": "rock/rock_face_03-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5230523,
+          "sha256": "c1641fb33d85f99a1918bfc077d0b3d5e5503dea48d997c0e7e878c6501a83f1"
+        },
+        {
+          "path": "rock/rock_face_03-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5080490,
+          "sha256": "73d5c4f54d7170461515438a965cd51a8cbc9c53944f23c8ab1cc708941df7e2"
+        },
+        {
+          "path": "rock/rock_face_03-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5106568,
+          "sha256": "f56b747e6ca287a5a59d8b2cb6120e0e7705e063d38682dcf13f4e93d9d0f6bf"
+        },
+        {
+          "path": "rock/rock_face_03-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5116137,
+          "sha256": "446fa0a7da0aead56bf41e7e4b8d4a1feb76e45dac51e447f657909e12b23eb3"
+        }
+      ]
+    },
+    {
+      "id": "rock_boulder_dry",
+      "category": "rock",
+      "title": "Rock Boulder Dry",
+      "authors": [
+        "Dimitrios Savva",
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_boulder_dry",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_boulder_dry-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 320364,
+          "sha256": "165d060f9a3b21cdf69df1b8a1e18d15dc5de99119b499dfeb006e1c09fb60b9"
+        },
+        {
+          "path": "rock/rock_boulder_dry-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 320082,
+          "sha256": "7c420ab88a1e412eab4881dcf0fd3ebf2159dc1cd948e2004e70021c972caaad"
+        },
+        {
+          "path": "rock/rock_boulder_dry-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 312374,
+          "sha256": "ea6e9f6aca010e491cbe2663c46cc2daeab094d915330e7e190f0a36007aa181"
+        },
+        {
+          "path": "rock/rock_boulder_dry-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 310476,
+          "sha256": "3ae0e989f3fa956fd4adfef5a6561bf820026f67e30eb9bb024448cdb07aa2e2"
+        },
+        {
+          "path": "rock/rock_boulder_dry-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 332895,
+          "sha256": "f8592545702b38f392c203d918083ef312305c17176c0c660040ecef437f26ef"
+        },
+        {
+          "path": "rock/rock_boulder_dry-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323032,
+          "sha256": "b2dd5de5facef0c3b99aac2afad4911c85349778413d161495320b6e96a28ad0"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1238953,
+          "sha256": "1921706b471d67d8b87e3f5863901bf015eb0e7bb0e6f4097ada08e79dee90ec"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1236077,
+          "sha256": "f90dbd186f966832e7c0162e4f3e995f34811d10deafaf21f23700f7d20a9641"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1227170,
+          "sha256": "a983be227dc8886bf0fa286b865fbd8d88c344076a28601a64c7880e5cf5b3eb"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1234085,
+          "sha256": "a317997f925ee461004bad115f223aaf0b841ca186dcf70a4a7c825ce9ad3108"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1297302,
+          "sha256": "d0b468642df1f25eff61bbf222f10b84320e1ef780ac07a49e08cea5c56c4cca"
+        },
+        {
+          "path": "rock/rock_boulder_dry-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1304306,
+          "sha256": "e38eb93d2f3511a4cfd039c6c314237b3911291141c5f7c066b62c0c6062721a"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4763491,
+          "sha256": "1aeb311636b2afeadbbe26e6a7f5399707f205945f2e02bc5dd409638379a311"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4824737,
+          "sha256": "63e14e95376b0b4a5d5cd2f85a12b57890bd5f42fae17a4ce38fbcec38135fb4"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4775021,
+          "sha256": "0b5139f1417e8140693cc57b4d80f881c453220cebea335e3014bc8b93d4d35f"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4736562,
+          "sha256": "01ef96bfbc4ee53410fdc673d5d27fc2c4b960c7a832d9bc49fcd1d22f3f1ac5"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5073200,
+          "sha256": "4e5ec7b5df9bac4df406ac55334593b81ec285a32398cef81f2702caf4869b2e"
+        },
+        {
+          "path": "rock/rock_boulder_dry-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5102469,
+          "sha256": "fe941b4f9568a0c56b235d8f406ca4f746cb1475bce925bdcf21ac3c5ea0a577"
+        }
+      ]
+    },
+    {
+      "id": "rock_01",
+      "category": "rock",
+      "title": "Rock 01",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_01",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_01-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 287397,
+          "sha256": "a6cf7859a25b4e17f311b4e4c1b51ca0b4a891be883f2d047625cf92e3f436f4"
+        },
+        {
+          "path": "rock/rock_01-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 299350,
+          "sha256": "18a620c1234a5b6a8b999a4abe1d6cad6d7ba05d2c07039cf4f5458ae0abe470"
+        },
+        {
+          "path": "rock/rock_01-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 306893,
+          "sha256": "a45537f0674e09682a992b1bd2cbec79e12bfed5591de04d8c760402fb026559"
+        },
+        {
+          "path": "rock/rock_01-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 310834,
+          "sha256": "d36016ba263d2669443cc80d13581edd056dfd1d6f076b7f8d5efcb6769ba192"
+        },
+        {
+          "path": "rock/rock_01-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 336666,
+          "sha256": "aad1d4e2e3e6ce5b7e4f1136ab3d7d077b12bacd4fa11e9d50273bc59372f4ae"
+        },
+        {
+          "path": "rock/rock_01-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323994,
+          "sha256": "e7c527cbf0ab90ac5ccd9f66c368e64988ad1bc1cb835b8fa772db2aa669441d"
+        },
+        {
+          "path": "rock/rock_01-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1166919,
+          "sha256": "11700208d02c23584ee0690bcf1f6e28a4652c5e7a0ccd1fe1a0a6aa62770eaf"
+        },
+        {
+          "path": "rock/rock_01-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1213504,
+          "sha256": "4652a1a65d857df3c308c1138bdd0829635d731cdc4414f1d7d8a59c1273dd85"
+        },
+        {
+          "path": "rock/rock_01-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1226897,
+          "sha256": "36cc96cbd841825bf4795a9d2a3588ce0910af15d859b534f98acc2a273e1d28"
+        },
+        {
+          "path": "rock/rock_01-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1255033,
+          "sha256": "a9917ce93ab4c9cd6a9633bccdf4856ba370f52ff01e4812c10231f5df3a0fda"
+        },
+        {
+          "path": "rock/rock_01-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1341610,
+          "sha256": "c6173e7e6944ae376de5e0305d828c64e9c5fe272a91141450654354add9be84"
+        },
+        {
+          "path": "rock/rock_01-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1303274,
+          "sha256": "14647db583232f46ea76ee5416e2f8c3a11ed791ba0b175d78620b980866ebf5"
+        },
+        {
+          "path": "rock/rock_01-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4736051,
+          "sha256": "b8f9cf833a1fba059afa016ddab25ad91e229f7f3fe13c396bb5621855f6d826"
+        },
+        {
+          "path": "rock/rock_01-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4870711,
+          "sha256": "92887ec482e415e359376442c3590bb40f69dfe3dd499d9869d165de1b93d821"
+        },
+        {
+          "path": "rock/rock_01-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4896117,
+          "sha256": "8a4bfcae5b98cbe1745878657ed7d7780d86e2dc3f76bc2fd3d6022f64e473d0"
+        },
+        {
+          "path": "rock/rock_01-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5057601,
+          "sha256": "dc30436c4fbeebcd71055e003d748d72515d29f25529af4a1493be7904d22dbd"
+        },
+        {
+          "path": "rock/rock_01-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5299041,
+          "sha256": "538b2d1cdf7d23692b84151dd0f8b5ff4d91cad05d07eff16553340fd41bc752"
+        },
+        {
+          "path": "rock/rock_01-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5181563,
+          "sha256": "a275755e2cf8556fffc48d7b6d5879e6cc5475a47e4db6aa32269d2cc3fae820"
+        }
+      ]
+    },
+    {
+      "id": "lichen_rock_02",
+      "category": "rock",
+      "title": "Mossy Rock",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/mossy_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/lichen_rock_02-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 337996,
+          "sha256": "55c7e3c597ff57112ca678ee8cae2478903d67bf29dcaef0ce32bcc9c4a9c46a"
+        },
+        {
+          "path": "rock/lichen_rock_02-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 335020,
+          "sha256": "80d72b8421927c376cd948547a8c0c9f4b1ee75da9e8e9b754b93f54351b12e3"
+        },
+        {
+          "path": "rock/lichen_rock_02-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 323903,
+          "sha256": "ad7e89ceb125a224a9687b64a9f2e7dabc2f0a3759264a72c03a97bb763a4c70"
+        },
+        {
+          "path": "rock/lichen_rock_02-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 322131,
+          "sha256": "ee7b99d63805b47e791ad31469eee52a1316422c234cfd554962d9a95d074ed7"
+        },
+        {
+          "path": "rock/lichen_rock_02-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 324537,
+          "sha256": "d9fa77c95d8b25139f14275693d7511b04146c547392dacfd6718e5a66280fe2"
+        },
+        {
+          "path": "rock/lichen_rock_02-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 325922,
+          "sha256": "32b40001ed31b98b85b326a5ac9fca769cdd1f3a8ac0973d753c04213a72140a"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1331339,
+          "sha256": "8e8f35f659c301bab85bd87adee8daaa9e34886a4fbb2323d2113eb93903ed84"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1327049,
+          "sha256": "c0b64f11f2e037264b11adf6d30b8910005d443d958b7623ad8ccf3082057b2b"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1282189,
+          "sha256": "b76b3e8b30d6dd363f06f0ba140d59b1fe4317d3d182aeb62a7e59669a3ddece"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1287844,
+          "sha256": "66d3f6d78823d457afb0422987aaded64765165d97b4bb478f0addb1d893b059"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1271171,
+          "sha256": "0250177a48ba70bc1b02b78348c7293150eb8e8344d375d86d963a1f532ddae1"
+        },
+        {
+          "path": "rock/lichen_rock_02-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1289225,
+          "sha256": "7f07d327f0431f2e49dcbff5269816aec7217c6ef8c317f7b3fa45f192e1db93"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5180180,
+          "sha256": "b9b22482e54901777519d2c2fd715a728386abbabcf5a001b625660badc6e966"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5215684,
+          "sha256": "8d0eebd7462109f8b639743a8f58f9937e0b0ad8d0dae831e275896a1330f700"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5067501,
+          "sha256": "a4636a621349de3b830ba3278546c9c41b6302ce809cd0ba3330a3f7acb12834"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4982410,
+          "sha256": "79791e5c88f077649985f4fbc43a47d217aac037e3ef3f18b8e1df9dd847df13"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5012119,
+          "sha256": "c72b9ec6c810baa0ec1a217ebfa9ba1a49cf48e77f57df0c3907429f44269272"
+        },
+        {
+          "path": "rock/lichen_rock_02-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5095718,
+          "sha256": "516d435cd7979171cc30fc31f473de308c37faf7c6e13d20eea974008f925183"
+        }
+      ]
+    },
+    {
+      "id": "rock_05",
+      "category": "rock",
+      "title": "Rock 05",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_05",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_05-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 332665,
+          "sha256": "9499d1d720b7dd2f920e0ed0419d18e61ec789861bd1710d912098c0d0de2d9e"
+        },
+        {
+          "path": "rock/rock_05-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 324431,
+          "sha256": "cf52ec534d3d372b79c328fe756d2d35008a9a75cff22477c46e467ff9e0546e"
+        },
+        {
+          "path": "rock/rock_05-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 321924,
+          "sha256": "24e7dfaba4ea190d9f6ec4df109c4ea76c1764cf095c04ef284c19b6870a88dc"
+        },
+        {
+          "path": "rock/rock_05-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 318151,
+          "sha256": "789a185fa7ec7c9d1589665c040f56894c8abb8f4a3053c1687bf49588c29721"
+        },
+        {
+          "path": "rock/rock_05-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 336633,
+          "sha256": "47cca7bdb0c6d53b37444e2ffca84a983cffca246d7b30f108735be70aca5dda"
+        },
+        {
+          "path": "rock/rock_05-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 324420,
+          "sha256": "04a1af3a6582decc7ea8a776c3732d4e8e5f61aa32c2e83fb1ce13a223aa04cb"
+        },
+        {
+          "path": "rock/rock_05-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1316198,
+          "sha256": "9162ffa985d7999f44970e5c58ac35833b46052c5acf7530ee054067a51b8062"
+        },
+        {
+          "path": "rock/rock_05-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1280233,
+          "sha256": "10116a753d80f5a74f45ef67666ec98b7c3ff4341837e0843bcecd1b730fbed4"
+        },
+        {
+          "path": "rock/rock_05-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1281158,
+          "sha256": "84bb18a7a4abd8cfc5e5e5321f8d694d39caf3c99191cba2554650929e4ce6d3"
+        },
+        {
+          "path": "rock/rock_05-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1275760,
+          "sha256": "debc1752bc1f5b19f1bd3ac6acdd7bd0fe9017e959831e295b1624fe90029268"
+        },
+        {
+          "path": "rock/rock_05-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1316330,
+          "sha256": "801b7a0fa232ac54565248db12cc6c0f9702f70051f4d13ef4d858853fe83ba0"
+        },
+        {
+          "path": "rock/rock_05-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1288982,
+          "sha256": "4df2349467850f345aace51ab60243ba18ec5ec7f76396807052043549a996e3"
+        },
+        {
+          "path": "rock/rock_05-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5211054,
+          "sha256": "d3ef2325216b2b4657ce68e0521ba082a15e933a27e5d8961a27a7966f50ce12"
+        },
+        {
+          "path": "rock/rock_05-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5064100,
+          "sha256": "4cf7bd7b70842f357d62f826c2be2bf1f912dbfbce1ac52f620bc598bf234921"
+        },
+        {
+          "path": "rock/rock_05-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5083634,
+          "sha256": "621496f4c029260dc124f02170432a256659fedfed11f5fbc8f2c858332aed76"
+        },
+        {
+          "path": "rock/rock_05-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5121160,
+          "sha256": "d0abb0097b966e40ce5e557a82a5a1b41c52042884006a602da98bcc7c637630"
+        },
+        {
+          "path": "rock/rock_05-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5137378,
+          "sha256": "1d9970d2d542a1ebe085d7328be7330e797484eb65fe4be440ff97c77fe3296c"
+        },
+        {
+          "path": "rock/rock_05-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5114885,
+          "sha256": "4c763f97f6e3a9e22e1936877604c9dd58c041dc2dcb420e5571016e78e6e2f7"
+        }
+      ]
+    },
+    {
+      "id": "rock_08",
+      "category": "rock",
+      "title": "Rock 08",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_08",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_08-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 301681,
+          "sha256": "075336482013dfb269476979c8f74509dbc1dd0bc829eb7c018e34d02ad9e9b8"
+        },
+        {
+          "path": "rock/rock_08-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 309304,
+          "sha256": "8f4ba8e0a8a059dce615ee47ec778c8a38bf2843e9cb54d506e131d333e3afdd"
+        },
+        {
+          "path": "rock/rock_08-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 319727,
+          "sha256": "9205cc02ae8fcf5e74bab59f7f497f74857dd733cbf2bef550f5ebb1e7a73d07"
+        },
+        {
+          "path": "rock/rock_08-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 316023,
+          "sha256": "4013dbd310e95c38c0fd2f3e4fa1adc992ab41b43d5212290417255ea93670ef"
+        },
+        {
+          "path": "rock/rock_08-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 337257,
+          "sha256": "8029218617c0ca21163dc37464b7f5feebf128bdcb93584b94d885643ba57966"
+        },
+        {
+          "path": "rock/rock_08-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 322623,
+          "sha256": "5ad09f12efad5992f553a9eac3ba69453cd7e56ae81b25b881a5ec0e27e24468"
+        },
+        {
+          "path": "rock/rock_08-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1192542,
+          "sha256": "53d88c444fa9618420efb3829ee1a831b3b63fe6f3eb9772974a3583764e815f"
+        },
+        {
+          "path": "rock/rock_08-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1223931,
+          "sha256": "0cc879b91465074c52651632754a07f38fb3a70b7871c3ffa782d5c6a3cf0325"
+        },
+        {
+          "path": "rock/rock_08-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1276479,
+          "sha256": "77ab830e93b9f7fc887ea186c26e603d6e2764bcb7084adb5381a7e80873da5a"
+        },
+        {
+          "path": "rock/rock_08-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1278466,
+          "sha256": "5d37b10d39efdbf156e8becde5f672ce43cbb50a36573bbda1014f78aa371e35"
+        },
+        {
+          "path": "rock/rock_08-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1324417,
+          "sha256": "bf6d18d8dd2373374f352885e66067e7029ac8b98ad6654a75508693ad8bd5c4"
+        },
+        {
+          "path": "rock/rock_08-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1295488,
+          "sha256": "f77c42c8c00207e9f237a74e62abd28257cda24691628cddf0a6644c8c664590"
+        },
+        {
+          "path": "rock/rock_08-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4688113,
+          "sha256": "a52cc1184cb136f308b94cc5915d92d082fff21beae0639d458aa23d4cab32a7"
+        },
+        {
+          "path": "rock/rock_08-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4835876,
+          "sha256": "6c81d9358182bfaa627a034442b0390ae1a65b82c9824fcc06af34caf630f262"
+        },
+        {
+          "path": "rock/rock_08-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5088797,
+          "sha256": "dc6aeb202beb8eb700b6a1d0c4c3a11823c6981900ca2f90c42dbed2c58f44a7"
+        },
+        {
+          "path": "rock/rock_08-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5144189,
+          "sha256": "3176b322aacfc31daaf3cde7b2a9a3d5106cd0c3474449cd53a4afece3a2f334"
+        },
+        {
+          "path": "rock/rock_08-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5170320,
+          "sha256": "c5eb58be7c3ea12cbf4155053ab4f722dad782d6537d02bd177c369997905df1"
+        },
+        {
+          "path": "rock/rock_08-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5158099,
+          "sha256": "2590ced22e001251238db852e49ce290e6c0e943a2302694248310ea313e7fb2"
+        }
+      ]
+    },
+    {
+      "id": "rock_04",
+      "category": "rock",
+      "title": "Rock 04",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_04",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_04-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 322605,
+          "sha256": "17e69afe4adedbd93a6b2467c89203cfa9e1341f18cc5dde32c5a4dcf09db760"
+        },
+        {
+          "path": "rock/rock_04-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323318,
+          "sha256": "469ef37a849376749dc9409bd61b6a9ebdd2f10aebea2ccf653d230d1328db77"
+        },
+        {
+          "path": "rock/rock_04-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 314172,
+          "sha256": "928a311e876219252ff109383c3dc7c210422c33db4e0fe861ed3f866973045b"
+        },
+        {
+          "path": "rock/rock_04-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 318311,
+          "sha256": "8b1c68f98cec127a361763c2d08be8b0c4d26ddc2a8515b827997d23e9d7019e"
+        },
+        {
+          "path": "rock/rock_04-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 329434,
+          "sha256": "814f560ce0b6790f3c031f22c10db0c7ec641a6d51dd5a1369174ae8f3a178de"
+        },
+        {
+          "path": "rock/rock_04-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 328309,
+          "sha256": "28978ea89e618a3418505dd20ccf1cb0a44259ab2072a60b9d4111546c2c9da4"
+        },
+        {
+          "path": "rock/rock_04-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1285030,
+          "sha256": "9e764fd3581f4c0c730986353f1b0bb35baba4a69354c5983da47460de1d1524"
+        },
+        {
+          "path": "rock/rock_04-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1277842,
+          "sha256": "93d40b5f62a02b087314bea14674ad3d2c28d4696f2f9e884dab2fc0b10d44ea"
+        },
+        {
+          "path": "rock/rock_04-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1257371,
+          "sha256": "4472deaf86702802744b3b2bd3c93e848dbbbe709a500c5cb0cc6fa024cea46a"
+        },
+        {
+          "path": "rock/rock_04-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1283832,
+          "sha256": "fcc715a16117957950c78e3e8bda5a745e9d06162d47ad60f123930209906854"
+        },
+        {
+          "path": "rock/rock_04-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1282521,
+          "sha256": "6d28d54735c2974cdc923d887d1b86b46afefd3d8a36ab36e4e20377f5daed13"
+        },
+        {
+          "path": "rock/rock_04-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1318383,
+          "sha256": "2bf2ec5da70e5e53af61e0fb22bf8dfc1f4a6ed851758ebe66214921330a8736"
+        },
+        {
+          "path": "rock/rock_04-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5075801,
+          "sha256": "8d75fddb143ef31ab810969f1be45a3236262947166222e8f8939a5ac9e22b79"
+        },
+        {
+          "path": "rock/rock_04-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5022418,
+          "sha256": "c6523a6e9b63fe654b1c910e97020ed14dfe5cd36ae45c055e68c70f5de9d9c9"
+        },
+        {
+          "path": "rock/rock_04-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5024160,
+          "sha256": "dccfea57469e0b65ce053da4be6a7d6ccaf1d7333d6e7e5153a4c64a066f12d1"
+        },
+        {
+          "path": "rock/rock_04-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5159756,
+          "sha256": "4bbb379b4958db505ffa0e16ce22c8b78d4c24c496849820b896e8ea1168d8a4"
+        },
+        {
+          "path": "rock/rock_04-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5011400,
+          "sha256": "06642e813b633133cf9cc2b904ee79b4d22fce8d2cc98ff5b62a6d2c2242c63c"
+        },
+        {
+          "path": "rock/rock_04-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5245704,
+          "sha256": "0fa7e28b77c7da65ac9ffa98217d774f52bd9800658de5f6969cecc60d914798"
+        }
+      ]
+    },
+    {
+      "id": "rock_06",
+      "category": "rock",
+      "title": "Rock 06",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_06",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_06-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 335825,
+          "sha256": "e057495710568694110ac229b16814d5c721fe91c5ed90496c089f2979727772"
+        },
+        {
+          "path": "rock/rock_06-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 333741,
+          "sha256": "a632dfcc10b03f8f7979dc479ee58d07e2dca24ccf84c2682555e343d1768a55"
+        },
+        {
+          "path": "rock/rock_06-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 330841,
+          "sha256": "e73b622b5b9f7dcd52f9f5b0cd6403f2c11f978e475ad359b5165fc648279843"
+        },
+        {
+          "path": "rock/rock_06-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 317580,
+          "sha256": "a4e1f19807ce0efa60955a2b23ede4986201235f741761f035f999280550ca20"
+        },
+        {
+          "path": "rock/rock_06-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 324184,
+          "sha256": "f77fb3942e812b9e8a49fba0d83b9e80348636bab49712aff102e5733b0229d2"
+        },
+        {
+          "path": "rock/rock_06-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 311859,
+          "sha256": "ff5124f1826652539f845b429e02005ac9474244cb806a87ca31c435898162a8"
+        },
+        {
+          "path": "rock/rock_06-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1332614,
+          "sha256": "8b6400caebbde92f048222963d5875edf9faf27d09a835f8e99a5a9a54be3500"
+        },
+        {
+          "path": "rock/rock_06-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1321002,
+          "sha256": "f26723eb1c4e4fdfaee5184dcca533996387b5a059445625e1d6b6db4c4a7ced"
+        },
+        {
+          "path": "rock/rock_06-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1300488,
+          "sha256": "dcc13a9c1d1cee2786b3c4dc872fa22fdca38ea573aec0898ec02d157ecc2351"
+        },
+        {
+          "path": "rock/rock_06-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1273269,
+          "sha256": "d9744833bac689b02704a711b5fd29de5f5dc61dec7b946e730933a4ee3bcef8"
+        },
+        {
+          "path": "rock/rock_06-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1250774,
+          "sha256": "2b5ccdeafd17a7c028b46c0c0f041979fd92902f5f5127b6c1b959077c2c7643"
+        },
+        {
+          "path": "rock/rock_06-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1263802,
+          "sha256": "91e07a76711969266ee96c9f82b20cd4d136f55c2cd6d8e1826638d5a16ab443"
+        },
+        {
+          "path": "rock/rock_06-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5285191,
+          "sha256": "980b058695e36dd02e75671e5b834ba542f42044eb5913c68080b241b7c46df3"
+        },
+        {
+          "path": "rock/rock_06-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5211330,
+          "sha256": "a54d6233175eef7c114a511c659b5c5cd4d6ef389df4970d8ddf0b31df93c89d"
+        },
+        {
+          "path": "rock/rock_06-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5144865,
+          "sha256": "85a8796426dae87ffc5dc9f00e11094fe5867c7fe3ad1e135e9bac2f8460bf8f"
+        },
+        {
+          "path": "rock/rock_06-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4980409,
+          "sha256": "e60e52820767124d0b41f092da076377e71cfcc3d5e1093360c729cd639d9cd1"
+        },
+        {
+          "path": "rock/rock_06-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4800352,
+          "sha256": "fa3cbbf26da554ba5ee96a1bb015ef0b99f34b5834c91c8926ce4c7260aa80c6"
+        },
+        {
+          "path": "rock/rock_06-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4841205,
+          "sha256": "239275c7b5219fc2160b0781a167bc27af64d43c1203bf66dc26840486198dc0"
+        }
+      ]
+    },
+    {
+      "id": "rock_pitted_mossy",
+      "category": "rock",
+      "title": "Rock Pitted Mossy",
+      "authors": [
+        "Dimitrios Savva",
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_pitted_mossy",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_pitted_mossy-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 348609,
+          "sha256": "53e09e69e99b501d36721acb86c88a36273a679ba9c063d465e4952a3be2e580"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 332235,
+          "sha256": "8ca9b78ea67c69d55aad872b563f9228194aa951d227afc48eb989648b5c167b"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 342029,
+          "sha256": "8c5551853b9538225b180d5dab8c7d2ea05e6458deebae6aa6dd74acce92e45a"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 327053,
+          "sha256": "fb1a79a29db4d0bc7b9aaa7ac11f9679233e3e8e648457b7082e55a404a40d75"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 338574,
+          "sha256": "1e5ad0c25c73820f3db187c2612e24e1b452ea5ab31469b5eff3798174959757"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 321189,
+          "sha256": "26167bd173bb8fab412d18fd63a05d7dd860e61d4c432523e3132e1d3b879341"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1378775,
+          "sha256": "a4946257e6be0f4e2dd221043d4df491fe3de74c9a0fc509dffac1bd28a9c439"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1319320,
+          "sha256": "541430f1eda07dcbc7e607bd1582165cf57523b6bab9ae3d9b47dea785c6668e"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1356648,
+          "sha256": "f1159a42a99f321d79155534f0012c67386d184588f361a32706e8e1bc65fc9f"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1294059,
+          "sha256": "4bdcb1ff072d3ea0012abddad8eddb51b6d20cdfc5dbf54ec48752ad8bf2fc08"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1321877,
+          "sha256": "7233612165f4c1ffa5b1c3087ef241fca65cee8f91377247b9616e1183a5e8d8"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1301454,
+          "sha256": "ef473a6bc7cb06fade791505ee46982710c62890eef851801ec91f2ee47bd564"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5351617,
+          "sha256": "2fc22672b43f634b9e527196ccfd1f0f89d69247fc9f0a19abed27b98af0f23d"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5186338,
+          "sha256": "726b90801ecf31ec81f9cdbf7f7b3b9bdea04e461977531c3d3f46be5e1427a2"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5394762,
+          "sha256": "5ee5ed67ee289afefe102baa55ab520d4c07f12c3dd46361a5b520e08f5f87b9"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5162233,
+          "sha256": "9c1969691d0b485772fca047f9d2d030abef578fc58477fe37a3d8a78756e0bb"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5141986,
+          "sha256": "6463f97ab8635d24fd71aec169bccb445df071535ccba6597dcff44cc6a1ff30"
+        },
+        {
+          "path": "rock/rock_pitted_mossy-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5171339,
+          "sha256": "d4e062e79ed6e98d44bebfbc3408dc99df8469db7faac0f50eb758188b4e5790"
+        }
+      ]
+    },
+    {
+      "id": "lichen_rock",
+      "category": "rock",
+      "title": "Lichen Rock",
+      "authors": [
+        "Rico Cilliers"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/lichen_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/lichen_rock-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 328492,
+          "sha256": "d8c52800bd0bbf56ec35370b314325459ef81bf794254ffcb51779569a153e87"
+        },
+        {
+          "path": "rock/lichen_rock-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323656,
+          "sha256": "d5345b8447e0d09509f49b85ff513708957b0f7a7be83b43a97aa23ad9df9ec6"
+        },
+        {
+          "path": "rock/lichen_rock-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 341297,
+          "sha256": "cf3470238c6ba3e06c09c1ff490be6a7f7cbb51598f7273dfe2d0446a3f70267"
+        },
+        {
+          "path": "rock/lichen_rock-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 328621,
+          "sha256": "19a2592955bf4ce7b1cc8098f86b3a639546f2dfbfd86e734a3137de0ba0e936"
+        },
+        {
+          "path": "rock/lichen_rock-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 332995,
+          "sha256": "3c56cce3743cf513e9114e701ca0d3a4a19022d5c084586d532294aaaf6b330b"
+        },
+        {
+          "path": "rock/lichen_rock-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 319708,
+          "sha256": "a285ab7042119164e8071bcc065cd58ecd290b136edae3cbaae22cee0d5b0e47"
+        },
+        {
+          "path": "rock/lichen_rock-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1291842,
+          "sha256": "4b14e1a151ebba89210b57de35a1d3e8d10cb14ffeb8a3b5ce8f557fa8ed91be"
+        },
+        {
+          "path": "rock/lichen_rock-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1256488,
+          "sha256": "4231ccf3437e182a6745bfb72693b4d637fe69d0752804ebf3d966ff9b1a919b"
+        },
+        {
+          "path": "rock/lichen_rock-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1360465,
+          "sha256": "6cea253036ff538deba1f2a92b02503c113d5eac92aac21e4787c77eb34e2203"
+        },
+        {
+          "path": "rock/lichen_rock-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1317126,
+          "sha256": "ae4393cb857d92ae6d2a24e935e7c9b18e322afe4bd9dbf9b584cda95fd244d7"
+        },
+        {
+          "path": "rock/lichen_rock-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1300001,
+          "sha256": "a47eccf19aae2f6d504956a57f6c1161597059d998532f4b58eb3bf3e3f470a5"
+        },
+        {
+          "path": "rock/lichen_rock-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1286508,
+          "sha256": "3eead7fa016cb89f7e42f468bfa60548fb6d42fa47744fd398920b706bf042ab"
+        },
+        {
+          "path": "rock/lichen_rock-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4972023,
+          "sha256": "d840a73bd84ba529ee7c5b35bdb045a595db621297e5143972e0a1d9a9b35eb8"
+        },
+        {
+          "path": "rock/lichen_rock-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4772282,
+          "sha256": "51649b26ea82822c00e269121bc094f0789c63a4f2c30f3c6ce48dcb53e66841"
+        },
+        {
+          "path": "rock/lichen_rock-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5385243,
+          "sha256": "68a8a835404d839cc89db66d737e29ff68fec02f284974322cb94ef4be9b7176"
+        },
+        {
+          "path": "rock/lichen_rock-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5123776,
+          "sha256": "b30d5f2e50b0eab963a686ba497d1f2ac01a84f565c67eeb700c4864719caea5"
+        },
+        {
+          "path": "rock/lichen_rock-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5031203,
+          "sha256": "78682c669d7492a27022890626675b81d3b252b008adebd892a58fe4cdfa218f"
+        },
+        {
+          "path": "rock/lichen_rock-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5056315,
+          "sha256": "e42749077130967dce033b2350a2873d74a423cca49631aa364596ab2e3bffde"
+        }
+      ]
+    },
+    {
+      "id": "rock_boulder_cracked",
+      "category": "rock",
+      "title": "Rock Boulder Cracked",
+      "authors": [
+        "Dario Barresi",
+        "Dimitrios Savva"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_boulder_cracked",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_boulder_cracked-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 339762,
+          "sha256": "f7998c779824607410e68f7260b226bb69e01e69cc1d076afe02f21847a73816"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 326866,
+          "sha256": "e206d37072c196b614171b744021e222d67cc07779e5ba0fa6403e15e4c4d348"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 336659,
+          "sha256": "73b93c3649cb926b1e8f483bcb213163e01ecd20ee0b6690f3b81354cebf69fa"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 326096,
+          "sha256": "a73e0f1f333f81a76df582c397777c1647b11e788be987211d352f948f06e4bd"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 315160,
+          "sha256": "1471a529b92f60c5963aa6f6146cfca359722c95d1ddec8551866e86774b86f5"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 318338,
+          "sha256": "c3d0573261def9233e97f82403ad994b310aae3c0bdb1b29dbbff3ad824655b1"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1328191,
+          "sha256": "8ba9d19a5064b65317fc81cdd5ac19a92731bd2dcaa5e075fe9cfd0daf7095b1"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1282186,
+          "sha256": "56ffa8b799e563041202d2a02a53dc5b9fc03053df8ca570cbf645557f94bb9c"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1327718,
+          "sha256": "7418a6513c24270c277c2c75a0fddd61ce465a4341c6f1637705459c8f22a57e"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1289321,
+          "sha256": "ff621b46946069a7267d57fc962aa7e1c021b5a62a6eb198666a04222055897f"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1213665,
+          "sha256": "d09be4498d509087aa34adfb408ca338393474a3d3ec4e013de0a8dfaa5e9ada"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1261914,
+          "sha256": "bef39251d083ce4b3c26b126d609c5acf125265aa99057338b19c2ddf2a10269"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5093605,
+          "sha256": "e6d2989d1dfd8b1c6506a2122b44adeac01ef7ac6aa33942250b0f76ae72c89b"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4983298,
+          "sha256": "b1987774f5f9d01468a4a012b3bbebee9cd842a777c043bb5f4c2588660e44fa"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5204504,
+          "sha256": "663166d7c0eb97cbfae8ac187614af804dbd11dd57b0cebad05bd2ae59792e48"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5007045,
+          "sha256": "83698082d9ac3c359598b724986947f0e336eb89aea9125963c1503241324e4f"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4707798,
+          "sha256": "bd7e092506c292f11f58a7d60f920faf8fb5ec54f980a3e404571808015aada9"
+        },
+        {
+          "path": "rock/rock_boulder_cracked-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4878114,
+          "sha256": "7b39fa3bbdd3aef8f8e3bc72df52069251bc816f85079ef4342e890928736ae0"
+        }
+      ]
+    },
+    {
+      "id": "worn_rock_natural_01",
+      "category": "rock",
+      "title": "Worn Rock Natural 01",
+      "authors": [
+        "Dimitrios Savva",
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/worn_rock_natural_01",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/worn_rock_natural_01-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 323750,
+          "sha256": "e71c2809d18fb5739d6e7f3e1591bb88ed5e626699611fbfd1fe79b0a47ca4b2"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 313507,
+          "sha256": "5d04da291ddff925c59a813eb631357836a86c28b3942f94aa5aa730fb89aa07"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 319340,
+          "sha256": "0d9568b4e9e54ea990abaa74fa61a8ccab98f61d56765ee211bca9cc851a88e7"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 318486,
+          "sha256": "c0a8239007a0be4e64c38837be22ecffc097978468b9d9abd0a7e75ef43fa986"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 321613,
+          "sha256": "07fbaec83cf55902eccb537c961716af7d23f2825d190fc57099754ea4ad9a68"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 318503,
+          "sha256": "0e1ab057975416e8c93ba4dd23fd7a7e37a37c8904ce745ff68aaa961cb0f0b1"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1249957,
+          "sha256": "cd7e8480a5215b598bb6aff9c439a1abacdc28777bf65c891b4639b3898aa9f0"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1214259,
+          "sha256": "33e76457f482d16ce97d8eda5e7940bd957489da9e18d4ddb93de4824b4fca68"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1259457,
+          "sha256": "f73988e7e76195896c0faacd49e487daa64814e8e1ae25f91fd402edf60ded1f"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1268084,
+          "sha256": "67488bb00793f7361418d90284a5fed2cc85013a744645256df8423b5f205760"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1234171,
+          "sha256": "3dc456a558a572c3e9f84f8202f1b6383a016a6dac7020afa80b5229b302c18f"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1213920,
+          "sha256": "4077513c7b21fde57853df79dba48a88265f6bcdb776c2ee1c75b82acbeff26d"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4760820,
+          "sha256": "6e864df8f7ea4cc56c4823702c180bdf9a45b9fb449fcda25e9b52b9063f00d1"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4720228,
+          "sha256": "c3dd8d5980081fddd9794ee7d4082e0145ed1b476e9a6a7aa025c165a25324f0"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4987068,
+          "sha256": "1fb823b4238d83a1f6b6a512ee4d8d2fae0ad8c28c0379e23cbe4bcbd98cee65"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4976418,
+          "sha256": "93d4bd237cb976412d53fabced00315eae4fdcbeda10a72870f623deace0b892"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4706212,
+          "sha256": "6880ec583bffe5636ed69bc2f515d3b44f7953afdfa78f3e14f159fc97110fb7"
+        },
+        {
+          "path": "rock/worn_rock_natural_01-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4740087,
+          "sha256": "eed9bfdb2cf36e380643a8f1307ef8e3dfd2ceb4e79f6cb32d99ea3a48eea513"
+        }
+      ]
+    },
+    {
+      "id": "seaside_rock",
+      "category": "rock",
+      "title": "Seaside Rock",
+      "authors": [
+        "Dimitrios Savva"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/seaside_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/seaside_rock-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 282153,
+          "sha256": "e3d582b2d912ffb3ad6a01a99b211eeff42527d662bc9fe481379780925e72e9"
+        },
+        {
+          "path": "rock/seaside_rock-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 295155,
+          "sha256": "e603d1e9f72a6fb87bd7a3af19f4bcdb2afe8a009960fbd0149abcfdfde19a1a"
+        },
+        {
+          "path": "rock/seaside_rock-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 320908,
+          "sha256": "156745001f1651b2fb0ecd68add0dbe6d63d467b3a40ee9f8af925f01929fd46"
+        },
+        {
+          "path": "rock/seaside_rock-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 318537,
+          "sha256": "7d87fe8a2cb64b496a2f43b99ee09ef8739e7fb443af35189f2f86f095fbe0a0"
+        },
+        {
+          "path": "rock/seaside_rock-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 306479,
+          "sha256": "1b4186807802654f2626542326114b7e95c76c46bafae15de1e3f8586bcf9005"
+        },
+        {
+          "path": "rock/seaside_rock-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 305561,
+          "sha256": "24f48575d83c216ac60e576ff6306b3ebce7307c7281da9ab243578e7687c877"
+        },
+        {
+          "path": "rock/seaside_rock-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1132072,
+          "sha256": "010245800cfec566298371739beefe4e22a03f4d816c47463c437af2ce39a73b"
+        },
+        {
+          "path": "rock/seaside_rock-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1185313,
+          "sha256": "13e0a73af00f10cbb5d0282acf76ad19c061c8871e5773a3c616cdb01dc17d1e"
+        },
+        {
+          "path": "rock/seaside_rock-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1286291,
+          "sha256": "e290f4fb7be14d548b854d2efd6c4e1f7dabe2a25b567f19c01da0350f588cd1"
+        },
+        {
+          "path": "rock/seaside_rock-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1288840,
+          "sha256": "ce73b476cf042b76782d7413215307ab6c75af1f54feb7e374c19a7bcb9d028b"
+        },
+        {
+          "path": "rock/seaside_rock-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1229582,
+          "sha256": "4975a4bf0c0f251c0992b7cb1cd88087d66123f22eddc12e3217b6ea59f6c884"
+        },
+        {
+          "path": "rock/seaside_rock-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1205630,
+          "sha256": "0c3dea1174e63833446374ad252aefd5389e4c553d0095b8ce8c3eafdc33c9bf"
+        },
+        {
+          "path": "rock/seaside_rock-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4481923,
+          "sha256": "a100b1ef674548dd56183b7a8a26030364a9396d9edaa0aaf8a4a8d492d7e119"
+        },
+        {
+          "path": "rock/seaside_rock-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4692758,
+          "sha256": "853c5bcdbdcc97aa942a3a17f8e4264f48b7189009e596733771864d51ef0ea2"
+        },
+        {
+          "path": "rock/seaside_rock-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5093637,
+          "sha256": "02bb6f3a7d6405cc7e59eed84d07a7a982637ffa1a77bb586ced926bc3a27c47"
+        },
+        {
+          "path": "rock/seaside_rock-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4969285,
+          "sha256": "94f74507b189d93c781596c8a4523b6d89eca73585a11dd229b4edccc42eef56"
+        },
+        {
+          "path": "rock/seaside_rock-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4948688,
+          "sha256": "54008c797e6946452462d682529c2fb5ed8781fffbd5658162aeacdb629e62cd"
+        },
+        {
+          "path": "rock/seaside_rock-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4567379,
+          "sha256": "04f6102cb1fd1b5539022205f0ed2043355f69e532984f4f9a754a8b3d377550"
+        }
+      ]
+    },
+    {
+      "id": "rock_surface",
+      "category": "rock",
+      "title": "Rock Surface",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_surface",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_surface-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 259444,
+          "sha256": "39e2b8bcf7ecacfcd321b1d883afee036a596494f5d97cc99d45971cfaf64b45"
+        },
+        {
+          "path": "rock/rock_surface-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 272139,
+          "sha256": "24dce65e950a288c0cc8a3b12c3bd1218e9ba00e9c2a91f31e4a4b1f997302e5"
+        },
+        {
+          "path": "rock/rock_surface-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 317858,
+          "sha256": "ee18efa2d4b0c00e64afb2e5fe1df9eb5ba405db7cab8da9ef4285091611da3c"
+        },
+        {
+          "path": "rock/rock_surface-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 319105,
+          "sha256": "26f7d1cddb6c9a579bb241f1bc5c0f4f1c5df95320a0460333c8ad90a1892685"
+        },
+        {
+          "path": "rock/rock_surface-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 331416,
+          "sha256": "d72a7e967102d3c6e0721629f6f08c28b076b1f9acb783ca434562a89114357d"
+        },
+        {
+          "path": "rock/rock_surface-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 320527,
+          "sha256": "adb50e1ca1c0513b1ba0ca74e570b39d5f1b4a7d280e851907a6b12a7194ec31"
+        },
+        {
+          "path": "rock/rock_surface-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1043150,
+          "sha256": "af6e0fb7353565296df93a5608a95d695df49a42c8f248687d07af2d0414771c"
+        },
+        {
+          "path": "rock/rock_surface-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1124133,
+          "sha256": "12abac7943b9895eeae0312ea2e656d6cd7c2400332f0bf5b7d30397cf3ee350"
+        },
+        {
+          "path": "rock/rock_surface-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1280708,
+          "sha256": "9485a7b5c22a5e14202b52d0bd2a8e59ba1b50efce3f76b121fe6f582a8ae95f"
+        },
+        {
+          "path": "rock/rock_surface-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1292319,
+          "sha256": "4f8cb9aff0c788b1ddb651dd9d68f35d47def705ca74f91a798c6386ebbcdda2"
+        },
+        {
+          "path": "rock/rock_surface-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1314024,
+          "sha256": "9a9626a46be6a6fcef77c036d16adfc23e330d891b289b559c967c761502509a"
+        },
+        {
+          "path": "rock/rock_surface-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1287437,
+          "sha256": "112c55683dab9296ea8cebe43f9e1ac3b20cbc6a2fc6dbc0018705599b822fda"
+        },
+        {
+          "path": "rock/rock_surface-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4217992,
+          "sha256": "5b4c98a9bac341e444f2c875b7206daed771b499dbf8fe9d81adb6e1b0113c94"
+        },
+        {
+          "path": "rock/rock_surface-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4555969,
+          "sha256": "e3ecf4fe0518a2442291b1918c048f3b1991294405074d64ee56712955e27b46"
+        },
+        {
+          "path": "rock/rock_surface-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5088878,
+          "sha256": "41422e714fdf50dbb3d62753fc47c642376f71814b0401ca7cb13dd0405a40db"
+        },
+        {
+          "path": "rock/rock_surface-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4994380,
+          "sha256": "2d32aa10146850862ee9928c6e6e0eb336b0fae55c82ed8fdcc1e4e271709b23"
+        },
+        {
+          "path": "rock/rock_surface-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5177288,
+          "sha256": "239f7e7b618c93f0d07dfa9aa35fcad2ea74a670e010a887b64b77011658878e"
+        },
+        {
+          "path": "rock/rock_surface-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5126557,
+          "sha256": "e9beeb998707d2a0360f16887484073042f9ea2920fdc87eefc5ca8536ed5454"
+        }
+      ]
+    },
+    {
+      "id": "rock_2",
+      "category": "rock",
+      "title": "Rock 2",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_2",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_2-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 319479,
+          "sha256": "2f3d9c428ba5aab8c6b51d4def19311533c429b99014e383c57eda4e3f0b98b7"
+        },
+        {
+          "path": "rock/rock_2-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 322692,
+          "sha256": "6a575d733dd59cde764e55b134b95f3061176850362a32e963a0fd2c8adf1b83"
+        },
+        {
+          "path": "rock/rock_2-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 333235,
+          "sha256": "11c04d249ff7d33a59f2b1e2c7a9dfb1955e5642cb88bc572453453613bda2ee"
+        },
+        {
+          "path": "rock/rock_2-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323235,
+          "sha256": "aaef1c07a7c8f049f84a5c5335a48e563e462d65c9816fcc3e08ba2615477cad"
+        },
+        {
+          "path": "rock/rock_2-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 336978,
+          "sha256": "edeeb20026e01e8d365cc5ef68e05ccb2768848b4ee129806a2187bb648b64cb"
+        },
+        {
+          "path": "rock/rock_2-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 319729,
+          "sha256": "27ea591c0ff5fc1cde609d0d215ed2e226954527a15aaad437845e632a207b63"
+        },
+        {
+          "path": "rock/rock_2-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1280003,
+          "sha256": "806d8960185da3dc3561ba9e76c21e98e4a4b1a42a569b1a6fa0f685ed250ffa"
+        },
+        {
+          "path": "rock/rock_2-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1277304,
+          "sha256": "dc905bfa791ec1558098dd4ec09f031c33f5af3509ee853b8357017082f667bd"
+        },
+        {
+          "path": "rock/rock_2-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1328397,
+          "sha256": "000a45fb2653ad18286218c20609a3fbc49e8efcabb83a13f666c7f4435e2d4b"
+        },
+        {
+          "path": "rock/rock_2-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1313385,
+          "sha256": "ad09ca624b482895248d9c99e3f9df4ec4a14ce01d79c91d90711ff1e4561089"
+        },
+        {
+          "path": "rock/rock_2-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1329134,
+          "sha256": "9343952b7e1fbd0f19aad093d0c7b533da0c87b5732540617cc479990be6a0be"
+        },
+        {
+          "path": "rock/rock_2-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1296161,
+          "sha256": "71228118c6294a3999836b25a9c44d47489f4c0b3a5381f197223a13874bc04d"
+        },
+        {
+          "path": "rock/rock_2-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5170503,
+          "sha256": "095a5a406b3685f49084e276aa5619c572ac61f78afd17a70b99ba9ec42bce77"
+        },
+        {
+          "path": "rock/rock_2-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5082102,
+          "sha256": "fe5cf5e17f4304edc6ace4eb3d4620576f2180f8ceec5077f66893e55fbefe43"
+        },
+        {
+          "path": "rock/rock_2-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5263140,
+          "sha256": "08f9d6584108a9987c80d4c92353b7ae38edb7270b3d3574b5a9e27fec8e1241"
+        },
+        {
+          "path": "rock/rock_2-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5263323,
+          "sha256": "ac2b4ddfd8c92e9635362683bfb3976543f344e09f1502f36b468d8983eaec84"
+        },
+        {
+          "path": "rock/rock_2-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5205026,
+          "sha256": "d9717d0dc016a8456fb88e6277aad1eaa3c4b98a190d13954090ceec419db187"
+        },
+        {
+          "path": "rock/rock_2-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5173794,
+          "sha256": "7934ba7bb72d3b7ab0838568385f3af117caf20858027ef4f66cf1598ea86bff"
+        }
+      ]
+    },
+    {
+      "id": "rock_3",
+      "category": "rock",
+      "title": "Rock 3",
+      "authors": [
+        "Rob Tuytel"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_3",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_3-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 325083,
+          "sha256": "f38cfe141bd7a790a4f824aafc9dfd0898d21058482e4bc40d5314af1c863b3f"
+        },
+        {
+          "path": "rock/rock_3-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 327315,
+          "sha256": "96ef5218fd53910cbe3082dbb9bf1683114be8f663950577f61da886e3fc50d4"
+        },
+        {
+          "path": "rock/rock_3-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 332959,
+          "sha256": "ccdf0c1798d491e1e7e42b72f66a95e55443c3a2e9113b298cc818dc91797e97"
+        },
+        {
+          "path": "rock/rock_3-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 324803,
+          "sha256": "6f6a7d0012813075038f3c538ad2612381f919e61c485f9b6520cc673ab15343"
+        },
+        {
+          "path": "rock/rock_3-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 340501,
+          "sha256": "de1eee9cacf8d66f72de5f668e86c5d8ccae78fbc9396caf3ad290f54334fc25"
+        },
+        {
+          "path": "rock/rock_3-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323063,
+          "sha256": "399d857c99b6368ec9923b27eb16d050a5d0ff0bf260993e3aa370740de5515b"
+        },
+        {
+          "path": "rock/rock_3-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1283404,
+          "sha256": "f8ec13c6484cd13dd1c06e74d90b2ec7acfc8b59fe652d833e49360c27fbf001"
+        },
+        {
+          "path": "rock/rock_3-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1294422,
+          "sha256": "af37f379aa6e1a94134bb1e9a831df5dff12dcc7c1936bc5271fef8e684ba17d"
+        },
+        {
+          "path": "rock/rock_3-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1331698,
+          "sha256": "d62c9f15ac554a78478797a82c37b8073f37398c4e6989e2b83c0bf06aa2a000"
+        },
+        {
+          "path": "rock/rock_3-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1304529,
+          "sha256": "212bde0ca2e48fa5633897491e486fcce1d313f59a9b3072ef948c87e4e90744"
+        },
+        {
+          "path": "rock/rock_3-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1345436,
+          "sha256": "f0d0b12a74129ca297c6df80356f357a7155a862e3daaa5c6323804af1bbea85"
+        },
+        {
+          "path": "rock/rock_3-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1283785,
+          "sha256": "b2bc123f0702f991b9bc91955f83f1fb45681bfdeed5612beea1533f23fda397"
+        },
+        {
+          "path": "rock/rock_3-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5074951,
+          "sha256": "5a10f5e53be1211ea65e86a452a2e7d1942444029893cba88feeb65932f07932"
+        },
+        {
+          "path": "rock/rock_3-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5122945,
+          "sha256": "7ea320798696beaa9c47f991b245d34f78a1cf9f7fb1ad90130fee82e2ba781b"
+        },
+        {
+          "path": "rock/rock_3-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5298286,
+          "sha256": "facfb133018ab62676cef8a76d763eb28b48773c943fbdd0ab2858da98860b8f"
+        },
+        {
+          "path": "rock/rock_3-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5262542,
+          "sha256": "a4da0056909bcadbfaa21e011de43002a0fa70cae9b529411301bc6e43bf3504"
+        },
+        {
+          "path": "rock/rock_3-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5287098,
+          "sha256": "67b0e0ba4cf9cc3137419a33eb373f85d809363d0e2e76e5fcf383300ec9237c"
+        },
+        {
+          "path": "rock/rock_3-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5126726,
+          "sha256": "68c5c8cd1c25733b25ec92db0648c0ccaad8bc4f5f56b6ef090aed8b4d67e4bb"
+        }
+      ]
+    },
+    {
+      "id": "rock_face",
+      "category": "rock",
+      "title": "Rock Face",
+      "authors": [
+        "Dario Barresi",
+        "Greg Zaal"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/rock_face",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_face-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 298141,
+          "sha256": "bc5196602853feb82c658b2648b739d3a034b82120f4c7e47e9feda786312c5d"
+        },
+        {
+          "path": "rock/rock_face-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 267680,
+          "sha256": "7c884ef8b7384b1e892f8c5a768e2972354e8a647b27ec6a580736ee5d9b8113"
+        },
+        {
+          "path": "rock/rock_face-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 326076,
+          "sha256": "dff2a395cf0381b36e4ae03f2ad078a911b00b9baf7cf7848c78fb4d1735cfe4"
+        },
+        {
+          "path": "rock/rock_face-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 316949,
+          "sha256": "a7107df5d86645ea5b5d232e2207a15dd506baa2a4d6c94a9a49f0ba578ce8da"
+        },
+        {
+          "path": "rock/rock_face-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 291208,
+          "sha256": "d04fc39eaf8936d5e8cc71f89ad7ed5825ad324b60862b41cb6d3d53b6aa7f41"
+        },
+        {
+          "path": "rock/rock_face-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 293155,
+          "sha256": "9732740c65bca5337730d82e1f576d3bfa7044e93f993e0a17929d1c88cf17f7"
+        },
+        {
+          "path": "rock/rock_face-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1156590,
+          "sha256": "648ce615d9dc7afa83937eab05728dfc8a1d33e92b14757113fad614a3d269b1"
+        },
+        {
+          "path": "rock/rock_face-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1047378,
+          "sha256": "4b0540f313809d8a968ad211f240abfef63b7d0888dba0b3de4c05d8ce00f78c"
+        },
+        {
+          "path": "rock/rock_face-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1290094,
+          "sha256": "a981f8b0a2ebb40e0ea127c553996c8e3218576acf8748c2a682db1b4ca88197"
+        },
+        {
+          "path": "rock/rock_face-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1287337,
+          "sha256": "37f6c63c9501c56394cb1c13b09e36910579401558847c528341602390e1b0eb"
+        },
+        {
+          "path": "rock/rock_face-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1125671,
+          "sha256": "5cdf17ec9c27aa279d8a9693e1bb99eadcf1ee1e200297b7f235038374160ff5"
+        },
+        {
+          "path": "rock/rock_face-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1141721,
+          "sha256": "12e29458480f71a20fd43cb006f8b8fcc257c1723b04115cfba598708e4dccfa"
+        },
+        {
+          "path": "rock/rock_face-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4490096,
+          "sha256": "b816d800add422fb7b017242978f4da18d3a68d5fc71a49fde2a21fc699b9fe8"
+        },
+        {
+          "path": "rock/rock_face-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4134645,
+          "sha256": "6e28716f9eb969f88c21e4bb552fccfa7404c8c01059926727fe565fe331712f"
+        },
+        {
+          "path": "rock/rock_face-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5090421,
+          "sha256": "218d7bfadb544ccacf68fc621bfa2c4cf287accdf76868e90e7f811622ae6f53"
+        },
+        {
+          "path": "rock/rock_face-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4914692,
+          "sha256": "faf26813bf083efea7fc912b446d6f33eb5ac6ffd0bc5e4e0ca4bf9c1f8297ea"
+        },
+        {
+          "path": "rock/rock_face-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4299134,
+          "sha256": "260fd30648c37f61d3a4785309b154cd8152e0058bf8cfd889220e248950c288"
+        },
+        {
+          "path": "rock/rock_face-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4437205,
+          "sha256": "8a3356a4d36d0c18757d9e0f62db57a59aad0af38ecd131c0ca844c8c145232e"
+        }
+      ]
+    },
+    {
+      "id": "marble_rock_01",
+      "category": "rock",
+      "title": "Marble Rock 01",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/marble_rock_01",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/marble_rock_01-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 324714,
+          "sha256": "6e89223f70690da3aae2f8bd4ba90884e80a68cc31c829752291d2f01b1953cb"
+        },
+        {
+          "path": "rock/marble_rock_01-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 326098,
+          "sha256": "f5ab933782a8568c3f76f550f1ed5f06768ba54cd9c29f9cd64f037042c4712c"
+        },
+        {
+          "path": "rock/marble_rock_01-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 317398,
+          "sha256": "2dfb37790c0c90dc3e24c3fef9ccaf6d56769a1af2819a9b1a87c423236290e6"
+        },
+        {
+          "path": "rock/marble_rock_01-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 319348,
+          "sha256": "9f16b068fc47fe02442c53faa306c0092252593b213c35608f0a1566b6ea94f6"
+        },
+        {
+          "path": "rock/marble_rock_01-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 325003,
+          "sha256": "7ae993502d14a7c224740c55f1b593925bbb81ced1b76fd2a68269c216e5333f"
+        },
+        {
+          "path": "rock/marble_rock_01-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 318648,
+          "sha256": "d78b443b0c2cff062c3297e45e95280335ef445a783b9dc1f6f96433e3ceff92"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1262426,
+          "sha256": "7424a17572fcb6fa9822e577b073f2096082dc9fe23f5a37ded4f57fbc3fa8b8"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1263493,
+          "sha256": "a4cb5918a66290752df16f3edd4ce6f79a504f64c7846f39e4b5e7cd6d3329e8"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1247493,
+          "sha256": "a58cd88cd8608569dce0426b57f7ec88bc52cebcd1b655f5aac8c67c655d8ac8"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1276235,
+          "sha256": "6b23f6e2fc2a77c78c37dac04b4274313f3c434d871b6139fb4830f3026429b1"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1264208,
+          "sha256": "d4b812ef98cbe4af646bc56075e38001da5f3dfc22b4b08cc61f2972c401e74f"
+        },
+        {
+          "path": "rock/marble_rock_01-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1255651,
+          "sha256": "e40fe52c10dfb4d187fc98fc5171a4f92cf3ff36e99df0c34b1370ddbcf5a4a5"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4834288,
+          "sha256": "4aa11a5392e4ecac75db74aa112986b597f622a0aafc80c928029fdd65e50098"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4858079,
+          "sha256": "1ccb47b0b603b5cfe6902f0f5cac7f871a746b2ad7cf0f0844ccd0663f925f61"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4880644,
+          "sha256": "620531739402f346189be6778cb94c2987e4aa2ecfd14a346325e4d85fd42a4a"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4866304,
+          "sha256": "d61c1659bde96e579b4e7b12edb5fbf940f8b054e34f838fe3db7ebf8a4b4baa"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4905502,
+          "sha256": "cc41b653b2fe5aa16e2f3d3498ac794b86ea92d99b55550004b310fb3f78cd06"
+        },
+        {
+          "path": "rock/marble_rock_01-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4910628,
+          "sha256": "ae98293de4c6388c19224df49961c130896ef0945b48209bd1f4bdb8b6aba6f9"
+        }
+      ]
+    },
+    {
+      "id": "dark_rock",
+      "category": "rock",
+      "title": "Dark Rock",
+      "authors": [
+        "Amal Kumar"
+      ],
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/dark_rock",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/dark_rock-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 253695,
+          "sha256": "3415e1322672ae08d1afe2d82e82202f1f2bbbdeccbc90168a4b92fd2bef0dda"
+        },
+        {
+          "path": "rock/dark_rock-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 180489,
+          "sha256": "b6b062e2dafc3aafca1da6ed7c7e2b9a64e79390e98eb54b1cf005e88dd4e046"
+        },
+        {
+          "path": "rock/dark_rock-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 329094,
+          "sha256": "71f38641a9d9db70c0287e0838c1144499ceacc676a01ee593696ebaa61b28d2"
+        },
+        {
+          "path": "rock/dark_rock-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 326660,
+          "sha256": "336b84a1a917d4cb56037dca431789c339eb72b92ad0bc15afbd6705e31c10cd"
+        },
+        {
+          "path": "rock/dark_rock-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 335976,
+          "sha256": "81aa698dfd0a334bd3e54d5d3a536f21ce293c6c511c4be44633ef170e2acb6c"
+        },
+        {
+          "path": "rock/dark_rock-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 323032,
+          "sha256": "6c543ae08f6cc4272d8fbebdb6f709e397312ef9a6d805b7106ccf6509991083"
+        },
+        {
+          "path": "rock/dark_rock-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 986420,
+          "sha256": "0a4093f40fbc3b21cb7d8ff5f3620f232ee7134899c088420e41f8c5200513a3"
+        },
+        {
+          "path": "rock/dark_rock-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 665463,
+          "sha256": "c2fcd51179a115587925a00b30f88ed19b34569310823a8ec038143d84a05ae1"
+        },
+        {
+          "path": "rock/dark_rock-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1294681,
+          "sha256": "313028e1bab11d2692c849aeb494f3f1a7bef8c4e4a605751312026813013e27"
+        },
+        {
+          "path": "rock/dark_rock-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1303511,
+          "sha256": "da8b1b340bf3aaf66e6c6c5a2f4fb5df6d40af2c602f814eab0918404e2d5377"
+        },
+        {
+          "path": "rock/dark_rock-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1302987,
+          "sha256": "6274fbbc06e225a2ee690ef38b91f69285ef864986374b02fe71de4596e285ea"
+        },
+        {
+          "path": "rock/dark_rock-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1294426,
+          "sha256": "7efe13abc166c4cacd7dd532522d30d60f8ddc5caae57dc9cf60b5fdbeb34998"
+        },
+        {
+          "path": "rock/dark_rock-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3848303,
+          "sha256": "0547fd053c7c1a8a1f4ac3fd9d0eb96201aaf8313e93e3c3fbfe2bd1807939ed"
+        },
+        {
+          "path": "rock/dark_rock-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2591946,
+          "sha256": "7f33f54386e550d465117cecf1f4d35effe4d91717324b5e9f608f40e8f51239"
+        },
+        {
+          "path": "rock/dark_rock-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5072879,
+          "sha256": "111b58e3465efab7356f1675315d34c89b172fa319163f5b9af3f40b31e2cc74"
+        },
+        {
+          "path": "rock/dark_rock-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5038810,
+          "sha256": "a281acf8cc4cf573f5963d3e7689296bf453e60cc899f7acd99f0c1dae2404e6"
+        },
+        {
+          "path": "rock/dark_rock-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5045939,
+          "sha256": "edd9b5ecc32720c58f662bc6dc26ef02de9b23faec4ed2801c2aa717eb1b84b8"
+        },
+        {
+          "path": "rock/dark_rock-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5007587,
+          "sha256": "c00d04aa939fc9967e2046eedcc7e59836fa50d441b7a0e2e81f2681369c48bd"
+        }
+      ]
+    },
+    {
+      "id": "metal",
+      "category": "rock",
+      "title": "Metal 052 C",
+      "authors": [
+        "ambientCG"
+      ],
+      "source": "ambientcg",
+      "sourceUrl": "https://ambientcg.com/a/Metal052C",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/metal-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 257644,
+          "sha256": "42fbd9b4507c298056bfe24986e898363ca070cda564fa668abee9695d803d4e"
+        },
+        {
+          "path": "rock/metal-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 197472,
+          "sha256": "33fa434a8d5f1c1121e37ec485989c91786d2963c0305b4910ec045a30e77be7"
+        },
+        {
+          "path": "rock/metal-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 211319,
+          "sha256": "f599eee5ac4544f2f15ab84963ed5fb3a19c6b090af0d9dd20061b59c7d55747"
+        },
+        {
+          "path": "rock/metal-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 223007,
+          "sha256": "ff23b12906625650dcb48320a3d5a9916e14f83c43ba3b5fafa579ca502c623f"
+        },
+        {
+          "path": "rock/metal-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 298738,
+          "sha256": "874e544f09cff35667a27ae6cd4aa960683e1ce9dd5d1f01dbe65e664b003248"
+        },
+        {
+          "path": "rock/metal-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 300263,
+          "sha256": "b535609b372a15f553cf2553e7130c670cac769bca8115461a5239dbd3e1cb2c"
+        },
+        {
+          "path": "rock/metal-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 988961,
+          "sha256": "a09880167d7eaf217f366424b38d585d6d067c0ca276ecb4eba0c4cb9f6efef7"
+        },
+        {
+          "path": "rock/metal-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 700927,
+          "sha256": "218de7eb1ce3fc64f2de65e149796094cfd2c94a6dbc36533b067cca0aee7647"
+        },
+        {
+          "path": "rock/metal-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 846931,
+          "sha256": "aa5260ded3517344404e856f45a21f9988c11435f3ca3621963fe4cd74905ca2"
+        },
+        {
+          "path": "rock/metal-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 896452,
+          "sha256": "3bcec583c39cd0cdcf160461045944efa341434e4b8cbd144ad7542ed72caf0b"
+        },
+        {
+          "path": "rock/metal-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1180909,
+          "sha256": "3986916b17147e837c3493a994c30518d2edcd5864311eb59a35a8b506addffe"
+        },
+        {
+          "path": "rock/metal-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1149011,
+          "sha256": "a65a0980d4360c73f45356e480f3c501fc642148a860fe4f722f7220fccd0e16"
+        },
+        {
+          "path": "rock/metal-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3918279,
+          "sha256": "263d464e58f50e182a9b13321bdbb887e9539135a56c468c9525d497966648eb"
+        },
+        {
+          "path": "rock/metal-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2497776,
+          "sha256": "3c563495be66eb0bb596ba981e56020a7c405b7dbc82d52559d6327213877829"
+        },
+        {
+          "path": "rock/metal-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3360939,
+          "sha256": "80452cd777f8a8d729eba10cd604ec69687a933bc2476555130c129498cc6fd3"
+        },
+        {
+          "path": "rock/metal-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3560412,
+          "sha256": "dfce3d74fe49a1c24930e9440287244ed1ae0b2e19d82157a672f4d1644af91f"
+        },
+        {
+          "path": "rock/metal-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4631441,
+          "sha256": "9861c405291d84ea5e9da535090f455a42363974f9f2ab3bd87b740e1b91156c"
+        },
+        {
+          "path": "rock/metal-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4431642,
+          "sha256": "834a82bcf662fd217c83cfc33baea7c024f7fec3fa101323fa5e9d85084f1df9"
+        }
+      ]
+    },
+    {
+      "id": "amethyst_1",
+      "category": "rock",
+      "title": "Amethyst Texture 1",
+      "authors": [
+        "M.Tolga Arslan"
+      ],
+      "source": "sharetextures",
+      "sourceUrl": "https://www.sharetextures.com/textures/gems/amethyst-1",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/amethyst_1-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 343328,
+          "sha256": "7fca0c057ff73a2d3cf35019767ddcd8e0d45c9e87f84a3a8290410ac8972e38"
+        },
+        {
+          "path": "rock/amethyst_1-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 335550,
+          "sha256": "1ef6964f0f7b33352714a188ac362c1cf0833130beb246e3dd63c3ece8f411d5"
+        },
+        {
+          "path": "rock/amethyst_1-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 345683,
+          "sha256": "8851f0defac7a55c4ee0a94302d1c03de34608f85eb4a9041aa258621273458e"
+        },
+        {
+          "path": "rock/amethyst_1-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 324470,
+          "sha256": "cc4706c34fff996ad68fac3a4ce627875cf23bf4afcb74aa9f08509bb6dda505"
+        },
+        {
+          "path": "rock/amethyst_1-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 324780,
+          "sha256": "a683b726e9cb411917e9ed50a237063e37c28ff906437cae0fee0ebe6126bdc4"
+        },
+        {
+          "path": "rock/amethyst_1-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 310165,
+          "sha256": "b95a694d430d29ad78923690cbfe71036de38d073bfce412ab5b8b88a89bcd1f"
+        },
+        {
+          "path": "rock/amethyst_1-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1360487,
+          "sha256": "f8fe5a4591d5c3b6100623998412604f5f655a87bb04d24899949f07ab4c23f1"
+        },
+        {
+          "path": "rock/amethyst_1-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1292192,
+          "sha256": "ecbde1426a77b9214958bde0723773bfc15a6046ce5fad2f882bf63f771a3003"
+        },
+        {
+          "path": "rock/amethyst_1-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1345752,
+          "sha256": "ee29f83c7711d379a0a92e5feaa4e7ebaf048af9a9a554339c570550d1032837"
+        },
+        {
+          "path": "rock/amethyst_1-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1201995,
+          "sha256": "639de447c77f1f99c08941466647651b7ab29a98637c74649223d395fd0f5c39"
+        },
+        {
+          "path": "rock/amethyst_1-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1216042,
+          "sha256": "9cf00e888a27f4a4f7d115cd1a9e0dc8b68042e2dacc41c4dd50eaf8a90ffd90"
+        },
+        {
+          "path": "rock/amethyst_1-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1150055,
+          "sha256": "68b61eb53e9f1e3c71232a1bcc27dbc35be41ef5a7a226399c26accc835c721c"
+        },
+        {
+          "path": "rock/amethyst_1-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5299205,
+          "sha256": "f557bcc90371f0737734c55f40dc0177985231a22115af3155e9b4e270fb831e"
+        },
+        {
+          "path": "rock/amethyst_1-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4774585,
+          "sha256": "a8afcd2d311d8268a0f5abdd470649d6864d83f3af4a8435ce0d9fd1e7e08a3c"
+        },
+        {
+          "path": "rock/amethyst_1-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4981029,
+          "sha256": "dc36857dddc4da9b6871616ec4615b6345f137169d8af0c63cd44c262b8654e3"
+        },
+        {
+          "path": "rock/amethyst_1-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4401036,
+          "sha256": "070d2bb2dd2b54dd87f7d5a3541b0664b3716bc6e759d96fb8130ae977d002de"
+        },
+        {
+          "path": "rock/amethyst_1-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4349921,
+          "sha256": "3d24557dfa51c6f7547822ee796e37d8f59b476aa1015e95368dbe589d9ab9f2"
+        },
+        {
+          "path": "rock/amethyst_1-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4304761,
+          "sha256": "9e444d33c9505e13cc69e32208fd28a98fbd26a7f42e0b2729a7b5c106aa8e53"
+        }
+      ]
+    },
+    {
+      "id": "rock_ore_002",
+      "category": "rock",
+      "title": "Rock Ore 002",
+      "authors": [
+        "3dtextures.me"
+      ],
+      "source": "3dtextures",
+      "sourceUrl": "https://3dtextures.me/2018/01/15/rock-ore-002/",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/rock_ore_002-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 305352,
+          "sha256": "b90c37873e906d5dfbcf7aa1a53cb8544a4764b59b09425362d4a20f1c53a21f"
+        },
+        {
+          "path": "rock/rock_ore_002-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 260685,
+          "sha256": "74a5ae8bbb7173a550ffe991168119dfb63db2153de8f49504808b0bf7f3eb7b"
+        },
+        {
+          "path": "rock/rock_ore_002-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 317025,
+          "sha256": "5504a3c0321a9630897141aebeac77fe621daf8d2310815bcf27fa5a191961aa"
+        },
+        {
+          "path": "rock/rock_ore_002-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 303901,
+          "sha256": "69b2d579550faba0a67d8c778c7af9c3f0105b13c8a6d59da831dde397adfec5"
+        },
+        {
+          "path": "rock/rock_ore_002-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 323213,
+          "sha256": "8ef1cda922b06b999d5b20ed4fe20ee2c157fd3b0707463a3b56b36f15e10e5f"
+        },
+        {
+          "path": "rock/rock_ore_002-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 319634,
+          "sha256": "cf99adee23193bfb6c7ca6ee65e38fa8d52957ecf71c23b75df03ad906f3b6f2"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1131583,
+          "sha256": "21f60eaa8c6c22de24b022dcd756c0917a1c492071cc0b446ec28a2ab4656764"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 850724,
+          "sha256": "d4173e9eefe3effe785c3b01215f321f5b8e625e9b86472fd34d35a3a16446e1"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1248028,
+          "sha256": "ab8e0f8735b6c700824c01861df0d4489e1682ed72368271f0b323ec26eb97d8"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1189842,
+          "sha256": "e44d011ddb3f9dd7d647d2cee72961cf625cf8353630b6b1ce4d69c408fa167e"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1207951,
+          "sha256": "5f370065a1c2f4199c00a6d2fe7571f1c1d60ad09ab4ec6015e9ebf2837301b8"
+        },
+        {
+          "path": "rock/rock_ore_002-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1214635,
+          "sha256": "57c0353f8954ea1c709ddc2e3cf3b130b7bc30db78b4c1634ed5f9dbdea984ea"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4276210,
+          "sha256": "2698295c1193eda6f587a7652cfd0e4f251ef6220ec5be250c7b46584df28e00"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2924159,
+          "sha256": "fbcdb3d661b563d842784a7e625415a4ad99b5c3a7bda2ef1bdd71adb63461a8"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4944627,
+          "sha256": "0ca8ce54a634bc0d7be973b223df8780431116fc4afdf98dd1dd9bc34119dec0"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4668890,
+          "sha256": "0c4541e42e509cab1d85a4681935b9b3c2e1654a21aee9c7e0505d6435e1d11d"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4503631,
+          "sha256": "1af3a4cf738489ef8076a0ad67d296ba12955a35b47a3663c9b254625cb6a3d8"
+        },
+        {
+          "path": "rock/rock_ore_002-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4576995,
+          "sha256": "1e50db8eaf444993ad2b1092e93725e840e88144fb467796a708741167ebd25d"
+        }
+      ]
+    },
+    {
+      "id": "ice",
+      "category": "rock",
+      "title": "Ice 001",
+      "authors": [
+        "3dtextures.me"
+      ],
+      "source": "3dtextures",
+      "sourceUrl": "https://3dtextures.me/2017/11/19/ice-001/",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "rock/ice-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 296495,
+          "sha256": "929bd62d6ecfd350b078cc11b67c7501c6f16ccb72a4b04da09bde5eb72c6f3e"
+        },
+        {
+          "path": "rock/ice-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 227619,
+          "sha256": "a5675b23104775a9d90a8da9646f346a6244ffefa50b05a67917215a76ee7551"
+        },
+        {
+          "path": "rock/ice-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 319514,
+          "sha256": "e19060bd116460fe10bb36cb9e983f9e1a78a79e060fc1ed88c4224e87c8ba29"
+        },
+        {
+          "path": "rock/ice-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 312308,
+          "sha256": "6dcd78765e304d746dbd5662d15e68d91c8c19793f78e04fe7c2bd671c519607"
+        },
+        {
+          "path": "rock/ice-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 309676,
+          "sha256": "43f309468468460e9ade00d7aa848bbd6da9d2c189c5fc028cc4cfdd732338b5"
+        },
+        {
+          "path": "rock/ice-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 320338,
+          "sha256": "b2576a6cfe6eb4cfcb9f646a3247702323190609190bf1cb6b5fc4c90d75803e"
+        },
+        {
+          "path": "rock/ice-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1043545,
+          "sha256": "9f9804726a9df0c854eb4bfb9ef33683ad7659a63e25b2bb98a1b5b0da0590dd"
+        },
+        {
+          "path": "rock/ice-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 763145,
+          "sha256": "8139ecc7baccdc362278c35fa3cee8d4515df0e58e89005a0e1299ae475fc83b"
+        },
+        {
+          "path": "rock/ice-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1211583,
+          "sha256": "d47f7c2b6cd5667ee9a5dc9085a3d31951c25da89179abb69a81f2bbf018be22"
+        },
+        {
+          "path": "rock/ice-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1186384,
+          "sha256": "1aa44f0e0bca48de929265a1a2fabc1c9eb8398a6b7fc2ca99740b17e9187816"
+        },
+        {
+          "path": "rock/ice-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1184470,
+          "sha256": "d8fd1501d8206c2b1751b41038c77693b586c25e04ae3d632260f44d305f6e5d"
+        },
+        {
+          "path": "rock/ice-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1237659,
+          "sha256": "ad11ee9b90b51bf7e439f8c489758a6211a715aec4695e824399f222e5ecc399"
+        },
+        {
+          "path": "rock/ice-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3464095,
+          "sha256": "f31eb71a71351e9a3a5772154f185767ab1fb9bfc5df15ef4c59512e147315e7"
+        },
+        {
+          "path": "rock/ice-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2412260,
+          "sha256": "befaefd5ba3f13cf2da10c2b447fbe00fa88d7da4393bda32aedecb8f4cf5e8f"
+        },
+        {
+          "path": "rock/ice-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4297683,
+          "sha256": "4db807075264545a2256b4910d50135280221a176d68c361d5c03ecef13ade05"
+        },
+        {
+          "path": "rock/ice-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4331773,
+          "sha256": "9fb54ec40ef395630233dde23d051171d772d27261b3bf7a9aaf58d5fbe04dee"
+        },
+        {
+          "path": "rock/ice-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4426516,
+          "sha256": "3b60303be62f7e6457d5b0ebeed821c5ff40ded0c367ba0c71c79ead4695e1c1"
+        },
+        {
+          "path": "rock/ice-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4621469,
+          "sha256": "3f8aaf88c9cc71d41aff1a1dd96a2c9e79132c3a57a56e604ce42659bcebf70e"
+        }
+      ]
+    }
+  ]
+}

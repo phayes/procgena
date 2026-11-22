@@ -1,0 +1,31 @@
+[package]
+name = "procgena_stone_bevy"
+version = "0.1.0"
+description = "Bevy plugin for procgena_stone procedural rocks: meshes, triplanar materials and LOD"
+edition.workspace = true
+
+[dependencies]
+procgena_stone = { path = "../procgena_stone" }
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_pbr",
+    "ktx2",
+    "zstd_rust",
+] }
+
+[features]
+# Generate rock meshes on the GPU and draw many copies of them (`StonePool`).
+gpu = ["procgena_stone/gpu", "bevy/bevy_render", "bevy/bevy_core_pipeline"]
+
+[dev-dependencies]
+bevy = { version = "0.20.1", features = ["free_camera"] }
+# The viewer's pool mode and the pool tests need the `gpu` feature.
+procgena_stone_bevy = { path = ".", features = ["gpu"] }
+# PNG support for saving viewer screenshots.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[package.metadata.docs.rs]
+all-features = true
