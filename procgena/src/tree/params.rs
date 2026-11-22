@@ -67,14 +67,16 @@ fn bark() -> Vec<Group<BarkOptions>> {
             "Texture Scale X",
             (5.0, 200.0, 1.0),
             |b| b.texture_scale.x
-        ),
+        )
+        .exponential(),
         number!(
             BarkOptions,
             "textureScale.y",
             "Texture Scale Y",
             (0.5, 20.0, 0.1),
             |b| b.texture_scale.y
-        ),
+        )
+        .exponential(),
         choice!(BarkOptions, "uvMode", "UV Mode", [
             "Mirrored" => BarkUvMode::Mirrored,
             "Continuous" => BarkUvMode::Continuous,
@@ -109,42 +111,123 @@ fn has_children(o: &TreeOptions, level: usize) -> bool {
     (level as u32) < o.branch.levels && grows(o, level)
 }
 
-/// Per-level number settings of one [`BranchOptions`] field, each shown while
-/// `shown(options, level)` holds.
-macro_rules! per_level {
-    ($field:ident, $levels:expr, $range:expr, $shown:expr) => {
-        $levels
-            .map(|level: usize| {
-                let shown: fn(&TreeOptions, usize) -> bool = $shown;
-                Param::number(
-                    format!("branch.{}.{level}", stringify!($field)),
-                    format!("Level {level}"),
-                    $range,
-                    move |o: &TreeOptions| o.branch.$field[level],
-                    move |o: &mut TreeOptions, value| o.branch.$field[level] = value,
-                )
-                .shown_if(move |o| shown(o, level))
-            })
-            .collect::<Vec<_>>()
-    };
+/// The number setting for `field[level]` of [`BranchOptions`], labelled
+/// `label`, shown while `shown(options, level)` holds.
+macro_rules! level_number {
+    ($field:ident, $level:expr, $label:expr, $range:expr, $shown:expr) => {{
+        let level: usize = $level;
+        let shown: fn(&TreeOptions, usize) -> bool = $shown;
+        Param::number(
+            format!("branch.{}.{level}", stringify!($field)),
+            $label,
+            $range,
+            move |o: &TreeOptions| o.branch.$field[level],
+            move |o: &mut TreeOptions, value| o.branch.$field[level] = value,
+        )
+        .shown_if(move |o| shown(o, level))
+    }};
 }
 
-/// Per-level whole-number settings of one [`BranchOptions`] field, with a
-/// `(min, max)` range for each level, each shown while `shown(options, level)` holds.
-macro_rules! per_level_count {
-    ($field:ident, $shown:expr, [$(($level:expr, $min:expr, $max:expr)),+ $(,)?]) => {
-        vec![$({
-            let shown: fn(&TreeOptions, usize) -> bool = $shown;
-            Param::count(
-                format!("branch.{}.{}", stringify!($field), $level),
-                format!("Level {}", $level),
-                ($min, $max),
-                |o: &TreeOptions| o.branch.$field[$level],
-                |o: &mut TreeOptions, value| o.branch.$field[$level] = value,
-            )
-            .shown_if(move |o| shown(o, $level))
-        }),+]
-    };
+/// The whole-number setting for `field[level]` of [`BranchOptions`],
+/// labelled `label`, shown while `shown(options, level)` holds.
+macro_rules! level_count {
+    ($field:ident, $level:expr, $label:expr, $range:expr, $shown:expr) => {{
+        let level: usize = $level;
+        let shown: fn(&TreeOptions, usize) -> bool = $shown;
+        Param::count(
+            format!("branch.{}.{level}", stringify!($field)),
+            $label,
+            $range,
+            move |o: &TreeOptions| o.branch.$field[level],
+            move |o: &mut TreeOptions, value| o.branch.$field[level] = value,
+        )
+        .shown_if(move |o| shown(o, level))
+    }};
+}
+
+/// Sub-headings of the branch level groups, indexed by level.
+const LEVEL_TITLES: [&str; 4] = ["Trunk", "Level 1", "Level 2", "Level 3"];
+
+/// Length given to a branch level that appears with none, as a share of its
+/// parent level's length.
+const REVIVED_LENGTH_SHARE: f32 = 0.6;
+
+/// Shortest length given to a branch level that appears with none, in metres.
+const REVIVED_LENGTH_MIN: f32 = 0.3;
+
+/// The settings of branch `level`, under its own sub-heading. The child
+/// count comes last, since it decides whether the next level grows.
+///
+/// A deeper level that appears with no length, taper, angle or children gets
+/// values based on its parent level, so it can be seen at once.
+fn level_group(level: usize) -> Group<TreeOptions> {
+    let deciduous = |o: &TreeOptions, level| o.tree_type == TreeType::Deciduous && grows(o, level);
+    let parent = level.saturating_sub(1);
+    let mut length = level_number!(length, level, "Length", (0.0, 10.0, 0.01), grows).exponential();
+    if level > 0 {
+        length = length.revive_with(move |o| {
+            (o.branch.length[parent] * REVIVED_LENGTH_SHARE).max(REVIVED_LENGTH_MIN)
+        });
+    }
+    let mut params = vec![length];
+
+    // The trunk radius is in metres; deeper levels multiply the parent's radius.
+    params.push(if level == 0 {
+        level_number!(radius, 0, "Radius", (0.01, 0.5, 0.001), has_side_branches).exponential()
+    } else {
+        level_number!(
+            radius,
+            level,
+            "Radius ×",
+            (0.1, 5.0, 0.01),
+            has_side_branches
+        )
+        .exponential()
+        .revive(0.7)
+    });
+
+    // Side branches leave their parent at an angle, from a start position.
+    if level > 0 {
+        params.extend([
+            level_number!(angle, level, "Angle", (0.0, 180.0, 1.0), has_side_branches).revive(45.0),
+            level_number!(
+                start,
+                level,
+                "Start Position",
+                (0.0, 1.0, 0.01),
+                has_side_branches
+            ),
+        ]);
+    }
+
+    // Shape along the branch; evergreen branches always taper to a point.
+    let mut taper = level_number!(taper, level, "Taper", (0.0, 1.0, 0.01), deciduous);
+    if level > 0 {
+        taper = taper.revive_with(move |o| match o.branch.taper[parent] {
+            0.0 => 0.7,
+            inherited => inherited,
+        });
+    }
+    params.extend([
+        level_number!(gnarliness, level, "Gnarliness", (-0.5, 0.5, 0.01), grows),
+        level_number!(twist, level, "Twist", (-0.5, 0.5, 0.01), grows),
+        taper,
+        level_count!(sections, level, "Sections", (1, 20), has_side_branches),
+        level_count!(segments, level, "Segments", (3, 16), has_side_branches),
+    ]);
+
+    // Child counts per level; the deepest level has none. The trunk usually
+    // carries more children than each branch.
+    let (max_children, revived_children) = if level == 0 { (100, 8.0) } else { (10, 4.0) };
+    if level < procgena_tree::MAX_LEVELS as usize {
+        let children = level_count!(children, level, "Children", (0, max_children), has_children);
+        params.push(if level == 0 {
+            children.exponential().revive(revived_children)
+        } else {
+            children.revive(revived_children)
+        });
+    }
+    Group::titled(LEVEL_TITLES[level], params)
 }
 
 fn branches() -> Vec<Group<TreeOptions>> {
@@ -163,7 +246,8 @@ fn branches() -> Vec<Group<TreeOptions>> {
         // Several stems make a multi-stemmed shrub; the tilt only matters then.
         count!(TreeOptions, "branch.stems", "Stems", (1, 40), |o| o
             .branch
-            .stems),
+            .stems)
+        .exponential(),
         number!(
             TreeOptions,
             "branch.stemAngle",
@@ -171,19 +255,23 @@ fn branches() -> Vec<Group<TreeOptions>> {
             (0.0, 90.0, 1.0),
             |o| o.branch.stem_angle
         )
-        .shown_if(|o| o.branch.stems > 1),
+        .shown_if(|o| o.branch.stems > 1)
+        .revive(20.0),
     ]);
 
     // The direction only matters while the strength is not zero.
     let strength = Group::titled(
         "Growth Direction",
-        vec![number!(
-            BranchOptions,
-            "force.strength",
-            "Strength",
-            (-0.01, 0.01, 0.0001),
-            |b| b.force.strength
-        )],
+        vec![
+            number!(
+                BranchOptions,
+                "force.strength",
+                "Strength",
+                (-0.01, 0.01, 0.0001),
+                |b| b.force.strength
+            )
+            .exponential(),
+        ],
     );
     let direction = Group::plain(vec![
         number!(
@@ -212,69 +300,10 @@ fn branches() -> Vec<Group<TreeOptions>> {
     let branch =
         |group: Group<BranchOptions>| lift(group, "branch", |o| &o.branch, |o| &mut o.branch);
 
-    let deciduous = |o: &TreeOptions| o.tree_type == TreeType::Deciduous;
-    vec![
-        type_and_levels,
-        // Show child branch counts first: they determine which deeper levels can grow.
-        Group::titled(
-            "Children",
-            per_level_count!(
-                children,
-                has_children,
-                [(0, 0, 100), (1, 0, 10), (2, 0, 10)]
-            ),
-        ),
-        Group::titled(
-            "Angle",
-            per_level!(angle, 1..=3, (0.0, 180.0, 1.0), has_side_branches),
-        ),
-        Group::titled(
-            "Gnarliness",
-            per_level!(gnarliness, 0..=3, (-0.5, 0.5, 0.01), grows),
-        ),
-        branch(strength),
-        branch(direction),
-        Group::titled(
-            "Length",
-            per_level!(length, 0..=3, (0.0, 10.0, 0.01), grows),
-        ),
-        // The trunk radius is in metres; deeper levels are multipliers of the
-        // parent's radius.
-        Group::titled("Radius", {
-            let mut radius = per_level!(radius, 0..=0, (0.01, 0.5, 0.001), has_side_branches);
-            radius.extend(per_level!(
-                radius,
-                1..=3,
-                (0.1, 5.0, 0.01),
-                has_side_branches
-            ));
-            radius
-        }),
-        Group::titled(
-            "Sections",
-            per_level_count!(
-                sections,
-                has_side_branches,
-                [(0, 1, 20), (1, 1, 20), (2, 1, 20), (3, 1, 20)]
-            ),
-        ),
-        Group::titled(
-            "Segments",
-            per_level_count!(
-                segments,
-                has_side_branches,
-                [(0, 3, 16), (1, 3, 16), (2, 3, 16), (3, 3, 16)]
-            ),
-        ),
-        Group::titled(
-            "Start Position",
-            per_level!(start, 1..=3, (0.0, 1.0, 0.01), has_side_branches),
-        ),
-        // Evergreen branches always taper to a point.
-        Group::titled("Taper", per_level!(taper, 0..=3, (0.0, 1.0, 0.01), grows))
-            .shown_if(deciduous),
-        Group::titled("Twist", per_level!(twist, 0..=3, (-0.5, 0.5, 0.01), grows)),
-    ]
+    // Tree-wide settings first, then one group per branch level, trunk first.
+    let mut groups = vec![type_and_levels, branch(strength), branch(direction)];
+    groups.extend((0..=procgena_tree::MAX_LEVELS as usize).map(level_group));
+    groups
 }
 
 /// Whether the tree has any leaves: they grow on the deepest branch level,
@@ -287,12 +316,13 @@ fn has_leaves(o: &TreeOptions) -> bool {
 
 fn leaves() -> Vec<Group<TreeOptions>> {
     let count = Group::plain(vec![
-        count!(LeafOptions, "count", "Count", (0, 100), |l| l.count)
+        count!(LeafOptions, "count", "Count", (0, 100), |l| l.count).exponential(),
     ]);
     let along = Group::plain(vec![
         number!(LeafOptions, "start", "Start", (0.0, 1.0, 0.01), |l| l.start),
         number!(LeafOptions, "angle", "Angle", (0.0, 100.0, 1.0), |l| l
-            .angle),
+            .angle)
+        .revive(40.0),
         // Turns leaves toward lying level and face up, as on cedar sprays.
         number!(LeafOptions, "flatten", "Flatten", (0.0, 1.0, 0.01), |l| l
             .flatten),
@@ -305,7 +335,7 @@ fn leaves() -> Vec<Group<TreeOptions>> {
             "Single" => Billboard::Single,
             "Double" => Billboard::Double,
         ], |l| l.billboard),
-        number!(LeafOptions, "size", "Size", (0.0, 1.0, 0.01), |l| l.size),
+        number!(LeafOptions, "size", "Size", (0.0, 1.0, 0.01), |l| l.size).revive(0.25),
         number!(
             LeafOptions,
             "sizeVariance",
@@ -371,7 +401,9 @@ fn placement() -> Group<ClusterPlacement> {
             |p| p.facing_jitter
         ),
         number!(ClusterPlacement, "size", "Size", (0.005, 0.5, 0.005), |p| p
-            .size),
+            .size)
+        .exponential()
+        .revive(0.1),
         number!(
             ClusterPlacement,
             "sizeVariance",
@@ -384,14 +416,16 @@ fn placement() -> Group<ClusterPlacement> {
 
     let mut params = vec![
         count!(ClusterPlacement, "count", "Per Branch", (0, 20), |p| p
-            .count),
+            .count)
+        .exponential(),
         number!(
             ClusterPlacement,
             "density",
             "Per Metre",
             (0.0, 50.0, 0.5),
             |p| p.density
-        ),
+        )
+        .exponential(),
         number!(
             ClusterPlacement,
             "tips",
@@ -426,7 +460,9 @@ fn cluster() -> Group<ClusterShape> {
                 "Panicle" => ClusterKind::Panicle,
                 "Catkin" => ClusterKind::Catkin,
             ], |c| c.kind),
-            count!(ClusterShape, "items", "Items", (1, 60), |c| c.items).shown_if(several),
+            count!(ClusterShape, "items", "Items", (1, 60), |c| c.items)
+                .shown_if(several)
+                .revive(6.0),
             number!(
                 ClusterShape,
                 "itemsVariance",
@@ -437,7 +473,8 @@ fn cluster() -> Group<ClusterShape> {
             .shown_if(several),
             number!(ClusterShape, "spread", "Spread", (0.0, 90.0, 1.0), |c| c
                 .spread)
-            .shown_if(several),
+            .shown_if(several)
+            .revive(30.0),
             number!(
                 ClusterShape,
                 "axisLength",
@@ -445,7 +482,8 @@ fn cluster() -> Group<ClusterShape> {
                 (0.0, 1.0, 0.005),
                 |c| c.axis_length
             )
-            .shown_if(main_stem),
+            .shown_if(main_stem)
+            .revive(0.2),
             number!(ClusterShape, "droop", "Droop", (0.0, 1.0, 0.01), |c| c
                 .droop)
             .shown_if(main_stem),
@@ -462,14 +500,16 @@ fn cluster() -> Group<ClusterShape> {
                 (0.0, 2.0, 0.01),
                 |c| c.side_length
             )
-            .shown_if(side_stems),
+            .shown_if(side_stems)
+            .revive(0.4),
             number!(
                 ClusterShape,
                 "stalkLength",
                 "Stalk Length",
                 (0.0, 0.3, 0.001),
                 |c| c.stalk_length
-            ),
+            )
+            .exponential(),
             number!(
                 ClusterShape,
                 "stalkRadius",
@@ -477,7 +517,9 @@ fn cluster() -> Group<ClusterShape> {
                 (0.0, 0.02, 0.0005),
                 |c| c.stalk_radius
             )
-            .shown_if(has_stalks),
+            .shown_if(has_stalks)
+            .exponential()
+            .revive(0.003),
         ],
     )
 }
@@ -522,7 +564,8 @@ fn fruit() -> Vec<Group<TreeOptions>> {
                 (0.0, 0.95, 0.01),
                 |s| s.lobe_depth
             )
-            .shown_if(|s| s.lobes > 0),
+            .shown_if(|s| s.lobes > 0)
+            .revive(0.3),
             count!(FruitShape, "segments", "Segments", (3, 32), |s| s.segments),
             count!(FruitShape, "rings", "Rings", (2, 24), |s| s.rings),
             toggle!(FruitShape, "calyx", "Calyx", |s| s.calyx),
@@ -544,7 +587,9 @@ fn fruit() -> Vec<Group<TreeOptions>> {
             (0.0, 0.2, 0.005),
             |s| s.stem_radius
         )
-        .shown_if(|s| s.stem_length > 0.0),
+        .shown_if(|s| s.stem_length > 0.0)
+        .exponential()
+        .revive(0.03),
         number!(
             FruitShape,
             "stemCurve",
@@ -631,14 +676,16 @@ fn flowers() -> Vec<Group<TreeOptions>> {
                 "Petal Length",
                 (0.0, 2.0, 0.01),
                 |s| s.petal_length
-            ),
+            )
+            .revive(0.5),
             number!(
                 FlowerShape,
                 "petalWidth",
                 "Petal Width",
                 (0.0, 1.5, 0.01),
                 |s| s.petal_width
-            ),
+            )
+            .revive(0.35),
             number!(FlowerShape, "cup", "Cup", (0.0, 1.0, 0.01), |s| s.cup),
             number!(FlowerShape, "curl", "Curl", (0.0, 1.0, 0.01), |s| s.curl),
             number!(FlowerShape, "notch", "Notch", (0.0, 1.0, 0.01), |s| s.notch),
@@ -750,7 +797,8 @@ fn trellis() -> Vec<Group<TreeOptions>> {
                 "Spacing",
                 (0.05, 1.0, 0.01),
                 |t| t.spacing
-            ),
+            )
+            .exponential(),
         ],
     );
     let force = Group::titled(
@@ -762,7 +810,8 @@ fn trellis() -> Vec<Group<TreeOptions>> {
                 "Strength",
                 (0.0, 0.02, 0.0001),
                 |t| t.force.strength
-            ),
+            )
+            .exponential(),
             number!(
                 TrellisOptions,
                 "force.maxDistance",
@@ -770,7 +819,8 @@ fn trellis() -> Vec<Group<TreeOptions>> {
                 (0.05, 2.0, 0.01),
                 |t| t.force.max_distance
             )
-            .shown_if(|t| t.force.strength > 0.0),
+            .shown_if(|t| t.force.strength > 0.0)
+            .exponential(),
             number!(
                 TrellisOptions,
                 "force.falloff",
@@ -790,7 +840,8 @@ fn trellis() -> Vec<Group<TreeOptions>> {
                 "Wire Radius",
                 (0.001, 0.05, 0.001),
                 |t| t.cylinder_radius
-            ),
+            )
+            .exponential(),
             color!(TrellisOptions, "color", "Colour", |t| t.color),
         ],
     )
@@ -813,7 +864,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::params::Control;
+    use crate::params::{Control, checks};
 
     fn all_params() -> Vec<Param<TreeOptions>> {
         sections()
@@ -911,6 +962,34 @@ mod tests {
                 set(&mut options, end);
                 assert_eq!(options.validate(), Ok(()), "{} at {end}", param.key);
             }
+        }
+    }
+
+    #[test]
+    fn revived_settings_are_valid() {
+        checks::revived_values_are_valid(&sections(), &varied_options(), |options| {
+            options.validate().map_err(|error| error.to_string())
+        });
+    }
+
+    #[test]
+    fn a_new_branch_level_grows_and_can_be_seen() {
+        // Raise Levels on every preset that has room, on both tree types.
+        for preset in TreePreset::ALL {
+            let before = preset.options();
+            let new_level = before.branch.levels as usize + 1;
+            if new_level > procgena_tree::MAX_LEVELS as usize {
+                continue;
+            }
+            let mut after = before.clone();
+            after.branch.levels += 1;
+            crate::params::spec::revive(&sections(), &before, &mut after);
+            let name = preset.name();
+            assert!(grows(&after, new_level), "{name}: level {new_level} grows");
+            assert!(
+                after.branch.length[new_level] > 0.0,
+                "{name}: level {new_level} has a length"
+            );
         }
     }
 

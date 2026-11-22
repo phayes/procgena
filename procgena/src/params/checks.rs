@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use bevy::reflect::{GetPath, PartialReflect};
 
-use super::spec::{Control, Param};
+use super::spec::{Control, Param, Section, revive};
 
 /// Creates edited copies to exercise a control's supported values.
 ///
@@ -128,6 +128,50 @@ pub fn no_setting_hides_itself<T: Clone>(params: &[Param<T>], cases: &[(String, 
             }
         }
     }
+}
+
+/// Checks that reviving settings after an edit leaves values the controls
+/// can show and `check` accepts.
+///
+/// Every supported value of every control (see [`variants`]) is applied to
+/// each case, then [`revive`](super::spec::revive) runs as it does after a
+/// user edit. Panics with every problem found.
+pub fn revived_values_are_valid<T: Clone + PartialEq>(
+    sections: &[Section<T>],
+    cases: &[(String, T)],
+    check: impl Fn(T) -> Result<(), String>,
+) {
+    let params: Vec<&Param<T>> = sections.iter().flat_map(Section::params).collect();
+    let mut problems = Vec::new();
+    for (name, value) in cases {
+        for param in &params {
+            for mut edited in variants(param, value) {
+                let unrevived = edited.clone();
+                if !revive(sections, value, &mut edited) {
+                    continue;
+                }
+                let key = &param.key;
+                if let Err(error) = check(edited.clone()) {
+                    problems.push(format!(
+                        "{name}: editing {key} revived to rejected: {error}"
+                    ));
+                }
+                // Only the revived settings changed; each must fit its control.
+                for revived in &params {
+                    if let Control::Number { min, max, get, .. } = &revived.control {
+                        let number = get(&edited);
+                        if number != get(&unrevived) && !(*min..=*max).contains(&number) {
+                            problems.push(format!(
+                                "{name}: editing {key} set {} to {number}, outside {min}..={max}",
+                                revived.key
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 /// Checks that each test value can be represented by its controls.

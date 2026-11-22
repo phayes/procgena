@@ -22,7 +22,8 @@ pub fn sections() -> Vec<Section<StoneOptions>> {
             title: "Shape",
             groups: vec![Group::plain(vec![
                 number!(StoneOptions, "scale", "Size (m)", (0.05, 10.0, 0.05), |o| o
-                    .scale),
+                    .scale)
+                .exponential(),
                 stretch(0, "Stretch X"),
                 stretch(1, "Stretch Y"),
                 stretch(2, "Stretch Z"),
@@ -44,7 +45,8 @@ pub fn sections() -> Vec<Section<StoneOptions>> {
                     "Edge Softness",
                     (0.005, 0.5, 0.005),
                     |o| o.carve.smoothness
-                ),
+                )
+                .exponential(),
                 number!(
                     StoneOptions,
                     "carve.base_radius",
@@ -120,7 +122,8 @@ pub fn sections() -> Vec<Section<StoneOptions>> {
                     "Roughness Frequency",
                     (1.0, 30.0, 0.5),
                     |o| o.surface.displacement_spread
-                ),
+                )
+                .exponential(),
                 count!(
                     StoneOptions,
                     "surface.octaves",
@@ -159,7 +162,8 @@ pub fn sections() -> Vec<Section<StoneOptions>> {
                     "Texture Size (m)",
                     (0.05, 5.0, 0.05),
                     |o| o.material.texture_size
-                ),
+                )
+                .exponential(),
             ])],
         },
         Section {

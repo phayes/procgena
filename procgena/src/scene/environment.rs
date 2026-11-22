@@ -1,5 +1,7 @@
 //! Ground, sun, sky and wind shared by every scene mode.
 
+use super::protocol::SceneMode;
+use super::subject::SceneState;
 use super::viewport::ViewportActivity;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
@@ -110,17 +112,26 @@ pub(crate) fn sky_fog() -> DistanceFog {
 }
 
 /// Applies changed settings to the sun, ground, wind and render activity.
+///
+/// Wind is off in clump mode whatever the settings say, since the clump
+/// would not sway with its tree.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_environment(
     settings: Res<EnvironmentSettings>,
+    state: Option<Res<SceneState>>,
+    mut was_clump_mode: Local<bool>,
     mut sun: Query<&mut Transform, With<Sun>>,
     mut ground: Query<&mut Visibility, With<Ground>>,
     mut tree_wind: ResMut<Wind>,
     mut grass_wind: ResMut<PlantWind>,
     mut activity: ResMut<ViewportActivity>,
 ) {
-    if !settings.is_changed() {
+    let clump_mode = state.is_some_and(|state| state.mode() == SceneMode::Clump);
+    let mode_changed = std::mem::replace(&mut *was_clump_mode, clump_mode) != clump_mode;
+    if !settings.is_changed() && !mode_changed {
         return;
     }
+    let wind = settings.wind && !clump_mode;
 
     // Sun direction: the light shines from its position toward the origin.
     let elevation = settings.sun_elevation.clamp(0.0, 90.0).to_radians();
@@ -144,7 +155,7 @@ pub(crate) fn apply_environment(
     }
 
     // Wind for trees and grass.
-    *tree_wind = Wind(if settings.wind {
+    *tree_wind = Wind(if wind {
         WindParams::default()
     } else {
         WindParams {
@@ -152,7 +163,7 @@ pub(crate) fn apply_environment(
             ..default()
         }
     });
-    *grass_wind = if settings.wind {
+    *grass_wind = if wind {
         PlantWind::BREEZE
     } else {
         PlantWind {
@@ -164,6 +175,6 @@ pub(crate) fn apply_environment(
     };
 
     // Animation needs a frame every refresh; otherwise render on change only.
-    activity.continuous = settings.wind || settings.auto_rotate;
+    activity.continuous = wind || settings.auto_rotate;
     activity.request_frames(ViewportActivity::SETTLE_FRAMES);
 }

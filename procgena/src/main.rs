@@ -3,6 +3,7 @@
 //! Debug builds also accept `--headless <script>`, which runs the studio
 //! without a window and follows the script; see [`headless`].
 
+mod clump;
 mod environment;
 mod export;
 mod field;

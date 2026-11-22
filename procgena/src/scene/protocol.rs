@@ -1,9 +1,11 @@
 //! Messages between the host application and the scene.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::prelude::*;
+use procgena_clump::{ClumpError, ClumpOptions};
 use procgena_plant::prelude::{FieldPreset, PlantField};
 use procgena_stone::{OptionsError as StoneOptionsError, StoneOptions};
 use procgena_tree::{OptionsError, TreeOptions, TreePreset};
@@ -24,6 +26,8 @@ pub struct SceneStart {
     pub field: Arc<FieldSettings>,
     /// Rock settings, as for [`ViewerCommand::SetStone`].
     pub stone: Arc<StoneOptions>,
+    /// Clump subject and settings, as for [`ViewerCommand::SetClump`].
+    pub clump: Arc<ClumpSettings>,
     /// Lighting, ground, wind and auto-rotation, as for [`ViewerCommand::SetEnvironment`].
     pub environment: EnvironmentSettings,
     /// The tree detail level to show, as for [`ViewerCommand::SetLod`].
@@ -40,6 +44,7 @@ impl Default for SceneStart {
             tree: Arc::new(TreePreset::OakMedium.options()),
             field: Arc::default(),
             stone: Arc::default(),
+            clump: Arc::default(),
             environment: EnvironmentSettings::default(),
             lod: None,
             plant_lod: None,
@@ -57,6 +62,8 @@ pub enum SceneMode {
     Plants,
     /// A single rock generated from the current stone settings.
     Stone,
+    /// A tree or rock with a clump, such as snow or moss, grown on it.
+    Clump,
 }
 
 /// A change requested by the host application.
@@ -83,6 +90,13 @@ pub enum ViewerCommand {
     /// `options.mesh.detail` sets the rock's detail levels: each level's mesh
     /// resolution, switching distance and texture size.
     SetStone(Arc<StoneOptions>),
+    /// Sets the clump mode's subject, clump settings and colour. They are kept
+    /// apart from the tree and rock modes' settings. In clump mode, a changed
+    /// subject is rebuilt and then grows a new clump; changed clump settings
+    /// grow a new clump on the subject already shown. Each clump build reports
+    /// a [`ViewerEvent::ClumpBuilt`]. In other modes, saves the settings until
+    /// clump mode is shown.
+    SetClump(Arc<ClumpSettings>),
     /// Replaces the lighting, ground, wind and auto-rotation settings.
     SetEnvironment(EnvironmentSettings),
     /// Shows only the tree's detail level `n` (0 is the most detailed; see
@@ -119,6 +133,63 @@ impl Default for FieldSettings {
     }
 }
 
+/// What the clump mode shows: a subject, and the clump grown on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClumpSettings {
+    /// The tree or rock the clump grows on.
+    pub subject: ClumpSubject,
+    /// The clump's settings. Lengths are in metres, like the subject.
+    pub clump: ClumpOptions,
+    /// The clump's colour.
+    pub color: Color,
+}
+
+impl Default for ClumpSettings {
+    /// A snow cap on a rock with default settings.
+    fn default() -> Self {
+        Self {
+            subject: ClumpSubject::Stone(Arc::default()),
+            clump: ClumpOptions::default(),
+            color: Color::WHITE,
+        }
+    }
+}
+
+/// The subject a clump grows on.
+///
+/// A clump grows on a tree's trunk and branches at full detail, not on its
+/// leaves, fruit or flowers, and on a rock's most detailed mesh.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClumpSubject {
+    /// A tree built from these options.
+    Tree(Arc<TreeOptions>),
+    /// A rock built from these settings.
+    Stone(Arc<StoneOptions>),
+}
+
+/// Why a clump could not be shown.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClumpBuildError {
+    /// The subject tree's options were rejected.
+    Tree(OptionsError),
+    /// The subject rock's settings were rejected.
+    Stone(StoneOptionsError),
+    /// The clump's settings were rejected, or its subject's mesh can't carry one.
+    Clump(ClumpError),
+}
+
+impl fmt::Display for ClumpBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tree(error) => write!(f, "cannot build the tree: {error}"),
+            Self::Stone(error) => write!(f, "cannot build the rock: {error}"),
+            Self::Clump(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for ClumpBuildError {}
+
 /// A notification from the scene to the host application, delivered as a Bevy
 /// message. Read it with a `MessageReader<ViewerEvent>`.
 #[derive(Message, Debug, Clone, PartialEq)]
@@ -130,6 +201,11 @@ pub enum ViewerEvent {
     /// success, or the reason its settings were rejected. A rejected
     /// replacement leaves the previous rock visible.
     StoneBuilt(Result<BuildStats, StoneOptionsError>),
+    /// Reports the result of growing a clump in clump mode: its mesh size,
+    /// as a single detail level, and build time on success, or why the clump
+    /// or its subject could not be built. A rejected clump leaves the
+    /// subject shown without one.
+    ClumpBuilt(Result<BuildStats, ClumpBuildError>),
     /// The tree's detail level now on screen changed, because of
     /// [`ViewerCommand::SetLod`] or because the camera moved. Also sent when
     /// tree mode is shown.

@@ -46,7 +46,8 @@ pub fn share_sections() -> Vec<Section<FieldPlant>> {
                 "Density ×",
                 (0.001, 2.0, 0.001),
                 |e| e.density_scale
-            ),
+            )
+            .exponential(),
             number!(
                 FieldPlant,
                 "clustering",
@@ -99,7 +100,8 @@ fn variation() -> Group<PlantVariation> {
             (0.5, 20.0, 0.1),
             |v| v.patch_size
         )
-        .shown_if(|v| v.patch_amount > 0.0),
+        .shown_if(|v| v.patch_amount > 0.0)
+        .exponential(),
         number!(
             PlantVariation,
             "dry_tips",
@@ -128,7 +130,8 @@ fn variation() -> Group<PlantVariation> {
             (0.5, 10.0, 0.1),
             |v| v.bare_patch_size
         )
-        .shown_if(|v| v.bare_share > 0.0),
+        .shown_if(|v| v.bare_share > 0.0)
+        .exponential(),
     ])
 }
 

@@ -39,15 +39,19 @@ fn plant() -> Vec<Group<PlantParams>> {
     let size = Group::plain(vec![
         // Plants per square metre that suit this plant when it grows alone.
         number!(PlantParams, "density", "Per m²", (0.1, 300.0, 0.1), |p| p
-            .density),
+            .density)
+        .exponential(),
         number!(PlantParams, "height.x", "Shortest", (0.0, 4.0, 0.01), |p| p
             .height
-            .x),
+            .x)
+        .exponential(),
         number!(PlantParams, "height.y", "Tallest", (0.01, 4.0, 0.01), |p| p
             .height
-            .y),
+            .y)
+        .exponential(),
         number!(PlantParams, "width", "Width", (0.001, 0.2, 0.001), |p| p
-            .width),
+            .width)
+        .exponential(),
         number!(PlantParams, "lean", "Lean", (0.0, 1.0, 0.01), |p| p.lean),
         count!(PlantParams, "stems_per_plant", "Stems", (1, 8), |p| p
             .stems_per_plant),
@@ -114,7 +118,9 @@ fn plant() -> Vec<Group<PlantParams>> {
             "Width",
             (0.001, 0.2, 0.001),
             |p| p.head_width
-        ),
+        )
+        .exponential()
+        .revive(0.03),
         srgb!(PlantParams, "head_color", "Colour", |p| p.head_color),
     ])
     .shown_if(has_head);
@@ -130,7 +136,9 @@ fn plant() -> Vec<Group<PlantParams>> {
                 (0.05, 3.0, 0.01),
                 |p| p.tuft_size
             )
-            .shown_if(|p| p.tufts > 0.0),
+            .shown_if(|p| p.tufts > 0.0)
+            .exponential()
+            .revive(0.6),
         ],
     );
 
@@ -152,12 +160,17 @@ fn accent() -> Group<PlantAccent> {
     let size = vec![
         number!(PlantAccent, "height.x", "Shortest", (0.0, 4.0, 0.01), |a| a
             .height
-            .x),
+            .x)
+        .exponential(),
         number!(PlantAccent, "height.y", "Tallest", (0.01, 4.0, 0.01), |a| a
             .height
-            .y),
+            .y)
+        .exponential()
+        .revive(0.6),
         number!(PlantAccent, "width", "Width", (0.001, 0.2, 0.001), |a| a
-            .width),
+            .width)
+        .exponential()
+        .revive(0.02),
         number!(PlantAccent, "lean", "Lean", (0.0, 1.0, 0.01), |a| a.lean),
         number!(
             PlantAccent,
@@ -185,7 +198,9 @@ fn accent() -> Group<PlantAccent> {
             (0.001, 0.2, 0.001),
             |a| a.head_width
         )
-        .shown_if(|a| a.head_length > 0.0),
+        .shown_if(|a| a.head_length > 0.0)
+        .exponential()
+        .revive(0.03),
         srgb!(PlantAccent, "head_color", "Head Colour", |a| a.head_color)
             .shown_if(|a| a.head_length > 0.0),
     ];
@@ -241,7 +256,9 @@ fn branches(title: &'static str) -> Group<PlantBranches> {
             |b| b.attachment_start
         ),
         number!(PlantBranches, "length", "Length", (0.0, 3.0, 0.01), |b| b
-            .length),
+            .length)
+        .exponential()
+        .revive(0.5),
         number!(
             PlantBranches,
             "length_envelope",
@@ -250,9 +267,11 @@ fn branches(title: &'static str) -> Group<PlantBranches> {
             |b| b.length_envelope
         ),
         number!(PlantBranches, "width", "Width", (0.0, 1.0, 0.01), |b| b
-            .width),
+            .width)
+        .revive(0.25),
         number!(PlantBranches, "angle", "Angle", (0.0, 1.0, 0.01), |b| b
-            .angle),
+            .angle)
+        .revive(0.5),
         number!(PlantBranches, "spread", "Spread", (0.0, 1.0, 0.01), |b| b
             .spread),
     ];
@@ -365,6 +384,38 @@ mod tests {
     #[test]
     fn every_range_end_is_valid() {
         checks::range_ends_are_valid(&all_params(), &presets(), file_accepts);
+    }
+
+    #[test]
+    fn revived_settings_are_valid() {
+        checks::revived_values_are_valid(&sections(), &varied_plants(), file_accepts);
+    }
+
+    #[test]
+    fn adding_a_branch_gives_it_a_usable_shape() {
+        // Unbranched presets keep zeros in their hidden branch settings.
+        let before = PlantPreset::all()
+            .map(|preset| preset.plant)
+            .find(|plant| !plant.levels[0].is_on() && plant.levels[0].length == 0.0)
+            .expect("an unbranched preset with no branch length");
+        let mut after = before;
+        after.levels[0].count = 1;
+        assert!(crate::params::spec::revive(
+            &sections(),
+            &before,
+            &mut after
+        ));
+        let branch = after.levels[0];
+        assert_eq!(
+            (branch.length, branch.width, branch.angle),
+            (0.5, 0.25, 0.5)
+        );
+
+        // The second level appears under the first and is revived the same way.
+        let before = after;
+        after.levels[1].count = 1;
+        crate::params::spec::revive(&sections(), &before, &mut after);
+        assert!(after.levels[1].length > 0.0 && after.levels[1].width > 0.0);
     }
 
     #[test]

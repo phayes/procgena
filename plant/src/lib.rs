@@ -75,7 +75,8 @@ pub mod wind;
 pub use api::{
     FieldPlant, FieldPreset, GroundTint, MAX_PLANTS, NoPlants, PlantAccent, PlantArrangement,
     PlantBranches, PlantCamera, PlantField, PlantGround, PlantInteractor, PlantInteractorFootprint,
-    PlantInteractorSpread, PlantParams, PlantPreset, PlantSegment, PlantSun, PlantVariation,
+    PlantInteractorSpread, PlantMeshSize, PlantParams, PlantPreset, PlantSegment, PlantSun,
+    PlantVariation,
 };
 #[cfg(feature = "debug")]
 pub use debug::{PlantDebug, PlantDebugPlugin, PlantGizmos};

@@ -895,11 +895,11 @@ mod tests {
     #[ignore = "needs a GPU"]
     fn dragging_the_divider_resizes_the_panel_within_its_limits() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        let before = studio.find("Reset Camera").unwrap();
+        let before = studio.find("Random Seed").unwrap();
         // The divider sits just left of the 360-pixel panel.
         let divider = Vec2::new(1440.0 - 360.0 - 2.0, 450.0);
         studio.drag(divider, divider - Vec2::new(100.0, 0.0));
-        let wider = studio.find("Reset Camera").unwrap();
+        let wider = studio.find("Random Seed").unwrap();
         assert!(
             (before.x - wider.x - 100.0).abs() < 1.0,
             "{before} -> {wider}"
@@ -909,7 +909,7 @@ mod tests {
             divider - Vec2::new(100.0, 0.0),
             divider - Vec2::new(900.0, 0.0),
         );
-        let widest = studio.find("Reset Camera").unwrap();
+        let widest = studio.find("Random Seed").unwrap();
         assert!(
             (before.x - widest.x - 280.0).abs() < 1.0,
             "{before} -> {widest}"

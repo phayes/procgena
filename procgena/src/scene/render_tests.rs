@@ -8,9 +8,10 @@ use std::sync::Arc;
 use bevy::prelude::*;
 
 use super::headless_scene::{Frame, HeadlessScene};
+use super::protocol::ClumpBuildError;
 use super::{
-    EnvironmentSettings, FieldSettings, PointerButton, SceneMode, SceneStart, ViewerCommand,
-    ViewerEvent, ViewportInput,
+    ClumpSettings, ClumpSubject, EnvironmentSettings, FieldSettings, PointerButton, SceneMode,
+    SceneStart, ViewerCommand, ViewerEvent, ViewportInput,
 };
 
 const SIZE: UVec2 = UVec2::new(480, 270);
@@ -350,4 +351,81 @@ fn rejected_stone_options_keep_the_shown_rock() {
         after > before * 0.9,
         "the rock vanished: {before} then {after}"
     );
+}
+
+/// The share of the view that is bright, nearly grey pixels, such as snow.
+fn snow_share(frame: &Frame) -> f32 {
+    fraction(frame, 0..frame.height, |r, g, b| {
+        r.min(g).min(b) > 190 && r.max(g).max(b) - r.min(g).min(b) < 30
+    })
+}
+
+/// The next clump build result.
+fn clump_event(scene: &mut HeadlessScene) -> ViewerEvent {
+    scene.next_event(|event| matches!(event, ViewerEvent::ClumpBuilt(_)))
+}
+
+/// Grows a white snow cap on the default rock, then on a tree.
+#[test]
+#[ignore = "needs a GPU"]
+fn clump_mode_grows_a_clump_on_a_rock_and_on_a_tree() {
+    let mut scene = start(SceneMode::Clump);
+    let ViewerEvent::ClumpBuilt(Ok(stats)) = clump_event(&mut scene) else {
+        panic!("the default clump was rejected");
+    };
+    assert!(stats.levels[0].triangles > 0, "{stats:?}");
+    let snow = snow_share(&scene.settled_frame());
+    assert!(snow > 0.01, "only {:.2}% of the view is snow", snow * 100.0);
+
+    // A tree subject is built, then grows its own clump.
+    let mut settings = ClumpSettings {
+        subject: ClumpSubject::Tree(Arc::new(procgena_tree::TreePreset::OakMedium.options())),
+        ..default()
+    };
+    settings.clump.mesh.edge_length = 0.1;
+    settings.clump.mask.exposure_rays = 16;
+    scene.send(ViewerCommand::SetClump(Arc::new(settings)));
+    scene.send(ViewerCommand::ResetCamera);
+    let ViewerEvent::ClumpBuilt(Ok(stats)) = clump_event(&mut scene) else {
+        panic!("the tree's clump was rejected");
+    };
+    assert!(stats.levels[0].triangles > 0, "{stats:?}");
+}
+
+/// Settings changed while a clump is building replace it: only the latest
+/// settings' clump is reported, and rejected settings are reported as such.
+#[test]
+#[ignore = "needs a GPU"]
+fn only_the_latest_clump_settings_are_shown() {
+    let mut scene = start(SceneMode::Clump);
+    assert!(matches!(
+        clump_event(&mut scene),
+        ViewerEvent::ClumpBuilt(Ok(_))
+    ));
+
+    // Two quick edits: the first build's result is dropped.
+    let mut settings = ClumpSettings::default();
+    for seed in [1, 2] {
+        settings.clump.seed = seed;
+        scene.send(ViewerCommand::SetClump(Arc::new(settings.clone())));
+        scene.update();
+    }
+    scene.settle();
+    let built: Vec<_> = scene
+        .take_events()
+        .into_iter()
+        .filter(|event| matches!(event, ViewerEvent::ClumpBuilt(_)))
+        .collect();
+    assert!(
+        matches!(built.as_slice(), [ViewerEvent::ClumpBuilt(Ok(_))]),
+        "{built:?}"
+    );
+
+    // Out-of-range settings are reported.
+    settings.clump.shape.thickness = 0.0;
+    scene.send(ViewerCommand::SetClump(Arc::new(settings)));
+    assert!(matches!(
+        clump_event(&mut scene),
+        ViewerEvent::ClumpBuilt(Err(ClumpBuildError::Clump(_)))
+    ));
 }

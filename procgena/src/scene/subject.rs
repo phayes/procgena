@@ -6,7 +6,8 @@ use std::time::Instant;
 use super::environment::{EnvironmentSettings, sky_fog};
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{
-    BuildStats, FieldSettings, MeshSize, SceneMode, SceneStart, ViewerCommand, ViewerEvent,
+    BuildStats, ClumpBuildError, ClumpSettings, ClumpSubject, FieldSettings, MeshSize, SceneMode,
+    SceneStart, ViewerCommand, ViewerEvent,
 };
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
@@ -56,8 +57,29 @@ pub(crate) struct SceneState {
     plants_view: OrbitCamera,
     /// Camera view restored when returning to stone mode.
     stone_view: OrbitCamera,
+    /// Clump subject and settings, retained while another mode is shown.
+    clump: Arc<ClumpSettings>,
+    /// Camera view restored when returning to clump mode.
+    clump_view: OrbitCamera,
     /// The tree detail level last reported with [`ViewerEvent::LodShown`].
     lod_reported: Option<usize>,
+}
+
+impl SceneState {
+    /// The mode shown.
+    pub(crate) fn mode(&self) -> SceneMode {
+        self.mode
+    }
+
+    /// The entity showing the current mode's subject.
+    pub(crate) fn subject(&self) -> Entity {
+        self.subject
+    }
+
+    /// The clump mode's subject and settings.
+    pub(crate) fn clump(&self) -> &ClumpSettings {
+        &self.clump
+    }
 }
 
 /// Matches tree or rock entities whose meshes are still being built.
@@ -91,9 +113,14 @@ pub(crate) fn apply_plant_lod(
 pub(crate) struct SavedRange(VisibilityRange);
 
 /// Returns the starting camera view for a mode. In stone mode, the focus
-/// and distance follow the size setting in `stone`.
-fn default_view(mode: SceneMode, stone: &StoneOptions) -> OrbitCamera {
+/// and distance follow the size setting in `stone`. Clump mode uses the tree
+/// or stone view for its subject.
+fn default_view(mode: SceneMode, stone: &StoneOptions, clump: &ClumpSettings) -> OrbitCamera {
     match mode {
+        SceneMode::Clump => match &clump.subject {
+            ClumpSubject::Tree(_) => default_view(SceneMode::Tree, stone, clump),
+            ClumpSubject::Stone(rock) => default_view(SceneMode::Stone, rock, clump),
+        },
         SceneMode::Tree => OrbitCamera {
             focus: Vec3::new(0.0, 2.5, 0.0),
             yaw: 0.6,
@@ -136,6 +163,7 @@ pub(crate) struct Start(pub SceneStart);
 /// Spawns the camera and the starting subject, and records the starting state.
 pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
     let start = &start.0;
+    let view_for = |mode| default_view(mode, &start.stone, &start.clump);
     let state = SceneState {
         mode: start.mode,
         subject: Entity::PLACEHOLDER,
@@ -143,14 +171,16 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         tree: start.tree.clone(),
         requested: Instant::now(),
         field: start.field.clone(),
-        tree_view: default_view(SceneMode::Tree, &start.stone),
-        plants_view: default_view(SceneMode::Plants, &start.stone),
-        stone_view: default_view(SceneMode::Stone, &start.stone),
+        tree_view: view_for(SceneMode::Tree),
+        plants_view: view_for(SceneMode::Plants),
+        stone_view: view_for(SceneMode::Stone),
+        clump_view: view_for(SceneMode::Clump),
         stone: start.stone.clone(),
+        clump: start.clump.clone(),
         lod_reported: None,
     };
 
-    let view = default_view(start.mode, &start.stone);
+    let view = view_for(start.mode);
     commands.spawn((
         Camera3d::default(),
         ViewportCamera,
@@ -164,8 +194,9 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
     commands.remove_resource::<Start>();
 }
 
-/// Adds the tree, plant field or stone for the selected scene mode.
-/// Plant fields are square, with each side `field_size` metres long.
+/// Adds the tree, plant field or stone for the selected scene mode, or in
+/// clump mode, the clump's subject. Plant fields are square, with each side
+/// `field_size` metres long.
 fn spawn_subject(commands: &mut Commands, state: &SceneState, field_size: f32) -> Entity {
     match state.mode {
         SceneMode::Tree => commands.spawn(TreeParams::Options(state.tree.clone())).id(),
@@ -173,6 +204,11 @@ fn spawn_subject(commands: &mut Commands, state: &SceneState, field_size: f32) -
         SceneMode::Stone => commands
             .spawn(StoneParams::Options(state.stone.clone()))
             .id(),
+        SceneMode::Clump => match &state.clump.subject {
+            ClumpSubject::Tree(options) => commands.spawn(TreeParams::Options(options.clone())),
+            ClumpSubject::Stone(options) => commands.spawn(StoneParams::Options(options.clone())),
+        }
+        .id(),
     }
 }
 
@@ -246,6 +282,40 @@ pub(crate) fn apply_commands(
                         .insert(StoneParams::Options(options.clone()));
                 }
             }
+            ViewerCommand::SetClump(settings) => {
+                let old = std::mem::replace(&mut state.clump, settings.clone());
+
+                // Rebuild the subject when it changed; the clump follows once it is built.
+                if state.mode != SceneMode::Clump || old.subject == settings.subject {
+                    continue;
+                }
+                match &settings.subject {
+                    // Keep the old tree or rock shown while a new one of the same kind builds.
+                    ClumpSubject::Tree(options) if matches!(old.subject, ClumpSubject::Tree(_)) => {
+                        let target = replacement(&mut commands, state, &generating);
+                        commands
+                            .entity(target)
+                            .insert(TreeParams::Options(options.clone()));
+                    }
+                    ClumpSubject::Stone(options)
+                        if matches!(old.subject, ClumpSubject::Stone(_)) =>
+                    {
+                        let target = replacement(&mut commands, state, &generating);
+                        commands
+                            .entity(target)
+                            .insert(StoneParams::Options(options.clone()));
+                    }
+                    // A tree replaces a rock, or a rock a tree, at once.
+                    _ => {
+                        commands.entity(state.subject).despawn();
+                        if let Some(pending) = state.pending.take() {
+                            commands.entity(pending).despawn();
+                        }
+                        state.requested = Instant::now();
+                        state.subject = spawn_subject(&mut commands, state, environment.field_size);
+                    }
+                }
+            }
             ViewerCommand::SetField(field) => {
                 state.field = field.clone();
 
@@ -275,7 +345,7 @@ pub(crate) fn apply_commands(
             }
             ViewerCommand::ResetCamera => {
                 if let Ok(mut orbit) = camera.single_mut() {
-                    *orbit = default_view(state.mode, &state.stone);
+                    *orbit = default_view(state.mode, &state.stone, &state.clump);
                 }
             }
         }
@@ -303,6 +373,7 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
         SceneMode::Tree => &mut state.tree_view,
         SceneMode::Plants => &mut state.plants_view,
         SceneMode::Stone => &mut state.stone_view,
+        SceneMode::Clump => &mut state.clump_view,
     }
 }
 
@@ -356,8 +427,16 @@ type LodPart<'a> = (
 );
 
 /// Shows only the chosen detail level's tree parts, or restores switching by
-/// camera distance. Trellis wires show at every level.
-pub(crate) fn apply_lod(mut commands: Commands, choice: Res<LodChoice>, mut parts: Query<LodPart>) {
+/// camera distance. Trellis wires show at every level. Clump mode always
+/// shows level 0, the level its clump grows on.
+pub(crate) fn apply_lod(
+    mut commands: Commands,
+    choice: Res<LodChoice>,
+    state: Option<Res<SceneState>>,
+    mut parts: Query<LodPart>,
+) {
+    let clump_mode = state.is_some_and(|state| state.mode == SceneMode::Clump);
+    let choice = if clump_mode { Some(0) } else { choice.0 };
     for (entity, part, visibility, range, saved) in &mut parts {
         if part.kind == TreePartKind::Trellis {
             continue;
@@ -365,7 +444,7 @@ pub(crate) fn apply_lod(mut commands: Commands, choice: Res<LodChoice>, mut part
 
         // Set the distance range aside while one level is shown, and put it back after.
         let mut entity = commands.entity(entity);
-        let wanted = match choice.0 {
+        let wanted = match choice {
             Some(level) => {
                 if let Some(range) = range {
                     entity
@@ -479,6 +558,14 @@ pub(crate) fn report_tree(
             build_time: state.requested.elapsed(),
         }
     });
+    // In clump mode, a rejected subject also means no clump.
+    if state.mode == SceneMode::Clump
+        && let Err(error) = &result
+    {
+        events.write(ViewerEvent::ClumpBuilt(Err(ClumpBuildError::Tree(
+            error.clone(),
+        ))));
+    }
     events.write(ViewerEvent::TreeBuilt(result));
 }
 
@@ -539,6 +626,14 @@ pub(crate) fn report_stone(
             build_time: state.requested.elapsed(),
         }
     });
+    // In clump mode, a rejected subject also means no clump.
+    if state.mode == SceneMode::Clump
+        && let Err(error) = &result
+    {
+        events.write(ViewerEvent::ClumpBuilt(Err(ClumpBuildError::Stone(
+            error.clone(),
+        ))));
+    }
     events.write(ViewerEvent::StoneBuilt(result));
 }
 

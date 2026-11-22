@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+pub use crate::ui::SliderScale;
+
 /// Reads a `V` from the edited value.
 type Getter<T, V> = Arc<dyn Fn(&T) -> V + Send + Sync>;
 /// Writes a `V` into the edited value.
@@ -9,12 +11,13 @@ type Setter<T, V> = Arc<dyn Fn(&mut T, V) + Send + Sync>;
 
 /// How one setting is edited.
 pub enum Control<T> {
-    /// A slider over `min..=max` in increments of `step`. Whole-number
-    /// settings use a step of 1.
+    /// A slider over `min..=max` in increments of `step`, with values spread
+    /// along it by `scale`. Whole-number settings use a step of 1.
     Number {
         min: f32,
         max: f32,
         step: f32,
+        scale: SliderScale,
         get: Getter<T, f32>,
         set: Setter<T, f32>,
     },
@@ -47,6 +50,9 @@ pub struct Param<T> {
     /// Whether the setting currently has any effect; hidden when it returns
     /// false. Always shown when `None`.
     pub shown: Option<Getter<T, bool>>,
+    /// For number settings, the value to use instead of a dead one (zero or
+    /// the minimum) when an edit makes the setting appear; see [`revive`].
+    pub revive: Option<Getter<T, f32>>,
 }
 
 /// Settings shown together under an optional sub-heading.
@@ -77,10 +83,12 @@ impl<T> Param<T> {
                 min,
                 max,
                 step,
+                scale: SliderScale::Linear,
                 get: Arc::new(get),
                 set: Arc::new(set),
             },
             shown: None,
+            revive: None,
         }
     }
 
@@ -116,6 +124,7 @@ impl<T> Param<T> {
                 set: Arc::new(set),
             },
             shown: None,
+            revive: None,
         }
     }
 
@@ -134,6 +143,7 @@ impl<T> Param<T> {
                 set: Arc::new(set),
             },
             shown: None,
+            revive: None,
         }
     }
 
@@ -154,6 +164,7 @@ impl<T> Param<T> {
                 set: Arc::new(set),
             },
             shown: None,
+            revive: None,
         }
     }
 
@@ -181,6 +192,75 @@ impl<T> Param<T> {
     pub fn is_shown(&self, value: &T) -> bool {
         self.shown.as_ref().is_none_or(|shown| shown(value))
     }
+
+    /// Spreads a number setting's values exponentially along its slider,
+    /// giving small values more room; see [`SliderScale::Exponential`].
+    /// Other settings are unchanged.
+    pub fn exponential(mut self) -> Self {
+        if let Control::Number { scale, .. } = &mut self.control {
+            *scale = SliderScale::Exponential;
+        }
+        self
+    }
+
+    /// Gives a number setting a usable `value` for when an edit makes it
+    /// appear while it is dead (zero or its minimum); see [`revive`].
+    pub fn revive(self, value: f32) -> Self {
+        self.revive_with(move |_| value)
+    }
+
+    /// Like [`Param::revive`], with the value worked out from the rest of the
+    /// settings, for example from a parent level's value.
+    pub fn revive_with(mut self, value: impl Fn(&T) -> f32 + Send + Sync + 'static) -> Self {
+        self.revive = Some(Arc::new(value));
+        self
+    }
+
+    /// Whether this is a number setting sitting at zero or its minimum in `value`.
+    fn is_dead(&self, value: &T) -> bool {
+        match &self.control {
+            Control::Number { min, get, .. } => {
+                let current = get(value);
+                current == 0.0 || current == *min
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Gives usable values to settings that an edit has just made appear.
+///
+/// Call it after a user edit that changed `before` into `after`. Every
+/// setting in `sections` that was hidden in `before`, is shown in `after`,
+/// is dead there (zero or its minimum), and has a revive value (see
+/// [`Param::revive`]), is set to that value. Settings that appear because of
+/// a revived value are revived in turn. Returns whether anything changed.
+pub fn revive<T: Clone>(sections: &[Section<T>], before: &T, after: &mut T) -> bool {
+    let params: Vec<&Param<T>> = sections.iter().flat_map(Section::params).collect();
+    let mut changed = false;
+
+    // Each pass may reveal more settings; revived settings are no longer dead,
+    // so there are at most as many passes as settings.
+    let shown_before: Vec<bool> = params.iter().map(|p| p.is_shown(before)).collect();
+    for _ in 0..params.len() {
+        let mut revived = false;
+        for (param, was_shown) in params.iter().zip(&shown_before) {
+            let (Some(revive), Control::Number { set, .. }) = (&param.revive, &param.control)
+            else {
+                continue;
+            };
+            if !was_shown && param.is_shown(after) && param.is_dead(after) {
+                let value = revive(after);
+                set(after, value);
+                revived |= !param.is_dead(after);
+            }
+        }
+        if !revived {
+            break;
+        }
+        changed = true;
+    }
+    changed
 }
 
 impl<S: 'static> Param<S> {
@@ -197,12 +277,14 @@ impl<S: 'static> Param<S> {
                 min,
                 max,
                 step,
+                scale,
                 get: read,
                 set: write,
             } => Control::Number {
                 min,
                 max,
                 step,
+                scale,
                 get: Arc::new(move |t| read(get(t))),
                 set: Arc::new(move |t, v| write(get_mut(t), v)),
             },
@@ -233,11 +315,15 @@ impl<S: 'static> Param<S> {
         let shown = self
             .shown
             .map(|shown| -> Getter<T, bool> { Arc::new(move |t| shown(get(t))) });
+        let revive = self
+            .revive
+            .map(|revive| -> Getter<T, f32> { Arc::new(move |t| revive(get(t))) });
         Param {
             key: format!("{prefix}.{}", self.key),
             label: self.label,
             control,
             shown,
+            revive,
         }
     }
 }
@@ -317,6 +403,106 @@ pub fn decimals(step: f32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A feature with a count, whose length shows only while the count is
+    /// above zero, and whose width shows only while the length is.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct Feature {
+        count: u32,
+        length: f32,
+        width: f32,
+        twist: f32,
+    }
+
+    fn feature_sections() -> Vec<Section<Feature>> {
+        let on = |f: &Feature| f.count > 0;
+        vec![Section {
+            title: "Feature",
+            groups: vec![Group::plain(vec![
+                Param::count(
+                    "count",
+                    "Count",
+                    (0, 9),
+                    |f: &Feature| f.count,
+                    |f, n| f.count = n,
+                ),
+                Param::number(
+                    "length",
+                    "Length",
+                    (0.0, 3.0, 0.01),
+                    |f: &Feature| f.length,
+                    |f, v| f.length = v,
+                )
+                .shown_if(on)
+                .revive(0.5),
+                Param::number(
+                    "width",
+                    "Width",
+                    (0.0, 1.0, 0.01),
+                    |f: &Feature| f.width,
+                    |f, v| f.width = v,
+                )
+                .shown_if(move |f| on(f) && f.length > 0.0)
+                .revive_with(|f| f.length / 2.0),
+                // Zero twist is meaningful, so it has no revive value.
+                Param::number(
+                    "twist",
+                    "Twist",
+                    (0.0, 1.0, 0.01),
+                    |f: &Feature| f.twist,
+                    |f, v| f.twist = v,
+                )
+                .shown_if(on),
+            ])],
+        }]
+    }
+
+    #[test]
+    fn revealed_dead_settings_are_revived_in_turn() {
+        let before = Feature::default();
+        let mut after = Feature {
+            count: 1,
+            ..before.clone()
+        };
+        assert!(revive(&feature_sections(), &before, &mut after));
+        // The width appears only once the length is revived, and follows it.
+        assert_eq!(
+            after,
+            Feature {
+                count: 1,
+                length: 0.5,
+                width: 0.25,
+                twist: 0.0,
+            }
+        );
+    }
+
+    #[test]
+    fn settings_already_shown_or_in_use_are_left_alone() {
+        // The length was shown before the edit, so a zero there was chosen.
+        let before = Feature {
+            count: 1,
+            ..Feature::default()
+        };
+        let mut after = Feature {
+            count: 2,
+            ..before.clone()
+        };
+        assert!(!revive(&feature_sections(), &before, &mut after));
+        assert_eq!(after.length, 0.0);
+
+        // A revealed length that is already usable keeps its value.
+        let before = Feature {
+            length: 1.5,
+            ..Feature::default()
+        };
+        let mut after = Feature {
+            count: 1,
+            ..before.clone()
+        };
+        revive(&feature_sections(), &before, &mut after);
+        assert_eq!((after.length, after.width), (1.5, 0.75));
+    }
 
     #[test]
     fn decimals_follow_the_step() {

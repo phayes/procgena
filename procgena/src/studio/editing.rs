@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use crate::scene::{FieldSettings, SceneMode, ViewerCommand};
+use crate::clump::editor::{ClumpEdited, ClumpEditor, ClumpEditorPlugin, spawn_clump_editor};
+use crate::scene::{ClumpSettings, FieldSettings, SceneMode, ViewerCommand};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams};
@@ -31,10 +32,12 @@ impl Plugin for EditingPlugin {
             StoneEditorPlugin,
             PlantEditorPlugin,
             FieldEditorPlugin,
+            ClumpEditorPlugin,
             FileOpsPlugin,
         ))
         .add_observer(send_tree)
         .add_observer(send_stone)
+        .add_observer(send_clump)
         .add_observer(send_plant)
         .add_observer(send_field);
     }
@@ -55,6 +58,7 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
                 spawn_stone_editor(&mut commands, page);
                 spawn_stone_export(&mut commands, page);
             }
+            StudioTab::Clumps => spawn_clump_editor(&mut commands, page),
         }
     }
 }
@@ -127,6 +131,30 @@ fn send_stone(
         *sent = panel.value().clone();
         state.stone = BuildStatus::Building;
         viewer.write(ViewerCommand::SetStone(Arc::new(sent.clone())));
+    }
+    if edited.reframe {
+        viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Sends the clump settings when an edit changed them, and fits the camera
+/// to the subject when asked.
+fn send_clump(
+    edited: On<ClumpEdited>,
+    editor: Single<&ClumpEditor>,
+    panels: Query<&ParamPanel<ClumpSettings>>,
+    mut sent: Local<Option<ClumpSettings>>,
+    mut state: ResMut<BuildState>,
+    mut viewer: MessageWriter<ViewerCommand>,
+) {
+    let Ok(panel) = panels.get(editor.panel()) else {
+        return;
+    };
+    let sent = sent.get_or_insert_with(crate::clump::start_settings);
+    if panel.value() != sent {
+        *sent = panel.value().clone();
+        state.clump = BuildStatus::Building;
+        viewer.write(ViewerCommand::SetClump(Arc::new(sent.clone())));
     }
     if edited.reframe {
         viewer.write(ViewerCommand::ResetCamera);
@@ -347,6 +375,47 @@ mod tests {
             .filter(|t| t.text.ends_with('%'))
             .count();
         assert_eq!(shares, preset.field.plants.len());
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn clump_tab_rerolls_the_subject_and_clump_seeds_separately() {
+        use crate::clump::subject_seed;
+
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        studio.click("Clumps").unwrap();
+        let sent = studio.record::<ViewerCommand>();
+        let start: ClumpSettings = panel_value(&mut studio);
+
+        // Reroll Clump changes only the clump's seed, and sends it.
+        studio.click("Reroll Clump").unwrap();
+        let reclumped: ClumpSettings = panel_value(&mut studio);
+        assert_ne!(reclumped.clump.seed, start.clump.seed);
+        assert_eq!(reclumped.subject, start.subject);
+        assert!(studio.find(&reclumped.clump.seed.to_string()).is_ok());
+
+        // Reroll Subject changes only the subject's seed, and sends it.
+        studio.click("Reroll Subject").unwrap();
+        let resubjected: ClumpSettings = panel_value(&mut studio);
+        assert_ne!(
+            subject_seed(&resubjected.subject),
+            subject_seed(&start.subject)
+        );
+        assert_eq!(resubjected.clump, reclumped.clump);
+        assert!(matches!(
+            lock(&sent).last(),
+            Some(ViewerCommand::SetClump(built)) if **built == resubjected
+        ));
+
+        // A new clump preset keeps the subject.
+        studio.click("Snow Cap").unwrap();
+        studio.click("Moss Patches").unwrap();
+        let moss: ClumpSettings = panel_value(&mut studio);
+        assert_eq!(
+            moss.clump,
+            procgena_clump::ClumpPreset::MossPatches.options()
+        );
+        assert_eq!(moss.subject, resubjected.subject);
     }
 
     #[test]

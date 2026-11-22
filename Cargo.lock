@@ -5279,6 +5279,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "dirs",
+ "procgena_clump",
  "procgena_plant",
  "procgena_stone",
  "procgena_stone_bevy",

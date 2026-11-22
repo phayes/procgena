@@ -1,5 +1,6 @@
 //! The main window: the 3D view on the left and the settings panel on the right.
 
+mod camera;
 mod editing;
 mod layout;
 mod quit;
@@ -44,7 +45,11 @@ impl Plugin for StudioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveTab>()
             .init_resource::<BuildState>()
-            .add_plugins((quit::QuitPlugin, editing::EditingPlugin))
+            .add_plugins((
+                quit::QuitPlugin,
+                editing::EditingPlugin,
+                camera::CameraOverlayPlugin,
+            ))
             .add_systems(
                 Startup,
                 (
@@ -56,7 +61,13 @@ impl Plugin for StudioPlugin {
             )
             .add_systems(
                 Update,
-                (apply_tab, status::record_events, status::update_overlay).chain(),
+                (
+                    apply_tab,
+                    status::record_events,
+                    status::record_plant_commands,
+                    status::update_overlay,
+                )
+                    .chain(),
             )
             .add_observer(layout::scroll_settings);
     }
@@ -73,6 +84,7 @@ pub fn scene_start() -> SceneStart {
         tree: Arc::new(crate::tree::START_PRESET.options()),
         field: Arc::new(FieldSettings { field }),
         stone: Arc::new(crate::stones::START_PRESET.options()),
+        clump: Arc::new(crate::clump::start_settings()),
         environment: EnvironmentSettings::default(),
         lod: None,
         plant_lod: None,
@@ -116,6 +128,7 @@ fn apply_tab(
         viewer.write(ViewerCommand::SetMode(mode));
         state.tree = BuildStatus::Building;
         state.stone = BuildStatus::Building;
+        state.clump = BuildStatus::Building;
     }
     *shown_mode = Some(mode);
 
@@ -143,6 +156,7 @@ mod tests {
         assert_eq!(start.mode, SceneMode::Tree);
         assert_eq!(*start.tree, crate::tree::START_PRESET.options());
         assert_eq!(*start.stone, crate::stones::START_PRESET.options());
+        assert_eq!(*start.clump, crate::clump::start_settings());
         assert!(FieldPreset::named(crate::field::START_PRESET).is_some());
     }
 }

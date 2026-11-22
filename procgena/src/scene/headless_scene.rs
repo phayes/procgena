@@ -217,7 +217,7 @@ impl HeadlessScene {
     }
 
     /// Runs one frame.
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         self.app.update();
         self.rendered += 1;
     }

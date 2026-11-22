@@ -1,4 +1,5 @@
-//! The 3D scene: environment, orbit camera, and a tree, a plant field or a rock.
+//! The 3D scene: environment, orbit camera, and a tree, a plant field, a rock,
+//! or a tree or rock with a clump grown on it.
 //!
 //! Add [`ScenePlugin`] to the app, show the scene in a UI node marked
 //! [`SceneViewport`], and drive it with [`ViewerCommand`] messages. The scene
@@ -8,6 +9,7 @@
 //! [`headless`] helps render without a window, for tests and headless runs.
 
 mod assets;
+mod clump;
 mod environment;
 #[cfg(any(test, debug_assertions))]
 pub mod headless;
@@ -29,7 +31,10 @@ use procgena_tree_bevy::TreePlugin;
 
 pub use assets::{STONE_TEXTURE_ROOT, TREE_TEXTURE_ROOT, add_asset_sources};
 pub use environment::EnvironmentSettings;
-pub use protocol::{BuildStats, FieldSettings, SceneMode, SceneStart, ViewerCommand, ViewerEvent};
+pub use protocol::{
+    BuildStats, ClumpSettings, ClumpSubject, FieldSettings, SceneMode, SceneStart, ViewerCommand,
+    ViewerEvent,
+};
 pub use viewport::SceneViewport;
 
 // Used by the headless studio, to tell when the scene is idle.
@@ -84,6 +89,7 @@ impl Plugin for ScenePlugin {
         .insert_resource(subject::LodChoice(self.start.lod))
         .insert_resource(subject::PlantLodChoice(self.start.plant_lod))
         .insert_resource(subject::Start(self.start.clone()))
+        .init_resource::<clump::ClumpJob>()
         .add_message::<ViewerCommand>()
         .add_message::<ViewerEvent>()
         .add_systems(
@@ -102,6 +108,7 @@ impl Plugin for ScenePlugin {
                 orbit::follow_orbit,
                 subject::render_while_loading,
                 subject::report_lod,
+                clump::grow_clump,
             )
                 .chain(),
         )

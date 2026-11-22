@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use bevy::feathers::controls::{
-    ColorInputValue, FeathersColorInput, FeathersDisclosureToggle, FeathersSelect, FeathersSlider,
+    ColorInputValue, FeathersColorInput, FeathersDisclosureToggle, FeathersSelect,
     FeathersToggleSwitch, OptionIndex, list_rows_from_strings,
 };
 use bevy::feathers::display::{label, label_small};
@@ -18,11 +18,11 @@ use bevy::picking::events::PointerClick;
 use bevy::prelude::*;
 use bevy::scene::Scene;
 use bevy::ui::Checked;
-use bevy::ui_widgets::{SliderPrecision, SliderStep, SliderValue, ValueChange};
+use bevy::ui_widgets::{SliderValue, ValueChange};
 
-use crate::params::spec::{Control, Param, Section, decimals};
+use crate::params::spec::{Control, Param, Section, decimals, revive};
 use crate::params::{srgb_from_hex, srgb_to_hex};
-use crate::ui::{SelectOptions, labelled_row};
+use crate::ui::{ScaledSlider, SelectOptions, labelled_row, scaled_slider};
 
 /// Height of number sliders in logical pixels; flatter than the feathers default of 24.
 const SLIDER_HEIGHT: f32 = 18.0;
@@ -251,18 +251,20 @@ fn control_scene<T>(param: &Param<T>, value: &T, index: usize) -> Box<dyn Scene>
             min,
             max,
             step,
+            scale,
             get,
             ..
         } => {
-            let (min, max, step) = (*min, *max, *step);
-            let current = get(value);
-            let precision = decimals(step) as i32;
+            let slider = ScaledSlider {
+                min: *min,
+                max: *max,
+                step: *step,
+                scale: *scale,
+                precision: decimals(*step),
+            };
             Box::new(bsn! {
-                @FeathersSlider { @min: min, @max: max }
+                @scaled_slider(slider, get(value))
                 Node { height: px(SLIDER_HEIGHT) }
-                SliderValue({current})
-                SliderStep({step})
-                SliderPrecision({precision})
                 ParamControl { index: {index} }
             })
         }
@@ -326,6 +328,8 @@ fn edit_panel<T: Clone + PartialEq + Send + Sync + 'static>(
     };
     let mut value = panel.value.clone();
     edit(&param.control, &mut value);
+    // Settings this edit revealed get usable values instead of dead ones.
+    revive(&sections, &panel.value, &mut value);
     if value != panel.value {
         panel.value = value;
         commands.trigger(ParamsChanged {
@@ -334,18 +338,18 @@ fn edit_panel<T: Clone + PartialEq + Send + Sync + 'static>(
     }
 }
 
-/// Number sliders.
+/// Number sliders, which report a track position.
 fn on_number<T: Clone + PartialEq + Send + Sync + 'static>(
     change: On<ValueChange<f32>>,
-    controls: Query<&ParamControl>,
+    controls: Query<(&ParamControl, &ScaledSlider)>,
     parents: Query<&ChildOf>,
     mut panels: Query<&mut ParamPanel<T>>,
     mut commands: Commands,
 ) {
-    let Ok(control) = controls.get(change.source) else {
+    let Ok((control, slider)) = controls.get(change.source) else {
         return;
     };
-    let number = change.value;
+    let number = slider.value_at(change.value);
     edit_panel(
         change.source,
         &parents,
@@ -508,7 +512,7 @@ fn sync_panel<T: Send + Sync + 'static>(
     mut nodes: Query<(&mut Node, Option<&ParamRow>, Option<&GroupTitle>)>,
     controls: Query<(
         &ParamControl,
-        Option<&SliderValue>,
+        Option<(&SliderValue, &ScaledSlider)>,
         Option<&ColorInputValue>,
         Has<Checked>,
         Has<FeathersToggleSwitch>,
@@ -541,9 +545,14 @@ fn sync_panel<T: Send + Sync + 'static>(
             };
             match &param.control {
                 Control::Number { get, .. } => {
+                    // Move the track only when it shows a different value, so
+                    // a drag between two steps is not pulled back to a step.
                     let number = get(&panel.value);
-                    if slider.is_some_and(|s| s.0 != number) {
-                        commands.entity(entity).insert(SliderValue(number));
+                    if let Some((position, scaled)) = slider
+                        && scaled.value_at(position.0) != number
+                    {
+                        let moved = SliderValue(scaled.position_of(number));
+                        commands.entity(entity).insert(moved);
                     }
                 }
                 Control::Toggle { get, .. } if is_switch => {
@@ -631,8 +640,20 @@ mod tests {
         let row = world
             .spawn((Node::default(), ParamRow { index: 1 }, ChildOf(panel)))
             .id();
+        let scaled = ScaledSlider {
+            min: 0.0,
+            max: 10.0,
+            step: 0.5,
+            scale: crate::ui::SliderScale::Linear,
+            precision: 1,
+        };
         let slider = world
-            .spawn((ParamControl { index: 1 }, SliderValue(0.0), ChildOf(row)))
+            .spawn((
+                ParamControl { index: 1 },
+                SliderValue(0.0),
+                scaled,
+                ChildOf(row),
+            ))
             .id();
         // Plugins' observers take effect on the first update.
         app.update();
@@ -646,9 +667,10 @@ mod tests {
     #[test]
     fn an_edit_applies_the_setter_and_reports_it() {
         let (mut app, panel, slider, _, _) = app();
+        // The slider reports a track position: a quarter of 0..10 is 2.5.
         app.world_mut().trigger(ValueChange {
             source: slider,
-            value: 2.5_f32,
+            value: 0.25_f32,
             is_final: true,
         });
         let value = *app.world().get::<ParamPanel<Demo>>(panel).unwrap().value();
@@ -660,7 +682,7 @@ mod tests {
         // Repeating the same value is not a change.
         app.world_mut().trigger(ValueChange {
             source: slider,
-            value: 2.5_f32,
+            value: 0.25_f32,
             is_final: true,
         });
         app.update();
@@ -699,7 +721,8 @@ mod tests {
             size: 7.0,
         });
         app.update();
-        assert_eq!(app.world().get::<SliderValue>(slider).unwrap().0, 7.0);
+        // 7 sits 70% along the 0..10 track.
+        assert_eq!(app.world().get::<SliderValue>(slider).unwrap().0, 0.7);
         assert_eq!(app.world().resource::<Changes>().0, 0);
     }
 

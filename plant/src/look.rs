@@ -15,7 +15,10 @@ use bevy::math::Vec2;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 
+use crate::PlantSettings;
+use crate::fields::level_entries;
 use crate::presets::FieldPreset;
+use crate::shader_model::ShapeClass;
 
 /// Maximum number of plant kinds drawn in one field.
 ///
@@ -241,6 +244,58 @@ impl PlantParams {
             ..*self
         }
     }
+
+    /// Returns the size of one plant's mesh at a level of detail.
+    ///
+    /// `lod` is 0 for near, 1 for mid and 2 (or more) for far detail, as
+    /// [`PlantSettings::forced_lod`](crate::PlantSettings::forced_lod) counts
+    /// them. The size covers all of the plant's
+    /// [`stems_per_plant`](Self::stems_per_plant). Unbranched plants use
+    /// [`PlantSettings::blade_rows`](crate::PlantSettings::blade_rows) from
+    /// `settings`. Accent stems are separate plants and are not included;
+    /// size them with an accent's own plant. Shadow passes draw simpler
+    /// geometry and are not counted either.
+    ///
+    /// Returns `None` for a branched plant whose near-detail stem has too
+    /// many vertices to be drawn at all.
+    #[must_use]
+    pub fn mesh_size(&self, lod: usize, settings: &PlantSettings) -> Option<PlantMeshSize> {
+        let stems = self.stems_per_plant.clamp(1, MAX_STEMS_PER_PLANT);
+
+        // Branched plants share a mesh class with others of the same branch counts.
+        let class = ShapeClass {
+            children: level_entries(self).map(|level| level.attach.x as u32),
+        };
+        let stem = if class.children[0] == 0 {
+            let rows = settings.blade_rows[lod.min(2)].max(1);
+            PlantMeshSize {
+                vertices: 2 * rows + 1,
+                triangles: 2 * rows - 1,
+            }
+        } else if class.fits() {
+            PlantMeshSize {
+                vertices: class.vertices(lod.min(2)),
+                triangles: (class.indices(lod.min(2)).len() / 3) as u32,
+            }
+        } else {
+            return None;
+        };
+        Some(PlantMeshSize {
+            vertices: stem.vertices * stems,
+            triangles: stem.triangles * stems,
+        })
+    }
+}
+
+/// The number of vertices and triangles in a plant's mesh.
+///
+/// Returned by [`PlantParams::mesh_size`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PlantMeshSize {
+    /// Vertices drawn.
+    pub vertices: u32,
+    /// Triangles drawn.
+    pub triangles: u32,
 }
 
 /// One level of branches attached along a parent segment.

@@ -2,9 +2,8 @@
 
 use crate::scene::{EnvironmentSettings, SceneViewport, ViewerCommand};
 use bevy::feathers::controls::{
-    FeathersButton, FeathersScrollbar, FeathersSelect, OptionIndex, list_rows_from_strings,
+    FeathersScrollbar, FeathersSelect, OptionIndex, list_rows_from_strings,
 };
-use bevy::feathers::display::caption;
 use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::feathers::tokens;
 use bevy::input::mouse::MouseScrollUnit;
@@ -12,8 +11,9 @@ use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::picking::events::PointerScroll;
 use bevy::prelude::*;
 use bevy::scene::Scene;
-use bevy::ui_widgets::{Activate, ValueChange};
+use bevy::ui_widgets::ValueChange;
 
+use super::camera::camera_overlay;
 use super::status::status_overlay;
 use super::tabs::StudioTab;
 use super::{ActiveTab, LOD_CHOICES, PLANT_LOD_CHOICES};
@@ -40,7 +40,7 @@ pub struct TabPage(pub StudioTab);
 #[derive(Component, Default, Clone)]
 pub struct PlantLodRow;
 
-/// Where the Environment panel goes, above the Reset Camera button.
+/// Where the Environment panel goes, at the bottom of the settings column.
 #[derive(Component, Default, Clone)]
 pub struct EnvironmentSlot;
 
@@ -60,7 +60,7 @@ pub fn spawn_layout(mut commands: Commands) {
         Children [
             Node { flex_grow: 1.0, height: percent(100) }
             SceneViewport
-            Children [ @status_overlay() ]
+            Children [ @status_overlay() -- @camera_overlay() ]
             --
             @divider(PANEL_MIN, PANEL_MAX)
             --
@@ -113,6 +113,8 @@ pub fn spawn_layout(mut commands: Commands) {
                         @plant_lod_row()
                         --
                         @page(StudioTab::Stones)
+                        --
+                        @page(StudioTab::Clumps)
                         --
                         @shared_settings()
                     ]
@@ -173,31 +175,15 @@ fn plant_lod_row() -> impl Scene {
     bsn! { @labelled_row("Level of Detail", picker) PlantLodRow }
 }
 
-/// The settings every tab shares: Environment, then the Reset Camera button.
+/// The settings every tab shares: the Environment panel.
 fn shared_settings() -> impl Scene {
     bsn! {
         Node {
             display: Display::Flex,
             flex_direction: FlexDirection::Column,
             flex_shrink: 0.0,
-            row_gap: px(8),
         }
-        Children [
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                flex_shrink: 0.0,
-            }
-            EnvironmentSlot
-            --
-            Node { flex_shrink: 0.0 }
-            Children [
-                @FeathersButton { @caption: bsn! { @caption("Reset Camera") } }
-                on(|_: On<Activate>, mut viewer: MessageWriter<ViewerCommand>| {
-                    viewer.write(ViewerCommand::ResetCamera);
-                })
-            ]
-        ]
+        EnvironmentSlot
     }
 }
 

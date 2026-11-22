@@ -355,3 +355,54 @@ fn a_field_grows_each_plant_at_its_density_times_both_scales() {
     let bare = PlantField::new(Vec2::ZERO, vec![FieldPlant::new(sparse).scaled(0.0)]);
     assert_eq!(bare.clone().with_density(10.0), bare);
 }
+
+#[test]
+fn mesh_sizes_follow_branching_detail_and_stems() {
+    let settings = PlantSettings::default();
+    let blade = PlantParams {
+        levels: [PlantBranches::NONE, PlantBranches::NONE],
+        stems_per_plant: 1,
+        ..PlantParams::default()
+    };
+
+    // An unbranched blade has two vertices per row plus a tip.
+    let sizes: Vec<_> = (0..3)
+        .map(|lod| blade.mesh_size(lod, &settings).unwrap())
+        .map(|size| (size.vertices, size.triangles))
+        .collect();
+    let rows = settings.blade_rows;
+    let expected: Vec<_> = rows.iter().map(|r| (2 * r + 1, 2 * r - 1)).collect();
+    assert_eq!(sizes, expected);
+
+    // A fern-like stalk with 28 leaflets: 8 stalk rows and 4 rows per leaflet
+    // up close, and six single triangles far away.
+    let mut fern = blade;
+    fern.levels[0] = PlantBranches {
+        count: 28,
+        arrangement: PlantArrangement::Alternate,
+        ..PlantBranches::NONE
+    };
+    let near = fern.mesh_size(0, &settings).unwrap();
+    assert_eq!((near.vertices, near.triangles), (17 + 28 * 9, 15 + 28 * 7));
+    let far = fern.mesh_size(2, &settings).unwrap();
+    assert_eq!((far.vertices, far.triangles), (18, 6));
+
+    // Every stem of a plant is counted.
+    let clump = PlantParams {
+        stems_per_plant: 3,
+        ..fern
+    };
+    assert_eq!(
+        clump.mesh_size(0, &settings).unwrap().vertices,
+        3 * near.vertices
+    );
+
+    // A stem too detailed to draw has no size.
+    let mut huge = fern;
+    huge.levels[0].count = 32;
+    huge.levels[1] = PlantBranches {
+        count: 32,
+        ..huge.levels[0]
+    };
+    assert_eq!(huge.mesh_size(0, &settings), None);
+}

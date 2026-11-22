@@ -3,6 +3,7 @@
 mod divider;
 mod row;
 mod select;
+mod slider;
 mod tabs;
 pub mod toast;
 
@@ -14,6 +15,7 @@ use bevy::prelude::*;
 pub use divider::divider;
 pub use row::{LABEL_WIDTH, labelled_row};
 pub use select::SelectOptions;
+pub use slider::{ScaledSlider, SliderScale, scaled_slider};
 pub use tabs::{TabSelected, tab_bar};
 
 /// procgena's accent colour for selected and active controls: a leaf green.
@@ -27,6 +29,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(UiTheme(theme())).add_plugins((
             divider::DividerPlugin,
+            slider::ScaledSliderPlugin,
             tabs::TabsPlugin,
             toast::ToastPlugin,
         ));

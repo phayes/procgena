@@ -164,6 +164,9 @@ look as before.
 
 **Added**
 
+- `PlantParams::mesh_size(lod, &settings)` and `PlantMeshSize`: the vertices
+  and triangles one plant draws at a level of detail, counting all of its
+  stems, for editors and budgets.
 - `GrassAccent` and `GrassPlant::accent`: a share of a plant's stems that
   grow differently, with their own height, width, lean, translucency, segment
   and head, in place of the plant's own stems and in its tufts. `PAMPAS`,

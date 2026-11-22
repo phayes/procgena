@@ -61,7 +61,8 @@ See [Editing and reading the grass](editing.md).
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `PlantParams` | Struct (`Copy`) | What one plant looks like, and its own `density` (plants per m²): height, width, lean, `stems_per_plant`, its own `segment`, two `levels` of branches, head, lighting, `tufts` and `tuft_size`, and its `accent`; see [Plants and fields](fields.md#reference) |
+| `PlantParams` | Struct (`Copy`) | What one plant looks like, and its own `density` (plants per m²): height, width, lean, `stems_per_plant`, its own `segment`, two `levels` of branches, head, lighting, `tufts` and `tuft_size`, and its `accent`; see [Plants and fields](fields.md#reference). `mesh_size(lod, &settings)` gives the vertices and triangles one plant draws at a level of detail |
+| `PlantMeshSize` | Struct (`Copy`) | `vertices` and `triangles`, returned by `PlantParams::mesh_size` |
 | `PlantAccent` | Struct (`Copy`) | A share of a plant's stems that grow differently, in place of its own stems: `share`, `height`, `width`, `lean`, `translucency`, `segment` and a head; `NONE` is off; see [Accents](fields.md#accents) |
 | `FieldPlant` | Struct (`Copy`) | One plant of a field: a `PlantParams`, a `density_scale` on the plant's own density, and `clustering`. `FieldPlant::new(plant)`, `.scaled(density_scale)`, `.clustered(amount)`, `density()` |
 | `PlantSegment` | Struct (`Copy`) | One tapered, curved strip of a plant: `profile`, `stiffness`, `droop`, `twist`, `fold`, `root_color`, `tip_color` |

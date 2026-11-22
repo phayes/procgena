@@ -22,8 +22,8 @@ use bevy::transform::components::Transform;
 use crate::{PlantSettings, PlantShadows};
 
 pub use crate::look::{
-    FieldPlant, GroundTint, MAX_PLANTS, PlantAccent, PlantArrangement, PlantBranches, PlantParams,
-    PlantSegment, PlantVariation,
+    FieldPlant, GroundTint, MAX_PLANTS, PlantAccent, PlantArrangement, PlantBranches,
+    PlantMeshSize, PlantParams, PlantSegment, PlantVariation,
 };
 pub use crate::presets::{FieldPreset, PlantPreset};
 
