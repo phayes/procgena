@@ -65,7 +65,7 @@ pub fn branch_fork() -> SurfaceMesh {
     finish(positions, indices)
 }
 
-/// A procgena_stone rock from `preset`, in world units and resting on y = 0, with
+/// A procgena_stone rock from `preset`, in metres and resting on y = 0, with
 /// the name of its procgena_stone texture set.
 pub fn stone(preset: procgena_stone::StonePreset) -> (SurfaceMesh, String) {
     let stone = procgena_stone::Stone::from_preset(preset);

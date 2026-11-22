@@ -36,10 +36,11 @@ procgena_stone, procgena_tree, Bevy or zeapp.
   and thins the stalks with a stride. Seeds and thickness are computed once,
   so clumps don't move between levels. The clump equivalent of `resolution`
   is `mesh.edge_length`.
-- **World units with a `scale` setting.** All lengths (radius, thickness,
-  sink, stalk size, spacing) are in world units, the same units as the input
-  mesh. `ClumpOptions::scale` (default 1.0) multiplies them all, like
-  procgena_stone's `scale`, so you can resize a preset in one step.
+- **Metres with a `scale` setting.** All lengths (radius, thickness,
+  sink, stalk size, spacing) are in metres, like the input mesh (every
+  procgena crate outputs metres). `ClumpOptions::scale` (default 1.0)
+  multiplies them all, so you can make a preset's clump bigger or smaller in
+  one step.
 - **No new dependencies.** We hand-roll the following in procgena_stone's style,
   without depending on procgena_stone:
   - a glam-native BVH;
@@ -174,11 +175,15 @@ turns each clump into a watertight solid for physics, volume and voxelizing:
 **Thin input, junctions and seams (added 2026-11-22).** These came from
 snow on procgena_tree's OakSmall LOD0 bark (closed, 3,350 triangles, at
 `scale` 10).
+
+*Units note (2026-11-22):* these measurements predate procgena_tree's switch
+to metres. They are in old tree units, where 1 unit is 0.1 m, so `scale` 10
+then is `scale` 1 now, and a room of 0.12 units is 1.2 cm.
 - **Thickness cap:** each input vertex gets a "room" value, the distance
   straight in along its normal to the input's far side. A clump is at most
   half the room thick. The closed underside and the minimum solid thickness
   are capped the same way, so twigs get a thin dusting.
-- **`ShapeOptions::min_support`** (world units, × `scale`, default 0): where
+- **`ShapeOptions::min_support`** (metres, × `scale`, default 0): where
   room is below it, the mask is 0. Triangles whose corners all fall below
   it are skipped before refinement.
 - **Never covered:** room is 0, so no clump grows, at a vertex where:
@@ -437,10 +442,18 @@ Still open:
 - **Fold residue:** about 0.1% (see the fold guarantee above).
 - **Open borders:** the sheet stops at an input border (a ground patch edge
   or an open tube end) with a visible cut. A lip would need extra geometry.
-- **Speed:** exposure (formerly "sky visibility") casts 64 rays per input
-  vertex and dominates on dense inputs (1.5 s at 82k triangles). See
-  `/opt/procgena/clump_performance.md` for measured stages and the ranked
-  wins. `exposure_rays` is the user's look-versus-speed setting.
+- **Speed:** exposure (formerly "sky visibility") casts up to 64 rays per
+  input vertex and still dominates on dense inputs. Done on 2026-11-22:
+  - Exposure is skipped when `exposure_power` is 0.
+  - Rays are cast only for corners of triangles that could be covered, once
+    per position.
+  - BVH queries are cheaper.
+  - Strict mode stops thinning once crossings stop falling.
+
+  Boulder snow went from 0.98 s to 0.37 s, and boulder moss from 1.1 s to
+  0.26 s. Still open: running the ray stages in parallel with `rayon` (it
+  changes `Cargo.lock`), and re-testing only the changed triangles in
+  strict mode. `exposure_rays` is the user's look-versus-speed setting.
 
 ### Tests (phase 5 onwards)
 

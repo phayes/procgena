@@ -38,14 +38,16 @@ struct Source {
     strength: f32,
 }
 
-/// A clump's coverage over a surface, measured in world units after `scale`.
+/// A clump's coverage over a surface, measured in metres after `scale`.
 pub(crate) struct ClumpField<'a> {
     surface: Surface<'a>,
     bvh: Bvh,
     sources: Vec<Source>,
-    /// Exposure per surface vertex and direction; see [`SurfacePoint::exposure`].
+    /// Exposure per position id and direction; see [`SurfacePoint::exposure`].
+    /// Only positions that can affect the clump are measured; the rest stay
+    /// at 1.
     exposure: Vec<[f32; MAX_DIRECTIONS]>,
-    /// Input thickness per surface vertex; see [`SurfacePoint::room`].
+    /// Input thickness per position id; see [`SurfacePoint::room`].
     room: Vec<f32>,
     /// Position id per surface vertex: vertices at the same position (as at
     /// texture seams) share one, and are treated as a single vertex.
@@ -90,14 +92,23 @@ impl<'a> ClumpField<'a> {
             .collect();
         let scale = options.scale;
 
+        // Treat vertices at the same position as one, with a shared normal.
+        let (weld, count) = surface.welded();
+        let mut sums = vec![Vec3::ZERO; count];
+        for (v, &id) in weld.iter().enumerate() {
+            sums[id as usize] += surface.normal(v);
+        }
+        let welded_normals = sums.into_iter().map(|n| n.normalize_or_zero()).collect();
+        let closed_input = surface.is_closed_welded(&weld);
+
         let mut field = Self {
             surface,
             bvh,
             sources,
             exposure: Vec::new(),
             room: Vec::new(),
-            weld: Vec::new(),
-            welded_normals: Vec::new(),
+            weld,
+            welded_normals,
             min_support: options.shape.min_support * scale,
             seed: options.seed,
             facing_min: options.mask.facing_min,
@@ -111,25 +122,60 @@ impl<'a> ClumpField<'a> {
             lumpiness: options.shape.lumpiness,
             lump_size: options.shape.lump_size * scale,
             epsilon,
-            closed_input: surface.is_closed(),
+            closed_input,
         };
 
-        // Treat vertices at the same position as one, with a shared normal.
-        let (weld, count) = surface.welded();
-        let mut sums = vec![Vec3::ZERO; count];
-        for (v, &id) in weld.iter().enumerate() {
-            sums[id as usize] += surface.normal(v);
+        // One vertex stands in for each position id when casting rays.
+        let mut first = vec![u32::MAX; count];
+        for (v, &id) in field.weld.iter().enumerate().rev() {
+            first[id as usize] = v as u32;
         }
-        field.welded_normals = sums.into_iter().map(|n| n.normalize_or_zero()).collect();
-        field.weld = weld;
+        field.room = first
+            .iter()
+            .map(|&v| field.vertex_room(v as usize))
+            .collect();
 
-        field.room = field.vertex_room();
-        field.exposure = field.vertex_exposure(options.mask.exposure_rays);
+        // Exposure only matters where the mask can be above 0. With no rays,
+        // or an exposure power of 0, it has no effect at all.
+        field.exposure = vec![[1.0; MAX_DIRECTIONS]; count];
+        let rays = options.mask.exposure_rays;
+        let measure = rays > 0 && field.exposure_power != 0.0;
+        let ray_dirs = if measure {
+            field.exposure_dirs(rays)
+        } else {
+            Vec::new()
+        };
+        let maskable: Vec<bool> = (0..count)
+            .map(|id| measure && field.may_mask(first[id] as usize))
+            .collect();
+        for id in (0..count).filter(|&id| maskable[id]) {
+            field.exposure[id] = field.vertex_exposure(first[id] as usize, &ray_dirs);
+        }
+
+        // The centre reads only maskable positions, which are measured now.
         field.centre = options
             .shape
             .at
             .map(Vec3::from)
             .or_else(|| field.best_vertex());
+
+        // Midpoints blend exposure from every corner of a triangle the clump
+        // may cover, so measure those corners too.
+        if measure && field.centre.is_some() {
+            let mut needed = vec![false; count];
+            for t in 0..field.surface.triangle_count() {
+                let corners = field.surface.triangle(t);
+                let points = corners.map(|v| field.vertex_point(v));
+                if field.may_cover([&points[0], &points[1], &points[2]]) {
+                    for v in corners {
+                        needed[field.weld[v] as usize] = true;
+                    }
+                }
+            }
+            for id in (0..count).filter(|&id| needed[id] && !maskable[id]) {
+                field.exposure[id] = field.vertex_exposure(first[id] as usize, &ray_dirs);
+            }
+        }
         field
     }
 
@@ -160,25 +206,20 @@ impl<'a> ClumpField<'a> {
     /// ray straight in first meets another part's outside), or, on a closed
     /// input, a vertex where going straight in meets nothing. Returns
     /// infinity on an open input where nothing is met.
-    fn vertex_room(&self) -> Vec<f32> {
-        (0..self.surface.positions().len())
-            .map(|v| {
-                let (p, n) = (self.surface.position(v), self.normal(v));
-                if n == Vec3::ZERO {
-                    return f32::INFINITY;
-                }
-                if self.exits_through(p, n) {
-                    return 0.0;
-                }
-                // Going straight in should reach this part's own far side. If
-                // it first meets the outside of another part, this point is
-                // where parts overlap, such as a branch joining its trunk,
-                // and clumps there fold and cross each other. If it meets
-                // nothing on a closed input, the shape is unclear. Neither
-                // carries a clump.
-                self.inside_run(p, -n).unwrap_or(0.0)
-            })
-            .collect()
+    fn vertex_room(&self, v: usize) -> f32 {
+        let (p, n) = (self.surface.position(v), self.normal(v));
+        if n == Vec3::ZERO {
+            return f32::INFINITY;
+        }
+        if self.exits_through(p, n) {
+            return 0.0;
+        }
+        // Going straight in should reach this part's own far side. If it
+        // first meets the outside of another part, this point is where parts
+        // overlap, such as a branch joining its trunk, and clumps there fold
+        // and cross each other. If it meets nothing on a closed input, the
+        // shape is unclear. Neither carries a clump.
+        self.inside_run(p, -n).unwrap_or(0.0)
     }
 
     /// Returns whether a ray from surface point `point` along unit direction
@@ -193,46 +234,58 @@ impl<'a> ClumpField<'a> {
             })
     }
 
-    /// Measures how exposed each vertex is toward each direction's source,
-    /// from 0 to 1.
-    ///
-    /// For each direction, casts `rays` rays over the hemisphere around the
-    /// source, weighted toward its centre, and counts those that escape.
-    /// Zero rays gives 1 everywhere.
-    fn vertex_exposure(&self, rays: u32) -> Vec<[f32; MAX_DIRECTIONS]> {
-        let count = self.surface.positions().len();
-        let mut exposure = vec![[1.0; MAX_DIRECTIONS]; count];
-        if rays == 0 {
-            return exposure;
-        }
+    /// Returns, for each direction, `rays` ray directions spread over the
+    /// hemisphere around its source and weighted toward the centre, for
+    /// [`vertex_exposure`](Self::vertex_exposure). `rays` must be above 0.
+    fn exposure_dirs(&self, rays: u32) -> Vec<Vec<Vec3>> {
+        // Spread cosine-weighted rays with a golden-angle spiral.
+        let golden = TAU * (1.0 - 1.0 / std::f32::consts::GOLDEN_RATIO);
+        self.sources
+            .iter()
+            .map(|source| {
+                let (tangent, bitangent) = source.toward.any_orthonormal_pair();
+                (0..rays)
+                    .map(|i| {
+                        let u = (i as f32 + 0.5) / rays as f32;
+                        let r = u.sqrt();
+                        let a = i as f32 * golden;
+                        (tangent * (r * a.cos())
+                            + bitangent * (r * a.sin())
+                            + source.toward * (1.0 - u).sqrt())
+                        .normalize()
+                    })
+                    .collect()
+            })
+            .collect()
+    }
 
-        for (d, source) in self.sources.iter().enumerate() {
-            // Spread cosine-weighted rays with a golden-angle spiral.
-            let (tangent, bitangent) = source.toward.any_orthonormal_pair();
-            let golden = TAU * (1.0 - 1.0 / std::f32::consts::GOLDEN_RATIO);
-            let dirs: Vec<Vec3> = (0..rays)
-                .map(|i| {
-                    let u = (i as f32 + 0.5) / rays as f32;
-                    let r = u.sqrt();
-                    let a = i as f32 * golden;
-                    (tangent * (r * a.cos())
-                        + bitangent * (r * a.sin())
-                        + source.toward * (1.0 - u).sqrt())
-                    .normalize()
-                })
-                .collect();
-
-            // Step off the surface along its normal, then count escaping rays.
-            for (v, open) in exposure.iter_mut().enumerate() {
-                let origin = self.surface.position(v) + self.normal(v) * self.epsilon;
-                let escaped = dirs
-                    .iter()
-                    .filter(|&&r| !self.bvh.ray_blocked(origin, r, f32::INFINITY))
-                    .count();
-                open[d] = escaped as f32 / rays as f32;
-            }
+    /// Measures how exposed vertex `v` is toward each direction's source, from
+    /// 0 to 1: the share of that direction's rays in `dirs` (from
+    /// [`exposure_dirs`](Self::exposure_dirs)) that escape.
+    fn vertex_exposure(&self, v: usize, dirs: &[Vec<Vec3>]) -> [f32; MAX_DIRECTIONS] {
+        // Step off the surface along its normal, then count escaping rays.
+        let origin = self.surface.position(v) + self.normal(v) * self.epsilon;
+        let mut open = [1.0; MAX_DIRECTIONS];
+        for (d, rays) in dirs.iter().enumerate() {
+            let escaped = rays
+                .iter()
+                .filter(|&&r| !self.bvh.ray_blocked(origin, r, f32::INFINITY))
+                .count();
+            open[d] = escaped as f32 / rays.len() as f32;
         }
-        exposure
+        open
+    }
+
+    /// Returns whether the mask at vertex `v` could be above 0 for some
+    /// exposure. Its room must already be measured.
+    fn may_mask(&self, v: usize) -> bool {
+        // Full exposure gives the largest mask, and the mask is 0 for every
+        // exposure exactly when it is 0 at full exposure.
+        let point = SurfacePoint {
+            exposure: [1.0; MAX_DIRECTIONS],
+            ..self.vertex_point(v)
+        };
+        self.mask(&point) > 0.0
     }
 
     /// Returns the vertex with the highest mask, or `None` if every mask is 0.
@@ -275,11 +328,12 @@ impl<'a> ClumpField<'a> {
 
     /// Returns the surface point of vertex `v`.
     pub(crate) fn vertex_point(&self, v: usize) -> SurfacePoint {
+        let id = self.weld[v] as usize;
         SurfacePoint {
             point: self.surface.position(v),
-            normal: self.normal(v),
-            exposure: self.exposure[v],
-            room: self.room[v],
+            normal: self.welded_normals[id],
+            exposure: self.exposure[id],
+            room: self.room[id],
         }
     }
 
@@ -354,11 +408,12 @@ impl<'a> ClumpField<'a> {
     }
 
     /// Returns the distance from `point` along unit direction `dir` to the
-    /// first surface in the way, or infinity if nothing is. The search starts
-    /// just off the surface so `point`'s own triangle doesn't count.
-    pub(crate) fn clearance(&self, point: Vec3, dir: Vec3) -> f32 {
+    /// first surface in the way, or infinity if nothing is within about
+    /// `max` (pass infinity for no limit). The search starts just off the
+    /// surface so `point`'s own triangle doesn't count.
+    pub(crate) fn clearance(&self, point: Vec3, dir: Vec3, max: f32) -> f32 {
         self.bvh
-            .ray_hit(point + dir * self.epsilon, dir, f32::INFINITY)
+            .ray_hit(point + dir * self.epsilon, dir, max)
             .map_or(f32::INFINITY, |(t, _)| t + self.epsilon)
     }
 

@@ -1,7 +1,7 @@
 //! Settings for one clump generation pass.
 //!
-//! Lengths are in world units, the same units as the input surface, and are
-//! multiplied by [`ClumpOptions::scale`].
+//! Lengths are in metres, like the input surface, and are multiplied by
+//! [`ClumpOptions::scale`].
 
 use std::fmt;
 
@@ -17,7 +17,8 @@ pub struct ClumpOptions {
     /// Their coverage adds up, capped at full thickness, and becomes one
     /// mesh. Must hold from 1 to [`MAX_DIRECTIONS`] directions.
     pub directions: Vec<Direction>,
-    /// Multiplies every length in these settings. Must be greater than 0.
+    /// Makes the whole clump bigger or smaller by multiplying every length in
+    /// these settings; 1 uses the lengths as given. Must be greater than 0.
     pub scale: f32,
     /// Where on the surface clumps may grow.
     pub mask: MaskOptions,

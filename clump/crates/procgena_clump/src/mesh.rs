@@ -7,7 +7,7 @@
 /// has no texture coordinates; use triplanar mapping.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ClumpMesh {
-    /// Vertex positions in world units.
+    /// Vertex positions in metres.
     pub positions: Vec<[f32; 3]>,
     /// Outward unit normals.
     pub normals: Vec<[f32; 3]>,

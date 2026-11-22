@@ -36,6 +36,10 @@ const ROOM_FILL: f32 = 0.5;
 /// height left above the floor at every vertex involved.
 const MAX_REPAIR_PASSES: u32 = 24;
 
+/// Thinning passes in a row without fewer crossings after which strict mode
+/// stops thinning and cuts out what still crosses.
+const MAX_STALLED_PASSES: u32 = 2;
+
 /// Most passes when blurring push directions, to bound the cost on meshes
 /// whose edges are much shorter than the thickness.
 const MAX_BLUR_PASSES: u32 = 256;
@@ -108,7 +112,14 @@ pub(crate) fn displaced_shell(
         .zip(&weights)
         .map(|((p, &dir), &w)| {
             let top = field.top(w);
-            let limit = (GAP_FILL * field.clearance(p.point, dir)).min(ROOM_FILL * p.room);
+            // Both limits are 0 or more, so they can't lower a top at or
+            // below the surface, and a surface farther than the top's share
+            // of the gap can't limit it.
+            if top <= 0.0 {
+                return top;
+            }
+            let gap = field.clearance(p.point, dir, top / GAP_FILL);
+            let limit = (GAP_FILL * gap).min(ROOM_FILL * p.room);
             if top > limit {
                 thinned += 1;
                 return limit;
@@ -187,22 +198,33 @@ pub(crate) fn displaced_shell(
     let folded = sheet.remove_folds();
 
     // Build the mesh. In strict mode, thin the clump around any triangles
-    // that pass through each other; then cut out any that still do, and
-    // rebuild until none do. Every cut removes at least one triangle, so this
-    // ends.
+    // that pass through each other until thinning stops helping; then cut
+    // out any that still do, and rebuild until none do. Every cut removes at
+    // least one triangle, so this ends.
     let mut crossings = 0;
     let mut built = sheet.assemble(field);
     if strict {
+        let mut fewest = usize::MAX;
+        let mut stalled = 0;
+        let mut cutting = false;
         for pass in 0.. {
             let crossing = crossing_triangles(&built.0);
             crossings = crossing.len();
             if crossings == 0 {
                 break;
             }
-            if pass < MAX_REPAIR_PASSES {
-                sheet.relax_around(&built.0, &built.1, &crossing);
+            if crossings < fewest {
+                fewest = crossings;
+                stalled = 0;
             } else {
+                stalled += 1;
+            }
+            // Once cutting starts, thinning never resumes.
+            cutting |= pass >= MAX_REPAIR_PASSES || stalled >= MAX_STALLED_PASSES;
+            if cutting {
                 sheet.cut_out(&built.0, &built.1, &crossing);
+            } else {
+                sheet.relax_around(&built.0, &built.1, &crossing);
             }
             built = sheet.assemble(field);
         }

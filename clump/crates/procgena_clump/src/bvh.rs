@@ -58,6 +58,39 @@ impl Aabb {
     }
 }
 
+/// Most entries a traversal stack holds. Each split halves its triangles, so
+/// a tree over any `u32` triangle count is at most 33 levels deep, and a
+/// depth-first walk keeps at most one pending entry per level.
+const STACK_SIZE: usize = 64;
+
+/// A fixed-size stack of pending work for a tree walk.
+struct Stack<T> {
+    items: [T; STACK_SIZE],
+    len: usize,
+}
+
+impl<T: Copy + Default> Stack<T> {
+    /// Returns a stack holding only `first`.
+    fn new(first: T) -> Self {
+        let mut items = [T::default(); STACK_SIZE];
+        items[0] = first;
+        Self { items, len: 1 }
+    }
+
+    /// Adds `item` on top. Panics if the stack is full, which a walk over a
+    /// [`Bvh`] never causes.
+    fn push(&mut self, item: T) {
+        self.items[self.len] = item;
+        self.len += 1;
+    }
+
+    /// Removes and returns the top item, if any.
+    fn pop(&mut self) -> Option<T> {
+        self.len = self.len.checked_sub(1)?;
+        Some(self.items[self.len])
+    }
+}
+
 /// A tree node: either two children or a run of triangles.
 #[derive(Debug, Clone, Copy)]
 struct Node {
@@ -144,7 +177,7 @@ impl Bvh {
             barycentric: [1.0, 0.0, 0.0],
             distance_squared: f32::INFINITY,
         };
-        let mut stack = vec![0usize];
+        let mut stack = Stack::new(0usize);
         while let Some(n) = stack.pop() {
             let node = self.nodes[n];
             if node.bounds.distance_squared(p) >= best.distance_squared {
@@ -170,43 +203,71 @@ impl Bvh {
                 let (left, right) = (n + 1, node.start as usize);
                 let dl = self.nodes[left].bounds.distance_squared(p);
                 let dr = self.nodes[right].bounds.distance_squared(p);
-                if dl < dr {
-                    stack.extend([right, left]);
+                let (first, second) = if dl < dr {
+                    (left, right)
                 } else {
-                    stack.extend([left, right]);
-                }
+                    (right, left)
+                };
+                stack.push(second);
+                stack.push(first);
             }
         }
         best
     }
 
     /// Returns the distance along `dir` to the first triangle hit before
-    /// `t_max`, from either side. `dir` must be normalized.
+    /// `t_max`, from either side, and that triangle. When several triangles
+    /// are hit at the same distance, the same one is always returned. `dir`
+    /// must be normalized.
     pub(crate) fn ray_hit(&self, origin: Vec3, dir: Vec3, t_max: f32) -> Option<(f32, usize)> {
         let inv_dir = dir.recip();
         let mut nearest = t_max;
-        let mut hit = None;
-        let mut stack = vec![0usize];
-        while let Some(n) = stack.pop() {
-            let node = self.nodes[n];
-            if node.bounds.ray_entry(origin, inv_dir, nearest).is_none() {
+        // The hit's position in `triangles`; ties go to the lowest position.
+        let mut hit: Option<(f32, usize)> = None;
+        let entry = self.nodes[0].bounds.ray_entry(origin, inv_dir, nearest)?;
+
+        // Walk nodes nearest first, with each node's entry distance.
+        let mut stack = Stack::new((0usize, entry));
+        while let Some((n, entry)) = stack.pop() {
+            // A closer hit may have been found since this node was pushed.
+            if entry > nearest {
                 continue;
             }
+            let node = self.nodes[n];
             if node.count > 0 {
                 let run = node.start as usize..(node.start + node.count) as usize;
-                for &t in &self.triangles[run] {
-                    if let Some(d) = ray_triangle(origin, dir, self.corners[t as usize])
-                        && d < nearest
-                    {
+                for slot in run {
+                    let Some(d) =
+                        ray_triangle(origin, dir, self.corners[self.triangles[slot] as usize])
+                    else {
+                        continue;
+                    };
+                    let better = match hit {
+                        None => d < nearest,
+                        Some((best, best_slot)) => d < best || (d == best && slot < best_slot),
+                    };
+                    if better {
                         nearest = d;
-                        hit = Some((d, t as usize));
+                        hit = Some((d, slot));
                     }
                 }
             } else {
-                stack.extend([node.start as usize, n + 1]);
+                // Push the farther child first, so the nearer one is popped first.
+                let children = [n + 1, node.start as usize]
+                    .map(|c| (c, self.nodes[c].bounds.ray_entry(origin, inv_dir, nearest)));
+                let [a, b] = children;
+                let (near, far) = match (a.1, b.1) {
+                    (Some(ea), Some(eb)) if eb < ea => (b, a),
+                    _ => (a, b),
+                };
+                for (c, e) in [far, near] {
+                    if let Some(e) = e {
+                        stack.push((c, e));
+                    }
+                }
             }
         }
-        hit
+        hit.map(|(d, slot)| (d, self.triangles[slot] as usize))
     }
 
     /// Returns the corner positions of triangle `t`.
@@ -217,7 +278,7 @@ impl Bvh {
     /// Appends to `out` every triangle whose bounding box overlaps the box
     /// from `lo` to `hi`. The triangles themselves may not touch the box.
     pub(crate) fn overlapping(&self, lo: Vec3, hi: Vec3, out: &mut Vec<usize>) {
-        let mut stack = vec![0usize];
+        let mut stack = Stack::new(0usize);
         while let Some(n) = stack.pop() {
             let node = self.nodes[n];
             if node.bounds.max.cmplt(lo).any() || node.bounds.min.cmpgt(hi).any() {
@@ -232,7 +293,8 @@ impl Bvh {
                     }
                 }
             } else {
-                stack.extend([node.start as usize, n + 1]);
+                stack.push(node.start as usize);
+                stack.push(n + 1);
             }
         }
     }
@@ -240,7 +302,7 @@ impl Bvh {
     /// Returns whether a ray from `origin` along `dir` hits any triangle before `t_max`.
     pub(crate) fn ray_blocked(&self, origin: Vec3, dir: Vec3, t_max: f32) -> bool {
         let inv_dir = dir.recip();
-        let mut stack = vec![0usize];
+        let mut stack = Stack::new(0usize);
         while let Some(n) = stack.pop() {
             let node = self.nodes[n];
             if node.bounds.ray_entry(origin, inv_dir, t_max).is_none() {
@@ -254,7 +316,8 @@ impl Bvh {
                     return true;
                 }
             } else {
-                stack.extend([node.start as usize, n + 1]);
+                stack.push(node.start as usize);
+                stack.push(n + 1);
             }
         }
         false

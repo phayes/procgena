@@ -6,7 +6,7 @@ use glam::Vec3;
 
 /// A borrowed triangle mesh that clumps grow on.
 ///
-/// Positions and normals are in world units and in the mesh's final
+/// Positions and normals are in metres and in the mesh's final
 /// orientation. Triangles are counter-clockwise when seen from outside, and
 /// normals point outward. Clumps grow on the side the normals point to.
 #[derive(Debug, Clone, Copy)]
@@ -111,8 +111,12 @@ impl<'a> Surface<'a> {
     /// that repeats positions at texture seams or between joined parts (as
     /// procedural tree bark does) is still recognized as closed.
     pub fn is_closed(&self) -> bool {
-        let (welded, _) = self.welded();
+        self.is_closed_welded(&self.welded().0)
+    }
 
+    /// Same as [`is_closed`](Self::is_closed), for a caller that already has
+    /// `welded`, the per-vertex position ids from [`welded`](Self::welded).
+    pub(crate) fn is_closed_welded(&self, welded: &[u32]) -> bool {
         // Count how many triangles use each welded edge.
         let mut uses = std::collections::HashMap::<(u32, u32), u32>::new();
         for &tri in self.indices.as_chunks::<3>().0 {
@@ -157,7 +161,7 @@ impl<'a> Surface<'a> {
 /// Use it to hold a generated input such as [`SurfaceMesh::ground`].
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SurfaceMesh {
-    /// Vertex positions in world units.
+    /// Vertex positions in metres.
     pub positions: Vec<[f32; 3]>,
     /// Outward vertex normals, one per position.
     pub normals: Vec<[f32; 3]>,
@@ -168,7 +172,7 @@ pub struct SurfaceMesh {
 impl SurfaceMesh {
     /// Creates a flat, square ground patch at height 0 facing +Y.
     ///
-    /// `size` is the side length in world units and `divisions` the number of
+    /// `size` is the side length in metres and `divisions` the number of
     /// cells along each side. The patch is centred on the origin.
     ///
     /// # Panics
