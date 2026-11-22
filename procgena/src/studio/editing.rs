@@ -84,7 +84,11 @@ impl ShownField<'_, '_> {
 /// The Plant tab shows `plant` alone, at its natural plants per square
 /// metre, with the field's other shared settings. Every other tab shows the
 /// field as edited.
-pub fn field_shown(tab: StudioTab, mut field: PlantField, plant: PlantParams) -> Arc<FieldSettings> {
+pub fn field_shown(
+    tab: StudioTab,
+    mut field: PlantField,
+    plant: PlantParams,
+) -> Arc<FieldSettings> {
     if tab == StudioTab::Plant {
         field.plants = vec![FieldPlant::new(plant)].into();
         field.density_scale = 1.0;

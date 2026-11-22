@@ -49,6 +49,7 @@ cargo test -p <package> --doc
 | `clump/` | `procgena_clump`     |                                                                           |
 | `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing it. |
 | `plant/` | `procgena_plant_web` | Wasm demo                                                                 |
+| `procgena/` | `procgena`        | Desktop studio app (binary). Its 27 GPU tests are `#[ignore]`d: run with `-- --include-ignored`, after `uv run --project tools textures download tree` and `... stone`. Use `cargo clippy -p procgena --all-targets --no-deps`. |
 
 ### The comment-rewrite step
 

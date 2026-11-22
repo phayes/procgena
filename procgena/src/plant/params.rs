@@ -3,7 +3,9 @@
 //! Defines editable ranges and which controls appear when branches, heads,
 //! tufts or accents are enabled.
 
-use procgena_plant::prelude::{PlantAccent, PlantArrangement, PlantBranches, PlantParams, PlantSegment};
+use procgena_plant::prelude::{
+    PlantAccent, PlantArrangement, PlantBranches, PlantParams, PlantSegment,
+};
 
 use crate::params::{Group, Param, Section, choice, count, number, srgb};
 

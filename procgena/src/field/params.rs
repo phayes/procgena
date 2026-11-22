@@ -2,7 +2,7 @@
 //!
 //! Plant shape and colour controls are shared with the Plant tab.
 
-use procgena_plant::prelude::{FieldPlant, PlantField, PlantVariation, GroundTint};
+use procgena_plant::prelude::{FieldPlant, GroundTint, PlantField, PlantVariation};
 
 use crate::params::{Group, Section, count, number, srgb};
 

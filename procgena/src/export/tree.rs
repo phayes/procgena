@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use procgena_tree::export::gltf::{EmbeddedImage, GltfError, GltfOptions, GltfTextures, ImageFormat};
+use procgena_tree::export::gltf::{
+    EmbeddedImage, GltfError, GltfOptions, GltfTextures, ImageFormat,
+};
 use procgena_tree::export::obj::ObjOptions;
 use procgena_tree::export::{TextureMap, TextureRef};
 use procgena_tree::{
@@ -221,8 +223,12 @@ mod tests {
             textures: GltfTextures::Embed(&record),
             ..GltfOptions::default()
         };
-        procgena_tree::export::gltf::to_glb(std::slice::from_ref(tree.mesh()), tree.options(), &gltf)
-            .unwrap();
+        procgena_tree::export::gltf::to_glb(
+            std::slice::from_ref(tree.mesh()),
+            tree.options(),
+            &gltf,
+        )
+        .unwrap();
         asked.into_inner()
     }
 

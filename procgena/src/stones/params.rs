@@ -3,7 +3,9 @@
 use std::sync::LazyLock;
 
 use bevy::color::{Color, ColorToComponents, ColorToPacked, LinearRgba};
-use procgena_stone::{MAX_CARVE_STEPS, MAX_OCTAVES, Mesher, StoneDetail, StoneOptions, TEXTURE_SETS};
+use procgena_stone::{
+    MAX_CARVE_STEPS, MAX_OCTAVES, Mesher, StoneDetail, StoneOptions, TEXTURE_SETS,
+};
 
 use crate::params::{Group, Param, Section, choice, count, name_choice, number, toggle};
 
@@ -227,8 +229,8 @@ fn from_hex(hex: u32) -> [f32; 3] {
 mod tests {
     use std::collections::HashSet;
 
-    use serde_json::Value;
     use procgena_stone::StonePreset;
+    use serde_json::Value;
 
     use super::*;
     use crate::params::Control;
