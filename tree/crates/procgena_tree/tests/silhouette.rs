@@ -6,7 +6,9 @@
 //! these approximate checks do not include texture transparency or lighting.
 
 use glam::{Vec2, Vec3};
-use procgena_tree::{BillboardVertex, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod_levels};
+use procgena_tree::{
+    BillboardVertex, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod_levels,
+};
 
 /// Width and height of each square mask, in pixels.
 const RESOLUTION: usize = 96;
@@ -21,7 +23,7 @@ struct View {
     /// Horizontal and vertical projection directions in tree coordinates.
     right: Vec3,
     up: Vec3,
-    /// Lower-left image bound and square image size in projected tree units.
+    /// Lower-left image bound and square image size in projected metres.
     min: Vec2,
     size: f32,
 }

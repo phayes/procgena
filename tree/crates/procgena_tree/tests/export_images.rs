@@ -4,9 +4,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use serde_json::Value;
 use procgena_tree::export::{TextureMap, TextureRef};
 use procgena_tree::{BARK_KINDS, LEAF_KINDS, TextureSize, leaf_has_normal_map};
+use serde_json::Value;
 
 const BARK_MAPS: [TextureMap; 3] = [
     TextureMap::BarkColor,

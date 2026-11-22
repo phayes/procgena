@@ -31,18 +31,18 @@ fn lod_meshes_are_sorted_by_distance_and_reuse_the_skeleton() {
     let tree = Tree::from_preset(TreePreset::AspenSmall);
 
     // Supply levels in reverse distance order to check sorting. Give the extra
-    // level at distance 100 different leaf detail so the two tied levels can be
+    // level at distance 10 different leaf detail so the two tied levels can be
     // distinguished when checking that their input order is preserved.
     let mut levels = default_lod_levels().to_vec();
     levels.reverse();
     let mut tie = levels[2];
-    assert_eq!(tie.distance, 100.0);
+    assert_eq!(tie.distance, 10.0);
     tie.detail.leaf_stride = 3;
     levels.push(tie);
 
     let lods = tree.lod_meshes(&levels);
     let distances: Vec<f32> = lods.iter().map(|(level, _)| level.distance).collect();
-    assert_eq!(distances, [0.0, 100.0, 100.0, 250.0, 500.0]);
+    assert_eq!(distances, [0.0, 10.0, 10.0, 25.0, 50.0]);
     assert_eq!(lods[1].0, levels[2]);
     assert_eq!(lods[2].0, tie);
 

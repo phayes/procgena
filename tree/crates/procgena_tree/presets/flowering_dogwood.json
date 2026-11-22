@@ -7,7 +7,7 @@
     "flatShading": false,
     "textured": true,
     "textureScale": {
-      "x": 1.0,
+      "x": 10.0,
       "y": 1.0
     },
     "uvMode": "continuous"
@@ -34,7 +34,7 @@
         "y": 1.0,
         "z": 0.0
       },
-      "strength": 0.003
+      "strength": 0.0003
     },
     "flatten": {
       "0": 0.0,
@@ -49,13 +49,13 @@
       "3": 0.2
     },
     "length": {
-      "0": 6.0,
-      "1": 16.0,
-      "2": 12.0,
-      "3": 4.0
+      "0": 0.6,
+      "1": 1.6,
+      "2": 1.2,
+      "3": 0.4
     },
     "radius": {
-      "0": 1.1,
+      "0": 0.11,
       "1": 0.7,
       "2": 0.55,
       "3": 0.6
@@ -97,7 +97,7 @@
     "angle": 40.0,
     "count": 0,
     "start": 0.3,
-    "size": 2.0,
+    "size": 0.2,
     "sizeVariance": 0.3,
     "tint": 16777215,
     "alphaTest": 0.5,
@@ -108,17 +108,17 @@
     "position": {
       "x": 0.0,
       "y": 0.0,
-      "z": -2.0
+      "z": -0.2
     },
-    "width": 10.0,
-    "height": 20.0,
-    "spacing": 2.0,
+    "width": 1.0,
+    "height": 2.0,
+    "spacing": 0.2,
     "force": {
-      "strength": 0.02,
-      "maxDistance": 3.0,
+      "strength": 0.002,
+      "maxDistance": 0.3,
       "falloff": 1.0
     },
-    "cylinderRadius": 0.05,
+    "cylinderRadius": 0.005,
     "visible": true,
     "color": 9127187
   },
@@ -131,7 +131,7 @@
       "start": 0.3,
       "facing": "hang",
       "facingJitter": 15.0,
-      "size": 1.2,
+      "size": 0.12,
       "sizeVariance": 0.15
     },
     "cluster": {
@@ -139,13 +139,13 @@
       "items": 1,
       "itemsVariance": 0.0,
       "spread": 30.0,
-      "axisLength": 2.0,
+      "axisLength": 0.2,
       "droop": 0.0,
       "taper": 0.0,
       "sideStalks": 4,
       "sideLength": 0.4,
-      "stalkLength": 0.4,
-      "stalkRadius": 0.04,
+      "stalkLength": 0.04,
+      "stalkRadius": 0.004,
       "stalkColor": 5925678
     },
     "shape": {
@@ -176,7 +176,7 @@
       "start": 0.3,
       "facing": "outward",
       "facingJitter": 40.0,
-      "size": 1.05,
+      "size": 0.105,
       "sizeVariance": 0.15
     },
     "cluster": {
@@ -184,13 +184,13 @@
       "items": 1,
       "itemsVariance": 0.0,
       "spread": 40.0,
-      "axisLength": 2.0,
+      "axisLength": 0.2,
       "droop": 0.0,
       "taper": 0.0,
       "sideStalks": 4,
       "sideLength": 0.4,
       "stalkLength": 0.0,
-      "stalkRadius": 0.03,
+      "stalkRadius": 0.003,
       "stalkColor": 5927982
     },
     "shape": {

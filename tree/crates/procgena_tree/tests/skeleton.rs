@@ -6,8 +6,10 @@ use procgena_tree::{OptionsError, PerLevel, Section, Skeleton, TreeOptions, Tree
 /// Returns labelled settings to grow: every preset, plus the defaults with each
 /// tree type, fewer branching levels, and several seeds.
 fn cases() -> Vec<(String, TreeOptions)> {
-    let mut cases: Vec<(String, TreeOptions)> =
-        TreePreset::ALL.iter().map(|p| (p.name().to_string(), p.options())).collect();
+    let mut cases: Vec<(String, TreeOptions)> = TreePreset::ALL
+        .iter()
+        .map(|p| (p.name().to_string(), p.options()))
+        .collect();
     for tree_type in [TreeType::Deciduous, TreeType::Evergreen] {
         for levels in 0..=3 {
             for seed in [-7, 1, 42] {
@@ -15,7 +17,10 @@ fn cases() -> Vec<(String, TreeOptions)> {
                 options.tree_type = tree_type;
                 options.branch.levels = levels;
                 options.seed = seed;
-                cases.push((format!("{tree_type:?} levels {levels} seed {seed}"), options));
+                cases.push((
+                    format!("{tree_type:?} levels {levels} seed {seed}"),
+                    options,
+                ));
             }
         }
     }
@@ -224,7 +229,10 @@ fn leaf_flatten_lays_leaves_level_and_face_up() {
         let old_tip = b.orientation * Vec3::Y;
         let old_heading = Vec3::new(old_tip.x, 0.0, old_tip.z);
         if old_heading.length() > 0.1 {
-            assert!(tip.dot(old_heading.normalize()) > 0.9999, "{tip} vs {old_tip}");
+            assert!(
+                tip.dot(old_heading.normalize()) > 0.9999,
+                "{tip} vs {old_tip}"
+            );
         }
     }
 
@@ -238,7 +246,10 @@ fn leaf_flatten_lays_leaves_level_and_face_up() {
         sum / skeleton.leaves.len() as f32
     };
     let (base_up, half_up) = (mean_face_up(&base), mean_face_up(&half));
-    assert!(half_up > base_up + 0.2 && half_up < 0.99, "{base_up} -> {half_up}");
+    assert!(
+        half_up > base_up + 0.2 && half_up < 0.99,
+        "{base_up} -> {half_up}"
+    );
 }
 
 /// A multi-stemmed tree grows the requested number of parentless trunks, all
@@ -257,13 +268,22 @@ fn stems_grow_separate_trunks_from_the_base() {
         .collect();
     assert_eq!(trunks.len(), 6);
     // Trunks come first, all at level 0.
-    assert!(skeleton.branches[..6].iter().all(|b| b.parent.is_none() && b.level == 0));
+    assert!(
+        skeleton.branches[..6]
+            .iter()
+            .all(|b| b.parent.is_none() && b.level == 0)
+    );
 
     for trunk in trunks {
         let base = trunk.sections[0];
         assert!(base.origin.y.abs() < 1e-6, "{base:?}");
-        assert!(base.origin.length() <= options.branch.radius[0] + 1e-4, "{base:?}");
-        let tilt = (base.orientation * Vec3::Y).angle_between(Vec3::Y).to_degrees();
+        assert!(
+            base.origin.length() <= options.branch.radius[0] + 1e-4,
+            "{base:?}"
+        );
+        let tilt = (base.orientation * Vec3::Y)
+            .angle_between(Vec3::Y)
+            .to_degrees();
         assert!(tilt <= 30.0 + 1e-3, "tilt {tilt}");
     }
 

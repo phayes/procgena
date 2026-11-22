@@ -292,7 +292,7 @@ fn rotating_a_joint_moves_what_grows_beyond_it() {
     let limb_vertices = span(rig.joints()[limb].branch);
     let tip = limb_vertices.end - 1;
     let moved = bark[tip].distance(Vec3::from_array(mesh.branches.positions[tip]));
-    assert!(moved > 0.1, "limb tip moved {moved}");
+    assert!(moved > 0.01, "limb tip moved {moved}");
 }
 
 /// Bush 2 covers every branch level with joints to spare; the spare joints give
@@ -350,7 +350,11 @@ fn multi_stem_trees_keep_a_single_root() {
         assert_eq!(rigged_stems, (stems as usize).min(max_joints as usize));
 
         let skin = rig.skin(tree.mesh());
-        check_weights(&skin.branches, tree.mesh().branches.positions.len(), joints.len());
+        check_weights(
+            &skin.branches,
+            tree.mesh().branches.positions.len(),
+            joints.len(),
+        );
         check_rest_pose(&rig, tree.mesh(), &skin);
     }
 }

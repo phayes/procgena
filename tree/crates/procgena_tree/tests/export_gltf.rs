@@ -175,7 +175,13 @@ fn settings_are_stored_in_the_file() {
     .unwrap();
     let gltf = read(&glb);
     let asset = &gltf.document.as_json().asset;
-    assert!(asset.generator.as_deref().unwrap().starts_with("procgena_tree "));
+    assert!(
+        asset
+            .generator
+            .as_deref()
+            .unwrap()
+            .starts_with("procgena_tree ")
+    );
 
     let extras: serde_json::Value =
         serde_json::from_str(asset.extras.as_ref().unwrap().get()).unwrap();

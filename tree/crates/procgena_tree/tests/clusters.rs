@@ -1,7 +1,9 @@
 //! Check cluster placement, supporting stalks, and individual fruit and flower sizes.
 
 use glam::Vec3;
-use procgena_tree::{ClusterKind, Facing, Skeleton, SkeletonCluster, TreeOptions, TreePreset, TreeType};
+use procgena_tree::{
+    ClusterKind, Facing, Skeleton, SkeletonCluster, TreeOptions, TreePreset, TreeType,
+};
 
 /// Returns settings for a small broadleaf tree with two fruit clusters on
 /// each branch at level 2 or deeper.
@@ -134,7 +136,7 @@ fn side_clusters_start_on_the_branch_surface() {
         let radius = a.radius + (b.radius - a.radius) * p.t;
         let gap = cluster.origin.distance(centre);
         assert!(
-            (gap - radius).abs() < 1e-4 * radius.max(1.0),
+            (gap - radius).abs() < 1e-4 * radius.max(0.1),
             "{gap} vs {radius}"
         );
     }
@@ -381,7 +383,7 @@ fn density_scales_side_clusters_with_branch_length() {
     let mut options = fruiting();
     options.fruit.placement.count = 0;
     options.fruit.placement.start = 0.0;
-    options.fruit.placement.density = 2.0;
+    options.fruit.placement.density = 20.0;
     let skeleton = grow(&options);
 
     // Compare the cluster count on each branch with its measured length.
@@ -399,7 +401,7 @@ fn density_scales_side_clusters_with_branch_length() {
             .windows(2)
             .map(|pair| pair[0].origin.distance(pair[1].origin))
             .sum();
-        let expected = 2.0 * length;
+        let expected = 20.0 * length;
         assert!(
             (count as f32 - expected).abs() <= 1.0,
             "{count} clusters on a branch {length} long"

@@ -157,7 +157,7 @@ pub(super) fn mesh_item(
     }
 }
 
-/// Returns the width and length of a rounded catkin flower in tree units,
+/// Returns the width and length of a rounded catkin flower in metres,
 /// adjusted for how far the flower has opened.
 pub(super) fn catkin_size(item: &ClusterItem, flowers: &FlowerOptions) -> (f32, f32) {
     let size = item.size * lerp(0.5, 1.0, Bloom::new(flowers.maturity).open);
@@ -324,13 +324,13 @@ struct PetalColors {
 }
 
 /// Dimensions and curve settings shared by the petals in one layer.
-/// Lengths use tree units; angles use radians.
+/// Lengths are in metres; angles use radians.
 struct Petal {
     length: f32,
     width: f32,
-    /// Distance from the flower centre to the petal base, in tree units.
+    /// Distance from the flower centre to the petal base, in metres.
     root: f32,
-    /// Height of the petal bases above the outer layer, in tree units.
+    /// Height of the petal bases above the outer layer, in metres.
     lift: f32,
     /// Additional upward tilt of this petal layer, in radians.
     rise: f32,
@@ -339,7 +339,7 @@ struct Petal {
 
 impl Petal {
     /// Creates petal dimensions and tilt for layer `ring`, counting inward from
-    /// 0 at the outer layer. Pass flower size and centre radius in tree units;
+    /// 0 at the outer layer. Pass flower size and centre radius in metres;
     /// `segments` sets the number of divisions along each petal.
     fn layer(
         shape: &crate::FlowerShape,

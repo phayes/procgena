@@ -164,11 +164,11 @@ fn connected_pieces(indices: &[u32], range: Range<usize>) -> usize {
 fn min_item_size_leaves_out_small_fruit_and_flowers() {
     for kind in [ClusterKind::Umbel, ClusterKind::Catkin] {
         let mut options = decorated(kind);
-        options.fruit.placement.size = 0.4;
-        options.flowers.placement.size = 0.6;
+        options.fruit.placement.size = 0.04;
+        options.flowers.placement.size = 0.06;
         let skeleton = Skeleton::generate(&options).unwrap();
         let detail = LodDetail {
-            min_item_size: 0.5,
+            min_item_size: 0.05,
             ..LodDetail::default()
         };
         let mesh = skeleton.mesh(&options, &detail);
@@ -921,12 +921,12 @@ fn default_levels_simplify_fruit_and_flowers_further_away() {
     assert_eq!((far.item_stride, far.item_scale), (2, 1.25));
     assert_eq!(
         [near, middle, far, farthest].map(|d| d.flat_item_size),
-        [0.0, 0.0, 0.75, 1.5]
+        [0.0, 0.0, 0.075, 0.15]
     );
-    // The size filter is disabled for the first three levels and set to 0.5 for the fourth.
+    // The size filter is disabled for the first three levels and set to 5 cm for the fourth.
     assert_eq!(
         [near, middle, far, farthest].map(|d| d.min_item_size),
-        [0.0, 0.0, 0.0, 0.5]
+        [0.0, 0.0, 0.0, 0.05]
     );
     // Farther levels must select a subset of the items and clusters kept nearby.
     for (nearer, farther) in [(near, middle), (middle, far), (far, farthest)] {

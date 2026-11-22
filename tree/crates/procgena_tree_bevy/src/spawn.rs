@@ -116,7 +116,7 @@ impl AssetLoader for TreeOptionsLoader {
 /// The plugin automatically renders [`BranchShape::Ribbons`] from both sides.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TreeLodLevel {
-    /// Mesh detail and the camera distance, in world units, where this level starts.
+    /// Mesh detail and the camera distance, in metres, where this level starts.
     pub level: LodLevel,
     /// Bark texture size or flat-colour shading for this level.
     pub bark: BarkTexture,
@@ -981,12 +981,12 @@ mod tests {
         let ranges = visibility_ranges(default_lod_levels().into_iter());
         let ranges: Vec<VisibilityRange> = ranges.into_iter().map(Option::unwrap).collect();
         assert_eq!(ranges[0].start_margin, 0.0..0.0);
-        assert_eq!(ranges[0].end_margin, 95.0..105.0);
-        assert_eq!(ranges[1].start_margin, 95.0..105.0);
-        assert_eq!(ranges[1].end_margin, 237.5..262.5);
-        assert_eq!(ranges[2].start_margin, 237.5..262.5);
-        assert_eq!(ranges[2].end_margin, 475.0..525.0);
-        assert_eq!(ranges[3].start_margin, 475.0..525.0);
+        assert_eq!(ranges[0].end_margin, 9.5..10.5);
+        assert_eq!(ranges[1].start_margin, 9.5..10.5);
+        assert_eq!(ranges[1].end_margin, 23.75..26.25);
+        assert_eq!(ranges[2].start_margin, 23.75..26.25);
+        assert_eq!(ranges[2].end_margin, 47.5..52.5);
+        assert_eq!(ranges[3].start_margin, 47.5..52.5);
         assert_eq!(ranges[3].end_margin.start, f32::INFINITY);
 
         // A lone detail level must remain visible at every camera distance.

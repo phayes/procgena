@@ -31,8 +31,8 @@ fn setup(mut commands: Commands) {
     commands.spawn(TreeParams::preset(TreePreset::OakSmall));
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(35.0, 25.0, 55.0)
-            .looking_at(Vec3::new(0.0, 10.0, 0.0), Vec3::Y),
+        Transform::from_xyz(3.5, 2.5, 5.5)
+            .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
     ));
     commands.spawn((
         DirectionalLight {
@@ -163,7 +163,7 @@ materials you create yourself.
 ## Choose mesh detail
 
 The plugin generates four mesh detail levels. Bevy fades to simpler meshes at
-camera distances of 100, 250 and 500 world units. With a texture folder configured,
+camera distances of 10, 25 and 50 metres. With a texture folder configured,
 the nearest level uses 1k bark textures and the next two use 512 textures.
 At the farthest level (LOD3), thin branches are omitted and the remaining branches
 use flat strips. With textures configured, those strips use a single colour
@@ -216,7 +216,7 @@ This is useful when running the viewer from a script or on a remote machine:
 
 ```sh
 cargo run -p procgena_tree_bevy --example viewer -- --headless --screenshot tree.png \
-    --preset oak_medium --eye 0 30 110 --target 0 28 0 --resolution 1280 720
+    --preset oak_medium --eye 0 3 11 --target 0 2.8 0 --resolution 1280 720
 ```
 
 This saves `tree.png` at 1280 × 720 pixels and closes the viewer. Change

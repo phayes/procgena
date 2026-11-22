@@ -97,7 +97,7 @@ impl Style {
     }
 }
 
-/// Returns fruit width and length in tree units, adjusted for maturity.
+/// Returns fruit width and length in metres, adjusted for maturity.
 pub(super) fn body_size(item: &ClusterItem, fruit: &FruitOptions) -> (f32, f32) {
     let size = item.size * (UNRIPE_SCALE + (1.0 - UNRIPE_SCALE) * fruit.maturity);
     (size, size * fruit.shape.elongation)

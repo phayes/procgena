@@ -6,10 +6,10 @@ use std::collections::HashMap;
 
 use glam::{Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use naga::TypeInner;
+use procgena_tree::{Skeleton, TreeOptions, WIND_WESL, WindParams};
 use wesl::eval::Inputs;
 use wesl::resolver::VirtualResolver;
 use wesl::{CompileResult, Compiler};
-use procgena_tree::{Skeleton, TreeOptions, WIND_WESL, WindParams};
 
 /// Compiles a test shader with the wind module importable as `package::wind`.
 fn compile(main: &str) -> CompileResult {

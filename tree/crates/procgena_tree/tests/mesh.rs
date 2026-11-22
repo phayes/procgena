@@ -11,7 +11,7 @@ use procgena_tree::{
 #[test]
 fn default_lod_levels_have_the_documented_settings() {
     let levels = default_lod_levels();
-    assert_eq!(levels.map(|l| l.distance), [0.0, 100.0, 250.0, 500.0]);
+    assert_eq!(levels.map(|l| l.distance), [0.0, 10.0, 25.0, 50.0]);
     assert_eq!(levels.map(|l| l.hysteresis), [0.0, 0.05, 0.05, 0.05]);
     assert_eq!(levels[0].detail, LodDetail::default());
 
@@ -24,7 +24,7 @@ fn default_lod_levels_have_the_documented_settings() {
     assert_eq!(levels.map(|l| l.detail.closed), [true, true, false, false]);
     assert_eq!(
         levels.map(|l| l.detail.min_branch_radius),
-        [0.0, 0.0, 0.0, 0.15]
+        [0.0, 0.0, 0.0, 0.015]
     );
 
     let leaves = |d: LodDetail| (d.leaf_stride, d.leaf_scale, d.billboard);
@@ -46,7 +46,10 @@ fn spans_cover_the_buffers() {
     let skeleton = Skeleton::generate(&options).unwrap();
     let levels = default_lod_levels().into_iter().flat_map(|level| {
         [true, false].map(|closed| procgena_tree::LodLevel {
-            detail: LodDetail { closed, ..level.detail },
+            detail: LodDetail {
+                closed,
+                ..level.detail
+            },
             ..level
         })
     });
@@ -444,7 +447,10 @@ fn unpaired_edges(triangles: &[[u32; 3]]) -> (usize, usize) {
             *count.entry(e).or_default() += 1;
         }
     }
-    let unmatched = count.keys().filter(|&&(a, b)| !count.contains_key(&(b, a))).count();
+    let unmatched = count
+        .keys()
+        .filter(|&&(a, b)| !count.contains_key(&(b, a)))
+        .count();
     let repeated = count.values().filter(|&&n| n > 1).count();
     (unmatched, repeated)
 }
@@ -453,7 +459,11 @@ fn unpaired_edges(triangles: &[[u32; 3]]) -> (usize, usize) {
 /// volume each one encloses, positive when its triangles face outward.
 fn shell_volumes(bark: &MeshBuffers, triangles: &[[u32; 3]]) -> Vec<f64> {
     // Union triangles that share a welded vertex.
-    let vertices = triangles.iter().flatten().max().map_or(0, |&m| m as usize + 1);
+    let vertices = triangles
+        .iter()
+        .flatten()
+        .max()
+        .map_or(0, |&m| m as usize + 1);
     let mut root: Vec<usize> = (0..vertices).collect();
     fn find(root: &mut [usize], mut i: usize) -> usize {
         while root[i] != i {
@@ -501,7 +511,7 @@ fn closed_bark_is_watertight_and_faces_outward() {
     let thinned = LodDetail {
         section_stride: 2,
         segment_factor: 0.6,
-        min_branch_radius: 0.1,
+        min_branch_radius: 0.01,
         ..LodDetail::default()
     };
     for preset in TreePreset::ALL {
@@ -517,7 +527,10 @@ fn closed_bark_is_watertight_and_faces_outward() {
             // No triangle may collapse to a line or point.
             for t in bark.indices.as_chunks::<3>().0 {
                 let [a, b, c] = t.map(|i| Vec3::from_array(bark.positions[i as usize]));
-                assert!((b - a).cross(c - a).length() > 0.0, "{what}: zero-area {t:?}");
+                assert!(
+                    (b - a).cross(c - a).length() > 0.0,
+                    "{what}: zero-area {t:?}"
+                );
             }
             for volume in shell_volumes(&bark, &triangles) {
                 assert!(volume > 0.0, "{what}: shell volume {volume}");
@@ -531,7 +544,10 @@ fn closed_bark_is_watertight_and_faces_outward() {
 fn open_bark_has_unsealed_ends() {
     let options = TreeOptions::default();
     let skeleton = Skeleton::generate(&options).unwrap();
-    let open = LodDetail { closed: false, ..LodDetail::default() };
+    let open = LodDetail {
+        closed: false,
+        ..LodDetail::default()
+    };
     let bark = skeleton.mesh(&options, &open).branches;
     assert!(unpaired_edges(&welded_triangles(&bark)).0 > 0);
 }

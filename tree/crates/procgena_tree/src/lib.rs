@@ -37,8 +37,8 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut options = TreePreset::OakSmall.options();
 //!     options.seed = 42;
-//!     options.branch.length[0] = 12.0; // Trunk length, in tree units.
-//!     options.leaves.size = 1.5;
+//!     options.branch.length[0] = 1.2; // Trunk length, in metres.
+//!     options.leaves.size = 0.15;
 //!
 //!     let tree = Tree::new(options)?;
 //!     println!("{} triangles", tree.triangle_count());
@@ -53,8 +53,10 @@
 //!
 //! ## Load and save JSON
 //!
-//! Load full ez-tree settings or a partial JSON object. Missing fields, including
-//! nested fields, use defaults. JSON support is always enabled.
+//! Load full settings or a partial JSON object, using ez-tree's field names.
+//! Missing fields, including nested fields, use defaults. Lengths are in metres,
+//! so ez-tree's own files, which use a unit of about 10 cm, give trees 10 times
+//! too large. JSON support is always enabled.
 //!
 //! ```rust
 //! use procgena_tree::Tree;
@@ -62,7 +64,7 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let tree = Tree::from_json(r#"{
 //!         "seed": 42,
-//!         "branch": { "length": { "0": 12.0 } }
+//!         "branch": { "length": { "0": 1.2 } }
 //!     }"#)?;
 //!
 //!     let json = tree.options().to_json();
@@ -93,8 +95,8 @@
 //! }
 //! ```
 //!
-//! The four default levels use progressively simpler meshes at distances of 0, 100,
-//! 250 and 500 tree units. To choose your own mesh detail, pass a `LodDetail` to
+//! The four default levels use progressively simpler meshes at distances of 0, 10,
+//! 25 and 50 metres. To choose your own mesh detail, pass a `LodDetail` to
 //! `Tree::mesh_with_detail`.
 //!
 //! Only LOD0 and LOD1 are meant for gameplay. Their trunk and branches are closed,
@@ -211,6 +213,7 @@ mod skeleton;
 mod tree;
 mod tree_id;
 mod trellis;
+mod units;
 mod wind;
 
 pub use cluster::{ClusterItem, ClusterStalk, SkeletonCluster};

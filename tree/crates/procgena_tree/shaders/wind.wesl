@@ -2,7 +2,7 @@
 //
 // Call `wind_offset` with a vertex's wind data and add the returned displacement
 // to its position before applying transforms. Movement follows `strength` and
-// is measured in tree units. Supply Rust's WindParams::LEAVES_ONLY to flutter
+// is measured in metres. Supply Rust's WindParams::LEAVES_ONLY to flutter
 // leaves while keeping trunks and branches still, as in ez-tree.
 // Use zero strength to stop all wind movement.
 

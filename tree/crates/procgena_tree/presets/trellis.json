@@ -7,7 +7,7 @@
     "flatShading": false,
     "textured": true,
     "textureScale": {
-      "x": 1,
+      "x": 10.0,
       "y": 8
     }
   },
@@ -29,7 +29,7 @@
         "y": 1,
         "z": 0
       },
-      "strength": 0.026
+      "strength": 0.0026
     },
     "gnarliness": {
       "0": 0,
@@ -38,13 +38,13 @@
       "3": 0.09
     },
     "length": {
-      "0": 4.8,
-      "1": 16.9,
-      "2": 11.3,
-      "3": 11.1
+      "0": 0.48,
+      "1": 1.69,
+      "2": 1.13,
+      "3": 1.11
     },
     "radius": {
-      "0": 0.27,
+      "0": 0.027,
       "1": 0.71,
       "2": 0.84,
       "3": 0.48
@@ -85,7 +85,7 @@
     "angle": 30,
     "count": 13,
     "start": 0,
-    "size": 1.7,
+    "size": 0.17,
     "sizeVariance": 0.5,
     "tint": 15204310,
     "alphaTest": 0.5
@@ -93,19 +93,19 @@
   "trellis": {
     "enabled": true,
     "position": {
-      "x": 0,
-      "y": 0,
-      "z": 1.3
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.13
     },
-    "width": 20,
-    "height": 32,
-    "spacing": 4,
+    "width": 2.0,
+    "height": 3.2,
+    "spacing": 0.4,
     "force": {
-      "strength": 0.014,
-      "maxDistance": 18.2,
+      "strength": 0.0014,
+      "maxDistance": 1.82,
       "falloff": 1.3
     },
-    "cylinderRadius": 0.08,
+    "cylinderRadius": 0.008,
     "visible": true,
     "color": 5519173
   }

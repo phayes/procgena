@@ -25,7 +25,7 @@ const AXIS_TURN: f32 = 0.25;
 /// A group of fruit or flowers attached to one place on a branch.
 ///
 /// Each *item* is one fruit or flower. Positions use tree coordinates,
-/// with the trunk base at the origin; lengths use tree units.
+/// with the trunk base at the origin; lengths are in metres.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SkeletonCluster {
     /// Branch attachment identifying where this cluster grows.
@@ -48,7 +48,7 @@ pub struct ClusterStalk {
     /// Points along the stalk in tree coordinates, ordered from base to tip.
     /// Generated stalks have at least two points.
     pub points: Vec<Vec3>,
-    /// Thickness of the stalk, measured as a radius in tree units.
+    /// Thickness of the stalk, measured as a radius in metres.
     pub radius: f32,
     /// Distance from the cluster origin to this stalk's base, following the
     /// supporting stalks rather than measuring in a straight line.
@@ -67,14 +67,14 @@ pub struct ClusterItem {
     /// Rotation from item coordinates to tree coordinates. Local +Y points
     /// away from the attachment into the item; for hanging fruit, it points down.
     pub orientation: Quat,
-    /// Size in tree units after random variation and cluster taper.
+    /// Size in metres after random variation and cluster taper.
     /// Does not include any change for maturity or individual shape settings.
     pub size: f32,
     /// Index of the supporting stalk in [`SkeletonCluster::stalks`].
     /// `None` means the item attaches directly at the cluster origin.
     pub stalk: Option<usize>,
     /// Distance from the cluster origin to the item, measured along its
-    /// supporting stalks in tree units.
+    /// supporting stalks in metres.
     pub distance: f32,
 }
 

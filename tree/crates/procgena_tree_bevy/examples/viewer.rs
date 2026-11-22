@@ -57,8 +57,8 @@ use procgena_tree_bevy::{
     TreeGenerating, TreeMaterial, TreeParams, TreePart, TreePlugin, Wind, default_tree_lod_levels,
 };
 
-/// Distance between neighbouring trees in the forest, in world units.
-const FOREST_SPACING: f32 = 45.0;
+/// Distance between neighbouring trees in the forest, in metres.
+const FOREST_SPACING: f32 = 4.5;
 /// Number of rows and columns in the square forest.
 const FOREST_SIZE: i32 = 7;
 /// Vary shape settings by up to 15% either way, then round branch and leaf counts.
@@ -122,8 +122,8 @@ fn main() -> AppExit {
         headless: false,
     };
     let mut size = UVec2::new(1280, 720);
-    let mut eye = Vec3::new(0.0, 30.0, 110.0);
-    let mut target = Vec3::new(0.0, 28.0, 0.0);
+    let mut eye = Vec3::new(0.0, 3.0, 11.0);
+    let mut target = Vec3::new(0.0, 2.8, 0.0);
     let mut lod_levels = default_tree_lod_levels();
 
     // Apply command-line choices before creating the scene.
@@ -282,8 +282,8 @@ fn setup(
         Camera3d::default(),
         Transform::from_translation(camera.eye).looking_at(camera.target, Vec3::Y),
         FreeCamera {
-            walk_speed: 20.0,
-            run_speed: 80.0,
+            walk_speed: 2.0,
+            run_speed: 8.0,
             ..default()
         },
     ));
@@ -315,7 +315,7 @@ fn setup(
     });
     commands.insert_resource(ClearColor(Color::srgb(0.62, 0.76, 0.9)));
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(800.0, 800.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.32, 0.42, 0.22))),
     ));
 }

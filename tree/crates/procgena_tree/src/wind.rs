@@ -24,15 +24,15 @@ pub const WIND_WESL: &str = include_str!("../shaders/wind.wesl");
 /// Use [`Self::to_uniform`] to pack these settings for a shader uniform buffer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WindParams {
-    /// Direction and size of the wind motion, in tree coordinates. Leaf-tip
-    /// displacement is at most this vector's length; trunk and branch motion
-    /// have their own multipliers. Defaults to `(0.5, 0, 0.5)`.
+    /// Direction and size of the wind motion, in metres in tree coordinates.
+    /// Leaf-tip displacement is at most this vector's length; trunk and branch
+    /// motion have their own multipliers. Defaults to `(0.05, 0, 0.05)`.
     pub strength: Vec3,
     /// Animation speed. Larger values make all wind motion faster. Measured in
     /// radians per second for the slowest leaf oscillation; defaults to 0.5.
     pub frequency: f32,
-    /// Distance over which the wind pattern varies, in tree units. Larger values
-    /// make motion vary more gradually across the tree. Must be nonzero; defaults to 70.
+    /// Distance over which the wind pattern varies, in metres. Larger values
+    /// make motion vary more gradually across the tree. Must be nonzero; defaults to 7.
     pub scale: f32,
     /// Amount of trunk bend, multiplied by [`strength`](Self::strength).
     /// At 1, the highest section's trunk movement reaches up to that vector's
@@ -41,7 +41,8 @@ pub struct WindParams {
     /// Amount of branch sway, multiplied by [`strength`](Self::strength) and
     /// the mesh's movement weights. Longer branches and points nearer their
     /// tips move more; child branches also inherit movement from their parents.
-    /// Defaults to 0.05. Set to 0 to disable branch sway.
+    /// The weights are in metres, so this is per metre. Defaults to 0.5.
+    /// Set to 0 to disable branch sway.
     pub branch_sway: f32,
 }
 
@@ -49,9 +50,9 @@ impl WindParams {
     /// Leaf-only wind, as in ez-tree: leaf tips flutter while leaf bases, trunks
     /// and branches stay still. Uses the default strength, speed and scale.
     pub const LEAVES_ONLY: Self = Self {
-        strength: Vec3::new(0.5, 0.0, 0.5),
+        strength: Vec3::new(0.05, 0.0, 0.05),
         frequency: 0.5,
-        scale: 70.0,
+        scale: 7.0,
         trunk_bend: 0.0,
         branch_sway: 0.0,
     };
@@ -61,7 +62,7 @@ impl Default for WindParams {
     fn default() -> Self {
         Self {
             trunk_bend: 2.0,
-            branch_sway: 0.05,
+            branch_sway: 0.5,
             ..Self::LEAVES_ONLY
         }
     }
@@ -91,7 +92,7 @@ pub(crate) struct BranchWind {
     /// Trunk movement at each section: squared height relative to the tree's
     /// highest section, clamped to 0–1.
     pub bend: Vec<f32>,
-    /// Branch movement at each section, measured in tree units before applying
+    /// Branch movement at each section, measured in metres before applying
     /// the wind settings.
     pub weight: Vec<f32>,
     /// Timing offset in `[0, 1)`. A main limb and its descendants share this value

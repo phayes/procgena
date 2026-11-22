@@ -7,6 +7,7 @@ use std::f32::consts::TAU;
 use glam::{EulerRot, Mat3, Quat, Vec3};
 
 use crate::cluster::{SkeletonCluster, grow_clusters};
+use crate::units::{GNARL_REFERENCE_RADIUS, TIP_RADIUS};
 use crate::{OptionsError, Rng, TreeOptions, TreeType};
 
 /// Combines with the tree seed to give fruit its own repeatable random sequence.
@@ -48,7 +49,7 @@ pub struct SkeletonBranch {
     pub sections: Vec<Section>,
     /// Intended number of sides around each cross-section when building a mesh.
     pub segment_count: u32,
-    /// Branch thickness at its base, measured as a radius in tree units.
+    /// Branch thickness at its base, measured as a radius in metres.
     pub base_radius: f32,
 }
 
@@ -59,7 +60,7 @@ pub struct Section {
     pub origin: Vec3,
     /// Rotation from local to tree coordinates. Local +Y points along branch growth.
     pub orientation: Quat,
-    /// Radius in tree units. Generated tips at the deepest level have radius 0.001;
+    /// Radius in metres. Generated tips at the deepest level have radius 0.0001;
     /// evergreen tips at other levels have radius 0.
     pub radius: f32,
 }
@@ -74,7 +75,7 @@ pub struct SkeletonLeaf {
     /// Rotation from local to tree coordinates. The leaf extends along local +Y
     /// and faces local +Z.
     pub orientation: Quat,
-    /// Leaf width and length in tree units, including the generated size variation.
+    /// Leaf width and length in metres, including the generated size variation.
     pub size: f32,
 }
 
@@ -215,7 +216,8 @@ impl Grower<'_> {
 
             // Draw random bends even at the tip to keep later draws aligned with ez-tree.
             // Tip draws are discarded; a zero tip radius can make them non-finite.
-            let gnarliness = (1.0 / radius.sqrt()).max(1.0) * options.branch.gnarliness[level];
+            let gnarliness = (1.0 / (radius / GNARL_REFERENCE_RADIUS).sqrt()).max(1.0)
+                * options.branch.gnarliness[level];
             let bend_x = self.rng.range(-gnarliness, gnarliness);
             let bend_z = self.rng.range(-gnarliness, gnarliness);
             if i == section_count {
@@ -283,7 +285,7 @@ impl Grower<'_> {
 
         if i == section_count && bud.level == options.branch.levels as usize {
             // ez-tree uses a small nonzero tip radius at the deepest level for both types.
-            0.001
+            TIP_RADIUS
         } else {
             match options.tree_type {
                 TreeType::Deciduous => bud.radius * (1.0 - options.branch.taper[bud.level] * along),

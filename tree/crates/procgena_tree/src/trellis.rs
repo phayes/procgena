@@ -4,6 +4,7 @@
 use glam::Vec3;
 
 use crate::TrellisOptions;
+use crate::units::WIRE_MIN_DISTANCE;
 
 /// Direction and bending strength returned by [`TrellisOptions::pull`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -105,7 +106,7 @@ impl TrellisOptions {
     }
 
     /// Calculates trellis influence at `position` for a branch with the given `radius`.
-    /// Positions and radii use tree units. Thinner branches receive stronger influence.
+    /// Positions and radii are in metres. Thinner branches receive stronger influence.
     ///
     /// Returns `None` when the nearest wire is farther than `force.max_distance`
     /// or less than 0.001 units away. A returned pull can have zero strength,
@@ -118,7 +119,7 @@ impl TrellisOptions {
     pub fn pull(&self, position: Vec3, radius: f32) -> Option<TrellisPull> {
         let nearest = self.nearest_point(position);
         let distance = position.distance(nearest);
-        if distance > self.force.max_distance || distance < 0.001 {
+        if distance > self.force.max_distance || distance < WIRE_MIN_DISTANCE {
             return None;
         }
 

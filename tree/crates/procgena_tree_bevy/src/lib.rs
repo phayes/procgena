@@ -31,8 +31,8 @@
 //!     commands.spawn(TreeParams::preset(TreePreset::OakSmall));
 //!     commands.spawn((
 //!         Camera3d::default(),
-//!         Transform::from_xyz(35.0, 25.0, 55.0)
-//!             .looking_at(Vec3::new(0.0, 10.0, 0.0), Vec3::Y),
+//!         Transform::from_xyz(3.5, 2.5, 5.5)
+//!             .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
 //!     ));
 //!     commands.spawn((
 //!         DirectionalLight {
@@ -158,7 +158,7 @@
 //! ## Choose mesh detail
 //!
 //! The plugin generates four mesh detail levels. Bevy fades to simpler meshes at
-//! camera distances of 100, 250 and 500 world units. With a texture folder configured,
+//! camera distances of 10, 25 and 50 metres. With a texture folder configured,
 //! the nearest level uses 1k bark textures and the next two use 512 textures.
 //! At the farthest level (LOD3), thin branches are omitted and the remaining branches
 //! use flat strips. With textures configured, those strips use a single colour
@@ -301,7 +301,7 @@ pub struct TreePlugin {
     /// Which texture files to load. Defaults to BC7; UASTC needs Bevy's
     /// `basis-universal` feature.
     pub texture_compression: TextureCompression,
-    /// Mesh detail, switching distance in world units, and bark and leaf appearance
+    /// Mesh detail, switching distance in metres, and bark and leaf appearance
     /// for each level. Defaults to [`default_tree_lod_levels`]. Levels are sorted
     /// by distance before generation. Supply one level to disable distance
     /// switching, or an empty list to produce no tree meshes.

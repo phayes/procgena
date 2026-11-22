@@ -184,7 +184,10 @@ fn flat_shaded_bark_gets_face_normals() {
     let tree = Tree::new(options).unwrap();
     // Open tubes, so every bark triangle is a side whose smooth normals point outward.
     // Cap triangles reuse radial ring normals; tests/mesh.rs checks their facing.
-    let open = LodDetail { closed: false, ..LodDetail::default() };
+    let open = LodDetail {
+        closed: false,
+        ..LodDetail::default()
+    };
     let mesh = &tree.mesh_with_detail(&open);
     let files = to_obj(mesh, tree.options(), &ObjOptions::default());
     let obj = &files.obj;

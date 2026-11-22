@@ -16,10 +16,12 @@ pub const MAX_LEVELS: u32 = 3;
 /// Settings for a tree's shape, leaves, bark, and optional grid of guide wires.
 ///
 /// Start with [`TreeOptions::default()`] and adjust individual settings. For
-/// example, `options.branch.length[0] = 12.0` sets the trunk length to 12 units.
-/// These settings do not generate or draw a tree yet.
+/// example, `options.branch.length[0] = 1.2` sets the trunk length to 1.2 metres.
+/// All lengths are in metres. These settings do not generate or draw a tree yet.
 ///
-/// Use [`from_json`](Self::from_json) to load ez-tree JSON that may omit settings:
+/// Use [`from_json`](Self::from_json) to load JSON in ez-tree's format that may
+/// omit settings. Lengths are read as metres, so ez-tree's own files, which use
+/// a unit of about 10 cm, give trees 10 times too large:
 /// missing fields, including nested fields, keep their defaults. Deserializing
 /// directly with serde requires every field. Use [`to_json`](Self::to_json) to
 /// write all settings as JSON.
@@ -135,8 +137,9 @@ pub struct BarkOptions {
     pub flat_shading: bool,
     /// Whether bark should use textures supplied by the application.
     pub textured: bool,
-    /// Texture scale around the branch (`x`) and along it (`y`). In ez-tree,
-    /// larger `x` adds repeats around the branch; larger `y` stretches along it.
+    /// Texture scale around the branch (`x`) and along it (`y`). `x` is
+    /// repeats around the branch per metre of branch radius, so thicker
+    /// branches get more repeats; larger `y` stretches the image along it.
     #[serde(with = "serde_vec::vec2")]
     pub texture_scale: Vec2,
     /// How bark images repeat along branches. Keep the default,
@@ -184,9 +187,9 @@ pub struct BranchOptions {
     pub flatten: PerLevel<f32>,
     /// Amount of random bending; larger values give more irregular branches.
     pub gnarliness: PerLevel<f32>,
-    /// Length setting for each level, in the same units as the tree dimensions.
+    /// Length setting for each level, in metres.
     pub length: PerLevel<f32>,
-    /// Trunk base radius at level 0. At levels 1–3, a multiplier of the parent
+    /// Trunk base radius at level 0, in metres. At levels 1–3, a multiplier of the parent
     /// radius where a side branch starts; 0.7 makes it 70% as thick.
     /// Tip continuations inherit the parent tip radius instead.
     pub radius: PerLevel<f32>,
@@ -239,7 +242,7 @@ pub struct LeafOptions {
     pub count: u32,
     /// Earliest leaf position along a branch, from 0 (base) to 1 (tip).
     pub start: f32,
-    /// Base leaf size, in the same units as branch lengths.
+    /// Base leaf size, in metres.
     pub size: f32,
     /// Random size variation as a fraction of [`size`](Self::size). For example,
     /// 0.2 varies sizes by up to 20% above or below the base size.
@@ -274,7 +277,7 @@ pub struct TrellisOptions {
     pub width: f32,
     /// Grid height upward along the Y axis from [`position`](Self::position).
     pub height: f32,
-    /// Gap between neighbouring guide wires, in tree units.
+    /// Gap between neighbouring guide wires, in metres.
     pub spacing: f32,
     /// Strength, reach, and distance dependence of the trellis influence.
     pub force: TrellisForce,
@@ -292,7 +295,7 @@ pub struct TrellisOptions {
 pub struct TrellisForce {
     /// Base strength of the pull; zero disables it.
     pub strength: f32,
-    /// Maximum distance from a guide wire at which the pull applies, in tree units.
+    /// Maximum distance from a guide wire at which the pull applies, in metres.
     pub max_distance: f32,
     /// Exponent controlling how the pull weakens with distance: 1 is linear;
     /// 2 weakens it more quickly away from the wire.
@@ -362,7 +365,7 @@ pub struct ClusterPlacement {
     /// Set this, [`density`](Self::density), and [`tips`](Self::tips) to zero
     /// to disable clusters.
     pub count: u32,
-    /// Extra side clusters per tree unit of branch length, added to
+    /// Extra side clusters per metre of branch length, added to
     /// [`count`](Self::count). Only the part of the branch after
     /// [`start`](Self::start) is measured, so long branches get more clusters
     /// than short ones. Fractional results are rounded up or down at random.
@@ -376,7 +379,7 @@ pub struct ClusterPlacement {
     /// Maximum random tilt from [`facing`](Self::facing), in degrees.
     /// Must be finite and non-negative; zero keeps the chosen direction.
     pub facing_jitter: f32,
-    /// Base size of each fruit or flower in tree units, before random variation
+    /// Base size of each fruit or flower in metres, before random variation
     /// and cluster taper. Must be finite and non-negative.
     pub size: f32,
     /// Random size variation from 0 (all the same base size) to 1.
@@ -421,7 +424,7 @@ pub struct ClusterShape {
     /// single item. Must be finite and non-negative.
     pub spread: f32,
     /// Length of the main supporting stem for racemes, panicles, and catkins,
-    /// in tree units. Excludes a catkin's bare stalk. Must be finite and non-negative.
+    /// in metres. Excludes a catkin's bare stalk. Must be finite and non-negative.
     pub axis_length: f32,
     /// Downward bending of the main stem and panicle side stems, from 0
     /// (no added downward bend) to 1 (strongest bend). The stem still curves
@@ -439,14 +442,14 @@ pub struct ClusterShape {
     /// [`axis_length`](Self::axis_length), before taper shortens it.
     /// Must be finite and non-negative; values above 1 are allowed.
     pub side_length: f32,
-    /// Length of each item's stalk in tree units, before taper. A single item
+    /// Length of each item's stalk in metres, before taper. A single item
     /// or umbel grows directly from the branch; raceme items grow from the
     /// main stem, and panicle items from side stems. For catkins, this is the
     /// bare stem before the items begin. Must be finite and non-negative;
     /// zero attaches items directly to their supporting branch or stem.
     pub stalk_length: f32,
     /// Thickness of all cluster stalks and stems, measured as a radius in
-    /// tree units. Must be finite and non-negative.
+    /// metres. Must be finite and non-negative.
     pub stalk_radius: f32,
     /// Colour of the supporting stalks and stems, written as `0xRRGGBB`.
     pub stalk_color: u32,
@@ -569,7 +572,7 @@ impl Default for BarkOptions {
             tint: 0xffffff,
             flat_shading: false,
             textured: true,
-            texture_scale: Vec2::ONE,
+            texture_scale: Vec2::new(10.0, 1.0),
             uv_mode: BarkUvMode::Continuous,
         }
     }
@@ -588,8 +591,8 @@ impl Default for BranchOptions {
             force: GrowthForce::default(),
             flatten: PerLevel([0.0; 4]),
             gnarliness: PerLevel([0.15, 0.2, 0.3, 0.02]),
-            length: PerLevel([20.0, 20.0, 10.0, 1.0]),
-            radius: PerLevel([1.5, 0.7, 0.7, 0.7]),
+            length: PerLevel([2.0, 2.0, 1.0, 0.1]),
+            radius: PerLevel([0.15, 0.7, 0.7, 0.7]),
             sections: PerLevel([12, 10, 8, 6]),
             segments: PerLevel([8, 6, 4, 3]),
             start: PerLevel([0.0, 0.4, 0.3, 0.3]),
@@ -603,7 +606,7 @@ impl Default for GrowthForce {
     fn default() -> Self {
         Self {
             direction: Vec3::Y,
-            strength: 0.01,
+            strength: 0.001,
         }
     }
 }
@@ -616,7 +619,7 @@ impl Default for LeafOptions {
             angle: 10.0,
             count: 1,
             start: 0.0,
-            size: 2.5,
+            size: 0.25,
             size_variance: 0.7,
             tint: 0xffffff,
             alpha_test: 0.5,
@@ -630,12 +633,12 @@ impl Default for TrellisOptions {
     fn default() -> Self {
         Self {
             enabled: false,
-            position: Vec3::new(0.0, 0.0, -2.0),
-            width: 10.0,
-            height: 20.0,
-            spacing: 2.0,
+            position: Vec3::new(0.0, 0.0, -0.2),
+            width: 1.0,
+            height: 2.0,
+            spacing: 0.2,
             force: TrellisForce::default(),
-            cylinder_radius: 0.05,
+            cylinder_radius: 0.005,
             visible: true,
             color: 0x8b4513,
         }
@@ -645,8 +648,8 @@ impl Default for TrellisOptions {
 impl Default for TrellisForce {
     fn default() -> Self {
         Self {
-            strength: 0.02,
-            max_distance: 3.0,
+            strength: 0.002,
+            max_distance: 0.3,
             falloff: 1.0,
         }
     }
@@ -663,7 +666,7 @@ impl Default for FruitOptions {
                 start: 0.3,
                 facing: Facing::Hang,
                 facing_jitter: 15.0,
-                size: 1.2,
+                size: 0.12,
                 size_variance: 0.15,
             },
             cluster: ClusterShape {
@@ -671,13 +674,13 @@ impl Default for FruitOptions {
                 items: 1,
                 items_variance: 0.0,
                 spread: 30.0,
-                axis_length: 2.0,
+                axis_length: 0.2,
                 droop: 0.0,
                 taper: 0.0,
                 side_stalks: 4,
                 side_length: 0.4,
-                stalk_length: 0.4,
-                stalk_radius: 0.04,
+                stalk_length: 0.04,
+                stalk_radius: 0.004,
                 stalk_color: 0x5a6b2e,
             },
             shape: FruitShape {
@@ -713,7 +716,7 @@ impl Default for FlowerOptions {
                 start: 0.3,
                 facing: Facing::Outward,
                 facing_jitter: 20.0,
-                size: 1.0,
+                size: 0.1,
                 size_variance: 0.15,
             },
             cluster: ClusterShape {
@@ -721,13 +724,13 @@ impl Default for FlowerOptions {
                 items: 1,
                 items_variance: 0.0,
                 spread: 40.0,
-                axis_length: 2.0,
+                axis_length: 0.2,
                 droop: 0.0,
                 taper: 0.0,
                 side_stalks: 4,
                 side_length: 0.4,
-                stalk_length: 0.3,
-                stalk_radius: 0.02,
+                stalk_length: 0.03,
+                stalk_radius: 0.002,
                 stalk_color: 0x5a6b2e,
             },
             shape: FlowerShape {

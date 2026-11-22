@@ -37,8 +37,8 @@ use procgena_tree::{Tree, TreePreset};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut options = TreePreset::OakSmall.options();
     options.seed = 42;
-    options.branch.length[0] = 12.0; // Trunk length, in tree units.
-    options.leaves.size = 1.5;
+    options.branch.length[0] = 1.2; // Trunk length, in metres.
+    options.leaves.size = 0.15;
 
     let tree = Tree::new(options)?;
     println!("{} triangles", tree.triangle_count());
@@ -53,8 +53,10 @@ numeric setting, so use sensible dimensions and counts.
 
 ## Load and save JSON
 
-Load full ez-tree settings or a partial JSON object. Missing fields, including
-nested fields, use defaults. JSON support is always enabled.
+Load full settings or a partial JSON object, using ez-tree's field names.
+Missing fields, including nested fields, use defaults. Lengths are in metres,
+so ez-tree's own files, which use a unit of about 10 cm, give trees 10 times
+too large. JSON support is always enabled.
 
 ```rust
 use procgena_tree::Tree;
@@ -62,7 +64,7 @@ use procgena_tree::Tree;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree = Tree::from_json(r#"{
         "seed": 42,
-        "branch": { "length": { "0": 12.0 } }
+        "branch": { "length": { "0": 1.2 } }
     }"#)?;
 
     let json = tree.options().to_json();
@@ -93,8 +95,8 @@ for (level, mesh) in tree.lod_meshes(&default_lod_levels()) {
 }
 ```
 
-The four default levels use progressively simpler meshes at distances of 0, 100,
-250 and 500 tree units. To choose your own mesh detail, pass a `LodDetail` to
+The four default levels use progressively simpler meshes at distances of 0, 10,
+25 and 50 metres. To choose your own mesh detail, pass a `LodDetail` to
 `Tree::mesh_with_detail`.
 
 Only LOD0 and LOD1 are meant for gameplay. Their trunk and branches are closed,
@@ -102,7 +104,7 @@ outward-facing solids (`LodDetail::closed`), suitable for physics, collision and
 volumes. LOD2 and LOD3 are for drawing distant trees only: their bark is open
 and simplified, so don't build colliders or volumes from them.
 
-At 500 tree units (LOD3), retained branches, leaves and fruit use flat shapes
+At 50 metres (LOD3), retained branches, leaves and fruit use flat shapes
 called billboards. A compatible renderer turns them toward the camera to help
 preserve the distant tree’s outline. `MeshBuffers::billboard` stores the rotation
 data; `TreeMesh::billboard_cull` stores crossed fallback shapes. Draw the fallback

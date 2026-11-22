@@ -101,10 +101,10 @@ fn setup(
     commands.spawn(WorldAssetRoot(asset_server.load(scene)));
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(20.0, 22.0, 45.0).looking_at(Vec3::new(0.0, 10.0, 0.0), Vec3::Y),
+        Transform::from_xyz(2.0, 2.2, 4.5).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
         FreeCamera {
-            walk_speed: 20.0,
-            run_speed: 80.0,
+            walk_speed: 2.0,
+            run_speed: 8.0,
             ..default()
         },
     ));
@@ -122,7 +122,7 @@ fn setup(
     });
     commands.insert_resource(ClearColor(Color::srgb(0.62, 0.76, 0.9)));
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(200.0, 200.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(20.0, 20.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.32, 0.42, 0.22))),
     ));
 }

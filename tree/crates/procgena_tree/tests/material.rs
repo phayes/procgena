@@ -10,12 +10,12 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use serde_json::Value;
 use procgena_tree::{
     BARK_KINDS, BarkMap, BarkMaterial, LEAF_KINDS, LeafMap, LeafMaterial, TextureCompression,
     TextureSize, TreeOptions, TreePreset, TrellisMaterial, bark_average_color, bark_texture_path,
     leaf_has_normal_map, leaf_texture_path,
 };
+use serde_json::Value;
 
 const KTX2_IDENTIFIER: [u8; 12] = *b"\xabKTX 20\xbb\r\n\x1a\n";
 const VK_FORMAT_UNDEFINED: u32 = 0;

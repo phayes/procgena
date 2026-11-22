@@ -10,6 +10,7 @@ use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::cluster_mesh::{mesh_flowers, mesh_fruit};
+use crate::units::LEAF_NORMAL_REFERENCE;
 use crate::wind::{BranchWind, branch_winds, wind_at};
 use crate::{
     BarkOptions, BarkUvMode, Billboard, Section, Skeleton, SkeletonBranch, SkeletonLeaf,
@@ -52,7 +53,7 @@ pub struct LodDetail {
     /// visible end, such as a trunk base above ground, looks rounded rather than flat.
     /// Has no effect on [`BranchShape::Ribbons`].
     pub closed: bool,
-    /// Minimum branch radius at the base, in tree units. Thinner branches are
+    /// Minimum branch radius at the base, in metres. Thinner branches are
     /// omitted, but the trunk is always kept. This does not affect leaf selection.
     /// Omitted branches still have an entry in [`TreeMesh::branch_spans`], with
     /// empty buffer ranges. Set to 0 to keep all branches.
@@ -107,12 +108,12 @@ pub struct LodDetail {
     pub item_detail: ItemDetail,
     /// Draw fruit and flowers flat when their configured size
     /// ([`ClusterPlacement::size`](crate::ClusterPlacement::size)) is below
-    /// this many tree units: each fruit becomes a rough disc and each flower a
+    /// this many metres: each fruit becomes a rough disc and each flower a
     /// single triangle. Flat items keep every item, ignoring
     /// [`item_stride`](Self::item_stride), but are still resized by
     /// [`item_scale`](Self::item_scale). Catkins are not affected. 0 turns this off.
     pub flat_item_size: f32,
-    /// Minimum configured fruit or flower size, in tree units. If
+    /// Minimum configured fruit or flower size, in metres. If
     /// [`size`](crate::ClusterPlacement::size) is below this threshold, that
     /// entire category is omitted, including stalks and catkins (hanging clusters).
     /// Its [`TreeMesh`] buffer and span list are empty. Set to 0 to disable this filter.
@@ -192,7 +193,7 @@ pub struct BillboardVertex {
     pub pivot: [f32; 3],
     /// Unit-length rotation axis, or `[0.0; 3]` for full camera-facing rotation.
     pub axis: [f32; 3],
-    /// Horizontal and vertical offsets from `pivot`, in tree units, along the
+    /// Horizontal and vertical offsets from `pivot`, in metres, along the
     /// reconstructed `right` and `up` directions described above.
     pub offset: [f32; 2],
 }
@@ -251,41 +252,41 @@ pub struct LodLevel {
     pub detail: LodDetail,
 }
 
-/// Returns four suggested detail levels at distances of 0, 100, 250 and 500
-/// tree units. The caller must select and switch meshes as the camera moves.
+/// Returns four suggested detail levels at distances of 0, 10, 25 and 50
+/// metres. The caller must select and switch meshes as the camera moves.
 ///
-/// Only the levels at 0 and 100 (LOD0 and LOD1) are for gameplay: their bark is
+/// Only the levels at 0 and 10 m (LOD0 and LOD1) are for gameplay: their bark is
 /// [`closed`](LodDetail::closed) and suitable for physics, collision and volumes.
-/// The levels at 250 and 500 (LOD2 and LOD3) are for drawing distant trees only.
+/// The levels at 25 and 50 m (LOD2 and LOD3) are for drawing distant trees only.
 /// Their bark is open, and coarse tubes may fold over themselves at sharp bends.
 ///
-/// At 100, branches use fewer sections and sides, and every second leaf is kept
+/// At 10 m, branches use fewer sections and sides, and every second leaf is kept
 /// at 1.25 times its size. Fruit and flowers use [`ItemDetail::Simple`].
-/// At 250, branches simplify further; every second leaf uses a single card at
+/// At 25 m, branches simplify further; every second leaf uses a single card at
 /// 1.3 times its size. Fruit and flowers use [`ItemDetail::Minimal`], retaining
-/// every second item at 1.25 times its size. Non-catkin items smaller than 0.75
-/// configured tree units are drawn flat and keep every item.
+/// every second item at 1.25 times its size. Non-catkin items smaller than
+/// 7.5 cm (configured size) are drawn flat and keep every item.
 ///
-/// At 500 (LOD3), renderers supporting [`MeshBuffers::billboard`] can turn
+/// At 50 m (LOD3), renderers supporting [`MeshBuffers::billboard`] can turn
 /// branch strips, leaf cards and fruit toward the camera:
 ///
 /// - Branches use two-sided [`BranchShape::Ribbons`]. Branches with a base radius
-///   below 0.15 are omitted, except for the trunk.
+///   below 1.5 cm are omitted, except for the trunk.
 /// - Every fourth leaf is kept, counting back from each branch tip, including on
 ///   omitted branches. Fixed fallback cards use 1.8 times the original size;
 ///   camera-facing cards use 1.25 times.
 /// - [`LodDetail::billboard_fruit`] keeps every second fruit in each cluster, as
-///   at 250, drawn as crossed hexagons without stalks at their original size.
-/// - Fruit and flowers with configured sizes below 0.5 are omitted. Flowers
-///   otherwise use the 250 settings, but keep every second cluster and draw
-///   non-catkin flowers smaller than 1.5 flat.
+///   at 25 m, drawn as crossed hexagons without stalks at their original size.
+/// - Fruit and flowers with configured sizes below 5 cm are omitted. Flowers
+///   otherwise use the 25 m settings, but keep every second cluster and draw
+///   non-catkin flowers smaller than 15 cm flat.
 ///
 /// Renderers that rotate billboards should skip [`TreeMesh::billboard_cull`].
 pub fn default_lod_levels() -> [LodLevel; 4] {
     [
         LodLevel::default(),
         LodLevel {
-            distance: 100.0,
+            distance: 10.0,
             hysteresis: 0.05,
             detail: LodDetail {
                 section_stride: 3,
@@ -298,7 +299,7 @@ pub fn default_lod_levels() -> [LodLevel; 4] {
             },
         },
         LodLevel {
-            distance: 250.0,
+            distance: 25.0,
             hysteresis: 0.05,
             detail: LodDetail {
                 section_stride: 6,
@@ -311,18 +312,18 @@ pub fn default_lod_levels() -> [LodLevel; 4] {
                 item_stride: 2,
                 item_scale: 1.25,
                 item_detail: ItemDetail::Minimal,
-                flat_item_size: 0.75,
+                flat_item_size: 0.075,
                 ..LodDetail::default()
             },
         },
         LodLevel {
-            distance: 500.0,
+            distance: 50.0,
             hysteresis: 0.05,
             detail: LodDetail {
                 section_stride: 8,
                 branch_shape: BranchShape::Ribbons,
                 closed: false,
-                min_branch_radius: 0.15,
+                min_branch_radius: 0.015,
                 leaf_stride: 4,
                 leaf_scale: 1.8,
                 billboard: Some(Billboard::Single),
@@ -332,8 +333,8 @@ pub fn default_lod_levels() -> [LodLevel; 4] {
                 item_stride: 2,
                 item_scale: 1.25,
                 item_detail: ItemDetail::Minimal,
-                min_item_size: 0.5,
-                flat_item_size: 1.5,
+                min_item_size: 0.05,
+                flat_item_size: 0.15,
                 billboard_fruit: true,
                 ..LodDetail::default()
             },
@@ -383,7 +384,7 @@ pub struct MeshBuffers {
     /// The values are `[trunk_bend, branch_weight, branch_phase, flutter]`:
     /// - `trunk_bend` controls trunk movement, from 0 at ground level to 1 at the
     ///   highest skeleton section.
-    /// - `branch_weight` controls branch movement, in tree units before applying
+    /// - `branch_weight` controls branch movement, in metres before applying
     ///   the wind settings. It is 0 on the trunk and increases toward branch tips.
     /// - `branch_phase` is a timing offset in `[0, 1)`. Each main limb shares it
     ///   with its descendants so they sway together.
@@ -679,7 +680,8 @@ impl Skeleton {
     ///
     /// Settings are not validated here; pass validated options. With rounded
     /// normals on double leaf billboards, one corner’s lighting direction flips
-    /// as the scaled leaf size passes 2; at exactly 2 it uses the face normal.
+    /// as the scaled leaf size passes 0.2 m; at exactly that size it uses the
+    /// face normal.
     ///
     /// # Panics
     ///
@@ -1133,7 +1135,7 @@ fn mesh_leaf(
         // corner normals. Only the main card needs rotation data.
         if let Some(mode) = style.turn {
             let normal = if style.rounded_normals {
-                (face + tip * (leaf.size / 2.0)).normalize_or(face)
+                (face * LEAF_NORMAL_REFERENCE + tip * (leaf.size / 2.0)).normalize_or(face)
             } else {
                 face
             };
@@ -1158,7 +1160,7 @@ fn mesh_leaf(
         for ((corner, uv), flutter) in corners.into_iter().zip(uvs).zip(flutter) {
             // Use the face direction when rounding would produce a zero-length normal.
             let normal = if style.rounded_normals {
-                (face + corner - leaf.origin).normalize_or(face)
+                (face * LEAF_NORMAL_REFERENCE + corner - leaf.origin).normalize_or(face)
             } else {
                 face
             };
@@ -1496,7 +1498,7 @@ mod tests {
             },
             origin: Vec3::ZERO,
             orientation,
-            size: 2.0,
+            size: 0.2,
         };
         let style = LeafStyle {
             scale: 1.8,
@@ -1531,11 +1533,11 @@ mod tests {
                 section: 0,
                 t: 0.0,
             },
-            origin: Vec3::new(1.0, 2.0, 3.0),
+            origin: Vec3::new(0.1, 0.2, 0.3),
             orientation,
-            size: 2.0,
+            size: 0.2,
         };
-        let centre = leaf.origin + orientation * Vec3::Y;
+        let centre = leaf.origin + orientation * Vec3::Y * 0.1;
         for mode in [BillboardMode::Camera, BillboardMode::Axis] {
             for billboard in [Billboard::Single, Billboard::Double] {
                 let style = LeafStyle {
@@ -1561,9 +1563,10 @@ mod tests {
                 );
 
                 // Every corner of both cards carries the average rounded normal:
-                // the face tilted toward the tip by half the leaf size.
+                // the face tilted toward the tip by half the leaf size, measured
+                // against the 0.1 m rounding reference.
                 let face = orientation * Vec3::Z;
-                let expected = (face + orientation * Vec3::Y * 1.0).normalize();
+                let expected = (face * 0.1 + orientation * Vec3::Y * 0.1).normalize();
                 assert_eq!(cull.normals.len(), cull.positions.len(), "{case}");
                 for n in out.normals.iter().chain(&cull.normals) {
                     let n = Vec3::from_array(*n);
@@ -1575,7 +1578,10 @@ mod tests {
                 let stored: Vec<Vec3> = out.positions.iter().map(|&p| p.into()).collect();
                 let mean = stored.iter().sum::<Vec3>() / 4.0;
                 assert!(mean.abs_diff_eq(centre, 1e-5), "{case}: {mean}");
-                assert!((stored[1].distance(stored[2]) - 3.6).abs() < 1e-5, "{case}");
+                assert!(
+                    (stored[1].distance(stored[2]) - 0.36).abs() < 1e-6,
+                    "{case}"
+                );
                 if crossed {
                     let second = (0..4).map(|i| Vec3::from(cull.positions[i])).sum::<Vec3>();
                     assert!((second / 4.0).abs_diff_eq(centre, 1e-5), "{case}");
@@ -1588,7 +1594,7 @@ mod tests {
                     let mean = corners.iter().sum::<Vec3>() / 4.0;
                     assert!(mean.abs_diff_eq(centre, 1e-5), "{case}: {mean}");
                     let side = corners[1].distance(corners[2]);
-                    assert!((side - 2.5).abs() < 1e-5, "{case}: {side}");
+                    assert!((side - 0.25).abs() < 1e-6, "{case}: {side}");
                     assert_turned_front_faces(&out, to_camera);
                 }
             }
@@ -1657,9 +1663,9 @@ mod tests {
                 section: 0,
                 t: 0.0,
             },
-            origin: Vec3::new(1.0, 2.0, 3.0),
+            origin: Vec3::new(0.1, 0.2, 0.3),
             orientation: Quat::IDENTITY,
-            size: 2.0,
+            size: 0.2,
         };
         let mut out = MeshBuffers::default();
         let span = mesh_leaf(
@@ -1678,13 +1684,17 @@ mod tests {
         let flutter: Vec<f32> = out.wind.iter().map(|w| w[3]).collect();
         assert_eq!(flutter, [1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0]);
         assert_eq!(span.indices, 0..12);
-        // Halving the card keeps its original centre at y = 3; its top edge
-        // therefore lies at y = 3.5.
-        assert_eq!(out.positions[0], [0.5, 3.5, 3.0]);
+        // Halving the card keeps its original centre at y = 0.3; its top edge
+        // therefore lies at y = 0.35.
+        let first = Vec3::from_array(out.positions[0]);
+        assert!(
+            first.abs_diff_eq(Vec3::new(0.05, 0.35, 0.3), 1e-6),
+            "{first}"
+        );
         // The crossed card lies at a right angle around the +Y stem direction.
         let turned = Vec3::from_array(out.positions[4]);
         assert!(
-            turned.abs_diff_eq(Vec3::new(1.0, 3.5, 3.5), 1e-6),
+            turned.abs_diff_eq(Vec3::new(0.1, 0.35, 0.35), 1e-6),
             "{turned}"
         );
         // Both fixed cards use the same face normal, as in ez-tree.
@@ -1704,16 +1714,16 @@ mod tests {
                 section: 0,
                 t: 0.0,
             },
-            origin: Vec3::new(1.0, 2.0, 3.0),
+            origin: Vec3::new(0.1, 0.2, 0.3),
             orientation,
-            size: 1.5,
+            size: 0.15,
         };
         let across = orientation * Vec3::X;
         let tip = orientation * Vec3::Y;
         for billboard in [Billboard::Single, Billboard::Double] {
             for rounded in [false, true] {
-                // Exercise rounded lighting at leaf sizes below, at, and above 2.
-                // At 2, one corner needs the fallback normal and another points
+                // Exercise rounded lighting at leaf sizes below, at, and above 0.2 m.
+                // At 0.2 m, one corner needs the fallback normal and another points
                 // toward the tip. Larger sizes can tilt normals past the tip.
                 for scale in [1.0, 2.0 / 1.5, 2.0] {
                     let mut out = MeshBuffers::default();

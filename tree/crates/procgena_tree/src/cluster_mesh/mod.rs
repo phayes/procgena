@@ -328,7 +328,7 @@ fn strip(points: &[Vec3], radius: f32, facing: Vec3, color: Vec4) -> Option<Grid
     Some(grid)
 }
 
-/// Creates an open-ended tube along `points`. Supply a radius in tree units,
+/// Creates an open-ended tube along `points`. Supply a radius in metres,
 /// a positive side count, and a linear RGBA colour. Returns `None` for a
 /// nonpositive radius, fewer than two points, or zero total length.
 /// Panics for zero sides when the radius and path would otherwise produce a tube.

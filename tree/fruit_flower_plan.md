@@ -95,7 +95,7 @@ fruit from small and green to full-size and ripe.
 | `start` | Earliest position along a branch, from 0 to 1, as for leaves. |
 | `facing` | `Hang` (fruit and laburnum follow gravity), `Up` (dogwood and magnolia), `Outward` (cherry: away from the branch). |
 | `facing_jitter` | Random tilt from `facing`, in degrees. |
-| `size`, `size_variance` | Item size in tree units, and its random variation, as for leaves. |
+| `size`, `size_variance` | Item size in metres, and its random variation, as for leaves. |
 
 ### Cluster (`ClusterShape`)
 
@@ -161,7 +161,7 @@ all see the same curve.
 
 Also added: `OptionsError::InvalidSetting { field, requirement }` with the JSON path
 of the setting; `cluster.items` must be at least 1. Fruit stem and flower petal
-lengths are fractions of the item size; stalk and axis lengths are in tree units.
+lengths are fractions of the item size; stalk and axis lengths are in metres.
 
 - Add `ClusterPlacement`, `ClusterShape`, `ClusterKind`, `Facing`, `FruitShape`,
   `FlowerShape`, `FruitOptions` and `FlowerOptions`, with serde in camelCase, defaults

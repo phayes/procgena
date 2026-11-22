@@ -1,8 +1,8 @@
 //! Check defaults, presets, JSON handling and option validation.
 
 use glam::Vec3;
-use serde_json::Value;
 use procgena_tree::{BarkUvMode, ClusterKind, Facing, OptionsError, Tree, TreeOptions, TreePreset};
+use serde_json::Value;
 
 /// Checks that each preset returns the full contents of its embedded JSON file.
 #[test]
