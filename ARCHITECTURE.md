@@ -243,7 +243,7 @@ time, and gives its mask over a chunk without drawing anything. See
 | `PlantScatter` | Built as `PlantField` ([plant/docs/fields.md](plant/docs/fields.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
 | `MushroomScatter` | Exists, but grows on tagged host meshes | Becomes a ground Scatter of `Mushroom`s (single, tuft or fairy ring). Growing on hosts moves to the later `MushroomGrowth` modifier. |
 | `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
-| `StoneScatter` | Half built: `StonePool` | `StonePool` is the drawing half (variants, GPU instancing). Placement over a `Ground` with a mask is new. |
+| `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of single stones over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. Pebble clusters wait for the group half of open question 3. |
 
 ### 3. Ecotope
 
@@ -415,7 +415,7 @@ grown into a real level.
 | WorldTerrain → Terrain | `Region` and its `EdgeAgreement`s and `CornerAgreement`s | Yes, in `procgena_terrain` |
 | Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height` and height tiles; slope and `annotate` are new |
 | Biome → Ecotope | Coverage function from 0 to 1, ground, seed | New |
-| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed | `Ground` in `procgena_mesh` gives height only; density functions on groves and plant fields |
+| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed | `ScatterInput` in `procgena_core::scatter` (see [C1](docs/decisions/C1.md)); stone takes it, and tree, deadwood and mushroom are moving to it |
 | Scatter → Scatter below | Mask: density function from 0 to 1 | New |
 | Scatter → Asset | Transform and variant | Yes |
 | Modifier → Asset | Host `Specimen` and `TagFilter` | Yes, as `Object` in `procgena_mesh` |
@@ -1281,7 +1281,10 @@ it starts.
   are passed the same way in every Scatter crate. Today trees take
   `&dyn Ground` and `Option<&dyn Fn>`, plants take a density image or a
   closure, sticks take a `Ground` and a density function, and mushrooms take
-  a host mesh.
+  a host mesh. The shared type, `ScatterInput` in `procgena_core::scatter`,
+  is built (C1, see [docs/decisions/C1.md](docs/decisions/C1.md)), and
+  stone takes it. Tree, deadwood and mushroom still have to move to it;
+  plant joins at R3.
 - [ ] **Mushroom as a whole growth**: fold stems and clustering into the
   `Mushroom` asset, moving the existing fairy-ring layout into it, and make `MushroomScatter` a
   ground Scatter of `Mushroom`s.
@@ -1306,8 +1309,10 @@ it starts.
 
 - [ ] **`DeadwoodScatter`**: grow `StickScatter` to cover logs and stumps,
   and give it a slope limit.
-- [ ] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
-  clustering and partial burial.
+- [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
+  clustering and partial burial. Done in C1 for single stones: clustering
+  is patches in the density, not groups. Pebble clusters as groups wait
+  for open question 3.
 - [ ] **Scatter masks out**: each Scatter reports the mask it leaves for the
   Scatters below it (trunk discs, canopy shade, stone and log footprints).
 
@@ -1455,6 +1460,14 @@ it starts.
    transform, but a fairy ring is metres across and a fallen log is long.
    On a slope their members or ends need ground heights. Does the asset get
    the `Ground` at build time, or does the Scatter settle its parts?
+   **Half decided 2026-11-23 (C1):** the asset never sees the `Ground`, so
+   its specimens stay shared. For rigid wide pieces (logs, stumps,
+   boulders), the Scatter settles them with `procgena_core::scatter::settle`
+   from the points where the piece touches flat ground. **Still open:**
+   groups of members (fairy rings, tufts, pebble clusters), which are
+   either members inside one copy or a part path under the group's address.
+   This is being decided with D3's Addresses (see
+   [docs/decisions/C1.md](docs/decisions/C1.md)).
 4. **Ids from list positions.** Under "Seeds", a Scatter's id is its place
    in its Ecotope's list. Inserting or reordering a Scatter (a user hook
    at priority 2, say) then reseeds every Scatter below it and breaks saved
