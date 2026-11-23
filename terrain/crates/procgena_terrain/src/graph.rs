@@ -10,7 +10,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 
-use glam::{DVec2, IVec2};
+use glam::{DVec2, I64Vec2, IVec2};
 
 use crate::hash::{derive_seed, hash2};
 use crate::ports::CORNER_CLEARANCE;
@@ -26,10 +26,32 @@ pub const MAX_JITTER: f64 = 0.8;
 /// both its corners.
 pub const MIN_EDGE: f64 = 2.0 * CORNER_CLEARANCE;
 
-/// How many lattice cells either way are searched for a region's
-/// neighbours. Enough for [`MAX_JITTER`]: a site's neighbours lie within
-/// about 2.3 lattice spacings of it.
-const WINDOW: i32 = 3;
+/// How many lattice cells either way are searched for the corners around a
+/// site, at first.
+///
+/// A corner is a circle with no site inside, so its radius is at most the
+/// farthest any point lies from its nearest site: for the lattice, half a
+/// row spacing over cos 30° (1/√3 spacings), plus a site's largest jitter
+/// (√2 × 0.4 spacings at [`MAX_JITTER`]), about 1.14 spacings. A corner's
+/// circle passes through the site, so it lies within twice that, about
+/// 2.3 spacings, of it. Four cells either way hold every site within about
+/// 3.5 spacings (see [`RegionGraph::coverage`]); a circle reaching past what
+/// the window holds makes the search widen (see [`MAX_WINDOW`]).
+const WINDOW: i32 = 4;
+
+/// The widest search, in lattice cells either way.
+const MAX_WINDOW: i32 = 8;
+
+/// The largest lattice spacing, in metres. Sites are compared exactly in
+/// 128-bit integers of millimetres; within the widest search (8 cells
+/// either way) at this spacing their differences stay below about 10⁹ mm,
+/// so the in-circle test's terms stay below about 10³⁷, inside the
+/// 1.7·10³⁸ an i128 holds.
+pub const MAX_SIZE: f64 = 50_000.0;
+
+/// Sites are placed on a grid of millimetres, so they can be compared
+/// exactly: metres times this.
+const PER_METRE: f64 = 1000.0;
 
 /// The distance between lattice rows, as a share of the spacing along a
 /// row: the rows of a hexagonal lattice.
@@ -94,7 +116,8 @@ impl Default for RegionGraphOptions {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum RegionGraphError {
-    /// The size must be finite and at least 5 times the minimum edge.
+    /// The size must be finite, at least 5 times the minimum edge and at
+    /// most [`MAX_SIZE`].
     Size(f64),
     /// The jitter must be from 0 to [`MAX_JITTER`].
     Jitter(f64),
@@ -107,7 +130,8 @@ impl fmt::Display for RegionGraphError {
         match self {
             Self::Size(s) => write!(
                 f,
-                "the region size must be finite and at least 5 times the minimum edge, not {s}"
+                "the region size must be at least 5 times the minimum edge and at most \
+                 {MAX_SIZE} m, not {s}"
             ),
             Self::Jitter(j) => write!(f, "the jitter must be from 0 to {MAX_JITTER}, not {j}"),
             Self::MinEdge(m) => write!(
@@ -135,7 +159,11 @@ impl RegionGraphOptions {
         if !self.min_edge.is_finite() || self.min_edge < 0.0 {
             return Err(RegionGraphError::MinEdge(self.min_edge));
         }
-        if !self.size.is_finite() || self.size <= 0.0 || self.size < 5.0 * self.min_edge {
+        if !self.size.is_finite()
+            || self.size <= 0.0
+            || self.size < 5.0 * self.min_edge
+            || self.size > MAX_SIZE
+        {
             return Err(RegionGraphError::Size(self.size));
         }
         if !(0.0..=MAX_JITTER).contains(&self.jitter) {
@@ -154,10 +182,24 @@ impl RegionGraphOptions {
 pub struct RegionGraph {
     options: RegionGraphOptions,
     seed: u32,
+    /// Sites placed by hand, in millimetres, for tests of awkward layouts.
+    #[cfg(test)]
+    placed: HashMap<RegionKey, I64Vec2>,
 }
 
-/// The three regions whose sites define a raw Voronoi corner, sorted.
-type Triple = [RegionKey; 3];
+/// Every region whose site lies on one empty circle (a raw Voronoi
+/// corner), sorted. Usually three; four or more where sites share a
+/// circle exactly.
+type Corner = Vec<RegionKey>;
+
+/// A region's raw Voronoi cell: its neighbours in anticlockwise order, and
+/// the raw corner between each neighbour and the one before it.
+#[derive(Debug, Clone)]
+struct Ring {
+    neighbours: Vec<RegionKey>,
+    /// `corners[i]` lies between `neighbours[i - 1]` and `neighbours[i]`.
+    corners: Vec<Corner>,
+}
 
 impl RegionGraph {
     /// The graph for `options` and the world's `seed`.
@@ -167,14 +209,43 @@ impl RegionGraph {
     /// If `options` aren't valid (see [`RegionGraphOptions::validate`]).
     pub fn new(options: RegionGraphOptions, seed: u32) -> Result<Self, RegionGraphError> {
         options.validate()?;
-        Ok(Self { options, seed })
+        Ok(Self::unchecked(options, seed))
+    }
+
+    /// The graph for settings already checked.
+    fn unchecked(options: RegionGraphOptions, seed: u32) -> Self {
+        Self {
+            options,
+            seed,
+            #[cfg(test)]
+            placed: HashMap::new(),
+        }
     }
 
     /// Like [`new`](Self::new), allowing any minimum edge from 0.
     #[cfg(test)]
     fn unfloored(options: RegionGraphOptions, seed: u32) -> Result<Self, RegionGraphError> {
         options.validate_unfloored()?;
-        Ok(Self { options, seed })
+        Ok(Self::unchecked(options, seed))
+    }
+
+    /// This graph with the sites of `placed` regions at the given points,
+    /// in millimetres.
+    #[cfg(test)]
+    fn with_sites(mut self, placed: &[(RegionKey, I64Vec2)]) -> Self {
+        self.placed.extend(placed.iter().copied());
+        self
+    }
+
+    /// How far any hand-placed site lies from where its jittered site
+    /// would be, in metres: the search must reach that much further.
+    #[cfg(test)]
+    fn placed_offset(&self) -> f64 {
+        let unplaced = Self::unchecked(self.options, self.seed);
+        self.placed
+            .iter()
+            .map(|(&k, &p)| (p - unplaced.site_mm(k)).as_dvec2().length() / PER_METRE)
+            .fold(0.0, f64::max)
     }
 
     /// The settings.
@@ -183,8 +254,17 @@ impl RegionGraph {
     }
 
     /// The site of region `key`, in metres: the point its region is built
-    /// around.
+    /// around. Sites lie on a grid of millimetres.
     pub fn site(&self, key: RegionKey) -> DVec2 {
+        self.site_mm(key).as_dvec2() / PER_METRE
+    }
+
+    /// The site of region `key`, in whole millimetres.
+    fn site_mm(&self, key: RegionKey) -> I64Vec2 {
+        #[cfg(test)]
+        if let Some(&placed) = self.placed.get(&key) {
+            return placed;
+        }
         let IVec2 { x, y: z } = key.0;
         let size = self.options.size;
         let stagger = if z.rem_euclid(2) == 1 { 0.5 } else { 0.0 };
@@ -194,7 +274,23 @@ impl RegionGraph {
             f64::from(h) / f64::from(u32::MAX) * 2.0 - 1.0
         };
         // Salts of their own: 1 to 4 seed the relief's layers.
-        point + DVec2::new(unit(201), unit(202)) * (0.5 * self.options.jitter * size)
+        let site = point + DVec2::new(unit(201), unit(202)) * (0.5 * self.options.jitter * size);
+        (site * PER_METRE).round().as_i64vec2()
+    }
+
+    /// How far from a site the sites within `window` lattice cells either
+    /// way reach for certain, in metres: every site nearer than this is
+    /// among them.
+    fn coverage(&self, window: i32) -> f64 {
+        let (size, jitter) = (self.options.size, self.options.jitter);
+        // Rows beyond the window are at least this far off, less both
+        // sites' jitter; columns likewise, less half a cell of stagger.
+        let rows = f64::from(window + 1) * ROW * size;
+        let columns = (f64::from(window) + 0.5) * size;
+        let reach = rows.min(columns) - jitter * size - 1.0;
+        #[cfg(test)]
+        let reach = reach - 2.0 * self.placed_offset();
+        reach
     }
 
     /// The lattice cell nearest `p`: the key of a region whose site is
@@ -212,16 +308,15 @@ impl RegionGraph {
     /// region at a corner gets the identical corner.
     pub fn region(&self, key: RegionKey) -> Region {
         let mut local = Local::new(self);
-        let ring = local.ring(key).to_vec();
+        let Ring {
+            neighbours: ring,
+            corners: raw,
+        } = local.ring(key).clone();
         let n = ring.len();
 
         // Each raw corner of the cell, merged with any corners near it.
-        let corners: Vec<RegionCorner> = (0..n)
-            .map(|i| {
-                let triple = sorted([key, ring[(i + n - 1) % n], ring[i]]);
-                local.corner(triple)
-            })
-            .collect();
+        // Side `i`, shared with `ring[i]`, runs from corner `i` to `i + 1`.
+        let corners: Vec<RegionCorner> = raw.into_iter().map(|c| local.corner(c)).collect();
 
         // Sides whose two ends merged into one corner vanish.
         let mut points = Vec::with_capacity(n);
@@ -251,7 +346,9 @@ impl RegionGraph {
 
     /// The region holding `p`. Points on a border may go to either side.
     pub fn region_at(&self, p: DVec2) -> RegionKey {
-        // The few regions with the nearest sites; one of them holds `p`.
+        // The regions nearest first; merged corners shift outlines away
+        // from the plain Voronoi cells, so the owner isn't always the
+        // nearest site, but it is close by.
         let near = self.cell_near(p);
         let mut candidates: Vec<(f64, RegionKey)> = (-2..=2)
             .flat_map(|dz| (-2..=2).map(move |dx| RegionKey(near.0 + IVec2::new(dx, dz))))
@@ -260,7 +357,6 @@ impl RegionGraph {
         candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         candidates
             .iter()
-            .take(4)
             .map(|&(_, k)| k)
             .find(|&k| self.region(k).boundary.contains(p))
             .unwrap_or(candidates[0].1)
@@ -271,7 +367,7 @@ impl RegionGraph {
 /// is worked out once.
 struct Local<'a> {
     graph: &'a RegionGraph,
-    rings: HashMap<RegionKey, Vec<RegionKey>>,
+    rings: HashMap<RegionKey, Ring>,
 }
 
 impl<'a> Local<'a> {
@@ -282,115 +378,192 @@ impl<'a> Local<'a> {
         }
     }
 
-    /// The regions whose raw Voronoi cells share a side with `key`'s, in
-    /// counterclockwise order around it.
-    fn ring(&mut self, key: RegionKey) -> &[RegionKey] {
+    /// The raw Voronoi cell of `key`: the same for whichever region asks,
+    /// since it depends only on the sites.
+    fn ring(&mut self, key: RegionKey) -> &Ring {
         let graph = self.graph;
-        self.rings
-            .entry(key)
-            .or_insert_with(|| raw_ring(graph, key, WINDOW))
+        self.rings.entry(key).or_insert_with(|| {
+            (WINDOW..=MAX_WINDOW)
+                .step_by(2)
+                .find_map(|window| walk(graph, key, window))
+                .expect("a site's corners lie within the widest search")
+        })
     }
 
-    /// The raw Voronoi corner of `triple`, from its three sites in sorted
-    /// order, so every region computes the same bits.
-    fn position(&self, triple: Triple) -> DVec2 {
-        let [a, b, c] = triple.map(|k| self.graph.site(k));
+    /// Where raw corner `corner` is: the centre of the circle through its
+    /// first three sites in sorted order, so every region computes the
+    /// same bits.
+    fn position(&self, corner: &Corner) -> DVec2 {
+        let [a, b, c] = [0, 1, 2].map(|i| self.graph.site(corner[i]));
         circumcentre(a, b, c)
     }
 
-    /// The corner that raw corner `triple` belongs to, once every raw
-    /// corner joined to it by an edge shorter than the minimum is merged
-    /// in: at the mean of the merged raw corners, touched by every region
-    /// touching any of them.
-    fn corner(&mut self, triple: Triple) -> RegionCorner {
+    /// The corner that raw corner `corner` belongs to, once every raw
+    /// corner joined to it by a chain of edges shorter than the minimum is
+    /// merged in: at the mean of the merged raw corners (summed in sorted
+    /// order), touched by every region touching any of them.
+    fn corner(&mut self, corner: Corner) -> RegionCorner {
         let min_edge = self.graph.options.min_edge;
-        let mut merged: BTreeSet<Triple> = BTreeSet::from([triple]);
-        let mut todo = vec![triple];
-        while let Some(t) = todo.pop() {
-            let here = self.position(t);
-            for (a, b, c) in [(t[0], t[1], t[2]), (t[1], t[2], t[0]), (t[0], t[2], t[1])] {
-                let other = self.across(a, b, c);
-                if !merged.contains(&other) && here.distance(self.position(other)) < min_edge {
-                    merged.insert(other);
+        let mut merged: BTreeSet<Corner> = BTreeSet::from([corner.clone()]);
+        let mut todo = vec![corner];
+        while let Some(c) = todo.pop() {
+            let here = self.position(&c);
+            for other in self.adjacent(&c) {
+                if !merged.contains(&other) && here.distance(self.position(&other)) < min_edge {
+                    merged.insert(other.clone());
                     todo.push(other);
                 }
             }
         }
         let sum = merged
             .iter()
-            .fold(DVec2::ZERO, |sum, &t| sum + self.position(t));
+            .fold(DVec2::ZERO, |sum, c| sum + self.position(c));
         let incident = merged.iter().flatten().map(|k| k.id());
         RegionCorner::new(sum / merged.len() as f64, incident)
     }
 
-    /// The raw corner at the other end of the side between `a` and `b`
-    /// from the raw corner of `a`, `b` and `c`.
-    fn across(&mut self, a: RegionKey, b: RegionKey, c: RegionKey) -> Triple {
-        let ring = self.ring(a);
-        let n = ring.len();
-        let j = ring
-            .iter()
-            .position(|&k| k == b)
-            .expect("neighbouring cells list each other");
-        let (before, after) = (ring[(j + n - 1) % n], ring[(j + 1) % n]);
-        sorted([a, b, if before == c { after } else { before }])
+    /// The raw corners at the far ends of the sides that meet at raw corner
+    /// `corner`: around each of its sites, the corners before and after it.
+    fn adjacent(&mut self, corner: &Corner) -> Vec<Corner> {
+        let mut out = Vec::new();
+        for &key in corner {
+            let ring = self.ring(key);
+            let n = ring.corners.len();
+            let k = ring
+                .corners
+                .iter()
+                .position(|c| c == corner)
+                .expect("every site on a corner has it in its ring");
+            out.push(ring.corners[(k + n - 1) % n].clone());
+            out.push(ring.corners[(k + 1) % n].clone());
+        }
+        out
     }
 }
 
-/// The raw Voronoi cell of `key`, as the regions whose cells share a side
-/// with it, in counterclockwise order, from the sites within `window`
-/// lattice cells either way.
-fn raw_ring(graph: &RegionGraph, key: RegionKey, window: i32) -> Vec<RegionKey> {
-    // A square well beyond the cell, cut down by the half-plane nearer
-    // `key` than each other site. Each point carries the region whose
-    // bisector the side starting there lies on.
-    let site = graph.site(key);
-    let r = 4.0 * graph.options.size;
-    let mut cell: Vec<(DVec2, Option<RegionKey>)> =
-        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
-            .map(|(x, z)| (site + DVec2::new(x, z) * r, None))
-            .to_vec();
-    for dz in -window..=window {
-        for dx in -window..=window {
-            if (dx, dz) == (0, 0) {
-                continue;
-            }
-            let other = RegionKey(key.0 + IVec2::new(dx, dz));
-            cell = clip(&cell, site, graph.site(other), other);
+/// The raw Voronoi cell of `key`, from the sites within `window` lattice
+/// cells either way, or `None` if one of its corners might be affected by
+/// a site beyond them (search wider then).
+///
+/// A raw corner is an empty circle (no site strictly inside) through `key`
+/// and two or more other sites. The walk starts at the nearest site, which
+/// always shares a corner with `key`, and goes round anticlockwise: from
+/// each neighbour, the next corner is the circle through `key`, that
+/// neighbour and the site to its left that leaves every other site on the
+/// left outside; every site on that circle belongs to the corner; and the
+/// next neighbour is the corner's most anticlockwise site seen from `key`.
+/// The walk ends back at the first corner. Every test is exact.
+fn walk(graph: &RegionGraph, key: RegionKey, window: i32) -> Option<Ring> {
+    let a = graph.site_mm(key);
+    let others: Vec<(RegionKey, I64Vec2)> = (-window..=window)
+        .flat_map(|dz| (-window..=window).map(move |dx| IVec2::new(dx, dz)))
+        .filter(|&d| d != IVec2::ZERO)
+        .map(|d| {
+            let k = RegionKey(key.0 + d);
+            (k, graph.site_mm(k))
+        })
+        .collect();
+    let reach = graph.coverage(window) * PER_METRE;
+
+    // The nearest site, ties to the smaller key.
+    let distance = |p: I64Vec2| {
+        let (x, z) = (i128::from(p.x - a.x), i128::from(p.y - a.y));
+        x * x + z * z
+    };
+    let start = *others
+        .iter()
+        .min_by(|p, q| distance(p.1).cmp(&distance(q.1)).then(p.0.cmp(&q.0)))?;
+
+    // Round the corners, until back at the first.
+    let mut neighbours = Vec::new();
+    let mut corners: Vec<Corner> = Vec::new();
+    let mut from = start;
+    loop {
+        let (corner, next) = corner_after(key, a, from, &others, reach)?;
+        if corners.first() == Some(&corner) {
+            break;
         }
+        assert!(corners.len() < 64, "the corners round {key:?} don't close");
+        corners.push(corner);
+        neighbours.push(next.0);
+        from = next;
     }
-    cell.into_iter()
-        .map(|(_, by)| by.expect("the starting square lies far outside the cell"))
-        .collect()
+    Some(Ring {
+        neighbours,
+        corners,
+    })
 }
 
-/// `cell` cut down to the points nearer `site` than `other_site`, whose
-/// region is `other`.
-fn clip(
-    cell: &[(DVec2, Option<RegionKey>)],
-    site: DVec2,
-    other_site: DVec2,
-    other: RegionKey,
-) -> Vec<(DVec2, Option<RegionKey>)> {
-    let middle = 0.5 * (site + other_site);
-    let normal = other_site - site;
-    let side = |p: DVec2| (p - middle).dot(normal);
-    let mut out = Vec::with_capacity(cell.len() + 1);
-    for (i, &(a, by)) in cell.iter().enumerate() {
-        let b = cell[(i + 1) % cell.len()].0;
-        let (sa, sb) = (side(a), side(b));
-        let crossing = || a + (b - a) * (sa / (sa - sb));
-        match (sa <= 0.0, sb <= 0.0) {
-            (true, true) => out.push((a, by)),
-            (true, false) => {
-                out.push((a, by));
-                out.push((crossing(), Some(other)));
-            }
-            (false, true) => out.push((crossing(), by)),
-            (false, false) => {}
+/// The raw corner after neighbour `from` going anticlockwise round site
+/// `a` (region `key`), with the neighbour after it, or `None` if the
+/// corner's circle reaches more than `reach` millimetres from `a`, where a
+/// site not among `others` might lie inside it.
+fn corner_after(
+    key: RegionKey,
+    a: I64Vec2,
+    from: (RegionKey, I64Vec2),
+    others: &[(RegionKey, I64Vec2)],
+    reach: f64,
+) -> Option<(Corner, (RegionKey, I64Vec2))> {
+    // The site to the left of `a` → `from` whose circle with them holds no
+    // other site on the left.
+    let mut best: Option<(RegionKey, I64Vec2)> = None;
+    for &(k, p) in others {
+        if k == from.0 || orient(a, from.1, p) <= 0 {
+            continue;
+        }
+        if best.is_none_or(|(_, c)| in_circle(a, from.1, c, p) > 0) {
+            best = Some((k, p));
         }
     }
-    out
+    let third = best?;
+
+    // The circle must lie within the sites searched.
+    let (centre, point) = (
+        circumcentre(a.as_dvec2(), from.1.as_dvec2(), third.1.as_dvec2()),
+        a.as_dvec2(),
+    );
+    if 2.0 * centre.distance(point) >= reach {
+        return None;
+    }
+
+    // Every site on the circle, and the most anticlockwise of them seen
+    // from `a`: sites on a circle through `a` lie within a half-turn of
+    // each other seen from `a`, so the exact orientation orders them.
+    let mut members = vec![from, third];
+    members.extend(
+        others.iter().filter(|&&(k, p)| {
+            k != from.0 && k != third.0 && in_circle(a, from.1, third.1, p) == 0
+        }),
+    );
+    let next = *members
+        .iter()
+        .max_by(|p, q| 0.cmp(&orient(a, p.1, q.1)))
+        .expect("a corner has sites");
+    let mut corner: Corner = members.iter().map(|&(k, _)| k).collect();
+    corner.push(key);
+    corner.sort_unstable();
+    Some((corner, next))
+}
+
+/// Twice the signed area of triangle `a`, `b`, `c`: positive if they turn
+/// anticlockwise, 0 if they lie on a line. Exact.
+fn orient(a: I64Vec2, b: I64Vec2, c: I64Vec2) -> i128 {
+    let (bx, bz) = (i128::from(b.x - a.x), i128::from(b.y - a.y));
+    let (cx, cz) = (i128::from(c.x - a.x), i128::from(c.y - a.y));
+    bx * cz - bz * cx
+}
+
+/// Positive if `d` lies inside the circle through `a`, `b` and `c` (which
+/// must turn anticlockwise), 0 if on it, negative if outside. Exact for
+/// points within [`MAX_SIZE`]'s bound of each other.
+fn in_circle(a: I64Vec2, b: I64Vec2, c: I64Vec2, d: I64Vec2) -> i128 {
+    let relative = |p: I64Vec2| {
+        let (x, z) = (i128::from(p.x - d.x), i128::from(p.y - d.y));
+        (x, z, x * x + z * z)
+    };
+    let ((ax, az, al), (bx, bz, bl), (cx, cz, cl)) = (relative(a), relative(b), relative(c));
+    ax * (bz * cl - bl * cz) - az * (bx * cl - bl * cx) + al * (bx * cz - bz * cx)
 }
 
 /// The centre of the circle through `a`, `b` and `c`.
@@ -399,12 +572,6 @@ fn circumcentre(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
     let d = 2.0 * b.perp_dot(c);
     let (bb, cc) = (b.length_squared(), c.length_squared());
     a + DVec2::new(c.y * bb - b.y * cc, b.x * cc - c.x * bb) / d
-}
-
-/// `keys` in ascending order.
-fn sorted(mut keys: Triple) -> Triple {
-    keys.sort_unstable();
-    keys
 }
 
 #[cfg(test)]
@@ -438,50 +605,80 @@ mod tests {
         RegionKey::from_id(id)
     }
 
+    /// Every raw corner touching the middle 3 × 3 regions, by testing every
+    /// triple of sites in the 9 × 9 around them against every site there:
+    /// each empty circle, with every site on it.
+    fn brute_force_corners(graph: &RegionGraph) -> BTreeSet<Corner> {
+        let sites: Vec<(RegionKey, I64Vec2)> = block(4).map(|k| (k, graph.site_mm(k))).collect();
+        let middle: Vec<RegionKey> = block(1).collect();
+        let mut corners = BTreeSet::new();
+        for i in 0..sites.len() {
+            for j in i + 1..sites.len() {
+                for k in j + 1..sites.len() {
+                    let (a, mut b, mut c) = (sites[i], sites[j], sites[k]);
+                    match orient(a.1, b.1, c.1) {
+                        0 => continue,
+                        o if o < 0 => std::mem::swap(&mut b, &mut c),
+                        _ => {}
+                    }
+                    if sites.iter().any(|d| in_circle(a.1, b.1, c.1, d.1) > 0) {
+                        continue;
+                    }
+                    let mut corner: Corner = sites
+                        .iter()
+                        .filter(|d| in_circle(a.1, b.1, c.1, d.1) == 0)
+                        .map(|d| d.0)
+                        .collect();
+                    corner.sort_unstable();
+                    if corner.iter().any(|k| middle.contains(k)) {
+                        corners.insert(corner);
+                    }
+                }
+            }
+        }
+        corners
+    }
+
+    /// The raw corners the walk finds round the middle 3 × 3 regions.
+    fn walked_corners(graph: &RegionGraph) -> BTreeSet<Corner> {
+        let mut local = Local::new(graph);
+        block(1)
+            .flat_map(|k| local.ring(k).corners.clone())
+            .collect()
+    }
+
     #[test]
-    fn the_neighbour_window_is_wide_enough() {
-        let graph = RegionGraph::new(
-            RegionGraphOptions {
-                jitter: MAX_JITTER,
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-        // A ring is cyclic: compare each from its smallest key.
-        let canonical = |mut ring: Vec<RegionKey>| {
-            let start = (0..ring.len()).min_by_key(|&i| ring[i]).unwrap_or(0);
-            ring.rotate_left(start);
-            ring
-        };
-        for key in block(12) {
-            assert_eq!(
-                canonical(raw_ring(&graph, key, WINDOW)),
-                canonical(raw_ring(&graph, key, 7)),
-                "{key:?}"
-            );
+    fn corners_match_a_brute_force_search() {
+        for graph in graphs() {
+            assert_eq!(walked_corners(&graph), brute_force_corners(&graph));
+        }
+    }
+
+    /// Checks that every edge of the regions `keys` is identical from both
+    /// sides, bit for bit, and every corner from every region touching it.
+    fn assert_agree(graph: &RegionGraph, keys: impl Iterator<Item = RegionKey>) {
+        for key in keys {
+            let region = graph.region(key);
+            for edge in &region.edges {
+                let other = graph.region(key_of(edge.neighbor.unwrap()));
+                let theirs = other.edges.iter().find(|e| e.id == edge.id);
+                assert_eq!(theirs.map(|e| &e.polyline), Some(&edge.polyline), "{key:?}");
+                assert_eq!(theirs.and_then(|e| e.neighbor), Some(region.id));
+            }
+            for corner in &region.corners {
+                assert!(corner.incident.contains(&region.id));
+                for &id in &corner.incident {
+                    let other = graph.region(key_of(id));
+                    assert!(other.corners.contains(corner), "{key:?}: {corner:?}");
+                }
+            }
         }
     }
 
     #[test]
     fn neighbours_agree_on_every_edge_and_corner() {
         for graph in graphs() {
-            for key in block(6) {
-                let region = graph.region(key);
-                for edge in &region.edges {
-                    let other = graph.region(key_of(edge.neighbor.unwrap()));
-                    let theirs = other.edges.iter().find(|e| e.id == edge.id);
-                    assert_eq!(theirs.map(|e| &e.polyline), Some(&edge.polyline), "{key:?}");
-                    assert_eq!(theirs.and_then(|e| e.neighbor), Some(region.id));
-                }
-                for corner in &region.corners {
-                    assert!(corner.incident.contains(&region.id));
-                    for &id in &corner.incident {
-                        let other = graph.region(key_of(id));
-                        assert!(other.corners.contains(corner), "{key:?}: {corner:?}");
-                    }
-                }
-            }
+            assert_agree(&graph, block(6));
         }
     }
 
@@ -511,24 +708,71 @@ mod tests {
         }
     }
 
+    /// Checks that the regions within 5 cells of the middle cover the
+    /// square `half` metres either way of the origin with no gaps or
+    /// overlaps, and that `region_at` finds each point's region.
+    fn assert_tiles(graph: &RegionGraph, half: f64) {
+        let regions: Vec<Region> = block(5).map(|k| graph.region(k)).collect();
+        let steps = 100;
+        let step = 2.0 * half / f64::from(steps);
+        for i in 0..steps {
+            for j in 0..steps {
+                let p = DVec2::new(f64::from(i) * step - half, f64::from(j) * step - half)
+                    + DVec2::splat(0.37 * step);
+                let holders: Vec<&Region> =
+                    regions.iter().filter(|r| r.boundary.contains(p)).collect();
+                if holders
+                    .iter()
+                    .any(|r| r.boundary.distance_to_border(p) < 1e-6)
+                {
+                    continue;
+                }
+                assert_eq!(holders.len(), 1, "{p} is in {} regions", holders.len());
+                assert_eq!(graph.region_at(p).id(), holders[0].id, "{p}");
+            }
+        }
+    }
+
     #[test]
     fn regions_tile_the_plane_and_region_at_finds_the_owner() {
         for graph in graphs() {
-            let regions: Vec<Region> = block(5).map(|k| graph.region(k)).collect();
-            let step = 97.0;
-            for i in 0..100 {
-                for j in 0..100 {
-                    let p = DVec2::new(f64::from(i) * step - 4800.0, f64::from(j) * step - 4800.0);
-                    let holders: Vec<&Region> =
-                        regions.iter().filter(|r| r.boundary.contains(p)).collect();
-                    if holders
-                        .iter()
-                        .any(|r| r.boundary.distance_to_border(p) < 1e-6)
-                    {
+            assert_tiles(&graph, 4800.0);
+        }
+    }
+
+    /// Checks that the outline of each of the regions `keys` is a simple
+    /// polygon going anticlockwise, with no repeated points.
+    fn assert_simple(graph: &RegionGraph, keys: impl Iterator<Item = RegionKey>) {
+        let cross = |a: DVec2, b: DVec2, c: DVec2, d: DVec2| {
+            let side = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
+            side(c, d, a) * side(c, d, b) <= 0.0 && side(a, b, c) * side(a, b, d) <= 0.0
+        };
+        for key in keys {
+            let Boundary::Polygon(points) = graph.region(key).boundary else {
+                panic!("lattice regions have polygons");
+            };
+            let n = points.len();
+            assert!(n >= 3, "{key:?}: {n} points");
+            // Anticlockwise, with no repeated points.
+            let area: f64 = (0..n)
+                .map(|i| points[i].perp_dot(points[(i + 1) % n]))
+                .sum();
+            assert!(area > 0.0, "{key:?}: area {area}");
+            for i in 0..n {
+                for j in i + 1..n {
+                    assert_ne!(points[i], points[j], "{key:?}");
+                }
+            }
+            // No side meets another, except its neighbours at their shared
+            // corner.
+            for i in 0..n {
+                for j in i + 2..n {
+                    if (j + 1) % n == i {
                         continue;
                     }
-                    assert_eq!(holders.len(), 1, "{p} is in {} regions", holders.len());
-                    assert_eq!(graph.region_at(p).id(), holders[0].id, "{p}");
+                    let (a, b) = (points[i], points[(i + 1) % n]);
+                    let (c, d) = (points[j], points[(j + 1) % n]);
+                    assert!(!cross(a, b, c, d), "{key:?}: sides {i} and {j} meet");
                 }
             }
         }
@@ -536,40 +780,109 @@ mod tests {
 
     #[test]
     fn polygons_stay_simple_after_corners_merge() {
-        let cross = |a: DVec2, b: DVec2, c: DVec2, d: DVec2| {
-            let side = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
-            side(c, d, a) * side(c, d, b) <= 0.0 && side(a, b, c) * side(a, b, d) <= 0.0
-        };
         for graph in graphs() {
-            for key in block(10) {
-                let Boundary::Polygon(points) = graph.region(key).boundary else {
-                    panic!("lattice regions have polygons");
-                };
-                let n = points.len();
-                assert!(n >= 3, "{key:?}: {n} points");
-                // Anticlockwise, with no repeated points.
-                let area: f64 = (0..n)
-                    .map(|i| points[i].perp_dot(points[(i + 1) % n]))
-                    .sum();
-                assert!(area > 0.0, "{key:?}: area {area}");
-                for i in 0..n {
-                    for j in i + 1..n {
-                        assert_ne!(points[i], points[j], "{key:?}");
-                    }
-                }
-                // No side meets another, except its neighbours at their
-                // shared corner.
-                for i in 0..n {
-                    for j in i + 2..n {
-                        if (j + 1) % n == i {
-                            continue;
-                        }
-                        let (a, b) = (points[i], points[(i + 1) % n]);
-                        let (c, d) = (points[j], points[(j + 1) % n]);
-                        assert!(!cross(a, b, c, d), "{key:?}: sides {i} and {j} meet");
-                    }
-                }
+            assert_simple(&graph, block(10));
+        }
+    }
+
+    /// A regular lattice 2 km wide (no jitter, no merging) with the sites
+    /// of the regions round the origin moved onto the circle of radius
+    /// 1 km round it, at `points` (in millimetres, each 1 km from the
+    /// origin unless moved off on purpose). No other site lies within 2 km
+    /// of the origin, so the circle holds no site.
+    fn on_a_circle(points: &[(i64, i64)]) -> (RegionGraph, Vec<RegionKey>) {
+        let keys: Vec<RegionKey> = [(0, 0), (1, 0), (-1, 0), (0, 1), (-1, 1), (0, -1)]
+            .iter()
+            .take(points.len())
+            .map(|&(x, z)| RegionKey(IVec2::new(x, z)))
+            .collect();
+        let placed: Vec<(RegionKey, I64Vec2)> = keys
+            .iter()
+            .zip(points)
+            .map(|(&k, &(x, z))| (k, I64Vec2::new(x, z)))
+            .collect();
+        let options = RegionGraphOptions {
+            size: 2000.0,
+            jitter: 0.0,
+            min_edge: 0.0,
+        };
+        let graph = RegionGraph::unfloored(options, 1)
+            .unwrap()
+            .with_sites(&placed);
+        (graph, keys)
+    }
+
+    /// Points on the circle of radius 1 km (1 000 000 mm) round the origin,
+    /// at whole millimetres.
+    const CIRCLE: [(i64, i64); 6] = [
+        (1_000_000, 0),
+        (600_000, 800_000),
+        (-600_000, 800_000),
+        (-1_000_000, 0),
+        (-600_000, -800_000),
+        (600_000, -800_000),
+    ];
+
+    #[test]
+    fn sites_on_one_circle_make_one_corner() {
+        for count in [5, 6] {
+            let (graph, keys) = on_a_circle(&CIRCLE[..count]);
+            // Exactly one raw corner holds all of them, and no other holds
+            // three or more of them (no corner cuts across the circle).
+            let corners = brute_force_corners(&graph);
+            let together = |c: &Corner| keys.iter().filter(|k| c.contains(k)).count();
+            let all: Vec<&Corner> = corners.iter().filter(|c| together(c) == count).collect();
+            assert_eq!(all.len(), 1, "{count} sites: {all:?}");
+            assert_eq!(all[0].len(), count);
+            assert!(
+                corners
+                    .iter()
+                    .all(|c| together(c) == count || together(c) <= 2)
+            );
+            assert_eq!(walked_corners(&graph), corners);
+            assert_agree(&graph, block(3));
+            assert_simple(&graph, block(3));
+            assert_tiles(&graph, 4000.0);
+        }
+    }
+
+    #[test]
+    fn sites_nearly_on_one_circle_agree_everywhere() {
+        // One site moved a millimetre (the smallest step sites take) off
+        // the circle, out or in, or two moved opposite ways.
+        let moves: [&[(usize, i64)]; 4] = [&[(0, 1)], &[(0, -1)], &[(2, 1), (4, -1)], &[(1, -1)]];
+        for moved in moves {
+            let mut points = CIRCLE;
+            for &(i, by) in moved {
+                points[i].0 += by;
             }
+            let (graph, _) = on_a_circle(&points);
+            assert_eq!(
+                walked_corners(&graph),
+                brute_force_corners(&graph),
+                "{moved:?}"
+            );
+            assert_agree(&graph, block(3));
+            assert_simple(&graph, block(3));
+            assert_tiles(&graph, 4000.0);
+            // And with corners merged.
+            let merged = RegionGraph::unfloored(
+                RegionGraphOptions {
+                    min_edge: MIN_EDGE,
+                    ..*graph.options()
+                },
+                1,
+            )
+            .unwrap()
+            .with_sites(
+                &graph
+                    .placed
+                    .iter()
+                    .map(|(&k, &p)| (k, p))
+                    .collect::<Vec<_>>(),
+            );
+            assert_agree(&merged, block(3));
+            assert_simple(&merged, block(3));
         }
     }
 
@@ -625,11 +938,12 @@ mod tests {
             5,
         )
         .unwrap();
-        // With no jitter every region is a regular hexagon.
+        // With no jitter every region is a regular hexagon, to within the
+        // half millimetre sites move to sit on whole millimetres.
         let region = unjittered.region(key);
         assert_eq!(region.edges.len(), 6);
         for edge in &region.edges {
-            assert!((edge.length() - options.size / 3f64.sqrt()).abs() < 1e-6);
+            assert!((edge.length() - options.size / 3f64.sqrt()).abs() < 1e-3);
         }
     }
 
@@ -659,6 +973,13 @@ mod tests {
                     ..ok
                 },
                 RegionGraphError::Size(f64::INFINITY),
+            ),
+            (
+                RegionGraphOptions {
+                    size: 60_000.0,
+                    ..ok
+                },
+                RegionGraphError::Size(60_000.0),
             ),
         ] {
             assert_eq!(bad.validate(), Err(error));

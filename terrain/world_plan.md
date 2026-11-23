@@ -408,24 +408,56 @@ impl HeightField for WorldTerrain { … }
   above: `IVec2` (packs exactly into a `RegionId`), f64 options, no border
   warp yet (W3), and a `min_edge` field.
 - **How it works:** a staggered hexagonal lattice (jitter 0 is an exact
-  triangular lattice: no four sites on one circle); raw Voronoi cells by
-  clipping against the sites within 3 cells; corners merged where edges
-  are shorter than the minimum, as connected groups of short edges, at
-  the mean of their raw corners. Corner positions come from their sites
-  in sorted order, so every region computes identical bits. Sites use
-  their own seed salts (201, 202; 1 and 2 had clashed with the relief's
-  swell and hill layers).
+  triangular lattice: no four sites on one circle). Sites are snapped to
+  whole millimetres (i64), so they can be compared exactly; `site()` and
+  `region_at` use the snapped sites. Sizes are capped at `MAX_SIZE`
+  (50 km), so the exact tests' i128 terms can't overflow (below about
+  10³⁷ within the widest search). Sites use their own seed salts (201,
+  202; 1 and 2 had clashed with the relief's swell and hill layers).
+- **Raw corners, exactly** (redesigned 2026-11-23, replacing clipping): a
+  raw corner is an empty circle through three or more sites, held as the
+  sorted set of every site on it, so 4, 5 or 6 exactly cocircular sites
+  make one corner with no tie rule. A region's ring is walked round its
+  site from the nearest site: at each neighbour, the next corner is the
+  circle with the site to its left that leaves every other left-hand site
+  outside (exact in-circle in i128), every site on that circle joins the
+  corner, and the next neighbour is the corner's most anticlockwise site,
+  by exact orientation, never by sorting f64 angles. The walk ends back
+  at its first corner. Collinear sites are skipped by exact orientation.
+  Rings are a pure function of the sites, so every region sees the same
+  corners by construction. A corner's circle provably lies within about
+  2.3 lattice spacings of the site at full jitter. The first search, 4
+  cells either way, holds every site within about 3.5 spacings; a circle
+  reaching past that widens the search (up to 8 cells), and is never
+  treated as empty.
+- **Merging:** raw corners joined by chains of edges shorter than the
+  minimum merge, as connected groups found from the sites' rings, at the
+  mean of their positions (each the circumcentre of its first three sites
+  in sorted order, summed in sorted order), so every region computes
+  identical bits. `region_at` tests the nearby regions nearest first
+  until one holds the point (merging can put a point in a region that
+  isn't the nearest site's; the old version tried only four).
 - **Tests:** neighbours agree on every edge and corner (exact equality);
   no edge shorter than the minimum; regions tile the plane and
-  `region_at` finds the owner; the 3-cell window matches a 7-cell one;
+  `region_at` finds the owner;
   polygons stay simple and anticlockwise after merging; the same regions
   on four threads in any order; settings checked (NaN, infinity, the
   floor); regular hexagons with no jitter. The graph tests run at jitter
   0, 0.6 and 0.8. A four-way seam test (`four_regions_meet_at_one_corner`)
   checks four terrains meeting at one point, on flat, tilted and curved
   land. Each test was checked by breaking the code it covers.
-- **Next:** exact Delaunay corners, so near-cocircular sites can't make
-  regions disagree (in progress).
+- **Exact-corner tests:** the walk's corners match a brute-force search
+  (every triple of a 9 × 9 patch against every site, same predicates) at
+  jitter 0, 0.6 and 0.8; 5 and 6 exactly cocircular sites (hand-placed at
+  whole millimetres on a 1 km circle) make exactly one corner, with no
+  corner holding three or more of them otherwise, and the regions agree,
+  stay simple and tile; the same with one or two of those sites moved a
+  millimetre in or out, with and without merging. Checked by breaking
+  them: without the on-circle sites, both circle tests fail; with a
+  1-cell search and no reach check, the brute-force test and most others
+  fail; with a 1-cell search and the reach check, widening makes every
+  test pass. Hand-placed sites widen the search by how far they moved, as
+  real jitter does. The regular-hexagon test allows 1 mm, the snapping.
 
 ## Open questions
 
