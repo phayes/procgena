@@ -1198,6 +1198,16 @@ road; it is the hardest road in the test worlds.
     in all), two terrains at blend 1 2 → 1 (the road no longer crosses
     back); the other scenes are unchanged. Seams suite CPU time is the
     same with and without the bridge cost (231 s and 229 s).
+  - `feature_limits` probe (300 seeds × 12 configurations): 5 problems,
+    against 0 before. They are 2 rivers (seed 149 in four
+    configurations, seed 4 in one) where a road now crosses within
+    2.5 m of a confluence, and the road's level, about 1 m above the
+    water, removes the water at the tributary's end, so the probe
+    reports it as "ends nowhere". It isn't new: every road crossing
+    removes its river's water, 89 of 89 before and 44 of 44 after
+    (roads cut and fill through rivers until bridges exist). Fixed by
+    Phase 4 bridges (the road stops cutting or filling over water). The
+    probe is left unchanged.
   - Later: a bridge point of interest for the user to fill, and the
     bridge label of Phase 4.
 - [ ] **Clearings at points of interest:** per ARCHITECTURE.md, a terrain
@@ -1710,7 +1720,7 @@ What that asks of this crate, and where it stands:
 | 0 | **Coordinator only:** add both crates to the root `Cargo.toml`; add `terrain/prior_art/` to `.gitignore` and the `_typos.toml` excludes; add `CLAUDE.md` package rows and a README row; add the generic tags to `procgena_mesh/src/tag.rs`. | — |
 | 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Review pending. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two terrains and a triple junction. Includes the symmetry, seam and triple-junction tests. **Stop and review with the user.** | 0 |
 | 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Review pending. | 1 |
-| 2.5 | **Shared world noise and relief convergence** (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
+| 2.5 ✅ | **Shared world noise and relief convergence** (built 2026-11-22; exit results recorded under "Relief convergence (Phase 2.5)") (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
 | 2.6 ✅ | **Relief blending** (built 2026-11-22, review pending) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
 | 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest; cut and fill measured across the road; roads narrow through deep cuts (`min_width`); sped up with an A* search and parallel region builds. Still to do: hub placement (deferred); a GPU implementation is a later follow-up. | 2.6 |
 | 2.8 | **River valleys and erosion** (built in part 2026-11-23, review pending; see "River valleys and erosion (Phase 2.8, built in part)" above). Built: valleys that keep the ground's relief, varied shapes, gullies, rivers stepping down at crossings, rivers from one side crossing closer together. Deep cuts measured: they come from rivers breaching hollow rims, and wait for lakes (Phase 4). Planned: valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
