@@ -90,6 +90,8 @@ many of them as they can:
 
 - Lowering a density only removes trees, and raising it only adds them. The
   others stay exactly where they were, with the same species and shape.
+- Raising `patchiness` only removes trees, and lowering it only brings them
+  back.
 - Changing the grove's `seed` moves every tree, but never changes a shape
   variant's mesh.
 - Changing `variation` changes only each tree's transform.
@@ -157,6 +159,7 @@ The filename must end in `.grove.json`.
 | `seed` | `seed` | 0 | Picks where trees stand, which species each is, and how it is turned and sized. Changing it moves every tree but keeps the shapes |
 | `trees` | `trees` | none | The species, at most 16 (`MAX_GROVE_TREES`) |
 | `density_scale` | `densityScale` | 1 | Multiplies every species' density, keeping the mix. 0 or more |
+| `patchiness` | `patchiness` | 0 | How much ground is left open as treeless glades, 0 to 1. Around 0.5 the woods hold separate glades; from about 0.7 the glades join up and the trees stand in islands. Glades are about 12 m across, larger where they join, and take trees away, so the grove grows fewer than its density asks for |
 | `variation` | `variation` | below | How individual trees differ |
 
 ### `GroveTree`
@@ -174,7 +177,7 @@ The filename must end in `.grove.json`.
 
 | Setting | File name | Default | Meaning |
 | --- | --- | --- | --- |
-| `scale_jitter` | `scaleJitter` | 0.15 | Each tree is scaled by a random factor from `1 - scale_jitter` to `1 + scale_jitter`. 0 to 0.9 |
+| `scale_jitter` | `scaleJitter` | 0.15 | How much tree sizes vary, 0 to 0.9. Most trees are scaled by `1 ± 0.5 × scale_jitter`, and a few grow into giants up to `1 + 3 × scale_jitter` times their normal size. At 0.9, about one tree in thirteen is more than twice its normal size |
 | `lean` | `lean` | 3 | Largest lean of a trunk from vertical, in degrees, in a random direction. 0 to 45 |
 | `max_slope` | `maxSlope` | 35 | Steepest ground a tree grows on, in degrees. 0 to 90; 90 allows any slope |
 | `sink` | `sink` | 0.1 | How far each tree is sunk below the lowest ground around its trunk, in metres. 0 or more |

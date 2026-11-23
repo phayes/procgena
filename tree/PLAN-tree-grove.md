@@ -31,11 +31,21 @@ ground.
   updated in place through `ViewerCommand::SetGrove`. The status bar shows
   the tree count and every tree's size at full detail. Headless tests cover
   building, edits, presets and save/load. Differences from the plan below:
-  - The grove has its own **Grove Size** control (10–100 m, 40 m to start)
-    instead of the environment's Field Size, which suits grass.
-  - `GroveSettings { grove, size }` carries the size.
+  - The grove's size is a view setting: **Grove Size** in the Environment
+    panel (10–100 m, 40 m to start), shown only on the Tree Grove tab,
+    beside Field Size, which suits grass. `SetGrove` carries a bare
+    `TreeGrove`; the size comes from `EnvironmentSettings::grove_size`.
   - Rows also show **Spacing**, and a row's trees per hectare count the
-    trees a flat-ground placement actually grows.
+    trees a placement on 100 m of flat ground actually grows.
+- **Follow-up (patchiness and giants): done.**
+  - `TreeGrove::patchiness` (0–1, file name `patchiness`) opens treeless
+    glades about 12 m across. Around 0.5 they are separate; from about 0.7
+    they join and the trees stand in islands. Glades are cleared after the
+    spacing check, so raising patchiness only removes trees.
+  - `scale_jitter` now gives most trees `1 ± 0.5 × jitter` and a long upper
+    tail of giants up to `1 + 3 × jitter`; at 0.9 about one tree in
+    thirteen is over twice its normal size. Spacing does not grow with a
+    tree's size, so a giant's crown can overlap its neighbours.
   - There is no Level of Detail picker. Each grove tree switches detail by
     its own camera distance, and grove mode ignores the Trees tab's choice.
   - The status bar shows the grove's size at full detail, not the variants
@@ -69,7 +79,7 @@ ground.
 | --- | --- |
 | `GroveTree { tree, density, spacing, density_scale, clustering, variants }` | One species, the counterpart of `FieldPlant`. `density` is trees per hectare; `spacing` is the smallest trunk-to-trunk distance in metres (the larger of the two applies between species); `variants` runs from 1 to 8. |
 | `GroveTree::new(TreePreset)`, `custom(options, density, spacing)`, `.scaled()`, `.clustered()`, `.with_variants()`, `density()`, `variant(v)` | `variant(v)` returns the options of shape variant `v`. Variant 0 is `tree` itself; the others change only the seed, derived from `tree.seed` and `v`. |
-| `TreeGrove { seed, trees, density_scale, variation }` | The grove definition: what a `.grove.json` holds. There is **no size and no ground**. |
+| `TreeGrove { seed, trees, density_scale, patchiness, variation }` | The grove definition: what a `.grove.json` holds. There is **no size and no ground**. |
 | `TreeGrove::new(trees)`, `from_preset`, `density()`, `with_density(per_ha)`, `with_trees`, `validate()`, `from_json`, `to_json` | `Default` is `GrovePreset::OakWoodland`. |
 | `GroveVariation { scale_jitter, lean, max_slope, sink }` | Changes only a tree's transform: its size, lean (degrees), the steepest ground it stands on (degrees), and how far it sinks into the ground (metres). |
 | `GrovePlacement::new(&grove, size, &dyn Ground, Option<&dyn Fn(f32, f32) -> f32>)` | Lays the grove out on a `size` rectangle centred on the origin. `instances()` returns `GroveInstance { tree, variant, id, position, transform }`. |

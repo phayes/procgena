@@ -73,6 +73,29 @@ fn lowering_density_only_removes_trees() {
 }
 
 #[test]
+fn raising_patchiness_only_removes_trees() {
+    let mut grove = GrovePreset::OakWoodland.grove();
+    let mut previous = by_id(&place(&grove, 100.0));
+    for patchiness in [0.3, 0.6, 1.0] {
+        grove.patchiness = patchiness;
+        let trees = place(&grove, 100.0);
+        assert!(
+            trees.len() < previous.len(),
+            "patchiness {patchiness} kept every tree"
+        );
+        for tree in &trees {
+            assert_eq!(
+                previous.get(&tree.id),
+                Some(tree),
+                "a kept tree moved or changed"
+            );
+        }
+        previous = by_id(&trees);
+    }
+    assert!(!previous.is_empty(), "full patchiness left no woods at all");
+}
+
+#[test]
 fn growing_the_size_keeps_the_trees_already_there() {
     let grove = GrovePreset::OakWoodland.grove();
     let small = place(&grove, 30.0);
@@ -349,6 +372,7 @@ fn groves_round_trip_through_json() {
     let mut grove = GrovePreset::OakWoodland.grove();
     grove.trees[1].tree.seed = 77; // no longer a preset, so written out in full
     grove.variation.lean = 7.5;
+    grove.patchiness = 0.4;
     let json = grove.to_json();
     assert_eq!(TreeGrove::from_json(&json).unwrap(), grove);
     // Numbers are written as typed, not widened to many digits.
@@ -361,6 +385,7 @@ fn grove_files_list_only_what_differs() {
     let grove = TreeGrove::from_json(
         r#"{
             "base": "pine_stand",
+            "patchiness": 0.6,
             "variation": { "lean": 10 },
             "trees": [
                 { "tree": { "base": "cedar", "seed": 5 }, "clustering": 0.5 },
@@ -371,6 +396,8 @@ fn grove_files_list_only_what_differs() {
     .unwrap();
     let base = GrovePreset::PineStand.grove();
     assert_eq!(grove.seed, base.seed);
+    assert_eq!(grove.patchiness, 0.6);
+    assert_eq!(grove.density_scale, base.density_scale);
     assert_eq!(grove.variation.lean, 10.0);
     assert_eq!(grove.variation.sink, base.variation.sink);
     assert_eq!(grove.trees[0].tree.seed, 5);

@@ -89,6 +89,7 @@ struct GroveFile {
     base: Option<String>,
     seed: Option<u32>,
     density_scale: Option<f32>,
+    patchiness: Option<f32>,
     variation: Option<VariationFile>,
     trees: Option<Vec<TreeFile>>,
 }
@@ -150,6 +151,9 @@ impl TreeGrove {
         if let Some(scale) = file.density_scale {
             grove.density_scale = scale;
         }
+        if let Some(patchiness) = file.patchiness {
+            grove.patchiness = patchiness;
+        }
         if let Some(v) = file.variation {
             let variation = &mut grove.variation;
             variation.scale_jitter = v.scale_jitter.unwrap_or(variation.scale_jitter);
@@ -178,6 +182,7 @@ impl TreeGrove {
         let file = GroveOut {
             seed: self.seed,
             density_scale: self.density_scale,
+            patchiness: self.patchiness,
             variation: VariationOut {
                 scale_jitter: variation.scale_jitter,
                 lean: variation.lean,
@@ -266,6 +271,7 @@ fn write_tree(tree: &GroveTree) -> TreeOut<'_> {
 struct GroveOut<'a> {
     seed: u32,
     density_scale: f32,
+    patchiness: f32,
     variation: VariationOut,
     trees: Vec<TreeOut<'a>>,
 }

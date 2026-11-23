@@ -43,6 +43,22 @@ const SITE_CELL: f32 = 0.5;
 const MIN_FOOTPRINT: f32 = 0.25;
 /// Square metres in a hectare.
 const HECTARE: f32 = 10_000.0;
+/// Width of the patches of ground that are either wooded or glade, in
+/// metres. Neighbouring glade patches join into larger glades.
+const GLADE_CELL: f32 = 12.0;
+/// Share of the ground left open as glades at a patchiness of 1. Above a
+/// half, glades join up across the grove and the woods break into islands.
+const MAX_OPEN: f32 = 0.7;
+/// How far ordinary trees spread around their normal size, as a share of
+/// the size variation: they are scaled by `1 ± BODY_SPREAD * scale_jitter`.
+const BODY_SPREAD: f32 = 0.5;
+/// How much further than ordinary trees the largest giants grow, as a share
+/// of the size variation: the largest tree is
+/// `1 + (BODY_SPREAD + GIANT_GROWTH) * scale_jitter` times its normal size.
+const GIANT_GROWTH: f32 = 2.5;
+/// How rare giants are: the higher, the fewer trees approach the largest
+/// size.
+const GIANT_RARITY: i32 = 8;
 
 // Fixed inputs that give each random choice its own sequence.
 const SALT_X: u64 = 0x1;
@@ -57,6 +73,7 @@ const SALT_SPECIES: u64 = 0x100;
 const SALT_PATCHES: u64 = 0x200;
 const SALT_CLUSTER: u64 = 0x400;
 const SALT_VARIANT_SEED: u64 = 0x300;
+const SALT_GLADES: u64 = 0x500;
 
 /// One species in a grove: what the tree looks like, and how many grow and
 /// how close together.
@@ -183,8 +200,11 @@ impl GroveTree {
 /// change a tree's mesh.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GroveVariation {
-    /// How much tree sizes vary: each tree is scaled by a random factor
-    /// between `1 - scale_jitter` and `1 + scale_jitter`. From 0 to 0.9.
+    /// How much tree sizes vary, from 0 to 0.9. Most trees are scaled by a
+    /// factor between `1 - 0.5 * scale_jitter` and `1 + 0.5 * scale_jitter`,
+    /// and a few grow into giants up to `1 + 3 * scale_jitter` times their
+    /// normal size. At 0.9, about one tree in thirteen is more than twice its
+    /// normal size.
     pub scale_jitter: f32,
     /// Largest lean of a trunk away from vertical, in degrees, each tree in
     /// a random direction. From 0 to 45.
@@ -261,6 +281,12 @@ pub struct TreeGrove {
     /// Multiplies every species' density, 1 by default, keeping the mix.
     /// Must be 0 or more.
     pub density_scale: f32,
+    /// How much of the ground is left open as treeless glades, from 0 (none,
+    /// the default) to 1. Around 0.5 the woods hold separate glades; from
+    /// about 0.7 the glades join up and the trees stand in separate islands.
+    /// Glades take trees away, so the grove grows fewer than
+    /// [`density`](Self::density) asks for. Raising it only removes trees.
+    pub patchiness: f32,
     /// How individual trees differ.
     pub variation: GroveVariation,
 }
@@ -273,13 +299,14 @@ impl Default for TreeGrove {
 }
 
 impl TreeGrove {
-    /// A grove of these species, with seed 0, density scale 1 and the default
-    /// [`GroveVariation`].
+    /// A grove of these species, with seed 0, density scale 1, no glades
+    /// and the default [`GroveVariation`].
     pub fn new(trees: Vec<GroveTree>) -> Self {
         Self {
             seed: 0,
             trees,
             density_scale: 1.0,
+            patchiness: 0.0,
             variation: GroveVariation::default(),
         }
     }
@@ -324,6 +351,11 @@ impl TreeGrove {
             });
         }
         non_negative(self.density_scale, "densityScale")?;
+        check(
+            (0.0..=1.0).contains(&self.patchiness),
+            "patchiness",
+            "between 0 and 1",
+        )?;
         self.variation.validate()?;
         for (index, tree) in self.trees.iter().enumerate() {
             tree.validate(index)?;
@@ -562,6 +594,11 @@ impl GrovePlacement {
             kept.push(site.instance);
             spacings.push(site.spacing);
         }
+
+        // Clear the glades last, so a tree in a glade still keeps its
+        // neighbours at a distance and raising the patchiness only removes
+        // trees.
+        kept.retain(|tree| !in_glade(grove, tree.position.x, tree.position.z));
         Ok(Self { instances: kept })
     }
 
@@ -618,7 +655,7 @@ fn stand(
     let species = &grove.trees[tree];
     let variation = &grove.variation;
     let variant = (draw(h, SALT_VARIANT) * species.variants as f32) as u32;
-    let scale = 1.0 + (2.0 * draw(h, SALT_SCALE) - 1.0) * variation.scale_jitter;
+    let scale = tree_scale(draw(h, SALT_SCALE), variation.scale_jitter);
 
     // Sample the ground at the trunk and at four points around it.
     let footprint = (species.tree.branch.radius[0] * scale).max(MIN_FOOTPRINT);
@@ -655,6 +692,32 @@ fn stand(
             position,
         ),
     })
+}
+
+/// The size factor of a tree whose size draw is `u`, from 0 to 1, under a
+/// size variation of `jitter`.
+///
+/// Draws below a half shrink the tree a little, and draws above it grow the
+/// tree a little, until the last few percent, which grow it into a giant.
+/// The factor rises with `u`, and at 0 jitter it is always 1.
+fn tree_scale(u: f32, jitter: f32) -> f32 {
+    let v = 2.0 * u - 1.0;
+    let tail = v.max(0.0).powi(GIANT_RARITY);
+    1.0 + jitter * (BODY_SPREAD * v + GIANT_GROWTH * tail)
+}
+
+/// Whether `x`, `z` lies in one of `grove`'s glades, where no tree grows.
+///
+/// The ground is split into patches about [`GLADE_CELL`] metres across,
+/// each with its own value from 0 to 1; patches whose value falls below the
+/// open share for the grove's patchiness are glades. Raising the patchiness
+/// only turns more patches into glades.
+fn in_glade(grove: &TreeGrove, x: f32, z: f32) -> bool {
+    if grove.patchiness <= 0.0 {
+        return false;
+    }
+    let seed = mix(u64::from(grove.seed) ^ SALT_GLADES);
+    patch_value(seed, x / GLADE_CELL, z / GLADE_CELL) < grove.patchiness * MAX_OPEN
 }
 
 /// A site's lasting id, from its lattice cell.
@@ -752,6 +815,94 @@ mod tests {
             })
             .count();
         assert!(same > 950);
+    }
+
+    #[test]
+    fn size_variation_keeps_most_trees_near_normal_with_rare_giants() {
+        let draws: Vec<f32> = (0..10_000).map(|n| n as f32 / 10_000.0).collect();
+        assert!(draws.iter().all(|u| tree_scale(*u, 0.0) == 1.0));
+
+        // Sizes rise with the draw and stay between 0.55 and 3.7 times normal.
+        let sizes: Vec<f32> = draws.iter().map(|u| tree_scale(*u, 0.9)).collect();
+        assert!(sizes.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(sizes[0] >= 0.55 - 1e-4 && sizes[sizes.len() - 1] <= 3.7 + 1e-4);
+
+        // Half the trees stay within 25% of normal, and about one in
+        // thirteen grows to more than twice its normal size.
+        let share = |test: &dyn Fn(f32) -> bool| {
+            sizes.iter().filter(|s| test(**s)).count() as f32 / sizes.len() as f32
+        };
+        assert!(share(&|s| (s - 1.0).abs() < 0.25) > 0.5);
+        let giants = share(&|s| s > 2.0);
+        assert!(
+            (0.06..0.09).contains(&giants),
+            "{giants} of the trees are giants"
+        );
+    }
+
+    /// The sizes of the connected areas of a 400 m square, sampled every 2 m,
+    /// that are glade (when `open`) or wooded, largest first.
+    fn areas(grove: &TreeGrove, open: bool) -> Vec<usize> {
+        const N: usize = 200;
+        let at = |i: usize, j: usize| {
+            in_glade(grove, i as f32 * 2.0 - 200.0, j as f32 * 2.0 - 200.0) == open
+        };
+        let mut seen = vec![false; N * N];
+        let mut sizes = Vec::new();
+        for start in 0..N * N {
+            if seen[start] || !at(start % N, start / N) {
+                continue;
+            }
+            // Flood out from `start` through matching neighbours.
+            seen[start] = true;
+            let mut stack = vec![start];
+            let mut size = 0;
+            while let Some(cell) = stack.pop() {
+                size += 1;
+                let (i, j) = (cell % N, cell / N);
+                let neighbours = [
+                    (i.wrapping_sub(1), j),
+                    (i + 1, j),
+                    (i, j.wrapping_sub(1)),
+                    (i, j + 1),
+                ];
+                for (ni, nj) in neighbours {
+                    if ni < N && nj < N && !seen[nj * N + ni] && at(ni, nj) {
+                        seen[nj * N + ni] = true;
+                        stack.push(nj * N + ni);
+                    }
+                }
+            }
+            sizes.push(size);
+        }
+        sizes.sort_unstable_by(|a, b| b.cmp(a));
+        sizes
+    }
+
+    #[test]
+    fn medium_patchiness_opens_separate_glades_and_high_joins_them() {
+        let mut grove = GrovePreset::OakWoodland.grove();
+        let total = |sizes: &[usize]| sizes.iter().sum::<usize>() as f32;
+
+        // No patchiness, no glades.
+        assert!(areas(&grove, true).is_empty());
+
+        // Medium: about a third of the ground is open, in many glades, and
+        // the woods around them stay joined.
+        grove.patchiness = 0.5;
+        let (glades, woods) = (areas(&grove, true), areas(&grove, false));
+        let open = total(&glades) / (total(&glades) + total(&woods));
+        assert!((0.27..0.43).contains(&open), "{open} of the ground is open");
+        assert!(glades.len() > 20, "{} glades", glades.len());
+        assert!(glades[0] as f32 / total(&glades) < 0.3);
+        assert!(woods[0] as f32 / total(&woods) > 0.9);
+
+        // High: the glades join into one, leaving islands of woods.
+        grove.patchiness = 1.0;
+        let (glades, woods) = (areas(&grove, true), areas(&grove, false));
+        assert!(glades[0] as f32 / total(&glades) > 0.85);
+        assert!(woods.len() > 10, "{} islands", woods.len());
+        assert!(woods[0] as f32 / total(&woods) < 0.5);
     }
 
     #[test]

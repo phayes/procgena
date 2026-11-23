@@ -972,12 +972,15 @@ mod tests {
         assert!(!placed.is_empty());
 
         // Trees stand on the surface, sunk 0.1 m (0.05 host units) into it,
-        // at their own world size.
-        let sink = small_grove().variation.sink;
+        // at their own world size: in the half-scale host, at most half the
+        // largest size variation allows.
+        let variation = small_grove().variation;
+        let largest = 1.0 + 3.0 * variation.scale_jitter;
         for (child, _, _) in placed.values() {
             let transform = app.world().get::<Transform>(*child).unwrap();
-            assert!((transform.translation.y - (1.0 - sink / 2.0)).abs() < 1e-3);
-            assert!(transform.scale.x < 0.5 * 1.2);
+            let sunk = 1.0 - variation.sink / 2.0;
+            assert!((transform.translation.y - sunk).abs() < 1e-3);
+            assert!(transform.scale.x <= 0.5 * largest + 1e-4);
         }
 
         // Losing the object removes the trees.
