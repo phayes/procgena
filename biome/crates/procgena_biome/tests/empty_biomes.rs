@@ -4,8 +4,8 @@
 use glam::DVec2;
 use procgena_biome::{Biome, BiomePreset, BiomeTerrain, terrain_seed};
 use procgena_terrain::{
-    Boundary, Convergence, Region, RegionId, RegionSpec, StitchedWorld, Terrain, TerrainGenerator,
-    TerrainOptions, TerrainPreset,
+    Boundary, Convergence, Elevation, Region, RegionId, RegionSpec, StitchedWorld, Terrain,
+    TerrainGenerator, TerrainOptions, TerrainPreset,
 };
 
 /// World seeds to build with: the presets' default and one other.
@@ -192,8 +192,11 @@ fn stitched_biomes_build_the_same_world_as_stitched_terrains() {
             },
         });
         let convergence = Convergence::default();
-        let a = StitchedWorld::build(from_biomes.to_vec(), &convergence).expect("world builds");
-        let b = StitchedWorld::build(from_terrains.to_vec(), &convergence).expect("world builds");
+        let elevation = Elevation::flat();
+        let a = StitchedWorld::build(from_biomes.to_vec(), &convergence, &elevation)
+            .expect("world builds");
+        let b = StitchedWorld::build(from_terrains.to_vec(), &convergence, &elevation)
+            .expect("world builds");
 
         assert_eq!(a.agreements(), b.agreements(), "seed {seed}: agreements");
         for (ta, tb) in a.terrains().iter().zip(b.terrains()) {
