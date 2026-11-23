@@ -229,7 +229,8 @@ the mix of species or variants, and how copies vary in size, lean and footing.
 Ecotope: where its copies stand, and how far their influence reaches.
 
 **What it states for loading.** Its draw range (from its specimens' cull
-distance), its maximum reach across chunk borders, and whether its mask
+distance), its three reach distances (spacing dependency `S`, displacement
+`J` and mask footprint `F`, see "Masks and placement"), and whether its mask
 comes from its copies or from its density field. It places one chunk at a
 time, and gives its mask over a chunk without drawing anything. See
 "Loading by chunk".
@@ -424,9 +425,9 @@ grown into a real level.
 - **Chunk-friendly.** Every level can be asked for one chunk without
   building the rest. Masks are local to position, never one global grid,
   so a Scatter chunk needs only the masks over its own area plus a margin
-  of the Scatter's reach. (How masks are stored, given GPU placement, is
-  open question 1.) Each Scatter loads to its own range; see "Loading by
-  chunk".
+  of the Scatter's reach. Masks are stored as 8-bit textures per chunk (see
+  "Masks and placement"). Each Scatter loads to its own range; see "Loading
+  by chunk".
 - **Engine-free core, thin Bevy crate.** Each level keeps the house split: a
   core crate with no Bevy, and a Bevy crate for streaming and drawing.
 - **Presets at every level.** Each level ships presets made from presets
@@ -704,13 +705,62 @@ placement never depends on chunk size, load tier or load order.
 - **A spot belongs to the chunk holding its lattice cell's corner**, so
   every spot has one owner even when the lattice spacing doesn't divide the
   chunk size. A copy may stand outside its chunk by up to the Scatter's
-  stated reach (open question 6).
+  displacement `J` (see "Masks and placement").
 - **Placement samples the true ground**, the terrain's analytic height and
   slope, never a coarse chunk mesh. So far copies can float above or sink
   into coarse terrain by that chunk's height error (open question 9).
 - **Hooks never see distance or load tier.** Remove, replace and reserve
   edits apply at placement, out to the place range, and stamps change the
   ground before placement (story 6).
+
+### Masks and placement
+
+Decided by the user on 2026-11-23 (decision gate D2). The details, the
+prior art and the prototypes are in
+[docs/decisions/D2.md](docs/decisions/D2.md). The GPU spike that checks the
+costs is still to run.
+
+- **One placement contract for every Scatter.** Candidates sit on a lattice
+  fixed to the World, one per cell. A candidate's copy id comes from its
+  cell, and its rank is a hash. It is kept while its rank is below the local
+  density (the available mask times the Ecotope's coverage). Then come the
+  footing check and the slope limit, then spacing, then the mask out. Grass
+  may use plant's progressive tile as its candidate source instead, under
+  the same contract and with World cells, because its prefixes stay evenly
+  spread as density drops.
+- **Integer maths, so the CPU and the GPU agree bit for bit.** 32-bit
+  hashes, integer ranks compared by cross-multiplying, positions in fixed
+  point (1/256 m) relative to the chunk, and integer squared distances. The
+  ground's height may differ in its last bit, but the decision to keep a
+  copy on a slope uses a quantised slope, so it is exact.
+- **Spacing is the bounded rule `K_d`.** `d` rounds of "keep a candidate if
+  no lower-ranked conflicting candidate was kept in the round before". A
+  candidate's result depends only on candidates within `d × R`, where `R`
+  is the Scatter's largest spacing, so a chunk built with that margin gives
+  the same copies in any build order. `d` is odd (an even `d` can break
+  spacing), 5 by default, and can be set per Scatter. A local mask change
+  can change survivors up to `d × R` outside it.
+- **Masks are 8-bit textures per chunk** on the shared chunk grid, read
+  with fixed-point bilinear filtering instead of hardware filtering. Each
+  Scatter writes its own layer over the chunk plus a margin, and the next
+  reads the product of the layers above it. The starting resolutions are
+  0.5 m for footprints and 2 m for influence. **These are not settled**:
+  the spike and the first Ecotope check them, and whether footprint masks
+  should follow each Scatter's lattice cell instead.
+- **Three reach distances per Scatter.** `S = d × R` (spacing
+  dependency), `J` (how far a copy can stand from its cell: jitter plus any
+  pull) and `F` (the largest radius a copy clears or shades in its mask).
+  Margins stack down the Ecotope: a Scatter high in the stack must be
+  placed past the chunk by the margins of everything below it.
+- **The margin cap.** An Ecotope warns when its widest window goes past one
+  ring of chunks. Until the spike gives costs, it does not reject such a
+  stack. Long, soft influence such as canopy shade comes from a Scatter's
+  density field, not from its copies, so it adds no placement margin. Only
+  hard footprints (trunks, boulders, logs) come from copies.
+- **No readback for queries.** The CPU places a chunk again itself for a
+  query, a collider or a promotion. Reading GPU placement back is for
+  tests only. Grass falls back to density-only queries if that is too
+  slow.
 
 ### One grid, driven by requests
 
@@ -1011,13 +1061,13 @@ Each rule says what every asset does, and which crates have to change.
    an area and a seed. It has a slope limit, and gives back the mask it
    leaves for the Scatters below. Placement is shared, and must give the
    same copies on the CPU and the GPU, change smoothly as density changes,
-   and keep copy ids stable through edits. Tree's lattice with rank
-   thinning and plant's blue-noise tiles are the candidates; the choice
-   waits on the GPU research in open question 1, as does how masks are
-   stored. This is the contract, not the representation. Every Scatter
-   also states what "Loading by chunk" needs: a draw range, a reach, and
-   where its mask comes from; it places by chunk on a lattice fixed to the
-   World.
+   and keep copy ids stable through edits. Placement uses integer maths, so
+   the CPU and the GPU agree bit for bit. Every Scatter places with tree's
+   lattice and rank thinning, and grass may draw its candidates from plant's
+   tiles (see "Masks and placement"). Every Scatter
+   also states what "Loading by chunk" needs: a draw range, its reach
+   distances `S`, `J` and `F`, and where its mask comes from; it places by
+   chunk on a lattice fixed to the World.
    - Change: plant drops `PlantGround` for `Ground`; stone gains placement;
      deadwood gains a slope limit; mushroom moves to the ground (its host
      placement becomes `MushroomGrowth`).
@@ -1120,8 +1170,9 @@ to be chosen (see "Decisions to make").
 - **YAML crate.** Every file moves to YAML (see rule 10), and the workspace
   has no YAML crate yet. `serde_yaml` is no longer maintained, so this
   needs a comparison of the maintained options before one is added.
-- **Placement algorithm.** Tree's lattice or plant's blue-noise tiles (see
-  rule 5). Waits on the GPU research in open question 1.
+- ~~**Placement algorithm.**~~ Decided 2026-11-23: tree's lattice for
+  every Scatter, with plant's tiles as grass's candidate source (see "Masks
+  and placement").
 - **Names of the two new crates.** The studio binary is already called
   `procgena`.
 - **Slot choice.** Jump consistent hash or rendezvous hashing (see
@@ -1215,9 +1266,10 @@ it starts.
 
 ### New levels
 
-- [ ] **Masks on the GPU** (open question 1): research and prior-art review
-  of GPU scattering and masking, so that every Scatter can eventually place
-  on the GPU. Settle this before the Ecotope crate.
+- [ ] **Masks on the GPU** (open question 1): the research and design are
+  done (see "Masks and placement" and
+  [docs/decisions/D2.md](docs/decisions/D2.md)). Still to do: the GPU spike
+  in its section 5, before the Ecotope crate.
 - [ ] **Ecotope crate**: an ordered list of Scatters, mask chaining, presets,
   and a Bevy part that draws one Ecotope over a patch of ground.
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
@@ -1334,13 +1386,9 @@ it starts.
 
 ## Open questions
 
-1. **Masks on the GPU.** Every Scatter should eventually place on the GPU,
-   as plants already do. Masks then have to live where the GPU can read
-   them: probably textures per chunk, written by one Scatter and read by
-   the next, rather than functions of position. This needs research and a
-   review of prior art (GPU scattering in engines and papers) before the
-   Ecotope crate is designed. It also decides how CPU queries see GPU
-   placement.
+1. ~~**Masks on the GPU.**~~ Decided 2026-11-23 (D2): 8-bit textures per
+   chunk, integer placement, and no readback for queries. See "Masks and
+   placement". The GPU spike still checks the costs.
 2. **Can Ecotopes overlap?** When two Ecotope rules match the same ground,
    do they split it by weight, or does one win? The Ecotope border protocol
    decides how they blend at a border; overlap in the middle of an area is
@@ -1357,13 +1405,10 @@ it starts.
 5. **Biome and Terrain share an id.** Both are keyed by their region, so
    they can get the same seed. Should the Terrain's id be its region plus
    something of its own?
-6. **How far a Scatter reaches across chunks.** A mask inside one chunk
-   depends on copies just outside it (a tree's canopy reaching over the
-   border). Under "Loading by chunk", each Scatter states a maximum reach,
-   and chunks are built with that margin; how large it is per Scatter is
-   still open. Tree placement's spacing thinning also needs checking:
-   if a spot's survival depends on which neighbours survived, the chain can
-   cross chunk borders and break chunk independence.
+6. ~~**How far a Scatter reaches across chunks.**~~ Decided 2026-11-23
+   (D2): each Scatter states `S`, `J` and `F`, margins stack down the
+   Ecotope under a one-ring cap that warns, and spacing becomes the bounded
+   rule `K_d`. See "Masks and placement".
 7. **Hook keys in the specimen id.** Assets have no hooks, and a hook that
    changes an asset's options already changes the options hash. Are hook
    keys in the specimen id needed at all?
