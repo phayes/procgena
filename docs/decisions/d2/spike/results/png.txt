@@ -1,3 +1,0 @@
-inputs: coverage and slope at 2 m over [-512, 1536) m, built in 72.05ms
-
-== Grass candidates in a 6 m square: columns [10, 50, 200] per m2; top row lattice (1/16 m cells), bottom row plant's tile (2 m cells). Wrote out/grass_lattice_vs_tile.png (10/m2: lattice 337, tile 360; 50/m2: lattice 1758, tile 1800; 200/m2: lattice 7196, tile 7200)

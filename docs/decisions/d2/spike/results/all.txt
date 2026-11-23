@@ -1,0 +1,205 @@
+12:30  up 23 days, 22:28, 1 user, load averages: 7.66 9.94 23.63
+inputs: coverage and slope at 2 m over [-512, 1536) m, built in 55.71ms
+GPU: Apple M1 Max via Metal (IntegratedGpu), timestamp queries: true
+
+== Oracle (CPU): K_d against the greedy rule, trees, 128 m square, 48 m pad
+  greedy keeps 6687 trees, spacing violations 0
+  K_1: keeps 5144 = 0.7693 of greedy, differs at 1543, subset of greedy true, violations 0, K_(d-2) subset true
+  K_2: keeps 7018 = 1.0495 of greedy, differs at 331, subset of greedy false, violations 382, superset of greedy true
+  K_3: keeps 6667 = 0.9970 of greedy, differs at 20, subset of greedy true, violations 0, K_(d-2) subset true
+  K_4: keeps 6688 = 1.0001 of greedy, differs at 1, subset of greedy false, violations 1, superset of greedy true
+  K_5: keeps 6687 = 1.0000 of greedy, differs at 0, subset of greedy true, violations 0, K_(d-2) subset true
+  K_7: keeps 6687 = 1.0000 of greedy, differs at 0, subset of greedy true, violations 0, K_(d-2) subset true
+  K_9: keeps 6687 = 1.0000 of greedy, differs at 0, subset of greedy true, violations 0, K_(d-2) subset true
+  K_3: survivors at 40% density are a subset of those at 100%: true
+  K_5: survivors at 40% density are a subset of those at 100%: true
+
+== Oracle (CPU): slot hashes, 200,000 keys (compare docs/decisions/d2/slots_prototype.out)
+  jump32     N=  4: slot share min 0.999 max 1.001 of even; N+1 moves 0.2018 (ideal 0.2000); moves not to the new slot: 0
+  jump32     N=  8: slot share min 0.984 max 1.009 of even; N+1 moves 0.1122 (ideal 0.1111); moves not to the new slot: 0
+  jump32     N= 16: slot share min 0.982 max 1.021 of even; N+1 moves 0.0599 (ideal 0.0588); moves not to the new slot: 0
+  jump32     N= 32: slot share min 0.965 max 1.033 of even; N+1 moves 0.0305 (ideal 0.0303); moves not to the new slot: 0
+  jump32     N= 64: slot share min 0.956 max 1.041 of even; N+1 moves 0.0156 (ideal 0.0154); moves not to the new slot: 0
+  rendezvous N=  4: slot share min 0.998 max 1.004 of even; N+1 moves 0.1998 (ideal 0.2000); moves not to the new slot: 0
+  rendezvous N=  8: slot share min 0.995 max 1.010 of even; N+1 moves 0.1109 (ideal 0.1111); moves not to the new slot: 0
+  rendezvous N= 16: slot share min 0.980 max 1.022 of even; N+1 moves 0.0581 (ideal 0.0588); moves not to the new slot: 0
+  rendezvous N= 32: slot share min 0.955 max 1.032 of even; N+1 moves 0.0295 (ideal 0.0303); moves not to the new slot: 0
+  rendezvous N= 64: slot share min 0.950 max 1.048 of even; N+1 moves 0.0152 (ideal 0.0154); moves not to the new slot: 0
+
+== Parity: GPU against the CPU twin, window A, 64 m chunks
+  tiled K_d, d=1 seed=0x1, 100 chunks (2.0s): available-mask texels 10289600 (diff 0), candidates 4638800 (diff 0), kept lattice copies 247435 (kept-flag diff 0), footprint texels 6830000 (diff 0), grass slots 81920000 with 5670624 kept (diff 0)
+  tiled K_d, d=3 seed=0x1, 100 chunks (2.3s): available-mask texels 13240000 (diff 0), candidates 6728400 (diff 0), kept lattice copies 412770 (kept-flag diff 0), footprint texels 7950000 (diff 0), grass slots 81920000 with 4224993 kept (diff 0)
+  tiled K_d, d=5 seed=0x1, 100 chunks (2.8s): available-mask texels 16705600 (diff 0), candidates 9237200 (diff 0), kept lattice copies 520008 (kept-flag diff 0), footprint texels 9198000 (diff 0), grass slots 81920000 with 4201894 kept (diff 0)
+  tiled K_d, d=7 seed=0x1, 100 chunks (3.5s): available-mask texels 20686400 (diff 0), candidates 12165200 (diff 0), kept lattice copies 637109 (kept-flag diff 0), footprint texels 10574000 (diff 0), grass slots 81920000 with 4202111 kept (diff 0)
+  tiled K_d, d=5 seed=0xc0ffee, 25 chunks (697.8ms): available-mask texels 4176400 (diff 0), candidates 2309300 (diff 0), kept lattice copies 129039 (kept-flag diff 0), footprint texels 2299500 (diff 0), grass slots 20480000 with 1061466 kept (diff 0)
+  tiled K_d, d=5 seed=0xdeadbeef, 25 chunks (709.8ms): available-mask texels 4176400 (diff 0), candidates 2309300 (diff 0), kept lattice copies 129224 (kept-flag diff 0), footprint texels 2299500 (diff 0), grass slots 20480000 with 1055426 kept (diff 0)
+  naive K_d, d=1 seed=0x1, 100 chunks (2.0s): available-mask texels 10289600 (diff 0), candidates 4638800 (diff 0), kept lattice copies 247435 (kept-flag diff 0), footprint texels 6830000 (diff 0), grass slots 81920000 with 5670624 kept (diff 0)
+  naive K_d, d=3 seed=0x1, 100 chunks (2.3s): available-mask texels 13240000 (diff 0), candidates 6728400 (diff 0), kept lattice copies 412770 (kept-flag diff 0), footprint texels 7950000 (diff 0), grass slots 81920000 with 4224993 kept (diff 0)
+  naive K_d, d=5 seed=0x1, 100 chunks (2.8s): available-mask texels 16705600 (diff 0), candidates 9237200 (diff 0), kept lattice copies 520008 (kept-flag diff 0), footprint texels 9198000 (diff 0), grass slots 81920000 with 4201894 kept (diff 0)
+  naive K_d, d=7 seed=0x1, 100 chunks (3.4s): available-mask texels 20686400 (diff 0), candidates 12165200 (diff 0), kept lattice copies 637109 (kept-flag diff 0), footprint texels 10574000 (diff 0), grass slots 81920000 with 4202111 kept (diff 0)
+  naive K_d, d=5 seed=0xc0ffee, 25 chunks (689.3ms): available-mask texels 4176400 (diff 0), candidates 2309300 (diff 0), kept lattice copies 129039 (kept-flag diff 0), footprint texels 2299500 (diff 0), grass slots 20480000 with 1061466 kept (diff 0)
+  naive K_d, d=5 seed=0xdeadbeef, 25 chunks (694.1ms): available-mask texels 4176400 (diff 0), candidates 2309300 (diff 0), kept lattice copies 129224 (kept-flag diff 0), footprint texels 2299500 (diff 0), grass slots 20480000 with 1055426 kept (diff 0)
+  parity: PASS (zero differences)
+
+== Order and chunk size: 640 m square (100 chunks of 64 m), d = 5
+  whole-area CPU build (1.3s): trees 170966, boulders 1593, logs 2227, grass 4201894 (digest)
+  GPU window B, 32 m chunks, row order (1.7s): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 32 m chunks, spiral order (1.7s): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 32 m chunks, random order (1.7s): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 64 m chunks, row order (829.5ms): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 64 m chunks, spiral order (811.0ms): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 64 m chunks, random order (884.5ms): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 128 m chunks, row order (674.0ms): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 128 m chunks, spiral order (659.5ms): lattice copies differing 0, grass digest equal true -> same
+  GPU window B, 128 m chunks, random order (616.1ms): lattice copies differing 0, grass digest equal true -> same
+  negative control (window B, 64 m, row order, chunks above NOT placed first): lattice copies differing 69, grass digest equal false (expected: differences)
+  GPU window A, 32 m chunks, random order (1.5s): lattice copies differing 0, grass digest equal true -> same
+  GPU window A, 64 m chunks, random order (673.4ms): lattice copies differing 0, grass digest equal true -> same
+  GPU window A, 128 m chunks, random order (449.9ms): lattice copies differing 0, grass digest equal true -> same
+  order and chunk size: PASS (zero differences)
+
+== Bench: 64 m chunks, 64 interior chunks of the 1 km World, GPU times from timestamp queries
+  cold first chunk (window A, whole stack): GPU 3.755 ms (sum of passes), wall 5.378 ms
+  trees   : window A 136 x 136 m (4.52x the chunk), window B 89 m square (1.93x)
+  boulders: window A 108 x 108 m (2.85x the chunk), window B 84 m square (1.72x)
+  logs    : window A 82 x 82 m (1.64x the chunk), window B 74 m square (1.34x)
+  grass   : window A 64 x 64 m (1.00x the chunk), window B 64 m square (1.00x)
+
+  d = 5:
+    whole stack, window A: median 1.171 ms, p90 1.204 ms (first-to-last timestamp span 1.593 ms; wall per submit 2.130 ms)
+    whole stack, window B: 0.797 ms (trees 0.385, boulders 0.130, logs 0.122, grass 0.160)
+    whole stack, no margin: median 0.606 ms (wrong at borders; baseline)
+    window overhead: A 1.93x, B 1.32x the no-margin time
+    trees K_5 (all rounds), window A: median 0.782 ms, p90 0.810 ms
+    window A breakdown (median ms per chunk):
+      trees    K_d rounds                   0.7821
+      trees    candidates+density+footing   0.0166
+      trees    commit                       0.0071
+      trees    mask product                 0.0105
+      trees    stamp                        0.0602
+      boulders K_d rounds                   0.0668
+      boulders candidates+density+footing   0.0079
+      boulders commit                       0.0057
+      boulders mask product                 0.0095
+      boulders stamp                        0.0225
+      logs     K_d rounds                   0.0460
+      logs     candidates+density+footing   0.0070
+      logs     commit                       0.0061
+      logs     mask product                 0.0086
+      logs     stamp                        0.0283
+      grass    grass candidates             0.0769
+      grass    mask product                 0.0084
+
+  d = 3:
+    whole stack, window A: median 0.694 ms, p90 0.707 ms (first-to-last timestamp span 0.975 ms; wall per submit 1.425 ms)
+    whole stack, window B: 0.568 ms (trees 0.214, boulders 0.096, logs 0.098, grass 0.160)
+    whole stack, no margin: median 0.452 ms (wrong at borders; baseline)
+    window overhead: A 1.54x, B 1.26x the no-margin time
+    trees K_3 (all rounds), window A: median 0.366 ms, p90 0.375 ms
+
+  d = 7:
+    whole stack, window A: median 1.874 ms, p90 3.731 ms (first-to-last timestamp span 2.421 ms; wall per submit 3.190 ms)
+    whole stack, window B: 1.079 ms (trees 0.614, boulders 0.162, logs 0.144, grass 0.159)
+    whole stack, no margin: median 0.762 ms (wrong at borders; baseline)
+    window overhead: A 2.46x, B 1.42x the no-margin time
+    trees K_7 (all rounds), window A: median 1.421 ms, p90 2.866 ms
+
+  Sustained (16 chunks per submit, per-chunk sums of pass times):
+    d = 5, tiled K_d: whole stack A median 1.449 ms (p90 1.474; per chunk of the batch: timestamp span 1.889, wall 2.266), B 1.032 ms (trees 0.616, boulders 0.131, logs 0.126, grass 0.158), no margin 0.615 ms; overhead A 2.36x, B 1.68x; trees K_5 A 1.033 ms (p90 1.063), B 0.592 ms
+      one compute pass per batch, per chunk: A GPU 1.401 ms (wall 1.450), B GPU 0.994 ms (wall 1.087), no margin GPU 0.555 ms (wall 0.599)
+    d = 5, naive K_d: whole stack A median 1.184 ms (p90 1.223; per chunk of the batch: timestamp span 1.584, wall 1.953), B 0.789 ms (trees 0.383, boulders 0.127, logs 0.121, grass 0.158), no margin 0.615 ms; overhead A 1.92x, B 1.28x; trees K_5 A 0.784 ms (p90 0.818), B 0.360 ms
+      one compute pass per batch, per chunk: A GPU 1.131 ms (wall 1.170), B GPU 0.736 ms (wall 0.832), no margin GPU 0.559 ms (wall 0.600)
+      window A breakdown, sustained (median ms per chunk):
+        trees    K_d rounds                   0.7839
+        trees    candidates+density+footing   0.0172
+        trees    commit                       0.0076
+        trees    mask product                 0.0110
+        trees    stamp                        0.0607
+        boulders K_d rounds                   0.0688
+        boulders candidates+density+footing   0.0080
+        boulders commit                       0.0063
+        boulders mask product                 0.0100
+        boulders stamp                        0.0230
+        logs     K_d rounds                   0.0489
+        logs     candidates+density+footing   0.0077
+        logs     commit                       0.0063
+        logs     mask product                 0.0088
+        logs     stamp                        0.0288
+        grass    grass candidates             0.0775
+        grass    mask product                 0.0085
+    d = 3, tiled K_d: whole stack A median 0.840 ms (p90 0.860; per chunk of the batch: timestamp span 1.079, wall 1.387), B 0.641 ms (trees 0.288, boulders 0.096, logs 0.099, grass 0.158), no margin 0.456 ms; overhead A 1.84x, B 1.41x; trees K_3 A 0.503 ms (p90 0.517), B 0.266 ms
+      one compute pass per batch, per chunk: A GPU 0.803 ms (wall 0.841), B GPU 0.595 ms (wall 0.687), no margin GPU 0.412 ms (wall 0.451)
+    d = 3, naive K_d: whole stack A median 0.702 ms (p90 0.710; per chunk of the batch: timestamp span 0.916, wall 1.252), B 0.564 ms (trees 0.213, boulders 0.095, logs 0.098, grass 0.159), no margin 0.462 ms; overhead A 1.52x, B 1.22x; trees K_3 A 0.367 ms (p90 0.373), B 0.191 ms
+      one compute pass per batch, per chunk: A GPU 0.650 ms (wall 0.688), B GPU 0.494 ms (wall 0.606), no margin GPU 0.411 ms (wall 0.454)
+    d = 7, tiled K_d: whole stack A median 2.331 ms (p90 2.384; per chunk of the batch: timestamp span 2.867, wall 3.339), B 1.484 ms (trees 0.946, boulders 0.178, logs 0.199, grass 0.161), no margin 0.784 ms; overhead A 2.97x, B 1.89x; trees K_7 A 1.844 ms (p90 1.882), B 0.916 ms
+      one compute pass per batch, per chunk: A GPU 2.431 ms (wall 2.488), B GPU 1.411 ms (wall 1.584), no margin GPU 0.658 ms (wall 0.861)
+    d = 7, naive K_d: whole stack A median 1.908 ms (p90 3.803; per chunk of the batch: timestamp span 3.618, wall 4.101), B 1.346 ms (trees 0.822, boulders 0.169, logs 0.151, grass 0.205), no margin 0.793 ms; overhead A 2.41x, B 1.70x; trees K_7 A 1.431 ms (p90 2.955), B 0.784 ms
+      one compute pass per batch, per chunk: A GPU 1.797 ms (wall 1.860), B GPU 1.068 ms (wall 1.184), no margin GPU 0.887 ms (wall 0.954)
+  trees K_3, tiled kernel, window A: median 0.505 ms, p90 0.659 ms
+  trees K_5, tiled kernel, window A: median 1.361 ms, p90 1.554 ms
+  trees K_7, tiled kernel, window A: median 3.007 ms, p90 3.145 ms
+  trees K_3, naive kernel, window A: median 0.620 ms, p90 0.730 ms
+  trees K_5, naive kernel, window A: median 2.024 ms, p90 2.268 ms
+  trees K_7, naive kernel, window A: median 2.353 ms, p90 3.717 ms
+  trees K_3, tiled kernel, window B (79 m square): median 0.521 ms
+  trees K_5, tiled kernel, window B (89 m square): median 1.005 ms
+  trees K_7, tiled kernel, window B (99 m square): median 1.483 ms
+  trees K_3, naive kernel, window B (79 m square): median 0.378 ms
+  trees K_5, naive kernel, window B (89 m square): median 0.881 ms
+  trees K_7, naive kernel, window B (99 m square): median 0.967 ms
+
+  CPU twin, one core, window A (everything above placed over the stacked margins):
+    down to trees    d = 5: median 3.60 ms over 16 chunks (mean ms per stage: mask product 0.16, candidates 1.13, K_d 2.34)
+    down to trees    d = 3: median 2.73 ms over 16 chunks (mean ms per stage: mask product 0.13, candidates 0.88, K_d 1.67)
+    down to boulders d = 5: median 6.98 ms over 16 chunks (mean ms per stage: mask product 0.42, candidates 2.02, K_d 3.56, stamp 0.91)
+    down to boulders d = 3: median 4.91 ms over 16 chunks (mean ms per stage: mask product 0.31, candidates 1.46, K_d 2.35, stamp 0.74)
+    down to logs     d = 5: median 10.22 ms over 16 chunks (mean ms per stage: mask product 0.72, candidates 2.86, K_d 4.76, stamp 1.82)
+    down to logs     d = 3: median 7.27 ms over 16 chunks (mean ms per stage: mask product 0.56, candidates 2.05, K_d 3.08, stamp 1.50)
+    down to grass    d = 5: median 21.52 ms over 6 chunks (mean ms per stage: mask product 1.11, candidates 3.32, K_d 5.57, stamp 3.01, grass 8.34)
+    down to grass    d = 3: median 18.09 ms over 6 chunks (mean ms per stage: mask product 0.92, candidates 2.43, K_d 3.81, stamp 2.58, grass 8.43)
+  CPU twin, one core, window B (copies of the Scatters above already cached):
+    trees    d = 5: median 3.54 ms over 16 chunks
+    boulders d = 5: median 1.42 ms over 16 chunks
+    logs     d = 5: median 1.67 ms over 16 chunks
+    grass    d = 5: median 10.07 ms over 6 chunks
+
+== Slot choice on the GPU: 1048576 keys per dispatch, median of 21
+  baseline (key only)        kernel     55.4 us,  0.000 ns per copy over the baseline, CPU mismatches 0
+  jump32 N=4                 kernel    413.7 us,  0.342 ns per copy over the baseline, CPU mismatches 0
+  jump32 N=16                kernel    616.1 us,  0.535 ns per copy over the baseline, CPU mismatches 0
+  jump32 N=64                kernel    795.8 us,  0.706 ns per copy over the baseline, CPU mismatches 0
+  rendezvous N=4             kernel    270.8 us,  0.205 ns per copy over the baseline, CPU mismatches 0
+  rendezvous N=16            kernel    787.2 us,  0.698 ns per copy over the baseline, CPU mismatches 0
+  rendezvous N=64            kernel   2855.1 us,  2.670 ns per copy over the baseline, CPU mismatches 0
+  jump32 into 4 of 64        kernel    212.4 us,  0.150 ns per copy over the baseline, CPU mismatches 0
+  rendezvous over 4 of 64    kernel    154.7 us,  0.095 ns per copy over the baseline, CPU mismatches 0
+
+== Mask resolution (CPU), 64 m chunks, d = 5
+  Footprint masks, 16 chunks: grass blades and lower lattice copies inside a true footprint disc of a kept copy above.
+  The stamp radius is the footprint grown by `grow` texels; leaks are always measured against the true footprint.
+    trunk 1.00 m, no footprint masks: boulders/logs inside an upper disc 2866 of 3444 (depth mean 0.52 m, max 1.95 m); grass inside trunk discs 3554614, boulder discs 1099230, log discs 2799829 (depth mean 1.05 m, max 3.00 m); grass kept 4468332 vs exact 336918 (+1226.24%), exact-kept blades thinned out 0 (0.00%); footprint mask bytes per chunk 79820
+    trunk 1.00 m, 0.25 m texels, grow 0.00: boulders/logs inside an upper disc 79 of 647 (depth mean 0.06 m, max 0.18 m); grass inside trunk discs 74592, boulder discs 1616, log discs 3236 (depth mean 0.06 m, max 0.30 m); grass kept 664810 vs exact 667113 (-0.35%), exact-kept blades thinned out 81134 (12.16%); footprint mask bytes per chunk 363820
+    trunk 1.00 m, 0.25 m texels, grow 0.50: boulders/logs inside an upper disc 3 of 441 (depth mean 0.02 m, max 0.03 m); grass inside trunk discs 7007, boulder discs 113, log discs 217 (depth mean 0.03 m, max 0.17 m); grass kept 482893 vs exact 725081 (-33.40%), exact-kept blades thinned out 249513 (34.41%); footprint mask bytes per chunk 363820
+    trunk 1.00 m, 0.25 m texels, grow 1.00: boulders/logs inside an upper disc 0 of 290 (depth -); grass inside trunk discs 32, boulder discs 2, log discs 2 (depth mean 0.02 m, max 0.04 m); grass kept 339767 vs exact 773104 (-56.05%), exact-kept blades thinned out 433373 (56.06%); footprint mask bytes per chunk 363820
+    trunk 1.00 m,  0.5 m texels, grow 0.00: boulders/logs inside an upper disc 131 of 635 (depth mean 0.11 m, max 0.40 m); grass inside trunk discs 139150, boulder discs 3215, log discs 6389 (depth mean 0.12 m, max 0.60 m); grass kept 666140 vs exact 667177 (-0.16%), exact-kept blades thinned out 147731 (22.14%); footprint mask bytes per chunk 91980
+    trunk 1.00 m,  0.5 m texels, grow 0.50: boulders/logs inside an upper disc 2 of 267 (depth mean 0.02 m, max 0.03 m); grass inside trunk discs 9662, boulder discs 112, log discs 257 (depth mean 0.07 m, max 0.34 m); grass kept 340071 vs exact 777318 (-56.25%), exact-kept blades thinned out 447258 (57.54%); footprint mask bytes per chunk 91980
+    trunk 1.00 m,  0.5 m texels, grow 1.00: boulders/logs inside an upper disc 0 of 128 (depth -); grass inside trunk discs 33, boulder discs 0, log discs 0 (depth mean 0.03 m, max 0.12 m); grass kept 155309 vs exact 842255 (-81.56%), exact-kept blades thinned out 686979 (81.56%); footprint mask bytes per chunk 91980
+    trunk 1.00 m,    1 m texels, grow 0.00: boulders/logs inside an upper disc 236 of 643 (depth mean 0.23 m, max 0.81 m); grass inside trunk discs 227484, boulder discs 6777, log discs 12264 (depth mean 0.24 m, max 1.17 m); grass kept 650624 vs exact 670346 (-2.94%), exact-kept blades thinned out 258721 (38.60%); footprint mask bytes per chunk 23512
+    trunk 1.00 m,    1 m texels, grow 0.50: boulders/logs inside an upper disc 5 of 137 (depth mean 0.09 m, max 0.21 m); grass inside trunk discs 7814, boulder discs 71, log discs 110 (depth mean 0.13 m, max 0.72 m); grass kept 149804 vs exact 837101 (-82.10%), exact-kept blades thinned out 695273 (83.06%); footprint mask bytes per chunk 24125
+    trunk 1.00 m,    1 m texels, grow 1.00: boulders/logs inside an upper disc 0 of 31 (depth -); grass inside trunk discs 8, boulder discs 0, log discs 0 (depth mean 0.03 m, max 0.05 m); grass kept 27957 vs exact 898015 (-96.89%), exact-kept blades thinned out 870066 (96.89%); footprint mask bytes per chunk 24748
+    trunk 0.25 m, no footprint masks: boulders/logs inside an upper disc 812 of 3444 (depth mean 0.52 m, max 1.95 m); grass inside trunk discs 395440, boulder discs 1099230, log discs 2799829 (depth mean 1.16 m, max 3.00 m); grass kept 4468332 vs exact 1198482 (+272.83%), exact-kept blades thinned out 0 (0.00%); footprint mask bytes per chunk 79820
+    trunk 0.25 m, 0.25 m texels, grow 0.00: boulders/logs inside an upper disc 108 of 2677 (depth mean 0.06 m, max 0.21 m); grass inside trunk discs 42898, boulder discs 18678, log discs 26600 (depth mean 0.06 m, max 0.29 m); grass kept 1502222 vs exact 1504493 (-0.15%), exact-kept blades thinned out 88626 (5.89%); footprint mask bytes per chunk 363820
+    trunk 0.25 m, 0.25 m texels, grow 0.50: boulders/logs inside an upper disc 12 of 2368 (depth mean 0.04 m, max 0.09 m); grass inside trunk discs 6497, boulder discs 1866, log discs 2804 (depth mean 0.03 m, max 0.17 m); grass kept 1370910 vs exact 1684791 (-18.63%), exact-kept blades thinned out 324976 (19.29%); footprint mask bytes per chunk 363820
+    trunk 0.25 m, 0.25 m texels, grow 1.00: boulders/logs inside an upper disc 0 of 1970 (depth -); grass inside trunk discs 54, boulder discs 18, log discs 19 (depth mean 0.01 m, max 0.05 m); grass kept 1251793 vs exact 1968289 (-36.40%), exact-kept blades thinned out 716587 (36.41%); footprint mask bytes per chunk 363820
+    trunk 0.25 m,  0.5 m texels, grow 0.00: boulders/logs inside an upper disc 184 of 2659 (depth mean 0.09 m, max 0.50 m); grass inside trunk discs 78415, boulder discs 35552, log discs 53134 (depth mean 0.10 m, max 0.59 m); grass kept 1497634 vs exact 1500626 (-0.20%), exact-kept blades thinned out 163125 (10.87%); footprint mask bytes per chunk 91980
+    trunk 0.25 m,  0.5 m texels, grow 0.50: boulders/logs inside an upper disc 23 of 1976 (depth mean 0.07 m, max 0.22 m); grass inside trunk discs 13356, boulder discs 2836, log discs 4356 (depth mean 0.06 m, max 0.34 m); grass kept 1243461 vs exact 1960391 (-36.57%), exact-kept blades thinned out 737222 (37.61%); footprint mask bytes per chunk 91980
+    trunk 0.25 m,  0.5 m texels, grow 1.00: boulders/logs inside an upper disc 0 of 1216 (depth -); grass inside trunk discs 88, boulder discs 7, log discs 13 (depth mean 0.03 m, max 0.12 m); grass kept 918864 vs exact 2650116 (-65.33%), exact-kept blades thinned out 1731360 (65.33%); footprint mask bytes per chunk 91980
+    trunk 0.25 m,    1 m texels, grow 0.00: boulders/logs inside an upper disc 271 of 2675 (depth mean 0.11 m, max 0.74 m); grass inside trunk discs 105051, boulder discs 69231, log discs 98575 (depth mean 0.19 m, max 1.21 m); grass kept 1478850 vs exact 1498831 (-1.33%), exact-kept blades thinned out 275949 (18.41%); footprint mask bytes per chunk 23512
+    trunk 0.25 m,    1 m texels, grow 0.50: boulders/logs inside an upper disc 27 of 1195 (depth mean 0.09 m, max 0.22 m); grass inside trunk discs 19691, boulder discs 2282, log discs 3817 (depth mean 0.09 m, max 0.66 m); grass kept 927687 vs exact 2693776 (-65.56%), exact-kept blades thinned out 1791466 (66.50%); footprint mask bytes per chunk 24125
+    trunk 0.25 m,    1 m texels, grow 1.00: boulders/logs inside an upper disc 0 of 295 (depth -); grass inside trunk discs 47, boulder discs 3, log discs 0 (depth mean 0.04 m, max 0.14 m); grass kept 301412 vs exact 3716179 (-91.89%), exact-kept blades thinned out 3414817 (91.89%); footprint mask bytes per chunk 24748
+  Influence (coverage x canopy shade) grid against the exact field, grass keep decisions, same chunks:
+    1 m grid: mean |error| 0.65/255, max 3, keep decisions flipped 0.252% of 13107200 candidates; bytes per 64 m chunk 4356
+    2 m grid: mean |error| 0.70/255, max 3, keep decisions flipped 0.273% of 13107200 candidates; bytes per 64 m chunk 1156
+    4 m grid: mean |error| 0.64/255, max 3, keep decisions flipped 0.248% of 13107200 candidates; bytes per 64 m chunk 324
+
+== Grass candidates in a 6 m square: columns [10, 50, 200] per m2; top row lattice (1/16 m cells), bottom row plant's tile (2 m cells). Wrote out/grass_lattice_vs_tile.png (10/m2: lattice 337, tile 360; 50/m2: lattice 1758, tile 1800; 200/m2: lattice 7196, tile 7200)

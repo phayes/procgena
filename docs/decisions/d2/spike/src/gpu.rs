@@ -305,7 +305,7 @@ impl Gpu {
             adapter_name: info.name.clone(),
             backend: format!("{:?} ({:?})", info.backend, info.device_type),
             timestamps,
-            kd_tiled: std::cell::Cell::new(true),
+            kd_tiled: std::cell::Cell::new(false),
             period_ns,
             pipes,
             bind,
@@ -629,6 +629,66 @@ impl Gpu {
         }
         let data = staging.iter().map(|(b, _)| read_u32(b)).collect();
         (timing, data)
+    }
+
+    /// Runs a dispatch list in one compute pass, as an engine would encode
+    /// it, with timestamps only at the pass's start and end. Returns the GPU
+    /// time of the whole pass and the wall time of the submit, in ns.
+    pub fn run_one_pass(&self, ds: &[Dispatch]) -> (f64, f64) {
+        assert!(ds.len() <= MAX_DISPATCH);
+        let mut bytes = Vec::with_capacity(ds.len() * PARAM_STRIDE as usize);
+        for d in ds {
+            bytes.extend(u32_bytes(&d.params));
+        }
+        self.queue.write_buffer(&self.params, 0, &bytes);
+        let (q, r) = (
+            self.query.as_ref().expect("timestamps"),
+            self.resolve.as_ref().unwrap(),
+        );
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                    query_set: q,
+                    beginning_of_pass_write_index: Some(0),
+                    end_of_pass_write_index: Some(1),
+                }),
+            });
+            for (i, d) in ds.iter().enumerate() {
+                let pipe = &self.pipes.iter().find(|(k, _)| *k == d.kernel).unwrap().1;
+                pass.set_pipeline(pipe);
+                pass.set_bind_group(0, &self.bind, &[(i as u64 * PARAM_STRIDE) as u32]);
+                if d.groups.0 > 0 && d.groups.1 > 0 {
+                    pass.dispatch_workgroups(d.groups.0, d.groups.1, 1);
+                }
+            }
+        }
+        enc.resolve_query_set(q, 0..2, r, 0);
+        let b = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 16,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        enc.copy_buffer_to_buffer(r, 0, &b, 0, 16);
+        let t0 = Instant::now();
+        self.queue.submit([enc.finish()]);
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("poll");
+        let wall = t0.elapsed().as_nanos() as f64;
+        b.slice(..)
+            .map_async(wgpu::MapMode::Read, |r| r.expect("map"));
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("poll");
+        let v = b.slice(..).get_mapped_range().expect("mapped");
+        let t: Vec<u64> = v
+            .chunks_exact(8)
+            .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        (t[1].saturating_sub(t[0]) as f64 * self.period_ns, wall)
     }
 
     /// Clears the World kept grids (before a B build from scratch).

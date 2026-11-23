@@ -319,7 +319,7 @@ fn parity(g: &Gpu, inp: &Inputs) {
             diff.grass_diff
         );
     }
-    g.kd_tiled.set(true);
+    g.kd_tiled.set(false);
     println!(
         "  parity: {}",
         if all_ok {
@@ -899,18 +899,20 @@ fn bench(g: &Gpu, inp: &Inputs) {
     println!("\n  Sustained (16 chunks per submit, per-chunk sums of pass times):");
     for d in [5u32, 3, 7] {
         let specs = stack(d);
-        // Runs `lists` (one dispatch list per chunk) in batches of 16 and
-        // returns per-chunk totals, plus per-chunk trees K_d.
-        let batched = |lists: Vec<Vec<Dispatch>>| -> (Vec<f64>, Vec<f64>) {
-            let mut totals = Vec::new();
+        // Runs `lists` (one dispatch list per chunk) in batches of 16. Returns
+        // a summary per chunk (its own pass times; the batch's first-to-last
+        // timestamp span and wall time shared out evenly), plus per-chunk
+        // trees K_d.
+        let batched = |lists: Vec<Vec<Dispatch>>| -> (Summary, Vec<f64>) {
+            let mut runs = Vec::new();
             let mut kds = Vec::new();
             for group in lists.chunks(16) {
                 let ds: Vec<Dispatch> = group.iter().flatten().cloned().collect();
                 let (t, _) = g.run(&ds, &[], None);
+                let n = group.len() as f64;
                 let mut at = 0;
                 for list in group {
                     let span = &t.pass_ns[at..at + list.len()];
-                    totals.push(span.iter().sum());
                     kds.push(
                         list.iter()
                             .zip(span)
@@ -921,10 +923,29 @@ fn bench(g: &Gpu, inp: &Inputs) {
                             .map(|(_, n)| n)
                             .sum(),
                     );
+                    let timing = gpu::Timing {
+                        pass_ns: span.to_vec(),
+                        span_ns: t.span_ns / n,
+                        wall_ns: t.wall_ns / n,
+                    };
+                    runs.push((list.clone(), timing));
                     at += list.len();
                 }
             }
-            (totals, kds)
+            (summarise(&runs), kds)
+        };
+        // The same batches, each encoded as one compute pass: returns the
+        // median GPU time and wall time per chunk, in ns.
+        let one_pass = |lists: &[Vec<Dispatch>]| -> (f64, f64) {
+            let mut gpu_t = Vec::new();
+            let mut wall = Vec::new();
+            for group in lists.chunks(16) {
+                let ds: Vec<Dispatch> = group.iter().flatten().cloned().collect();
+                let (t, w) = g.run_one_pass(&ds);
+                gpu_t.push(t / group.len() as f64);
+                wall.push(w / group.len() as f64);
+            }
+            (median(&mut gpu_t), median(&mut wall))
         };
         for tiled in [true, false] {
             g.kd_tiled.set(tiled);
@@ -942,7 +963,9 @@ fn bench(g: &Gpu, inp: &Inputs) {
                 })
                 .collect();
             batched(a_lists.clone());
-            let (mut a, mut a_kd) = batched(a_lists);
+            let (mut sa, mut a_kd) = batched(a_lists.clone());
+            one_pass(&a_lists);
+            let a_one = one_pass(&a_lists);
             let n_lists: Vec<Vec<Dispatch>> = interior
                 .iter()
                 .map(|&(cx, cy)| {
@@ -954,12 +977,14 @@ fn bench(g: &Gpu, inp: &Inputs) {
                     )
                 })
                 .collect();
-            let (mut none, _) = batched(n_lists);
+            let (mut sn, _) = batched(n_lists.clone());
+            let n_one = one_pass(&n_lists);
             // Window B, level by level: each level's chunks only need the
             // levels above, already placed over wider rings.
             g.clear_world();
             let mut b_level = [0.0f64; 4];
             let mut b_kd = Vec::new();
+            let mut b_one = (0.0f64, 0.0f64);
             for (k, ring) in [(TREES, 3), (BOULDERS, 2), (LOGS, 1), (GRASS, 0)] {
                 let lists: Vec<Vec<Dispatch>> = (4 - ring..12 + ring)
                     .flat_map(|y| (4 - ring..12 + ring).map(move |x| (x, y)))
@@ -972,19 +997,25 @@ fn bench(g: &Gpu, inp: &Inputs) {
                         ds
                     })
                     .collect();
-                let (mut t, mut kd) = batched(lists);
-                b_level[k] = median(&mut t);
+                let (mut t, mut kd) = batched(lists.clone());
+                b_level[k] = median(&mut t.total);
+                let (bt, bw) = one_pass(&lists);
+                b_one.0 += bt;
+                b_one.1 += bw;
                 if k == TREES {
                     b_kd = std::mem::take(&mut kd);
                 }
             }
             let b: f64 = b_level.iter().sum();
-            let (am, nm) = (median(&mut a), median(&mut none));
+            let (am, nm) = (median(&mut sa.total), median(&mut sn.total));
             println!(
-                "    d = {d}, {label} K_d: whole stack A median {:.3} ms (p90 {:.3}), B {:.3} ms (trees {:.3}, boulders {:.3}, logs {:.3}, grass {:.3}), \
+                "    d = {d}, {label} K_d: whole stack A median {:.3} ms (p90 {:.3}; per chunk of the batch: timestamp span {:.3}, wall {:.3}), \
+                 B {:.3} ms (trees {:.3}, boulders {:.3}, logs {:.3}, grass {:.3}), \
                  no margin {:.3} ms; overhead A {:.2}x, B {:.2}x; trees K_{d} A {:.3} ms (p90 {:.3}), B {:.3} ms",
                 ms(am),
-                ms(pct(&mut a, 0.9)),
+                ms(pct(&mut sa.total, 0.9)),
+                ms(median(&mut sa.span)),
+                ms(median(&mut sa.wall)),
                 ms(b),
                 ms(b_level[0]),
                 ms(b_level[1]),
@@ -997,9 +1028,24 @@ fn bench(g: &Gpu, inp: &Inputs) {
                 ms(pct(&mut a_kd, 0.9)),
                 ms(median(&mut b_kd))
             );
+            println!(
+                "      one compute pass per batch, per chunk: A GPU {:.3} ms (wall {:.3}), B GPU {:.3} ms (wall {:.3}), no margin GPU {:.3} ms (wall {:.3})",
+                ms(a_one.0),
+                ms(a_one.1),
+                ms(b_one.0),
+                ms(b_one.1),
+                ms(n_one.0),
+                ms(n_one.1)
+            );
+            if d == 5 && !tiled {
+                println!("      window A breakdown, sustained (median ms per chunk):");
+                for ((k, stage), v) in sa.by.iter_mut() {
+                    println!("        {:8} {:28} {:.4}", NAMES[*k], stage, ms(median(v)));
+                }
+            }
         }
     }
-    g.kd_tiled.set(true);
+    g.kd_tiled.set(false);
 
     // Trees' K_d alone, both kernels, windows A and B.
     for (tiled, d) in [true, false]
@@ -1054,7 +1100,7 @@ fn bench(g: &Gpu, inp: &Inputs) {
             ms(median(&mut v))
         );
     }
-    g.kd_tiled.set(true);
+    g.kd_tiled.set(false);
 
     // The CPU twin, one core.
     println!(
@@ -1156,21 +1202,40 @@ fn masks() {
          The stamp radius is the footprint grown by `grow` texels; leaks are always measured against the true footprint.",
         chunks.len()
     );
-    let variants: Vec<(u32, i32)> = [6u32, 7, 8]
-        .iter()
-        .flat_map(|&t| [0, 2, 4, 6].map(|q| (t, q)))
-        .collect();
-    for (tfs, grow_q) in variants {
-        // Stamp with every footprint grown by grow_q / 4 texels.
-        let mut stamp_specs = specs;
-        for s in stamp_specs.iter_mut().take(3) {
-            if let Kind::Lattice { footprint, .. } = &mut s.kind {
-                *footprint += ((1u32 << tfs) * grow_q as u32) / 4;
+    // (trunk footprint in fixed point, texel shift, grow in quarter texels);
+    // grow -1 stamps nothing at all: the baseline with no footprint masks.
+    let mut variants: Vec<(u32, u32, i32)> = Vec::new();
+    for trunk in [256u32, 64] {
+        variants.push((trunk, 7, -1));
+        for tfs in [6u32, 7, 8] {
+            for q in [0, 2, 4] {
+                variants.push((trunk, tfs, q));
             }
         }
+    }
+    for (trunk, tfs, grow_q) in variants {
+        // The true footprints, and the stamped ones grown by grow_q / 4
+        // texels (or none).
+        let mut true_specs = specs;
+        if let Kind::Lattice { footprint, .. } = &mut true_specs[TREES].kind {
+            *footprint = trunk;
+        }
+        let mut stamp_specs = true_specs;
+        for s in stamp_specs.iter_mut().take(3) {
+            if let Kind::Lattice { footprint, .. } = &mut s.kind {
+                if grow_q < 0 {
+                    *footprint = 0;
+                } else {
+                    *footprint += ((1u32 << tfs) * grow_q as u32) / 4;
+                }
+            }
+        }
+        let specs = true_specs;
         let mut leak = [0usize; 3];
         let mut lattice_leak = 0usize;
         let mut lattice_total = 0usize;
+        let mut depths_lattice: Vec<f64> = Vec::new();
+        let mut depths_grass: Vec<f64> = Vec::new();
         let mut exact_kept = 0usize;
         let mut mask_kept = 0usize;
         let mut over = 0usize;
@@ -1196,21 +1261,25 @@ fn masks() {
                     }
                 }
             }
-            let inside = |k: usize, x: i32, y: i32| -> bool {
+            // How far (in metres) a point lies inside the true footprint of
+            // a kept copy of Scatter k, if it does.
+            let depth = |k: usize, x: i32, y: i32| -> Option<f64> {
                 let f = specs[k].footprint();
+                let mut best: Option<f64> = None;
                 for by in (y >> 10) - 1..=(y >> 10) + 1 {
                     for bx in (x >> 10) - 1..=(x >> 10) + 1 {
-                        if let Some(v) = discs[k].get(&(bx, by)) {
-                            if v.iter().any(|&(px, py)| {
-                                ((px - x) * (px - x) + (py - y) * (py - y)) < f * f
-                            }) {
-                                return true;
+                        for &(px, py) in discs[k].get(&(bx, by)).into_iter().flatten() {
+                            let d2 = (px - x) * (px - x) + (py - y) * (py - y);
+                            if d2 < f * f {
+                                let pen = (f as f64 - (d2 as f64).sqrt()) / FP as f64;
+                                best = Some(best.map_or(pen, |b: f64| b.max(pen)));
                             }
                         }
                     }
                 }
-                false
+                best
             };
+            let inside = |k: usize, x: i32, y: i32| depth(k, x, y).is_some();
             // Lower lattice copies inside an upper copy's disc.
             for k in 1..3 {
                 let l = out.lattice[k].as_ref().unwrap();
@@ -1220,8 +1289,10 @@ fn masks() {
                         if l.own.get(i, j) != 0 {
                             let c = l.cand.get(i, j);
                             lattice_total += 1;
-                            if (0..k).any(|u| inside(u, c.x, c.y)) {
+                            let d = (0..k).filter_map(|u| depth(u, c.x, c.y)).reduce(f64::max);
+                            if let Some(d) = d {
                                 lattice_leak += 1;
+                                depths_lattice.push(d);
                             }
                         }
                     }
@@ -1261,26 +1332,51 @@ fn masks() {
                             leak[k] += 1;
                         }
                     }
+                    if let Some(d) = (0..3).filter_map(|k| depth(k, x, y)).reduce(f64::max) {
+                        depths_grass.push(d);
+                    }
                 } else if exact {
                     over += 1;
                 }
             }
         }
+        let stats = |v: &[f64]| {
+            if v.is_empty() {
+                "-".to_string()
+            } else {
+                format!(
+                    "mean {:.2} m, max {:.2} m",
+                    v.iter().sum::<f64>() / v.len() as f64,
+                    v.iter().cloned().fold(0.0, f64::max)
+                )
+            }
+        };
+        let variant = if grow_q < 0 {
+            "no footprint masks".to_string()
+        } else {
+            format!(
+                "{:4} m texels, grow {:.2}",
+                (1 << tfs) as f64 / FP as f64,
+                grow_q as f64 / 4.0
+            )
+        };
         println!(
-            "    {:4} m texels, grow {:.2}: grass inside trunk discs {}, boulder discs {}, log discs {}; grass kept {} vs exact {} ({:+.2}%), \
-             exact-kept blades thinned out {} ({:.2}%); boulders/logs inside an upper disc {} of {}; footprint mask bytes per chunk {}",
-            (1 << tfs) as f64 / FP as f64,
-            grow_q as f64 / 4.0,
+            "    trunk {:.2} m, {variant}: boulders/logs inside an upper disc {} of {} (depth {}); grass inside trunk discs {}, \
+             boulder discs {}, log discs {} (depth {}); grass kept {} vs exact {} ({:+.2}%), exact-kept blades thinned out {} ({:.2}%); \
+             footprint mask bytes per chunk {}",
+            trunk as f64 / FP as f64,
+            lattice_leak,
+            lattice_total,
+            stats(&depths_lattice),
             leak[0],
             leak[1],
             leak[2],
+            stats(&depths_grass),
             mask_kept,
             exact_kept,
             (mask_kept as f64 / exact_kept as f64 - 1.0) * 100.0,
             over,
             over as f64 / exact_kept as f64 * 100.0,
-            lattice_leak,
-            lattice_total,
             mem / chunks.len()
         );
     }
