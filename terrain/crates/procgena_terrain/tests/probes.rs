@@ -93,6 +93,51 @@ fn river_crossing_seeds() {
     }
 }
 
+/// The sharpest bend, in degrees, of a plains river at a point where
+/// another plains river ends on it.
+fn join_bend(world: &StitchedWorld) -> f64 {
+    let rivers = world.terrains()[0].rivers();
+    let mut sharpest = 0.0f64;
+    for (i, r) in rivers.iter().enumerate() {
+        let last = *r.points.last().unwrap();
+        for (j, s) in rivers.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            let Some((k, d)) = s
+                .points
+                .iter()
+                .enumerate()
+                .map(|(k, p)| (k, p.distance(last)))
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+            else {
+                continue;
+            };
+            if d > 1.0 || k < 4 || k + 4 >= s.points.len() {
+                continue;
+            }
+            let (a, b) = (s.points[k] - s.points[k - 4], s.points[k + 4] - s.points[k]);
+            sharpest = sharpest.max(a.angle_to(b).abs().to_degrees());
+        }
+    }
+    sharpest
+}
+
+/// Which hill seeds from 0 to 299 give `hills_into_plains` the sharpest
+/// bends where one plains river joins another, with shared and with
+/// unrelated seeds: how `JOIN_SEEDS` are chosen.
+#[test]
+#[ignore]
+fn join_bend_seeds() {
+    for config in [CONFIGS[2], CONFIGS[3]] {
+        let mut found: Vec<(f64, u32)> = (0..300)
+            .map(|s| (join_bend(&hills_into_plains(s, config)), s))
+            .collect();
+        found.sort_by(|a, b| b.0.total_cmp(&a.0));
+        eprintln!("{}: sharpest joins {:?}", label(config), &found[..8]);
+    }
+}
+
 /// How many hill seeds from 0 to 299 give a river crossing in
 /// `hills_into_plains` (default settings) on flat land, and on land tilted
 /// by [`TILT`](common::TILT) down towards the plains and up towards them:
@@ -304,10 +349,16 @@ fn scene_dump() {
         ),
         (
             "mountain_road",
-            "Mountain road close-up (blend 1)",
-            two_terrains(DVec2::ZERO, blend_1),
+            "Mountain road close-up, seed 62 (blend 1)",
+            common::two_regions(
+                DVec2::ZERO,
+                common::preset(TerrainPreset::Plains, 62),
+                common::preset(TerrainPreset::Mountains, 62),
+                blend_1.convergence(),
+                &Elevation::flat(),
+            ),
             2.5,
-            Some((DVec2::new(0.0, -640.0), DVec2::new(1280.0, 640.0))),
+            Some((DVec2::new(0.0, -960.0), DVec2::new(1280.0, 800.0))),
         ),
         (
             "triple_junction",
@@ -317,16 +368,16 @@ fn scene_dump() {
             None,
         ),
         (
-            "hills_into_plains_81",
-            "Hills into plains, seed 81 (river crossing)",
-            hills_into_plains(81, default),
+            "hills_into_plains_102",
+            "Hills into plains, seed 102 (river crossing)",
+            hills_into_plains(102, default),
             5.0,
             None,
         ),
         (
-            "hills_into_plains_64",
-            "Hills into plains, seed 64 (river joins)",
-            hills_into_plains(64, default),
+            "hills_into_plains_56",
+            "Hills into plains, seed 56 (river joins on a bend)",
+            hills_into_plains(56, default),
             5.0,
             None,
         ),
@@ -345,16 +396,16 @@ fn scene_dump() {
             None,
         ),
         (
-            "hills_into_plains_33",
-            "Hills into plains, seed 33, flat land (no river crossing)",
-            hills_into_plains(33, default),
+            "hills_into_plains_15",
+            "Hills into plains, seed 15, flat land (no river crossing)",
+            hills_into_plains(15, default),
             5.0,
             None,
         ),
         (
-            "hills_into_plains_33_tilted",
-            "Hills into plains, seed 33, tilted towards the plains (two crossings)",
-            hills_into_plains(33, common::TILTED),
+            "hills_into_plains_15_tilted",
+            "Hills into plains, seed 15, tilted towards the plains (two crossings)",
+            hills_into_plains(15, common::TILTED),
             5.0,
             None,
         ),

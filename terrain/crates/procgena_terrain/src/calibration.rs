@@ -14,6 +14,43 @@ pub(crate) const NOISE_STD: f32 = 0.215_715;
 /// `measure_steepest_noise`.
 pub(crate) const NOISE_SLOPE_MAX: f32 = 2.1;
 
+/// How much erosion lowers the spread of an eroded noise layer, as
+/// (erosion, spread with erosion over spread without) pairs, rising in
+/// erosion; between them, interpolate linearly (see [`erosion_damping`]).
+///
+/// Measured by the ignored test `measure_erosion_damping` on fBm at
+/// roughness 0.5 and 6 octaves over 400 000 samples. The octave count
+/// makes no difference, and roughness from 0.4 to 0.6 changes the
+/// damping by less than 1.5 %.
+pub(crate) const EROSION_DAMPING: [(f32, f32); 12] = [
+    (0.0, 1.0),
+    (0.25, 0.867),
+    (0.5, 0.782),
+    (0.75, 0.722),
+    (1.0, 0.674),
+    (1.5, 0.605),
+    (2.0, 0.555),
+    (3.0, 0.485),
+    (4.0, 0.437),
+    (6.0, 0.374),
+    (8.0, 0.333),
+    (10.0, 0.303),
+];
+
+/// The share of its spread an eroded noise layer keeps at `erosion` (0 to
+/// [`MAX_EROSION`](crate::MAX_EROSION)), from [`EROSION_DAMPING`].
+pub(crate) fn erosion_damping(erosion: f32) -> f32 {
+    let table = &EROSION_DAMPING;
+    let i = table
+        .iter()
+        .position(|&(e, _)| e >= erosion)
+        .unwrap_or(table.len() - 1)
+        .max(1);
+    let ((e0, d0), (e1, d1)) = (table[i - 1], table[i]);
+    let t = ((erosion - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    d0 + (d1 - d0) * t
+}
+
 /// Mean of the raw ridged sum (before scaling), at [`RIDGED_OCTAVES`].
 pub(crate) const RIDGED_MEAN: f32 = 0.541_666;
 
@@ -75,6 +112,51 @@ mod tests {
             .sum::<f64>()
             / n;
         (mean as f32, var.sqrt() as f32)
+    }
+
+    /// How much erosion lowers the spread of eroded fBm, against the same
+    /// noise without erosion, over erosion strengths, octave counts and
+    /// roughness. Run with `--ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn measure_erosion_damping() {
+        let points: Vec<DVec2> = samples().step_by(10).collect();
+        for gain in [0.4f32, 0.5, 0.6] {
+            for count in [3u32, 5, 6, 8] {
+                let octaves = crate::noise::Octaves { count, gain };
+                let spread = |erosion: f32| {
+                    let v: Vec<f32> = points
+                        .iter()
+                        .map(|&p| crate::noise::fbm(p * 0.1, 21, octaves, erosion))
+                        .collect();
+                    mean_std(&v).1
+                };
+                let raw = spread(0.0);
+                let ratios: Vec<String> = [0.3f32, 0.5, 1.0, 2.0, 4.0, 10.0]
+                    .iter()
+                    .map(|&e| format!("{e}: {:.3}", spread(e) / raw))
+                    .collect();
+                println!("DAMP gain {gain}, {count} octaves: {}", ratios.join(", "));
+            }
+        }
+
+        // The table, at roughness 0.5 and 6 octaves.
+        let octaves = crate::noise::Octaves {
+            count: 6,
+            gain: 0.5,
+        };
+        let spread = |erosion: f32| {
+            let v: Vec<f32> = samples()
+                .map(|p| crate::noise::fbm(p * 0.1, 21, octaves, erosion))
+                .collect();
+            mean_std(&v).1
+        };
+        let raw = spread(0.0);
+        let table: Vec<String> = EROSION_DAMPING
+            .iter()
+            .map(|&(e, _)| format!("({e:.2}, {:.3})", spread(e) / raw))
+            .collect();
+        println!("TABLE {}", table.join(", "));
     }
 
     #[test]

@@ -250,16 +250,36 @@ fn rivers_cross_borders_and_keep_falling() {
 
 #[test]
 fn neighbouring_mountain_rivers_both_cross_and_join_below() {
-    // In the two-terrain world, two mountain rivers reach the bent border
-    // about 150 m apart. Both cross into the plains, and neither ends in a
-    // pond: each joins a river there.
-    let world = two_terrains(DVec2::ZERO, common::DEFAULT);
+    // Plains and mountains with seed 30: two mountain rivers cross the
+    // bent border 140 m apart, closer than crossings of different kinds may
+    // be (rivers from one side may cross closer together). Both cross into
+    // the plains, and neither ends in a pond: each joins a river there.
+    let world = common::two_regions(
+        DVec2::ZERO,
+        common::preset(procgena_terrain::TerrainPreset::Plains, 30),
+        common::preset(procgena_terrain::TerrainPreset::Mountains, 30),
+        common::DEFAULT.convergence(),
+        &procgena_terrain::Elevation::flat(),
+    );
     let mountains = procgena_terrain::RegionId(2);
+    let rivers: Vec<(RegionEdge, Port)> = crossings(&world)
+        .into_iter()
+        .filter(|(_, p)| p.kind == (PortKind::River { from: mountains }))
+        .collect();
+    // The closest pair, which must be under 3 × the feature clearance.
+    let pair = rivers
+        .iter()
+        .flat_map(|a| rivers.iter().map(move |b| (a, b)))
+        .filter(|(a, b)| a.1.along < b.1.along)
+        .min_by(|(a, b), (c, d)| (b.1.along - a.1.along).total_cmp(&(d.1.along - c.1.along)))
+        .expect("two mountain rivers cross");
+    assert!(
+        pair.1.1.along - pair.0.1.along < 3.0 * procgena_terrain::FEATURE_CLEARANCE,
+        "the closest crossings are {} m apart",
+        pair.1.1.along - pair.0.1.along
+    );
     let mut joined = 0;
-    for (edge, port) in crossings(&world) {
-        if port.kind != (PortKind::River { from: mountains }) || port.along < 2000.0 {
-            continue;
-        }
+    for (edge, port) in [pair.0.clone(), pair.1.clone()] {
         let plains = terrain(&world, other(&world, &edge, mountains));
         let start = end_inside(plains, &edge, &port);
         let leaving = plains

@@ -276,14 +276,15 @@ pub fn two_regions(
 
 /// Hill seeds for [`hills_into_plains`] that give a river crossing with
 /// every one of [`CONFIGS`]: the only two found by searching seeds 0 to 299
-/// with the `river_crossing_seeds` probe (8 to 33 of the 300 give one with
+/// with the `river_crossing_seeds` probe (9 to 37 of the 300 give one with
 /// each configuration).
-pub const RIVER_SEEDS: [u32; 2] = [81, 293];
+pub const RIVER_SEEDS: [u32; 2] = [102, 173];
 
 /// Hill seeds for [`hills_into_plains`] whose plains have a river joining
-/// another river on a bend, where the smoothed rivers are easy to get
-/// crossed: 64 with shared seeds, 136 with unrelated seeds.
-pub const JOIN_SEEDS: [u32; 2] = [64, 136];
+/// another river on a sharp bend, where the smoothed rivers are easy to get
+/// crossed: the sharpest such bends in seeds 0 to 299, 56 with shared seeds
+/// (83°) and 65 with unrelated seeds (87°).
+pub const JOIN_SEEDS: [u32; 2] = [56, 65];
 
 /// Plains in the west and rolling hills in the east, split by the
 /// two-region border. With a seed from [`RIVER_SEEDS`] a river from the

@@ -7,6 +7,7 @@ use glam::DVec2;
 use crate::carve::{FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
+use crate::hash::{SEAM_DETAIL, salt};
 use crate::noise::{Octaves, fbm};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
@@ -41,8 +42,8 @@ const DETAIL_BAND: f64 = 48.0;
 const DETAIL_WAVELENGTH: f64 = 40.0;
 
 /// Seed of the shared border detail. Every terrain uses the same one, so
-/// both sides of a border add the same detail.
-const DETAIL_SEED: u32 = 0x5ea3_de7a;
+/// both sides of a border add the same detail (see [`SEAM_DETAIL`]).
+const DETAIL_SEED: u32 = salt(SEAM_DETAIL);
 
 /// Octaves of the shared border detail.
 const DETAIL_OCTAVES: Octaves = Octaves {

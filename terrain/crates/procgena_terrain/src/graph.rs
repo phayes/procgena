@@ -12,7 +12,7 @@ use std::fmt;
 
 use glam::{DVec2, I64Vec2, IVec2};
 
-use crate::hash::{derive_seed, hash2};
+use crate::hash::{GRAPH_SITE_X, GRAPH_SITE_Z, hash2, seed_for};
 use crate::ports::CORNER_CLEARANCE;
 use crate::region::{Boundary, Region, RegionCorner, RegionEdge, RegionId};
 
@@ -269,12 +269,12 @@ impl RegionGraph {
         let size = self.options.size;
         let stagger = if z.rem_euclid(2) == 1 { 0.5 } else { 0.0 };
         let point = DVec2::new((f64::from(x) + stagger) * size, f64::from(z) * ROW * size);
-        let unit = |salt: u32| {
-            let h = hash2(i64::from(x), i64::from(z), derive_seed(self.seed, salt));
+        let unit = |key: &str| {
+            let h = hash2(i64::from(x), i64::from(z), seed_for(self.seed, key));
             f64::from(h) / f64::from(u32::MAX) * 2.0 - 1.0
         };
-        // Salts of their own: 1 to 4 seed the relief's layers.
-        let site = point + DVec2::new(unit(201), unit(202)) * (0.5 * self.options.jitter * size);
+        let jitter = DVec2::new(unit(GRAPH_SITE_X), unit(GRAPH_SITE_Z));
+        let site = point + jitter * (0.5 * self.options.jitter * size);
         (site * PER_METRE).round().as_i64vec2()
     }
 

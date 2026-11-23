@@ -170,24 +170,27 @@ fn the_rougher_side_flattens_towards_its_border() {
 
 #[test]
 fn stated_relief_amplitude_matches_the_ground() {
+    // Over 10 seeds per preset, so a bias can't hide behind one seed.
     for p in TerrainPreset::ALL {
-        let generator = TerrainGenerator::new(preset(p, 3)).expect("valid preset");
-        let heights: Vec<f64> = (0..40_000)
-            .map(|i| {
-                let i = f64::from(i);
-                let q = DVec2::new((i * 61.803) % 60_000.0, (i * 1.37) % 60_000.0);
-                f64::from(generator.natural_height(q))
-            })
-            .collect();
-        let n = heights.len() as f64;
-        let mean = heights.iter().sum::<f64>() / n;
-        let measured = (heights.iter().map(|h| (h - mean).powi(2)).sum::<f64>() / n).sqrt();
-        let stated = f64::from(generator.relief_amplitude());
-        assert!(
-            (stated / measured - 1.0).abs() < 0.3,
-            "{}: stated {stated} m, measured {measured} m",
-            p.name()
-        );
+        for seed in 0..10 {
+            let generator = TerrainGenerator::new(preset(p, seed)).expect("valid preset");
+            let heights: Vec<f64> = (0..40_000)
+                .map(|i| {
+                    let i = f64::from(i);
+                    let q = DVec2::new((i * 61.803) % 60_000.0, (i * 1.37) % 60_000.0);
+                    f64::from(generator.natural_height(q))
+                })
+                .collect();
+            let n = heights.len() as f64;
+            let mean = heights.iter().sum::<f64>() / n;
+            let measured = (heights.iter().map(|h| (h - mean).powi(2)).sum::<f64>() / n).sqrt();
+            let stated = f64::from(generator.relief_amplitude());
+            assert!(
+                (stated / measured - 1.0).abs() < 0.15,
+                "{}, seed {seed}: stated {stated} m, measured {measured} m",
+                p.name()
+            );
+        }
     }
 }
 

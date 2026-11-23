@@ -9,10 +9,11 @@ use std::f64::consts::TAU;
 
 use glam::DVec2;
 
-use crate::hash::hash2;
+use crate::hash::{GULLY_CELLS, hash2, salt};
 
-/// Seed for the gully cells' jitter.
-const GULLY_SEED: u32 = 0x6a11_7e55;
+/// Seed for the gully cells' jitter: the same in every world (see
+/// [`GULLY_CELLS`]).
+const GULLY_SEED: u32 = salt(GULLY_CELLS);
 
 /// How far the cells' pivots may move from the cell centres, as a share of
 /// the cell size.
@@ -45,6 +46,8 @@ pub(crate) fn stripes(p: DVec2, flow: DVec2, spacing: f64, seed: u32) -> f64 {
         for dx in -1..=1 {
             // This cell's pivot, jittered from its centre.
             let k = cell + DVec2::new(f64::from(dx), f64::from(dz));
+            // `seed` picks one octave of the fixed pattern, a second level
+            // under `GULLY_SEED`, not a world seed.
             let h = hash2(k.x as i64, k.y as i64, seed ^ GULLY_SEED);
             let jitter = DVec2::new(
                 f64::from(h & 0xffff) / 65535.0 - 0.5,

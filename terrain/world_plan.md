@@ -362,7 +362,11 @@ impl HeightField for WorldTerrain { … }
   default settings, seeds 0–299): flat **24** of 300 give a river
   crossing; tilted 0.02 down towards the plains **65**; tilted up towards
   them **6**. Before the source fix the same probe gave 24, 8 and 12. The
-  drainage tilt works once sources ignore E.
+  drainage tilt works once sources ignore E. Re-recorded after the
+  string-key seed salts and the erosion-aware relief amplitude (see
+  "Re-recorded after the string-key seed salts" in `plan.md`): flat
+  24 → **20**, down towards the plains 65 → **64**, up towards them
+  6 → **4**.
 - **The flat baseline:** 24 is not comparable with Phase 2.5's 10–13.
   Those came from the `river_crossing_seeds` probe before relief
   blending existed (blend 0, today's default is 0.5), and Phases 2.6 to

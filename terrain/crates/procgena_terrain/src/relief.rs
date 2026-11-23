@@ -2,10 +2,10 @@
 
 use glam::{DVec2, Vec2};
 
-use crate::calibration::{MASK_OCTAVES, RIDGED_OCTAVES, mask_threshold};
+use crate::calibration::{MASK_OCTAVES, RIDGED_OCTAVES, erosion_damping, mask_threshold};
 use crate::converge::{Fade, LayerSpreads};
 use crate::elevation::Elevation;
-use crate::hash::derive_seed;
+use crate::hash::{RELIEF_HILLS, RELIEF_MOUNTAIN_MASK, RELIEF_RIDGES, RELIEF_SWELLS, seed_for};
 use crate::noise::{Octaves, fbm, ridged};
 use crate::options::{BaseOptions, NoiseLayer, RoadGrades, TerrainOptions};
 
@@ -48,8 +48,9 @@ pub(crate) struct Relief {
 }
 
 /// The spread of each layer of `base`, in metres (see [`LayerSpreads`]).
-/// Rolling layers count their noise only, not the lowering by erosion; the
-/// mountain layer counts its range mask as fully on or off.
+/// The hills count how much erosion lowers them (see
+/// [`erosion_damping`]); the mountain layer counts its range mask as fully
+/// on or off.
 pub(crate) fn layer_spreads(base: &BaseOptions) -> LayerSpreads {
     let m = &base.mountains;
     let c = m.coverage;
@@ -57,7 +58,7 @@ pub(crate) fn layer_spreads(base: &BaseOptions) -> LayerSpreads {
     let squared_mean = (c * CREST_MEAN).powi(2);
     [
         0.5 * base.swells.height,
-        0.5 * base.hills.height,
+        0.5 * base.hills.height * erosion_damping(base.erosion),
         m.height * (mean_square - squared_mean).max(0.0).sqrt(),
     ]
 }
@@ -72,10 +73,10 @@ impl Relief {
         Self {
             mask_threshold: mask_threshold(1.0 - base.mountains.coverage),
             base,
-            swell_seed: derive_seed(seed, 1),
-            hill_seed: derive_seed(seed, 2),
-            mask_seed: derive_seed(seed, 3),
-            ridge_seed: derive_seed(seed, 4),
+            swell_seed: seed_for(seed, RELIEF_SWELLS),
+            hill_seed: seed_for(seed, RELIEF_HILLS),
+            mask_seed: seed_for(seed, RELIEF_MOUNTAIN_MASK),
+            ridge_seed: seed_for(seed, RELIEF_RIDGES),
             roads: options.features.roads.grades(),
             fade: None,
             elevation: Elevation::flat(),

@@ -3,6 +3,10 @@
 //! Positions are split into an integer lattice cell and an f32 fraction, so
 //! the noise is equally detailed and repeatable at any distance from the
 //! origin.
+//!
+//! Each octave's seed is `derive_seed(seed, i)` for octave `i` of the
+//! layer's own seed: a second level under the layer's keyed seed (see
+//! `hash::KEYS`), so these small numbers never clash with a role's salt.
 
 use glam::{DVec2, I64Vec2, Vec2};
 

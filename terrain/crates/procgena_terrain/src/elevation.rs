@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use glam::DVec2;
 
-use crate::hash::derive_seed;
+use crate::hash::{ELEVATION_CONTINENTS, ELEVATION_UPLIFT, seed_for};
 use crate::noise::{MAX_OCTAVES, Octaves, fbm_gradient, fbm_slope_bound};
 use crate::options::NoiseLayer;
 
@@ -228,8 +228,8 @@ impl Elevation {
         Ok(Self {
             field: Some(Arc::new(Field {
                 options,
-                continents_seed: derive_seed(seed, 101),
-                uplift_seed: derive_seed(seed, 102),
+                continents_seed: seed_for(seed, ELEVATION_CONTINENTS),
+                uplift_seed: seed_for(seed, ELEVATION_UPLIFT),
             })),
         })
     }

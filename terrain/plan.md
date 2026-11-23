@@ -1094,11 +1094,12 @@ road; it is the hardest road in the test worlds.
 
 | | |
 |---|---|
-| World | `two_terrains(DVec2::ZERO, CONFIGS[10])` in `tests/common/mod.rs` (feature-suite world 60) |
+| World | `two_regions(DVec2::ZERO, preset(Plains, 62), preset(Mountains, 62), CONFIGS[10].convergence(), &Elevation::flat())` in `tests/common/mod.rs` (re-picked 2026-11-23, see below) |
 | Convergence | shared seeds, relief meeting −1 (`DEFAULT_RELIEF_MEETING`), relief blend 1.0 |
-| Regions | `RegionId(1)` Plains, seed 1, west; `RegionId(2)` Mountains, seed 1, east; border through (0, −1500), (150, −700), (−200, 0), (100, 800), (0, 1500); 4 km × 3 km in all |
-| Road | region 2's routed road: from the border crossing near (93, −441) up to the hub, the `RoadEnd` point of interest at (1060, 128), level 576.5 m; mountains' road grade 0.14, steepest 0.25; width 6 m |
-| Window | x 0 to 1280, z −640 to 640 holds the whole climb |
+| Regions | `RegionId(1)` Plains, seed 62, west; `RegionId(2)` Mountains, seed 62, east; border through (0, −1500), (150, −700), (−200, 0), (100, 800), (0, 1500); 4 km × 3 km in all |
+| Road | region 2's routed road: from the border crossing near (72, −398), level 28.4 m, up to the hub, the `RoadEnd` point of interest at (900, 16), level 572.0 m (a 546 m climb); mountains' road grade 0.14, steepest 0.25; width 6 m |
+| Window | x 0 to 1280, z −960 to 800 holds the whole climb |
+| Re-picked | The string-key seed salts (2026-11-23) changed every world. The old world (seed 1, road from (93, −441) to (1060, 128) at 576.5 m) now ends at a low hub, 53.9 m at (636, 320). Seed 62 has the biggest climb of seeds 0–119 (546 m; next 98 at 543 m and 88 at 540 m). |
 | Look at it | `cargo run --release -p procgena_terrain --example seam_spike -- <dir> 1.0` writes `two_terrains.ppm`; crop pixels 500–800 across and 350–650 down. The 3D viewer's data came from a temporary `scene_dump` probe in `tests/probes.rs` (2.5 m samples of that window with road tags). |
 
 **What changed**
@@ -1678,6 +1679,55 @@ fast Terrain Generation*; the Salève model, ESurf 2021).
   neighbours (a river crossing in brings its upstream area with it as
   part of the agreement), and how this fits the world generator's
   drainage tilt (`world_plan.md`).
+
+### Re-recorded after the string-key seed salts (2026-11-23)
+
+Seed salts became named string keys (`hash::KEYS`, FNV-1a), and the
+stated relief amplitude now counts erosion (see below). Both change
+every world, so the fixtures were re-picked and the figures re-measured.
+Earlier figures in this plan describe the worlds as they were then.
+
+- **Stated relief amplitude counts erosion.** `layer_spreads` multiplies
+  the hills' spread by `erosion_damping(erosion)`, a table measured by
+  the ignored test `measure_erosion_damping` (fBm at roughness 0.5,
+  6 octaves, 400 000 samples: 0.87 at erosion 0.25, 0.67 at 1, 0.56 at 2,
+  0.30 at 10; octave count makes no difference, roughness 0.4–0.6 under
+  1.5 %). Stated over measured amplitude, 40 seeds per preset: rolling
+  hills 1.29 (1.28–1.32) → 1.00 (0.99–1.02); plains 1.01 → 1.00;
+  mountains 1.10 → 1.10. The test `stated_relief_amplitude_matches_the_ground`
+  now checks 10 seeds per preset within 15 % (was seed 3 alone within
+  30 %, which rolling hills had only just passed).
+- **Re-picked seeds** (old → new):
+  - `RIVER_SEEDS` [81, 293] → [102, 173]: the only seeds in 0–299 with a
+    river crossing in all 12 configurations (9 to 37 of 300 per
+    configuration).
+  - `JOIN_SEEDS` [64, 136] → [56, 65]: the sharpest bends where one
+    plains river joins another, 83° with shared seeds and 87° with
+    unrelated seeds (the probe `join_bend_seeds`, new).
+  - `neighbouring_mountain_rivers_both_cross_and_join_below`: the fixed
+    two-terrain world → plains and mountains with seed 30 (crossings
+    140 m apart, both joining a river); the test now finds the closest
+    same-side pair and checks it is under 3 × the feature clearance.
+  - The mountain road test case: seed 1 → seed 62 (see the table under
+    "Road rework").
+  - Preview scenes: hills into plains 81 → 102 and 64 → 56; the flat
+    and tilted pair 33 → 15 (no crossing flat, two on the tilt).
+- **Border gap** (`border_gap`, plains–mountains, mean / largest):
+  default world (shared seeds, meeting −1, blend 0.5) 50 / 54 m; at
+  meeting −∞ 50 / 52 m, 0 60 / 73 m, 1 148 / 265 m; blend 0 100 / 107 m;
+  blend 1 0 / 0 m. Unrelated seeds: 50 / 54, 50 / 57, 65 / 101,
+  139 / 274, 100 / 114 and 0 / 0 m.
+- **River crossings on a slope** (`river_crossings_on_a_slope`): flat
+  24 → 20, tilted down towards the plains 65 → 64, up towards them
+  6 → 4.
+- **Bridges in the feature test worlds** (12 configurations): road–river
+  crossings 44 → 33, all of them still removing the water; rivers
+  crossed twice by one road 3 → 2, each with over 1.5 km of river between
+  the crossings (none under 600 m).
+- **`feature_limits`** (300 seeds × 12 configurations): 5 problems → 5,
+  now one river (seed 60, in five configurations) instead of seeds 149
+  and 4: the same cause, a road crossing 4.2 m from a confluence, its
+  level about 0.9 m above the water. Fixed by Phase 4 bridges.
 
 ### Alignment with ARCHITECTURE.md
 
