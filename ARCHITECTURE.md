@@ -1189,7 +1189,8 @@ Three shared crates, two of them new:
 - A new **engine-free core crate, `procgena_core`**
   (`core/crates/procgena_core`), for the rules: content hash, seeds and
   ids, the specimen budget, the LOD type, `Ground`, the `Scatter` trait,
-  shared placement, masks, edits and queries. It depends on glam alone, and
+  shared placement, masks, edits and queries. It depends on glam alone
+  (plus serde behind its `serde` feature, decided in R1), and
   `procgena_specimen` depends on it, not the other way round.
 - A new **Bevy crate, `procgena_core_bevy`**
   (`core/crates/procgena_core_bevy`), for shared runtime: the instanced
