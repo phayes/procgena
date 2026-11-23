@@ -74,6 +74,14 @@ pub mod tags {
     pub const LEAVES: Tag = Tag::new("leaves");
     /// A woody swelling on a trunk, limb or rock.
     pub const BURL: Tag = Tag::new("burl");
+    /// Dead wood lying on or standing in the ground, such as a fallen log,
+    /// a fallen branch, a stick or a stump.
+    pub const DEADWOOD: Tag = Tag::new("deadwood");
+    /// Bare wood with no bark covering it, such as a sawn end, a broken end
+    /// or a patch where the bark has peeled away. A part that shows both
+    /// bare wood and bark carries this tag and [`BARK`](self::BARK)
+    /// together.
+    pub const WOOD: Tag = Tag::new("wood");
 }
 
 /// The tags of one part, kept sorted and without repeats.

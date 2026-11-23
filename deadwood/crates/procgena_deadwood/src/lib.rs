@@ -64,13 +64,12 @@ mod presets;
 mod rng;
 mod scatter;
 mod settle;
+mod texture;
 
 pub use colour::{linear_from_hex, srgb_to_linear};
 pub use detail::{DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, LodLevel};
 pub use limb::SizeClass;
-pub use mesh::{
-    BillboardVertex, DeadwoodMesh, END_TEXTURE_SIZE, MeshBuffers, PartRange, Ribbons, Zone,
-};
+pub use mesh::{BillboardVertex, DeadwoodMesh, MeshBuffers, PartRange, Ribbons, Zone};
 pub use object::object_from_meshes;
 pub use options::{
     BarkOptions, BranchingOptions, DeadwoodOptions, EndKind, EndsOptions, HollowOptions,
@@ -85,3 +84,7 @@ pub use scatter::{
     ScatterOptions, StickScatter,
 };
 pub use settle::Placement;
+pub use texture::{
+    BARK_TEXTURE_SETS, END_TEXTURE_SETS, TextureCompression, TextureMap, TextureSize,
+    bark_texture_path, end_texture_path,
+};

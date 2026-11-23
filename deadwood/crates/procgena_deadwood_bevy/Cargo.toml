@@ -1,0 +1,23 @@
+[package]
+name = "procgena_deadwood_bevy"
+version = "0.1.0"
+description = "Bevy plugin for procgena_deadwood: fallen logs, branches, stumps and stick scatter with levels of detail"
+edition.workspace = true
+
+[dependencies]
+procgena_deadwood = { path = "../procgena_deadwood" }
+procgena_mesh = { path = "../../../mesh/crates/procgena_mesh", features = ["bevy"] }
+serde_json = { workspace = true }
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_pbr",
+] }
+
+[dev-dependencies]
+bevy = { version = "0.20.1", features = ["free_camera"] }
+
+[package.metadata.docs.rs]
+all-features = true

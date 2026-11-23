@@ -1,0 +1,58 @@
+# Bark and end-grain textures for procgena_deadwood, used by the `textures`
+# tool:
+#   uv run --project tools textures <command> deadwood
+# See tools/README.md for the commands. Only add textures whose licence allows
+# commercial use (CC0 or MIT).
+
+# Folder in the public gs://ze_textures bucket that holds these textures.
+bucket: deadwood
+
+# How surface maps are stored. `roughness` keeps roughness as its own image,
+# with the same value in red, green and blue.
+layout: roughness
+
+# Folder under assets/textures/ for every set below, unless a set names its own.
+category: bark
+
+# Texture sets, in manifest order. The id names the output files.
+# `source` defaults to polyhaven and `source_id` to the id. Sources:
+#   polyhaven  https://polyhaven.com/a/<source_id>
+#   ambientcg  https://ambientcg.com/a/<source_id>
+# Choose textures that provide 2k JPEG colour, OpenGL normal and roughness maps.
+sets:
+  # Bark, named by MaterialOptions::bark_texture. The same sets as
+  # procgena_tree, so a log can match the tree it fell from.
+  - id: bark_brown_02
+  - id: bark_brown_01
+  - id: bark_willow
+  - id: bark_willow_02
+  - id: pine_bark
+  - id: tree_bark_03
+  - id: palm_tree_bark
+  - id: sakura_bark
+  - id: japanese_sycamore
+  - id: japanese_hackberry_bark
+  - id: chinese_cedar_bark
+  - id: japanese_zelkova_bark
+  - id: japanese_camphor_bark
+  - id: knotted_pine_bark
+  - id: jolcham_oak_bark_01
+  - id: eucalyptus_bark
+  - id: trident_maple_bark
+  - id: palm_bark
+  - id: japanese_cedar_bark
+  - id: bark_platanus
+  - id: bark_bluegum
+  - id: metasequoia_bark
+  - id: chinese_hackberry_bark
+  - {id: Bark001, source: ambientcg}
+  - {id: Bark002, source: ambientcg}
+  - {id: Bark003, source: ambientcg}
+  - {id: Bark009, source: ambientcg}
+  - {id: Bark014, source: ambientcg}
+  - {id: Bark016, source: ambientcg}
+
+  # End grain: photos of sawn tree ends, drawn over the rings on cut ends
+  # and stump tops.
+  - {id: TreeEnd003, source: ambientcg, category: end}
+  - {id: TreeEnd005, source: ambientcg, category: end}

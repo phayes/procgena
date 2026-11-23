@@ -241,6 +241,7 @@ impl DeadwoodPreset {
             Self::FelledStump => DeadwoodOptions {
                 seed: 31,
                 kind: PieceKind::Stump,
+                material: stump_material(),
                 decay: 0.5,
                 length: 0.5,
                 diameter: 0.5,
@@ -256,6 +257,7 @@ impl DeadwoodPreset {
             Self::NotchedStump => DeadwoodOptions {
                 seed: 32,
                 kind: PieceKind::Stump,
+                material: stump_material(),
                 decay: 1.0,
                 length: 0.7,
                 diameter: 0.55,
@@ -280,6 +282,7 @@ impl DeadwoodPreset {
             Self::SnappedStump => DeadwoodOptions {
                 seed: 33,
                 kind: PieceKind::Stump,
+                material: stump_material(),
                 decay: 2.0,
                 length: 1.4,
                 diameter: 0.45,
@@ -294,6 +297,7 @@ impl DeadwoodPreset {
             Self::RottenStump => DeadwoodOptions {
                 seed: 34,
                 kind: PieceKind::Stump,
+                material: stump_material(),
                 decay: 4.2,
                 length: 0.6,
                 diameter: 0.5,
@@ -322,6 +326,15 @@ impl DeadwoodPreset {
 fn no_stubs() -> StubOptions {
     StubOptions {
         per_metre: 0.0,
+        ..Default::default()
+    }
+}
+
+/// Material for stumps: the default, with the fresher end-grain photo on
+/// a sawn top.
+fn stump_material() -> MaterialOptions {
+    MaterialOptions {
+        end_texture: Some("TreeEnd003".into()),
         ..Default::default()
     }
 }

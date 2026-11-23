@@ -15,16 +15,8 @@ use crate::curve::perpendicular;
 use crate::decay::Decay;
 use crate::detail::DeadwoodDetail;
 use crate::limb::{HollowEnd, Limb, Role, SizeClass};
+use crate::options::EndKind;
 use crate::rng::{smoothstep, value_noise};
-
-/// Width, in metres, that one repeat of an end-grain texture covers on a
-/// cut or broken end.
-///
-/// End grain is the face of wood seen across the stem, where the growth
-/// rings show. A square texture of rings is laid flat across each end and
-/// centred on the end's middle, so a 0.45 m texture fits a log about that
-/// wide.
-pub const END_TEXTURE_SIZE: f32 = 0.45;
 
 /// Shortest edge around a stem, in metres; thin stems get fewer sides.
 const MIN_EDGE: f32 = 0.002;
@@ -37,10 +29,13 @@ pub enum Zone {
     /// A natural, bark-covered tip ([`crate::EndKind::Taper`]) also counts
     /// as side.
     Side = 0,
-    /// A cut or broken end, showing growth rings, with a rim of bark.
+    /// A broken or axe-cut end, showing growth rings, with a rim of bark.
     End = 1,
     /// The inside of a hollow.
     Hollow = 2,
+    /// A flat saw or chainsaw cut, showing clean growth rings, with a rim
+    /// of bark. An end-grain photo fits here.
+    Cut = 3,
 }
 
 /// Vertex and triangle data for one mesh.
@@ -57,8 +52,9 @@ pub struct MeshBuffers {
     /// Texture coordinates. On a stem's side, `u` runs from 0 to 1 once
     /// around it and `v` runs along it, one unit per circumference at the
     /// stem's base, so a square bark texture keeps its shape. On ends, the
-    /// coordinates lie flat across the end, one unit per
-    /// [`END_TEXTURE_SIZE`], with 0.5 at the middle.
+    /// coordinates lie flat across the end, with 0.5 at the middle and 0
+    /// and 1 at the stem's smooth outline (before bumps and bark plates),
+    /// so a square photo of a tree end fits the end.
     pub uvs: Vec<[f32; 2]>,
     /// Tangents for normal maps, which add fine surface relief in the
     /// renderer. The first three values are the direction in which `u`
@@ -267,7 +263,7 @@ pub(crate) fn build_mesh(limbs: &[Limb], detail: &DeadwoodDetail, shade: &Shade)
             if limb.role != Role::Main && r < detail.min_radius {
                 continue;
             }
-            if limb.role != Role::Main && r < detail.ribbon_radius {
+            if detail.strip_all || (limb.role != Role::Main && r < detail.ribbon_radius) {
                 ribbon(&mut ribbons, limb, detail, main_radius, shade);
                 continue;
             }
@@ -429,6 +425,19 @@ fn end_cap(
     let wood = end.shows_wood();
     let step = (0.5 / caps.max(1) as f32, PI / sides as f32);
 
+    // Sawn faces get their own zone, for end-grain photos. Texture
+    // coordinates span the end's smooth outline, averaged around it.
+    let end_zone = match end.kind {
+        EndKind::Saw { .. } | EndKind::Chainsaw { .. } => Zone::Cut,
+        _ => Zone::End,
+    };
+    let u_end = limb.end_plane(e);
+    let outline = (0..8)
+        .map(|i| limb.nominal_radius(u_end, i as f32 * TAU / 8.0))
+        .sum::<f32>()
+        / 8.0;
+    let uv_scale = 0.5 / outline.max(1e-4);
+
     // Ring fractions for each angle: the rim, the inner edge of the bark,
     // then evenly inward to the middle or to the hollow.
     let fractions = |theta: f32| -> Vec<f32> {
@@ -473,8 +482,8 @@ fn end_cap(
             let normal = end_normal(limb, e, f, theta, step);
             let local = position - plane.position;
             let uv = Vec2::new(
-                0.5 + local.dot(plane.normal) / END_TEXTURE_SIZE,
-                0.5 + local.dot(plane.binormal) / END_TEXTURE_SIZE,
+                0.5 + local.dot(plane.normal) * uv_scale,
+                0.5 + local.dot(plane.binormal) * uv_scale,
             );
             let tan = tangent(normal, plane.normal, plane.binormal);
             let radius = (local - plane.tangent * local.dot(plane.tangent)).length();
@@ -484,9 +493,9 @@ fn end_cap(
                 let (zone, colour, cover) = if !wood {
                     (Zone::Side, shade.side(bark, rot), bark)
                 } else if bark_side {
-                    (Zone::End, shade.side(bark, rot), bark)
+                    (end_zone, shade.side(bark, rot), bark)
                 } else {
-                    (Zone::End, shade.end(f, rot), 0.0)
+                    (end_zone, shade.end(f, rot), 0.0)
                 };
                 rows[row].push(out.next_index());
                 out.push(Vertex {
@@ -532,7 +541,7 @@ fn end_cap(
         let normal = end_normal(limb, e, 0.0, 0.0, step);
         let rot = shade.rot(position);
         let (zone, colour, cover) = if wood {
-            (Zone::End, shade.end(0.0, rot), 0.0)
+            (end_zone, shade.end(0.0, rot), 0.0)
         } else {
             let bark = 1.0 - limb.bare(limb.end_plane(e), 0.0);
             (Zone::Side, shade.side(bark, rot), bark)

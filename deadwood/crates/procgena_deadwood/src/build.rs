@@ -94,15 +94,17 @@ fn main_limb(o: &DeadwoodOptions, decay: &Decay) -> Limb {
     let up = if stump { across_a } else { Vec3::Y };
     let curve = Curve::through(&points, samples, up);
 
-    // Ends: a stump's base is a hidden flat cut below the ground.
+    // Ends: a stump's base is a hidden flat cut below the ground. Ends too
+    // long for the stem are shrunk to fit.
     let base_kind = if stump {
         EndKind::Saw { tilt: 0.0 }
     } else {
         o.ends.base
     };
+    let (base_kind, tip_kind) = fit_ends(base_kind, o.ends.tip, r0, r1, o.length);
     let ends = [
         End::new(base_kind, r0, sub_seed(o.seed, 10), decay.soften),
-        End::new(o.ends.tip, r1, sub_seed(o.seed, 11), decay.soften),
+        End::new(tip_kind, r1, sub_seed(o.seed, 11), decay.soften),
     ];
 
     let flare = stump.then(|| Flare {
@@ -144,6 +146,74 @@ fn main_limb(o: &DeadwoodOptions, decay: &Decay) -> Limb {
         hollow,
         squash: 0.0,
         up: Vec3::Y,
+    }
+}
+
+/// Returns `base` and `tip`, shrunk if needed so that together they take up
+/// at most [`MAX_END_SHARE`] of a stem `length` long, with radii `r0` at
+/// the base and `r1` at the tip.
+///
+/// Both ends are shrunk by the same amount (see [`shrink`]), as little as
+/// fits. If even the smallest versions are too long, which happens with an
+/// axe cut or a natural tip on a very short stem, the longer end becomes a
+/// flat cut, then the other.
+fn fit_ends(base: EndKind, tip: EndKind, r0: f32, r1: f32, length: f32) -> (EndKind, EndKind) {
+    let room = MAX_END_SHARE * length;
+    let total = |b: EndKind, t: EndKind| b.span(r0) + t.span(r1);
+    if total(base, tip) <= room {
+        return (base, tip);
+    }
+
+    // The largest shrink factor that fits, by bisection: spans grow with it.
+    let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if total(shrink(base, mid), shrink(tip, mid)) <= room {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let (mut base, mut tip) = (shrink(base, lo), shrink(tip, lo));
+
+    // Flat cuts in place of ends that can't shrink enough.
+    let flat = EndKind::Saw { tilt: 0.0 };
+    if total(base, tip) > room {
+        if base.span(r0) >= tip.span(r1) {
+            base = flat;
+        } else {
+            tip = flat;
+        }
+    }
+    if total(base, tip) > room {
+        (base, tip) = (flat, flat);
+    }
+    (base, tip)
+}
+
+/// Returns `end` with its tilt, step, jaggedness and slant scaled by `t`
+/// (from 0 to 1) and an axe wedge opened toward its widest angle, so its
+/// span grows with `t`. A natural tip is unchanged.
+fn shrink(end: EndKind, t: f32) -> EndKind {
+    match end {
+        EndKind::Saw { tilt } => EndKind::Saw { tilt: tilt * t },
+        EndKind::Chainsaw { tilt, step } => EndKind::Chainsaw {
+            tilt: tilt * t,
+            step: step * t,
+        },
+        EndKind::Axe { angle } => EndKind::Axe {
+            angle: 150.0 - (150.0 - angle) * t,
+        },
+        EndKind::Snapped {
+            jaggedness,
+            splinters,
+            one_sided,
+        } => EndKind::Snapped {
+            jaggedness: jaggedness * t,
+            splinters,
+            one_sided: one_sided * t,
+        },
+        EndKind::Taper => EndKind::Taper,
     }
 }
 
@@ -494,4 +564,103 @@ fn add_roots(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
         });
     }
     limbs.extend(roots);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DeadwoodPreset, Piece};
+
+    /// The length both ends of `ends` take up, for radii `r0` and `r1`.
+    fn spans(ends: (EndKind, EndKind), r0: f32, r1: f32) -> f32 {
+        ends.0.span(r0) + ends.1.span(r1)
+    }
+
+    #[test]
+    fn ends_that_fit_are_unchanged() {
+        let base = EndKind::Saw { tilt: 10.0 };
+        let tip = EndKind::Axe { angle: 60.0 };
+        assert_eq!(fit_ends(base, tip, 0.1, 0.1, 3.0), (base, tip));
+    }
+
+    #[test]
+    fn long_ends_shrink_just_enough_to_fit() {
+        let base = EndKind::Chainsaw {
+            tilt: 30.0,
+            step: 0.3,
+        };
+        let tip = EndKind::Snapped {
+            jaggedness: 1.0,
+            splinters: 5,
+            one_sided: 1.0,
+        };
+        let (r0, r1, length) = (0.2, 0.18, 0.8);
+        assert!(spans((base, tip), r0, r1) > MAX_END_SHARE * length);
+
+        let fitted = fit_ends(base, tip, r0, r1, length);
+        let used = spans(fitted, r0, r1);
+        assert!(used <= MAX_END_SHARE * length, "{fitted:?} uses {used}");
+        assert!(
+            used > 0.99 * MAX_END_SHARE * length,
+            "{fitted:?} shrank too far"
+        );
+        // Same shapes, gentler; the splinter count is kept.
+        assert!(matches!(fitted.0, EndKind::Chainsaw { tilt, .. } if tilt < 30.0));
+        assert!(matches!(
+            fitted.1,
+            EndKind::Snapped { jaggedness, splinters: 5, .. } if jaggedness < 1.0
+        ));
+    }
+
+    #[test]
+    fn ends_that_cannot_shrink_enough_become_flat_cuts() {
+        // A natural tip always reaches one radius; on a stem shorter than
+        // that it can't fit, and nor can an axe cut.
+        let flat = EndKind::Saw { tilt: 0.0 };
+        // The longer end, the tip, goes flat; the axe cut, opened as wide as
+        // it goes, then fits.
+        let fitted = fit_ends(EndKind::Axe { angle: 40.0 }, EndKind::Taper, 0.1, 0.1, 0.1);
+        assert_eq!(fitted, (EndKind::Axe { angle: 150.0 }, flat));
+        // On a stem too short for even that, both go flat.
+        let fitted = fit_ends(EndKind::Axe { angle: 40.0 }, EndKind::Taper, 0.1, 0.1, 0.02);
+        assert_eq!(fitted, (flat, flat));
+        // A natural tip too long for the stem goes flat on its own.
+        let fitted = fit_ends(flat, EndKind::Taper, 0.1, 0.1, 0.2);
+        assert_eq!(fitted, (flat, flat));
+        // A thin natural tip fits once a blunter axe cut makes room.
+        let fitted = fit_ends(EndKind::Axe { angle: 40.0 }, EndKind::Taper, 0.1, 0.02, 0.2);
+        assert!(
+            matches!(fitted.0, EndKind::Axe { angle } if angle > 40.0),
+            "{fitted:?}"
+        );
+        assert_eq!(fitted.1, EndKind::Taper);
+    }
+
+    #[test]
+    fn every_preset_builds_with_any_end_shape() {
+        let shapes = [
+            EndKind::Saw { tilt: 45.0 },
+            EndKind::Chainsaw {
+                tilt: 30.0,
+                step: 0.3,
+            },
+            EndKind::Axe { angle: 30.0 },
+            EndKind::Snapped {
+                jaggedness: 1.0,
+                splinters: 24,
+                one_sided: 1.0,
+            },
+            EndKind::Taper,
+        ];
+        for preset in DeadwoodPreset::ALL {
+            for base in shapes {
+                for tip in shapes {
+                    let mut o = preset.options();
+                    o.ends = crate::EndsOptions { base, tip };
+                    let piece = Piece::new(o);
+                    assert!(piece.is_ok(), "{}: {base:?} {tip:?}", preset.name());
+                }
+            }
+        }
+    }
 }

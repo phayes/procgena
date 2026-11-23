@@ -24,12 +24,14 @@
 
 #[cfg(feature = "bevy")]
 mod bevy;
+mod ground;
 mod object;
 mod surface;
 mod tag;
 
 #[cfg(feature = "bevy")]
 pub use bevy::GeneratedObject;
+pub use ground::{FlatGround, Ground, HeightGrid};
 pub use object::{Level, Object, ObjectError, Part};
 pub use surface::{Surface, SurfaceError, SurfaceMesh};
 pub use tag::{Tag, TagFilter, TagSet, tags};

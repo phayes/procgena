@@ -76,7 +76,18 @@ fn every_preset_meshes_cleanly_at_every_detail() {
         for detail in details() {
             let mesh = piece.mesh_with_detail(&detail);
             let name = format!("{} {}", preset.name(), detail.sides);
-            assert!(mesh.surfaces.triangle_count() > 0, "{name}");
+            // A strips-only level draws everything as strips; the others
+            // keep at least the round main stem.
+            if detail.strip_all {
+                assert_eq!(mesh.surfaces.triangle_count(), 0, "{name}");
+                let strips = mesh
+                    .ribbons
+                    .as_ref()
+                    .map_or(0, |r| r.strip.triangle_count());
+                assert!(strips > 0, "{name}: no strips");
+            } else {
+                assert!(mesh.surfaces.triangle_count() > 0, "{name}");
+            }
             assert_well_formed(&mesh.surfaces, &name);
             if let Some(r) = &mesh.ribbons {
                 assert_well_formed(&r.strip, &name);
@@ -186,10 +197,15 @@ fn blind_hollow_never_breaks_through_the_far_end() {
             .map(|i| b.positions[i][0])
             .fold(f32::MIN, f32::max);
         let nearest_tip = (0..b.vertex_count())
-            .filter(|&i| b.wood[i][0] == procgena_deadwood::Zone::End as u32 as f32)
+            .filter(|&i| {
+                let zone = b.wood[i][0];
+                zone == procgena_deadwood::Zone::End as u32 as f32
+                    || zone == procgena_deadwood::Zone::Cut as u32 as f32
+            })
             .map(|i| b.positions[i][0])
             .filter(|&x| x > 1.5)
             .fold(f32::MAX, f32::min);
+        assert!(nearest_tip < f32::MAX, "{tip:?}: no tip end vertices");
         assert!(
             deepest_hollow < nearest_tip,
             "{tip:?}: hollow reaches {deepest_hollow}, tip end starts at {nearest_tip}"
@@ -251,4 +267,48 @@ fn branches_have_side_branches_and_logs_do_not() {
     })
     .unwrap();
     assert_eq!(log.stem_count(), 1);
+}
+
+#[test]
+fn sawn_ends_are_cut_zones_with_uvs_spanning_the_end() {
+    // A plain log, sawn at the base and snapped at the tip.
+    let o = DeadwoodOptions {
+        ends: EndsOptions {
+            base: EndKind::Saw { tilt: 0.0 },
+            tip: EndKind::Snapped {
+                jaggedness: 0.5,
+                splinters: 4,
+                one_sided: 0.5,
+            },
+        },
+        stubs: procgena_deadwood::StubOptions {
+            per_metre: 0.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mesh = Piece::new(o)
+        .unwrap()
+        .mesh_with_detail(&DeadwoodDetail::FULL);
+    let b = &mesh.surfaces;
+    let in_zone = |zone: procgena_deadwood::Zone| {
+        (0..b.vertex_count())
+            .filter(move |&i| b.wood[i][0] == zone as u32 as f32)
+            .collect::<Vec<_>>()
+    };
+    let cut = in_zone(procgena_deadwood::Zone::Cut);
+    let broken = in_zone(procgena_deadwood::Zone::End);
+    assert!(!cut.is_empty(), "the sawn base has no cut vertices");
+    assert!(!broken.is_empty(), "the snapped tip has no end vertices");
+
+    // On the sawn end, texture coordinates centre on 0.5 and reach close
+    // to 0 and 1 at the rim, but not far past them.
+    let reach = cut
+        .iter()
+        .map(|&i| (Vec3::new(b.uvs[i][0], b.uvs[i][1], 0.0) - Vec3::new(0.5, 0.5, 0.0)).length())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        (0.4..0.65).contains(&reach),
+        "cut end texture coordinates reach {reach} from the middle"
+    );
 }

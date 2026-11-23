@@ -11,8 +11,53 @@ half-buried mound.
 
 - **Done:** Phases 0–8, plus 5b (stumps): the core crate `procgena_deadwood`,
   with tests and an export example.
-- **Not started:** Phases 9–11 (Bevy crate, textures, studio tab) and 13
-  (the `FallenTree` stretch goal).
+- **Done:** Phase 9, the Bevy crate `procgena_deadwood_bevy`, with headless
+  tests, a GPU shader test and a viewer.
+- **Done:** Phase 10, `deadwood/textures.yml` (the 29 bark sets and the
+  two end-grain sets) and the end-grain photos in the material. The
+  textures are converted locally; they still need uploading to
+  `gs://ze_textures/deadwood/`.
+- **Done:** Phase 11, the studio's Dead Wood tab: presets, seed, every
+  option (grouped into Piece, Ends, Shape, Parts, Bark, Colours,
+  Textures, Resting), a Level of Detail picker, save/load JSON and
+  GLB/OBJ export. Textures come through the studio's downloading asset
+  source. Not built: the scatter-patch scene and the "add moss" toggle.
+- **Ends too long for the stem** are no longer an error: the core shrinks
+  both ends by one factor until they fit, and turns an axe cut or natural
+  tip that still can't fit into a flat cut. `OptionsError::EndsTooLong`
+  and scatter's own `fit_ends` are gone.
+- **Not started:** Phase 13 (the `FallenTree` stretch goal).
+
+How the Bevy crate differs from this plan:
+
+- **Bark textures** are tree's bark sets in tree's layout (colour, normal,
+  roughness), listed in the core's `BARK_TEXTURE_SETS`. Deadwood's
+  `textures.yml` lists them again, so its download is self-contained (the
+  bucket holds a second copy). The material divides the bark image by its
+  smallest mip (its average colour), so the vertex colour stays the bark's
+  overall colour. New core option: `MaterialOptions::bark_texture_size`.
+- **No extra decay tint in the shader.** The core already bakes
+  weathering, rot, heartwood and sapwood into the vertex colours; the
+  shader adds only detail: rings, pith, drying cracks, grain, bark.
+- **Wood values go in UV1** (zone × 4 + bark cover, and radius), not a
+  custom attribute, so the standard vertex outputs carry them. Rot is not
+  passed; it is in the colours.
+- **End-grain photos** (ambientCG `TreeEnd003` and `TreeEnd005`) are
+  whole tree ends, not tiling textures. They are drawn only on sawn ends
+  (a new `Zone::Cut` for `Saw` and `Chainsaw`), never on snapped or axe
+  ends. End UVs now span each end's own outline (0.5 at the middle), and
+  `END_TEXTURE_SIZE` is gone. The shader maps the end's middle to the
+  photo's pith and its outline to a hand-measured circle inside the
+  photo's wood, fading out past it, and divides by a hand-measured average
+  colour of that circle. The drawn rings are kept at a quarter strength
+  under the photo, with the drawn cracks. Drying cracks now scale with
+  each end's own radius. New core option: `MaterialOptions::end_texture`
+  (default `TreeEnd005`; stump presets use `TreeEnd003`).
+- **Scatter ground** is chosen explicitly: `ScatterGround::Flat` or
+  `ScatterGround::Host` (the parent's `GeneratedObject`, sampled into a
+  `HeightGrid`).
+- **Burial** is reported through a `DeadwoodPlacement` component, not
+  applied.
 
 How the core crate differs from this plan:
 
@@ -27,8 +72,13 @@ How the core crate differs from this plan:
   - `rings_per_metre` became `segments_per_diameter`;
   - `stripped_lip` was dropped;
   - `ribbon_radius` was added: stems thinner than this become strips.
-  - The ladder has three levels (`FULL`, `HIGH`, `LOW`) and a cull
-    distance.
+  - The ladder has four levels (`FULL` from 0 m, `HIGH` from 8 m, `LOW`
+    from 25 m, `STRIP` from 45 m) and a cull at 90 m, for a piece 45 cm
+    across. `STRIP` (`strip_all`) draws every stem, the main one included,
+    as a camera-facing strip, and casts no shadows in Bevy. Distances
+    *and* the `min_radius`/`ribbon_radius` thresholds scale with the
+    piece's size (`max(diameter, 0.15 × length)`), so one ladder serves
+    logs and twigs.
 - **Limits applied in the code:**
   - wobble is capped at 0.1 of the control-point spacing;
   - a side stem's tip that doesn't fit becomes a flat cut;

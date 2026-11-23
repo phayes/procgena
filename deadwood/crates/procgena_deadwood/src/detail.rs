@@ -37,9 +37,14 @@ pub struct DeadwoodDetail {
     /// are drawn as flat strips that a renderer turns to face the camera (see
     /// [`crate::Ribbons`]) instead of as round tubes. From a distance a
     /// strip looks like a thin round twig but costs far fewer triangles. The
-    /// main stem is always round. Must be zero or more; zero draws
-    /// everything round.
+    /// main stem stays round unless [`strip_all`](Self::strip_all) is set.
+    /// Must be zero or more; zero draws everything round.
     pub ribbon_radius: f32,
+    /// Draws every stem kept, the main stem included, as a flat strip, with
+    /// no ends. For the farthest level, where a piece is only a few pixels
+    /// across. Defaults to false in JSON.
+    #[serde(default)]
+    pub strip_all: bool,
 }
 
 impl DeadwoodDetail {
@@ -50,6 +55,7 @@ impl DeadwoodDetail {
         cap_rings: 8,
         min_radius: 0.0,
         ribbon_radius: 0.0,
+        strip_all: false,
     };
     /// Mid-distance detail: about a quarter of the triangles of
     /// [`FULL`](Self::FULL). Thin twigs become strips.
@@ -59,6 +65,7 @@ impl DeadwoodDetail {
         cap_rings: 3,
         min_radius: 0.002,
         ribbon_radius: 0.008,
+        strip_all: false,
     };
     /// Distant detail: an eight-sided stem, flat ends, only thick branches.
     pub const LOW: Self = Self {
@@ -67,13 +74,25 @@ impl DeadwoodDetail {
         cap_rings: 1,
         min_radius: 0.015,
         ribbon_radius: 0.03,
+        strip_all: false,
+    };
+    /// Farthest detail: every stem a flat strip turned toward the camera,
+    /// with only the thickest branches kept. A few triangles per stem.
+    pub const STRIP: Self = Self {
+        sides: 3,
+        segments_per_diameter: 0.25,
+        cap_rings: 1,
+        min_radius: 0.03,
+        ribbon_radius: 0.0,
+        strip_all: true,
     };
 
     /// The named detail levels, for menus.
-    pub const PRESETS: [(&'static str, Self); 3] = [
+    pub const PRESETS: [(&'static str, Self); 4] = [
         ("Full", Self::FULL),
         ("High", Self::HIGH),
         ("Low", Self::LOW),
+        ("Strip", Self::STRIP),
     ];
 
     /// Checks every setting and returns the first one out of range.
@@ -139,8 +158,9 @@ impl Default for DeadwoodLod {
                 level(0.0, DeadwoodDetail::FULL),
                 level(8.0, DeadwoodDetail::HIGH),
                 level(25.0, DeadwoodDetail::LOW),
+                level(45.0, DeadwoodDetail::STRIP),
             ],
-            cull_distance: 80.0,
+            cull_distance: 90.0,
         }
     }
 }
@@ -152,13 +172,28 @@ impl DeadwoodLod {
     /// The piece's size is its diameter, or 15% of its length if that is
     /// larger, since long thin pieces stay visible further away.
     pub fn for_options(options: &DeadwoodOptions) -> Self {
-        Self::default().scaled(lod_size(options) / DEFAULT_LOD_SIZE)
+        Self::default().sized_for(options)
     }
 
-    /// Returns these levels with every distance multiplied by `factor`.
+    /// Returns these levels, written for a piece [`DEFAULT_LOD_SIZE`]
+    /// across, scaled to suit a piece made from `options` (see
+    /// [`scaled`](Self::scaled)). The piece's size is measured as in
+    /// [`for_options`](Self::for_options).
+    pub fn sized_for(self, options: &DeadwoodOptions) -> Self {
+        self.scaled(lod_size(options) / DEFAULT_LOD_SIZE)
+    }
+
+    /// Returns these levels with every distance, and each level's
+    /// [`min_radius`](DeadwoodDetail::min_radius) and
+    /// [`ribbon_radius`](DeadwoodDetail::ribbon_radius), multiplied by
+    /// `factor`. A piece twice as large then switches level twice as far
+    /// away, and drops or flattens stems twice as thick, so each level
+    /// looks the same on screen whatever the piece's size.
     pub fn scaled(mut self, factor: f32) -> Self {
         for level in &mut self.levels {
             level.distance *= factor;
+            level.detail.min_radius *= factor;
+            level.detail.ribbon_radius *= factor;
         }
         self.cull_distance *= factor;
         self
@@ -212,7 +247,24 @@ mod tests {
         lod.validate().unwrap();
         let half = lod.clone().scaled(0.5);
         assert_eq!(half.levels[1].distance, lod.levels[1].distance * 0.5);
+        assert_eq!(half.cull_distance, lod.cull_distance * 0.5);
+        // Stem thresholds scale with the distances.
+        let (low, half_low) = (lod.levels[2].detail, half.levels[2].detail);
+        assert_eq!(half_low.min_radius, low.min_radius * 0.5);
+        assert_eq!(half_low.ribbon_radius, low.ribbon_radius * 0.5);
         half.validate().unwrap();
+    }
+
+    #[test]
+    fn default_lod_ends_with_strips() {
+        let lod = DeadwoodLod::default();
+        let last = lod.levels.last().unwrap();
+        assert!(last.detail.strip_all);
+        assert!(
+            lod.levels[..lod.levels.len() - 1]
+                .iter()
+                .all(|l| !l.detail.strip_all)
+        );
     }
 
     #[test]

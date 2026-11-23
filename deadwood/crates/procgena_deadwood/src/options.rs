@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::colour::parse_hex;
 use crate::detail::DeadwoodDetail;
+use crate::texture::{BARK_TEXTURE_SETS, END_TEXTURE_SETS};
 
 /// Highest decay class. Decay runs from 0 (just fallen) to this value (a
 /// soft, crumbling mound).
@@ -31,8 +32,9 @@ pub const MAX_ROOTS: u32 = 16;
 pub const MAX_SPLINTERS: u32 = 24;
 /// Largest allowed segment or side count in a [`DeadwoodDetail`].
 pub const MAX_SEGMENTS: u32 = 256;
-/// Largest share of the main length that both ends together may take up.
-/// A cut or break reaches into the wood, and must leave some of it whole.
+/// Largest share of the main length that both ends together take up. A
+/// cut or break reaches into the wood and must leave some of it whole, so
+/// ends that would take up more are shrunk to fit when the piece is built.
 pub const MAX_END_SHARE: f32 = 0.8;
 
 /// What kind of wood a piece is.
@@ -142,6 +144,13 @@ pub struct ShapeOptions {
 }
 
 /// How each end of the main stem finishes.
+///
+/// When the two ends together would take up more than [`MAX_END_SHARE`] of
+/// the stem (see [`EndKind::span`]), the piece is built with both shrunk
+/// by the same amount until they fit: less tilt, step, jaggedness and
+/// slant, and a blunter axe wedge. An axe cut or natural tip that still
+/// doesn't fit a very short stem becomes a flat saw cut. The options keep
+/// the values given.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EndsOptions {
     /// The base end: the thick end of a log or branch. Stumps ignore it,
@@ -350,9 +359,20 @@ pub struct MaterialOptions {
     /// Colour of rotten wood. Everything blends toward it with decay, and
     /// the inside of a hollow uses it.
     pub rot: String,
-    /// Name of the bark texture set a renderer should use, such as
-    /// `"bark_brown_02"`, or `None` for vertex colours only.
+    /// Name of the bark texture set a renderer should use, one of
+    /// [`crate::BARK_TEXTURE_SETS`] such as `"bark_brown_02"`, or `None`
+    /// for vertex colours only.
     pub bark_texture: Option<String>,
+    /// Width of bark, in metres, that one repeat of the bark texture
+    /// covers on the main stem. Must be positive. The texture wraps a whole
+    /// number of times around each stem, so the actual width is rounded to
+    /// fit, and thinner side stems get proportionally finer bark.
+    pub bark_texture_size: f32,
+    /// Name of the end-grain texture set a renderer should draw on sawn
+    /// ends, one of [`crate::END_TEXTURE_SETS`] such as `"TreeEnd005"`, or
+    /// `None` for drawn growth rings only. The photo is stretched to fit
+    /// each sawn end; broken and axe-cut ends don't use it.
+    pub end_texture: Option<String>,
     /// Surface roughness for lighting, from 0 (glossy) through 1 (matte).
     pub roughness: f32,
 }
@@ -504,6 +524,8 @@ impl Default for MaterialOptions {
             heartwood: "#9c7350".into(),
             rot: "#5b3a24".into(),
             bark_texture: Some("bark_brown_02".into()),
+            bark_texture_size: 0.5,
+            end_texture: Some("TreeEnd005".into()),
             roughness: 0.85,
         }
     }
@@ -563,15 +585,17 @@ pub enum OptionsError {
         /// The text given.
         value: String,
     },
-    /// The two ends' cuts and breaks together take up too much of the
-    /// stem: more than [`MAX_END_SHARE`] of its length (see
-    /// [`EndKind::span`]). To fix it, lower the jaggedness or tilt, widen
-    /// the axe angle, or make the piece longer.
-    EndsTooLong {
-        /// How much of the stem the two ends take up together, in metres.
-        reach: f32,
-        /// The stem length, in metres.
-        length: f32,
+    /// [`MaterialOptions::bark_texture`] names a set that isn't in
+    /// [`crate::BARK_TEXTURE_SETS`].
+    BarkTexture {
+        /// The name given.
+        value: String,
+    },
+    /// [`MaterialOptions::end_texture`] names a set that isn't in
+    /// [`crate::END_TEXTURE_SETS`].
+    EndTexture {
+        /// The name given.
+        value: String,
     },
 }
 
@@ -608,11 +632,15 @@ impl fmt::Display for OptionsError {
                 f,
                 "{field} is {value:?}, but must be a colour such as \"#a0522d\""
             ),
-            OptionsError::EndsTooLong { reach, length } => write!(
+            OptionsError::BarkTexture { value } => write!(
                 f,
-                "the ends take up {reach} m of a {length} m stem, but may take up \
-                 at most {} of its length",
-                MAX_END_SHARE
+                "material.bark_texture is {value:?}, but must be one of the names in \
+                 BARK_TEXTURE_SETS"
+            ),
+            OptionsError::EndTexture { value } => write!(
+                f,
+                "material.end_texture is {value:?}, but must be one of the names in \
+                 END_TEXTURE_SETS"
             ),
         }
     }
@@ -626,9 +654,8 @@ impl DeadwoodOptions {
     ///
     /// # Errors
     ///
-    /// Returns an [`OptionsError`] naming the first invalid setting, or
-    /// [`OptionsError::EndsTooLong`] when the two ends' cuts and breaks
-    /// together take up more than [`MAX_END_SHARE`] of the length.
+    /// Returns an [`OptionsError`] naming the first invalid setting. Ends
+    /// too long for the stem are not an error; see [`EndsOptions`].
     pub fn validate(&self) -> Result<(), OptionsError> {
         within("decay", self.decay, 0.0, MAX_DECAY)?;
         positive("length", self.length)?;
@@ -645,13 +672,6 @@ impl DeadwoodOptions {
 
         self.ends.base.validate(&BASE_FIELDS)?;
         self.ends.tip.validate(&TIP_FIELDS)?;
-        let reach = self.ends.base.span(self.base_radius()) + self.ends.tip.span(self.tip_radius());
-        if reach > MAX_END_SHARE * self.length {
-            return Err(OptionsError::EndsTooLong {
-                reach,
-                length: self.length,
-            });
-        }
 
         let st = &self.stubs;
         within("stubs.per_metre", st.per_metre, 0.0, MAX_STUBS_PER_METRE)?;
@@ -709,6 +729,17 @@ impl DeadwoodOptions {
                 });
             }
         }
+        if let Some(set) = &m.bark_texture
+            && !BARK_TEXTURE_SETS.contains(&set.as_str())
+        {
+            return Err(OptionsError::BarkTexture { value: set.clone() });
+        }
+        if let Some(set) = &m.end_texture
+            && !END_TEXTURE_SETS.contains(&set.as_str())
+        {
+            return Err(OptionsError::EndTexture { value: set.clone() });
+        }
+        positive("material.bark_texture_size", m.bark_texture_size)?;
         within("material.roughness", m.roughness, 0.0, 1.0)?;
 
         let se = &self.settle;
@@ -1056,7 +1087,34 @@ mod tests {
     }
 
     #[test]
-    fn rejects_ends_longer_than_the_stem() {
+    fn bark_texture_must_be_a_known_set() {
+        let mut o = DeadwoodOptions::default();
+        o.material.bark_texture = Some("no_such_bark".into());
+        assert!(matches!(
+            o.validate(),
+            Err(OptionsError::BarkTexture { value }) if value == "no_such_bark"
+        ));
+        o.material.bark_texture = None;
+        o.validate().unwrap();
+        o.material.bark_texture_size = 0.0;
+        assert!(o.validate().is_err());
+    }
+
+    #[test]
+    fn end_texture_must_be_a_known_set() {
+        let mut o = DeadwoodOptions::default();
+        o.material.end_texture = Some("no_such_end".into());
+        assert!(matches!(
+            o.validate(),
+            Err(OptionsError::EndTexture { value }) if value == "no_such_end"
+        ));
+        o.material.end_texture = None;
+        o.validate().unwrap();
+    }
+
+    #[test]
+    fn accepts_ends_longer_than_the_stem() {
+        // The piece shrinks them to fit when built; see the build tests.
         let o = DeadwoodOptions {
             length: 0.3,
             ends: EndsOptions {
@@ -1069,9 +1127,6 @@ mod tests {
             },
             ..Default::default()
         };
-        assert!(matches!(
-            o.validate(),
-            Err(OptionsError::EndsTooLong { .. })
-        ));
+        o.validate().unwrap();
     }
 }
