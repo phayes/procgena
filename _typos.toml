@@ -1,5 +1,8 @@
 [default]
 # LOD, WESL, PNG and the `iy` lattice coordinate are domain terms, not typos.
 # `hieght` is deliberately misspelled in a parser test.
-extend-words = { lod = "lod", Lod = "Lod", LOD = "LOD", wesl = "wesl", WESL = "WESL", png = "png", PNG = "PNG", iy = "iy", hieght = "hieght" }
-extend-ignore-re = ["PNGs"]
+# `metalness` is the PBR material term, `mis`/`MIS` is a maximal independent
+# set (clump's GPU simplifier), and `Shepard` is Shepard interpolation.
+extend-words = { lod = "lod", Lod = "Lod", LOD = "LOD", wesl = "wesl", WESL = "WESL", png = "png", PNG = "PNG", iy = "iy", hieght = "hieght", metalness = "metalness", Metalness = "Metalness", mis = "mis", MIS = "MIS", shepard = "shepard", Shepard = "Shepard", SHEPARD = "SHEPARD" }
+# `flate2` is a crate name.
+extend-ignore-re = ["PNGs", "flate2"]
