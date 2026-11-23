@@ -288,8 +288,20 @@ fn scene_dump() {
         ..default
     };
     let scenes = [
-        ("two_terrains", "Two terrains: plains and mountains", two_terrains(DVec2::ZERO, default), 5.0, None),
-        ("two_terrains_blend_1", "Two terrains, relief blend 1", two_terrains(DVec2::ZERO, blend_1), 5.0, None),
+        (
+            "two_terrains",
+            "Two terrains: plains and mountains",
+            two_terrains(DVec2::ZERO, default),
+            5.0,
+            None,
+        ),
+        (
+            "two_terrains_blend_1",
+            "Two terrains, relief blend 1",
+            two_terrains(DVec2::ZERO, blend_1),
+            5.0,
+            None,
+        ),
         (
             "mountain_road",
             "Mountain road close-up (blend 1)",
@@ -297,7 +309,13 @@ fn scene_dump() {
             2.5,
             Some((DVec2::new(0.0, -640.0), DVec2::new(1280.0, 640.0))),
         ),
-        ("triple_junction", "Triple junction", common::triple_junction(default), 5.0, None),
+        (
+            "triple_junction",
+            "Triple junction",
+            common::triple_junction(default),
+            5.0,
+            None,
+        ),
         (
             "hills_into_plains_81",
             "Hills into plains, seed 81 (river crossing)",
@@ -419,8 +437,10 @@ fn scene_dump() {
         let regions: Vec<String> = terrains
             .iter()
             .map(|t| {
-                let pts: Vec<String> =
-                    polygon(t).iter().map(|p| format!("[{:.2},{:.2}]", p.x, p.y)).collect();
+                let pts: Vec<String> = polygon(t)
+                    .iter()
+                    .map(|p| format!("[{:.2},{:.2}]", p.x, p.y))
+                    .collect();
                 format!(
                     "{{\"id\":{},\"seed\":{},\"polygon\":[{}]}}",
                     t.region().id.0,
@@ -445,7 +465,11 @@ fn scene_dump() {
         .unwrap();
         list.push(format!("{{\"key\":\"{key}\",\"title\":\"{title}\"}}"));
     }
-    std::fs::write(format!("{dir}/scenes.json"), format!("[{}]", list.join(","))).unwrap();
+    std::fs::write(
+        format!("{dir}/scenes.json"),
+        format!("[{}]", list.join(",")),
+    )
+    .unwrap();
 }
 
 /// The widest a feature line gets, in metres.
@@ -468,7 +492,10 @@ fn polygon(t: &procgena_terrain::Terrain) -> Vec<DVec2> {
 fn feature_limits() {
     for config in CONFIGS {
         let mut worlds = vec![
-            ("two terrains".to_string(), two_terrains(DVec2::ZERO, config)),
+            (
+                "two terrains".to_string(),
+                two_terrains(DVec2::ZERO, config),
+            ),
             (
                 "triple junction".to_string(),
                 common::triple_junction(config),

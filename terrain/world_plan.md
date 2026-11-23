@@ -394,25 +394,38 @@ impl HeightField for WorldTerrain { … }
 - **Not done:** `ElevationOptions` has no serde support, unlike
   `TerrainOptions`.
 
-### W2 status (2026-11-23)
+### W2 as built (2026-11-23)
 
-- **Built, crate-internal for now** (`src/graph.rs`; its public types
-  wait for approval): `RegionKey` (a lattice cell), `RegionGraphOptions`
-  (size, jitter up to 0.8, minimum edge, default 2 × the corner
-  clearance), `RegionGraph` with `site`, `region` and `region_at`. A
-  staggered hexagonal lattice, raw Voronoi cells by clipping against the
-  sites within 3 cells, corners merged where edges are shorter than the
-  minimum. Corner positions come from their sites in sorted order, so
-  every region gets identical bits.
-- **Tests:** neighbours agree on every edge and corner; no edge shorter
-  than the minimum; regions tile the plane and `region_at` finds the
-  owner; the 3-cell window matches a 7-cell one; polygons stay simple and
-  anticlockwise after merging; the same regions on four threads in any
-  order; settings checked; regular hexagons with no jitter. Each was
-  checked by breaking the code it covers.
-- **Not yet:** border warp (W3); a corner whose sites are exactly
-  cocircular could, in principle, be merged differently by different
-  regions (measure-zero with hashed jitter).
+- **Public types** (`src/graph.rs`): `RegionKey(IVec2)`, the lattice
+  cell of a region's site, with `id()` and `from_id()` to and from the
+  region's `RegionId` (bijective); `RegionGraphOptions { size, jitter,
+  min_edge }` (defaults 4 km, 0.6, 390 m) with `validate()`;
+  `RegionGraphError`; `MAX_JITTER` (0.8) and `MIN_EDGE` (390 m,
+  2 × `CORNER_CLEARANCE`, a hard floor: shorter edges can't carry a
+  crossing); `RegionGraph` with `new`, `options`, `site`, `region` and
+  `region_at`. W4's public surface keys on `RegionId`, not `RegionKey`,
+  since designer polygons have no lattice. Deviations from the sketch
+  above: `IVec2` (packs exactly into a `RegionId`), f64 options, no border
+  warp yet (W3), and a `min_edge` field.
+- **How it works:** a staggered hexagonal lattice (jitter 0 is an exact
+  triangular lattice: no four sites on one circle); raw Voronoi cells by
+  clipping against the sites within 3 cells; corners merged where edges
+  are shorter than the minimum, as connected groups of short edges, at
+  the mean of their raw corners. Corner positions come from their sites
+  in sorted order, so every region computes identical bits. Sites use
+  their own seed salts (201, 202; 1 and 2 had clashed with the relief's
+  swell and hill layers).
+- **Tests:** neighbours agree on every edge and corner (exact equality);
+  no edge shorter than the minimum; regions tile the plane and
+  `region_at` finds the owner; the 3-cell window matches a 7-cell one;
+  polygons stay simple and anticlockwise after merging; the same regions
+  on four threads in any order; settings checked (NaN, infinity, the
+  floor); regular hexagons with no jitter. The graph tests run at jitter
+  0, 0.6 and 0.8. A four-way seam test (`four_regions_meet_at_one_corner`)
+  checks four terrains meeting at one point, on flat, tilted and curved
+  land. Each test was checked by breaking the code it covers.
+- **Next:** exact Delaunay corners, so near-cocircular sites can't make
+  regions disagree (in progress).
 
 ## Open questions
 

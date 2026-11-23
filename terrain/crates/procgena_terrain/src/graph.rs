@@ -7,10 +7,8 @@
 //! minimum edge length are merged into one corner touched by four or more
 //! regions.
 
-// Used by WorldTerrain (phase W4); until then only the tests use it.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::{BTreeSet, HashMap};
+use std::fmt;
 
 use glam::{DVec2, IVec2};
 
@@ -19,8 +17,14 @@ use crate::ports::CORNER_CLEARANCE;
 use crate::region::{Boundary, Region, RegionCorner, RegionEdge, RegionId};
 
 /// The most a site may move from its lattice point, as a share of half
-/// the lattice spacing along each axis.
-pub(crate) const MAX_JITTER: f64 = 0.8;
+/// the lattice spacing along each axis (see
+/// [`RegionGraphOptions::jitter`]).
+pub const MAX_JITTER: f64 = 0.8;
+
+/// The shortest [`RegionGraphOptions::min_edge`] allowed, in metres: an
+/// edge needs this much length to carry a river or road crossing clear of
+/// both its corners.
+pub const MIN_EDGE: f64 = 2.0 * CORNER_CLEARANCE;
 
 /// How many lattice cells either way are searched for a region's
 /// neighbours. Enough for [`MAX_JITTER`]: a site's neighbours lie within
@@ -31,9 +35,11 @@ const WINDOW: i32 = 3;
 /// row: the rows of a hexagonal lattice.
 const ROW: f64 = 0.866_025_403_784_438_6;
 
-/// A region of the graph: the lattice cell of its site.
+/// A region of a [`RegionGraph`]: the lattice cell its site belongs to.
+/// Convert it to and from the region's [`RegionId`] with
+/// [`id`](Self::id) and [`from_id`](Self::from_id).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct RegionKey(pub IVec2);
+pub struct RegionKey(pub IVec2);
 
 impl Ord for RegionKey {
     /// By x, then by z.
@@ -49,23 +55,28 @@ impl PartialOrd for RegionKey {
 }
 
 impl RegionKey {
-    /// The region's id: its lattice cell, packed. Different keys give
-    /// different ids.
-    pub(crate) fn id(self) -> RegionId {
+    /// The region's id. Different keys always give different ids.
+    pub fn id(self) -> RegionId {
         RegionId((u64::from(self.0.x as u32) << 32) | u64::from(self.0.y as u32))
+    }
+
+    /// The key whose [`id`](Self::id) is `id`. Every id is some key's.
+    pub fn from_id(id: RegionId) -> Self {
+        Self(IVec2::new((id.0 >> 32) as u32 as i32, id.0 as u32 as i32))
     }
 }
 
 /// How the plane is split into regions.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct RegionGraphOptions {
+pub struct RegionGraphOptions {
     /// The lattice spacing, about the width of a region, in metres.
     pub size: f64,
     /// How far each site moves from its lattice point, from 0 (a regular
     /// hexagonal tiling) to [`MAX_JITTER`].
     pub jitter: f64,
     /// Edges shorter than this, in metres, are merged away: their two
-    /// corners become one.
+    /// corners become one corner, touched by four or more regions. At
+    /// least [`MIN_EDGE`].
     pub min_edge: f64,
 }
 
@@ -74,41 +85,73 @@ impl Default for RegionGraphOptions {
         Self {
             size: 4000.0,
             jitter: 0.6,
-            min_edge: 2.0 * CORNER_CLEARANCE,
+            min_edge: MIN_EDGE,
         }
     }
 }
 
 /// Why region graph settings were refused.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum GraphError {
+#[non_exhaustive]
+pub enum RegionGraphError {
     /// The size must be finite and at least 5 times the minimum edge.
     Size(f64),
     /// The jitter must be from 0 to [`MAX_JITTER`].
     Jitter(f64),
-    /// The minimum edge must be finite and not negative.
+    /// The minimum edge must be finite and at least [`MIN_EDGE`].
     MinEdge(f64),
 }
 
+impl fmt::Display for RegionGraphError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Size(s) => write!(
+                f,
+                "the region size must be finite and at least 5 times the minimum edge, not {s}"
+            ),
+            Self::Jitter(j) => write!(f, "the jitter must be from 0 to {MAX_JITTER}, not {j}"),
+            Self::MinEdge(m) => write!(
+                f,
+                "the minimum edge must be finite and at least {MIN_EDGE} m, not {m}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RegionGraphError {}
+
 impl RegionGraphOptions {
     /// Checks the settings.
-    pub(crate) fn validate(&self) -> Result<(), GraphError> {
+    pub fn validate(&self) -> Result<(), RegionGraphError> {
+        if self.min_edge.is_nan() || self.min_edge < MIN_EDGE {
+            return Err(RegionGraphError::MinEdge(self.min_edge));
+        }
+        self.validate_unfloored()
+    }
+
+    /// Checks the settings, allowing any minimum edge from 0, for tests of
+    /// the raw cells.
+    fn validate_unfloored(&self) -> Result<(), RegionGraphError> {
         if !self.min_edge.is_finite() || self.min_edge < 0.0 {
-            return Err(GraphError::MinEdge(self.min_edge));
+            return Err(RegionGraphError::MinEdge(self.min_edge));
         }
         if !self.size.is_finite() || self.size <= 0.0 || self.size < 5.0 * self.min_edge {
-            return Err(GraphError::Size(self.size));
+            return Err(RegionGraphError::Size(self.size));
         }
         if !(0.0..=MAX_JITTER).contains(&self.jitter) {
-            return Err(GraphError::Jitter(self.jitter));
+            return Err(RegionGraphError::Jitter(self.jitter));
         }
         Ok(())
     }
 }
 
-/// The regions of a world.
+/// The regions of an endless world: which region holds each point, and
+/// each region's outline, edges and corners. Every region is worked out
+/// on its own, from the settings and seed alone, so any region can be
+/// asked for at any time, in any order, on any thread, with the same
+/// result.
 #[derive(Debug, Clone)]
-pub(crate) struct RegionGraph {
+pub struct RegionGraph {
     options: RegionGraphOptions,
     seed: u32,
 }
@@ -118,13 +161,30 @@ type Triple = [RegionKey; 3];
 
 impl RegionGraph {
     /// The graph for `options` and the world's `seed`.
-    pub(crate) fn new(options: RegionGraphOptions, seed: u32) -> Result<Self, GraphError> {
+    ///
+    /// # Errors
+    ///
+    /// If `options` aren't valid (see [`RegionGraphOptions::validate`]).
+    pub fn new(options: RegionGraphOptions, seed: u32) -> Result<Self, RegionGraphError> {
         options.validate()?;
         Ok(Self { options, seed })
     }
 
-    /// The site of region `key`, in metres.
-    pub(crate) fn site(&self, key: RegionKey) -> DVec2 {
+    /// Like [`new`](Self::new), allowing any minimum edge from 0.
+    #[cfg(test)]
+    fn unfloored(options: RegionGraphOptions, seed: u32) -> Result<Self, RegionGraphError> {
+        options.validate_unfloored()?;
+        Ok(Self { options, seed })
+    }
+
+    /// The settings.
+    pub fn options(&self) -> &RegionGraphOptions {
+        &self.options
+    }
+
+    /// The site of region `key`, in metres: the point its region is built
+    /// around.
+    pub fn site(&self, key: RegionKey) -> DVec2 {
         let IVec2 { x, y: z } = key.0;
         let size = self.options.size;
         let stagger = if z.rem_euclid(2) == 1 { 0.5 } else { 0.0 };
@@ -133,7 +193,8 @@ impl RegionGraph {
             let h = hash2(i64::from(x), i64::from(z), derive_seed(self.seed, salt));
             f64::from(h) / f64::from(u32::MAX) * 2.0 - 1.0
         };
-        point + DVec2::new(unit(1), unit(2)) * (0.5 * self.options.jitter * size)
+        // Salts of their own: 1 to 4 seed the relief's layers.
+        point + DVec2::new(unit(201), unit(202)) * (0.5 * self.options.jitter * size)
     }
 
     /// The lattice cell nearest `p`: the key of a region whose site is
@@ -146,10 +207,10 @@ impl RegionGraph {
         RegionKey(IVec2::new(x, z))
     }
 
-    /// The region `key`: its polygon, edges and corners. Both regions on an
-    /// edge get identical edges, and every region at a corner gets the
-    /// identical corner.
-    pub(crate) fn region(&self, key: RegionKey) -> Region {
+    /// The region `key`: its outline, edges and corners, ready to pass to a
+    /// terrain. Both regions on an edge get identical edges, and every
+    /// region at a corner gets the identical corner.
+    pub fn region(&self, key: RegionKey) -> Region {
         let mut local = Local::new(self);
         let ring = local.ring(key).to_vec();
         let n = ring.len();
@@ -189,7 +250,7 @@ impl RegionGraph {
     }
 
     /// The region holding `p`. Points on a border may go to either side.
-    pub(crate) fn region_at(&self, p: DVec2) -> RegionKey {
+    pub fn region_at(&self, p: DVec2) -> RegionKey {
         // The few regions with the nearest sites; one of them holds `p`.
         let near = self.cell_near(p);
         let mut candidates: Vec<(f64, RegionKey)> = (-2..=2)
@@ -350,18 +411,18 @@ fn sorted(mut keys: Triple) -> Triple {
 mod tests {
     use super::*;
 
-    /// Graphs at the default jitter and at the most, with a short and the
-    /// default minimum edge.
+    /// Graphs with no jitter, the default and the most, each with no
+    /// merging (raw cells) and the default minimum edge.
     fn graphs() -> Vec<RegionGraph> {
         let mut out = Vec::new();
-        for jitter in [0.6, MAX_JITTER] {
-            for min_edge in [0.0, 2.0 * CORNER_CLEARANCE] {
+        for jitter in [0.0, 0.6, MAX_JITTER] {
+            for min_edge in [0.0, MIN_EDGE] {
                 let options = RegionGraphOptions {
                     size: 2000.0,
                     jitter,
                     min_edge,
                 };
-                out.push(RegionGraph::new(options, 7).unwrap());
+                out.push(RegionGraph::unfloored(options, 7).unwrap());
             }
         }
         out
@@ -374,7 +435,7 @@ mod tests {
     }
 
     fn key_of(id: RegionId) -> RegionKey {
-        RegionKey(IVec2::new((id.0 >> 32) as u32 as i32, id.0 as u32 as i32))
+        RegionKey::from_id(id)
     }
 
     #[test]
@@ -387,10 +448,16 @@ mod tests {
             3,
         )
         .unwrap();
+        // A ring is cyclic: compare each from its smallest key.
+        let canonical = |mut ring: Vec<RegionKey>| {
+            let start = (0..ring.len()).min_by_key(|&i| ring[i]).unwrap_or(0);
+            ring.rotate_left(start);
+            ring
+        };
         for key in block(12) {
             assert_eq!(
-                raw_ring(&graph, key, WINDOW),
-                raw_ring(&graph, key, 7),
+                canonical(raw_ring(&graph, key, WINDOW)),
+                canonical(raw_ring(&graph, key, 7)),
                 "{key:?}"
             );
         }
@@ -437,7 +504,8 @@ mod tests {
                     .filter(|c| c.incident.len() > 3)
                     .count();
             }
-            if graph.options.min_edge > 0.0 {
+            // With no jitter every edge is as long as the rest, so none merge.
+            if graph.options.min_edge > 0.0 && graph.options.jitter > 0.0 {
                 assert!(merged > 0, "the test graphs should have merged corners");
             }
         }
@@ -572,21 +640,59 @@ mod tests {
         for (bad, error) in [
             (
                 RegionGraphOptions { jitter: 0.9, ..ok },
-                GraphError::Jitter(0.9),
+                RegionGraphError::Jitter(0.9),
             ),
             (
                 RegionGraphOptions { size: 1900.0, ..ok },
-                GraphError::Size(1900.0),
+                RegionGraphError::Size(1900.0),
             ),
             (
                 RegionGraphOptions {
-                    min_edge: -1.0,
+                    min_edge: 300.0,
                     ..ok
                 },
-                GraphError::MinEdge(-1.0),
+                RegionGraphError::MinEdge(300.0),
+            ),
+            (
+                RegionGraphOptions {
+                    size: f64::INFINITY,
+                    ..ok
+                },
+                RegionGraphError::Size(f64::INFINITY),
             ),
         ] {
             assert_eq!(bad.validate(), Err(error));
         }
+        // NaN anywhere is refused (and compares unequal, so match on it).
+        for bad in [
+            RegionGraphOptions {
+                size: f64::NAN,
+                ..ok
+            },
+            RegionGraphOptions {
+                jitter: f64::NAN,
+                ..ok
+            },
+            RegionGraphOptions {
+                min_edge: f64::NAN,
+                ..ok
+            },
+        ] {
+            assert!(bad.validate().is_err(), "{bad:?}");
+        }
+        // Raw cells for tests may go below the floor, but not below 0.
+        let raw = RegionGraphOptions {
+            min_edge: 0.0,
+            ..ok
+        };
+        assert_eq!(raw.validate_unfloored(), Ok(()));
+        assert!(
+            RegionGraphOptions {
+                min_edge: -1.0,
+                ..ok
+            }
+            .validate_unfloored()
+            .is_err()
+        );
     }
 }

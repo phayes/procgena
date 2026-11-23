@@ -4,8 +4,9 @@
 mod common;
 
 use common::{
-    CONFIGS, CURVED, JUNCTION, RIVER_SEEDS, TWO_REGION_BORDER, WITH_LAND, assert_no_crack,
-    hills_into_plains, preset, triple_junction, two_regions, two_terrains,
+    CONFIGS, CURVED, FOUR_REGION_ENDS, JUNCTION, RIVER_SEEDS, TWO_REGION_BORDER, WITH_LAND,
+    assert_no_crack, four_regions, hills_into_plains, preset, triple_junction, two_regions,
+    two_terrains,
 };
 use glam::{DVec2, I64Vec2, UVec2};
 use procgena_terrain::{HeightField, HeightTile, StitchedWorld, Terrain, TerrainPreset};
@@ -182,8 +183,44 @@ fn three_regions_meet_at_one_corner() {
 }
 
 fn assert_three_regions_meet(world: &StitchedWorld) {
-    let corner = DVec2::new(JUNCTION.0, JUNCTION.1);
+    assert_regions_meet(
+        world,
+        DVec2::new(JUNCTION.0, JUNCTION.1),
+        &[
+            DVec2::new(-800.0, -500.0),
+            DVec2::new(-50.0, 900.0),
+            DVec2::new(700.0, -600.0),
+        ],
+    );
+}
 
+#[test]
+fn four_regions_meet_at_one_corner() {
+    for config in WITH_LAND {
+        let world = four_regions(
+            [
+                preset(TerrainPreset::Plains, config.seed(5, 1)),
+                preset(TerrainPreset::Mountains, config.seed(5, 2)),
+                preset(TerrainPreset::RollingHills, config.seed(5, 3)),
+                preset(TerrainPreset::Plains, config.seed(5, 4)),
+            ],
+            config.convergence(),
+            &config.elevation(),
+        );
+        let corner = world
+            .terrains()
+            .iter()
+            .flat_map(|t| &t.region().corners)
+            .find(|c| c.incident.len() == 4)
+            .expect("four regions share a corner");
+        assert_eq!(corner.position, DVec2::new(JUNCTION.0, JUNCTION.1));
+        assert_regions_meet(&world, corner.position, &FOUR_REGION_ENDS.map(DVec2::from));
+    }
+}
+
+/// Checks that every terrain of `world` meets at `corner`, and that the
+/// borders from `corner` towards each of `ends` are continuous up to it.
+fn assert_regions_meet(world: &StitchedWorld, corner: DVec2, ends: &[DVec2]) {
     // Every terrain reaches the same height at the corner.
     let heights: Vec<f32> = world.terrains().iter().map(|t| t.height(corner)).collect();
     for h in &heights {
@@ -207,16 +244,12 @@ fn assert_three_regions_meet(world: &StitchedWorld) {
         );
     }
 
-    // Each of the three borders is continuous right up to the corner.
-    for end in [
-        DVec2::new(-800.0, -500.0),
-        DVec2::new(-50.0, 900.0),
-        DVec2::new(700.0, -600.0),
-    ] {
+    // Each border is continuous right up to the corner.
+    for &end in ends {
         let border: Vec<DVec2> = (0..=1)
             .map(|t| corner.lerp(end, 0.2 * f64::from(t)))
             .collect();
-        assert_continuous(world, &border, &format!("junction border to {end}"));
+        assert_continuous(world, &border, &format!("border from {corner} to {end}"));
     }
 }
 

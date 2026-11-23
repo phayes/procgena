@@ -106,6 +106,9 @@ pub use converge::{
     blend_weights, relief_meeting_is_valid, relief_target,
 };
 pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
+pub use graph::{
+    MAX_JITTER, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
+};
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,

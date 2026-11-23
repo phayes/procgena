@@ -324,6 +324,43 @@ pub fn triple_junction(config: Config) -> StitchedWorld {
     )
 }
 
+/// Where the four borders of [`four_regions`] reach the world's edge,
+/// going round from the west: each runs straight from [`JUNCTION`].
+pub const FOUR_REGION_ENDS: [(f64, f64); 4] = [
+    (-2000.0, 100.0),
+    (0.0, 2000.0),
+    (2000.0, -200.0),
+    (200.0, -2000.0),
+];
+
+/// Four regions with the given settings (north-west, north-east,
+/// south-east and south-west) meeting at one corner, [`JUNCTION`], in a
+/// 4 km square, joined with `convergence`, standing on `elevation`.
+pub fn four_regions(
+    options: [TerrainOptions; 4],
+    convergence: Convergence,
+    elevation: &Elevation,
+) -> StitchedWorld {
+    let [west, north, east, south] = FOUR_REGION_ENDS;
+    let polygons = [
+        [JUNCTION, west, (-2000.0, 2000.0), north],
+        [JUNCTION, north, (2000.0, 2000.0), east],
+        [JUNCTION, east, (2000.0, -2000.0), south],
+        [JUNCTION, south, (-2000.0, -2000.0), west],
+    ];
+    let specs = polygons
+        .iter()
+        .zip(options)
+        .enumerate()
+        .map(|(i, (polygon, options))| RegionSpec {
+            id: RegionId(40 + i as u64),
+            polygon: shifted(polygon, DVec2::ZERO),
+            options,
+        })
+        .collect();
+    StitchedWorld::build(specs, &convergence, elevation).expect("four-region world builds")
+}
+
 /// Three regions with the given settings (north-west, north-east and
 /// south) meeting at [`JUNCTION`] in a 4 km square, joined with
 /// `convergence`, standing on `elevation`.
