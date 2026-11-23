@@ -79,3 +79,13 @@ All under `terrain/crates/procgena_terrain/`:
 - `tests/features.rs`: `bridges`,
   `roads_cross_a_river_again_only_to_save_a_long_way_round`
 - `tests/probes.rs`: `river_crossings_on_a_slope`
+
+Added by the exact-E border fix (a41016a):
+
+- `src/seam.rs`: the `negotiate` doc, `elevation_samples`, `relative_to`
+- `src/terrain.rs`: `Seam`, the `base_height` comment, `Targets::raised`
+- `src/relief.rs`: `elevation`, `gradient`
+- `src/elevation.rs`: `is_flat`
+- `tests/common/mod.rs`: `three_regions`
+- `tests/elevation.rs`: `bare`, `bare_ground_is_e_everywhere`,
+  `sample_points`
