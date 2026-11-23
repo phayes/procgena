@@ -387,10 +387,32 @@ impl HeightField for WorldTerrain { … }
   and on three meeting at a corner, with border irregularities off. Bare
   ground is now E to within 2·10⁻⁸ m everywhere (0.71 m before); the
   plane-shift check holds to 1 mm and 10⁻⁴ in slope at the bends too.
-  Both tests fail with the fix switched off. The 0.49 m measured on the
-  curved land with relief hasn't been measured again.
+  Both tests fail with the fix switched off. On the curved land with the
+  plains and mountains on it, the agreement now differs from the
+  flat-land agreement plus E by at most 1.9·10⁻⁵ m (f32 rounding), down
+  from 0.49 m.
 - **Not done:** `ElevationOptions` has no serde support, unlike
   `TerrainOptions`.
+
+### W2 status (2026-11-23)
+
+- **Built, crate-internal for now** (`src/graph.rs`; its public types
+  wait for approval): `RegionKey` (a lattice cell), `RegionGraphOptions`
+  (size, jitter up to 0.8, minimum edge, default 2 × the corner
+  clearance), `RegionGraph` with `site`, `region` and `region_at`. A
+  staggered hexagonal lattice, raw Voronoi cells by clipping against the
+  sites within 3 cells, corners merged where edges are shorter than the
+  minimum. Corner positions come from their sites in sorted order, so
+  every region gets identical bits.
+- **Tests:** neighbours agree on every edge and corner; no edge shorter
+  than the minimum; regions tile the plane and `region_at` finds the
+  owner; the 3-cell window matches a 7-cell one; polygons stay simple and
+  anticlockwise after merging; the same regions on four threads in any
+  order; settings checked; regular hexagons with no jitter. Each was
+  checked by breaking the code it covers.
+- **Not yet:** border warp (W3); a corner whose sites are exactly
+  cocircular could, in principle, be merged differently by different
+  regions (measure-zero with hashed jitter).
 
 ## Open questions
 

@@ -80,6 +80,7 @@ mod calibration;
 mod carve;
 mod converge;
 mod elevation;
+mod graph;
 mod grid;
 mod gully;
 mod hash;
