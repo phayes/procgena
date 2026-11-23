@@ -11,6 +11,7 @@ use std::fmt;
 
 use glam::{DVec2, Vec2};
 
+use crate::elevation::Elevation;
 use crate::options::RoadGrades;
 use crate::ports::{
     CORNER_CLEARANCE, FEATURE_CLEARANCE, INNER_DEPTHS, Port, PortWish, Side, SideWishes,
@@ -249,12 +250,19 @@ pub(crate) fn smootherstep(t: f64) -> f64 {
 /// bends to meet that corner's agreed height and gradient. The border
 /// irregularity height is the smaller of the two roughness values, falling
 /// to 0 at the corners.
+///
+/// `elevation` is the world elevation both terrains stand on (see
+/// [`TerrainGenerator::with_elevation`](crate::TerrainGenerator::with_elevation));
+/// the smoothing and mixing act on heights above it, so the agreed profile
+/// is E plus the agreed relief exactly. Offers, agreements and crossings
+/// all hold heights above sea level.
 pub fn negotiate(
     edge: &RegionEdge,
     a: &EdgeOffer,
     b: &EdgeOffer,
     start: &CornerAgreement,
     end: &CornerAgreement,
+    elevation: &Elevation,
 ) -> Result<EdgeAgreement, SeamError> {
     // Check the inputs. The edge id covers both regions, so rebuilding it
     // from the offering regions confirms they are the two on this edge.
@@ -307,24 +315,40 @@ pub fn negotiate(
     let total = a.stiffness + b.stiffness;
     let amplitude = a.roughness.min(b.roughness);
     let taper = f64::from(a.margin.max(b.margin)).min(length / 2.0);
-    let (natural_a, natural_b) = (smooth(&a.natural, step), smooth(&b.natural, step));
+
+    // Heights above E, smoothed. E itself is added back at the end.
+    let e = elevation_samples(edge, count, elevation);
+    let above = |o: &EdgeOffer| smooth(&relative_to(&o.natural, e.as_deref(), -1.0), step);
+    let (above_a, above_b) = (above(a), above(b));
+    // Each corner's agreement above E: its height and gradient there.
+    let above_corner = |corner: &CornerAgreement| {
+        if e.is_none() {
+            return (corner.height, corner.gradient);
+        }
+        (
+            corner.height - elevation.height(corner.position),
+            corner.gradient - elevation.gradient(corner.position).as_vec2(),
+        )
+    };
+    let corners = [(start, above_corner(start)), (end, above_corner(end))];
 
     // Mix and pin each sample.
-    let profile = (0..count)
+    let above_profile = (0..count)
         .map(|i| {
             let along = i as f64 * step;
-            let (sa, sb) = (natural_a[i], natural_b[i]);
+            let (sa, sb) = (above_a[i], above_b[i]);
             let mut height = (sa.height * a.stiffness + sb.height * b.stiffness) / total;
             let mut slope = (sa.slope * a.stiffness + sb.slope * b.stiffness) / total;
             let mut detail = amplitude;
 
             // Bend towards each corner's plane near that end.
             let (point, normal) = point_at(&segments, along);
-            for (corner, distance) in [(start, along), (end, length - along)] {
+            for ((corner, (corner_height, gradient)), distance) in
+                corners.iter().zip([along, length - along])
+            {
                 let keep = smootherstep(distance / taper) as f32;
-                let plane =
-                    corner.height + corner.gradient.dot((point - corner.position).as_vec2());
-                let plane_slope = corner.gradient.dot(normal.as_vec2());
+                let plane = corner_height + gradient.dot((point - corner.position).as_vec2());
+                let plane_slope = gradient.dot(normal.as_vec2());
                 height = plane + (height - plane) * keep;
                 slope = plane_slope + (slope - plane_slope) * keep;
                 detail *= keep;
@@ -336,6 +360,9 @@ pub fn negotiate(
             }
         })
         .collect::<Vec<_>>();
+    let profile = relative_to(&above_profile, e.as_deref(), 1.0);
+    let natural_a = relative_to(&above_a, e.as_deref(), 1.0);
+    let natural_b = relative_to(&above_b, e.as_deref(), 1.0);
 
     // Crossings.
     fn side<'a>(o: &'a EdgeOffer, natural: &'a [EdgeSample]) -> SideWishes<'a> {
@@ -384,6 +411,55 @@ pub fn negotiate(
         profile,
         ports,
     })
+}
+
+/// The world elevation E's height and cross-slope at each of `count`
+/// evenly spaced samples along `edge`, or `None` on flat land, where E is
+/// 0. Negotiation smooths and mixes heights above E, so E passes through
+/// agreements exactly.
+pub(crate) fn elevation_samples(
+    edge: &RegionEdge,
+    count: usize,
+    elevation: &Elevation,
+) -> Option<Vec<EdgeSample>> {
+    if elevation.is_flat() {
+        return None;
+    }
+    let segments = segments(&edge.polyline);
+    let step = edge.length() / (count - 1) as f64;
+    Some(
+        (0..count)
+            .map(|i| {
+                let (point, normal) = point_at(&segments, i as f64 * step);
+                EdgeSample {
+                    height: elevation.height(point),
+                    slope: elevation.gradient(point).dot(normal) as f32,
+                    detail: 0.0,
+                }
+            })
+            .collect(),
+    )
+}
+
+/// `samples` with E's samples `e` taken away (`sign` −1) or added back
+/// (`sign` 1), or `samples` as they are on flat land.
+pub(crate) fn relative_to(
+    samples: &[EdgeSample],
+    e: Option<&[EdgeSample]>,
+    sign: f32,
+) -> Vec<EdgeSample> {
+    let Some(e) = e else {
+        return samples.to_vec();
+    };
+    samples
+        .iter()
+        .zip(e)
+        .map(|(s, e)| EdgeSample {
+            height: s.height + sign * e.height,
+            slope: s.slope + sign * e.slope,
+            detail: s.detail,
+        })
+        .collect()
 }
 
 /// Smooths edge samples along the edge with a Gaussian of
@@ -549,7 +625,10 @@ mod tests {
         let e = edge();
         let (a, b) = (offer(&e, 4, 10.0, 1.0), offer(&e, 9, 30.0, 3.0));
         let (s, t) = (corner(&e, true, 15.0), corner(&e, false, 25.0));
-        assert_eq!(negotiate(&e, &a, &b, &s, &t), negotiate(&e, &b, &a, &s, &t));
+        assert_eq!(
+            negotiate(&e, &a, &b, &s, &t, &Elevation::flat()),
+            negotiate(&e, &b, &a, &s, &t, &Elevation::flat())
+        );
     }
 
     #[test]
@@ -579,8 +658,11 @@ mod tests {
         a.roads = vec![wish(300.0, 0.0)];
         b.roads = vec![wish(450.0, 0.0), wish(900.0, 0.0)];
         let (s, t) = (corner(&e, true, 15.0), corner(&e, false, 25.0));
-        let forward = negotiate(&e, &a, &b, &s, &t).unwrap();
-        assert_eq!(Ok(forward.clone()), negotiate(&e, &b, &a, &s, &t));
+        let forward = negotiate(&e, &a, &b, &s, &t, &Elevation::flat()).unwrap();
+        assert_eq!(
+            Ok(forward.clone()),
+            negotiate(&e, &b, &a, &s, &t, &Elevation::flat())
+        );
         assert!(!forward.ports.is_empty());
     }
 
@@ -595,10 +677,16 @@ mod tests {
             width: 6.0,
             ground: f32::INFINITY,
         }];
-        assert_eq!(negotiate(&e, &a, &b, &s, &t), Err(SeamError::BadWish));
+        assert_eq!(
+            negotiate(&e, &a, &b, &s, &t, &Elevation::flat()),
+            Err(SeamError::BadWish)
+        );
         b.roads.clear();
         b.side = Side::Left;
-        assert_eq!(negotiate(&e, &a, &b, &s, &t), Err(SeamError::SameSide));
+        assert_eq!(
+            negotiate(&e, &a, &b, &s, &t, &Elevation::flat()),
+            Err(SeamError::SameSide)
+        );
     }
 
     #[test]
@@ -606,7 +694,7 @@ mod tests {
         let e = edge();
         let (a, b) = (offer(&e, 4, 10.0, 1.0), offer(&e, 9, 30.0, 3.0));
         let (s, t) = (corner(&e, true, 15.0), corner(&e, false, 25.0));
-        let agreed = negotiate(&e, &a, &b, &s, &t).unwrap();
+        let agreed = negotiate(&e, &a, &b, &s, &t, &Elevation::flat()).unwrap();
         assert_eq!(agreed.profile[0].height, 15.0);
         assert_eq!(agreed.profile.last().unwrap().height, 25.0);
         // Away from the corners: the stiffness-weighted mix of the (linear,
@@ -648,13 +736,27 @@ mod tests {
         let (s, t) = (corner(&e, true, 15.0), corner(&e, false, 25.0));
         let stranger = offer(&e, 5, 30.0, 1.0);
         assert_eq!(
-            negotiate(&e, &offer(&e, 4, 10.0, 1.0), &stranger, &s, &t),
+            negotiate(
+                &e,
+                &offer(&e, 4, 10.0, 1.0),
+                &stranger,
+                &s,
+                &t,
+                &Elevation::flat()
+            ),
             Err(SeamError::WrongRegions)
         );
         let mut short = offer(&e, 9, 30.0, 1.0);
         short.natural.pop();
         assert!(matches!(
-            negotiate(&e, &offer(&e, 4, 10.0, 1.0), &short, &s, &t),
+            negotiate(
+                &e,
+                &offer(&e, 4, 10.0, 1.0),
+                &short,
+                &s,
+                &t,
+                &Elevation::flat()
+            ),
             Err(SeamError::SampleCount { .. })
         ));
     }

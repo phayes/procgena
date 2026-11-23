@@ -82,6 +82,11 @@ impl Relief {
         }
     }
 
+    /// The world elevation this relief stands on.
+    pub(crate) fn elevation(&self) -> &Elevation {
+        &self.elevation
+    }
+
     /// This relief standing on `elevation` instead of its current one.
     pub(crate) fn with_elevation(mut self, elevation: Elevation) -> Self {
         self.elevation = elevation;
@@ -227,13 +232,18 @@ impl Relief {
         h
     }
 
-    /// Rate of height change along x and z at `p`, by central differences.
+    /// Rate of height change along x and z at `p`: E's own gradient plus
+    /// the relief's, by central differences. The relief's heights are
+    /// small beside E's, so they keep more precision in the differences.
     pub(crate) fn gradient(&self, p: DVec2) -> Vec2 {
-        let dx =
-            self.height(p + DVec2::X * GRADIENT_STEP) - self.height(p - DVec2::X * GRADIENT_STEP);
-        let dz =
-            self.height(p + DVec2::Y * GRADIENT_STEP) - self.height(p - DVec2::Y * GRADIENT_STEP);
-        Vec2::new(dx, dz) / (2.0 * GRADIENT_STEP as f32)
+        let h = |q: DVec2| self.height_above_elevation(q);
+        let dx = h(p + DVec2::X * GRADIENT_STEP) - h(p - DVec2::X * GRADIENT_STEP);
+        let dz = h(p + DVec2::Y * GRADIENT_STEP) - h(p - DVec2::Y * GRADIENT_STEP);
+        let relief = Vec2::new(dx, dz) / (2.0 * GRADIENT_STEP as f32);
+        if self.elevation.is_flat() {
+            return relief;
+        }
+        relief + self.elevation.gradient(p).as_vec2()
     }
 }
 

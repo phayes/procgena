@@ -234,6 +234,11 @@ impl Elevation {
         })
     }
 
+    /// Whether this is [`flat`](Self::flat) land, where E is 0 everywhere.
+    pub(crate) fn is_flat(&self) -> bool {
+        self.field.is_none()
+    }
+
     /// The settings, or `None` for [`flat`](Self::flat) land.
     pub fn options(&self) -> Option<&ElevationOptions> {
         self.field.as_ref().map(|f| &f.options)

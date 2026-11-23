@@ -16,7 +16,8 @@ use crate::region::{
 };
 use crate::relief::Relief;
 use crate::seam::{
-    CornerOffer, EdgeAgreement, EdgeOffer, EdgeSample, Profile, sample_count, smooth, smootherstep,
+    CornerOffer, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples, relative_to,
+    sample_count, smooth, smootherstep,
 };
 
 /// Power of the inverse-distance weights that mix border targets. Above 1,
@@ -70,7 +71,7 @@ pub struct Terrain {
 }
 
 /// One shared edge: the agreed profile and this terrain's own smoothed
-/// profile along it.
+/// profile along it, both as heights above the world elevation E.
 #[derive(Debug, Clone)]
 struct Seam {
     agreed: Profile,
@@ -430,16 +431,22 @@ impl TerrainGenerator {
                 });
             }
 
-            // This terrain's own profile, smoothed the same way as in negotiation.
+            // The agreed profile and this terrain's own, smoothed the same
+            // way as in negotiation, both as heights above E.
+            let e = elevation_samples(edge, expected, self.relief.elevation());
             let natural = self.natural_samples(edge);
             let step = edge.length() / (expected - 1) as f64;
             let own = EdgeAgreement {
                 edge: edge.id,
-                profile: smooth(&natural, step),
+                profile: smooth(&relative_to(&natural, e.as_deref(), -1.0), step),
                 ports: Vec::new(),
             };
+            let agreed = EdgeAgreement {
+                profile: relative_to(&agreement.profile, e.as_deref(), -1.0),
+                ..agreement.clone()
+            };
             seams.push(Seam {
-                agreed: Profile::new(edge, agreement),
+                agreed: Profile::new(edge, &agreed),
                 own: Profile::new(edge, &own),
             });
             paired.push((index, agreement));
@@ -560,12 +567,20 @@ impl Terrain {
                 closeness += (distance / self.margin).powi(-SOFT_DISTANCE_POWER);
             }
         }
-        // In margin units, so the powers stay in range at any scale.
+        // In margin units, so the powers stay in range at any scale. The
+        // targets are heights above E; E here is added back.
         let distance = self.margin * closeness.powf(-1.0 / f64::from(SOFT_DISTANCE_POWER));
+        let elevation = self.generator.relief.elevation();
+        let on_e = |targets: Targets| {
+            if elevation.is_flat() {
+                return targets;
+            }
+            targets.raised(f64::from(elevation.height(p)))
+        };
         let border = match on_edge {
-            Some(targets) => return targets.seam(p) as f32,
+            Some(targets) => return on_e(targets).seam(p) as f32,
             None if distance >= self.margin => return own as f32,
-            None => sum.scaled(1.0 / total),
+            None => on_e(sum.scaled(1.0 / total)),
         };
 
         // Across the margin: shift by how far the agreement is from this
@@ -622,6 +637,15 @@ impl Targets {
             agreed: self.agreed * factor,
             own: self.own * factor,
             detail: self.detail * factor,
+        }
+    }
+
+    /// These targets with `height` added to the agreed and own heights.
+    fn raised(self, height: f64) -> Self {
+        Self {
+            agreed: self.agreed + height,
+            own: self.own + height,
+            detail: self.detail,
         }
     }
 

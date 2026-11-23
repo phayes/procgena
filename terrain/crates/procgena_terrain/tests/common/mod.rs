@@ -313,6 +313,25 @@ pub const JUNCTION: (f64, f64) = (100.0, -50.0);
 /// Plains (north-west), mountains (north-east) and rolling hills (south)
 /// meeting at [`JUNCTION`], in a 4 km square.
 pub fn triple_junction(config: Config) -> StitchedWorld {
+    three_regions(
+        [
+            preset(TerrainPreset::Plains, config.seed(3, 3)),
+            preset(TerrainPreset::Mountains, config.seed(3, 4)),
+            preset(TerrainPreset::RollingHills, config.seed(3, 5)),
+        ],
+        config.convergence(),
+        &config.elevation(),
+    )
+}
+
+/// Three regions with the given settings (north-west, north-east and
+/// south) meeting at [`JUNCTION`] in a 4 km square, joined with
+/// `convergence`, standing on `elevation`.
+pub fn three_regions(
+    [north_west_options, north_east_options, south_options]: [TerrainOptions; 3],
+    convergence: Convergence,
+    elevation: &Elevation,
+) -> StitchedWorld {
     let c = JUNCTION;
     let north_west = [
         c,
@@ -344,21 +363,21 @@ pub fn triple_junction(config: Config) -> StitchedWorld {
             RegionSpec {
                 id: RegionId(10),
                 polygon: shifted(&north_west, DVec2::ZERO),
-                options: preset(TerrainPreset::Plains, config.seed(3, 3)),
+                options: north_west_options,
             },
             RegionSpec {
                 id: RegionId(20),
                 polygon: shifted(&north_east, DVec2::ZERO),
-                options: preset(TerrainPreset::Mountains, config.seed(3, 4)),
+                options: north_east_options,
             },
             RegionSpec {
                 id: RegionId(30),
                 polygon: shifted(&south, DVec2::ZERO),
-                options: preset(TerrainPreset::RollingHills, config.seed(3, 5)),
+                options: south_options,
             },
         ],
-        &config.convergence(),
-        &config.elevation(),
+        &convergence,
+        elevation,
     )
-    .expect("triple-junction world builds")
+    .expect("three-region world builds")
 }

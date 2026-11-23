@@ -179,7 +179,7 @@ impl StitchedWorld {
 
         // Offers and agreements.
         let corners = negotiate_corners(&regions, &generators, &index)?;
-        let agreements = negotiate_edges(&regions, &generators, &index, &corners)?;
+        let agreements = negotiate_edges(&regions, &generators, &index, &corners, elevation)?;
 
         // Build each terrain with the agreements for its edges, on several
         // threads with the `rayon` feature (the results are the same).
@@ -427,6 +427,7 @@ fn negotiate_edges(
     generators: &[TerrainGenerator],
     index: &BTreeMap<RegionId, usize>,
     corners: &HashMap<crate::region::CornerId, CornerAgreement>,
+    elevation: &Elevation,
 ) -> Result<HashMap<crate::region::EdgeId, crate::seam::EdgeAgreement>, StitchError> {
     // Every region's offers, once each, keyed by edge.
     let offers: Vec<HashMap<_, _>> = regions
@@ -452,8 +453,15 @@ fn negotiate_edges(
             }
             let j = index[&neighbor];
             let (a, b) = (&offers[i][&edge.id], &offers[j][&edge.id]);
-            let agreed = negotiate(edge, a, b, &corners[&edge.start], &corners[&edge.end])
-                .map_err(StitchError::Seam)?;
+            let agreed = negotiate(
+                edge,
+                a,
+                b,
+                &corners[&edge.start],
+                &corners[&edge.end],
+                elevation,
+            )
+            .map_err(StitchError::Seam)?;
             agreements.insert(edge.id, agreed);
         }
     }

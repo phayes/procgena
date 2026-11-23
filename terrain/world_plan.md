@@ -27,13 +27,12 @@ stays as a small test fixture.
 - **Seams need no change for E.**
   - Both sides of a border evaluate the same E, so base height is
     continuous automatically.
-  - Offers can keep carrying absolute heights. The mix, the smoothing and
-    the corner mean are all linear, so the agreement comes out as E plus
-    the agreed relief **on straight stretches of an edge only**: the
-    smoothing runs along the edge, and E is linear along a bent edge or
-    over curved land only approximately (measured in "W1 as built").
-    Whether to smooth or negotiate the difference from E, so E passes
-    through exactly, is open for the user's terrain review.
+  - Offers keep carrying absolute heights, but negotiation smooths, mixes
+    and bends towards the corners only the heights above E, then adds E
+    back (decided by the user 2026-11-23, built after W1). So the
+    agreement is E plus the agreed relief exactly, on bent edges and
+    curved land too; each terrain keeps its border profiles as heights
+    above E and adds E at the point itself.
 - **Preset base offsets become equal.** `base.elevation` turns into an
   offset above E. The presets' current 20 m / 50 m / 120 m elevations
   would otherwise bring back a 100 m step at every plains–mountains
@@ -276,19 +275,19 @@ impl HeightField for WorldTerrain { … }
   Offers carry absolute heights, E included; `StitchedWorld::build`
   takes the `Elevation` (`Elevation::flat()` for land at sea level).
   `TerrainOptions::base.elevation` is documented as an offset above E.
-  - **Smoothing at bends:** negotiation smooths each edge profile along
-    the edge, and E goes through that smoothing too. Along a bent edge E
-    isn't linear in the distance along it, so near a bend the agreement
-    differs from E plus the agreed relief: by up to 29 cm at the test
-    border's sharp bends on a 0.02 tilt (at most Δ·σ/√(2π), Δ the change
-    in E's slope along the edge at the bend and σ = 48 m). Both sides meet
-    the same agreement, so there is no seam. Offers on relief only (E
-    added back after negotiating) would make it exact; not done, since it
-    changes what offers and agreements mean. River and road crossings
-    read absolute heights from offers (a river wish's `level` and
-    `ground`, and the profile heights they are checked against), so such
-    a fix must move those to heights above E too, or add E back before
-    checking them.
+  - **E through the border, exactly** (built after W1, 2026-11-23):
+    `negotiate` takes the `&Elevation`. It takes E's height and
+    cross-slope away from both offers' samples, smooths and mixes what is
+    left, bends it towards each corner's agreement less E there, and adds
+    E back. Offers, agreements and crossings keep heights above sea
+    level: river and road crossings are checked against the absolute
+    profile as before. On flat land nothing changes. A terrain's border
+    targets are heights above E, with E at the point added after mixing,
+    and its gradient is E's analytic gradient plus the relief's by
+    central differences (more precise than differencing E plus relief in
+    f32). Before this, E went through the smoothing: up to 29 cm off at
+    the test border's sharp bends on a 0.02 tilt, and up to 0.71 m on
+    bare ground on curved land.
 - **Thread safety:** `terrain(key)` builds under a per-key once-lock, so
   several threads asking for the same region build it once. The cache is
   bounded (LRU); evicted regions rebuild identically.
@@ -344,8 +343,8 @@ impl HeightField for WorldTerrain { … }
   byte-identical to before.
 - **Tests:** slope bound sampled with layers, tilt and overlapping bumps
   (and exact for bumps alone); bumps change E only within their radius;
-  the plane-shift check (exact on straight stretches, beyond 150 m of a
-  bend; within the smoothing bound near one); call order; every height is
+  the plane-shift check (exact on straight stretches when W1 landed;
+  exact everywhere since the fix below); call order; every height is
   E plus the relief. The seam and feature suites also run on a tilted
   world (0.02 down to the west) and a curved one (default layers plus a
   40 m bump across the border), including the triple junction, which
@@ -381,8 +380,15 @@ impl HeightField for WorldTerrain { … }
   0.005 m at 200–300 m. With the plains and mountains on the same land the
   agreement differs from E plus the flat-land agreement by up to 0.49 m:
   the smoothing alone gives 0.16 m, so the rest comes from steps that
-  mix E with the relief, not yet found. The probe becomes an asserted
-  test once E passes through the protocol exactly.
+  mix E with the relief, not yet found. These figures are from W1 as
+  committed (eabd6b1).
+- **Fixed after W1** (see "E through the border, exactly" above): the
+  probe became the test `bare_ground_is_e_everywhere`, on two regions
+  and on three meeting at a corner, with border irregularities off. Bare
+  ground is now E to within 2·10⁻⁸ m everywhere (0.71 m before); the
+  plane-shift check holds to 1 mm and 10⁻⁴ in slope at the bends too.
+  Both tests fail with the fix switched off. The 0.49 m measured on the
+  curved land with relief hasn't been measured again.
 - **Not done:** `ElevationOptions` has no serde support, unlike
   `TerrainOptions`.
 
