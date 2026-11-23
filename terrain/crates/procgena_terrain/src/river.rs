@@ -180,9 +180,10 @@ fn next_steps(
 }
 
 /// Traces the region's own rivers over `grid` (heights of the terrain's own,
-/// unbent relief).
+/// unbent ground), starting from the cells ranked highest by `rank` (one
+/// value per cell of `grid`).
 ///
-/// Sources are the highest cells more than `tracing.source_zone` metres from
+/// Sources are the highest-ranked cells more than `tracing.source_zone` metres from
 /// the border and `tracing.spacing` apart, `tracing.density` per km². Each
 /// river runs downhill until its next step would come within
 /// [`FEATURE_CLEARANCE`] of the border, it stops in a hollow, or it joins an
@@ -190,6 +191,7 @@ fn next_steps(
 /// hollow are dropped. The result is the same for the same inputs.
 pub(crate) fn trace_own(
     grid: &Grid,
+    rank: &[f32],
     region: &Region,
     polygon: &[DVec2],
     tracing: &Tracing,
@@ -208,11 +210,11 @@ pub(crate) fn trace_own(
         return (rivers, occupied);
     }
 
-    // Candidate sources, highest first.
+    // Candidate sources, highest ranked first.
     let mut candidates: Vec<usize> = (0..grid.heights.len())
         .filter(|&i| grid.inside[i] && grid.clearance[i] > source_zone)
         .collect();
-    candidates.sort_by(|&a, &b| grid.heights[b].total_cmp(&grid.heights[a]).then(a.cmp(&b)));
+    candidates.sort_by(|&a, &b| rank[b].total_cmp(&rank[a]).then(a.cmp(&b)));
 
     let mut sources: Vec<DVec2> = Vec::new();
     let max_steps = 4 * (grid.width + grid.depth);
@@ -426,7 +428,7 @@ mod tests {
             min_length: 100.0,
             breach: 0.0,
         };
-        let (rivers, _) = trace_own(&grid, &region, &polygon, &tracing);
+        let (rivers, _) = trace_own(&grid, &grid.heights, &region, &polygon, &tracing);
         assert!(!rivers.is_empty());
         for (i, river) in rivers.iter().enumerate() {
             assert!(river.levels.windows(2).all(|w| w[1] <= w[0]));

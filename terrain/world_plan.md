@@ -29,9 +29,11 @@ stays as a small test fixture.
     continuous automatically.
   - Offers can keep carrying absolute heights. The mix, the smoothing and
     the corner mean are all linear, so the agreement comes out as E plus
-    the agreed relief. W1 checks this by adding the same plane to both
-    sides of a test border and confirming the agreement shifts by exactly
-    that plane.
+    the agreed relief **on straight stretches of an edge only**: the
+    smoothing runs along the edge, and E is linear along a bent edge or
+    over curved land only approximately (measured in "W1 as built").
+    Whether to smooth or negotiate the difference from E, so E passes
+    through exactly, is open for the user's terrain review.
 - **Preset base offsets become equal.** `base.elevation` turns into an
   offset above E. The presets' current 20 m / 50 m / 120 m elevations
   would otherwise bring back a 100 m step at every plains–mountains
@@ -107,16 +109,30 @@ stays as a small test fixture.
 pub struct ElevationOptions {
     pub continents: NoiseLayer,   // very long wavelength (50–200 km): land and ocean
     pub uplift: NoiseLayer,       // 10–50 km: highlands and lowlands within land
+    pub tilt: DVec2,              // a constant slope (added 2026-11-23)
     pub max_slope: f32,           // bound on |∇E|, about 0.05
-    pub sea_level: f32,           // the datum; heights are reported above it
+    pub bumps: Vec<HeightBump>,   // hand-placed rises: centre, radius, height
 }
 ```
 
 - Built from the crate's calibrated fBm, so heights are in metres.
-- The slope bound is enforced by construction: amplitude ÷ wavelength
-  limits the slope of each layer. `validate()` rejects settings that
-  could exceed `max_slope`.
-- Overrides (see below) add smooth bumps with a bounded radius.
+- **No `sea_level` field** (decided 2026-11-23): E is in metres above sea
+  level, so its zero is the sea level. The World owns the sea level as a
+  world-wide setting (ARCHITECTURE.md §5, `WorldContext`).
+- **`tilt`** (added 2026-11-23, not in the first plan): a constant slope
+  added everywhere. Heights grow without limit with distance along it, so
+  it suits test worlds and bounded areas; the plane-shift check and the
+  drainage measurement on a steady slope use it.
+- The slope bound is enforced by construction. Each layer's slope is at
+  most half its height times its fBm's slope bound over its wavelength;
+  the fBm's bound comes from the noise's measured steepest gradient
+  (`NOISE_SLOPE_MAX`, 2.1 per lattice unit), summed over the octaves. That
+  is several times stricter than amplitude ÷ wavelength: a 2-octave layer
+  can be about 16 times as steep as height ÷ wavelength. The tilt and the
+  bumps count too; overlapping bumps add. `validate()` rejects settings
+  that could exceed `max_slope`.
+- Bumps (see below) add `height · (1 − t²)³`, with `t` the distance over
+  the radius: smooth, and zero beyond the radius.
 - E is evaluated per sample (cheap: a few octaves at long wavelengths) and
   cached per chunk where useful.
 
@@ -253,10 +269,26 @@ impl WorldTerrain {
 impl HeightField for WorldTerrain { … }
 ```
 
-- **Terrain changes:** a `Terrain` gets E through a small trait object (or
-  closure) at build time and adds it to its relief everywhere. Offers are
-  made on relief only. `TerrainOptions::base.elevation` becomes an offset
-  above E.
+- **Terrain changes (built in W1):** `TerrainGenerator::with_elevation`
+  gives a terrain its `Elevation`, and every height becomes E plus the
+  relief; it may come before or after `with_edge_targets` with the same
+  result. The fade (scaling and blending) works on the relief alone.
+  Offers carry absolute heights, E included; `StitchedWorld::build`
+  takes the `Elevation` (`Elevation::flat()` for land at sea level).
+  `TerrainOptions::base.elevation` is documented as an offset above E.
+  - **Smoothing at bends:** negotiation smooths each edge profile along
+    the edge, and E goes through that smoothing too. Along a bent edge E
+    isn't linear in the distance along it, so near a bend the agreement
+    differs from E plus the agreed relief: by up to 29 cm at the test
+    border's sharp bends on a 0.02 tilt (at most Δ·σ/√(2π), Δ the change
+    in E's slope along the edge at the bend and σ = 48 m). Both sides meet
+    the same agreement, so there is no seam. Offers on relief only (E
+    added back after negotiating) would make it exact; not done, since it
+    changes what offers and agreements mean. River and road crossings
+    read absolute heights from offers (a river wish's `level` and
+    `ground`, and the profile heights they are checked against), so such
+    a fix must move those to heights above E too, or add E back before
+    checking them.
 - **Thread safety:** `terrain(key)` builds under a per-key once-lock, so
   several threads asking for the same region build it once. The cache is
   bounded (LRU); evicted regions rebuild identically.
@@ -290,12 +322,69 @@ impl HeightField for WorldTerrain { … }
 
 | Phase | Work | Depends on |
 |---|---|---|
-| W1 | E: options, calibration, slope bound, sea level; `Terrain` adds E; preset offsets made equal; the plane-shift check on negotiation; existing tests pass on E = 0 and on a sloped E. **Exit test:** measure the river crossing rate on a sloped E against today's 6 in 300 | terrain 2.5 |
+| W1 | E: options, calibration, slope bound (tilt and bumps included), no sea-level field (E's zero is sea level); `Terrain` adds E; the plane-shift check on negotiation and a seam test on curved E (a bump across the border, noise on); existing tests pass on E = 0 and on a sloped E. **Deferred to W4:** making the preset offsets equal (today 20 / 50 / 120 m), as a separate commit with the border figures re-recorded, after the user's terrain review. **Exit test:** measure the river crossing rate on a sloped E (built: 65 in 300 tilted towards the plains, against 24 flat; see "W1 as built") | terrain 2.5 |
 | W2 | Region graph: staggered jittered lattice, Voronoi polygons, short-edge collapse, corner incidence, owner lookup; purity, tiling and window-size tests | — (in parallel with W1) |
 | W3 | Border segment index in `Terrain`; border warp (subdivided, noise-displaced edges); no-crossing check. **Exit test:** the existing border, crack and feature suites pass on warped fixtures | W2 |
 | W4 | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source | W1, W3 |
 | W5 | Moved to the World crate: selector fields, Biome rules and pins, with empty Biomes (milestones B0 and W0 in ROADMAP.md) | — |
 | W6 | Image example of a large world; drainage measurement. Built on W4 with a closure source; redone through the World once W0 exists | W4 |
+
+### W1 as built (2026-11-23)
+
+- **New:** `Elevation`, `ElevationOptions`, `HeightBump`, `ElevationError`
+  (`src/elevation.rs`); `TerrainGenerator::with_elevation`;
+  `StitchedWorld::build` takes `&Elevation`. Noise: `fbm_gradient`,
+  `fbm_slope_bound` and the measured `NOISE_SLOPE_MAX` (the ignored test
+  `measure_steepest_noise` tries every choice of corner gradients).
+- **Defaults:** continents 400 m over 150 km and uplands 120 m over
+  40 km, both 2 octaves at roughness 0.4: a worst-case slope of 0.047
+  against `max_slope` 0.05. (The first guess, 600 m / 120 km and 200 m /
+  30 km, could reach 0.096 under the real bound.)
+- **Flat land is unchanged:** with `Elevation::flat()` every scene dump is
+  byte-identical to before.
+- **Tests:** slope bound sampled with layers, tilt and overlapping bumps
+  (and exact for bumps alone); bumps change E only within their radius;
+  the plane-shift check (exact on straight stretches, beyond 150 m of a
+  bend; within the smoothing bound near one); call order; every height is
+  E plus the relief. The seam and feature suites also run on a tilted
+  world (0.02 down to the west) and a curved one (default layers plus a
+  40 m bump across the border), including the triple junction, which
+  sits inside the bump. The far-from-origin seam test runs on flat and
+  curved land (there only its bounded noise layers); not on the tilt,
+  which 10 000 km out stands 250 km high, beyond f32.
+- **River sources ranked by relief, not by E** (fixed in W1): sources
+  were the region's highest cells by absolute height, so on a tilt E put
+  every source at the region's high end, far from a border downhill.
+  Sources are now ranked by height above E; rivers still trace over E
+  plus the relief, so they run down E. On flat land nothing changes.
+  Test: `river_sources_stay_spread_on_a_tilt` (2 near-border sources on
+  the tilt against 14 flat with the old rule).
+- **Exit measurement** (`river_crossings_on_a_slope`, hills into plains,
+  default settings, seeds 0–299): flat **24** of 300 give a river
+  crossing; tilted 0.02 down towards the plains **65**; tilted up towards
+  them **6**. Before the source fix the same probe gave 24, 8 and 12. The
+  drainage tilt works once sources ignore E.
+- **The flat baseline:** 24 is not comparable with Phase 2.5's 10–13.
+  Those came from the `river_crossing_seeds` probe before relief
+  blending existed (blend 0, today's default is 0.5), and Phases 2.6 to
+  2.8 changed rivers since. Pre-W1 code (commit 68778ff), counted the
+  same way as today, also gives 24 of 300 on flat land: W1 doesn't change
+  rivers on flat land, and the rise came before it.
+- **Bare ground against E** (`measure_bare_ground_against_e`, two regions
+  with no relief, rivers or roads on the curved test land): beyond 300 m
+  from the shared edge the ground is exactly E. On the edge the agreement
+  differs from E by up to 0.16 m, the profile smoothing (a hand Gaussian
+  of E along the edge gives the same 0.16 m, differing from the agreement
+  by up to 0.12 m, from end handling). The negotiation's border detail
+  adds up to 0.50 m, whatever the relief. Through the border bending the
+  two reach 0.71 m within 100 m of the edge, 0.07 m at 100–200 m and
+  0.005 m at 200–300 m. With the plains and mountains on the same land the
+  agreement differs from E plus the flat-land agreement by up to 0.49 m:
+  the smoothing alone gives 0.16 m, so the rest comes from steps that
+  mix E with the relief, not yet found. The probe becomes an asserted
+  test once E passes through the protocol exactly.
+- **Not done:** `ElevationOptions` has no serde support, unlike
+  `TerrainOptions`.
 
 ## Open questions
 

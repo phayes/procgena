@@ -6,6 +6,7 @@ use glam::DVec2;
 
 use crate::carve::{FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
+use crate::elevation::Elevation;
 use crate::noise::{Octaves, fbm};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
@@ -152,6 +153,20 @@ impl TerrainGenerator {
         options.validate()?;
         let relief = Relief::new(&options);
         Ok(Self { options, relief })
+    }
+
+    /// This generator standing on the world elevation `elevation`: every
+    /// height becomes E plus the terrain's relief, and the settings'
+    /// [`base.elevation`](crate::BaseOptions::elevation) is an offset above
+    /// E. Replaces any earlier elevation; a new generator stands on
+    /// [`Elevation::flat`].
+    ///
+    /// Every region of a world must be given the same elevation. It may be
+    /// set before or after [`with_edge_targets`](Self::with_edge_targets),
+    /// with the same result, but before making offers.
+    pub fn with_elevation(mut self, elevation: Elevation) -> Self {
+        self.relief = self.relief.with_elevation(elevation);
+        self
     }
 
     /// The generator's settings.

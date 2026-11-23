@@ -132,7 +132,12 @@ pub(crate) fn own_rivers(
         min_length: r.min_length,
         breach: breach(options),
     };
-    let (rivers, occupied) = trace_own(&grid, region, polygon, &tracing);
+    // Sources are ranked by the relief alone: on sloping land E would put
+    // every source at the region's high end. The rivers still run down E.
+    let rank: Vec<f32> = (0..grid.heights.len())
+        .map(|i| relief.height_above_elevation(grid.centre(i)))
+        .collect();
+    let (rivers, occupied) = trace_own(&grid, &rank, region, polygon, &tracing);
     Some(OwnRivers {
         grid,
         rivers,

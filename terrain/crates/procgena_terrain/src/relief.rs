@@ -4,6 +4,7 @@ use glam::{DVec2, Vec2};
 
 use crate::calibration::{MASK_OCTAVES, RIDGED_OCTAVES, mask_threshold};
 use crate::converge::{Fade, LayerSpreads};
+use crate::elevation::Elevation;
 use crate::hash::derive_seed;
 use crate::noise::{Octaves, fbm, ridged};
 use crate::options::{BaseOptions, NoiseLayer, RoadGrades, TerrainOptions};
@@ -28,7 +29,11 @@ const CREST_MEAN: f32 = 0.5;
 const CREST_SPREAD: f32 = 0.25;
 
 /// A terrain's own height field: pure, defined everywhere, and the same for
-/// the same options and fade.
+/// the same options, fade and elevation.
+///
+/// Heights are the world elevation E plus the terrain's relief. The fade
+/// works on the relief alone: it scales the relief's layers and blends
+/// with the neighbours' relief, and E is added after.
 #[derive(Debug, Clone)]
 pub(crate) struct Relief {
     base: BaseOptions,
@@ -39,6 +44,7 @@ pub(crate) struct Relief {
     mask_threshold: f32,
     roads: RoadGrades,
     fade: Option<Fade>,
+    elevation: Elevation,
 }
 
 /// The spread of each layer of `base`, in metres (see [`LayerSpreads`]).
@@ -72,7 +78,14 @@ impl Relief {
             ridge_seed: derive_seed(seed, 4),
             roads: options.features.roads.grades(),
             fade: None,
+            elevation: Elevation::flat(),
         }
+    }
+
+    /// This relief standing on `elevation` instead of its current one.
+    pub(crate) fn with_elevation(mut self, elevation: Elevation) -> Self {
+        self.elevation = elevation;
+        self
     }
 
     /// The road grades at `p`: the terrain's own, faded towards its edges'
@@ -87,13 +100,22 @@ impl Relief {
         self.fade.as_ref().map(Fade::reach)
     }
 
-    /// Height at `p` without the fade: every layer as the settings give it.
+    /// Height at `p` without the fade: E plus every layer as the settings
+    /// give it.
     pub(crate) fn unfaded_height(&self, p: DVec2) -> f32 {
+        self.own_relief(p) + self.elevation.height(p)
+    }
+
+    /// The relief alone at `p`, without E or the fade: what the fade
+    /// blends between neighbours.
+    pub(crate) fn own_relief(&self, p: DVec2) -> f32 {
         self.scaled_height(p, 1.0, 1.0, 1.0)
     }
 
     /// The typical height of the relief without the fade, in metres: its
-    /// elevation plus the mountain layer's mean.
+    /// offset above E plus the mountain layer's mean. E isn't counted: it
+    /// is the same for every terrain, so it drops out wherever terrains
+    /// compare their mean heights.
     pub(crate) fn mean_height(&self) -> f64 {
         let m = &self.base.mountains;
         f64::from(self.base.elevation) + f64::from(m.height * m.coverage * CREST_MEAN)
@@ -110,10 +132,17 @@ impl Relief {
         self
     }
 
-    /// Height in metres at world position `p` (x and z).
+    /// Height in metres at world position `p` (x and z): E plus the faded
+    /// relief.
     pub(crate) fn height(&self, p: DVec2) -> f32 {
+        self.height_above_elevation(p) + self.elevation.height(p)
+    }
+
+    /// The height at `p` above the world elevation E: the relief alone,
+    /// faded.
+    pub(crate) fn height_above_elevation(&self, p: DVec2) -> f32 {
         let Some(fade) = &self.fade else {
-            return self.unfaded_height(p);
+            return self.own_relief(p);
         };
 
         // Scaled layers alone: no blend share.
@@ -129,7 +158,7 @@ impl Relief {
 
         // The border blend, alone or mixed with the scaled layers. Outside
         // both fades the height is exactly the terrain's own.
-        let own = self.unfaded_height(p);
+        let own = self.own_relief(p);
         let Some(blended) = fade.blended(p, f64::from(own)) else {
             let scaled = scaled();
             return if scaled == own {

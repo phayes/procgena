@@ -8,6 +8,12 @@
 /// over the plane.
 pub(crate) const NOISE_STD: f32 = 0.215_715;
 
+/// The largest gradient [`gradient_noise`](crate::noise::gradient_noise)
+/// ever has, per unit of its input, with a little to spare: measured as
+/// 2.067 over every choice of corner gradients by the ignored test
+/// `measure_steepest_noise`.
+pub(crate) const NOISE_SLOPE_MAX: f32 = 2.1;
+
 /// Mean of the raw ridged sum (before scaling), at [`RIDGED_OCTAVES`].
 pub(crate) const RIDGED_MEAN: f32 = 0.541_666;
 

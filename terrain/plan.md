@@ -867,6 +867,10 @@ same idea for one value.
     breach fix), shared seed: 10, 13, 12 and 13 (at −∞, −1, 0, 1);
     unrelated seeds: 7, 9, 10 and 14. After crossings were judged against
     the bent ground (below): shared 10, 12, 12, 13; unrelated 7, 8, 9, 13.
+    (These counts predate relief blending and Phases 2.6–2.8, so later
+    counts can't be compared with them: on 2026-11-23, before WorldTerrain
+    W1, the default world gave 24 of 300; see `world_plan.md`, "W1 as
+    built".)
     Only 253 crosses in all eight, so `RIVER_SEEDS` is that one;
     `JOIN_SEEDS` (64 shared, 136 unrelated) cover rivers joining on bends.
   - The eight-configuration fixtures surfaced Phase 2 planner bugs, all
