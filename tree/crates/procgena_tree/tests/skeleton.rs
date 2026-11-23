@@ -13,8 +13,10 @@ fn cases() -> Vec<(String, TreeOptions)> {
     for tree_type in [TreeType::Deciduous, TreeType::Evergreen] {
         for levels in 0..=3 {
             for seed in [-7, 1, 42] {
-                let mut options = TreeOptions::default();
-                options.tree_type = tree_type;
+                let mut options = TreeOptions {
+                    tree_type,
+                    ..TreeOptions::default()
+                };
                 options.branch.levels = levels;
                 options.seed = seed;
                 cases.push((
@@ -147,8 +149,10 @@ fn deciduous_branches_tapered_to_a_point_end_there() {
 #[test]
 fn zero_leaf_count_grows_no_leaves() {
     for tree_type in [TreeType::Deciduous, TreeType::Evergreen] {
-        let mut options = TreeOptions::default();
-        options.tree_type = tree_type;
+        let mut options = TreeOptions {
+            tree_type,
+            ..TreeOptions::default()
+        };
         options.fruit.placement.count = 2;
         options.leaves.count = 0;
         let bare = Skeleton::generate(&options).unwrap();

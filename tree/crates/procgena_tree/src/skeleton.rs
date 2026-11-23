@@ -541,7 +541,10 @@ fn limit_turn(from: Quat, to: Quat, length: f32, radius: f32) -> Quat {
     let limit = (length / radius).min(1.0).asin() * MAX_TURN_FRACTION;
     let (a, b) = (from * Vec3::Y, to * Vec3::Y);
     let angle = a.angle_between(b);
-    if !(angle > limit) {
+    // Keep `to` unless the turn is known to exceed the limit. A NaN angle or
+    // limit (from a zero-length slice of zero radius) can't be judged, so it
+    // keeps `to` as well rather than swinging by a NaN angle.
+    if !matches!(angle.partial_cmp(&limit), Some(std::cmp::Ordering::Greater)) {
         return to;
     }
 
