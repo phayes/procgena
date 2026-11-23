@@ -10,10 +10,10 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use serde_json::Value;
 use procgena_stone::{
     ImageMap, TEXTURE_SETS, TextureCompression, TextureMap, TextureSize, image_path, texture_path,
 };
+use serde_json::Value;
 
 const KTX2_IDENTIFIER: [u8; 12] = *b"\xabKTX 20\xbb\r\n\x1a\n";
 const VK_FORMAT_UNDEFINED: u32 = 0;

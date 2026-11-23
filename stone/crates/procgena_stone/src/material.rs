@@ -241,9 +241,10 @@ mod tests {
     /// The published manifest lists the sets of stone/textures.yml in order.
     #[test]
     fn set_names_match_the_published_sets() {
-        let manifest: serde_json::Value =
-            serde_json::from_str(include_str!("../../../assets/textures/assets_manifest.json"))
-                .expect("valid manifest");
+        let manifest: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../assets/textures/assets_manifest.json"
+        ))
+        .expect("valid manifest");
         let names: Vec<&str> = manifest["assets"]
             .as_array()
             .expect("manifest assets")

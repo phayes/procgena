@@ -2,7 +2,9 @@
 #![cfg(feature = "export-obj")]
 
 use procgena_stone::export::obj::{ObjOptions, to_obj};
-use procgena_stone::{ImageMap, MaterialOptions, Stone, StoneDetail, StoneMesh, StoneOptions, TextureSize};
+use procgena_stone::{
+    ImageMap, MaterialOptions, Stone, StoneDetail, StoneMesh, StoneOptions, TextureSize,
+};
 
 /// Creates a small, repeatable rock for export checks.
 fn stone() -> Stone {
