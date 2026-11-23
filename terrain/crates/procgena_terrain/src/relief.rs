@@ -6,7 +6,7 @@ use crate::calibration::{MASK_OCTAVES, RIDGED_OCTAVES, mask_threshold};
 use crate::converge::{Fade, LayerSpreads};
 use crate::hash::derive_seed;
 use crate::noise::{Octaves, fbm, ridged};
-use crate::options::{BaseOptions, NoiseLayer, TerrainOptions};
+use crate::options::{BaseOptions, NoiseLayer, RoadGrades, TerrainOptions};
 
 /// Width of the soft rim of the mountain mask, in fBm standard deviations.
 const MASK_RIM: f32 = 0.6;
@@ -37,6 +37,7 @@ pub(crate) struct Relief {
     mask_seed: u32,
     ridge_seed: u32,
     mask_threshold: f32,
+    roads: RoadGrades,
     fade: Option<Fade>,
 }
 
@@ -69,8 +70,26 @@ impl Relief {
             hill_seed: derive_seed(seed, 2),
             mask_seed: derive_seed(seed, 3),
             ridge_seed: derive_seed(seed, 4),
+            roads: options.features.roads.grades(),
             fade: None,
         }
+    }
+
+    /// The road grades at `p`: the terrain's own, faded towards its edges'
+    /// targets near them.
+    pub(crate) fn road_grades(&self, p: DVec2) -> RoadGrades {
+        self.fade.as_ref().map_or(self.roads, |f| f.roads(p))
+    }
+
+    /// How far from its edges the fade reaches, in metres, or `None` with
+    /// no fade.
+    pub(crate) fn fade_width(&self) -> Option<f64> {
+        self.fade.as_ref().map(Fade::width)
+    }
+
+    /// Height at `p` without the fade: every layer as the settings give it.
+    pub(crate) fn unfaded_height(&self, p: DVec2) -> f32 {
+        self.scaled_height(p, 1.0, 1.0, 1.0)
     }
 
     /// The spread of each layer, in metres.

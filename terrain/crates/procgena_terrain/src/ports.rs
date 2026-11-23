@@ -6,8 +6,9 @@
 
 use glam::DVec2;
 
+use crate::options::RoadGrades;
 use crate::region::{RegionEdge, RegionId, point_at, segments};
-use crate::seam::EdgeSample;
+use crate::seam::{EdgeSample, smootherstep};
 
 /// How far a channel's banks reach beyond its edge, in metres.
 pub(crate) const BANK_REACH: f64 = 40.0;
@@ -195,8 +196,12 @@ pub(crate) struct SideWishes<'a> {
     pub roads: &'a [PortWish],
     /// The side's own smoothed profile along the edge.
     pub natural: &'a [EdgeSample],
-    /// The steepest grade the side's roads may climb.
-    pub road_grade: f32,
+    /// The side's own road grades, before fading.
+    pub road_grades: RoadGrades,
+    /// The side's height at each profile sample without its fade.
+    pub unfaded: &'a [f32],
+    /// How far from the edge the side fades, in metres.
+    pub fade_width: f32,
     /// How far inside its region the side bends to meet the agreement, in
     /// metres.
     pub margin: f32,
@@ -206,15 +211,20 @@ pub(crate) struct SideWishes<'a> {
 }
 
 impl SideWishes<'_> {
-    /// Whether the side's own ground [`FEATURE_CLEARANCE`] metres inside
-    /// stays within [`PIECE_GAP`] of its own smoothed border profile carried
-    /// inward, at profile sample `i`. Where it does, a crossing piece
-    /// following the agreed profile stays close to the ground at that end.
-    fn piece_fits(&self, i: usize) -> bool {
-        let own = self.natural[i];
-        let carried = own.height
-            + (f64::from(own.slope) * slope_reach(self.side.sign() * FEATURE_CLEARANCE)) as f32;
-        (self.inner[i] - carried).abs() <= PIECE_GAP
+    /// Whether a crossing piece following `agreed` (the agreed profile at
+    /// sample `i`) ends within [`PIECE_GAP`] of the side's ground
+    /// [`FEATURE_CLEARANCE`] metres inside, once that ground is bent to meet
+    /// the agreement.
+    fn piece_fits(&self, i: usize, agreed: EdgeSample) -> bool {
+        // Both profiles carried inward to the piece's end.
+        let reach = slope_reach(self.side.sign() * FEATURE_CLEARANCE);
+        let carry = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * reach;
+        let (own, agreed) = (carry(self.natural[i]), carry(agreed));
+        // The side's ground there, shifted towards the agreement as the
+        // terrain bends across its margin.
+        let kept = 1.0 - smootherstep(FEATURE_CLEARANCE / f64::from(self.margin));
+        let bent = f64::from(self.inner[i]) + (agreed - own) * kept;
+        (bent - agreed).abs() <= f64::from(PIECE_GAP)
     }
 }
 
@@ -249,7 +259,9 @@ pub(crate) fn agree_ports(
         for wish in wishes {
             let along = snap_to_low_point(profile, step, wish.along);
             let sample = ((along / step).round() as usize).min(profile.len() - 1);
-            if !usable(along) || !from.piece_fits(sample) || !to.piece_fits(sample) {
+            let agreed = profile[sample];
+            if !usable(along) || !from.piece_fits(sample, agreed) || !to.piece_fits(sample, agreed)
+            {
                 continue;
             }
             let ground = interpolate(profile, step, along);
@@ -354,8 +366,12 @@ pub(crate) fn agree_ports(
 ///
 /// At the crossing the agreed ground may differ from each side's own ground;
 /// each side's road must climb or descend that difference within
-/// [`ROAD_RAMP`] metres at its steepest grade. The point needing the least
-/// of that is chosen; if even it needs more, there is no crossing.
+/// [`ROAD_RAMP`] metres at the border's steepest grade. The point needing
+/// the least of that is chosen; if even it needs more, there is no crossing.
+///
+/// Each side's road must also be able to reach the side's ground beyond its
+/// fade (`unfaded`), climbing at most the side's steepest grades across the
+/// fade and then [`ROAD_RAMP`] metres more.
 fn road_crossing(
     a: &SideWishes,
     b: &SideWishes,
@@ -367,18 +383,30 @@ fn road_crossing(
     let last = profile.len() - 1;
     let lo = ((wished - ROAD_MERGE) / step).ceil().max(0.0) as usize;
     let hi = (((wished + ROAD_MERGE) / step).floor() as usize).min(last);
+    // At the border both sides' roads may climb the steeper side's grades.
+    let border = a.road_grades.steepest(b.road_grades);
+    let steepest = f64::from(border.max_grade);
     let ramp = |i: usize| {
         [a, b]
             .iter()
-            .map(|s| f64::from((profile[i].height - s.natural[i].height).abs() / s.road_grade))
+            .map(|s| f64::from((profile[i].height - s.natural[i].height).abs()) / steepest)
             .fold(0.0, f64::max)
     };
     let off = |i: usize| (i as f64 * step - wished).abs();
     // The road climbs the border's cross-slope on its crossing piece.
-    let gentle = |i: usize| profile[i].slope.abs() <= a.road_grade.min(b.road_grade);
-    let fits = |i: usize| a.piece_fits(i) && b.piece_fits(i);
+    let gentle = |i: usize| f64::from(profile[i].slope.abs()) <= steepest;
+    let fits = |i: usize| a.piece_fits(i, profile[i]) && b.piece_fits(i, profile[i]);
+    // Across the fade the steepest grade changes from the border's to the
+    // side's own; on average it is about halfway between.
+    let reachable = |i: usize| {
+        [a, b].iter().all(|s| {
+            let own = f64::from(s.road_grades.max_grade);
+            let budget = 0.5 * (steepest + own) * f64::from(s.fade_width) + own * ROAD_RAMP;
+            f64::from((profile[i].height - s.unfaded[i]).abs()) <= budget
+        })
+    };
     (lo..=hi)
-        .filter(|&i| usable(i as f64 * step) && gentle(i) && fits(i))
+        .filter(|&i| usable(i as f64 * step) && gentle(i) && fits(i) && reachable(i))
         .min_by(|&i, &j| {
             ramp(i)
                 .total_cmp(&ramp(j))
@@ -475,16 +503,26 @@ mod tests {
             .collect()
     }
 
-    /// Both sides, each with its own ground equal to `natural` and inland
-    /// heights `inner` (left side first).
+    /// The heights of `natural`.
+    fn heights(natural: &[EdgeSample]) -> Vec<f32> {
+        natural.iter().map(|s| s.height).collect()
+    }
+
+    /// Both sides, each with its own ground equal to `natural`, inland
+    /// heights `fit[0]` (left) and `fit[1]` (right), and unfaded heights
+    /// `fit[2]`. Roads keep to 0.1, with no steeper grade allowed.
     fn sides<'a>(
         a_rivers: &'a [PortWish],
         b_rivers: &'a [PortWish],
         a_roads: &'a [PortWish],
         b_roads: &'a [PortWish],
         natural: &'a [EdgeSample],
-        inner: &'a [Vec<f32>; 2],
+        fit: &'a [Vec<f32>; 3],
     ) -> (SideWishes<'a>, SideWishes<'a>) {
+        let road_grades = RoadGrades {
+            grade: 0.1,
+            max_grade: 0.1,
+        };
         (
             SideWishes {
                 region: RegionId(1),
@@ -492,9 +530,11 @@ mod tests {
                 rivers: a_rivers,
                 roads: a_roads,
                 natural,
-                road_grade: 0.1,
+                road_grades,
                 margin: 200.0,
-                inner: &inner[0],
+                inner: &fit[0],
+                unfaded: &fit[2],
+                fade_width: 200.0,
             },
             SideWishes {
                 region: RegionId(2),
@@ -502,16 +542,23 @@ mod tests {
                 rivers: b_rivers,
                 roads: b_roads,
                 natural,
-                road_grade: 0.1,
+                road_grades,
                 margin: 200.0,
-                inner: &inner[1],
+                inner: &fit[1],
+                unfaded: &fit[2],
+                fade_width: 200.0,
             },
         )
     }
 
-    /// Inland heights fitting `natural` on both sides.
-    fn fit_both(natural: &[EdgeSample]) -> [Vec<f32>; 2] {
-        [fitting(natural, Side::Left), fitting(natural, Side::Right)]
+    /// Inland heights fitting `natural` on both sides, and its heights as
+    /// the unfaded ground.
+    fn fit_both(natural: &[EdgeSample]) -> [Vec<f32>; 3] {
+        [
+            fitting(natural, Side::Left),
+            fitting(natural, Side::Right),
+            heights(natural),
+        ]
     }
 
     #[test]
@@ -602,6 +649,47 @@ mod tests {
     }
 
     #[test]
+    fn no_crossing_whose_piece_floats_above_the_bent_ground() {
+        let (profile, step) = valley();
+        let fit = fit_both(&profile);
+        // The right side's own ground is 50 m below the border. With a 200 m
+        // margin its ground has already fallen about 10 m back towards its
+        // own height where the crossing piece ends.
+        let low: Vec<EdgeSample> = profile
+            .iter()
+            .map(|s| EdgeSample {
+                height: s.height - 50.0,
+                ..*s
+            })
+            .collect();
+        let low_inner = fitting(&low, Side::Right);
+        let road = [PortWish {
+            along: 700.0,
+            level: 0.0,
+            width: 6.0,
+            ground: f32::INFINITY,
+        }];
+        let river = [PortWish {
+            along: 400.0,
+            level: 40.0,
+            width: 8.0,
+            ground: 40.0,
+        }];
+        let low_heights = heights(&low);
+        let (a, mut b) = sides(&river, &[], &road, &[], &profile, &fit);
+        b.natural = &low;
+        b.inner = &low_inner;
+        b.unfaded = &low_heights;
+        assert!(agree_ports(&a, &b, &profile, step, &away_from_ends).is_empty());
+        // Over a 2 km margin the ground there has hardly moved.
+        b.margin = 2000.0;
+        assert_eq!(
+            agree_ports(&a, &b, &profile, step, &away_from_ends).len(),
+            2
+        );
+    }
+
+    #[test]
     fn roads_dont_cross_where_the_border_is_far_above_a_side() {
         let (profile, step) = valley();
         let fit = fit_both(&profile);
@@ -621,9 +709,16 @@ mod tests {
             ground: f32::INFINITY,
         }];
         let (a, mut b) = sides(&[], &[], &road, &[], &profile, &fit);
+        // A margin and fade so wide that the bend barely moves the ground
+        // under the crossing piece and the side's ground beyond the fade is
+        // in reach, so only the climb near the border decides.
+        b.margin = 2000.0;
+        b.fade_width = 2000.0;
         let low_inner = fitting(&low, Side::Right);
+        let low_heights = heights(&low);
         b.natural = &low;
         b.inner = &low_inner;
+        b.unfaded = &low_heights;
         assert!(agree_ports(&a, &b, &profile, step, &away_from_ends).is_empty());
         // 50 m below is reachable.
         let close: Vec<EdgeSample> = profile
@@ -634,8 +729,42 @@ mod tests {
             })
             .collect();
         let close_inner = fitting(&close, Side::Right);
+        let close_heights = heights(&close);
         b.natural = &close;
         b.inner = &close_inner;
+        b.unfaded = &close_heights;
+        assert_eq!(
+            agree_ports(&a, &b, &profile, step, &away_from_ends).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn roads_dont_cross_where_a_side_fades_up_from_far_below() {
+        let (profile, step) = valley();
+        let fit = fit_both(&profile);
+        let road = [PortWish {
+            along: 500.0,
+            level: 0.0,
+            width: 6.0,
+            ground: f32::INFINITY,
+        }];
+        // The right side meets the border at its height only because its fade
+        // lifts it; beyond the 200 m fade its ground is 150 m lower. At grade
+        // 0.1 its road can fall 20 m across the fade and 50 m after it.
+        let far_below: Vec<f32> = profile.iter().map(|s| s.height - 150.0).collect();
+        let (a, mut b) = sides(&[], &[], &road, &[], &profile, &fit);
+        b.unfaded = &far_below;
+        assert!(agree_ports(&a, &b, &profile, step, &away_from_ends).is_empty());
+        // A steeper neighbour lets it fall faster across the fade, but not
+        // far enough.
+        let mut a = a;
+        a.road_grades.max_grade = 0.25;
+        assert!(agree_ports(&a, &b, &profile, step, &away_from_ends).is_empty());
+        // 60 m below is in reach.
+        let below: Vec<f32> = profile.iter().map(|s| s.height - 60.0).collect();
+        b.unfaded = &below;
+        a.road_grades.max_grade = 0.1;
         assert_eq!(
             agree_ports(&a, &b, &profile, step, &away_from_ends).len(),
             1

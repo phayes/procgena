@@ -194,6 +194,92 @@ fn lowest_ground(relief: &Relief, a: DVec2, b: DVec2) -> f32 {
         .fold(f32::INFINITY, f32::min)
 }
 
+/// Where segment `a`–`b` first meets the line through `points` (touching
+/// counts): the fraction of the way from `a` to `b`, the index of the line's
+/// segment, and the fraction of the way along that segment.
+fn meeting(a: DVec2, b: DVec2, points: &[DVec2]) -> Option<(f64, usize, f64)> {
+    let ab = b - a;
+    points
+        .windows(2)
+        .enumerate()
+        .filter_map(|(k, w)| {
+            let cd = w[1] - w[0];
+            let denominator = ab.perp_dot(cd);
+            if denominator == 0.0 {
+                return None;
+            }
+            let ac = w[0] - a;
+            let t = ac.perp_dot(cd) / denominator;
+            let u = ac.perp_dot(ab) / denominator;
+            ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)).then_some((t, k, u))
+        })
+        .min_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)))
+}
+
+/// The point of the line through `points` nearest to `p`: the index of its
+/// segment and the fraction of the way along it.
+fn nearest_on(points: &[DVec2], p: DVec2) -> (usize, f64) {
+    points
+        .windows(2)
+        .enumerate()
+        .map(|(k, w)| {
+            let cd = w[1] - w[0];
+            let u = ((p - w[0]).dot(cd) / cd.length_squared().max(1e-12)).clamp(0.0, 1.0);
+            (k, u, p.distance(w[0] + cd * u))
+        })
+        .min_by(|x, y| x.2.total_cmp(&y.2).then(x.0.cmp(&y.0)))
+        .map(|(k, u, _)| (k, u))
+        .expect("a river has at least two points")
+}
+
+/// Ends `tributary` exactly on `trunk`'s line: where it first meets that
+/// line, or else at the point of the line nearest to its end. The meeting
+/// point becomes a point of both lines, with `trunk`'s level there
+/// interpolated.
+fn join(tributary: &mut FeatureLine, trunk: &mut FeatureLine) {
+    // Cut the tributary where it first meets the trunk, or carry its end on
+    // to the trunk at its last level.
+    let first = tributary
+        .points
+        .windows(2)
+        .enumerate()
+        .find_map(|(i, w)| meeting(w[0], w[1], &trunk.points).map(|(t, k, _)| (i, t, k)));
+    let (point, segment) = match first {
+        Some((i, t, k)) => {
+            let (a, b) = (tributary.points[i], tributary.points[i + 1]);
+            let (la, lb) = (tributary.levels[i], tributary.levels[i + 1]);
+            let point = a.lerp(b, t);
+            tributary.points.truncate(i + 1);
+            tributary.levels.truncate(i + 1);
+            if point != a {
+                tributary.points.push(point);
+                tributary.levels.push(la + (lb - la) * t as f32);
+            }
+            (point, k)
+        }
+        None => {
+            let end = *tributary.points.last().expect("a river has points");
+            let level = *tributary.levels.last().expect("a river has levels");
+            let (k, u) = nearest_on(&trunk.points, end);
+            let point = trunk.points[k].lerp(trunk.points[k + 1], u);
+            if point != end {
+                tributary.points.push(point);
+                tributary.levels.push(level);
+            }
+            (point, k)
+        }
+    };
+
+    // Give the trunk a point there too, unless it already has one.
+    let (c, d) = (trunk.points[segment], trunk.points[segment + 1]);
+    if point != c && point != d {
+        let u = c.distance(point) / c.distance(d);
+        let (lc, ld) = (trunk.levels[segment], trunk.levels[segment + 1]);
+        trunk.points.insert(segment + 1, point);
+        trunk.levels.insert(segment + 1, lc + (ld - lc) * u as f32);
+    }
+}
+
 /// Builds the region's rivers, ponds and roads after negotiation.
 ///
 /// `agreements` pairs each shared edge's index in the region with its
@@ -249,7 +335,12 @@ pub(crate) fn features(
             width,
             depth,
         });
+        rivers.len() - 1
     };
+    // Each traced river's index in `rivers`, and every (joining river,
+    // river it joins) pair of traced indices.
+    let mut line_of = Vec::new();
+    let mut joins = Vec::new();
 
     // The region's own rivers, fitted to the bent ground: on to their
     // crossing, or into a pond. Rivers are visited in tracing order, so a
@@ -303,8 +394,11 @@ pub(crate) fn features(
         } else {
             river.end
         };
-        if end == End::Join && !traced[..k].iter().any(|t| t.points.contains(&last.0)) {
-            end = End::Sink;
+        if end == End::Join {
+            match traced[..k].iter().position(|t| t.points.contains(&last.0)) {
+                Some(trunk) => joins.push((k, trunk)),
+                None => end = End::Sink,
+            }
         }
         traced[k] = Traced {
             points: points.clone(),
@@ -327,7 +421,13 @@ pub(crate) fn features(
             (End::Join, _) => {}
             _ => ponds.push(pond(last.0, last.1, r.width)),
         }
-        push_river(&points, &levels, r.width, r.depth, Part::Own { floor });
+        line_of.push(push_river(
+            &points,
+            &levels,
+            r.width,
+            r.depth,
+            Part::Own { floor },
+        ));
     }
 
     // Rivers flowing in from neighbours, and every crossing's straight piece.
@@ -362,21 +462,30 @@ pub(crate) fn features(
                             &mut occupied,
                             traced.len(),
                         );
-                        if inbound.end == End::Sink {
-                            let last = inbound.points.len() - 1;
-                            ponds.push(pond(
+                        let last = inbound.points.len() - 1;
+                        match inbound.end {
+                            End::Sink => ponds.push(pond(
                                 inbound.points[last],
                                 inbound.levels[last],
                                 port.width,
-                            ));
+                            )),
+                            End::Join => {
+                                let end = inbound.points[last];
+                                let trunk = traced
+                                    .iter()
+                                    .position(|t| t.points.contains(&end))
+                                    .expect("a joining river ends on a traced river");
+                                joins.push((traced.len(), trunk));
+                            }
+                            End::Edge { .. } => {}
                         }
-                        push_river(
+                        line_of.push(push_river(
                             &inbound.points,
                             &inbound.levels,
                             port.width,
                             depth,
                             Part::Inbound,
-                        );
+                        ));
                         traced.push(inbound);
                     }
                 }
@@ -392,6 +501,17 @@ pub(crate) fn features(
         }
     }
 
+    // Smoothing moved every river off its traced cells, so end each joining
+    // river on the smoothed line of the river it joins. Joins are visited in
+    // tracing order, so the river joined is already finished.
+    for &(tributary, trunk) in &joins {
+        let (t, k) = (line_of[tributary], line_of[trunk]);
+        let [tributary, trunk] = rivers
+            .get_disjoint_mut([t, k])
+            .expect("a river never joins itself");
+        join(tributary, trunk);
+    }
+
     // Roads: the crossing pieces, then routes linking them.
     let mut water = vec![false; bent.heights.len()];
     for river in &rivers {
@@ -401,12 +521,7 @@ pub(crate) fn features(
             }
         }
     }
-    let mut roads = route(
-        &bent,
-        &road_starts,
-        &water,
-        options.features.roads.max_grade,
-    );
+    let mut roads = route(&bent, &road_starts, &water, &|p| relief.road_grades(p));
     for &(index, agreement) in agreements {
         let edge = &region.edges[index];
         for port in agreement.ports.iter().filter(|p| p.kind == PortKind::Road) {
@@ -421,4 +536,61 @@ pub(crate) fn features(
         }
     }
     Features::new(rivers, ponds, roads)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A river through `points`, with `levels`.
+    fn river(points: &[(f64, f64)], levels: &[f32]) -> FeatureLine {
+        FeatureLine {
+            kind: FeatureKind::River,
+            points: points.iter().map(|&(x, z)| DVec2::new(x, z)).collect(),
+            levels: levels.to_vec(),
+            width: 6.0,
+            depth: 1.0,
+        }
+    }
+
+    #[test]
+    fn a_tributary_crossing_its_trunk_is_cut_where_they_meet() {
+        // The trunk runs along x = 0; the tributary crosses it.
+        let mut trunk = river(&[(0.0, -100.0), (0.0, 100.0)], &[10.0, 8.0]);
+        let mut tributary = river(
+            &[(-50.0, 0.0), (-10.0, 0.0), (30.0, 0.0)],
+            &[20.0, 12.0, 11.0],
+        );
+        join(&mut tributary, &mut trunk);
+        let meeting = DVec2::new(0.0, 0.0);
+        assert_eq!(tributary.points.last(), Some(&meeting));
+        assert_eq!(tributary.points.len(), 3);
+        assert_eq!(tributary.levels.last(), Some(&11.75));
+        assert_eq!(trunk.points[1], meeting);
+        assert_eq!(trunk.levels, vec![10.0, 9.0, 8.0]);
+    }
+
+    #[test]
+    fn a_tributary_short_of_its_trunk_is_carried_on_to_it() {
+        let mut trunk = river(&[(0.0, -100.0), (0.0, 100.0)], &[10.0, 8.0]);
+        let mut tributary = river(&[(-50.0, 50.0), (-10.0, 50.0)], &[20.0, 12.0]);
+        join(&mut tributary, &mut trunk);
+        let meeting = DVec2::new(0.0, 50.0);
+        assert_eq!(tributary.points.last(), Some(&meeting));
+        assert_eq!(tributary.levels, vec![20.0, 12.0, 12.0]);
+        assert_eq!(trunk.points[1], meeting);
+        assert_eq!(trunk.levels, vec![10.0, 8.5, 8.0]);
+    }
+
+    #[test]
+    fn a_tributary_ending_on_a_trunk_point_adds_no_point() {
+        let mut trunk = river(
+            &[(0.0, -100.0), (0.0, 0.0), (0.0, 100.0)],
+            &[10.0, 9.0, 8.0],
+        );
+        let mut tributary = river(&[(-50.0, 0.0), (0.0, 0.0)], &[20.0, 12.0]);
+        join(&mut tributary, &mut trunk);
+        assert_eq!(tributary.points.len(), 2);
+        assert_eq!(trunk.points.len(), 3);
+    }
 }

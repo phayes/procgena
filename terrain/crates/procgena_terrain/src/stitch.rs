@@ -9,8 +9,8 @@ use std::fmt;
 
 use glam::DVec2;
 
-use crate::converge::{ReliefTarget, relief_meeting_is_valid, relief_target};
-use crate::options::{OptionsError, TerrainOptions};
+use crate::converge::{BorderTarget, EdgeTarget, relief_meeting_is_valid, relief_target};
+use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{Boundary, CornerId, Region, RegionCorner, RegionEdge, RegionError, RegionId};
 use crate::seam::{CornerAgreement, EdgeAgreement, SeamError, negotiate, negotiate_corner};
 use crate::terrain::{HeightField, Terrain, TerrainError, TerrainGenerator};
@@ -293,9 +293,9 @@ fn region_graph(
     })
 }
 
-/// Gives each generator relief targets for its shared edges: the
-/// [`relief_target`] of the two regions on each edge, and of every region
-/// touching each corner.
+/// Gives each generator targets for its shared edges, from the regions on
+/// each edge and touching each corner: the [`relief_target`] of their
+/// amplitudes, and the steepest of their road grades.
 fn converge(
     regions: &[Region],
     generators: Vec<TerrainGenerator>,
@@ -303,15 +303,29 @@ fn converge(
     meeting: f32,
 ) -> Result<Vec<TerrainGenerator>, StitchError> {
     let amplitudes: Vec<f32> = generators.iter().map(|g| g.relief_amplitude()).collect();
-    let of = |r: &RegionId| amplitudes[index[r]];
+    let roads: Vec<RoadGrades> = generators
+        .iter()
+        .map(|g| g.options().features.roads.grades())
+        .collect();
+    let target = |touching: &[RegionId]| {
+        let amplitudes: Vec<f32> = touching.iter().map(|r| amplitudes[index[r]]).collect();
+        let roads = touching
+            .iter()
+            .map(|r| roads[index[r]])
+            .reduce(RoadGrades::steepest)
+            .expect("a border has regions");
+        BorderTarget {
+            amplitude: relief_target(&amplitudes, meeting),
+            roads,
+        }
+    };
 
     // Corner targets, from every region touching the corner.
-    let mut corners: HashMap<CornerId, f32> = HashMap::new();
+    let mut corners: HashMap<CornerId, BorderTarget> = HashMap::new();
     for corner in regions.iter().flat_map(|r| &r.corners) {
-        corners.entry(corner.id).or_insert_with(|| {
-            let touching: Vec<f32> = corner.incident.iter().map(of).collect();
-            relief_target(&touching, meeting)
-        });
+        corners
+            .entry(corner.id)
+            .or_insert_with(|| target(&corner.incident));
     }
 
     // Edge targets, and each generator converged towards its own.
@@ -319,21 +333,21 @@ fn converge(
         .into_iter()
         .zip(regions)
         .map(|(generator, region)| {
-            let targets: Vec<ReliefTarget> = region
+            let targets: Vec<EdgeTarget> = region
                 .edges
                 .iter()
                 .filter_map(|edge| {
                     let neighbor = edge.neighbor?;
-                    Some(ReliefTarget {
+                    Some(EdgeTarget {
                         edge: edge.id,
-                        amplitude: relief_target(&[of(&region.id), of(&neighbor)], meeting),
+                        middle: target(&[region.id, neighbor]),
                         start: corners[&edge.start],
                         end: corners[&edge.end],
                     })
                 })
                 .collect();
             generator
-                .with_relief_targets(region, &targets)
+                .with_edge_targets(region, &targets)
                 .map_err(|e| StitchError::Terrain(region.id, e))
         })
         .collect()

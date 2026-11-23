@@ -3,21 +3,24 @@
 mod common;
 
 use common::{
-    CONFIGS, RIVER_SEEDS, assert_no_crack, hills_into_plains, triple_junction, two_biomes,
+    CONFIGS, JOIN_SEEDS, RIVER_SEEDS, assert_no_crack, hills_into_plains, triple_junction,
+    two_biomes,
 };
 use glam::DVec2;
 use procgena_terrain::{
     FeatureKind, FeatureLine, Port, PortKind, RegionEdge, StitchedWorld, Terrain,
 };
 
-/// The test worlds, four for each of [`CONFIGS`] in turn: two with only
-/// road crossings, and one per river seed with a river crossing.
+/// The test worlds, for each of [`CONFIGS`] in turn: two with only road
+/// crossings, one per river seed with a river crossing, and one per join
+/// seed with rivers joining on bends.
 fn worlds() -> Vec<StitchedWorld> {
     let mut worlds = Vec::new();
     for config in CONFIGS {
         worlds.push(two_biomes(DVec2::ZERO, config));
         worlds.push(triple_junction(config));
         worlds.extend(RIVER_SEEDS.map(|s| hills_into_plains(s, config)));
+        worlds.extend(JOIN_SEEDS.map(|s| hills_into_plains(s, config)));
     }
     worlds
 }
@@ -284,8 +287,10 @@ fn roads_cross_borders_within_their_grade() {
                     .position(|&p| p == start)
                     .expect("piece end");
                 assert_eq!(road.levels[0], piece_levels[at]);
-                let max_grade = f64::from(t.generator().options().features.roads.max_grade);
+                // Each step within the steepest grade allowed where it lies.
                 for (p, l) in road.points.windows(2).zip(road.levels.windows(2)) {
+                    let middle = p[0].lerp(p[1], 0.5);
+                    let max_grade = f64::from(t.generator().road_grades(middle).max_grade);
                     let grade = f64::from((l[1] - l[0]).abs()) / p[0].distance(p[1]);
                     assert!(
                         grade <= max_grade * 1.001,

@@ -856,16 +856,40 @@ same idea for one value.
     Only alike presets match exactly (`tests/convergence.rs`).
   - River crossings in 300 seeds, before: 6. After (with the knight-move
     breach fix), shared seed: 10, 13, 12 and 13 (at −∞, −1, 0, 1);
-    unrelated seeds: 7, 9, 10 and 14. Only 160 and 253 cross in all
-    eight, so `RIVER_SEEDS` is those two.
-  - The eight-configuration fixtures surfaced Phase 2 planner bugs. Fixed:
-    knight and diagonal moves no longer carry a river over higher ground
-    between cells (a 64 m cut), and a road refuses a join it can't reach
-    within its grade after smoothing (0.0605 against 0.06). Still open: a
-    joining river ends at the trunk's traced point, which smoothing moves
-    up to about 10 m off the trunk's line, so the two cross; and one
-    crossing piece leaves its water 5 m above the receiving side's bent
-    ground.
+    unrelated seeds: 7, 9, 10 and 14. After crossings were judged against
+    the bent ground (below): shared 10, 12, 12, 13; unrelated 7, 8, 9, 13.
+    Only 253 crosses in all eight, so `RIVER_SEEDS` is that one;
+    `JOIN_SEEDS` (64 shared, 136 unrelated) cover rivers joining on bends.
+  - The eight-configuration fixtures surfaced Phase 2 planner bugs, all
+    fixed:
+    - Knight and diagonal moves no longer carry a river over higher
+      ground between cells (a 64 m cut).
+    - A road refuses a join it can't reach within its grade after
+      smoothing (0.0605 against 0.06).
+    - A joining river ended at the trunk's traced point, which smoothing
+      moves up to about 10 m off the trunk's line, so the two crossed or
+      the joining river ended short (133 cases in 300 seeds × 8). It now
+      ends exactly on the trunk's smoothed line, which gains a point
+      there. It can end up to 0.14 m below the trunk's water there.
+    - A crossing piece followed the agreed profile while the receiving
+      side's ground, bending back to its own height, fell away under it
+      (water 5 m above the ground). Negotiation now judges each piece
+      end against the side's bent ground, so a side whose margin is
+      narrower than a piece (65 m) gets almost no crossings.
+  - Roads now have two grades: `grade`, kept to where possible (the
+    route search penalises steeper steps), and `max_grade`, the hard
+    limit on road levels (presets: twice `grade`, at most 0.25). Both
+    fade with the relief towards the steepest grades of the terrains
+    meeting at each edge and corner (`EdgeTarget`, `BorderTarget`,
+    `TerrainGenerator::road_grades`). Road negotiation also refuses a
+    crossing whose road couldn't reach a side's unfaded ground across the
+    fade plus `ROAD_RAMP`.
+  - Still open: at meeting exponent 1 the uniform scale-up multiplies the
+    plains' relief about 46× next to mountains (their 250 m hills become
+    ±69 m, slopes 0.5–0.9). Roads there leave the ground by up to 31 m
+    (3 roads in 300 seeds × 8, all in the triple junction at meeting 1).
+    The fix under discussion: fade in the neighbour's own layers instead
+    of scaling up the smoother side's.
   - The amplitude scale-up for the smoother side is uniform over its
     layers. The fade blends each layer's scale separately; blending one
     combined "level" made cracks where a layer is absent.

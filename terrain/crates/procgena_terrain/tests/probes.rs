@@ -5,7 +5,7 @@ mod common;
 
 use common::{CONFIGS, Config, TWO_REGION_BORDER, hills_into_plains, two_biomes};
 use glam::DVec2;
-use procgena_terrain::{PortKind, StitchedWorld};
+use procgena_terrain::{FeatureLine, PortKind, StitchedWorld};
 
 /// Points along the two-region border, at most `spacing` metres apart.
 fn border_points(spacing: f64) -> Vec<DVec2> {
@@ -88,8 +88,141 @@ fn river_crossing_seeds() {
     }
 }
 
-/// Every road steeper than its grade and every river cut deeper than the
-/// feature suite allows, in every test world.
+/// Whether segments `a`–`b` and `c`–`d` cross (touching ends don't count).
+fn segments_cross(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
+    let side = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
+    side(c, d, a) * side(c, d, b) < 0.0 && side(a, b, c) * side(a, b, d) < 0.0
+}
+
+/// The distance from `p` to the nearest point of `line`.
+fn line_distance(line: &FeatureLine, p: DVec2) -> f64 {
+    line.points
+        .windows(2)
+        .map(|w| {
+            let ab = w[1] - w[0];
+            let t = ((p - w[0]).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+            p.distance(w[0] + ab * t)
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// The largest gaps between a line's levels and the uncarved ground of the
+/// region each point lies in: (ground above the level, level above the
+/// ground).
+fn level_gaps(world: &StitchedWorld, line: &FeatureLine) -> (f32, f32) {
+    line.points
+        .iter()
+        .zip(&line.levels)
+        .map(|(&p, &l)| world.owner(p).unwrap().uncarved_height(p) - l)
+        .fold((0.0f32, 0.0f32), |(cut, fill), gap| {
+            (cut.max(gap), fill.max(-gap))
+        })
+}
+
+/// Every way the rivers and roads of `world` break the feature suite's
+/// limits, one line each.
+fn feature_problems(world: &StitchedWorld) -> Vec<String> {
+    let mut out = Vec::new();
+    for t in world.terrains() {
+        let region = t.region().id.0;
+        let o = t.generator().options();
+
+        // Roads: grade against the steepest allowed where each step lies,
+        // and distance from the ground.
+        for road in t.roads() {
+            let (over, grade, allowed) = road
+                .points
+                .windows(2)
+                .zip(road.levels.windows(2))
+                .map(|(p, l)| {
+                    let grade = f64::from((l[1] - l[0]).abs()) / p[0].distance(p[1]);
+                    let middle = p[0].lerp(p[1], 0.5);
+                    let allowed = f64::from(t.generator().road_grades(middle).max_grade);
+                    (grade / allowed, grade, allowed)
+                })
+                .fold((0.0, 0.0, 0.0), |m, s| if s.0 > m.0 { s } else { m });
+            if over > 1.001 {
+                out.push(format!(
+                    "region {region}: road grade {grade:.4} over {allowed:.4}"
+                ));
+            }
+            let (cut, fill) = level_gaps(world, road);
+            if cut.max(fill) > 10.0 {
+                out.push(format!(
+                    "region {region}: road of {} points, cut {cut:.1} m, fill {fill:.1} m",
+                    road.points.len()
+                ));
+            }
+        }
+
+        // Rivers: distance from the ground.
+        let allowed = 4.0 + 0.03 * (o.base.hills.height + o.base.mountains.height) + 21.0;
+        let rivers = t.rivers();
+        for river in rivers {
+            let (cut, fill) = level_gaps(world, river);
+            if cut > allowed || fill > 3.0 {
+                out.push(format!(
+                    "region {region}: river of {} points, cut {cut:.1} m (allowed {allowed:.1}), \
+                     fill {fill:.1} m",
+                    river.points.len()
+                ));
+            }
+        }
+
+        // Rivers: crossings.
+        for (i, r) in rivers.iter().enumerate() {
+            for (j, s) in rivers.iter().enumerate().skip(i) {
+                for (ka, a) in r.points.windows(2).enumerate() {
+                    for (kb, b) in s.points.windows(2).enumerate() {
+                        if i == j && kb <= ka + 1 {
+                            continue;
+                        }
+                        if segments_cross(a[0], a[1], b[0], b[1]) {
+                            out.push(format!(
+                                "region {region}: river {i} crosses river {j} near {}",
+                                a[0]
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Rivers: every one ends in a pond, at the start of another (a
+        // crossing piece), across the border, or inside another river with
+        // water there.
+        for (i, r) in rivers.iter().enumerate() {
+            let last = *r.points.last().unwrap();
+            let ends_well = t.ponds().iter().any(|p| p.centre == last)
+                || !t.region().boundary.contains(last)
+                || rivers.iter().enumerate().any(|(j, s)| {
+                    j != i
+                        && (s.points[0] == last
+                            || (line_distance(s, last) <= f64::from(s.width)
+                                && t.water_level(last).is_some()))
+                })
+                || world
+                    .terrains()
+                    .iter()
+                    .any(|u| u.rivers().iter().any(|s| s.points[0] == last));
+            if !ends_well {
+                let nearest = rivers
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(_, s)| line_distance(s, last))
+                    .fold(f64::INFINITY, f64::min);
+                out.push(format!(
+                    "region {region}: river {i} ends nowhere at {last}, nearest river {nearest:.1} m"
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Every break of the feature suite's limits in every test world, and in
+/// `hills_into_plains` with every seed from 0 to 299.
 #[test]
 #[ignore]
 fn feature_limits() {
@@ -101,48 +234,19 @@ fn feature_limits() {
                 common::triple_junction(config),
             ),
         ];
-        for s in common::RIVER_SEEDS {
+        for s in 0..300 {
             worlds.push((
                 format!("hills into plains {s}"),
                 hills_into_plains(s, config),
             ));
         }
+        let mut total = 0;
         for (name, world) in &worlds {
-            for t in world.terrains() {
-                let o = t.generator().options();
-                let max_grade = f64::from(o.features.roads.max_grade);
-                for road in t.roads() {
-                    let steepest = road
-                        .points
-                        .windows(2)
-                        .zip(road.levels.windows(2))
-                        .map(|(p, l)| f64::from((l[1] - l[0]).abs()) / p[0].distance(p[1]))
-                        .fold(0.0, f64::max);
-                    if steepest > max_grade * 1.001 {
-                        eprintln!(
-                            "{}, {name}, region {}: road grade {steepest:.4} over {max_grade}",
-                            label(config),
-                            t.region().id.0
-                        );
-                    }
-                }
-                let allowed = 4.0 + 0.03 * (o.base.hills.height + o.base.mountains.height) + 21.0;
-                for river in t.rivers() {
-                    let cut = river
-                        .points
-                        .iter()
-                        .zip(&river.levels)
-                        .map(|(&p, &l)| world.owner(p).unwrap().uncarved_height(p) - l)
-                        .fold(0.0f32, f32::max);
-                    if cut > allowed {
-                        eprintln!(
-                            "{}, {name}, region {}: river cut {cut:.1} m over {allowed:.1}",
-                            label(config),
-                            t.region().id.0
-                        );
-                    }
-                }
+            for problem in feature_problems(world) {
+                eprintln!("{}, {name}, {problem}", label(config));
+                total += 1;
             }
         }
+        eprintln!("{}: {total} problems", label(config));
     }
 }

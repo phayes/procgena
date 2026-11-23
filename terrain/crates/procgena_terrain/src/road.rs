@@ -7,10 +7,16 @@ use glam::DVec2;
 
 use crate::carve::{FeatureKind, FeatureLine, chaikin};
 use crate::grid::Grid;
+use crate::options::RoadGrades;
 use crate::ports::FEATURE_CLEARANCE;
 
-/// Extra cost per unit of grade beyond the road's steepest grade, squared.
-const STEEP_COST: f64 = 40.0;
+/// Extra cost per unit of grade beyond the road's preferred grade, squared
+/// (in units of that grade).
+const PREFERRED_COST: f64 = 40.0;
+
+/// Extra cost per unit of grade beyond the road's steepest grade, squared
+/// (in units of that grade), on top of [`PREFERRED_COST`].
+const STEEP_COST: f64 = 400.0;
 
 /// Cost factor for crossing a river cell.
 const RIVER_COST: f64 = 6.0;
@@ -61,13 +67,14 @@ impl PartialOrd for Entry {
 
 /// Links every start to a hub near the middle of the region, or to a road
 /// already linked, over `grid` (heights of the bent terrain). `river` marks
-/// cells with water. Roads stay at least [`FEATURE_CLEARANCE`] from the
-/// border, apart from the straight first leg from each start.
+/// cells with water, and `grades` gives the road grades at a point. Roads
+/// stay at least [`FEATURE_CLEARANCE`] from the border, apart from the
+/// straight first leg from each start.
 pub(crate) fn route(
     grid: &Grid,
     starts: &[RoadStart],
     river: &[bool],
-    max_grade: f32,
+    grades: &dyn Fn(DVec2) -> RoadGrades,
 ) -> Vec<FeatureLine> {
     let allowed: Vec<bool> = (0..grid.heights.len())
         .map(|i| grid.inside[i] && grid.clearance[i] > FEATURE_CLEARANCE)
@@ -75,6 +82,9 @@ pub(crate) fn route(
     let Some(hub) = hub(grid, &allowed) else {
         return Vec::new();
     };
+    let cell_grades: Vec<RoadGrades> = (0..grid.heights.len())
+        .map(|i| grades(grid.centre(i)))
+        .collect();
 
     let mut network = vec![false; grid.heights.len()];
     network[hub] = true;
@@ -85,20 +95,20 @@ pub(crate) fn route(
         };
         // Route, and set levels; a join that the smoothed road can't reach
         // within its grade is refused, and the search runs again.
-        let lead_in = start.point.distance(grid.centre(first));
+        let lead_in =
+            start.point.distance(grid.centre(first)) * f64::from(grades(start.point).max_grade);
         let mut refused: Vec<usize> = Vec::new();
         let routed = loop {
             if refused.len() > MAX_REFUSED_JOINS {
                 break None;
             }
             // The road may join the network only where it can reach the
-            // network's level within its grade (with a little to spare for
-            // the smoothing).
-            let joinable = |cell: usize, run: f64| {
+            // network's level at its steepest grade (with a little to spare
+            // for the smoothing).
+            let joinable = |cell: usize, reach: f64| {
                 !refused.contains(&cell)
                     && level_on_roads(&roads, grid.centre(cell)).is_none_or(|level| {
-                        f64::from((level - start.level).abs())
-                            <= 0.9 * f64::from(max_grade) * (run + lead_in)
+                        f64::from((level - start.level).abs()) <= 0.9 * (reach + lead_in)
                     })
             };
             let Some(cells) = search(
@@ -106,8 +116,8 @@ pub(crate) fn route(
                 &allowed,
                 &network,
                 river,
+                &cell_grades,
                 first,
-                f64::from(max_grade),
                 &joinable,
             ) else {
                 break None;
@@ -122,15 +132,21 @@ pub(crate) fn route(
             // Levels: follow the smoothed ground, from the crossing's level
             // to the network's level where the road joins it.
             let ground: Vec<f32> = points.iter().map(|&p| height_near(grid, p)).collect();
+            let steepest: Vec<f64> = points
+                .iter()
+                .enumerate()
+                .map(|(i, &p)| {
+                    let middle = if i == 0 {
+                        p
+                    } else {
+                        p.lerp(points[i - 1], 0.5)
+                    };
+                    f64::from(grades(middle).max_grade)
+                })
+                .collect();
             let join = *cells.last().expect("route has cells");
             let end_level = level_on_roads(&roads, grid.centre(join));
-            match grade_limited(
-                &points,
-                &smooth(&ground),
-                start.level,
-                end_level,
-                f64::from(max_grade),
-            ) {
+            match grade_limited(&points, &smooth(&ground), start.level, end_level, &steepest) {
                 Some(levels) => break Some((cells, points, levels)),
                 None => refused.push(join),
             }
@@ -154,27 +170,38 @@ pub(crate) fn route(
 
 /// Road levels along `points` that follow `ground` as closely as the grade
 /// allows, starting at `start` and, if given, ending at `end`.
+/// `steepest[i]` is the steepest grade allowed from point `i - 1` to point
+/// `i` (`steepest[0]` is unused).
 ///
-/// Each level stays within `max_grade` of both ends (measured along the
-/// road), then passes forward and backward hold every step within the
-/// grade. Returns `None` if the two ends are too far apart in height for
-/// the grade.
+/// Each level stays within reach of both ends, then passes forward and
+/// backward hold every step within its grade. Returns `None` if the two
+/// ends are too far apart in height for the grades.
 fn grade_limited(
     points: &[DVec2],
     ground: &[f32],
     start: f32,
     end: Option<f32>,
-    max_grade: f64,
+    steepest: &[f64],
 ) -> Option<Vec<f32>> {
-    // Distance along the road to each point.
-    let mut run = vec![0.0f64; points.len()];
+    // How far the road may rise or fall along each step, and from the start
+    // to each point.
+    let rise: Vec<f64> = (0..points.len())
+        .map(|i| {
+            if i == 0 {
+                0.0
+            } else {
+                steepest[i] * points[i].distance(points[i - 1])
+            }
+        })
+        .collect();
+    let mut reach = vec![0.0f64; points.len()];
     for i in 1..points.len() {
-        run[i] = run[i - 1] + points[i].distance(points[i - 1]);
+        reach[i] = reach[i - 1] + rise[i];
     }
-    let total = run[run.len() - 1];
+    let total = reach[reach.len() - 1];
     let (start, end_level) = (f64::from(start), end.map(f64::from));
     if let Some(e) = end_level
-        && (e - start).abs() > max_grade * total
+        && (e - start).abs() > total
     {
         return None;
     }
@@ -182,11 +209,11 @@ fn grade_limited(
     // Keep each level reachable from both ends.
     let mut levels: Vec<f64> = (0..points.len())
         .map(|i| {
-            let mut lo = start - max_grade * run[i];
-            let mut hi = start + max_grade * run[i];
+            let mut lo = start - reach[i];
+            let mut hi = start + reach[i];
             if let Some(e) = end_level {
-                lo = lo.max(e - max_grade * (total - run[i]));
-                hi = hi.min(e + max_grade * (total - run[i]));
+                lo = lo.max(e - (total - reach[i]));
+                hi = hi.min(e + (total - reach[i]));
             }
             f64::from(ground[i]).clamp(lo, hi)
         })
@@ -196,14 +223,12 @@ fn grade_limited(
         levels[points.len() - 1] = e;
     }
 
-    // Hold every step within the grade, forward then backward.
+    // Hold every step within its grade, forward then backward.
     for i in 1..levels.len() {
-        let rise = max_grade * (run[i] - run[i - 1]);
-        levels[i] = levels[i].clamp(levels[i - 1] - rise, levels[i - 1] + rise);
+        levels[i] = levels[i].clamp(levels[i - 1] - rise[i], levels[i - 1] + rise[i]);
     }
     for i in (0..levels.len() - 1).rev() {
-        let rise = max_grade * (run[i + 1] - run[i]);
-        levels[i] = levels[i].clamp(levels[i + 1] - rise, levels[i + 1] + rise);
+        levels[i] = levels[i].clamp(levels[i + 1] - rise[i + 1], levels[i + 1] + rise[i + 1]);
     }
     Some(levels.into_iter().map(|l| l as f32).collect())
 }
@@ -241,15 +266,17 @@ fn first_cell(grid: &Grid, allowed: &[bool], point: DVec2) -> Option<usize> {
 }
 
 /// The cheapest route from `start` to a cell of `network` where
-/// `joinable(cell, metres travelled)` allows joining, as cells from `start`
-/// to the joining cell. Other network cells may be crossed.
+/// `joinable(cell, reach)` allows joining, as cells from `start` to the
+/// joining cell. `reach` is how far the road could have climbed or fallen
+/// on its way there, at each step's steepest grade (from `grades`, one per
+/// cell). Other network cells may be crossed.
 fn search(
     grid: &Grid,
     allowed: &[bool],
     network: &[bool],
     river: &[bool],
+    grades: &[RoadGrades],
     start: usize,
-    max_grade: f64,
     joinable: &dyn Fn(usize, f64) -> bool,
 ) -> Option<Vec<usize>> {
     let n = allowed.len();
@@ -278,15 +305,24 @@ fn search(
             if !allowed[next] {
                 continue;
             }
+            // The step's grades: the mean of its two cells'.
+            let (a, b) = (grades[cell], grades[next]);
+            let preferred = 0.5 * f64::from(a.grade + b.grade);
+            let steepest = 0.5 * f64::from(a.max_grade + b.max_grade);
             let grade = f64::from(grid.heights[next] - grid.heights[cell]).abs() / length;
-            let steep = (grade / max_grade - 1.0).max(0.0);
-            let mut step = length * (1.0 + GRADE_COST * grade + STEEP_COST * steep * steep);
+            let over_preferred = (grade / preferred - 1.0).max(0.0);
+            let over_steepest = (grade / steepest - 1.0).max(0.0);
+            let mut step = length
+                * (1.0
+                    + GRADE_COST * grade
+                    + PREFERRED_COST * over_preferred * over_preferred
+                    + STEEP_COST * over_steepest * over_steepest);
             if river[next] {
                 step *= RIVER_COST;
             }
             // Only roads this one could join are cheap to follow; others it
             // may only cross.
-            let here = run[cell] + length;
+            let here = run[cell] + steepest * length;
             if network[next] && joinable(next, here) {
                 step *= REUSE_COST;
             }
@@ -374,7 +410,11 @@ mod tests {
             },
         ];
         let river = vec![false; grid.heights.len()];
-        let roads = route(&grid, &starts, &river, 0.08);
+        let grades = |_| RoadGrades {
+            grade: 0.04,
+            max_grade: 0.08,
+        };
+        let roads = route(&grid, &starts, &river, &grades);
         assert_eq!(roads.len(), 2);
         for road in &roads {
             assert_eq!(
@@ -387,5 +427,24 @@ mod tests {
                 assert!(grade <= 0.08 * 1.001, "grade {grade}");
             }
         }
+    }
+
+    #[test]
+    fn levels_keep_to_each_steps_grade() {
+        // Flat ground, a 20 m climb, then flat: the road may climb 0.1 on the
+        // first half and 0.3 on the second.
+        let points: Vec<DVec2> = (0..=10)
+            .map(|i| DVec2::new(10.0 * f64::from(i), 0.0))
+            .collect();
+        let ground = vec![0.0; points.len()];
+        let steepest: Vec<f64> = (0..=10).map(|i| if i <= 5 { 0.1 } else { 0.3 }).collect();
+        let levels = grade_limited(&points, &ground, 0.0, Some(20.0), &steepest).unwrap();
+        for i in 1..levels.len() {
+            let grade = f64::from(levels[i] - levels[i - 1]).abs() / 10.0;
+            assert!(grade <= steepest[i] * 1.001, "step {i}: grade {grade}");
+        }
+        assert_eq!(*levels.last().unwrap(), 20.0);
+        // 5 m on the gentle half and 15 m on the steep half is all there is.
+        assert!(grade_limited(&points, &ground, 0.0, Some(20.5), &steepest).is_none());
     }
 }

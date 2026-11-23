@@ -87,9 +87,50 @@ pub struct RoadOptions {
     pub enabled: bool,
     /// Road width, in metres. Positive, at most [`MAX_PORT_WIDTH`](crate::MAX_PORT_WIDTH).
     pub width: f32,
-    /// The steepest grade a road may climb, as rise over run. Above 0, at
-    /// most 1.
+    /// The grade roads keep to where they can, as rise over run. Roads may
+    /// climb more steeply, at a cost, up to `max_grade`. Above 0, at most 1.
+    pub grade: f32,
+    /// The steepest grade a road may climb, as rise over run. At least
+    /// `grade`, at most 1.
+    ///
+    /// Near a border with a steeper-roaded neighbour, both grades rise
+    /// towards the neighbour's.
     pub max_grade: f32,
+}
+
+impl RoadOptions {
+    /// The road grades.
+    pub fn grades(&self) -> RoadGrades {
+        RoadGrades {
+            grade: self.grade,
+            max_grade: self.max_grade,
+        }
+    }
+}
+
+/// The grades a road keeps to, as rise over run (see [`RoadOptions`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RoadGrades {
+    /// The grade kept to where possible. Above 0, at most 1.
+    pub grade: f32,
+    /// The steepest grade allowed. At least `grade`, at most 1.
+    pub max_grade: f32,
+}
+
+impl RoadGrades {
+    /// The steeper of each grade of `self` and `other`.
+    #[must_use]
+    pub fn steepest(self, other: Self) -> Self {
+        Self {
+            grade: self.grade.max(other.grade),
+            max_grade: self.max_grade.max(other.max_grade),
+        }
+    }
+
+    /// Returns true if both grades are in range.
+    pub(crate) fn is_valid(&self) -> bool {
+        self.grade > 0.0 && self.grade <= self.max_grade && self.max_grade <= 1.0
+    }
 }
 
 impl Default for RiverOptions {
@@ -109,7 +150,8 @@ impl Default for RoadOptions {
         Self {
             enabled: true,
             width: 6.0,
-            max_grade: 0.1,
+            grade: 0.1,
+            max_grade: 0.2,
         }
     }
 }
@@ -436,10 +478,16 @@ impl TerrainOptions {
             "positive and at most MAX_PORT_WIDTH",
         )?;
         check(
-            "features.roads.max_grade",
-            road.max_grade,
+            "features.roads.grade",
+            road.grade,
             |v| v > 0.0 && v <= 1.0,
             "above 0 and at most 1",
+        )?;
+        check(
+            "features.roads.max_grade",
+            road.max_grade,
+            |v| v >= road.grade && v <= 1.0,
+            "at least features.roads.grade and at most 1",
         )?;
         Ok(())
     }
@@ -520,7 +568,7 @@ mod tests {
     #[test]
     fn bad_values_are_rejected() {
         type Case = (&'static str, fn(&mut TerrainOptions));
-        let cases: [Case; 11] = [
+        let cases: [Case; 13] = [
             ("base.elevation", |o| o.base.elevation = f32::NAN),
             ("base.erosion", |o| o.base.erosion = -1.0),
             ("base.swells.height", |o| o.base.swells.height = -1.0),
@@ -533,8 +581,13 @@ mod tests {
             ("edges.stiffness", |o| o.edges.stiffness = 0.0),
             ("edges.margin", |o| o.edges.margin = f32::INFINITY),
             ("features.rivers.width", |o| o.features.rivers.width = 100.0),
+            ("features.roads.grade", |o| o.features.roads.grade = 0.0),
             ("features.roads.max_grade", |o| {
                 o.features.roads.max_grade = 0.0
+            }),
+            // Below the preferred grade.
+            ("features.roads.max_grade", |o| {
+                o.features.roads.max_grade = 0.05
             }),
         ];
         for (field, change) in cases {

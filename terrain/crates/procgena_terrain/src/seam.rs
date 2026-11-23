@@ -11,6 +11,7 @@ use std::fmt;
 
 use glam::{DVec2, Vec2};
 
+use crate::options::RoadGrades;
 use crate::ports::{
     CORNER_CLEARANCE, FEATURE_CLEARANCE, Port, PortWish, Side, SideWishes, agree_ports,
     wishes_valid,
@@ -64,14 +65,21 @@ pub struct EdgeOffer {
     pub rivers: Vec<PortWish>,
     /// Where the terrain would like roads to cross this edge.
     pub roads: Vec<PortWish>,
-    /// The steepest grade the terrain's roads may climb, as rise over run.
-    /// Above 0, at most 1.
-    pub road_grade: f32,
+    /// The terrain's own road grades, before any fading towards its
+    /// neighbours' (see [`RoadOptions`](crate::RoadOptions)). Must be valid.
+    pub road_grades: RoadGrades,
     /// The terrain's own height [`FEATURE_CLEARANCE`] metres inside its
     /// region, straight in from each of the edge's [`sample_count`] samples.
     /// Crossings are placed only where this stays close to the border
     /// profile carried inward.
     pub inner: Vec<f32>,
+    /// The terrain's height at each of the edge's [`sample_count`] samples
+    /// with no fading towards its neighbours: the ground its roads must
+    /// reach from a crossing.
+    pub unfaded: Vec<f32>,
+    /// How far from the edge the terrain fades towards its neighbours, in
+    /// metres. Positive.
+    pub fade_width: f32,
 }
 
 /// What one terrain would like at one corner.
@@ -263,7 +271,7 @@ pub fn negotiate(
     let length = edge.length();
     let count = sample_count(length);
     for offer in [a, b] {
-        for found in [offer.natural.len(), offer.inner.len()] {
+        for found in [offer.natural.len(), offer.inner.len(), offer.unfaded.len()] {
             if found != count {
                 return Err(SeamError::SampleCount {
                     expected: count,
@@ -277,8 +285,9 @@ pub fn negotiate(
             && offer.margin.is_finite()
             && offer.roughness >= 0.0
             && offer.roughness.is_finite()
-            && offer.road_grade > 0.0
-            && offer.road_grade <= 1.0;
+            && offer.road_grades.is_valid()
+            && offer.fade_width > 0.0
+            && offer.fade_width.is_finite();
         if !weights_ok {
             return Err(SeamError::BadWeight);
         }
@@ -334,9 +343,11 @@ pub fn negotiate(
             rivers: &o.rivers,
             roads: &o.roads,
             natural,
-            road_grade: o.road_grade,
+            road_grades: o.road_grades,
             margin: o.margin,
             inner: &o.inner,
+            unfaded: &o.unfaded,
+            fade_width: o.fade_width,
         }
     }
     // Crossings stay clear of the edge's ends, where other edges meet, and
@@ -486,8 +497,13 @@ mod tests {
             side: if region == 4 { Side::Left } else { Side::Right },
             rivers: Vec::new(),
             roads: Vec::new(),
-            road_grade: 0.1,
+            road_grades: RoadGrades {
+                grade: 0.1,
+                max_grade: 0.1,
+            },
             inner: Vec::new(),
+            unfaded: (0..n).map(|i| base + i as f32 * 0.3).collect(),
+            fade_width: 50.0,
         }
         .with_fitting_inner()
     }
@@ -541,6 +557,10 @@ mod tests {
             s.slope = -0.2;
         }
         let (mut a, mut b) = (a.with_fitting_inner(), b.with_fitting_inner());
+        // Margins wide enough that the ground under each crossing piece is
+        // already bent close to the agreement, so crossings can fit.
+        a.margin = 2000.0;
+        b.margin = 2000.0;
         let wish = |along: f64, level: f32| PortWish {
             along,
             level,

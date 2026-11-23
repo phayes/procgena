@@ -24,11 +24,15 @@
 //! ## How regions join
 //!
 //! 1. Neighbouring terrains agree how rough their relief should be where
-//!    they meet: each states its [`relief_amplitude`](TerrainGenerator::relief_amplitude),
-//!    [`relief_target`] picks one amplitude per edge and corner, and
-//!    [`with_relief_targets`](TerrainGenerator::with_relief_targets) makes
-//!    each terrain fade towards it near its borders. Terrains with the same
-//!    seed share their noise, so alike terrains then nearly match already.
+//!    they meet, and how steep their roads may be: each states its
+//!    [`relief_amplitude`](TerrainGenerator::relief_amplitude),
+//!    [`relief_target`] picks one amplitude per edge and corner, the road
+//!    grades are the steepest of the terrains meeting there
+//!    ([`RoadGrades::steepest`]), and
+//!    [`with_edge_targets`](TerrainGenerator::with_edge_targets) makes
+//!    each terrain fade towards both near its borders. Terrains with the
+//!    same seed share their noise, so alike terrains then nearly match
+//!    already.
 //! 2. Each region's [`TerrainGenerator`] makes an [`EdgeOffer`] for every
 //!    border it shares, and a [`CornerOffer`] for every corner. An offer
 //!    depends only on the terrain making it.
@@ -90,12 +94,14 @@ mod stitch;
 mod terrain;
 
 pub use carve::{FeatureKind, FeatureLine, Pond};
-pub use converge::{DEFAULT_RELIEF_MEETING, ReliefTarget, relief_meeting_is_valid, relief_target};
+pub use converge::{
+    BorderTarget, DEFAULT_RELIEF_MEETING, EdgeTarget, relief_meeting_is_valid, relief_target,
+};
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,
     MAX_RIVER_DENSITY, MAX_WAVELENGTH, MountainLayer, NoiseLayer, OptionsError, RiverOptions,
-    RoadOptions, TerrainOptions,
+    RoadGrades, RoadOptions, TerrainOptions,
 };
 pub use ports::{FEATURE_CLEARANCE, MAX_PORT_WIDTH, Port, PortKind, PortWish, Side};
 pub use presets::TerrainPreset;

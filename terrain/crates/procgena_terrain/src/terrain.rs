@@ -5,9 +5,9 @@ use std::fmt;
 use glam::DVec2;
 
 use crate::carve::{FeatureLine, Features, Pond};
-use crate::converge::{Fade, ReliefTarget, total_spread};
+use crate::converge::{EdgeTarget, Fade, total_spread};
 use crate::noise::{Octaves, fbm};
-use crate::options::{OptionsError, TerrainOptions};
+use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
 use crate::ports::{FEATURE_CLEARANCE, Side, slope_reach};
 use crate::region::{EdgeId, Region, RegionCorner, RegionEdge, Segment, point_at, segments};
@@ -147,10 +147,18 @@ impl TerrainGenerator {
 
     /// The terrain's own height at world position `p` (x and z, metres),
     /// before any bending to meet neighbours, but after fading towards the
-    /// relief targets (see [`with_relief_targets`](Self::with_relief_targets)).
+    /// relief targets (see [`with_edge_targets`](Self::with_edge_targets)).
     /// Defined everywhere.
     pub fn natural_height(&self, p: DVec2) -> f32 {
         self.relief.height(p)
+    }
+
+    /// The road grades at world position `p`: the settings' own (see
+    /// [`RoadOptions`](crate::RoadOptions)), rising towards a steeper
+    /// neighbour's near a shared edge once edge targets are set (see
+    /// [`with_edge_targets`](Self::with_edge_targets)).
+    pub fn road_grades(&self, p: DVec2) -> RoadGrades {
+        self.relief.road_grades(p)
     }
 
     /// The typical size of this terrain's relief in metres: about the
@@ -161,11 +169,11 @@ impl TerrainGenerator {
         total_spread(self.relief.spreads())
     }
 
-    /// This generator with its relief fading towards `targets` near the
-    /// matching edges of `region`, so that each edge's relief amplitude is
-    /// the target there. Deep inside the region the relief is unchanged.
-    /// Edges without a target are left as they are. Replaces any earlier
-    /// targets.
+    /// This generator with its relief and road grades fading towards
+    /// `targets` near the matching edges of `region`, so that each edge's
+    /// relief amplitude and road grades are the target's there. Deep inside
+    /// the region both are unchanged. Edges without a target are left as
+    /// they are. Replaces any earlier targets.
     ///
     /// Call it before making offers, and use the same region for the
     /// offers and for [`build`](Self::build). Both terrains on an edge
@@ -175,11 +183,11 @@ impl TerrainGenerator {
     ///
     /// If a target is for an edge that isn't a shared edge of `region`, if
     /// two targets are for one edge, or if a target has a negative or
-    /// non-finite amplitude.
-    pub fn with_relief_targets(
+    /// non-finite amplitude or road grades out of range.
+    pub fn with_edge_targets(
         mut self,
         region: &Region,
-        targets: &[ReliefTarget],
+        targets: &[EdgeTarget],
     ) -> Result<Self, TerrainError> {
         for (i, target) in targets.iter().enumerate() {
             let shared = region
@@ -197,7 +205,8 @@ impl TerrainGenerator {
             }
         }
         let min_width = f64::from(self.options.edges.margin);
-        let fade = Fade::new(region, targets, self.relief.spreads(), min_width);
+        let roads = self.options.features.roads.grades();
+        let fade = Fade::new(region, targets, self.relief.spreads(), roads, min_width);
         self.relief = self.relief.with_fade(fade);
         Ok(self)
     }
@@ -239,8 +248,10 @@ impl TerrainGenerator {
                     side,
                     rivers,
                     roads,
-                    road_grade: self.options.features.roads.max_grade,
+                    road_grades: self.options.features.roads.grades(),
                     inner: self.inner_samples(edge, side),
+                    unfaded: self.unfaded_samples(edge),
+                    fade_width: self.relief.fade_width().unwrap_or(f64::from(edges.margin)) as f32,
                 }
             })
             .collect()
@@ -278,6 +289,21 @@ impl TerrainGenerator {
                 let (point, normal) = point_at(&segments, i as f64 * step);
                 self.relief
                     .height(point + normal * (side.sign() * FEATURE_CLEARANCE))
+            })
+            .collect()
+    }
+
+    /// This terrain's height without its fade at each profile sample of
+    /// `edge`.
+    fn unfaded_samples(&self, edge: &RegionEdge) -> Vec<f32> {
+        let segments = segments(&edge.polyline);
+        let length = edge.length();
+        let count = sample_count(length);
+        let step = length / (count - 1) as f64;
+        (0..count)
+            .map(|i| {
+                self.relief
+                    .unfaded_height(point_at(&segments, i as f64 * step).0)
             })
             .collect()
     }

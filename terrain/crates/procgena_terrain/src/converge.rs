@@ -4,6 +4,7 @@
 
 use glam::DVec2;
 
+use crate::options::RoadGrades;
 use crate::region::{EdgeId, Region, Segment, segments};
 use crate::seam::smootherstep;
 use crate::terrain::{ON_EDGE, SHEPARD_POWER, SOFT_DISTANCE_POWER};
@@ -73,45 +74,94 @@ pub fn relief_target(amplitudes: &[f32], meeting: f32) -> f32 {
     (largest * mean).clamp(smallest, largest) as f32
 }
 
-/// The agreed relief amplitude along one shared edge of a region.
-///
-/// Along most of the edge the target is `amplitude`. Towards each end it
-/// changes smoothly to the target agreed for that corner, so that every
-/// edge meeting at a corner asks for the same amplitude there. Both
-/// terrains on the edge must be given the same target.
+/// How far along an edge, in metres, road grades change from the edge's
+/// agreed grades to a corner's.
+const GRADE_RAMP: f64 = 500.0;
+
+/// What a terrain fades towards at one place on a shared edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ReliefTarget {
-    /// The edge.
-    pub edge: EdgeId,
-    /// The target along the edge, in metres. Zero or more.
+pub struct BorderTarget {
+    /// The relief amplitude, in metres (see [`relief_target`]). Zero or
+    /// more.
     pub amplitude: f32,
-    /// The target at the edge's start corner, in metres. Zero or more.
-    pub start: f32,
-    /// The target at the edge's end corner, in metres. Zero or more.
-    pub end: f32,
+    /// The road grades. Usually the steepest of the terrains meeting there
+    /// (see [`RoadGrades::steepest`]).
+    pub roads: RoadGrades,
 }
 
-impl ReliefTarget {
-    /// Returns true if every amplitude is finite and not negative.
+impl BorderTarget {
+    /// Returns true if the amplitude is finite and not negative, and the
+    /// road grades are valid.
+    fn is_valid(&self) -> bool {
+        self.amplitude.is_finite() && self.amplitude >= 0.0 && self.roads.is_valid()
+    }
+}
+
+/// What a terrain fades towards along one of its shared edges.
+///
+/// Along most of the edge the target is `middle`. Towards each end it
+/// changes smoothly to the target agreed for that corner, so that every
+/// edge meeting at a corner asks for the same there. Both terrains on the
+/// edge must be given the same target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgeTarget {
+    /// The edge.
+    pub edge: EdgeId,
+    /// The target along the edge.
+    pub middle: BorderTarget,
+    /// The target at the edge's start corner.
+    pub start: BorderTarget,
+    /// The target at the edge's end corner.
+    pub end: BorderTarget,
+}
+
+/// The value at `along` metres from the start of an edge `length` metres
+/// long that is `middle` along most of the edge and changes smoothly to
+/// `start` and `end` at its ends, over `ramp(change)` metres from each end.
+fn along_edge(
+    [middle, start, end]: [f32; 3],
+    along: f64,
+    length: f64,
+    ramp: impl Fn(f64) -> f64,
+) -> f64 {
+    let middle = f64::from(middle);
+    let towards = |corner: f32, from_corner: f64| {
+        let change = f64::from(corner) - middle;
+        let ramp = ramp(change.abs()).min(0.5 * length);
+        if ramp <= 0.0 {
+            return 0.0;
+        }
+        change * (1.0 - smootherstep(from_corner / ramp))
+    };
+    middle + towards(start, along) + towards(end, length - along)
+}
+
+impl EdgeTarget {
+    /// Returns true if every part of the target is valid.
     pub(crate) fn is_valid(&self) -> bool {
-        [self.amplitude, self.start, self.end]
+        [self.middle, self.start, self.end]
             .iter()
-            .all(|a| a.is_finite() && *a >= 0.0)
+            .all(BorderTarget::is_valid)
     }
 
-    /// The target at `along` metres from the start of an edge `length`
-    /// metres long.
-    fn at(&self, along: f64, length: f64) -> f64 {
-        let middle = f64::from(self.amplitude);
-        let towards = |corner: f32, from_corner: f64| {
-            let change = f64::from(corner) - middle;
-            let ramp = (change.abs() / FADE_RATE).min(0.5 * length);
-            if ramp <= 0.0 {
-                return 0.0;
-            }
-            change * (1.0 - smootherstep(from_corner / ramp))
+    /// The relief amplitude at `along` metres from the start of an edge
+    /// `length` metres long.
+    fn amplitude_at(&self, along: f64, length: f64) -> f64 {
+        let values = [self.middle, self.start, self.end].map(|t| t.amplitude);
+        along_edge(values, along, length, |change| change / FADE_RATE)
+    }
+
+    /// The road grades at `along` metres from the start of an edge
+    /// `length` metres long.
+    fn roads_at(&self, along: f64, length: f64) -> RoadGrades {
+        let at = |grade: fn(&RoadGrades) -> f32| {
+            let values = [self.middle, self.start, self.end].map(|t| grade(&t.roads));
+            along_edge(values, along, length, |_| GRADE_RAMP) as f32
         };
-        middle + towards(self.start, along) + towards(self.end, length - along)
+        RoadGrades {
+            grade: at(|r| r.grade),
+            max_grade: at(|r| r.max_grade),
+        }
     }
 }
 
@@ -183,29 +233,32 @@ fn scales_at(level: f64) -> LayerScales {
 struct FadeEdge {
     segments: Vec<Segment>,
     length: f64,
-    target: ReliefTarget,
+    target: EdgeTarget,
 }
 
-/// A terrain's relief fade towards its edges' targets.
+/// A terrain's fade towards its edges' targets: its relief, and its road
+/// grades.
 #[derive(Debug, Clone)]
 pub(crate) struct Fade {
     edges: Vec<FadeEdge>,
     spreads: LayerSpreads,
+    roads: RoadGrades,
     width: f64,
 }
 
 impl Fade {
-    /// Fades a terrain with layer `spreads` towards `targets`, each for an
-    /// edge of `region`, over at least `min_width` metres. Returns `None`
-    /// if `targets` is empty.
+    /// Fades a terrain with layer `spreads` and road grades `roads` towards
+    /// `targets`, each for an edge of `region`, over at least `min_width`
+    /// metres. Returns `None` if `targets` is empty.
     ///
     /// # Panics
     ///
     /// If a target's edge isn't an edge of `region`.
     pub(crate) fn new(
         region: &Region,
-        targets: &[ReliefTarget],
+        targets: &[EdgeTarget],
         spreads: LayerSpreads,
+        roads: RoadGrades,
         min_width: f64,
     ) -> Option<Self> {
         let total = total_spread(spreads);
@@ -217,9 +270,9 @@ impl Fade {
                 .iter()
                 .find(|e| e.id == target.edge)
                 .expect("targets are for edges of the region");
-            let change = [target.amplitude, target.start, target.end]
+            let change = [target.middle, target.start, target.end]
                 .iter()
-                .map(|t| (f64::from(*t) - f64::from(total)).abs())
+                .map(|t| (f64::from(t.amplitude) - f64::from(total)).abs())
                 .fold(0.0, f64::max);
             width = width.max(change / FADE_RATE);
             edges.push(FadeEdge {
@@ -231,32 +284,43 @@ impl Fade {
         (!edges.is_empty()).then_some(Self {
             edges,
             spreads,
+            roads,
             width,
         })
     }
 
-    /// The layer scales at `p`, or `None` where the fade doesn't reach and
-    /// every layer is kept as it is.
-    pub(crate) fn scales(&self, p: DVec2) -> Option<LayerScales> {
-        // Mix every segment's change of each layer's scale, weighted by
-        // inverse distance, and find the (soft) distance to the faded edges.
-        // Each layer is mixed on its own, so a layer the terrain doesn't have
-        // can't disturb the others; mixing changes keeps unchanged layers
-        // exact.
-        let mut sum = [0.0f64; 3];
+    /// How far from its edges the fade reaches, in metres.
+    pub(crate) fn width(&self) -> f64 {
+        self.width
+    }
+
+    /// Mixes each edge's values at `p` with `own`: on an edge, that edge's
+    /// values; fading to `own` across the fade width; `None` beyond it.
+    /// `value` gives an edge's values `along` metres from its start.
+    ///
+    /// Each value is mixed on its own, as a change from `own`, so a value an
+    /// edge leaves as it is can't disturb the others and stays exact.
+    fn blend<const N: usize>(
+        &self,
+        p: DVec2,
+        own: [f64; N],
+        value: impl Fn(&FadeEdge, f64) -> [f64; N],
+    ) -> Option<[f64; N]> {
+        // Mix every segment's changes, weighted by inverse distance, and find
+        // the (soft) distance to the faded edges.
+        let mut sum = [0.0f64; N];
         let mut total = 0.0f64;
         let mut closeness = 0.0f64;
         for edge in &self.edges {
             for segment in &edge.segments {
                 let projection = segment.project(p);
-                let level = level_for(self.spreads, edge.target.at(projection.along, edge.length));
-                let scales = scales_at(level);
+                let values = value(edge, projection.along);
                 if projection.distance < ON_EDGE {
-                    return Some(scales);
+                    return Some(values);
                 }
                 let w = projection.distance.powi(-SHEPARD_POWER);
-                for (s, k) in sum.iter_mut().zip(scales) {
-                    *s += (f64::from(k) - 1.0) * w;
+                for ((s, v), o) in sum.iter_mut().zip(values).zip(own) {
+                    *s += (v - o) * w;
                 }
                 total += w;
                 closeness += (projection.distance / self.width).powi(-SOFT_DISTANCE_POWER);
@@ -268,9 +332,39 @@ impl Fade {
             return None;
         }
 
-        // From the edges' scales to unchanged across the fade width.
+        // From the edges' values to `own` across the fade width.
         let fade = 1.0 - smootherstep(distance / self.width);
-        Some(sum.map(|s| (1.0 + s / total * fade) as f32))
+        let mut out = own;
+        for (o, s) in out.iter_mut().zip(sum) {
+            *o += s / total * fade;
+        }
+        Some(out)
+    }
+
+    /// The layer scales at `p`, or `None` where the fade doesn't reach and
+    /// every layer is kept as it is.
+    pub(crate) fn scales(&self, p: DVec2) -> Option<LayerScales> {
+        let scales = self.blend(p, [1.0; 3], |edge, along| {
+            let level = level_for(self.spreads, edge.target.amplitude_at(along, edge.length));
+            scales_at(level).map(f64::from)
+        })?;
+        Some(scales.map(|s| s as f32))
+    }
+
+    /// The road grades at `p`: the terrain's own beyond the fade, changing
+    /// to the edges' targets towards them.
+    pub(crate) fn roads(&self, p: DVec2) -> RoadGrades {
+        let own = [self.roads.grade, self.roads.max_grade].map(f64::from);
+        match self.blend(p, own, |edge, along| {
+            let r = edge.target.roads_at(along, edge.length);
+            [r.grade, r.max_grade].map(f64::from)
+        }) {
+            Some([grade, max_grade]) => RoadGrades {
+                grade: grade as f32,
+                max_grade: (max_grade as f32).max(grade as f32),
+            },
+            None => self.roads,
+        }
     }
 }
 
@@ -345,15 +439,27 @@ mod tests {
 
     #[test]
     fn edge_targets_reach_their_corners() {
-        let target = ReliefTarget {
-            edge: EdgeId(0),
-            amplitude: 20.0,
-            start: 50.0,
-            end: 20.0,
+        let border = |amplitude: f32, grade: f32| BorderTarget {
+            amplitude,
+            roads: RoadGrades {
+                grade,
+                max_grade: 2.0 * grade,
+            },
         };
-        assert_eq!(target.at(0.0, 1000.0), 50.0);
-        assert_eq!(target.at(1000.0, 1000.0), 20.0);
-        assert_eq!(target.at(500.0, 1000.0), 20.0);
-        assert!(target.at(60.0, 1000.0) > 20.0 && target.at(60.0, 1000.0) < 50.0);
+        let target = EdgeTarget {
+            edge: EdgeId(0),
+            middle: border(20.0, 0.06),
+            start: border(50.0, 0.1),
+            end: border(20.0, 0.06),
+        };
+        assert_eq!(target.amplitude_at(0.0, 1000.0), 50.0);
+        assert_eq!(target.amplitude_at(1000.0, 1000.0), 20.0);
+        assert_eq!(target.amplitude_at(500.0, 1000.0), 20.0);
+        let near = target.amplitude_at(60.0, 1000.0);
+        assert!(near > 20.0 && near < 50.0);
+        assert_eq!(target.roads_at(0.0, 1000.0), border(0.0, 0.1).roads);
+        assert_eq!(target.roads_at(500.0, 1000.0), border(0.0, 0.06).roads);
+        let near = target.roads_at(250.0, 1000.0).grade;
+        assert!(near > 0.06 && near < 0.1);
     }
 }

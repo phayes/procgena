@@ -166,3 +166,43 @@ fn bad_relief_meetings_are_refused() {
         ));
     }
 }
+
+#[test]
+fn road_grades_rise_to_the_steeper_neighbours_at_the_border() {
+    let world = plains_and_mountains(DEFAULT.meeting);
+    let [plains, mountains] = [&world.terrains()[0], &world.terrains()[1]];
+    let own = |t: &Terrain| t.generator().options().features.roads.grades();
+    let steeper = own(plains).steepest(own(mountains));
+    assert_eq!(steeper, own(mountains));
+
+    // On the border both sides allow the mountains' grades.
+    for q in border_points(25.0) {
+        assert_eq!(plains.generator().road_grades(q), steeper, "plains at {q}");
+        assert_eq!(
+            mountains.generator().road_grades(q),
+            steeper,
+            "mountains at {q}"
+        );
+    }
+    // The mountains keep their own everywhere; the plains change gradually
+    // and keep their own deep inside.
+    let mut last = steeper;
+    for k in 0..=39 {
+        let q = DVec2::new(-50.0 * f64::from(k), 300.0);
+        if mountains.region().boundary.contains(q) {
+            continue;
+        }
+        let here = plains.generator().road_grades(q);
+        assert!(here.grade <= last.grade && here.grade >= own(plains).grade);
+        last = here;
+    }
+    assert_eq!(
+        plains.generator().road_grades(DVec2::new(-1950.0, 0.0)),
+        own(plains)
+    );
+    for q in grid_points() {
+        if mountains.region().boundary.contains(q) {
+            assert_eq!(mountains.generator().road_grades(q), own(mountains));
+        }
+    }
+}
