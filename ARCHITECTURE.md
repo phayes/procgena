@@ -460,10 +460,13 @@ The terrain knows its slope better than anyone sampling it:
 
 So the plan:
 
-- **`Ground` gains a gradient** (or normal) at a point, with a default that
-  takes central differences of `height`. Flat ground, closures and
-  `HeightGrid` keep working unchanged; `HeightGrid` can answer from its
-  grid.
+- **`Ground` gains a gradient** at a point, with a default that takes
+  central differences of `height`. Decided 2026-11-23 (D1): `Ground` is
+  `Send + Sync` and has `height(DVec2) -> f32`, `gradient(DVec2) -> Vec2`
+  and `sample(DVec2) -> GroundSample` (both at once, by default from the
+  other two), taking World `f64` positions. Flat ground, closures and
+  `HeightGrid` keep working; `HeightGrid` answers with central differences
+  one cell apart.
 - **`Terrain` implements `Ground`** and answers slope from its own stages.
 - **Labels reuse it.** `Measures::slope` in `annotate` comes from the same
   gradient, so labels and Scatters always agree on what is steep.
@@ -1167,11 +1170,18 @@ Three shared crates, two of them new:
   describes one generated specimen: its detail levels, tagged parts and
   tags. `Ground` moves out of it into the core crate, since it is about
   placement, not about one specimen.
-- A new **engine-free core crate** for the rules: content hash, seeds and
+- A new **engine-free core crate, `procgena_core`**
+  (`core/crates/procgena_core`), for the rules: content hash, seeds and
   ids, the specimen budget, the LOD type, `Ground`, the `Scatter` trait,
-  shared placement, masks, edits and queries.
-- A new **Bevy crate** for shared runtime: the instanced renderer, the
-  dither shader, the shared cache, wind, texture loading, promotion.
+  shared placement, masks, edits and queries. It depends on glam alone, and
+  `procgena_specimen` depends on it, not the other way round.
+- A new **Bevy crate, `procgena_core_bevy`**
+  (`core/crates/procgena_core_bevy`), for shared runtime: the instanced
+  renderer, the dither shader, the shared cache, wind, texture loading,
+  promotion. It is created in R1 with its first content.
+
+Decided by the user on 2026-11-23 (gate D1, see
+[docs/decisions/D1.md](docs/decisions/D1.md)).
 
 One existing utility crate stays apart: **`procgena_impostor`** bakes a
 specimen into an octahedral impostor, the last level of the shared LOD
@@ -1181,19 +1191,17 @@ Scatters can draw. (Today it is keyed by tree, and prepared per grove.)
 
 Changing `procgena_specimen` rebuilds most of the workspace, so the new
 crates take whatever changes often, and the rename is done together with
-the move into the new crates rather than on its own. Their names are still
-to be chosen (see "Decisions to make").
+the move into the new crates rather than on its own.
 
 ### Decisions to make
 
-- **YAML crate.** Every file moves to YAML (see rule 10), and the workspace
-  has no YAML crate yet. `serde_yaml` is no longer maintained, so this
-  needs a comparison of the maintained options before one is added.
+- ~~**YAML crate.**~~ Decided 2026-11-23 (D1): `serde-saphyr`, pinned to
+  `"2.2"`, added in F3, with `strict_booleans` off.
 - ~~**Placement algorithm.**~~ Decided 2026-11-23: tree's lattice for
   every Scatter, with plant's tiles as grass's candidate source (see "Masks
   and placement").
-- **Names of the two new crates.** The studio binary is already called
-  `procgena`.
+- ~~**Names of the two new crates.**~~ Decided 2026-11-23 (D1):
+  `procgena_core` and `procgena_core_bevy` (see "Where shared code lives").
 - **Slot choice.** Jump consistent hash or rendezvous hashing (see
   "Specimen budget"), decided by GPU cost and Scatter subsets.
 - **Scatter file kind.** What the `.<kind>.yml` files of `TreeScatter`
@@ -1215,7 +1223,7 @@ to be chosen (see "Decisions to make").
   | `Object` | `Specimen` |
   | `ObjectError` | `SpecimenError` |
   | `GeneratedObject` (Bevy component) | `GeneratedSpecimen` |
-  | `Object::single`, `Object::merged`, `HeightGrid::from_object` | `Specimen::single`, `Specimen::merged`, `HeightGrid::from_specimen` |
+  | `Object::single`, `Object::merged`, `HeightGrid::from_object` | `Specimen::single`, `Specimen::merged`, `Specimen::height_grid` (`HeightGrid` lives in `procgena_core`, below `procgena_specimen`) |
   | Each asset's `object()` method, such as `Stone::object` | `specimen()` |
   | Helpers such as `object_parts` and `object_from_meshes` (deadwood, mushroom) | `specimen_parts`, `specimen_from_meshes` |
   | (none) | `SpecimenId`: the content hash naming one specimen |
@@ -1437,10 +1445,9 @@ it starts.
 7. **Hook keys in the specimen id.** Assets have no hooks, and a hook that
    changes an asset's options already changes the options hash. Are hook
    keys in the specimen id needed at all?
-8. **Coordinates.** `Ground` takes 32-bit floats, while the terrain works in
-   64-bit. Scatters place by chunk (see "Loading by chunk"), so working
-   relative to the chunk's origin is the likely answer. Still open: does
-   `Ground` take chunk-local coordinates, or 64-bit World ones?
+8. ~~**Coordinates.**~~ Decided 2026-11-23 (D1): `Ground` takes World
+   `f64` positions and returns `f32` heights and gradients. Scatters work
+   relative to the chunk inside and convert at the call.
 9. **Far copies on coarse terrain.** Placement uses the true ground height,
    but a coarse terrain chunk sits a little above or below it, so far
    copies can float or sink by that chunk's height error. Snap them to the

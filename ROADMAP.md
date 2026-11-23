@@ -209,7 +209,7 @@ blocks. Until then, nothing that depends on it starts.
 
 | Gate | Decides | Blocks | Notes |
 |------|---------|--------|-------|
-| D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | F1 moves `Ground` and adds slope, so its signature must be settled first, or every crate is rewritten twice. `serde_yaml` is unmaintained: compare the maintained options (downloads, maintenance) and let the user pick before touching `Cargo.toml`. |
+| D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Slot choice uses D2's GPU spike: on the CPU, a 32-bit jump hash and rendezvous hashing are equally balanced (D2 section 5), so the spike decides by GPU cost. Open questions 4 and 5 settle before copy ids exist, so saved edits never key on list positions. |
 
@@ -265,7 +265,10 @@ ARCHITECTURE.md.
   `procgena_specimen`" and "Add a gradient to `Ground`". Shared hashing,
   seeds and random numbers move first (clump drops its copy of stone's).
   Mushroom's local tags move into `procgena_specimen::tags` (first half of
-  TODO "Tags").
+  TODO "Tags"). Per D1: F1 creates only `procgena_core` (the Bevy crate
+  waits for R1), moves `mesh/` to `specimen/crates/procgena_specimen`,
+  and moves only stone's and clump's random numbers. Tree's, deadwood's
+  and mushroom's wait for F2. `ChunkFrame` waits for C2.
 - **Needs:** M0, D1 (crate names, coordinates).
 - **Done when:** every crate builds on `procgena_specimen` and the core
   crate, `FlatGround`, `HeightGrid` and closures answer slope, and the full
