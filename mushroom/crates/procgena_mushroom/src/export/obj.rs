@@ -56,7 +56,7 @@ pub fn to_obj(
         for n in &b.normals {
             let _ = writeln!(obj, "vn {} {} {}", n[0], n[1], n[2]);
         }
-        let material = if mesh.double_sided || mesh.stem_ribbon.is_some() {
+        let material = if mesh.double_sided || mesh.billboard.is_some() {
             "mushroom_open"
         } else {
             "mushroom"

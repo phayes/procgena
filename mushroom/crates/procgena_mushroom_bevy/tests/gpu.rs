@@ -71,9 +71,9 @@ fn spawn_scene(app: &mut App) {
         Transform::from_xyz(1.0, 3.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // An 8 cm mushroom switches at 1.5 m, 4 m and 10 m: one per level.
-    // The fly agaric adds a ring, warts and painted spots; the porcini a
-    // cap pattern.
+    // An 8 cm mushroom switches at 1.5 m, 4 m, 10 m and 18 m: one per
+    // level. The fly agaric adds an annulus and warts; the porcini a cap
+    // pattern and no gills.
     let near = |preset: MushroomPreset| MushroomOptions {
         size: 0.08,
         ..preset.options()
@@ -83,6 +83,7 @@ fn spawn_scene(app: &mut App) {
         (-2.5, near(MushroomPreset::Porcini)),
         (-6.0, near(MushroomPreset::FlyAgaric)),
         (-15.0, near(MushroomPreset::Porcini)),
+        (-25.0, near(MushroomPreset::FlyAgaric)),
     ] {
         app.world_mut().spawn((
             procgena_mushroom_bevy::MushroomParams::new(options),
@@ -126,17 +127,22 @@ fn every_detail_level_compiles_its_shaders() {
     spawn_scene(&mut app);
     run_until_settled(&mut app);
 
-    // Every level, including the flat stem strips, was spawned.
+    // Every level, including the camera-facing shapes, was spawned.
     let world = app.world_mut();
     let parts: Vec<MushroomPart> = world
         .query::<&MushroomPart>()
         .iter(world)
         .copied()
         .collect();
-    for lod in 0..4 {
+    for lod in 0..5 {
         assert!(parts.iter().any(|p| p.lod == lod), "no part at level {lod}");
     }
-    assert!(parts.iter().any(|p| p.ribbon), "no flat stem strip");
+    for lod in [3, 4] {
+        assert!(
+            parts.iter().any(|p| p.billboard && p.lod == lod),
+            "no camera-facing shapes at level {lod}"
+        );
+    }
 
     // No pipeline failed: a shader error shows up here.
     let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();

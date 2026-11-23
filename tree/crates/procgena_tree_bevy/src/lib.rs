@@ -181,6 +181,10 @@
 //! when the file changes if Bevy is watching asset files. Try it with
 //! `cargo run -p procgena_tree_bevy --example grove`.
 //!
+//! Far away, trees are drawn as baked impostors; see `TreeImpostor`. To generate a
+//! grove's trees and bake their impostors before the grove appears, for example
+//! behind a loading screen, spawn a `PrepareGrove` first.
+//!
 //! ## Load settings from JSON
 //!
 //! Save full or partial ez-tree settings to `assets/trees/oak.tree.json`. Missing
@@ -335,6 +339,7 @@
 #[cfg(feature = "gltf")]
 mod gltf;
 mod grove;
+mod impostor;
 mod material;
 mod material_key;
 mod mesh;
@@ -348,14 +353,16 @@ use bevy::shader::{Shader, load_shader_library};
 use procgena_tree::{TextureCompression, WIND_WESL};
 
 pub use grove::{
-    GroveGround, GroveHit, GroveLevelSize, GrovePart, GroveSource, GroveTrees, GroveVariant,
-    PlacedTree, PromotedTree, TreeGroveAsset, TreeGroveAssets, TreeGroveBuildError,
-    TreeGroveFinished, TreeGroveGenerating, TreeGroveInstances, TreeGroveParams, TreeGroveStats,
+    GroveGround, GroveHit, GroveLevelSize, GrovePart, GrovePreparing, GroveReady, GroveSource,
+    GroveTrees, GroveVariant, PlacedTree, PrepareGrove, PromotedTree, TreeGroveAsset,
+    TreeGroveAssets, TreeGroveBuildError, TreeGroveFinished, TreeGroveGenerating,
+    TreeGroveInstances, TreeGroveParams, TreeGroveStats, grove_variants,
 };
+pub use impostor::TreeImpostor;
 pub use material::{
     BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
-    average_bark_material, bark_material, flower_material, fruit_material, leaf_material,
-    trellis_material,
+    average_bark_material, bake_copy, bark_material, flower_material, fruit_material,
+    leaf_material, trellis_material,
 };
 pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
@@ -366,6 +373,8 @@ pub use spawn::{
     TreeParams, TreePart, TreePartKind, default_tree_lod_levels,
 };
 pub use wind::Wind;
+
+use procgena_impostor::ImpostorPlugin;
 
 #[cfg(feature = "gltf")]
 pub use gltf::add_tree_gltf_attributes;
@@ -393,6 +402,9 @@ pub struct TreePlugin {
     /// by distance before generation. Supply one level to disable distance
     /// switching, or an empty list to produce no tree meshes.
     pub lod_levels: Vec<TreeLodLevel>,
+    /// Draws trees far away as baked impostors; see [`TreeImpostor`].
+    /// `None` draws the farthest mesh level at every distance beyond.
+    pub impostor: Option<TreeImpostor>,
 }
 
 impl Default for TreePlugin {
@@ -401,6 +413,7 @@ impl Default for TreePlugin {
             texture_root: Some("procgena_tree/textures".to_owned()),
             texture_compression: TextureCompression::Bc7,
             lod_levels: default_tree_lod_levels(),
+            impostor: Some(TreeImpostor::default()),
         }
     }
 }
@@ -425,6 +438,30 @@ impl Plugin for TreePlugin {
         embedded_asset!(app, "shaders/tree.wesl");
         embedded_asset!(app, "shaders/tree_prepass.wesl");
 
+        // Impostors must start beyond the farthest mesh level.
+        let farthest = self
+            .lod_levels
+            .iter()
+            .map(|l| l.level.distance)
+            .fold(0.0, f32::max);
+        let impostor = self.impostor.filter(|impostor| {
+            let fits = impostor.band().start > farthest;
+            if !fits {
+                error!(
+                    "procgena_tree_bevy: tree impostors start at {} m, inside the farthest \
+                     detail level (from {farthest} m); impostors are off",
+                    impostor.distance
+                );
+            }
+            fits
+        });
+
+        // Impostors, unless the app added the plugin itself with settings of
+        // its own.
+        if impostor.is_some() && !app.is_plugin_added::<ImpostorPlugin>() {
+            app.add_plugins(ImpostorPlugin::default());
+        }
+
         app.add_plugins((
             MaterialPlugin::<TreeMaterial>::default(),
             grove::GroveRenderPlugin,
@@ -439,7 +476,9 @@ impl Plugin for TreePlugin {
             texture_root: self.texture_root.clone(),
             texture_compression: self.texture_compression,
             lod_levels: self.lod_levels.clone(),
+            impostor,
         })
+        .add_observer(impostor::keep_impostor)
         .add_systems(
             Update,
             (
@@ -448,6 +487,8 @@ impl Plugin for TreePlugin {
                 grove::remove_groves,
                 grove::finish_placing,
                 grove::start_groves,
+                grove::stop_preparing,
+                grove::start_preparing,
                 // Promoted trees' parts are generated below in the
                 // same frame.
                 grove::sync_promoted_trees,
@@ -463,7 +504,17 @@ impl Plugin for TreePlugin {
                 wind::sync_wind,
             )
                 .chain(),
-        );
+        )
+        // Impostors become ready in an observer, any time before this.
+        .add_systems(Update, grove::track_preparing.after(spawn::prune_cache));
+        if impostor.is_some() {
+            app.add_systems(
+                Update,
+                (impostor::request_impostors, impostor::show_impostors)
+                    .chain()
+                    .after(spawn::prune_cache),
+            );
+        }
         #[cfg(feature = "gltf")]
         gltf::register(app);
     }

@@ -83,6 +83,36 @@ fn bad_values_are_rejected() {
     let mut o = MushroomOptions::default();
     o.stem.height = f32::NAN;
     assert!(o.validate().is_err());
+
+    let mut o = MushroomOptions::default();
+    o.cluster.stems = 0;
+    assert!(matches!(
+        o.validate(),
+        Err(OptionsError::IntOutOfRange {
+            field: "cluster.stems",
+            ..
+        })
+    ));
+
+    let mut o = MushroomOptions::default();
+    o.cluster.fairy_ring.radius = 0.5;
+    assert!(matches!(
+        o.validate(),
+        Err(OptionsError::FloatNotInRange {
+            field: "cluster.fairy_ring.radius",
+            ..
+        })
+    ));
+
+    let mut o = MushroomOptions::default();
+    o.bulb.depth = 0.0;
+    assert!(matches!(
+        o.validate(),
+        Err(OptionsError::FloatNotInRange {
+            field: "bulb.depth",
+            ..
+        })
+    ));
 }
 
 #[test]

@@ -19,34 +19,29 @@ pub const DEFAULT_LOD_SIZE: f32 = 0.08;
 #[serde(rename_all = "snake_case")]
 pub enum BodyShape {
     /// Closed ("watertight") surfaces with no holes: the cap has a top,
-    /// rim and underside, and the stem has closed ends. Back faces are never
-    /// seen, so it can be drawn one-sided. Use it up close, or when another
-    /// generator needs to tell inside from outside.
+    /// rim and underside, and the stem is closed at the top and, with
+    /// [`BulbOptions::closed`](crate::BulbOptions::closed), at the bottom.
+    /// Back faces are never seen, so it can be drawn one-sided. Use it up
+    /// close, or when another generator needs to tell inside from outside.
     #[default]
     Solid,
-    /// Only the cap's top surface and the stem's side, with no underside or
-    /// stem ends. Draw it two-sided, because its inside can be seen through
-    /// the openings.
+    /// Open surfaces: the cap's top, rim and underside without the disc that
+    /// seals it against the stem, and the stem's side with its rounded
+    /// bottom but no top. Draw it two-sided, because its inside can be seen
+    /// through the openings.
     Shell,
-    /// The cheapest form, for distant or very numerous mushrooms: an open
-    /// cap like [`Shell`](Self::Shell) and a flat strip for the stem. The
-    /// renderer keeps the strip turned toward the camera, so it looks like a
-    /// stem from every side, as distant trees do with their branches. See
-    /// [`crate::StemRibbon`].
+    /// For distant or very numerous mushrooms: an open cap like
+    /// [`Shell`](Self::Shell) and a flat strip for the stem. The renderer
+    /// keeps the strip turned toward the camera, so it looks like a stem
+    /// from every side, as distant trees do with their branches. See
+    /// [`crate::BillboardMesh`].
     Flat,
-}
-
-/// How warts appear at one detail level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WartDetail {
-    /// Small raised domes.
-    #[default]
-    Mesh,
-    /// No extra geometry: the wart colour is painted onto the cap instead.
-    Spots,
-    /// Not shown at all.
-    None,
+    /// The cheapest form, for the farthest distances: one triangle for the
+    /// stem and one for the cap, both turned toward the camera like the
+    /// stem of [`Flat`](Self::Flat). Renderers draw it with vertex colours
+    /// only, without textures, patterns, gills or warts. See
+    /// [`crate::BillboardMesh`].
+    Billboard,
 }
 
 /// How detailed one mushroom mesh is.
@@ -65,16 +60,21 @@ pub struct MushroomDetail {
     /// Segments along the cap's outline, from rim to top. The underside
     /// gets half as many, and at least one.
     pub cap_segments: u32,
-    /// Segments around the stem. Not used by [`BodyShape::Flat`].
+    /// Segments around the stem. Not used by [`BodyShape::Flat`] or
+    /// [`BodyShape::Billboard`].
     pub stem_sides: u32,
-    /// Segments along the stem.
+    /// Segments along the stem. Not used by [`BodyShape::Billboard`].
     pub stem_segments: u32,
-    /// Whether to build the ring, if the mushroom has one.
-    pub ring: bool,
-    /// How to show warts, if the mushroom has any.
-    pub warts: WartDetail,
-    /// Segments around each wart, when warts are [`WartDetail::Mesh`].
-    pub wart_sides: u32,
+    /// Whether to build the annulus, if the mushroom has one.
+    pub annulus: bool,
+    /// Whether to paint the mushroom's warts into the cap's vertex colours.
+    ///
+    /// Leave it on for renderers that don't draw warts themselves, such as
+    /// 3D tools reading exported files. Turn it off when the renderer draws
+    /// them, as `procgena_mushroom_bevy` does, or they show twice. Painted
+    /// warts are only as sharp as the mesh, so coarse levels show soft
+    /// blotches.
+    pub paint_warts: bool,
 }
 
 impl MushroomDetail {
@@ -85,9 +85,8 @@ impl MushroomDetail {
         cap_segments: 16,
         stem_sides: 24,
         stem_segments: 12,
-        ring: true,
-        warts: WartDetail::Mesh,
-        wart_sides: 8,
+        annulus: true,
+        paint_warts: true,
     };
     /// Solid surfaces at about a quarter of [`FULL`](Self::FULL)'s triangles.
     pub const HIGH: Self = Self {
@@ -96,54 +95,62 @@ impl MushroomDetail {
         cap_segments: 8,
         stem_sides: 12,
         stem_segments: 6,
-        ring: true,
-        warts: WartDetail::Mesh,
-        wart_sides: 5,
+        annulus: true,
+        paint_warts: true,
     };
-    /// Open surfaces, with warts painted on rather than modelled.
+    /// Open surfaces.
     pub const MEDIUM: Self = Self {
         shape: BodyShape::Shell,
         cap_sides: 12,
         cap_segments: 4,
         stem_sides: 8,
         stem_segments: 4,
-        ring: true,
-        warts: WartDetail::Spots,
-        wart_sides: 4,
+        annulus: true,
+        paint_warts: true,
     };
-    /// Coarse open surfaces without a ring.
+    /// Coarse open surfaces without an annulus.
     pub const LOW: Self = Self {
         shape: BodyShape::Shell,
         cap_sides: 8,
         cap_segments: 3,
         stem_sides: 6,
         stem_segments: 3,
-        ring: false,
-        warts: WartDetail::Spots,
-        wart_sides: 4,
+        annulus: false,
+        paint_warts: true,
     };
-    /// The cheapest form: an open six-sided cap and a stem strip that turns
-    /// toward the camera. About 40 triangles; suited to far distances and
-    /// large crowds.
+    /// An open six-sided cap and a stem strip that turns toward the camera.
+    /// About 40 triangles; suited to far distances and large crowds.
     pub const FLAT: Self = Self {
         shape: BodyShape::Flat,
         cap_sides: 6,
         cap_segments: 2,
         stem_sides: 3,
         stem_segments: 3,
-        ring: false,
-        warts: WartDetail::Spots,
-        wart_sides: 4,
+        annulus: false,
+        paint_warts: true,
+    };
+    /// The cheapest form: two triangles, one for the stem and one for the
+    /// cap, turned toward the camera and drawn with vertex colours only.
+    /// For the farthest distances.
+    pub const BILLBOARD: Self = Self {
+        shape: BodyShape::Billboard,
+        cap_sides: 3,
+        cap_segments: 1,
+        stem_sides: 3,
+        stem_segments: 1,
+        annulus: false,
+        paint_warts: false,
     };
 
     /// Every named level with a display name, most detailed first, for
     /// menus.
-    pub const PRESETS: [(&'static str, Self); 5] = [
+    pub const PRESETS: [(&'static str, Self); 6] = [
         ("Full", Self::FULL),
         ("High", Self::HIGH),
         ("Medium", Self::MEDIUM),
         ("Low", Self::LOW),
         ("Flat", Self::FLAT),
+        ("Billboard", Self::BILLBOARD),
     ];
 
     /// Checks every count against the limits described on
@@ -156,8 +163,7 @@ impl MushroomDetail {
         int_range("detail.cap_sides", self.cap_sides, 3, MAX_SEGMENTS)?;
         int_range("detail.cap_segments", self.cap_segments, 1, MAX_SEGMENTS)?;
         int_range("detail.stem_sides", self.stem_sides, 3, MAX_SEGMENTS)?;
-        int_range("detail.stem_segments", self.stem_segments, 1, MAX_SEGMENTS)?;
-        int_range("detail.wart_sides", self.wart_sides, 3, MAX_SEGMENTS)
+        int_range("detail.stem_segments", self.stem_segments, 1, MAX_SEGMENTS)
     }
 }
 
@@ -196,10 +202,12 @@ pub struct MushroomLod {
 }
 
 impl Default for MushroomLod {
-    /// Four levels for an 8 cm cap: [`FULL`](MushroomDetail::FULL) up to
+    /// Five levels for an 8 cm cap: [`FULL`](MushroomDetail::FULL) up to
     /// 1.5 m, [`HIGH`](MushroomDetail::HIGH) to 4 m,
-    /// [`MEDIUM`](MushroomDetail::MEDIUM) to 10 m and
-    /// [`FLAT`](MushroomDetail::FLAT) to 25 m, with nothing drawn beyond.
+    /// [`MEDIUM`](MushroomDetail::MEDIUM) to 10 m,
+    /// [`FLAT`](MushroomDetail::FLAT) to 18 m and
+    /// [`BILLBOARD`](MushroomDetail::BILLBOARD) to 40 m, with nothing drawn
+    /// beyond.
     fn default() -> Self {
         let level = |distance, detail| LodLevel {
             distance,
@@ -212,8 +220,9 @@ impl Default for MushroomLod {
                 level(1.5, MushroomDetail::HIGH),
                 level(4.0, MushroomDetail::MEDIUM),
                 level(10.0, MushroomDetail::FLAT),
+                level(18.0, MushroomDetail::BILLBOARD),
             ],
-            cull_distance: 25.0,
+            cull_distance: 40.0,
         }
     }
 }

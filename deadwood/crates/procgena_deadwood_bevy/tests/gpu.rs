@@ -23,8 +23,8 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, ScatterOptions};
 use procgena_deadwood_bevy::{
-    DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPlugin, DeadwoodScatterParams,
-    ScatterGround,
+    DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPartKind, DeadwoodPlugin,
+    DeadwoodScatterParams, ScatterGround,
 };
 
 /// The longest the test waits for pieces and shaders before failing.
@@ -168,7 +168,10 @@ fn every_detail_level_compiles_its_shaders() {
     for lod in 0..3 {
         assert!(parts.iter().any(|p| p.lod == lod), "no part at level {lod}");
     }
-    assert!(parts.iter().any(|p| p.ribbon), "no strips");
+    assert!(
+        parts.iter().any(|p| p.kind == DeadwoodPartKind::Ribbon),
+        "no strips"
+    );
 
     // No pipeline failed: a shader error shows up here.
     let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();

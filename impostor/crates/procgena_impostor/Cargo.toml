@@ -1,0 +1,26 @@
+[package]
+name = "procgena_impostor"
+version = "0.1.0"
+description = "Bakes generated Bevy objects into octahedral impostors and draws them far away as single quads"
+edition.workspace = true
+
+[dependencies]
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_pbr",
+    "ktx2",
+] }
+# Encodes and decodes cached atlases as PNG. Bevy already depends on this
+# version through bevy_image.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Compresses shipped atlases to BC7.
+intel_tex_2 = "0.5.0"
+
+[dev-dependencies]
+bevy = { version = "0.20.1" }
+
+[package.metadata.docs.rs]
+all-features = true

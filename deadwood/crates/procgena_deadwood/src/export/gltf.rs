@@ -7,8 +7,10 @@
 //! vertically (`v` becomes `1 - v`), because glTF puts `v = 0` at the top
 //! of an image.
 //!
-//! Round stems and strips are separate primitives (separately drawn pieces
-//! of one mesh); the strips' material is marked double-sided. The piece's
+//! Round stems, strips and leaf cards are separate primitives (separately
+//! drawn pieces of one mesh); the strips' and leaves' materials are marked
+//! double-sided. Textures are not embedded: give the `deadwood_leaves`
+//! material the leaf texture, with alpha testing, in your tool. The piece's
 //! settings are stored in the file (under `asset.extras.deadwoodOptions`),
 //! so the piece can be recreated later.
 
@@ -25,7 +27,7 @@ use json::validation::Checked::Valid;
 use json::validation::USize64;
 use json::{Index, Root};
 
-use super::{level_name, strip_buffers};
+use super::{level_name, mesh_has_leaves, strip_buffers};
 use crate::mesh::{DeadwoodMesh, MeshBuffers};
 use crate::options::DeadwoodOptions;
 
@@ -141,6 +143,7 @@ fn build(
     // One object per level: round stems one-sided, strips two-sided.
     let solid = b.material("deadwood", options.material.roughness, false);
     let strip = b.material("deadwood_strip", options.material.roughness, true);
+    let leaf = mesh_has_leaves(meshes).then(|| b.material("deadwood_leaves", 0.6, true));
     let mut nodes = Vec::new();
     for (lod, mesh) in meshes.iter().enumerate() {
         let name = level_name(lod, meshes.len());
@@ -151,6 +154,9 @@ fn build(
         }
         if let Some(s) = &strips {
             primitives.push(b.primitive(s, strip));
+        }
+        if let (Some(l), Some(material)) = (&mesh.leaves, leaf) {
+            primitives.push(b.primitive(l, material));
         }
         let index = b.root.push(json::Mesh {
             name: Some(name.clone()),

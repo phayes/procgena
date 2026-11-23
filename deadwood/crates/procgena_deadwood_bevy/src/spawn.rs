@@ -20,7 +20,9 @@ use procgena_deadwood::{
 };
 use procgena_mesh::{GeneratedObject, Object, TagFilter};
 
-use crate::material::{BarkTextures, DeadwoodMaterial, EndTextures, deadwood_material};
+use crate::material::{
+    BarkTextures, DeadwoodMaterial, EndTextures, LeafTextures, deadwood_material, leaf_material,
+};
 use crate::mesh::{deadwood_mesh, ribbon_aabb, ribbon_mesh};
 
 /// Asks for one piece of dead wood (a log, branch or stump) resting on the
@@ -125,9 +127,22 @@ pub struct DeadwoodPart {
     pub instance: usize,
     /// Detail level, from 0 for the nearest.
     pub lod: usize,
-    /// True for thin stems drawn as flat strips that turn toward the
-    /// camera.
-    pub ribbon: bool,
+    /// What the part draws.
+    pub kind: DeadwoodPartKind,
+}
+
+/// What one [`DeadwoodPart`] draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DeadwoodPartKind {
+    /// Round stems, with a [`DeadwoodMaterial`].
+    Wood,
+    /// Thin stems drawn as flat strips that turn toward the camera, with a
+    /// [`DeadwoodMaterial`].
+    Ribbon,
+    /// Leaf cards, with a [`StandardMaterial`] from
+    /// [`leaf_material`](crate::leaf_material). Only drawn when the plugin
+    /// loads textures.
+    Leaves,
 }
 
 /// Where a single piece came to rest, added to a [`DeadwoodParams`] entity
@@ -343,6 +358,8 @@ struct BuiltLevel {
     surfaces: Option<Mesh>,
     /// Thin stems as flat strips, and their bounds.
     ribbon: Option<(Mesh, Aabb)>,
+    /// Leaf cards, or `None` if the level has none.
+    leaves: Option<Mesh>,
 }
 
 /// One variant's meshes and materials, after adding them to Bevy's assets.
@@ -359,6 +376,9 @@ struct LevelAssets {
     surfaces: Option<(Handle<Mesh>, Handle<DeadwoodMaterial>)>,
     /// Flat strips, their material and their bounds.
     ribbon: Option<(Handle<Mesh>, Handle<DeadwoodMaterial>, Aabb)>,
+    /// Leaf cards and their material, when the level has cards and
+    /// textures are loaded.
+    leaves: Option<(Handle<Mesh>, Handle<StandardMaterial>)>,
 }
 
 /// Uploaded variants and materials, shared by every entity that needs the
@@ -374,6 +394,8 @@ pub(crate) struct DeadwoodCache {
     bark_textures: HashMap<String, BarkTextures>,
     /// End-grain texture images by set name, kept for reuse.
     end_textures: HashMap<String, EndTextures>,
+    /// Leaf materials by texture set name.
+    leaf_materials: HashMap<String, Handle<StandardMaterial>>,
 }
 
 // --------------------------------------------------------------------------
@@ -673,6 +695,7 @@ fn build_variant(
                 .as_ref()
                 .filter(|r| r.strip.triangle_count() > 0)
                 .map(|r| (ribbon_mesh(r), ribbon_aabb(r))),
+            leaves: mesh.leaves.as_ref().map(deadwood_mesh),
         })
         .collect();
     let key = format!(
@@ -703,6 +726,7 @@ pub(crate) fn finish_generation(
     mut cache: ResMut<DeadwoodCache>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DeadwoodMaterial>>,
+    mut standard: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     settings: Res<SpawnSettings>,
 ) {
@@ -736,12 +760,13 @@ pub(crate) fn finish_generation(
             .into_iter()
             .map(|v| {
                 let textures = (&*asset_server, settings.textures.as_ref());
-                upload(v, &mut cache, &mut meshes, &mut materials, textures)
+                let materials = (&mut *materials, &mut *standard);
+                upload(v, &mut cache, &mut meshes, materials, textures)
             })
             .collect();
 
-        // Spawn one child per piece and level (two where a level has both
-        // round stems and strips), each shown only within its own distance
+        // Spawn one child per piece, level and kind of part (round stems,
+        // strips, leaf cards), each shown only within its own distance
         // band.
         for (i, (variant, transform)) in built.instances.iter().enumerate() {
             let variant = &variants[*variant as usize];
@@ -755,7 +780,7 @@ pub(crate) fn finish_generation(
                         DeadwoodPart {
                             instance: i,
                             lod,
-                            ribbon: false,
+                            kind: DeadwoodPartKind::Wood,
                         },
                         Mesh3d(mesh.clone()),
                         MeshMaterial3d(material.clone()),
@@ -772,7 +797,7 @@ pub(crate) fn finish_generation(
                         DeadwoodPart {
                             instance: i,
                             lod,
-                            ribbon: true,
+                            kind: DeadwoodPartKind::Ribbon,
                         },
                         Mesh3d(mesh.clone()),
                         MeshMaterial3d(material.clone()),
@@ -785,6 +810,20 @@ pub(crate) fn finish_generation(
                     if !shadows {
                         part.insert(NotShadowCaster);
                     }
+                }
+                if let Some((mesh, material)) = &level.leaves {
+                    commands.spawn((
+                        DeadwoodPart {
+                            instance: i,
+                            lod,
+                            kind: DeadwoodPartKind::Leaves,
+                        },
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(material.clone()),
+                        *transform,
+                        range.clone(),
+                        ChildOf(entity),
+                    ));
                 }
             }
         }
@@ -813,7 +852,7 @@ fn upload(
     variant: BuiltVariant,
     cache: &mut DeadwoodCache,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<DeadwoodMaterial>,
+    (materials, standard): (&mut Assets<DeadwoodMaterial>, &mut Assets<StandardMaterial>),
     (asset_server, textures): (&AssetServer, Option<&TextureSettings>),
 ) -> Arc<VariantAssets> {
     if let Some(found) = cache.variants.get(&variant.key) {
@@ -859,7 +898,21 @@ fn upload(
             })
             .clone()
     };
-    let levels = variant
+    // Leaf cards need their texture to cut out the leaves, so without
+    // textures they are left out.
+    let leaf_set = &o.leaves.texture;
+    let mut leaf = || {
+        let t = textures?;
+        let handle = cache
+            .leaf_materials
+            .entry(leaf_set.clone())
+            .or_insert_with(|| {
+                let images = LeafTextures::load(asset_server, &t.root, leaf_set, t.compression);
+                standard.add(leaf_material(&images))
+            });
+        Some(handle.clone())
+    };
+    let levels: Vec<LevelAssets> = variant
         .levels
         .into_iter()
         .map(|level| LevelAssets {
@@ -867,6 +920,9 @@ fn upload(
             ribbon: level
                 .ribbon
                 .map(|(m, aabb)| (meshes.add(m), material(true), aabb)),
+            leaves: level
+                .leaves
+                .and_then(|m| leaf().map(|handle| (meshes.add(m), handle))),
         })
         .collect();
     let assets = Arc::new(VariantAssets {
@@ -924,9 +980,19 @@ pub(crate) fn prune_cache(
                 .iter()
                 .map(|(m, _)| m.id())
                 .chain(l.ribbon.iter().map(|(m, _, _)| m.id()))
+                .chain(l.leaves.iter().map(|(m, _)| m.id()))
                 .any(|id| drawn.contains(&id))
         })
     });
+    let used_leaves: HashSet<AssetId<StandardMaterial>> = cache
+        .variants
+        .values()
+        .flat_map(|v| v.levels.iter())
+        .flat_map(|l| l.leaves.iter().map(|(_, m)| m.id()))
+        .collect();
+    cache
+        .leaf_materials
+        .retain(|_, m| used_leaves.contains(&m.id()));
     let used: HashSet<AssetId<DeadwoodMaterial>> = cache
         .variants
         .values()
@@ -960,6 +1026,7 @@ mod tests {
             .init_asset::<Mesh>()
             .init_asset::<Image>()
             .init_asset::<DeadwoodMaterial>()
+            .init_asset::<StandardMaterial>()
             .init_resource::<Finished>()
             .add_observer(
                 |event: On<DeadwoodFinished>, mut finished: ResMut<Finished>| {
@@ -1004,7 +1071,11 @@ mod tests {
         run_until_finished(&mut app, entity);
 
         let parts = parts(&mut app, entity);
-        let mut levels: Vec<usize> = parts.iter().filter(|p| !p.ribbon).map(|p| p.lod).collect();
+        let mut levels: Vec<usize> = parts
+            .iter()
+            .filter(|p| p.kind == DeadwoodPartKind::Wood)
+            .map(|p| p.lod)
+            .collect();
         levels.sort();
         assert_eq!(levels, [0, 1, 2]);
 
@@ -1017,7 +1088,12 @@ mod tests {
                 assert_eq!(no_shadow, part.lod == 3, "{part:?}");
             }
         }
-        assert!(parts.iter().any(|p| p.ribbon && p.lod == 3), "{parts:?}");
+        assert!(
+            parts
+                .iter()
+                .any(|p| p.kind == DeadwoodPartKind::Ribbon && p.lod == 3),
+            "{parts:?}"
+        );
         assert!(app.world().entity(entity).contains::<GeneratedObject>());
         let placement = app.world().get::<DeadwoodPlacement>(entity).unwrap();
         assert!(placement.0.burial > 0.0, "a rotten log suggests burial");
@@ -1057,10 +1133,11 @@ mod tests {
             .map(|(part, material)| (*part, material.0.clone()))
             .collect();
         let materials = app.world().resource::<Assets<DeadwoodMaterial>>();
-        assert!(found.iter().any(|(p, _)| p.ribbon) && found.iter().any(|(p, _)| !p.ribbon));
+        let ribbon = |p: &DeadwoodPart| p.kind == DeadwoodPartKind::Ribbon;
+        assert!(found.iter().any(|(p, _)| ribbon(p)) && found.iter().any(|(p, _)| !ribbon(p)));
         for (part, handle) in found {
             let extension = &materials.get(&handle).unwrap().extension;
-            let expected = !part.ribbon;
+            let expected = !ribbon(&part);
             assert_eq!(extension.bark_color.is_some(), expected, "{part:?}");
             assert_eq!(extension.end_color.is_some(), expected, "{part:?}");
             assert_eq!(extension.surface.end_textured == 1, expected, "{part:?}");
@@ -1076,8 +1153,61 @@ mod tests {
             .id();
         run_until_finished(&mut app, entity);
         let parts = parts(&mut app, entity);
-        assert!(parts.iter().any(|p| p.ribbon), "{parts:?}");
-        assert!(parts.iter().any(|p| !p.ribbon && p.lod == 0));
+        assert!(
+            parts.iter().any(|p| p.kind == DeadwoodPartKind::Ribbon),
+            "{parts:?}"
+        );
+        assert!(
+            parts
+                .iter()
+                .any(|p| p.kind == DeadwoodPartKind::Wood && p.lod == 0)
+        );
+    }
+
+    #[test]
+    fn leaf_cards_need_textures_and_thin_out_with_distance() {
+        // Without textures, leaves can't be cut out, so none are drawn.
+        let mut app = app();
+        let entity = app
+            .world_mut()
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::SeedlingLog))
+            .id();
+        run_until_finished(&mut app, entity);
+        let parts = parts(&mut app, entity);
+        assert!(!parts.iter().any(|p| p.kind == DeadwoodPartKind::Leaves));
+
+        // With textures, every level but the farthest gets leaf cards, all
+        // sharing one leaf material.
+        let mut app = self::app();
+        app.world_mut().resource_mut::<SpawnSettings>().textures = Some(TextureSettings {
+            root: "textures".to_owned(),
+            size: TextureSize::Size1k,
+            compression: TextureCompression::Bc7,
+        });
+        let entity = app
+            .world_mut()
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::SeedlingLog))
+            .id();
+        run_until_finished(&mut app, entity);
+        let mut query = app
+            .world_mut()
+            .query::<(&DeadwoodPart, &MeshMaterial3d<StandardMaterial>, &ChildOf)>();
+        let leaves: Vec<(usize, Handle<StandardMaterial>)> = query
+            .iter(app.world())
+            .filter(|(p, _, parent)| {
+                parent.parent() == entity && p.kind == DeadwoodPartKind::Leaves
+            })
+            .map(|(p, m, _)| (p.lod, m.0.clone()))
+            .collect();
+        let mut levels: Vec<usize> = leaves.iter().map(|(lod, _)| *lod).collect();
+        levels.sort();
+        assert_eq!(levels, [0, 1, 2]);
+        assert!(leaves.iter().all(|(_, m)| *m == leaves[0].1));
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        let material = materials.get(&leaves[0].1).unwrap();
+        assert!(material.base_color_texture.is_some());
+        assert!(matches!(material.alpha_mode, AlphaMode::Mask(_)));
+        assert!(material.double_sided);
     }
 
     #[test]

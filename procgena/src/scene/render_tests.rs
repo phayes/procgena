@@ -7,11 +7,16 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 
+use procgena_impostor::ImpostorBakeCamera;
+use procgena_tree_bevy::{TreeGroveAssets, TreeGroveParams};
+
 use super::headless_scene::{Frame, HeadlessScene};
 use super::protocol::ClumpBuildError;
+use super::subject::IMPOSTOR_DISTANCE;
 use super::{
-    ClumpSettings, ClumpSubject, EnvironmentSettings, FieldSettings, PointerButton, SceneMode,
-    SceneStart, ViewerCommand, ViewerEvent, ViewportInput,
+    ClumpSettings, ClumpSubject, EnvironmentSettings, FieldSettings, GroveProgress, OrbitCamera,
+    PointerButton, SceneMode, SceneStart, ViewerCommand, ViewerEvent, ViewportActivity,
+    ViewportCamera, ViewportInput,
 };
 
 const SIZE: UVec2 = UVec2::new(480, 270);
@@ -637,7 +642,7 @@ fn changed_share(a: &Frame, b: &Frame) -> f32 {
         .zip(b.bgra.chunks(4))
         .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 30))
         .count();
-    changed as f32 / (SIZE.x * SIZE.y) as f32
+    changed as f32 / (a.width * a.height) as f32
 }
 
 /// The mushroom detail levels reported as shown since the last check.
@@ -798,4 +803,193 @@ fn only_the_latest_clump_settings_are_shown() {
         clump_event(&mut scene),
         ViewerEvent::ClumpBuilt(Err(ClumpBuildError::Clump(_)))
     ));
+}
+
+/// Every impostor bake camera, with its transform.
+fn bake_cameras(scene: &mut HeadlessScene) -> Vec<(Entity, Transform)> {
+    let world = scene.world_mut();
+    let mut cameras = world.query_filtered::<(Entity, &Transform), With<ImpostorBakeCamera>>();
+    cameras.iter(world).map(|(e, t)| (e, *t)).collect()
+}
+
+/// The grove progress reports since the last check.
+fn grove_progress(scene: &mut HeadlessScene) -> Vec<GroveProgress> {
+    scene
+        .take_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            ViewerEvent::GroveProgress(progress) => Some(progress),
+            _ => None,
+        })
+        .collect()
+}
+
+/// While a grove's impostors bake, the app has extra 3D cameras. Moving or
+/// resetting the scene camera leaves them where they are, the scene keeps
+/// rendering until every bake is done, and the progress is reported.
+#[test]
+#[ignore = "needs a GPU"]
+fn grove_impostors_bake_without_the_scene_camera_touching_the_bake_cameras() {
+    let mut scene = start(SceneMode::Grove);
+
+    // Run frames until a bake has started.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let cameras = loop {
+        scene.update();
+        let cameras = bake_cameras(&mut scene);
+        if !cameras.is_empty() {
+            break cameras;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no impostor bake started"
+        );
+    };
+
+    // Dragging, scrolling and resetting move only the scene camera.
+    let before = scene.camera_view();
+    scene.input(ViewportInput::Drag {
+        button: PointerButton::Left,
+        delta: Vec2::new(80.0, 20.0),
+        shift: false,
+    });
+    scene.input(ViewportInput::Scroll {
+        delta: Vec2::new(0.0, -40.0),
+    });
+    scene.update();
+    let moved = scene.camera_view();
+    assert_ne!(moved, before);
+    scene.send(ViewerCommand::ResetCamera);
+    scene.update();
+    assert_ne!(scene.camera_view(), moved);
+    let world = scene.world_mut();
+    for (entity, transform) in cameras {
+        if let Some(now) = world.get::<Transform>(entity) {
+            assert_eq!(*now, transform, "a bake camera moved");
+        }
+    }
+
+    // Settling waits for every bake, so every tree shape has its impostor.
+    scene.settle();
+    assert!(bake_cameras(&mut scene).is_empty());
+    let world = scene.world_mut();
+    let mut groves = world.query::<&TreeGroveAssets>();
+    let grove = groves.single(world).unwrap();
+    assert!(!grove.variants().is_empty());
+    assert!(
+        grove.variants().iter().all(|v| v.has_impostor()),
+        "{grove:?}"
+    );
+
+    // The bakes were reported as they went, ending with nothing left to do.
+    let progress = grove_progress(&mut scene);
+    assert!(
+        progress
+            .iter()
+            .any(|p| matches!(p, GroveProgress::Baking { total, .. } if *total > 0)),
+        "{progress:?}"
+    );
+    assert_eq!(progress.last(), Some(&GroveProgress::Idle), "{progress:?}");
+}
+
+/// The view of a grove from `distance` metres, and the share of the view its
+/// trees cover: the pixels that change when the grove is removed. Removes
+/// the grove.
+fn grove_view_at(scene: &mut HeadlessScene, distance: f32) -> (Frame, f32) {
+    let world = scene.world_mut();
+    let mut cameras = world.query_filtered::<&mut OrbitCamera, With<ViewportCamera>>();
+    let mut camera = cameras.single_mut(world).unwrap();
+    camera.distance = distance;
+    camera.pitch = 0.2;
+    request_frames(world);
+    let with_grove = scene.settled_frame();
+
+    let world = scene.world_mut();
+    let mut groves = world.query_filtered::<Entity, With<TreeGroveParams>>();
+    let grove = groves.single(world).unwrap();
+    world.despawn(grove);
+    request_frames(world);
+    let without = scene.settled_frame();
+    let covered = changed_share(&with_grove, &without);
+    (with_grove, covered)
+}
+
+/// Asks the scene to render enough frames to show a change made directly in
+/// its `world`.
+fn request_frames(world: &mut World) {
+    world
+        .resource_mut::<ViewportActivity>()
+        .request_frames(ViewportActivity::SETTLE_FRAMES);
+}
+
+/// Side of the grove the impostor test looks at, in metres.
+const FAR_GROVE_SIZE: f32 = 160.0;
+
+/// Size of the view in the impostor test. Far trees are a few pixels tall;
+/// a larger view counts them more evenly.
+const FAR_VIEW: UVec2 = UVec2::new(1280, 720);
+
+/// Grove mode showing a grove [`FAR_GROVE_SIZE`] across, with impostors on
+/// or off, once its trees and impostors are ready.
+fn start_far_grove(impostors: bool) -> HeadlessScene {
+    let start = SceneStart {
+        mode: SceneMode::Grove,
+        environment: EnvironmentSettings {
+            wind: false,
+            grove_size: FAR_GROVE_SIZE,
+            ..default()
+        },
+        ..default()
+    };
+    let mut scene = if impostors {
+        HeadlessScene::new(start, FAR_VIEW)
+    } else {
+        HeadlessScene::without_impostors(start, FAR_VIEW)
+    };
+    scene.settle();
+    scene
+}
+
+/// Seen from beyond the impostor distance, the grove is drawn by its
+/// impostors alone, and covers about as much of the view as its farthest
+/// mesh level does from the same place.
+#[test]
+#[ignore = "needs a GPU"]
+fn far_groves_are_drawn_as_impostors() {
+    // Every tree is farther than where the meshes have faded out (110% of
+    // the impostor distance). Trees stand up to half the grove's diagonal
+    // from the point the camera orbits.
+    let reach = FAR_GROVE_SIZE * std::f32::consts::FRAC_1_SQRT_2 + 5.0;
+    let far = 1.1 * IMPOSTOR_DISTANCE + reach;
+
+    // Every tree shape has its impostor.
+    let mut scene = start_far_grove(true);
+    let world = scene.world_mut();
+    let mut groves = world.query::<&TreeGroveAssets>();
+    let grove = groves.single(world).unwrap();
+    assert!(
+        grove.variants().iter().all(|v| v.has_impostor()),
+        "{grove:?}"
+    );
+
+    // The impostors draw the grove: a few hundred pixels at least, as the
+    // trees are a few pixels tall.
+    let pixels = (FAR_VIEW.x * FAR_VIEW.y) as f32;
+    let (impostors, covered) = grove_view_at(&mut scene, far);
+    assert!(
+        covered * pixels > 200.0,
+        "the impostors cover {} pixels",
+        covered * pixels
+    );
+
+    // They, not the farthest mesh level, are what is drawn there: drawing
+    // the meshes instead changes a good part of the grove's pixels.
+    let (meshes, _) = grove_view_at(&mut start_far_grove(false), far);
+    let changed = changed_share(&impostors, &meshes);
+    assert!(
+        changed > 0.25 * covered,
+        "the meshes change only {} of the {} pixels the impostors cover",
+        changed * pixels,
+        covered * pixels
+    );
 }

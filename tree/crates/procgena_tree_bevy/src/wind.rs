@@ -3,6 +3,8 @@
 use bevy::prelude::*;
 use procgena_tree::WindParams;
 
+use procgena_impostor::BakeOutput;
+
 use crate::material::{TreeMaterial, WindUniform};
 
 /// Global wind settings for every [`TreeMaterial`], including custom materials.
@@ -18,7 +20,10 @@ pub(crate) fn sync_wind(wind: Res<Wind>, mut materials: ResMut<Assets<TreeMateri
     let uniform = WindUniform::from(wind.0);
     let stale: Vec<AssetId<TreeMaterial>> = materials
         .iter()
-        .filter(|(_, material)| material.extension.wind != uniform)
+        .filter(|(_, material)| {
+            // Bake copies stay still.
+            material.extension.bake == BakeOutput::None && material.extension.wind != uniform
+        })
         .map(|(id, _)| id)
         .collect();
     for id in stale {

@@ -7,12 +7,13 @@
 //! darker than intended.
 //!
 //! Round stems use the material `deadwood`; strips use `deadwood_strip`,
-//! which should be drawn two-sided. OBJ has no way to say this, so set it
-//! in your tool.
+//! which should be drawn two-sided. Leaf cards use `deadwood_leaves`, which
+//! should be drawn two-sided with the leaf texture and alpha testing. OBJ
+//! has no way to say this, so set it in your tool.
 
 use std::fmt::Write;
 
-use super::{level_name, strip_buffers};
+use super::{level_name, mesh_has_leaves, strip_buffers};
 use crate::mesh::{DeadwoodMesh, MeshBuffers};
 use crate::options::DeadwoodOptions;
 
@@ -48,6 +49,7 @@ pub fn to_obj(
         let strips = strip_buffers(mesh);
         for (buffers, material) in std::iter::once((&mesh.surfaces, "deadwood"))
             .chain(strips.as_ref().map(|s| (s, "deadwood_strip")))
+            .chain(mesh.leaves.as_ref().map(|l| (l, "deadwood_leaves")))
         {
             write_group(&mut obj, buffers, material, &mut base);
         }
@@ -57,7 +59,8 @@ pub fn to_obj(
     let roughness = options.material.roughness;
     let shininess = (1.0 - roughness) * (1.0 - roughness) * 250.0;
     let mut mtl = String::new();
-    for name in ["deadwood", "deadwood_strip"] {
+    let leaves = mesh_has_leaves(meshes).then_some("deadwood_leaves");
+    for name in ["deadwood", "deadwood_strip"].into_iter().chain(leaves) {
         let _ = writeln!(mtl, "newmtl {name}");
         let _ = writeln!(mtl, "Kd 1 1 1");
         let _ = writeln!(mtl, "Ks 0.04 0.04 0.04");

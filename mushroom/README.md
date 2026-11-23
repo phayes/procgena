@@ -54,12 +54,16 @@ Options also load from JSON, which may leave settings out to use their defaults:
 - **Cap:** ten outline families (bell, cone, dome, funnel, egg, globe and more),
   height, rim waves, lopsidedness, tilt and surface bumps.
 - **Underside:** rim thickness, sag, and gills that run down the stem.
-- **Stem:** height, radius, taper, a swollen base, a collar under the cap, and a
-  lean that can bend near the top or sweep out and turn back up (`upturn`).
-- **Ring:** a thin, ragged skirt around the stem.
-- **Warts or scales:** raised bumps on the cap.
-- **Colours:** per-zone colours, gill lines, and a cap pattern (speckle, cracks,
-  spots), the last two drawn by the renderer.
+- **Stem:** height, radius, taper, a collar under the cap, and a lean that can
+  bend near the top or sweep out and turn back up (`upturn`).
+- **Bulb:** a swollen foot, and a rounded bottom that closes the stem below the
+  ground. Turn `bulb.closed` off for mushrooms planted in a landscape.
+- **Annulus:** a thin, ragged skirt around the stem.
+- **Warts or scales:** raised spots on the cap, drawn by the renderer's shader
+  (and painted into vertex colours for exported files).
+- **Colours:** per-zone colours, optional gill lines, and a cap pattern
+  (speckle, cracks, spots), the last two drawn by the renderer.
+- **Cluster:** how many stems grow together, as a tuft, a row or a fairy ring.
 
 ## Levels of detail
 
@@ -69,48 +73,52 @@ its outline when it switches.
 
 | Detail | Surfaces | Use |
 |---|---|---|
-| `FULL`, `HIGH` | Closed (watertight) cap and stem, modelled warts | Close up |
-| `MEDIUM`, `LOW` | Open cap and stem, warts painted on | Middle distance |
+| `FULL`, `HIGH` | Closed (watertight) cap and stem | Close up |
+| `MEDIUM`, `LOW` | Open cap and stem | Middle distance |
 | `FLAT` | Open six-sided cap and a flat stem strip that turns toward the camera; about 40 triangles | Far away, or thousands at once |
+| `BILLBOARD` | One triangle for the stem and one for the cap, turned toward the camera, vertex colours only | Farthest |
 
 `MushroomLod` says which detail to draw at which distance;
 `MushroomLod::for_size(size)` scales the defaults to the mushroom's size.
 `Mushroom::lod_meshes(&lod)` builds one mesh per level.
 
-The flat stem is a `StemRibbon`: a strip plus the data a renderer needs to keep
-it facing the camera. Renderers that can't turn it can draw its two fixed
-crossing strips instead.
+Shapes that turn toward the camera are a `BillboardMesh`: the shapes plus the
+data a renderer needs to keep them facing the camera. Renderers that can't turn
+them can draw the fixed crossing copies instead.
 
 ## Clusters and scatter
 
+A cluster is part of the mushroom's own options:
+
 ```rust
-use procgena_mushroom::{ClusterOptions, MushroomCluster, MushroomPreset};
+use procgena_mushroom::{ClusterLayout, Mushroom, MushroomPreset};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let options = ClusterOptions {
-        count_min: 10,
-        count_max: 14,
-        sweep: 0.35, // stalks fan out from a tight base
-        ..ClusterOptions::default()
-    };
-    let cluster = MushroomCluster::new(&MushroomPreset::Enoki.options(), &options)?;
-    for member in cluster.members() {
-        let variant = &cluster.variants()[member.variant as usize];
+    let mut options = MushroomPreset::Button.options();
+    options.cluster.stems = 30;
+    options.cluster.layout = ClusterLayout::FairyRing;
+    let ring = Mushroom::new(options)?;
+    for member in ring.members() {
+        let body = &ring.bodies()[member.variant as usize];
         let placement = member.transform();
-        println!("{} triangles at {:?}", variant.mesh().triangle_count(), placement.translation);
+        println!("{} m cap at {:?}", body.cap_radius(), placement.translation);
     }
     Ok(())
 }
 ```
 
-`MushroomScatter::on(&host, &mushroom, &options)` spreads mushrooms and clusters
-over the parts of another generator's `procgena_mesh::Object` picked by a tag
-filter (for example a rock), on surfaces no steeper than a chosen slope. Both
-return placed copies of a few variants, so a renderer meshes each variant once.
+`Mushroom::mesh` and `Mushroom::lod_meshes` combine every member into one mesh;
+renderers that draw many copies of one mesh use `bodies()` and `members()`
+instead.
 
-`Mushroom::object`, `MushroomCluster::object` and `MushroomScatter::object` also
-return a tagged `procgena_mesh::Object`, so other generators can grow on
-mushrooms.
+`MushroomScatter::on(&host, &mushroom, &options)` spreads mushrooms over the
+parts of another generator's `procgena_mesh::Object` picked by a tag filter (for
+example a rock), on surfaces no steeper than a chosen slope. Each spot grows the
+mushroom as configured, so a clustered mushroom scatters whole clusters, with
+members dropped onto the surface.
+
+`Mushroom::object` and `MushroomScatter::object` also return a tagged
+`procgena_mesh::Object`, so other generators can grow on mushrooms.
 
 ## Export
 
@@ -137,21 +145,21 @@ App::new()
     .run();
 ```
 
-Spawn `MushroomParams` for one mushroom, `MushroomClusterParams` for a cluster, or
+Spawn `MushroomParams` for one mushroom (or cluster), or
 `MushroomScatterParams` as a child of an entity with a `GeneratedObject` (such as
 a rock from `procgena_stone_bevy`). Mushrooms are built in the background and
 appear as `MushroomPart` children, one or two per level, switched by Bevy's
 `VisibilityRange`. A `MushroomFinished` event fires when each build ends.
 
-Try the viewer, which shows every preset, two clusters and a scattered patch of
-ground:
+Try the viewer, which shows every preset, two clusters, and porcini and fairy
+rings scattered over a patch of ground:
 
 ```bash
 cargo run -p procgena_mushroom_bevy --example viewer
 ```
 
-Add `--closeup` to start beside the enoki cluster, `--flat` to see only the
-cheapest level, `--orbit <degrees>` to change the starting angle, and
+Add `--closeup` to start beside the enoki cluster, `--flat` or `--billboard` to
+see only that level, `--orbit <degrees>` to change the starting angle, and
 `--screenshot <file.png>` to save an image and exit.
 
 ## Tests

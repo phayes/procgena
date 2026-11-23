@@ -1,32 +1,31 @@
-//! Clusters: several mushrooms of one species growing together.
+//! Clusters: several mushrooms of one species growing together, in a tuft,
+//! a row or a fairy ring.
 
 use std::f32::consts::TAU;
 
 use glam::{Affine3A, Quat, Vec3};
-use procgena_mesh::{Level, Object, Part, SurfaceMesh};
 use serde::{Deserialize, Serialize};
 
-use crate::detail::MushroomLod;
-use crate::mushroom::Mushroom;
-use crate::options::{MushroomOptions, OptionsError, int_range, positive, within};
+use crate::mushroom::MushroomBody;
+use crate::options::{MushroomOptions, OptionsError, int_range, within};
 use crate::rng::Rng;
 
-/// Largest allowed [`ClusterOptions::count_max`].
-pub const MAX_CLUSTER: u32 = 32;
+/// Largest allowed [`ClusterOptions::stems`].
+pub const MAX_STEMS: u32 = 64;
 /// Largest allowed [`ClusterOptions::variants`].
 pub const MAX_VARIANTS: u32 = 16;
 /// Positions tried when sliding a member outward to find room for it.
 const SLIDE_STEPS: u32 = 24;
 /// Furthest a member slides from its starting point, in cap radii of the
-/// first variant at the largest scale.
+/// first variant at full size.
 const SLIDE_RANGE: f32 = 5.0;
 
 /// Random-number stream for the variants' differences.
 const STREAM_VARIANTS: u32 = 11;
-/// Random-number stream for member count, sizes and placement.
+/// Random-number stream for member sizes and placement.
 const STREAM_LAYOUT: u32 = 12;
 
-/// How a cluster's members are arranged.
+/// How the mushrooms of a cluster are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClusterLayout {
@@ -35,59 +34,87 @@ pub enum ClusterLayout {
     Tuft,
     /// A row, as mushrooms grow along a crack or a fallen branch.
     Line,
+    /// A fairy ring: members spaced around a wide circle, as mushrooms grow
+    /// at the edge of a fungus spreading underground. See
+    /// [`FairyRingOptions`].
+    FairyRing,
 }
 
-/// Settings for a [`MushroomCluster`].
+/// Settings for a [`ClusterLayout::FairyRing`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FairyRingOptions {
+    /// Radius of the circle as a multiple of the cap diameter, from 1
+    /// through 200. Real fairy rings are often several metres across.
+    pub radius: f32,
+    /// How far members stray from the circle, inward or outward, as a
+    /// fraction of its radius, from 0 (exactly on it) through 0.5.
+    pub width: f32,
+    /// How much of the circle carries mushrooms, from 0.05 (a short arc)
+    /// through 1 (the whole ring).
+    pub arc: f32,
+}
+
+impl Default for FairyRingOptions {
+    fn default() -> Self {
+        Self {
+            radius: 12.0,
+            width: 0.08,
+            arc: 1.0,
+        }
+    }
+}
+
+/// How many mushrooms grow together, and how they are arranged. Part of
+/// [`MushroomOptions::cluster`].
+///
+/// With one stem, the mushroom grows alone, exactly as the rest of its
+/// options describe. With more, each member is a slightly different copy:
+/// the [`crate::Mushroom`] is then the whole group.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClusterOptions {
-    /// Number that picks the member count, sizes and positions. The same
-    /// seed and settings always give the same cluster.
-    pub seed: u32,
-    /// Fewest members, at least 1.
-    pub count_min: u32,
-    /// Most members, from `count_min` through [`MAX_CLUSTER`]. A member
-    /// that can't find room is left out, so a cluster can end up smaller.
-    pub count_max: u32,
+    /// How many mushrooms grow together, from 1 (a single mushroom) up to
+    /// [`MAX_STEMS`]. A member that can't find room is left out, so a
+    /// cluster can end up smaller.
+    pub stems: u32,
     /// How the members are arranged.
     pub layout: ClusterLayout,
-    /// Smallest member size as a multiple of the base mushroom's size. Must
-    /// be positive.
-    pub scale_min: f32,
-    /// Largest member size as a multiple of the base mushroom's size; at
-    /// least `scale_min`.
-    pub scale_max: f32,
+    /// How much smaller than the full size members can be, from 0 (all the
+    /// same size) through 0.9 (from a tenth of the size up to the full
+    /// size).
+    pub size_variation: f32,
     /// Most a member leans away from the cluster, in degrees, from 0
     /// through 60.
     pub lean: f32,
     /// How far each member's stem bends away from the cluster's centre, as
     /// a multiple of its height, from 0 through 1. Above 0, stems start
-    /// close together and fan outward, replacing the base mushroom's
+    /// close together and fan outward, replacing
     /// [`StemOptions::lean`](crate::StemOptions::lean); combine it with
     /// [`StemOptions::upturn`](crate::StemOptions::upturn) so the caps turn
-    /// back up. 0 keeps each stem's own lean, pointing in a random direction.
+    /// back up. 0 keeps each stem's own lean, pointing in a random
+    /// direction.
     pub sweep: f32,
-    /// Smallest gap between members, as a fraction of the base cap radius,
-    /// from 0 through 2.
+    /// Smallest gap between members, as a fraction of the cap radius, from
+    /// 0 through 2.
     pub spacing: f32,
     /// How many different meshes the members are copies of, from 1 through
     /// [`MAX_VARIANTS`]. Fewer variants are cheaper to draw; more look less
-    /// repetitive.
+    /// repetitive. A cluster never has more variants than stems.
     pub variants: u32,
+    /// The circle used by [`ClusterLayout::FairyRing`].
+    pub fairy_ring: FairyRingOptions,
 }
 
 impl Default for ClusterOptions {
     fn default() -> Self {
         Self {
-            seed: 1,
-            count_min: 3,
-            count_max: 6,
+            stems: 1,
             layout: ClusterLayout::Tuft,
-            scale_min: 0.4,
-            scale_max: 1.0,
+            size_variation: 0.6,
             lean: 25.0,
             sweep: 0.0,
             spacing: 0.05,
             variants: 3,
+            fairy_ring: FairyRingOptions::default(),
         }
     }
 }
@@ -99,34 +126,26 @@ impl ClusterOptions {
     ///
     /// Returns the first setting found out of range.
     pub fn validate(&self) -> Result<(), OptionsError> {
-        int_range("cluster.count_min", self.count_min, 1, MAX_CLUSTER)?;
-        int_range(
-            "cluster.count_max",
-            self.count_max,
-            self.count_min,
-            MAX_CLUSTER,
-        )?;
-        positive("cluster.scale_min", self.scale_min)?;
-        within(
-            "cluster.scale_max",
-            self.scale_max,
-            self.scale_min,
-            f32::MAX,
-        )?;
+        int_range("cluster.stems", self.stems, 1, MAX_STEMS)?;
+        within("cluster.size_variation", self.size_variation, 0.0, 0.9)?;
         within("cluster.lean", self.lean, 0.0, 60.0)?;
         within("cluster.sweep", self.sweep, 0.0, 1.0)?;
         within("cluster.spacing", self.spacing, 0.0, 2.0)?;
-        int_range("cluster.variants", self.variants, 1, MAX_VARIANTS)
+        int_range("cluster.variants", self.variants, 1, MAX_VARIANTS)?;
+        let f = &self.fairy_ring;
+        within("cluster.fairy_ring.radius", f.radius, 1.0, 200.0)?;
+        within("cluster.fairy_ring.width", f.width, 0.0, 0.5)?;
+        within("cluster.fairy_ring.arc", f.arc, 0.05, 1.0)
     }
 }
 
-/// One placed copy of a mushroom: which variant to draw, and where.
+/// One placed copy of a mushroom: which body to draw, and where.
 ///
-/// To draw it, apply [`transform`](Self::transform) to the variant's mesh.
+/// To draw it, apply [`transform`](Self::transform) to the body's mesh.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MushroomInstance {
-    /// Which mushroom to draw: an index into the `variants()` list of the
-    /// cluster or scatter that made this instance.
+    /// Which mushroom to draw: an index into the `bodies()` list of the
+    /// mushroom or scatter that made this instance.
     pub variant: u32,
     /// Position of the stem base, in metres.
     pub translation: Vec3,
@@ -138,7 +157,7 @@ pub struct MushroomInstance {
 }
 
 impl MushroomInstance {
-    /// Returns the transform that places the variant's mesh: scale, then
+    /// Returns the transform that places the body's mesh: scale, then
     /// rotate, then move.
     pub fn transform(&self) -> Affine3A {
         Affine3A::from_scale_rotation_translation(
@@ -149,81 +168,28 @@ impl MushroomInstance {
     }
 }
 
-/// Several mushrooms of one species, placed around the origin so they don't
-/// overlap.
+/// Makes `count` variations of `base`, each a single mushroom with its own
+/// seed; all but the first also vary stem and cap height a little. `salt`
+/// changes which variations are made, so different groups of the same
+/// species differ.
 ///
-/// Each member is a copy of one of a few [`variants`](Self::variants), so a
-/// renderer can mesh each variant once and draw every member from it. Use
-/// [`object`](Self::object) if you need everything in a single mesh.
-#[derive(Debug, Clone)]
-pub struct MushroomCluster {
-    variants: Vec<Mushroom>,
-    members: Vec<MushroomInstance>,
-}
-
-impl MushroomCluster {
-    /// Grows a cluster of mushrooms like `base`.
-    ///
-    /// The variants have different seeds from `base`, and all but the first
-    /// have slightly different stem and cap heights. Each member's lean
-    /// direction is chosen by the cluster (randomly, or away from the centre
-    /// with [`ClusterOptions::sweep`]), so [`StemOptions::lean_direction`] in
-    /// `base` is not used.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a setting in `base` or `options` is out of range.
-    ///
-    /// [`StemOptions::lean_direction`]: crate::StemOptions::lean_direction
-    pub fn new(base: &MushroomOptions, options: &ClusterOptions) -> Result<Self, OptionsError> {
-        options.validate()?;
-        let variants = make_variants(base, options.variants, options.seed, options.sweep)?;
-        let members = arrange(&variants, options, Affine3A::IDENTITY, options.seed);
-        Ok(Self { variants, members })
-    }
-
-    /// Returns the different mushrooms the members are copies of.
-    pub fn variants(&self) -> &[Mushroom] {
-        &self.variants
-    }
-
-    /// Returns the placed members, largest first.
-    pub fn members(&self) -> &[MushroomInstance] {
-        &self.members
-    }
-
-    /// Combines every member into one [`Object`], with one detail level for
-    /// each level of `lod`. Parts of the same kind are merged, so the cluster
-    /// has one cap part, one stem part, and so on.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
-    pub fn object(&self, lod: &MushroomLod) -> Result<Object, OptionsError> {
-        bake(&self.variants, &self.members, lod)
-    }
-}
-
-/// Makes `count` variations of `base`, each with its own seed; all but the
-/// first also vary stem and cap height a little. `seed` picks the
-/// variations.
-///
-/// With `sweep` above 0, every variant's stem leans by about `sweep` times
-/// its height toward +X, so [`arrange`] can turn it to face away from the
-/// cluster's centre. Otherwise each keeps `base`'s lean, in a random
-/// direction.
+/// With `cluster.sweep` above 0, every variant's stem leans by about
+/// `sweep` times its height toward +X, so [`arrange`] can turn it to face
+/// away from the cluster's centre. Otherwise each keeps `base`'s lean, in a
+/// random direction.
 pub(crate) fn make_variants(
     base: &MushroomOptions,
     count: u32,
-    seed: u32,
-    sweep: f32,
-) -> Result<Vec<Mushroom>, OptionsError> {
+    salt: u32,
+) -> Result<Vec<MushroomBody>, OptionsError> {
     base.validate()?;
-    let mut rng = Rng::new(seed, STREAM_VARIANTS);
+    let sweep = base.cluster.sweep;
+    let mut rng = Rng::new(base.seed ^ salt, STREAM_VARIANTS);
     (0..count)
         .map(|i| {
             let mut o = base.clone();
-            o.seed = base.seed.wrapping_add(i.wrapping_mul(0x9e37_79b9) ^ seed);
+            o.cluster = ClusterOptions::default();
+            o.seed = base.seed.wrapping_add(i.wrapping_mul(0x9e37_79b9) ^ salt);
             if i > 0 {
                 o.stem.height *= rng.jitter(0.2);
                 o.cap.height *= rng.jitter(0.1);
@@ -237,7 +203,7 @@ pub(crate) fn make_variants(
                 o.stem.lean = (sweep * amount).min(1.0);
                 o.stem.lean_direction = 0.0;
             }
-            Mushroom::new(o)
+            MushroomBody::new(o)
         })
         .collect()
 }
@@ -255,7 +221,7 @@ struct Proxy {
 impl Proxy {
     /// Returns the stand-in for mushroom `m` placed by `at`, whose sizes
     /// are multiplied by `scale`. `scale` should match the scale in `at`.
-    fn new(m: &Mushroom, at: Affine3A, scale: f32) -> Self {
+    fn new(m: &MushroomBody, at: Affine3A, scale: f32) -> Self {
         let cap_mid = (m.cap_centre() + m.apex()) * 0.5;
         Self {
             stem: [
@@ -295,28 +261,28 @@ fn segment_distance(p: Vec3, s: [Vec3; 2]) -> f32 {
     p.distance(s[0] + d * t)
 }
 
-/// Places a cluster's members around `site` and returns them, with
-/// transforms that already include `site`. `seed` picks the count, sizes and
-/// positions, and `variants` must not be empty.
+/// Places the members of a cluster of `variants` with settings `o` and
+/// returns them, relative to the cluster's centre on the ground. `seed`
+/// picks the sizes and positions, and `variants` must not be empty.
 ///
-/// Each member starts near the centre (or at its place in a row) and slides
-/// outward until its stand-in clears the members already placed; one that
-/// never finds room is left out.
+/// Each member starts near the centre, at its place in a row, or on the
+/// fairy ring, and slides outward until its stand-in clears the members
+/// already placed; one that never finds room is left out.
 pub(crate) fn arrange(
-    variants: &[Mushroom],
+    variants: &[MushroomBody],
     o: &ClusterOptions,
-    site: Affine3A,
     seed: u32,
 ) -> Vec<MushroomInstance> {
     let mut rng = Rng::new(seed, STREAM_LAYOUT);
-    let count = rng.int(o.count_min, o.count_max);
-    let reach = variants[0].cap_radius() * o.scale_max;
+    let count = o.stems;
+    let reach = variants[0].cap_radius();
     let gap = variants[0].cap_radius() * o.spacing;
+    let ring_radius = o.fairy_ring.radius * reach * 2.0;
 
     // Place the largest first, so big mushrooms take the middle and small
     // ones gather round them.
     let mut scales: Vec<f32> = (0..count)
-        .map(|_| rng.range(o.scale_min, o.scale_max))
+        .map(|_| 1.0 - rng.range(0.0, o.size_variation))
         .collect();
     scales.sort_by(|a, b| b.total_cmp(a));
 
@@ -326,17 +292,28 @@ pub(crate) fn arrange(
         let variant = rng.int(0, variants.len() as u32 - 1);
         let mushroom = &variants[variant as usize];
 
-        // Where the member starts, and which way it slides and leans. In a
-        // tuft, the first (largest) member stays nearly upright.
-        let (start, direction) = match o.layout {
+        // Where the member starts, which way it slides and leans, and how
+        // far it may slide. In a tuft, the first (largest) member stays
+        // nearly upright.
+        let (start, direction, slide) = match o.layout {
             ClusterLayout::Tuft => {
                 let angle = start_angle + k as f32 / count as f32 * TAU + rng.range(-0.3, 0.3);
-                (Vec3::ZERO, Vec3::new(angle.cos(), 0.0, angle.sin()))
+                let out = Vec3::new(angle.cos(), 0.0, angle.sin());
+                (Vec3::ZERO, out, SLIDE_RANGE)
             }
             ClusterLayout::Line => {
                 let side = if k % 2 == 0 { 1.0 } else { -1.0 };
                 let along = (k as f32 - (count as f32 - 1.0) * 0.5) * reach * 0.9;
-                (Vec3::X * along, Vec3::Z * side)
+                (Vec3::X * along, Vec3::Z * side, SLIDE_RANGE)
+            }
+            ClusterLayout::FairyRing => {
+                // Evenly around the arc, a little uneven, and a little in or
+                // out from the circle.
+                let step = o.fairy_ring.arc * TAU / count as f32;
+                let angle = start_angle + (k as f32 + 0.5 + rng.range(-0.3, 0.3)) * step;
+                let out = Vec3::new(angle.cos(), 0.0, angle.sin());
+                let radius = ring_radius * (1.0 + rng.range(-1.0, 1.0) * o.fairy_ring.width);
+                (out * radius, out, SLIDE_RANGE * 0.5)
             }
         };
         let lean_amount = if k == 0 && o.layout == ClusterLayout::Tuft {
@@ -361,123 +338,28 @@ pub(crate) fn arrange(
         // already placed.
         let mut chosen = None;
         for step in 0..=SLIDE_STEPS {
-            let offset =
-                start + direction * (reach * SLIDE_RANGE * step as f32 / SLIDE_STEPS as f32);
-            let local =
+            let offset = start + direction * (reach * slide * step as f32 / SLIDE_STEPS as f32);
+            let at =
                 Affine3A::from_scale_rotation_translation(Vec3::splat(scale), rotation, offset);
-            let proxy = Proxy::new(mushroom, site * local, scale);
+            let proxy = Proxy::new(mushroom, at, scale);
             if placed.iter().all(|(_, p)| !p.hits(&proxy, gap)) {
                 chosen = Some((offset, proxy));
                 break;
             }
         }
-        // Leave out a member that never finds room, then fold the site's
-        // placement into the member's own.
+        // Leave out a member that never finds room.
         let Some((offset, proxy)) = chosen else {
             continue;
         };
-        let (_, site_rotation, site_translation) = site.to_scale_rotation_translation();
-        let site_scale = site.matrix3.x_axis.length();
         placed.push((
             MushroomInstance {
                 variant,
-                translation: site_translation + site_rotation * (offset * site_scale),
-                rotation: site_rotation * rotation,
-                scale: scale * site_scale,
+                translation: offset,
+                rotation,
+                scale,
             },
             proxy,
         ));
     }
     placed.into_iter().map(|(m, _)| m).collect()
-}
-
-/// Combines every instance of `variants` into one object with a level per
-/// level of `lod`, merging parts with the same tags across instances.
-pub(crate) fn bake(
-    variants: &[Mushroom],
-    instances: &[MushroomInstance],
-    lod: &MushroomLod,
-) -> Result<Object, OptionsError> {
-    let meshes: Vec<_> = variants
-        .iter()
-        .map(|v| v.lod_meshes(lod))
-        .collect::<Result<_, _>>()?;
-    let levels = lod
-        .levels
-        .iter()
-        .enumerate()
-        .map(|(l, level)| {
-            // Move each instance's parts into place, then add them to the
-            // merged part with the same tags.
-            let mut merged: Vec<Part> = Vec::new();
-            for instance in instances {
-                let transform = instance.transform();
-                for part in meshes[instance.variant as usize][l].1.object_parts() {
-                    let moved = transform_part(&part, transform);
-                    match merged.iter_mut().find(|m| m.tags == moved.tags) {
-                        Some(target) => append_part(target, &moved),
-                        None => merged.push(moved),
-                    }
-                }
-            }
-            Level {
-                start: level.distance,
-                parts: merged,
-            }
-        })
-        .collect();
-    Ok(Object { levels })
-}
-
-/// Returns a copy of `part` moved by `transform`, which must scale equally
-/// along every axis so the normals stay correct.
-fn transform_part(part: &Part, transform: Affine3A) -> Part {
-    let mesh = SurfaceMesh {
-        positions: part
-            .mesh
-            .positions
-            .iter()
-            .map(|&p| transform.transform_point3(p.into()).into())
-            .collect(),
-        normals: part
-            .mesh
-            .normals
-            .iter()
-            .map(|&n| {
-                transform
-                    .transform_vector3(n.into())
-                    .normalize_or_zero()
-                    .into()
-            })
-            .collect(),
-        indices: part.mesh.indices.clone(),
-    };
-    let mut out = Part::new(part.tags.clone(), mesh);
-    out.closed = part.closed;
-    out.shells = part.shells.clone();
-    out
-}
-
-/// Appends `extra`'s triangles to `target`. The result is closed only if
-/// both were, and its list of closed pieces is kept only if both had one.
-fn append_part(target: &mut Part, extra: &Part) {
-    let base_vertex = target.mesh.positions.len() as u32;
-    let base_triangle = target.triangle_count() as u32;
-    let both_known = !target.shells.is_empty() && !extra.shells.is_empty();
-    let mesh = std::sync::Arc::make_mut(&mut target.mesh);
-    mesh.positions.extend_from_slice(&extra.mesh.positions);
-    mesh.normals.extend_from_slice(&extra.mesh.normals);
-    mesh.indices
-        .extend(extra.mesh.indices.iter().map(|i| i + base_vertex));
-    target.closed &= extra.closed;
-    if both_known {
-        target.shells.extend(
-            extra
-                .shells
-                .iter()
-                .map(|s| s.start + base_triangle..s.end + base_triangle),
-        );
-    } else {
-        target.shells.clear();
-    }
 }

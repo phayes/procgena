@@ -19,8 +19,24 @@ const PREFERRED_COST: f64 = 40.0;
 /// (in units of that grade), on top of [`PREFERRED_COST`].
 const STEEP_COST: f64 = 400.0;
 
-/// Cost factor for crossing a river cell.
+/// Cost factor for a step onto a cell with water, so a bridge costs more
+/// the longer it is.
 const RIVER_COST: f64 = 6.0;
+
+/// Cost of a bridge square to its river, charged on every step that
+/// crosses a river, in metres of level road: a road will go this much
+/// further round rather than cross a river once more. A slanting bridge is
+/// longer, and costs this divided by the sine of its angle to the river.
+const BRIDGE_COST: f64 = 300.0;
+
+/// The smallest sine of a bridge's angle to its river that its cost is
+/// worked out from, so a step along a river costs no more than this
+/// allows.
+const MIN_BRIDGE_SINE: f64 = 0.2;
+
+/// How far a river's line is marked onto the road grid as water, as a
+/// share of a cell: about every half cell.
+const WATER_STEP: f64 = 0.5;
 
 /// Cost factor for travelling along an existing road, so roads share.
 const REUSE_COST: f64 = 0.4;
@@ -115,14 +131,14 @@ pub(crate) struct Routes {
 
 /// Links every start to a hub near the middle of the region, or to a road
 /// already linked, over `grid` (heights of the bent terrain, which
-/// `ground` gives at any point). `river` marks cells with water, and
-/// `grades` gives the road grades at a point. Roads stay at least
-/// [`FEATURE_CLEARANCE`] from the border, apart from the straight first leg
-/// from each start.
+/// `ground` gives at any point). Roads cross `rivers` as seldom as they
+/// reasonably can, and `grades` gives the road grades at a point. Roads
+/// stay at least [`FEATURE_CLEARANCE`] from the border, apart from the
+/// straight first leg from each start.
 pub(crate) fn route(
     grid: &Grid,
     starts: &[RoadStart],
-    river: &[bool],
+    rivers: &[FeatureLine],
     grades: &dyn Fn(DVec2) -> RoadGrades,
     ground: &dyn Fn(DVec2) -> f32,
 ) -> Routes {
@@ -138,10 +154,13 @@ pub(crate) fn route(
     let cell_grades: Vec<RoadGrades> = (0..grid.heights.len())
         .map(|i| grades(grid.centre(i)))
         .collect();
+    let river = water(grid, rivers);
+    let bridges = Bridges::new(grid, rivers);
     let terrain = Terrain {
         grid,
         allowed: &allowed,
-        river,
+        river: &river,
+        bridges: &bridges,
         grades: &cell_grades,
     };
 
@@ -576,6 +595,78 @@ fn first_cell(grid: &Grid, allowed: &[bool], point: DVec2) -> Option<usize> {
         })
 }
 
+/// Which cells of `grid` the lines of `rivers` pass through.
+fn water(grid: &Grid, rivers: &[FeatureLine]) -> Vec<bool> {
+    let mut water = vec![false; grid.heights.len()];
+    for river in rivers {
+        for w in river.points.windows(2) {
+            let steps = (w[0].distance(w[1]) / (WATER_STEP * grid.cell))
+                .ceil()
+                .max(1.0) as usize;
+            for k in 0..=steps {
+                if let Some(c) = grid.cell_of(w[0].lerp(w[1], k as f64 / steps as f64)) {
+                    water[c] = true;
+                }
+            }
+        }
+    }
+    water
+}
+
+/// The moves over a grid that cross a river, from one cell's centre to the
+/// next cell's. Unlike the water cells, these include steps that jump over
+/// a narrow river without landing in it.
+struct Bridges {
+    /// For each cell, which of its moves cross a river: bit `k` for
+    /// direction `k` of [`Grid::moves`].
+    moves: Vec<u16>,
+    /// The bridge cost of each crossing move, by `cell * DIRECTIONS + k`.
+    costs: HashMap<usize, f64>,
+}
+
+impl Bridges {
+    /// The moves over `grid` that cross a line of `rivers`.
+    fn new(grid: &Grid, rivers: &[FeatureLine]) -> Self {
+        // The longest move is a knight's move, about 2.24 cells.
+        let reach = 2.5 * grid.cell;
+        let mut bridges = Self {
+            moves: vec![0; grid.heights.len()],
+            costs: HashMap::new(),
+        };
+        for river in rivers {
+            for w in river.points.windows(2) {
+                let along = (w[1] - w[0]).normalize_or_zero();
+                for cell in grid.cells_near(w[0], w[1], reach) {
+                    let from = grid.centre(cell);
+                    for (next, _, k) in grid.moves(cell) {
+                        if !segments_meet(from, grid.centre(next), w[0], w[1]) {
+                            continue;
+                        }
+                        // Where the move meets two pieces of river at once,
+                        // the dearer bridge counts.
+                        let sine = direction(k).perp_dot(along).abs().max(MIN_BRIDGE_SINE);
+                        let cost = bridges.costs.entry(cell * DIRECTIONS + k).or_default();
+                        *cost = cost.max(BRIDGE_COST / sine);
+                        bridges.moves[cell] |= 1 << k;
+                    }
+                }
+            }
+        }
+        bridges
+    }
+
+    /// The bridge cost of move `k` from `cell`, if it crosses a river.
+    fn cost(&self, cell: usize, k: usize) -> Option<f64> {
+        (self.moves[cell] & (1 << k) != 0).then(|| self.costs[&(cell * DIRECTIONS + k)])
+    }
+}
+
+/// Whether segments `a`–`b` and `c`–`d` cross or touch.
+fn segments_meet(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
+    let side = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
+    side(c, d, a) * side(c, d, b) <= 0.0 && side(a, b, c) * side(a, b, d) <= 0.0
+}
+
 /// What the route search knows about each cell of a grid, apart from the
 /// road network built so far.
 struct Terrain<'a> {
@@ -584,6 +675,8 @@ struct Terrain<'a> {
     allowed: &'a [bool],
     /// Whether the cell has water.
     river: &'a [bool],
+    /// The moves that cross a river.
+    bridges: &'a Bridges,
     /// The road grades in the cell.
     grades: &'a [RoadGrades],
 }
@@ -610,6 +703,7 @@ fn search(
         grid,
         allowed,
         river,
+        bridges,
         grades,
     } = *terrain;
 
@@ -685,6 +779,10 @@ fn search(
             if network[next] && joinable(next, here) {
                 step *= REUSE_COST;
             }
+            // A step across a river needs a bridge.
+            if let Some(bridge) = bridges.cost(cell, k) {
+                step += bridge;
+            }
             let total = c + step;
             if total < cost[next_state] {
                 cost[next_state] = total;
@@ -754,12 +852,11 @@ mod tests {
                 min_width: 4.0,
             },
         ];
-        let river = vec![false; grid.heights.len()];
         let grades = |_| RoadGrades {
             grade: 0.04,
             max_grade: 0.08,
         };
-        let Routes { roads, end } = route(&grid, &starts, &river, &grades, &ground);
+        let Routes { roads, end } = route(&grid, &starts, &[], &grades, &ground);
         assert_eq!(roads.len(), 2);
         // The network ends at the hub, where the first road arrives.
         let (hub, level) = end.expect("the roads reach the hub");
@@ -776,6 +873,84 @@ mod tests {
                 assert!(grade <= 0.08 * 1.001, "grade {grade}");
             }
         }
+    }
+
+    /// A road over flat ground, 2 km square, from its south edge to the hub
+    /// in the middle, past `river`.
+    fn road_past(river: Vec<DVec2>) -> (FeatureLine, FeatureLine) {
+        let polygon = [
+            DVec2::ZERO,
+            DVec2::new(2000.0, 0.0),
+            DVec2::new(2000.0, 2000.0),
+            DVec2::new(0.0, 2000.0),
+        ];
+        let ground = |_: DVec2| 0.0;
+        let grid = Grid::with_cell(&polygon, ground, 8.0);
+        let river = FeatureLine {
+            kind: FeatureKind::River,
+            levels: vec![0.0; river.len()],
+            widths: vec![6.0; river.len()],
+            points: river,
+            depth: 1.0,
+        };
+        let start = RoadStart {
+            point: DVec2::new(1000.0, 70.0),
+            level: 0.0,
+            width: 6.0,
+            min_width: 4.0,
+        };
+        let grades = |_| RoadGrades {
+            grade: 0.04,
+            max_grade: 0.08,
+        };
+        let Routes { mut roads, .. } = route(
+            &grid,
+            &[start],
+            std::slice::from_ref(&river),
+            &grades,
+            &ground,
+        );
+        assert_eq!(roads.len(), 1);
+        (roads.remove(0), river)
+    }
+
+    /// Where `road` crosses `river`: the angle between them there, in
+    /// degrees (90 is square), for each crossing.
+    fn crossing_angles(road: &FeatureLine, river: &FeatureLine) -> Vec<f64> {
+        let mut angles = Vec::new();
+        for a in road.points.windows(2) {
+            for b in river.points.windows(2) {
+                if segments_meet(a[0], a[1], b[0], b[1]) {
+                    let turn = (a[1] - a[0]).angle_to(b[1] - b[0]).abs().to_degrees();
+                    angles.push(if turn > 90.0 { 180.0 - turn } else { turn });
+                }
+            }
+        }
+        angles
+    }
+
+    #[test]
+    fn roads_go_round_a_river_bend_rather_than_cross_it_twice() {
+        // A river in from the west edge that bends back 1.2 km in, so both
+        // its arms lie between the road's start and the hub. Crossing both
+        // saves the road about 400 m; going round costs no bridge.
+        let mut river = vec![DVec2::new(0.0, 600.0), DVec2::new(1200.0, 600.0)];
+        river.extend((1..12).map(|i| {
+            let a = std::f64::consts::PI * (f64::from(i) / 12.0 - 0.5);
+            DVec2::new(1200.0, 700.0) + 100.0 * DVec2::new(a.cos(), a.sin())
+        }));
+        river.extend([DVec2::new(1200.0, 800.0), DVec2::new(0.0, 800.0)]);
+        let (road, river) = road_past(river);
+        assert_eq!(crossing_angles(&road, &river), Vec::<f64>::new());
+    }
+
+    #[test]
+    fn roads_cross_a_river_in_their_way_once_and_near_square() {
+        // A river from edge to edge, slanting across the road's way.
+        let (road, river) = road_past(vec![DVec2::new(0.0, 300.0), DVec2::new(2000.0, 700.0)]);
+        let angles = crossing_angles(&road, &river);
+        assert_eq!(angles.len(), 1, "crossings at {angles:?}°");
+        assert!(angles[0] > 60.0, "crosses at {}°", angles[0]);
     }
 
     #[test]

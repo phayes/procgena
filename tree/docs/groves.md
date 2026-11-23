@@ -102,6 +102,72 @@ fn promote_nearby(
 The `grove_promote` example shows both: `--mode distance` promotes the trees
 near the camera, and `--mode click` the tree you click.
 
+## Far trees as impostors
+
+Beyond 120 m, trees are drawn as impostors: one flat quad per tree showing a
+picture of the tree baked from the nearest of 64 directions, lit by the scene.
+This applies to groves and to single trees alike, and makes large groves
+several times cheaper to draw. Set the distance, or turn impostors off, with
+`TreePlugin::impostor`:
+
+```rust
+use bevy::prelude::*;
+use procgena_tree_bevy::{TreeImpostor, TreePlugin};
+
+App::new().add_plugins(TreePlugin {
+    impostor: Some(TreeImpostor { distance: 200.0, ..default() }),
+    ..default()
+});
+```
+
+Each distinct tree is baked once, the first time it is generated, which takes
+a few frames; until then its farthest mesh level is drawn at every distance.
+Impostors don't sway in the wind.
+
+Baked impostors are kept in memory. To keep them between runs, add
+`procgena_impostor::ImpostorPlugin` yourself, before `TreePlugin`, with a
+`cache_dir`. To ship them with a game, fill a folder with
+`cargo run -p procgena_tree_bevy --example bake_impostors -- --out <dir> --compress <shipped>`
+and point `shipped_dir` at `<shipped>`. `--compress` writes the impostors
+compressed (BC7 in KTX2 files, with mip levels), which take a quarter of the
+GPU memory and look smoother far away; every desktop GPU can draw them.
+
+While impostors bake, the app has extra 3D cameras, marked
+`ImpostorBakeCamera`. Leave them out of queries for your own camera:
+`Single<&Transform, (With<Camera3d>, Without<ImpostorBakeCamera>)>`.
+
+## Prepare a grove behind a loading screen
+
+`PrepareGrove` generates every tree a grove can use, and bakes their
+impostors, without placing any. `GrovePreparing` on its entity shows the
+progress, and `GroveReady` is triggered on it when everything is ready. A
+`TreeGroveParams` with the same grove then appears within a few frames.
+
+```rust
+use bevy::prelude::*;
+use procgena_tree::GrovePreset;
+use procgena_tree_bevy::{GroveReady, PrepareGrove, TreeGroveFinished, TreeGroveParams};
+
+fn start_loading(mut commands: Commands) {
+    commands
+        .spawn(PrepareGrove::preset(GrovePreset::PineStand))
+        .observe(|ready: On<GroveReady>, mut commands: Commands| {
+            let preparer = ready.entity;
+            commands
+                .spawn(TreeGroveParams::preset(GrovePreset::PineStand, Vec2::splat(200.0)))
+                // The grove holds its own trees once it is built.
+                .observe(move |_: On<TreeGroveFinished>, mut commands: Commands| {
+                    commands.entity(preparer).despawn();
+                });
+        });
+}
+```
+
+Keep the `PrepareGrove` entity until the grove has finished building, or its
+trees may be freed and generated again. `grove_variants` lists the trees of a
+grove, for loading code of your own. See
+`cargo run -p procgena_tree_bevy --example grove_loading`.
+
 ## Mix species
 
 The species of a grove share it like this:
@@ -159,10 +225,12 @@ many of them as they can:
 to a height, or a `HeightGrid` sampled from another generator's mesh with
 `HeightGrid::from_object`. A height of NaN means there is no ground there.
 
-A tree is left out where any ground around its trunk is missing, or where the
-ground is steeper than `variation.max_slope`. Each tree stands at the lowest
-ground around its trunk, sunk by `variation.sink` so its roots never show on
-a slope.
+The ground is sampled at each trunk and at eight points around it, one trunk
+radius away. A tree is left out where any of that ground is missing, or where
+it is steeper than its species' `max_slope` (the grove's `variation.max_slope`
+when the species sets none), so shrubs can grow on slopes large trees can't.
+Each tree stands upright at the lowest of those samples, sunk by
+`variation.sink` so its roots never show on a slope.
 
 The last argument thins the grove in places: a function from X and Z to a
 value from 0 (no trees) to 1 (the full density).
@@ -226,6 +294,7 @@ The filename must end in `.grove.json`.
 | `density_scale` | `densityScale` | 1 | Multiplies `density` in this grove. 0 removes the species |
 | `clustering` | `clustering` | 0 | 0 mixes the species evenly among the others; 1 gathers it into stands several spacings across. Changes where it grows, not how much |
 | `variants` | `variants` | 4 | Shape variants the species is drawn from, 1 to 8 (`MAX_GROVE_VARIANTS`). Each costs a mesh |
+| `max_slope` | `maxSlope` | the tree preset's | Steepest ground this species grows on, in degrees, 0 to 90. `None` (`null` in a file) uses the grove's `variation.max_slope`. Shrub and sapling presets (Bush 1–3, Aspen Small, Pine Small, Spring Pussy Willow) allow 45°; other presets use the grove's |
 
 ### `GroveVariation`
 

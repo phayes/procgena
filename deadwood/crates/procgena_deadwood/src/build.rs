@@ -322,7 +322,7 @@ fn sprout(o: &DeadwoodOptions, decay: &Decay, limbs: &[Limb], s: Sprout) -> Limb
 
 /// Returns the `u` range of the main stem's visible part: above the ground
 /// and flare for a stump, clear of the ends for a log.
-fn visible_span(o: &DeadwoodOptions, main: &Limb) -> (f32, f32) {
+pub(crate) fn visible_span(o: &DeadwoodOptions, main: &Limb) -> (f32, f32) {
     let length = main.length();
     let start = if o.kind == PieceKind::Stump {
         (main.taper_from + o.roots.flare_height * o.diameter * 0.7) / length

@@ -14,25 +14,27 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
 use procgena_mesh::{GeneratedObject, Object};
 use procgena_mushroom::{
-    ClusterOptions, DEFAULT_LOD_SIZE, Mushroom, MushroomCluster, MushroomError, MushroomInstance,
+    BodyShape, DEFAULT_LOD_SIZE, Mushroom, MushroomBody, MushroomError, MushroomInstance,
     MushroomLod, MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError,
     ScatterOptions, TextureCompression, TexturePart, TextureSize,
 };
 
-use crate::material::{MushroomMaterial, TextureSet, mushroom_material};
-use crate::mesh::{mushroom_mesh, ribbon_aabb, ribbon_mesh};
+use crate::material::{MushroomMaterial, TextureSet, billboard_material, mushroom_material};
+use crate::mesh::{billboard_aabb, billboard_mesh, mushroom_mesh};
 
-/// Asks for one mushroom, standing at the entity's position.
+/// Asks for one mushroom, or a cluster of them, standing at the entity's
+/// position.
 ///
 /// Spawn it after adding [`MushroomPlugin`](crate::MushroomPlugin). The
 /// mushroom is built in the background and appears as [`MushroomPart`]
-/// children, one or two per detail level. Mushrooms with the same options
-/// share meshes and materials, so many identical ones are cheap.
+/// children, one or two per detail level and member of a cluster (see
+/// [`MushroomOptions::cluster`]). Mushrooms with the same options share
+/// meshes and materials, so many identical ones are cheap.
 ///
 /// Once the parts appear, the entity also gets a [`GeneratedObject`]
-/// describing the mushroom, so other generators can grow on it. Changing the
-/// options rebuilds the mushroom; removing this component removes the parts
-/// and the object.
+/// describing the mushroom, with every member of a cluster combined, so
+/// other generators can grow on it. Changing the options rebuilds the
+/// mushroom; removing this component removes the parts and the object.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub enum MushroomParams {
@@ -54,20 +56,6 @@ impl MushroomParams {
     pub fn preset(preset: MushroomPreset) -> Self {
         Self::new(preset.options())
     }
-}
-
-/// Asks for a cluster of mushrooms like [`mushroom`](Self::mushroom),
-/// centred on the entity's position.
-///
-/// Members are drawn from a few shared meshes. Once the parts appear, the
-/// entity also gets a [`GeneratedObject`] with every member combined.
-#[derive(Component, Debug, Clone, PartialEq)]
-#[require(Transform, Visibility)]
-pub struct MushroomClusterParams {
-    /// The species the members are variations of.
-    pub mushroom: Arc<MushroomOptions>,
-    /// Member count, sizes and arrangement.
-    pub cluster: ClusterOptions,
 }
 
 /// Spreads mushrooms over this entity's parent.
@@ -108,17 +96,18 @@ pub struct MushroomPart {
     pub instance: usize,
     /// Detail level, from 0 for the nearest.
     pub lod: usize,
-    /// True for a flat stem strip that turns toward the camera.
-    pub ribbon: bool,
+    /// True for shapes that turn toward the camera: a flat stem strip, or
+    /// the stem and cap triangles of a billboard level.
+    pub billboard: bool,
 }
 
-/// Present while a mushroom, cluster or scatter is being prepared,
-/// including while it waits for its options file or its host.
+/// Present while a mushroom or scatter is being prepared, including while
+/// it waits for its options file or its host.
 #[derive(Component, Debug, Default)]
 pub struct MushroomGenerating;
 
-/// Event triggered on a mushroom, cluster or scatter entity when a build
-/// ends, successfully or not.
+/// Event triggered on a mushroom or scatter entity when a build ends,
+/// successfully or not.
 ///
 /// Observe it on the entity, or globally, to react when mushrooms appear.
 /// On success, the new [`MushroomPart`] children have been queued with the
@@ -131,7 +120,7 @@ pub struct MushroomFinished {
     pub result: Result<(), MushroomBuildError>,
 }
 
-/// Why a mushroom, cluster or scatter could not be built.
+/// Why a mushroom or scatter could not be built.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum MushroomBuildError {
@@ -222,10 +211,8 @@ pub(crate) struct TextureSettings {
 /// last one, it is rebuilt.
 #[derive(Debug, Clone)]
 enum Input {
-    /// One mushroom.
+    /// One mushroom, or one cluster.
     Single(Arc<MushroomOptions>),
-    /// A cluster of a species.
-    Cluster(Arc<MushroomOptions>, ClusterOptions),
     /// A scatter over a host's object, with the host's world rotation and
     /// (uniform) scale.
     Scatter {
@@ -243,7 +230,6 @@ impl PartialEq for Input {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Input::Single(a), Input::Single(b)) => a == b,
-            (Input::Cluster(a, c), Input::Cluster(b, d)) => a == b && c == d,
             (
                 Input::Scatter {
                     mushroom: a,
@@ -298,8 +284,7 @@ struct Built {
     variants: Vec<BuiltVariant>,
     /// Where to draw copies of them.
     instances: Vec<MushroomInstance>,
-    /// The combined object for single mushrooms and clusters; `None` for
-    /// scatters.
+    /// The combined object for a mushroom or cluster; `None` for scatters.
     object: Option<Object>,
 }
 
@@ -320,10 +305,13 @@ struct BuiltVariant {
 struct BuiltLevel {
     /// The surfaces, or `None` if the level has no triangles.
     surfaces: Option<Mesh>,
-    /// A flat stem and its bounds, for flat levels.
-    ribbon: Option<(Mesh, Aabb)>,
+    /// Camera-facing shapes and their bounds, for flat and billboard
+    /// levels.
+    billboard: Option<(Mesh, Aabb)>,
     /// True if the surfaces must be drawn two-sided.
     double_sided: bool,
+    /// True for a billboard level, drawn with vertex colours only.
+    plain: bool,
 }
 
 /// One variant's meshes and materials, after adding them to Bevy's assets.
@@ -339,8 +327,8 @@ struct VariantAssets {
 struct LevelAssets {
     /// The surfaces and their material.
     surfaces: Option<(Handle<Mesh>, Handle<MushroomMaterial>)>,
-    /// A flat stem, its material and its bounds.
-    ribbon: Option<(Handle<Mesh>, Handle<MushroomMaterial>, Aabb)>,
+    /// Camera-facing shapes, their material and their bounds.
+    billboard: Option<(Handle<Mesh>, Handle<MushroomMaterial>, Aabb)>,
 }
 
 /// Uploaded variants and materials, shared by every entity that needs the
@@ -349,8 +337,9 @@ struct LevelAssets {
 pub(crate) struct MushroomCache {
     /// Variants by [`BuiltVariant::key`].
     variants: HashMap<String, Arc<VariantAssets>>,
-    /// Materials by material settings (as JSON) and two-sidedness.
-    materials: HashMap<(String, bool), Handle<MushroomMaterial>>,
+    /// Materials by material settings (as JSON), two-sidedness, and whether
+    /// they draw vertex colours only (for billboard levels).
+    materials: HashMap<(String, bool, bool), Handle<MushroomMaterial>>,
     /// Cap and stem texture images by part and set name, kept for reuse.
     texture_sets: HashMap<(TexturePart, String), TextureSet>,
 }
@@ -358,21 +347,16 @@ pub(crate) struct MushroomCache {
 // --------------------------------------------------------------------------
 // Systems
 
-/// Removes the parts, markers and object of entities whose mushroom, cluster
-/// or scatter component was removed.
+/// Removes the parts, markers and object of entities whose mushroom or
+/// scatter component was removed.
 pub(crate) fn remove_mushrooms(
     mut commands: Commands,
     mut singles: RemovedComponents<MushroomParams>,
-    mut clusters: RemovedComponents<MushroomClusterParams>,
     mut scatters: RemovedComponents<MushroomScatterParams>,
     children: Query<&Children>,
     parts: Query<(), With<MushroomPart>>,
 ) {
-    let removed: Vec<Entity> = singles
-        .read()
-        .chain(clusters.read())
-        .chain(scatters.read())
-        .collect();
+    let removed: Vec<Entity> = singles.read().chain(scatters.read()).collect();
     for entity in removed {
         despawn_parts(&mut commands, children.get(entity).ok(), &parts);
         if let Ok(mut entity) = commands.get_entity(entity) {
@@ -395,8 +379,7 @@ fn despawn_parts(
     }
 }
 
-/// What an entity with a mushroom, cluster or scatter component needs this
-/// frame.
+/// What an entity with a mushroom or scatter component needs this frame.
 enum Wanted {
     /// Nothing yet: its options file or its host's object isn't available.
     Wait,
@@ -412,7 +395,6 @@ enum Wanted {
 pub(crate) fn start_generation(
     mut commands: Commands,
     singles: Query<(Entity, &MushroomParams)>,
-    clusters: Query<(Entity, &MushroomClusterParams)>,
     scatters: Query<(Entity, &MushroomScatterParams, Option<&ChildOf>)>,
     state: Query<(
         Option<&Building>,
@@ -436,15 +418,6 @@ pub(crate) fn start_generation(
         wanted.push((
             entity,
             options.map_or(Wanted::Wait, |o| Wanted::Build(Input::Single(o))),
-        ));
-    }
-    for (entity, params) in &clusters {
-        wanted.push((
-            entity,
-            Wanted::Build(Input::Cluster(
-                params.mushroom.clone(),
-                params.cluster.clone(),
-            )),
         ));
     }
     for (entity, params, parent) in &scatters {
@@ -544,30 +517,15 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
     match input {
         Input::Single(options) => {
             let mushroom = Mushroom::new((**options).clone())?;
-            let variant = build_variant(&mushroom, lod)?;
-            let object = mushroom.object(&variant.lod)?;
-            Ok(Built {
-                variants: vec![variant],
-                instances: vec![MushroomInstance {
-                    variant: 0,
-                    translation: Vec3::ZERO,
-                    rotation: Quat::IDENTITY,
-                    scale: 1.0,
-                }],
-                object: Some(object),
-            })
-        }
-        Input::Cluster(options, cluster) => {
-            let built = MushroomCluster::new(options, cluster)?;
-            let variants = built
-                .variants()
+            let variants = mushroom
+                .bodies()
                 .iter()
-                .map(|m| build_variant(m, lod))
+                .map(|b| build_variant(b, lod))
                 .collect::<Result<Vec<_>, _>>()?;
-            let object = built.object(&size_lod(lod, options.size))?;
+            let object = mushroom.object(&size_lod(lod, options.size))?;
             Ok(Built {
                 variants,
-                instances: built.members().to_vec(),
+                instances: mushroom.members().to_vec(),
                 object: Some(object),
             })
         }
@@ -590,9 +548,9 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             let built = MushroomScatter::on(host, &species, &options)
                 .map_err(MushroomBuildError::Scatter)?;
             let variants = built
-                .variants()
+                .bodies()
                 .iter()
-                .map(|m| build_variant(m, lod))
+                .map(|b| build_variant(b, lod))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Built {
                 variants,
@@ -609,21 +567,26 @@ fn size_lod(lod: &MushroomLod, size: f32) -> MushroomLod {
     lod.clone().scaled(size / DEFAULT_LOD_SIZE)
 }
 
-/// Meshes `mushroom` at every level of `lod` (scaled for its size) and
-/// converts the meshes for Bevy.
-fn build_variant(mushroom: &Mushroom, lod: &MushroomLod) -> Result<BuiltVariant, OptionsError> {
-    let options = mushroom.options().clone();
-    let lod = size_lod(lod, options.size);
-    let levels = mushroom
+/// Meshes `body` at every level of `lod` (scaled for its size) and converts
+/// the meshes for Bevy. Warts are left out of the vertex colours, because
+/// the material draws them.
+fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant, OptionsError> {
+    let options = body.options().clone();
+    let mut lod = size_lod(lod, options.size);
+    for level in &mut lod.levels {
+        level.detail.paint_warts = false;
+    }
+    let levels = body
         .lod_meshes(&lod)?
         .into_iter()
-        .map(|(_, mesh)| BuiltLevel {
+        .map(|(level, mesh)| BuiltLevel {
             surfaces: (mesh.surfaces.triangle_count() > 0).then(|| mushroom_mesh(&mesh.surfaces)),
-            ribbon: mesh
-                .stem_ribbon
+            billboard: mesh
+                .billboard
                 .as_ref()
-                .map(|r| (ribbon_mesh(r), ribbon_aabb(r))),
+                .map(|b| (billboard_mesh(b), billboard_aabb(b))),
             double_sided: mesh.double_sided,
+            plain: level.detail.shape == BodyShape::Billboard,
         })
         .collect();
     let key = format!(
@@ -687,7 +650,7 @@ pub(crate) fn finish_generation(
             })
             .collect();
 
-        // Spawn one child per mushroom and level (two for a flat stem), each
+        // Spawn one child per mushroom and level (two for a flat level), each
         // shown only within its own distance band, which grows with the
         // mushroom's size.
         let world_scale = input.world_scale();
@@ -706,7 +669,7 @@ pub(crate) fn finish_generation(
                         MushroomPart {
                             instance: i,
                             lod,
-                            ribbon: false,
+                            billboard: false,
                         },
                         Mesh3d(mesh.clone()),
                         MeshMaterial3d(material.clone()),
@@ -715,12 +678,12 @@ pub(crate) fn finish_generation(
                         ChildOf(entity),
                     ));
                 }
-                if let Some((mesh, material, aabb)) = &level.ribbon {
+                if let Some((mesh, material, aabb)) = &level.billboard {
                     commands.spawn((
                         MushroomPart {
                             instance: i,
                             lod,
-                            ribbon: true,
+                            billboard: true,
                         },
                         Mesh3d(mesh.clone()),
                         MeshMaterial3d(material.clone()),
@@ -781,22 +744,29 @@ fn upload(
     let cap = texture_set(TexturePart::Cap, &m.cap_texture);
     let stem = texture_set(TexturePart::Stem, &m.stem_texture);
 
-    // Materials depend on the material settings, the size, and the stem's
-    // width (for flat stems).
-    let s = &variant.options.stem;
-    let material_json =
-        serde_json::to_string(&(m, variant.options.size, s.radius, s.base)).unwrap_or_default();
-    let mut material = |double_sided: bool| {
+    // Materials depend on the material settings, the size, the stem's width
+    // (for flat stems), and the warts and cap outline (for warts).
+    let o = &variant.options;
+    let material_json = serde_json::to_string(&(
+        m,
+        o.size,
+        o.stem.radius,
+        o.stem.base,
+        &o.warts,
+        o.cap.family,
+        o.cap.height,
+    ))
+    .unwrap_or_default();
+    let mut material = |double_sided: bool, plain: bool| {
         cache
             .materials
-            .entry((material_json.clone(), double_sided))
+            .entry((material_json.clone(), double_sided, plain))
             .or_insert_with(|| {
-                materials.add(mushroom_material(
-                    &variant.options,
-                    double_sided,
-                    cap.as_ref(),
-                    stem.as_ref(),
-                ))
+                materials.add(if plain {
+                    billboard_material(o)
+                } else {
+                    mushroom_material(o, double_sided, cap.as_ref(), stem.as_ref())
+                })
             })
             .clone()
     };
@@ -806,10 +776,10 @@ fn upload(
         .map(|level| LevelAssets {
             surfaces: level
                 .surfaces
-                .map(|m| (meshes.add(m), material(level.double_sided))),
-            ribbon: level
-                .ribbon
-                .map(|(m, aabb)| (meshes.add(m), material(true), aabb)),
+                .map(|m| (meshes.add(m), material(level.double_sided, level.plain))),
+            billboard: level
+                .billboard
+                .map(|(m, aabb)| (meshes.add(m), material(true, level.plain), aabb)),
         })
         .collect();
     let assets = Arc::new(VariantAssets {
@@ -866,7 +836,7 @@ pub(crate) fn prune_cache(
             l.surfaces
                 .iter()
                 .map(|(m, _)| m.id())
-                .chain(l.ribbon.iter().map(|(m, _, _)| m.id()))
+                .chain(l.billboard.iter().map(|(m, _, _)| m.id()))
                 .any(|id| drawn.contains(&id))
         })
     });
@@ -878,7 +848,7 @@ pub(crate) fn prune_cache(
             l.surfaces
                 .iter()
                 .map(|(_, m)| m.id())
-                .chain(l.ribbon.iter().map(|(_, m, _)| m.id()))
+                .chain(l.billboard.iter().map(|(_, m, _)| m.id()))
         })
         .collect();
     cache.materials.retain(|_, m| used.contains(&m.id()));
@@ -947,10 +917,21 @@ mod tests {
         run_until_finished(&mut app, entity);
 
         let parts = parts(&mut app, entity);
-        let surfaces: Vec<usize> = parts.iter().filter(|p| !p.ribbon).map(|p| p.lod).collect();
-        let ribbons: Vec<usize> = parts.iter().filter(|p| p.ribbon).map(|p| p.lod).collect();
-        assert_eq!(surfaces.len(), 4);
-        assert_eq!(ribbons, [3]);
+        let surfaces: Vec<usize> = parts
+            .iter()
+            .filter(|p| !p.billboard)
+            .map(|p| p.lod)
+            .collect();
+        let mut billboards: Vec<usize> = parts
+            .iter()
+            .filter(|p| p.billboard)
+            .map(|p| p.lod)
+            .collect();
+        billboards.sort();
+        // The flat level has a turning stem; the billboard level is turning
+        // shapes only.
+        assert_eq!(surfaces, [0, 1, 2, 3]);
+        assert_eq!(billboards, [3, 4]);
         assert!(app.world().entity(entity).contains::<GeneratedObject>());
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
@@ -1016,17 +997,9 @@ mod tests {
     #[test]
     fn a_cluster_spawns_every_member() {
         let mut app = app();
-        let entity = app
-            .world_mut()
-            .spawn(MushroomClusterParams {
-                mushroom: Arc::new(MushroomPreset::Button.options()),
-                cluster: ClusterOptions {
-                    count_min: 4,
-                    count_max: 4,
-                    ..ClusterOptions::default()
-                },
-            })
-            .id();
+        let mut options = MushroomPreset::Button.options();
+        options.cluster.stems = 4;
+        let entity = app.world_mut().spawn(MushroomParams::new(options)).id();
         run_until_finished(&mut app, entity);
         let instances: HashSet<usize> =
             parts(&mut app, entity).iter().map(|p| p.instance).collect();
@@ -1091,9 +1064,9 @@ mod tests {
     fn levels_hand_over_and_fade_out_at_the_cull_distance() {
         let lod = MushroomLod::default();
         let ranges = visibility_ranges(&lod);
-        assert_eq!(ranges.len(), 4);
+        assert_eq!(ranges.len(), 5);
         assert_eq!(ranges[0].start_margin, 0.0..0.0);
         assert_eq!(ranges[0].end_margin, ranges[1].start_margin);
-        assert!(ranges[3].end_margin.contains(&lod.cull_distance));
+        assert!(ranges[4].end_margin.contains(&lod.cull_distance));
     }
 }

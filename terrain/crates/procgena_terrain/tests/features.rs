@@ -424,3 +424,65 @@ fn rivers_and_roads_stay_close_to_the_ground() {
         }
     }
 }
+
+/// Where `road` crosses `river`, as (distance along the road, distance
+/// along the river). Crossings within 30 m of each other along the road
+/// count as one.
+fn bridges(road: &FeatureLine, river: &FeatureLine) -> Vec<(f64, f64)> {
+    let mut found: Vec<(f64, f64)> = Vec::new();
+    let mut along_road = 0.0;
+    for a in road.points.windows(2) {
+        let mut along_river = 0.0;
+        for b in river.points.windows(2) {
+            if segments_cross(a[0], a[1], b[0], b[1]) {
+                // Where along each segment the two cross.
+                let (d, e) = (a[1] - a[0], b[1] - b[0]);
+                let t = (b[0] - a[0]).perp_dot(e) / d.perp_dot(e);
+                let s = (b[0] - a[0]).perp_dot(d) / d.perp_dot(e);
+                let at = (along_road + t * d.length(), along_river + s * e.length());
+                if found.last().is_none_or(|last| at.0 - last.0 > 30.0) {
+                    found.push(at);
+                }
+            }
+            along_river += b[0].distance(b[1]);
+        }
+        along_road += a[0].distance(a[1]);
+    }
+    found
+}
+
+/// A road crosses one river twice only where going round instead would
+/// mean following the river for at least two bridges' worth of road, 600 m,
+/// between the crossings: as where a long river loops back and the road
+/// crosses both arms of the loop.
+#[test]
+fn roads_cross_a_river_again_only_to_save_a_long_way_round() {
+    let mut bridged = 0;
+    let mut wasteful = Vec::new();
+    for (w, world) in worlds().iter().enumerate() {
+        for t in world.terrains() {
+            for (i, road) in t.roads().iter().enumerate() {
+                for (j, river) in t.rivers().iter().enumerate() {
+                    let at = bridges(road, river);
+                    bridged += at.len();
+                    for pair in at.windows(2) {
+                        if (pair[1].1 - pair[0].1).abs() < 600.0 {
+                            wasteful.push(format!(
+                                "world {w}, region {}: road {i} crosses river {j} at {:?} and \
+                                 again at {:?} m (along road, along river)",
+                                t.region().id.0,
+                                pair[0],
+                                pair[1]
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(wasteful.is_empty(), "{}", wasteful.join("\n"));
+    assert!(
+        bridged > 0,
+        "the test worlds should have roads crossing rivers"
+    );
+}

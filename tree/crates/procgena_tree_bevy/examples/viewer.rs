@@ -40,6 +40,8 @@
 //! between screenshots. Use `--lod <0–3>` to lock the
 //! viewer to one default detail level at all distances. For example, `--lod 3`
 //! lets you inspect the distant tree’s camera-facing shapes and shadows up close.
+//! Trees beyond 120 m are drawn as baked impostors; `--no-impostor` keeps the
+//! farthest mesh level instead.
 
 use std::time::Duration;
 
@@ -54,7 +56,8 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_tree::{BARK_KINDS, BarkUvMode, LEAF_KINDS, Rng, TreeOptions, TreePreset, WindParams};
 use procgena_tree_bevy::{
-    TreeGenerating, TreeMaterial, TreeParams, TreePart, TreePlugin, Wind, default_tree_lod_levels,
+    TreeGenerating, TreeImpostor, TreeMaterial, TreeParams, TreePart, TreePartKind, TreePlugin,
+    Wind, default_tree_lod_levels,
 };
 
 /// Distance between neighbouring trees in the forest, in metres.
@@ -94,6 +97,8 @@ struct Viewer {
     screenshot: Option<String>,
     /// Save a screenshot without opening a window, keeping trees and leaves still.
     headless: bool,
+    /// Draw trees beyond 120 m as impostors; `--no-impostor` turns them off.
+    impostors: bool,
 }
 
 /// Holds the image drawn by the camera when no window is open, ready to capture.
@@ -120,6 +125,7 @@ fn main() -> AppExit {
         bark_tint: None,
         screenshot: None,
         headless: false,
+        impostors: true,
     };
     let mut size = UVec2::new(1280, 720);
     let mut eye = Vec3::new(0.0, 3.0, 11.0);
@@ -178,6 +184,7 @@ fn main() -> AppExit {
                 i += 1;
             }
             "--still" => viewer.sway = false,
+            "--no-impostor" => viewer.impostors = false,
             "--flat" => viewer.continuous = false,
             "--eye" => {
                 eye = vec3(&args, i);
@@ -250,9 +257,11 @@ fn main() -> AppExit {
         ));
     }
 
+    let impostor = viewer.impostors.then(TreeImpostor::default);
     app.add_plugins(TreePlugin {
         texture_root: Some("textures".to_owned()),
         lod_levels,
+        impostor,
         ..default()
     })
     .insert_resource(viewer)
@@ -470,7 +479,8 @@ fn screenshot(
     time: Res<Time>,
     asset_server: Res<AssetServer>,
     materials: Res<Assets<TreeMaterial>>,
-    parts: Query<(), With<TreePart>>,
+    parts: Query<&TreePart>,
+    trees: Query<(), With<TreeParams>>,
     generating: Query<(), With<TreeGenerating>>,
     mut exit: MessageWriter<AppExit>,
     mut idle_since: Local<Option<f32>>,
@@ -503,7 +513,13 @@ fn screenshot(
             return;
         }
     };
-    let ready = textures && !parts.is_empty() && generating.is_empty();
+    // With impostors, also wait until every tree has one.
+    let impostors = parts
+        .iter()
+        .filter(|p| p.kind == TreePartKind::Impostor)
+        .count();
+    let impostors_ready = !viewer.impostors || impostors >= trees.iter().count();
+    let ready = textures && !parts.is_empty() && generating.is_empty() && impostors_ready;
     if !ready {
         *settled = 0;
         if now - idle_since > SCREENSHOT_TIMEOUT {

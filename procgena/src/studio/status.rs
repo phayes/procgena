@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use crate::scene::{
-    BuildStats, EnvironmentSettings, FieldSettings, SceneMode, TextureDownloads, ViewerCommand,
-    ViewerEvent,
+    BuildStats, EnvironmentSettings, FieldSettings, GroveProgress, SceneMode, TextureDownloads,
+    ViewerCommand, ViewerEvent,
 };
 use bevy::feathers::display::label_small;
 use bevy::prelude::*;
@@ -56,6 +56,9 @@ pub struct BuildState {
     pub grove: BuildStatus,
     /// How many trees the last built grove has.
     pub grove_trees: usize,
+    /// How far the grove has got generating its trees and baking their
+    /// impostors.
+    pub grove_progress: GroveProgress,
     /// The tree detail level on screen; the overlay shows that level's size.
     pub lod_shown: usize,
     /// The mushroom detail level on screen, or the last one before the
@@ -139,6 +142,7 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
                 let built = result.as_ref().map(|stats| stats.build.clone());
                 state.grove = BuildStatus::from_result(&built);
             }
+            ViewerEvent::GroveProgress(progress) => state.grove_progress = *progress,
             ViewerEvent::LodShown(level) => state.lod_shown = *level,
             ViewerEvent::MushroomLodShown(level) => {
                 state.mushroom_too_far = level.is_none();
@@ -275,6 +279,9 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
         }
     };
     match status {
+        BuildStatus::Building if tab == StudioTab::TreeGrove => {
+            (grove_building_line(state.grove_progress), false)
+        }
         BuildStatus::Building => (format!("Building {noun}…"), false),
         BuildStatus::Built(_) if tab == StudioTab::Mushrooms && state.mushroom_too_far => (
             "The camera is too far away to draw the mushroom".into(),
@@ -295,7 +302,7 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
                 group_digits(size.triangles),
                 stats.build_time.as_millis()
             );
-            (line, false)
+            (with_bakes(line, state.grove_progress), false)
         }
         BuildStatus::Built(stats) => {
             let size = stats
@@ -313,6 +320,28 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
             (line, false)
         }
         BuildStatus::Failed(error) => (format!("Cannot build this {noun}: {error}"), true),
+    }
+}
+
+/// The overlay text while the grove builds, with how many of its tree
+/// shapes are generated once they are known.
+fn grove_building_line(progress: GroveProgress) -> String {
+    match progress {
+        GroveProgress::Generating { done, total } if total > 0 => {
+            format!("Building grove… {done} of {total} tree shapes generated")
+        }
+        _ => "Building grove…".into(),
+    }
+}
+
+/// `line`, followed by a line saying how many impostors are baked while the
+/// grove's far trees are still being baked into them.
+fn with_bakes(line: String, progress: GroveProgress) -> String {
+    match progress {
+        GroveProgress::Baking { done, total } => {
+            format!("{line}\nBaking far trees: {done} of {total} impostors…")
+        }
+        _ => line,
     }
 }
 
@@ -380,6 +409,7 @@ mod tests {
                 build_time: Duration::from_millis(900),
             }),
             grove_trees: 64,
+            grove_progress: GroveProgress::Idle,
             lod_shown: 1,
             mushroom_lod_shown: 1,
             mushroom_too_far: false,
@@ -428,6 +458,46 @@ mod tests {
                 false
             )
         );
+    }
+
+    #[test]
+    fn the_grove_line_shows_trees_generating_then_impostors_baking() {
+        let line = |grove, grove_progress| {
+            let state = BuildState {
+                grove,
+                grove_trees: 64,
+                grove_progress,
+                ..default()
+            };
+            status_line(&state, StudioTab::TreeGrove).0
+        };
+        let built = || {
+            BuildStatus::Built(BuildStats {
+                levels: vec![MeshSize {
+                    vertices: 1000,
+                    triangles: 500,
+                }],
+                build_time: Duration::from_millis(30),
+            })
+        };
+        let built_line = "64 trees · 1,000 vertices · 500 triangles at full detail · 30 ms";
+
+        // Before the trees are placed, the count of shapes is not known.
+        let placing = GroveProgress::Generating { done: 0, total: 0 };
+        assert_eq!(line(BuildStatus::Building, placing), "Building grove…");
+        let generating = GroveProgress::Generating { done: 3, total: 8 };
+        assert_eq!(
+            line(BuildStatus::Building, generating),
+            "Building grove… 3 of 8 tree shapes generated"
+        );
+
+        // Once built, a second line counts the impostors baked, until all are.
+        let baking = GroveProgress::Baking { done: 5, total: 8 };
+        assert_eq!(
+            line(built(), baking),
+            format!("{built_line}\nBaking far trees: 5 of 8 impostors…")
+        );
+        assert_eq!(line(built(), GroveProgress::Idle), built_line);
     }
 
     #[test]

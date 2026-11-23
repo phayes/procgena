@@ -28,6 +28,19 @@ half-buried mound.
   both ends by one factor until they fit, and turns an axe cut or natural
   tip that still can't fit into a flat cut. `OptionsError::EndsTooLong`
   and scatter's own `fit_ends` are gone.
+- **Done (2026-11-23):** leaf cards (`LeafOptions`), beyond the original
+  plan. Sprays of alpha-tested square cards grow from the settled main
+  stem, with a top-side bias, clustering near the ends, an up pull, and a
+  flatten for shelf fungi. They are placed after settling and never change
+  the wood, settling or the clump host object. `DeadwoodDetail::leaf_share`
+  thins sprays by level (1, 0.6, 0.25, 0). Bevy draws them with a plain
+  `StandardMaterial` (`DeadwoodPartKind::Leaves`), only when textures are
+  on. The texture sets are tree's 22 Nobiax cards (`LEAF_TEXTURE_SETS`,
+  `cards:` in `textures.yml`). They still need converting, adding to the
+  manifest and uploading to `gs://ze_textures/deadwood/leaves/`. New
+  presets: `SproutingStump`, `SeedlingLog`. Fern and fungus cards are not
+  sourced yet: there are no CC0 bracket-fungus cutouts, so they would be
+  `generated` cards.
 - **Not started:** Phase 13 (the `FallenTree` stretch goal).
 
 How the Bevy crate differs from this plan:

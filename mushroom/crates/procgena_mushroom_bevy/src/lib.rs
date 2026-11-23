@@ -5,8 +5,8 @@
 //! Add [`MushroomPlugin`], then spawn entities with one of these
 //! components:
 //!
-//! - [`MushroomParams`]: one mushroom;
-//! - [`MushroomClusterParams`]: a cluster of one species;
+//! - [`MushroomParams`]: one mushroom, or a cluster of one species when its
+//!   options ask for more than one stem;
 //! - [`MushroomScatterParams`]: mushrooms spread over the entity's parent,
 //!   which must have a [`procgena_mesh::GeneratedObject`]. Rocks from
 //!   `procgena_stone_bevy` and trees from `procgena_tree_bevy` get one
@@ -32,13 +32,17 @@
 //! detail level. Bevy's `VisibilityRange` shows each level only within its
 //! distance band, blending between neighbouring levels. The bands come from
 //! [`MushroomPlugin::lod`], scaled by each mushroom's size, and the farthest
-//! level fades out at the cull distance. At that farthest default level the
-//! stem is a flat strip that [`MushroomMaterial`] keeps turned toward the
-//! camera.
+//! level fades out at the cull distance. At the two farthest default levels,
+//! the stem, and then the cap too, are flat shapes that [`MushroomMaterial`]
+//! keeps turned toward the camera.
+//!
+//! The material draws each mushroom's warts, gill lines and cap pattern, so
+//! they cost no triangles.
 //!
 //! To build your own entities, convert meshes with [`mushroom_mesh`] and
-//! [`ribbon_mesh`] and create materials with [`mushroom_material`]. Keep
-//! the plugin installed, because it provides the shaders.
+//! [`billboard_mesh`], and create materials with [`mushroom_material`] and
+//! [`billboard_material`]. Keep the plugin installed, because it provides
+//! the shaders.
 
 mod material;
 mod mesh;
@@ -51,14 +55,16 @@ use bevy::shader::load_shader_library;
 use procgena_mushroom::{MushroomLod, TextureCompression, TextureSize};
 
 pub use material::{
-    MushroomExtension, MushroomMaterial, MushroomSurface, TextureSet, mushroom_material,
+    MushroomExtension, MushroomMaterial, MushroomSurface, TextureSet, billboard_material,
+    mushroom_material,
 };
 pub use mesh::{
-    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, mushroom_mesh, ribbon_aabb, ribbon_mesh,
+    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, billboard_aabb, billboard_mesh,
+    mushroom_mesh,
 };
 pub use spawn::{
-    MushroomBuildError, MushroomClusterParams, MushroomFinished, MushroomGenerating,
-    MushroomOptionsAsset, MushroomParams, MushroomPart, MushroomScatterParams,
+    MushroomBuildError, MushroomFinished, MushroomGenerating, MushroomOptionsAsset, MushroomParams,
+    MushroomPart, MushroomScatterParams,
 };
 
 use spawn::{MushroomCache, MushroomOptionsLoader, SpawnSettings, TextureSettings};

@@ -591,30 +591,16 @@ pub(crate) fn features(
         join(tributary, trunk);
     }
 
-    // Roads: the crossing pieces, then routes linking them.
-    // Roads are planned on their own, finer grid; every cell a river passes
-    // through is marked as water.
+    // Roads: the crossing pieces, then routes linking them, planned on
+    // their own, finer grid.
     let Boundary::Polygon(polygon) = &region.boundary else {
         unreachable!("a region without a polygon has no own rivers");
     };
     let road_grid = Grid::with_cell(polygon, base, ROAD_CELL);
-    let mut water = vec![false; road_grid.heights.len()];
-    for river in &rivers {
-        for w in river.points.windows(2) {
-            let steps = (w[0].distance(w[1]) / (0.5 * road_grid.cell))
-                .ceil()
-                .max(1.0) as usize;
-            for k in 0..=steps {
-                if let Some(c) = road_grid.cell_of(w[0].lerp(w[1], k as f64 / steps as f64)) {
-                    water[c] = true;
-                }
-            }
-        }
-    }
     let Routes { mut roads, end } = route(
         &road_grid,
         &road_starts,
-        &water,
+        &rivers,
         &|p| relief.road_grades(p),
         base,
     );

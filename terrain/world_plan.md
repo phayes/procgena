@@ -73,11 +73,18 @@ stays as a small test fixture.
     "neighbour appears later" problem (terrain plan, open question 7)
     disappears, and exploration order (single or multiplayer) never
     matters.
-- **Biome choice: the one decision to make** (see "Choosing biomes").
-  Recommended: **field first, with authored overrides**. Low-frequency
-  fields (E, plus moisture and ruggedness) pick each region's terrain type
-  through a rules table. A user can pin a region's type, which raises or
-  lowers E locally to suit it.
+- **WorldTerrain gives the land; the World chooses what fills it**
+  (decided 2026-11-23, see "Choosing biomes").
+  - This crate owns geometry and height: the region graph, E, and E's
+    height bumps.
+  - The World crate (see ARCHITECTURE.md) owns the choice: which Biome
+    fills each region, picked **field first, with authored pins**, from
+    E plus its own selector fields (ruggedness, moisture). Each Biome
+    names its one Terrain.
+  - WorldTerrain gets each region's `TerrainOptions` from a **terrain
+    source** it is handed, and never sees Biomes.
+  - Land with nothing on it is built through the World with **empty
+    Biomes**: a Biome holding a Terrain and no Ecotopes.
 - **Caches, all rebuildable:**
   - region plans (`Terrain`), built lazily from the region's own options
     and its neighbours' offers (neighbours are never fully built);
@@ -141,8 +148,10 @@ pub struct RegionGraphOptions {
   about 2√2 cells away), and a brute-force test against a much larger
   window confirms it.
 - **Region size:** at least several times (margin + taper) for the
-  largest margin in the biome table, so seams, tapers and crossings have
-  room. `validate()` checks it.
+  terrain the source gives that region, so seams, tapers and crossings
+  have room. WorldTerrain can't see every terrain the source might
+  return, so it checks each region when it builds it; the World can check
+  its whole set of Biomes up front.
 - **Edges:** each Voronoi edge between two sites becomes a `RegionEdge`.
   It is subdivided every few tens of metres and each interior point is
   moved along the edge normal by 1D noise seeded from the `EdgeId`.
@@ -181,47 +190,59 @@ Two ways E and terrain types can relate:
 | Control | Through the rules table and overrides. | Direct: you say where mountains go. |
 | Fit | The type always suits its base height. | Base height follows the layout, slope-bounded. |
 
-**Recommended: field first with authored overrides.**
+**Decided (2026-11-23): field first, and the choice belongs to the
+World.** The rules below are the World crate's, not this crate's; they
+are kept here because they shape what E must offer.
 
-- A `BiomeTable` maps field values to terrain types, for example:
-  - high E with high ruggedness → mountains;
-  - high E with low ruggedness → high steppe (plains preset);
-  - mid E → rolling hills;
-  - E near zero → coast;
-  - below zero → ocean floor.
+- The World's Biome rules map field values to Biome presets, for example:
+  - high E with high ruggedness → an alpine Biome on mountains;
+  - high E with low ruggedness → a steppe Biome on the plains preset;
+  - mid E → a Biome on rolling hills;
+  - E near zero → a coast Biome;
+  - below zero → an ocean-floor Biome.
 
-  Each rule names a `TerrainOptions` preset. WorldTerrain gives every
-  region the world seed, so all regions sample the same shared noise
-  layers (terrain Phase 2.5) and differ only in their layer weights. A
-  rule does not vary the seed; per-region variation, if wanted, is an
-  optional variation layer that fades out at the region's edges (terrain
-  open question 9).
-- **Ruggedness** (proposed here; not yet agreed) is a second
-  low-frequency field. It decides *which* kind of terrain sits at a given
-  height, so not every highland is mountains. It is a selector, not a
-  height or a relief scale.
-- **Overrides:** a list of `{ region or area, terrain type, target base
-  height }`. Each adds a smooth bump to E with a bounded radius, so a
-  hand-placed mountain range actually stands high, and pins the region's
-  type.
+  Each Biome names its `TerrainOptions` preset, and the World hands
+  WorldTerrain a terrain source that returns it per region. Until
+  Ecotopes exist, every rule names an **empty Biome**: a Terrain and no
+  Ecotopes. WorldTerrain gives every region the world seed, so all regions
+  sample the same shared noise layers (terrain Phase 2.5) and differ only
+  in their layer weights. A rule does not vary the seed; per-region
+  variation, if wanted, is an optional variation layer that fades out at
+  the region's edges (terrain open question 9).
+- **Ruggedness and moisture** (proposed; not yet agreed) are the World's
+  selector fields. They decide *which* Biome sits at a given height, so
+  not every highland is mountains. They are selectors, not heights or
+  relief scales, so they live in the World, not here.
+- **Overrides split in two.** A **height bump** `{ area, target base
+  height }` belongs to E in this crate: it adds a smooth bump with a
+  bounded radius, so a hand-placed mountain range actually stands high. A
+  **pin** `{ region, Biome }` belongs to the World. A hand-placed range is
+  usually both.
 
 ## Interface to the terrain crate
 
 ```rust
-pub struct WorldOptions {
+pub struct WorldTerrainOptions {
     pub seed: u64,
-    pub elevation: ElevationOptions,
+    pub elevation: ElevationOptions,       // includes the height bumps
     pub regions: RegionGraphOptions,
-    pub biomes: BiomeTable,
-    pub overrides: Vec<Override>,
     /// Where neighbouring regions' relief meets at their shared edge, as
     /// a power-mean exponent: −∞ = only the rougher side fades, −1 = each
     /// side changes in proportion to its roughness (default), 1 = halfway.
     pub relief_meeting: f32,
 }
 
+/// Gives each region its terrain. The World passes one that reads each
+/// region's Biome; tests and examples pass a closure.
+pub trait TerrainSource: Send + Sync {
+    fn terrain_options(&self, region: RegionKey, elevation: &Elevation) -> TerrainOptions;
+}
+
 impl WorldTerrain {
-    pub fn new(options: WorldOptions) -> Result<Self, WorldError>;
+    pub fn new(
+        options: WorldTerrainOptions,
+        source: Arc<dyn TerrainSource>,
+    ) -> Result<Self, WorldError>;
     pub fn elevation(&self, p: DVec2) -> f32;                 // E
     pub fn region_at(&self, p: DVec2) -> RegionKey;
     pub fn region(&self, key: RegionKey) -> Region;            // polygon, edges, corners
@@ -255,13 +276,15 @@ impl HeightField for WorldTerrain { … }
 - **Border warp:** neighbouring edges never cross, and warped polygons
   stay simple.
 - **E:** the slope bound holds (sampled); sea level is E's zero;
-  overrides raise E within their radius only.
+  height bumps raise E within their radius only.
 - **Seams with E:** the existing border tests (height and slope
   continuity, triple junctions, cracks) on lattice-generated worlds.
 - **Drainage:** on a world with a steady E slope, own rivers flow down it
   and cross borders far more often than in the fixed test worlds (measure
   before and after; the current rate is 6 seeds in 300).
-- **Biome rules:** types follow the table; overrides pin types.
+- **Terrain source:** each region builds from the options its source
+  returns, and the same source gives the same world. (Biome rules and pins
+  are tested in the World crate.)
 
 ## Phases
 
@@ -270,19 +293,20 @@ impl HeightField for WorldTerrain { … }
 | W1 | E: options, calibration, slope bound, sea level; `Terrain` adds E; preset offsets made equal; the plane-shift check on negotiation; existing tests pass on E = 0 and on a sloped E. **Exit test:** measure the river crossing rate on a sloped E against today's 6 in 300 | terrain 2.5 |
 | W2 | Region graph: staggered jittered lattice, Voronoi polygons, short-edge collapse, corner incidence, owner lookup; purity, tiling and window-size tests | — (in parallel with W1) |
 | W3 | Border segment index in `Terrain`; border warp (subdivided, noise-displaced edges); no-crossing check. **Exit test:** the existing border, crack and feature suites pass on warped fixtures | W2 |
-| W4 | `WorldTerrain`: region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds | W1, W3 |
-| W5 | Biomes: ruggedness and moisture fields, `BiomeTable`, overrides | W4 |
-| W6 | Image example of a large world; drainage measurement | W5 |
+| W4 | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source | W1, W3 |
+| W5 | Moved to the World crate: selector fields, Biome rules and pins, with empty Biomes (milestones B0 and W0 in ROADMAP.md) | — |
+| W6 | Image example of a large world; drainage measurement. Built on W4 with a closure source; redone through the World once W0 exists | W4 |
 
 ## Open questions
 
-1. **Biome choice:** field first with overrides (recommended), or biomes
-   first?
+1. ~~**Biome choice:** field first with overrides, or biomes first?~~
+   Decided 2026-11-23: field first, and the World makes the choice (see
+   "Choosing biomes").
 2. **Region size and shape:** a jittered square lattice gives fairly even
    regions. Is that wanted, or should region sizes vary more (a
    multi-scale lattice: large regions with occasional small ones)?
-3. **Moisture:** include it now as a biome selector (deserts, wetlands)
-   or later?
+3. **Moisture:** include it now as a Biome selector (deserts, wetlands)
+   or later? It is now the World crate's question.
 4. **Bounded worlds:** besides infinite lattice worlds, should
    `WorldTerrain` take a designer's polygon map directly (as
    `StitchedWorld` does), or keep that in `StitchedWorld`?

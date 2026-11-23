@@ -56,3 +56,47 @@ sets:
   # and stump tops.
   - {id: TreeEnd003, source: ambientcg, category: end}
   - {id: TreeEnd005, source: ambientcg, category: end}
+
+# Leaf cards: transparent images of branch tips and twigs that grow out of
+# the main stem, one size each, named by LeafOptions::texture and listed in
+# LEAF_TEXTURE_SETS. The same Nobiax cards procgena_tree uses. `path` is
+# relative to prior_art/:
+#   nobiax  a folder with diffuse.tga (colour with transparency) and
+#           normal.tga (OpenGL +Y) from Nobiax's "Free 3D branches textures"
+#           packs 01-04 (CC0). Extract each pack's .7z into prior_art/.
+# `recolor` regrades the colour image to green; see tools/README.md.
+cards:
+  category: leaves
+  kinds:
+    - {kind: aspen_autumn, source: nobiax, path: "free_3d_branches_textures_01_by_yughues_d4oxx3r/#21", title: "Quaking aspen, autumn"}
+    - {kind: european_aspen, source: nobiax, path: "free_3d_branches_textures_01_by_yughues_d4oxx3r/#22", title: European aspen}
+    - {kind: bigtooth_aspen, source: nobiax, path: "free_3d_branches_textures_01_by_yughues_d4oxx3r/#23", title: Bigtooth aspen}
+    - {kind: alder_buckthorn, source: nobiax, path: "free_3d_branches_textures_01_by_yughues_d4oxx3r/#24", title: "Alder buckthorn, autumn"}
+    - {kind: smoke_bush, source: nobiax, path: "free_3d_branches_textures_01_by_yughues_d4oxx3r/#25", title: Purple smoke bush}
+    - {kind: field_maple_autumn, source: nobiax, path: "free_3d_branches_textures_02_by_yughues_d4pgt2v/#26", title: "Field maple, autumn"}
+    - {kind: bamboo, source: nobiax, path: "free_3d_branches_textures_02_by_yughues_d4pgt2v/#27", title: Bamboo}
+    - {kind: fir, source: nobiax, path: "free_3d_branches_textures_02_by_yughues_d4pgt2v/#28", title: Fir}
+    - {kind: white_pine, source: nobiax, path: "free_3d_branches_textures_02_by_yughues_d4pgt2v/#29", title: White pine}
+    - {kind: arborvitae_autumn, source: nobiax, path: "free_3d_branches_textures_02_by_yughues_d4pgt2v/#30", title: "Arborvitae, autumn"}
+    - {kind: birch_autumn, source: nobiax, path: "free_3d_branches_textures_03_by_yughues_d4rcjmu/#31", title: "Birch, autumn"}
+    - {kind: larch, source: nobiax, path: "free_3d_branches_textures_03_by_yughues_d4rcjmu/#32", title: Larch}
+    - {kind: black_locust, source: nobiax, path: "free_3d_branches_textures_03_by_yughues_d4rcjmu/#33", title: Black locust}
+    - {kind: olive, source: nobiax, path: "free_3d_branches_textures_03_by_yughues_d4rcjmu/#34", title: Olive}
+    - {kind: cotoneaster, source: nobiax, path: "free_3d_branches_textures_03_by_yughues_d4rcjmu/#35", title: Cotoneaster with berries}
+    - {kind: bare_twig_1, source: nobiax, path: "free_3d_branches_textures_04_by_yughues_d4rlc6o/#36", title: Bare twig 1}
+    - {kind: bare_twig_2, source: nobiax, path: "free_3d_branches_textures_04_by_yughues_d4rlc6o/#37", title: Bare twig 2}
+    - {kind: white_oak_autumn, source: nobiax, path: "free_3d_branches_textures_04_by_yughues_d4rlc6o/#38", title: "White oak, autumn"}
+    - {kind: white_oak, source: nobiax, path: "free_3d_branches_textures_04_by_yughues_d4rlc6o/#39", title: White oak}
+    - {kind: white_oak_dead, source: nobiax, path: "free_3d_branches_textures_04_by_yughues_d4rlc6o/#40", title: "White oak, dead leaves"}
+    # Nobiax's bronze autumn arborvitae in a bright cedar green.
+    - kind: cedar
+      source: nobiax
+      path: "free_3d_branches_textures_02_by_yughues_d4pgt2v/#30"
+      title: Cedar (arborvitae recoloured green)
+      recolor: {dark: "#0e1f08", mid: "#447224", light: "#b4d070", twig_level: "70%,95%", twig_modulate: "160,40"}
+    # Nobiax's autumn field maple in a bright summer green.
+    - kind: maple
+      source: nobiax
+      path: "free_3d_branches_textures_02_by_yughues_d4pgt2v/#26"
+      title: Maple (field maple recoloured green)
+      recolor: {dark: "#16330a", mid: "#4c8a26", light: "#c4e07a", twig_level: "45%,70%", twig_modulate: "150,35"}

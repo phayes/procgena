@@ -15,6 +15,8 @@ use procgena_tree::{
     TreeError, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod_levels,
 };
 
+use crate::grove::PreparedTrees;
+use crate::impostor::{ImpostorShown, TreeImpostorAssets};
 use crate::material::{
     BarkTextures, LeafTextures, TreeMaterial, average_bark_material, bark_material,
     flower_material, fruit_material, leaf_material, trellis_material,
@@ -85,6 +87,9 @@ pub enum TreePartKind {
     Flowers,
     /// A single support wire for a trellis.
     Trellis,
+    /// The tree's impostor: one quad showing a baked view of the tree,
+    /// drawn beyond every mesh level; see [`TreeImpostor`](crate::TreeImpostor).
+    Impostor,
 }
 
 /// Reads and validates ez-tree JSON files with the `.tree.json` extension.
@@ -184,12 +189,20 @@ pub(crate) struct SpawnSettings {
     pub texture_root: Option<String>,
     pub texture_compression: TextureCompression,
     pub lod_levels: Vec<TreeLodLevel>,
+    pub impostor: Option<crate::TreeImpostor>,
 }
 
 /// The tree's [`TreeOptions::tree_id`], used to find shared generation results.
 /// Entities with the same key reuse one [`Generated`] entry.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TreeKey(u64);
+
+impl TreeKey {
+    /// The key as a number, the same on every run of the same version.
+    pub(crate) fn value(self) -> u64 {
+        self.0
+    }
+}
 
 /// Keeps the generated trees with these keys in the [`TreeCache`] while the
 /// entity has it, for entities that draw trees without a [`TreeKey`] of their
@@ -347,6 +360,15 @@ pub(crate) struct TreeCache {
     fruit_material: Option<Handle<TreeMaterial>>,
     /// Shared flower appearance, retained even when no trees use it.
     flower_material: Option<Handle<TreeMaterial>>,
+    /// Each generated tree's impostor: requested (with the request's
+    /// entity), or ready.
+    impostors: HashMap<TreeKey, ImpostorState>,
+}
+
+/// Where a generated tree's impostor stands.
+enum ImpostorState {
+    Requested(Entity),
+    Ready(TreeImpostorAssets),
 }
 
 impl TreeCache {
@@ -366,6 +388,38 @@ impl TreeCache {
             Entry::Pending(task, options.clone())
         });
         key
+    }
+
+    /// Generated trees whose impostor hasn't been requested yet.
+    pub(crate) fn ready_without_impostor(&self) -> Vec<(TreeKey, Arc<Generated>)> {
+        self.trees
+            .iter()
+            .filter(|(key, _)| !self.impostors.contains_key(key))
+            .filter_map(|(key, entry)| match entry {
+                Entry::Ready(generated) => Some((*key, generated.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Notes that the impostor of `key` was requested on `entity`.
+    pub(crate) fn impostor_requested(&mut self, key: TreeKey, entity: Entity) {
+        self.impostors.insert(key, ImpostorState::Requested(entity));
+    }
+
+    /// Keeps the baked impostor of `key`, if the tree is still cached.
+    pub(crate) fn impostor_ready(&mut self, key: TreeKey, assets: TreeImpostorAssets) {
+        if self.trees.contains_key(&key) {
+            self.impostors.insert(key, ImpostorState::Ready(assets));
+        }
+    }
+
+    /// The impostor of `key`, once baked.
+    pub(crate) fn impostor(&self, key: TreeKey) -> Option<&TreeImpostorAssets> {
+        match self.impostors.get(&key) {
+            Some(ImpostorState::Ready(assets)) => Some(assets),
+            _ => None,
+        }
     }
 
     /// How the tree with `key` stands.
@@ -398,13 +452,13 @@ pub(crate) fn reset_changed_trees(
         despawn_parts(&mut commands, kids);
         commands
             .entity(entity)
-            .remove::<(TreeKey, GeneratedObject)>()
+            .remove::<(TreeKey, GeneratedObject, ImpostorShown)>()
             .insert(TreeGenerating);
     }
     for entity in removed.read() {
         despawn_parts(&mut commands, children.get(entity).ok());
         if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(TreeKey, TreeGenerating, GeneratedObject)>();
+            entity.remove::<(TreeKey, TreeGenerating, GeneratedObject, ImpostorShown)>();
         }
     }
 }
@@ -740,23 +794,40 @@ fn spawn_tree_parts(commands: &mut Commands, tree: Entity, generated: &Generated
 /// trellis materials. Their shapes and materials can be freed when nothing else
 /// references them. Texture images and shared fruit and flower materials stay
 /// cached for reuse.
+#[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 pub(crate) fn prune_cache(
+    mut commands: Commands,
     mut removed: RemovedComponents<TreeKey>,
     mut removed_held: RemovedComponents<HeldTreeKeys>,
+    mut removed_prepared: RemovedComponents<PreparedTrees>,
     changed_held: Query<(), Changed<HeldTreeKeys>>,
+    changed_prepared: Query<(), Changed<PreparedTrees>>,
     keys: Query<&TreeKey>,
     held: Query<&HeldTreeKeys>,
+    prepared: Query<&PreparedTrees>,
     mut cache: ResMut<TreeCache>,
 ) {
-    let removed = removed.read().count() + removed_held.read().count();
-    if removed == 0 && changed_held.is_empty() {
+    let removed =
+        removed.read().count() + removed_held.read().count() + removed_prepared.read().count();
+    if removed == 0 && changed_held.is_empty() && changed_prepared.is_empty() {
         return;
     }
     let used: HashSet<&TreeKey> = keys
         .iter()
         .chain(held.iter().flat_map(|held| &held.0))
+        .chain(prepared.iter().flat_map(|prepared| &prepared.keys))
         .collect();
     cache.trees.retain(|key, _| used.contains(key));
+
+    // Drop the impostors of trees no longer cached, and their requests.
+    let cache = &mut *cache;
+    cache.impostors.retain(|key, state| {
+        let keep = cache.trees.contains_key(key);
+        if let (false, ImpostorState::Requested(entity)) = (keep, state) {
+            commands.entity(*entity).try_despawn();
+        }
+        keep
+    });
 
     // Preserve materials referenced by the generated trees still in the cache.
     let mut drawn = HashSet::new();
@@ -818,6 +889,7 @@ mod tests {
                 texture_root: None,
                 texture_compression: TextureCompression::Bc7,
                 lod_levels,
+                impostor: None,
             })
             .add_systems(
                 Update,

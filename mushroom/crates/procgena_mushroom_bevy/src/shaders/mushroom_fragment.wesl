@@ -1,7 +1,7 @@
 // Colours and lights mushroom surfaces with Bevy's standard lighting, adding
-// gill lines on the underside and a pattern on top of the cap. Used both
-// when lighting directly (forward) and when storing surfaces to light later
-// (deferred).
+// gill lines on the underside, and warts and a pattern on top of the cap.
+// Used both when lighting directly (forward) and when storing surfaces to
+// light later (deferred).
 
 import bevy_pbr::{
     decal::clustered::apply_decals,
@@ -29,7 +29,7 @@ import bevy_pbr::render::{
 @if(VISIBILITY_RANGE_DITHER)
 import bevy_pbr::render::pbr_functions::visibility_range_dither;
 
-/// Pattern and gill settings; must match the Rust `MushroomSurface`.
+/// Pattern, gill and wart settings; must match the Rust `MushroomSurface`.
 struct MushroomSurface {
     /// Pattern colour in linear RGB, with its strength (0 to 1) in alpha.
     pattern_colour: vec4<f32>,
@@ -54,6 +54,20 @@ struct MushroomSurface {
     stem_texture_size: f32,
     /// Typical width of a flat stem, in mesh units.
     stem_ribbon_width: f32,
+    /// Wart colour in linear RGB, with 1 in alpha to draw warts, 0 for none.
+    wart_colour: vec4<f32>,
+    /// Typical distance between neighbouring wart centres, in mesh units.
+    wart_spacing: f32,
+    /// Radius of the largest warts, in mesh units.
+    wart_radius: f32,
+    /// How much smaller than `wart_radius` warts can be, from 0 to 1.
+    wart_size_jitter: f32,
+    /// How raised warts look, as a multiple of their radius.
+    wart_height: f32,
+    /// Distance from the cap's top centre beyond which no warts are drawn.
+    wart_reach: f32,
+    /// Length of the cap's top from rim to top centre, in mesh units.
+    cap_top_length: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> surface: MushroomSurface;
@@ -140,6 +154,53 @@ fn pattern_cover(p: vec3<f32>) -> f32 {
     }
 }
 
+/// The wart under one point of the cap: how much wart colour shows there,
+/// from 0 to 1, and which way to tilt the surface so the wart looks
+/// raised.
+struct WartSample {
+    cover: f32,
+    /// Tilt in map directions (see `wart_at`), as a fraction of the
+    /// surface normal's length.
+    tilt: vec2<f32>,
+}
+
+/// Returns the wart at `p`, a point on a flat map of the cap's top in mesh
+/// units: the top centre is at the origin, and each point sits in its
+/// direction around the cap at its distance from the top, measured along
+/// the cap. The map keeps those distances true, so warts stay round
+/// except near the rim of very rounded caps, where they widen a little
+/// around the cap.
+///
+/// Warts sit one per cell of a square grid, `wart_spacing` wide, each at a
+/// random spot far enough inside its cell that neighbours never touch.
+fn wart_at(p: vec2<f32>) -> WartSample {
+    var out: WartSample;
+    let q = p / surface.wart_spacing;
+    let margin = surface.wart_radius / surface.wart_spacing;
+    let cell = floor(q);
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let c = cell + vec2<f32>(f32(x), f32(y));
+            let h = hash3(vec3<f32>(c, 17.0));
+            let centre = c + margin + h.xy * (1.0 - 2.0 * margin);
+            // Only warts whose centre lies within reach of the top.
+            if length(centre) * surface.wart_spacing > surface.wart_reach {
+                continue;
+            }
+            let radius = margin * (1.0 - surface.wart_size_jitter * h.z);
+            let d = (q - centre) / radius;
+            let r2 = dot(d, d);
+            if r2 < 1.0 {
+                // A dome: its slope grows toward the edge.
+                out.cover = 1.0 - smoothstep(0.8, 1.0, sqrt(r2));
+                out.tilt = d * (surface.wart_height / max(sqrt(1.0 - r2), 0.25));
+                return out;
+            }
+        }
+    }
+    return out;
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     // While two detail levels blend, each skips a pattern of pixels so the
@@ -192,6 +253,29 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.diffuse_occlusion *= cap.occlusion;
         pbr_input.N = normalize(mesh_functions::mesh_normal_local_to_world(cap.normal, in.instance_index));
     }
+
+    // Warts on the cap's top, over any texture. They are placed on a flat
+    // map of the cap: the texture coordinates give each point's direction
+    // around the cap (u) and how far down from the top it is (v, which is 0
+    // at the top here). Raised warts tilt the surface outward from their
+    // centres, using the mesh's tangents to turn map directions into
+    // directions on the surface.
+@if(VERTEX_TANGENTS) {
+    if zone == ZONE_CAP_TOP && surface.wart_colour.a > 0.0 {
+        let angle = in.uv.x * 2.0 * PI;
+        let outward = vec2<f32>(cos(angle), sin(angle));
+        let wart = wart_at(outward * (in.uv.y * surface.cap_top_length));
+        if wart.cover > 0.0 {
+            colour = mix(colour, surface.wart_colour.rgb, wart.cover);
+            let n = pbr_input.N;
+            let around = normalize(in.world_tangent.xyz - n * dot(n, in.world_tangent.xyz));
+            let toward_top = cross(n, around) * in.world_tangent.w;
+            let sideways = vec2<f32>(-outward.y, outward.x);
+            let tilt = around * dot(wart.tilt, sideways) - toward_top * dot(wart.tilt, outward);
+            pbr_input.N = normalize(n + tilt * wart.cover);
+        }
+    }
+}
 
     // A textured stem keeps its own colours: the stem images are tinted so
     // their average colour matches the vertex colour, adding detail only.

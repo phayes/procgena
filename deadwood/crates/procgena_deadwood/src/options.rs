@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::colour::parse_hex;
 use crate::detail::DeadwoodDetail;
-use crate::texture::{BARK_TEXTURE_SETS, END_TEXTURE_SETS};
+use crate::texture::{BARK_TEXTURE_SETS, END_TEXTURE_SETS, LEAF_TEXTURE_SETS};
 
 /// Highest decay class. Decay runs from 0 (just fallen) to this value (a
 /// soft, crumbling mound).
@@ -30,6 +30,10 @@ pub const MAX_LOBES: u32 = 12;
 pub const MAX_ROOTS: u32 = 16;
 /// Largest allowed [`EndKind::Snapped`] `splinters`.
 pub const MAX_SPLINTERS: u32 = 24;
+/// Largest allowed [`LeafOptions::per_metre`].
+pub const MAX_SPRAYS_PER_METRE: f32 = 20.0;
+/// Largest allowed [`LeafOptions::cards`].
+pub const MAX_SPRAY_CARDS: u32 = 16;
 /// Largest allowed segment or side count in a [`DeadwoodDetail`].
 pub const MAX_SEGMENTS: u32 = 256;
 /// Largest share of the main length that both ends together take up. A
@@ -109,6 +113,9 @@ pub struct DeadwoodOptions {
     pub hollow: HollowOptions,
     /// The flared base and surface roots. Used by [`PieceKind::Stump`] only.
     pub roots: RootOptions,
+    /// Leafy shoots, ferns or shelf fungi growing out of the main stem, drawn
+    /// as flat picture cards. Off by default.
+    pub leaves: LeafOptions,
     /// Colours and surface appearance.
     pub material: MaterialOptions,
     /// How the piece comes to rest on the ground.
@@ -340,6 +347,66 @@ pub struct RootOptions {
     pub depth: f32,
 }
 
+/// Leaves, ferns or shelf fungi growing out of the main stem.
+///
+/// Each is a flat, see-through picture (a card) showing a shoot, a frond or
+/// a fungus shelf, from the texture set named by [`texture`](Self::texture).
+/// Cards grow in sprays: small fans of [`cards`](Self::cards) cards from
+/// one point on the main stem's surface. Placement is worked out after the
+/// piece has come to rest, so "up" means up in the world. Points below the
+/// ground, or below the suggested burial depth, get no spray.
+///
+/// Decay does not change the leaves. Leaves don't affect how a piece
+/// settles, and aren't part of [`crate::Piece::object`], so nothing grows
+/// on them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LeafOptions {
+    /// Number of sprays per metre of the main stem's visible length, from 0
+    /// (no leaves, the default) through [`MAX_SPRAYS_PER_METRE`]. Sprays
+    /// that find no free spot above ground are left out, so a piece can
+    /// get fewer.
+    pub per_metre: f32,
+    /// Name of the card texture set, one of [`crate::LEAF_TEXTURE_SETS`]
+    /// such as `"maple"`.
+    pub texture: String,
+    /// Cards in each spray, from 1 through [`MAX_SPRAY_CARDS`].
+    pub cards: u32,
+    /// Length of a card, in metres. Must be positive. Cards are square.
+    pub size: f32,
+    /// Random size variation as a fraction of [`size`](Self::size), from 0
+    /// through 0.9. For example, 0.3 makes cards from 70% to 130% of the
+    /// size.
+    pub size_variance: f32,
+    /// How far each card in a spray fans out from the spray's centre line,
+    /// in degrees, from 0 (all upright together) through 90 (spread flat).
+    pub spread: f32,
+    /// Largest random tilt of a spray's centre line away from straight out
+    /// of the surface, in degrees, from 0 through 90.
+    pub lean: f32,
+    /// How far each spray turns from straight out of the surface toward
+    /// pointing straight up, from 0 through 1, as shoots grow toward the
+    /// light.
+    pub up: f32,
+    /// How far each card turns toward lying level with its face up, from 0
+    /// through 1. Use 1 for shelf fungi, which stick straight out of the
+    /// wood like brackets.
+    pub flatten: f32,
+    /// Preference for the upper side of the stem, from 0 (anywhere around
+    /// it) through 1 (mostly on top). Undersides of a lying log get few
+    /// sprays at 1.
+    pub top: f32,
+    /// Share of sprays gathered near the two ends of the main stem, from 0
+    /// through 1. For a stump, that is near the top and near the flared
+    /// base.
+    pub ends: f32,
+    /// Adds a second card at right angles to each card, so sprays look
+    /// fuller from the side, at twice the triangles.
+    pub crossed: bool,
+    /// Colour multiplied with the card texture, as `"#rrggbb"`; `"#ffffff"`
+    /// keeps the texture's own colours.
+    pub tint: String,
+}
+
 /// Colours and surface appearance.
 ///
 /// Colours are written as `"#rrggbb"` hex strings (the `#` is optional) in
@@ -413,6 +480,7 @@ impl Default for DeadwoodOptions {
             bark: BarkOptions::default(),
             hollow: HollowOptions::default(),
             roots: RootOptions::default(),
+            leaves: LeafOptions::default(),
             material: MaterialOptions::default(),
             settle: SettleOptions::default(),
             detail: DeadwoodDetail::FULL,
@@ -515,6 +583,26 @@ impl Default for RootOptions {
     }
 }
 
+impl Default for LeafOptions {
+    fn default() -> Self {
+        Self {
+            per_metre: 0.0,
+            texture: "maple".into(),
+            cards: 5,
+            size: 0.25,
+            size_variance: 0.3,
+            spread: 50.0,
+            lean: 20.0,
+            up: 0.6,
+            flatten: 0.0,
+            top: 0.7,
+            ends: 0.3,
+            crossed: false,
+            tint: "#ffffff".into(),
+        }
+    }
+}
+
 impl Default for MaterialOptions {
     fn default() -> Self {
         Self {
@@ -597,6 +685,12 @@ pub enum OptionsError {
         /// The name given.
         value: String,
     },
+    /// [`LeafOptions::texture`] names a set that isn't in
+    /// [`crate::LEAF_TEXTURE_SETS`].
+    LeafTexture {
+        /// The name given.
+        value: String,
+    },
 }
 
 impl fmt::Display for OptionsError {
@@ -641,6 +735,11 @@ impl fmt::Display for OptionsError {
                 f,
                 "material.end_texture is {value:?}, but must be one of the names in \
                  END_TEXTURE_SETS"
+            ),
+            OptionsError::LeafTexture { value } => write!(
+                f,
+                "leaves.texture is {value:?}, but must be one of the names in \
+                 LEAF_TEXTURE_SETS"
             ),
         }
     }
@@ -713,6 +812,29 @@ impl DeadwoodOptions {
         within("roots.radius", r.radius, 0.05, 0.6)?;
         within("roots.pitch", r.pitch, 0.0, 60.0)?;
         within("roots.depth", r.depth, 0.05, 2.0)?;
+
+        let l = &self.leaves;
+        within("leaves.per_metre", l.per_metre, 0.0, MAX_SPRAYS_PER_METRE)?;
+        if !LEAF_TEXTURE_SETS.contains(&l.texture.as_str()) {
+            return Err(OptionsError::LeafTexture {
+                value: l.texture.clone(),
+            });
+        }
+        int_range("leaves.cards", l.cards, 1, MAX_SPRAY_CARDS)?;
+        positive("leaves.size", l.size)?;
+        within("leaves.size_variance", l.size_variance, 0.0, 0.9)?;
+        within("leaves.spread", l.spread, 0.0, 90.0)?;
+        within("leaves.lean", l.lean, 0.0, 90.0)?;
+        within("leaves.up", l.up, 0.0, 1.0)?;
+        within("leaves.flatten", l.flatten, 0.0, 1.0)?;
+        within("leaves.top", l.top, 0.0, 1.0)?;
+        within("leaves.ends", l.ends, 0.0, 1.0)?;
+        if parse_hex(&l.tint).is_none() {
+            return Err(OptionsError::Colour {
+                field: "leaves.tint",
+                value: l.tint.clone(),
+            });
+        }
 
         let m = &self.material;
         for (field, value) in [

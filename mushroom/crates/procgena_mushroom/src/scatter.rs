@@ -4,12 +4,14 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use glam::{Affine3A, Quat, Vec3};
-use procgena_mesh::{Object, SurfaceError, TagFilter};
+use glam::{Affine3A, Quat, Vec2, Vec3};
+use procgena_mesh::{Object, Surface, SurfaceError, TagFilter};
 
-use crate::cluster::{ClusterOptions, MushroomInstance, arrange, bake, make_variants};
+use crate::cluster::{MushroomInstance, arrange, make_variants};
 use crate::detail::MushroomLod;
-use crate::mushroom::Mushroom;
+use crate::mesh::{MushroomMesh, combine};
+use crate::mushroom::MushroomBody;
+use crate::object::object_from_meshes;
 use crate::options::{MushroomOptions, OptionsError, non_negative, positive, within};
 use crate::rng::Rng;
 
@@ -26,8 +28,8 @@ const STREAM_SITES: u32 = 21;
 /// generators.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScatterOptions {
-    /// Number that picks the growing spots, sizes and clusters. The same
-    /// seed, settings and host always give the same scatter.
+    /// Number that picks the growing spots, sizes and turns. The same seed,
+    /// settings and host always give the same scatter.
     pub seed: u32,
     /// Which parts of the host mushrooms grow on, chosen by their tags, such
     /// as ground or rock; see [`procgena_mesh::tags`].
@@ -44,21 +46,14 @@ pub struct ScatterOptions {
     /// (flat only) through 180 (anywhere, even overhangs).
     pub max_slope: f32,
     /// Smallest distance between growing spots, in metres. Must be zero or
-    /// positive.
+    /// positive. A spot that grows a cluster counts as one spot, however
+    /// wide the cluster.
     pub min_spacing: f32,
-    /// Chance that a spot grows a cluster instead of a single mushroom, from
-    /// 0 through 1.
-    pub cluster_chance: f32,
-    /// Settings for those clusters. Its
-    /// [`variants`](ClusterOptions::variants) count also sets how many
-    /// different meshes the whole scatter uses, and with
-    /// [`sweep`](ClusterOptions::sweep) single mushrooms get the same swept
-    /// stems, leaning in random directions.
-    pub cluster: ClusterOptions,
-    /// Smallest size of a single mushroom, as a multiple of the species'
-    /// size. Must be positive.
+    /// Smallest size of what grows at a spot, as a multiple of the species'
+    /// size. Must be positive. A cluster, such as a fairy ring, is scaled as
+    /// a whole.
     pub scale_min: f32,
-    /// Largest size of a single mushroom, as a multiple of the species'
+    /// Largest size of what grows at a spot, as a multiple of the species'
     /// size; at least `scale_min`.
     pub scale_max: f32,
     /// How much mushrooms tilt with a sloping surface instead of growing
@@ -78,8 +73,6 @@ impl Default for ScatterOptions {
             density: 4.0,
             max_slope: 50.0,
             min_spacing: 0.15,
-            cluster_chance: 0.3,
-            cluster: ClusterOptions::default(),
             scale_min: 0.6,
             scale_max: 1.1,
             follow_surface: 0.5,
@@ -89,8 +82,7 @@ impl Default for ScatterOptions {
 }
 
 impl ScatterOptions {
-    /// Checks every setting, including the cluster settings, against the
-    /// range given in its documentation.
+    /// Checks every setting against the range given in its documentation.
     ///
     /// # Errors
     ///
@@ -106,7 +98,6 @@ impl ScatterOptions {
         non_negative("scatter.density", self.density)?;
         within("scatter.max_slope", self.max_slope, 0.0, 180.0)?;
         non_negative("scatter.min_spacing", self.min_spacing)?;
-        within("scatter.cluster_chance", self.cluster_chance, 0.0, 1.0)?;
         positive("scatter.scale_min", self.scale_min)?;
         within(
             "scatter.scale_max",
@@ -115,8 +106,7 @@ impl ScatterOptions {
             f32::MAX,
         )?;
         within("scatter.follow_surface", self.follow_surface, 0.0, 1.0)?;
-        within("scatter.sink", self.sink, 0.0, 2.0)?;
-        self.cluster.validate()
+        within("scatter.sink", self.sink, 0.0, 2.0)
     }
 }
 
@@ -159,25 +149,35 @@ impl From<OptionsError> for ScatterError {
 /// host.
 ///
 /// The result is a list of placed [`instances`](Self::instances), each a
-/// copy of one of a few [`variants`](Self::variants), in the host's
-/// coordinates. A renderer can mesh each variant once and draw every
-/// instance from it, which is far cheaper than one big mesh. Use
+/// copy of one of a few [`bodies`](Self::bodies), in the host's
+/// coordinates. A renderer can mesh each body once and draw every instance
+/// from it, which is far cheaper than one big mesh. Use
 /// [`object`](Self::object) if you do need a single mesh.
 #[derive(Debug, Clone)]
 pub struct MushroomScatter {
-    variants: Vec<Mushroom>,
+    bodies: Vec<MushroomBody>,
     instances: Vec<MushroomInstance>,
 }
 
 impl MushroomScatter {
     /// Spreads mushrooms like `mushroom` over `host`.
     ///
+    /// Each growing spot grows the mushroom as its options describe: a
+    /// single mushroom, or a whole cluster such as a tuft or a fairy ring
+    /// when [`ClusterOptions::stems`](crate::ClusterOptions::stems) is more
+    /// than one. Every spot gets its own variations, picked from
+    /// [`ClusterOptions::variants`](crate::ClusterOptions::variants)
+    /// different bodies.
+    ///
     /// Mushrooms grow only on the parts of the host's most detailed level
     /// that [`ScatterOptions::grows_on`] picks, and only where the surface is
-    /// no steeper than [`ScatterOptions::max_slope`]. If no surface is gentle
-    /// enough, the scatter is empty rather than an error. Mushrooms in a
-    /// cluster are kept apart from each other, but not from neighbouring
-    /// spots, so a cluster can touch a nearby mushroom.
+    /// no steeper than [`ScatterOptions::max_slope`]. A cluster's members are
+    /// dropped straight down onto that surface, so a fairy ring follows
+    /// uneven ground; a member with no such surface below or above it is
+    /// left out. If no surface is gentle enough, the scatter is empty rather
+    /// than an error. Mushrooms in a cluster are kept apart from each
+    /// other, but not from neighbouring spots, so a cluster can touch a
+    /// nearby mushroom.
     ///
     /// # Errors
     ///
@@ -191,12 +191,8 @@ impl MushroomScatter {
         options: &ScatterOptions,
     ) -> Result<Self, ScatterError> {
         options.validate()?;
-        let variants = make_variants(
-            mushroom,
-            options.cluster.variants,
-            options.seed,
-            options.cluster.sweep,
-        )?;
+        let cluster = &mushroom.cluster;
+        let bodies = make_variants(mushroom, cluster.variants, options.seed)?;
         let part = host
             .merged(0, &options.grows_on)
             .ok_or(ScatterError::NoSurface)?;
@@ -219,11 +215,10 @@ impl MushroomScatter {
         }
         let mut instances = Vec::new();
         if faces.is_empty() {
-            return Ok(Self {
-                variants,
-                instances,
-            });
+            return Ok(Self { bodies, instances });
         }
+        // Clusters drop their members onto the gentle faces.
+        let columns = (cluster.stems > 1).then(|| Columns::new(&surface, &faces, up));
 
         // Try random spots and keep those far enough from earlier ones. A
         // grid of cells, each `min_spacing` wide, means only nearby spots
@@ -283,35 +278,45 @@ impl MushroomScatter {
                 .unwrap_or(up);
             let rotation = Quat::from_rotation_arc(Vec3::Y, grow)
                 * Quat::from_rotation_y(rng.range(0.0, std::f32::consts::TAU));
+            let scale = rng.range(options.scale_min, options.scale_max);
 
-            // Place one mushroom or a cluster, sunk a little into the
-            // surface.
-            if rng.next_f32() < options.cluster_chance {
-                let base = point - grow * (variants[0].base_radius() * options.sink);
-                let site = Affine3A::from_rotation_translation(rotation, base);
-                let seed = options.seed ^ sites.wrapping_mul(0x85eb_ca6b);
-                instances.extend(arrange(&variants, &options.cluster, site, seed));
-            } else {
-                let variant = rng.int(0, variants.len() as u32 - 1);
-                let scale = rng.range(options.scale_min, options.scale_max);
-                let sink = variants[variant as usize].base_radius() * scale * options.sink;
+            // A single mushroom, sunk a little into the surface.
+            let Some(columns) = &columns else {
+                let variant = rng.int(0, bodies.len() as u32 - 1);
+                let sink = bodies[variant as usize].base_radius() * scale * options.sink;
                 instances.push(MushroomInstance {
                     variant,
                     translation: point - grow * sink,
                     rotation,
                     scale,
                 });
+                continue;
+            };
+
+            // A cluster around the spot, each member dropped onto the
+            // surface and sunk a little into it.
+            let seed = options.seed ^ sites.wrapping_mul(0x85eb_ca6b);
+            for member in arrange(&bodies, cluster, seed) {
+                let planned = point + rotation * (member.translation * scale);
+                let Some(ground) = columns.drop(planned) else {
+                    continue;
+                };
+                let scale = member.scale * scale;
+                let sink = bodies[member.variant as usize].base_radius() * scale * options.sink;
+                instances.push(MushroomInstance {
+                    variant: member.variant,
+                    translation: ground - grow * sink,
+                    rotation: rotation * member.rotation,
+                    scale,
+                });
             }
         }
-        Ok(Self {
-            variants,
-            instances,
-        })
+        Ok(Self { bodies, instances })
     }
 
-    /// Returns the different mushrooms the instances are copies of.
-    pub fn variants(&self) -> &[Mushroom] {
-        &self.variants
+    /// Returns the different single mushrooms the instances are copies of.
+    pub fn bodies(&self) -> &[MushroomBody] {
+        &self.bodies
     }
 
     /// Returns the placed mushrooms, in the host's coordinates.
@@ -328,6 +333,114 @@ impl MushroomScatter {
     ///
     /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
     pub fn object(&self, lod: &MushroomLod) -> Result<Object, OptionsError> {
-        bake(&self.variants, &self.instances, lod)
+        let meshes: Vec<_> = self
+            .bodies
+            .iter()
+            .map(|b| b.lod_meshes(lod))
+            .collect::<Result<_, _>>()?;
+        let levels: Vec<_> = lod
+            .levels
+            .iter()
+            .enumerate()
+            .map(|(l, level)| {
+                let placed: Vec<(&MushroomMesh, Affine3A)> = self
+                    .instances
+                    .iter()
+                    .map(|i| (&meshes[i.variant as usize][l].1, i.transform()))
+                    .collect();
+                (*level, combine(&placed))
+            })
+            .collect();
+        Ok(object_from_meshes(&levels))
     }
+}
+
+/// The host's gentle faces sorted into columns along the up direction, for
+/// finding the surface straight above or below a point.
+struct Columns {
+    /// Up, as a unit vector.
+    up: Vec3,
+    /// Two unit directions across `up`, at right angles to each other.
+    across: [Vec3; 2],
+    /// Width of each column.
+    width: f32,
+    /// Corner positions of each gentle face.
+    triangles: Vec<[Vec3; 3]>,
+    /// The faces whose footprint touches each column, by column.
+    cells: HashMap<[i32; 2], Vec<u32>>,
+}
+
+impl Columns {
+    /// Sorts `faces` of `surface`, given as (triangle number, running area
+    /// total), into columns along the unit vector `up`.
+    fn new(surface: &Surface<'_>, faces: &[(usize, f32)], up: Vec3) -> Self {
+        let (a, b) = up.any_orthonormal_pair();
+        let triangles: Vec<[Vec3; 3]> = faces
+            .iter()
+            .map(|&(t, _)| surface.triangle_positions(t))
+            .collect();
+
+        // Columns about twice as wide as an average face, so each face
+        // touches only a few.
+        let area = faces.last().map_or(0.0, |&(_, total)| total);
+        let width = (area / faces.len() as f32).sqrt().max(1e-4) * 2.0;
+        let mut columns = Self {
+            up,
+            across: [a, b],
+            width,
+            triangles,
+            cells: HashMap::new(),
+        };
+        for (i, corners) in columns.triangles.iter().enumerate() {
+            let flat = corners.map(|p| columns.flatten(p));
+            let min = flat[0].min(flat[1]).min(flat[2]);
+            let max = flat[0].max(flat[1]).max(flat[2]);
+            let (lo, hi) = (columns.cell(min), columns.cell(max));
+            for x in lo[0]..=hi[0] {
+                for y in lo[1]..=hi[1] {
+                    columns.cells.entry([x, y]).or_default().push(i as u32);
+                }
+            }
+        }
+        columns
+    }
+
+    /// Returns `p` seen from above: its position across the up direction.
+    fn flatten(&self, p: Vec3) -> Vec2 {
+        Vec2::new(p.dot(self.across[0]), p.dot(self.across[1]))
+    }
+
+    /// Returns the column holding flattened position `p`.
+    fn cell(&self, p: Vec2) -> [i32; 2] {
+        (p / self.width).floor().as_ivec2().to_array()
+    }
+
+    /// Returns the point of the gentle faces on the vertical line through
+    /// `p` that is nearest to `p`, or `None` if the line misses them all.
+    fn drop(&self, p: Vec3) -> Option<Vec3> {
+        let candidates = self.cells.get(&self.cell(self.flatten(p)))?;
+        candidates
+            .iter()
+            .filter_map(|&i| line_hit(p, self.up, self.triangles[i as usize]))
+            .min_by(|a, b| a.abs().total_cmp(&b.abs()))
+            .map(|t| p + self.up * t)
+    }
+}
+
+/// Returns how far along `direction` from `origin`, forward or backward,
+/// the line through them crosses triangle `[a, b, c]`, or `None` if it
+/// misses or runs along it.
+fn line_hit(origin: Vec3, direction: Vec3, [a, b, c]: [Vec3; 3]) -> Option<f32> {
+    let (e1, e2) = (b - a, c - a);
+    let h = direction.cross(e2);
+    let det = e1.dot(h);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let s = origin - a;
+    let u = s.dot(h) / det;
+    let q = s.cross(e1);
+    let v = direction.dot(q) / det;
+    let inside = (-1e-6..=1.0 + 1e-6).contains(&u) && v >= -1e-6 && u + v <= 1.0 + 1e-6;
+    inside.then(|| e2.dot(q) / det)
 }

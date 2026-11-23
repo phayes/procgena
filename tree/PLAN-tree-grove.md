@@ -335,9 +335,12 @@ This follows the `field/` module. The new files are
 
 ## Out of scope / follow-ups
 
-- An impostor far-field level (one textured quad per tree) for groves
-  hundreds of metres across; the instanced renderer is done.
-- `RenderLayers` on groves, and trellis wires in groves.
+- Done: an impostor far-field level (one baked quad per tree, from
+  `procgena_impostor`) for groves and single trees, and `PrepareGrove` for
+  loading screens. See "Far trees as impostors" in `docs/groves.md`.
+- Done: cameras respect a grove's `RenderLayers`. Shadow views still draw
+  every grove.
+- Trellis wires in groves.
 - An image density mask and heightmap ground on the Bevy component.
 - A per-tree colour tint, which needs per-instance material data.
 - Undergrowth: a `PlantField` under a grove.

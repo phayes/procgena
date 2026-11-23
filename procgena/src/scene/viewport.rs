@@ -19,7 +19,9 @@ const SCROLL_LINE_HEIGHT: f32 = 16.0;
 /// Marks the camera that shows the scene. The scene spawns it.
 ///
 /// Its render target is set to the [`ViewportTarget`] image, replacing any
-/// target set on it.
+/// target set on it. Find the scene camera with this marker rather than
+/// `Camera3d`: while tree impostors bake, the app has extra 3D cameras,
+/// marked `ImpostorBakeCamera`.
 #[derive(Component, Default, Debug, Clone, Copy)]
 pub struct ViewportCamera;
 

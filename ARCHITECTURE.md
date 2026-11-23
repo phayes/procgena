@@ -239,7 +239,7 @@ time, and gives its mask over a chunk without drawing anything. See
 | Scatter | Today | Notes |
 |---------|-------|-------|
 | `TreeScatter` | Built as `TreeGrove` ([tree/docs/groves.md](tree/docs/groves.md), [tree/PLAN-tree-grove.md](tree/PLAN-tree-grove.md)) | `GrovePlacement::new` already takes a `Ground` and an optional density function: the mask hook exists. |
-| `PlantScatter` | Built as `PlantField` ([plant/PLAN-plant-field.md](plant/PLAN-plant-field.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
+| `PlantScatter` | Built as `PlantField` ([plant/docs/fields.md](plant/docs/fields.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
 | `MushroomScatter` | Exists, but grows on tagged host meshes | Becomes a ground Scatter of `Mushroom`s (single, tuft or fairy ring). Growing on hosts moves to the later `MushroomGrowth` modifier. |
 | `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
 | `StoneScatter` | Half built: `StonePool` | `StonePool` is the drawing half (variants, GPU instancing). Placement over a `Ground` with a mask is new. |
@@ -323,6 +323,12 @@ both Ecotopes, interleaved, each masking every Scatter after it, whichever
 side it came from. The order is worked out from both offers by the same
 symmetric function, so both sides build the same blend.
 
+**Empty Biomes.** A Biome with a Terrain and no Ecotope rules is valid,
+and every Terrain preset has a default empty Biome. A World of bare land
+is a World of empty Biomes. So the World, its region graph and its Biome
+choice can be built and tested before any Ecotope exists, and the land is
+always built through the same path, with or without cover.
+
 **Status.** New.
 
 #### 4.2 Terrain
@@ -354,9 +360,14 @@ The World holds the Biomes; it does not hold Terrains directly.
 
 **What it owns.**
 
-- The region graph: polygons, shared edges, and corners where three or more
-  regions meet.
-- Which Biome fills each region.
+- The region graph's options: region size, jitter and border warp, or a
+  designer's polygons. The terrain crate computes the graph from them (see
+  "5.1 WorldTerrain"), because the land needs it before anything grows.
+- Which Biome fills each region, chosen field first: rules match the
+  world elevation E and the World's own selector fields (ruggedness,
+  moisture) at each region, and a user can pin a region's Biome. A pin
+  that should also raise the land adds a height bump to E. See "Choosing
+  biomes" in [terrain/world_plan.md](terrain/world_plan.md).
 - World-wide settings: seed and sea level (`WorldContext` in the terrain
   plan).
 - The specimen budget `N` for each pool, where it overrides a preset's
@@ -375,9 +386,16 @@ It runs the terrain seam protocol across the region graph: offers, then
 agreements, then each Terrain conforms to its agreements. Rivers and roads
 cross borders through the ports those agreements set.
 
+**What it owns.** Geometry and height, not choice: the region graph
+(computed from the World's options), the world elevation field E with its
+height bumps, and the seam protocol. It gets each region's
+`TerrainOptions` from a **terrain source** it is handed; the World's
+source reads the region's Biome.
+
 **What it does not know.** Biomes and Ecotopes. It sees regions and their
-Terrains, nothing else. So the land can be built and tested alone,
-before anything grows on it.
+Terrains, nothing else. Its own tests hand it a closure as the source;
+whole worlds of bare land are built through the World with empty Biomes
+(see "4.1 Biome").
 
 **Status.** The protocol is built inside `procgena_terrain`, with a
 reference "stitcher" for tests and examples. WorldTerrain is that stitcher
@@ -389,7 +407,7 @@ grown into a real level.
 |-----------|-----------|--------------|
 | World → Biome | Region, World seed, sea level, border agreements | New |
 | Biome → Terrain | Terrain options (preset or inline) and seed; far tint from Ecotope coverage | New |
-| World → WorldTerrain | Region graph; each Biome's Terrain | Region types in the terrain plan |
+| World → WorldTerrain | Region graph options; a terrain source giving each region's Terrain from its Biome | Region types in the terrain plan; the source is new |
 | WorldTerrain → Terrain | `Region` and its `EdgeAgreement`s and `CornerAgreement`s | Yes, in `procgena_terrain` |
 | Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height` and height tiles; slope and `annotate` are new |
 | Biome → Ecotope | Coverage function from 0 to 1, ground, seed | New |
@@ -961,7 +979,8 @@ Each rule says what every asset does, and which crates have to change.
    - Every asset names its far form (strips, billboard leaves, a card), and
      its last level drops shadows where it should.
    - The levels run in order: meshes, then the far form, then the impostor
-     where the asset has one, then the cull distance. The cull distance ends
+     (from `procgena_impostor`, keyed by `SpecimenId`) where the asset has
+     one, then the cull distance. The cull distance ends
      the Scatter's draw range (see "Loading by chunk").
    - One quality setting (`LOW`..`ULTRA`) that scales every asset's
      distances together.
@@ -1085,6 +1104,12 @@ Three shared crates, two of them new:
 - A new **Bevy crate** for shared runtime: the instanced renderer, the
   dither shader, the shared cache, wind, texture loading, promotion.
 
+One existing utility crate stays apart: **`procgena_impostor`** bakes a
+specimen into an octahedral impostor, the last level of the shared LOD
+model (rule 2). A bake is keyed by the specimen's `SpecimenId` and its
+bake settings. Baking ahead is done per Ecotope: every specimen slot its
+Scatters can draw. (Today it is keyed by tree, and prepared per grove.)
+
 Changing `procgena_specimen` rebuilds most of the workspace, so the new
 crates take whatever changes often, and the rename is done together with
 the move into the new crates rather than on its own. Their names are still
@@ -1203,10 +1228,14 @@ it starts.
   matched on terrain labels, border noise and shapes, the two-step border
   negotiation, presets.
 - [ ] **WorldTerrain**: grow the terrain crate's reference stitcher into the
-  level that runs the seam protocol over a whole region graph.
-- [ ] **World crate**: region graph generation, a Biome per region, seed
-  derivation for every level below, specimen budgets per pool, and running
-  the two-step Biome border negotiation.
+  level that runs the seam protocol over a whole region graph, with the
+  region graph, E and a terrain source.
+- [ ] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
+  default empty Biome per Terrain preset.
+- [ ] **World crate**: region graph options, Biome choice per region
+  (fields, rules, pins), seed derivation for every level below, specimen
+  budgets per pool, and running the two-step Biome border negotiation.
+  Starts with empty Biomes, before Ecotopes exist.
 
 ### Extensibility
 
@@ -1247,6 +1276,9 @@ it starts.
   every asset.
 - [ ] **Shared instanced renderer**, from stone's pool and tree's grove
   renderer; deadwood and mushroom move onto it.
+- [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`
+  keyed by `SpecimenId` for any asset, not only trees, and baking ahead
+  per Ecotope instead of per grove.
 - [ ] **CPU and GPU building for every asset**, with parity tests: GPU paths
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy

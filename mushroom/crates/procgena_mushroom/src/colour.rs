@@ -44,7 +44,7 @@ pub(crate) struct Palette {
     pub underside: [f32; 3],
     pub stem_top: [f32; 3],
     pub stem_base: [f32; 3],
-    pub ring: [f32; 3],
+    pub annulus: [f32; 3],
     pub wart: [f32; 3],
 }
 
@@ -59,7 +59,7 @@ impl Palette {
             underside: c(&m.underside),
             stem_top: c(&m.stem_top),
             stem_base: c(&m.stem_base),
-            ring: c(&m.ring),
+            annulus: c(&m.annulus),
             wart: c(&m.wart),
         }
     }

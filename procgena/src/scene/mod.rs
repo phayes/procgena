@@ -28,11 +28,12 @@ use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
 use procgena_clump_bevy::ClumpPlugin;
 use procgena_deadwood_bevy::DeadwoodPlugin;
+use procgena_impostor::{ImpostorPlugin, ImpostorSettings};
 use procgena_mushroom_bevy::MushroomPlugin;
 use procgena_plant::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
 use procgena_tree::TextureCompression;
-use procgena_tree_bevy::TreePlugin;
+use procgena_tree_bevy::{TreeImpostor, TreePlugin};
 
 pub use assets::{
     CLUMP_TEXTURE_ROOT, DEADWOOD_TEXTURE_ROOT, MUSHROOM_TEXTURE_ROOT, STONE_TEXTURE_ROOT,
@@ -41,7 +42,7 @@ pub use assets::{
 pub use environment::EnvironmentSettings;
 pub use protocol::{
     BuildStats, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView, FieldSettings,
-    SceneMode, SceneStart, ViewerCommand, ViewerEvent,
+    GroveProgress, SceneMode, SceneStart, ViewerCommand, ViewerEvent,
 };
 pub use texture_reader::TextureDownloads;
 pub use viewport::SceneViewport;
@@ -71,6 +72,11 @@ pub struct ScenePlugin {
     start: SceneStart,
     /// Whether clumps load their textures; without them they are flat colours.
     clump_textures: bool,
+    /// Whether baked impostors are saved to and read from the user's cache
+    /// folder; without it they are kept in memory only.
+    impostor_cache: bool,
+    /// Whether far trees are drawn as impostors.
+    impostors: bool,
 }
 
 impl ScenePlugin {
@@ -79,7 +85,25 @@ impl ScenePlugin {
         Self {
             start,
             clump_textures: true,
+            impostor_cache: true,
+            impostors: true,
         }
+    }
+
+    /// Draws far trees at their farthest mesh level at every distance
+    /// beyond it, never as impostors, so tests can compare the two.
+    #[cfg(test)]
+    pub fn without_impostors(mut self) -> Self {
+        self.impostors = false;
+        self
+    }
+
+    /// Bakes every impostor afresh and keeps it in memory only, so tests
+    /// neither depend on nor change the user's cache folder.
+    #[cfg(test)]
+    pub fn without_impostor_cache(mut self) -> Self {
+        self.impostor_cache = false;
+        self
     }
 
     /// Draws clumps in their plain material colours, without textures, so
@@ -93,12 +117,27 @@ impl ScenePlugin {
 
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
+        // Impostors baked for far trees are kept between runs in the user's
+        // cache folder, beside the downloaded textures.
+        let cache_dir = dirs::cache_dir()
+            .filter(|_| self.impostor_cache)
+            .map(|dir| dir.join("procgena").join("impostors"));
+        app.add_plugins(ImpostorPlugin {
+            settings: ImpostorSettings {
+                cache_dir,
+                ..default()
+            },
+        });
         app.add_plugins((
             TreePlugin {
                 texture_root: Some(TREE_TEXTURE_ROOT.to_owned()),
                 texture_compression: TextureCompression::Bc7,
                 // The scene reports which of these levels is on screen.
                 lod_levels: subject::lod_levels(),
+                impostor: self.impostors.then(|| TreeImpostor {
+                    distance: subject::IMPOSTOR_DISTANCE,
+                    ..default()
+                }),
             },
             PlantPlugins,
             StonePlugin {
@@ -168,6 +207,8 @@ impl Plugin for ScenePlugin {
                 .chain()
                 .before(VisibilitySystems::VisibilityPropagate),
         )
+        // After Update, once the tree plugin has asked for this frame's bakes.
+        .add_systems(PostUpdate, subject::report_grove_progress)
         .add_observer(subject::report_tree)
         .add_observer(subject::report_stone)
         .add_observer(subject::report_mushroom)

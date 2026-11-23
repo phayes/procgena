@@ -27,6 +27,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
+use procgena_impostor::ImpostorBakeCamera;
 use procgena_tree::GrovePreset;
 use procgena_tree_bevy::{
     GroveTrees, PromotedTree, TreeGroveAssets, TreeGroveFinished, TreeGroveInstances,
@@ -200,7 +201,7 @@ fn grove_finished(event: On<TreeGroveFinished>, mut ready: ResMut<Ready>) {
 fn promote_by_distance(
     mut commands: Commands,
     trees: GroveTrees,
-    camera: Single<&GlobalTransform, With<Camera3d>>,
+    camera: Single<&GlobalTransform, (With<Camera3d>, Without<ImpostorBakeCamera>)>,
     promoted: Query<(Entity, &PromotedTree, &GlobalTransform)>,
 ) {
     let eye = camera.translation();

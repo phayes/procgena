@@ -1,4 +1,5 @@
-//! Names and file paths of the optional bark and end-grain texture sets.
+//! Names and file paths of the optional bark, end-grain and leaf card
+//! texture sets.
 //!
 //! A piece's colours are vertex colours. Its options can also name a bark
 //! texture set in [`MaterialOptions::bark_texture`] and an end-grain set in
@@ -52,6 +53,84 @@ pub const BARK_TEXTURE_SETS: [&str; 29] = [
 /// - `"TreeEnd003"`: a fresh end with dark bark and a few cracks;
 /// - `"TreeEnd005"`: a pale, dried end with many cracks.
 pub const END_TEXTURE_SETS: [&str; 2] = ["TreeEnd003", "TreeEnd005"];
+
+/// Every leaf card texture set, by the name used in
+/// [`LeafOptions::texture`](crate::LeafOptions::texture). Each is a
+/// see-through picture of a branch tip or bare twig, with a
+/// [`LeafMap::Color`] and a [`LeafMap::Normal`] image in one size. They are
+/// the same cards `procgena_tree` uses, from Nobiax's CC0 "Free 3D branches
+/// textures" packs; `"cedar"` and `"maple"` are recoloured a bright green.
+pub const LEAF_TEXTURE_SETS: [&str; 22] = [
+    "aspen_autumn",
+    "european_aspen",
+    "bigtooth_aspen",
+    "alder_buckthorn",
+    "smoke_bush",
+    "field_maple_autumn",
+    "bamboo",
+    "fir",
+    "white_pine",
+    "arborvitae_autumn",
+    "birch_autumn",
+    "larch",
+    "black_locust",
+    "olive",
+    "cotoneaster",
+    "bare_twig_1",
+    "bare_twig_2",
+    "white_oak_autumn",
+    "white_oak",
+    "white_oak_dead",
+    "cedar",
+    "maple",
+];
+
+/// One image of a leaf card texture set. Use [`leaf_texture_path`] to get
+/// its file path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LeafMap {
+    /// Colour, with transparency outside the leaves in alpha. Load as sRGB;
+    /// alpha is not premultiplied. Draw it with alpha testing (alpha mask),
+    /// so the card shows only the leaves' outline.
+    Color,
+    /// Small bumps, as a tangent-space normal map in the OpenGL (+Y)
+    /// convention. Load as linear data.
+    Normal,
+}
+
+impl LeafMap {
+    /// Both maps.
+    pub const ALL: [LeafMap; 2] = [Self::Color, Self::Normal];
+
+    /// Returns the map as written in texture paths: `"color"` or
+    /// `"normal"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Color => "color",
+            Self::Normal => "normal",
+        }
+    }
+
+    /// Returns true for maps that hold colour and must be loaded as sRGB.
+    pub fn is_srgb(self) -> bool {
+        self == Self::Color
+    }
+}
+
+/// Returns the path of one leaf card texture file relative to the texture
+/// folder, such as `"leaves/maple-color-bc7.ktx2"`. Leaf cards come in one
+/// size only.
+///
+/// The files come from the same folder as [`bark_texture_path`]'s. `set`
+/// should be one of [`LEAF_TEXTURE_SETS`]; other names give paths to files
+/// that don't exist.
+pub fn leaf_texture_path(set: &str, map: LeafMap, compression: TextureCompression) -> String {
+    format!(
+        "leaves/{set}-{}-{}.ktx2",
+        map.as_str(),
+        compression.as_str()
+    )
+}
 
 /// Width and height of a texture image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -217,6 +296,10 @@ mod tests {
                 TextureCompression::Uastc
             ),
             "bark/Bark001-512-roughness-uastc.ktx2"
+        );
+        assert_eq!(
+            leaf_texture_path("maple", LeafMap::Normal, TextureCompression::Uastc),
+            "leaves/maple-normal-uastc.ktx2"
         );
     }
 }

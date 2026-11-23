@@ -4,14 +4,14 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::Aabb;
 use bevy::math::Vec3;
 use bevy::mesh::{Indices, Mesh, MeshVertexAttribute, PrimitiveTopology, VertexFormat};
-use procgena_mushroom::{MeshBuffers, StemRibbon};
+use procgena_mushroom::{BillboardMesh, MeshBuffers};
 
-/// Vertex attribute for flat stems: the point each vertex turns around in
-/// `xyz`, and its sideways distance from it in `w`.
+/// Vertex attribute for camera-facing shapes: the point each vertex turns
+/// around in `xyz`, and its sideways distance from it in `w`.
 ///
 /// A mesh with both this and [`ATTRIBUTE_BILLBOARD_AXIS`] is turned toward
 /// the camera by [`MushroomMaterial`](crate::MushroomMaterial).
-/// [`ribbon_mesh`] fills both in from a
+/// [`billboard_mesh`] fills both in from a
 /// [`BillboardVertex`](procgena_mushroom::BillboardVertex).
 pub const ATTRIBUTE_BILLBOARD_PIVOT: MeshVertexAttribute = MeshVertexAttribute::new(
     "ProcgenaMushroom_BillboardPivot",
@@ -19,7 +19,7 @@ pub const ATTRIBUTE_BILLBOARD_PIVOT: MeshVertexAttribute = MeshVertexAttribute::
     VertexFormat::Float32x4,
 );
 
-/// Vertex attribute for flat stems: the unit axis each vertex turns around
+/// Vertex attribute for camera-facing shapes: the unit axis each vertex turns around
 /// in `xyz`, and its distance along that axis in `w`. Use it together with
 /// [`ATTRIBUTE_BILLBOARD_PIVOT`].
 pub const ATTRIBUTE_BILLBOARD_AXIS: MeshVertexAttribute = MeshVertexAttribute::new(
@@ -42,15 +42,16 @@ pub fn mushroom_mesh(buffers: &MeshBuffers) -> Mesh {
         .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, buffers.tangents.clone())
 }
 
-/// Creates a Bevy mesh for a flat stem that turns toward the camera around
-/// the stem's axis.
+/// Creates a Bevy mesh for shapes that turn toward the camera around their
+/// own axes, such as a flat stem, or the stem and cap triangles of the
+/// farthest detail level.
 ///
 /// Draw it with a two-sided [`MushroomMaterial`](crate::MushroomMaterial).
-/// Bevy works out an entity's bounds from the resting strip, which can hide
-/// the turned strip near the screen edge, so give the entity the bounds
-/// from [`ribbon_aabb`] and Bevy's `NoAutoAabb` component.
-pub fn ribbon_mesh(ribbon: &StemRibbon) -> Mesh {
-    let (pivots, axes): (Vec<[f32; 4]>, Vec<[f32; 4]>) = ribbon
+/// Bevy works out an entity's bounds from the resting shapes, which can
+/// hide the turned shapes near the screen edge, so give the entity the
+/// bounds from [`billboard_aabb`] and Bevy's `NoAutoAabb` component.
+pub fn billboard_mesh(billboard: &BillboardMesh) -> Mesh {
+    let (pivots, axes): (Vec<[f32; 4]>, Vec<[f32; 4]>) = billboard
         .billboards
         .iter()
         .map(|b| {
@@ -59,18 +60,18 @@ pub fn ribbon_mesh(ribbon: &StemRibbon) -> Mesh {
             ([px, py, pz, b.offset[0]], [ax, ay, az, b.offset[1]])
         })
         .unzip();
-    base_mesh(&ribbon.strip)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, ribbon.strip.normals.clone())
+    base_mesh(&billboard.facing)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, billboard.facing.normals.clone())
         .with_inserted_attribute(ATTRIBUTE_BILLBOARD_PIVOT, pivots)
         .with_inserted_attribute(ATTRIBUTE_BILLBOARD_AXIS, axes)
 }
 
-/// Returns a box that holds `ribbon`'s strip however it is turned, for use
-/// as the entity's bounds.
-pub fn ribbon_aabb(ribbon: &StemRibbon) -> Aabb {
+/// Returns a box that holds `billboard`'s shapes however they are turned,
+/// for use as the entity's bounds.
+pub fn billboard_aabb(billboard: &BillboardMesh) -> Aabb {
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
-    for b in &ribbon.billboards {
+    for b in &billboard.billboards {
         let pivot = Vec3::from(b.pivot);
         let reach = b.offset[0].hypot(b.offset[1]);
         min = min.min(pivot - reach);

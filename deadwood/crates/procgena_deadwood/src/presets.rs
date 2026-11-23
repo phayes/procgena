@@ -1,8 +1,8 @@
 //! Ready-made settings for common kinds of dead wood.
 
 use crate::options::{
-    BranchingOptions, DeadwoodOptions, EndKind, EndsOptions, HollowOptions, MaterialOptions,
-    PieceKind, RootOptions, StubOptions,
+    BranchingOptions, DeadwoodOptions, EndKind, EndsOptions, HollowOptions, LeafOptions,
+    MaterialOptions, PieceKind, RootOptions, StubOptions,
 };
 
 /// Named starting points for [`DeadwoodOptions`]. Use
@@ -42,11 +42,17 @@ pub enum DeadwoodPreset {
     SnappedStump,
     /// An old, hollow stump with no bark left.
     RottenStump,
+    /// A sawn stump putting up clumps of leafy shoots around its top and
+    /// base.
+    SproutingStump,
+    /// A log a few years down, with maple seedlings growing from its upper
+    /// side.
+    SeedlingLog,
 }
 
 impl DeadwoodPreset {
     /// Every preset, in menu order.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 16] = [
         Self::FreshCutLog,
         Self::WindthrowLog,
         Self::MossyLog,
@@ -61,6 +67,8 @@ impl DeadwoodPreset {
         Self::NotchedStump,
         Self::SnappedStump,
         Self::RottenStump,
+        Self::SproutingStump,
+        Self::SeedlingLog,
     ];
 
     /// A short display name.
@@ -80,6 +88,8 @@ impl DeadwoodPreset {
             Self::NotchedStump => "Notched stump",
             Self::SnappedStump => "Snapped stump",
             Self::RottenStump => "Rotten stump",
+            Self::SproutingStump => "Sprouting stump",
+            Self::SeedlingLog => "Seedling log",
         }
     }
 
@@ -314,6 +324,51 @@ impl DeadwoodPreset {
                 },
                 roots: RootOptions {
                     count: 3,
+                    ..Default::default()
+                },
+                ..log()
+            },
+            Self::SproutingStump => DeadwoodOptions {
+                seed: 35,
+                kind: PieceKind::Stump,
+                material: stump_material(),
+                decay: 1.0,
+                length: 0.6,
+                diameter: 0.55,
+                taper: 0.95,
+                ends: ends(EndKind::Saw { tilt: 0.0 }, EndKind::Saw { tilt: 3.0 }),
+                stubs: no_stubs(),
+                leaves: LeafOptions {
+                    per_metre: 12.0,
+                    cards: 5,
+                    size: 0.3,
+                    spread: 40.0,
+                    up: 0.75,
+                    top: 0.0,
+                    ends: 0.8,
+                    ..Default::default()
+                },
+                ..log()
+            },
+            Self::SeedlingLog => DeadwoodOptions {
+                seed: 36,
+                decay: 2.5,
+                length: 2.5,
+                diameter: 0.35,
+                ends: ends(EndKind::Saw { tilt: 4.0 }, EndKind::Saw { tilt: 8.0 }),
+                stubs: StubOptions {
+                    per_metre: 0.8,
+                    ..Default::default()
+                },
+                leaves: LeafOptions {
+                    per_metre: 2.5,
+                    cards: 3,
+                    size: 0.22,
+                    spread: 25.0,
+                    lean: 10.0,
+                    up: 0.9,
+                    top: 1.0,
+                    ends: 0.0,
                     ..Default::default()
                 },
                 ..log()

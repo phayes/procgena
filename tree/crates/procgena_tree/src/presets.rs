@@ -7,6 +7,9 @@
 
 use crate::options::TreeOptions;
 
+/// Steepest ground shrub and sapling presets grow on in a grove, in degrees.
+const SHRUB_MAX_SLOPE: f32 = 45.0;
+
 /// Built-in starting points for tree settings, including several sizes and species.
 ///
 /// Use [`options`](Self::options) to get editable settings, for example
@@ -225,6 +228,22 @@ impl TreePreset {
     /// so neighbouring crowns can interlock but trunks never crowd.
     pub fn grove_spacing(self) -> f32 {
         self.grove_stand().1
+    }
+
+    /// The steepest ground this preset grows on in a grove, in degrees, when
+    /// it tolerates steeper ground than the grove's own
+    /// [`max_slope`](crate::GroveVariation::max_slope): 45° for shrubs and
+    /// saplings, `None` for everything else.
+    pub fn grove_max_slope(self) -> Option<f32> {
+        match self {
+            Self::Bush1
+            | Self::Bush2
+            | Self::Bush3
+            | Self::AspenSmall
+            | Self::PineSmall
+            | Self::SpringPussyWillow => Some(SHRUB_MAX_SLOPE),
+            _ => None,
+        }
     }
 
     /// Grove density in trees per hectare, and grove spacing in metres, from

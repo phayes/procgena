@@ -49,15 +49,15 @@ use bevy::shader::load_shader_library;
 use procgena_deadwood::{DeadwoodLod, TextureCompression, TextureSize};
 
 pub use material::{
-    BarkTextures, DeadwoodExtension, DeadwoodMaterial, DeadwoodSurface, EndTextures,
-    deadwood_material,
+    BarkTextures, DeadwoodExtension, DeadwoodMaterial, DeadwoodSurface, EndTextures, LeafTextures,
+    deadwood_material, leaf_material,
 };
 pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, deadwood_mesh, ribbon_aabb, ribbon_mesh,
 };
 pub use spawn::{
     DeadwoodBuildError, DeadwoodFinished, DeadwoodGenerating, DeadwoodOptionsAsset, DeadwoodParams,
-    DeadwoodPart, DeadwoodPlacement, DeadwoodScatterParams, ScatterGround,
+    DeadwoodPart, DeadwoodPartKind, DeadwoodPlacement, DeadwoodScatterParams, ScatterGround,
 };
 
 use spawn::{DeadwoodCache, DeadwoodOptionsLoader, SpawnSettings, TextureSettings};

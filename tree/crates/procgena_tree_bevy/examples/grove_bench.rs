@@ -14,6 +14,11 @@
 //! - `--textures`: use the repository's bark and leaf textures.
 //! - `--entities`: draw the same trees as one tree entity each instead of
 //!   through the grove, to compare the two.
+//! - `--no-impostor`: draw far trees with their farthest mesh level instead
+//!   of as impostors. Otherwise measuring starts once every variant's
+//!   impostor is baked.
+//! - `--cache <dir>`: keep baked impostors in this folder, and reuse them on
+//!   later runs.
 //!
 //! The camera path follows the frame count, not the clock, so every run sees
 //! the same frames. Compare runs on the same machine and build profile only.
@@ -29,6 +34,7 @@
 //!   drawn entity is specialized, queued and batched.
 
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -42,10 +48,11 @@ use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::time::Real;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_tree::GrovePreset;
+use procgena_impostor::{ImpostorBakeCamera, ImpostorPlugin, ImpostorSettings};
+use procgena_tree::{GrovePreset, default_lod_levels};
 use procgena_tree_bevy::{
     TreeGroveAssets, TreeGroveFinished, TreeGroveInstances, TreeGroveParams, TreeGroveStats,
-    TreeParams, TreePlugin,
+    TreeImpostor, TreeParams, TreePlugin,
 };
 
 /// Frames after the grove is ready before measuring starts: pipeline
@@ -65,6 +72,8 @@ struct Bench {
     csv: Option<String>,
     screenshot: Option<String>,
     entities: bool,
+    /// Where far trees switch to impostors, or `None` without them.
+    impostor: Option<TreeImpostor>,
 }
 
 /// The image the camera draws into.
@@ -125,8 +134,10 @@ fn main() -> AppExit {
         csv: None,
         screenshot: None,
         entities: false,
+        impostor: Some(TreeImpostor::default()),
     };
     let mut textures = false;
+    let mut cache = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().expect("a value after the option");
@@ -140,6 +151,8 @@ fn main() -> AppExit {
             "--screenshot" => bench.screenshot = Some(value()),
             "--textures" => textures = true,
             "--entities" => bench.entities = true,
+            "--no-impostor" => bench.impostor = None,
+            "--cache" => cache = Some(PathBuf::from(value())),
             other => panic!("unknown argument {other}"),
         }
     }
@@ -160,8 +173,15 @@ fn main() -> AppExit {
             })
             .disable::<WinitPlugin>(),
         ScheduleRunnerPlugin::run_loop(Duration::ZERO),
+        ImpostorPlugin {
+            settings: ImpostorSettings {
+                cache_dir: cache,
+                ..default()
+            },
+        },
         TreePlugin {
             texture_root: textures.then(|| "textures".to_owned()),
+            impostor: bench.impostor,
             ..default()
         },
     ))
@@ -263,7 +283,11 @@ fn grove_finished(
 
 /// Circles the camera over the grove: 25 m up, half the grove's width out,
 /// looking at its middle.
-fn fly(run: Res<Run>, bench: Res<Bench>, mut cameras: Query<&mut Transform, With<Camera3d>>) {
+fn fly(
+    run: Res<Run>,
+    bench: Res<Bench>,
+    mut cameras: Query<&mut Transform, (With<Camera3d>, Without<ImpostorBakeCamera>)>,
+) {
     let angle = run.frame as f32 / CIRCLE_FRAMES * std::f32::consts::TAU;
     let radius = 0.5 * bench.size;
     let eye = Vec3::new(radius * angle.cos(), 25.0, radius * angle.sin());
@@ -283,10 +307,27 @@ fn record(
     mut run: ResMut<Run>,
     time: Res<Time<Real>>,
     entities: Query<()>,
+    groves: Query<(
+        &TreeGroveInstances,
+        &TreeGroveStats,
+        &TreeGroveAssets,
+        &GlobalTransform,
+    )>,
+    camera: Single<&GlobalTransform, (With<Camera3d>, Without<ImpostorBakeCamera>)>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    // Wait for the grove, then for the warm-up.
-    let Some(trees) = run.trees else {
+    // Wait for the grove and its impostors, then for the warm-up.
+    let impostors_baked = || {
+        groves.iter().all(|(_, _, assets, _)| {
+            assets
+                .variants()
+                .iter()
+                .all(|v| !v.is_ready() || v.has_impostor())
+        })
+    };
+    let ready =
+        run.trees.is_some() && (run.frame > 0 || bench.impostor.is_none() || impostors_baked());
+    let (true, Some(trees)) = (ready, run.trees) else {
         if time.elapsed_secs() > TIMEOUT {
             error!("the grove was not ready after {TIMEOUT} seconds");
             exit.write(AppExit::error());
@@ -328,6 +369,44 @@ fn record(
             "\n  {name:<10} mean {mean:7.3}   p95 {p95:7.3}   max {worst:7.3}"
         )
         .unwrap();
+    }
+    // Triangles drawn from the last frame's camera, per detail level, with
+    // each tree on the level its distance picks (ignoring crossfades and
+    // culling). An impostor is the level after the meshes, two triangles.
+    let eye = camera.translation();
+    let starts: Vec<f32> = default_lod_levels().iter().map(|l| l.distance).collect();
+    let impostor_distance = bench.impostor.map_or(f32::INFINITY, |i| i.distance);
+    for (instances, stats, _, transform) in &groves {
+        let mut per_tree: Vec<f64> = stats
+            .levels
+            .iter()
+            .map(|l| l.triangles as f64 / stats.trees.max(1) as f64)
+            .collect();
+        let impostor_level = per_tree.len();
+        per_tree.push(2.0);
+        let mut drawn = vec![0.0f64; per_tree.len()];
+        for tree in instances.trees() {
+            let distance = transform
+                .transform_point(tree.transform.translation)
+                .distance(eye);
+            let level = if distance >= impostor_distance {
+                impostor_level
+            } else {
+                let level = starts.iter().rposition(|s| distance >= *s).unwrap_or(0);
+                level.min(impostor_level - 1)
+            };
+            drawn[level] += per_tree[level];
+        }
+        let total: f64 = drawn.iter().sum();
+        write!(summary, "\n  triangles  {:.2} M drawn", total / 1e6).unwrap();
+        for (level, triangles) in drawn.iter().enumerate() {
+            let name = if level == impostor_level {
+                "impostors".to_owned()
+            } else {
+                format!("level {level}")
+            };
+            write!(summary, ", {name} {:.1}%", 100.0 * triangles / total).unwrap();
+        }
     }
     info!("{summary}");
     if let Some(path) = &bench.csv {

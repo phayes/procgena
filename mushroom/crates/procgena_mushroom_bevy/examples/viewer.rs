@@ -1,5 +1,5 @@
-//! Shows every mushroom preset in a row, two clusters, and porcini scattered
-//! over a patch of ground.
+//! Shows every mushroom preset in a row, two clusters, and porcini and fairy
+//! rings scattered over a patch of ground.
 //!
 //! ```bash
 //! cargo run -p procgena_mushroom_bevy --example viewer
@@ -11,8 +11,10 @@
 //! detail levels.
 //!
 //! Add `--screenshot <file.png>` to save an image once everything has been
-//! generated, then exit. Add `--flat` to draw everything at the cheapest
-//! detail (open caps and camera-facing stem strips) at every distance,
+//! generated, then exit. Add `--flat` to draw everything with open caps and
+//! camera-facing stem strips at every distance, `--billboard` to draw
+//! everything at the cheapest detail (one camera-facing triangle each for
+//! stem and cap),
 //! `--closeup` to start next to the enoki cluster instead of the preset row,
 //! `--preset <name>` (such as `porcini` or `fly_agaric`) to start next to one
 //! preset, and `--orbit <degrees>` to start the camera turned around what it
@@ -31,12 +33,9 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_mesh::{GeneratedObject, Object, Part, SurfaceMesh, tags};
-use procgena_mushroom::{
-    ClusterOptions, LodLevel, MushroomDetail, MushroomLod, MushroomPreset, ScatterOptions,
-};
+use procgena_mushroom::{LodLevel, MushroomDetail, MushroomLod, MushroomPreset, ScatterOptions};
 use procgena_mushroom_bevy::{
-    MushroomClusterParams, MushroomGenerating, MushroomParams, MushroomPart, MushroomPlugin,
-    MushroomScatterParams,
+    MushroomGenerating, MushroomParams, MushroomPart, MushroomPlugin, MushroomScatterParams,
 };
 
 /// Frames to wait after generation finishes before a screenshot, so meshes
@@ -97,16 +96,20 @@ fn main() {
             .unwrap_or_else(|| panic!("no preset named {name:?}"))
     });
 
-    // `--flat` uses only the cheapest detail, drawn out to 100 m.
+    // `--flat` and `--billboard` use only that one detail, drawn out to
+    // 100 m.
+    let only = |detail| MushroomLod {
+        levels: vec![LodLevel {
+            distance: 0.0,
+            hysteresis: 0.1,
+            detail,
+        }],
+        cull_distance: 100.0,
+    };
     let lod = if args.iter().any(|a| a == "--flat") {
-        MushroomLod {
-            levels: vec![LodLevel {
-                distance: 0.0,
-                hysteresis: 0.1,
-                detail: MushroomDetail::FLAT,
-            }],
-            cull_distance: 100.0,
-        }
+        only(MushroomDetail::FLAT)
+    } else if args.iter().any(|a| a == "--billboard") {
+        only(MushroomDetail::BILLBOARD)
     } else {
         MushroomLod::default()
     };
@@ -245,34 +248,26 @@ fn setup(
         Transform::from_xyz(2.0, 4.0, 1.5).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // Every preset in a row.
+    // Every preset in a row, each as a single mushroom.
     for (i, preset) in MushroomPreset::ALL.into_iter().enumerate() {
+        let mut options = preset.options();
+        options.cluster.stems = 1;
         commands.spawn((
-            MushroomParams::preset(preset),
+            MushroomParams::new(options),
             Transform::from_xyz(row_x(i), 0.0, 0.0),
         ));
     }
 
-    // A cluster of enoki whose long stalks sweep outward from a tight base,
-    // and a tuft of buttons.
+    // The enoki preset's cluster, whose long stalks sweep outward from a
+    // tight base, and a tuft of buttons.
     commands.spawn((
-        MushroomClusterParams {
-            mushroom: Arc::new(MushroomPreset::Enoki.options()),
-            cluster: ClusterOptions {
-                count_min: 12,
-                count_max: 16,
-                lean: 5.0,
-                sweep: 0.35,
-                ..ClusterOptions::default()
-            },
-        },
+        MushroomParams::preset(MushroomPreset::Enoki),
         Transform::from_translation(ENOKI_CLUSTER),
     ));
+    let mut buttons = MushroomPreset::Button.options();
+    buttons.cluster.stems = 5;
     commands.spawn((
-        MushroomClusterParams {
-            mushroom: Arc::new(MushroomPreset::Button.options()),
-            cluster: ClusterOptions::default(),
-        },
+        MushroomParams::new(buttons),
         Transform::from_xyz(0.4, 0.0, -0.4),
     ));
 
@@ -305,6 +300,21 @@ fn setup(
             mushroom: Arc::new(MushroomPreset::Porcini.options()),
             scatter: ScatterOptions {
                 density: 6.0,
+                ..ScatterOptions::default()
+            },
+        },
+        ChildOf(host),
+    ));
+    // A couple of fairy rings on the same ground.
+    commands.spawn((
+        MushroomScatterParams {
+            mushroom: Arc::new(MushroomPreset::FairyRing.options()),
+            scatter: ScatterOptions {
+                seed: 3,
+                density: 0.06,
+                min_spacing: 2.0,
+                scale_min: 0.9,
+                scale_max: 1.1,
                 ..ScatterOptions::default()
             },
         },

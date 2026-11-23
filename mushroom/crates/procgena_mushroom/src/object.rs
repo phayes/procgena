@@ -22,10 +22,8 @@ pub mod tags {
     pub const CAP: Tag = Tag::new("cap");
     /// The stem.
     pub const STEM: Tag = Tag::new("stem");
-    /// The ring around the stem.
-    pub const RING: Tag = Tag::new("ring");
-    /// Warts on the cap.
-    pub const WART: Tag = Tag::new("wart");
+    /// The annulus: the skirt around the stem.
+    pub const ANNULUS: Tag = Tag::new("annulus");
 }
 
 impl PartKind {
@@ -35,8 +33,7 @@ impl PartKind {
         match self {
             PartKind::Cap => tags::CAP,
             PartKind::Stem => tags::STEM,
-            PartKind::Ring => tags::RING,
-            PartKind::Warts => tags::WART,
+            PartKind::Annulus => tags::ANNULUS,
         }
     }
 }
@@ -45,8 +42,9 @@ impl MushroomMesh {
     /// Returns each part of the mesh as a standalone, tagged [`Part`], with
     /// its closed pieces recorded.
     ///
-    /// A flat stem ([`crate::StemRibbon`]) is left out, because it turns
-    /// with the camera and so has no fixed surface to grow on.
+    /// Camera-facing shapes ([`MushroomMesh::billboard`]) are left out,
+    /// because they turn with the camera and so have no fixed surface to
+    /// grow on.
     pub fn object_parts(&self) -> Vec<Part> {
         self.parts
             .iter()
@@ -57,6 +55,8 @@ impl MushroomMesh {
 
 impl Mushroom {
     /// Builds an [`Object`] with one detail level for each level of `lod`.
+    /// Every member of a cluster is included, and parts of the same kind
+    /// are merged, so the object has one cap part, one stem part, and so on.
     ///
     /// # Errors
     ///

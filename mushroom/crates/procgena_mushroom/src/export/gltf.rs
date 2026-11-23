@@ -137,7 +137,7 @@ fn build(
     let mut nodes = Vec::new();
     for (lod, mesh) in meshes.iter().enumerate() {
         let name = level_name(lod, meshes.len());
-        let material = if mesh.double_sided || mesh.stem_ribbon.is_some() {
+        let material = if mesh.double_sided || mesh.billboard.is_some() {
             open
         } else {
             solid

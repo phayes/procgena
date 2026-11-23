@@ -22,7 +22,7 @@ the same file through `.pi/settings.json`. Edit it here only.
 2. Read the `docs/` page that owns the feature. It is the spec: `api.md`
    (items), `design.md` (why it is fast), `terrain.md`, `fields.md`,
    `settings.md`, `editing.md`, `trampling.md`, `wind.md`, `rendering.md`,
-   `presets.md`, `tooling.md`, `performance.md`, `testing.md`, `roadmap.md`.
+   `presets.md`, `tooling.md`, `performance.md`, `testing.md`.
 3. Search before adding a helper (`rg 'fn name' src`). Table rebuilds, packing
    and the CPU models already exist; two copies drift.
 4. Check Bevy APIs against the 0.20 source in

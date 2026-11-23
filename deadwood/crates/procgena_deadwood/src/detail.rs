@@ -45,6 +45,16 @@ pub struct DeadwoodDetail {
     /// across. Defaults to false in JSON.
     #[serde(default)]
     pub strip_all: bool,
+    /// Share of the piece's leaf sprays (see [`crate::LeafOptions`]) to
+    /// draw, from 0 (none) through 1 (all). Lower shares keep a subset of
+    /// the sprays a higher share keeps. Defaults to 1 in JSON.
+    #[serde(default = "all_leaves")]
+    pub leaf_share: f32,
+}
+
+/// Default for [`DeadwoodDetail::leaf_share`] in JSON.
+fn all_leaves() -> f32 {
+    1.0
 }
 
 impl DeadwoodDetail {
@@ -56,9 +66,11 @@ impl DeadwoodDetail {
         min_radius: 0.0,
         ribbon_radius: 0.0,
         strip_all: false,
+        leaf_share: 1.0,
     };
     /// Mid-distance detail: about a quarter of the triangles of
-    /// [`FULL`](Self::FULL). Thin twigs become strips.
+    /// [`FULL`](Self::FULL). Thin twigs become strips, and 60% of leaf
+    /// sprays are kept.
     pub const HIGH: Self = Self {
         sides: 16,
         segments_per_diameter: 1.2,
@@ -66,8 +78,10 @@ impl DeadwoodDetail {
         min_radius: 0.002,
         ribbon_radius: 0.008,
         strip_all: false,
+        leaf_share: 0.6,
     };
-    /// Distant detail: an eight-sided stem, flat ends, only thick branches.
+    /// Distant detail: an eight-sided stem, flat ends, only thick branches
+    /// and a quarter of the leaf sprays.
     pub const LOW: Self = Self {
         sides: 8,
         segments_per_diameter: 0.4,
@@ -75,9 +89,11 @@ impl DeadwoodDetail {
         min_radius: 0.015,
         ribbon_radius: 0.03,
         strip_all: false,
+        leaf_share: 0.25,
     };
     /// Farthest detail: every stem a flat strip turned toward the camera,
-    /// with only the thickest branches kept. A few triangles per stem.
+    /// with only the thickest branches kept and no leaves. A few triangles
+    /// per stem.
     pub const STRIP: Self = Self {
         sides: 3,
         segments_per_diameter: 0.25,
@@ -85,6 +101,7 @@ impl DeadwoodDetail {
         min_radius: 0.03,
         ribbon_radius: 0.0,
         strip_all: true,
+        leaf_share: 0.0,
     };
 
     /// The named detail levels, for menus.
@@ -110,7 +127,8 @@ impl DeadwoodDetail {
         )?;
         int_range("detail.cap_rings", self.cap_rings, 1, 32)?;
         non_negative("detail.min_radius", self.min_radius)?;
-        non_negative("detail.ribbon_radius", self.ribbon_radius)
+        non_negative("detail.ribbon_radius", self.ribbon_radius)?;
+        within("detail.leaf_share", self.leaf_share, 0.0, 1.0)
     }
 }
 

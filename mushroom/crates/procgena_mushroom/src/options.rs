@@ -1,4 +1,4 @@
-//! Settings for a mushroom's shape, colours and mesh detail.
+//! Settings for a mushroom's shape, colours, grouping and mesh detail.
 //!
 //! Start with [`MushroomOptions::default()`], a [`crate::MushroomPreset`], or
 //! a partial JSON object loaded with [`MushroomOptions::from_json`]. Creating
@@ -7,11 +7,13 @@
 
 use std::fmt;
 
+use glam::Vec2;
 use serde::{Deserialize, Serialize};
 
+use crate::cluster::ClusterOptions;
 use crate::colour::parse_hex;
 use crate::detail::MushroomDetail;
-use crate::profile::CapFamily;
+use crate::profile::{CapFamily, Profile};
 use crate::texture::TexturePart;
 
 /// Largest allowed [`CapOptions::lobes`].
@@ -23,8 +25,8 @@ pub const MAX_GILL_LINES: u32 = 256;
 /// Largest allowed segment count in a [`MushroomDetail`].
 pub const MAX_SEGMENTS: u32 = 256;
 
-/// Everything that describes one mushroom: its shape, colours and default
-/// mesh detail.
+/// Everything that describes one mushroom, or a group of them: shape,
+/// colours, how many grow together, and the default mesh detail.
 ///
 /// Only [`size`](Self::size) is in metres. Other lengths are fractions or
 /// multiples of the cap or stem, as each field says, so a mushroom keeps its
@@ -36,8 +38,9 @@ pub const MAX_SEGMENTS: u32 = 256;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MushroomOptions {
     /// Number that picks the random details: surface bumps, rim waves, wart
-    /// positions and the ring's ragged edge. The same seed and settings
-    /// always give the same mushroom; change it for a variation.
+    /// positions, the annulus's ragged edge, and where the members of a
+    /// cluster stand. The same seed and settings always give the same
+    /// mushroom; change it for a variation.
     pub seed: u32,
     /// Cap diameter in metres. Must be positive. Defaults to 0.08 (8 cm).
     pub size: f32,
@@ -45,14 +48,18 @@ pub struct MushroomOptions {
     pub cap: CapOptions,
     /// The cap's underside, where a real mushroom has its gills.
     pub underside: UndersideOptions,
-    /// Stem shape.
+    /// Stem shape above the ground.
     pub stem: StemOptions,
-    /// The ring: a thin skirt some species have around the stem.
-    pub ring: RingOptions,
+    /// The swollen foot of the stem and its closed, rounded bottom.
+    pub bulb: BulbOptions,
+    /// The annulus: a thin skirt some species have around the stem.
+    pub annulus: AnnulusOptions,
     /// Raised warts or scales on top of the cap.
     pub warts: WartOptions,
     /// Colours and surface appearance.
     pub material: MaterialOptions,
+    /// How many mushrooms grow together, and how they are arranged.
+    pub cluster: ClusterOptions,
     /// Mesh detail that [`crate::Mushroom::mesh`] uses. Other methods take
     /// their detail as an argument.
     pub detail: MushroomDetail,
@@ -107,7 +114,8 @@ pub struct UndersideOptions {
     pub decurrent: f32,
 }
 
-/// Settings for the stem.
+/// Settings for the stem above the ground. Its foot is set by
+/// [`BulbOptions`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StemOptions {
     /// Stem height as a multiple of the cap diameter. Must be positive.
@@ -115,15 +123,9 @@ pub struct StemOptions {
     /// Radius at the top of the stem as a fraction of the cap diameter,
     /// from 0.01 through 0.4.
     pub radius: f32,
-    /// Radius at the base as a multiple of the top radius. Must be positive.
-    /// Above 1 widens the stem toward the ground.
+    /// Radius at the ground as a multiple of the top radius, before any
+    /// bulb. Must be positive. Above 1 widens the stem toward the ground.
     pub base: f32,
-    /// Extra radius of a swollen base (a bulb), as a multiple of the top
-    /// radius, from 0 (none) through 3.
-    pub bulb: f32,
-    /// Fraction of the stem height, from the ground up, that the bulb
-    /// covers, from 0.01 through 1.
-    pub bulb_height: f32,
     /// Extra radius just under the cap, as a multiple of the top radius,
     /// from 0 through 1. It flares the stem where it joins the cap.
     pub collar: f32,
@@ -141,24 +143,51 @@ pub struct StemOptions {
     /// [`lean`](Self::lean).
     pub upturn: f32,
     /// Direction of the lean in degrees, measured around the vertical axis
-    /// from +X toward +Z. Any finite value is allowed.
+    /// from +X toward +Z. Any finite value is allowed. Ignored for the
+    /// members of a cluster, which lean in directions the cluster picks.
     pub lean_direction: f32,
     /// Height of the bumps on the stem surface as a fraction of its radius,
     /// from 0 (smooth) through 0.3.
     pub roughness: f32,
 }
 
-/// Settings for the ring: a thin skirt hanging from the stem, as on a fly
-/// agaric. Mycologists call it the annulus.
+/// Settings for the stem's foot: a swelling just above the ground (the
+/// basal bulb), and a rounded bottom that closes the stem below the ground.
 ///
-/// The ring is built as a single sheet with no thickness, so it is cheap
+/// The ground is at height 0, where the mushroom stands. A closed bottom
+/// hangs below it, so a mushroom placed on a surface looks rooted, and one
+/// lifted off the ground has no hole underneath.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BulbOptions {
+    /// Whether the stem is closed underneath by a rounded bottom below the
+    /// ground. Turn it off for mushrooms planted in a landscape, where the
+    /// bottom would be buried: the stem then ends, open, at the ground,
+    /// which saves triangles.
+    pub closed: bool,
+    /// Extra radius of the swelling at the ground, as a multiple of the
+    /// stem's top radius, from 0 (none) through 3.
+    pub size: f32,
+    /// Fraction of the stem height, from the ground up, over which the
+    /// swelling narrows back into the stem, from 0.01 through 1.
+    pub height: f32,
+    /// How far the closed bottom reaches below the ground, as a multiple of
+    /// the stem's radius at the ground, from 0.05 through 2. Only used when
+    /// [`closed`](Self::closed) is on.
+    pub depth: f32,
+}
+
+/// Settings for the annulus: a thin skirt hanging from the stem, as on a
+/// fly agaric. It is what is left of a veil that covered the gills while
+/// the mushroom was young.
+///
+/// The annulus is built as a single sheet with no thickness, so it is cheap
 /// and never closed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RingOptions {
-    /// Whether the mushroom has a ring.
+pub struct AnnulusOptions {
+    /// Whether the mushroom has an annulus.
     pub enabled: bool,
-    /// Where the ring is attached, as a fraction of the stem height from the
-    /// ground, from 0.1 through 1.
+    /// Where the annulus is attached, as a fraction of the stem height from
+    /// the ground, from 0.1 through 1.
     pub position: f32,
     /// How far the skirt hangs down, as a fraction of the cap diameter, from
     /// 0.01 through 0.5.
@@ -172,19 +201,24 @@ pub struct RingOptions {
 
 /// Settings for warts or scales on top of the cap.
 ///
-/// Close up, warts are small raised domes. At coarser detail levels they are
-/// painted into the cap's colours instead; see [`crate::WartDetail`].
+/// Warts are not modelled. A renderer such as `procgena_mushroom_bevy`
+/// draws them as shaded, raised-looking spots, so they cost no triangles at
+/// any distance. For renderers without that shader, such as files written
+/// by [`crate::export`], meshes paint them into the cap's vertex colours;
+/// see [`MushroomDetail::paint_warts`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WartOptions {
-    /// How many warts to place, from 0 (none) up to [`MAX_WARTS`]. Warts
-    /// never overlap, so fewer may fit on a small or crowded cap.
+    /// Roughly how many warts cover the cap, from 0 (none) up to
+    /// [`MAX_WARTS`]. Warts never overlap, so fewer may fit on a small or
+    /// crowded cap.
     pub count: u32,
     /// Wart radius as a fraction of the cap radius, from 0.005 through 0.3.
     pub size: f32,
     /// How much wart sizes vary, from 0 (all the same) through 1.
     pub size_jitter: f32,
-    /// Height of each wart as a multiple of its radius, from 0.05 through 2.
-    /// Low values give flat scales; high values give pointed warts.
+    /// How raised the warts look, as a multiple of their radius, from 0.05
+    /// through 2. Low values give flat scales; high values give pointed
+    /// warts.
     pub height: f32,
     /// How much of the cap carries warts, measured from the top centre, from
     /// 0.05 (a patch at the top) through 1 (out to the rim).
@@ -196,8 +230,8 @@ pub struct WartOptions {
 /// Colours are written as `"#rrggbb"` hex strings in the usual sRGB colour
 /// space, as in image editors, such as `"#c8281e"` for a fly-agaric red.
 /// They are stored in the mesh as per-vertex colours, which renderers
-/// multiply with any texture. Gill lines and the cap pattern are not in the
-/// mesh: a renderer such as `procgena_mushroom_bevy` draws them.
+/// multiply with any texture. Gill lines, warts and the cap pattern are not
+/// in the mesh: a renderer such as `procgena_mushroom_bevy` draws them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MaterialOptions {
     /// Cap colour at the top centre.
@@ -210,14 +244,20 @@ pub struct MaterialOptions {
     pub stem_top: String,
     /// Stem colour at the ground. The stem blends from base to top colour.
     pub stem_base: String,
-    /// Ring colour.
-    pub ring: String,
-    /// Wart colour, also used where warts are painted on at coarse detail.
+    /// Annulus colour.
+    pub annulus: String,
+    /// Wart colour.
     pub wart: String,
-    /// Number of thin lines, radiating from the stem, that a renderer draws
-    /// on the underside to suggest gills. From 0 (none) up to
-    /// [`MAX_GILL_LINES`].
+    /// Whether a renderer draws thin lines on the underside, radiating from
+    /// the stem, to suggest gills. Turn it off for a smooth underside, such
+    /// as the pores of a bolete.
+    pub gills: bool,
+    /// Number of gill lines around the underside, from 1 up to
+    /// [`MAX_GILL_LINES`]. Only used when [`gills`](Self::gills) is on.
     pub gill_lines: u32,
+    /// How much the gill lines darken the underside, from 0 (invisible)
+    /// through 1. Only used when [`gills`](Self::gills) is on.
+    pub gill_strength: f32,
     /// Pattern a renderer draws on top of the cap.
     pub pattern: Pattern,
     /// Colour of the pattern.
@@ -234,8 +274,8 @@ pub struct MaterialOptions {
     /// colours only.
     ///
     /// The set's own colours replace the cap colours and the pattern on the
-    /// cap's top; the rim, underside and stem keep theirs. Renderers that
-    /// don't load textures ignore it.
+    /// cap's top; the rim, underside and stem keep theirs. Warts are drawn
+    /// on top of it. Renderers that don't load textures ignore it.
     pub cap_texture: Option<String>,
     /// Width of the cap's top covered by one repeat of
     /// [`cap_texture`](Self::cap_texture), in metres. Must be positive.
@@ -247,7 +287,7 @@ pub struct MaterialOptions {
     /// The set adds surface detail while the stem keeps its own colours:
     /// renderers tint the texture so that its average colour matches
     /// [`stem_top`](Self::stem_top) and [`stem_base`](Self::stem_base) at
-    /// each point. The ring is not textured. Renderers that don't load
+    /// each point. The annulus is not textured. Renderers that don't load
     /// textures ignore it.
     pub stem_texture: Option<String>,
     /// Length of stem covered by one repeat of
@@ -279,9 +319,11 @@ impl Default for MushroomOptions {
             cap: CapOptions::default(),
             underside: UndersideOptions::default(),
             stem: StemOptions::default(),
-            ring: RingOptions::default(),
+            bulb: BulbOptions::default(),
+            annulus: AnnulusOptions::default(),
             warts: WartOptions::default(),
             material: MaterialOptions::default(),
+            cluster: ClusterOptions::default(),
             detail: MushroomDetail::FULL,
         }
     }
@@ -318,8 +360,6 @@ impl Default for StemOptions {
             height: 0.9,
             radius: 0.09,
             base: 1.2,
-            bulb: 0.2,
-            bulb_height: 0.2,
             collar: 0.1,
             lean: 0.08,
             curve: 1.6,
@@ -330,7 +370,18 @@ impl Default for StemOptions {
     }
 }
 
-impl Default for RingOptions {
+impl Default for BulbOptions {
+    fn default() -> Self {
+        Self {
+            closed: true,
+            size: 0.2,
+            height: 0.2,
+            depth: 0.5,
+        }
+    }
+}
+
+impl Default for AnnulusOptions {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -362,9 +413,11 @@ impl Default for MaterialOptions {
             underside: "#d8c7a8".into(),
             stem_top: "#e6dcc6".into(),
             stem_base: "#b9a888".into(),
-            ring: "#ece4d2".into(),
+            annulus: "#ece4d2".into(),
             wart: "#f2ece0".into(),
+            gills: true,
             gill_lines: 72,
+            gill_strength: 0.35,
             pattern: Pattern::None,
             pattern_colour: "#3a2616".into(),
             pattern_scale: 12.0,
@@ -484,8 +537,9 @@ impl fmt::Display for OptionsError {
 impl std::error::Error for OptionsError {}
 
 impl MushroomOptions {
-    /// Checks every setting, including [`detail`](Self::detail), against the
-    /// range given in its documentation.
+    /// Checks every setting, including [`cluster`](Self::cluster) and
+    /// [`detail`](Self::detail), against the range given in its
+    /// documentation.
     ///
     /// # Errors
     ///
@@ -511,8 +565,6 @@ impl MushroomOptions {
         positive("stem.height", s.height)?;
         within("stem.radius", s.radius, 0.01, 0.4)?;
         positive("stem.base", s.base)?;
-        within("stem.bulb", s.bulb, 0.0, 3.0)?;
-        within("stem.bulb_height", s.bulb_height, 0.01, 1.0)?;
         within("stem.collar", s.collar, 0.0, 1.0)?;
         within("stem.lean", s.lean, 0.0, 1.0)?;
         within("stem.curve", s.curve, 1.0, 4.0)?;
@@ -520,11 +572,16 @@ impl MushroomOptions {
         finite("stem.lean_direction", s.lean_direction)?;
         within("stem.roughness", s.roughness, 0.0, 0.3)?;
 
-        let r = &self.ring;
-        within("ring.position", r.position, 0.1, 1.0)?;
-        within("ring.length", r.length, 0.01, 0.5)?;
-        within("ring.flare", r.flare, 1.0, 4.0)?;
-        within("ring.raggedness", r.raggedness, 0.0, 1.0)?;
+        let b = &self.bulb;
+        within("bulb.size", b.size, 0.0, 3.0)?;
+        within("bulb.height", b.height, 0.01, 1.0)?;
+        within("bulb.depth", b.depth, 0.05, 2.0)?;
+
+        let a = &self.annulus;
+        within("annulus.position", a.position, 0.1, 1.0)?;
+        within("annulus.length", a.length, 0.01, 0.5)?;
+        within("annulus.flare", a.flare, 1.0, 4.0)?;
+        within("annulus.raggedness", a.raggedness, 0.0, 1.0)?;
 
         let w = &self.warts;
         int_range("warts.count", w.count, 0, MAX_WARTS)?;
@@ -540,7 +597,7 @@ impl MushroomOptions {
             ("material.underside", &m.underside),
             ("material.stem_top", &m.stem_top),
             ("material.stem_base", &m.stem_base),
-            ("material.ring", &m.ring),
+            ("material.annulus", &m.annulus),
             ("material.wart", &m.wart),
             ("material.pattern_colour", &m.pattern_colour),
         ] {
@@ -551,7 +608,8 @@ impl MushroomOptions {
                 });
             }
         }
-        int_range("material.gill_lines", m.gill_lines, 0, MAX_GILL_LINES)?;
+        int_range("material.gill_lines", m.gill_lines, 1, MAX_GILL_LINES)?;
+        within("material.gill_strength", m.gill_strength, 0.0, 1.0)?;
         positive("material.pattern_scale", m.pattern_scale)?;
         within("material.pattern_strength", m.pattern_strength, 0.0, 1.0)?;
         within("material.roughness", m.roughness, 0.0, 1.0)?;
@@ -573,6 +631,7 @@ impl MushroomOptions {
         positive("material.cap_texture_size", m.cap_texture_size)?;
         positive("material.stem_texture_size", m.stem_texture_size)?;
 
+        self.cluster.validate()?;
         self.detail.validate()
     }
 
@@ -605,6 +664,22 @@ impl MushroomOptions {
     /// Cap radius in metres: half of [`size`](Self::size).
     pub fn cap_radius(&self) -> f32 {
         self.size * 0.5
+    }
+
+    /// Returns the length of the cap's top surface measured along its
+    /// side-view outline, from the rim up to the top centre, in metres.
+    /// Rim waves, bumps and lopsidedness are not included.
+    ///
+    /// Renderers use it with the mesh's `v` texture coordinate, which runs
+    /// from 0 at the rim to 1 at the top along this outline, to measure
+    /// distances on the cap.
+    pub fn cap_top_length(&self) -> f32 {
+        let (anchors, sharp) = self.cap.family.top_anchors();
+        let points: Vec<Vec2> = anchors
+            .iter()
+            .map(|&[r, y]| Vec2::new(r, y * self.cap.height))
+            .collect();
+        Profile::new(&points, sharp).length() * self.cap_radius()
     }
 }
 

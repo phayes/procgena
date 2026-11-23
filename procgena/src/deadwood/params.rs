@@ -1,8 +1,9 @@
 //! Dead wood controls and allowed input ranges for the Deadwood tab.
 
 use procgena_deadwood::{
-    BARK_TEXTURE_SETS, DeadwoodOptions, END_TEXTURE_SETS, EndKind, MAX_CHILDREN, MAX_DECAY,
-    MAX_LEVELS, MAX_LOBES, MAX_ROOTS, MAX_SPLINTERS, MAX_STUBS_PER_METRE, PieceKind,
+    BARK_TEXTURE_SETS, DeadwoodOptions, END_TEXTURE_SETS, EndKind, LEAF_TEXTURE_SETS, MAX_CHILDREN,
+    MAX_DECAY, MAX_LEVELS, MAX_LOBES, MAX_ROOTS, MAX_SPLINTERS, MAX_SPRAY_CARDS,
+    MAX_SPRAYS_PER_METRE, MAX_STUBS_PER_METRE, PieceKind,
 };
 
 use crate::params::{Group, Param, Section, choice, count, number, toggle};
@@ -270,6 +271,111 @@ fn is_branch(o: &DeadwoodOptions) -> bool {
 /// Returns the dead wood controls grouped in display order, with labels and
 /// input limits. Preset and seed controls are separate.
 pub fn sections() -> Vec<Section<DeadwoodOptions>> {
+    // Leaf sprays: only the count shows until it is above zero.
+    let has_leaves = |o: &DeadwoodOptions| o.leaves.per_metre > 0.0;
+    let leaves = vec![
+        number!(
+            DeadwoodOptions,
+            "leaves.per_metre",
+            "Sprays per Metre",
+            (0.0, MAX_SPRAYS_PER_METRE, 0.1),
+            |o| o.leaves.per_metre
+        ),
+        Param::choice(
+            "leaves.texture",
+            "Texture",
+            &LEAF_TEXTURE_SETS,
+            |o: &DeadwoodOptions| {
+                LEAF_TEXTURE_SETS
+                    .iter()
+                    .position(|s| *s == o.leaves.texture)
+                    .unwrap_or(0)
+            },
+            |o: &mut DeadwoodOptions, index| {
+                o.leaves.texture = LEAF_TEXTURE_SETS[index].to_owned();
+            },
+        )
+        .shown_if(has_leaves),
+        count!(
+            DeadwoodOptions,
+            "leaves.cards",
+            "Cards per Spray",
+            (1, MAX_SPRAY_CARDS),
+            |o| o.leaves.cards
+        )
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.size",
+            "Size (m)",
+            (0.02, 2.0, 0.01),
+            |o| o.leaves.size
+        )
+        .exponential()
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.size_variance",
+            "Size Variation",
+            (0.0, 0.9, 0.01),
+            |o| o.leaves.size_variance
+        )
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.spread",
+            "Spread (°)",
+            (0.0, 90.0, 1.0),
+            |o| o.leaves.spread
+        )
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.lean",
+            "Lean (°)",
+            (0.0, 90.0, 1.0),
+            |o| o.leaves.lean
+        )
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.up",
+            "Toward Up",
+            (0.0, 1.0, 0.01),
+            |o| o.leaves.up
+        )
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.flatten",
+            "Flatten",
+            (0.0, 1.0, 0.01),
+            |o| o.leaves.flatten
+        )
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.top",
+            "Prefer Top",
+            (0.0, 1.0, 0.01),
+            |o| o.leaves.top
+        )
+        .shown_if(has_leaves),
+        number!(
+            DeadwoodOptions,
+            "leaves.ends",
+            "Near Ends",
+            (0.0, 1.0, 0.01),
+            |o| o.leaves.ends
+        )
+        .shown_if(has_leaves),
+        toggle!(DeadwoodOptions, "leaves.crossed", "Crossed Cards", |o| o
+            .leaves
+            .crossed)
+        .shown_if(has_leaves),
+        hex_colour!("leaves.tint", "Tint", |o| o.leaves.tint).shown_if(has_leaves),
+    ];
+
     let mut stubs = vec![
         number!(
             DeadwoodOptions,
@@ -652,6 +758,7 @@ pub fn sections() -> Vec<Section<DeadwoodOptions>> {
                     ],
                 )
                 .shown_if(|o| o.kind == PieceKind::Stump),
+                Group::titled("Leaves", leaves),
             ],
         },
         Section {

@@ -5,6 +5,21 @@ the working tree, the `target/` directory and the CPU. These rules keep them
 from breaking each other's builds, overwriting each other's files, and paying
 for the same workspace-wide build more than once.
 
+## Read the architecture first
+
+Before you design or change anything that crosses crates (a generator's
+public API, placement, masks, seeds, ids, LOD, loading, presets, or a new
+crate), read [ARCHITECTURE.md](ARCHITECTURE.md). It sets the hierarchy
+(Asset, Scatter, Ecotope, Biome and Terrain, World), the rules every level
+follows, and the alignment rules every asset is moving towards. The current code is far
+behind it, and that is expected for now: the gap is not a bug to fix as you
+go. Don't take today's code as a sign the document is wrong. Follow the
+document in new work, and only change existing code to match it when that
+is your task.
+If your change conflicts with it, stop and ask rather than diverging
+quietly. If your change settles one of its TODOs or open questions, update
+the document and say so in your report.
+
 ## Your role: worker or coordinator
 
 - **Worker**: an agent that was given one task. A worker runs only the checks
@@ -50,6 +65,7 @@ cargo test -p <package> --doc
 | `clump/` | `procgena_clump_bevy`| Headless lifecycle tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders; download textures first with `uv run --project tools textures download clump`. |
 | `deadwood/` | `procgena_deadwood` | Features `export-obj`, `export-gltf`. One file per area in `tests/`. `--example export` writes every preset as GLB/OBJ to `target/procgena_deadwood_export/`. |
 | `deadwood/` | `procgena_deadwood_bevy` | Headless spawn tests in `src/spawn.rs`. `--test gpu -- --include-ignored` checks the shaders. `--example viewer -- --headless --screenshot <png>` (also `--preset <name> --closeup`, `--flat`) shows the presets; it reads bark and end grain from `deadwood/assets/textures` (`uv run --project tools textures download deadwood`). |
+| `impostor/` | `procgena_impostor` | Bakes generated objects into octahedral impostors (Bevy). `--example impostor -- --headless --screenshot <png>` bakes a primitive and draws it beside its impostor. |
 | `mesh/`  | `procgena_mesh`      | Feature `bevy`. Every generator depends on it, so a change rebuilds most of the workspace. |
 | `mushroom/` | `procgena_mushroom` | Features `export-obj`, `export-gltf`. One file per area in `tests/`.   |
 | `mushroom/` | `procgena_mushroom_bevy` | Headless spawn tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders (also `--preset <name>`, `--flat`). |
@@ -125,4 +141,5 @@ run only when the user asks for them. Workers must never bless goldens.
 
 Codex, Pi and other agents do not read this file. When you pass work to one
 of them, put the "Scoped checks", "Shared files" and "Git" rules in the
-brief you give it.
+brief you give it, and point it at ARCHITECTURE.md when the work crosses
+crates.

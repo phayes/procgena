@@ -24,6 +24,9 @@
 //! }
 //! ```
 //!
+//! [`LeafOptions`] grows leafy shoots, ferns or shelf fungi out of the main
+//! stem, as see-through picture cards that a renderer textures.
+//!
 //! Distant objects don't need fine detail, so renderers swap in simpler
 //! meshes as the camera moves away; each of those is a "level of detail"
 //! (LOD). [`DeadwoodLod`] says which detail to use at which distance.
@@ -55,6 +58,7 @@ mod decay;
 mod detail;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
+mod leaves;
 mod limb;
 mod mesh;
 mod object;
@@ -73,9 +77,10 @@ pub use mesh::{BillboardVertex, DeadwoodMesh, MeshBuffers, PartRange, Ribbons, Z
 pub use object::object_from_meshes;
 pub use options::{
     BarkOptions, BranchingOptions, DeadwoodOptions, EndKind, EndsOptions, HollowOptions,
-    MAX_CHILDREN, MAX_DECAY, MAX_END_SHARE, MAX_LEVELS, MAX_LOBES, MAX_ROOTS, MAX_SEGMENTS,
-    MAX_SPLINTERS, MAX_STUBS_PER_METRE, MaterialOptions, OptionsError, PieceKind, RootOptions,
-    SettleOptions, ShapeOptions, StubOptions,
+    LeafOptions, MAX_CHILDREN, MAX_DECAY, MAX_END_SHARE, MAX_LEVELS, MAX_LOBES, MAX_ROOTS,
+    MAX_SEGMENTS, MAX_SPLINTERS, MAX_SPRAY_CARDS, MAX_SPRAYS_PER_METRE, MAX_STUBS_PER_METRE,
+    MaterialOptions, OptionsError, PieceKind, RootOptions, SettleOptions, ShapeOptions,
+    StubOptions,
 };
 pub use piece::{DeadwoodError, Piece};
 pub use presets::DeadwoodPreset;
@@ -85,6 +90,6 @@ pub use scatter::{
 };
 pub use settle::Placement;
 pub use texture::{
-    BARK_TEXTURE_SETS, END_TEXTURE_SETS, TextureCompression, TextureMap, TextureSize,
-    bark_texture_path, end_texture_path,
+    BARK_TEXTURE_SETS, END_TEXTURE_SETS, LEAF_TEXTURE_SETS, LeafMap, TextureCompression,
+    TextureMap, TextureSize, bark_texture_path, end_texture_path, leaf_texture_path,
 };

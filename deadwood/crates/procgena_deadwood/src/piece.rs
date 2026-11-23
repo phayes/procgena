@@ -2,10 +2,11 @@
 
 use std::fmt;
 
-use crate::build::build;
+use crate::build::{build, visible_span};
 use crate::colour::Palette;
 use crate::decay::Decay;
 use crate::detail::{DeadwoodDetail, DeadwoodLod, LodLevel};
+use crate::leaves::{Card, mesh_cards, place};
 use crate::limb::Limb;
 use crate::mesh::{DeadwoodMesh, Shade, build_mesh};
 use crate::options::{DeadwoodOptions, OptionsError};
@@ -24,6 +25,8 @@ pub struct Piece {
     limbs: Vec<Limb>,
     placement: Placement,
     decay: Decay,
+    /// Every leaf card, placed on the settled stem.
+    cards: Vec<Card>,
 }
 
 /// Why a piece could not be created.
@@ -78,11 +81,14 @@ impl Piece {
         let decay = Decay::new(&options);
         let mut limbs = build(&options, &decay);
         let placement = settle(&options, &decay, &mut limbs);
+        let span = visible_span(&options, &limbs[0]);
+        let cards = place(&options, &limbs[0], span, placement.burial);
         Ok(Self {
             options,
             limbs,
             placement,
             decay,
+            cards,
         })
     }
 
@@ -139,7 +145,14 @@ impl Piece {
             palette: Palette::new(&self.options.material),
             decay: self.decay,
         };
-        build_mesh(&self.limbs, detail, &shade)
+        let mut mesh = build_mesh(&self.limbs, detail, &shade);
+        mesh.leaves = mesh_cards(
+            &self.cards,
+            &self.options.leaves,
+            self.options.seed,
+            detail.leaf_share,
+        );
+        mesh
     }
 
     /// Builds one mesh per level of `lod`, from nearest to furthest, each

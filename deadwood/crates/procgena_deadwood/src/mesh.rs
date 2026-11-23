@@ -191,11 +191,19 @@ pub struct DeadwoodMesh {
     pub parts: Vec<PartRange>,
     /// Stems drawn as flat strips; `None` when there are none.
     pub ribbons: Option<Ribbons>,
+    /// Leaf cards ([`crate::LeafOptions`]); `None` when there are none at
+    /// this detail. Each card is a square showing the leaf texture, with
+    /// `v` running from 0 at the base, where it grows from the wood, to 1
+    /// at its tip. Draw them two-sided with alpha testing, using
+    /// [`crate::LeafMap::Color`]'s alpha to cut out the leaves. The vertex
+    /// colour is [`crate::LeafOptions::tint`], and the wood values are
+    /// unused (zero).
+    pub leaves: Option<MeshBuffers>,
 }
 
 impl DeadwoodMesh {
-    /// Number of triangles, counting both [`Ribbons::strip`] and
-    /// [`Ribbons::cull`]. A renderer that turns the strips draws only one of
+    /// Number of triangles, counting leaf cards and both [`Ribbons::strip`]
+    /// and [`Ribbons::cull`]. A renderer that turns the strips draws only one of
     /// these, so it draws fewer triangles than this.
     pub fn triangle_count(&self) -> usize {
         self.surfaces.triangle_count()
@@ -203,6 +211,7 @@ impl DeadwoodMesh {
                 .ribbons
                 .as_ref()
                 .map_or(0, |r| r.strip.triangle_count() + r.cull.triangle_count())
+            + self.leaves.as_ref().map_or(0, MeshBuffers::triangle_count)
     }
 }
 

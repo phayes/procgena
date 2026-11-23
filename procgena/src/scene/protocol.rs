@@ -213,7 +213,6 @@ pub enum DeadwoodView {
     TwigLitter,
 }
 
-
 /// What the clump mode shows: a subject, and the clump grown on it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClumpSettings {
@@ -293,6 +292,9 @@ pub enum ViewerEvent {
     /// trees it has and their meshes added together, or why it could not be
     /// built.
     GroveBuilt(Result<GroveStats, TreeGroveBuildError>),
+    /// How far the grove shown in grove mode has got, sent whenever that
+    /// changes. Also sent when grove mode is shown.
+    GroveProgress(GroveProgress),
     /// Reports the result of generating a dead wood piece: mesh sizes per
     /// detail level and build time on success, or why its settings were
     /// rejected. A rejected replacement leaves the previous piece visible.
@@ -335,6 +337,34 @@ pub struct GroveStats {
     /// detail level, and the build time. Trees that share a mesh are each
     /// counted.
     pub build: BuildStats,
+}
+
+/// How far the grove shown has got. Its trees are generated first, one
+/// shape per species variant that the grove places; then the impostors its
+/// far trees are drawn with are baked, one per shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GroveProgress {
+    /// The grove is being built: `done` of its `total` tree shapes are
+    /// generated. `total` is 0 until the trees are placed.
+    Generating {
+        /// Tree shapes generated.
+        done: usize,
+        /// Tree shapes the grove places.
+        total: usize,
+    },
+    /// The grove is built and drawn, and the impostors of `done` of its
+    /// `total` generated tree shapes are baked. Until a shape's impostor is
+    /// baked, its trees are drawn at their farthest mesh level at every
+    /// distance.
+    Baking {
+        /// Impostors baked.
+        done: usize,
+        /// Generated tree shapes.
+        total: usize,
+    },
+    /// Nothing is left to do.
+    #[default]
+    Idle,
 }
 
 /// Size of a mesh, or of several meshes together.

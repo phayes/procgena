@@ -1,8 +1,8 @@
 //! Mushroom controls and allowed input ranges for the Mushrooms tab.
 
 use procgena_mushroom::{
-    CAP_TEXTURE_SETS, CapFamily, MAX_GILL_LINES, MAX_LOBES, MAX_WARTS, MaterialOptions,
-    MushroomOptions, Pattern, STEM_TEXTURE_SETS,
+    CAP_TEXTURE_SETS, CapFamily, ClusterLayout, MAX_GILL_LINES, MAX_LOBES, MAX_STEMS, MAX_VARIANTS,
+    MAX_WARTS, MaterialOptions, MushroomOptions, Pattern, STEM_TEXTURE_SETS,
 };
 
 use crate::params::{Group, Param, Section, choice, count, number, toggle};
@@ -190,20 +190,6 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
                 ),
                 number!(
                     MushroomOptions,
-                    "stem.bulb",
-                    "Bulb",
-                    (0.0, 3.0, 0.05),
-                    |o| o.stem.bulb
-                ),
-                number!(
-                    MushroomOptions,
-                    "stem.bulb_height",
-                    "Bulb Height",
-                    (0.01, 1.0, 0.01),
-                    |o| o.stem.bulb_height
-                ),
-                number!(
-                    MushroomOptions,
                     "stem.collar",
                     "Collar",
                     (0.0, 1.0, 0.01),
@@ -247,45 +233,77 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
             ])],
         },
         Section {
-            title: "Ring",
+            title: "Bulb",
+            groups: vec![
+                Group::plain(vec![
+                    number!(
+                        MushroomOptions,
+                        "bulb.size",
+                        "Bulb",
+                        (0.0, 3.0, 0.05),
+                        |o| o.bulb.size
+                    ),
+                    number!(
+                        MushroomOptions,
+                        "bulb.height",
+                        "Bulb Height",
+                        (0.01, 1.0, 0.01),
+                        |o| o.bulb.height
+                    ),
+                    toggle!(MushroomOptions, "bulb.closed", "Closed Bottom", |o| o
+                        .bulb
+                        .closed),
+                ]),
+                Group::plain(vec![number!(
+                    MushroomOptions,
+                    "bulb.depth",
+                    "Bottom Depth",
+                    (0.05, 2.0, 0.01),
+                    |o| o.bulb.depth
+                )])
+                .shown_if(|o: &MushroomOptions| o.bulb.closed),
+            ],
+        },
+        Section {
+            title: "Annulus",
             groups: vec![
                 Group::plain(vec![toggle!(
                     MushroomOptions,
-                    "ring.enabled",
-                    "Ring",
-                    |o| o.ring.enabled
+                    "annulus.enabled",
+                    "Annulus",
+                    |o| o.annulus.enabled
                 )]),
                 Group::plain(vec![
                     number!(
                         MushroomOptions,
-                        "ring.position",
+                        "annulus.position",
                         "Height on Stem",
                         (0.1, 1.0, 0.01),
-                        |o| o.ring.position
+                        |o| o.annulus.position
                     ),
                     number!(
                         MushroomOptions,
-                        "ring.length",
+                        "annulus.length",
                         "Length",
                         (0.01, 0.5, 0.01),
-                        |o| o.ring.length
+                        |o| o.annulus.length
                     ),
                     number!(
                         MushroomOptions,
-                        "ring.flare",
+                        "annulus.flare",
                         "Flare",
                         (1.0, 4.0, 0.05),
-                        |o| o.ring.flare
+                        |o| o.annulus.flare
                     ),
                     number!(
                         MushroomOptions,
-                        "ring.raggedness",
+                        "annulus.raggedness",
                         "Raggedness",
                         (0.0, 1.0, 0.01),
-                        |o| o.ring.raggedness
+                        |o| o.annulus.raggedness
                     ),
                 ])
-                .shown_if(|o: &MushroomOptions| o.ring.enabled),
+                .shown_if(|o: &MushroomOptions| o.annulus.enabled),
             ],
         },
         Section {
@@ -316,7 +334,7 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
                     number!(
                         MushroomOptions,
                         "warts.height",
-                        "Height",
+                        "Raised",
                         (0.05, 2.0, 0.01),
                         |o| o.warts.height
                     ),
@@ -341,7 +359,7 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
                 hex_colour!("material.underside", "Underside", |o| o.material.underside),
                 hex_colour!("material.stem_top", "Stem Top", |o| o.material.stem_top),
                 hex_colour!("material.stem_base", "Stem Base", |o| o.material.stem_base),
-                hex_colour!("material.ring", "Ring", |o| o.material.ring),
+                hex_colour!("material.annulus", "Annulus", |o| o.material.annulus),
                 hex_colour!("material.wart", "Warts", |o| o.material.wart),
                 number!(
                     MushroomOptions,
@@ -350,14 +368,35 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
                     (0.0, 1.0, 0.01),
                     |o| o.material.roughness
                 ),
-                count!(
-                    MushroomOptions,
-                    "material.gill_lines",
-                    "Gill Lines",
-                    (0, MAX_GILL_LINES),
-                    |o| o.material.gill_lines
-                ),
             ])],
+        },
+        Section {
+            title: "Gills",
+            groups: vec![
+                Group::plain(vec![toggle!(
+                    MushroomOptions,
+                    "material.gills",
+                    "Gill Lines",
+                    |o| o.material.gills
+                )]),
+                Group::plain(vec![
+                    count!(
+                        MushroomOptions,
+                        "material.gill_lines",
+                        "Count",
+                        (1, MAX_GILL_LINES),
+                        |o| o.material.gill_lines
+                    ),
+                    number!(
+                        MushroomOptions,
+                        "material.gill_strength",
+                        "Strength",
+                        (0.0, 1.0, 0.01),
+                        |o| o.material.gill_strength
+                    ),
+                ])
+                .shown_if(|o: &MushroomOptions| o.material.gills),
+            ],
         },
         Section {
             title: "Pattern",
@@ -437,6 +476,88 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
                     .exponential(),
                 ])
                 .shown_if(|o: &MushroomOptions| o.material.stem_texture.is_some()),
+            ],
+        },
+        Section {
+            title: "Cluster",
+            groups: vec![
+                Group::plain(vec![count!(
+                    MushroomOptions,
+                    "cluster.stems",
+                    "Stems",
+                    (1, MAX_STEMS),
+                    |o| o.cluster.stems
+                )]),
+                Group::plain(vec![
+                    choice!(MushroomOptions, "cluster.layout", "Layout", [
+                        "Tuft" => ClusterLayout::Tuft,
+                        "Row" => ClusterLayout::Line,
+                        "Fairy Ring" => ClusterLayout::FairyRing,
+                    ], |o| o.cluster.layout),
+                    number!(
+                        MushroomOptions,
+                        "cluster.size_variation",
+                        "Size Variation",
+                        (0.0, 0.9, 0.01),
+                        |o| o.cluster.size_variation
+                    ),
+                    number!(
+                        MushroomOptions,
+                        "cluster.lean",
+                        "Lean (°)",
+                        (0.0, 60.0, 0.5),
+                        |o| o.cluster.lean
+                    ),
+                    number!(
+                        MushroomOptions,
+                        "cluster.sweep",
+                        "Sweep Outward",
+                        (0.0, 1.0, 0.01),
+                        |o| o.cluster.sweep
+                    ),
+                    number!(
+                        MushroomOptions,
+                        "cluster.spacing",
+                        "Spacing",
+                        (0.0, 2.0, 0.01),
+                        |o| o.cluster.spacing
+                    ),
+                    count!(
+                        MushroomOptions,
+                        "cluster.variants",
+                        "Variations",
+                        (1, MAX_VARIANTS),
+                        |o| o.cluster.variants
+                    ),
+                ])
+                .shown_if(|o: &MushroomOptions| o.cluster.stems > 1),
+                Group::plain(vec![
+                    number!(
+                        MushroomOptions,
+                        "cluster.fairy_ring.radius",
+                        "Ring Radius (caps)",
+                        (1.0, 200.0, 0.5),
+                        |o| o.cluster.fairy_ring.radius
+                    )
+                    .exponential(),
+                    number!(
+                        MushroomOptions,
+                        "cluster.fairy_ring.width",
+                        "Ring Width",
+                        (0.0, 0.5, 0.01),
+                        |o| o.cluster.fairy_ring.width
+                    ),
+                    number!(
+                        MushroomOptions,
+                        "cluster.fairy_ring.arc",
+                        "Ring Fullness",
+                        (0.05, 1.0, 0.01),
+                        |o| o.cluster.fairy_ring.arc
+                    ),
+                ])
+                .shown_if(|o: &MushroomOptions| {
+                    o.cluster.stems > 1 && o.cluster.layout == ClusterLayout::FairyRing
+                }),
             ],
         },
     ]

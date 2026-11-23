@@ -5,8 +5,11 @@
 //! Pass one mesh, or one per detail level from
 //! [`crate::Mushroom::lod_meshes`]. Each mesh becomes a separate object
 //! named `mushroom_LOD0`, `mushroom_LOD1` and so on, or just `mushroom` when
-//! there is only one. A flat stem is exported as its two strips crossing at
-//! right angles, because a file can't keep a strip turned toward the camera.
+//! there is only one. Shapes that a renderer keeps turned toward the camera,
+//! such as a flat stem, are exported as two copies crossing at right angles,
+//! because a file can't keep them turned. Warts are painted into the vertex
+//! colours when the mesh's detail has
+//! [`paint_warts`](crate::MushroomDetail::paint_warts) on.
 
 #[cfg(feature = "export-gltf")]
 pub mod gltf;
@@ -25,12 +28,12 @@ pub(crate) fn level_name(lod: usize, count: usize) -> String {
 }
 
 /// Returns every triangle of `mesh` in one set of buffers, including both
-/// strips of a flat stem in their resting positions.
+/// copies of its camera-facing shapes in their resting positions.
 pub(crate) fn static_buffers(mesh: &MushroomMesh) -> MeshBuffers {
     let mut out = mesh.surfaces.clone();
-    if let Some(ribbon) = &mesh.stem_ribbon {
-        append(&mut out, &ribbon.strip);
-        append(&mut out, &ribbon.cull);
+    if let Some(billboard) = &mesh.billboard {
+        append(&mut out, &billboard.facing);
+        append(&mut out, &billboard.crossed);
     }
     out
 }

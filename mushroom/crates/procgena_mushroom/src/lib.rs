@@ -5,8 +5,8 @@
 //! [`MushroomPreset`] such as a fly agaric, then create a [`Mushroom`]. Its
 //! cap and stem are smooth side-view outlines spun around a curved stem, so
 //! it can be meshed at any [`MushroomDetail`]: from closed, smooth meshes for
-//! close-ups down to about 40 triangles, with an open cap and a flat stem
-//! strip that turns toward the camera, for drawing thousands at once.
+//! close-ups down to two triangles that turn toward the camera, for drawing
+//! thousands at once.
 //!
 //! Distant objects don't need fine detail, so renderers swap in simpler
 //! meshes as the camera moves away; each of those is a "level of detail".
@@ -24,17 +24,18 @@
 //! }
 //! ```
 //!
-//! [`MushroomCluster`] groups several mushrooms of one species, and
-//! [`MushroomScatter`] spreads mushrooms and clusters over another
-//! generator's [`procgena_mesh::Object`], such as a rock. Both return a list
-//! of placed copies of a few different meshes, so a renderer can mesh each
-//! one once and draw it many times.
+//! A mushroom can also be a group: with [`ClusterOptions::stems`] above 1,
+//! several mushrooms of one species grow together in a tuft, a row or a
+//! fairy ring. [`MushroomScatter`] spreads mushrooms and clusters over
+//! another generator's [`procgena_mesh::Object`], such as a rock. Both give
+//! a list of placed copies of a few different [`MushroomBody`] meshes, so a
+//! renderer can mesh each one once and draw it many times.
 //!
 //! With the `export-obj` and `export-gltf` features, [`export`] writes
 //! meshes as files for 3D tools.
 //!
-//! All lengths are in metres, Y is up, and a mushroom's stem base sits at
-//! the origin.
+//! All lengths are in metres, Y is up, and a mushroom stands on the ground
+//! at the origin. A closed stem bottom hangs a little below it.
 //!
 //! Cap outline families follow Infinigen's mushroom generator (BSD-3-Clause,
 //! Princeton University).
@@ -56,16 +57,18 @@ mod shape;
 mod texture;
 
 pub use cluster::{
-    ClusterLayout, ClusterOptions, MAX_CLUSTER, MAX_VARIANTS, MushroomCluster, MushroomInstance,
+    ClusterLayout, ClusterOptions, FairyRingOptions, MAX_STEMS, MAX_VARIANTS, MushroomInstance,
 };
 pub use colour::{linear_from_hex, srgb_to_linear};
-pub use detail::{BodyShape, DEFAULT_LOD_SIZE, LodLevel, MushroomDetail, MushroomLod, WartDetail};
-pub use mesh::{BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, StemRibbon, Zone};
-pub use mushroom::{Mushroom, MushroomError};
+pub use detail::{BodyShape, DEFAULT_LOD_SIZE, LodLevel, MushroomDetail, MushroomLod};
+pub use mesh::{
+    BillboardMesh, BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, Zone,
+};
+pub use mushroom::{Mushroom, MushroomBody, MushroomError};
 pub use object::{object_from_meshes, tags};
 pub use options::{
-    CapOptions, MAX_GILL_LINES, MAX_LOBES, MAX_SEGMENTS, MAX_WARTS, MaterialOptions,
-    MushroomOptions, OptionsError, Pattern, RingOptions, StemOptions, UndersideOptions,
+    AnnulusOptions, BulbOptions, CapOptions, MAX_GILL_LINES, MAX_LOBES, MAX_SEGMENTS, MAX_WARTS,
+    MaterialOptions, MushroomOptions, OptionsError, Pattern, StemOptions, UndersideOptions,
     WartOptions,
 };
 pub use presets::MushroomPreset;

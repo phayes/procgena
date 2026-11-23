@@ -38,6 +38,7 @@ bevy = { version = "0.20.1", default-features = false, features = [
 ] }
 procgena_tree = { path = "../tree/crates/procgena_tree", features = ["export-obj", "export-gltf"] }
 procgena_tree_bevy = { path = "../tree/crates/procgena_tree_bevy" }
+procgena_impostor = { path = "../impostor/crates/procgena_impostor" }
 procgena_plant = { path = "../plant" }
 procgena_stone = { path = "../stone/crates/procgena_stone", features = ["export-obj", "export-gltf"] }
 procgena_stone_bevy = { path = "../stone/crates/procgena_stone_bevy" }

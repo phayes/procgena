@@ -1171,13 +1171,35 @@ road; it is the hardest road in the test worlds.
   The level fit already prefers cut 3:1.
 - [ ] **Where the hub goes** (question 12): a low valley spot rather than a
   flat summit. Deferred by the user.
-- [ ] **Crossing a river must cost roads something** (user TODO,
-  2026-11-23). Today the search adds a small `RIVER_COST` (6) per step
-  on a water cell, so roads cross the same river twice to save a few
-  metres (seen in hills-into-plains and on the mountain side of the
-  two-terrain world). Make each crossing a fixed cost (a bridge), so a
-  road crosses once, near square to the river, or goes round. Later, a
-  bridge point of interest for the user to fill.
+- [x] **Crossing a river must cost roads something** (user TODO,
+  2026-11-23; built 2026-11-23, review pending). The search used to
+  multiply a step onto a water cell by `RIVER_COST` (6), so roads crossed
+  the same river twice to save a few metres, and diagonal and knight
+  steps could hop a one-cell river for free. Now every grid move whose
+  segment crosses a river line pays a bridge: `BRIDGE_COST` (300 m of
+  level road) divided by the sine of its angle to the river (capped at
+  5×), so a slanting bridge costs more. (A road never follows another
+  over its bridge: the search stops at the first road it can join.) The
+  per-cell water cost stays,
+  so roads don't run along riverbeds. The road search now builds the
+  water cells itself from the river lines (moved out of `plan.rs`).
+  - In the feature test worlds: 89 road–river crossings before, 44
+    after. Repeat crossings of one river: 15 before, 3 after, and those
+    3 are one road crossing both arms of a river that loops back, with
+    1.8 km of river between the crossings against 87 m of road.
+  - Tests: `roads_cross_a_river_again_only_to_save_a_long_way_round`
+    (features; a repeat crossing needs at least 600 m of river between,
+    two bridges' worth), and unit tests
+    `roads_go_round_a_river_bend_rather_than_cross_it_twice` and
+    `roads_cross_a_river_in_their_way_once_and_near_square` (over 60°;
+    a flat cost crossed at 52° by hopping the river with a knight step).
+    All three fail with the bridge cost set to 0.
+  - Preview v6: triple junction 5 bridges → 1 (its roads 536 m longer
+    in all), two terrains at blend 1 2 → 1 (the road no longer crosses
+    back); the other scenes are unchanged. Seams suite CPU time is the
+    same with and without the bridge cost (231 s and 229 s).
+  - Later: a bridge point of interest for the user to fill, and the
+    bridge label of Phase 4.
 - [ ] **Clearings at points of interest:** per ARCHITECTURE.md, a terrain
   height-stamp hook on a point of interest (user story 2), not a terrain
   option.
@@ -1366,15 +1388,40 @@ symmetric cross-section is swept along a smooth river line. To fix:
     points the water is dead level: the median fall over 100 m is 0,
     against 0.09 over all points. They sit downstream: 502 in rivers'
     first thirds, 1356 in the middle, 1614 in the last.
-  - **Two causes, about equally:** half are ridge breaches, where the
-    ground rises downstream over 100 m (placement: the tracer cuts
-    through rises). Half are where the ground still falls, but the river
-    dropped too early and runs level beneath it (the profile).
-  - **So both fixes are needed:** smoother profiles (spread the drop
-    along the river) for the second half; drainage-based placement
-    (depression filling, rivers along the real flow network, as in
-    Peytavie) for the first. Either changes the approved look, so each
-    needs its own preview.
+  - **One cause, not two.** Half the deep-cut points have the ground
+    rising downstream and half falling, but that split is what a single
+    mechanism gives: water at one level passing a bump is deep-cut on
+    both of its flanks. (A first reading here, "two causes about
+    equally", was wrong.)
+  - **The mechanism.** A river's level is the running minimum of the
+    ground along it (`next_level`, `fit_to_ground`): it drops into every
+    dip and stays there. The tracer escapes a hollow by cutting through
+    its rim, up to `breach` metres above the water: 31.9 m for
+    mountains (4 + 0.03 × (30 + 900)). So the trenches are the breach
+    working as designed. No profile that never rises and never sits
+    above the ground can be higher than the running minimum, so
+    smoothing alone can't make the cuts shallower.
+  - **Capping the cut floods dips instead** (`spike_capped_cut_profiles`,
+    mountains, seeds 1 to 6; level = max(running minimum, highest ground
+    downstream − freeboard − cap)). Counted along the river line only;
+    real lakes would also spread sideways:
+
+    | Cap | Points cut over 10 m | Lakes per region | Median length | Longest | Deepest |
+    |---|---|---|---|---|---|
+    | none (today) | 31% | 0 | — | — | — |
+    | 20 m | 28% | 10 | 29 m | 213 m | 31.5 m |
+    | 10 m | 10% | 22 | 42 m | 393 m | 41.5 m |
+    | 5 m | 0% | 34 | 31 m | 631 m | 46.5 m |
+
+  - **Options (for the user to choose):** leave it (the approved look
+    already has these cuts; lakes at hollows are Phase 4), pull lakes
+    forward (cap the cut and flood the dips: carve, water labels and
+    float checks all change, and it needs its own preview), or lower
+    `breach` (keeps "carving only lowers", but rivers end in ponds
+    sooner, and that may undo crossings).
+  - **Decided (user, 2026-11-23): leave it until lakes** (Phase 4, lakes
+    at hollows). When lakes come, cap the river's cut and flood the dips
+    along it; the table above is the starting point.
 
 **As built (2026-11-23).**
 
@@ -1384,7 +1431,8 @@ symmetric cross-section is swept along a smooth river line. To fix:
 - Review: the user looked at version 4 of the Varied Valleys Preview
   (shapes, gullies and the first stepped crossing) and said it "looks
   great" (2026-11-23). Version 5 adds the second mountain river crossing
-  in two_terrains and hasn't been reviewed yet.
+  in two_terrains (the only scene that differs from version 4); the user
+  approved it too (2026-11-23).
 - Public API added: `INNER_DEPTHS`, `inner_depth`, `Port::downstream`,
   `Port::drop`; `EdgeOffer::inner` now holds 4 depths per sample.
 - Tests changed in intent:
@@ -1665,7 +1713,7 @@ What that asks of this crate, and where it stands:
 | 2.5 | **Shared world noise and relief convergence** (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
 | 2.6 ✅ | **Relief blending** (built 2026-11-22, review pending) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
 | 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest; cut and fill measured across the road; roads narrow through deep cuts (`min_width`); sped up with an A* search and parallel region builds. Still to do: hub placement (deferred); a GPU implementation is a later follow-up. | 2.6 |
-| 2.8 | **River valleys and erosion** (built in part 2026-11-23, review pending; see "River valleys and erosion (Phase 2.8, built in part)" above). Built: valleys that keep the ground's relief, varied shapes, gullies, rivers stepping down at crossings, rivers from one side crossing closer together. Still to do: smoother mountain profiles, whether river placement causes the deep cuts. Planned: valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
+| 2.8 | **River valleys and erosion** (built in part 2026-11-23, review pending; see "River valleys and erosion (Phase 2.8, built in part)" above). Built: valleys that keep the ground's relief, varied shapes, gullies, rivers stepping down at crossings, rivers from one side crossing closer together. Deep cuts measured: they come from rivers breaching hollow rims, and wait for lakes (Phase 4). Planned: valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
 | 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |

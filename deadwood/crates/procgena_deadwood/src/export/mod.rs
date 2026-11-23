@@ -10,6 +10,10 @@
 //! Strips ([`crate::Ribbons`]) are exported as their two fixed, crossing
 //! strips, because a file can't keep a strip turned toward the camera.
 //! Draw them two-sided, with back-face culling turned off.
+//!
+//! Leaf cards ([`crate::DeadwoodMesh::leaves`]) are exported with their own
+//! material, `deadwood_leaves`, without the texture. Assign the leaf
+//! texture in your tool, drawn two-sided with alpha testing.
 
 #[cfg(feature = "export-gltf")]
 pub mod gltf;
@@ -34,6 +38,11 @@ pub(crate) fn strip_buffers(mesh: &DeadwoodMesh) -> Option<MeshBuffers> {
     let mut out = ribbons.strip.clone();
     append(&mut out, &ribbons.cull);
     Some(out)
+}
+
+/// Returns true if any of `meshes` has leaf cards.
+pub(crate) fn mesh_has_leaves(meshes: &[DeadwoodMesh]) -> bool {
+    meshes.iter().any(|m| m.leaves.is_some())
 }
 
 /// Appends `extra`'s vertices and triangles to `out`, renumbering the

@@ -125,6 +125,24 @@ impl Grid {
         self.inside[i].then_some(i)
     }
 
+    /// Every inside cell whose centre lies within `margin` metres of the
+    /// box spanned by `a` and `b` (measured along each axis).
+    pub(crate) fn cells_near(
+        &self,
+        a: DVec2,
+        b: DVec2,
+        margin: f64,
+    ) -> impl Iterator<Item = usize> + '_ {
+        let lo = ((a.min(b) - DVec2::splat(margin) - self.origin) / self.cell).ceil();
+        let hi = ((a.max(b) + DVec2::splat(margin) - self.origin) / self.cell).floor();
+        let span =
+            |lo: f64, hi: f64, n: usize| (lo.max(0.0) as isize)..=(hi.min(n as f64 - 1.0) as isize);
+        let x = span(lo.x, hi.x, self.width);
+        let z = span(lo.y, hi.y, self.depth);
+        z.flat_map(move |z| x.clone().map(move |x| z as usize * self.width + x as usize))
+            .filter(|&i| self.inside[i])
+    }
+
     /// The inside neighbours of cell `i` in 16 directions (the 8 adjacent
     /// cells and the 8 a knight's move away), with the distance to each.
     pub(crate) fn neighbours(&self, i: usize) -> impl Iterator<Item = (usize, f64)> + '_ {

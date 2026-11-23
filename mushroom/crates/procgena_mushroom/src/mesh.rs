@@ -4,19 +4,19 @@
 use std::f32::consts::TAU;
 use std::ops::Range;
 
-use glam::{Vec2, Vec3};
+use glam::{Affine3A, Vec2, Vec3};
 
 use crate::colour::{Palette, mix, rgba};
-use crate::detail::{BodyShape, MushroomDetail, WartDetail};
+use crate::detail::{BodyShape, MushroomDetail};
 use crate::profile::Profile;
 use crate::rng::smoothstep;
-use crate::shape::{RingShape, Shape, Wart};
+use crate::shape::{AnnulusShape, Shape, Wart};
 
 /// Which surface of the mushroom a vertex belongs to.
 ///
-/// Renderers use it to draw gill lines only on the underside and patterns
-/// only on the cap. [`id`](Self::id) gives a number to store in a vertex
-/// attribute for a shader.
+/// Renderers use it to draw gill lines only on the underside, and patterns
+/// and warts only on the cap. [`id`](Self::id) gives a number to store in a
+/// vertex attribute for a shader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Zone {
     /// The cap's top surface.
@@ -25,18 +25,16 @@ pub enum Zone {
     CapRim,
     /// The cap's underside (the gills).
     Underside,
-    /// The stem.
+    /// The stem, including its closed bottom.
     Stem,
-    /// The ring.
-    Ring,
-    /// A wart.
-    Wart,
+    /// The annulus.
+    Annulus,
 }
 
 impl Zone {
     /// Returns a number for this zone that won't change between versions:
-    /// 0 for [`CapTop`](Self::CapTop) up to 5 for [`Wart`](Self::Wart), in
-    /// the order listed.
+    /// 0 for [`CapTop`](Self::CapTop) up to 4 for
+    /// [`Annulus`](Self::Annulus), in the order listed.
     pub fn id(self) -> u32 {
         self as u32
     }
@@ -47,13 +45,16 @@ impl Zone {
 pub enum PartKind {
     /// The cap, including its rim and underside when those are built.
     Cap,
-    /// The stem's surface. A flat stem is kept separately, in
-    /// [`MushroomMesh::stem_ribbon`].
+    /// The stem's surface, including its closed bottom. A flat stem is kept
+    /// separately, in [`MushroomMesh::billboard`].
     Stem,
-    /// The ring.
-    Ring,
-    /// Every wart.
-    Warts,
+    /// The annulus.
+    Annulus,
+}
+
+impl PartKind {
+    /// Every kind, in the order parts appear in a mesh.
+    pub const ALL: [PartKind; 3] = [PartKind::Cap, PartKind::Stem, PartKind::Annulus];
 }
 
 /// Where one part's triangles are in [`MushroomMesh::surfaces`].
@@ -68,14 +69,14 @@ pub struct PartRange {
     /// True if the part is watertight: closed, with no holes, so it has an
     /// inside and an outside.
     pub closed: bool,
-    /// The part's separate closed pieces, such as one per wart, as ranges of
-    /// triangle numbers counted from the part's first triangle. Empty when
-    /// the part is open.
+    /// The part's separate closed pieces, such as one per mushroom in a
+    /// cluster, as ranges of triangle numbers counted from the part's first
+    /// triangle. Empty when the part is open.
     pub shells: Vec<Range<u32>>,
 }
 
-/// A triangle mesh as plain lists, in metres, with Y up and the stem base
-/// at the origin.
+/// A triangle mesh as plain lists, in metres, with Y up and the ground at
+/// height 0.
 ///
 /// Every list except `indices` has one entry per vertex. Each group of three
 /// `indices` is a triangle, listed counter-clockwise when seen from its
@@ -129,6 +130,55 @@ impl MeshBuffers {
         self.colors.push(v.color);
         self.zones.push(v.zone);
     }
+
+    /// Appends vertices `vertices` and the triangles `indices` of `from`,
+    /// moved by `transform`, which must scale equally along every axis.
+    fn append_moved(
+        &mut self,
+        from: &MeshBuffers,
+        vertices: Range<u32>,
+        indices: Range<u32>,
+        transform: Affine3A,
+    ) {
+        let base = self.next_index();
+        let (v0, v1) = (vertices.start as usize, vertices.end as usize);
+        let turn = |v: [f32; 3]| -> [f32; 3] {
+            transform
+                .transform_vector3(v.into())
+                .normalize_or_zero()
+                .into()
+        };
+        self.positions.extend(
+            from.positions[v0..v1]
+                .iter()
+                .map(|&p| <[f32; 3]>::from(transform.transform_point3(p.into()))),
+        );
+        self.normals
+            .extend(from.normals[v0..v1].iter().map(|&n| turn(n)));
+        self.uvs.extend_from_slice(&from.uvs[v0..v1]);
+        self.tangents.extend(from.tangents[v0..v1].iter().map(|t| {
+            let [x, y, z] = turn([t[0], t[1], t[2]]);
+            [x, y, z, t[3]]
+        }));
+        self.colors.extend_from_slice(&from.colors[v0..v1]);
+        self.zones.extend_from_slice(&from.zones[v0..v1]);
+        self.indices.extend(
+            from.indices[indices.start as usize..indices.end as usize]
+                .iter()
+                .map(|&i| i - vertices.start + base),
+        );
+    }
+
+    /// Appends all of `from`, moved by `transform`, which must scale equally
+    /// along every axis.
+    fn append_all(&mut self, from: &MeshBuffers, transform: Affine3A) {
+        self.append_moved(
+            from,
+            0..from.vertex_count() as u32,
+            0..from.indices.len() as u32,
+            transform,
+        );
+    }
 }
 
 /// One vertex's values before they are appended to [`MeshBuffers`].
@@ -141,57 +191,80 @@ struct Vertex {
     zone: Zone,
 }
 
-/// What a renderer needs to keep one vertex of a flat strip turned toward
+/// What a renderer needs to keep one vertex of a flat shape turned toward
 /// the camera, rotating it around a fixed axis. Such camera-facing shapes
 /// are often called billboards.
 ///
 /// Each frame, place the vertex at `pivot + right * offset[0] + axis *
 /// offset[1]`, where `right` is `axis` crossed with the direction from the
-/// pivot to the viewer (the viewer's right), normalised. The strip then
+/// pivot to the viewer (the viewer's right), normalised. The shape then
 /// shows its front face to the viewer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BillboardVertex {
-    /// Point on the stem's centre line that the vertex turns around, in
+    /// Point on the shape's centre line that the vertex turns around, in
     /// metres.
     pub pivot: [f32; 3],
-    /// Unit axis to turn around: the stem's direction at the pivot.
+    /// Unit axis to turn around, such as the stem's direction at the pivot.
     pub axis: [f32; 3],
     /// Distance from the pivot to the right and along the axis, in metres.
     pub offset: [f32; 2],
 }
 
-/// The flat stem of a [`BodyShape::Flat`] mesh: a strip that a renderer
-/// keeps turned toward the camera, around the stem's axis, so it looks like
-/// a round stem from every side.
+/// Flat shapes that a renderer keeps turned toward the camera, around their
+/// own axes, so they look round from every side: the stem strip of a
+/// [`BodyShape::Flat`] mesh, or the stem and cap triangles of a
+/// [`BodyShape::Billboard`] mesh.
 ///
-/// To turn it, draw [`strip`](Self::strip) and move its vertices with
+/// To turn them, draw [`facing`](Self::facing) and move its vertices with
 /// [`billboards`](Self::billboards), as the `procgena_mushroom_bevy` crate
-/// does. If your renderer can't turn it, draw [`strip`](Self::strip) and
-/// [`cull`](Self::cull) as they are: two strips crossing at right angles,
-/// which are visible from every side but look flatter.
+/// does. If your renderer can't turn them, draw [`facing`](Self::facing)
+/// and [`crossed`](Self::crossed) as they are: each shape twice, crossing at
+/// right angles, which is visible from every side but looks flatter.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct StemRibbon {
-    /// The strip, in a resting position facing the mushroom's +Z, with
-    /// normals pointing out of its front.
-    pub strip: MeshBuffers,
-    /// Turning data, one entry per vertex of [`strip`](Self::strip).
+pub struct BillboardMesh {
+    /// The shapes, in a resting position facing the mushroom's +Z, with
+    /// normals pointing out of their fronts.
+    pub facing: MeshBuffers,
+    /// Turning data, one entry per vertex of [`facing`](Self::facing).
     pub billboards: Vec<BillboardVertex>,
-    /// A second fixed strip at right angles to the resting strip, for
-    /// renderers that can't turn [`strip`](Self::strip). It has the same
-    /// triangle layout.
-    pub cull: MeshBuffers,
+    /// A second, fixed copy of the shapes at right angles to the resting
+    /// ones, for renderers that can't turn [`facing`](Self::facing). It has
+    /// the same triangle layout.
+    pub crossed: MeshBuffers,
+}
+
+impl BillboardMesh {
+    /// Appends `from`, moved by `transform`, which must scale equally along
+    /// every axis.
+    fn append_moved(&mut self, from: &BillboardMesh, transform: Affine3A) {
+        let scale = transform.matrix3.x_axis.length();
+        self.facing.append_all(&from.facing, transform);
+        self.crossed.append_all(&from.crossed, transform);
+        self.billboards.extend(from.billboards.iter().map(|b| {
+            BillboardVertex {
+                pivot: transform.transform_point3(b.pivot.into()).into(),
+                axis: transform
+                    .transform_vector3(b.axis.into())
+                    .normalize_or_zero()
+                    .into(),
+                offset: [b.offset[0] * scale, b.offset[1] * scale],
+            }
+        }));
+    }
 }
 
 /// A mushroom's mesh at one detail level.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MushroomMesh {
-    /// Every surface except a flat stem.
+    /// Every surface except the camera-facing shapes in
+    /// [`billboard`](Self::billboard).
     pub surfaces: MeshBuffers,
-    /// Where each part (cap, stem, ring, warts) is in
+    /// Where each part (cap, stem, annulus) is in
     /// [`surfaces`](Self::surfaces). Parts a level leaves out are absent.
     pub parts: Vec<PartRange>,
-    /// The flat stem; present only for [`BodyShape::Flat`].
-    pub stem_ribbon: Option<StemRibbon>,
+    /// Camera-facing shapes; present only for [`BodyShape::Flat`] (the stem)
+    /// and [`BodyShape::Billboard`] (stem and cap).
+    pub billboard: Option<BillboardMesh>,
     /// True when [`surfaces`](Self::surfaces) has open surfaces whose inside
     /// can be seen. Draw such meshes two-sided (without hiding back faces),
     /// or they will show holes.
@@ -199,14 +272,14 @@ pub struct MushroomMesh {
 }
 
 impl MushroomMesh {
-    /// Returns the number of triangles drawn: the surfaces plus a flat
-    /// stem's turning strip, but not its crossing fallback strip.
+    /// Returns the number of triangles drawn: the surfaces plus the turning
+    /// camera-facing shapes, but not their crossed fallback copies.
     pub fn triangle_count(&self) -> usize {
         self.surfaces.triangle_count()
             + self
-                .stem_ribbon
+                .billboard
                 .as_ref()
-                .map_or(0, |r| r.strip.triangle_count())
+                .map_or(0, |b| b.facing.triangle_count())
     }
 
     /// Returns where part `kind` is, or `None` if this mesh doesn't have it.
@@ -215,98 +288,131 @@ impl MushroomMesh {
     }
 }
 
+/// Combines `meshes`, each moved by its transform, into one mesh. Each
+/// transform must scale equally along every axis. Parts of the same kind
+/// are merged into one part, whose shells are the closed pieces of every
+/// mesh; it is closed only if every mesh's part was.
+pub(crate) fn combine(meshes: &[(&MushroomMesh, Affine3A)]) -> MushroomMesh {
+    let mut out = MushroomMesh {
+        double_sided: meshes.iter().any(|(m, _)| m.double_sided),
+        ..MushroomMesh::default()
+    };
+
+    // Each kind of part in turn, so every merged part stays contiguous.
+    for kind in PartKind::ALL {
+        let (v0, i0) = (out.surfaces.next_index(), out.surfaces.indices.len() as u32);
+        let mut closed = true;
+        let mut shells = Vec::new();
+        for (mesh, transform) in meshes {
+            let Some(range) = mesh.part(kind) else {
+                continue;
+            };
+            let first = (out.surfaces.indices.len() as u32 - i0) / 3;
+            out.surfaces.append_moved(
+                &mesh.surfaces,
+                range.vertices.clone(),
+                range.indices.clone(),
+                *transform,
+            );
+            closed &= range.closed;
+            shells.extend(range.shells.iter().map(|s| s.start + first..s.end + first));
+        }
+        let (v1, i1) = (out.surfaces.next_index(), out.surfaces.indices.len() as u32);
+        if i1 > i0 {
+            out.parts.push(PartRange {
+                kind,
+                vertices: v0..v1,
+                indices: i0..i1,
+                closed,
+                shells: if closed { shells } else { Vec::new() },
+            });
+        }
+    }
+
+    // Camera-facing shapes.
+    for (mesh, transform) in meshes {
+        if let Some(billboard) = &mesh.billboard {
+            out.billboard
+                .get_or_insert_with(BillboardMesh::default)
+                .append_moved(billboard, *transform);
+        }
+    }
+    out
+}
+
 /// Builds the mesh of `shape` at `detail`, with vertex colours from
 /// `palette`. `detail` must already be validated.
 pub(crate) fn build(shape: &Shape, detail: &MushroomDetail, palette: &Palette) -> MushroomMesh {
+    if detail.shape == BodyShape::Billboard {
+        return MushroomMesh {
+            billboard: Some(billboard(shape, palette)),
+            ..MushroomMesh::default()
+        };
+    }
+
     let mut mesh = MushroomMesh {
         double_sided: detail.shape != BodyShape::Solid,
         ..MushroomMesh::default()
     };
     let solid = detail.shape == BodyShape::Solid;
-    let spots = if detail.warts == WartDetail::None {
-        &[][..]
-    } else {
+    let spots = if detail.paint_warts {
         &shape.warts[..]
+    } else {
+        &[][..]
     };
 
     // Cap.
     part(&mut mesh, PartKind::Cap, solid, |out| {
         cap(out, shape, detail, palette, spots);
-        Vec::new()
     });
 
-    // Stem.
+    // Stem. A solid stem is closed only if its bottom is.
     match detail.shape {
-        BodyShape::Flat => mesh.stem_ribbon = Some(ribbon(shape, detail, palette)),
-        _ => part(&mut mesh, PartKind::Stem, solid, |out| {
-            stem(out, shape, detail, palette, solid);
-            Vec::new()
-        }),
+        BodyShape::Flat => mesh.billboard = Some(ribbon(shape, detail, palette)),
+        _ => {
+            let closed = solid && shape.bottom_depth.is_some();
+            part(&mut mesh, PartKind::Stem, closed, |out| {
+                stem(out, shape, detail, palette, solid);
+            });
+        }
     }
 
-    // Ring: a single sheet. Solid levels are drawn one-sided, so the sheet
-    // gets a second, reversed copy to be visible from both sides.
-    if let (Some(ring), true) = (&shape.ring, detail.ring) {
-        part(&mut mesh, PartKind::Ring, false, |out| {
-            ring_sheet(out, shape, ring, detail, palette, solid);
-            Vec::new()
-        });
-    }
-
-    // Warts.
-    if detail.warts == WartDetail::Mesh && !shape.warts.is_empty() {
-        part(&mut mesh, PartKind::Warts, true, |out| {
-            shape
-                .warts
-                .iter()
-                .map(|w| wart(out, w, detail, palette))
-                .collect()
+    // Annulus: a single sheet. Solid levels are drawn one-sided, so the
+    // sheet gets a second, reversed copy to be visible from both sides.
+    if let (Some(annulus), true) = (&shape.annulus, detail.annulus) {
+        part(&mut mesh, PartKind::Annulus, false, |out| {
+            annulus_sheet(out, shape, annulus, detail, palette, solid);
         });
     }
     mesh
 }
 
 /// Runs `build` to append one part's triangles and records where they are.
-/// Nothing is recorded if `build` adds no triangles.
-///
-/// `build` returns the part's closed pieces as triangle ranges counted from
-/// the start of the buffers, or an empty list when a closed part is one
-/// piece.
+/// Nothing is recorded if `build` adds no triangles. A closed part is
+/// recorded as one closed piece.
 fn part(
     mesh: &mut MushroomMesh,
     kind: PartKind,
     closed: bool,
-    build: impl FnOnce(&mut MeshBuffers) -> Vec<Range<u32>>,
+    build: impl FnOnce(&mut MeshBuffers),
 ) {
     let (v0, i0) = (
         mesh.surfaces.next_index(),
         mesh.surfaces.indices.len() as u32,
     );
-    let shells = build(&mut mesh.surfaces);
+    build(&mut mesh.surfaces);
     let (v1, i1) = (
         mesh.surfaces.next_index(),
         mesh.surfaces.indices.len() as u32,
     );
     if i1 > i0 {
-        // Pieces arrive counted from the start of the buffers; store them
-        // counted from the part's first triangle.
-        let t0 = i0 / 3;
-        let shells = if closed && shells.is_empty() {
-            // One piece covering every triangle of the part.
-            let whole: Range<u32> = 0..(i1 - i0) / 3;
-            vec![whole]
-        } else {
-            shells
-                .into_iter()
-                .map(|r| r.start - t0..r.end - t0)
-                .collect()
-        };
+        let whole: Range<u32> = 0..(i1 - i0) / 3;
         mesh.parts.push(PartRange {
             kind,
             vertices: v0..v1,
             indices: i0..i1,
             closed,
-            shells,
+            shells: if closed { vec![whole] } else { Vec::new() },
         });
     }
 }
@@ -432,6 +538,11 @@ impl Sheet<'_> {
 /// [`Profile::stations`].
 fn stations(profile: &Profile, segments: u32) -> Vec<f32> {
     profile.stations(segments)
+}
+
+/// Returns `count + 1` evenly spaced values from 0 to 1.
+fn even_stations(count: u32) -> Vec<f32> {
+    (0..=count).map(|i| i as f32 / count as f32).collect()
 }
 
 // --------------------------------------------------------------------------
@@ -586,8 +697,13 @@ fn spot_cover(spots: &[Wart], p: Vec3, spacing: f32) -> f32 {
 // --------------------------------------------------------------------------
 // Stem
 
-/// Appends the stem's side and, with `solid`, the discs that close its two
-/// ends.
+/// Returns the stem's colour at height `s`, from 0 (ground) to 1 (top).
+fn stem_colour(palette: &Palette, s: f32) -> [f32; 3] {
+    mix(palette.stem_base, palette.stem_top, smoothstep(0.0, 1.0, s))
+}
+
+/// Appends the stem's side, its rounded bottom if it has one and, with
+/// `solid`, the disc that closes its top inside the cap.
 fn stem(
     out: &mut MeshBuffers,
     shape: &Shape,
@@ -595,14 +711,10 @@ fn stem(
     palette: &Palette,
     solid: bool,
 ) {
-    let colour = |s: f32| mix(palette.stem_base, palette.stem_top, smoothstep(0.0, 1.0, s));
-
     // Side.
-    let side: Vec<f32> = (0..=detail.stem_segments)
-        .map(|i| i as f32 / detail.stem_segments as f32)
-        .collect();
+    let side = even_stations(detail.stem_segments);
     let side_point = |s: f32, theta: f32| shape.stem_point(s, theta, 1.0);
-    let side_colour = |s: f32, _: f32, _: Vec3| colour(s);
+    let side_colour = |s: f32, _: f32, _: Vec3| stem_colour(palette, s);
     Sheet {
         stations: &side,
         sides: detail.stem_sides,
@@ -614,48 +726,80 @@ fn stem(
         flip: false,
     }
     .emit(out);
+
+    // Rounded bottom, meshed from its lowest point up to the ground, where
+    // its last ring matches the side's first exactly.
+    if shape.bottom_depth.is_some() {
+        let bottom = even_stations((detail.stem_segments / 3).max(2));
+        let bottom_point = |t: f32, theta: f32| shape.bottom_point(t, theta);
+        let bottom_colour = |_: f32, _: f32, _: Vec3| stem_colour(palette, 0.0);
+        Sheet {
+            stations: &bottom,
+            sides: detail.stem_sides,
+            point: &bottom_point,
+            color: &bottom_colour,
+            pole_start: true,
+            pole_end: false,
+            zone: Zone::Stem,
+            flip: false,
+        }
+        .emit(out);
+    }
     if !solid {
         return;
     }
 
-    // End discs, each meshed from its centre out to the edge. That
-    // direction faces down, which suits the base; the top disc is flipped
-    // to face up.
-    for (s, flip) in [(0.0, false), (1.0, true)] {
-        let disc_point = move |k: f32, theta: f32| shape.stem_point(s, theta, k);
-        let disc_colour = |_: f32, _: f32, _: Vec3| colour(s);
-        Sheet {
-            stations: &[0.0, 1.0],
-            sides: detail.stem_sides,
-            point: &disc_point,
-            color: &disc_colour,
-            pole_start: true,
-            pole_end: false,
-            zone: Zone::Stem,
-            flip,
-        }
-        .emit(out);
+    // Top disc, meshed from its centre out to the edge. That direction
+    // faces down, so it is flipped to face up.
+    let disc_point = |k: f32, theta: f32| shape.stem_point(1.0, theta, k);
+    let disc_colour = |_: f32, _: f32, _: Vec3| stem_colour(palette, 1.0);
+    Sheet {
+        stations: &[0.0, 1.0],
+        sides: detail.stem_sides,
+        point: &disc_point,
+        color: &disc_colour,
+        pole_start: true,
+        pole_end: false,
+        zone: Zone::Stem,
+        flip: true,
     }
+    .emit(out);
 }
 
 /// Builds the flat stem: the strip to turn toward the camera, its turning
-/// data, and the crossing strip for renderers that can't turn it.
-fn ribbon(shape: &Shape, detail: &MushroomDetail, palette: &Palette) -> StemRibbon {
-    let mut r = StemRibbon::default();
-    let segments = detail.stem_segments;
-    for i in 0..=segments {
-        let s = i as f32 / segments as f32;
-        let (centre, axis, frame) = (
+/// data, and the crossing strip for renderers that can't turn it. A closed
+/// bottom narrows the strip to a point below the ground.
+fn ribbon(shape: &Shape, detail: &MushroomDetail, palette: &Palette) -> BillboardMesh {
+    let mut r = BillboardMesh::default();
+
+    // Cross-sections from the bottom up: (centre, axis, frame, half-width,
+    // height along the stem for the texture, colour).
+    let mut sections = Vec::new();
+    if let Some(depth) = shape.bottom_depth {
+        let (axis, frame) = (shape.stem_tangent(0.0), shape.stem_frame(0.0));
+        let ground = shape.stem_centre(0.0);
+        for t in [0.0, 0.5] {
+            let (out, down) = (t * TAU * 0.25).sin_cos();
+            let centre = ground - axis * (down * depth);
+            let v = -down * depth / shape.stem_height;
+            sections.push((centre, axis, frame, shape.stem_radius(0.0) * out, v, 0.0));
+        }
+    }
+    for i in 0..=detail.stem_segments {
+        let s = i as f32 / detail.stem_segments as f32;
+        sections.push((
             shape.stem_centre(s),
             shape.stem_tangent(s),
             shape.stem_frame(s),
-        );
-        let radius = shape.stem_radius(s);
-        let color = rgba(mix(
-            palette.stem_base,
-            palette.stem_top,
-            smoothstep(0.0, 1.0, s),
+            shape.stem_radius(s),
+            s,
+            s,
         ));
+    }
+
+    // Two vertices per section, in both strips.
+    for &(centre, axis, frame, radius, v, shade) in &sections {
+        let color = rgba(stem_colour(palette, shade));
         for (k, (across, front)) in [(Vec3::X, Vec3::Z), (Vec3::Z, Vec3::X)]
             .into_iter()
             .enumerate()
@@ -666,13 +810,13 @@ fn ribbon(shape: &Shape, detail: &MushroomDetail, palette: &Palette) -> StemRibb
                 let vertex = Vertex {
                     position: centre + across * offset,
                     normal: front,
-                    uv: Vec2::new(u, s),
+                    uv: Vec2::new(u, v),
                     tangent: [across.x, across.y, across.z, 1.0],
                     color,
                     zone: Zone::Stem,
                 };
                 if k == 0 {
-                    r.strip.push(vertex);
+                    r.facing.push(vertex);
                     // At rest the strip faces the stem's +Z, where a viewer
                     // has the stem's +X on their right, so the sideways
                     // offset keeps its sign.
@@ -682,42 +826,176 @@ fn ribbon(shape: &Shape, detail: &MushroomDetail, palette: &Palette) -> StemRibb
                         offset: [offset, 0.0],
                     });
                 } else {
-                    r.cull.push(vertex);
+                    r.crossed.push(vertex);
                 }
             }
         }
     }
 
     // Two triangles per step along the stem, laid out the same way in both
-    // strips.
-    for buffers in [&mut r.strip, &mut r.cull] {
-        for i in 0..segments {
+    // strips. A closed bottom starts from a point, where the first triangle
+    // would have no area, so it is left out.
+    let pointed = shape.bottom_depth.is_some();
+    for buffers in [&mut r.facing, &mut r.crossed] {
+        for i in 0..sections.len() as u32 - 1 {
             let a = i * 2;
-            buffers
-                .indices
-                .extend([a, a + 1, a + 2, a + 1, a + 3, a + 2]);
+            if !(pointed && i == 0) {
+                buffers.indices.extend([a, a + 1, a + 2]);
+            }
+            buffers.indices.extend([a + 1, a + 3, a + 2]);
         }
     }
     r
 }
 
 // --------------------------------------------------------------------------
-// Ring and warts
+// Billboard
 
-/// Appends the ring's sheet. With `back_faces`, also appends a reversed copy
-/// so the ring is visible from both sides when drawn one-sided.
-fn ring_sheet(
+/// One camera-facing triangle: its base centre, the axis it turns around,
+/// its resting frame, and its corners as offsets (to the right, along the
+/// axis) with their colours and zones.
+struct Triangle {
+    pivot: Vec3,
+    axis: Vec3,
+    /// Direction to the right of the resting triangle.
+    across: Vec3,
+    /// Direction its front faces at rest.
+    front: Vec3,
+    corners: [([f32; 2], [f32; 3], Zone); 3],
+}
+
+/// Builds the two-triangle form: one triangle for the stem, from its
+/// bottom up to the cap, and one for the cap, from its lowest edge up to
+/// its top. Both turn toward the camera around their own axes.
+fn billboard(shape: &Shape, palette: &Palette) -> BillboardMesh {
+    let r = shape.radius;
+
+    // The cap triangle spans the cap's full width at one end and narrows to
+    // a point at the other: pointing up for domes and cones, which are
+    // widest near the rim, and down for funnels, which are widest at the
+    // top.
+    let outline: Vec<Vec2> = [&shape.top, &shape.underside]
+        .into_iter()
+        .flat_map(|p| (0..=16).map(move |i| p.at(p.length() * i as f32 / 16.0)))
+        .collect();
+    let low = outline.iter().map(|p| p.y).fold(f32::MAX, f32::min);
+    let high = outline.iter().map(|p| p.y).fold(f32::MIN, f32::max);
+    let widest = outline
+        .iter()
+        .copied()
+        .fold(Vec2::ZERO, |w, p| if p.x > w.x { p } else { w });
+    let width = widest.x;
+    let points_up = widest.y - low < high - widest.y;
+    let cap_axis = shape.cap_axis();
+    let cap_base = shape.cap_origin + cap_axis * (low * r);
+    // Corners listed counter-clockwise as seen from the front: the wide
+    // edge runs left to right below the point, or right to left above it.
+    let (wide, point, side) = if points_up {
+        (0.0, high - low, width * r)
+    } else {
+        (high - low, 0.0, -width * r)
+    };
+    let cap = Triangle {
+        pivot: cap_base,
+        axis: cap_axis,
+        across: shape.cap_rotation * Vec3::X,
+        front: shape.cap_rotation * Vec3::Z,
+        corners: [
+            ([-side, wide * r], palette.cap_rim, Zone::CapTop),
+            ([side, wide * r], palette.cap_rim, Zone::CapTop),
+            ([0.0, point * r], palette.cap_centre, Zone::CapTop),
+        ],
+    };
+
+    // The stem triangle has the same area as the stem's side view, so it
+    // looks about as heavy from afar: base width four times the stem's
+    // average radius, narrowing to a point under the cap.
+    let ground = shape.stem_centre(0.0);
+    let bottom = shape
+        .bottom_depth
+        .map_or(ground, |depth| ground - shape.stem_tangent(0.0) * depth);
+    let stem_line = cap_base - bottom;
+    let stem_axis = stem_line.try_normalize().unwrap_or(Vec3::Y);
+    let average = (0..=8)
+        .map(|i| shape.stem_radius(i as f32 / 8.0))
+        .sum::<f32>()
+        / 9.0;
+    let frame = glam::Quat::from_rotation_arc(Vec3::Y, stem_axis);
+    let stem = Triangle {
+        pivot: bottom,
+        axis: stem_axis,
+        across: frame * Vec3::X,
+        front: frame * Vec3::Z,
+        corners: [
+            ([-2.0 * average, 0.0], palette.stem_base, Zone::Stem),
+            ([2.0 * average, 0.0], palette.stem_base, Zone::Stem),
+            ([0.0, stem_line.length()], palette.stem_top, Zone::Stem),
+        ],
+    };
+
+    // Each triangle at rest, and crossed at right angles for renderers that
+    // can't turn it.
+    let mut out = BillboardMesh::default();
+    for triangle in [stem, cap] {
+        let first = out.facing.next_index();
+        for (offset, colour, zone) in triangle.corners {
+            for (crossed, (across, front)) in [
+                (false, (triangle.across, triangle.front)),
+                (true, (triangle.front, -triangle.across)),
+            ] {
+                let vertex = Vertex {
+                    position: triangle.pivot + across * offset[0] + triangle.axis * offset[1],
+                    normal: front,
+                    uv: Vec2::new(
+                        if offset[0] < 0.0 {
+                            0.0
+                        } else if offset[0] > 0.0 {
+                            1.0
+                        } else {
+                            0.5
+                        },
+                        if offset[1] > 0.0 { 1.0 } else { 0.0 },
+                    ),
+                    tangent: [across.x, across.y, across.z, 1.0],
+                    color: rgba(colour),
+                    zone,
+                };
+                if crossed {
+                    out.crossed.push(vertex);
+                } else {
+                    out.facing.push(vertex);
+                }
+            }
+            out.billboards.push(BillboardVertex {
+                pivot: triangle.pivot.into(),
+                axis: triangle.axis.into(),
+                offset,
+            });
+        }
+        for buffers in [&mut out.facing, &mut out.crossed] {
+            buffers.indices.extend([first, first + 1, first + 2]);
+        }
+    }
+    out
+}
+
+// --------------------------------------------------------------------------
+// Annulus
+
+/// Appends the annulus's sheet. With `back_faces`, also appends a reversed
+/// copy so the annulus is visible from both sides when drawn one-sided.
+fn annulus_sheet(
     out: &mut MeshBuffers,
     shape: &Shape,
-    ring: &RingShape,
+    annulus: &AnnulusShape,
     detail: &MushroomDetail,
     palette: &Palette,
     back_faces: bool,
 ) {
     let segments = (detail.stem_segments / 3).clamp(1, 4);
-    let st = stations(&ring.profile, segments);
-    let point = |s: f32, theta: f32| shape.ring_point(ring, s, theta);
-    let colour = |_: f32, _: f32, _: Vec3| palette.ring;
+    let st = stations(&annulus.profile, segments);
+    let point = |s: f32, theta: f32| shape.annulus_point(annulus, s, theta);
+    let colour = |_: f32, _: f32, _: Vec3| palette.annulus;
     for flip in [false, true] {
         if flip && !back_faces {
             break;
@@ -729,50 +1007,9 @@ fn ring_sheet(
             color: &colour,
             pole_start: false,
             pole_end: false,
-            zone: Zone::Ring,
+            zone: Zone::Annulus,
             flip,
         }
         .emit(out);
     }
-}
-
-/// Appends one closed wart and returns its triangles as a range counted
-/// from the start of `out`.
-fn wart(out: &mut MeshBuffers, w: &Wart, detail: &MushroomDetail, palette: &Palette) -> Range<u32> {
-    // Side-view outline for a wart of radius 1 and height 1: a flat base,
-    // then a dome.
-    let outline = Profile::new(
-        &[
-            Vec2::ZERO,
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.8, 0.55),
-            Vec2::new(0.0, 1.0),
-        ],
-        &[1],
-    );
-    let st = stations(&outline, 3);
-    // Two directions across the wart that, with its normal as "up", are
-    // arranged like the X, Y and Z axes, so the wart's faces point outward.
-    let t1 = w.normal.any_orthonormal_vector();
-    let t2 = t1.cross(w.normal);
-    let point = |s: f32, theta: f32| {
-        let p = outline.at(s);
-        let (sin, cos) = theta.sin_cos();
-        w.centre + (t1 * cos + t2 * sin) * (p.x * w.radius) + w.normal * (p.y * w.height)
-    };
-    let colour = |_: f32, _: f32, _: Vec3| palette.wart;
-
-    let first = out.indices.len() as u32 / 3;
-    Sheet {
-        stations: &st,
-        sides: detail.wart_sides,
-        point: &point,
-        color: &colour,
-        pole_start: true,
-        pole_end: true,
-        zone: Zone::Wart,
-        flip: false,
-    }
-    .emit(out);
-    first..out.indices.len() as u32 / 3
 }

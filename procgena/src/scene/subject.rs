@@ -8,7 +8,7 @@ use super::environment::{EnvironmentSettings, sky_fog};
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{
     BuildStats, ClumpBuildError, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView,
-    FieldSettings, GroveStats, MeshSize, SceneMode, SceneStart, ViewerCommand,
+    FieldSettings, GroveProgress, GroveStats, MeshSize, SceneMode, SceneStart, ViewerCommand,
     ViewerEvent,
 };
 use super::viewport::{ViewportActivity, ViewportCamera};
@@ -19,6 +19,7 @@ use procgena_deadwood_bevy::{
     DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
     DeadwoodScatterParams, ScatterGround,
 };
+use procgena_impostor::{BakedImpostor, ImpostorRequest};
 use procgena_mushroom::{Mushroom, MushroomOptions};
 use procgena_mushroom_bevy::{
     MushroomFinished, MushroomGenerating, MushroomMaterial, MushroomParams, MushroomPart,
@@ -37,6 +38,19 @@ use procgena_tree_bevy::{
 
 /// Camera distances at which each tree detail level starts, nearest first.
 const LOD_DISTANCES: [f32; 4] = [0.0, 175.0, 275.0, 500.0];
+
+/// Camera distance in metres beyond which trees, alone or in a grove, are
+/// drawn as impostors: flat pictures baked from the tree. It is beyond the
+/// farthest mesh level, which starts at 500 m.
+pub(crate) const IMPOSTOR_DISTANCE: f32 = 800.0;
+
+/// The farthest the grove camera can always back away, in metres: far enough
+/// to see the trees drawn as impostors.
+const GROVE_FARTHEST: f32 = 1.25 * IMPOSTOR_DISTANCE;
+
+/// The scene camera's far clipping distance, in metres: beyond the far side
+/// of the largest grove seen from the grove camera's farthest distance.
+const FAR_CLIP: f32 = 2500.0;
 
 /// The tree detail levels the scene shows, most detailed first: procgena_tree_bevy's
 /// default levels, switched at greater camera distances so that full detail
@@ -93,6 +107,9 @@ pub(crate) struct SceneState {
     /// The dead wood detail level last reported with
     /// [`ViewerEvent::DeadwoodLodShown`], or `None` before the first report.
     deadwood_lod_reported: Option<Option<usize>>,
+    /// The grove progress last reported with [`ViewerEvent::GroveProgress`],
+    /// or `None` before the first report.
+    grove_progress_reported: Option<GroveProgress>,
 }
 
 impl SceneState {
@@ -126,6 +143,9 @@ type Generating = Or<(
     With<TreeGroveGenerating>,
     With<DeadwoodGenerating>,
 )>;
+
+/// Matches requests for impostors that are not baked yet.
+type PendingImpostor = (With<ImpostorRequest>, Without<BakedImpostor>);
 
 /// The tree detail level to show at every distance, or `None` to switch by
 /// camera distance.
@@ -199,9 +219,9 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
             pitch: 0.45,
             distance: 1.4 * subjects.grove_size.max(10.0),
             limits: OrbitLimits {
-                // Far enough out to reach the lowest tree detail level, and
-                // to see the whole grove.
-                distance: (2.0, (2.0 * subjects.grove_size).max(600.0)),
+                // Far enough out to reach the impostors, and to see the
+                // whole grove.
+                distance: (2.0, (2.0 * subjects.grove_size).max(GROVE_FARTHEST)),
                 pitch: (-0.05, 1.5),
             },
         },
@@ -244,16 +264,20 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
 /// camera's 0.1 m near clipping plane.
 const MUSHROOM_NEAREST: f32 = 0.15;
 
-/// Returns the starting view for the mushroom built from `options`: aimed at
-/// half its height and far enough out to show all of it. Settings that can't
-/// be built fall back to a view sized from the cap width alone.
+/// Returns the starting view for the mushroom built from `options`, or the
+/// whole cluster when it has several stems: aimed at the middle of its
+/// width and half its height, and far enough out to show all of it.
+/// Settings that can't be built fall back to a view sized from the cap
+/// width alone.
 fn mushroom_view(options: &MushroomOptions) -> OrbitCamera {
-    let height = Mushroom::new(options.clone())
-        .map(|mushroom| mushroom.apex().y)
-        .unwrap_or(2.0 * options.size);
-    let extent = height.max(options.size);
+    let (min, max) = Mushroom::new(options.clone())
+        .map(|mushroom| mushroom.bounds())
+        .unwrap_or((Vec3::ZERO, Vec3::new(0.0, 2.0 * options.size, 0.0)));
+    let height = max.y.max(0.0);
+    let width = (max.x - min.x).max(max.z - min.z);
+    let extent = height.max(width).max(options.size);
     OrbitCamera {
-        focus: Vec3::new(0.0, 0.5 * height, 0.0),
+        focus: Vec3::new(0.5 * (min.x + max.x), 0.5 * height, 0.5 * (min.z + max.z)),
         yaw: 0.6,
         pitch: 0.2,
         distance: (2.5 * extent).max(MUSHROOM_NEAREST),
@@ -362,11 +386,16 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         lod_reported: None,
         mushroom_lod_reported: None,
         deadwood_lod_reported: None,
+        grove_progress_reported: None,
     };
 
     let view = view_for(start.mode);
     commands.spawn((
         Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            far: FAR_CLIP,
+            ..default()
+        }),
         ViewportCamera,
         view,
         view.transform(),
@@ -476,10 +505,12 @@ pub(crate) fn apply_commands(
                 }
                 state.mode = *mode;
                 state.requested = Instant::now();
-                // The newly shown mode reports its detail level again.
+                // The newly shown mode reports its detail level and
+                // progress again.
                 state.lod_reported = None;
                 state.mushroom_lod_reported = None;
                 state.deadwood_lod_reported = None;
+                state.grove_progress_reported = None;
                 state.subject = spawn_subject(&mut commands, state, &environment);
             }
             ViewerCommand::SetTree(options) => {
@@ -665,11 +696,13 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
 }
 
 /// Requests more frames while tree, rock, mushroom or dead wood meshes or
-/// textures are loading, so an idle viewport still shows the completed
-/// result.
+/// textures are loading, or tree impostors are baking, so an idle viewport
+/// still shows the completed result. Impostors bake only in frames that are
+/// drawn.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_while_loading(
     generating: Query<(), Generating>,
+    baking: Query<(), PendingImpostor>,
     parts: Query<&MeshMaterial3d<TreeMaterial>, With<TreePart>>,
     groves: Query<&TreeGroveAssets>,
     materials: Res<Assets<TreeMaterial>>,
@@ -732,6 +765,7 @@ pub(crate) fn render_while_loading(
                 || loading(&wood.end_normal)
         });
     if !generating.is_empty()
+        || !baking.is_empty()
         || textures_loading
         || stone_textures_loading
         || mushroom_textures_loading
@@ -860,12 +894,17 @@ fn show_level(
     ranges: (Option<&VisibilityRange>, Option<&SavedRange>),
 ) {
     // The chosen level's range is set aside and replaced while it is
-    // chosen; every other part has its own range.
+    // chosen; every other part has its own range. A chosen part whose range
+    // its plugin changed since (as when its tree's impostor is ready) has the
+    // new range set aside instead.
     let (range, saved) = ranges;
     let mut entity = commands.entity(entity);
     let chosen = choice == Some(level);
     match (chosen, range, saved) {
         (true, Some(range), None) => {
+            entity.insert((SavedRange(range.clone()), every_distance()));
+        }
+        (true, Some(range), Some(_)) if *range != every_distance() => {
             entity.insert((SavedRange(range.clone()), every_distance()));
         }
         (false, _, Some(SavedRange(range))) => {
@@ -997,6 +1036,47 @@ pub(crate) fn report_deadwood_lod(
     if state.deadwood_lod_reported != Some(shown) {
         state.deadwood_lod_reported = Some(shown);
         events.write(ViewerEvent::DeadwoodLodShown(shown));
+    }
+}
+
+/// Reports how far the shown grove has got whenever that changes: its tree
+/// shapes generating, then their impostors baking.
+pub(crate) fn report_grove_progress(
+    mut state: ResMut<SceneState>,
+    groves: Query<(Option<&TreeGroveAssets>, Has<TreeGroveGenerating>)>,
+    baking: Query<(), PendingImpostor>,
+    mut events: MessageWriter<ViewerEvent>,
+) {
+    if state.mode != SceneMode::Grove {
+        return;
+    }
+    let Ok((assets, generating)) = groves.get(state.subject) else {
+        return;
+    };
+    let variants = assets.map(TreeGroveAssets::variants).unwrap_or_default();
+    let generated = variants.iter().filter(|v| v.is_ready()).count();
+
+    // A generated shape that has no impostor yet is waiting for its bake,
+    // unless no bake is pending: then it will never have one.
+    let progress = if generating {
+        GroveProgress::Generating {
+            done: generated,
+            total: variants.len(),
+        }
+    } else {
+        let baked = variants.iter().filter(|v| v.has_impostor()).count();
+        if baked < generated && !baking.is_empty() {
+            GroveProgress::Baking {
+                done: baked,
+                total: generated,
+            }
+        } else {
+            GroveProgress::Idle
+        }
+    };
+    if state.grove_progress_reported != Some(progress) {
+        state.grove_progress_reported = Some(progress);
+        events.write(ViewerEvent::GroveProgress(progress));
     }
 }
 
@@ -1362,11 +1442,11 @@ mod tests {
         let mut world = World::new();
         let ranges = [range(0.0, 1.5), range(1.5, 25.0)];
         let spawn_parts = |world: &mut World| {
-            for (lod, ribbon) in [(0, false), (1, false), (1, true)] {
+            for (lod, billboard) in [(0, false), (1, false), (1, true)] {
                 let part = MushroomPart {
                     instance: 0,
                     lod,
-                    ribbon,
+                    billboard,
                 };
                 world.spawn((part, Visibility::Inherited, ranges[lod].clone()));
             }

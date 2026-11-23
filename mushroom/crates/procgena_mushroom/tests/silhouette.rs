@@ -43,8 +43,8 @@ const VIEWS: [View; 2] = [
     },
 ];
 
-/// Every triangle of `mesh` as seen in `view`, with a flat stem turned to
-/// face the viewer as a renderer would.
+/// Every triangle of `mesh` as seen in `view`, with camera-facing shapes
+/// turned to face the viewer as a renderer would.
 fn triangles(mesh: &MushroomMesh, view: &View) -> Vec<[Vec2; 3]> {
     let project = |p: Vec3| Vec2::new(p.dot(view.right), p.dot(view.up));
     let mut out = Vec::new();
@@ -52,8 +52,8 @@ fn triangles(mesh: &MushroomMesh, view: &View) -> Vec<[Vec2; 3]> {
     for t in b.indices.chunks(3) {
         out.push([t[0], t[1], t[2]].map(|i| project(Vec3::from(b.positions[i as usize]))));
     }
-    if let Some(ribbon) = &mesh.stem_ribbon {
-        let turned: Vec<Vec3> = ribbon
+    if let Some(billboard) = &mesh.billboard {
+        let turned: Vec<Vec3> = billboard
             .billboards
             .iter()
             .map(|v| {
@@ -62,7 +62,7 @@ fn triangles(mesh: &MushroomMesh, view: &View) -> Vec<[Vec2; 3]> {
                 Vec3::from(v.pivot) + right * v.offset[0] + axis * v.offset[1]
             })
             .collect();
-        for t in ribbon.strip.indices.chunks(3) {
+        for t in billboard.facing.indices.chunks(3) {
             out.push([t[0], t[1], t[2]].map(|i| project(turned[i as usize])));
         }
     }
@@ -133,6 +133,43 @@ fn coarse_levels_keep_the_outline() {
                     ));
                 }
             }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "outlines differ:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn the_billboard_level_keeps_the_outline_from_the_side() {
+    // Two triangles can only suggest the outline, and only from the side,
+    // the way distant mushrooms are seen; from straight above the turned
+    // triangles are edge-on. A thin, bent stem, as on the liberty cap,
+    // fits a triangle worst, at a little over 0.4.
+    const REQUIRED: f32 = 0.4;
+    let side = &VIEWS[0];
+    let mut failures = Vec::new();
+    for preset in MushroomPreset::ALL {
+        let mushroom = procgena_mushroom::Mushroom::from_preset(preset);
+        let full = mushroom.mesh_with_detail(&MushroomDetail::FULL).unwrap();
+        let full_tris = triangles(&full, side);
+        let (min, max) = full_tris
+            .iter()
+            .flatten()
+            .fold((Vec2::MAX, Vec2::MIN), |(lo, hi), p| {
+                (lo.min(*p), hi.max(*p))
+            });
+        let margin = (max - min) * 0.05;
+        let (min, max) = (min - margin, max + margin);
+        let reference = mask(&full_tris, min, max);
+        let billboard = mushroom
+            .mesh_with_detail(&MushroomDetail::BILLBOARD)
+            .unwrap();
+        let score = overlap(&reference, &mask(&triangles(&billboard, side), min, max));
+        if score < REQUIRED {
+            failures.push(format!("{}: {score:.3} < {REQUIRED}", preset.name()));
         }
     }
     assert!(

@@ -241,6 +241,63 @@ fn trees_stand_on_the_ground_and_sink_below_it() {
 }
 
 #[test]
+fn each_species_can_have_its_own_slope_limit() {
+    // A 40° slope: steeper than the grove's 35° limit, gentler than the 45°
+    // shrubs tolerate.
+    let tan = 40f32.to_radians().tan();
+    let slope = |x: f32, _z: f32| tan * x;
+    let alone = |tree: GroveTree| {
+        let grove = TreeGrove::new(vec![tree]);
+        GrovePlacement::new(&grove, [30.0, 30.0], &slope, None)
+            .unwrap()
+            .instances()
+            .len()
+    };
+    assert_eq!(TreePreset::Bush2.grove_max_slope(), Some(45.0));
+    assert!(
+        alone(GroveTree::new(TreePreset::Bush2)) > 0,
+        "shrubs cling to the slope"
+    );
+    assert_eq!(alone(GroveTree::new(TreePreset::OakMedium)), 0);
+
+    // A species' own limit replaces the grove's either way.
+    let mut oak = GroveTree::new(TreePreset::OakMedium);
+    oak.max_slope = Some(42.0);
+    assert!(alone(oak) > 0);
+    let mut bush = GroveTree::new(TreePreset::Bush2);
+    bush.max_slope = None;
+    assert_eq!(alone(bush), 0);
+
+    // Out of range is an error.
+    let mut bad = GroveTree::new(TreePreset::Bush2);
+    bad.max_slope = Some(91.0);
+    assert!(TreeGrove::new(vec![bad]).validate().is_err());
+}
+
+#[test]
+fn trees_on_a_diagonal_slope_stand_below_its_lowest_side() {
+    // A slope falling towards -X and -Z, so the lowest ground around a trunk
+    // lies between the X and Z axes.
+    let mut grove = TreeGrove::new(vec![GroveTree::new(TreePreset::OakLarge)]);
+    grove.variation.lean = 0.0;
+    grove.variation.sink = 0.0;
+    let tan = 25f32.to_radians().tan();
+    let diagonal = |x: f32, z: f32| tan * (x + z) * std::f32::consts::FRAC_1_SQRT_2;
+    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &diagonal, None).unwrap();
+    assert!(!placement.instances().is_empty());
+    let trunk = TreePreset::OakLarge.options().branch.radius[0];
+    for tree in placement.instances() {
+        let p = tree.position;
+        let radius = trunk * Vec3::from(tree.transform.matrix3.x_axis).length();
+        let d = radius * std::f32::consts::FRAC_1_SQRT_2;
+        assert!(
+            p.y <= diagonal(p.x - d, p.z - d) + 1e-4,
+            "the foot floats downhill"
+        );
+    }
+}
+
+#[test]
 fn a_density_function_thins_the_grove() {
     let grove = even_pair();
     let east_only = |x: f32, _z: f32| if x > 0.0 { 1.0 } else { 0.0 };
@@ -373,6 +430,10 @@ fn groves_round_trip_through_json() {
     grove.trees[1].tree.seed = 77; // no longer a preset, so written out in full
     grove.variation.lean = 7.5;
     grove.patchiness = 0.4;
+    // A shrub preset on the grove's slope limit, and a tree with its own.
+    assert_eq!(grove.trees[0].max_slope, Some(45.0));
+    grove.trees[0].max_slope = None;
+    grove.trees[2].max_slope = Some(20.0);
     let json = grove.to_json();
     assert_eq!(TreeGrove::from_json(&json).unwrap(), grove);
     // Numbers are written as typed, not widened to many digits.

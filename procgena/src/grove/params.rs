@@ -4,7 +4,7 @@
 
 use procgena_tree::{GroveTree, GroveVariation, MAX_GROVE_VARIANTS, TreeGrove};
 
-use crate::params::{Group, Section, count, number};
+use crate::params::{Group, Param, Section, count, number};
 
 /// Largest grove seed the Seed control reaches.
 const MAX_SEED: u32 = 999;
@@ -60,6 +60,15 @@ pub fn share_sections() -> Vec<Section<GroveTree>> {
                 "Variants",
                 (1, MAX_GROVE_VARIANTS),
                 |t| t.variants
+            ),
+            // The species' own slope limit. A species without one shows the
+            // default grove limit, and editing it gives the species its own.
+            Param::number(
+                "maxSlope",
+                "Max Slope",
+                (0.0, 90.0, 0.5),
+                |t: &GroveTree| t.max_slope.unwrap_or(GroveVariation::default().max_slope),
+                |t: &mut GroveTree, value| t.max_slope = Some(value),
             ),
         ])],
     }]

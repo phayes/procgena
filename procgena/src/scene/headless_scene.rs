@@ -19,9 +19,9 @@ use super::{
     ViewportCamera, ViewportInput, ViewportTarget,
 };
 
-/// Most extra frames rendered after the scene goes idle while waiting for the
-/// readbacks of frames it asked for.
-const MAX_DRAIN_FRAMES: u32 = 8;
+/// Time slept per extra frame rendered after the scene goes idle while
+/// waiting for the readbacks of frames it asked for, so the GPU can catch up.
+const DRAIN_PACE: Duration = Duration::from_millis(2);
 
 /// The longest any wait in this module may take before it panics.
 const LIMIT: Duration = Duration::from_secs(120);
@@ -82,16 +82,33 @@ impl HeadlessScene {
     /// Like [`new`](Self::new), but registers the asset sources with
     /// `sources` instead of [`add_asset_sources`](super::add_asset_sources).
     pub fn with_sources(start: SceneStart, size: UVec2, sources: impl FnOnce(&mut App)) -> Self {
+        Self::build(ScenePlugin::new(start), size, sources)
+    }
+
+    /// Like [`new`](Self::new), but trees are drawn at their farthest mesh
+    /// level at every distance beyond it, never as impostors.
+    pub fn without_impostors(start: SceneStart, size: UVec2) -> Self {
+        Self::build(
+            ScenePlugin::new(start).without_impostors(),
+            size,
+            super::add_asset_sources,
+        )
+    }
+
+    /// Runs `scene`, with asset sources registered by `sources`, rendering
+    /// at `size` pixels.
+    fn build(scene: ScenePlugin, size: UVec2, sources: impl FnOnce(&mut App)) -> Self {
         let size = size.max(UVec2::ONE);
         let frames = Arc::new(Mutex::new(FrameLog::default()));
         let events = EventSink::default();
 
         // Build the app and finish its plugins; the renderer starts
         // asynchronously. Clumps are drawn in flat colours, which tests
-        // recognise more reliably than textures.
+        // recognise more reliably than textures. Impostors are baked afresh,
+        // whatever the user's cache folder holds.
         let mut app = App::new();
         sources(&mut app);
-        let scene = ScenePlugin::new(start).without_clump_textures();
+        let scene = scene.without_clump_textures().without_impostor_cache();
         app.add_plugins((headless_plugins(), scene))
             .insert_resource(FrameSink {
                 log: frames.clone(),
@@ -144,6 +161,11 @@ impl HeadlessScene {
             .expect("the scene has exactly one camera")
     }
 
+    /// The scene's world, for checking its entities directly.
+    pub fn world_mut(&mut self) -> &mut World {
+        self.app.world_mut()
+    }
+
     /// Takes every event the scene has reported and not yet been taken, oldest first.
     pub fn take_events(&mut self) -> Vec<ViewerEvent> {
         lock(&self.events).drain(..).collect()
@@ -180,29 +202,28 @@ impl HeadlessScene {
     ///
     /// # Panics
     ///
-    /// Panics if the scene is still active after two minutes, for example
-    /// with wind on.
+    /// Panics if the scene is still active, or the frames it asked for are
+    /// not read back, within two minutes, for example with wind on.
     pub fn settle(&mut self) -> Vec<Frame> {
         let deadline = Instant::now() + LIMIT;
         let mut last_asked = self.rendered + 1;
-        let mut drained = 0;
         loop {
             assert!(
                 Instant::now() < deadline,
-                "the scene did not go idle within {LIMIT:?}"
+                "the scene did not go idle, and its frames were not read back, within {LIMIT:?}"
             );
             let asked = self.rendered < last_asked
                 || self.app.world().resource::<ViewportActivity>().is_active();
             self.update();
             if asked {
                 last_asked = self.rendered;
-                drained = 0;
             } else {
-                drained += 1;
-                let delivered = lock(&self.frames).delivered;
-                if delivered >= last_asked || drained >= MAX_DRAIN_FRAMES {
+                // Readbacks can trail rendering by many frames after heavy
+                // work; wait for the last asked-for frame's.
+                if lock(&self.frames).delivered >= last_asked {
                     break;
                 }
+                std::thread::sleep(DRAIN_PACE);
             }
         }
 

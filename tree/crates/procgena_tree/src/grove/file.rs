@@ -112,6 +112,18 @@ struct TreeFile {
     density_scale: Option<f32>,
     clustering: Option<f32>,
     variants: Option<u32>,
+    /// Missing: the tree preset's; `null`: the grove's; a number: its own.
+    #[serde(default, deserialize_with = "present")]
+    max_slope: Option<Option<f32>>,
+}
+
+/// Reads a setting that may be missing (`None`), `null` (`Some(None)`) or
+/// given (`Some(Some(value))`).
+fn present<'de, D>(deserializer: D) -> Result<Option<Option<f32>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<f32>::deserialize(deserializer).map(Some)
 }
 
 impl TreeGrove {
@@ -236,6 +248,9 @@ fn read_tree(index: usize, entry: TreeFile) -> Result<GroveTree, GroveFileError>
     tree.density_scale = entry.density_scale.unwrap_or(tree.density_scale);
     tree.clustering = entry.clustering.unwrap_or(tree.clustering);
     tree.variants = entry.variants.unwrap_or(tree.variants);
+    tree.max_slope = entry
+        .max_slope
+        .unwrap_or_else(|| preset.and_then(TreePreset::grove_max_slope));
     Ok(tree)
 }
 
@@ -260,6 +275,7 @@ fn write_tree(tree: &GroveTree) -> TreeOut<'_> {
         density_scale: tree.density_scale,
         clustering: tree.clustering,
         variants: tree.variants,
+        max_slope: tree.max_slope,
     }
 }
 
@@ -294,6 +310,8 @@ struct TreeOut<'a> {
     density_scale: f32,
     clustering: f32,
     variants: u32,
+    /// Written as `null` when the species uses the grove's limit.
+    max_slope: Option<f32>,
 }
 
 #[derive(Serialize)]

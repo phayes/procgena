@@ -39,6 +39,22 @@ const DEFAULT_VARIANTS: u32 = 4;
 /// Distance between candidate tree sites, in metres. Each square of this size
 /// holds at most one tree, so a grove is never denser than 4 trees per m².
 const SITE_CELL: f32 = 0.5;
+/// Unit directions from a trunk to the points around it where the ground is
+/// sampled: the axes and the diagonals.
+const FOOTING_DIRECTIONS: [(f32, f32); 8] = {
+    const D: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    [
+        (1.0, 0.0),
+        (-1.0, 0.0),
+        (0.0, 1.0),
+        (0.0, -1.0),
+        (D, D),
+        (D, -D),
+        (-D, D),
+        (-D, -D),
+    ]
+};
+
 /// Smallest radius around a trunk at which the ground is sampled, in metres.
 const MIN_FOOTPRINT: f32 = 0.25;
 /// Square metres in a hectare.
@@ -107,21 +123,29 @@ pub struct GroveTree {
     /// [`MAX_GROVE_VARIANTS`]. More variants look less repetitive but cost a
     /// mesh each.
     pub variants: u32,
+    /// Steepest ground this species grows on, in degrees from level, from 0
+    /// to 90. `None` uses the grove's
+    /// [`max_slope`](GroveVariation::max_slope). Set it higher for shrubs and
+    /// saplings, which cling to slopes large trees can't.
+    pub max_slope: Option<f32>,
 }
 
 impl GroveTree {
-    /// A species from a preset, at the preset's own grove density and spacing,
-    /// evenly mixed, with 4 shape variants.
+    /// A species from a preset, at the preset's own grove density, spacing
+    /// and slope tolerance, evenly mixed, with 4 shape variants.
     pub fn new(preset: TreePreset) -> Self {
-        Self::custom(
+        let mut tree = Self::custom(
             preset.options(),
             preset.grove_density(),
             preset.grove_spacing(),
-        )
+        );
+        tree.max_slope = preset.grove_max_slope();
+        tree
     }
 
     /// A species with your own tree settings, `density` in trees per hectare
-    /// and `spacing` in metres, evenly mixed, with 4 shape variants.
+    /// and `spacing` in metres, evenly mixed, with 4 shape variants, on the
+    /// grove's slope limit.
     pub fn custom(tree: TreeOptions, density: f32, spacing: f32) -> Self {
         Self {
             tree,
@@ -130,6 +154,7 @@ impl GroveTree {
             density_scale: 1.0,
             clustering: 0.0,
             variants: DEFAULT_VARIANTS,
+            max_slope: None,
         }
     }
 
@@ -189,6 +214,11 @@ impl GroveTree {
             &field("variants"),
             "between 1 and 8",
         )?;
+        check(
+            self.max_slope.is_none_or(|s| (0.0..=90.0).contains(&s)),
+            &field("maxSlope"),
+            "between 0 and 90",
+        )?;
         self.tree
             .validate()
             .map_err(|error| GroveError::Tree { index, error })
@@ -209,8 +239,10 @@ pub struct GroveVariation {
     /// Largest lean of a trunk away from vertical, in degrees, each tree in
     /// a random direction. From 0 to 45.
     pub lean: f32,
-    /// Steepest ground a tree grows on, in degrees from level. From 0 to 90;
-    /// 90 allows any slope.
+    /// Steepest ground a tree grows on, in degrees from level, unless its
+    /// species sets its own [`max_slope`](GroveTree::max_slope). From 0 to
+    /// 90; 90 allows any slope. The slope is measured across the trunk's
+    /// footprint.
     pub max_slope: f32,
     /// How far each tree is sunk below the lowest ground around its trunk, in
     /// metres, so its roots never show above a slope. Must be 0 or more.
@@ -470,8 +502,9 @@ impl GrovePlacement {
     /// `density` thins the grove in places: it takes X and Z and returns from
     /// 0 (no trees) to 1 (the grove's full density); `None` is full
     /// everywhere. Trees are left out where any ground around their trunk is
-    /// missing (NaN) or steeper than the grove's
-    /// [`max_slope`](GroveVariation::max_slope).
+    /// missing (NaN) or steeper than their species'
+    /// [`max_slope`](GroveTree::max_slope), or the grove's
+    /// [`max_slope`](GroveVariation::max_slope) when the species sets none.
     ///
     /// # Errors
     ///
@@ -657,12 +690,12 @@ fn stand(
     let variant = (draw(h, SALT_VARIANT) * species.variants as f32) as u32;
     let scale = tree_scale(draw(h, SALT_SCALE), variation.scale_jitter);
 
-    // Sample the ground at the trunk and at four points around it.
+    // Sample the ground at the trunk and at eight points around its edge.
     let footprint = (species.tree.branch.radius[0] * scale).max(MIN_FOOTPRINT);
     let centre = ground.height(x, z);
     let mut lowest = centre;
     let mut steepest: f32 = 0.0;
-    for (dx, dz) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+    for (dx, dz) in FOOTING_DIRECTIONS {
         let y = ground.height(x + dx * footprint, z + dz * footprint);
         if y.is_nan() {
             return None;
@@ -670,7 +703,8 @@ fn stand(
         lowest = lowest.min(y);
         steepest = steepest.max((y - centre).abs());
     }
-    if centre.is_nan() || (steepest / footprint).atan().to_degrees() > variation.max_slope {
+    let max_slope = species.max_slope.unwrap_or(variation.max_slope);
+    if centre.is_nan() || (steepest / footprint).atan().to_degrees() > max_slope {
         return None;
     }
 

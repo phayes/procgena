@@ -21,8 +21,9 @@ use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
+use bevy::asset::UntypedAssetId;
 use bevy::camera::primitives::Frustum;
-use bevy::camera::visibility::VisibilityRange;
+use bevy::camera::visibility::{RenderLayers, VisibilityRange};
 use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey};
 use bevy::core_pipeline::deferred::{AlphaMask3dDeferred, Opaque3dDeferred};
 use bevy::core_pipeline::prepass::{
@@ -67,9 +68,11 @@ use bevy::render::view::{ExtractedView, RetainedViewEntity};
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::shape::ViewFrustum;
 
+use procgena_impostor::{INSTANCE_SIZE, ImpostorMaterial, ImpostorPipelineKey};
+
 use super::promote::{PromotedAs, PromotedTree};
 use super::{TreeGroveAssets, TreeGroveInstances};
-use crate::material::{GROVE_INSTANCE_SIZE, TreeMaterial, WindKey};
+use crate::material::{TreeMaterial, WindKey};
 use crate::spawn::TreeGenerating;
 
 /// The passes a grove is drawn in.
@@ -139,6 +142,8 @@ struct ExtractedGrove {
     /// Trees promoted to entities whose parts are drawn, which the grove
     /// leaves out, as positions in the grove's trees.
     promoted: HashSet<u32>,
+    /// The grove's render layers: cameras draw it only if they share one.
+    layers: RenderLayers,
 }
 
 /// Every visible grove with placed trees, copied from the main world this
@@ -158,12 +163,13 @@ pub(crate) fn extract_groves(
             &TreeGroveAssets,
             &GlobalTransform,
             &InheritedVisibility,
+            Option<&RenderLayers>,
         )>,
     >,
     promoted: Extract<Query<&PromotedTree, (With<PromotedAs>, Without<TreeGenerating>)>>,
 ) {
     extracted.0.clear();
-    for (entity, instances, assets, transform, visibility) in &groves {
+    for (entity, instances, assets, transform, visibility, layers) in &groves {
         if !visibility.get() || instances.trees().is_empty() {
             continue;
         }
@@ -174,6 +180,7 @@ pub(crate) fn extract_groves(
                 instances: instances.clone(),
                 assets: assets.clone(),
                 promoted: HashSet::new(),
+                layers: layers.cloned().unwrap_or_default(),
             },
         );
     }
@@ -189,13 +196,33 @@ pub(crate) fn extract_groves(
 // --------------------------------------------------------------------------
 // Per-grove GPU data
 
-/// One mesh a grove draws: a variant's part at one detail level.
+/// One mesh a grove draws: a variant's part at one detail level, or its
+/// impostor beyond them.
 struct GroveDraw {
     /// The variant: its position in [`TreeGroveAssets::variants`].
     slot: u32,
     lod: u32,
     mesh: AssetId<Mesh>,
-    material: AssetId<TreeMaterial>,
+    /// A [`TreeMaterial`] or an [`ImpostorMaterial`], as `kind` says.
+    material: UntypedAssetId,
+    kind: DrawKind,
+}
+
+/// Which material a [`GroveDraw`] is drawn with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum DrawKind {
+    Tree,
+    Impostor,
+}
+
+impl DrawKind {
+    /// The material type, which keys Bevy's material bind group allocators.
+    fn type_id(self) -> TypeId {
+        match self {
+            Self::Tree => TypeId::of::<TreeMaterial>(),
+            Self::Impostor => TypeId::of::<ImpostorMaterial>(),
+        }
+    }
 }
 
 /// A tree's bounding sphere and origin in the world, for culling and
@@ -227,6 +254,8 @@ struct GroveGpu {
     levels: u32,
     /// Trees promoted to entities this frame, which the grove leaves out.
     promoted: HashSet<u32>,
+    /// The grove's render layers this frame.
+    layers: RenderLayers,
 }
 
 impl GroveGpu {
@@ -294,6 +323,7 @@ pub(crate) fn prepare_grove_records(
             describe_grove(gpu);
         }
         gpu.promoted.clone_from(&grove.promoted);
+        gpu.layers.clone_from(&grove.layers);
 
         gpu.bind_group = gpu.records.binding().map(|records| {
             mesh_pipeline.mesh_layouts.model_only(
@@ -321,6 +351,7 @@ fn new_grove_gpu(grove: &ExtractedGrove) -> GroveGpu {
         ranges: Vec::new(),
         levels: 1,
         promoted: HashSet::new(),
+        layers: grove.layers.clone(),
     }
 }
 
@@ -365,12 +396,9 @@ fn describe_grove(gpu: &mut GroveGpu) {
             continue;
         };
         let levels = generated.level_count();
-        gpu.levels = gpu.levels.max(levels as u32);
-        gpu.ranges.push(
-            (0..levels)
-                .map(|lod| generated.range(lod).cloned())
-                .collect(),
-        );
+        let mut ranges: Vec<_> = (0..levels)
+            .map(|lod| generated.range(lod).cloned())
+            .collect();
         let mut min = Vec3A::splat(f32::INFINITY);
         let mut max = Vec3A::splat(f32::NEG_INFINITY);
         for part in variant.parts() {
@@ -378,11 +406,26 @@ fn describe_grove(gpu: &mut GroveGpu) {
                 slot: slot as u32,
                 lod: part.lod as u32,
                 mesh: part.mesh.id(),
-                material: part.material.id(),
+                material: part.material.id().untyped(),
+                kind: DrawKind::Tree,
             });
             min = min.min(part.bounds.min());
             max = max.max(part.bounds.max());
         }
+
+        // The impostor, once baked, is one more level beyond the rest.
+        if let Some(impostor) = variant.impostor() {
+            ranges = impostor.setting.level_ranges(ranges);
+            gpu.draws.push(GroveDraw {
+                slot: slot as u32,
+                lod: levels as u32,
+                mesh: impostor.quad.id(),
+                material: impostor.material.id().untyped(),
+                kind: DrawKind::Impostor,
+            });
+        }
+        gpu.levels = gpu.levels.max(ranges.len() as u32);
+        gpu.ranges.push(ranges);
         spheres.push((min.x <= max.x).then(|| {
             let center = (min + max) / 2.0;
             // Leave room for wind sway, which the bounds don't include.
@@ -500,12 +543,15 @@ struct SpecializeView {
     deferred: bool,
     /// Whether this is a shadow view.
     shadow: bool,
+    /// A camera's render layers; `None` for a shadow view, which draws
+    /// every grove.
+    layers: Option<RenderLayers>,
 }
 
 /// Grove pipelines already looked up, by pass, mesh key, mesh and material.
 #[derive(Resource, Default)]
 pub(crate) struct GrovePipelineCache(
-    HashMap<(u8, MeshPipelineKey, AssetId<Mesh>, AssetId<TreeMaterial>), CachedRenderPipelineId>,
+    HashMap<(u8, MeshPipelineKey, AssetId<Mesh>, UntypedAssetId), CachedRenderPipelineId>,
 );
 
 /// Works out, for every view and grove, which passes each of the grove's
@@ -547,7 +593,7 @@ pub(crate) fn specialize_groves(world: &mut World) {
                 .iter()
                 .map(|draw| {
                     materials
-                        .get(draw.material.untyped())
+                        .get(draw.material)
                         .is_some_and(|m| matches!(m.properties.alpha_mode, AlphaMode::Mask(_)))
                 })
                 .collect();
@@ -557,8 +603,10 @@ pub(crate) fn specialize_groves(world: &mut World) {
 
 /// Every camera and shadow view that has pipeline keys this frame.
 fn specialize_views(world: &mut World) -> Vec<SpecializeView> {
-    let mut cameras =
-        world.query_filtered::<(&ExtractedView, Has<DeferredPrepass>), Without<LightEntity>>();
+    let mut cameras = world.query_filtered::<
+        (&ExtractedView, Has<DeferredPrepass>, Option<&RenderLayers>),
+        Without<LightEntity>,
+    >();
     let mut lights = world.query_filtered::<&ExtractedView, With<LightEntity>>();
     let view_keys = world.resource::<ViewKeyCache>();
     let prepass_keys = world.resource::<ViewKeyPrepassCache>();
@@ -567,7 +615,7 @@ fn specialize_views(world: &mut World) -> Vec<SpecializeView> {
     let deferred_phases = world.resource::<ViewBinnedRenderPhases<Opaque3dDeferred>>();
 
     let mut views = Vec::new();
-    for (view, deferred_camera) in cameras.iter(world) {
+    for (view, deferred_camera, layers) in cameras.iter(world) {
         let retained = view.retained_view_entity;
         let Some(key) = view_keys.get(&retained).copied() else {
             continue;
@@ -584,6 +632,7 @@ fn specialize_views(world: &mut World) -> Vec<SpecializeView> {
             has_prepass,
             deferred,
             shadow: false,
+            layers: Some(layers.cloned().unwrap_or_default()),
         });
     }
     for view in lights.iter(world) {
@@ -598,6 +647,7 @@ fn specialize_views(world: &mut World) -> Vec<SpecializeView> {
             has_prepass: false,
             deferred: false,
             shadow: true,
+            layers: None,
         });
     }
     views
@@ -613,11 +663,17 @@ fn collect_work(world: &World, views: &[SpecializeView]) -> Vec<Work> {
     for view in views {
         let msaa = Msaa::from_samples(view.key.msaa_samples());
         for (grove_entity, grove) in &groves.0 {
+            if view
+                .layers
+                .as_ref()
+                .is_some_and(|layers| !layers.intersects(&grove.layers))
+            {
+                continue;
+            }
             for (index, draw) in grove.draws.iter().enumerate() {
-                let (Some(mesh), Some(material)) = (
-                    meshes.get(draw.mesh),
-                    materials.get(draw.material.untyped()),
-                ) else {
+                let (Some(mesh), Some(material)) =
+                    (meshes.get(draw.mesh), materials.get(draw.material))
+                else {
                     continue;
                 };
                 let properties = &material.properties;
@@ -687,7 +743,7 @@ fn collect_work(world: &World, views: &[SpecializeView]) -> Vec<Work> {
 fn specialize(world: &mut World, item: &Work) -> Option<CachedRenderPipelineId> {
     let groves = world.resource::<Groves>();
     let draw = groves.0.get(&item.grove)?.draws.get(item.draw)?;
-    let (mesh, material) = (draw.mesh, draw.material);
+    let (mesh, material, kind) = (draw.mesh, draw.material, draw.kind);
     let cache_key = (item.pass, item.key, mesh, material);
     if let Some(id) = world.resource::<GrovePipelineCache>().0.get(&cache_key) {
         return Some(*id);
@@ -699,18 +755,32 @@ fn specialize(world: &mut World, item: &Work) -> Option<CachedRenderPipelineId> 
         .clone();
     let properties = world
         .resource::<ErasedRenderAssets<PreparedMaterial>>()
-        .get(material.untyped())?
+        .get(material)?
         .properties
         .clone();
 
-    // The tree material's key, with the grove flag set.
-    let mut material_key: CombinedBindGroupData<StandardMaterialKey, WindKey> =
-        properties.material_key.to_key();
-    material_key.extension = WindKey { grove: true };
+    // The material's own key, switched to its per-tree instanced variant.
+    let material_key = match kind {
+        DrawKind::Tree => {
+            let mut key: CombinedBindGroupData<StandardMaterialKey, WindKey> =
+                properties.material_key.to_key();
+            key.extension = WindKey {
+                grove: true,
+                ..key.extension
+            };
+            ErasedMaterialKey::new(key)
+        }
+        DrawKind::Impostor => {
+            let mut key: CombinedBindGroupData<StandardMaterialKey, ImpostorPipelineKey> =
+                properties.material_key.to_key();
+            key.extension.instanced = true;
+            ErasedMaterialKey::new(key)
+        }
+    };
     let key = ErasedMaterialPipelineKey {
         mesh_key: ErasedMeshPipelineKey::new(item.key),
-        material_key: ErasedMaterialKey::new(material_key),
-        type_id: TypeId::of::<TreeMaterial>(),
+        material_key,
+        type_id: kind.type_id(),
     };
     let result = if item.pass == pass::MAIN {
         (properties.base_specialize?)(world, key, &layout, &properties)
@@ -1152,9 +1222,6 @@ impl<P: PhaseItem, const PASS: u8, const CLASS: u8> RenderCommand<P>
         else {
             return RenderCommandResult::Skip;
         };
-        let Some(tree_allocator) = allocators.get(&TypeId::of::<TreeMaterial>()) else {
-            return RenderCommandResult::Skip;
-        };
         pass.set_bind_group(2, records, &[]);
 
         for (index, draw) in grove.draws.iter().enumerate() {
@@ -1177,8 +1244,9 @@ impl<P: PhaseItem, const PASS: u8, const CLASS: u8> RenderCommand<P>
                 continue;
             };
             let Some(bind_group) = materials
-                .get(draw.material.untyped())
-                .and_then(|m| tree_allocator.get(m.binding.group))
+                .get(draw.material)
+                .zip(allocators.get(&draw.kind.type_id()))
+                .and_then(|(m, allocator)| allocator.get(m.binding.group))
                 .and_then(|group| group.bind_group())
             else {
                 continue;
@@ -1206,8 +1274,7 @@ impl<P: PhaseItem, const PASS: u8, const CLASS: u8> RenderCommand<P>
             pass.set_vertex_buffer(
                 1,
                 visible.slice(
-                    u64::from(trees.start) * GROVE_INSTANCE_SIZE
-                        ..u64::from(trees.end) * GROVE_INSTANCE_SIZE,
+                    u64::from(trees.start) * INSTANCE_SIZE..u64::from(trees.end) * INSTANCE_SIZE,
                 ),
             );
             pass.set_index_buffer(indices.buffer.slice(..), index_format);

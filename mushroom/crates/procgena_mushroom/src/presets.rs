@@ -1,8 +1,9 @@
 //! Ready-made mushroom species to start from.
 
+use crate::cluster::{ClusterLayout, ClusterOptions, FairyRingOptions};
 use crate::options::{
-    CapOptions, MaterialOptions, MushroomOptions, Pattern, RingOptions, StemOptions,
-    UndersideOptions, WartOptions,
+    AnnulusOptions, BulbOptions, CapOptions, MaterialOptions, MushroomOptions, Pattern,
+    StemOptions, UndersideOptions, WartOptions,
 };
 use crate::profile::CapFamily;
 
@@ -11,14 +12,15 @@ use crate::profile::CapFamily;
 /// like.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MushroomPreset {
-    /// Red cap with white warts, a white ring and a bulbous base.
+    /// Red cap with white warts, a white annulus and a bulbous base.
     FlyAgaric,
     /// A bolete: a brown cushion cap with a cracked pattern on a fat, pale
     /// stem.
     Porcini,
     /// Egg-yolk funnel with wavy rim and ridges running down the stem.
     Chanterelle,
-    /// Large, flat, scaly cap with a knob, on a tall slim stem with a ring.
+    /// Large, flat, scaly cap with a knob, on a tall slim stem with an
+    /// annulus.
     Parasol,
     /// A small pointed cap on a thin, bent stem.
     LibertyCap,
@@ -26,17 +28,21 @@ pub enum MushroomPreset {
     ShaggyInkCap,
     /// A small white button mushroom.
     Button,
-    /// Tiny white caps on long, thin stems.
+    /// A tight tuft of tiny white caps on long, thin stems that sweep
+    /// outward.
     Enoki,
     /// A white globe with fine bumps and almost no stem.
     Puffball,
     /// A stylised red bell with round spots.
     Storybook,
+    /// Small tan caps growing in a wide circle on open ground, planted
+    /// without a closed base.
+    FairyRing,
 }
 
 impl MushroomPreset {
     /// Every preset, in the order listed here.
-    pub const ALL: [MushroomPreset; 10] = [
+    pub const ALL: [MushroomPreset; 11] = [
         MushroomPreset::FlyAgaric,
         MushroomPreset::Porcini,
         MushroomPreset::Chanterelle,
@@ -47,6 +53,7 @@ impl MushroomPreset {
         MushroomPreset::Enoki,
         MushroomPreset::Puffball,
         MushroomPreset::Storybook,
+        MushroomPreset::FairyRing,
     ];
 
     /// Returns a display name, such as `"Fly agaric"`.
@@ -62,6 +69,7 @@ impl MushroomPreset {
             MushroomPreset::Enoki => "Enoki",
             MushroomPreset::Puffball => "Puffball",
             MushroomPreset::Storybook => "Storybook",
+            MushroomPreset::FairyRing => "Fairy ring",
         }
     }
 
@@ -80,11 +88,15 @@ impl MushroomPreset {
                     height: 1.1,
                     radius: 0.08,
                     base: 1.3,
-                    bulb: 0.9,
-                    bulb_height: 0.18,
                     ..base.stem.clone()
                 },
-                ring: RingOptions {
+                bulb: BulbOptions {
+                    size: 0.9,
+                    height: 0.18,
+                    depth: 0.6,
+                    ..base.bulb.clone()
+                },
+                annulus: AnnulusOptions {
                     enabled: true,
                     position: 0.78,
                     length: 0.1,
@@ -104,7 +116,7 @@ impl MushroomPreset {
                     underside: "#f1ead8".into(),
                     stem_top: "#f4efe2".into(),
                     stem_base: "#e3dac4".into(),
-                    ring: "#f4efe2".into(),
+                    annulus: "#f4efe2".into(),
                     wart: "#f6f2e6".into(),
                     roughness: 0.45,
                     cap_texture: Some("mushroom_top_001".into()),
@@ -130,11 +142,15 @@ impl MushroomPreset {
                     height: 0.75,
                     radius: 0.16,
                     base: 1.5,
-                    bulb: 0.4,
-                    bulb_height: 0.5,
                     collar: 0.0,
                     lean: 0.03,
                     ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    size: 0.4,
+                    height: 0.5,
+                    depth: 0.4,
+                    ..base.bulb.clone()
                 },
                 material: MaterialOptions {
                     cap_centre: "#5a3418".into(),
@@ -146,7 +162,7 @@ impl MushroomPreset {
                     pattern_colour: "#e2d2b0".into(),
                     pattern_strength: 0.12,
                     pattern_scale: 6.0,
-                    gill_lines: 0,
+                    gills: false,
                     stem_texture: Some("brown_net".into()),
                     stem_texture_size: 0.04,
                     ..base.material.clone()
@@ -171,9 +187,12 @@ impl MushroomPreset {
                     height: 0.7,
                     radius: 0.11,
                     base: 0.7,
-                    bulb: 0.0,
                     collar: 0.4,
                     ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    size: 0.0,
+                    ..base.bulb.clone()
                 },
                 material: MaterialOptions {
                     cap_centre: "#e09a1c".into(),
@@ -197,11 +216,15 @@ impl MushroomPreset {
                     height: 1.3,
                     radius: 0.04,
                     base: 1.2,
-                    bulb: 1.0,
-                    bulb_height: 0.1,
                     ..base.stem.clone()
                 },
-                ring: RingOptions {
+                bulb: BulbOptions {
+                    size: 1.0,
+                    height: 0.1,
+                    depth: 0.7,
+                    ..base.bulb.clone()
+                },
+                annulus: AnnulusOptions {
                     enabled: true,
                     position: 0.7,
                     length: 0.05,
@@ -221,7 +244,7 @@ impl MushroomPreset {
                     underside: "#efe6d4".into(),
                     stem_top: "#cdb99a".into(),
                     stem_base: "#7a5f45".into(),
-                    ring: "#e8dfcc".into(),
+                    annulus: "#e8dfcc".into(),
                     wart: "#6b4c34".into(),
                     stem_texture: Some("creamy_tan".into()),
                     stem_texture_size: 0.03,
@@ -240,10 +263,13 @@ impl MushroomPreset {
                     height: 3.5,
                     radius: 0.06,
                     base: 1.1,
-                    bulb: 0.0,
                     lean: 0.15,
                     curve: 2.5,
                     ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    size: 0.0,
+                    ..base.bulb.clone()
                 },
                 material: MaterialOptions {
                     cap_centre: "#6e4a20".into(),
@@ -302,9 +328,12 @@ impl MushroomPreset {
                 stem: StemOptions {
                     height: 0.5,
                     radius: 0.17,
-                    bulb: 0.0,
                     lean: 0.0,
                     ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    size: 0.0,
+                    ..base.bulb.clone()
                 },
                 material: MaterialOptions {
                     cap_centre: "#e9e2d6".into(),
@@ -328,11 +357,21 @@ impl MushroomPreset {
                     height: 7.0,
                     radius: 0.14,
                     base: 1.0,
-                    bulb: 0.0,
                     lean: 0.1,
                     curve: 2.0,
                     upturn: 0.7,
                     ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    size: 0.0,
+                    ..base.bulb.clone()
+                },
+                // Long stalks that sweep outward from a tight base.
+                cluster: ClusterOptions {
+                    stems: 14,
+                    lean: 5.0,
+                    sweep: 0.35,
+                    ..base.cluster.clone()
                 },
                 material: MaterialOptions {
                     cap_centre: "#e6dcc0".into(),
@@ -363,10 +402,13 @@ impl MushroomPreset {
                     height: 0.08,
                     radius: 0.12,
                     base: 1.1,
-                    bulb: 0.0,
                     collar: 0.0,
                     lean: 0.0,
                     ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    size: 0.0,
+                    ..base.bulb.clone()
                 },
                 warts: WartOptions {
                     count: 160,
@@ -382,7 +424,7 @@ impl MushroomPreset {
                     stem_top: "#e2dccd".into(),
                     stem_base: "#cfc6b2".into(),
                     wart: "#f7f4ee".into(),
-                    gill_lines: 0,
+                    gills: false,
                     ..base.material.clone()
                 },
                 ..base
@@ -400,9 +442,12 @@ impl MushroomPreset {
                     height: 0.9,
                     radius: 0.12,
                     base: 1.25,
-                    bulb: 0.15,
                     roughness: 0.0,
                     ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    size: 0.15,
+                    ..base.bulb.clone()
                 },
                 material: MaterialOptions {
                     cap_centre: "#c8201a".into(),
@@ -416,6 +461,50 @@ impl MushroomPreset {
                     pattern_strength: 1.0,
                     roughness: 0.5,
                     ..base.material.clone()
+                },
+                ..base
+            },
+            MushroomPreset::FairyRing => MushroomOptions {
+                size: 0.035,
+                cap: CapOptions {
+                    family: CapFamily::Umbonate,
+                    height: 0.9,
+                    asymmetry: 0.2,
+                    ..base.cap.clone()
+                },
+                stem: StemOptions {
+                    height: 1.5,
+                    radius: 0.07,
+                    base: 1.1,
+                    lean: 0.06,
+                    ..base.stem.clone()
+                },
+                bulb: BulbOptions {
+                    closed: false,
+                    size: 0.0,
+                    ..base.bulb.clone()
+                },
+                material: MaterialOptions {
+                    cap_centre: "#a07040".into(),
+                    cap_rim: "#d2b48a".into(),
+                    underside: "#e6d6b6".into(),
+                    stem_top: "#dcc8a4".into(),
+                    stem_base: "#b89a70".into(),
+                    gill_lines: 36,
+                    ..base.material.clone()
+                },
+                cluster: ClusterOptions {
+                    stems: 40,
+                    layout: ClusterLayout::FairyRing,
+                    size_variation: 0.5,
+                    lean: 10.0,
+                    variants: 4,
+                    fairy_ring: FairyRingOptions {
+                        radius: 16.0,
+                        width: 0.06,
+                        arc: 0.85,
+                    },
+                    ..base.cluster.clone()
                 },
                 ..base
             },

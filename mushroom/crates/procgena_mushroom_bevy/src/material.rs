@@ -1,5 +1,6 @@
 //! The mushroom material: Bevy's standard lighting plus vertex colours,
-//! gill lines, cap patterns, and flat stems that turn toward the camera.
+//! gill lines, warts, cap patterns, and flat shapes that turn toward the
+//! camera.
 
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -37,11 +38,12 @@ const BILLBOARD_AXIS_LOCATION: u32 = 10;
 /// Bevy's [`StandardMaterial`] with mushroom surface details added.
 ///
 /// Use it with meshes from [`mushroom_mesh`](crate::mushroom_mesh) or
-/// [`ribbon_mesh`](crate::ribbon_mesh). Vertex colours multiply the base
-/// colour, gill lines darken the underside, and a pattern is drawn on the
-/// cap. Meshes with both billboard attributes are turned toward whatever is
-/// looking at them: the camera, or a light when its shadows are drawn.
-/// Create one with [`mushroom_material`].
+/// [`billboard_mesh`](crate::billboard_mesh). Vertex colours multiply the
+/// base colour, gill lines darken the underside, and warts and a pattern
+/// are drawn on the cap. Meshes with both billboard attributes are turned
+/// toward whatever is looking at them: the camera, or a light when its
+/// shadows are drawn. Create one with [`mushroom_material`] or
+/// [`billboard_material`].
 pub type MushroomMaterial = ExtendedMaterial<StandardMaterial, MushroomExtension>;
 
 /// The part of a [`MushroomMaterial`] that adds mushroom details to the
@@ -84,8 +86,9 @@ pub struct MushroomExtension {
     pub stem_orh: Option<Handle<Image>>,
 }
 
-/// Pattern and gill settings, laid out as the shaders expect.
-/// [`mushroom_material`] fills them in from the mushroom's options.
+/// Pattern, gill and wart settings, laid out as the shaders expect.
+/// [`mushroom_material`] fills them in from the mushroom's options; the
+/// default draws vertex colours only.
 #[derive(ShaderType, Reflect, Debug, Clone, Copy, PartialEq, Default)]
 pub struct MushroomSurface {
     /// Pattern colour in linear RGB, with its strength (0 to 1) in alpha.
@@ -120,6 +123,27 @@ pub struct MushroomSurface {
     /// roughly their proportions across it. Must be positive when
     /// `stem_textured` is 1.
     pub stem_ribbon_width: f32,
+    /// Wart colour in linear RGB, with 1 in alpha to draw warts on the
+    /// cap's top, or 0 for none.
+    pub wart_colour: Vec4,
+    /// Typical distance between neighbouring wart centres, measured along
+    /// the cap, in mesh units. Must be positive when warts are drawn.
+    pub wart_spacing: f32,
+    /// Radius of the largest warts, in mesh units. At most
+    /// `wart_spacing / 2.2`, so warts never touch.
+    pub wart_radius: f32,
+    /// How much smaller than `wart_radius` warts can be, from 0 (all the
+    /// same) to 1.
+    pub wart_size_jitter: f32,
+    /// How raised warts look, as a multiple of their radius.
+    pub wart_height: f32,
+    /// Distance from the cap's top centre, measured along the cap, beyond
+    /// which no warts are drawn, in mesh units.
+    pub wart_reach: f32,
+    /// Length of the cap's top from rim to top centre, measured along the
+    /// cap, in mesh units; see
+    /// [`MushroomOptions::cap_top_length`](procgena_mushroom::MushroomOptions::cap_top_length).
+    pub cap_top_length: f32,
 }
 
 impl MaterialExtension for MushroomExtension {
@@ -228,6 +252,11 @@ impl TextureSet {
 /// [`MushroomMesh::double_sided`](procgena_mushroom::MushroomMesh::double_sided))
 /// and for flat stems.
 ///
+/// The material draws the mushroom's warts, gill lines and pattern, so mesh
+/// it with [`MushroomDetail::paint_warts`] off, or the warts show twice. For
+/// the two-triangle [`BodyShape::Billboard`] level, use
+/// [`billboard_material`] instead.
+///
 /// `cap` paints the top of the cap with a texture set, usually the one
 /// named by [`MaterialOptions::cap_texture`]; its colours replace the cap's
 /// vertex colours and pattern there. The images are projected from three
@@ -241,6 +270,8 @@ impl TextureSet {
 /// when `stem_texture` doesn't name a stem set, since the tint needs that
 /// set's average colour.
 ///
+/// [`MushroomDetail::paint_warts`]: procgena_mushroom::MushroomDetail::paint_warts
+/// [`BodyShape::Billboard`]: procgena_mushroom::BodyShape::Billboard
 /// [`MaterialOptions::cap_texture`]: procgena_mushroom::MaterialOptions::cap_texture
 /// [`MaterialOptions::cap_texture_size`]: procgena_mushroom::MaterialOptions::cap_texture_size
 /// [`MaterialOptions::stem_texture`]: procgena_mushroom::MaterialOptions::stem_texture
@@ -271,13 +302,27 @@ pub fn mushroom_material(
         Pattern::Cracks => 2,
         Pattern::Spots => 3,
     };
+
+    // Warts: about `count` of them over the covered part of the cap's top,
+    // a disc measured along the cap from its top centre, kept far enough
+    // apart that the largest never touch.
+    let w = &options.warts;
+    let cap_top_length = options.cap_top_length();
+    let wart_reach = cap_top_length * w.coverage;
+    let wart_radius = options.cap_radius() * w.size;
+    let covered = std::f32::consts::PI * wart_reach * wart_reach;
+    let wart_spacing = (covered / w.count.max(1) as f32)
+        .sqrt()
+        .max(wart_radius * 2.2);
+    let [wr, wg, wb] = linear_from_hex(&m.wart).unwrap_or([1.0; 3]);
+
     let extension = MushroomExtension {
         surface: MushroomSurface {
             pattern_colour: Vec4::new(r, g, b, m.pattern_strength),
             pattern,
             pattern_frequency: m.pattern_scale / options.size,
-            gill_lines: m.gill_lines as f32,
-            gill_strength: 0.35,
+            gill_lines: if m.gills { m.gill_lines as f32 } else { 0.0 },
+            gill_strength: m.gill_strength,
             cap_textured: u32::from(cap.is_some()),
             cap_texture_size: m.cap_texture_size,
             stem_texture_average: Vec3::from(stem_average.unwrap_or([1.0; 3])),
@@ -285,6 +330,13 @@ pub fn mushroom_material(
             stem_texture_size: m.stem_texture_size,
             // Mean of the top and base diameters, in metres.
             stem_ribbon_width: options.stem.radius * options.size * (1.0 + options.stem.base),
+            wart_colour: Vec4::new(wr, wg, wb, if w.count > 0 { 1.0 } else { 0.0 }),
+            wart_spacing,
+            wart_radius,
+            wart_size_jitter: w.size_jitter,
+            wart_height: w.height,
+            wart_reach,
+            cap_top_length,
         },
         cap_color: cap.map(|c| c.color.clone()),
         cap_normal: cap.map(|c| c.normal.clone()),
@@ -294,4 +346,25 @@ pub fn mushroom_material(
         stem_orh: stem.map(|s| s.orh.clone()),
     };
     MushroomMaterial { base, extension }
+}
+
+/// Creates a two-sided material that draws a mushroom made from `options`
+/// with its vertex colours only: no textures, pattern, gill lines or warts.
+///
+/// Use it for the [`BodyShape::Billboard`] level, the cheapest of all.
+///
+/// [`BodyShape::Billboard`]: procgena_mushroom::BodyShape::Billboard
+pub fn billboard_material(options: &MushroomOptions) -> MushroomMaterial {
+    MushroomMaterial {
+        base: StandardMaterial {
+            base_color: Color::WHITE,
+            perceptual_roughness: options.material.roughness,
+            metallic: 0.0,
+            reflectance: 0.35,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        },
+        extension: MushroomExtension::default(),
+    }
 }

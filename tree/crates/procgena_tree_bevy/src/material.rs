@@ -3,16 +3,15 @@
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Vec3;
 use bevy::mesh::MeshVertexBufferLayoutRef;
-use bevy::mesh::VertexBufferLayout;
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
-    VertexAttribute, VertexFormat, VertexStepMode,
 };
 use bevy::shader::ShaderRef;
+use procgena_impostor::{BakeOutput, instance_buffer_layout, use_bake_shader};
 use procgena_tree::{
     BarkMap, BarkMaterial, BarkOptions, BarkUvMode, FlowerMaterial, FruitMaterial, LeafMap,
     LeafMaterial, LeafOptions, TextureCompression, TextureSize, TrellisMaterial, TrellisOptions,
@@ -37,10 +36,6 @@ const BILLBOARD_PIVOT_LOCATION: u32 = 9;
 const BILLBOARD_AXIS_LOCATION: u32 = 10;
 /// Shader input location for the optional billboard lighting normal.
 const BILLBOARD_NORMAL_LOCATION: u32 = 11;
-/// Shader input location of a grove tree's mesh record index and dither.
-const GROVE_LOCATION: u32 = 12;
-/// Bytes per grove tree in the per-instance vertex buffer: two `u32`s.
-pub(crate) const GROVE_INSTANCE_SIZE: u64 = 8;
 
 /// A [`StandardMaterial`] with tree wind animation and optional billboard rotation.
 ///
@@ -61,6 +56,22 @@ pub struct WindExtension {
     /// Controls the direction, speed and amount of tree movement.
     #[uniform(100)]
     pub wind: WindUniform,
+    /// What a bake copy of the material draws instead of lit colour; see
+    /// [`bake_copy`]. Ordinary materials draw lit colour.
+    #[reflect(ignore)]
+    pub(crate) bake: BakeOutput,
+}
+
+/// A copy of `material` for an impostor bake: still, and drawing `output`
+/// instead of lit colour. See [`procgena_impostor`] for how bakes use it.
+pub fn bake_copy(material: &TreeMaterial, output: BakeOutput) -> TreeMaterial {
+    let mut copy = material.clone();
+    copy.extension.wind = WindUniform::from(WindParams {
+        strength: Vec3::ZERO,
+        ..WindParams::default()
+    });
+    copy.extension.bake = output;
+    copy
 }
 
 /// The pipeline variant a [`TreeMaterial`] is drawn with. Bevy builds one
@@ -70,13 +81,18 @@ pub struct WindKey {
     /// Whether the pipeline draws grove trees: many trees from one mesh, each
     /// naming its own mesh record through an extra per-tree vertex input.
     pub(crate) grove: bool,
+    /// What a bake copy draws instead of lit colour.
+    pub(crate) bake: BakeOutput,
 }
 
 impl From<&WindExtension> for WindKey {
-    fn from(_: &WindExtension) -> Self {
+    fn from(extension: &WindExtension) -> Self {
         // Materials are always created for single trees; groves ask for their
         // pipelines with `grove` set.
-        Self::default()
+        Self {
+            grove: false,
+            bake: extension.bake,
+        }
     }
 }
 
@@ -134,19 +150,15 @@ impl MaterialExtension for WindExtension {
         layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        // Bake copies draw base colour or normals in the forward pass.
+        use_bake_shader(descriptor, key.bind_group_data.bake);
+
         // Grove trees read their mesh record index and dither from a second,
-        // per-instance vertex buffer.
+        // per-instance vertex buffer, laid out as for instanced impostors so
+        // a grove feeds both from one buffer.
         if key.bind_group_data.grove {
             descriptor.vertex.shader_defs.push("GROVE".into());
-            descriptor.vertex.buffers.push(VertexBufferLayout {
-                array_stride: GROVE_INSTANCE_SIZE,
-                step_mode: VertexStepMode::Instance,
-                attributes: vec![VertexAttribute {
-                    format: VertexFormat::Uint32x2,
-                    offset: 0,
-                    shader_location: GROVE_LOCATION,
-                }],
-            });
+            descriptor.vertex.buffers.push(instance_buffer_layout());
         }
 
         // Add the wind input to the vertex attributes selected by Bevy for this render pass.
@@ -346,7 +358,10 @@ pub fn bark_material(
     }
     TreeMaterial {
         base,
-        extension: WindExtension { wind: wind.into() },
+        extension: WindExtension {
+            wind: wind.into(),
+            bake: BakeOutput::None,
+        },
     }
 }
 
@@ -373,7 +388,10 @@ pub fn average_bark_material(bark: &BarkOptions, wind: WindParams) -> TreeMateri
     };
     TreeMaterial {
         base,
-        extension: WindExtension { wind: wind.into() },
+        extension: WindExtension {
+            wind: wind.into(),
+            bake: BakeOutput::None,
+        },
     }
 }
 
@@ -409,7 +427,10 @@ pub fn leaf_material(
     };
     TreeMaterial {
         base,
-        extension: WindExtension { wind: wind.into() },
+        extension: WindExtension {
+            wind: wind.into(),
+            bake: BakeOutput::None,
+        },
     }
 }
 
@@ -458,7 +479,10 @@ fn vertex_color_material(
     };
     TreeMaterial {
         base,
-        extension: WindExtension { wind: wind.into() },
+        extension: WindExtension {
+            wind: wind.into(),
+            bake: BakeOutput::None,
+        },
     }
 }
 

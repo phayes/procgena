@@ -1,8 +1,11 @@
 //! Groves: many generated trees spread over ground and drawn by one entity.
 
+mod prepare;
 mod promote;
 mod render;
 
+pub use prepare::{GrovePreparing, GroveReady, PrepareGrove, grove_variants};
+pub(crate) use prepare::{PreparedTrees, start_preparing, stop_preparing, track_preparing};
 pub use promote::{GroveHit, GroveTrees, PromotedTree};
 pub(crate) use promote::{demote_trees, sync_promoted_trees};
 pub(crate) use render::GroveRenderPlugin;
@@ -22,6 +25,7 @@ use procgena_tree::{
     TreeGrove, TreeOptions,
 };
 
+use crate::impostor::TreeImpostorAssets;
 use crate::material::TreeMaterial;
 use crate::spawn::{
     CacheState, Generated, HeldTreeKeys, SpawnSettings, TreeCache, TreeKey, TreePartKind,
@@ -227,6 +231,8 @@ pub struct GroveVariant {
     key: TreeKey,
     generated: Option<Arc<Generated>>,
     failed: bool,
+    /// The impostor drawn beyond the farthest level, once baked.
+    impostor: Option<TreeImpostorAssets>,
 }
 
 impl GroveVariant {
@@ -273,23 +279,45 @@ impl GroveVariant {
         })
     }
 
+    /// Whether the variant is drawn as an impostor far away. Until its
+    /// impostor is baked, its farthest level is drawn at every distance
+    /// beyond.
+    pub fn has_impostor(&self) -> bool {
+        self.impostor.is_some()
+    }
+
+    /// The variant's impostor, once baked.
+    pub(crate) fn impostor(&self) -> Option<&TreeImpostorAssets> {
+        self.impostor.as_ref()
+    }
+
     /// Whether generation has ended, successfully or not.
     fn settled(&self) -> bool {
         self.generated.is_some() || self.failed
     }
 
-    /// Fills in the variant's generation result from `cache` if it has ended.
-    /// Returns whether anything changed.
-    fn refresh(&mut self, cache: &TreeCache) -> bool {
-        if self.settled() {
-            return false;
+    /// Whether `cache` has news for the variant: the end of its generation,
+    /// or its impostor.
+    fn has_news(&self, cache: &TreeCache) -> bool {
+        if !self.settled() {
+            return !matches!(cache.state(self.key), CacheState::Pending);
         }
-        match cache.state(self.key) {
-            CacheState::Ready(generated) => self.generated = Some(generated.clone()),
-            CacheState::Failed => self.failed = true,
-            CacheState::Pending => return false,
+        self.generated.is_some() && self.impostor.is_none() && cache.impostor(self.key).is_some()
+    }
+
+    /// Fills in the variant's generation result and impostor from `cache`,
+    /// where they are ready.
+    fn refresh(&mut self, cache: &TreeCache) {
+        if !self.settled() {
+            match cache.state(self.key) {
+                CacheState::Ready(generated) => self.generated = Some(generated.clone()),
+                CacheState::Failed => self.failed = true,
+                CacheState::Pending => {}
+            }
         }
-        true
+        if self.generated.is_some() && self.impostor.is_none() {
+            self.impostor = cache.impostor(self.key).cloned();
+        }
     }
 }
 
@@ -761,6 +789,7 @@ pub(crate) fn finish_placing(
                         key,
                         generated: kept.and_then(|v| v.generated.clone()),
                         failed: kept.is_some_and(|v| v.failed),
+                        impostor: kept.and_then(|v| v.impostor.clone()),
                     });
                     variants.len() as u32 - 1
                 });
@@ -787,20 +816,18 @@ pub(crate) fn finish_placing(
     }
 }
 
-/// Fills in each grove's variants as they finish generating.
+/// Fills in each grove's variants as they finish generating and as their
+/// impostors are baked.
 pub(crate) fn refresh_grove_assets(mut groves: Query<&mut TreeGroveAssets>, cache: Res<TreeCache>) {
     for mut assets in &mut groves {
-        if assets.settled() {
+        if !assets.variants.iter().any(|v| v.has_news(&cache)) {
             continue;
         }
         let mut variants = assets.variants.to_vec();
-        let mut changed = false;
         for variant in &mut variants {
-            changed |= variant.refresh(&cache);
+            variant.refresh(&cache);
         }
-        if changed {
-            assets.variants = variants.into();
-        }
+        assets.variants = variants.into();
     }
 }
 
@@ -930,6 +957,7 @@ mod tests {
                     bark: BarkTexture::Textured(TextureSize::Size1k),
                     leaves: LeafTexture::Leaf,
                 }],
+                impostor: None,
             })
             .add_systems(
                 Update,
@@ -937,6 +965,8 @@ mod tests {
                     remove_groves,
                     finish_placing,
                     start_groves,
+                    stop_preparing,
+                    start_preparing,
                     sync_promoted_trees,
                     demote_trees,
                     reset_changed_trees,
@@ -946,6 +976,7 @@ mod tests {
                     refresh_grove_assets,
                     prune_cache,
                     finish_groves,
+                    track_preparing,
                 )
                     .chain(),
             )
@@ -1555,5 +1586,105 @@ mod tests {
             .collect();
         assert!(expected.contains(&target.id));
         assert_eq!(near.into_iter().collect::<HashSet<_>>(), expected);
+    }
+
+    /// Every [`GroveReady`] event's entity, in order.
+    #[derive(Resource, Default)]
+    struct Ready(Vec<Entity>);
+
+    /// Spawns a [`PrepareGrove`] for `grove` and updates until it reports
+    /// ready, returning its entity and the keys of the trees it holds.
+    fn prepare(app: &mut App, grove: TreeGrove) -> (Entity, Vec<TreeKey>) {
+        app.init_resource::<Ready>().add_observer(
+            |event: On<GroveReady>, mut ready: ResMut<Ready>| {
+                ready.0.push(event.entity);
+            },
+        );
+        let entity = app.world_mut().spawn(PrepareGrove::new(grove)).id();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        app.update();
+        while !app.world().resource::<Ready>().0.contains(&entity) {
+            assert!(Instant::now() < deadline, "grove was not prepared");
+            std::thread::sleep(Duration::from_millis(1));
+            app.update();
+        }
+        let keys = app
+            .world()
+            .get::<PreparedTrees>(entity)
+            .unwrap()
+            .keys
+            .clone();
+        (entity, keys)
+    }
+
+    /// How many of `keys` are generated and cached.
+    fn cached(app: &App, keys: &[TreeKey]) -> usize {
+        let cache = app.world().resource::<TreeCache>();
+        keys.iter()
+            .filter(|key| matches!(cache.state(**key), CacheState::Ready(_)))
+            .count()
+    }
+
+    #[test]
+    fn grove_variants_lists_every_variant_of_every_species() {
+        let grove = small_grove();
+        let variants = grove_variants(&grove);
+        assert_eq!(variants.len(), 4);
+        let ids: HashSet<u64> = variants.iter().map(|v| v.tree_id()).collect();
+        assert_eq!(ids.len(), 4, "variants differ");
+        assert_eq!(*variants[1], grove.trees[0].variant(1));
+        assert_eq!(*variants[2], grove.trees[1].variant(0));
+    }
+
+    #[test]
+    fn a_prepared_grove_is_placed_from_the_prepared_trees() {
+        let mut app = grove_app();
+        let (preparer, prepared) = prepare(&mut app, small_grove());
+
+        // Every variant is generated; with impostors off, that's all.
+        let progress = *app.world().get::<GrovePreparing>(preparer).unwrap();
+        assert_eq!(progress, GrovePreparing { done: 4, total: 4 });
+        assert_eq!(cached(&app, &prepared), 4);
+
+        // The grove's trees are all among them, so nothing new is generated.
+        let grove = app
+            .world_mut()
+            .spawn(TreeGroveParams::new(small_grove(), SIZE))
+            .id();
+        update_until_finished(&mut app, grove);
+        let held = app.world().get::<HeldTreeKeys>(grove).unwrap().0.clone();
+        assert!(!held.is_empty());
+        assert!(held.iter().all(|key| prepared.contains(key)));
+
+        // Despawning the preparer keeps the trees the grove uses.
+        app.world_mut().entity_mut(preparer).despawn();
+        app.update();
+        assert_eq!(cached(&app, &held), held.len());
+    }
+
+    #[test]
+    fn prepared_trees_stay_cached_until_the_component_is_removed() {
+        let mut app = grove_app();
+        let (preparer, prepared) = prepare(&mut app, small_grove());
+
+        // A single tree coming and going prunes the cache; the prepared
+        // trees stay.
+        let tree = app
+            .world_mut()
+            .spawn(TreeParams::preset(TreePreset::Bush1))
+            .id();
+        app.update();
+        app.world_mut().entity_mut(tree).despawn();
+        app.update();
+        assert_eq!(cached(&app, &prepared), prepared.len());
+
+        // Removing the component lets them go, and its progress with them.
+        app.world_mut()
+            .entity_mut(preparer)
+            .remove::<PrepareGrove>();
+        app.update();
+        app.update();
+        assert_eq!(cached(&app, &prepared), 0);
+        assert!(!app.world().entity(preparer).contains::<GrovePreparing>());
     }
 }

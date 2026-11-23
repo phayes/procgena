@@ -15,8 +15,8 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 use procgena_deadwood::{
-    DeadwoodOptions, END_TEXTURE_SETS, TextureCompression, TextureMap, TextureSize,
-    bark_texture_path, end_texture_path,
+    DeadwoodOptions, END_TEXTURE_SETS, LeafMap, TextureCompression, TextureMap, TextureSize,
+    bark_texture_path, end_texture_path, leaf_texture_path,
 };
 
 use crate::mesh::{ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT};
@@ -197,7 +197,7 @@ impl BarkTextures {
     ) -> Self {
         let load = |map: TextureMap| {
             let path = format!("{root}/{}", bark_texture_path(set, size, map, compression));
-            load_image(asset_server, path, map, ImageAddressMode::Repeat)
+            load_image(asset_server, path, map.is_srgb(), ImageAddressMode::Repeat)
         };
         Self {
             color: load(TextureMap::Color),
@@ -266,7 +266,12 @@ impl EndTextures {
             .unwrap_or_else(|| panic!("{set:?} is not one of END_TEXTURE_SETS"));
         let load = |map: TextureMap| {
             let path = format!("{root}/{}", end_texture_path(set, size, map, compression));
-            load_image(asset_server, path, map, ImageAddressMode::ClampToEdge)
+            load_image(
+                asset_server,
+                path,
+                map.is_srgb(),
+                ImageAddressMode::ClampToEdge,
+            )
         };
         Self {
             color: load(TextureMap::Color),
@@ -276,15 +281,72 @@ impl EndTextures {
     }
 }
 
+/// The two images of one leaf card texture set, for [`leaf_material`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct LeafTextures {
+    /// Colour with transparency, loaded as sRGB.
+    pub color: Handle<Image>,
+    /// Normal map in the OpenGL (+Y) convention, loaded as linear data.
+    pub normal: Handle<Image>,
+}
+
+impl LeafTextures {
+    /// Starts loading leaf card texture set `set`, one of
+    /// [`LEAF_TEXTURE_SETS`](procgena_deadwood::LEAF_TEXTURE_SETS), from
+    /// the same folder as [`BarkTextures::load`], with paths from
+    /// [`leaf_texture_path`]. Leaf cards come in one size only.
+    pub fn load(
+        asset_server: &AssetServer,
+        root: &str,
+        set: &str,
+        compression: TextureCompression,
+    ) -> Self {
+        let load = |map: LeafMap| {
+            let path = format!("{root}/{}", leaf_texture_path(set, map, compression));
+            load_image(
+                asset_server,
+                path,
+                map.is_srgb(),
+                ImageAddressMode::ClampToEdge,
+            )
+        };
+        Self {
+            color: load(LeafMap::Color),
+            normal: load(LeafMap::Normal),
+        }
+    }
+}
+
+/// Creates the material for leaf card meshes, from
+/// [`DeadwoodMesh::leaves`](procgena_deadwood::DeadwoodMesh::leaves)
+/// through [`deadwood_mesh`](crate::deadwood_mesh).
+///
+/// Both sides of each card are drawn, and the colour image's alpha cuts
+/// out the leaves (alpha testing at 0.5). The vertex colours carry
+/// [`LeafOptions::tint`](procgena_deadwood::LeafOptions::tint).
+pub fn leaf_material(textures: &LeafTextures) -> StandardMaterial {
+    StandardMaterial {
+        base_color: Color::WHITE,
+        base_color_texture: Some(textures.color.clone()),
+        normal_map_texture: Some(textures.normal.clone()),
+        alpha_mode: AlphaMode::Mask(0.5),
+        perceptual_roughness: 0.7,
+        metallic: 0.0,
+        reflectance: 0.3,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    }
+}
+
 /// Starts loading texture image `path` with linear filtering and
-/// `address_mode` in both directions, as sRGB when `map` holds colour.
+/// `address_mode` in both directions, as sRGB colour when `srgb` is set.
 fn load_image(
     asset_server: &AssetServer,
     path: String,
-    map: TextureMap,
+    srgb: bool,
     address_mode: ImageAddressMode,
 ) -> Handle<Image> {
-    let srgb = map.is_srgb();
     asset_server
         .load_builder()
         .with_settings(move |settings: &mut ImageLoaderSettings| {

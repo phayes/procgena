@@ -3,8 +3,8 @@
 use glam::Vec3;
 use procgena_mesh::{Object, Part, SurfaceMesh, TagFilter, tags as mesh_tags};
 use procgena_mushroom::{
-    ClusterLayout, ClusterOptions, Mushroom, MushroomCluster, MushroomLod, MushroomPreset,
-    MushroomScatter, ScatterError, ScatterOptions, tags,
+    ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomLod, MushroomOptions,
+    MushroomPreset, MushroomScatter, ScatterError, ScatterOptions, tags,
 };
 
 #[test]
@@ -23,24 +23,26 @@ fn object_has_one_level_per_lod_level_with_tags() {
 
     // The full level has every kind; caps can be picked by tag.
     let full = &object.levels[0];
-    for tag in [tags::CAP, tags::STEM, tags::RING, tags::WART] {
+    for tag in [tags::CAP, tags::STEM, tags::ANNULUS] {
         assert!(full.parts.iter().any(|p| p.tags.contains(&tag)), "{tag}");
     }
     let caps = object.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
     assert!(caps.closed);
 }
 
-#[test]
-fn warts_part_has_one_shell_per_wart() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
-    let mesh = mushroom.mesh();
-    let warts = mesh.part(procgena_mushroom::PartKind::Warts).unwrap();
-    assert!(warts.shells.len() > 10, "{} warts", warts.shells.len());
-    assert!(warts.closed);
+/// Returns `base` grown as a cluster of `stems` with `layout`.
+fn cluster(base: MushroomPreset, stems: u32, layout: ClusterLayout) -> Mushroom {
+    let mut options = base.options();
+    options.cluster = ClusterOptions {
+        stems,
+        layout,
+        ..options.cluster
+    };
+    Mushroom::new(options).unwrap()
 }
 
 /// Smallest distance between two members' stem bases.
-fn min_base_gap(members: &[procgena_mushroom::MushroomInstance]) -> f32 {
+fn min_base_gap(members: &[MushroomInstance]) -> f32 {
     let mut best = f32::MAX;
     for (i, a) in members.iter().enumerate() {
         for b in &members[i + 1..] {
@@ -51,71 +53,132 @@ fn min_base_gap(members: &[procgena_mushroom::MushroomInstance]) -> f32 {
 }
 
 #[test]
+fn one_stem_is_exactly_the_mushroom_its_options_describe() {
+    let mut options = MushroomPreset::Porcini.options();
+    options.cluster.layout = ClusterLayout::FairyRing;
+    let mushroom = Mushroom::new(options.clone()).unwrap();
+    assert_eq!(mushroom.bodies().len(), 1);
+    assert_eq!(mushroom.members().len(), 1);
+    // The body keeps every setting but the cluster's.
+    let body = mushroom.bodies()[0].options();
+    assert_eq!(body.cluster, ClusterOptions::default());
+    assert_eq!(
+        *body,
+        MushroomOptions {
+            cluster: ClusterOptions::default(),
+            ..options.clone()
+        }
+    );
+    assert_eq!(
+        mushroom.mesh(),
+        mushroom.bodies()[0]
+            .mesh_with_detail(&options.detail)
+            .unwrap()
+    );
+}
+
+#[test]
 fn clusters_spread_their_members() {
-    for layout in [ClusterLayout::Tuft, ClusterLayout::Line] {
-        let options = ClusterOptions {
-            count_min: 5,
-            count_max: 5,
-            layout,
-            ..ClusterOptions::default()
-        };
-        let base = MushroomPreset::Button.options();
-        let cluster = MushroomCluster::new(&base, &options).unwrap();
-        let members = cluster.members();
+    for layout in [
+        ClusterLayout::Tuft,
+        ClusterLayout::Line,
+        ClusterLayout::FairyRing,
+    ] {
+        let mushroom = cluster(MushroomPreset::Button, 5, layout);
+        let members = mushroom.members();
         assert!(members.len() >= 3, "{layout:?}: {}", members.len());
         assert!(
             members
                 .iter()
-                .all(|m| (m.variant as usize) < cluster.variants().len())
+                .all(|m| (m.variant as usize) < mushroom.bodies().len())
         );
         assert!(min_base_gap(members) > 0.0, "{layout:?}");
 
         // The combined object keeps one closed cap piece per member.
-        let object = cluster.object(&MushroomLod::default()).unwrap();
+        let object = mushroom.object(&MushroomLod::default()).unwrap();
         object.validate().unwrap();
         let caps = object.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
+        assert!(caps.closed);
         assert_eq!(caps.shells.len(), members.len());
+
+        // The combined mesh holds every member's cap.
+        let one = mushroom.bodies()[0].mesh_with_detail(&MushroomOptions::default().detail);
+        let single_caps = one
+            .unwrap()
+            .part(procgena_mushroom::PartKind::Cap)
+            .unwrap()
+            .clone();
+        let all_caps = mushroom
+            .mesh()
+            .part(procgena_mushroom::PartKind::Cap)
+            .unwrap()
+            .clone();
+        assert!(all_caps.indices.len() > single_caps.indices.len() * 2);
     }
 }
 
 #[test]
+fn bodies_are_never_more_than_stems() {
+    let mushroom = cluster(MushroomPreset::Button, 2, ClusterLayout::Tuft);
+    assert!(mushroom.bodies().len() <= 2);
+    for body in mushroom.bodies() {
+        assert_eq!(body.options().cluster.stems, 1);
+    }
+}
+
+#[test]
+fn fairy_rings_stand_on_a_wide_circle() {
+    let mut options = MushroomPreset::Button.options();
+    options.cluster.stems = 24;
+    options.cluster.layout = ClusterLayout::FairyRing;
+    options.cluster.fairy_ring.radius = 20.0;
+    options.cluster.fairy_ring.width = 0.05;
+    let mushroom = Mushroom::new(options.clone()).unwrap();
+    let radius = options.cluster.fairy_ring.radius * options.size;
+    assert!(mushroom.members().len() >= 20);
+    for m in mushroom.members() {
+        let distance = m.translation.x.hypot(m.translation.z);
+        assert!(
+            (distance - radius).abs() < radius * 0.15,
+            "a member stands {distance} m from the centre of a {radius} m ring"
+        );
+    }
+
+    // The bounds hold the whole ring.
+    let (min, max) = mushroom.bounds();
+    assert!(min.x < -radius * 0.8 && max.x > radius * 0.8, "{min} {max}");
+}
+
+#[test]
 fn swept_clusters_fan_outward() {
-    let options = ClusterOptions {
-        count_min: 8,
-        count_max: 8,
+    let mut options = MushroomPreset::Enoki.options();
+    options.cluster = ClusterOptions {
+        stems: 8,
         lean: 0.0,
         sweep: 0.4,
-        ..ClusterOptions::default()
+        ..options.cluster
     };
-    let base = MushroomPreset::Enoki.options();
-    let cluster = MushroomCluster::new(&base, &options).unwrap();
-    assert!(cluster.members().len() >= 4);
+    let swept = Mushroom::new(options.clone()).unwrap();
+    assert!(swept.members().len() >= 4);
 
     // Every cap sits further from the cluster's centre line than its stem
     // base, and well outside the base when the base is near the centre.
     let centre_distance = |p: Vec3| p.x.hypot(p.z);
-    for m in cluster.members() {
-        let variant = &cluster.variants()[m.variant as usize];
-        let cap = m.transform().transform_point3(variant.cap_centre());
-        let base = m.translation;
-        let reach = centre_distance(cap) - centre_distance(base);
-        let stem = variant.cap_centre().y * m.scale;
+    for m in swept.members() {
+        let body = &swept.bodies()[m.variant as usize];
+        let cap = m.transform().transform_point3(body.cap_centre());
+        let reach = centre_distance(cap) - centre_distance(m.translation);
+        let stem = body.cap_centre().y * m.scale;
         assert!(reach > stem * 0.2, "reach {reach} for a {stem} m stem");
     }
 
     // Without sweep, nothing is aimed outward: some caps lean back in.
-    let unswept = MushroomCluster::new(
-        &base,
-        &ClusterOptions {
-            sweep: 0.0,
-            ..options
-        },
-    )
-    .unwrap();
+    options.cluster.sweep = 0.0;
+    let unswept = Mushroom::new(options).unwrap();
     assert!(unswept.members().iter().any(|m| {
         let cap = m
             .transform()
-            .transform_point3(unswept.variants()[m.variant as usize].cap_centre());
+            .transform_point3(unswept.bodies()[m.variant as usize].cap_centre());
         centre_distance(cap) <= centre_distance(m.translation) + 1e-4
     }));
 }
@@ -126,21 +189,16 @@ fn cluster_caps_do_not_overlap() {
         (MushroomPreset::Button, ClusterLayout::Tuft),
         (MushroomPreset::Porcini, ClusterLayout::Line),
         (MushroomPreset::Enoki, ClusterLayout::Tuft),
+        (MushroomPreset::FairyRing, ClusterLayout::FairyRing),
     ] {
-        let options = ClusterOptions {
-            count_min: 8,
-            count_max: 8,
-            layout,
-            ..ClusterOptions::default()
-        };
-        let cluster = MushroomCluster::new(&preset.options(), &options).unwrap();
+        let mushroom = cluster(preset, 8, layout);
 
         // Treat each cap as a ball around its middle with the cap's radius.
-        let caps: Vec<(Vec3, f32)> = cluster
+        let caps: Vec<(Vec3, f32)> = mushroom
             .members()
             .iter()
             .map(|m| {
-                let v = &cluster.variants()[m.variant as usize];
+                let v = &mushroom.bodies()[m.variant as usize];
                 let middle = (v.cap_centre() + v.apex()) * 0.5;
                 (
                     m.transform().transform_point3(middle),
@@ -159,9 +217,8 @@ fn cluster_caps_do_not_overlap() {
 
 #[test]
 fn clusters_are_repeatable() {
-    let base = MushroomPreset::Enoki.options();
-    let a = MushroomCluster::new(&base, &ClusterOptions::default()).unwrap();
-    let b = MushroomCluster::new(&base, &ClusterOptions::default()).unwrap();
+    let a = Mushroom::from_preset(MushroomPreset::Enoki);
+    let b = Mushroom::from_preset(MushroomPreset::Enoki);
     assert_eq!(a.members(), b.members());
 }
 
@@ -198,6 +255,35 @@ fn scatter_places_mushrooms_on_the_ground() {
     }
     let object = scatter.object(&MushroomLod::default()).unwrap();
     object.validate().unwrap();
+}
+
+#[test]
+fn scattered_clusters_drop_their_members_onto_the_surface() {
+    // A ground patch tilted about X, so members spread across it land at
+    // different heights.
+    let mut tilted = SurfaceMesh::ground(4.0, 16);
+    for p in &mut tilted.positions {
+        p[1] = p[2] * 0.2;
+    }
+    let host = Object::single(vec![Part::new([mesh_tags::GROUND], tilted)]);
+    let mut mushroom = MushroomPreset::FairyRing.options();
+    mushroom.cluster.fairy_ring.radius = 10.0;
+    let options = ScatterOptions {
+        density: 0.3,
+        min_spacing: 1.0,
+        sink: 0.0,
+        ..ScatterOptions::default()
+    };
+    let scatter = MushroomScatter::on(&host, &mushroom, &options).unwrap();
+    assert!(scatter.instances().len() > 10);
+    for m in scatter.instances() {
+        let surface = m.translation.z * 0.2;
+        assert!(
+            (m.translation.y - surface).abs() < 1e-3,
+            "a member at {} is off the surface at {surface}",
+            m.translation
+        );
+    }
 }
 
 #[test]

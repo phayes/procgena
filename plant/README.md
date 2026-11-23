@@ -381,17 +381,15 @@ every idea that was tried, kept or dropped.
 - How it works: what makes it fast, and what makes it look
   like grass.
 - Performance notes and Testing.
-- Roadmap and scope: what is next, how procgena_plant keeps up
-  with Bevy, and what it will not do.
 - CHANGELOG, with what to write instead for each breaking
   change.
 
 ## Roadmap
 
-We try to release for each Bevy minor version within two weeks of its
-release. Next are listings on Bevy Assets and awesome-bevy, then 1.0.
-Roadmap and scope has the order, the version policy and
-what procgena_plant will not do.
+procgena_plant is part of procgena. Its next steps (a split into an
+engine-free core and a Bevy crate, a CPU path, seeds, copy ids and the
+`PlantScatter` rename) are in `ROADMAP.md` at the root of the procgena
+repository.
 
 ## License
 

@@ -278,7 +278,10 @@ mod tests {
     #[test]
     fn exports_have_every_level_when_asked() {
         let options = MushroomOptions::default();
-        assert_eq!(meshes(&options, true).unwrap().len(), 4);
+        assert_eq!(
+            meshes(&options, true).unwrap().len(),
+            MushroomLod::default().levels.len()
+        );
         assert_eq!(meshes(&options, false).unwrap().len(), 1);
     }
 }

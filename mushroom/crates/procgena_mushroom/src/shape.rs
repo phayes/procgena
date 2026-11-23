@@ -1,6 +1,7 @@
 //! A mushroom's shape worked out from its options: functions that give any
-//! point on the stem, cap and ring, plus the placed warts. Every detail
-//! level samples these same functions, so all levels share one shape.
+//! point on the stem, its closed bottom, the cap and the annulus, plus the
+//! placed warts. Every detail level samples these same functions, so all
+//! levels share one shape.
 //!
 //! Positions are in metres in the mushroom's own coordinates: Y up, with
 //! the stem base at the origin.
@@ -34,36 +35,30 @@ const MAX_EMBED: f32 = 0.08;
 /// Largest stretch of each side of the cap when
 /// [`crate::CapOptions::asymmetry`] is 1.
 const MAX_ASYMMETRY: f32 = 0.3;
-/// Fraction of each wart's height sunk below the cap surface, so its base
-/// doesn't float above a curved cap.
-const WART_SINK: f32 = 0.35;
 /// Random spots tried per requested wart before giving up on fitting more.
 const WART_ATTEMPTS: u32 = 30;
 /// Number of noise layers in surface bumps; each adds finer detail.
 const NOISE_OCTAVES: u32 = 3;
 
-/// A wart placed on top of the cap.
+/// A wart placed on top of the cap, for painting into vertex colours.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Wart {
     /// Radius in metres.
     pub radius: f32,
-    /// Height in metres.
-    pub height: f32,
-    /// Centre of the wart's base, slightly below the cap surface.
+    /// Centre of the wart, on the cap surface.
     pub centre: Vec3,
-    /// Unit direction the wart points: outward from the cap there.
-    pub normal: Vec3,
 }
 
-/// The ring's shape, in metres.
+/// The annulus's shape, in metres.
 #[derive(Debug, Clone)]
-pub(crate) struct RingShape {
-    /// Where on the stem the ring hangs, from 0 at the base to 1 at the top.
+pub(crate) struct AnnulusShape {
+    /// Where on the stem the annulus hangs, from 0 at the base to 1 at the
+    /// top.
     pub at: f32,
     /// Side-view outline from the skirt's lower edge up to the stem, as
     /// (distance from the stem's centre line, height below the attachment).
     pub profile: Profile,
-    /// Radius where the ring meets the stem.
+    /// Radius where the annulus meets the stem.
     pub inner: f32,
     /// How torn the lower edge is, from 0 through 1.
     pub raggedness: f32,
@@ -80,6 +75,9 @@ pub(crate) struct Shape {
     base_radius: f32,
     bulb: f32,
     bulb_height: f32,
+    /// How far the closed bottom reaches below the ground, in metres, or
+    /// `None` when the stem is open at the ground.
+    pub bottom_depth: Option<f32>,
     collar: f32,
     lean: Vec3,
     curve: f32,
@@ -96,11 +94,13 @@ pub(crate) struct Shape {
     asymmetry: [f32; 4],
     cap_roughness: f32,
     roughness_frequency: f32,
-    cap_origin: Vec3,
-    cap_rotation: Quat,
+    /// Where the cap's outline origin (its centre at height 0) sits.
+    pub cap_origin: Vec3,
+    /// Turns the cap's own +Y axis into the direction it faces.
+    pub cap_rotation: Quat,
     noise_seed: u32,
-    /// The ring, if the mushroom has one.
-    pub ring: Option<RingShape>,
+    /// The annulus, if the mushroom has one.
+    pub annulus: Option<AnnulusShape>,
     /// Warts on the cap.
     pub warts: Vec<Wart>,
 }
@@ -139,8 +139,9 @@ impl Shape {
             stem_height,
             neck_radius,
             base_radius: neck_radius * s.base,
-            bulb: neck_radius * s.bulb,
-            bulb_height: s.bulb_height,
+            bulb: neck_radius * o.bulb.size,
+            bulb_height: o.bulb.height,
+            bottom_depth: None,
             collar: neck_radius * s.collar,
             lean,
             curve: s.curve,
@@ -157,9 +158,10 @@ impl Shape {
             cap_origin: Vec3::ZERO,
             cap_rotation: Quat::IDENTITY,
             noise_seed: Rng::new(o.seed, STREAM_NOISE).int(0, u32::MAX - 1),
-            ring: None,
+            annulus: None,
             warts: Vec::new(),
         };
+        shape.bottom_depth = o.bulb.closed.then(|| o.bulb.depth * shape.stem_radius(0.0));
 
         // Sit the cap on top of the stem, facing along the stem's direction
         // there plus its tilt, and lowered so the stem reaches into it.
@@ -171,7 +173,7 @@ impl Shape {
         let embed = (apex * STEM_EMBED).min(MAX_EMBED);
         shape.cap_origin = shape.stem_centre(1.0) - axis * (embed * radius);
 
-        shape.ring = o.ring.enabled.then(|| ring_shape(o, &shape));
+        shape.annulus = o.annulus.enabled.then(|| annulus_shape(o, &shape));
         shape.warts = place_warts(o, &shape);
         shape
     }
@@ -251,6 +253,20 @@ impl Shape {
         self.stem_centre(s) + self.stem_frame(s) * (around * r)
     }
 
+    /// Returns a point on the closed bottom at `t` and angle `theta`
+    /// (radians) around the stem: `t = 0` is the lowest point, below the
+    /// ground, and `t = 1` the stem's edge at the ground, where the bottom
+    /// meets the stem's side exactly. The bottom is a rounded dome shaped
+    /// like the lower half of an ellipsoid. Returns the ground point when
+    /// the stem has no closed bottom.
+    pub(crate) fn bottom_point(&self, t: f32, theta: f32) -> Vec3 {
+        let Some(depth) = self.bottom_depth.filter(|_| t < 1.0) else {
+            return self.stem_point(0.0, theta, 1.0);
+        };
+        let (out, down) = (t * TAU * 0.25).sin_cos();
+        self.stem_point(0.0, theta, out) - self.stem_tangent(0.0) * (down * depth)
+    }
+
     // ----------------------------------------------------------------------
     // Cap
 
@@ -300,23 +316,24 @@ impl Shape {
     }
 
     // ----------------------------------------------------------------------
-    // Ring
+    // Annulus
 
-    /// Returns the point on `ring` at distance `s` along its outline (from
-    /// the lower edge up to the stem) and angle `theta` around the stem.
-    pub(crate) fn ring_point(&self, ring: &RingShape, s: f32, theta: f32) -> Vec3 {
+    /// Returns the point on `annulus` at distance `s` along its outline
+    /// (from the lower edge up to the stem) and angle `theta` around the
+    /// stem.
+    pub(crate) fn annulus_point(&self, annulus: &AnnulusShape, s: f32, theta: f32) -> Vec3 {
         let around = Vec3::new(theta.cos(), 0.0, theta.sin());
-        let p = ring.profile.at(s);
+        let p = annulus.profile.at(s);
 
         // A ragged edge: shorten the skirt by an amount that varies smoothly
         // around the stem.
         let rag = 1.0
-            - ring.raggedness
+            - annulus.raggedness
                 * 0.5
                 * (fbm(around * 3.0, self.noise_seed ^ 0x2196, NOISE_OCTAVES) + 1.0);
-        let r = ring.inner + (p.x - ring.inner) * rag;
+        let r = annulus.inner + (p.x - annulus.inner) * rag;
         let y = p.y * rag;
-        self.stem_centre(ring.at) + self.stem_frame(ring.at) * (around * r + Vec3::Y * y)
+        self.stem_centre(annulus.at) + self.stem_frame(annulus.at) * (around * r + Vec3::Y * y)
     }
 }
 
@@ -343,9 +360,9 @@ fn underside_profile(o: &MushroomOptions, rim_top: Vec2, stem_top: f32) -> Profi
     Profile::new(&anchors, &[1, 2])
 }
 
-/// Works out the ring's shape from the options and the stem it hangs on.
-fn ring_shape(o: &MushroomOptions, shape: &Shape) -> RingShape {
-    let r = &o.ring;
+/// Works out the annulus's shape from the options and the stem it hangs on.
+fn annulus_shape(o: &MushroomOptions, shape: &Shape) -> AnnulusShape {
+    let r = &o.annulus;
     let inner = shape.stem_radius(r.position) * 0.97;
     let outer = shape.stem_radius(r.position) * r.flare;
     let length = r.length * o.size;
@@ -354,7 +371,7 @@ fn ring_shape(o: &MushroomOptions, shape: &Shape) -> RingShape {
         Vec2::new(inner + (outer - inner) * 0.75, -length * 0.45),
         Vec2::new(inner, 0.0),
     ];
-    RingShape {
+    AnnulusShape {
         at: r.position,
         profile: Profile::new(&anchors, &[]),
         inner,
@@ -399,29 +416,10 @@ fn place_warts(o: &MushroomOptions, shape: &Shape) -> Vec<Wart> {
         {
             continue;
         }
-        let normal = cap_normal(shape, s, theta);
         warts.push(Wart {
             radius: size,
-            height: size * w.height,
-            centre: centre - normal * (size * w.height * WART_SINK),
-            normal,
+            centre,
         });
     }
     warts
-}
-
-/// Returns the outward unit normal of the cap's top surface at distance `s`
-/// along the top outline and angle `theta`. Near the top centre, where the
-/// surface has no clear direction, it falls back to the cap's axis.
-pub(crate) fn cap_normal(shape: &Shape, s: f32, theta: f32) -> Vec3 {
-    let length = shape.top.length();
-    let e = length * 1e-3;
-    let (a, b) = ((s - e).max(0.0), (s + e).min(length - e));
-    let along = shape.cap_point(shape.top.at(b), theta) - shape.cap_point(shape.top.at(a), theta);
-    let around = shape.cap_point(shape.top.at(s.min(length - e)), theta + 1e-3)
-        - shape.cap_point(shape.top.at(s.min(length - e)), theta - 1e-3);
-    along
-        .cross(around)
-        .try_normalize()
-        .unwrap_or(shape.cap_axis())
 }

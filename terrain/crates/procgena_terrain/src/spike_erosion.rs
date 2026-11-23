@@ -307,3 +307,82 @@ fn spike_what_makes_deep_cuts() {
         median(&mut all_slopes)
     );
 }
+
+#[test]
+#[ignore]
+fn spike_capped_cut_profiles() {
+    // Mountain rivers' levels are the running minimum of the ground along
+    // them. A profile that never rises and never cuts more than `c` below
+    // the ground: level = max(running minimum, highest ground downstream −
+    // freeboard − c). Where it sits above the ground the dip floods (a lake
+    // along the river; real lakes would also spread sideways). How many
+    // lakes, how long and how deep?
+    let options = TerrainPreset::Mountains.options();
+    let b = &options.base;
+    eprintln!(
+        "mountains breach: {:.1} m (4 + 0.03 × ({} + {}))",
+        4.0 + 0.03 * (b.hills.height + b.mountains.height),
+        b.hills.height,
+        b.mountains.height
+    );
+    // Per river: ground and distance along.
+    let mut rivers: Vec<(Vec<f64>, Vec<f64>)> = Vec::new();
+    for seed in 1..=6 {
+        let world = one_region(TerrainPreset::Mountains, seed);
+        let t = &world.terrains()[0];
+        for river in t.rivers() {
+            let ground = river
+                .points
+                .iter()
+                .map(|&p| f64::from(t.uncarved_height(p)))
+                .collect();
+            rivers.push((ground, crate::road::distance_along(&river.points)));
+        }
+    }
+    const FREEBOARD: f64 = 1.0;
+    for cap in [5.0, 10.0, 20.0] {
+        let (mut total, mut deep) = (0usize, 0usize);
+        let mut lakes: Vec<(f64, f64)> = Vec::new(); // (length, deepest)
+        for (ground, along) in &rivers {
+            let n = ground.len();
+            let mut downstream_max = vec![f64::NEG_INFINITY; n + 1];
+            for i in (0..n).rev() {
+                downstream_max[i] = downstream_max[i + 1].max(ground[i]);
+            }
+            let mut running_min = f64::INFINITY;
+            let mut lake: Option<(f64, f64)> = None; // (start along, deepest)
+            for i in 0..n {
+                running_min = running_min.min(ground[i] - FREEBOARD);
+                let level = running_min.max(downstream_max[i] - FREEBOARD - cap);
+                total += 1;
+                if ground[i] - level > 10.0 {
+                    deep += 1;
+                }
+                let water = level - (ground[i] - FREEBOARD);
+                if water > 1e-9 {
+                    let (start, deepest) = lake.unwrap_or((along[i], 0.0));
+                    lake = Some((start, deepest.max(water)));
+                } else if let Some((start, deepest)) = lake.take() {
+                    lakes.push((along[i] - start, deepest));
+                }
+            }
+            if let Some((start, deepest)) = lake {
+                lakes.push((along[n - 1] - start, deepest));
+            }
+        }
+        let long = lakes.iter().filter(|l| l.0 > 50.0).count();
+        let mut lengths: Vec<f64> = lakes.iter().map(|l| l.0).collect();
+        lengths.sort_by(f64::total_cmp);
+        eprintln!(
+            "cut capped at {cap:>4} m: cut over 10 m at {:.0}% of points; {} lakes ({:.1} per \
+             region, {} longer than 50 m), median length {:.0} m, longest {:.0} m, deepest {:.1} m",
+            deep as f64 / total as f64 * 100.0,
+            lakes.len(),
+            lakes.len() as f64 / 6.0,
+            long,
+            lengths.get(lengths.len() / 2).copied().unwrap_or(0.0),
+            lengths.last().copied().unwrap_or(0.0),
+            lakes.iter().map(|l| l.1).fold(0.0, f64::max)
+        );
+    }
+}
