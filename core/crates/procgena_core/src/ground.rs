@@ -142,8 +142,8 @@ impl HeightGrid {
     ///
     /// # Panics
     ///
-    /// Panics if `cell` is not positive and finite, or `heights` does not
-    /// hold `columns * rows` values.
+    /// Panics if `cell` is not positive and finite, `columns` or `rows` is
+    /// 0, or `heights` does not hold `columns * rows` values.
     pub fn from_samples(
         origin: DVec2,
         cell: f64,
@@ -152,6 +152,7 @@ impl HeightGrid {
         heights: Vec<f32>,
     ) -> Self {
         assert!(cell > 0.0 && cell.is_finite());
+        assert!(columns > 0 && rows > 0);
         assert_eq!(heights.len() as u64, u64::from(columns) * u64::from(rows));
         Self {
             origin,
