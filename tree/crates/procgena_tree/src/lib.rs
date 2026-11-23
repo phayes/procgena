@@ -219,8 +219,9 @@
 //! Each species is drawn from a few shape variants ([`GroveTree::variants`]), so a
 //! grove of hundreds of trees needs only a handful of meshes. Lowering the grove's
 //! density only removes trees, and raising it only adds them; the others stay where
-//! they were. Ground is any [`Ground`]: [`FlatGround`], a closure taking X and Z,
-//! or a [`HeightGrid`] sampled from another generator's mesh.
+//! they were. Ground is any [`Ground`]: [`FlatGround`], a closure taking a World
+//! position (`DVec2`), or a [`HeightGrid`] sampled from another generator's
+//! specimen.
 //!
 //! Groves are saved as `.grove.json` files with [`TreeGrove::to_json`] and read
 //! with [`TreeGrove::from_json`]. A file may name a [`GrovePreset`] as its `base`
@@ -290,7 +291,7 @@ pub use options::{
 };
 pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::TreePreset;
-pub use procgena_specimen::{FlatGround, Ground, HeightGrid};
+pub use procgena_core::{FlatGround, Ground, HeightGrid};
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
 pub use rng::Rng;
 pub use skeleton::{Attachment, Section, Skeleton, SkeletonBranch, SkeletonLeaf};

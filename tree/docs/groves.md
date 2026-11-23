@@ -221,9 +221,10 @@ many of them as they can:
 
 ## Stand trees on uneven ground
 
-`GrovePlacement::new` takes any `Ground`: `FlatGround`, a closure from X and Z
-to a height, or a `HeightGrid` sampled from another generator's mesh with
-`HeightGrid::from_object`. A height of NaN means there is no ground there.
+`GrovePlacement::new` takes any `Ground`: `FlatGround`, a closure from a World
+position (`DVec2`, X and Z) to a height, or a `HeightGrid` sampled from another
+generator's specimen with `Specimen::height_grid`. A height of NaN means there
+is no ground there.
 
 The ground is sampled at each trunk and at eight points around it, one trunk
 radius away. A tree is left out where any of that ground is missing, or where

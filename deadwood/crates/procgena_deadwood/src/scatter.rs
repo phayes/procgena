@@ -28,9 +28,9 @@ pub const MAX_VARIANTS: u32 = 32;
 /// Most contact points kept per variant for fitting it to the ground.
 const MAX_CONTACTS: usize = 48;
 
-/// The ground shapes sticks lie on. They live in `procgena_specimen`, shared
+/// The ground shapes sticks lie on. They live in `procgena_core`, shared
 /// with the other generators that scatter over ground.
-pub use procgena_specimen::{FlatGround, Ground, HeightGrid};
+pub use procgena_core::{FlatGround, Ground, HeightGrid};
 
 /// Settings for a [`StickScatter`].
 #[derive(Debug, Clone, PartialEq)]
@@ -273,7 +273,7 @@ impl StickScatter {
                     continue;
                 };
                 spacing.insert(site);
-                let position = Vec3::new(site.x, ground.height(site.x, site.y), site.y);
+                let position = Vec3::new(site.x, ground.height(site.as_dvec2()), site.y);
                 instances.push(Instance {
                     variant,
                     position,
@@ -373,7 +373,8 @@ fn footprint(piece: &Piece) -> Footprint {
 /// no ground under it.
 fn place(f: &Footprint, site: Vec2, yaw: f32, ground: &dyn Ground) -> Option<Affine3A> {
     let turn = Quat::from_rotation_y(yaw);
-    let height = |p: Vec3| ground.height(site.x + p.x, site.y + p.z);
+    // The scatter's own frame is the World frame, so its points widen as is.
+    let height = |p: Vec3| ground.height(Vec2::new(site.x + p.x, site.y + p.z).as_dvec2());
 
     // Fit a plane h = a·x + b·z + c to the ground under the contacts and two
     // points beside the middle, so a straight stick still finds the

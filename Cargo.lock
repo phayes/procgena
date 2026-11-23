@@ -5366,6 +5366,9 @@ dependencies = [
 [[package]]
 name = "procgena_core"
 version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+]
 
 [[package]]
 name = "procgena_deadwood"
@@ -5374,6 +5377,7 @@ dependencies = [
  "glam 0.33.12",
  "gltf",
  "gltf-json",
+ "procgena_core",
  "procgena_specimen",
  "serde",
  "serde_json",
@@ -5452,6 +5456,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "glam 0.33.12",
+ "procgena_core",
 ]
 
 [[package]]
@@ -5501,6 +5506,7 @@ dependencies = [
  "gltf",
  "gltf-json",
  "naga",
+ "procgena_core",
  "procgena_specimen",
  "serde",
  "serde_json",

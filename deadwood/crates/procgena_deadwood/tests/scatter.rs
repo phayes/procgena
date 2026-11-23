@@ -1,9 +1,7 @@
 //! Stick scatter over flat and shaped ground.
 
-use glam::{Vec2, Vec3};
-use procgena_deadwood::{
-    DeadwoodLod, FlatGround, HeightGrid, ScatterError, ScatterOptions, StickScatter,
-};
+use glam::{DVec2, Vec2, Vec3};
+use procgena_deadwood::{DeadwoodLod, FlatGround, ScatterError, ScatterOptions, StickScatter};
 use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 /// Kindling over a small 3 m square, to keep the tests quick.
@@ -55,7 +53,7 @@ fn density_thins_the_scatter() {
 #[test]
 fn sticks_follow_a_slope() {
     let o = small();
-    let slope = |x: f32, _z: f32| 0.3 * x;
+    let slope = |p: DVec2| 0.3 * p.x as f32;
     let s = StickScatter::new(&o, &slope, None).unwrap();
     for i in s.instances() {
         let p = i.position;
@@ -63,7 +61,10 @@ fn sticks_follow_a_slope() {
         // Tilted to follow the slope, with the reported position on the
         // ground at the stick's site.
         assert!(up.x < -0.1, "up {up}");
-        assert!((p.y - slope(p.x, p.z)).abs() < 1e-4, "site {p}");
+        assert!(
+            (p.y - slope(Vec2::new(p.x, p.z).as_dvec2())).abs() < 1e-4,
+            "site {p}"
+        );
         let middle = i.transform.transform_point3(glam::Vec3::ZERO);
         assert!(middle.is_finite());
     }
@@ -72,7 +73,7 @@ fn sticks_follow_a_slope() {
 #[test]
 fn no_ground_drops_sticks() {
     let o = small();
-    let hole = |x: f32, _z: f32| if x < 0.0 { f32::NAN } else { 0.0 };
+    let hole = |p: DVec2| if p.x < 0.0 { f32::NAN } else { 0.0 };
     let s = StickScatter::new(&o, &hole, None).unwrap();
     for i in s.instances() {
         assert!(i.position.x >= 0.0);
@@ -93,10 +94,11 @@ fn height_grid_from_a_specimen_follows_its_top() {
         indices: vec![0, 2, 1, 0, 3, 2],
     };
     let specimen = Specimen::single(vec![Part::new([tags::GROUND], mesh)]);
-    let grid =
-        HeightGrid::from_specimen(&specimen, 0, &TagFilter::any_of([tags::GROUND]), 0.1).unwrap();
+    let grid = specimen
+        .height_grid(0, &TagFilter::any_of([tags::GROUND]), 0.1)
+        .unwrap();
     use procgena_deadwood::Ground;
-    assert!((grid.height(1.0, 0.5) - 0.2).abs() < 1e-3);
+    assert!((grid.height(DVec2::new(1.0, 0.5)) - 0.2).abs() < 1e-3);
     let s = StickScatter::new(&small(), &grid, None).unwrap();
     assert!(!s.instances().is_empty());
 }

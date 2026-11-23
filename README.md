@@ -7,7 +7,8 @@ Procedural content generators for Rust and Bevy, in one Cargo workspace.
 | `stone/` | `procgena_stone`, `procgena_stone_bevy`  | Procedural rocks, with a Bevy plugin for meshes, materials, LOD |
 | `tree/`  | `procgena_tree`, `procgena_tree_bevy`    | Procedural trees, with a Bevy plugin for meshes, wind, LOD      |
 | `clump/` | `procgena_clump`, `procgena_clump_bevy`  | Clumps of snow, moss, mud and litter on top of a surface mesh, with a Bevy plugin that grows them on rocks, trees and tagged meshes |
-| `mesh/`  | `procgena_mesh`                          | The tagged meshes generators hand to each other, so one can build on another's result |
+| `specimen/` | `procgena_specimen`                   | The tagged specimens generators hand to each other, so one can build on another's result |
+| `core/`  | `procgena_core`                          | Engine-free rules every level shares: hashing, random numbers and ground shapes |
 | `mushroom/` | `procgena_mushroom`, `procgena_mushroom_bevy` | Procedural mushrooms, clusters and scatter, with a Bevy plugin for LOD |
 | `plant/` | `procgena_plant`, `procgena_plant_web`   | Grass and foliage fields for Bevy, plus a browser demo          |
 | `terrain/` | `procgena_terrain`                     | Labelled terrain regions that join seamlessly, built in chunks  |

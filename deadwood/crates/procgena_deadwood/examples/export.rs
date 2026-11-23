@@ -9,6 +9,7 @@
 use std::fs;
 use std::path::Path;
 
+use glam::DVec2;
 use procgena_deadwood::export::{gltf, obj};
 use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, Piece, ScatterOptions, StickScatter};
 
@@ -46,7 +47,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A kindling scatter on gently rolling ground. Each placed stick is
     // copied and moved into place, and saved as its own object in one file.
     // Strips are dropped, since a file can't keep them facing the camera.
-    let ground = |x: f32, z: f32| 0.15 * (x * 0.8).sin() + 0.1 * (z * 1.1).cos();
+    let ground = |p: DVec2| {
+        let (x, z) = (p.x as f32, p.y as f32);
+        0.15 * (x * 0.8).sin() + 0.1 * (z * 1.1).cos()
+    };
     let scatter = StickScatter::new(&ScatterOptions::kindling(), &ground, None)?;
     let mut meshes = Vec::new();
     for instance in scatter.instances() {

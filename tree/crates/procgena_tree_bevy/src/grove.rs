@@ -17,6 +17,7 @@ use std::sync::Arc;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::Aabb;
+use bevy::math::DVec2;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
@@ -711,8 +712,13 @@ struct ScaledGround {
 }
 
 impl Ground for ScaledGround {
-    fn height(&self, x: f32, z: f32) -> f32 {
-        self.grid.height(x / self.scale, z / self.scale) * self.scale
+    fn height(&self, p: DVec2) -> f32 {
+        self.grid.height(p / f64::from(self.scale)) * self.scale
+    }
+
+    // Scaling both the positions and the heights leaves the slope as it is.
+    fn gradient(&self, p: DVec2) -> Vec2 {
+        self.grid.gradient(p / f64::from(self.scale))
     }
 }
 
@@ -728,7 +734,8 @@ fn place(input: &Input) -> Result<Vec<GroveInstance>, TreeGroveBuildError> {
             host,
             scale,
         } => {
-            let grid = HeightGrid::from_specimen(host, 0, filter, cell / scale)
+            let grid = host
+                .height_grid(0, filter, cell / scale)
                 .ok_or(TreeGroveBuildError::NoGround)?;
             let ground = ScaledGround {
                 grid,

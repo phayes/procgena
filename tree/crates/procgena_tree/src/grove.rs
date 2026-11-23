@@ -16,8 +16,8 @@ mod presets;
 use std::collections::HashMap;
 use std::fmt;
 
-use glam::{Affine3A, Quat, Vec3};
-use procgena_specimen::Ground;
+use glam::{Affine3A, Quat, Vec2, Vec3};
+use procgena_core::Ground;
 
 use crate::options::{OptionsError, TreeOptions};
 use crate::presets::TreePreset;
@@ -692,11 +692,12 @@ fn stand(
 
     // Sample the ground at the trunk and at eight points around its edge.
     let footprint = (species.tree.branch.radius[0] * scale).max(MIN_FOOTPRINT);
-    let centre = ground.height(x, z);
+    // The grove's own frame is the World frame, so its points widen as is.
+    let centre = ground.height(Vec2::new(x, z).as_dvec2());
     let mut lowest = centre;
     let mut steepest: f32 = 0.0;
     for (dx, dz) in FOOTING_DIRECTIONS {
-        let y = ground.height(x + dx * footprint, z + dz * footprint);
+        let y = ground.height(Vec2::new(x + dx * footprint, z + dz * footprint).as_dvec2());
         if y.is_nan() {
             return None;
         }

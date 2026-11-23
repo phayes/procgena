@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glam::Vec3;
+use glam::{DVec2, Vec3};
 use procgena_tree::{
     FlatGround, GroveError, GroveFileError, GroveInstance, GrovePlacement, GrovePreset, GroveTree,
     MAX_GROVE_TREES, Tree, TreeGrove, TreePreset,
@@ -215,13 +215,13 @@ fn spacing_leaves_most_of_a_presets_density() {
 #[test]
 fn missing_and_steep_ground_leave_gaps() {
     let grove = even_pair();
-    let half_missing = |x: f32, _z: f32| if x < 0.0 { f32::NAN } else { 0.0 };
+    let half_missing = |p: DVec2| if p.x < 0.0 { f32::NAN } else { 0.0 };
     let placement = GrovePlacement::new(&grove, [40.0, 40.0], &half_missing, None).unwrap();
     assert!(!placement.instances().is_empty());
     assert!(placement.instances().iter().all(|t| t.position.x > 0.0));
 
     // A 45° slope is steeper than the default 35° limit.
-    let steep = |x: f32, _z: f32| x;
+    let steep = |p: DVec2| p.x as f32;
     let placement = GrovePlacement::new(&grove, [40.0, 40.0], &steep, None).unwrap();
     assert!(placement.instances().is_empty());
 }
@@ -231,7 +231,8 @@ fn trees_stand_on_the_ground_and_sink_below_it() {
     let mut grove = even_pair();
     grove.variation.lean = 0.0;
     let gentle = |x: f32, z: f32| 0.1 * x + 0.05 * z + 3.0;
-    let placement = GrovePlacement::new(&grove, [30.0, 30.0], &gentle, None).unwrap();
+    let ground = |p: DVec2| gentle(p.x as f32, p.y as f32);
+    let placement = GrovePlacement::new(&grove, [30.0, 30.0], &ground, None).unwrap();
     for tree in placement.instances() {
         let p = tree.position;
         let below = gentle(p.x, p.z) - p.y;
@@ -245,7 +246,7 @@ fn each_species_can_have_its_own_slope_limit() {
     // A 40° slope: steeper than the grove's 35° limit, gentler than the 45°
     // shrubs tolerate.
     let tan = 40f32.to_radians().tan();
-    let slope = |x: f32, _z: f32| tan * x;
+    let slope = |p: DVec2| tan * p.x as f32;
     let alone = |tree: GroveTree| {
         let grove = TreeGrove::new(vec![tree]);
         GrovePlacement::new(&grove, [30.0, 30.0], &slope, None)
@@ -283,7 +284,8 @@ fn trees_on_a_diagonal_slope_stand_below_its_lowest_side() {
     grove.variation.sink = 0.0;
     let tan = 25f32.to_radians().tan();
     let diagonal = |x: f32, z: f32| tan * (x + z) * std::f32::consts::FRAC_1_SQRT_2;
-    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &diagonal, None).unwrap();
+    let ground = |p: DVec2| diagonal(p.x as f32, p.y as f32);
+    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &ground, None).unwrap();
     assert!(!placement.instances().is_empty());
     let trunk = TreePreset::OakLarge.options().branch.radius[0];
     for tree in placement.instances() {

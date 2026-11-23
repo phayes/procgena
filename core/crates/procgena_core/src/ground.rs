@@ -249,7 +249,10 @@ mod tests {
         // A curved ground: the default's error is the step squared times
         // the third derivative over 6, which is zero for a parabola.
         let bowl = |p: DVec2| (p.x * p.x + 2.0 * p.y * p.y) as f32;
-        assert!(close(bowl.gradient(DVec2::new(1.0, -0.5)), Vec2::new(2.0, -2.0)));
+        assert!(close(
+            bowl.gradient(DVec2::new(1.0, -0.5)),
+            Vec2::new(2.0, -2.0)
+        ));
     }
 
     #[test]
@@ -272,7 +275,11 @@ mod tests {
         );
         // Bilinear blending is exact on a plane, so the slope is too, on
         // and between samples.
-        for p in [DVec2::new(0.0, 0.0), DVec2::new(1.3, -2.1), DVec2::new(-3.4, 3.4)] {
+        for p in [
+            DVec2::new(0.0, 0.0),
+            DVec2::new(1.3, -2.1),
+            DVec2::new(-3.4, 3.4),
+        ] {
             assert!(close(grid.gradient(p), Vec2::new(0.3, -0.1)), "{p}");
         }
         // Within one cell of the edge there is no neighbour to compare with.
