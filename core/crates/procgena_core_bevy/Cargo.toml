@@ -1,0 +1,24 @@
+[package]
+name = "procgena_core_bevy"
+version = "0.1.0"
+description = "Shared Bevy runtime for procgena assets: level-of-detail fading, the dither shader and the quality setting"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+procgena_core = { path = "../procgena_core" }
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_pbr",
+] }
+
+[dev-dependencies]
+naga = { version = "30", features = ["wgsl-in"] }
+wesl = { version = "0.6", features = ["eval"] }
+
+[package.metadata.docs.rs]
+all-features = true

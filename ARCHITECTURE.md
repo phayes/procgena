@@ -1360,9 +1360,9 @@ it starts.
 ### Asset alignment
 
 - [ ] **Shared crates**: `procgena_core` is created (F1), holding the hash,
-  `Rng` (stone's and clump's) and `Ground`. Still to do: tree's,
-  deadwood's and mushroom's random numbers (F2), and `procgena_core_bevy`
-  (R1).
+  `Rng` (stone's and clump's) and `Ground`. `procgena_core_bevy` is
+  created (R1). Still to do: tree's, deadwood's and mushroom's random
+  numbers (F2).
 - [x] **Rename `procgena_mesh` → `procgena_specimen`** (done in F1), with the type
   renames in "Naming" (`Object` → `Specimen`, `GeneratedObject` →
   `GeneratedSpecimen`, every asset's `object()` → `specimen()`), and move
@@ -1376,7 +1376,10 @@ it starts.
   Today each Scatter sets its own variant count (`GroveTree::variants`,
   `StonePool`, `StickScatter`, mushroom clusters) with no World-wide cap.
 - [ ] **Shared LOD type, dither shader and quality setting**, adopted by
-  every asset.
+  every asset. The shared pieces exist (R1): `Lod`, `LodLevel`,
+  `LevelForm`, `FarForm` and `Quality` in `procgena_core`, and the dither
+  shader, `LodQuality` and `visibility_range` in `procgena_core_bevy`.
+  Still to do: each asset adopts them.
 - [ ] **Shared instanced renderer**, from stone's pool and tree's grove
   renderer; deadwood and mushroom move onto it.
 - [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`

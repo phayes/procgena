@@ -6,8 +6,13 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Serialize and deserialize the level-of-detail and quality types.
+serde = ["dep:serde"]
+
 [dependencies]
 glam = { workspace = true }
+serde = { workspace = true, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
