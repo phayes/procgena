@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use glam::{Affine3A, DVec2, Vec2, Vec3};
+use glam::{Affine3A, DVec2, Vec2, Vec3, Vec3Swizzles};
 use procgena_core::hash::{pcg3d, unit_float};
 use procgena_core::scatter::{Footing, ScatterInput, settle, steeper_than};
 
@@ -80,7 +80,8 @@ pub struct StoneClass {
     pub max_bend: f32,
     /// How much of the ground is left bare between patches of this class,
     /// from 0 (stones spread evenly, the default) up to (not including) 1.
-    /// Raising it only removes stones.
+    /// Raising it only removes stones of this class, though stones of later
+    /// classes may then fill the ground they leave.
     pub patchiness: f32,
     /// Typical width in metres of a patch and of the bare ground between
     /// patches. Must be positive.
@@ -325,6 +326,10 @@ pub struct StoneInstance {
     pub scale: f32,
     /// Where its origin stands, relative to the area's centre, in metres.
     pub position: Vec3,
+    /// How far its footprint reaches from its position, along the ground,
+    /// in metres. Stones of different classes are at least the sum of their
+    /// radii apart.
+    pub radius: f32,
     /// Places a mesh of its variant (in metres, as [`crate::Stone`] builds
     /// it) on the ground: size, yaw, tilt to the slope and burial.
     pub transform: Affine3A,
@@ -346,6 +351,9 @@ struct VariantShape {
 struct Candidate {
     rank: f32,
     radius: f32,
+    /// Whether it stands inside one of its class's patches; stones outside
+    /// are removed after the spacing check.
+    in_patch: bool,
     instance: StoneInstance,
 }
 
@@ -366,15 +374,17 @@ impl StoneScatter {
     /// Each class has its own grid of candidate spots, one per
     /// [`spacing`](StoneClass::spacing)-wide cell, anchored to the area's
     /// centre. A spot is kept with a chance of its class's density times the
-    /// input's mask and the class's patches; then it is left out where the
-    /// ground is steeper than [`max_slope`](StoneClass::max_slope), where any
-    /// part of the stone has no ground under it, or where the ground bends
-    /// more than [`max_bend`](StoneClass::max_bend) allows. Each stone that
-    /// is left rests tilted to the slope, sunk by its burial.
+    /// input's mask; then it is left out where the ground is steeper than
+    /// [`max_slope`](StoneClass::max_slope), where any part of the stone has
+    /// no ground under it, or where the ground bends more than
+    /// [`max_bend`](StoneClass::max_bend) allows. Stones too close to a
+    /// stone of an earlier class, or of their own class, are left out next,
+    /// and last those between the class's patches. Each stone that is left
+    /// rests tilted to the slope, sunk by its burial.
     ///
-    /// Lowering a density or the mask only removes stones; the others keep
-    /// their places, unless they had been crowded out by a removed one.
-    /// Positions are relative to the area's centre.
+    /// Lowering a class's density only removes stones of that class; the
+    /// others keep their places, though stones of later classes may fill the
+    /// gaps. Positions are relative to the area's centre.
     ///
     /// Building measures every variant's shape on the CPU, which takes tens
     /// of milliseconds per variant.
@@ -433,8 +443,9 @@ impl StoneScatter {
             })
             .collect::<Result<_, _>>()?;
 
-        // Find each class's candidates, then keep them apart, earlier classes
-        // first.
+        // Keep each class's candidates apart in rank order, after the stones
+        // of earlier classes. Rank order means the stones a lower density
+        // keeps are visited first and decided the same way.
         let mut kept = Kept::new(options, &variants, &shapes);
         for (k, class) in options.classes.iter().enumerate() {
             let mut found = candidates_of(k, class, &variants[k], &shapes[k], input);
@@ -443,13 +454,24 @@ impl StoneScatter {
                     .total_cmp(&b.rank)
                     .then(a.instance.cell.cmp(&b.instance.cell))
             });
+            let mut own = kept.empty_like();
             for candidate in found {
-                kept.offer(candidate, class.spacing);
+                if !kept.crowds(&candidate, class.spacing) && !own.crowds(&candidate, class.spacing)
+                {
+                    own.insert(candidate);
+                }
+            }
+
+            // Clear the bare ground between patches last, so a stone there
+            // still keeps its neighbours at a distance and raising the
+            // patchiness only removes stones of this class.
+            for stone in own.stones.into_iter().filter(|s| s.in_patch) {
+                kept.insert(stone);
             }
         }
         Ok(Self {
             variants,
-            instances: kept.instances,
+            instances: kept.stones.into_iter().map(|s| s.instance).collect(),
         })
     }
 
@@ -558,7 +580,7 @@ fn candidates_of(
             // Keep it with a chance that grows with the local density, so a
             // lower density keeps a subset of a higher one's stones.
             let world = input.area.world(local);
-            let local_density = input.density(local) * patches(class, world, salt);
+            let local_density = input.density(local);
             if local_density <= 0.0 {
                 continue;
             }
@@ -598,12 +620,14 @@ fn candidates_of(
             found.push(Candidate {
                 rank,
                 radius: shape.radius * size,
+                in_patch: unit_float(c[1]) < patches(class, world, salt),
                 instance: StoneInstance {
                     class: k,
                     variant,
                     cell: [i, j],
                     scale,
                     position,
+                    radius: shape.radius * size,
                     transform: Affine3A::from_scale_rotation_translation(
                         Vec3::splat(scale),
                         settled.rotation,
@@ -647,10 +671,9 @@ fn lerp_log(range: [f32; 2], u: f32) -> f32 {
     (range[0].ln() + (range[1].ln() - range[0].ln()) * u).exp()
 }
 
-/// The stones kept so far, bucketed so a spacing check only looks nearby.
+/// Stones kept so far, bucketed so a spacing check only looks nearby.
 struct Kept {
-    instances: Vec<StoneInstance>,
-    radii: Vec<f32>,
+    stones: Vec<Candidate>,
     /// Bucket width: at least the largest distance two stones are kept
     /// apart.
     reach: f32,
@@ -658,6 +681,7 @@ struct Kept {
 }
 
 impl Kept {
+    /// An empty set whose buckets fit every stone `options` can place.
     fn new(
         options: &StoneScatterOptions,
         variants: &[Vec<StoneOptions>],
@@ -680,40 +704,50 @@ impl Kept {
             .map(|c| c.spacing)
             .fold(0.0, f32::max);
         Self {
-            instances: Vec::new(),
-            radii: Vec::new(),
+            stones: Vec::new(),
             reach: spacing.max(2.0 * widest).max(1e-3),
             buckets: HashMap::new(),
         }
     }
 
-    /// Keeps `candidate` unless it is closer than `spacing` to a kept stone of
-    /// its own class, or its footprint overlaps any kept stone's.
-    fn offer(&mut self, candidate: Candidate, spacing: f32) {
-        let p = Vec2::new(candidate.instance.position.x, candidate.instance.position.z);
+    /// An empty set with the same buckets.
+    fn empty_like(&self) -> Self {
+        Self {
+            stones: Vec::new(),
+            reach: self.reach,
+            buckets: HashMap::new(),
+        }
+    }
+
+    /// Returns the bucket that holds `p`.
+    fn bucket(&self, p: Vec2) -> (i32, i32) {
         let key = |v: f32| (v / self.reach).floor() as i32;
-        let (bx, bz) = (key(p.x), key(p.y));
-        let crowded = (bx - 1..=bx + 1)
+        (key(p.x), key(p.y))
+    }
+
+    /// Whether `candidate` is closer than `spacing` to a kept stone of its
+    /// own class, or its footprint overlaps any kept stone's.
+    fn crowds(&self, candidate: &Candidate, spacing: f32) -> bool {
+        let p = candidate.instance.position.xz();
+        let (bx, bz) = self.bucket(p);
+        (bx - 1..=bx + 1)
             .flat_map(|cx| (bz - 1..=bz + 1).map(move |cz| (cx, cz)))
             .filter_map(|b| self.buckets.get(&b))
             .flatten()
             .any(|&n| {
-                let other = &self.instances[n];
-                let q = Vec2::new(other.position.x, other.position.z);
-                let mut apart = candidate.radius + self.radii[n];
-                if other.class == candidate.instance.class {
+                let other = &self.stones[n];
+                let mut apart = candidate.radius + other.radius;
+                if other.instance.class == candidate.instance.class {
                     apart = apart.max(spacing);
                 }
-                p.distance_squared(q) < apart * apart
-            });
-        if crowded {
-            return;
-        }
-        self.buckets
-            .entry((bx, bz))
-            .or_default()
-            .push(self.instances.len());
-        self.instances.push(candidate.instance);
-        self.radii.push(candidate.radius);
+                p.distance_squared(other.instance.position.xz()) < apart * apart
+            })
+    }
+
+    /// Keeps `candidate`.
+    fn insert(&mut self, candidate: Candidate) {
+        let b = self.bucket(candidate.instance.position.xz());
+        self.buckets.entry(b).or_default().push(self.stones.len());
+        self.stones.push(candidate);
     }
 }

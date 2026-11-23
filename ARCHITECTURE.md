@@ -466,7 +466,10 @@ So the plan:
   and `sample(DVec2) -> GroundSample` (both at once, by default from the
   other two), taking World `f64` positions. Flat ground, closures and
   `HeightGrid` keep working; `HeightGrid` answers with central differences
-  one cell apart.
+  one cell apart. Where only one side has ground (at an edge or beside a
+  hole), the default and `HeightGrid` compare that side with the point
+  itself (C1), so the slope is known wherever the height is, except in a
+  gap narrower than the step.
 - **`Terrain` implements `Ground`** and answers slope from its own stages.
 - **Labels reuse it.** `Measures::slope` in `annotate` comes from the same
   gradient, so labels and Scatters always agree on what is steep.

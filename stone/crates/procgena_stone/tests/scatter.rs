@@ -3,9 +3,8 @@
 use std::collections::HashMap;
 
 use glam::{DVec2, Vec2, Vec3};
-use procgena_core::FlatGround;
-use procgena_core::Ground;
 use procgena_core::scatter::{ScatterArea, ScatterInput};
+use procgena_core::{FlatGround, Ground, HeightGrid};
 use procgena_stone::{
     OptionsError, StoneClass, StoneInstance, StonePreset, StoneScatter, StoneScatterError,
     StoneScatterOptions,
@@ -97,22 +96,79 @@ fn lowering_a_density_only_removes_stones() {
 
 #[test]
 fn patchiness_only_removes_stones_and_leaves_bare_ground() {
-    let even = options();
-    let mut patchy = options();
-    patchy.classes[1].patchiness = 0.5;
-    patchy.classes[1].patch_size = 4.0;
-    let many = by_cell(scatter(&even, &FlatGround, 30.0).instances());
-    let few = scatter(&patchy, &FlatGround, 30.0);
-    let pebbles = |s: &StoneScatter| s.instances().iter().filter(|s| s.class == 1).count();
-    let even_pebbles = many.values().filter(|s| s.class == 1).count();
-    assert!(
-        pebbles(&few) * 4 < even_pebbles * 3,
-        "{} vs {even_pebbles}",
-        pebbles(&few)
-    );
-    for stone in few.instances() {
-        assert_eq!(many.get(&(stone.class, stone.cell)), Some(stone));
+    for seed in 0..4 {
+        let place = |o: &StoneScatterOptions| {
+            let input = ScatterInput::new(&FlatGround, area(DVec2::ZERO, 30.0), seed);
+            StoneScatter::new(o, &input).unwrap()
+        };
+        let even = options();
+        let mut patchy = options();
+        patchy.classes[1].patchiness = 0.5;
+        patchy.classes[1].patch_size = 4.0;
+        let many = by_cell(place(&even).instances());
+        let few = place(&patchy);
+        let pebbles = |s: &StoneScatter| s.instances().iter().filter(|s| s.class == 1).count();
+        let even_pebbles = many.values().filter(|s| s.class == 1).count();
+        assert!(
+            pebbles(&few) * 4 < even_pebbles * 3,
+            "seed {seed}: {} vs {even_pebbles}",
+            pebbles(&few)
+        );
+        for stone in few.instances() {
+            assert_eq!(
+                many.get(&(stone.class, stone.cell)),
+                Some(stone),
+                "seed {seed}"
+            );
+        }
     }
+}
+
+#[test]
+fn stones_of_different_classes_never_overlap_at_the_ground() {
+    let o = options();
+    let stones = scatter(&o, &FlatGround, 30.0);
+    let list = stones.instances();
+    let mut close_calls = 0;
+    for (n, a) in list.iter().enumerate() {
+        for b in &list[n + 1..] {
+            if a.class == b.class {
+                continue;
+            }
+            let d = (a.position - b.position).with_y(0.0).length();
+            assert!(d >= a.radius + b.radius - 1e-4, "{d} m apart");
+            close_calls += usize::from(d < 2.0 * (a.radius + b.radius));
+        }
+    }
+    // Pebbles do crowd up to the rocks, so the rule was tested.
+    assert!(close_calls > 0);
+}
+
+#[test]
+fn a_height_grid_with_a_mask_and_a_slope_limit() {
+    // A grid exactly covering a 20 m area far from the origin: flat for
+    // local X below 2 m, then rising at 45 degrees.
+    let centre = DVec2::new(1000.0, 500.0);
+    let ground = HeightGrid::from_fn(centre - 10.0, centre + 10.0, 0.5, |p| {
+        (p.x - centre.x - 2.0).max(0.0) as f32
+    });
+    // No stones where local Z is below -5 m.
+    let south = move |p: DVec2| if p.y < centre.y - 5.0 { 0.0 } else { 1.0 };
+    let input = ScatterInput::new(&ground, area(centre, 20.0), 3).with_mask(&south);
+    let stones = StoneScatter::new(&options(), &input).unwrap();
+    let list = stones.instances();
+    assert!(!list.is_empty());
+    for s in list {
+        assert!(s.position.z >= -5.0, "masked out: {}", s.position);
+        assert!(
+            s.position.x <= 2.6,
+            "on the 45 degree slope: {}",
+            s.position
+        );
+    }
+    // The slope is known up to the grid's edge, so stones reach it.
+    assert!(list.iter().any(|s| s.position.x < -9.5));
+    assert!(list.iter().any(|s| s.position.z > 9.5));
 }
 
 #[test]
