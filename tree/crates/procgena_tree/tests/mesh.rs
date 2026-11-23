@@ -3,7 +3,7 @@
 use glam::{Quat, Vec3};
 use procgena_tree::{
     BarkUvMode, Billboard, BillboardMode, BranchShape, LodDetail, MeshBuffers, Section, Skeleton,
-    TreeOptions, TreePreset, default_lod_levels,
+    TreeMesh, TreeOptions, TreePreset, default_lod_levels,
 };
 
 /// Checks the default switching distances and branch and leaf settings.
@@ -386,7 +386,8 @@ fn bark_tangents_follow_the_texture_coordinates() {
 }
 
 /// Checks every preset at the farthest level: thin branches are omitted, the
-/// trunk and every fourth leaf remain, and triangle counts fall by more than half.
+/// trunk and every fourth leaf remain, the crossed fallback shapes match the
+/// shapes they stand in for, and the triangles drawn fall by more than half.
 #[test]
 fn farthest_level_culls_thin_branches_and_keeps_leaves() {
     let [.., far, farthest] = default_lod_levels();
@@ -412,8 +413,25 @@ fn farthest_level_culls_thin_branches_and_keeps_leaves() {
         let kept = kept_leaves(&skeleton, farthest.detail.leaf_stride as usize);
         assert_eq!(mesh.leaf_spans.len(), kept.len(), "{name}");
 
-        let before = skeleton.mesh(&options, &far.detail).triangle_count();
-        let after = mesh.triangle_count();
+        // The crossed fallback shapes pair each bark ribbon and fruit hexagon
+        // one to one, and single leaf cards need none.
+        let cull = &mesh.billboard_cull;
+        let triangles = |buffers: &MeshBuffers| buffers.triangle_count();
+        assert_eq!(
+            triangles(&cull.branches),
+            triangles(&mesh.branches),
+            "{name}"
+        );
+        assert_eq!(triangles(&cull.fruit), triangles(&mesh.fruit), "{name}");
+        assert_eq!(triangles(&cull.leaves), 0, "{name}");
+
+        // Compare what a renderer that turns billboards toward the camera,
+        // such as procgena_tree_bevy, draws. It never draws the crossed
+        // fallback shapes, which only renderers without camera-facing
+        // billboards add.
+        let drawn = |mesh: &TreeMesh| mesh.triangle_count() - mesh.billboard_cull.triangle_count();
+        let before = drawn(&skeleton.mesh(&options, &far.detail));
+        let after = drawn(&mesh);
         assert!(after * 2 < before, "{name}: {after} vs {before} triangles");
     }
 }
