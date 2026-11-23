@@ -4,6 +4,7 @@ use std::fmt;
 
 use glam::DVec2;
 
+use crate::border::{Pull, SegmentIndex};
 use crate::carve::{FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
@@ -17,23 +18,17 @@ use crate::region::{
 };
 use crate::relief::Relief;
 use crate::seam::{
-    CornerOffer, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples, relative_to,
-    sample_count, smooth, smootherstep,
+    CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
+    relative_to, sample_count, smooth, smootherstep,
 };
-
-/// Power of the inverse-distance weights that mix border targets. Above 1,
-/// so each target's cross-slope survives right up to its edge.
-pub(crate) const SHEPARD_POWER: i32 = 3;
-
-/// Power of the soft minimum used for the distance to the border. The plain
-/// minimum has creases where the nearest segment changes (along the
-/// bisectors of bends and corners); the soft minimum is smooth, and slightly
-/// shorter where several segments are about equally near.
-pub(crate) const SOFT_DISTANCE_POWER: i32 = 8;
 
 /// Distances below this (metres) count as on the edge.
 pub(crate) const ON_EDGE: f64 = 1e-9;
 
+/// How far border edges pull on the ground, as a multiple of the margin.
+/// Twice the margin keeps the pull's fade to zero well beyond where the
+/// bending ends.
+pub(crate) const BORDER_REACH: f64 = 2.0;
 /// Width of the strip next to a border where a terrain's own fine detail
 /// gives way to the shared border detail, in metres (at most the margin).
 const DETAIL_BAND: f64 = 48.0;
@@ -67,6 +62,8 @@ pub struct Terrain {
     generator: TerrainGenerator,
     region: Region,
     seams: Vec<Seam>,
+    /// Which seam segments can pull on each part of the plane.
+    index: SegmentIndex,
     margin: f64,
     features: Features,
 }
@@ -453,10 +450,15 @@ impl TerrainGenerator {
             paired.push((index, agreement));
         }
         let margin = f64::from(self.options.edges.margin);
+        let index = SegmentIndex::new(
+            seams.iter().map(|s| s.agreed.segments()),
+            BORDER_REACH * margin,
+        );
         let mut terrain = Terrain {
             generator: self,
             region,
             seams,
+            index,
             margin,
             features: Features::default(),
         };
@@ -549,28 +551,39 @@ impl Terrain {
             return own as f32;
         }
 
-        // Mix every border segment's targets, weighted by inverse distance,
-        // and find the (soft) distance to the border.
-        let mut sum = Targets::default();
-        let mut total = 0.0f64;
-        let mut closeness = 0.0f64;
+        // Mix what every border edge within reach asks for, each pulling
+        // along its whole length, and find the (soft) distance to the
+        // border.
+        let reach = BORDER_REACH * self.margin;
+        let mut pull = Pull::<3>::default();
         let mut on_edge = None;
-        'seams: for seam in &self.seams {
-            for segment in seam.agreed.segments() {
-                let (targets, distance) = Targets::at(seam, segment, p);
-                if distance < ON_EDGE {
-                    on_edge = Some(targets);
-                    break 'seams;
-                }
-                let w = distance.powi(-SHEPARD_POWER);
-                sum = sum.add(targets, w);
-                total += w;
-                closeness += (distance / self.margin).powi(-SOFT_DISTANCE_POWER);
+        // First the distance alone, which is cheap; the targets only where
+        // the bending reaches.
+        let near = self.index.near(p);
+        for &(e, k) in near {
+            let seam = &self.seams[e];
+            let segment = &seam.agreed.segments()[k];
+            let (targets, distance) = Targets::at(seam, segment, p);
+            if distance < ON_EDGE {
+                on_edge = Some(targets);
+                break;
+            }
+            pull.add_distance(segment, p, reach);
+        }
+        let distance = pull.distance(reach);
+        if on_edge.is_none() && distance < self.margin {
+            for &(e, k) in near {
+                let seam = &self.seams[e];
+                let target = |along: f64, across: f64| {
+                    let carry = slope_reach(across);
+                    let at = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * carry;
+                    let (agreed, own) = (seam.agreed.sample(along), seam.own.sample(along));
+                    [at(agreed), at(own), f64::from(agreed.detail)]
+                };
+                pull.add_targets(&seam.agreed.segments()[k], p, reach, EDGE_STEP, &target);
             }
         }
-        // In margin units, so the powers stay in range at any scale. The
-        // targets are heights above E; E here is added back.
-        let distance = self.margin * closeness.powf(-1.0 / f64::from(SOFT_DISTANCE_POWER));
+        // The targets are heights above E; E here is added back.
         let elevation = self.generator.relief.elevation();
         let on_e = |targets: Targets| {
             if elevation.is_flat() {
@@ -578,10 +591,15 @@ impl Terrain {
             }
             targets.raised(f64::from(elevation.height(p)))
         };
-        let border = match on_edge {
-            Some(targets) => return on_e(targets).seam(p) as f32,
-            None if distance >= self.margin => return own as f32,
-            None => on_e(sum.scaled(1.0 / total)),
+        let border = match (on_edge, pull.mixed()) {
+            (Some(targets), _) => return on_e(targets).seam(p) as f32,
+            (None, None) => return own as f32,
+            (None, Some(_)) if distance >= self.margin => return own as f32,
+            (None, Some([agreed, own, detail])) => on_e(Targets {
+                agreed,
+                own,
+                detail,
+            }),
         };
 
         // Across the margin: shift by how far the agreement is from this
@@ -596,7 +614,7 @@ impl Terrain {
     }
 }
 
-/// What the border asks for at one point, mixed from nearby segments.
+/// What the border asks for at one point, mixed from nearby edges.
 #[derive(Debug, Clone, Copy, Default)]
 struct Targets {
     /// The agreed height.
@@ -623,22 +641,6 @@ impl Targets {
             detail: f64::from(agreed.detail),
         };
         (targets, projection.distance)
-    }
-
-    fn add(self, other: Self, weight: f64) -> Self {
-        Self {
-            agreed: self.agreed + other.agreed * weight,
-            own: self.own + other.own * weight,
-            detail: self.detail + other.detail * weight,
-        }
-    }
-
-    fn scaled(self, factor: f64) -> Self {
-        Self {
-            agreed: self.agreed * factor,
-            own: self.own * factor,
-            detail: self.detail * factor,
-        }
     }
 
     /// These targets with `height` added to the agreed and own heights.
