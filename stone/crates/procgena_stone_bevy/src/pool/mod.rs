@@ -81,12 +81,7 @@ impl StonePool {
     /// with nearly equally stable resting sides settles onto a different side
     /// on the GPU than on the CPU.
     pub fn variant_options(&self, variant: u32) -> StoneOptions {
-        let mut options = self.options.clone();
-        options.seed = self.options.seed.wrapping_add(variant);
-        for (axis, stretch) in options.stretch.iter_mut().enumerate() {
-            *stretch *= 1.0 - self.stretch_jitter * unit_hash(options.seed, axis as u32);
-        }
-        options
+        self.options.variant(variant, self.stretch_jitter)
     }
 
     /// Checks that the pool can be generated.
@@ -105,18 +100,6 @@ impl StonePool {
         }
         Ok(())
     }
-}
-
-/// Returns a value in `[0, 1)` that depends only on `seed` and `axis`.
-fn unit_hash(seed: u32, axis: u32) -> f32 {
-    // Mix the inputs with the "lowbias32" integer hash.
-    let mut x = seed ^ axis.wrapping_mul(0x9e37_79b9);
-    x ^= x >> 16;
-    x = x.wrapping_mul(0x7feb_352d);
-    x ^= x >> 15;
-    x = x.wrapping_mul(0x846c_a68b);
-    x ^= x >> 16;
-    (x >> 8) as f32 / (1u32 << 24) as f32
 }
 
 /// Why a [`StonePool`] cannot be generated.
