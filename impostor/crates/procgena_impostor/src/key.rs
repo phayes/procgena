@@ -50,7 +50,10 @@ impl fmt::Display for ImpostorKey {
 
 /// Raised whenever baking or the atlas layout changes, so keys made before
 /// no longer match.
-const BAKE_VERSION: u32 = 1;
+///
+/// - 2: bake cameras no longer see grove trees (version 1 bakes made next
+///   to a grove could show its trees in some views).
+const BAKE_VERSION: u32 = 2;
 
 /// 64-bit FNV-1a: small, and the same everywhere.
 struct Fnv(u64);
