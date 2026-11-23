@@ -212,6 +212,12 @@ mod tests {
     }
 
     #[test]
+    fn from_static_works_in_const_items() {
+        const PINES: ChildKey = ChildKey::from_static("pines");
+        assert_eq!(PINES.as_str(), "pines");
+    }
+
+    #[test]
     fn a_key_salts_like_a_code_seed_key() {
         assert_eq!(ChildKey::from_static("hills").salt(), salt("hills"));
     }

@@ -10,6 +10,13 @@ use glam::{IVec2, IVec3, Quat, UVec2, UVec3, Vec2, Vec3, Vec4};
 
 use crate::hash::mix64;
 
+/// The bits every `f32` NaN is written as: a positive quiet NaN with no
+/// payload. Fixed here, since `f32::NAN`'s bits are not guaranteed.
+const CANONICAL_NAN_F32: u32 = 0x7fc0_0000;
+/// The bits every `f64` NaN is written as: a positive quiet NaN with no
+/// payload. Fixed here, since `f64::NAN`'s bits are not guaranteed.
+const CANONICAL_NAN_F64: u64 = 0x7ff8_0000_0000_0000;
+
 /// Builds a 64-bit content hash from a sequence of values.
 ///
 /// Each write adds one or more 64-bit words, in order:
@@ -89,7 +96,7 @@ impl ContentHasher {
         let bits = if value == 0.0 {
             0
         } else if value.is_nan() {
-            f32::NAN.to_bits()
+            CANONICAL_NAN_F32
         } else {
             value.to_bits()
         };
@@ -102,7 +109,7 @@ impl ContentHasher {
         let bits = if value == 0.0 {
             0
         } else if value.is_nan() {
-            f64::NAN.to_bits()
+            CANONICAL_NAN_F64
         } else {
             value.to_bits()
         };
@@ -483,6 +490,18 @@ mod tests {
         assert_eq!(content_hash(&1.5f32), 0xc0b8_0bc6_d5bd_d47a);
         assert_eq!(content_hash("pine"), 0xe53a_ac0c_8618_d091);
         assert_eq!(content_hash(&sample()), 0x2756_18ee_aca3_ac6f);
+        assert_eq!(
+            content_hash(&f32::from_bits(0xffc0_0001)),
+            0x1c5e_8d98_b1c5_a002
+        );
+        assert_eq!(
+            content_hash(&f64::from_bits(0xfff8_0000_0000_0001)),
+            0xf32a_3ac0_fbd9_7b98
+        );
+        assert_eq!(content_hash(&-2.5f64), 0xe6c3_f8c2_64af_5c9a);
+        assert_eq!(content_hash("pine_forest_floor"), 0x04ae_dbd5_ba99_4bd3);
+        assert_eq!(content_hash(&-3i32), 0x06db_9e5e_1001_2ea9);
+        assert_eq!(content_hash(&Some(9u32)), 0x4e2a_deb5_253a_358d);
     }
 
     #[test]
