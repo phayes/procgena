@@ -210,7 +210,7 @@ blocks. Until then, nothing that depends on it starts.
 | Gate | Decides | Blocks | Notes |
 |------|---------|--------|-------|
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | F1 moves `Ground` and adds slope, so its signature must be settled first, or every crate is rewritten twice. `serde_yaml` is unmaintained: compare the maintained options (downloads, maintenance) and let the user pick before touching `Cargo.toml`. |
-| D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike in D2's section 5 is still to run; it checks the costs and mask resolutions. |
+| D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Slot choice uses D2's GPU spike: on the CPU, a 32-bit jump hash and rendezvous hashing are equally balanced (D2 section 5), so the spike decides by GPU cost. Open questions 4 and 5 settle before copy ids exist, so saved edits never key on list positions. |
 
 Questions that wait for later milestones, and are decided inside them:
@@ -411,7 +411,9 @@ ARCHITECTURE.md.
   range, reach distances `S`, `J` and `F`, and mask source (rule 5), and
   offers each slot's `Specimen` plus its list of copies (second half of
   TODO "Tags"). Placement moves to the integer contract in "Masks and
-  placement" (ARCHITECTURE.md). Tree's spacing step and deadwood's
+  placement" (ARCHITECTURE.md): window B for streaming, a CPU cache of
+  placed copies for queries, and exact disc tests for hard exclusion (new
+  in C2, with tests). Tree's spacing step and deadwood's
   scan-order spacing both become `K_d`, so a site's survival never depends
   on sites in another chunk (D2).
 - **Needs:** C1, F2 (seeds and hash), D2, D3 (stable keys).

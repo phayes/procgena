@@ -720,8 +720,9 @@ placement never depends on chunk size, load tier or load order.
 
 Decided by the user on 2026-11-23 (decision gate D2). The details, the
 prior art and the prototypes are in
-[docs/decisions/D2.md](docs/decisions/D2.md). The GPU spike that checks the
-costs is still to run.
+[docs/decisions/D2.md](docs/decisions/D2.md). The GPU spike ran on one GPU
+and passed parity and build-order independence. A timing run on a low-end
+integrated GPU and on a discrete GPU is still owed.
 
 - **One placement contract for every Scatter.** Candidates sit on a lattice
   fixed to the World, one per cell. A candidate's copy id comes from its
@@ -747,9 +748,21 @@ costs is still to run.
   with fixed-point bilinear filtering instead of hardware filtering. Each
   Scatter writes its own layer over the chunk plus a margin, and the next
   reads the product of the layers above it. The starting resolutions are
-  0.5 m for footprints and 2 m for influence. **These are not settled**:
-  the spike and the first Ecotope check them, and whether footprint masks
-  should follow each Scatter's lattice cell instead.
+  0.5 m for footprints and 2 m for influence. Masks drive density and
+  influence only. They are not exact at their edges (a blended read is
+  about one texel soft), and footprint masks don't follow a coarse lattice
+  cell. **The resolutions are not settled**: the first Ecotope checks them
+  again, on coverage with sharp edges.
+- **Hard exclusion uses exact disc tests.** A lattice Scatter tests each
+  candidate against the exact footprint discs of the kept copies of the
+  Scatters above it, with integer maths, so nothing stands inside a trunk,
+  boulder or log on the CPU or the GPU. (Not yet tried in the spike; C2
+  builds and tests it.)
+- **Window B is the streaming build.** A chunk reuses its neighbours'
+  finished copies for the masks and discs of the Scatters above. It
+  recomputes only each Scatter's own `S + J` margin, so a Scatter's
+  neighbour chunks are placed before a chunk of the Scatter below it. A
+  chunk's kernels go in one compute pass.
 - **Three reach distances per Scatter.** `S = d × R` (spacing
   dependency), `J` (how far a copy can stand from its cell: jitter plus any
   pull) and `F` (the largest radius a copy clears or shades in its mask).
@@ -761,7 +774,10 @@ costs is still to run.
   density field, not from its copies, so it adds no placement margin. Only
   hard footprints (trunks, boulders, logs) come from copies.
 - **No readback for queries.** The CPU places a chunk again itself for a
-  query, a collider or a promotion. Reading GPU placement back is for
+  query, a collider or a promotion, and keeps a cache of placed copies per
+  chunk and Scatter, so it pays only each Scatter's own margin. A query into
+  a chunk outside the cache costs more (about 10 ms on the CPU in the
+  spike). Reading GPU placement back is for
   tests only. Grass falls back to density-only queries if that is too
   slow.
 
@@ -1273,8 +1289,9 @@ it starts.
 
 - [ ] **Masks on the GPU** (open question 1): the research and design are
   done (see "Masks and placement" and
-  [docs/decisions/D2.md](docs/decisions/D2.md)). Still to do: the GPU spike
-  in its section 5, before the Ecotope crate.
+  [docs/decisions/D2.md](docs/decisions/D2.md)), and the GPU spike passed on
+  one GPU. Still to do: a timing run on a low-end integrated GPU and on a
+  discrete GPU.
 - [ ] **Ecotope crate**: an ordered list of Scatters, mask chaining, presets,
   and a Bevy part that draws one Ecotope over a patch of ground.
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
@@ -1395,7 +1412,8 @@ it starts.
 
 1. ~~**Masks on the GPU.**~~ Decided 2026-11-23 (D2): 8-bit textures per
    chunk, integer placement, and no readback for queries. See "Masks and
-   placement". The GPU spike still checks the costs.
+   placement". The spike passed on one GPU; other GPUs are still to be
+   timed.
 2. **Can Ecotopes overlap?** When two Ecotope rules match the same ground,
    do they split it by weight, or does one win? The Ecotope border protocol
    decides how they blend at a border; overlap in the middle of an area is
