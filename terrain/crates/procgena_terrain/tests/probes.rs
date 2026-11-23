@@ -20,7 +20,10 @@ fn border_points(spacing: f64) -> Vec<DVec2> {
 
 /// A configuration as a short label.
 fn label(config: Config) -> String {
-    format!("{:?} seeds, meeting {}", config.seeds, config.meeting)
+    format!(
+        "{:?} seeds, meeting {}, blend {}",
+        config.seeds, config.meeting, config.blend
+    )
 }
 
 /// How far the mountains' own ground lies above the plains' own ground

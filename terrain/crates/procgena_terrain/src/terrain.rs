@@ -5,12 +5,14 @@ use std::fmt;
 use glam::DVec2;
 
 use crate::carve::{FeatureLine, Features, Pond};
-use crate::converge::{EdgeTarget, Fade, total_spread};
+use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::noise::{Octaves, fbm};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
 use crate::ports::{FEATURE_CLEARANCE, Side, slope_reach};
-use crate::region::{EdgeId, Region, RegionCorner, RegionEdge, Segment, point_at, segments};
+use crate::region::{
+    EdgeId, Region, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
+};
 use crate::relief::Relief;
 use crate::seam::{
     CornerOffer, EdgeAgreement, EdgeOffer, EdgeSample, Profile, sample_count, smooth, smootherstep,
@@ -86,8 +88,17 @@ pub enum TerrainError {
     UnknownTarget(EdgeId),
     /// An edge has more than one relief target.
     DuplicateTarget(EdgeId),
-    /// A relief target has a negative or non-finite amplitude.
+    /// A relief target has a negative or non-finite amplitude, blend shares
+    /// that aren't sorted, not negative and adding up to 1, or road grades
+    /// out of range.
     InvalidTarget(EdgeId),
+    /// A target gives a blend share to a region that is neither this one
+    /// nor one of the neighbours given.
+    UnknownNeighbour(RegionId),
+    /// A neighbour's settings are invalid.
+    NeighbourOptions(RegionId, OptionsError),
+    /// The blend share is outside 0 to 1, or NaN.
+    InvalidBlend(f32),
     /// An agreement has the wrong number of samples for its edge.
     SampleCount {
         /// The edge.
@@ -112,9 +123,12 @@ impl fmt::Display for TerrainError {
             Self::DuplicateTarget(id) => {
                 write!(f, "edge {} has more than one relief target", id.0)
             }
-            Self::InvalidTarget(id) => {
-                write!(f, "relief target for edge {} isn't a valid amplitude", id.0)
+            Self::InvalidTarget(id) => write!(f, "the target for edge {} isn't valid", id.0),
+            Self::UnknownNeighbour(id) => {
+                write!(f, "a target blends in region {}, which isn't given", id.0)
             }
+            Self::NeighbourOptions(id, e) => write!(f, "neighbour region {}: {e}", id.0),
+            Self::InvalidBlend(b) => write!(f, "blend share {b} is outside 0 to 1"),
             Self::SampleCount {
                 edge,
                 expected,
@@ -170,25 +184,38 @@ impl TerrainGenerator {
     }
 
     /// This generator with its relief and road grades fading towards
-    /// `targets` near the matching edges of `region`, so that each edge's
-    /// relief amplitude and road grades are the target's there. Deep inside
-    /// the region both are unchanged. Edges without a target are left as
-    /// they are. Replaces any earlier targets.
+    /// `targets` near the matching edges of `region`. Deep inside the region
+    /// both are unchanged. Edges without a target are left as they are.
+    /// Replaces any earlier targets.
+    ///
+    /// Near each edge the relief changes in two ways, mixed by `blend`
+    /// (see [`Convergence::blend`](crate::Convergence::blend)): its own
+    /// layers scale towards the target's amplitude, and it fades into the
+    /// target's blend of the regions' own ground. `neighbours` gives the
+    /// settings of every other region with a blend share; the blend uses
+    /// their ground without any fading.
     ///
     /// Call it before making offers, and use the same region for the
     /// offers and for [`build`](Self::build). Both terrains on an edge
-    /// must be given the same target, or their borders have more to bend.
+    /// must be given the same target and blend, or their borders have more
+    /// to bend.
     ///
     /// # Errors
     ///
     /// If a target is for an edge that isn't a shared edge of `region`, if
-    /// two targets are for one edge, or if a target has a negative or
-    /// non-finite amplitude or road grades out of range.
+    /// two targets are for one edge, if a target isn't valid, if a target
+    /// blends in a region missing from `neighbours`, if a neighbour's
+    /// settings are invalid, or if `blend` is outside 0 to 1.
     pub fn with_edge_targets(
         mut self,
         region: &Region,
         targets: &[EdgeTarget],
+        neighbours: &[(RegionId, TerrainOptions)],
+        blend: f32,
     ) -> Result<Self, TerrainError> {
+        if !(0.0..=1.0).contains(&blend) {
+            return Err(TerrainError::InvalidBlend(blend));
+        }
         for (i, target) in targets.iter().enumerate() {
             let shared = region
                 .edges
@@ -204,9 +231,33 @@ impl TerrainGenerator {
                 return Err(TerrainError::InvalidTarget(target.edge));
             }
         }
+
+        // The other regions' reliefs, for the blend.
+        let mut reliefs: Vec<(RegionId, Relief)> = Vec::new();
+        for target in targets {
+            for other in target.blend_regions() {
+                if other == region.id || reliefs.iter().any(|(r, _)| *r == other) {
+                    continue;
+                }
+                let (_, options) = neighbours
+                    .iter()
+                    .find(|(r, _)| *r == other)
+                    .ok_or(TerrainError::UnknownNeighbour(other))?;
+                options
+                    .validate()
+                    .map_err(|e| TerrainError::NeighbourOptions(other, e))?;
+                reliefs.push((other, Relief::new(options)));
+            }
+        }
+
+        let own = FadeOwn {
+            region: region.id,
+            spreads: self.relief.spreads(),
+            roads: self.options.features.roads.grades(),
+            mean: self.relief.mean_height(),
+        };
         let min_width = f64::from(self.options.edges.margin);
-        let roads = self.options.features.roads.grades();
-        let fade = Fade::new(region, targets, self.relief.spreads(), roads, min_width);
+        let fade = Fade::new(region, targets, own, reliefs, f64::from(blend), min_width);
         self.relief = self.relief.with_fade(fade);
         Ok(self)
     }

@@ -84,12 +84,19 @@ impl Relief {
     /// How far from its edges the fade reaches, in metres, or `None` with
     /// no fade.
     pub(crate) fn fade_width(&self) -> Option<f64> {
-        self.fade.as_ref().map(Fade::width)
+        self.fade.as_ref().map(Fade::reach)
     }
 
     /// Height at `p` without the fade: every layer as the settings give it.
     pub(crate) fn unfaded_height(&self, p: DVec2) -> f32 {
         self.scaled_height(p, 1.0, 1.0, 1.0)
+    }
+
+    /// The typical height of the relief without the fade, in metres: its
+    /// elevation plus the mountain layer's mean.
+    pub(crate) fn mean_height(&self) -> f64 {
+        let m = &self.base.mountains;
+        f64::from(self.base.elevation) + f64::from(m.height * m.coverage * CREST_MEAN)
     }
 
     /// The spread of each layer, in metres.
@@ -105,11 +112,41 @@ impl Relief {
 
     /// Height in metres at world position `p` (x and z).
     pub(crate) fn height(&self, p: DVec2) -> f32 {
-        let [swells, hills, mountains] = match &self.fade {
-            Some(fade) => fade.scales(p).unwrap_or([1.0; 3]),
-            None => [1.0; 3],
+        let Some(fade) = &self.fade else {
+            return self.unfaded_height(p);
         };
-        self.scaled_height(p, swells, hills, mountains)
+
+        // Scaled layers alone: no blend share.
+        let scales = fade.scales(p);
+        let share = fade.share();
+        let scaled = || {
+            let [swells, hills, mountains] = scales.unwrap_or([1.0; 3]);
+            self.scaled_height(p, swells, hills, mountains)
+        };
+        if share == 0.0 {
+            return scaled();
+        }
+
+        // The border blend, alone or mixed with the scaled layers. Outside
+        // both fades the height is exactly the terrain's own.
+        let own = self.unfaded_height(p);
+        let Some(blended) = fade.blended(p, f64::from(own)) else {
+            let scaled = scaled();
+            return if scaled == own {
+                own
+            } else {
+                ((1.0 - share) * f64::from(scaled) + share * f64::from(own)) as f32
+            };
+        };
+        if share == 1.0 {
+            return blended as f32;
+        }
+        // Where both give the same height, keep it exactly.
+        let (scaled, blended) = (scaled(), blended as f32);
+        if scaled == blended {
+            return scaled;
+        }
+        ((1.0 - share) * f64::from(scaled) + share * f64::from(blended)) as f32
     }
 
     /// Height at `p` with the swell, hill and mountain layers scaled by the

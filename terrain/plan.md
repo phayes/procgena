@@ -876,8 +876,9 @@ same idea for one value.
       (water 5 m above the ground). Negotiation now judges each piece
       end against the side's bent ground, so a side whose margin is
       narrower than a piece (65 m) gets almost no crossings.
-  - Roads now have two grades: `grade`, kept to where possible (the
-    route search penalises steeper steps), and `max_grade`, the hard
+  - Roads always prefer flatter ground, and now have two grades: `grade`,
+    the steepest climbed comfortably (above it the route search penalises
+    steps much more), and `max_grade`, the hard
     limit on road levels (presets: twice `grade`, at most 0.25). Both
     fade with the relief towards the steepest grades of the terrains
     meeting at each edge and corner (`EdgeTarget`, `BorderTarget`,
@@ -886,13 +887,176 @@ same idea for one value.
     fade plus `ROAD_RAMP`.
   - Still open: at meeting exponent 1 the uniform scale-up multiplies the
     plains' relief about 46× next to mountains (their 250 m hills become
-    ±69 m, slopes 0.5–0.9). Roads there leave the ground by up to 31 m
-    (3 roads in 300 seeds × 8, all in the triple junction at meeting 1).
-    The fix under discussion: fade in the neighbour's own layers instead
-    of scaling up the smoother side's.
+    ±69 m, slopes 0.5–0.9). One road there still leaves the ground by
+    13.6 m (the only road problem in 300 seeds × 8: triple junction,
+    shared seeds, meeting 1). The crossing and the climb near it keep to
+    the gentler side's preferred grade; judging them at the steeper
+    side's hard limit let in two more floating roads.
+    The fix planned: "Relief blending (Phase 2.6)" below.
   - The amplitude scale-up for the smoother side is uniform over its
     layers. The fade blends each layer's scale separately; blending one
     combined "level" made cracks where a layer is absent.
+
+### Relief blending (Phase 2.6)
+
+**Bottom line.** Near a border each terrain can also fade towards a
+**border blend**: a weighted mix of the actual height fields of every
+region meeting there, each evaluated with that region's own settings and
+seed. A new world option, `relief_blend` (0 to 1), sets how much of each
+strategy is used: 0 is Phase 2.5's scaling exactly, 1 is the blend alone.
+
+- **What changes:**
+  - **New world option, and one place for world options.**
+    `StitchedWorld::build(specs, relief_meeting)` becomes
+    `build(specs, &Convergence)`, where
+    `Convergence { meeting: f32, blend: f32 }` has a `Default` (meeting −1,
+    blend 0.5) and a `validate`. It is what
+    `WorldOptions` will hold for this in WorldTerrain.
+  - **`BorderTarget` gains blend weights** (region id → weight, summing to
+    1) beside its amplitude and road grades. `EdgeTarget` keeps its
+    middle/start/end shape.
+  - **`with_edge_targets` gains the neighbours' terrains**: the relief
+    settings and seed of every region named in the weights, plus `blend`.
+    A generator can then evaluate its neighbours' height fields.
+  - **`Relief` gains neighbour reliefs**, the blend weights per edge and
+    the blend share; `relief_target` gains a sibling, `blend_weights`.
+- **Why:** scaling a terrain's own layers up to a rougher neighbour's
+  amplitude makes short wavelengths absurdly steep (plains next to
+  mountains at meeting 1: hills ±69 m at 250 m, slopes 0.5–0.9). The blend
+  brings in the neighbour's own layers at their own wavelengths, so
+  foothills look like foothills. Each side evaluates the same fields with
+  the same weights, so **at blend 1 both sides have exactly the same
+  height and slope on the border, before negotiation, with any seeds**.
+  Negotiation stays: it carries detail, rivers and roads, and joins
+  generators that don't use this crate's layers.
+- **Trade-offs:**
+  - Two uncorrelated fields mixed half and half have about 0.71 times
+    their relief, so the border between similar terrains with unrelated
+    seeds is calmer than either side. Alike terrains with a shared seed
+    are identical, and blending changes nothing. (Open question 10.)
+  - Heights inside the fade band cost about (1 + number of neighbours)
+    times as much. The interior is unchanged.
+  - Faint ridges of a mountain neighbour show in the plains near the
+    border. They should read as foothills; judge by eye in `seam_spike`.
+  - This doesn't break the "no wavelength varies with position" rule:
+    whole fields are mixed, never stretched.
+
+#### How it works
+
+- **Height near a border.** For a terrain with own height `H` (no fade)
+  and today's faded height `S`:
+  - **Border blend** at a point on edge segment k: `B_k = Σ αⱼ Hⱼ`, the
+    weighted sum of the unfaded heights of the regions in that segment's
+    weights. The sum runs in region-id order, so both sides get the same
+    bits.
+  - **Blended height:** `Hb = H + fade(d) · Σₖ wₖ (B_k − H) / Σₖ wₖ`, with
+    the same Shepard weights `wₖ`, soft-min distance `d` and smootherstep
+    fade as the relief fade. On an edge it is that edge's `B_k`; beyond
+    the fade it is exactly `H`.
+  - **Height:** `S` when `blend` is 0, `Hb` when it is 1, and
+    `(1 − blend)·S + blend·Hb` between. The two ends are separate code
+    branches, so blend 0 is bit for bit Phase 2.5 and its tests keep
+    pinning it.
+- **Weights.** For each edge and corner, from the incident regions' relief
+  amplitudes `aᵢ` and the meeting exponent p:
+  - p = −∞: all weight on the smoothest region (shared equally on a tie):
+    only the rougher sides change, as now.
+  - Otherwise `αᵢ ∝ aᵢ^q`, with q found by bisection in [−2, 1] so the
+    blend's relief, `√(Σ αᵢ² aᵢ²)` for uncorrelated fields, equals
+    `relief_target(a, p)`. If the target is out of reach (similar
+    amplitudes, where mixing always lowers the relief), q is clamped to
+    the nearer end. Checked numerically: plains 3.1 m and mountains
+    282 m give the plains weight 0.98 (p = −1), 0.90 (0) and 0.49 (1),
+    each hitting the target; 3.1/30/282 m hits it at every p too.
+  - A region with zero amplitude: with p ≤ 0 the target is 0, so all
+    weight goes to the zero-amplitude regions (shared equally).
+  - Along an edge the weights change to each corner's over the same ramp
+    as the amplitude (`along_edge`, per region), so every edge meeting at
+    a corner asks for the same blend there. Corners include every region
+    touching them, even ones that share only the corner.
+- **Fade width.** At least the margin; at least today's width (amplitude
+  change ÷ 0.25); and at least the gap between the blend's mean height
+  and the terrain's own, ÷ `BLEND_RATE` = 0.25, the rate scaling already
+  changes a mountain range's mean at. (0.1 was planned, but it gave a
+  3.9 km fade for mountains next to plains, wider than the 2 km test
+  region.) Mean height is `elevation` plus the mountain layer's mean
+  (`height × coverage × CREST_MEAN`); this term usually decides next to
+  mountains.
+- **Neighbour reliefs** are built once per generator from the neighbours'
+  `TerrainOptions` (base settings and seed). They are evaluated without
+  their own fade: a fade belongs to one side only, and the other side
+  can't know it.
+- **What else reads the relief:** `natural_height`, offers, rivers and
+  roads all use the blended height; `unfaded_height` stays the region's
+  own `H`. `Relief::gradient` (central differences) needs no change.
+
+#### Steps
+
+1. `Convergence` options type, validation, and the `build` signature;
+   update fixtures (`Config` gains `blend`), the example and the doctest.
+   No behaviour change (blend 0).
+2. `blend_weights(amplitudes, meeting)` with unit tests: the limits above,
+   order-free results bit for bit, weights summing to 1, the targets hit
+   for contrasting amplitudes, zero amplitudes.
+3. Blend weights in `BorderTarget`, computed in `stitch::converge` for
+   edges and corners; `along_edge` per region weight; validation (weights
+   finite, not negative, summing to 1 within rounding, regions known).
+4. Neighbour reliefs and the blend in `Relief` and `Fade` (one more value
+   mixed through `Fade::blend`), the fade width rule, and the blend-share
+   mix with exact ends.
+5. Tests (below), then probes, then the 300-seed feature probe at every
+   configuration.
+6. Record results here; re-pick `RIVER_SEEDS` and `JOIN_SEEDS` if needed.
+
+#### Tests
+
+- At blend 1, both sides' `natural_height` are equal on every border
+  point (bit for bit), for shared and unrelated seeds, at every meeting
+  exponent; and their gradients match within rounding.
+- The same at a triple junction's corner and along its three edges.
+- The interior is bit-exact (unfaded) at blend 0, 0.5 and 1.
+- Blend 0 is bit for bit Phase 2.5 (the existing convergence tests
+  unchanged).
+- At meeting −∞ the smoothest region is unchanged everywhere at blend 1.
+- `border_gap` falls as blend rises (probe; recorded, not asserted beyond
+  "at blend 1 the gap is 0 on the border").
+- Suites: every configuration at the default blend, plus the seam and
+  feature suites at blend 0 and 1 for the default meeting only (open
+  question 11 if more are wanted). `CONFIGS` gains the blend.
+
+#### Exit
+
+- Border gap and negotiated shift at blend 0, 0.5 and 1, every meeting
+  exponent, recorded here.
+- The triple-junction road at meeting 1 (13.6 m off the ground at blend 0)
+  re-measured at 0.5 and 1.
+- River crossing counts in 300 seeds at the default blend.
+- `seam_spike` images at blend 0 and 1 reviewed with the user.
+
+#### Results (2026-11-22, built)
+
+- **Border gap, plains–mountains** (shared / unrelated seeds):
+  - Meeting −1: 101 / 104 m at blend 0, 50 / 52 m at 0.5, 0 / 0 m at 1.
+  - At blend 0.5: 50 / 51 m (−∞), 55 / 61 m (0), 97 / 114 m (1).
+  - At blend 1 both sides' own heights are equal bit for bit on the
+    two-region border in every configuration, their slopes across it
+    within 0.02, and the triple junction's within 1 mm.
+- **River crossings in 300 seeds:** meeting −1 gives 12 / 8 at blend 0,
+  24 / 26 at 0.5 and 29 / 29 at 1. At 0.5, 21–33 for −∞ to 0, and 12–13
+  for 1. `RIVER_SEEDS` is now 81 and 293, the only seeds crossing in all
+  12 configurations.
+- **Features, 300 seeds × 12 configurations:** no problems at blend 0 or
+  0.5, at any meeting exponent. The meeting-1 triple-junction road that
+  floated 13.6 m at blend 0 is gone at 0.5. One problem remains, at blend
+  1 only: in the plains–mountains world a road climbs 550 m into the
+  mountains within about 1.2 km of the border, at its 0.25 limit, and
+  cuts 17 m on rough patches. The blend fade lowers the mountains' mean
+  height by about 400 m across 1.6 km, steepest at about 0.45. That is
+  the presets' elevation difference, which E is to absorb; until then
+  `rivers_and_roads_stay_close_to_the_ground` fails on this one world.
+- `BLEND_RATE` is 0.25, not the planned 0.1 (see "Fade width").
+- Cost: the seam suite went from about 30 s to 78 s (12 configurations
+  instead of 8, and the neighbour heights inside the fade band).
 
 ## Phases
 
@@ -902,7 +1066,8 @@ same idea for one value.
 | 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Review pending. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two biomes and a triple junction. Includes the symmetry, seam and triple-junction tests. **Stop and review with the user.** | 0 |
 | 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Review pending. | 1 |
 | 2.5 | **Shared world noise and relief convergence** (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
-| W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.5 |
+| 2.6 ✅ | **Relief blending** (built 2026-11-22; one road problem left at blend 1, see its Results) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
+| W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
 | 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |
 | 5 | Classification, `annotate`, `HeightTile` | 3 (water labels after 4) |
@@ -954,6 +1119,14 @@ touch separate modules.
 9. **Per-region variation.** With shared world noise a region cannot be
    rerolled alone. Is an optional seeded variation layer (fading out at
    edges) needed?
+10. **Calmer blended borders.** Mixing two uncorrelated fields lowers the
+    relief (about 0.71 times at equal weights). Accept it, or scale the
+    blend's variation back up where the fields are known to be
+    uncorrelated (different seeds or different wavelengths per layer)?
+11. **`relief_blend` default and test coverage.** Default **answered
+    2026-11-22: 0.5.** Test coverage, unless the user says otherwise:
+    every configuration at 0.5, plus the seam and feature suites at 0
+    and 1 for the default meeting exponent.
 
 ## Maybe later
 

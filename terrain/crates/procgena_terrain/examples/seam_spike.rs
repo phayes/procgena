@@ -7,7 +7,8 @@
 //!
 //! Each world is written twice as a binary PPM image: joined, with rivers,
 //! ponds and roads; and with each region's own unbent terrain, for
-//! comparison.
+//! comparison. An optional second argument sets the relief blend (0 to 1,
+//! default 0.5; see `Convergence::blend`).
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -47,15 +48,19 @@ fn main() -> std::io::Result<()> {
             .unwrap_or_else(|| "target/terrain_spike".into()),
     );
     fs::create_dir_all(&dir)?;
+    let blend = std::env::args().nth(2).map_or(common::DEFAULT.blend, |b| {
+        b.parse().expect("a blend from 0 to 1")
+    });
+    let config = common::Config {
+        blend,
+        ..common::DEFAULT
+    };
     for (name, world) in [
-        (
-            "two_biomes",
-            common::two_biomes(DVec2::ZERO, common::DEFAULT),
-        ),
-        ("triple_junction", common::triple_junction(common::DEFAULT)),
+        ("two_biomes", common::two_biomes(DVec2::ZERO, config)),
+        ("triple_junction", common::triple_junction(config)),
         (
             "hills_into_plains",
-            common::hills_into_plains(common::RIVER_SEEDS[0], common::DEFAULT),
+            common::hills_into_plains(common::RIVER_SEEDS[0], config),
         ),
     ] {
         write_relief(&dir.join(format!("{name}.ppm")), &world, &world, true)?;

@@ -127,7 +127,7 @@ impl TerrainPreset {
 }
 
 /// River and road settings: sources per km², river width (m), shortest
-/// river kept (m), and the road grade kept to where possible. Roads may
+/// river kept (m), and the steepest comfortable road grade. Roads may
 /// climb up to twice that grade, but never more than 0.25.
 fn features(density: f32, width: f32, min_length: f32, grade: f32) -> FeatureOptions {
     FeatureOptions {

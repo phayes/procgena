@@ -4,7 +4,7 @@
 
 use glam::DVec2;
 use procgena_terrain::{
-    HeightField, RegionId, RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset,
+    Convergence, HeightField, RegionId, RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset,
 };
 
 /// The largest height change between neighbouring samples along `path`
@@ -62,9 +62,19 @@ pub struct Config {
     pub seeds: Seeds,
     /// The relief meeting exponent passed to `StitchedWorld::build`.
     pub meeting: f32,
+    /// The relief blend passed to `StitchedWorld::build`.
+    pub blend: f32,
 }
 
 impl Config {
+    /// The convergence settings to build with.
+    pub fn convergence(self) -> Convergence {
+        Convergence {
+            meeting: self.meeting,
+            blend: self.blend,
+        }
+    }
+
     /// The seed for a region whose own seed is `own`, in a world seeded
     /// with `world`.
     pub fn seed(self, world: u32, own: u32) -> u32 {
@@ -75,26 +85,38 @@ impl Config {
     }
 }
 
-/// The usual world: one world seed and the default relief meeting.
+/// The usual world: one world seed and the default convergence.
 pub const DEFAULT: Config = Config {
     seeds: Seeds::Shared,
     meeting: procgena_terrain::DEFAULT_RELIEF_MEETING,
+    blend: procgena_terrain::DEFAULT_RELIEF_BLEND,
 };
 
 /// Every configuration the suites run on: both kinds of seeding, each at
-/// the relief meeting exponents −∞, −1, 0 and 1.
-pub const CONFIGS: [Config; 8] = {
+/// the relief meeting exponents −∞, −1, 0 and 1 with the default blend,
+/// and at the default exponent with blends 0 and 1.
+pub const CONFIGS: [Config; 12] = {
     let meetings = [f32::NEG_INFINITY, -1.0, 0.0, 1.0];
-    let mut out = [DEFAULT; 8];
+    let mut out = [DEFAULT; 12];
     let mut i = 0;
-    while i < 8 {
-        out[i] = Config {
-            seeds: if i < 4 {
-                Seeds::Shared
-            } else {
-                Seeds::Unrelated
-            },
-            meeting: meetings[i % 4],
+    while i < 12 {
+        let seeds = if i % 2 == 0 {
+            Seeds::Shared
+        } else {
+            Seeds::Unrelated
+        };
+        out[i] = if i < 8 {
+            Config {
+                seeds,
+                meeting: meetings[i / 2],
+                ..DEFAULT
+            }
+        } else {
+            Config {
+                seeds,
+                blend: if i < 10 { 0.0 } else { 1.0 },
+                ..DEFAULT
+            }
         };
         i += 1;
     }
@@ -123,18 +145,17 @@ pub fn two_biomes(offset: DVec2, config: Config) -> StitchedWorld {
         offset,
         preset(TerrainPreset::Plains, config.seed(1, 1)),
         preset(TerrainPreset::Mountains, config.seed(1, 2)),
-        config.meeting,
+        config.convergence(),
     )
 }
 
 /// Two regions with the given settings, split by the two-biome bent border
-/// (non-convex on both sides), joined with relief meeting exponent
-/// `meeting`.
+/// (non-convex on both sides), joined with `convergence`.
 pub fn two_regions(
     offset: DVec2,
     west: TerrainOptions,
     east: TerrainOptions,
-    meeting: f32,
+    convergence: Convergence,
 ) -> StitchedWorld {
     let west_points = [
         (-2000.0, -1500.0),
@@ -167,16 +188,16 @@ pub fn two_regions(
                 options: east,
             },
         ],
-        meeting,
+        &convergence,
     )
     .expect("two-region world builds")
 }
 
 /// Hill seeds for [`hills_into_plains`] that give a river crossing with
-/// every one of [`CONFIGS`]: the only one found by searching seeds 0 to 299
-/// with the `river_crossing_seeds` probe (7 to 13 of the 300 give one with
+/// every one of [`CONFIGS`]: the only two found by searching seeds 0 to 299
+/// with the `river_crossing_seeds` probe (8 to 33 of the 300 give one with
 /// each configuration).
-pub const RIVER_SEEDS: [u32; 1] = [253];
+pub const RIVER_SEEDS: [u32; 2] = [81, 293];
 
 /// Hill seeds for [`hills_into_plains`] whose plains have a river joining
 /// another river on a bend, where the smoothed rivers are easy to get
@@ -191,7 +212,7 @@ pub fn hills_into_plains(seed: u32, config: Config) -> StitchedWorld {
         DVec2::ZERO,
         preset(TerrainPreset::Plains, config.seed(seed, seed + 100)),
         preset(TerrainPreset::RollingHills, seed),
-        config.meeting,
+        config.convergence(),
     )
 }
 
@@ -254,7 +275,7 @@ pub fn triple_junction(config: Config) -> StitchedWorld {
                 options: preset(TerrainPreset::RollingHills, config.seed(3, 5)),
             },
         ],
-        config.meeting,
+        &config.convergence(),
     )
     .expect("triple-junction world builds")
 }

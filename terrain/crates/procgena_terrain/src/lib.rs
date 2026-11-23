@@ -23,16 +23,17 @@
 //!
 //! ## How regions join
 //!
-//! 1. Neighbouring terrains agree how rough their relief should be where
+//! 1. Neighbouring terrains agree what their ground should be like where
 //!    they meet, and how steep their roads may be: each states its
 //!    [`relief_amplitude`](TerrainGenerator::relief_amplitude),
-//!    [`relief_target`] picks one amplitude per edge and corner, the road
-//!    grades are the steepest of the terrains meeting there
-//!    ([`RoadGrades::steepest`]), and
+//!    [`relief_target`] picks one amplitude per edge and corner,
+//!    [`blend_weights`] how much of each terrain's ground to mix there,
+//!    and the road grades are the steepest of the terrains meeting there
+//!    ([`RoadGrades::steepest`]).
 //!    [`with_edge_targets`](TerrainGenerator::with_edge_targets) makes
-//!    each terrain fade towards both near its borders. Terrains with the
-//!    same seed share their noise, so alike terrains then nearly match
-//!    already.
+//!    each terrain fade towards all of these near its borders, as the
+//!    world's [`Convergence`] says. Terrains with the same seed share their
+//!    noise, so alike terrains then nearly match already.
 //! 2. Each region's [`TerrainGenerator`] makes an [`EdgeOffer`] for every
 //!    border it shares, and a [`CornerOffer`] for every corner. An offer
 //!    depends only on the terrain making it.
@@ -47,7 +48,7 @@
 //! ```
 //! use glam::DVec2;
 //! use procgena_terrain::{
-//!     DEFAULT_RELIEF_MEETING, HeightField, RegionId, RegionSpec, StitchedWorld, TerrainPreset,
+//!     Convergence, HeightField, RegionId, RegionSpec, StitchedWorld, TerrainPreset,
 //! };
 //!
 //! let west = vec![DVec2::new(-500.0, -500.0), DVec2::new(0.0, -500.0), DVec2::new(0.0, 500.0), DVec2::new(-500.0, 500.0)];
@@ -55,7 +56,7 @@
 //! let world = StitchedWorld::build(vec![
 //!     RegionSpec { id: RegionId(1), polygon: west, options: TerrainPreset::Plains.options() },
 //!     RegionSpec { id: RegionId(2), polygon: east, options: TerrainPreset::Mountains.options() },
-//! ], DEFAULT_RELIEF_MEETING)?;
+//! ], &Convergence::default())?;
 //!
 //! // Both sides meet at the same height on their shared border.
 //! let on_border = DVec2::new(0.0, 120.0);
@@ -95,7 +96,8 @@ mod terrain;
 
 pub use carve::{FeatureKind, FeatureLine, Pond};
 pub use converge::{
-    BorderTarget, DEFAULT_RELIEF_MEETING, EdgeTarget, relief_meeting_is_valid, relief_target,
+    BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,
+    blend_weights, relief_meeting_is_valid, relief_target,
 };
 pub use noise::MAX_OCTAVES;
 pub use options::{

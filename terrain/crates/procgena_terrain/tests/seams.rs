@@ -72,7 +72,7 @@ fn every_preset_pair_joins_continuously() {
                     DVec2::ZERO,
                     preset(west, config.seed(1, i as u32 + 1)),
                     preset(east, config.seed(1, j as u32 + 11)),
-                    config.meeting,
+                    config.convergence(),
                 );
                 assert_continuous(
                     &world,

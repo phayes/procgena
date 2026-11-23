@@ -383,18 +383,21 @@ fn road_crossing(
     let last = profile.len() - 1;
     let lo = ((wished - ROAD_MERGE) / step).ceil().max(0.0) as usize;
     let hi = (((wished + ROAD_MERGE) / step).floor() as usize).min(last);
-    // At the border both sides' roads may climb the steeper side's grades.
-    let border = a.road_grades.steepest(b.road_grades);
-    let steepest = f64::from(border.max_grade);
+    // The crossing itself, and the climb to each side's bent ground near it,
+    // keep to the gentler side's preferred grade, so crossings sit where
+    // both sides' roads meet easily.
+    let comfortable = f64::from(a.road_grades.grade.min(b.road_grades.grade));
     let ramp = |i: usize| {
         [a, b]
             .iter()
-            .map(|s| f64::from((profile[i].height - s.natural[i].height).abs()) / f64::from(a.road_grades.grade.min(b.road_grades.grade)))
+            .map(|s| f64::from((profile[i].height - s.natural[i].height).abs()) / comfortable)
             .fold(0.0, f64::max)
     };
     let off = |i: usize| (i as f64 * step - wished).abs();
     // The road climbs the border's cross-slope on its crossing piece.
-    let gentle = |i: usize| f64::from(profile[i].slope.abs()) <= steepest;
+    let gentle = |i: usize| f64::from(profile[i].slope.abs()) <= comfortable;
+    // Further in, both sides' roads may climb the steeper side's grades.
+    let steepest = f64::from(a.road_grades.steepest(b.road_grades).max_grade);
     let fits = |i: usize| a.piece_fits(i, profile[i]) && b.piece_fits(i, profile[i]);
     // Across the fade the steepest grade changes from the border's to the
     // side's own; on average it is about halfway between.

@@ -87,8 +87,10 @@ pub struct RoadOptions {
     pub enabled: bool,
     /// Road width, in metres. Positive, at most [`MAX_PORT_WIDTH`](crate::MAX_PORT_WIDTH).
     pub width: f32,
-    /// The grade roads keep to where they can, as rise over run. Roads may
-    /// climb more steeply, at a cost, up to `max_grade`. Above 0, at most 1.
+    /// The steepest grade roads climb comfortably, as rise over run. Roads
+    /// always prefer flatter ground; above this grade they avoid steep
+    /// stretches much more strongly, and may still climb them up to
+    /// `max_grade`. Above 0, at most 1.
     pub grade: f32,
     /// The steepest grade a road may climb, as rise over run. At least
     /// `grade`, at most 1.
@@ -111,7 +113,7 @@ impl RoadOptions {
 /// The grades a road keeps to, as rise over run (see [`RoadOptions`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoadGrades {
-    /// The grade kept to where possible. Above 0, at most 1.
+    /// The steepest grade climbed comfortably. Above 0, at most 1.
     pub grade: f32,
     /// The steepest grade allowed. At least `grade`, at most 1.
     pub max_grade: f32,

@@ -9,7 +9,9 @@ use std::fmt;
 
 use glam::DVec2;
 
-use crate::converge::{BorderTarget, EdgeTarget, relief_meeting_is_valid, relief_target};
+use crate::converge::{
+    BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
+};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{Boundary, CornerId, Region, RegionCorner, RegionEdge, RegionError, RegionId};
 use crate::seam::{CornerAgreement, EdgeAgreement, SeamError, negotiate, negotiate_corner};
@@ -34,6 +36,8 @@ pub struct RegionSpec {
 pub enum StitchError {
     /// The relief meeting exponent is above 1 or NaN.
     ReliefMeeting(f32),
+    /// The relief blend is outside 0 to 1, or NaN.
+    ReliefBlend(f32),
     /// Two regions have the same id.
     DuplicateId(RegionId),
     /// A polygon has fewer than three points.
@@ -59,6 +63,7 @@ impl fmt::Display for StitchError {
             Self::ReliefMeeting(p) => {
                 write!(f, "relief meeting exponent {p} is above 1 or NaN")
             }
+            Self::ReliefBlend(b) => write!(f, "relief blend {b} is outside 0 to 1"),
             Self::DuplicateId(id) => write!(f, "region id {} is used twice", id.0),
             Self::TooFewPoints(id) => write!(f, "region {} needs at least three points", id.0),
             Self::Overlap(id) => {
@@ -104,20 +109,25 @@ impl StitchedWorld {
     /// Builds every region's border graph, negotiates all edges and corners,
     /// and builds each terrain.
     ///
-    /// Before negotiating, neighbouring terrains fade their relief towards
-    /// a shared amplitude near each shared edge and corner, chosen by
-    /// [`relief_target`] with exponent `relief_meeting`
-    /// ([`DEFAULT_RELIEF_MEETING`](crate::DEFAULT_RELIEF_MEETING) unless
-    /// you are experimenting).
+    /// Before negotiating, neighbouring terrains become alike near each
+    /// shared edge and corner, as `convergence` says
+    /// ([`Convergence::default`] unless you are experimenting).
     ///
     /// # Errors
     ///
-    /// If `relief_meeting` isn't valid (see
-    /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid)), or for
-    /// any of the other [`StitchError`] cases.
-    pub fn build(mut specs: Vec<RegionSpec>, relief_meeting: f32) -> Result<Self, StitchError> {
-        if !relief_meeting_is_valid(relief_meeting) {
-            return Err(StitchError::ReliefMeeting(relief_meeting));
+    /// If `convergence.meeting` isn't valid (see
+    /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid)), if
+    /// `convergence.blend` is outside 0 to 1, or for any of the other
+    /// [`StitchError`] cases.
+    pub fn build(
+        mut specs: Vec<RegionSpec>,
+        convergence: &Convergence,
+    ) -> Result<Self, StitchError> {
+        if !relief_meeting_is_valid(convergence.meeting) {
+            return Err(StitchError::ReliefMeeting(convergence.meeting));
+        }
+        if !(0.0..=1.0).contains(&convergence.blend) {
+            return Err(StitchError::ReliefBlend(convergence.blend));
         }
         specs.sort_by_key(|s| s.id);
         for pair in specs.windows(2) {
@@ -159,7 +169,7 @@ impl StitchedWorld {
             .collect::<Result<Vec<_>, _>>()?;
         let index: BTreeMap<RegionId, usize> =
             specs.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
-        let generators = converge(&regions, generators, &index, relief_meeting)?;
+        let generators = converge(&regions, generators, &index, convergence)?;
 
         // Offers and agreements.
         let corners = negotiate_corners(&regions, &generators, &index)?;
@@ -294,20 +304,29 @@ fn region_graph(
 }
 
 /// Gives each generator targets for its shared edges, from the regions on
-/// each edge and touching each corner: the [`relief_target`] of their
-/// amplitudes, and the steepest of their road grades.
+/// each edge and touching each corner: the [`relief_target`] and
+/// [`blend_weights`] of their amplitudes, and the steepest of their road
+/// grades.
 fn converge(
     regions: &[Region],
     generators: Vec<TerrainGenerator>,
     index: &BTreeMap<RegionId, usize>,
-    meeting: f32,
+    convergence: &Convergence,
 ) -> Result<Vec<TerrainGenerator>, StitchError> {
+    let meeting = convergence.meeting;
     let amplitudes: Vec<f32> = generators.iter().map(|g| g.relief_amplitude()).collect();
     let roads: Vec<RoadGrades> = generators
         .iter()
         .map(|g| g.options().features.roads.grades())
         .collect();
+    let options: Vec<(RegionId, TerrainOptions)> = regions
+        .iter()
+        .zip(&generators)
+        .map(|(r, g)| (r.id, g.options().clone()))
+        .collect();
     let target = |touching: &[RegionId]| {
+        let mut touching = touching.to_vec();
+        touching.sort();
         let amplitudes: Vec<f32> = touching.iter().map(|r| amplitudes[index[r]]).collect();
         let roads = touching
             .iter()
@@ -316,6 +335,11 @@ fn converge(
             .expect("a border has regions");
         BorderTarget {
             amplitude: relief_target(&amplitudes, meeting),
+            blend: touching
+                .iter()
+                .copied()
+                .zip(blend_weights(&amplitudes, meeting))
+                .collect(),
             roads,
         }
     };
@@ -341,13 +365,13 @@ fn converge(
                     Some(EdgeTarget {
                         edge: edge.id,
                         middle: target(&[region.id, neighbor]),
-                        start: corners[&edge.start],
-                        end: corners[&edge.end],
+                        start: corners[&edge.start].clone(),
+                        end: corners[&edge.end].clone(),
                     })
                 })
                 .collect();
             generator
-                .with_edge_targets(region, &targets)
+                .with_edge_targets(region, &targets, &options, convergence.blend)
                 .map_err(|e| StitchError::Terrain(region.id, e))
         })
         .collect()
