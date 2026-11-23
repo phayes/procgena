@@ -1,7 +1,8 @@
 //! Mushroom controls and allowed input ranges for the Mushrooms tab.
 
 use procgena_mushroom::{
-    CAP_TEXTURE_SETS, CapFamily, MAX_GILL_LINES, MAX_LOBES, MAX_WARTS, MushroomOptions, Pattern,
+    CAP_TEXTURE_SETS, CapFamily, MAX_GILL_LINES, MAX_LOBES, MAX_WARTS, MaterialOptions,
+    MushroomOptions, Pattern, STEM_TEXTURE_SETS,
 };
 
 use crate::params::{Group, Param, Section, choice, count, number, toggle};
@@ -10,24 +11,36 @@ use crate::params::{Group, Param, Section, choice, count, number, toggle};
 /// order.
 const CAP_TEXTURE_CHOICES: [&str; 1 + CAP_TEXTURE_SETS.len()] = ["None", "mushroom_top_001"];
 
-/// The Cap Texture control: no texture, or one of [`CAP_TEXTURE_SETS`].
-/// A set name the list doesn't know shows as "None".
-fn cap_texture() -> Param<MushroomOptions> {
+/// The Stem Texture choices: "None", then each of [`STEM_TEXTURE_SETS`] in
+/// order.
+const STEM_TEXTURE_CHOICES: [&str; 1 + STEM_TEXTURE_SETS.len()] =
+    ["None", "creamy_tan", "brown_net"];
+
+/// A texture control for the setting at `key`: "None", or one of `sets`,
+/// listed in `choices` after "None". `field` and `field_mut` pick the
+/// setting from the material options. A set name the list doesn't know
+/// shows as "None".
+fn texture_choice(
+    key: &'static str,
+    choices: &'static [&'static str],
+    sets: &'static [&'static str],
+    field: fn(&MaterialOptions) -> &Option<String>,
+    field_mut: fn(&mut MaterialOptions) -> &mut Option<String>,
+) -> Param<MushroomOptions> {
     Param::choice(
-        "material.cap_texture",
+        key,
         "Texture",
-        &CAP_TEXTURE_CHOICES,
-        |o: &MushroomOptions| {
-            o.material
-                .cap_texture
+        choices,
+        move |o: &MushroomOptions| {
+            field(&o.material)
                 .as_deref()
-                .and_then(|set| CAP_TEXTURE_SETS.iter().position(|s| *s == set))
+                .and_then(|set| sets.iter().position(|s| *s == set))
                 .map_or(0, |i| i + 1)
         },
-        |o: &mut MushroomOptions, index| {
-            o.material.cap_texture = index
+        move |o: &mut MushroomOptions, index| {
+            *field_mut(&mut o.material) = index
                 .checked_sub(1)
-                .and_then(|i| CAP_TEXTURE_SETS.get(i))
+                .and_then(|i| sets.get(i))
                 .map(|set| (*set).to_owned());
         },
     )
@@ -383,7 +396,13 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
         Section {
             title: "Cap Texture",
             groups: vec![
-                Group::plain(vec![cap_texture()]),
+                Group::plain(vec![texture_choice(
+                    "material.cap_texture",
+                    &CAP_TEXTURE_CHOICES,
+                    &CAP_TEXTURE_SETS,
+                    |m| &m.cap_texture,
+                    |m| &mut m.cap_texture,
+                )]),
                 Group::plain(vec![
                     number!(
                         MushroomOptions,
@@ -395,6 +414,29 @@ pub fn sections() -> Vec<Section<MushroomOptions>> {
                     .exponential(),
                 ])
                 .shown_if(|o: &MushroomOptions| o.material.cap_texture.is_some()),
+            ],
+        },
+        Section {
+            title: "Stem Texture",
+            groups: vec![
+                Group::plain(vec![texture_choice(
+                    "material.stem_texture",
+                    &STEM_TEXTURE_CHOICES,
+                    &STEM_TEXTURE_SETS,
+                    |m| &m.stem_texture,
+                    |m| &mut m.stem_texture,
+                )]),
+                Group::plain(vec![
+                    number!(
+                        MushroomOptions,
+                        "material.stem_texture_size",
+                        "Repeat Length (m)",
+                        (0.005, 0.5, 0.005),
+                        |o| o.material.stem_texture_size
+                    )
+                    .exponential(),
+                ])
+                .shown_if(|o: &MushroomOptions| o.material.stem_texture.is_some()),
             ],
         },
     ]
@@ -421,6 +463,7 @@ mod tests {
     #[test]
     fn the_texture_choices_follow_the_texture_sets() {
         assert_eq!(CAP_TEXTURE_CHOICES[1..], CAP_TEXTURE_SETS);
+        assert_eq!(STEM_TEXTURE_CHOICES[1..], STEM_TEXTURE_SETS);
     }
 
     #[test]

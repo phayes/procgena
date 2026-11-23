@@ -158,18 +158,42 @@ fn plant_grove(mut commands: Commands) {
 }
 ```
 
-Each tree becomes a child entity with its own `TreeParams` and a
-`GroveMember` component. Trees of the same species and shape variant share
-meshes and materials, so a grove of hundreds of trees generates only a handful
-of meshes. Each tree is still several entities, so keep a grove to hundreds of
-trees rather than thousands.
+The grove draws all its trees itself, without an entity per tree, so one
+grove can hold thousands of trees (up to 20,000). Trees of the same species
+and shape variant share meshes and materials, so even a large grove generates
+only a handful of meshes. The grove entity gets:
+
+- `TreeGroveInstances`: every tree's species, shape variant, spot id and
+  transform;
+- `TreeGroveAssets`: each variant's meshes, materials and tagged object;
+- `TreeGroveStats`: the tree count, and vertices and triangles per detail
+  level.
 
 Change the component to change the grove. Only the trees that appear,
-disappear or change are spawned, despawned or rebuilt, so lowering the density
-leaves the remaining trees exactly as they were. The grove has a
-`TreeGroveGenerating` component until every tree is ready, and
-`TreeGroveFinished` is triggered on it when the build ends, with an error if
-the grove could not be built.
+disappear or change are affected, so lowering the density leaves the
+remaining trees exactly as they were. The grove has a `TreeGroveGenerating`
+component until every tree is ready, and `TreeGroveFinished` is triggered on
+it when the build ends, with an error if the grove could not be built.
+
+### Promote single trees
+
+To give one tree an entity of its own, for a collider or to interact with
+it, spawn a `PromotedTree` with whatever the tree needs:
+
+```rust,ignore
+commands.spawn((PromotedTree::new(grove, tree.id), MyCollider));
+```
+
+The entity becomes an ordinary tree, drawn exactly like the grove's copy,
+which stops drawing it. Despawn the entity to give the tree back.
+`GroveTrees` finds trees near a point (`within`) or under a ray
+(`ray_cast`). The `grove_promote` example promotes the trees near the camera,
+or the tree you click:
+
+```sh
+cargo run -p procgena_tree_bevy --example grove_promote -- --mode distance
+cargo run -p procgena_tree_bevy --example grove_promote -- --mode click
+```
 
 To stand the trees on terrain or another generated surface, spawn the grove as
 a child of an entity with a `GeneratedObject`, and say which parts of it count

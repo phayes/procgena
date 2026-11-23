@@ -5,7 +5,7 @@ mod common;
 
 use common::{
     CONFIGS, JUNCTION, RIVER_SEEDS, TWO_REGION_BORDER, assert_no_crack, hills_into_plains, preset,
-    triple_junction, two_biomes, two_regions,
+    triple_junction, two_terrains, two_regions,
 };
 use glam::{DVec2, I64Vec2, UVec2};
 use procgena_terrain::{HeightField, HeightTile, StitchedWorld, Terrain, TerrainPreset};
@@ -102,7 +102,7 @@ fn borders_join_far_from_the_origin() {
     let offset = DVec2::splat(1.0e7);
     for config in CONFIGS {
         assert_continuous(
-            &two_biomes(offset, config),
+            &two_terrains(offset, config),
             &border(offset),
             &format!("far, {config:?}"),
         );
@@ -148,8 +148,8 @@ fn assert_no_cracks(world: &StitchedWorld, area: (DVec2, DVec2), vertices: &[DVe
 fn no_cracks_in_the_margins_of_a_bent_border() {
     let area = (DVec2::new(-750.0, -1450.0), DVec2::new(750.0, 1450.0));
     for config in CONFIGS {
-        let world = two_biomes(DVec2::ZERO, config);
-        let label = format!("two biomes, {config:?}");
+        let world = two_terrains(DVec2::ZERO, config);
+        let label = format!("two terrains, {config:?}");
         assert_no_cracks(&world, area, &border(DVec2::ZERO)[1..4], &label);
     }
 }
@@ -219,7 +219,7 @@ fn assert_three_regions_meet(world: &StitchedWorld) {
 #[test]
 fn a_tile_is_the_same_alone_or_inside_a_larger_tile() {
     for config in CONFIGS {
-        assert_tile_inside_larger(&two_biomes(DVec2::ZERO, config));
+        assert_tile_inside_larger(&two_terrains(DVec2::ZERO, config));
     }
 }
 
@@ -252,7 +252,7 @@ fn neighbouring_tiles_share_their_border_samples() {
 fn points_on_a_border_have_ground() {
     // Lattice points exactly on polygon sides must not fall between regions.
     for config in CONFIGS {
-        let world = two_biomes(DVec2::ZERO, config);
+        let world = two_terrains(DVec2::ZERO, config);
         for (q, _) in along(&border(DVec2::ZERO), 25) {
             assert!(world.height(q).is_finite(), "no ground at {q}");
         }

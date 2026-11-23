@@ -71,4 +71,7 @@ pub use options::{
 pub use presets::MushroomPreset;
 pub use profile::CapFamily;
 pub use scatter::{MAX_SITES, MushroomScatter, ScatterError, ScatterOptions};
-pub use texture::{CAP_TEXTURE_SETS, TextureCompression, TextureMap, TextureSize, texture_path};
+pub use texture::{
+    CAP_TEXTURE_SETS, STEM_TEXTURE_SETS, TextureCompression, TextureMap, TexturePart, TextureSize,
+    stem_texture_average, texture_path,
+};

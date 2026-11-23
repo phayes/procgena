@@ -147,6 +147,8 @@ impl MushroomPreset {
                     pattern_strength: 0.12,
                     pattern_scale: 6.0,
                     gill_lines: 0,
+                    stem_texture: Some("brown_net".into()),
+                    stem_texture_size: 0.04,
                     ..base.material.clone()
                 },
                 ..base
@@ -221,6 +223,8 @@ impl MushroomPreset {
                     stem_base: "#7a5f45".into(),
                     ring: "#e8dfcc".into(),
                     wart: "#6b4c34".into(),
+                    stem_texture: Some("creamy_tan".into()),
+                    stem_texture_size: 0.03,
                     ..base.material.clone()
                 },
                 ..base

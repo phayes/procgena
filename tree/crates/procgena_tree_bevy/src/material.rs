@@ -3,12 +3,14 @@
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Vec3;
 use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::mesh::VertexBufferLayout;
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+    VertexAttribute, VertexFormat, VertexStepMode,
 };
 use bevy::shader::ShaderRef;
 use procgena_tree::{
@@ -35,6 +37,10 @@ const BILLBOARD_PIVOT_LOCATION: u32 = 9;
 const BILLBOARD_AXIS_LOCATION: u32 = 10;
 /// Shader input location for the optional billboard lighting normal.
 const BILLBOARD_NORMAL_LOCATION: u32 = 11;
+/// Shader input location of a grove tree's mesh record index and dither.
+const GROVE_LOCATION: u32 = 12;
+/// Bytes per grove tree in the per-instance vertex buffer: two `u32`s.
+pub(crate) const GROVE_INSTANCE_SIZE: u64 = 8;
 
 /// A [`StandardMaterial`] with tree wind animation and optional billboard rotation.
 ///
@@ -50,10 +56,28 @@ pub type TreeMaterial = ExtendedMaterial<StandardMaterial, WindExtension>;
 /// [`TreePlugin`](crate::TreePlugin) updates every tree material from the
 /// global [`Wind`](crate::Wind) resource, including materials you create yourself.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+#[bind_group_data(WindKey)]
 pub struct WindExtension {
     /// Controls the direction, speed and amount of tree movement.
     #[uniform(100)]
     pub wind: WindUniform,
+}
+
+/// The pipeline variant a [`TreeMaterial`] is drawn with. Bevy builds one
+/// pipeline per distinct key; you never need to create one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct WindKey {
+    /// Whether the pipeline draws grove trees: many trees from one mesh, each
+    /// naming its own mesh record through an extra per-tree vertex input.
+    pub(crate) grove: bool,
+}
+
+impl From<&WindExtension> for WindKey {
+    fn from(_: &WindExtension) -> Self {
+        // Materials are always created for single trees; groves ask for their
+        // pipelines with `grove` set.
+        Self::default()
+    }
 }
 
 /// Wind settings in the GPU-compatible layout used by the tree shaders.
@@ -108,8 +132,23 @@ impl MaterialExtension for WindExtension {
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        // Grove trees read their mesh record index and dither from a second,
+        // per-instance vertex buffer.
+        if key.bind_group_data.grove {
+            descriptor.vertex.shader_defs.push("GROVE".into());
+            descriptor.vertex.buffers.push(VertexBufferLayout {
+                array_stride: GROVE_INSTANCE_SIZE,
+                step_mode: VertexStepMode::Instance,
+                attributes: vec![VertexAttribute {
+                    format: VertexFormat::Uint32x2,
+                    offset: 0,
+                    shader_location: GROVE_LOCATION,
+                }],
+            });
+        }
+
         // Add the wind input to the vertex attributes selected by Bevy for this render pass.
         let wind = layout
             .0

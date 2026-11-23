@@ -1,9 +1,10 @@
-// Triplanar texturing for mushroom caps: samples repeating images projected
-// along the x, y and z axes and blends them by surface direction, so a dome
-// shows no stretching and no pinch at its top. Adapted from
-// procgena_stone_bevy's `stone_triplanar.wesl`.
+// Triplanar texturing for mushroom caps and stems: samples repeating images
+// projected along the x, y and z axes and blends them by surface direction,
+// so a dome shows no stretching and no pinch at its top. Adapted from
+// procgena_stone_bevy's `stone_triplanar.wesl`. Also samples the same
+// images flat, at given coordinates, for flat stems.
 
-/// Surface detail sampled from a cap texture set at one point.
+/// Surface detail sampled from a cap or stem texture set at one point.
 struct TriplanarSample {
     /// Linear colour from the colour image.
     color: vec3<f32>,
@@ -90,4 +91,24 @@ fn sample_triplanar(
     let blended = normalize(n_x.zyx * w.x + n_y.xzy * w.y + n_z.xyz * w.z);
 
     return TriplanarSample(color, orh.g, orh.r, blended);
+}
+
+/// Returns colour, roughness, occlusion and normal-map direction at image
+/// coordinates `uv`, where 1 is one image repeat. The images are read as for
+/// `sample_triplanar`, but the returned normal is in the image's own space:
+/// x along the image's right, y towards its top, z out of the surface.
+fn sample_flat(
+    color_texture: texture_2d<f32>,
+    color_sampler: sampler,
+    normal_texture: texture_2d<f32>,
+    normal_sampler: sampler,
+    orh_texture: texture_2d<f32>,
+    orh_sampler: sampler,
+    uv: vec2<f32>,
+    mip_bias: f32,
+) -> TriplanarSample {
+    let color = textureSampleBias(color_texture, color_sampler, uv, mip_bias).rgb;
+    let orh = textureSampleBias(orh_texture, orh_sampler, uv, mip_bias).rgb;
+    let normal = normalize(unpack_normal(textureSampleBias(normal_texture, normal_sampler, uv, mip_bias)));
+    return TriplanarSample(color, orh.g, orh.r, normal);
 }

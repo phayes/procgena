@@ -295,7 +295,7 @@ fn fully_blended_neighbours_share_their_ground_on_the_border() {
             blend: 1.0,
             ..config
         };
-        let world = common::two_biomes(DVec2::ZERO, config);
+        let world = common::two_terrains(DVec2::ZERO, config);
         let [plains, mountains] = [&world.terrains()[0], &world.terrains()[1]];
         for q in border_points(5.0) {
             assert_eq!(
@@ -314,7 +314,7 @@ fn fully_blended_neighbours_share_their_slope_across_the_border() {
             blend: 1.0,
             ..config
         };
-        let world = common::two_biomes(DVec2::ZERO, config);
+        let world = common::two_terrains(DVec2::ZERO, config);
         let [plains, mountains] = [&world.terrains()[0], &world.terrains()[1]];
         for w in TWO_REGION_BORDER.windows(2) {
             let (a, b) = (DVec2::from(w[0]), DVec2::from(w[1]));

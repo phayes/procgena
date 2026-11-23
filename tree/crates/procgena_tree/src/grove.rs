@@ -30,7 +30,7 @@ pub const MAX_GROVE_TREES: usize = 16;
 /// Most shape variants one species may use.
 pub const MAX_GROVE_VARIANTS: u32 = 8;
 /// Most trees one placement may ask for, before spacing removes any.
-pub const MAX_GROVE_INSTANCES: usize = 4000;
+pub const MAX_GROVE_INSTANCES: usize = 20_000;
 /// Longest side of the ground a grove may be placed on, in metres.
 pub const MAX_GROVE_SIZE: f32 = 2048.0;
 

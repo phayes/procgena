@@ -30,9 +30,9 @@ use procgena_stone_bevy::{
 };
 use procgena_tree::{TreeGrove, TreeOptions};
 use procgena_tree_bevy::{
-    GroveMember, TreeFinished, TreeGenerating, TreeGroveFinished, TreeGroveGenerating,
-    TreeGroveParams, TreeLodLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
-    default_tree_lod_levels,
+    TreeFinished, TreeGenerating, TreeGroveAssets, TreeGroveFinished, TreeGroveGenerating,
+    TreeGroveParams, TreeGroveStats, TreeLodLevel, TreeMaterial, TreeParams, TreePart,
+    TreePartKind, default_tree_lod_levels,
 };
 
 /// Camera distances at which each tree detail level starts, nearest first.
@@ -199,8 +199,9 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
             pitch: 0.45,
             distance: 1.4 * subjects.grove_size.max(10.0),
             limits: OrbitLimits {
-                // Far enough out to reach the lowest tree detail level.
-                distance: (2.0, 600.0),
+                // Far enough out to reach the lowest tree detail level, and
+                // to see the whole grove.
+                distance: (2.0, (2.0 * subjects.grove_size).max(600.0)),
                 pitch: (-0.05, 1.5),
             },
         },
@@ -670,6 +671,7 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
 pub(crate) fn render_while_loading(
     generating: Query<(), Generating>,
     parts: Query<&MeshMaterial3d<TreeMaterial>, With<TreePart>>,
+    groves: Query<&TreeGroveAssets>,
     materials: Res<Assets<TreeMaterial>>,
     stone_parts: Query<&MeshMaterial3d<StoneMaterial>, With<StonePart>>,
     stone_materials: Res<Assets<StoneMaterial>>,
@@ -687,9 +689,16 @@ pub(crate) fn render_while_loading(
                 .is_some_and(|s| s.is_loading())
         })
     };
+    // Tree parts, and the materials groves draw their trees with.
+    let grove_materials = groves
+        .iter()
+        .flat_map(|grove| grove.variants().iter().flat_map(|v| v.parts()))
+        .map(|part| part.material.id());
     let textures_loading = parts
         .iter()
-        .filter_map(|part| materials.get(&part.0))
+        .map(|part| part.0.id())
+        .chain(grove_materials)
+        .filter_map(|id| materials.get(id))
         .any(|material| {
             let base = &material.base;
             loading(&base.base_color_texture)
@@ -1079,26 +1088,20 @@ pub(crate) fn report_grove(
     event: On<TreeGroveFinished>,
     state: Res<SceneState>,
     mut events: MessageWriter<ViewerEvent>,
-    children: Query<&Children>,
-    members: Query<(), With<GroveMember>>,
-    parts: Query<(&TreePart, &Mesh3d)>,
-    meshes: Res<Assets<Mesh>>,
+    groves: Query<&TreeGroveStats>,
 ) {
     if state.mode != SceneMode::Grove || event.entity != state.subject {
         return;
     }
     let result = event.result.clone().map(|()| {
-        // Each tree is a child of the grove, with its parts as its own children.
+        let stats = groves.get(event.entity).cloned().unwrap_or_default();
         let mut levels = vec![MeshSize::default(); lod_levels().len()];
-        let mut trees = 0;
-        let kids = children.get(event.entity).into_iter().flatten();
-        for tree in kids.filter(|kid| members.contains(**kid)) {
-            trees += 1;
-            let tree_parts = children.get(*tree).into_iter().flatten();
-            add_tree_parts(&mut levels, parts.iter_many(tree_parts).flatten(), &meshes);
+        for (size, level) in levels.iter_mut().zip(&stats.levels) {
+            size.vertices = level.vertices;
+            size.triangles = level.triangles;
         }
         GroveStats {
-            trees,
+            trees: stats.trees,
             build: BuildStats {
                 levels,
                 build_time: state.requested.elapsed(),

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::colour::parse_hex;
 use crate::detail::MushroomDetail;
 use crate::profile::CapFamily;
+use crate::texture::TexturePart;
 
 /// Largest allowed [`CapOptions::lobes`].
 pub const MAX_LOBES: u32 = 12;
@@ -239,6 +240,19 @@ pub struct MaterialOptions {
     /// Width of the cap's top covered by one repeat of
     /// [`cap_texture`](Self::cap_texture), in metres. Must be positive.
     pub cap_texture_size: f32,
+    /// A texture set painted onto the stem, one of
+    /// [`STEM_TEXTURE_SETS`](crate::STEM_TEXTURE_SETS), or `None` for vertex
+    /// colours only.
+    ///
+    /// The set adds surface detail while the stem keeps its own colours:
+    /// renderers tint the texture so that its average colour matches
+    /// [`stem_top`](Self::stem_top) and [`stem_base`](Self::stem_base) at
+    /// each point. The ring is not textured. Renderers that don't load
+    /// textures ignore it.
+    pub stem_texture: Option<String>,
+    /// Length of stem covered by one repeat of
+    /// [`stem_texture`](Self::stem_texture), in metres. Must be positive.
+    pub stem_texture_size: f32,
 }
 
 /// A pattern on top of the cap, drawn by the renderer rather than stored in
@@ -358,6 +372,8 @@ impl Default for MaterialOptions {
             roughness: 0.75,
             cap_texture: None,
             cap_texture_size: 0.08,
+            stem_texture: None,
+            stem_texture_size: 0.04,
         }
     }
 }
@@ -409,13 +425,15 @@ pub enum OptionsError {
         /// The rejected text.
         value: String,
     },
-    /// A texture set name is not one of
+    /// A texture set name is not one of the sets made for that part, such as
     /// [`CAP_TEXTURE_SETS`](crate::CAP_TEXTURE_SETS).
     UnknownTexture {
         /// Name of the setting, such as `"material.cap_texture"`.
         field: &'static str,
         /// The rejected name.
         value: String,
+        /// The names the setting accepts.
+        allowed: &'static [&'static str],
     },
 }
 
@@ -454,11 +472,11 @@ impl fmt::Display for OptionsError {
                     "{field} is {value:?}, but must be a colour such as \"#a0522d\""
                 )
             }
-            OptionsError::UnknownTexture { field, value } => write!(
-                f,
-                "{field} is {value:?}, but must be one of {:?}",
-                crate::CAP_TEXTURE_SETS
-            ),
+            OptionsError::UnknownTexture {
+                field,
+                value,
+                allowed,
+            } => write!(f, "{field} is {value:?}, but must be one of {allowed:?}"),
         }
     }
 }
@@ -537,15 +555,23 @@ impl MushroomOptions {
         positive("material.pattern_scale", m.pattern_scale)?;
         within("material.pattern_strength", m.pattern_strength, 0.0, 1.0)?;
         within("material.roughness", m.roughness, 0.0, 1.0)?;
-        if let Some(set) = &m.cap_texture
-            && !crate::CAP_TEXTURE_SETS.contains(&set.as_str())
-        {
-            return Err(OptionsError::UnknownTexture {
-                field: "material.cap_texture",
-                value: set.clone(),
-            });
+        // Texture sets must be ones made for their part.
+        for (field, set, part) in [
+            ("material.cap_texture", &m.cap_texture, TexturePart::Cap),
+            ("material.stem_texture", &m.stem_texture, TexturePart::Stem),
+        ] {
+            if let Some(set) = set
+                && !part.sets().contains(&set.as_str())
+            {
+                return Err(OptionsError::UnknownTexture {
+                    field,
+                    value: set.clone(),
+                    allowed: part.sets(),
+                });
+            }
         }
         positive("material.cap_texture_size", m.cap_texture_size)?;
+        positive("material.stem_texture_size", m.stem_texture_size)?;
 
         self.detail.validate()
     }

@@ -10,7 +10,8 @@ uv run --project tools textures --help
 
 ## textures
 
-Downloads, prepares and publishes the textures of `stone`, `tree` and `clump`.
+Downloads, prepares and publishes the textures of `stone`, `tree`, `clump`,
+`mushroom` and `deadwood`.
 Each project lists its textures in `<project>/textures.yml`: surface sets (rock,
 bark, snow…) and cards (transparent leaf or stalk images). The finished files
 live in a public bucket, `gs://ze_textures/<project>/`, and are listed with

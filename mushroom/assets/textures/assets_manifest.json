@@ -211,6 +211,392 @@
           "sha256": "ae511489c230fadac473c4e607f27c5c413eba40614ac0c685d3dfc4337f92c7"
         }
       ]
+    },
+    {
+      "id": "creamy_tan",
+      "category": "stem",
+      "title": "Creamy Tan Mushroom Stem",
+      "authors": [
+        "Patrick Hayes"
+      ],
+      "source": "procgena",
+      "sourceUrl": "https://github.com/phayes/procgena",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "stem/creamy_tan-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 265348,
+          "sha256": "0b71646fe687d178f1770d108152b9c91b227649a8d0c54e83c263d20d2ad6e2"
+        },
+        {
+          "path": "stem/creamy_tan-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 234584,
+          "sha256": "1ff0bf40d331db719ea642f1672328e5ccdd0c0cc53fe93c8bcb9eac137d21b1"
+        },
+        {
+          "path": "stem/creamy_tan-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 271046,
+          "sha256": "3eb03cb65920d537ac263e2826abc3d14f7ef216a59a3e14a8e20fd103239ef3"
+        },
+        {
+          "path": "stem/creamy_tan-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 259986,
+          "sha256": "f031c72b03aea3b050a15bda9277cb9b26c5e3b0395a7e3753f6ab53ffeaa15f"
+        },
+        {
+          "path": "stem/creamy_tan-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 264672,
+          "sha256": "9b870e61378fbc24e4f7ab87b03fcde0f55903703892920729755360d7667920"
+        },
+        {
+          "path": "stem/creamy_tan-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 239464,
+          "sha256": "9ceb3f1ce337d5c27c63dcc12272af47a6109fd2b915e1ee033660bc4d07d6b6"
+        },
+        {
+          "path": "stem/creamy_tan-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1126587,
+          "sha256": "b7b7b0a5f725d2b13dadcbbefdca8bd35b90c38479f7e79d00fb50560070316c"
+        },
+        {
+          "path": "stem/creamy_tan-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 873850,
+          "sha256": "cb95f31f6d805a34330a0a44d7353f3034ccb04bab51b5d38aac0dbb66a751cc"
+        },
+        {
+          "path": "stem/creamy_tan-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1189992,
+          "sha256": "92e5a4da1c85a732ce65b0820445186b8411c231f338c9c4c6772fc972e7e036"
+        },
+        {
+          "path": "stem/creamy_tan-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1089440,
+          "sha256": "4b5cb2f19113e9bd1c1fd3d7f1f981891f3a5a3f01831fd5ac485716a72c977c"
+        },
+        {
+          "path": "stem/creamy_tan-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1079026,
+          "sha256": "3f2eef736345a697d055eea18f1ef4fae19825726d0c25e193c1712f23749135"
+        },
+        {
+          "path": "stem/creamy_tan-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1011513,
+          "sha256": "7fdc5762bdf0bb3afa92c783f0084f10e3803437959beabf4f516c899de2f38d"
+        },
+        {
+          "path": "stem/creamy_tan-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4418048,
+          "sha256": "b80f128b77afc66a5ac73644bd124ffb70ae0e059abdc6247a0e5c694800b826"
+        },
+        {
+          "path": "stem/creamy_tan-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2904490,
+          "sha256": "c7400c1945f8a71b105c5387aca2a6574c4362a4bc3d4b09855e36709e1c788b"
+        },
+        {
+          "path": "stem/creamy_tan-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4834733,
+          "sha256": "107952e27bf565ef3f6e40d527604dff137bfca6c13796527b99b57b8b43aa16"
+        },
+        {
+          "path": "stem/creamy_tan-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4166784,
+          "sha256": "f1a7a92b1bc2be86509ce9d556c8c0a914e649c4208df820dd29425a0b754570"
+        },
+        {
+          "path": "stem/creamy_tan-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4139316,
+          "sha256": "84305d73e6ac636c57d750b3d088fcf58d0c0484163aa35fb186ae309210d420"
+        },
+        {
+          "path": "stem/creamy_tan-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3975952,
+          "sha256": "f544b13e8f4e8e98418d2f11207794b971c326e856c25aacd3174a2eeeab61f3"
+        }
+      ]
+    },
+    {
+      "id": "brown_net",
+      "category": "stem",
+      "title": "Brown Netted Mushroom Stem",
+      "authors": [
+        "Patrick Hayes"
+      ],
+      "source": "procgena",
+      "sourceUrl": "https://github.com/phayes/procgena",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "stem/brown_net-512-color-bc7.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 319935,
+          "sha256": "2396773624bc735462e4187dd84af6725fa1eb56e28c5194f9a073eccf4fb5ea"
+        },
+        {
+          "path": "stem/brown_net-512-color-uastc.ktx2",
+          "size": "512",
+          "map": "color",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 301323,
+          "sha256": "46834c990cadbc66505c5c3c45dd7d630b13ffa74c83be23f166cd0ab668005b"
+        },
+        {
+          "path": "stem/brown_net-512-normal-bc7.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 316019,
+          "sha256": "5ffbcd1a41e26a953c65e65f465e0b805f30d64ef7409b1382ed7ad08e8bd35d"
+        },
+        {
+          "path": "stem/brown_net-512-normal-uastc.ktx2",
+          "size": "512",
+          "map": "normal",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 302349,
+          "sha256": "c68d7e09ccb5c17e69c2576cc706caab712f56c4b39d7c13b42e09504cad235a"
+        },
+        {
+          "path": "stem/brown_net-512-orh-bc7.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "bc7",
+          "width": 512,
+          "height": 512,
+          "bytes": 315880,
+          "sha256": "bdea601370cd526098ada5e50f0a90d48d9b10c622aa62f7f6602619be733c96"
+        },
+        {
+          "path": "stem/brown_net-512-orh-uastc.ktx2",
+          "size": "512",
+          "map": "orh",
+          "format": "uastc",
+          "width": 512,
+          "height": 512,
+          "bytes": 287462,
+          "sha256": "545dcb1e2227775af79e9d058e8b9a6368029edc151bb2450a2dbb3fc495fbc6"
+        },
+        {
+          "path": "stem/brown_net-1k-color-bc7.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1287154,
+          "sha256": "40de8b053fad6e043e83cbcb1abd45cca78bca7240a3a08a161232b22f677bce"
+        },
+        {
+          "path": "stem/brown_net-1k-color-uastc.ktx2",
+          "size": "1k",
+          "map": "color",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1165593,
+          "sha256": "fa145b2bcc1c06ba6596a72b3b1f8274e33d02a5d25eef3646d2216e17ff3014"
+        },
+        {
+          "path": "stem/brown_net-1k-normal-bc7.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1280236,
+          "sha256": "742293349c709c49bf5c9085b3a5152491dfd9863dde6c6d6a18cfcef2cc61d8"
+        },
+        {
+          "path": "stem/brown_net-1k-normal-uastc.ktx2",
+          "size": "1k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1176823,
+          "sha256": "2a72a95550b4a27c305359fba53a18392c9fcd4e29d173eaa3e1a6d181db8ab7"
+        },
+        {
+          "path": "stem/brown_net-1k-orh-bc7.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1204973,
+          "sha256": "f786ff44e27645bbbbfcc7521fccc35af1c251474b64136110441587035ba06a"
+        },
+        {
+          "path": "stem/brown_net-1k-orh-uastc.ktx2",
+          "size": "1k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1130158,
+          "sha256": "68de84942c511a1dff78a4951e8c46acce98833dc5b8cc7e4c53238d7788b109"
+        },
+        {
+          "path": "stem/brown_net-2k-color-bc7.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4957247,
+          "sha256": "28f74661d51e88a4832a1aefff06e93c8d833c0b8456c5be7c58628d264295c4"
+        },
+        {
+          "path": "stem/brown_net-2k-color-uastc.ktx2",
+          "size": "2k",
+          "map": "color",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3971974,
+          "sha256": "5525e7944c3fc1dab58505eb5d66168352b17fb508beff9f461ba41227f32871"
+        },
+        {
+          "path": "stem/brown_net-2k-normal-bc7.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5008212,
+          "sha256": "8fd2a1157c65484b26e2b95bb91658cb5c8c92ae77f0b2a8afb275246ca6ecf7"
+        },
+        {
+          "path": "stem/brown_net-2k-normal-uastc.ktx2",
+          "size": "2k",
+          "map": "normal",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4302837,
+          "sha256": "96f82a935f827544450ba6d52b6833b137bc213ed52a1922ab6266769d4d3e01"
+        },
+        {
+          "path": "stem/brown_net-2k-orh-bc7.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "bc7",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4363036,
+          "sha256": "883ed1343cd82b142a175a57340039de42c672978107e979cd829f3f6691d483"
+        },
+        {
+          "path": "stem/brown_net-2k-orh-uastc.ktx2",
+          "size": "2k",
+          "map": "orh",
+          "format": "uastc",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4191474,
+          "sha256": "b0c298cb8bd4d19412c64eb39b39c33bfd339544c5a487ab48cb74bee059544c"
+        }
+      ]
     }
   ]
 }

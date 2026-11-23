@@ -140,7 +140,7 @@ fn shifted(points: &[(f64, f64)], offset: DVec2) -> Vec<DVec2> {
 
 /// Plains in the west and mountains in the east, 4 km × 3 km, split by a
 /// bent border, all moved by `offset`.
-pub fn two_biomes(offset: DVec2, config: Config) -> StitchedWorld {
+pub fn two_terrains(offset: DVec2, config: Config) -> StitchedWorld {
     two_regions(
         offset,
         preset(TerrainPreset::Plains, config.seed(1, 1)),
@@ -149,7 +149,7 @@ pub fn two_biomes(offset: DVec2, config: Config) -> StitchedWorld {
     )
 }
 
-/// Two regions with the given settings, split by the two-biome bent border
+/// Two regions with the given settings, split by the two-terrain bent border
 /// (non-convex on both sides), joined with `convergence`.
 pub fn two_regions(
     offset: DVec2,

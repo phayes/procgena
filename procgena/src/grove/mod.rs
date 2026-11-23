@@ -19,7 +19,7 @@ pub const START_PRESET: GrovePreset = GrovePreset::OakWoodland;
 
 /// Smallest and largest width of the grove's square of ground in the 3D
 /// view, in metres.
-pub const SIZE_RANGE: (f32, f32) = (10.0, 100.0);
+pub const SIZE_RANGE: (f32, f32) = (10.0, 500.0);
 
 /// Width of the square of flat ground the rows' trees per hectare are
 /// counted on, in metres. It is fixed, so the counts don't change with the
@@ -185,11 +185,13 @@ mod tests {
 
     #[test]
     fn rows_show_asked_densities_when_the_grove_cannot_be_placed() {
-        let grove = GrovePreset::AspenStand.grove().with_density(20_000.0);
+        // More trees on the sample hectare than one placement may hold.
+        let too_dense = 1.5 * procgena_tree::MAX_GROVE_INSTANCES as f32;
+        let grove = GrovePreset::AspenStand.grove().with_density(too_dense);
         let rows = row_statuses(&grove);
         assert!(rows.iter().all(|row| !row.placed));
         let asked: f32 = rows.iter().map(|row| row.per_ha).sum();
-        assert!((asked - 20_000.0).abs() < 1.0, "{asked}");
+        assert!((asked - too_dense).abs() < 1.0, "{asked}");
     }
 
     #[test]

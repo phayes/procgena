@@ -50,6 +50,71 @@ ground.
     its own camera distance, and grove mode ignores the Trees tab's choice.
   - The status bar shows the grove's size at full detail, not the variants
     generating.
+- **Follow-up (instanced renderer and promotion): done.** See "Instanced
+  renderer" below.
+
+## Instanced renderer
+
+Groves no longer spawn an entity per tree. The grove entity draws all its
+trees, and single trees can be promoted to ordinary tree entities.
+
+### As built
+
+- **Main world** (`grove.rs`): a finished placement adds
+  `TreeGroveInstances` (every `PlacedTree`), `TreeGroveAssets` (one
+  `GroveVariant` per species variant, filled in as `TreeCache` finishes
+  them) and, when every variant has settled, `TreeGroveStats`. The grove
+  holds its variants in the cache through a private `HeldTreeKeys`, which
+  `prune_cache` respects. `GroveMember` is gone.
+- **Render world** (`grove/render.rs`):
+  - one Bevy `MeshUniform` per tree in a storage buffer, bound as Bevy's
+    model-only mesh bind group, so `tree.wesl` and `tree_prepass.wesl` read
+    it as they read a single tree's. A per-instance vertex input (location
+    12) carries the record index and the crossfade dither;
+  - pipelines come from the tree material's own builders
+    (`MaterialProperties::base_specialize` / `prepass_specialize`) with a
+    `WindKey { grove: true }` in the material key, so there is no copy of
+    Bevy's specializers. `WindExtension::specialize` adds the `GROVE`
+    shader def and the instance buffer for that key;
+  - one `NonMesh` item per grove in `Opaque3d`, `AlphaMask3d`, their
+    prepass and deferred phases, and `Shadow`; the draw command switches
+    pipeline per (variant, level, part) and issues one instanced draw each;
+  - **culling and level picking run on the CPU** (the plan's fallback "B"),
+    per camera and per shadow view, with the same bands and dither as
+    `VisibilityRange`. A compute pass was not needed: the CPU cost stays
+    about flat (below).
+- **Promotion** (`grove/promote.rs`): `PromotedTree { grove, id }` gives the
+  entity the tree's `TreeParams`, `Transform` and `ChildOf(grove)`; the grove
+  stops drawing that tree once the entity's parts exist. Grove edits update
+  or despawn promoted trees. `GroveTrees::within` and `ray_cast` (exact,
+  against the nearest level's triangles) find trees. Example:
+  `examples/grove_promote.rs`.
+- `MAX_GROVE_INSTANCES` is 20,000, and the studio's Grove Size goes to 500 m.
+- Trellis wires are not drawn in groves.
+
+### Measurements
+
+`examples/grove_bench.rs` on an M1 Max, dev profile, 1920 × 1080, one
+shadowed sun, Oak Woodland, 300 frames. `--entities` draws the same trees
+as one `TreeParams` entity each, the old way. Main and render are CPU time
+(the app's systems; the render world's preparation before recording GPU
+work). The frame waits for the GPU, so it includes drawing; Bevy's GPU pass
+timings make this Metal driver lose the device, so the GPU cost isn't
+measured separately.
+
+| Grove | Trees | Path | Entities | Main CPU mean / p95 | Render CPU mean / p95 | Frame mean |
+| --- | --- | --- | --- | --- | --- | --- |
+| 120 m | 505 | entities | 5.0k | 2.0 / 3.2 ms | 2.5 / 2.8 ms | 6.0 ms |
+| 120 m | 505 | grove | 450 | 1.4 / 1.8 ms | 1.7 / 1.9 ms | 6.1 ms |
+| 300 m | 3169 | entities | 29.0k | 3.0 / 4.7 ms | 2.7 / 3.0 ms | 13.1 ms |
+| 300 m | 3169 | grove | 450 | 1.5 / 2.1 ms | 2.0 / 2.2 ms | 13.1 ms |
+| 500 m | 8648 | entities | 78.3k | 5.0 / 6.2 ms | 3.1 / 3.8 ms | 21.2 ms |
+| 500 m | 8648 | grove | 450 | 1.7 / 2.4 ms | 2.4 / 2.5 ms | 19.9 ms |
+
+The grove keeps the CPU cost nearly flat as trees are added. Frame time is
+set by the GPU drawing the trees: cheaper far trees (impostors) are what
+would make 500 m groves fast. An earlier version of this section read the
+frame time as CPU only and overstated the entity path's cost.
 
 ## Bottom line
 
@@ -155,6 +220,12 @@ can make way for a new neighbour beyond it.
   - Numbers are written as `f32` (`0.6`).
 
 ## Rebuild cost (as built)
+
+This table describes the first version, with an entity per tree. With the
+instanced renderer, a placement replaces `TreeGroveInstances` instead of
+spawning and despawning children, and the render world rewrites the grove's
+mesh records when the trees or the grove's transform change. Which meshes
+are regenerated is unchanged.
 
 | Edit | What happens |
 | --- | --- |
@@ -264,7 +335,9 @@ This follows the `field/` module. The new files are
 
 ## Out of scope / follow-ups
 
-- An instanced or impostor far-field renderer for thousands of trees.
+- An impostor far-field level (one textured quad per tree) for groves
+  hundreds of metres across; the instanced renderer is done.
+- `RenderLayers` on groves, and trellis wires in groves.
 - An image density mask and heightmap ground on the Bevy component.
 - A per-tree colour tint, which needs per-instance material data.
 - Undergrowth: a `PlantField` under a grove.

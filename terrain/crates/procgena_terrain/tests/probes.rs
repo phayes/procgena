@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{CONFIGS, Config, TWO_REGION_BORDER, hills_into_plains, two_biomes};
+use common::{CONFIGS, Config, TWO_REGION_BORDER, hills_into_plains, two_terrains};
 use glam::DVec2;
 use procgena_terrain::{FeatureLine, PortKind, StitchedWorld};
 
@@ -27,14 +27,14 @@ fn label(config: Config) -> String {
 }
 
 /// How far the mountains' own ground lies above the plains' own ground
-/// along the two-biome border (mean and largest, with the part of the mean
+/// along the two-terrain border (mean and largest, with the part of the mean
 /// that comes from the presets' mean elevations), and how far the
 /// negotiated border moves each side's own ground (mean).
 #[test]
 #[ignore]
 fn border_gap() {
     for config in CONFIGS {
-        let world = two_biomes(DVec2::ZERO, config);
+        let world = two_terrains(DVec2::ZERO, config);
         let [plains, mountains] = [0, 1].map(|i| &world.terrains()[i]);
         let points = border_points(5.0);
         let gaps: Vec<f32> = points
@@ -224,72 +224,158 @@ fn feature_problems(world: &StitchedWorld) -> Vec<String> {
     out
 }
 
-/// TEMPORARY: writes the blend-1 two-biome world's carved ground around
-/// the mountain road for a 3D viewer: a header line, then per sample a
-/// little-endian f32 height and a u8 label (0 ground, 1 water, 2 bluff,
-/// 3 cliff, 4 road), then the roads and points of interest as JSON.
+/// Writes the carved ground of the test worlds for the 3D viewer, into the
+/// directory named by `SCENE_DIR`: per scene, `<key>.bin` holds an f32
+/// height per sample (row by row, NaN outside every region), then a label
+/// byte per sample (bits: 1 water, 2 road, 4 cut, 8 embankment,
+/// 16 retaining wall, 32 bluff, 64 cliff), then the owning region's index
+/// per sample (255 outside); `<key>.json` holds the grid, the regions,
+/// rivers, roads and points of interest; `scenes.json` lists the scenes.
 #[test]
 #[ignore]
 fn scene_dump() {
-    let world = two_biomes(DVec2::ZERO, CONFIGS[10]);
-    let (x0, z0, step, n) = (0.0f64, -640.0f64, 2.5f64, 513usize);
-    let roads: Vec<&FeatureLine> = world.terrains().iter().flat_map(|t| t.roads()).collect();
-    let mut bytes = Vec::with_capacity(n * n * 5);
-    let mut labels = Vec::with_capacity(n * n);
-    for j in 0..n {
-        for i in 0..n {
-            let p = DVec2::new(x0 + step * i as f64, z0 + step * j as f64);
-            let t = world.owner(p).unwrap();
-            bytes.extend(t.height(p).to_le_bytes());
-            // Label bits: 1 water, 2 road, 4 cut, 8 embankment,
-            // 16 retaining wall, 32 bluff, 64 cliff.
-            let tags = t.road_tags(p);
-            let mut label = u8::from(t.water_level(p).is_some());
-            for (bit, tag) in [
-                (2u8, procgena_terrain::RoadTags::ROAD),
-                (4, procgena_terrain::RoadTags::CUT),
-                (8, procgena_terrain::RoadTags::EMBANKMENT),
-                (16, procgena_terrain::RoadTags::RETAINING_WALL),
-                (32, procgena_terrain::RoadTags::BLUFF),
-                (64, procgena_terrain::RoadTags::CLIFF),
-            ] {
-                if tags.contains(tag) {
-                    label |= bit;
+    let dir = std::env::var("SCENE_DIR").expect("SCENE_DIR");
+    let default = common::DEFAULT;
+    let blend_1 = Config {
+        blend: 1.0,
+        ..default
+    };
+    let scenes = [
+        ("two_terrains", "Two terrains: plains and mountains", two_terrains(DVec2::ZERO, default), 5.0, None),
+        ("two_terrains_blend_1", "Two terrains, relief blend 1", two_terrains(DVec2::ZERO, blend_1), 5.0, None),
+        (
+            "mountain_road",
+            "Mountain road close-up (blend 1)",
+            two_terrains(DVec2::ZERO, blend_1),
+            2.5,
+            Some((DVec2::new(0.0, -640.0), DVec2::new(1280.0, 640.0))),
+        ),
+        ("triple_junction", "Triple junction", common::triple_junction(default), 5.0, None),
+        (
+            "hills_into_plains_81",
+            "Hills into plains, seed 81 (river crossing)",
+            hills_into_plains(81, default),
+            5.0,
+            None,
+        ),
+        (
+            "hills_into_plains_64",
+            "Hills into plains, seed 64 (river joins)",
+            hills_into_plains(64, default),
+            5.0,
+            None,
+        ),
+    ];
+    let mut list = Vec::new();
+    for (key, title, world, step, window) in &scenes {
+        // The window: the whole world unless given.
+        let (lo, hi) = window.unwrap_or_else(|| {
+            world.terrains().iter().flat_map(|t| polygon(t)).fold(
+                (DVec2::INFINITY, DVec2::NEG_INFINITY),
+                |(lo, hi), p| (lo.min(p), hi.max(p)),
+            )
+        });
+        let nx = ((hi.x - lo.x) / step).floor() as usize + 1;
+        let nz = ((hi.y - lo.y) / step).floor() as usize + 1;
+
+        // Samples.
+        let mut heights = Vec::with_capacity(nx * nz * 4);
+        let mut labels = Vec::with_capacity(nx * nz);
+        let mut owners = Vec::with_capacity(nx * nz);
+        for j in 0..nz {
+            for i in 0..nx {
+                let p = lo + DVec2::new(*step * i as f64, *step * j as f64);
+                let Some(t) = world.owner(p) else {
+                    heights.extend(f32::NAN.to_le_bytes());
+                    labels.push(0);
+                    owners.push(255);
+                    continue;
+                };
+                heights.extend(t.height(p).to_le_bytes());
+                let tags = t.road_tags(p);
+                let mut label = u8::from(t.water_level(p).is_some());
+                for (bit, tag) in [
+                    (2u8, procgena_terrain::RoadTags::ROAD),
+                    (4, procgena_terrain::RoadTags::CUT),
+                    (8, procgena_terrain::RoadTags::EMBANKMENT),
+                    (16, procgena_terrain::RoadTags::RETAINING_WALL),
+                    (32, procgena_terrain::RoadTags::BLUFF),
+                    (64, procgena_terrain::RoadTags::CLIFF),
+                ] {
+                    if tags.contains(tag) {
+                        label |= bit;
+                    }
                 }
+                labels.push(label);
+                owners.push(
+                    world
+                        .terrains()
+                        .iter()
+                        .position(|u| std::ptr::eq(u, t))
+                        .unwrap() as u8,
+                );
             }
-            labels.push(label);
         }
-    }
-    bytes.extend(labels);
-    let lines: Vec<String> = roads
-        .iter()
-        .map(|r| {
-            let pts: Vec<String> = r
+        heights.extend(labels);
+        heights.extend(owners);
+        std::fs::write(format!("{dir}/{key}.bin"), heights).unwrap();
+
+        // Lines, points and regions.
+        let line = |l: &FeatureLine| {
+            let pts: Vec<String> = l
                 .points
                 .iter()
-                .zip(&r.levels)
-                .map(|(p, l)| format!("[{:.2},{:.2},{:.2}]", p.x, l, p.y))
+                .zip(&l.levels)
+                .map(|(p, h)| format!("[{:.2},{:.2},{:.2}]", p.x, h, p.y))
                 .collect();
-            format!("{{\"width\":{},\"points\":[{}]}}", r.width, pts.join(","))
-        })
-        .collect();
-    let pois: Vec<String> = world
-        .terrains()
-        .iter()
-        .flat_map(|t| t.points_of_interest())
-        .map(|p| format!("[{:.2},{:.2},{:.2}]", p.position.x, p.level, p.position.y))
-        .collect();
-    let dir = std::env::var("SCENE_DIR").expect("SCENE_DIR");
-    std::fs::write(format!("{dir}/scene.bin"), bytes).unwrap();
-    std::fs::write(
-        format!("{dir}/scene.json"),
-        format!(
-            "{{\"x0\":{x0},\"z0\":{z0},\"step\":{step},\"n\":{n},\"roads\":[{}],\"pois\":[{}]}}",
-            lines.join(","),
-            pois.join(",")
-        ),
-    )
-    .unwrap();
+            format!("{{\"width\":{},\"points\":[{}]}}", l.width, pts.join(","))
+        };
+        let terrains = world.terrains();
+        let roads: Vec<String> = terrains.iter().flat_map(|t| t.roads()).map(line).collect();
+        let rivers: Vec<String> = terrains.iter().flat_map(|t| t.rivers()).map(line).collect();
+        let pois: Vec<String> = terrains
+            .iter()
+            .flat_map(|t| t.points_of_interest())
+            .map(|p| format!("[{:.2},{:.2},{:.2}]", p.position.x, p.level, p.position.y))
+            .collect();
+        let regions: Vec<String> = terrains
+            .iter()
+            .map(|t| {
+                let pts: Vec<String> =
+                    polygon(t).iter().map(|p| format!("[{:.2},{:.2}]", p.x, p.y)).collect();
+                format!(
+                    "{{\"id\":{},\"seed\":{},\"polygon\":[{}]}}",
+                    t.region().id.0,
+                    t.generator().options().seed,
+                    pts.join(",")
+                )
+            })
+            .collect();
+        std::fs::write(
+            format!("{dir}/{key}.json"),
+            format!(
+                "{{\"title\":\"{title}\",\"x0\":{},\"z0\":{},\"step\":{step},\"nx\":{nx},\"nz\":{nz},\
+                 \"regions\":[{}],\"roads\":[{}],\"rivers\":[{}],\"pois\":[{}]}}",
+                lo.x,
+                lo.y,
+                regions.join(","),
+                roads.join(","),
+                rivers.join(","),
+                pois.join(",")
+            ),
+        )
+        .unwrap();
+        list.push(format!("{{\"key\":\"{key}\",\"title\":\"{title}\"}}"));
+    }
+    std::fs::write(format!("{dir}/scenes.json"), format!("[{}]", list.join(","))).unwrap();
+}
+
+/// The polygon of a terrain's region.
+fn polygon(t: &procgena_terrain::Terrain) -> Vec<DVec2> {
+    match &t.region().boundary {
+        procgena_terrain::Boundary::Polygon(p) => p.clone(),
+        _ => Vec::new(),
+    }
 }
 
 /// Every break of the feature suite's limits in every test world, and in
@@ -299,7 +385,7 @@ fn scene_dump() {
 fn feature_limits() {
     for config in CONFIGS {
         let mut worlds = vec![
-            ("two biomes".to_string(), two_biomes(DVec2::ZERO, config)),
+            ("two terrains".to_string(), two_terrains(DVec2::ZERO, config)),
             (
                 "triple junction".to_string(),
                 common::triple_junction(config),

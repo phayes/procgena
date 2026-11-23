@@ -18,18 +18,28 @@ struct TreeVertex {
     @location(10) billboard_axis: vec4<f32>,
     @if(BILLBOARD_NORMAL)
     @location(11) billboard_normal: vec3<f32>,
+    /// For a grove tree: its index in the grove's mesh records, and its
+    /// detail-level dither, as the bits of an `i32`.
+    @if(GROVE)
+    @location(12) grove: vec2<u32>,
 }
 
 @vertex
 fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     var out: VertexOutput;
     let vertex = decompress_vertex(in, in.instance_index);
-    let world_from_local = mesh_functions::get_world_from_local(in.instance_index);
+
+    // A grove draws many trees from one mesh; each names its own mesh record.
+    var index = in.instance_index;
+@if(GROVE) {
+    index = tree.grove.x;
+}
+    let world_from_local = mesh_functions::get_world_from_local(index);
 
     // Rotate billboards toward this view before adding wind movement.
     var position = vertex.position;
 @if(BILLBOARD) {
-    let local_from_world = mesh_functions::get_local_from_world(in.instance_index);
+    let local_from_world = mesh_functions::get_local_from_world(index);
     var turned: TurnedVertex;
 @if(BILLBOARD_NORMAL) {
     turned = turn_lit_billboard(
@@ -43,7 +53,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     turned = turn_billboard(tree.billboard_pivot, tree.billboard_axis, local_from_world);
 }
     position = turned.position;
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(turned.normal, in.instance_index);
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(turned.normal, index);
 }
 
     // Apply wind locally, then use the entity transform to place the vertex in the world.
@@ -55,7 +65,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     out.position = position_world_to_clip(out.world_position.xyz);
 
 @if(VERTEX_NORMALS && !BILLBOARD)
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, in.instance_index);
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, index);
 @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
 @if(VERTEX_UVS_B)
@@ -64,16 +74,18 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
         world_from_local,
         vertex.tangent,
-        in.instance_index,
+        index,
     );
 @if(VERTEX_COLORS)
     out.color = vertex.color;
 @if(VERTEX_OUTPUT_INSTANCE_INDEX)
-    out.instance_index = in.instance_index;
-@if(VISIBILITY_RANGE_DITHER)
+    out.instance_index = index;
+@if(VISIBILITY_RANGE_DITHER && !GROVE)
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
-        in.instance_index,
+        index,
         world_from_local[3],
     );
+@if(VISIBILITY_RANGE_DITHER && GROVE)
+    out.visibility_range_dither = bitcast<i32>(tree.grove.y);
     return out;
 }

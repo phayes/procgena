@@ -1,11 +1,13 @@
-//! Names and file paths of the optional cap texture sets.
+//! Names and file paths of the optional cap and stem texture sets.
 //!
 //! Most mushrooms use no textures: their colours are vertex colours. A
-//! preset can name a cap texture set in [`MaterialOptions::cap_texture`];
-//! renderers then load that set's images, which are made with the
-//! repository's `textures` tool (see `mushroom/textures.yml`).
+//! preset can name a cap texture set in [`MaterialOptions::cap_texture`]
+//! and a stem set in [`MaterialOptions::stem_texture`]; renderers then load
+//! that set's images, which are made with the repository's `textures` tool
+//! (see `mushroom/textures.yml`).
 //!
 //! [`MaterialOptions::cap_texture`]: crate::MaterialOptions::cap_texture
+//! [`MaterialOptions::stem_texture`]: crate::MaterialOptions::stem_texture
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +18,68 @@ pub const CAP_TEXTURE_SETS: [&str; 1] = [
     // A fly agaric cap: red with white warts (3dtextures.me, CC0).
     "mushroom_top_001",
 ];
+
+/// Every stem texture set, by name. Each comes with every [`TextureMap`] in
+/// every [`TextureSize`], and repeats in both directions.
+pub const STEM_TEXTURE_SETS: [&str; 2] = [
+    // Pale cream with fine raised streaks and scales (CC0).
+    "creamy_tan",
+    // Mottled brown with a white raised net (CC0).
+    "brown_net",
+];
+
+/// Average linear RGB colour of each stem set's colour image, by set name.
+/// Printed by `uv run --project tools textures average-colors mushroom`.
+const STEM_TEXTURE_AVERAGES: [(&str, [f32; 3]); 2] = [
+    ("creamy_tan", [0.6690, 0.4573, 0.2994]),
+    ("brown_net", [0.4099, 0.2290, 0.1382]),
+];
+
+/// Returns the average colour of stem texture set `set`'s colour image, in
+/// linear RGB, or `None` if `set` is not one of [`STEM_TEXTURE_SETS`].
+///
+/// Divide the texture's colour by this, then multiply by the stem colour,
+/// to tint the texture to the stem's colours as
+/// [`MaterialOptions::stem_texture`](crate::MaterialOptions::stem_texture)
+/// describes.
+pub fn stem_texture_average(set: &str) -> Option<[f32; 3]> {
+    STEM_TEXTURE_AVERAGES
+        .iter()
+        .find(|(name, _)| *name == set)
+        .map(|(_, colour)| *colour)
+}
+
+/// The part of a mushroom a texture set is made for. Each part's sets are
+/// kept in their own folder, so pass the part with the set's name to
+/// [`texture_path`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TexturePart {
+    /// The top of the cap: one of [`CAP_TEXTURE_SETS`].
+    Cap,
+    /// The stem: one of [`STEM_TEXTURE_SETS`].
+    Stem,
+}
+
+impl TexturePart {
+    /// Every part.
+    pub const ALL: [TexturePart; 2] = [Self::Cap, Self::Stem];
+
+    /// Returns the part's folder name in texture paths: `"cap"` or `"stem"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cap => "cap",
+            Self::Stem => "stem",
+        }
+    }
+
+    /// Returns the names of every texture set made for this part.
+    pub fn sets(self) -> &'static [&'static str] {
+        match self {
+            Self::Cap => &CAP_TEXTURE_SETS,
+            Self::Stem => &STEM_TEXTURE_SETS,
+        }
+    }
+}
 
 /// Width and height of a texture image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -110,15 +174,18 @@ impl TextureMap {
 ///
 /// The folder is `mushroom/assets/textures/` in the repository, filled by
 /// `uv run --project tools textures download mushroom`. `set` should be one of
-/// [`CAP_TEXTURE_SETS`]; other names give paths to files that don't exist.
+/// [`TexturePart::sets`] for `part`; other names give paths to files that
+/// don't exist.
 pub fn texture_path(
+    part: TexturePart,
     set: &str,
     size: TextureSize,
     map: TextureMap,
     compression: TextureCompression,
 ) -> String {
     format!(
-        "cap/{set}-{}-{}-{}.ktx2",
+        "{}/{set}-{}-{}-{}.ktx2",
+        part.as_str(),
         size.as_str(),
         map.as_str(),
         compression.as_str()
@@ -133,6 +200,7 @@ mod tests {
     fn paths_follow_the_repository_layout() {
         assert_eq!(
             texture_path(
+                TexturePart::Cap,
                 "mushroom_top_001",
                 TextureSize::Size1k,
                 TextureMap::Color,
@@ -142,6 +210,7 @@ mod tests {
         );
         assert_eq!(
             texture_path(
+                TexturePart::Cap,
                 "mushroom_top_001",
                 TextureSize::Size512,
                 TextureMap::Orh,
@@ -149,6 +218,39 @@ mod tests {
             ),
             "cap/mushroom_top_001-512-orh-uastc.ktx2"
         );
+        assert_eq!(
+            texture_path(
+                TexturePart::Stem,
+                "brown_net",
+                TextureSize::Size2k,
+                TextureMap::Normal,
+                TextureCompression::Bc7
+            ),
+            "stem/brown_net-2k-normal-bc7.ktx2"
+        );
+    }
+
+    #[test]
+    fn every_stem_set_has_an_average_colour() {
+        for set in STEM_TEXTURE_SETS {
+            assert!(stem_texture_average(set).is_some(), "{set}");
+        }
+        assert_eq!(stem_texture_average("mushroom_top_001"), None);
+    }
+
+    #[test]
+    fn stem_options_accept_only_stem_sets() {
+        let mut options = crate::MushroomPreset::Porcini.options();
+        options.material.stem_texture = Some("brown_net".into());
+        assert!(options.validate().is_ok());
+        options.material.stem_texture = Some("mushroom_top_001".into());
+        assert!(matches!(
+            options.validate(),
+            Err(crate::OptionsError::UnknownTexture {
+                field: "material.stem_texture",
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -169,12 +271,14 @@ mod tests {
     #[ignore = "needs `uv run --project tools textures download mushroom` first"]
     fn every_listed_file_exists() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/textures");
-        for set in CAP_TEXTURE_SETS {
-            for size in TextureSize::ALL {
-                for map in TextureMap::ALL {
-                    for compression in TextureCompression::ALL {
-                        let path = root.join(texture_path(set, size, map, compression));
-                        assert!(path.exists(), "missing {}", path.display());
+        for part in TexturePart::ALL {
+            for set in part.sets() {
+                for size in TextureSize::ALL {
+                    for map in TextureMap::ALL {
+                        for compression in TextureCompression::ALL {
+                            let path = root.join(texture_path(part, set, size, map, compression));
+                            assert!(path.exists(), "missing {}", path.display());
+                        }
                     }
                 }
             }

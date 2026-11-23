@@ -13,7 +13,7 @@ counterpart of a plant field. Two types describe it:
 A grove says nothing about where it grows. `GrovePlacement::new` in
 `procgena_tree` lays it out over ground of a size you choose, and the
 `TreeGroveParams` component in `procgena_tree_bevy` does the same for a Bevy
-entity and spawns the trees.
+entity and draws the trees.
 
 ## Start from a preset
 
@@ -47,6 +47,60 @@ fn plant_grove(mut commands: Commands) {
     ));
 }
 ```
+
+The grove draws its trees itself, without an entity per tree, so one grove
+can hold thousands of trees. Each tree switches detail level by its distance
+from the camera and sways in the wind, exactly like a single tree. The grove
+entity gets a `TreeGroveInstances` listing every tree (its species, shape
+variant, spot id and transform), a `TreeGroveAssets` with each variant's
+meshes and materials, and a `TreeGroveStats` with the tree count and sizes.
+
+## Give single trees an entity
+
+A game often needs a few trees as entities: those near the player get
+colliders, or the one under the mouse gets selected. Spawn a `PromotedTree`
+naming the grove and the tree's spot id, with whatever the tree needs:
+
+```rust
+use bevy::prelude::*;
+use procgena_tree_bevy::{GroveTrees, PromotedTree};
+
+#[derive(Component)]
+struct Collider;
+
+/// Gives every tree within 10 m of the camera a collider.
+fn promote_nearby(
+    mut commands: Commands,
+    trees: GroveTrees,
+    camera: Single<&GlobalTransform, With<Camera3d>>,
+    promoted: Query<&PromotedTree>,
+) {
+    for (grove, tree) in trees.within(camera.translation(), 10.0) {
+        let promotion = PromotedTree::new(grove, tree.id);
+        if !promoted.iter().any(|p| *p == promotion) {
+            commands.spawn((promotion, Collider));
+        }
+    }
+}
+```
+
+- The entity becomes an ordinary tree with a `TreeParams`, a child of the
+  grove standing where the grove drew the tree. It is drawn with the same
+  meshes, materials, detail levels and wind, and the grove stops drawing its
+  own copy, so nothing visibly changes.
+- Despawn the entity to give the tree back. Removing only `PromotedTree`
+  removes the tree but keeps the entity and your components.
+- The entity follows the grove: if an edit leaves no tree on its spot, it is
+  despawned; if the spot's tree changes, so does the entity's.
+- `GroveTrees::within` finds trees whose base is near a point, and
+  `GroveTrees::ray_cast` finds the tree a ray hits first, tested against the
+  triangles of its nearest detail level. Use it with
+  `Camera::viewport_to_world` to pick trees with the mouse.
+- `GroveVariant::object` gives a variant's tree as a tagged `Object`, to
+  build colliders from.
+
+The `grove_promote` example shows both: `--mode distance` promotes the trees
+near the camera, and `--mode click` the tree you click.
 
 ## Mix species
 
@@ -188,7 +242,7 @@ The filename must end in `.grove.json`.
 | --- | --- | --- |
 | `MAX_GROVE_TREES` | 16 species | `GroveError::TooManyTrees` |
 | `MAX_GROVE_VARIANTS` | 8 variants per species | `GroveError::Options` |
-| `MAX_GROVE_INSTANCES` | 4000 trees, before spacing | `GroveError::TooMany` |
+| `MAX_GROVE_INSTANCES` | 20,000 trees, before spacing | `GroveError::TooMany` |
 | `MAX_GROVE_SIZE` | 2048 m on a side | `GroveError::Options` |
 
 A grove is never denser than 4 trees per m², because each 0.5 m square of

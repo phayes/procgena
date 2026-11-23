@@ -18,13 +18,11 @@ cold; a warm run takes about 10 s.
 | Crate | Command (after `cargo run -p <crate> --example viewer --`) | Textures from |
 |---|---|---|
 | `procgena_deadwood_bevy` | `--headless --screenshot <png>`; also `--preset <snake_name>`, `--scatter <kindling\|twig_litter>`, `--distance <m>` (for checking each detail level), `--closeup`, `--orbit <deg>`, `--flat`, `--no-textures` | `deadwood/assets/textures` |
+| `procgena_mushroom_bevy` | `--headless --screenshot <png>`; also `--preset <snake_name>`, `--closeup`, `--orbit <deg>`, `--flat` | `mushroom/assets/textures` |
 | `procgena_clump_bevy` | `--headless --screenshot <png>`; also `--eye x y z --target x y z` | `clump`, `stone`, `tree` assets |
 | `procgena_stone_bevy` | `--headless --screenshot <png>`; also `--eye`, `--target`, `--resolution w h` | `stone/assets/textures` |
 | `procgena_tree_bevy` | `--headless --screenshot <png>`; also `--preset`, `--eye`, `--target`, `--lod`, `--resolution` | `tree/assets/textures` |
 | `procgena` (studio) | `cargo run -p procgena -- --headless <script>` (debug builds); script commands such as `click TEXT`, `wait S`, `shot PATH`, `dump`. See `procgena/src/headless.rs`. | all |
-
-`procgena_mushroom_bevy`'s viewer has `--screenshot` but no `--headless`
-yet; add it with the recipe below before using it.
 
 Each example's opening doc comment lists every option; read it first.
 Download missing textures with `uv run --project tools textures download

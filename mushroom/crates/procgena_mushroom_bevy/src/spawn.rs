@@ -16,10 +16,10 @@ use procgena_mesh::{GeneratedObject, Object};
 use procgena_mushroom::{
     ClusterOptions, DEFAULT_LOD_SIZE, Mushroom, MushroomCluster, MushroomError, MushroomInstance,
     MushroomLod, MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError,
-    ScatterOptions, TextureCompression, TextureSize,
+    ScatterOptions, TextureCompression, TexturePart, TextureSize,
 };
 
-use crate::material::{CapTextures, MushroomMaterial, mushroom_material};
+use crate::material::{MushroomMaterial, TextureSet, mushroom_material};
 use crate::mesh::{mushroom_mesh, ribbon_aabb, ribbon_mesh};
 
 /// Asks for one mushroom, standing at the entity's position.
@@ -203,10 +203,11 @@ pub(crate) struct SpawnSettings {
     pub textures: Option<TextureSettings>,
 }
 
-/// Where and in what form to load cap textures.
+/// Where and in what form to load cap and stem textures.
 #[derive(Debug, Clone)]
 pub(crate) struct TextureSettings {
-    /// Folder relative to Bevy's asset folder that holds `cap/`.
+    /// Folder relative to Bevy's asset folder that holds `cap/` and
+    /// `stem/`.
     pub root: String,
     /// Image size to load.
     pub size: TextureSize,
@@ -350,8 +351,8 @@ pub(crate) struct MushroomCache {
     variants: HashMap<String, Arc<VariantAssets>>,
     /// Materials by material settings (as JSON) and two-sidedness.
     materials: HashMap<(String, bool), Handle<MushroomMaterial>>,
-    /// Cap texture images by set name, kept for reuse.
-    cap_textures: HashMap<String, CapTextures>,
+    /// Cap and stem texture images by part and set name, kept for reuse.
+    texture_sets: HashMap<(TexturePart, String), TextureSet>,
 }
 
 // --------------------------------------------------------------------------
@@ -748,9 +749,9 @@ pub(crate) fn finish_generation(
 /// handles, or returns the cached handles for an identical variant.
 /// Materials are shared by every variant with the same material settings.
 ///
-/// `textures` is the asset server and, when cap textures are wanted, where
-/// to load them from; the variant's cap texture set, if it names one, is
-/// loaded once and then reused.
+/// `textures` is the asset server and, when textures are wanted, where to
+/// load them from; the variant's cap and stem texture sets, if it names
+/// them, are loaded once and then reused.
 fn upload(
     variant: BuiltVariant,
     cache: &mut MushroomCache,
@@ -762,22 +763,29 @@ fn upload(
         return found.clone();
     }
 
-    // The cap texture set, if this mushroom names one and textures are on.
-    let cap = match (&variant.options.material.cap_texture, textures) {
+    // The cap and stem texture sets, if this mushroom names them and
+    // textures are on.
+    let m = &variant.options.material;
+    let mut texture_set = |part: TexturePart, name: &Option<String>| match (name, textures) {
         (Some(set), Some(t)) => Some(
             cache
-                .cap_textures
-                .entry(set.clone())
+                .texture_sets
+                .entry((part, set.clone()))
                 .or_insert_with(|| {
-                    CapTextures::load(asset_server, &t.root, set, t.size, t.compression)
+                    TextureSet::load(asset_server, &t.root, part, set, t.size, t.compression)
                 })
                 .clone(),
         ),
         _ => None,
     };
+    let cap = texture_set(TexturePart::Cap, &m.cap_texture);
+    let stem = texture_set(TexturePart::Stem, &m.stem_texture);
 
-    let material_json = serde_json::to_string(&(&variant.options.material, variant.options.size))
-        .unwrap_or_default();
+    // Materials depend on the material settings, the size, and the stem's
+    // width (for flat stems).
+    let s = &variant.options.stem;
+    let material_json =
+        serde_json::to_string(&(m, variant.options.size, s.radius, s.base)).unwrap_or_default();
     let mut material = |double_sided: bool| {
         cache
             .materials
@@ -787,6 +795,7 @@ fn upload(
                     &variant.options,
                     double_sided,
                     cap.as_ref(),
+                    stem.as_ref(),
                 ))
             })
             .clone()

@@ -1,4 +1,11 @@
-//! Groves: many generated trees spread over ground as children of one entity.
+//! Groves: many generated trees spread over ground and drawn by one entity.
+
+mod promote;
+mod render;
+
+pub use promote::{GroveHit, GroveTrees, PromotedTree};
+pub(crate) use promote::{demote_trees, sync_promoted_trees};
+pub(crate) use render::GroveRenderPlugin;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -6,6 +13,7 @@ use std::sync::Arc;
 
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
+use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_mesh::{GeneratedObject, Object, TagFilter};
@@ -14,23 +22,31 @@ use procgena_tree::{
     TreeGrove, TreeOptions,
 };
 
-use crate::spawn::{TreeGenerating, TreeParams};
+use crate::material::TreeMaterial;
+use crate::spawn::{
+    CacheState, Generated, HeldTreeKeys, SpawnSettings, TreeCache, TreeKey, TreePartKind,
+};
 
 /// A grove of trees, spread over a rectangle of ground centred on this
 /// entity.
 ///
-/// Add it after installing [`TreePlugin`](crate::TreePlugin). Each placed
-/// tree becomes a child entity with a [`TreeParams`], a `Transform` and a
-/// [`GroveMember`], and is generated and drawn like any other tree. Trees of
-/// the same species and shape variant share their meshes, so a grove of
-/// hundreds of trees builds only a handful of meshes. Each tree is still a
-/// few entities (one per part and detail level), so keep groves to hundreds
-/// of trees rather than thousands.
+/// Add it after installing [`TreePlugin`](crate::TreePlugin). The grove
+/// draws all its trees itself, without an entity per tree, so one grove can
+/// hold thousands of trees, up to
+/// [`MAX_GROVE_INSTANCES`](procgena_tree::MAX_GROVE_INSTANCES). Trees of the
+/// same species and shape variant share their meshes, and switch detail
+/// levels and sway in the wind like single trees. The grove entity gets a
+/// [`TreeGroveInstances`] listing every tree, and a [`TreeGroveAssets`] with
+/// their meshes; to give one tree an entity of its own, see
+/// [`PromotedTree`].
 ///
 /// Changing the component updates the grove in place: trees that keep their
-/// spot, species and shape stay as they are, and only trees that are new,
-/// gone or changed are spawned, despawned or rebuilt. Lowering the density
-/// only removes trees. Removing the component removes the trees.
+/// spot, species and shape stay as they are, and only trees of a changed
+/// species are generated again. Lowering the density only removes trees.
+/// Removing the component removes the trees.
+///
+/// The grove is drawn in every 3D camera while its entity is visible.
+/// Trellis wires are not drawn in groves.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub struct TreeGroveParams {
@@ -111,16 +127,217 @@ pub enum GroveGround {
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct TreeGroveAsset(pub TreeGrove);
 
-/// Marks a tree child spawned by a [`TreeGroveParams`]. The plugin spawns,
-/// updates and removes these; don't add them yourself.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GroveMember {
+/// One tree of a grove, where it was placed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedTree {
     /// The tree's species: its position in [`TreeGrove::trees`].
     pub tree: usize,
     /// Which of the species' shape variants it is.
     pub variant: u32,
-    /// The spot it stands on; see [`GroveInstance::id`].
+    /// The spot it stands on; see [`GroveInstance::id`]. A spot keeps its id
+    /// through edits that leave a tree on it.
     pub id: u64,
+    /// Where the tree stands, and how it is sized, leaned and turned, relative
+    /// to the grove entity.
+    pub transform: Transform,
+    /// The tree's species variant: its position in
+    /// [`TreeGroveAssets::variants`].
+    pub(crate) slot: u32,
+}
+
+/// Every tree of a grove. The plugin adds it to the grove entity when the
+/// trees are placed and replaces it whenever they are placed again, so
+/// `Changed<TreeGroveInstances>` finds groves whose trees moved.
+///
+/// Groves draw their trees themselves; the trees are not entities. To give
+/// one tree an entity of its own, for a collider or to interact with it, see
+/// [`PromotedTree`](crate::PromotedTree).
+#[derive(Component, Debug, Clone)]
+pub struct TreeGroveInstances {
+    trees: Arc<[PlacedTree]>,
+    by_id: Arc<HashMap<u64, u32>>,
+}
+
+impl TreeGroveInstances {
+    fn new(trees: Vec<PlacedTree>) -> Self {
+        let by_id = trees
+            .iter()
+            .enumerate()
+            .map(|(index, tree)| (tree.id, index as u32))
+            .collect();
+        Self {
+            trees: trees.into(),
+            by_id: Arc::new(by_id),
+        }
+    }
+
+    /// The trees, in no particular order.
+    pub fn trees(&self) -> &[PlacedTree] {
+        &self.trees
+    }
+
+    /// The tree standing on spot `id`, if any.
+    pub fn get(&self, id: u64) -> Option<&PlacedTree> {
+        self.index_of(id).map(|index| &self.trees[index as usize])
+    }
+
+    /// The position of the tree on spot `id` in [`trees`](Self::trees).
+    pub(crate) fn index_of(&self, id: u64) -> Option<u32> {
+        self.by_id.get(&id).copied()
+    }
+}
+
+/// The meshes and materials of a grove's trees: one entry for each species
+/// variant that has trees. The plugin adds it with
+/// [`TreeGroveInstances`] and updates it as the variants finish generating.
+#[derive(Component, Clone)]
+pub struct TreeGroveAssets {
+    variants: Arc<[GroveVariant]>,
+}
+
+impl TreeGroveAssets {
+    /// The variants, in the order [`PlacedTree`]s refer to them.
+    pub fn variants(&self) -> &[GroveVariant] {
+        &self.variants
+    }
+
+    /// The variant of `tree`.
+    pub fn of(&self, tree: &PlacedTree) -> &GroveVariant {
+        &self.variants[tree.slot as usize]
+    }
+
+    /// Whether every variant has finished generating, successfully or not.
+    fn settled(&self) -> bool {
+        self.variants.iter().all(GroveVariant::settled)
+    }
+}
+
+impl fmt::Debug for TreeGroveAssets {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.variants.iter()).finish()
+    }
+}
+
+/// One species variant of a grove, and what it is drawn with once generated.
+#[derive(Clone)]
+pub struct GroveVariant {
+    tree: usize,
+    variant: u32,
+    options: Arc<TreeOptions>,
+    key: TreeKey,
+    generated: Option<Arc<Generated>>,
+    failed: bool,
+}
+
+impl GroveVariant {
+    /// The species: its position in [`TreeGrove::trees`].
+    pub fn tree(&self) -> usize {
+        self.tree
+    }
+
+    /// Which of the species' shape variants this is.
+    pub fn variant(&self) -> u32 {
+        self.variant
+    }
+
+    /// The variant's tree settings.
+    pub fn options(&self) -> &Arc<TreeOptions> {
+        &self.options
+    }
+
+    /// Whether the variant's meshes are ready. A variant that is still
+    /// generating, or whose settings were rejected, draws no trees.
+    pub fn is_ready(&self) -> bool {
+        self.generated.is_some()
+    }
+
+    /// The variant's tree as a tagged object, in the tree's own coordinates,
+    /// once generated. Use it to build colliders.
+    pub fn object(&self) -> Option<&Arc<Object>> {
+        self.generated.as_ref().map(|g| &g.object)
+    }
+
+    /// The parts each detail level draws, nearest level first; empty until
+    /// the variant is ready.
+    pub fn parts(&self) -> impl Iterator<Item = GrovePart<'_>> {
+        self.generated.iter().flat_map(|generated| {
+            generated
+                .parts()
+                .map(|(lod, kind, mesh, material)| GrovePart {
+                    lod,
+                    kind,
+                    mesh: &mesh.mesh,
+                    material,
+                    bounds: mesh.extent,
+                })
+        })
+    }
+
+    /// Whether generation has ended, successfully or not.
+    fn settled(&self) -> bool {
+        self.generated.is_some() || self.failed
+    }
+
+    /// Fills in the variant's generation result from `cache` if it has ended.
+    /// Returns whether anything changed.
+    fn refresh(&mut self, cache: &TreeCache) -> bool {
+        if self.settled() {
+            return false;
+        }
+        match cache.state(self.key) {
+            CacheState::Ready(generated) => self.generated = Some(generated.clone()),
+            CacheState::Failed => self.failed = true,
+            CacheState::Pending => return false,
+        }
+        true
+    }
+}
+
+impl fmt::Debug for GroveVariant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GroveVariant")
+            .field("tree", &self.tree)
+            .field("variant", &self.variant)
+            .field("ready", &self.is_ready())
+            .field("failed", &self.failed)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One mesh a grove variant draws at one detail level.
+#[derive(Debug, Clone, Copy)]
+pub struct GrovePart<'a> {
+    /// The detail level, from 0 for the nearest.
+    pub lod: usize,
+    /// What the mesh is.
+    pub kind: TreePartKind,
+    /// The mesh, in the tree's own coordinates.
+    pub mesh: &'a Handle<Mesh>,
+    /// Its material.
+    pub material: &'a Handle<TreeMaterial>,
+    /// Bounds of the mesh as drawn, in the tree's own coordinates, including
+    /// every way a camera-facing shape can turn. Wind sway is not included.
+    pub bounds: Aabb,
+}
+
+/// How much a grove draws: its tree count, and the vertices and triangles
+/// of all its trees at each detail level. The plugin adds it when the grove
+/// finishes building, before [`TreeGroveFinished`].
+#[derive(Component, Debug, Clone, Default, PartialEq)]
+pub struct TreeGroveStats {
+    /// Trees in the grove, including any whose variant failed to generate.
+    pub trees: usize,
+    /// Sizes of every drawable tree at each detail level, nearest first.
+    pub levels: Vec<GroveLevelSize>,
+}
+
+/// The size of a grove's trees at one detail level.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GroveLevelSize {
+    /// Vertices of every tree at this level.
+    pub vertices: usize,
+    /// Triangles of every tree at this level.
+    pub triangles: usize,
 }
 
 /// Present on a grove while its trees are being placed or generated,
@@ -130,8 +347,9 @@ pub struct TreeGroveGenerating;
 
 /// Triggered on a grove entity when a build ends, successfully or not.
 ///
-/// On success every tree of the grove has been generated and its parts
-/// spawned.
+/// On success every tree of the grove has been placed and generated, and the
+/// grove has its [`TreeGroveInstances`], [`TreeGroveAssets`] and
+/// [`TreeGroveStats`].
 #[derive(EntityEvent, Debug, Clone, PartialEq)]
 pub struct TreeGroveFinished {
     /// The grove entity.
@@ -325,15 +543,13 @@ pub(crate) fn start_groves(
         Option<&ChildOf>,
         Option<&Placing>,
         Option<&Placed>,
-        Option<&Children>,
         Has<TreeGroveGenerating>,
     )>,
     hosts: Query<&GeneratedObject>,
     transforms: TransformHelper,
     assets: Res<Assets<TreeGroveAsset>>,
-    members: Query<(), With<GroveMember>>,
 ) {
-    for (entity, params, parent, placing, placed, kids, generating) in &groves {
+    for (entity, params, parent, placing, placed, generating) in &groves {
         let want = wanted(params, parent, &hosts, &transforms, &assets);
         let Wanted::Place {
             grove,
@@ -345,7 +561,7 @@ pub(crate) fn start_groves(
             // While waiting, remove trees laid on a host that lost its
             // object.
             if placing.is_some() || placed.is_some() {
-                despawn_members(&mut commands, kids, &members);
+                clear_trees(&mut commands, entity);
                 commands.entity(entity).remove::<(Placing, Placed)>();
             }
             if !generating {
@@ -366,7 +582,7 @@ pub(crate) fn start_groves(
             ground,
         };
         if let Some(error) = error {
-            fail(&mut commands, entity, kids, &members, input, error);
+            fail(&mut commands, entity, input, error);
             continue;
         }
         let task_input = input.clone();
@@ -443,16 +659,9 @@ fn wanted<'a>(
 
 /// Removes a grove's trees, records `input` as attempted, and reports
 /// `error`.
-fn fail(
-    commands: &mut Commands,
-    entity: Entity,
-    kids: Option<&Children>,
-    members: &Query<(), With<GroveMember>>,
-    input: Input,
-    error: TreeGroveBuildError,
-) {
+fn fail(commands: &mut Commands, entity: Entity, input: Input, error: TreeGroveBuildError) {
     error!("procgena_tree_bevy: cannot build grove: {error}");
-    despawn_members(commands, kids, members);
+    clear_trees(commands, entity);
     commands
         .entity(entity)
         .remove::<(Placing, TreeGroveGenerating)>()
@@ -505,15 +714,15 @@ fn place(input: &Input) -> Result<Vec<GroveInstance>, TreeGroveBuildError> {
         .map_err(TreeGroveBuildError::Grove)
 }
 
-/// Brings each grove whose placement finished up to date: spawns new trees,
-/// despawns trees that are gone, and updates the rest in place.
+/// Gives each grove whose placement finished its new trees, and starts
+/// generating any species variant that isn't cached yet.
 pub(crate) fn finish_placing(
     mut commands: Commands,
-    mut placing: Query<(Entity, &mut Placing, Option<&Children>)>,
-    members: Query<(&GroveMember, &TreeParams, &Transform)>,
-    member_marker: Query<(), With<GroveMember>>,
+    mut placing: Query<(Entity, &mut Placing, Option<&TreeGroveAssets>)>,
+    mut cache: ResMut<TreeCache>,
+    settings: Res<SpawnSettings>,
 ) {
-    for (entity, mut p, kids) in &mut placing {
+    for (entity, mut p, old_assets) in &mut placing {
         let Some(result) = block_on(poll_once(&mut p.task)) else {
             continue;
         };
@@ -521,7 +730,7 @@ pub(crate) fn finish_placing(
         let instances = match result {
             Ok(instances) => instances,
             Err(error) => {
-                fail(&mut commands, entity, kids, &member_marker, input, error);
+                fail(&mut commands, entity, input, error);
                 continue;
             }
         };
@@ -530,85 +739,126 @@ pub(crate) fn finish_placing(
             failed: false,
         });
 
-        // Index the grove's current trees by the spot they stand on.
-        let mut existing: HashMap<u64, Entity> = HashMap::new();
-        for &child in kids.into_iter().flatten() {
-            if let Ok((member, _, _)) = members.get(child) {
-                existing.insert(member.id, child);
-            }
-        }
-
-        // Share one copy of each variant's options between its trees.
-        let mut variants: HashMap<(usize, u32), Arc<TreeOptions>> = HashMap::new();
+        // One variant entry for each species variant that has trees. A
+        // variant the grove had before keeps its generated meshes.
+        let mut slots: HashMap<(usize, u32), u32> = HashMap::new();
+        let mut variants: Vec<GroveVariant> = Vec::new();
         let shrink = 1.0 / input.ground.scale();
-        for instance in instances {
-            let options = variants
-                .entry((instance.tree, instance.variant))
-                .or_insert_with(|| {
-                    Arc::new(input.grove.trees[instance.tree].variant(instance.variant))
+        let trees = instances
+            .into_iter()
+            .map(|instance| {
+                let pair = (instance.tree, instance.variant);
+                let slot = *slots.entry(pair).or_insert_with(|| {
+                    let options =
+                        Arc::new(input.grove.trees[instance.tree].variant(instance.variant));
+                    let key = cache.request(&options, &settings);
+                    let kept = old_assets
+                        .and_then(|old| old.variants.iter().find(|v| v.key == key && v.settled()));
+                    variants.push(GroveVariant {
+                        tree: instance.tree,
+                        variant: instance.variant,
+                        options,
+                        key,
+                        generated: kept.and_then(|v| v.generated.clone()),
+                        failed: kept.is_some_and(|v| v.failed),
+                    });
+                    variants.len() as u32 - 1
                 });
-            let member = GroveMember {
-                tree: instance.tree,
-                variant: instance.variant,
-                id: instance.id,
-            };
-            let transform = Transform::from_matrix(
-                Mat4::from_scale(Vec3::splat(shrink)) * Mat4::from(instance.transform),
-            );
+                PlacedTree {
+                    tree: instance.tree,
+                    variant: instance.variant,
+                    id: instance.id,
+                    transform: Transform::from_matrix(
+                        Mat4::from_scale(Vec3::splat(shrink)) * Mat4::from(instance.transform),
+                    ),
+                    slot,
+                }
+            })
+            .collect();
 
-            // Update a tree already on this spot, touching only what changed
-            // so unchanged trees keep their parts.
-            if let Some(child) = existing.remove(&instance.id) {
-                let Ok((old_member, old_params, old_transform)) = members.get(child) else {
-                    continue;
-                };
-                let mut child = commands.entity(child);
-                if *old_member != member {
-                    child.insert(member);
-                }
-                let same_tree =
-                    matches!(old_params, TreeParams::Options(old) if **old == **options);
-                if !same_tree {
-                    child.insert(TreeParams::Options(Arc::clone(options)));
-                }
-                if *old_transform != transform {
-                    child.insert(transform);
-                }
-                continue;
-            }
-            commands.spawn((
-                TreeParams::Options(Arc::clone(options)),
-                transform,
-                member,
-                ChildOf(entity),
-            ));
+        let keys = variants.iter().map(|v| v.key).collect();
+        commands.entity(entity).insert((
+            TreeGroveInstances::new(trees),
+            TreeGroveAssets {
+                variants: variants.into(),
+            },
+            HeldTreeKeys(keys),
+        ));
+    }
+}
+
+/// Fills in each grove's variants as they finish generating.
+pub(crate) fn refresh_grove_assets(mut groves: Query<&mut TreeGroveAssets>, cache: Res<TreeCache>) {
+    for mut assets in &mut groves {
+        if assets.settled() {
+            continue;
         }
-        for (_, child) in existing {
-            commands.entity(child).despawn();
+        let mut variants = assets.variants.to_vec();
+        let mut changed = false;
+        for variant in &mut variants {
+            changed |= variant.refresh(&cache);
+        }
+        if changed {
+            assets.variants = variants.into();
         }
     }
 }
 
-/// Ends the build of each placed grove once none of its trees is still
-/// generating, and reports it with [`TreeGroveFinished`].
+/// Ends the build of each placed grove once every variant has finished
+/// generating: adds its [`TreeGroveStats`] and reports it with
+/// [`TreeGroveFinished`].
 #[expect(clippy::type_complexity, reason = "Bevy system parameters")]
 pub(crate) fn finish_groves(
     mut commands: Commands,
     groves: Query<
-        (Entity, &Placed, Option<&Children>),
+        (Entity, &Placed, &TreeGroveInstances, &TreeGroveAssets),
         (With<TreeGroveGenerating>, Without<Placing>),
     >,
-    generating: Query<(), (With<GroveMember>, With<TreeGenerating>)>,
+    meshes: Res<Assets<Mesh>>,
 ) {
-    for (entity, placed, kids) in &groves {
-        if placed.failed || kids.into_iter().flatten().any(|&c| generating.contains(c)) {
+    for (entity, placed, instances, assets) in &groves {
+        if placed.failed || !assets.settled() {
             continue;
         }
-        commands.entity(entity).remove::<TreeGroveGenerating>();
+        commands
+            .entity(entity)
+            .remove::<TreeGroveGenerating>()
+            .insert(grove_stats(instances, assets, &meshes));
         commands.trigger(TreeGroveFinished {
             entity,
             result: Ok(()),
         });
+    }
+}
+
+/// Counts the trees of a grove and the vertices and triangles they draw at
+/// each detail level.
+fn grove_stats(
+    instances: &TreeGroveInstances,
+    assets: &TreeGroveAssets,
+    meshes: &Assets<Mesh>,
+) -> TreeGroveStats {
+    let mut counts = vec![0usize; assets.variants.len()];
+    for tree in instances.trees() {
+        counts[tree.slot as usize] += 1;
+    }
+    let mut levels: Vec<GroveLevelSize> = Vec::new();
+    for (variant, count) in assets.variants.iter().zip(counts) {
+        for part in variant.parts() {
+            let Some(mesh) = meshes.get(part.mesh) else {
+                continue;
+            };
+            if levels.len() <= part.lod {
+                levels.resize(part.lod + 1, GroveLevelSize::default());
+            }
+            let level = &mut levels[part.lod];
+            level.vertices += count * mesh.count_vertices();
+            level.triangles += count * mesh.indices().map_or(0, |i| i.len() / 3);
+        }
+    }
+    TreeGroveStats {
+        trees: instances.trees().len(),
+        levels,
     }
 }
 
@@ -617,28 +867,25 @@ pub(crate) fn finish_groves(
 pub(crate) fn remove_groves(
     mut commands: Commands,
     mut removed: RemovedComponents<TreeGroveParams>,
-    children: Query<&Children>,
-    members: Query<(), With<GroveMember>>,
 ) {
     for entity in removed.read() {
-        despawn_members(&mut commands, children.get(entity).ok(), &members);
-        if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(Placing, Placed, TreeGroveGenerating)>();
+        if commands.get_entity(entity).is_ok() {
+            clear_trees(&mut commands, entity);
+            commands
+                .entity(entity)
+                .remove::<(Placing, Placed, TreeGroveGenerating)>();
         }
     }
 }
 
-/// Despawns the grove's tree children, leaving any other children alone.
-fn despawn_members(
-    commands: &mut Commands,
-    kids: Option<&Children>,
-    members: &Query<(), With<GroveMember>>,
-) {
-    for &child in kids.into_iter().flatten() {
-        if members.contains(child) {
-            commands.entity(child).despawn();
-        }
-    }
+/// Removes a grove's trees.
+fn clear_trees(commands: &mut Commands, entity: Entity) {
+    commands.entity(entity).remove::<(
+        TreeGroveInstances,
+        TreeGroveAssets,
+        TreeGroveStats,
+        HeldTreeKeys,
+    )>();
 }
 
 #[cfg(test)]
@@ -650,11 +897,10 @@ mod tests {
     use procgena_tree::{GroveTree, LodLevel, TextureCompression, TextureSize, TreePreset};
 
     use super::*;
-    use crate::material::TreeMaterial;
     use crate::spawn::{
-        BarkTexture, LeafTexture, SpawnSettings, TreeCache, TreeKey, TreeLodLevel,
-        TreeOptionsAsset, TreePart, finish_generation, prune_cache, reset_changed_trees,
-        spawn_parts, start_generation,
+        BarkTexture, LeafTexture, TreeGenerating, TreeLodLevel, TreeOptionsAsset, TreeParams,
+        TreePart, finish_generation, prune_cache, reset_changed_trees, spawn_parts,
+        start_generation,
     };
     use crate::wind::Wind;
 
@@ -691,10 +937,13 @@ mod tests {
                     remove_groves,
                     finish_placing,
                     start_groves,
+                    sync_promoted_trees,
+                    demote_trees,
                     reset_changed_trees,
                     start_generation,
                     finish_generation,
                     spawn_parts,
+                    refresh_grove_assets,
                     prune_cache,
                     finish_groves,
                 )
@@ -733,22 +982,33 @@ mod tests {
         }
     }
 
-    /// The grove's trees: spot id to (entity, member, part entities).
-    fn trees(app: &mut App, grove: Entity) -> HashMap<u64, (Entity, GroveMember, Vec<Entity>)> {
-        let mut members = app.world_mut().query::<(Entity, &GroveMember, &ChildOf)>();
-        let world = app.world();
-        members
-            .iter(world)
-            .filter(|(_, _, parent)| parent.parent() == grove)
-            .map(|(entity, member, _)| {
-                let parts = world
-                    .get::<Children>(entity)
-                    .into_iter()
-                    .flatten()
-                    .copied()
-                    .filter(|&c| world.entity(c).contains::<TreePart>())
-                    .collect();
-                (member.id, (entity, *member, parts))
+    /// A placed tree and the generated variant it is drawn from, compared by
+    /// identity.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Drawn {
+        tree: PlacedTree,
+        generated: Option<*const Generated>,
+    }
+
+    /// The grove's trees by the spot they stand on.
+    fn trees(app: &App, grove: Entity) -> HashMap<u64, Drawn> {
+        let entity = app.world().entity(grove);
+        let (Some(instances), Some(assets)) = (
+            entity.get::<TreeGroveInstances>(),
+            entity.get::<TreeGroveAssets>(),
+        ) else {
+            return HashMap::new();
+        };
+        instances
+            .trees()
+            .iter()
+            .map(|tree| {
+                let generated = assets.of(tree).generated.as_ref().map(Arc::as_ptr);
+                let drawn = Drawn {
+                    tree: tree.clone(),
+                    generated,
+                };
+                (tree.id, drawn)
             })
             .collect()
     }
@@ -761,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn a_grove_spawns_its_placed_trees_sharing_variant_meshes() {
+    fn a_grove_places_its_trees_and_shares_each_variants_meshes() {
         let mut app = grove_app();
         let grove = small_grove();
         let entity = app
@@ -771,16 +1031,81 @@ mod tests {
         update_until_finished(&mut app, entity);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
+        // Every placed tree, and no tree entities.
         let placed = GrovePlacement::new(&grove, SIZE.to_array(), &FlatGround, None).unwrap();
-        let spawned = trees(&mut app, entity);
-        assert!(spawned.len() > 4);
-        assert_eq!(spawned.len(), placed.instances().len());
-        assert!(spawned.values().all(|(_, _, parts)| !parts.is_empty()));
+        let drawn = trees(&app, entity);
+        assert!(drawn.len() > 4);
+        assert_eq!(drawn.len(), placed.instances().len());
+        assert!(drawn.values().all(|d| d.generated.is_some()));
+        assert!(app.world().entity(entity).get::<Children>().is_none());
 
-        // At most two variants of each of two species: four shared keys.
-        let mut keys = app.world_mut().query::<(&TreeKey, &GroveMember)>();
-        let distinct: HashSet<_> = keys.iter(app.world()).map(|(k, _)| *k).collect();
-        assert!(distinct.len() <= 4);
+        // At most two variants of each of two species: four shared variants.
+        let assets = app.world().get::<TreeGroveAssets>(entity).unwrap();
+        assert!(assets.variants().len() <= 4);
+        let distinct: HashSet<_> = drawn.values().map(|d| d.generated).collect();
+        assert_eq!(distinct.len(), assets.variants().len());
+        for variant in assets.variants() {
+            let parts: Vec<_> = variant.parts().collect();
+            assert!(!parts.is_empty() && variant.object().is_some());
+            assert!(
+                parts
+                    .iter()
+                    .all(|p| p.bounds.half_extents.max_element() > 0.0)
+            );
+        }
+
+        // The stats count every tree's vertices at the single detail level.
+        let stats = app.world().get::<TreeGroveStats>(entity).unwrap();
+        assert_eq!(stats.trees, drawn.len());
+        assert_eq!(stats.levels.len(), 1);
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let instances = app.world().get::<TreeGroveInstances>(entity).unwrap();
+        let vertices: usize = instances
+            .trees()
+            .iter()
+            .flat_map(|tree| assets.of(tree).parts())
+            .map(|part| meshes.get(part.mesh).unwrap().count_vertices())
+            .sum();
+        assert_eq!(stats.levels[0].vertices, vertices);
+        assert!(stats.levels[0].triangles > 0);
+    }
+
+    #[test]
+    fn a_grove_keeps_its_variants_cached_until_it_is_removed() {
+        let mut app = grove_app();
+        let entity = app
+            .world_mut()
+            .spawn(TreeGroveParams::new(small_grove(), SIZE))
+            .id();
+        update_until_finished(&mut app, entity);
+        let keys = app.world().get::<HeldTreeKeys>(entity).unwrap().clone();
+        let cached = |app: &App| {
+            let cache = app.world().resource::<TreeCache>();
+            keys.0
+                .iter()
+                .filter(|key| matches!(cache.state(**key), CacheState::Ready(_)))
+                .count()
+        };
+        assert_eq!(cached(&app), keys.0.len());
+
+        // A single tree coming and going prunes the cache; the grove's
+        // variants stay.
+        let tree = app
+            .world_mut()
+            .spawn(TreeParams::preset(TreePreset::Bush1))
+            .id();
+        app.update();
+        app.world_mut().entity_mut(tree).despawn();
+        app.update();
+        assert_eq!(cached(&app), keys.0.len());
+
+        // Removing the grove lets them go.
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<TreeGroveParams>();
+        app.update();
+        app.update();
+        assert_eq!(cached(&app), 0);
     }
 
     #[test]
@@ -791,16 +1116,16 @@ mod tests {
             .spawn(TreeGroveParams::new(small_grove(), SIZE))
             .id();
         update_until_finished(&mut app, entity);
-        let before = trees(&mut app, entity);
+        let before = trees(&app, entity);
 
         let sparse = small_grove().with_density(small_grove().density() * 0.5);
         set_grove(&mut app, entity, sparse);
         update_until_finished(&mut app, entity);
-        let after = trees(&mut app, entity);
+        let after = trees(&app, entity);
 
         assert!(!after.is_empty() && after.len() < before.len());
         for (id, tree) in &after {
-            assert_eq!(before.get(id), Some(tree), "a kept tree was rebuilt");
+            assert_eq!(before.get(id), Some(tree), "a kept tree changed");
         }
         assert_eq!(app.world().resource::<Finished>().0.len(), 2);
     }
@@ -813,22 +1138,31 @@ mod tests {
             .spawn(TreeGroveParams::new(small_grove(), SIZE))
             .id();
         update_until_finished(&mut app, entity);
-        let before = trees(&mut app, entity);
+        let before = trees(&app, entity);
 
         let mut changed = small_grove();
         changed.trees[1].tree.seed += 1;
         set_grove(&mut app, entity, changed);
         update_until_finished(&mut app, entity);
-        let after = trees(&mut app, entity);
+        let after = trees(&app, entity);
 
         assert_eq!(after.len(), before.len());
-        for (id, (entity, member, parts)) in &after {
-            let (old_entity, _, old_parts) = &before[id];
-            assert_eq!(entity, old_entity, "trees keep their entities");
-            if member.tree == 0 {
-                assert_eq!(parts, old_parts, "the unchanged species was rebuilt");
+        for (id, drawn) in &after {
+            let old = &before[id];
+            assert_eq!(
+                drawn.tree.transform, old.tree.transform,
+                "trees keep their spot"
+            );
+            if drawn.tree.tree == 0 {
+                assert_eq!(
+                    drawn.generated, old.generated,
+                    "the unchanged species was rebuilt"
+                );
             } else {
-                assert_ne!(parts, old_parts, "the changed species kept its old parts");
+                assert_ne!(
+                    drawn.generated, old.generated,
+                    "the changed species kept its meshes"
+                );
             }
         }
     }
@@ -845,14 +1179,14 @@ mod tests {
             .spawn(TreeGroveParams::new(sparse(40.0), wide))
             .id();
         update_until_finished(&mut app, entity);
-        let first: HashSet<u64> = trees(&mut app, entity).into_keys().collect();
+        let first: HashSet<u64> = trees(&app, entity).into_keys().collect();
 
         // Drag the density down a little every frame, as a slider would.
         let mut changed = false;
         for step in 1..=40 {
             set_grove(&mut app, entity, sparse(40.0 - step as f32 * 0.5));
             app.update();
-            let now: HashSet<u64> = trees(&mut app, entity).into_keys().collect();
+            let now: HashSet<u64> = trees(&app, entity).into_keys().collect();
             changed |= now != first;
         }
         assert!(
@@ -886,8 +1220,8 @@ mod tests {
             .id();
         update_until_finished(&mut app, entity);
         let height = |app: &mut App| {
-            let (child, _, _) = *trees(app, entity).values().next().unwrap();
-            app.world().get::<Transform>(child).unwrap().translation.y
+            let drawn = trees(app, entity);
+            drawn.values().next().unwrap().tree.transform.translation.y
         };
         assert!(height(&mut app) < 0.0);
 
@@ -909,7 +1243,7 @@ mod tests {
             app.world().resource::<Finished>().0.last(),
             Some(&Err(TreeGroveBuildError::NoGround))
         );
-        assert!(trees(&mut app, entity).is_empty());
+        assert!(trees(&app, entity).is_empty());
     }
 
     #[test]
@@ -920,7 +1254,7 @@ mod tests {
             .spawn(TreeGroveParams::new(small_grove(), SIZE))
             .id();
         update_until_finished(&mut app, entity);
-        let before = trees(&mut app, entity);
+        let before = trees(&app, entity);
 
         // An equal grove in a new copy, and a plain change notification.
         set_grove(&mut app, entity, small_grove());
@@ -931,7 +1265,7 @@ mod tests {
             .set_changed();
         app.update();
         assert!(!app.world().entity(entity).contains::<TreeGroveGenerating>());
-        assert_eq!(trees(&mut app, entity), before);
+        assert_eq!(trees(&app, entity), before);
         assert_eq!(app.world().resource::<Finished>().0.len(), 1);
     }
 
@@ -955,7 +1289,7 @@ mod tests {
             .id();
         app.update();
         assert!(app.world().entity(entity).contains::<TreeGroveGenerating>());
-        assert!(trees(&mut app, entity).is_empty());
+        assert!(trees(&app, entity).is_empty());
 
         // A level square 1 unit up and 8 units across: 16 m wide and 2 m up
         // in the world, enough for the whole 12 m grove.
@@ -968,7 +1302,7 @@ mod tests {
             .entity_mut(host)
             .insert(GeneratedObject(Arc::new(object)));
         update_until_finished(&mut app, entity);
-        let placed = trees(&mut app, entity);
+        let placed = trees(&app, entity);
         assert!(!placed.is_empty());
 
         // Trees stand on the surface, sunk 0.1 m (0.05 host units) into it,
@@ -976,8 +1310,8 @@ mod tests {
         // largest size variation allows.
         let variation = small_grove().variation;
         let largest = 1.0 + 3.0 * variation.scale_jitter;
-        for (child, _, _) in placed.values() {
-            let transform = app.world().get::<Transform>(*child).unwrap();
+        for drawn in placed.values() {
+            let transform = &drawn.tree.transform;
             let sunk = 1.0 - variation.sink / 2.0;
             assert!((transform.translation.y - sunk).abs() < 1e-3);
             assert!(transform.scale.x <= 0.5 * largest + 1e-4);
@@ -987,7 +1321,7 @@ mod tests {
         app.world_mut().entity_mut(host).remove::<GeneratedObject>();
         app.update();
         app.update();
-        assert!(trees(&mut app, entity).is_empty());
+        assert!(trees(&app, entity).is_empty());
         assert!(app.world().entity(entity).contains::<TreeGroveGenerating>());
     }
 
@@ -1024,13 +1358,13 @@ mod tests {
             .spawn(TreeGroveParams::new(small_grove(), SIZE))
             .id();
         update_until_finished(&mut app, entity);
-        assert!(!trees(&mut app, entity).is_empty());
+        assert!(!trees(&app, entity).is_empty());
 
         app.world_mut()
             .entity_mut(entity)
             .remove::<TreeGroveParams>();
         app.update();
-        assert!(trees(&mut app, entity).is_empty());
+        assert!(trees(&app, entity).is_empty());
     }
 
     #[test]
@@ -1049,7 +1383,7 @@ mod tests {
             })
             .id();
         update_until_finished(&mut app, entity);
-        let full = trees(&mut app, entity).len();
+        let full = trees(&app, entity).len();
         assert!(full > 0);
 
         // Editing the loaded grove updates the trees.
@@ -1060,6 +1394,166 @@ mod tests {
             .unwrap()
             .0 = sparse;
         update_until_finished(&mut app, entity);
-        assert!(trees(&mut app, entity).len() < full);
+        assert!(trees(&app, entity).len() < full);
+    }
+
+    /// Marks a host's own component on a promoted tree.
+    #[derive(Component)]
+    struct Collider;
+
+    /// Whether `entity` has tree parts as children.
+    fn has_parts(app: &App, entity: Entity) -> bool {
+        let world = app.world();
+        world
+            .get::<Children>(entity)
+            .is_some_and(|kids| kids.iter().any(|c| world.entity(c).contains::<TreePart>()))
+    }
+
+    /// A finished small grove and its trees.
+    fn finished_grove(app: &mut App) -> (Entity, HashMap<u64, Drawn>) {
+        let grove = app
+            .world_mut()
+            .spawn(TreeGroveParams::new(small_grove(), SIZE))
+            .id();
+        update_until_finished(app, grove);
+        let drawn = trees(app, grove);
+        (grove, drawn)
+    }
+
+    #[test]
+    fn a_promoted_tree_is_an_ordinary_tree_until_it_is_demoted() {
+        let mut app = grove_app();
+        let (grove, drawn) = finished_grove(&mut app);
+        let tree = drawn.values().next().unwrap().tree.clone();
+        let promoted = app
+            .world_mut()
+            .spawn((PromotedTree::new(grove, tree.id), Collider))
+            .id();
+        app.update();
+
+        // The entity is the grove's tree, with its parts, in the grove.
+        let entity = app.world().entity(promoted);
+        let assets = app.world().get::<TreeGroveAssets>(grove).unwrap();
+        let options = assets.of(&tree).options();
+        assert!(matches!(entity.get::<TreeParams>(), Some(TreeParams::Options(o)) if o == options));
+        assert_eq!(entity.get::<Transform>(), Some(&tree.transform));
+        assert_eq!(entity.get::<ChildOf>().map(ChildOf::parent), Some(grove));
+        assert!(!entity.contains::<TreeGenerating>());
+        assert!(has_parts(&app, promoted));
+
+        // Demoting removes the tree but keeps the host's components.
+        app.world_mut()
+            .entity_mut(promoted)
+            .remove::<PromotedTree>();
+        app.update();
+        let entity = app.world().entity(promoted);
+        assert!(entity.contains::<Collider>());
+        assert!(!entity.contains::<TreeParams>());
+        assert!(!has_parts(&app, promoted));
+    }
+
+    #[test]
+    fn promoting_a_spot_without_a_tree_is_reported_and_keeps_the_entity() {
+        let mut app = grove_app();
+        let (grove, drawn) = finished_grove(&mut app);
+        let missing = (0..).find(|id| !drawn.contains_key(id)).unwrap();
+        let promoted = app
+            .world_mut()
+            .spawn((PromotedTree::new(grove, missing), Collider))
+            .id();
+        app.update();
+        let entity = app.world().entity(promoted);
+        assert!(entity.contains::<Collider>());
+        assert!(!entity.contains::<PromotedTree>() && !entity.contains::<TreeParams>());
+    }
+
+    #[test]
+    fn promoted_trees_follow_their_grove() {
+        let mut app = grove_app();
+        let (grove, before) = finished_grove(&mut app);
+
+        // Promote every tree of the bushes.
+        let promoted: Vec<(u64, Entity)> = before
+            .values()
+            .filter(|d| d.tree.tree == 0)
+            .map(|d| {
+                let id = d.tree.id;
+                (id, app.world_mut().spawn(PromotedTree::new(grove, id)).id())
+            })
+            .collect();
+        app.update();
+
+        // Thinning the grove despawns the promoted trees whose spot emptied
+        // and keeps the rest.
+        let sparse = small_grove().with_density(small_grove().density() * 0.5);
+        set_grove(&mut app, grove, sparse.clone());
+        update_until_finished(&mut app, grove);
+        let after = trees(&app, grove);
+        let (kept, gone): (Vec<_>, Vec<_>) =
+            promoted.iter().partition(|(id, _)| after.contains_key(id));
+        assert!(!kept.is_empty() && !gone.is_empty());
+        assert!(
+            gone.iter()
+                .all(|(_, e)| app.world().get_entity(*e).is_err())
+        );
+        assert!(kept.iter().all(|(_, e)| app.world().get_entity(*e).is_ok()));
+
+        // A new shape for the bushes reaches the promoted ones.
+        let mut reshaped = sparse;
+        reshaped.trees[0].tree.seed += 1;
+        set_grove(&mut app, grove, reshaped);
+        update_until_finished(&mut app, grove);
+        app.update();
+        let assets = app.world().get::<TreeGroveAssets>(grove).unwrap().clone();
+        let instances = app
+            .world()
+            .get::<TreeGroveInstances>(grove)
+            .unwrap()
+            .clone();
+        for (id, entity) in kept {
+            let options = assets.of(instances.get(id).unwrap()).options();
+            let params = app.world().get::<TreeParams>(entity);
+            assert!(matches!(params, Some(TreeParams::Options(o)) if o == options));
+            assert!(has_parts(&app, entity));
+        }
+    }
+
+    #[test]
+    fn grove_trees_are_found_by_ray_and_by_distance() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut app = grove_app();
+        let (grove, drawn) = finished_grove(&mut app);
+        let target = drawn.values().next().unwrap().tree.clone();
+        let base = target.transform.translation;
+
+        let (down, up, near) = app
+            .world_mut()
+            .run_system_once(move |trees: GroveTrees| {
+                let above = base + Vec3::Y * 100.0;
+                let down = trees.ray_cast(Ray3d::new(above, Dir3::NEG_Y));
+                let up = trees.ray_cast(Ray3d::new(above, Dir3::Y));
+                let near: Vec<u64> = trees.within(base, 3.0).map(|(_, t)| t.id).collect();
+                (down, up, near)
+            })
+            .unwrap();
+
+        // Straight down onto a tree hits a tree over that spot; straight up
+        // from above every crown hits nothing.
+        let hit = down.expect("a ray down onto a tree hits");
+        assert_eq!(hit.grove, grove);
+        assert!(
+            hit.point.y > base.y && (hit.distance - (100.0 - hit.point.y + base.y)).abs() < 1e-3
+        );
+        assert!(up.is_none());
+
+        // The trees within 3 m of the tree's base, the tree included.
+        let expected: HashSet<u64> = drawn
+            .values()
+            .filter(|d| d.tree.transform.translation.distance(base) <= 3.0)
+            .map(|d| d.tree.id)
+            .collect();
+        assert!(expected.contains(&target.id));
+        assert_eq!(near.into_iter().collect::<HashSet<_>>(), expected);
     }
 }

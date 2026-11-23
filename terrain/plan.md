@@ -28,8 +28,9 @@ and joins seamlessly with any other terrain generator on its border.
     `glam`, `procgena_mesh`, `serde`, `serde_json`, and optionally
     `rayon`. **No new dependencies.**
   - `terrain/crates/procgena_terrain_bevy`: chunk streaming around cameras,
-    async builds, LOD, a label-driven triplanar material, a water material,
-    a debug label overlay, and a viewer.
+    async builds, LOD, a label-driven triplanar material, a debug label
+    overlay, and a viewer. No water material: we say where water goes,
+    and the user brings their own water.
 - **Every point is a pure function.** Height, density and labels at a
   world position depend only on four things:
   1. the generator's options;
@@ -90,8 +91,9 @@ and joins seamlessly with any other terrain generator on its border.
   Classification gives each surface point one primary `Landform`, a
   `Flags` bitset and continuous `Measures`. Meshes carry per-vertex label
   weights. They are also split into `procgena_mesh` `Part`s by primary
-  label, so clump and mushroom `TagFilter`s work on terrain. A separate
-  water `Part` comes with each chunk. Vector features (road polylines,
+  label. A separate
+  water `Part` comes with each chunk: the water surface's geometry,
+  tagged water, with no material of ours. Vector features (road polylines,
   river polylines, lake polygons, cliff lines) are exported as data.
 - **Meshing**: Transvoxel-style marching cubes on an integer world lattice.
   Only the band around the surface is meshed. Transition cells join chunks
@@ -188,7 +190,7 @@ infinigen was copied from `mushroom/prior_art/`.
   derivatives, Worley/Voronoi (our own; infinigen's is GPL), and 1D noise
   along an edge.
 - **Object model:** `procgena_mesh::{Object, Level, Part, Tag, TagSet,
-  TagFilter, SurfaceMesh}`; `GeneratedObject` behind `bevy`.
+  TagFilter, SurfaceMesh}`.
 - **Bevy crate shape:** `TerrainPlugin`, `TerrainParams`, a `.terrain.json`
   loader, `TerrainGenerating` / `TerrainFinished`, `AsyncComputeTaskPool`,
   headless `MinimalPlugins` tests, `examples/viewer.rs`.
@@ -285,7 +287,9 @@ pub struct WorldContext { pub seed: u64, pub sea_level: f32 }  // see open quest
    - Coast: a C2 ramp against `sea_level`.
    - Lakes: a flat surface at the pour level, with the bed carved to a
      shore profile.
-   - Rivers: a parabolic bed plus a bank shoulder, at monotone levels.
+   - Rivers: a parabolic bed plus a bank shoulder, at monotone levels
+     (to become valleys shaped by cut depth and river type, at
+     stream-power profiles: Phase 2.8).
    - A steep or undercut outer bank gives a bluff.
    - Output: a water-level field, which is NaN where there is no water.
 6. **Roads.** Clamp to the road level ± tolerance, plus a bank shoulder
@@ -303,7 +307,7 @@ pub struct WorldContext { pub seed: u64, pub sea_level: f32 }  // see open quest
      minimum overburden, and their entrances are placed only where they meet
      a riser or bluff face.
    - **Rock outcrops**: Voronoi-cell solids near the surface (the infinigen
-     idea), or left to procgena_stone scatter (open question).
+     idea). Stone scatter is out of scope for now.
    - All modifiers fade to zero within the edge margin and away from roads,
      so seams are heightfield only.
    - The modifiers have a known maximum vertical reach. That gives each
@@ -668,12 +672,16 @@ colours, and the options go into `asset.extras`. `HeightTile` can export as
   triplanar texture sets chosen by label weights (grass, rock, sand, road,
   mud, snow), with clump's triplanar code reused. `texture_root: None`
   gives vertex colours only.
-- **Water.** A simple water material on the water `Part`s.
+- **Water.** Not ours to render. The crates give where water goes (the
+  water-level field, river and pond data, and each chunk's water `Part`,
+  tagged water); the user brings their own water material and rendering.
+  The debug overlay may tint water areas so they can be seen.
 - **Debug.** A label overlay (colour by landform or flag), seam-band and
   margin visualisation, and chunk borders.
-- `GeneratedObject` goes on each chunk entity, so clump, mushroom and
-  stone scatter can use terrain tags.
-- `examples/viewer.rs`: presets; "two biomes" and "triple junction" scenes;
+- **Out of scope for now:** hooking terrain tags up to clump, mushroom or
+  stone scatter (`GeneratedObject` on chunk entities). This plan is just
+  terrain.
+- `examples/viewer.rs`: presets; "two terrains" and "triple junction" scenes;
   a fly camera.
 - **Studio**: a "Terrain" tab in a later phase (stone's 10 touch points).
 
@@ -728,8 +736,8 @@ Pinned to the hard goals first:
   get the expected landforms.
 - **Plant contract:** `height()` is the top surface under an overhang.
 - **Bevy:** a headless streaming test (chunks appear and LOD rings swap
-  without gaps), the material compiles, and `GeneratedObject` tags are
-  present.
+  without gaps), the material compiles, and each chunk's `Part`s carry
+  their label tags.
 
 ---
 
@@ -1057,9 +1065,8 @@ strategy is used: 0 is Phase 2.5's scaling exactly, 1 is the blend alone.
   17 m on rough patches 700–1150 m in, past the fade's ramp. It is not
   the fade: mountains next to identical mountains (no fade at all, seed
   11) give roads 36 m off the ground. The 25 m road planner can't follow
-  full-strength mountain ground; blend 1 only puts a road there. Until
-  that is fixed, `rivers_and_roads_stay_close_to_the_ground` fails on
-  this world.
+  full-strength mountain ground; blend 1 only puts a road there. Fixed
+  by the road rework (Phase 2.7).
 - **Coverage:** scaling alone (blend 0) is now tested only at meeting −1;
   −∞, 0 and 1 at blend 0 dropped out of the seam and feature suites.
 - `BLEND_RATE` is 0.25, not the planned 0.1 (see "Fade width").
@@ -1067,22 +1074,197 @@ strategy is used: 0 is Phase 2.5's scaling exactly, 1 is the blend alone.
   instead of 8, and the neighbour heights inside the fade band (only
   there; the interior skips them).
 
+### Road rework (Phase 2.7)
+
+Built 2026-11-22, review pending. It started from the blend-1 mountain
+road: a 4.7 km road climbing 556 m to the region's hub, cutting 17 m,
+with zero-radius hairpins whose legs overlapped. The causes, measured:
+the road's heights came from the nearest 25 m grid cell (up to 17.6 m
+off the real ground) and a 7-point average (up to 23 m more); and the
+25 m planning grid could not see ledges, knobs or saddles narrower than
+a cell against a 6 m road.
+
+**The test case: the blend-1 mountain road.** Keep coming back to this
+road; it is the hardest road in the test worlds.
+
+| | |
+|---|---|
+| World | `two_terrains(DVec2::ZERO, CONFIGS[10])` in `tests/common/mod.rs` (feature-suite world 60) |
+| Convergence | shared seeds, relief meeting −1 (`DEFAULT_RELIEF_MEETING`), relief blend 1.0 |
+| Regions | `RegionId(1)` Plains, seed 1, west; `RegionId(2)` Mountains, seed 1, east; border through (0, −1500), (150, −700), (−200, 0), (100, 800), (0, 1500); 4 km × 3 km in all |
+| Road | region 2's routed road: from the border crossing near (93, −441) up to the hub, the `RoadEnd` point of interest at (1060, 128), level 576.5 m; mountains' road grade 0.14, steepest 0.25; width 6 m |
+| Window | x 0 to 1280, z −640 to 640 holds the whole climb |
+| Look at it | `cargo run --release -p procgena_terrain --example seam_spike -- <dir> 1.0` writes `two_terrains.ppm`; crop pixels 500–800 across and 350–650 down. The 3D viewer's data came from a temporary `scene_dump` probe in `tests/probes.rs` (2.5 m samples of that window with road tags). |
+
+**What changed**
+
+- [x] **Road levels from the real ground.** Each road point reads the
+  bent terrain where it actually is, not the nearest cell.
+- [x] **Cut-leaning level fit.** Road levels keep the deepest fill, and
+  the deepest cut divided by 3, as small as the grades allow (a
+  bisection on the gap, then a backward pass that keeps near a lightly
+  smoothed ground). Roads cut deep sooner than they build high
+  embankments.
+- [x] **Cutting cost in the route search.** Steps over the steepest grade
+  also pay for the cutting or filling they will need.
+- [x] **Its own 8 m planning grid for roads** (rivers keep 25 m). Water
+  cells are every road-grid cell a river passes through.
+- [x] **Hairpins with a radius.** The search tracks the direction a route
+  arrived by and never turns more than 45° per step: hairpins about
+  10 m in radius. (On the 25 m grid a turn limit made routes steeper,
+  so it only works at this scale.)
+- [x] **Leg spacing.** Where two legs of one road come closer than three
+  road widths (more than twice that apart along the road), the cells
+  around the clash are blocked and the road is routed again, up to 8
+  times; after that the last route is kept.
+- [x] **Banks follow the terrain.** Each road point measures the natural
+  ground's slope 20 m around it, averaged 20 m along the road; its banks
+  start at twice that slope, between 0.6 (31°) and 20 (87°). Each bank
+  is a flat face at that slope, steepening only near its 40 m reach so
+  it always meets the ground. Crossing pieces keep 0.6, and each road
+  eases in over its first 80 m, so both sides of a border carve the
+  same ground. Banks are never gentler than before, so they never reach
+  further.
+- [x] **Road tags.** `Terrain::road_tags(p)` returns a `RoadTags` set:
+  `road`; the bank's kind, `cut`, `embankment`, or `retaining_wall` for
+  a fill of 65° or more; and its steepness, `bluff` (45° to 65°) or
+  `cliff` (65° to 90°). Phase 5 turns these into labels.
+- [x] **Road ends as points of interest.** `Terrain::points_of_interest()`
+  lists the hub as a `PointOfInterest` of kind `RoadEnd`.
+- [x] **Feature test:** roads may cut to any depth; embankments stay at
+  most 10 m (decided 2026-11-22).
+
+**Results**
+
+- The blend-1 mountain road now winds up in rounded switchbacks with
+  its legs apart. Every suite passes: features 7/7, seams 9/9,
+  convergence 12/12, the doctest, and 66 unit tests. The feature-limits
+  probe (the test worlds plus hills into plains with seeds 0 to 299, in
+  all 12 configurations) finds no problems; it takes 32 minutes.
+- Cost: features went from 19 s to 66 s, seams from 61 s to 83 s and
+  convergence from 3 s to 23 s, all from the road grid's heights and the
+  direction-tracking search.
+
+**Still to do**
+
+- [ ] **Dynamic road width:** narrower through deep cuts, down to a
+  minimum width (e.g. 4 m), tapering over at least 20 m; crossing pieces
+  keep the agreed width. Needs a width per road point in `FeatureLine`.
+- [ ] **Measure cut and fill at both road edges,** not the centre line, and
+  build a full bench (no fill under the downhill edge) on side slopes
+  steeper than an embankment can stand.
+- [ ] **Fill costs more than cut in the route search** (about 3:1, as in the
+  level fit).
+- [ ] **Where the hub goes** (question 12): a low valley spot rather than a
+  flat summit.
+- [ ] **Clearings at points of interest**, perhaps as a setting
+  (question 12).
+- [ ] **Speed:** work out road-grid heights only for cells the search
+  reaches, or search coarse then refine.
+- [ ] **Truly vertical faces** need the volumetric mesher (Phase 6); a
+  height grid can only approximate them.
+
+### River valleys and erosion (planned, Phase 2.8)
+
+Added 2026-11-22. Today a river cuts a parabolic bed with a fixed bank
+shoulder (`channel()`), at levels that only ever step down. Two ideas
+from the literature fix the two weak spots: valleys whose size doesn't
+follow the cut, and river profiles with no natural shape. Both are
+ideas from the papers (no code to port). Nothing below is settled: the
+work lists are a first guess, to be rewritten after the spike.
+
+**Step 1: spike.** Before any of the work below, a throwaway prototype
+answers whether each idea earns its place, and how:
+
+- [ ] Valley profiles: try a cut-depth-scaled `channel()` (V and U shapes)
+  on the river test worlds (`RIVER_SEEDS`, `JOIN_SEEDS`) and the
+  two-terrain mountains; look at it in the 3D viewer and the
+  `seam_spike` images.
+- [ ] Stream-power profiles: compute drainage area on one region's river
+  grid and the steady-state profile along its longest river; compare
+  with today's levels (shape, depth of cut, how tributaries meet).
+- [ ] Measure the cost of each (build time per region, suite times).
+- [ ] Write up what to keep, what to drop and what to change, rewrite the
+  work lists below, and stop for review with the user.
+
+**1. Valleys from the distance to the river** (Génevaux et al. 2013,
+*Terrain Generation Using Procedural Models Based on Hydrology*;
+Peytavie et al. 2019, *Procedural Riverscapes*).
+
+- **How it works:** the rivers are designed first, and the ground near
+  a river comes from its distance to the nearest river plus that river's
+  level. Peytavie carves the riverbed from shaped pieces placed along
+  the course, sized from the terrain and the river's type, using the
+  Rosgen river classification: from slow meandering rivers to fast
+  rapids.
+- **Fit:** very close to our design. Rivers already come first, and
+  every point is still computed on its own.
+- **What it fixes:** the valley's width grows with how deep the cut is.
+  A shallow cut gives a narrow channel; a deep cut gives a wide V- or
+  U-shaped valley instead of a gorge.
+- **Work:**
+  - [ ] `channel()` takes a valley profile whose width depends on the cut
+    depth (the river level against the uncarved ground), not a fixed
+    shoulder.
+  - [ ] A river type per stretch (Rosgen-style: steep step-pool, riffle
+    and run, meandering), chosen from the stretch's slope and the
+    terrain, picks the bed and valley shape.
+  - [ ] Tests: no cracks where valleys of two rivers overlap or a
+    tributary joins; valley width grows with cut depth; across a border
+    both sides carve the same valley (crossing pieces keep agreed
+    shapes, as road banks do).
+
+**2. Analytic stream-power erosion** (Tzathas, Gailleton, Steer and
+Cordonnier, Eurographics 2024, *Physically-based Analytical Erosion for
+fast Terrain Generation*; the Salève model, ESurf 2021).
+
+- **How it works:** the standard erosion law is solved with a formula,
+  giving the eroded terrain at any chosen time without stepping through
+  it. At steady state, the height along a flow path is an integral of
+  `(U / (K·A^m))^(1/n)`: A is the area draining into each point, U the
+  uplift rate, K the erosion strength, and m and n the law's exponents.
+  The Salève model gives the same steady-state formula and adds that
+  the drainage network itself still has to be computed numerically.
+- **Fit:** we already trace rivers on a coarse grid per region, so
+  drainage area can be computed per region, with no global pass.
+- **What it fixes:** river profiles steep near the source and
+  flattening downstream, instead of today's simple step-down. Tributary
+  valleys get matching slopes for free.
+- **Work:**
+  - [ ] Drainage area A per cell on the river grid (flow accumulation
+    along the traced flow directions).
+  - [ ] River levels from the steady-state integral, still falling
+    monotonically and still meeting the agreed level at every border
+    crossing (a crossing fixes one point of the profile, as a road's
+    crossing fixes its start level).
+  - [ ] Options for U, K, m and n (presets: steep young mountains, worn
+    old hills).
+  - [ ] Tests: profiles concave (steep at the source, flatter downstream);
+    a tributary meets its trunk at the trunk's level and slope; the
+    existing river suite still passes.
+- **Open:** whether drainage area should count water flowing in from
+  neighbours (a river crossing in brings its upstream area with it as
+  part of the agreement), and how this fits the world generator's
+  drainage tilt (`world_plan.md`).
+
 ## Phases
 
 | Phase | Work | Depends on |
 |---|---|---|
 | 0 | **Coordinator only:** add both crates to the root `Cargo.toml`; add `terrain/prior_art/` to `.gitignore` and the `_typos.toml` excludes; add `CLAUDE.md` package rows and a README row; add the generic tags to `procgena_mesh/src/tag.rs`. | — |
-| 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Review pending. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two biomes and a triple junction. Includes the symmetry, seam and triple-junction tests. **Stop and review with the user.** | 0 |
+| 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Review pending. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two terrains and a triple junction. Includes the symmetry, seam and triple-junction tests. **Stop and review with the user.** | 0 |
 | 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Review pending. | 1 |
 | 2.5 | **Shared world noise and relief convergence** (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
-| 2.6 | **Relief blending** (built 2026-11-22, review pending; one road problem at blend 1, see its Results) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
+| 2.6 ✅ | **Relief blending** (built 2026-11-22, review pending) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
+| 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest. Still to do: dynamic width, edge-measured fit, hub placement, speed. | 2.6 |
+| 2.8 | **River valleys and erosion** (planned, starts with a spike; see "River valleys and erosion (planned, Phase 2.8)" above): valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
 | 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |
 | 5 | Classification, `annotate`, `HeightTile` | 3 (water labels after 4) |
 | 6 | SDF, volumetric modifiers, top-surface search | 3 |
 | 7 | Chunk mesher: band, marching cubes, Transvoxel transitions (after the licence check), parts by label, water parts | 5, 6 |
-| 8 | Bevy crate: streaming, material, water, debug overlay, viewer | 7 |
+| 8 | Bevy crate: streaming, material, debug overlay, viewer (no water material: the user brings their own) | 7 |
 | 9 | Exports (OBJ, glTF, raw heightmaps) | 7 (in parallel with 8) |
 | 10 | `terrain/textures.yml` plus a tools entry; studio Terrain tab | 8 |
 | 11 | Docs, READMEs, polish | all |
@@ -1116,8 +1298,9 @@ touch separate modules.
 5. **Transvoxel licence.** Lengyel's terms for the tables were not found.
    If they are not permissive: our own surface nets with skirts, or the
    `transvoxel` crate (MIT/Apache) as a new dependency?
-6. **Rock outcrops.** Voronoi-rock SDF in the terrain, or procgena_stone
-   scatter tagged on cliffs and scree?
+6. **Rock outcrops.** **Answered 2026-11-22:** a Voronoi-rock SDF in the
+   terrain; procgena_stone scatter is out of scope (this plan is just
+   terrain).
 7. **Edge not yet known.** When a neighbour region appears later, chunks
    within the margin rebuild. Is that acceptable for the world generator,
    or must the region graph be known before generation?
@@ -1149,17 +1332,14 @@ touch separate modules.
     crossing to the hub stays within `max_grade` on the 25 m grid (with
     a hard cap the road isn't built at all). **Decided 2026-11-22:**
     roads cut as deep as they need, so the route search keeps its soft
-    grade costs plus a cost for expected cutting and filling. Cuttings
-    steepen towards vertical; `Terrain::cutting_face(p)` reports a face
-    of 45° to 65° as a bluff and 65° to 90° as a cliff (Phase 5 turns
-    these into labels). Embankments stay capped at 10 m in the feature
-    test, and road levels take 3 m of cut to save 1 m of fill. Moving
-    the hub is still open (question 12).
-14. **Switchbacks.** Climbing roads still double back on the spot (zero
-    radius hairpins), and their legs can overlap. A turn limit in the
-    route search made routes steeper (1 to 22 over-grade steps) and a
-    turn cost didn't stop the hairpins, so both were taken out. Still to
-    design: hairpins with a radius and a minimum spacing between legs.
+    grade costs plus a cost for expected cutting and filling. Banks
+    steepen with the terrain up to near vertical, and `Terrain::road_tags`
+    marks them (see "Road rework (Phase 2.7)"). Embankments stay capped
+    at 10 m in the feature test, and road levels take 3 m of cut to save
+    1 m of fill. Moving the hub is still open (question 12).
+14. **Switchbacks.** **Answered 2026-11-22** by the 8 m road grid, a 45°
+    turn limit per step and the leg-spacing re-route (see "Road rework
+    (Phase 2.7)").
 
 ## Maybe later
 

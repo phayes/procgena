@@ -56,7 +56,7 @@ fn main() -> std::io::Result<()> {
         ..common::DEFAULT
     };
     for (name, world) in [
-        ("two_biomes", common::two_biomes(DVec2::ZERO, config)),
+        ("two_terrains", common::two_terrains(DVec2::ZERO, config)),
         ("triple_junction", common::triple_junction(config)),
         (
             "hills_into_plains",

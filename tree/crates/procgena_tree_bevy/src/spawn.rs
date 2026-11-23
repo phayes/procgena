@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
-use bevy::camera::primitives::Aabb;
+use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
@@ -191,6 +191,12 @@ pub(crate) struct SpawnSettings {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TreeKey(u64);
 
+/// Keeps the generated trees with these keys in the [`TreeCache`] while the
+/// entity has it, for entities that draw trees without a [`TreeKey`] of their
+/// own, such as groves.
+#[derive(Component, Debug, Clone, Default, PartialEq)]
+pub(crate) struct HeldTreeKeys(pub(crate) Vec<TreeKey>);
+
 /// Present on a [`TreeParams`] entity while its tree is being prepared.
 ///
 /// The plugin adds this whenever a tree is spawned or its [`TreeParams`] changes,
@@ -214,9 +220,15 @@ pub struct TreeFinished {
 }
 
 /// A part’s Bevy mesh and optional bounds covering its camera-facing rotations.
-struct PartMesh<M> {
-    mesh: M,
+pub(crate) struct PartMesh<M> {
+    pub(crate) mesh: M,
+    /// Bounds covering every camera-facing rotation of a billboard part; `None`
+    /// for other parts, whose mesh bounds Bevy computes.
     bounds: Option<Aabb>,
+    /// Bounds of the part as drawn, in tree coordinates: `bounds` for a
+    /// billboard part, the mesh's own bounds otherwise. Wind sway is not
+    /// included.
+    pub(crate) extent: Aabb,
 }
 
 /// Meshes produced by a background task for one detail level; each is absent
@@ -252,21 +264,72 @@ struct LevelAssets {
 }
 
 /// Meshes and materials reused by trees with identical options.
-struct Generated {
+pub(crate) struct Generated {
     /// Detail levels sorted from the nearest switching distance to the farthest.
     levels: Vec<LevelAssets>,
     fruit: Handle<TreeMaterial>,
     flowers: Handle<TreeMaterial>,
     /// One cylinder mesh and material shared by all wires, plus each wire's placement.
-    trellis: Option<(Handle<Mesh>, Handle<StandardMaterial>, Vec<Transform>)>,
+    pub(crate) trellis: Option<(Handle<Mesh>, Handle<StandardMaterial>, Vec<Transform>)>,
     /// The tree as a tagged object, shared by every tree with these options.
-    object: Arc<Object>,
+    pub(crate) object: Arc<Object>,
+}
+
+impl Generated {
+    /// Every mesh part of every detail level, nearest level first, with its
+    /// material. Trellis wires are not included.
+    pub(crate) fn parts(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            usize,
+            TreePartKind,
+            &PartMesh<Handle<Mesh>>,
+            &Handle<TreeMaterial>,
+        ),
+    > {
+        self.levels
+            .iter()
+            .enumerate()
+            .flat_map(move |(lod, level)| {
+                [
+                    (TreePartKind::Bark, &level.bark, &level.bark_material),
+                    (TreePartKind::Leaves, &level.leaves, &level.leaf_material),
+                    (TreePartKind::Fruit, &level.fruit, &self.fruit),
+                    (TreePartKind::Flowers, &level.flowers, &self.flowers),
+                ]
+                .into_iter()
+                .filter_map(move |(kind, mesh, material)| {
+                    Some((lod, kind, mesh.as_ref()?, material))
+                })
+            })
+    }
+
+    /// The number of detail levels.
+    pub(crate) fn level_count(&self) -> usize {
+        self.levels.len()
+    }
+
+    /// The camera distances detail level `lod` is drawn at, or `None` when
+    /// the tree has a single level, drawn at every distance.
+    pub(crate) fn range(&self, lod: usize) -> Option<&VisibilityRange> {
+        self.levels[lod].range.as_ref()
+    }
 }
 
 enum Entry {
     Pending(Task<TaskOutput>, Arc<TreeOptions>),
     Ready(Arc<Generated>),
     Failed(OptionsError),
+}
+
+/// Where a tree's generation stands in the [`TreeCache`].
+pub(crate) enum CacheState<'a> {
+    /// Still generating, or never requested.
+    Pending,
+    Ready(&'a Arc<Generated>),
+    /// Generation failed; the error has been logged.
+    Failed,
 }
 
 /// Reuses generated trees when their options match. Trees with different shapes
@@ -284,6 +347,35 @@ pub(crate) struct TreeCache {
     fruit_material: Option<Handle<TreeMaterial>>,
     /// Shared flower appearance, retained even when no trees use it.
     flower_material: Option<Handle<TreeMaterial>>,
+}
+
+impl TreeCache {
+    /// Starts generating a tree with `options` in the background unless one
+    /// is cached or generating already, and returns its key.
+    pub(crate) fn request(
+        &mut self,
+        options: &Arc<TreeOptions>,
+        settings: &SpawnSettings,
+    ) -> TreeKey {
+        let key = TreeKey(options.tree_id());
+        self.trees.entry(key).or_insert_with(|| {
+            let levels = settings.lod_levels.clone();
+            let task_options = options.clone();
+            let task =
+                AsyncComputeTaskPool::get().spawn(async move { generate(&task_options, &levels) });
+            Entry::Pending(task, options.clone())
+        });
+        key
+    }
+
+    /// How the tree with `key` stands.
+    pub(crate) fn state(&self, key: TreeKey) -> CacheState<'_> {
+        match self.trees.get(&key) {
+            Some(Entry::Ready(generated)) => CacheState::Ready(generated),
+            Some(Entry::Failed(_)) => CacheState::Failed,
+            Some(Entry::Pending(..)) | None => CacheState::Pending,
+        }
+    }
 }
 
 /// Removes generated children when a tree changes or loses its [`TreeParams`] component.
@@ -353,14 +445,7 @@ pub(crate) fn start_generation(
                 None => continue,
             },
         };
-        let key = TreeKey(options.tree_id());
-        cache.trees.entry(key).or_insert_with(|| {
-            let levels = settings.lod_levels.clone();
-            let task_options = options.clone();
-            let task =
-                AsyncComputeTaskPool::get().spawn(async move { generate(&task_options, &levels) });
-            Entry::Pending(task, options)
-        });
+        let key = cache.request(&options, &settings);
         commands.entity(entity).insert(key);
     }
 }
@@ -373,9 +458,15 @@ fn generate(options: &TreeOptions, levels: &[TreeLodLevel]) -> TaskOutput {
     let mut levels = levels.to_vec();
     levels.sort_by(|a, b| a.level.distance.total_cmp(&b.level.distance));
     let part = |buffers: &MeshBuffers, convert: &dyn Fn(&MeshBuffers) -> Mesh| {
-        (!buffers.indices.is_empty()).then(|| PartMesh {
-            mesh: convert(buffers),
-            bounds: billboard_aabb(buffers),
+        (!buffers.indices.is_empty()).then(|| {
+            let mesh = convert(buffers);
+            let bounds = billboard_aabb(buffers);
+            let extent = bounds.or_else(|| mesh.get_aabb()).unwrap_or_default();
+            PartMesh {
+                mesh,
+                bounds,
+                extent,
+            }
         })
     };
     let lods: Vec<(LodLevel, TreeMesh)> = levels
@@ -499,6 +590,7 @@ pub(crate) fn finish_generation(
                 part.map(|p| PartMesh {
                     mesh: meshes.add(p.mesh),
                     bounds: p.bounds,
+                    extent: p.extent,
                 })
             };
             level_assets.push(LevelAssets {
@@ -612,29 +704,20 @@ pub(crate) fn spawn_parts(
 }
 
 fn spawn_tree_parts(commands: &mut Commands, tree: Entity, generated: &Generated) {
-    for (lod, level) in generated.levels.iter().enumerate() {
-        let parts = [
-            (TreePartKind::Bark, &level.bark, &level.bark_material),
-            (TreePartKind::Leaves, &level.leaves, &level.leaf_material),
-            (TreePartKind::Fruit, &level.fruit, &generated.fruit),
-            (TreePartKind::Flowers, &level.flowers, &generated.flowers),
-        ];
-        for (kind, mesh, material) in parts {
-            let Some(mesh) = mesh else { continue };
-            let mut part = commands.spawn((
-                TreePart { lod, kind },
-                Mesh3d(mesh.mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                ChildOf(tree),
-            ));
-            if let Some(range) = &level.range {
-                part.insert(range.clone());
-            }
-            // Use rotation-aware bounds so Bevy does not hide a billboard whose
-            // stored shape is outside the view but whose rotated shape is visible.
-            if let Some(bounds) = mesh.bounds {
-                part.insert((bounds, NoAutoAabb));
-            }
+    for (lod, kind, mesh, material) in generated.parts() {
+        let mut part = commands.spawn((
+            TreePart { lod, kind },
+            Mesh3d(mesh.mesh.clone()),
+            MeshMaterial3d(material.clone()),
+            ChildOf(tree),
+        ));
+        if let Some(range) = &generated.levels[lod].range {
+            part.insert(range.clone());
+        }
+        // Use rotation-aware bounds so Bevy does not hide a billboard whose
+        // stored shape is outside the view but whose rotated shape is visible.
+        if let Some(bounds) = mesh.bounds {
+            part.insert((bounds, NoAutoAabb));
         }
     }
     if let Some((mesh, material, transforms)) = &generated.trellis {
@@ -659,13 +742,20 @@ fn spawn_tree_parts(commands: &mut Commands, tree: Entity, generated: &Generated
 /// cached for reuse.
 pub(crate) fn prune_cache(
     mut removed: RemovedComponents<TreeKey>,
+    mut removed_held: RemovedComponents<HeldTreeKeys>,
+    changed_held: Query<(), Changed<HeldTreeKeys>>,
     keys: Query<&TreeKey>,
+    held: Query<&HeldTreeKeys>,
     mut cache: ResMut<TreeCache>,
 ) {
-    if removed.read().count() == 0 {
+    let removed = removed.read().count() + removed_held.read().count();
+    if removed == 0 && changed_held.is_empty() {
         return;
     }
-    let used: HashSet<&TreeKey> = keys.iter().collect();
+    let used: HashSet<&TreeKey> = keys
+        .iter()
+        .chain(held.iter().flat_map(|held| &held.0))
+        .collect();
     cache.trees.retain(|key, _| used.contains(key));
 
     // Preserve materials referenced by the generated trees still in the cache.

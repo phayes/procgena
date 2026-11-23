@@ -4,7 +4,7 @@ mod common;
 
 use common::{
     CONFIGS, JOIN_SEEDS, RIVER_SEEDS, assert_no_crack, hills_into_plains, triple_junction,
-    two_biomes,
+    two_terrains,
 };
 use glam::DVec2;
 use procgena_terrain::{
@@ -17,7 +17,7 @@ use procgena_terrain::{
 fn worlds() -> Vec<StitchedWorld> {
     let mut worlds = Vec::new();
     for config in CONFIGS {
-        worlds.push(two_biomes(DVec2::ZERO, config));
+        worlds.push(two_terrains(DVec2::ZERO, config));
         worlds.push(triple_junction(config));
         worlds.extend(RIVER_SEEDS.map(|s| hills_into_plains(s, config)));
         worlds.extend(JOIN_SEEDS.map(|s| hills_into_plains(s, config)));

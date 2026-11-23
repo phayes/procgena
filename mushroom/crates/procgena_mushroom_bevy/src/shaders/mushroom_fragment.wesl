@@ -12,7 +12,7 @@ import bevy_pbr::{
         pbr_functions::alpha_discard,
     },
 };
-import package::shaders::mushroom_triplanar::sample_triplanar;
+import package::shaders::mushroom_triplanar::{TriplanarSample, sample_flat, sample_triplanar};
 
 @if(PREPASS_PIPELINE)
 import bevy_pbr::{
@@ -45,6 +45,15 @@ struct MushroomSurface {
     cap_textured: u32,
     /// Mesh units covered by one repeat of the cap images.
     cap_texture_size: f32,
+    /// Average linear colour of the stem colour image.
+    stem_texture_average: vec3<f32>,
+    /// 1 to add detail to the stem with the stem images, 0 for vertex
+    /// colours only.
+    stem_textured: u32,
+    /// Mesh units of stem covered by one repeat of the stem images.
+    stem_texture_size: f32,
+    /// Typical width of a flat stem, in mesh units.
+    stem_ribbon_width: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> surface: MushroomSurface;
@@ -54,6 +63,11 @@ struct MushroomSurface {
 @group(constants::MATERIAL_BIND_GROUP) @binding(104) var cap_normal_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(105) var cap_orh_texture: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var cap_orh_sampler: sampler;
+// The three stem images share the colour image's sampler.
+@group(constants::MATERIAL_BIND_GROUP) @binding(107) var stem_color_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(108) var stem_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(109) var stem_normal_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(110) var stem_orh_texture: texture_2d<f32>;
 
 const PI: f32 = 3.14159265;
 // Zone numbers stored in the second texture coordinate (see the Rust
@@ -64,6 +78,8 @@ const ZONE_CAP_TOP: f32 = 0.0;
 const ZONE_CAP_RIM: f32 = 1.0;
 /// The cap's underside.
 const ZONE_UNDERSIDE: f32 = 2.0;
+/// The stem.
+const ZONE_STEM: f32 = 3.0;
 
 /// Returns three repeatable random numbers from 0 to 1 for the grid cell
 /// with whole-number corner `cell`.
@@ -175,6 +191,57 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.perceptual_roughness *= cap.roughness;
         pbr_input.diffuse_occlusion *= cap.occlusion;
         pbr_input.N = normalize(mesh_functions::mesh_normal_local_to_world(cap.normal, in.instance_index));
+    }
+
+    // A textured stem keeps its own colours: the stem images are tinted so
+    // their average colour matches the vertex colour, adding detail only.
+    if zone == ZONE_STEM && surface.stem_textured != 0u {
+        let world_from_local = mesh_functions::get_world_from_local(in.instance_index);
+        let local_from_world = mesh_functions::get_local_from_world(in.instance_index);
+        let p = (local_from_world * vec4<f32>(in.world_position.xyz, 1.0)).xyz;
+        var stem: TriplanarSample;
+@if(BILLBOARD) {
+        // A flat stem turns to face the camera, so project along it: across
+        // its width and up the mushroom's height, which stay put as it turns.
+        let uv = vec2<f32>((in.uv.x - 0.5) * surface.stem_ribbon_width, -p.y) / surface.stem_texture_size;
+        stem = sample_flat(
+            stem_color_texture,
+            stem_sampler,
+            stem_normal_texture,
+            stem_sampler,
+            stem_orh_texture,
+            stem_sampler,
+            uv,
+            view.mip_bias,
+        );
+        // Bend the turned surface direction by the normal map, taking the
+        // image's top as the mushroom's up.
+        let n = normalize(pbr_input.world_normal);
+        let up = normalize(world_from_local[1].xyz);
+        let right = normalize(cross(up, n));
+        let top = cross(n, right);
+        pbr_input.N = normalize(right * stem.normal.x + top * stem.normal.y + n * stem.normal.z);
+}
+@if(!BILLBOARD) {
+        let linear = mat3x3<f32>(world_from_local[0].xyz, world_from_local[1].xyz, world_from_local[2].xyz);
+        let n = normalize(transpose(linear) * pbr_input.world_normal);
+        stem = sample_triplanar(
+            stem_color_texture,
+            stem_sampler,
+            stem_normal_texture,
+            stem_sampler,
+            stem_orh_texture,
+            stem_sampler,
+            p,
+            n,
+            surface.stem_texture_size,
+            view.mip_bias,
+        );
+        pbr_input.N = normalize(mesh_functions::mesh_normal_local_to_world(stem.normal, in.instance_index));
+}
+        colour = clamp(colour * stem.color / surface.stem_texture_average, vec3<f32>(0.0), vec3<f32>(1.0));
+        pbr_input.material.perceptual_roughness *= stem.roughness;
+        pbr_input.diffuse_occlusion *= stem.occlusion;
     }
 }
     pbr_input.material.base_color = vec4<f32>(colour, pbr_input.material.base_color.a);

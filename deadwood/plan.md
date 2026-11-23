@@ -21,7 +21,9 @@ half-buried mound.
   option (grouped into Piece, Ends, Shape, Parts, Bark, Colours,
   Textures, Resting), a Level of Detail picker, save/load JSON and
   GLB/OBJ export. Textures come through the studio's downloading asset
-  source. Not built: the scatter-patch scene and the "add moss" toggle.
+  source. A Show section picks the View (Single Piece, Kindling or Twig
+  Litter scatter on flat ground) and a Cover grown on a single piece
+  (moss patches, moss cushions, snow or a burl, from `procgena_clump`).
 - **Ends too long for the stem** are no longer an error: the core shrinks
   both ends by one factor until they fit, and turns an axe cut or natural
   tip that still can't fit into a flat cut. `OptionsError::EndsTooLong`

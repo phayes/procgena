@@ -1,12 +1,12 @@
-# Textures for procgena_mushroom's caps, used by the `textures` tool:
+# Textures for procgena_mushroom's caps and stems, used by the `textures` tool:
 #   uv run --project tools textures <command> mushroom
 # See tools/README.md for the commands. Only add CC0 textures: free to use,
 # including in commercial projects.
 #
 # Most mushrooms need no textures: their colours come from vertex colours,
 # and gill lines and cap patterns are drawn by procgena_mushroom_bevy's
-# shader. A set here is for presets whose cap looks better with a painted,
-# detailed surface, named by MaterialOptions::cap_texture.
+# shader. A set here is for presets whose cap or stem looks better with a
+# painted, detailed surface. Cap sets are named by MaterialOptions::cap_texture.
 
 # Folder in the public gs://ze_textures bucket that holds these textures.
 bucket: mushroom
@@ -16,13 +16,13 @@ bucket: mushroom
 # exported `orm` JPEG).
 layout: orh
 
-# Folder under assets/textures/ for every set below.
+# Folder under assets/textures/ for sets that don't name their own category.
 category: cap
 
-# Cap texture sets, in manifest order. The id names the output files and
-# MaterialOptions::cap_texture. Sources:
-#   manual  downloaded by hand from `source_url`; save the files named in
-#           `originals` in prior_art/textures/<id>/original/
+# Texture sets, in manifest order. The id names the output files, and
+# `category` (cap or stem) the folder they go in. Sources:
+#   manual  downloaded or made by hand; save the files named in `originals`
+#           in prior_art/textures/<id>/original/
 sets:
   # A fly agaric cap: red with white warts. Download the five maps from the
   # page's Google Drive folder ("Mushroom_Top_001_SD").
@@ -39,3 +39,60 @@ sets:
       roughness: Mushroom_Top_001_roughness.jpg
       occlusion: Mushroom_Top_001_ambientOcclusion.jpg
       height: Mushroom_Top_001_height.png
+
+  # Stem sets made from two 1254 x 1254 colour images ("Creamy Tan Mushroom
+  # Texture.png" and "Seamless Mushroom Skin Texture.png"). The other maps
+  # are derived from the colour with ImageMagick 7, as below; IN is the
+  # source image and BLEND the tiling blend.
+  #
+  # 1. Creamy tan only: even out its tan-to-cream fade, in linear light:
+  #      magick IN -colorspace RGB \( +clone -virtual-pixel mirror -blur 0x60 \)
+  #        \( -clone 0 -scale 1x1\! -scale 1254x1254\! \)
+  #        \( -clone 0 -clone 2 -compose Multiply -composite \) -delete 0,2
+  #        +swap -compose DivideDst -composite -colorspace sRGB -depth 16 flat.png
+  # 2. Make it tile: blend each image with a copy rolled by half its width,
+  #    then do the same with the result rolled by half its height. The copy
+  #    fills in near the edges; where both show, the brighter (raised) one wins.
+  #      BLEND='tt=tt<0?0:(tt>1?1:tt); tt=tt*tt*(3-2*tt);
+  #        ww=(tt-0.5+0.7*(u.intensity-v.intensity))*4+0.5; ww=ww<0?0:(ww>1?1:ww);
+  #        ww=tt<0.1?ww*tt/0.1:(tt>0.9?ww+(1-ww)*(tt-0.9)/0.1:ww); u*ww+v*(1-ww)'
+  #      magick flat.png \( +clone -roll +627+0 \) -fx "tt=min(i,w-i)/(w*F); $BLEND" x.png
+  #      magick x.png \( +clone -roll +0+627 \) -fx "tt=min(j,h-j)/(h*F); $BLEND" color.png
+  #    F, the blend width as a fraction of the image, is 0.22 then 0.32 for
+  #    creamy tan, and 0.12 for both passes of brown net (nearly tiling already).
+  # 3. Derive the other maps from color.png. Every filter wraps around the
+  #    edges (-virtual-pixel tile), so the maps tile too.
+  #    height: Rec709 luma minus a 40 px blur of it, plus 0.5, blurred 1 px
+  #      and stretched 0.5%x0.5% (light is raised).
+  #    normal: OpenGL Sobel slopes of height blurred 1.5 px, strength 12:
+  #      normalize(-12 dx, 12 dy_down, 1).
+  #    roughness: 0.88 - 0.16 * height (matte; ridges slightly smoother).
+  #    occlusion: 1 - 0.6 * clamp(2.5 * (8 px blur of height - height)).
+  - id: creamy_tan
+    category: stem
+    source: manual
+    title: Creamy Tan Mushroom Stem
+    authors: [Patrick Hayes]
+    site: procgena
+    source_url: https://github.com/phayes/procgena
+    license: CC0-1.0
+    originals:
+      color: creamy_tan_color.png
+      normal: creamy_tan_normal.png
+      roughness: creamy_tan_roughness.png
+      occlusion: creamy_tan_occlusion.png
+      height: creamy_tan_height.png
+  - id: brown_net
+    category: stem
+    source: manual
+    title: Brown Netted Mushroom Stem
+    authors: [Patrick Hayes]
+    site: procgena
+    source_url: https://github.com/phayes/procgena
+    license: CC0-1.0
+    originals:
+      color: brown_net_color.png
+      normal: brown_net_normal.png
+      roughness: brown_net_roughness.png
+      occlusion: brown_net_occlusion.png
+      height: brown_net_height.png

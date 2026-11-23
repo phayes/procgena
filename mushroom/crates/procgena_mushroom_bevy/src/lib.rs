@@ -51,7 +51,7 @@ use bevy::shader::load_shader_library;
 use procgena_mushroom::{MushroomLod, TextureCompression, TextureSize};
 
 pub use material::{
-    CapTextures, MushroomExtension, MushroomMaterial, MushroomSurface, mushroom_material,
+    MushroomExtension, MushroomMaterial, MushroomSurface, TextureSet, mushroom_material,
 };
 pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, mushroom_mesh, ribbon_aabb, ribbon_mesh,
@@ -80,10 +80,11 @@ pub struct MushroomPlugin {
     ///
     /// [`MushroomOptions::detail`]: procgena_mushroom::MushroomOptions::detail
     pub lod: MushroomLod,
-    /// Folder holding the `cap/` texture folder, relative to Bevy's asset
-    /// folder, for mushrooms whose options name a
-    /// [`cap_texture`](procgena_mushroom::MaterialOptions::cap_texture),
-    /// such as the fly agaric preset. Defaults to
+    /// Folder holding the `cap/` and `stem/` texture folders, relative to
+    /// Bevy's asset folder, for mushrooms whose options name a
+    /// [`cap_texture`](procgena_mushroom::MaterialOptions::cap_texture) or
+    /// [`stem_texture`](procgena_mushroom::MaterialOptions::stem_texture),
+    /// such as the fly agaric and porcini presets. Defaults to
     /// `procgena_mushroom/textures`: copy the repository's
     /// `mushroom/assets/textures` folder there after
     /// `uv run --project tools textures download mushroom`.

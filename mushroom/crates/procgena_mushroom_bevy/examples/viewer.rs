@@ -14,13 +14,22 @@
 //! generated, then exit. Add `--flat` to draw everything at the cheapest
 //! detail (open caps and camera-facing stem strips) at every distance,
 //! `--closeup` to start next to the enoki cluster instead of the preset row,
-//! and `--orbit <degrees>` to start the camera turned around what it looks at.
+//! `--preset <name>` (such as `porcini` or `fly_agaric`) to start next to one
+//! preset, and `--orbit <degrees>` to start the camera turned around what it
+//! looks at. With `--screenshot`, add `--headless` to render a 1280 × 720
+//! image without opening a window.
 
 use std::sync::Arc;
+use std::time::Duration;
 
+use bevy::app::ScheduleRunnerPlugin;
+use bevy::camera::RenderTarget;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+use bevy::render::render_resource::TextureFormat;
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::window::ExitCondition;
+use bevy::winit::WinitPlugin;
 use procgena_mesh::{GeneratedObject, Object, Part, SurfaceMesh, tags};
 use procgena_mushroom::{
     ClusterOptions, LodLevel, MushroomDetail, MushroomLod, MushroomPreset, ScatterOptions,
@@ -34,9 +43,16 @@ use procgena_mushroom_bevy::{
 /// and shaders are ready.
 const SETTLE_FRAMES: u32 = 60;
 
+/// Seconds to wait for every mushroom before a screenshot gives up.
+const SCREENSHOT_TIMEOUT: f32 = 180.0;
+
 /// Where to save a screenshot, from `--screenshot <file.png>`.
 #[derive(Resource)]
 struct ScreenshotPath(Option<String>);
+
+/// The image the camera draws into with `--headless`.
+#[derive(Resource)]
+struct Offscreen(Handle<Image>);
 
 /// Where the enoki cluster stands.
 const ENOKI_CLUSTER: Vec3 = Vec3::new(-0.4, 0.0, -0.4);
@@ -49,6 +65,19 @@ struct CameraStart {
     /// True to look at the enoki cluster rather than the preset row, from
     /// `--closeup`.
     closeup: bool,
+    /// Index in [`MushroomPreset::ALL`] of one preset to look at closely,
+    /// from `--preset <name>`.
+    preset: Option<usize>,
+    /// True to draw into an image instead of a window, from `--headless`.
+    headless: bool,
+}
+
+/// Spacing between the presets in the row, in metres.
+const ROW_SPACING: f32 = 0.2;
+
+/// Returns the row position of preset number `i`.
+fn row_x(i: usize) -> f32 {
+    (i as f32 - (MushroomPreset::ALL.len() as f32 - 1.0) * 0.5) * ROW_SPACING
 }
 
 fn main() {
@@ -59,6 +88,14 @@ fn main() {
             .and_then(|i| args.get(i + 1).cloned())
     };
     let orbit = value("--orbit").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    // `--preset porcini` matches the preset named "Porcini"; spaces in names
+    // are written as underscores, as in `fly_agaric`.
+    let preset = value("--preset").map(|name| {
+        MushroomPreset::ALL
+            .iter()
+            .position(|p| p.name().to_lowercase().replace(' ', "_") == name)
+            .unwrap_or_else(|| panic!("no preset named {name:?}"))
+    });
 
     // `--flat` uses only the cheapest detail, drawn out to 100 m.
     let lod = if args.iter().any(|a| a == "--flat") {
@@ -88,20 +125,39 @@ fn main() {
         texture_root: textured.then(|| "textures".to_owned()),
         ..MushroomPlugin::default()
     };
-    App::new()
-        .add_plugins((
-            DefaultPlugins.set(AssetPlugin {
-                file_path: assets.to_owned(),
-                ..default()
-            }),
-            FreeCameraPlugin,
-            plugin,
-        ))
+    // With `--headless`, run without a window on a fixed 60 Hz loop.
+    let headless = args.iter().any(|a| a == "--headless");
+    assert!(
+        !headless || value("--screenshot").is_some(),
+        "--headless needs --screenshot <file.png>"
+    );
+    let defaults = DefaultPlugins.set(AssetPlugin {
+        file_path: assets.to_owned(),
+        ..default()
+    });
+    let mut app = App::new();
+    if headless {
+        app.add_plugins((
+            defaults
+                .set(WindowPlugin {
+                    primary_window: None,
+                    exit_condition: ExitCondition::DontExit,
+                    ..default()
+                })
+                .disable::<WinitPlugin>(),
+            ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(1.0 / 60.0)),
+        ));
+    } else {
+        app.add_plugins((defaults, FreeCameraPlugin));
+    }
+    app.add_plugins(plugin)
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
         .insert_resource(ScreenshotPath(value("--screenshot")))
         .insert_resource(CameraStart {
             orbit,
             closeup: args.iter().any(|a| a == "--closeup"),
+            preset,
+            headless,
         })
         .add_systems(Startup, setup)
         .add_systems(Update, screenshot)
@@ -109,10 +165,14 @@ fn main() {
 }
 
 /// With `--screenshot`, saves one image once every mushroom has been built
-/// and drawn for a moment, then exits.
+/// and drawn for a moment, then exits. Exits with an error if nothing is
+/// built within [`SCREENSHOT_TIMEOUT`].
+#[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn screenshot(
     mut commands: Commands,
     path: Res<ScreenshotPath>,
+    offscreen: Option<Res<Offscreen>>,
+    time: Res<Time>,
     generating: Query<(), With<MushroomGenerating>>,
     parts: Query<(), With<MushroomPart>>,
     mut settled: Local<u32>,
@@ -121,17 +181,30 @@ fn screenshot(
     let Some(path) = &path.0 else { return };
     if !generating.is_empty() || parts.is_empty() {
         *settled = 0;
+        if time.elapsed_secs() > SCREENSHOT_TIMEOUT {
+            error!("screenshot failed: nothing built after {SCREENSHOT_TIMEOUT} seconds");
+            exit.write(AppExit::error());
+        }
         return;
     }
     *settled += 1;
-    if *settled == SETTLE_FRAMES {
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(path.clone()));
+    if *settled != SETTLE_FRAMES {
+        return;
     }
-    if *settled == SETTLE_FRAMES + 30 {
-        exit.write(AppExit::Success);
-    }
+
+    // Save the image, then exit once it is written.
+    let target = match offscreen {
+        Some(offscreen) => Screenshot::image(offscreen.0.clone()),
+        None => Screenshot::primary_window(),
+    };
+    commands
+        .spawn(target)
+        .observe(save_to_disk(path.clone()))
+        .observe(
+            |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                exit.write(AppExit::Success);
+            },
+        );
 }
 
 /// Spawns the camera, light, mushrooms, clusters and the scattered ground
@@ -140,21 +213,30 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     start: Res<CameraStart>,
 ) {
     // Camera looking at the preset row or the enoki cluster, turned around
     // it by `--orbit`, and light.
-    let (target, offset) = if start.closeup {
+    let (target, offset) = if let Some(i) = start.preset {
+        (Vec3::new(row_x(i), 0.06, 0.0), Vec3::new(0.0, 0.03, 0.28))
+    } else if start.closeup {
         (ENOKI_CLUSTER + Vec3::Y * 0.05, Vec3::new(0.0, 0.07, 0.3))
     } else {
         (Vec3::new(0.0, 0.05, 0.0), Vec3::new(0.0, 0.45, 1.8))
     };
     let eye = target + Quat::from_rotation_y(start.orbit.to_radians()) * offset;
-    commands.spawn((
+    let mut camera = commands.spawn((
         Camera3d::default(),
         FreeCamera::default(),
         Transform::from_translation(eye).looking_at(target, Vec3::Y),
     ));
+    if start.headless {
+        let image = Image::new_target_texture(1280, 720, TextureFormat::Rgba8UnormSrgb, None);
+        let handle = images.add(image);
+        camera.insert(RenderTarget::Image(handle.clone().into()));
+        commands.insert_resource(Offscreen(handle));
+    }
     commands.spawn((
         DirectionalLight {
             shadow_maps_enabled: true,
@@ -164,12 +246,10 @@ fn setup(
     ));
 
     // Every preset in a row.
-    let count = MushroomPreset::ALL.len() as f32;
     for (i, preset) in MushroomPreset::ALL.into_iter().enumerate() {
-        let x = (i as f32 - (count - 1.0) * 0.5) * 0.2;
         commands.spawn((
             MushroomParams::preset(preset),
-            Transform::from_xyz(x, 0.0, 0.0),
+            Transform::from_xyz(row_x(i), 0.0, 0.0),
         ));
     }
 
