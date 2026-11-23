@@ -82,6 +82,16 @@ pub mod tags {
     /// bare wood and bark carries this tag and [`BARK`](self::BARK)
     /// together.
     pub const WOOD: Tag = Tag::new("wood");
+    /// Any part of a procgena_mushroom mushroom. Each also carries one of
+    /// [`CAP`](self::CAP), [`STEM`](self::STEM) or
+    /// [`ANNULUS`](self::ANNULUS).
+    pub const MUSHROOM: Tag = Tag::new("mushroom");
+    /// A mushroom's cap.
+    pub const CAP: Tag = Tag::new("cap");
+    /// A mushroom's stem.
+    pub const STEM: Tag = Tag::new("stem");
+    /// A mushroom's annulus: the skirt around the stem.
+    pub const ANNULUS: Tag = Tag::new("annulus");
 }
 
 /// The tags of one part, kept sorted and without repeats.

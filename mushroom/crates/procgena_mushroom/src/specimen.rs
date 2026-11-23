@@ -2,29 +2,12 @@
 //! generators use to hand meshes to each other, so that, for example, moss
 //! can grow on a mushroom.
 
-use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet};
+use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet, tags};
 
 use crate::detail::{LodLevel, MushroomLod};
 use crate::mesh::{MeshBuffers, MushroomMesh, PartKind, PartRange};
 use crate::mushroom::Mushroom;
 use crate::options::OptionsError;
-
-/// Labels on the parts of a mushroom [`Specimen`], which other generators use
-/// to pick the parts they want.
-///
-/// Every part has [`MUSHROOM`](tags::MUSHROOM) plus one of the others.
-pub mod tags {
-    use procgena_specimen::Tag;
-
-    /// Any part of a mushroom.
-    pub const MUSHROOM: Tag = Tag::new("mushroom");
-    /// The cap.
-    pub const CAP: Tag = Tag::new("cap");
-    /// The stem.
-    pub const STEM: Tag = Tag::new("stem");
-    /// The annulus: the skirt around the stem.
-    pub const ANNULUS: Tag = Tag::new("annulus");
-}
 
 impl PartKind {
     /// Returns the tag that names this kind of part. Parts also carry

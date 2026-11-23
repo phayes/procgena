@@ -3,9 +3,9 @@
 use glam::Vec3;
 use procgena_mushroom::{
     ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomLod, MushroomOptions,
-    MushroomPreset, MushroomScatter, ScatterError, ScatterOptions, tags,
+    MushroomPreset, MushroomScatter, ScatterError, ScatterOptions,
 };
-use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags as mesh_tags};
+use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 #[test]
 fn specimen_has_one_level_per_lod_level_with_tags() {
@@ -224,10 +224,7 @@ fn clusters_are_repeatable() {
 
 /// A 2 m ground patch.
 fn ground() -> Specimen {
-    Specimen::single(vec![Part::new(
-        [mesh_tags::GROUND],
-        SurfaceMesh::ground(2.0, 8),
-    )])
+    Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(2.0, 8))])
 }
 
 #[test]
@@ -265,7 +262,7 @@ fn scattered_clusters_drop_their_members_onto_the_surface() {
     for p in &mut tilted.positions {
         p[1] = p[2] * 0.2;
     }
-    let host = Specimen::single(vec![Part::new([mesh_tags::GROUND], tilted)]);
+    let host = Specimen::single(vec![Part::new([tags::GROUND], tilted)]);
     let mut mushroom = MushroomPreset::FairyRing.options();
     mushroom.cluster.fairy_ring.radius = 10.0;
     let options = ScatterOptions {
@@ -290,7 +287,7 @@ fn scattered_clusters_drop_their_members_onto_the_surface() {
 fn scatter_respects_the_tag_filter_and_slope() {
     let mushroom = MushroomPreset::Button.options();
     let rock_only = ScatterOptions {
-        grows_on: TagFilter::any_of([mesh_tags::ROCK]),
+        grows_on: TagFilter::any_of([tags::ROCK]),
         ..ScatterOptions::default()
     };
     assert_eq!(
