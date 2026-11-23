@@ -181,7 +181,6 @@ flowchart TD
     F2 --> W0
     D3 --> W0
     D3 --> D4
-    D4 --> G5
     D4 --> W0
 
     B0 --> B1
@@ -216,7 +215,7 @@ blocks. Until then, nothing that depends on it starts.
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided one region per Biome, which opened D4. |
-| D4 | **One region per Biome**: how the region graph and the Biome choice make each region one Biome's whole area, so neighbouring regions never share a Biome, while every `RegionId` stays stable and computable from the World's options and seed alone, in any build order. Region size and shape (world_plan open question 2) move here | G5 (W2's region graph, W3's warp and W4's region cache are built on today's lattice graph), W0 (Biome choice per region, region seeds) | Opened by the user in D3, 2026-11-23. Region size also sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). B1 is not blocked: it works inside one Biome. G5's work in flight on today's graph should keep going until D4 says what changes. |
+| D4 | **One region per Biome**: how the region graph and the Biome choice make each region one Biome's whole area, so neighbouring regions never share a Biome, while every `RegionId` stays stable and computable from the World's options and seed alone, in any build order. Region size and shape (world_plan open question 2) move here | W0 (Biome choice per region, region seeds) | Opened by the user in D3, 2026-11-23. **G5 is not gated:** it keeps building W2–W4 on today's lattice graph, at the risk that D4 asks for rework there (the graph's construction, W3's warp, W4's region cache). Region size also sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). B1 is not blocked: it works inside one Biome. |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -356,9 +355,9 @@ goldens, which have no baseline on this machine).
   measurement, with a closure source). TODO "WorldTerrain". W5 moved to
   W0.
 - **Needs:** M0. W1 needs only Phase 2.5, which is built, so G5 doesn't
-  wait for G1. D4 (one region per Biome) may change the region graph that
-  W2 built and W3 and W4 build on; work in flight continues until D4
-  decides.
+  wait for G1. G5 does not wait for D4 (one region per Biome), but D4 may
+  change the region graph that W2 built and W3 and W4 build on, so expect
+  some rework there.
 - **Done when:** a lattice world of many regions builds on demand from a
   closure source, and the seam suites pass on warped borders.
 
@@ -436,8 +435,7 @@ goldens, which have no baseline on this machine).
   on sites in another chunk (D2). From D3: copies carry the integer
   `CopyAddress` (region, Ecotope and Scatter key salts, `CellId`, index);
   tree's `site_id` and deadwood's and mushroom's indexes become it; mix
-  entries get `ChildKey`s; `Scatter::resolve`, `DrawHandle` and each
-  loaded chunk's address-to-handle map.
+  entries get `ChildKey`s; `Scatter::resolve` for one address.
 - **Needs:** C1, F2 (seeds and hash), D2, D3 (stable keys).
 - **Done when:** each built-in Scatter implements the trait, places one
   chunk at a time on a World lattice, gives the same copies with the same
@@ -501,7 +499,8 @@ milestones.
 #### R4: Promotion and Bevy queries everywhere
 
 - **Covers:** TODO "Bevy queries and promotion" (rule 7), generalising
-  `GroveTrees` and `PromotedTree`.
+  `GroveTrees` and `PromotedTree`. Picking returns a `DrawHandle`, turned
+  into an address through each loaded chunk's map (D3).
 - **Needs:** R2, C2 (copy ids). Plant's part needs its CPU path from R3.
 
 #### I1: Impostors per specimen
@@ -573,8 +572,7 @@ Decided by the user 2026-11-23.
   The rest of TODO "Specimen budget": a per-pool `N` (at most 256) with
   World overrides by path, rendezvous slot choice and stand subsets.
   Seeds chained through the region's Biome down to each Scatter; the
-  Ecotope protocol's merged order as a sort by `priority`; edits stored
-  as integer addresses, with orphans reported. The studio World tab gains
+  Ecotope protocol's merged order as a sort by `priority`. The studio World tab gains
   cover (with B1's and C3's tabs, TODO "Studio").
 - **Needs:** W0, B1, D3 (slot choice).
 - **Done when:** a world of several Biomes, built chunk by chunk in two
@@ -602,7 +600,11 @@ Decided by the user 2026-11-23.
 - **Covers:** TODOs "Edits", "Shared edits and interaction" (plant's
   brushes and trampling grow into the shared edits and an interactor
   contract; tree reads interactors), "Core queries", "Hook traits per
-  level" and "`MeshScatter`". Open question 10 is decided here.
+  level" and "`MeshScatter`". Open question 10 is decided here. From D3:
+  edits stored as integer addresses with `kind` and cell-size checks,
+  orphans kept and reported by salt; part paths pinned to `SpecimenId`s,
+  with each asset that has parts offering `part()` (tree first, then
+  fruit and the mushroom ring); batched `World::resolve_all`.
 - **Needs:** C2 (stable ids), R4 (promotion), B1 (labels and coverage
   to query). Hooks for the World level wait for W1.
 - **Can split:** edits, interaction and Scatter-level queries can start
@@ -628,7 +630,7 @@ a cell run in order within the wave.
 | 1 | M0; D1 research; D2 research | M0 is commits and review. D1 and D2 are reading and spikes, and touch no shared files. |
 | 2 | F1 alone | Churn window 1. |
 | 3 | F2 (one worker per crate); G1 → G3; G2; G5; B0; C1 (one worker per crate); R1; D3 | D3's slot choice uses D2's GPU spike. G5 can run beside G1, but both edit `procgena_terrain`, so give them separate files or run them one after the other. |
-| 4 | F3 alone | Churn window 2, before C2 reworks the grove types. |
+| 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files, and must land before W0 in wave 5. |
 | 5 | C2; G4; W0; R2; R3; I1 | |
 | 6 | C3; G6; R4 | |
 | 7 | B1; I2; X1 (Scatter part) | |
@@ -659,3 +661,7 @@ not resolved.
 4. **Terrain review** (in M0). Terrain Phases 1, 2, 2.6, 2.7 and 2.8 are
    marked "review pending", and Phase 1 asked to stop for a review with the
    user. The Ground track builds on them.
+5. **One region per Biome** (D4, before W0). The user decided in D3 that a
+   region is one Biome's whole area. How the region graph and the Biome
+   choice achieve it, and how big regions get, is for the user to decide
+   in D4.

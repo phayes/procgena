@@ -436,7 +436,7 @@ grown into a real level.
 | WorldTerrain → Terrain | `Region` and its `EdgeAgreement`s and `CornerAgreement`s | Yes, in `procgena_terrain` |
 | Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height` and height tiles; slope and `annotate` are new |
 | Biome → Ecotope | Coverage function from 0 to 1, ground, seed | New |
-| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed | `Ground` in `procgena_mesh` gives height only; density functions on groves and plant fields |
+| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed, copy-address prefix (region and key salts) | `Ground` in `procgena_mesh` gives height only; density functions on groves and plant fields |
 | Scatter → Scatter below | Mask: density function from 0 to 1 | New |
 | Scatter → Asset | Transform and variant | Yes |
 | Modifier → Asset | Host `Specimen` and `TagFilter` | Yes, as `Object` in `procgena_mesh` |
@@ -556,7 +556,7 @@ preset or options. One World seed fixes everything below it.
   hashes are unique. Keys are frozen: renaming one changes every world built
   from it. (Decided 2026-11-23.) The functions live in `procgena_core`:
   `hash::{salt, derive_seed, seed_for}`, plus `ChildKey` and `child_seed`
-  in its `seed` module. The terrain crate still has its own copies until
+  at the crate root. The terrain crate still has its own copies until
   it switches over.
 - **Data keys use the same `salt`**, hashed at load time instead of at
   compile time, and always under a code `kind` key. A parent rejects two
@@ -583,7 +583,7 @@ over the whole World, and copies are spread over that cap by hashing.
     hash, and an output hook changes copies, never specimens (decided in
     D3).
   - The **specimen id** (`SpecimenId { world_seed, pool, slot }` in
-    `procgena_core::specimen_id`) is the World seed, the pool id and a
+    `procgena_core`) is the World seed, the pool id and a
     slot number `k`. It names one specimen, and is the content hash the
     cache uses (rule 3 under "Asset alignment"). `SpecimenId::seed` is the
     one function that turns it into the specimen's seed.
@@ -597,12 +597,14 @@ over the whole World, and copies are spread over that cap by hashing.
   slots.
 - **Stable slot choice: rendezvous hashing** (decided in D3). A copy's slot
   comes from scoring every allowed slot with `hash(key ^ hash(slot))` and
-  keeping the highest, ties to the lower slot. The key is the copy's own
-  placement hash mixed with the pool. It moves as few copies as possible
-  when `N` changes (plain modulo would give almost every copy a new mesh),
-  scores a subset directly, and nests: a copy whose slot is in a subset
-  keeps it when the subset is turned on. D2's spike ran it bit for bit on
-  the CPU and in WGSL, at about 2.7 ns per copy for `N = 64`. Jump
+  keeping the highest, ties to the lower slot. It moves as few copies as
+  possible when `N` changes (plain modulo would give almost every copy a
+  new mesh), scores a subset directly, and nests: a copy whose slot is in
+  a subset keeps it when the subset is turned on. D2's spike ran this slot
+  function bit for bit on the CPU and in WGSL, at about 2.7 ns per copy
+  for `N = 64`. The key is proposed to be the copy's own placement hash
+  mixed with the pool, so copies of different pools at related cells
+  don't pick related slots; W1 settles it. Jump
   consistent hashing was rejected: it only handles slots `0..N`, so
   subsets would shuffle copies.
   - **`N` is at most 256 per pool**, a validation error above it, which
@@ -629,16 +631,17 @@ over the whole World, and copies are spread over that cap by hashing.
   far away, a Scatter draws fewer copies (see "Loading by chunk"), never
   fewer specimens.
 - **Local variety from a shared pool.** A Scatter that wants only a few
-  variants nearby (a stand of near-identical pines) splits its ground into
-  stands, the cells of a coarse World lattice (a Scatter option, say
-  100 m). Each stand takes the top `k` slots by rendezvous score with a
-  key from the Scatter's seed and the stand cell, and each copy picks
-  among those `k`. Neighbouring stands and regions pick different subsets,
-  so the World still looks varied, but the total stays at `N`.
-- **A World overrides `N` by path**, such as
+  variants nearby (a stand of near-identical pines) picks a small subset
+  of the `N` slots, so the World still looks varied, but the total stays
+  at `N`. Proposed in D3, to be settled and tested in W1: stands are the
+  cells of a coarse World lattice (a Scatter option, say 100 m); each
+  stand takes the top `k` slots by rendezvous score with a key from the
+  Scatter's seed and the stand cell, and each copy picks among those `k`.
+- **A World overrides `N` per pool.** Proposed in D3, to be settled in
+  W1: overrides are named by path, such as
   `temperate_forest/pine_floor/pines/scots_pine` (Biome preset, Ecotope
   key, Scatter key, mix key), because an options hash is not something a
-  person can write. Where several paths reach one pool, the pool takes
+  person can write; where several paths reach one pool, the pool takes
   the largest `N` named, with a warning.
 - **No cap across pools.** Each pool has its own `N`, and the World does not
   cap the total. The total is the sum of every pool's `N`, so it is known
@@ -1034,8 +1037,9 @@ for lookup and programmatic use, not for reading:
 - **Groups are addressed where they are defined.** A group that an asset
   defines, such as a fairy ring that is part of `Mushroom`, is one copy,
   and its members are part steps; the Scatter settles each member on the
-  ground. Members of a group that a Scatter defines are copies, each with
-  its own `index` in the cell.
+  ground. Members of a group that a Scatter defines would be copies, each
+  with its own `index` in the cell (this follows from the rule, but was
+  not put to the user separately).
 - **`resolve` is the lookup.** It turns an address into the copy or part,
   or into nothing when the spot is masked out or thinned. It is batched:
   addresses are sorted, grouped by the chunk holding each cell, and each
@@ -1461,8 +1465,9 @@ it starts.
 - [ ] **`MeshScatter`**: places and draws any user mesh, with levels of
   detail, masks, promotion and queries.
 - [ ] **Hook traits per level**, with keys that feed the cache hash.
-- [ ] **World-stable ids**: count spots on a world-anchored lattice and
-  prefix them with region, Ecotope and Scatter. Today a grove's spot id is
+- [ ] **World-stable ids**: the integer `CopyAddress` (region, Ecotope and
+  Scatter key salts, `CellId`, index) from a world-anchored lattice, as
+  "Queries" describes. Today a grove's spot id is
   its cell counted from the grove's own centre (`site_id` in
   `procgena_tree`).
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
@@ -1579,12 +1584,14 @@ it starts.
    do they split it by weight, or does one win? The Ecotope border protocol
    decides how they blend at a border; overlap in the middle of an area is
    a separate question.
-3. ~~**Assets wider than a point.**~~ Decided 2026-11-23 (D3) for groups:
-   the asset defines its members' offsets (a fairy ring is part of
-   `Mushroom`), the group is one copy with its members as part steps, and
-   the Scatter settles each member on the ground. See "Queries". Long
-   single pieces (a fallen log's two ends) follow the same rule: the
-   Scatter settles what the asset describes.
+3. **Assets wider than a point.** A Scatter hands each copy only a
+   transform, but a fairy ring is metres across and a fallen log is long.
+   On a slope their members or ends need ground heights. Does the asset get
+   the `Ground` at build time, or does the Scatter settle its parts?
+   **Groups decided 2026-11-23 (D3):** a group the asset defines (a fairy
+   ring is part of `Mushroom`) is one copy with its members as part steps,
+   and the Scatter settles each member on the ground. See "Queries". Rigid
+   wide pieces (a log's two ends) are still C1's to settle.
 4. ~~**Ids from list positions.**~~ Decided 2026-11-23 (D3): Scatters,
    Ecotopes and mix entries have frozen `ChildKey`s, and priority is a
    number on one World-wide scale. See "Seeds" and "3. Ecotope".
