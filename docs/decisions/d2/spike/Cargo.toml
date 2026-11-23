@@ -1,0 +1,16 @@
+# Throwaway GPU spike for decision gate D2 (see ../../D2.md, "Spike results").
+# Not a workspace member: the empty [workspace] table makes it its own root.
+[package]
+name = "d2_spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# Pinned to the version the root Cargo.lock resolves for Bevy.
+wgpu = { version = "=30.0.2", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "wgsl"] }
+
+[profile.release]
+debug = false
