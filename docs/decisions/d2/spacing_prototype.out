@@ -1,0 +1,92 @@
+
+== pine_large, scale 1: asked 550/ha under an uneven mask, max spacing 1.3 m, 128 m square
+  G   kept    493, spacing violations 0
+  K_1 kept    492 = 0.9980 of G, differs from G at    1 sites, subset True, violations 0
+  K_3 kept    493 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_5 kept    493 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_7 kept    493 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_9 kept    493 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  G built per 32 m chunk, margin 1R: 0 sites differ from whole
+  G built per 32 m chunk, margin 2R: 0 sites differ from whole
+  K_3 built per 16 m chunk, margin 3R: 0 sites differ from whole
+  K_3 built per 64 m chunk, margin 3R: 0 sites differ from whole
+  K_5 built per 16 m chunk, margin 5R: 0 sites differ from whole
+  K_5 built per 64 m chunk, margin 5R: 0 sites differ from whole
+
+== oak_large, scale 3: asked 390/ha under an uneven mask, max spacing 2.7 m, 128 m square
+  G   kept    299, spacing violations 0
+  K_1 kept    290 = 0.9699 of G, differs from G at    9 sites, subset True, violations 0
+  K_3 kept    299 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_5 kept    299 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_7 kept    299 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_9 kept    299 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  G built per 32 m chunk, margin 1R: 0 sites differ from whole
+  G built per 32 m chunk, margin 2R: 0 sites differ from whole
+  K_3 built per 16 m chunk, margin 3R: 0 sites differ from whole
+  K_3 built per 64 m chunk, margin 3R: 0 sites differ from whole
+  K_5 built per 16 m chunk, margin 5R: 0 sites differ from whole
+  K_5 built per 64 m chunk, margin 5R: 0 sites differ from whole
+
+== ash_large + aspen_small, scale 2: asked 5520/ha under an uneven mask, max spacing 2.5 m, 128 m square
+  G   kept   4080, spacing violations 0
+  K_1 kept   3603 = 0.8831 of G, differs from G at  477 sites, subset True, violations 0
+  K_3 kept   4078 = 0.9995 of G, differs from G at    2 sites, subset True, violations 0
+  K_5 kept   4080 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_7 kept   4080 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_9 kept   4080 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  G built per 32 m chunk, margin 1R: 1 sites differ from whole
+  G built per 32 m chunk, margin 2R: 0 sites differ from whole
+  K_3 built per 16 m chunk, margin 3R: 0 sites differ from whole
+  K_3 built per 64 m chunk, margin 3R: 0 sites differ from whole
+  K_5 built per 16 m chunk, margin 5R: 0 sites differ from whole
+  K_5 built per 64 m chunk, margin 5R: 0 sites differ from whole
+
+== ash_large + aspen_small, scale 4 (dense mix): asked 11040/ha under an uneven mask, max spacing 2.5 m, 128 m square
+  G   kept   7155, spacing violations 0
+  K_1 kept   5430 = 0.7589 of G, differs from G at 1725 sites, subset True, violations 0
+  K_3 kept   7114 = 0.9943 of G, differs from G at   41 sites, subset True, violations 0
+  K_5 kept   7154 = 0.9999 of G, differs from G at    1 sites, subset True, violations 0
+  K_7 kept   7155 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_9 kept   7155 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  G built per 32 m chunk, margin 1R: 2 sites differ from whole
+  G built per 32 m chunk, margin 2R: 0 sites differ from whole
+  K_3 built per 16 m chunk, margin 3R: 0 sites differ from whole
+  K_3 built per 64 m chunk, margin 3R: 0 sites differ from whole
+  K_5 built per 16 m chunk, margin 5R: 0 sites differ from whole
+  K_5 built per 64 m chunk, margin 5R: 0 sites differ from whole
+
+== pine_small, scale 4 (saturated): asked 10400/ha under an uneven mask, max spacing 0.6 m, 128 m square
+  G   kept   7458, spacing violations 0
+  K_1 kept   7249 = 0.9720 of G, differs from G at  209 sites, subset True, violations 0
+  K_3 kept   7457 = 0.9999 of G, differs from G at    1 sites, subset True, violations 0
+  K_5 kept   7458 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_7 kept   7458 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  K_9 kept   7458 = 1.0000 of G, differs from G at    0 sites, subset True, violations 0
+  G built per 32 m chunk, margin 1R: 1 sites differ from whole
+  G built per 32 m chunk, margin 2R: 0 sites differ from whole
+  K_3 built per 16 m chunk, margin 3R: 0 sites differ from whole
+  K_3 built per 64 m chunk, margin 3R: 0 sites differ from whole
+  K_5 built per 16 m chunk, margin 5R: 0 sites differ from whole
+  K_5 built per 64 m chunk, margin 5R: 0 sites differ from whole
+
+== Local edit on 'ash_large + aspen_small, scale 4 (dense mix)': mask cleared in a 6.0 m disc
+  G  : 66 sites change, 0 outside the disc, the farthest 0.00 m out (unbounded)
+  K_3: 66 sites change, 0 outside the disc, the farthest 0.00 m out (bound 7.5 m)
+  K_5: 66 sites change, 0 outside the disc, the farthest 0.00 m out (bound 12.5 m)
+
+== Local edit on 'ash_large + aspen_small, scale 4 (dense mix)': mask raised to 1 in a 6.0 m disc
+  G  : 13 sites change, 0 outside the disc, the farthest 0.00 m out (unbounded)
+  K_3: 13 sites change, 0 outside the disc, the farthest 0.00 m out (bound 7.5 m)
+  K_5: 13 sites change, 0 outside the disc, the farthest 0.00 m out (bound 12.5 m)
+
+== Tail on 'ash_large + aspen_small, scale 4 (dense mix)', 384 m square, 62024 trees kept by G
+  K_1: 15403 sites differ from G
+  K_3: 310 sites differ from G
+  K_5: 4 sites differ from G
+  K_7: 0 sites differ from G
+  K_9: 0 sites differ from G
+  K_11: 0 sites differ from G
+
+K_3: 400/ha survivors are a subset of 1100/ha survivors: True
+
+K_5: 400/ha survivors are a subset of 1100/ha survivors: True

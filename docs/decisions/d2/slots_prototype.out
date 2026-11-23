@@ -1,0 +1,10 @@
+jump32     N=  4: slot share min 0.999 max 1.001 of even; N+1 moves 0.2018 (ideal 0.2000); moves not to the new slot: 0
+jump32     N=  8: slot share min 0.984 max 1.009 of even; N+1 moves 0.1122 (ideal 0.1111); moves not to the new slot: 0
+jump32     N= 16: slot share min 0.982 max 1.021 of even; N+1 moves 0.0599 (ideal 0.0588); moves not to the new slot: 0
+jump32     N= 32: slot share min 0.965 max 1.033 of even; N+1 moves 0.0305 (ideal 0.0303); moves not to the new slot: 0
+jump32     N= 64: slot share min 0.956 max 1.041 of even; N+1 moves 0.0156 (ideal 0.0154); moves not to the new slot: 0
+rendezvous N=  4: slot share min 0.998 max 1.004 of even; N+1 moves 0.1998 (ideal 0.2000); moves not to the new slot: 0
+rendezvous N=  8: slot share min 0.995 max 1.010 of even; N+1 moves 0.1109 (ideal 0.1111); moves not to the new slot: 0
+rendezvous N= 16: slot share min 0.980 max 1.022 of even; N+1 moves 0.0581 (ideal 0.0588); moves not to the new slot: 0
+rendezvous N= 32: slot share min 0.955 max 1.032 of even; N+1 moves 0.0295 (ideal 0.0303); moves not to the new slot: 0
+rendezvous N= 64: slot share min 0.950 max 1.048 of even; N+1 moves 0.0152 (ideal 0.0154); moves not to the new slot: 0
