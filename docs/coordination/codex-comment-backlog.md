@@ -51,4 +51,31 @@ from this file once it is done.
 
 ## procgena_terrain (W1)
 
-- Pending: the terrain worker sends its list with the W1 commit.
+All under `terrain/crates/procgena_terrain/`:
+
+- `src/elevation.rs`: module doc; `ElevationOptions` and every field;
+  `HeightBump` and fields; `ElevationError` and variants; `validate`;
+  `steepest`; `Elevation`; `flat`; `new`; `options`; `height`; `gradient`;
+  `BUMP_SLOPE`
+- `src/noise.rs`: `blend_corners`, `fbm_gradient`, `fbm_slope_bound`,
+  `measure_steepest_noise`
+- `src/calibration.rs`: `NOISE_SLOPE_MAX`
+- `src/relief.rs`: `Relief`; `with_elevation`; `unfaded_height`;
+  `own_relief`; `mean_height`; `height`; `height_above_elevation`
+- `src/converge.rs`: `Fade::blended`
+- `src/terrain.rs`: `TerrainGenerator::with_elevation`
+- `src/options.rs`: `BaseOptions::elevation`
+- `src/stitch.rs`: `StitchedWorld::build`
+- `src/river.rs`: `trace_own`
+- `src/plan.rs`: the source-ranking comment in `own_rivers`
+- `src/road.rs`: `RIVER_COST`, `BRIDGE_COST`, `MIN_BRIDGE_SINE`,
+  `WATER_STEP`, `route`, `water`, `Bridges` and its methods,
+  `segments_meet`, the bridge comment in `search`
+- `src/grid.rs`: `Grid::cells_near`
+- `src/graph.rs`: the whole module, once it is committed
+- `tests/common/mod.rs`: `Land`, `TILT`, `BUMP`, `Config::elevation`,
+  `TILTED`, `CURVED`, `WITH_LAND`, `two_regions`
+- `tests/elevation.rs`: every item
+- `tests/features.rs`: `bridges`,
+  `roads_cross_a_river_again_only_to_save_a_long_way_round`
+- `tests/probes.rs`: `river_crossings_on_a_slope`
