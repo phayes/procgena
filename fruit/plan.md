@@ -3,9 +3,10 @@
 Fruit and flowers become their own asset, in a new crate, `procgena_fruit`,
 with a Bevy crate beside it. This plan covers what moves out of the tree,
 what the new crate owns, how the tree uses it, what it costs to draw, and
-the order of the work. It is a plan only: no code is written until F1 is
-merged, and the docs are changed by the coordinator (see "Proposed doc
-edits").
+the order of the work. It is a plan only. The coordinator changes the
+docs (see "Proposed doc edits"). The code waits for F2, for D3 with its
+Addresses (section 7b of [D3](../docs/decisions/D3.md)), and for the
+user's answers, which are recorded under "Decisions".
 
 Names below are the ones after F1: `procgena_specimen`, `Specimen`,
 `GeneratedSpecimen`, `specimen()`.
@@ -25,7 +26,9 @@ Names below are the ones after F1: `procgena_specimen`, `Specimen`,
 - **A new idea in the hierarchy: the attached asset.** This is an asset
   whose copies are placed by a host asset, not by a Scatter. It is not a
   Modifier. The section "Asset, Modifier or something new" gives the
-  reasons.
+  reasons. An attached copy has no id of its own. Its address is the
+  host's address plus a part path pinned to each specimen, such as
+  `/ fruit 17 / item 2`, as D3's Addresses define it.
 - **The World limits fruit like any other pool.** Each fruit options value
   is a pool with `N` slots. A slot is a fruit specimen seeded from its
   `SpecimenId`. Each cluster on a tree picks a slot.
@@ -40,25 +43,32 @@ Names below are the ones after F1: `procgena_specimen`, `Specimen`,
   Today Apple and Dogwood clusters are one item each. Their slots would
   differ only by size and spin, and a copy's transform already carries
   both. So `N` would buy nothing. This plan adds seeded per-specimen
-  variation, and asks the user to confirm it (see "What differs between a
-  pool's N slots").
+  variation, which the user approved (see "What differs between a pool's
+  N slots").
 - **Cost.** A whole Willow (783 clusters, the coordinator's figure) costs:
   - a 783-entry cluster table, about 50 KB, once per tree specimen;
   - for each tree copy in fruit range, one instanced draw per fruit slot
     and level, expanded on the GPU.
 
   There are no per-cluster mesh records and no per-cluster culling.
+- **Detail is chosen in two steps.** A coarse check on the CPU, once per
+  tree per view, gives the range of fruit levels the tree's clusters can
+  be in. A fine check on the GPU, once per cluster, runs only for trees
+  whose range spans more than one level.
 - **Impostor requirements.** `procgena_impostor` gains three things:
   - per-bake view count and frame size;
-  - an opt-in full-sphere view layout, because hanging and upright
-    clusters are seen from below;
+  - view coverage declared by each preset, as the lowest viewer
+    elevation baked: the full sphere (−90°) by default, and −45° for
+    trees so they look right from below on a slope. Coverage is part of
+    the bake key, and the atlas resolution goes only where it is
+    declared;
   - an instanced path whose instance is the tree's record plus a cluster
     index, with the cluster's rigid wind offset added in the vertex
     shader.
 - **Order.**
-  - Pure extraction, with no slots, needs only F1. That step is a question
-    for the coordinator.
-  - Pools and slots wait on F2 and D3.
+  - The extraction and the pools are one step, A1+C1, done once in the
+    cluster-local frame after F2 and D3. A separate bit-exact move was
+    considered and turned down (see "Move map").
   - Fruit's own detail levels use R1's LOD type.
   - Fruit impostors follow I1.
   - I1b is replaced by this plan.
@@ -119,14 +129,32 @@ by `MushroomScatter` on the ground, and later by `MushroomGrowth` on
 hosts. Fruit is an asset of the same kind, placed by a third kind of
 placer: its host's structure.
 
-The proposed name is **attached asset**: an asset whose copies a host
-asset places, as part of the host's own specimen. It has the full asset
-contract (options, presets, `default_seed`, LOD, impostor, specimen,
-export). Its copies have no ground, no mask, no Scatter and no copy ids of
-their own: they are named by the host's copy id plus their index on the
-host. `MushroomGrowth` and `PlantGrowth` stay Modifiers. The difference is
-the placer: a tag sampler places a Modifier's copies, and the host's
-skeleton places an attached asset's copies.
+The name is **attached asset**, which the user accepted: an asset whose
+copies a host asset places, as part of the host's own specimen. It has
+the full asset contract (options, presets, `default_seed`, LOD,
+impostor, specimen, export). Its copies have no ground, no mask, no
+Scatter and no copy address of their own. `MushroomGrowth` and
+`PlantGrowth` stay Modifiers. The difference is the placer: a tag
+sampler places a Modifier's copies, and the host's skeleton places an
+attached asset's copies.
+
+**Does it still need its own §1.2 once Addresses exist?** Yes. D3 7b
+reaches the same answer. For identity alone it adds nothing: the
+cluster-to-fruit hop is a **link** (a placement that picks a pool slot)
+with the same shape as copy-to-tree-specimen, and an attached copy is
+just an address passing through it. The idea still governs four things
+that Addresses don't:
+- who places the copies (the host's skeleton);
+- whose hash covers the attached options (the host's);
+- when the slot is chosen (per host specimen, so the host impostor can
+  show it);
+- what the host's impostor bake key must include (the attached pool and
+  its `N`).
+
+So §1.2 keeps the name and the section. Its identity sentence is phrased
+as the hop: "an attached copy is addressed by its host's address plus a
+part path through the link, each step pinned to the `SpecimenId` it
+indexes".
 
 ## Options
 
@@ -232,9 +260,14 @@ the user.
 
 ## Where a slot is chosen: per tree specimen
 
+Decided by the user: per tree specimen.
+
 **The choice.** Cluster `i` of tree specimen `T` takes slot
 `slot(fruit pool, key = hash(T.SpecimenId, i))`. `slot` is D3's rendezvous
-hashing over the fruit pool's `N` (or a subset).
+hashing over the fruit pool's `N` (or a subset). `i` is the cluster's
+index in the skeleton's fruit (or flower) list. That is the stable part
+index D3 7b names `fruit i` (or `flower i`). It is not the cluster's row
+in the cluster table, which is sorted by slot.
 
 **Why not per tree copy.**
 
@@ -268,9 +301,33 @@ hashing over the fruit pool's `N` (or a subset).
 3. **A fruit specimen's `SpecimenId`** is the World seed, the fruit
    options hash and the slot, the same as any asset's. A fruit built on
    its own uses its preset's `default_seed`.
-4. **Copy identity.** A fruit copy is named by the tree's copy id plus
-   `i`. That gives open question 10 a place to record a harvested fruit:
-   an edit keyed by `(tree copy id, i)`.
+4. **Addresses** (D3 7b). A fruit copy is the tree copy's address plus
+   the part path `fruit i`, and then `item k` inside the fruit specimen:
+
+   ```text
+   (orchard, apples, cell (4031, -77) #0) / fruit 17 / item 2
+   ```
+
+   - **Kinds and pins.** The part kinds are `tree.part.fruit` and
+     `tree.part.flower` on the tree's skeleton, then `fruit.part.stalk`
+     and `fruit.part.item` on the fruit specimen. `fruit 17` is pinned
+     to the tree's `SpecimenId`, and `item 2` to the fruit's.
+   - **When a pin no longer matches.** If the fruit pool's `N` changes,
+     rendezvous can move cluster 17 to another slot. The fruit pin then
+     no longer matches, and `item 2` is set aside, while `fruit 17`
+     still resolves.
+   - **The cluster table keeps each row's skeleton index `i`**, so
+     picking a drawn cluster gives its address.
+   - **Indices don't change with detail.** Each index counts the
+     skeleton or the specimen, not the mesh, so it stays the same at
+     every detail level. The tree's cluster stride thins draws, never
+     indices. Fruit's item stride does the same inside a specimen.
+   - **Edits stay per copy.** Harvesting `fruit 17` on one tree hides
+     that row for that tree copy at draw time (open question 10). The
+     fruit specimen and both impostors are untouched.
+   - **Stable lists.** Fruit's builder must keep `stalks`
+     and `items` as flat, stable lists in the cluster frame. Today's
+     `SkeletonCluster` already does.
 
 ## Fruit's own LOD chain
 
@@ -294,11 +351,31 @@ How the two chains relate:
   At tree level 3 today, every second cluster is kept and scaled by 1.4.
   This thins copies, so it belongs to the placer, the same way a Scatter
   draws fewer copies far away.
-- **The fruit decides how each drawn cluster looks.** The fruit's level
-  comes from the camera distance to the tree, not to each cluster, so it
-  costs one decision per tree per view (see "Impostor cost"). The
-  difference across one tree's crown is a few metres, well inside the
-  bands above.
+- **The fruit decides how each drawn cluster looks**, from that
+  cluster's own distance, in two steps. The user decided this.
+  1. **Coarse, on the CPU, per tree per view**, in today's `cull_groves`
+     (and the single-tree path). The tree's distance, plus or minus its
+     crown radius, gives the range of fruit levels its clusters can be
+     in, after size scaling by the smallest and largest cluster scale.
+     - If the range is one level, the tree goes straight into that
+       level's list. The clusters are then drawn without any check of
+       their own. Most trees are in this case.
+     - If the range is empty (all beyond the fruit cull), the tree draws
+       no fruit.
+  2. **Fine, on the GPU, per cluster**, only for trees whose range spans
+     more than one level.
+     - A compute pass expands each such tree × its kept clusters.
+     - It measures each cluster's own distance, and frustum-culls it
+       against a sphere from the cluster table.
+     - It appends the cluster to its level's instance list, with its own
+       dither value, and writes indirect draw arguments.
+     - Stone's GPU-driven pool (per-view and shadow culling) is the
+       model. This is the shape R2's shared renderer takes, so the pass
+       moves there when R2 lands.
+
+  The cost is one dispatch per view, over trees in a transition only.
+  There is still no per-cluster work on the CPU. Shadow views use the
+  camera's distances, as the grove does today.
 - **The last fruit level must end at the tree's impostor.** The tree
   tells the fruit its cull distance. A tree with no impostor lets fruit
   run to the fruit's own cull.
@@ -321,7 +398,7 @@ normals), about 290 KB per specimen before compression and mipmaps.
 Apple, Dogwood and Willow at `N` = 6, 6 and 8 total 20 bakes, about
 5.8 MB. Trees keep 8×8 at 128 px.
 
-### 2. Views from below
+### 2. View coverage, declared per preset
 
 The layout covers the upper hemisphere of the object's own frame, and
 folds views from below onto the horizon (`view_cell`, `d.y = max(d.y,
@@ -336,13 +413,108 @@ hemisphere turns with the copy. With local +Y as facing:
   the usual view of a tall shrub's catkins.
 - **Outward** (+Y roughly level): half of all viewers are folded.
 
-So the requirement is an opt-in **full-sphere octahedral layout**:
-- the whole octahedron unfolded, not the upper half;
-- `view_basis` handles both poles;
-- the layout is part of the bake key.
+The user decided that each preset declares the views its impostor
+covers, and that the default is all of them. Two values aren't enough,
+because tree impostors must look right from below on a mountain slope,
+"maybe not right from the bottom". So coverage is an elevation range.
 
-Fruit always uses it. Trees, stones and other upright assets keep the
-hemisphere. The bake is framed on the bounds centre (`bounding_sphere` in
+**The type.**
+
+```rust
+/// The viewer elevations an impostor is baked for, in the object's own
+/// frame: from straight above (+90°) down to `lowest` degrees.
+pub struct ViewCoverage { pub lowest_elevation_deg: f32 }  // -90..=90
+
+impl ViewCoverage {
+    pub const SPHERE: Self = Self { lowest_elevation_deg: -90.0 };      // the default
+    pub const UPPER_HEMISPHERE: Self = Self { lowest_elevation_deg: 0.0 }; // today's layout
+}
+```
+
+- **It is a field of every asset's impostor settings.** Presets set it,
+  and the default is `SPHERE`. It travels on `ImpostorRequest` and is in
+  the bake key, by its float bits, beside the view count and frame size.
+- **It has one bound, not two.** The coordinator suggested
+  `{ min_elevation_deg, max_elevation_deg }`. One lower bound, with the
+  top fixed at +90°, is equivalent for every case we have. Views from
+  above are always needed: aerial and hill views, and directional sun
+  shadows. The shadow pass draws the impostor from the light's
+  direction, which is above the horizon whenever the sun casts shadows.
+  A band that leaves out the top would never be declared.
+  - With one bound, the covered views always form a single cap around
+    +Y, which keeps the layout one warped octahedron (below) instead of
+    a ring.
+  - If a band is ever needed, `highest` can be added later without
+    changing the layout's form.
+- **Views below the lowest elevation fold onto the lowest ring**, just
+  as views below the horizon fold onto the horizon today. A viewer
+  beyond the declared range sees the nearest declared view, which is
+  wrong only by the excess angle.
+
+**How the octahedral layout maps a partial range.** The atlas
+resolution goes only where coverage is declared:
+
+- **`lowest = -90` (`SPHERE`):** the standard full octahedral layout:
+  the whole octahedron unfolded into the square. `view_basis` gains a
+  case for the lower pole as well as the upper.
+- **`lowest > -90`:** a warped hemi-octahedron.
+  - Each direction's polar angle from +Y, `θ` in `[0, θmax]` with
+    `θmax = 90° − lowest`, is scaled to `θ' = θ · 90° / θmax`.
+  - The result goes through today's hemisphere fold.
+  - So the declared cap fills the whole diamond, and none of the atlas
+    is spent below `lowest`.
+  - At `lowest = 0`, the warp is the identity, so `UPPER_HEMISPHERE` is
+    exactly today's layout and today's bakes need no change of layout.
+- **Code that changes:** `view_cell` and `view_direction` (and their
+  WGSL twins in `layout.wesl`) apply the warp and its inverse. `view_cell`
+  clamps `θ` to `θmax` first. The existing round-trip test runs for
+  several values of `lowest`.
+- **Cost of a wider cap.** The same view count covers more sky. A cap
+  down to −45° is 1.71 times the solid angle of the hemisphere. At 8×8
+  views, the spacing between views is then 1.31 times today's. At 10×10
+  (100 views), the density is about 92 % of today's 8×8 hemisphere, for
+  an atlas
+  of 1,280 px instead of 1,024 px at 128 px per view (1.56 times the
+  memory).
+
+**Trees: −45°, and why.** The question is how steeply a viewer can look
+up at a tree that is far enough away to be an impostor (120 m by
+default).
+
+- **The view elevation is the mean slope of the line of sight.** It is
+  set by the average gradient of the ground between the viewer and the
+  tree, plus a little for the tree's centre being above its base. It is
+  not set by the cliff angle. When you stand on the same hillside as
+  the tree, that average gradient is the hillside's slope.
+- **Trees grow on gentle ground.** Grove trees grow only where the
+  ground is at most `max_slope`, which defaults to 35°. Shrubs and
+  saplings may set it higher.
+- **Worked numbers.** Take a tree centre 10 m above its base, an eye at
+  1.7 m, and 120 m horizontally, up a uniform slope. The elevation is
+  37.6° below level for a 35° slope, and 42.2° for 40°.
+- **So the trees' default is −45°.** It covers every grove tree at its
+  default slope limit, plus species set up to about 40°, with a margin.
+- **What it gives up: the bottom.** A tree at the top of a terrain cliff
+  (65° and steeper, the terrain's `CLIFF_SLOPE`), seen from the cliff's
+  foot, looks up more steeply than −45°. It folds to the −45° ring: a
+  view from 45° below instead of, say, 60°. Today the same view folds
+  45° or more, to the horizon. Those viewpoints are rare at impostor
+  distance, because a mean of 65° over 120 m needs a cliff 250 m high.
+- **Tree impostors move to 10×10 views at 128 px**, to keep today's view
+  density. Whether that is worth 1.56 times the memory is a setting the
+  tree preset declares. The plan suggests 10×10, and 8×8 stays possible.
+
+**Defaults per asset.**
+
+- **Fruit:** `SPHERE`, the default.
+- **Trees:** −45°.
+- **Stone, deadwood and mushroom** (when they gain impostors under I1):
+  each picks its own value. A boulder on a slope has the same geometry as
+  a tree, so −45° is the natural starting point. Low things seen mostly
+  from above, such as logs and mushroom tufts, may declare
+  `UPPER_HEMISPHERE` to get denser views.
+
+The bake is framed on the bounds centre (`bounding_sphere` in
 `bake.rs`), not the origin, so a cluster hanging from its attachment
 point frames correctly without changes.
 
@@ -362,24 +534,28 @@ The proposal is a composed instance:
 
 - **Per tree specimen** (once): a cluster table in a storage buffer.
   Sorted by fruit slot, each entry holds:
-  - the cluster's tree-local transform: 48 bytes as a 3×4 matrix, or
-    32 bytes as position, rotation quaternion and scale;
+  - the cluster's tree-local transform: 32 bytes as position, rotation
+    quaternion and scale;
   - the branch wind at its attachment: 12 bytes;
-  - padding.
+  - a bounding radius, for the fine step's culling: 4 bytes;
+  - the skeleton index `i`, for addresses and picking: 4 bytes;
+  - padding to 64 bytes.
 
   Each entry is 64 bytes, so 783 clusters take 50 KB. Each tree level
   also keeps its stride and scale for the kept clusters.
 - **Per tree copy:** nothing new. The tree's record and its entry in the
   visible list are reused.
-- **Per view:** `cull_groves` already picks each tree's level by
-  distance. It also pushes the tree into one fruit list per fruit level
-  whose band covers that distance. That is one test per tree and fruit
-  level, never per cluster.
-- **Per draw:** one indexed draw per tree slot, fruit level and fruit
-  slot. The instance count is visible trees times that slot's kept
-  clusters. The vertex shader splits `instance_index` into
-  `(tree entry, cluster)`, reads the tree's record and the cluster's
-  entry, and composes `world_from_tree × tree_from_cluster`.
+- **Per view:** the two-step check from "Fruit's own LOD chain". The
+  coarse step is one range test per tree. Trees inside one level are
+  listed whole. Trees spanning levels go to the GPU pass, which writes
+  per-cluster instances `(tree entry, cluster row, dither)` and indirect
+  arguments.
+- **Per draw:** one draw per tree slot, fruit level and fruit slot. For
+  whole-listed trees the instance count is visible trees times that
+  slot's kept clusters, and the vertex shader splits `instance_index`
+  into `(tree entry, cluster)`. For GPU-sorted trees it reads the
+  appended instance. Either way it reads the tree's record and the
+  cluster's entry, and composes `world_from_tree × tree_from_cluster`.
 - **Impostor crate requirement:** an instanced variant whose instance
   names a record plus a sub-transform from a storage buffer, or a hook
   that lets a material supply `world_from_local` itself. The fruit
@@ -478,53 +654,116 @@ Each step is a worker task. "Needs" lists what must be merged first.
 | Step | What | Needs | Touches |
 |---|---|---|---|
 | P0 | This plan | | `fruit/plan.md` |
-| A1 | Crate `procgena_fruit`: options, `FruitPreset` catalogue, cluster builder and meshers in the cluster frame, specimen per level, silhouette and shape tests moved from tree. Built from an explicit `seed: u64` argument. No pools, no slots, no `SpecimenId` | F1 | `fruit/`, root `Cargo.toml` (member, last), `Cargo.lock` |
-| A2 | Tree uses fruit: options split, `AttachedFruit`, cluster table, one seed per cluster drawn from the tree's own RNG (so every cluster is unique, as today), outline test composes fruit, export, studio panels | A1, and tree free of other writers | `tree/`, `procgena/src/tree/` |
-| B1 | Fruit's own LOD levels on R1's LOD type, sized by the cluster | A1, R1 | `fruit/` |
-| B2 | Fruit Bevy crate: materials, cluster-table instancing in the grove and single-tree spawn, rigid branch wind | A2, B1 (R2 later moves it onto the shared renderer) | `fruit/`, `tree/crates/procgena_tree_bevy` |
-| C1 | Pools and slots: fruit `SpecimenId`, per-tree-specimen slot choice, cluster table keyed by pool and `N`, `Variation` options | F2, D3, A2 | `fruit/`, `tree/` |
-| D1 | Impostor crate: per-bake views and size, full-sphere layout, composed instance or material hook, vertex offset hook | I1 (keys by `SpecimenId`) | `impostor/` |
-| D2 | Fruit impostor level, tree impostor bakes fruit, tree impostor key gains fruit pool and `N` | B2, C1, D1 | `fruit/`, `tree/` |
+| AC1 | The crate and the pools in one step, in the cluster-local frame: everything in "Move map", plus fruit `SpecimenId`s, per-tree-specimen slots, `Variation`, `FruitPreset`, part paths and `part()`, the outline test composing fruit, export, and the studio's tree panels | F1, F2, D3 with Addresses; `tree/` free of other writers | `fruit/`, `tree/`, `procgena/src/tree/`, root `Cargo.toml` (member, added last), `Cargo.lock` |
+| B1 | Fruit's own LOD levels on R1's LOD type, sized by the cluster | AC1, R1 | `fruit/` |
+| B2 | Fruit Bevy crate: materials, cluster-table instancing in the grove and single-tree spawn, the two-step detail check, rigid branch wind | AC1, B1 (R2 later moves the GPU pass onto the shared renderer) | `fruit/`, `tree/crates/procgena_tree_bevy` |
+| D1 | Impostor crate: per-bake views and size, `ViewCoverage` (lowest elevation, `SPHERE` by default, warped octahedral layout), a composed instance or material hook, a vertex offset hook | I1 (keys by `SpecimenId`) | `impostor/`, and the tree's impostor settings (declares −45°, 10×10 views) |
+| D2 | Fruit impostor level; the tree impostor bakes fruit; the tree impostor key gains the fruit pool and `N` | B2, D1 | `fruit/`, `tree/` |
 
-**For the coordinator.** A1 and A2 need no slots, pools or stand-in
-hash. Each cluster gets its own seed from the tree's existing random
-stream, which reproduces today's behaviour: every cluster is unique, with
-no pool. Slot choice arrives whole in C1. Is that acceptable, or should
-fruit wait for F2? If it waits, A1 and C1 merge into one step after F2
-and D3.
+The coordinator decided that A1 (a pure move) is not done on its own.
+A bit-exact move before F2 would have meant moving about 1,500 lines,
+rewriting the moved `Hash` impls again in F2 straight afterwards, and
+reworking the frame and the cluster link once Addresses land. Doing it
+once, as AC1, is cheaper.
 
-I1 is not reordered. D1 is the fruit's part of the impostor work and can
-run beside or after I1.
+I1 is not reordered. D1 is fruit's part of the impostor work, and runs
+beside or after I1.
 
-## Open questions for the user
+## Move map (for AC1)
 
-1. **Slot per tree specimen or per tree copy?** I recommend **per tree
-   specimen**. Fruit then shows in the tree impostor, which Pussy Willow
-   needs. It costs no memory per copy, and the grove's existing culling
-   covers it. Fruit varies across copies through the tree's own slots.
-2. **Name the idea "attached asset"?** I recommend **yes**, as a new
-   §1.2 next to Modifiers: an asset placed by its host's structure. The
-   other names were part, sub-asset and accessory. "Attached" says how it
-   is placed, and matches the tree's existing `Attachment`.
-3. **What makes single-item slots differ?** I recommend the seeded
-   `Variation` above (maturity, colour, shape and stem-bend spread), with
-   presets setting it. The alternative is `N` = 1 for single-item
-   presets, which makes the World budget pointless for them.
-4. **Full-sphere impostors only for fruit, or for everything?** I
-   recommend **opt-in per bake**, on for fruit only. Upright assets keep
-   the denser hemisphere for the same atlas size.
-5. **Fruit level by tree distance, or by each cluster's own distance?**
-   I recommend **by tree distance**. It costs one decision per tree, not
-   per cluster, at the price of a few metres of error across one crown.
-6. **One crate name for fruit and flowers?** I recommend keeping
-   **`procgena_fruit`**, as the user named it. Its docs say "fruit and
-   flowers", and `ItemShape::Flower` keeps flowers first-class.
-7. **Per-copy tint on fruit?** I recommend **no**. Colour spread lives in
-   the specimen, so stalks stay their own colour.
-8. **Seasons later?** Maturity as per-copy data, such as one pool's
-   specimens shown at different ages, would multiply pools or need
-   per-copy shader inputs. I recommend leaving it out of this plan and
-   recording it as a later item.
+Everything the cluster code takes from the tree today, and where it
+lands. This is in the cluster-local frame, so AC1 changes fruit numbers
+on purpose.
+
+**Types**
+
+| Today, in `procgena_tree` | In AC1 |
+|---|---|
+| `ClusterStalk`, `ClusterItem` | Fruit, as the specimen's structure (`FruitSkeleton { stalks, items }`) in the cluster frame. These are flat, stable lists: the `stalk k` and `item k` part indices |
+| `SkeletonCluster` | Stays in tree, slimmed to a placement: `parent: Attachment`, `origin`, `orientation` (facing, jitter tilt and twist), `scale`, and the link (fruit slot). It keeps no stalks or items |
+| `ClusterBuilder`, `Path`, `tilted`, `turn_toward` | Fruit: the generator, seeded from the fruit `SpecimenId` through F2's seed function. The facing tilt and twist move out to the tree's placement (see "The cluster frame") |
+| `grow_clusters`, `density_count` | Stay in tree, drawing from the same `FRUIT_SALT` and `FLOWER_SALT` streams. They make fewer draws than today, because shape draws move to fruit. So cluster positions change, but branches and leaves, which use other streams, do not |
+| `ClusterShape`, `ClusterKind`, `FruitShape`, `FlowerShape` | Fruit, merged into the one `FruitOptions` (see "Options") |
+| `FruitOptions`, `FlowerOptions` (tree) | Replaced by `AttachedFruit { fruit: procgena_fruit::FruitOptions, placement: ClusterPlacement }` on `TreeOptions::{fruit, flowers}` |
+| `ClusterPlacement`, `Facing` | Stay in tree. `size` and `size_variance` move to fruit, and `scale` and `scale_variance` are added |
+| `ItemDetail` | Fruit |
+
+**Meshing**
+
+| Today | In AC1 |
+|---|---|
+| `MeshBuffers`, which fruit writes through `mesh_fruit` and `mesh_flowers` | Stays in tree. Fruit gets its own `ClusterBuffers` (positions, normals, colors, wind, indices) in the cluster frame |
+| `TreeMesh::{fruit, flowers}` and `ClusterSpan` (`fruit_spans`, `flower_spans`) | Leave `TreeMesh`. The tree gains `Skeleton::clusters()`, the cluster table rows, and a CPU helper that composes the fruit specimens' buffers at given fruit levels into one `MeshBuffers`, for export, tests and colliders. The Bevy crate draws instanced (B2) |
+| `LodDetail::{item_detail, item_stride, item_scale, item_stalks, flat_item_size, min_item_size}` | Fruit's own level table, `ClusterDetail`, with three mesh levels until R1 (B1) |
+| `LodDetail::cluster_stride` | Stays in tree, with a new `cluster_scale` |
+| `LodDetail::billboard_fruit`, `mesh_billboard`, the crossed `BillboardCull` fruit hexagons, `BillboardVertex` used for fruit | Removed. No default level uses them, and only the dropped-catkins control did. Fruit's flat level 2 and its impostor (D2) replace them |
+| `ItemSelection` | Splits: tree keeps the cluster stride and scale; fruit keeps the item stride and scale |
+| `outward(origin)`, `blush_direction(origin)` | Baked in the frame. Blush faces local +Z. Flat forms face the camera at draw time |
+| `srgb_hex_to_linear` (tree `material.rs`) | F2's or core's colour helper if one exists. Otherwise a private copy in fruit until rule 13's shared plumbing |
+
+**Wind**
+
+| Today | In AC1 |
+|---|---|
+| `BranchWind`, `wind_at` | Stay in tree. Each cluster table row carries `[trunk_bend, branch_weight, branch_phase]` |
+| `ClusterWind` (reach, per-vertex flutter) | Fruit, writing `(0, 0, 0, flutter)` per vertex. The rigid branch part is added per copy |
+
+**Hashing and addresses**
+
+| Today | In AC1 |
+|---|---|
+| `impl Hash for ClusterShape, FruitShape, FlowerShape` in `tree_id.rs` | Fruit's options get F2's content hash, which gives the fruit pool id. The tree's hash covers `AttachedFruit` (placement, plus the fruit options hash) |
+| Cluster identity: a position in the list | Part paths (D3 7b): `tree.part.fruit` and `tree.part.flower` through `Skeleton::part`, which return the cluster's frame and its link (fruit pool, slot key `hash(T.SpecimenId, i)`). Then `fruit.part.stalk` and `fruit.part.item` on the fruit specimen |
+
+**Tests**
+
+| Today | In AC1 |
+|---|---|
+| `tests/cluster_mesh.rs` and the unit tests in `cluster_mesh/mod.rs` | Move to fruit and are adapted to the frame, with their intent kept |
+| `tests/clusters.rs` (placement) | Stays in tree. Its shape assertions move to fruit |
+| `tests/silhouette.rs` | Stays in tree, and composes fruit through the CPU helper (fruit as a dev-dependency) |
+
+**AC1's gate**
+
+- **Branch, bark and leaf buffers are bit-identical** to before for every
+  preset at every default level. They come from other RNG streams, so
+  any change there is a bug.
+- **The outline test's thresholds are unchanged, and both controls still
+  fire:**
+  - the dropped-catkins control now drops the catkins through the tree's
+    level-3 cluster stride;
+  - the missing-leaves control is unchanged.
+- **Fruit scores will move.** If any preset falls below its floor, the
+  worker stops and reports, and does not change a threshold. Apple is
+  the closest to its floor (0.699, the coordinator's figure, against
+  0.7).
+- **Every fruit preset's slots differ** once `Variation` is set, checked
+  by a test that compares slot meshes.
+- **Part paths resolve to the same frame at every detail level.**
+
+## Decisions
+
+The user answered on 2026-11-23:
+
+1. **Slot per tree specimen**, as recommended.
+2. **The name "attached asset"**, as recommended. It keeps its own §1.2,
+   phrased as the hop from host to attached specimen (see "Asset,
+   Modifier or something new").
+3. **Seeded `Variation`** makes single-item slots differ, as
+   recommended.
+4. **Impostor views are declared per preset, defaulting to all angles.**
+   This changes the recommendation, which was opt-in for fruit only.
+   Anything that relies on fewer views declares it, and the coverage is
+   in the bake key. A later requirement: "Tree imposters need to look
+   good looking up a mountain slope... Maybe not right from the bottom."
+   So coverage is the lowest viewer elevation baked, and trees declare
+   −45° (see "View coverage, declared per preset").
+5. **Detail level in two steps**: a coarse check on the parent, then a
+   fine check per cluster. This changes the recommendation, which was the
+   tree's distance only. See "Fruit's own LOD chain".
+6. **One crate named `procgena_fruit`**, as recommended.
+7. **No per-copy tint** on fruit, as recommended.
+8. **Seasons later**, as recommended. They stay out of this plan.
 
 ## Proposed doc edits (for the coordinator to apply)
 
@@ -569,8 +808,13 @@ New:
 > per host *specimen*, so every copy of a host specimen carries the same
 > attached specimens, and the host's impostor can include them. A host
 > impostor's bake key therefore includes the attached pool's hash and `N`.
-> An attached copy is named by its host copy's id plus its index on the
-> host.
+>
+> **Addresses.** The hop from a host's part to an attached specimen is a
+> *link*, like the hop from a copy to its specimen. An attached copy is
+> addressed by its host's address plus a part path through the link,
+> each step pinned to the `SpecimenId` it indexes, for example
+> `… / fruit 17 / item 2` (see "Queries: reading the result" and
+> [D3](docs/decisions/D3.md) section 7b).
 >
 > **Status.** Planned: `procgena_fruit` ([fruit/plan.md](fruit/plan.md)).
 
@@ -595,18 +839,26 @@ New:
 > the cluster, then its own impostor, keyed by its `SpecimenId` like any
 > specimen and inside the specimen budget. The host decides which
 > attached copies each of its levels draws; the attached asset decides
-> how each looks. Attached impostors are baked over the full sphere of
-> views, since they are seen from below.
+> how each looks. The host picks it in two steps: a coarse range per
+> host on the CPU, then, only for hosts that span more than one attached
+> level, a fine check per attached copy on the GPU.
 
 **§ Asset alignment, rule 2, "The levels run in order".** Append:
 
 > An attached asset's chain ends where its host's impostor begins, and
-> the host's impostor includes it.
+> the host's impostor includes it. Every impostor covers the viewer
+> elevations its preset declares, from straight above down to a lowest
+> elevation: −90° (the full sphere) by default. Trees declare −45°, so
+> they look right from below on a mountain slope.
 
 **§ Where shared code lives, the `procgena_impostor` paragraph.** Append:
 
-> Each bake sets its own view count, frame size and view layout
-> (upper hemisphere or full sphere), and an instanced draw may compose
+> Each bake sets its own view count and frame size, and its view
+> coverage, which its preset declares as the lowest viewer elevation
+> baked (`ViewCoverage`, −90°, the full sphere, by default). The
+> octahedral layout is warped so that the whole atlas covers only the
+> declared views. Views below the lowest elevation show the lowest baked
+> ring. Coverage is part of the bake key. An instanced draw may compose
 > a host's record with an attached copy's transform.
 
 **§ Architectural TODOs, Asset alignment.** Replace the "Cluster
@@ -616,14 +868,27 @@ impostor cards for tree fruit and flowers" item with:
 >   the `procgena_fruit` crate (cluster builder and meshers moved from
 >   the tree, in the cluster frame), the tree's `AttachedFruit`, pools and
 >   per-tree-specimen slots, fruit LOD levels and impostors, cluster-table
->   instancing in the grove. Needs F1, then F2, D3, R1 and I1 for its
->   later steps.
+>   instancing in the grove with a two-step detail check. Needs F1, F2
+>   and D3 for its first step, then R1 and I1.
 
 and add to the Asset alignment list:
 
 > - [ ] **Impostor bake options**: per-bake view count and frame size,
->   full-sphere layout, a composed host-plus-attached instance, and a
->   vertex offset hook for wind.
+>   view coverage declared per preset as a lowest viewer elevation
+>   (−90° by default, −45° for trees, in the bake key), with the
+>   octahedral layout warped to the declared range, a composed
+>   host-plus-attached instance, and a vertex offset hook for wind.
+
+**§ Asset alignment, the "Impostors per specimen, prepared per Ecotope"
+TODO (I1).** Append:
+
+> The impostor's default view coverage is the full sphere (lowest
+> elevation −90°). The tree declares −45°: a viewer looking up a
+> hillside at an impostor-distance tree sees it from at most about 38°
+> below, at the default 35° slope limit. Stone, deadwood and mushroom,
+> when they gain impostors, each declare their own lowest elevation:
+> −45° for things on slopes, and 0° (today's upper hemisphere) for low
+> things seen mostly from above.
 
 **§ Specimen budget.** After "No cap across pools", add:
 
@@ -634,8 +899,10 @@ and add to the Asset alignment list:
 
 **§ Open questions, 10.** Append:
 
-> An attached copy (one fruit) is named by its host copy id plus its
-> index, so the same choice covers it.
+> An attached copy (one fruit) is addressed by its host's address plus
+> a part path, so the same choice covers it. A part edit such as a
+> harvest hides that copy for that host copy only, and leaves the shared
+> specimens and impostors alone.
 
 ### ROADMAP.md
 
@@ -650,21 +917,36 @@ and add to the Asset alignment list:
 >   crate, the tree's `AttachedFruit`, per-tree-specimen slots, fruit LOD
 >   levels and impostors, cluster-table instancing, and TODO "Impostor
 >   bake options".
-> - **Needs:** F1 for the extraction (steps A1, A2); R1 for fruit levels
->   (B1); F2 and D3 for pools and slots (C1); I1 for impostors (D1, D2).
-> - **Done when:** Apple, Flowering Dogwood and Spring Pussy Willow draw
->   their fruit from fruit pools with a World `N`. The outline test
->   passes with fruit composed in. A grove of Willows draws its catkins
->   through the cluster table with no record per cluster, and as
->   full-sphere impostors seen from below. The tree impostor includes the
->   fruit and is rebaked when the fruit `N` changes.
+> - **Needs:** F1, F2 and D3 with Addresses for the crate and pools
+>   (step AC1); R1 for fruit levels (B1); I1 for impostors (D1, D2).
+> - **Done when:**
+>   - Apple, Flowering Dogwood and Spring Pussy Willow draw their fruit
+>     from fruit pools with a World `N`, and the slots visibly differ.
+>   - The outline test passes with fruit composed in.
+>   - A grove of Willows draws its catkins through the cluster table,
+>     with no record per cluster, and with a per-cluster detail check
+>     only on trees that span levels.
+>   - Catkins draw as full-sphere impostors seen from below.
+>   - The tree impostor includes the fruit and is rebaked when the fruit
+>     `N` changes.
+>   - A part path `/ fruit i / item k` resolves on every level.
+
+**I1.** Append to "Covers":
+
+> View coverage becomes a lowest viewer elevation, in the bake key, with
+> the octahedral layout warped so the atlas covers only that range. The
+> default is −90°, the full sphere. Tree presets declare −45° at 10×10
+> views, so trees look right from below on a mountain slope, at today's
+> view density. 0° reproduces today's layout exactly. Stone, deadwood and
+> mushroom declare their own values. Done when a tree seen from 40°
+> below, up a slope, shows a baked view rather than a horizon view.
 
 **Dependency graph.** Add `I1b["I1b Fruit as an attached asset"]` with
-edges `M0 --> F1` (unchanged), `F1 --> I1b`, `F2 --> I1b`, `D3 --> I1b`,
-`R1 --> I1b`, `I1 --> I1b`.
+edges `F1 --> I1b`, `F2 --> I1b`, `D3 --> I1b`, `R1 --> I1b` and
+`I1 --> I1b`.
 
-**Wave table.** Wave 3 gains "I1b steps A1 then A2 (one tree writer)".
-Wave 5 gains "I1b B1, B2, C1". Wave 6 gains "I1b D1, D2" (after I1).
+**Wave table.** Wave 5 gains "I1b AC1 (one tree writer), then B1". Wave
+6 gains "I1b B2, D1, D2 (after I1)".
 
 ### CLAUDE.md, package table
 
