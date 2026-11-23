@@ -13,8 +13,8 @@ use glam::{DVec2, Vec2};
 
 use crate::options::RoadGrades;
 use crate::ports::{
-    CORNER_CLEARANCE, FEATURE_CLEARANCE, Port, PortWish, Side, SideWishes, agree_ports,
-    wishes_valid,
+    CORNER_CLEARANCE, FEATURE_CLEARANCE, INNER_DEPTHS, Port, PortWish, Side, SideWishes,
+    agree_ports, wishes_valid,
 };
 use crate::region::{
     CornerId, EdgeId, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
@@ -68,11 +68,13 @@ pub struct EdgeOffer {
     /// The terrain's own road grades, before any fading towards its
     /// neighbours' (see [`RoadOptions`](crate::RoadOptions)). Must be valid.
     pub road_grades: RoadGrades,
-    /// The terrain's own height [`FEATURE_CLEARANCE`] metres inside its
-    /// region, straight in from each of the edge's [`sample_count`] samples.
-    /// Crossings are placed only where this stays close to the border
-    /// profile carried inward.
-    pub inner: Vec<f32>,
+    /// The terrain's own height at [`INNER_DEPTHS`] depths inside its
+    /// region (see [`inner_depth`](crate::inner_depth), out to
+    /// [`FEATURE_CLEARANCE`]), straight
+    /// in from each of the edge's [`sample_count`] samples. Crossings are
+    /// placed only where this stays close to the border profile carried
+    /// inward, and where a river's water would not sit above it.
+    pub inner: Vec<[f32; INNER_DEPTHS]>,
     /// The terrain's height at each of the edge's [`sample_count`] samples
     /// with no fading towards its neighbours: the ground its roads must
     /// reach from a crossing.
@@ -512,11 +514,17 @@ mod tests {
         /// Sets the inland heights to the offer's own profile carried
         /// inward, so crossings fit everywhere.
         fn with_fitting_inner(mut self) -> Self {
-            let reach = crate::ports::slope_reach(self.side.sign() * FEATURE_CLEARANCE);
+            let sign = self.side.sign();
             self.inner = self
                 .natural
                 .iter()
-                .map(|s| s.height + (f64::from(s.slope) * reach) as f32)
+                .map(|s| {
+                    std::array::from_fn(|k| {
+                        let depth = crate::ports::inner_depth(k);
+                        let reach = crate::ports::slope_reach(sign * depth);
+                        s.height + (f64::from(s.slope) * reach) as f32
+                    })
+                })
                 .collect();
             self
         }

@@ -9,7 +9,7 @@ use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::noise::{Octaves, fbm};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
-use crate::ports::{FEATURE_CLEARANCE, Side, slope_reach};
+use crate::ports::{INNER_DEPTHS, Side, inner_depth, slope_reach};
 use crate::region::{
     EdgeId, Region, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
 };
@@ -328,9 +328,10 @@ impl TerrainGenerator {
             .collect()
     }
 
-    /// This terrain's own height [`FEATURE_CLEARANCE`] metres in from each
-    /// profile sample of `edge`, towards `side`.
-    fn inner_samples(&self, edge: &RegionEdge, side: Side) -> Vec<f32> {
+    /// This terrain's own height at each of the [`INNER_DEPTHS`] depths in
+    /// from each profile sample of `edge`, towards `side` (see
+    /// [`inner_depth`]).
+    fn inner_samples(&self, edge: &RegionEdge, side: Side) -> Vec<[f32; INNER_DEPTHS]> {
         let segments = segments(&edge.polyline);
         let length = edge.length();
         let count = sample_count(length);
@@ -338,8 +339,10 @@ impl TerrainGenerator {
         (0..count)
             .map(|i| {
                 let (point, normal) = point_at(&segments, i as f64 * step);
-                self.relief
-                    .height(point + normal * (side.sign() * FEATURE_CLEARANCE))
+                std::array::from_fn(|k| {
+                    self.relief
+                        .height(point + normal * (side.sign() * inner_depth(k)))
+                })
             })
             .collect()
     }

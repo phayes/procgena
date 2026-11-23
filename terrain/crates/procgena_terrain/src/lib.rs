@@ -80,6 +80,7 @@ mod calibration;
 mod carve;
 mod converge;
 mod grid;
+mod gully;
 mod hash;
 mod noise;
 mod options;
@@ -91,6 +92,9 @@ mod relief;
 mod river;
 mod road;
 mod seam;
+// SPIKE (Phase 2.8): test-only measurements; delete after review.
+#[cfg(test)]
+mod spike_erosion;
 mod stitch;
 mod terrain;
 
@@ -105,7 +109,9 @@ pub use options::{
     MAX_RIVER_DENSITY, MAX_WAVELENGTH, MountainLayer, NoiseLayer, OptionsError, RiverOptions,
     RoadGrades, RoadOptions, TerrainOptions,
 };
-pub use ports::{FEATURE_CLEARANCE, MAX_PORT_WIDTH, Port, PortKind, PortWish, Side};
+pub use ports::{
+    FEATURE_CLEARANCE, INNER_DEPTHS, MAX_PORT_WIDTH, Port, PortKind, PortWish, Side, inner_depth,
+};
 pub use presets::TerrainPreset;
 pub use region::{
     Boundary, CornerId, EdgeId, Region, RegionCorner, RegionEdge, RegionError, RegionId, corner_id,

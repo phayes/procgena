@@ -175,21 +175,32 @@ impl StitchedWorld {
         let corners = negotiate_corners(&regions, &generators, &index)?;
         let agreements = negotiate_edges(&regions, &generators, &index, &corners)?;
 
-        // Build each terrain with the agreements for its edges.
-        let terrains = generators
+        // Build each terrain with the agreements for its edges, on several
+        // threads with the `rayon` feature (the results are the same).
+        let build = |(generator, region): (TerrainGenerator, Region)| {
+            let mine: Vec<_> = region
+                .edges
+                .iter()
+                .filter_map(|e| agreements.get(&e.id).cloned())
+                .collect();
+            let id = region.id;
+            generator
+                .build(region, &mine)
+                .map_err(|e| StitchError::Terrain(id, e))
+        };
+        let pairs: Vec<(TerrainGenerator, Region)> = generators.into_iter().zip(regions).collect();
+        #[cfg(feature = "rayon")]
+        let terrains = {
+            use rayon::prelude::*;
+            pairs
+                .into_par_iter()
+                .map(build)
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        #[cfg(not(feature = "rayon"))]
+        let terrains = pairs
             .into_iter()
-            .zip(regions)
-            .map(|(generator, region)| {
-                let mine: Vec<_> = region
-                    .edges
-                    .iter()
-                    .filter_map(|e| agreements.get(&e.id).cloned())
-                    .collect();
-                let id = region.id;
-                generator
-                    .build(region, &mine)
-                    .map_err(|e| StitchError::Terrain(id, e))
-            })
+            .map(build)
             .collect::<Result<Vec<_>, _>>()?;
         let mut agreements: Vec<EdgeAgreement> = agreements.into_values().collect();
         agreements.sort_by_key(|a| a.edge);

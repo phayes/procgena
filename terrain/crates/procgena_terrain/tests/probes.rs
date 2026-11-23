@@ -201,7 +201,7 @@ fn feature_problems(world: &StitchedWorld) -> Vec<String> {
                 || rivers.iter().enumerate().any(|(j, s)| {
                     j != i
                         && (s.points[0] == last
-                            || (line_distance(s, last) <= f64::from(s.width)
+                            || (line_distance(s, last) <= f64::from(widest(s))
                                 && t.water_level(last).is_some()))
                 })
                 || world
@@ -270,10 +270,13 @@ fn scene_dump() {
     for (key, title, world, step, window) in &scenes {
         // The window: the whole world unless given.
         let (lo, hi) = window.unwrap_or_else(|| {
-            world.terrains().iter().flat_map(|t| polygon(t)).fold(
-                (DVec2::INFINITY, DVec2::NEG_INFINITY),
-                |(lo, hi), p| (lo.min(p), hi.max(p)),
-            )
+            world
+                .terrains()
+                .iter()
+                .flat_map(polygon)
+                .fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), p| {
+                    (lo.min(p), hi.max(p))
+                })
         });
         let nx = ((hi.x - lo.x) / step).floor() as usize + 1;
         let nz = ((hi.y - lo.y) / step).floor() as usize + 1;
@@ -328,7 +331,7 @@ fn scene_dump() {
                 .zip(&l.levels)
                 .map(|(p, h)| format!("[{:.2},{:.2},{:.2}]", p.x, h, p.y))
                 .collect();
-            format!("{{\"width\":{},\"points\":[{}]}}", l.width, pts.join(","))
+            format!("{{\"width\":{},\"points\":[{}]}}", widest(l), pts.join(","))
         };
         let terrains = world.terrains();
         let roads: Vec<String> = terrains.iter().flat_map(|t| t.roads()).map(line).collect();
@@ -368,6 +371,11 @@ fn scene_dump() {
         list.push(format!("{{\"key\":\"{key}\",\"title\":\"{title}\"}}"));
     }
     std::fs::write(format!("{dir}/scenes.json"), format!("[{}]", list.join(","))).unwrap();
+}
+
+/// The widest a feature line gets, in metres.
+fn widest(line: &FeatureLine) -> f32 {
+    line.widths.iter().copied().fold(0.0, f32::max)
 }
 
 /// The polygon of a terrain's region.

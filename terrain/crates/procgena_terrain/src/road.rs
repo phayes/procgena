@@ -6,10 +6,10 @@ use std::collections::{BinaryHeap, HashMap};
 use glam::DVec2;
 
 use crate::carve::{FeatureKind, FeatureLine, bank_for, chaikin};
-use crate::seam::smootherstep;
 use crate::grid::{DIRECTIONS, Grid, direction};
 use crate::options::RoadGrades;
 use crate::ports::FEATURE_CLEARANCE;
+use crate::seam::smootherstep;
 
 /// Extra cost per unit of grade beyond the road's preferred grade, squared
 /// (in units of that grade).
@@ -58,6 +58,12 @@ const SLOPE_RADIUS: f64 = 20.0;
 /// gentlest.
 const BANK_EASE: f64 = 80.0;
 
+/// How deep a road cuts, in metres, before it starts to narrow.
+const NARROW_FROM: f64 = 3.0;
+
+/// How deep a road cuts, in metres, where it is at its narrowest.
+const NARROW_TO: f64 = 10.0;
+
 /// How close two legs of one road may come, as a multiple of its width.
 const LEG_SPACING: f64 = 3.0;
 
@@ -71,6 +77,8 @@ pub(crate) struct RoadStart {
     pub point: DVec2,
     pub level: f32,
     pub width: f32,
+    /// How narrow the road may get through deep cuttings.
+    pub min_width: f32,
 }
 
 /// An entry in the route search queue: lowest cost first.
@@ -153,6 +161,7 @@ pub(crate) fn route(
         let mut blocked = vec![false; grid.heights.len()];
         let mut retries = 0;
         let mut crowded_route = None;
+        let ahead = network_distance(grid, &network);
         let routed = loop {
             if refused.len() > MAX_REFUSED_JOINS {
                 break crowded_route;
@@ -166,7 +175,7 @@ pub(crate) fn route(
                         f64::from((level - start.level).abs()) <= 0.9 * (reach + lead_in)
                     })
             };
-            let Some(cells) = search(&terrain, &network, &blocked, first, &joinable) else {
+            let Some(cells) = search(&terrain, &network, &ahead, &blocked, first, &joinable) else {
                 break crowded_route;
             };
 
@@ -194,8 +203,9 @@ pub(crate) fn route(
             let join = *cells.last().expect("route has cells");
             let end_level = level_on_roads(&roads, grid.centre(join));
             let target = smooth(&heights);
+            let across = across_road(&points, &heights, f64::from(start.width) / 2.0, ground);
             let Some(levels) =
-                grade_limited(&points, &heights, &target, start.level, end_level, &steepest)
+                grade_limited(&points, &across, &target, start.level, end_level, &steepest)
             else {
                 refused.push(join);
                 continue;
@@ -203,16 +213,17 @@ pub(crate) fn route(
 
             // Where two legs crowd each other, route again around that
             // place, keeping this route in case no other is found.
-            match crowded(&points, spacing) {
-                Some(j) if retries < MAX_CROWDED_RETRIES => {
-                    block_around(grid, &mut blocked, points[j], 0.5 * spacing, first);
-                    retries += 1;
-                    crowded_route = Some((cells, points, levels));
-                }
-                _ => break Some((cells, points, levels)),
+            let crowding = crowded(&points, spacing);
+            if crowding.is_empty() || retries >= MAX_CROWDED_RETRIES {
+                break Some((cells, points, levels, across));
             }
+            for &j in &crowding {
+                block_around(grid, &mut blocked, points[j], 0.5 * spacing, first);
+            }
+            retries += 1;
+            crowded_route = Some((cells, points, levels, across));
         };
-        let Some((cells, points, levels)) = routed else {
+        let Some((cells, points, levels, across)) = routed else {
             continue;
         };
         for &c in &cells {
@@ -220,9 +231,9 @@ pub(crate) fn route(
         }
         roads.push(FeatureLine {
             kind: FeatureKind::Road,
+            widths: widths(&points, &across, &levels, start.width, start.min_width),
             points,
             levels,
-            width: start.width,
             depth: 0.0,
         });
     }
@@ -246,26 +257,123 @@ pub(crate) fn banks(points: &[DVec2], ground: &dyn Fn(DVec2) -> f32) -> Vec<f32>
         })
         .collect();
 
-    // Averaged over the points within `SLOPE_RADIUS` along the road.
+    // Averaged along the road, then eased in from the start.
+    let gentle = bank_for(0.0);
+    eased(
+        points,
+        &along_mean(points, &slope, SLOPE_RADIUS),
+        |mean, ease| (gentle + (bank_for(mean) - gentle) * ease) as f32,
+    )
+}
+
+/// How wide a road along `points` is at each point: `width` where it
+/// cuts less than [`NARROW_FROM`] into the ground (the highest ground
+/// across it, `across[i].1`, above its level), narrowing to `min_width`
+/// where it cuts [`NARROW_TO`] or more, averaged over [`SLOPE_RADIUS`]
+/// along the road. Over its first [`BANK_EASE`] metres the road eases in
+/// from `width`, which its crossing piece has.
+pub(crate) fn widths(
+    points: &[DVec2],
+    across: &[(f32, f32)],
+    levels: &[f32],
+    width: f32,
+    min_width: f32,
+) -> Vec<f32> {
+    // How far towards the narrowest each point is.
+    let narrowing: Vec<f64> = across
+        .iter()
+        .zip(levels)
+        .map(|(&(_, high), &level)| {
+            let cut = f64::from(high - level);
+            smootherstep(((cut - NARROW_FROM) / (NARROW_TO - NARROW_FROM)).clamp(0.0, 1.0))
+        })
+        .collect();
+
+    // Averaged along the road, then eased in from the start.
+    let (width, min_width) = (f64::from(width), f64::from(min_width));
+    eased(
+        points,
+        &along_mean(points, &narrowing, SLOPE_RADIUS),
+        |mean, ease| (width + (min_width - width) * mean * ease) as f32,
+    )
+}
+
+/// The mean of `values` over the points of `points` within `radius` metres
+/// of each point, measured along the line.
+pub(crate) fn along_mean(points: &[DVec2], values: &[f64], radius: f64) -> Vec<f64> {
+    let along = distance_along(points);
+    let (mut lo, mut hi) = (0, 0);
+    (0..points.len())
+        .map(|i| {
+            while along[i] - along[lo] > radius {
+                lo += 1;
+            }
+            while hi + 1 < points.len() && along[hi + 1] - along[i] <= radius {
+                hi += 1;
+            }
+            values[lo..=hi].iter().sum::<f64>() / (hi - lo + 1) as f64
+        })
+        .collect()
+}
+
+/// `value(means[i], ease)` for each point of `points`, where `ease` rises
+/// smoothly from 0 at the line's start to 1 at [`BANK_EASE`] metres along
+/// it.
+fn eased(points: &[DVec2], means: &[f64], value: impl Fn(f64, f64) -> f32) -> Vec<f32> {
+    distance_along(points)
+        .iter()
+        .zip(means)
+        .map(|(&along, &mean)| value(mean, smootherstep((along / BANK_EASE).min(1.0))))
+        .collect()
+}
+
+/// The distance along `points` from the first point to each point.
+pub(crate) fn distance_along(points: &[DVec2]) -> Vec<f64> {
     let mut along = vec![0.0f64; points.len()];
     for i in 1..points.len() {
         along[i] = along[i - 1] + points[i].distance(points[i - 1]);
     }
-    let (mut lo, mut hi) = (0, 0);
-    (0..points.len())
-        .map(|i| {
-            while along[i] - along[lo] > SLOPE_RADIUS {
-                lo += 1;
+    along
+}
+
+/// For each cell, the least cost of any route from it to the nearest cell
+/// of `network`: the length of the shortest path over the grid's moves,
+/// with the last step onto the network at [`REUSE_COST`] of its length, as
+/// the route search may count it. Every step the search takes costs at
+/// least that much, so this never overestimates.
+fn network_distance(grid: &Grid, network: &[bool]) -> Vec<f64> {
+    let mut distance = vec![f64::INFINITY; network.len()];
+    let mut queue = BinaryHeap::new();
+    for (cell, _) in network.iter().enumerate().filter(|(_, on)| **on) {
+        distance[cell] = 0.0;
+        queue.push(Entry {
+            cost: 0.0,
+            state: cell,
+        });
+    }
+    while let Some(Entry {
+        cost: d,
+        state: cell,
+    }) = queue.pop()
+    {
+        if d > distance[cell] {
+            continue;
+        }
+        // Routes run from `next` to `cell`, so the step's discount depends
+        // on whether `cell` is on the network.
+        let share = if network[cell] { REUSE_COST } else { 1.0 };
+        for (next, length) in grid.neighbours(cell) {
+            let total = d + share * length;
+            if total < distance[next] {
+                distance[next] = total;
+                queue.push(Entry {
+                    cost: total,
+                    state: next,
+                });
             }
-            while hi + 1 < points.len() && along[hi + 1] - along[i] <= SLOPE_RADIUS {
-                hi += 1;
-            }
-            let mean = slope[lo..=hi].iter().sum::<f64>() / (hi - lo + 1) as f64;
-            let ease = smootherstep((along[i] / BANK_EASE).min(1.0));
-            let gentle = bank_for(0.0);
-            (gentle + (bank_for(mean) - gentle) * ease) as f32
-        })
-        .collect()
+        }
+    }
+    distance
 }
 
 /// Marks every cell within `radius` of `p` as `blocked`, except `keep`.
@@ -284,11 +392,10 @@ fn block_around(grid: &Grid, blocked: &mut [bool], p: DVec2, radius: f64, keep: 
     }
 }
 
-/// The first point of `points` that comes within `spacing` of an earlier
-/// part of the same line more than twice `spacing` back along it: where
-/// two legs of a road crowd each other. A hairpin's own bend is not
-/// counted.
-fn crowded(points: &[DVec2], spacing: f64) -> Option<usize> {
+/// Every point of `points` that comes within `spacing` of an earlier part
+/// of the same line more than twice `spacing` back along it: where two legs
+/// of a road crowd each other. A hairpin's own bend is not counted.
+fn crowded(points: &[DVec2], spacing: f64) -> Vec<usize> {
     // Distance along the line to each point.
     let mut along = vec![0.0f64; points.len()];
     for i in 1..points.len() {
@@ -297,8 +404,14 @@ fn crowded(points: &[DVec2], spacing: f64) -> Option<usize> {
 
     // Points bucketed by square, `spacing` across, so only nearby squares
     // are searched.
-    let key = |p: DVec2| ((p.x / spacing).floor() as i64, (p.y / spacing).floor() as i64);
+    let key = |p: DVec2| {
+        (
+            (p.x / spacing).floor() as i64,
+            (p.y / spacing).floor() as i64,
+        )
+    };
     let mut squares: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+    let mut out = Vec::new();
     for (j, &p) in points.iter().enumerate() {
         let (kx, kz) = key(p);
         let near = (-1..=1)
@@ -307,26 +420,53 @@ fn crowded(points: &[DVec2], spacing: f64) -> Option<usize> {
             .flatten()
             .any(|&i| along[j] - along[i] > 2.0 * spacing && points[i].distance(p) < spacing);
         if near {
-            return Some(j);
+            out.push(j);
         }
         squares.entry((kx, kz)).or_default().push(j);
     }
-    None
+    out
+}
+
+/// The lowest and highest ground across a road at each of `points`: at its
+/// centre (`centre`, the ground there) and at its two edges, `half_width`
+/// to either side.
+fn across_road(
+    points: &[DVec2],
+    centre: &[f32],
+    half_width: f64,
+    ground: &dyn Fn(DVec2) -> f32,
+) -> Vec<(f32, f32)> {
+    let last = points.len() - 1;
+    (0..points.len())
+        .map(|i| {
+            let along = points[(i + 1).min(last)] - points[i.saturating_sub(1)];
+            let side = along.perp().normalize_or_zero() * half_width;
+            let (left, right) = (ground(points[i] + side), ground(points[i] - side));
+            (
+                centre[i].min(left).min(right),
+                centre[i].max(left).max(right),
+            )
+        })
+        .collect()
 }
 
 /// Road levels along `points`, starting at `start` and, if given, ending at
 /// `end`, that keep the deepest fill, and the deepest cut divided by
 /// [`CUT_SHARE`], as small as the grades allow: where the road can't follow
 /// a hump or a dip, it cuts deep sooner than it builds a high embankment.
-/// Within that, each level keeps as close to `target` (a smoothed version
-/// of `ground`) as it can. `steepest[i]` is the steepest grade allowed from
-/// point `i - 1` to point `i` (`steepest[0]` is unused).
+/// `across[i]` is the lowest and highest ground across the road at point
+/// `i`; fill is measured from the lowest, cut from the highest, so on a
+/// side slope the road sinks into the hillside rather than standing out
+/// on a fill. Within that, each level keeps as close to `target` (the
+/// smoothed ground along the road's centre) as it can. `steepest[i]` is
+/// the steepest grade allowed from point `i - 1` to point `i`
+/// (`steepest[0]` is unused).
 ///
 /// The two end levels are fixed and don't count. Returns `None` if the two
 /// ends are too far apart in height for the grades.
 fn grade_limited(
     points: &[DVec2],
-    ground: &[f32],
+    across: &[(f32, f32)],
     target: &[f32],
     start: f32,
     end: Option<f32>,
@@ -359,8 +499,8 @@ fn grade_limited(
             let (lo, hi) = match (i == last, end) {
                 (true, Some(e)) => (lo.max(e), hi.min(e)),
                 _ => {
-                    let g = f64::from(ground[i]);
-                    (lo.max(g - CUT_SHARE * gap), hi.min(g + gap))
+                    let (low, high) = (f64::from(across[i].0), f64::from(across[i].1));
+                    (lo.max(high - CUT_SHARE * gap), hi.min(low + gap))
                 }
             };
             if lo > hi {
@@ -374,9 +514,9 @@ fn grade_limited(
     // The smallest gap that works, by bisection: the end is reachable, so
     // a gap as large as the ground's whole height range plus the climb
     // always works.
-    let (lo_ground, hi_ground) = ground
-        .iter()
-        .fold((start, start), |(lo, hi), &g| (lo.min(f64::from(g)), hi.max(f64::from(g))));
+    let (lo_ground, hi_ground) = across.iter().fold((start, start), |(lo, hi), &(l, h)| {
+        (lo.min(f64::from(l)), hi.max(f64::from(h)))
+    });
     let mut wide = hi_ground - lo_ground + rise.iter().sum::<f64>() + 1.0;
     let mut narrow = 0.0;
     let mut best = bands(wide).expect("a wide enough gap always works");
@@ -454,9 +594,14 @@ struct Terrain<'a> {
 /// could have climbed or fallen on its way there, at each step's steepest
 /// grade. Other network cells may be crossed. The route never turns more
 /// than [`MAX_TURN`] from one step to the next.
+///
+/// `ahead[cell]` must never be more than the cost from `cell` to the first
+/// network cell (see [`network_distance`]); the search uses it to head for
+/// the network without missing the cheapest route.
 fn search(
     terrain: &Terrain,
     network: &[bool],
+    ahead: &[f64],
     blocked: &[bool],
     start: usize,
     joinable: &dyn Fn(usize, f64) -> bool,
@@ -469,9 +614,16 @@ fn search(
     } = *terrain;
 
     // A search state is a cell and the direction the route entered it by;
-    // the start has no direction (`DIRECTIONS`).
+    // the start has no direction (`DIRECTIONS`). The queue is ordered by
+    // the cost so far plus the least cost still ahead.
     let headings = DIRECTIONS + 1;
     let n = allowed.len() * headings;
+    let mut turnable = [[false; DIRECTIONS]; DIRECTIONS];
+    for (a, row) in turnable.iter_mut().enumerate() {
+        for (b, ok) in row.iter_mut().enumerate() {
+            *ok = direction(a).angle_to(direction(b)).abs() <= MAX_TURN + 1e-9;
+        }
+    }
     let mut cost = vec![f64::INFINITY; n];
     let mut run = vec![0.0f64; n];
     let mut previous = vec![usize::MAX; n];
@@ -479,14 +631,19 @@ fn search(
     let first = start * headings + DIRECTIONS;
     cost[first] = 0.0;
     queue.push(Entry {
-        cost: 0.0,
+        cost: ahead[start],
         state: first,
     });
-    while let Some(Entry { cost: c, state }) = queue.pop() {
-        if c > cost[state] {
+    while let Some(Entry {
+        cost: estimate,
+        state,
+    }) = queue.pop()
+    {
+        let (cell, heading) = (state / headings, state % headings);
+        let c = cost[state];
+        if estimate > c + ahead[cell] {
             continue;
         }
-        let (cell, heading) = (state / headings, state % headings);
         if network[cell] && joinable(cell, run[state]) {
             let mut states = vec![state];
             while states[states.len() - 1] != first {
@@ -499,9 +656,7 @@ fn search(
             if !allowed[next] || blocked[next] {
                 continue;
             }
-            if heading != DIRECTIONS
-                && direction(heading).angle_to(direction(k)).abs() > MAX_TURN + 1e-9
-            {
+            if heading != DIRECTIONS && !turnable[heading][k] {
                 continue;
             }
             let next_state = next * headings + k;
@@ -536,7 +691,7 @@ fn search(
                 run[next_state] = here;
                 previous[next_state] = state;
                 queue.push(Entry {
-                    cost: total,
+                    cost: total + ahead[next],
                     state: next_state,
                 });
             }
@@ -590,11 +745,13 @@ mod tests {
                 point: DVec2::new(1000.0, 70.0),
                 level: 10.0,
                 width: 6.0,
+                min_width: 4.0,
             },
             RoadStart {
                 point: DVec2::new(70.0, 1500.0),
                 level: 1.0,
                 width: 6.0,
+                min_width: 4.0,
             },
         ];
         let river = vec![false; grid.heights.len()];
@@ -629,30 +786,74 @@ mod tests {
             .map(|i| DVec2::new(10.0 * f64::from(i), 0.0))
             .collect();
         let ground = vec![0.0; points.len()];
+        let across = vec![(0.0, 0.0); points.len()];
         let steepest: Vec<f64> = (0..=10).map(|i| if i <= 5 { 0.1 } else { 0.3 }).collect();
-        let levels = grade_limited(&points, &ground, &ground, 0.0, Some(20.0), &steepest).unwrap();
+        let levels = grade_limited(&points, &across, &ground, 0.0, Some(20.0), &steepest).unwrap();
         for i in 1..levels.len() {
             let grade = f64::from(levels[i] - levels[i - 1]).abs() / 10.0;
             assert!(grade <= steepest[i] * 1.001, "step {i}: grade {grade}");
         }
         assert_eq!(*levels.last().unwrap(), 20.0);
         // 5 m on the gentle half and 15 m on the steep half is all there is.
-        assert!(grade_limited(&points, &ground, &ground, 0.0, Some(20.5), &steepest).is_none());
+        assert!(grade_limited(&points, &across, &ground, 0.0, Some(20.5), &steepest).is_none());
+    }
+
+    #[test]
+    fn roads_narrow_through_deep_cuttings() {
+        // A level road, 400 m long: no cut over its first 200 m, then a 20 m
+        // cut. Full width (6 m) at the start and on the open stretch; the
+        // narrowest (4 m) well inside the cutting.
+        let points: Vec<DVec2> = (0..=40)
+            .map(|i| DVec2::new(10.0 * f64::from(i), 0.0))
+            .collect();
+        let across: Vec<(f32, f32)> = (0..=40)
+            .map(|i| if i < 20 { (0.0, 0.0) } else { (0.0, 20.0) })
+            .collect();
+        let levels = vec![0.0; points.len()];
+        let w = widths(&points, &across, &levels, 6.0, 4.0);
+        assert_eq!(w[0], 6.0);
+        assert_eq!(w[15], 6.0);
+        assert!((w[35] - 4.0).abs() < 1e-5, "inside the cutting: {}", w[35]);
+        // It narrows smoothly, never below the narrowest.
+        assert!(w.iter().all(|&x| (4.0..=6.0).contains(&x)));
+        assert!(w.windows(2).all(|p| p[1] <= p[0] + 1e-6));
+    }
+
+    #[test]
+    fn levels_sink_into_a_side_slope() {
+        // A level road along a side slope: the ground across it runs from
+        // 0 m at its downhill edge to 6 m at its uphill edge, 3 m at the
+        // centre. Three metres of cut count as one of fill, so the road sits
+        // at 1.5 m: 1.5 m of fill under the downhill edge and 4.5 m of cut at
+        // the uphill edge, not on the centre's 3 m with 3 m of fill.
+        let points: Vec<DVec2> = (0..=10)
+            .map(|i| DVec2::new(10.0 * f64::from(i), 0.0))
+            .collect();
+        let across = vec![(0.0, 6.0); points.len()];
+        let centre = vec![3.0; points.len()];
+        let steepest = vec![0.1; points.len()];
+        let levels = grade_limited(&points, &across, &centre, 1.5, None, &steepest).unwrap();
+        for (i, l) in levels.iter().enumerate() {
+            assert!((l - 1.5).abs() < 0.01, "point {i}: level {l}");
+        }
     }
 
     #[test]
     fn crowded_legs_are_found_but_a_hairpin_bend_is_not() {
         // Up the z axis, round a hairpin, and back down 20 m away: legs
         // 20 m apart are fine with a spacing of 18 m, not with 25 m.
-        let mut points: Vec<DVec2> = (0..=10).map(|i| DVec2::new(0.0, 10.0 * f64::from(i))).collect();
+        let mut points: Vec<DVec2> = (0..=10)
+            .map(|i| DVec2::new(0.0, 10.0 * f64::from(i)))
+            .collect();
         points.extend((1..10).map(|i| {
             let a = std::f64::consts::PI * f64::from(i) / 10.0;
             DVec2::new(10.0 - 10.0 * a.cos(), 100.0 + 10.0 * a.sin())
         }));
         points.extend((0..=10).map(|i| DVec2::new(20.0, 100.0 - 10.0 * f64::from(i))));
-        assert_eq!(crowded(&points, 18.0), None);
-        let j = crowded(&points, 25.0).expect("legs 20 m apart crowd at 25 m");
-        assert_eq!(points[j].x, 20.0);
+        assert!(crowded(&points, 18.0).is_empty());
+        let crowding = crowded(&points, 25.0);
+        assert!(!crowding.is_empty(), "legs 20 m apart crowd at 25 m");
+        assert!(crowding.iter().all(|&j| points[j].x == 20.0));
     }
 
     #[test]
@@ -666,11 +867,14 @@ mod tests {
         let mut ground = vec![0.0; points.len()];
         ground[10] = 10.0;
         let steepest = vec![0.1; points.len()];
-        let levels = grade_limited(&points, &ground, &ground, 0.0, None, &steepest).unwrap();
+        let across: Vec<(f32, f32)> = ground.iter().map(|&g| (g, g)).collect();
+        let levels = grade_limited(&points, &across, &ground, 0.0, None, &steepest).unwrap();
         let (cut, fill) = ground
             .iter()
             .zip(&levels)
-            .fold((0.0f32, 0.0f32), |(c, f), (g, l)| (c.max(g - l), f.max(l - g)));
+            .fold((0.0f32, 0.0f32), |(c, f), (g, l)| {
+                (c.max(g - l), f.max(l - g))
+            });
         // At level L on the spike, its neighbours can be at L − 1: a cut of
         // 10 − L and a fill of L − 1. Three metres of cut count as one of
         // fill, so L = 3.25: a 6.75 m cut and a 2.25 m fill. Following the

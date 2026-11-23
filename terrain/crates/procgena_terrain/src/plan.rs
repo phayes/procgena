@@ -4,19 +4,82 @@
 use glam::DVec2;
 
 use crate::carve::{
-    FeatureKind, FeatureLine, Features, PoiKind, PointOfInterest, Pond, ROAD_BANK, chaikin,
+    FeatureKind, FeatureLine, Features, PoiKind, PointOfInterest, Pond, ROAD_BANK, ValleyShape,
+    chaikin, valley_reach,
 };
 use crate::grid::Grid;
+use crate::hash::hash2;
 use crate::options::TerrainOptions;
-use crate::ports::{FEATURE_CLEARANCE, FREEBOARD, MAX_HALF_WIDTH, Port, PortKind, PortWish, Side};
+use crate::ports::{
+    BANK_REACH, FEATURE_CLEARANCE, FREEBOARD, MAX_HALF_WIDTH, Port, PortKind, PortWish, Side,
+};
 use crate::region::{Boundary, Region, RegionEdge, point_at, segments};
 use crate::relief::Relief;
 use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
-use crate::road::{RoadStart, Routes, banks, route};
+use crate::road::{RoadStart, Routes, along_mean, banks, distance_along, route};
 use crate::seam::{EdgeAgreement, EdgeSample, smooth};
 
 /// Chaikin smoothing passes applied to rivers.
 const RIVER_SMOOTHING: usize = 3;
+
+/// How far along a river its valley's reach is averaged, in metres.
+const VALLEY_SMOOTHING: f64 = 60.0;
+
+/// How far a river's valley stays from the region's border, beyond the
+/// river's half width, in metres.
+const VALLEY_CLEARANCE: f64 = 5.0;
+
+/// A river falling this much per metre or more is a steep, V-valleyed
+/// stretch (step-pools and cascades).
+const STEEP_RIVER: f64 = 0.04;
+
+/// A river falling this much per metre or less is a gentle stretch with a
+/// flat valley floor.
+const GENTLE_RIVER: f64 = 0.01;
+
+/// How far along a river its fall is averaged, in metres.
+const FALL_SMOOTHING: f64 = 100.0;
+
+/// How wide a gentle stretch's valley floor is on each side, in river
+/// widths.
+const FLOOR_WIDTHS: f64 = 3.0;
+
+/// The widest a valley floor may be, as a share of its reach.
+const MAX_FLOOR_SHARE: f64 = 0.5;
+
+/// Where a valley wall's steepness is measured from the ground beside the
+/// river: between these distances out, in metres.
+const GROUND_NEAR: f64 = 20.0;
+const GROUND_FAR: f64 = 60.0;
+
+/// How many times the ground's own steepness beside the river a valley
+/// wall rises at, before variation.
+const WALL_FACTOR: f64 = 1.0;
+
+/// The gentlest and steepest valley walls, as rise over run (about 11° and
+/// 39°).
+const MIN_WALL: f64 = 0.2;
+const MAX_WALL: f64 = 0.8;
+
+/// How much each side of a valley widens or narrows along the river, as a
+/// share of its size.
+const VALLEY_WOBBLE: f64 = 0.35;
+
+/// About how far along a river a valley side takes to widen and narrow
+/// again, in metres.
+const WOBBLE_LENGTH: f64 = 180.0;
+
+/// How far either side of a point a river's bend is measured over, in
+/// metres.
+const BEND_SPAN: f64 = 30.0;
+
+/// How sharp a bend, in radians per metre, counts as fully bent: 1/40, a
+/// bend of about 40 m radius.
+const BEND_SCALE: f64 = 40.0;
+
+/// How much wider (inside) or narrower and steeper (outside) a valley side
+/// is at a full bend, as a share of its size.
+const BEND_SHARE: f64 = 0.4;
 
 /// The cell size of the grid roads are planned on, in metres: fine enough
 /// for a road to find ledges and saddles a little wider than itself.
@@ -255,22 +318,27 @@ fn join(tributary: &mut FeatureLine, trunk: &mut FeatureLine) {
             let (a, b) = (tributary.points[i], tributary.points[i + 1]);
             let (la, lb) = (tributary.levels[i], tributary.levels[i + 1]);
             let point = a.lerp(b, t);
+            let (wa, wb) = (tributary.widths[i], tributary.widths[i + 1]);
             tributary.points.truncate(i + 1);
             tributary.levels.truncate(i + 1);
+            tributary.widths.truncate(i + 1);
             if point != a {
                 tributary.points.push(point);
                 tributary.levels.push(la + (lb - la) * t as f32);
+                tributary.widths.push(wa + (wb - wa) * t as f32);
             }
             (point, k)
         }
         None => {
             let end = *tributary.points.last().expect("a river has points");
             let level = *tributary.levels.last().expect("a river has levels");
+            let width = *tributary.widths.last().expect("a river has widths");
             let (k, u) = nearest_on(&trunk.points, end);
             let point = trunk.points[k].lerp(trunk.points[k + 1], u);
             if point != end {
                 tributary.points.push(point);
                 tributary.levels.push(level);
+                tributary.widths.push(width);
             }
             (point, k)
         }
@@ -281,8 +349,10 @@ fn join(tributary: &mut FeatureLine, trunk: &mut FeatureLine) {
     if point != c && point != d {
         let u = c.distance(point) / c.distance(d);
         let (lc, ld) = (trunk.levels[segment], trunk.levels[segment + 1]);
+        let (wc, wd) = (trunk.widths[segment], trunk.widths[segment + 1]);
         trunk.points.insert(segment + 1, point);
         trunk.levels.insert(segment + 1, lc + (ld - lc) * u as f32);
+        trunk.widths.insert(segment + 1, wc + (wd - wc) * u as f32);
     }
 }
 
@@ -319,8 +389,10 @@ pub(crate) fn features(
         Inbound,
     }
     let mut rivers = Vec::new();
+    let mut is_piece = Vec::new();
     let mut ponds = Vec::new();
     let mut push_river = |points: &[DVec2], levels: &[f32], width: f32, depth: f32, part: Part| {
+        is_piece.push(matches!(part, Part::Piece));
         let (points, levels) = match part {
             Part::Piece => (points.to_vec(), levels.to_vec()),
             Part::Own { floor } => {
@@ -336,9 +408,9 @@ pub(crate) fn features(
         };
         rivers.push(FeatureLine {
             kind: FeatureKind::River,
+            widths: vec![width; points.len()],
             points,
             levels,
-            width,
             depth,
         });
         rivers.len() - 1
@@ -501,6 +573,7 @@ pub(crate) fn features(
                         point,
                         level,
                         width: port.width,
+                        min_width: options.features.roads.min_width.min(port.width),
                     });
                 }
             }
@@ -528,7 +601,9 @@ pub(crate) fn features(
     let mut water = vec![false; road_grid.heights.len()];
     for river in &rivers {
         for w in river.points.windows(2) {
-            let steps = (w[0].distance(w[1]) / (0.5 * road_grid.cell)).ceil().max(1.0) as usize;
+            let steps = (w[0].distance(w[1]) / (0.5 * road_grid.cell))
+                .ceil()
+                .max(1.0) as usize;
             for k in 0..=steps {
                 if let Some(c) = road_grid.cell_of(w[0].lerp(w[1], k as f64 / steps as f64)) {
                     water[c] = true;
@@ -562,14 +637,167 @@ pub(crate) fn features(
             road_banks.push(vec![ROAD_BANK as f32; points.len()]);
             roads.push(FeatureLine {
                 kind: FeatureKind::Road,
+                widths: vec![port.width; points.len()],
                 points,
                 levels,
-                width: port.width,
                 depth: 0.0,
             });
         }
     }
-    Features::new(rivers, ponds, roads, road_banks, points_of_interest)
+    // Valleys: each river's own and inbound stretches open into a valley as
+    // wide as their cut needs, never reaching the border; crossing pieces
+    // keep the narrowest, so both sides carve the same ground there.
+    let river_valleys: Vec<Vec<ValleyShape>> = rivers
+        .iter()
+        .zip(&is_piece)
+        .map(|(river, &piece)| {
+            if piece {
+                vec![ValleyShape::even(BANK_REACH); river.points.len()]
+            } else {
+                valley_shapes(river, region, base)
+            }
+        })
+        .collect();
+    Features::new(
+        rivers,
+        river_valleys,
+        ponds,
+        roads,
+        road_banks,
+        points_of_interest,
+    )
+}
+
+/// A smooth wobble between −1 and 1 along a line, `t` in wavelengths:
+/// value noise with random values at whole `t`, eased between them.
+/// `seed` picks the pattern.
+fn wobble(t: f64, seed: u32) -> f64 {
+    let k = t.floor();
+    let value = |k: f64| f64::from(hash2(k as i64, 0, seed)) / f64::from(u32::MAX) * 2.0 - 1.0;
+    let f = t - k;
+    let ease = f * f * (3.0 - 2.0 * f);
+    value(k) + (value(k + 1.0) - value(k)) * ease
+}
+
+/// How much a river turns at each of its points, in radians per metre,
+/// measured over [`BEND_SPAN`] metres either side; positive when it turns
+/// left (looking downstream).
+fn bends(points: &[DVec2]) -> Vec<f64> {
+    let along = distance_along(points);
+    let n = points.len();
+    (0..n)
+        .map(|i| {
+            let back = (0..i)
+                .rev()
+                .find(|&j| along[i] - along[j] >= BEND_SPAN)
+                .unwrap_or(0);
+            let ahead = (i + 1..n)
+                .find(|&j| along[j] - along[i] >= BEND_SPAN)
+                .unwrap_or(n - 1);
+            if back == i || ahead == i {
+                return 0.0;
+            }
+            let (u, v) = (points[i] - points[back], points[ahead] - points[i]);
+            u.perp_dot(v).atan2(u.dot(v)) / (along[ahead] - along[back])
+        })
+        .collect()
+}
+
+/// `river`'s valley shape at each of its points, on each side.
+///
+/// - **River type:** steep stretches (a fall of [`STEEP_RIVER`] or more)
+///   get V-shaped valleys with steeper walls and no floor; gentle ones
+///   ([`GENTLE_RIVER`] or less) a flat floor [`FLOOR_WIDTHS`] river widths
+///   wide.
+/// - **The ground around:** each side's wall follows how steep the ground
+///   is beyond the river on that side.
+/// - **Variation:** each side widens and narrows along the river by up to
+///   [`VALLEY_WOBBLE`], over about [`WOBBLE_LENGTH`] metres.
+/// - **Bends:** the outer side is steeper and narrower, the inner side
+///   wider with a wider floor.
+///
+/// Each side reaches far enough for its wall to climb out of the cut below
+/// `base` (see [`valley_reach`]). Shapes are averaged over
+/// [`VALLEY_SMOOTHING`] metres along the river, and every side is kept
+/// clear of `region`'s border by the river's half width plus
+/// [`VALLEY_CLEARANCE`]; never narrower than [`BANK_REACH`].
+fn valley_shapes(
+    river: &FeatureLine,
+    region: &Region,
+    base: &dyn Fn(DVec2) -> f32,
+) -> Vec<ValleyShape> {
+    let points = &river.points;
+    let n = points.len();
+    let along = distance_along(points);
+    let bends = bends(points);
+    let first = points[0].round();
+    let seeds = [0, 1].map(|side| hash2(first.x as i64, first.y as i64, 0x9a11_e700 + side));
+
+    // The river's fall per metre, averaged along it.
+    let falls: Vec<f64> = (0..n)
+        .map(|i| {
+            let (a, b) = (i.saturating_sub(1), (i + 1).min(n - 1));
+            let run = along[b] - along[a];
+            if run > 0.0 {
+                f64::from(river.levels[a] - river.levels[b]) / run
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let falls = along_mean(points, &falls, FALL_SMOOTHING);
+
+    // Each side's floor, wall and reach, before smoothing.
+    let mut raw: [[Vec<f64>; 3]; 2] = Default::default();
+    for i in 0..n {
+        let p = points[i];
+        let a = points[i.saturating_sub(1)];
+        let b = points[(i + 1).min(n - 1)];
+        let left = (b - a).perp().normalize_or_zero();
+        let steep = ((falls[i] - GENTLE_RIVER) / (STEEP_RIVER - GENTLE_RIVER)).clamp(0.0, 1.0);
+        let cut = f64::from(base(p) - river.levels[i]);
+        for side in 0..2 {
+            let out = if side == 0 { left } else { -left };
+            let ground = (f64::from(base(p + out * GROUND_FAR))
+                - f64::from(base(p + out * GROUND_NEAR)))
+            .abs()
+                / (GROUND_FAR - GROUND_NEAR);
+            let wobble = 1.0 + VALLEY_WOBBLE * wobble(along[i] / WOBBLE_LENGTH, seeds[side]);
+            // How strongly this side is the inside of a bend (positive) or
+            // the outside (negative), from -1 to 1.
+            let sign = if side == 0 { 1.0 } else { -1.0 };
+            let inside = (sign * bends[i] * BEND_SCALE).clamp(-1.0, 1.0);
+            let bend = 1.0 + BEND_SHARE * inside;
+            let wall =
+                (ground * WALL_FACTOR * (1.0 + steep) / (wobble * bend)).clamp(MIN_WALL, MAX_WALL);
+            let floor = (1.0 - steep) * FLOOR_WIDTHS * f64::from(river.widths[i]) * wobble * bend;
+            let reach = valley_reach(cut, floor, wall) * wobble.max(1.0) * bend.max(1.0);
+            raw[side][0].push(floor);
+            raw[side][1].push(wall);
+            raw[side][2].push(reach);
+        }
+    }
+
+    // Smoothed along the river, kept clear of the border.
+    let smooth = raw.map(|side| side.map(|values| along_mean(points, &values, VALLEY_SMOOTHING)));
+    (0..n)
+        .map(|i| {
+            let room = region.boundary.distance_to_border(points[i])
+                - 0.5 * f64::from(river.widths[i])
+                - VALLEY_CLEARANCE;
+            let mut shape = ValleyShape {
+                gullies: true,
+                ..ValleyShape::even(BANK_REACH)
+            };
+            for (side, [floor, wall, reach]) in smooth.iter().enumerate() {
+                let reach = reach[i].min(room).max(BANK_REACH);
+                shape.reach[side] = reach as f32;
+                shape.floor[side] = floor[i].min(MAX_FLOOR_SHARE * reach) as f32;
+                shape.wall[side] = wall[i] as f32;
+            }
+            shape
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -582,7 +810,7 @@ mod tests {
             kind: FeatureKind::River,
             points: points.iter().map(|&(x, z)| DVec2::new(x, z)).collect(),
             levels: levels.to_vec(),
-            width: 6.0,
+            widths: vec![6.0; points.len()],
             depth: 1.0,
         }
     }

@@ -87,6 +87,9 @@ pub struct RoadOptions {
     pub enabled: bool,
     /// Road width, in metres. Positive, at most [`MAX_PORT_WIDTH`](crate::MAX_PORT_WIDTH).
     pub width: f32,
+    /// How narrow a road may get where it cuts deep into the ground, in
+    /// metres. Positive, at most `width`.
+    pub min_width: f32,
     /// The steepest grade roads climb comfortably, as rise over run. Roads
     /// always prefer flatter ground; above this grade they avoid steep
     /// stretches much more strongly, and may still climb them up to
@@ -152,6 +155,7 @@ impl Default for RoadOptions {
         Self {
             enabled: true,
             width: 6.0,
+            min_width: 4.0,
             grade: 0.1,
             max_grade: 0.2,
         }
@@ -480,6 +484,12 @@ impl TerrainOptions {
             "positive and at most MAX_PORT_WIDTH",
         )?;
         check(
+            "features.roads.min_width",
+            road.min_width,
+            |v| v > 0.0 && v <= road.width,
+            "positive and at most features.roads.width",
+        )?;
+        check(
             "features.roads.grade",
             road.grade,
             |v| v > 0.0 && v <= 1.0,
@@ -570,7 +580,7 @@ mod tests {
     #[test]
     fn bad_values_are_rejected() {
         type Case = (&'static str, fn(&mut TerrainOptions));
-        let cases: [Case; 13] = [
+        let cases: [Case; 15] = [
             ("base.elevation", |o| o.base.elevation = f32::NAN),
             ("base.erosion", |o| o.base.erosion = -1.0),
             ("base.swells.height", |o| o.base.swells.height = -1.0),
@@ -583,6 +593,13 @@ mod tests {
             ("edges.stiffness", |o| o.edges.stiffness = 0.0),
             ("edges.margin", |o| o.edges.margin = f32::INFINITY),
             ("features.rivers.width", |o| o.features.rivers.width = 100.0),
+            ("features.roads.min_width", |o| {
+                o.features.roads.min_width = 0.0
+            }),
+            // Wider than the road.
+            ("features.roads.min_width", |o| {
+                o.features.roads.min_width = 7.0
+            }),
             ("features.roads.grade", |o| o.features.roads.grade = 0.0),
             ("features.roads.max_grade", |o| {
                 o.features.roads.max_grade = 0.0

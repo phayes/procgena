@@ -148,7 +148,7 @@ infinigen was copied from `mushroom/prior_art/`.
 | [princeton-vl/infinigen](https://github.com/princeton-vl/infinigen) | `53033dd` (2026-11-10) | BSD-3, partly GPL | **BSD parts may be ported with attribution**: pure point-evaluated SDF elements, tag thresholds, the beach band, the landtile Voronoi blend with a fixed central band, warped-rock and Voronoi-rock SDFs. `FastNoiseLite.h` and IQ's `smooth_bool_ops.h` are MIT. **Ideas only, no copying**: everything under `infinigen_gpl` (hash, Voronoi, Blender noise nodes, surface kernels) and the ANT landscape tiles. SoilMachine erosion has an unknown licence, and we don't simulate anyway. |
 | [Crouzet, "Seamless and Collaborative Generation of Infinite Worlds"](https://christophercrouzet.com/blog/cg/infinite-world) | 2022 | blog | **Ideas.** Seam data computed from every region meeting at a junction (not only pairs); a safe interior plus a declared edge band with per-feature rules; padding between regions. |
 | [Davis, "Plate-Local River Generation" (arXiv 2610.00301)](https://arxiv.org/abs/2610.00301) + [repo](https://github.com/Davismk3/plate-local-river-generation) | 2026 | CC BY 4.0 (paper and code) | **Ideas plus citation**, not a software licence. Coarse grid per cell; sources traced downhill from highest to lowest; dead-end paths discarded whole; affine monotone height remap; lazy per-cell cache. It never crosses borders, which is the part we must add. The numbers from its section 3.5 onward came to us as a model summary; re-measure our own. |
-| [Johansen, erosion filter](https://blog.runevision.com/) (via [80.lv](https://80.lv/articles/fast-terrain-erosion-filter-that-emulates-erosion-without-simulation)) and [`bevy_erosion_filter`](https://docs.rs/crate/bevy_erosion_filter/0.1.0) | 2026 | reported MPL-2.0, and a core function reportedly derives from CC BY-NC-SA code | **Ideas only.** Gullies steered by analytic gradients, every point evaluated alone. We build our own from IQ's articles. |
+| [Johansen, erosion filter](https://blog.runevision.com/) (via [80.lv](https://80.lv/articles/fast-terrain-erosion-filter-that-emulates-erosion-without-simulation)) and [`bevy_erosion_filter`](https://docs.rs/crate/bevy_erosion_filter/0.1.0) | 2026 | MPL-2.0 (blog code and crate, read 2026-11-23); the earlier note that a core function derives from CC BY-NC-SA code is unverified (the Shadertoy pages couldn't be fetched) | **Ideas only.** Gullies steered by analytic gradients, every point evaluated alone. We write our own from the description. |
 | [IQ, "More noise" (fBm derivatives)](https://iquilezles.org/articles/morenoise) and [fBm](https://iquilezles.org/articles/fbm) | — | articles (the derivative-noise shader is MIT) | **Basis for our erosion look**: derivative-damped fBm with analytic derivatives. |
 | Minecraft 1.18 noise router ([wiki](https://minecraft.wiki/w/Tutorial%3ACustom_world_generation)) | — | ideas | **Ideas.** Splines over a few macro noises (continentalness, erosion, peaks and valleys) choose terrain character. We use the same idea for landform masks inside one generator. |
 | Transvoxel ([`transvoxel`](https://docs.rs/crate/transvoxel/1.0.0) crate MIT/Apache, [`transvoxel-data`](https://docs.rs/transvoxel-data) MIT) | — | **Lengyel's own terms for the tables not confirmed** | Check the official repository's licence before porting the tables. Fallback: surface nets with our own LOD stitching. |
@@ -389,7 +389,8 @@ arguments gives the same bits. Then:
      internally. The receiving side's agreed cross-slope must also fall
      away from the edge at the port, or the wish is dropped as well.
    - Ports closer together than the minimum spacing are merged, with ties
-     broken by region order.
+     broken by region order. (As built: 195 m, or 130 m between two
+     rivers from the same side.)
    - **Border valleys:** where both sides slope down towards the edge,
      nothing can cross or run along it. Both sides end their rivers in
      lakes or sinks inside their margins.
@@ -1140,31 +1141,69 @@ road; it is the hardest road in the test worlds.
   its legs apart. Every suite passes: features 7/7, seams 9/9,
   convergence 12/12, the doctest, and 66 unit tests. The feature-limits
   probe (the test worlds plus hills into plains with seeds 0 to 299, in
-  all 12 configurations) finds no problems; it takes 32 minutes.
+  all 12 configurations) finds no problems; it took 32 minutes, 12
+  after the speed work. Rerun clean after dynamic width and the
+  across-the-road level fit (2026-11-23).
 - Cost: features went from 19 s to 66 s, seams from 61 s to 83 s and
   convergence from 3 s to 23 s, all from the road grid's heights and the
-  direction-tracking search.
+  direction-tracking search; the speed work below brought them back to
+  38 s, 68 s and 10 s.
 
 **Still to do**
 
-- [ ] **Dynamic road width:** narrower through deep cuts, down to a
-  minimum width (e.g. 4 m), tapering over at least 20 m; crossing pieces
-  keep the agreed width. Needs a width per road point in `FeatureLine`.
-- [ ] **Measure cut and fill at both road edges,** not the centre line, and
-  build a full bench (no fill under the downhill edge) on side slopes
-  steeper than an embankment can stand.
-- [ ] **Fill costs more than cut in the route search** (about 3:1, as in the
-  level fit).
+- [x] **Dynamic road width** (2026-11-23). `FeatureLine` has a width per
+  point (`widths`, replacing `width`); `RoadOptions::min_width` (default
+  4 m, at most `width`) is the narrowest a road gets. Full width up to a
+  3 m cut (at the highest ground across the road), narrowing smoothly to
+  the minimum at 10 m, averaged over 20 m along the road, and eased in
+  over the first 80 m so it leaves its crossing at the agreed width.
+  Crossing pieces and rivers keep one width.
+- [x] **Cut and fill measured across the road** (2026-11-23). The level fit
+  takes the lowest and highest ground across each road point (its
+  centre and both edges): fill from the lowest, cut from the highest. On
+  a side slope the road sinks into the hillside. A separate "full bench"
+  rule was not needed: steep fills become tagged retaining walls (decided
+  earlier), and measuring at the edges already pushes the road into the
+  slope.
+- [ ] **Fill costs more than cut in the route search.** Deferred: the
+  search sees only cell heights, not the levels the road will get, so
+  it can't tell a step that will be cut from one that will be filled.
+  The level fit already prefers cut 3:1.
 - [ ] **Where the hub goes** (question 12): a low valley spot rather than a
-  flat summit.
-- [ ] **Clearings at points of interest**, perhaps as a setting
-  (question 12).
-- [ ] **Speed:** work out road-grid heights only for cells the search
-  reaches, or search coarse then refine.
+  flat summit. Deferred by the user.
+- [ ] **Crossing a river must cost roads something** (user TODO,
+  2026-11-23). Today the search adds a small `RIVER_COST` (6) per step
+  on a water cell, so roads cross the same river twice to save a few
+  metres (seen in hills-into-plains and on the mountain side of the
+  two-terrain world). Make each crossing a fixed cost (a bridge), so a
+  road crosses once, near square to the river, or goes round. Later, a
+  bridge point of interest for the user to fill.
+- [ ] **Clearings at points of interest:** per ARCHITECTURE.md, a terrain
+  height-stamp hook on a point of interest (user story 2), not a terrain
+  option.
+- [x] **Speed** (2026-11-23). Measured per region: road-grid heights
+  80–170 ms, route search 0.15–3.5 s (worst in the mountains, where the
+  leg-spacing re-route ran 9 searches and still gave up). Fixed:
+  - the search is A*, heading for the nearest network cell with a
+    distance that never overestimates (the last step onto the network at
+    the road-sharing discount);
+  - each leg-spacing retry blocks every crowded spot at once (the
+    mountain road now takes 4 searches and ends uncrowded);
+  - turn checks come from a 16 × 16 table instead of an angle per step;
+  - with the `rayon` feature the stitcher builds its regions on several
+    threads.
+  Plains routes went from about 170 ms to 25 ms and mountain routes from
+  2.2–3.5 s to 0.6–1.1 s. Suites: features 66 s → 38 s, seams 83 s →
+  68 s, convergence 23 s → 10 s.
+- [ ] **GPU implementation** (a follow-up, alongside the CPU version, which
+  stays the reference): the embarrassingly parallel parts, which are
+  every per-point evaluation (planning-grid heights, height tiles, later
+  the SDF and meshing). The route search is a sequential priority-queue
+  search and stays on the CPU.
 - [ ] **Truly vertical faces** need the volumetric mesher (Phase 6); a
   height grid can only approximate them.
 
-### River valleys and erosion (planned, Phase 2.8)
+### River valleys and erosion (Phase 2.8, built in part)
 
 Added 2026-11-22. Today a river cuts a parabolic bed with a fixed bank
 shoulder (`channel()`), at levels that only ever step down. Two ideas
@@ -1176,16 +1215,345 @@ work lists are a first guess, to be rewritten after the spike.
 **Step 1: spike.** Before any of the work below, a throwaway prototype
 answers whether each idea earns its place, and how:
 
-- [ ] Valley profiles: try a cut-depth-scaled `channel()` (V and U shapes)
+- [x] Valley profiles: try a cut-depth-scaled `channel()` (V and U shapes)
   on the river test worlds (`RIVER_SEEDS`, `JOIN_SEEDS`) and the
   two-terrain mountains; look at it in the 3D viewer and the
   `seam_spike` images.
-- [ ] Stream-power profiles: compute drainage area on one region's river
+- [x] Stream-power profiles: compute drainage area on one region's river
   grid and the steady-state profile along its longest river; compare
   with today's levels (shape, depth of cut, how tributaries meet).
-- [ ] Measure the cost of each (build time per region, suite times).
-- [ ] Write up what to keep, what to drop and what to change, rewrite the
+- [x] Measure the cost of each (build time per region, suite times):
+  drainage area 14–78 ms per region; valleys see "As built" below.
+- [x] Write up what to keep, what to drop and what to change, rewrite the
   work lists below, and stop for review with the user.
+
+**Spike results so far (2026-11-23).** From `src/spike_erosion.rs`
+(test-only, ignored; delete after review): one-region 4 km worlds,
+seeds 1 to 6.
+
+- **River cut below the natural ground today** (all river points):
+
+  | Preset | Median | 90% | 99% | Max | Over 10 m | Over 20 m |
+  |---|---|---|---|---|---|---|
+  | Plains | 1.4 m | 2.7 m | 3.7 m | 4.0 m | 0% | 0% |
+  | Rolling hills | 1.7 m | 4.9 m | 6.9 m | 8.2 m | 0% | 0% |
+  | Mountains | 5.1 m | 20.8 m | 30.9 m | 62.5 m | 34% | 11% |
+
+  Mountain rivers spend a third of their length in trenches over 10 m
+  deep, cut with today's fixed bank: gorges. **Valleys scaled by cut depth
+  are worth building.**
+- **Mountain river profiles are badly shaped.** The longest rivers drop
+  500–900 m in their first sixth, then run nearly level while the ground
+  stays 20–40 m above them (upper-third slope 14 to 121 times the
+  lower-third). Hills are milder (1.2 to 3.3 times).
+- **Stream power as a drop-in for river levels doesn't work here.**
+  - Drainage area along a traced river is not monotonic: often one cell
+    (0.001 km²) mid-river, then a basin. Our tracing breaches ridges and
+    doesn't follow the steepest-descent network, so area would have to
+    be carried along each river (its inflow plus its tributaries).
+  - Even so, the steady-state profile assumes land shaped by its rivers.
+    Scaled to the same total drop, it floats up to 700 m above the
+    mountains' noise ground. It needs the ground to conform to the river
+    (idea 1, Génevaux), or belongs at world scale (WorldTerrain's
+    elevation field).
+- **Drainage area is cheap:** 14–78 ms per region on the 25 m river grid.
+  It can size rivers (width, depth) and valleys and pick a river type,
+  even without stream-power levels.
+- **Proposal, for review:** build idea 1 first (valleys whose width
+  grows with cut depth, shaped by river type, types chosen from slope and
+  drainage area); smooth mountain river levels so they don't drop
+  hundreds of metres at the source; leave stream-power levels for the
+  world level. Not yet tried: the valley shapes themselves in the 3D
+  viewer.
+
+**Step 2: valleys scaled by cut depth (built 2026-11-23, review
+pending).** Today's bank steepened to vertical within a fixed 40 m, so
+any cut deeper than about 15 m became a near-vertical trench. Now:
+
+- [x] Each river point has its own valley reach: 1.5 × its cut below the
+  natural ground ÷ the wall slope (0.35, about 19°), between 40 m and
+  300 m, averaged over 60 m along the river, and kept clear of the
+  region's border (half the river's width plus 5 m), so the other side
+  of a border never needs to carve it.
+- [x] The valley wall is a flat 0.35 face from the water's edge,
+  steepening only near its reach (the road banks' profile), so a 30 m
+  cut opens about 86 m to each side instead of a gorge.
+- [x] Crossing pieces keep the 40 m reach, so both sides carve the same
+  ground at the border.
+- [x] River levels are unchanged. Unit test `deep_cuts_open_into_valleys`;
+  every suite passes, at the same speed as before (seams 71 s).
+- [x] Valley shapes by river type (V, U, flat-floored), chosen from the
+  river's slope and drainage area (Rosgen-style). Built from slope only
+  (see "Vary the shape"); drainage area isn't used yet.
+- [ ] Smoother mountain river profiles (no drop of hundreds of metres in
+  the first stretch).
+- [x] Look at the valleys in the 3D viewer and tune the wall slope and
+  spare factor (the user's review below).
+
+**Review of step 2 (user, 2026-11-23): it looks like a waterslide, not a
+natural course.** The carve clamps the ground to one fixed wall profile,
+so inside the valley all the terrain's detail is erased, and the same
+symmetric cross-section is swept along a smooth river line. To fix:
+
+- [x] **Keep the terrain on the walls** (built 2026-11-23, review
+  pending): Génevaux's replace operator, changed so it only lowers. The
+  ground is pulled towards the valley profile by a weight
+  `(1 − (x/reach)²)²` (1 at the water's edge, 0 at the reach, flat at
+  both ends): `height = h − w · max(h − profile, 0)`, the max rounded.
+  The walls keep `(1 − w)` of the ground's own relief, more further out;
+  the edge of the valley has no crease. Unit tests
+  `deep_cuts_open_into_valleys` (rewritten: it asserted the flat 0.35
+  wall the user rejected) and `valley_walls_keep_the_grounds_relief`.
+- **Approved baseline (user, 2026-11-23: "looks great").** Viewer version
+  6 (https://claude.ai/artifact/FiUubtQVBbd8eukkZTugHX), scenes dumped
+  after the fade change and before any shape variation or gullies.
+  Exactly:
+  - Profile: bed parabola `depth` deep inside the water; outside, a
+    straight wall from the water's edge at `RIVER_BANK` 0.35, no floor,
+    the same on both sides and all along the river.
+  - Pull: `w = (1 − (x/reach)²)²`, x measured from the water's edge;
+    `height = h − w · smooth_max(h − profile, 0, RIVER_BLEND 0.5)`,
+    taking the deepest lowering of all rivers and ponds.
+  - Reach per river point: `VALLEY_SPARE 1.5 × cut ÷ 0.35`, clamped to
+    `BANK_REACH`..`MAX_VALLEY_REACH` (300 m), averaged over
+    `VALLEY_SMOOTHING` 60 m, kept `half width + VALLEY_CLEARANCE` (5 m)
+    from the border. Crossing pieces and ponds: `BANK_REACH`.
+  - River courses, levels and widths unchanged from Phase 2.7.
+  Anything added on top (variation, gullies) is judged against this; if
+  it looks worse, go back to these settings.
+- [x] **Vary the shape** (built 2026-11-23, on top of the baseline; review
+  in the separate "Varied Valleys Preview" viewer,
+  https://claude.ai/artifact/A34crTYs6dkUce3qx1QYLo). Each river point
+  has a `ValleyShape`: floor, wall and reach per side (`valley_shapes`
+  in `plan.rs`).
+  - River type: fall ≥ 4% (`STEEP_RIVER`) is a V with walls up to twice
+    as steep and no floor; ≤ 1% (`GENTLE_RIVER`) gets a flat floor 3
+    river widths wide each side (`FLOOR_WIDTHS`), corner rounded over
+    8 m. Fall averaged over 100 m.
+  - Wall slope per side = the ground's own steepness 20–60 m out on that
+    side, clamped to 0.2–0.8.
+  - Each side widens and narrows by ±35% over about 180 m
+    (`VALLEY_WOBBLE`, `WOBBLE_LENGTH`), independently.
+  - Bends (Peytavie type C): the inside is up to 40% wider and gentler,
+    the outside narrower and steeper (`BEND_SHARE`, full at about 40 m
+    radius).
+  - Past a river line's end the two sides blend by angle, so their
+    shapes meet without a step (found by `no_cracks_around_crossings`).
+  - Crossing pieces and ponds keep the even 40 m shape.
+- [x] **Side gullies feeding the rivers** (built 2026-11-23, idea 3 below,
+  `src/gully.rs`): stripes aligned with the way to the nearest river,
+  from jittered 40 m cells blended with Gaussian weights and
+  renormalised, plus a half-size octave. Narrow grooves, broad spurs.
+  Depth 15% of the wall's height above the water, at most 6 m; nothing on
+  the floor or at the reach, strongest a third of the way up the wall;
+  faded out within 10–40 m of roads. Only ever lowers.
+  - No gullies on crossing pieces (`ValleyShape::gullies`): theirs are
+    the only valleys that reach a border, and the road fade uses each
+    region's own roads, so the two sides cut different gullies there
+    (`every_preset_pair_joins_continuously` caught a slope mismatch).
+  - Stripe weights fall to exactly zero at 1.2 cells, with pivots
+    jittered at most 0.3 of a cell, so the 3 × 3 cells around a point
+    hold every stripe that counts. A first version read a fixed block
+    whose edge cells still carried weight, which left 0.17 m cracks
+    along the 40 m cell lines (found by `no_cracks_around_a_triple_junction`).
+- [x] **Check whether the waterslide stretches are the deep-cut ones**
+  (the spike: a third of mountain river length cuts over 10 m). If they
+  are, river placement is the root cause (see "What the papers say"
+  below): rivers traced over noise cut trenches that a drainage-based
+  layout wouldn't need.
+  - **Measured (2026-11-23, `spike_what_makes_deep_cuts`; mountains,
+    seeds 1 to 6).** 34% of river points cut more than 10 m. At those
+    points the water is dead level: the median fall over 100 m is 0,
+    against 0.09 over all points. They sit downstream: 502 in rivers'
+    first thirds, 1356 in the middle, 1614 in the last.
+  - **Two causes, about equally:** half are ridge breaches, where the
+    ground rises downstream over 100 m (placement: the tracer cuts
+    through rises). Half are where the ground still falls, but the river
+    dropped too early and runs level beneath it (the profile).
+  - **So both fixes are needed:** smoother profiles (spread the drop
+    along the river) for the second half; drainage-based placement
+    (depression filling, rivers along the real flow network, as in
+    Peytavie) for the first. Either changes the approved look, so each
+    needs its own preview.
+
+**As built (2026-11-23).**
+
+- Built: valleys that keep the ground's relief (the approved baseline),
+  varied shapes, gullies, and rivers stepping down at crossings (see
+  "Rivers that stop short of a border").
+- Review: the user looked at version 4 of the Varied Valleys Preview
+  (shapes, gullies and the first stepped crossing) and said it "looks
+  great" (2026-11-23). Version 5 adds the second mountain river crossing
+  in two_terrains and hasn't been reviewed yet.
+- Public API added: `INNER_DEPTHS`, `inner_depth`, `Port::downstream`,
+  `Port::drop`; `EdgeOffer::inner` now holds 4 depths per sample.
+- Tests changed in intent:
+  - `deep_cuts_open_into_valleys` was rewritten, because it asserted the
+    flat 0.35 wall the user rejected.
+  - `no_crossing_whose_piece_floats_above_the_bent_ground` became
+    `rivers_step_down_onto_low_ground_but_roads_dont_cross`: a river may
+    now step down onto low ground.
+  - The old guarantee, that a piece never floats above bent ground, is
+    still checked by `piece_floats`, now at 4 depths on both sides (in
+    `agree_ports`). Two tests exercise it: the reverse-direction refusal
+    in that test, and `a_piece_steps_down_only_past_the_border_step`.
+- New tests:
+  - `gullied_valleys_have_no_steps_at_bends_joints_and_confluences`
+    steps 1 cm at a time; the steepest is 1.2 cm per cm, against a limit
+    of 3.
+  - `gullies_cut_into_valley_walls_and_never_raise_them` fails if
+    gullies are switched off by mistake (checked by breaking them on
+    purpose).
+- After the speed-ups, the scene dumps were bit-identical to those from
+  before, and every suite and the probe passed.
+- Then rivers from one side were allowed to cross 130 m apart (see
+  "Rivers that stop short of a border"). Suites after that: lib 78,
+  convergence 12, features 8, seams 9, doctest 1. The `feature_limits`
+  probe reports 0 problems in all 12 configurations. Of the six scenes,
+  only two_terrains changed.
+- Cost (seams suite, CPU time):
+  - Before the speed-ups: 414 s with gullies on, 213 s with them off, at
+    a falling load average of about 20 to 15, so only a rough figure.
+  - After, measured back to back at a load of about 4: 225 s on (90 s
+    wall) against 203 s off (73 s wall), so gullies cost about 11%.
+  - The speed-ups: stripes skip cells beyond their reach, and `apply`
+    skips a gully that can't beat another river's lowering.
+
+**3. Gully filter** (Johansen 2026, building on Fewes's and Clay John's
+Shadertoys). It draws stripes of gullies along the slope using the exact
+slope of the noise, evaluated point by point.
+
+- **Licence (corrected 2026-11-23):** the blog's code and the
+  `bevy_erosion_filter` crate are MPL-2.0. None of the sources we could
+  read mentions CC BY-NC-SA; the Shadertoy pages (where that note came
+  from: Shadertoy's default licence) couldn't be fetched. Unverified, so
+  we still write our own from the description only.
+- **Limitation:** its gullies don't join into a real drainage network.
+- **Fix it gives:** tilting the gully direction toward the nearest river
+  makes side gullies feed into the rivers. Cheap, and our own design. It
+  breaks up smooth valley walls into spurs and gullies.
+- **Cautions for our version:** fade to zero at the water, at the valley's
+  reach and before the region's border (the neighbour doesn't know our
+  rivers); keep it away from roads, whose levels were fitted to the
+  ground before gullies; directions from "the nearest river" jump at
+  confluences and inside bends, so look at those spots.
+
+**What the papers say (read 2026-11-23).** We first worked from short
+summaries; these notes are from the papers themselves.
+
+- **Génevaux et al. 2013** (read in full). The whole terrain is built from
+  the river network, not carved into existing terrain. Rivers grow
+  upstream from river mouths on the coast, by a grammar using
+  Horton–Strahler numbers; every new node is higher than its parent, by
+  a slope map. Ridges sit on the Voronoi edges between river nodes, at
+  `max(river heights) + λ·distance` with `λ ∈ [0, 0.25]` (a "terrain
+  slope" map). Terrain primitives take their height from the nearest
+  river point and the nearest ridge, plus noise whose amplitude grows
+  with distance from the river and with the ridge's height above it
+  (smooth valleys, rough mountains). Rivers are curves with a profile
+  per Rosgen type, `h = river level + profile(signed distance)`, put in
+  with a replace operator `h = (1 − w)·h_terrain + w·h_river`, weights
+  `w = (1 − d²/r²)²`. River flow is `0.42·A^0.69` (A = drainage area,
+  m², flow m³/s). Their limits: rivers can't adapt to large mountains
+  with clear valleys; flat rivers can cut through high mountains when
+  the slope maps vary sharply.
+- **Peytavie et al. 2019** (read in full). Takes an existing heightfield.
+  Rivers come from it: drainage area per cell (after filling hollows so
+  every cell drains), and cells above an area threshold are the river
+  network, smoothed into splines. Each stretch gets a Rosgen type from
+  slope, flow and stream power (`A·S`): steep A/B are step-pools (basins
+  and falls placed along the course, more on steeper stretches), C bends
+  have an asymmetric cross-section (deep on the outside), D braids into
+  channels. Cross-sections are unit-area templates scaled by `flow ÷
+  velocity`. Scale: the riverbed, not the valley.
+- **Galin et al. 2019 survey** (skimmed by topic, not read in full).
+  Multi-fractal noise (higher octaves damped at low heights) gives
+  smooth valley floors and rough peaks. Stream-power erosion
+  (Cordonnier 2016) needs the whole grid.
+- **Steer 2021, ESurf** (the Salève model; sections 1–5 read, section 6
+  from a summary; CC BY 4.0). The steady-state river profile for `n = 1`
+  is `z(l) = z(0) + U·∫ dl / (K·A^m)` from the outlet upstream, which
+  needs the flow network and drainage area first. Hillslopes in that
+  model are held at a critical angle (30° in its example).
+- **Tzathas et al. 2024: abstract only.** Every copy we found was behind a
+  bot check (Eurographics library, HAL). From the abstract: time becomes
+  a slider for how far an input terrain ages, from light erosion to a
+  fully formed range, solved on a grid with a multigrid iteration, plus
+  landslides and hillslopes. Not per point.
+- **Johansen 2026** (blog post and crate source read). Height plus its
+  exact gradient goes in. Stripes are cosines across the downhill
+  direction from jittered cell pivots, blended between cells; octaves
+  follow the slope the previous octave left; a fade target (−1 valleys,
+  +1 peaks) and a slope mask stop later octaves overwriting earlier
+  ridges and creases. Fully per point. Its limits: gullies stop halfway
+  down a slope, and height is a poor fade target in general.
+- **What this means for us.** None of them is a recipe for valleys carved
+  into noise terrain. Génevaux grows the terrain from the rivers, and
+  Peytavie carves beds, not valleys. The replace operator, the compact
+  weight, and noise damped near rivers carry over directly; that is
+  what "keep the terrain on the walls" above builds. For river placement, both trace rivers from
+  drainage (after filling hollows) rather than walking downhill and
+  breaching rims as ours do. That fits the waterslides: our mountain
+  rivers cut deep trenches where a drainage-based layout would follow
+  existing valleys.
+
+**Rivers that stop short of a border (found 2026-11-23).** In the
+two-terrain world, two mountain rivers end in ponds just short of the
+bend in the border, though the plains below have a pond waiting.
+
+- **Cause:** both ask to cross, and every check passes but one. Their
+  crossing piece is straight, carrying the border's own cross-slope
+  inward, and the plains' ground 60 m in sits 6 m *below* the piece's end
+  (the limit is 4 m), because the mountains-to-plains ramp is steeper
+  than the piece. The negotiation refuses rather than letting the river
+  float.
+- **Second cause:** the two wishes are 150 m apart, and crossings had to
+  be 195 m apart (`PORT_SPACING`), so even with the first fixed only one
+  crossed. Fixed with `RIVER_SPACING` (see below).
+- **Checked:** allowing that crossing, the river continues on the plains
+  side, dropping from 69 m to 19.7 m, and joins the plains river right at
+  its pond.
+- **Fix:**
+  - [x] (built 2026-11-23) The step down is part of the agreement, so both
+    sides carve the identical piece. `Port` gains `downstream` (the side
+    the river flows into) and `drop` (how far below the agreed slope the
+    piece's downstream end sits: as far as the receiving side's bent
+    ground has fallen). `Port::level_at` eases the drop in past the step
+    that straddles the border, so the border level never changes. The
+    negotiation refuses only when the receiving ground is more than 4 m
+    *above* the piece (`piece_lands`); roads and the sending side keep
+    the two-sided check.
+  - [x] Each side now reports its ground at 4 depths (15, 30, 45 and 60 m;
+    `EdgeOffer::inner` is `Vec<[f32; INNER_DEPTHS]>`, `inner_depth`), and
+    a river crossing is refused if its water would sit more than 2 m
+    above either side's bent ground anywhere along the piece
+    (`piece_floats`). This closed an old gap: only the piece's far end
+    was checked, and one newly allowed crossing floated 4.5 m over a dip
+    30 m in on the sending side.
+  - [x] Tests: `no_crossing_whose_piece_floats_above_the_bent_ground`
+    became `rivers_step_down_onto_low_ground_but_roads_dont_cross`; new
+    `a_piece_steps_down_only_past_the_border_step`.
+  - Tried first and dropped: stepping down only in the receiving region's
+    copy of the piece. The stepped segments are within carving reach of
+    the border, so the two sides carved differently there (a 0.17 m
+    crack).
+  - [x] (built 2026-11-23, review pending) The second river crosses too.
+    Two rivers flowing across an edge from the same side may now cross
+    130 m apart (`RIVER_SPACING`, 2 × `FEATURE_CLEARANCE`). Every other
+    pair of crossings keeps 195 m (`PORT_SPACING`). In two_terrains the
+    second mountain river crosses at 2550 m: it steps down from 67.5 m to
+    61.5 m on its piece and joins the first river's inbound stretch at
+    21.9 m, about 60 m before that stretch meets the plains river by the
+    pond (19.7 m). No other test world changed. Tests:
+    `rivers_from_one_side_may_cross_closer_than_other_crossings`
+    (fails with the old spacing) and
+    `neighbouring_mountain_rivers_both_cross_and_join_below`.
+  - Tried first and dropped: carrying a refused river along on its own
+    side to join the river that won, by tracing on from its end. It
+    can't work here, because the refused river is already lower than the
+    winner upstream of its crossing (69.2 m against 72.1 m). Of the five
+    refused rivers in the test worlds, none joined anything; the traces
+    wandered up to 2.9 km and stopped in hollows.
 
 **1. Valleys from the distance to the river** (Génevaux et al. 2013,
 *Terrain Generation Using Procedural Models Based on Hydrology*;
@@ -1203,13 +1571,15 @@ Peytavie et al. 2019, *Procedural Riverscapes*).
   A shallow cut gives a narrow channel; a deep cut gives a wide V- or
   U-shaped valley instead of a gorge.
 - **Work:**
-  - [ ] `channel()` takes a valley profile whose width depends on the cut
+  - [x] `channel()` takes a valley profile whose width depends on the cut
     depth (the river level against the uncarved ground), not a fixed
     shoulder.
-  - [ ] A river type per stretch (Rosgen-style: steep step-pool, riffle
+  - [x] (Simplified: steep V, middle, gentle flat floor, from slope
+    only.) A river type per stretch (Rosgen-style: steep step-pool, riffle
     and run, meandering), chosen from the stretch's slope and the
     terrain, picks the bed and valley shape.
-  - [ ] Tests: no cracks where valleys of two rivers overlap or a
+  - [x] (`gullied_valleys_have_no_steps_at_bends_joints_and_confluences`,
+    `deep_cuts_open_into_valleys`, the seams suite.) Tests: no cracks where valleys of two rivers overlap or a
     tributary joins; valley width grows with cut depth; across a border
     both sides carve the same valley (crossing pieces keep agreed
     shapes, as road banks do).
@@ -1247,6 +1617,44 @@ fast Terrain Generation*; the Salève model, ESurf 2021).
   part of the agreement), and how this fits the world generator's
   drainage tilt (`world_plan.md`).
 
+### Alignment with ARCHITECTURE.md
+
+Reviewed 2026-11-23 against the workspace's `ARCHITECTURE.md`. Terrain is
+level 4 there, beside the Biome; the stitcher grows into WorldTerrain.
+What that asks of this crate, and where it stands:
+
+- [x] **Terrain is only terrain.** No water material, no scatter hooks:
+  the crate says where water and roads go, and labels the ground.
+- [x] **Points of interest are where stamps go.** `points_of_interest()`
+  gives them; a clearing is a height stamp (a Terrain "inputs" hook),
+  kept out of the border margin.
+- [x] **CPU first, GPU alongside.** The CPU path stays the reference; a
+  GPU implementation of the per-point work is a later follow-up (see
+  Phase 2.7).
+- [x] **"Two terrains", not "two biomes".** A Biome is the level above
+  that binds a Terrain to its Ecotopes.
+- [ ] **Slope as part of the ground.** `Terrain` implements
+  `procgena_mesh::Ground` with a gradient: analytic through relief (it
+  already has `relief.gradient`), border bending and carving, or
+  central differences where that isn't worth it; `HeightTile` gains a
+  gradient grid filled in the same pass. Labels' `Measures::slope` uses
+  the same gradient.
+- [ ] **Labels for Biome rules.** `annotate` gives the primary `Landform`,
+  `Flags` (WET, SNOW, ROAD …) and `Measures` (slope, height above water,
+  distance to water or road). Today's `RoadTags` (road, cut, embankment,
+  retaining wall, bluff, cliff) become provenance labels and `Flags`
+  there, with the tag names living in `procgena_mesh::tags`. Distance to
+  road and to water can come from the features' spatial index.
+- [ ] **Seeds from outside.** `TerrainOptions::seed` becomes
+  `default_seed`, used only when a terrain is built alone; inside a
+  World the seed is a hash of the parent seed and the region's id.
+- [ ] **Hooks** (Rust only, pure, `Send + Sync`, keyed): height stamps
+  outside the margin as inputs, extra labels as outputs; and for
+  WorldTerrain, extra seam constraints (a road that must cross a given
+  border).
+- [ ] **Content hash** of the options (floats by their bits, as tree's
+  `tree_id`), for caching.
+
 ## Phases
 
 | Phase | Work | Depends on |
@@ -1256,8 +1664,8 @@ fast Terrain Generation*; the Salève model, ESurf 2021).
 | 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Review pending. | 1 |
 | 2.5 | **Shared world noise and relief convergence** (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
 | 2.6 ✅ | **Relief blending** (built 2026-11-22, review pending) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
-| 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest. Still to do: dynamic width, edge-measured fit, hub placement, speed. | 2.6 |
-| 2.8 | **River valleys and erosion** (planned, starts with a spike; see "River valleys and erosion (planned, Phase 2.8)" above): valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
+| 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest; cut and fill measured across the road; roads narrow through deep cuts (`min_width`); sped up with an A* search and parallel region builds. Still to do: hub placement (deferred); a GPU implementation is a later follow-up. | 2.6 |
+| 2.8 | **River valleys and erosion** (built in part 2026-11-23, review pending; see "River valleys and erosion (Phase 2.8, built in part)" above). Built: valleys that keep the ground's relief, varied shapes, gullies, rivers stepping down at crossings, rivers from one side crossing closer together. Still to do: smoother mountain profiles, whether river placement causes the deep cuts. Planned: valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
 | 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |

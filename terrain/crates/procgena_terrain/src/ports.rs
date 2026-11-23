@@ -61,8 +61,21 @@ const MIN_DROP: f32 = 0.5;
 /// valleys a river would follow.
 const RIVER_MAX_CROSS_SLOPE: f32 = 0.25;
 
-/// The closest two crossings on one edge may be, in metres.
+/// The closest two crossings on one edge may be, in metres, unless both are
+/// rivers from the same side ([`RIVER_SPACING`]).
 const PORT_SPACING: f64 = 3.0 * FEATURE_CLEARANCE;
+
+/// The closest two rivers flowing across an edge from the same side may
+/// cross, in metres.
+const RIVER_SPACING: f64 = 2.0 * FEATURE_CLEARANCE;
+
+/// How far apart crossings `a` and `b` must be along their edge, in metres.
+fn spacing(a: &Port, b: &Port) -> f64 {
+    match (a.kind, b.kind) {
+        (PortKind::River { from: x }, PortKind::River { from: y }) if x == y => RIVER_SPACING,
+        _ => PORT_SPACING,
+    }
+}
 
 /// Road wishes from the two sides closer than this (metres) become one road.
 const ROAD_MERGE: f64 = 300.0;
@@ -70,6 +83,21 @@ const ROAD_MERGE: f64 = 300.0;
 /// How far, in metres, a side's own ground at the inner end of a crossing
 /// piece may depart from its own border profile carried inward.
 const PIECE_GAP: f32 = 4.0;
+
+/// How far, in metres, a river's water on a crossing piece may sit above
+/// either side's ground before the crossing is refused.
+const PIECE_FLOAT: f32 = 2.0;
+
+/// How many depths inside its region each side reports its own height at,
+/// for crossing negotiation: evenly spaced out to [`FEATURE_CLEARANCE`]
+/// (see [`inner_depth`]).
+pub const INNER_DEPTHS: usize = 4;
+
+/// Depth number `k` (from 0) inside a region at which a side reports its
+/// height, in metres: `(k + 1) / INNER_DEPTHS` of [`FEATURE_CLEARANCE`].
+pub fn inner_depth(k: usize) -> f64 {
+    FEATURE_CLEARANCE * (k + 1) as f64 / INNER_DEPTHS as f64
+}
 
 /// The longest stretch of road, in metres, either side may need to climb
 /// or descend from a crossing to its own ground.
@@ -148,6 +176,13 @@ pub struct Port {
     /// along the edge's canonical normal. The piece carved across the border
     /// follows it.
     pub slope: f32,
+    /// For a river, the side of the edge it flows into. For a road, either.
+    pub downstream: Side,
+    /// For a river, how far below the agreed slope the piece's end on the
+    /// `downstream` side sits, in metres: there the river steps down onto
+    /// ground that falls away faster than the border's slope. Zero for
+    /// roads and for most rivers.
+    pub drop: f32,
 }
 
 impl Port {
@@ -171,8 +206,17 @@ impl Port {
     /// The water or road level at signed distance `across` from the edge
     /// along its canonical normal (positive on the left), on the piece
     /// carved across the border.
+    ///
+    /// The piece follows the agreed slope, and on the `downstream` side
+    /// steps down by up to [`drop`](Self::drop) at its end. The step that
+    /// straddles the border never steps down, so the level at the border is
+    /// the same however the piece is sampled.
     pub fn level_at(&self, across: f64) -> f32 {
-        (f64::from(self.level) + f64::from(self.slope) * slope_reach(across)) as f32
+        let along_slope = f64::from(self.level) + f64::from(self.slope) * slope_reach(across);
+        let into = across * self.downstream.sign() / FEATURE_CLEARANCE;
+        let straddle = 1.0 / PIECE_POINTS as f64;
+        let step = smootherstep((into - straddle) / (1.0 - straddle));
+        (along_slope - f64::from(self.drop) * step) as f32
     }
 
     /// The piece carved across the border: points from the left end to the
@@ -205,26 +249,61 @@ pub(crate) struct SideWishes<'a> {
     /// How far inside its region the side bends to meet the agreement, in
     /// metres.
     pub margin: f32,
-    /// The side's own height [`FEATURE_CLEARANCE`] metres inside, at each
-    /// profile sample.
-    pub inner: &'a [f32],
+    /// The side's own height at each of the [`INNER_DEPTHS`] depths inside
+    /// (see [`inner_depth`]), at each profile sample.
+    pub inner: &'a [[f32; INNER_DEPTHS]],
 }
 
 impl SideWishes<'_> {
-    /// Whether a crossing piece following `agreed` (the agreed profile at
-    /// sample `i`) ends within [`PIECE_GAP`] of the side's ground
-    /// [`FEATURE_CLEARANCE`] metres inside, once that ground is bent to meet
-    /// the agreement.
-    fn piece_fits(&self, i: usize, agreed: EdgeSample) -> bool {
-        // Both profiles carried inward to the piece's end.
-        let reach = slope_reach(self.side.sign() * FEATURE_CLEARANCE);
+    /// The side's ground at depth number `k` inside (see [`inner_depth`]),
+    /// once bent to meet the agreement, and the agreed profile carried to
+    /// that depth, both at profile sample `i` where the agreed profile is
+    /// `agreed`. In metres.
+    fn bent_at(&self, i: usize, agreed: EdgeSample, k: usize) -> (f64, f64) {
+        // Both profiles carried inward to that depth.
+        let depth = inner_depth(k);
+        let reach = slope_reach(self.side.sign() * depth);
         let carry = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * reach;
         let (own, agreed) = (carry(self.natural[i]), carry(agreed));
         // The side's ground there, shifted towards the agreement as the
         // terrain bends across its margin.
-        let kept = 1.0 - smootherstep(FEATURE_CLEARANCE / f64::from(self.margin));
-        let bent = f64::from(self.inner[i]) + (agreed - own) * kept;
-        (bent - agreed).abs() <= f64::from(PIECE_GAP)
+        let kept = 1.0 - smootherstep(depth / f64::from(self.margin));
+        (f64::from(self.inner[i][k]) + (agreed - own) * kept, agreed)
+    }
+
+    /// How far the side's ground [`FEATURE_CLEARANCE`] metres inside, once
+    /// bent to meet the agreement, lies above (positive) or below the end of
+    /// a crossing piece following `agreed` (the agreed profile at sample
+    /// `i`), in metres.
+    fn piece_gap(&self, i: usize, agreed: EdgeSample) -> f64 {
+        let (bent, agreed) = self.bent_at(i, agreed, INNER_DEPTHS - 1);
+        bent - agreed
+    }
+
+    /// Whether `port`'s piece, agreed at profile sample `i` where the agreed
+    /// profile is `agreed`, has its water more than [`PIECE_FLOAT`] metres
+    /// above this side's bent ground at any of the [`INNER_DEPTHS`] depths.
+    fn piece_floats(&self, i: usize, agreed: EdgeSample, port: &Port) -> bool {
+        (0..INNER_DEPTHS).any(|k| {
+            let (bent, _) = self.bent_at(i, agreed, k);
+            let water = port.level_at(self.side.sign() * inner_depth(k));
+            f64::from(water) > bent + f64::from(PIECE_FLOAT)
+        })
+    }
+
+    /// Whether a crossing piece following `agreed` (the agreed profile at
+    /// sample `i`) ends within [`PIECE_GAP`] of the side's ground, above or
+    /// below (see [`piece_gap`](Self::piece_gap)).
+    fn piece_fits(&self, i: usize, agreed: EdgeSample) -> bool {
+        self.piece_gap(i, agreed).abs() <= f64::from(PIECE_GAP)
+    }
+
+    /// Whether a river's crossing piece following `agreed` can carry on into
+    /// this side, the receiving one: its ground at the piece's end is at
+    /// most [`PIECE_GAP`] above the piece. Ground further below is fine; the
+    /// river steps down to it on this side.
+    fn piece_lands(&self, i: usize, agreed: EdgeSample) -> bool {
+        self.piece_gap(i, agreed) <= f64::from(PIECE_GAP)
     }
 }
 
@@ -260,7 +339,7 @@ pub(crate) fn agree_ports(
             let along = snap_to_low_point(profile, step, wish.along);
             let sample = ((along / step).round() as usize).min(profile.len() - 1);
             let agreed = profile[sample];
-            if !usable(along) || !from.piece_fits(sample, agreed) || !to.piece_fits(sample, agreed)
+            if !usable(along) || !from.piece_fits(sample, agreed) || !to.piece_lands(sample, agreed)
             {
                 continue;
             }
@@ -286,14 +365,25 @@ pub(crate) fn agree_ports(
                 (ground.height - interpolate(from.natural, step, along).height).min(0.0);
             let under_ground = upper <= wish.ground + bent_down - FREEBOARD;
             if wish.level >= upper + MIN_DROP && falls_away && under_ground {
-                candidates.push(Port {
+                let port = Port {
                     kind: PortKind::River { from: from.region },
                     along,
                     level,
                     width: wish.width,
                     wish: wish.along,
                     slope: ground.slope,
-                });
+                    downstream: to.side,
+                    // Deep enough for the piece's end to stay below the
+                    // receiving side's bent ground.
+                    drop: (-to.piece_gap(sample, agreed)).max(0.0) as f32,
+                };
+                // Nowhere along the piece may its water float above either
+                // side's ground.
+                if !from.piece_floats(sample, agreed, &port)
+                    && !to.piece_floats(sample, agreed, &port)
+                {
+                    candidates.push(port);
+                }
             }
         }
     }
@@ -335,6 +425,8 @@ pub(crate) fn agree_ports(
                 width,
                 wish: along,
                 slope: ground.slope,
+                downstream: Side::Left,
+                drop: 0.0,
             });
         }
     }
@@ -352,7 +444,7 @@ pub(crate) fn agree_ports(
     for candidate in candidates {
         if ports
             .iter()
-            .all(|p| (p.along - candidate.along).abs() >= PORT_SPACING)
+            .all(|p| (p.along - candidate.along).abs() >= spacing(p, &candidate))
         {
             ports.push(candidate);
         }
@@ -498,11 +590,15 @@ mod tests {
     /// Both sides, each with its own ground equal to `natural`.
     /// Inland heights that fit `natural` exactly on `side`: its own profile
     /// carried inward.
-    fn fitting(natural: &[EdgeSample], side: Side) -> Vec<f32> {
-        let reach = slope_reach(side.sign() * FEATURE_CLEARANCE);
+    fn fitting(natural: &[EdgeSample], side: Side) -> Vec<[f32; INNER_DEPTHS]> {
         natural
             .iter()
-            .map(|s| s.height + (f64::from(s.slope) * reach) as f32)
+            .map(|s| {
+                std::array::from_fn(|k| {
+                    let reach = slope_reach(side.sign() * inner_depth(k));
+                    s.height + (f64::from(s.slope) * reach) as f32
+                })
+            })
             .collect()
     }
 
@@ -511,16 +607,23 @@ mod tests {
         natural.iter().map(|s| s.height).collect()
     }
 
+    /// Inland heights for the left and right sides, and unfaded heights.
+    struct Fit {
+        inner: [Vec<[f32; INNER_DEPTHS]>; 2],
+        unfaded: Vec<f32>,
+    }
+
     /// Both sides, each with its own ground equal to `natural`, inland
-    /// heights `fit[0]` (left) and `fit[1]` (right), and unfaded heights
-    /// `fit[2]`. Roads keep to 0.1, with no steeper grade allowed.
+    /// heights `fit.inner[0]` (left) and `fit.inner[1]` (right), and
+    /// unfaded heights `fit.unfaded`. Roads keep to 0.1, with no steeper
+    /// grade allowed.
     fn sides<'a>(
         a_rivers: &'a [PortWish],
         b_rivers: &'a [PortWish],
         a_roads: &'a [PortWish],
         b_roads: &'a [PortWish],
         natural: &'a [EdgeSample],
-        fit: &'a [Vec<f32>; 3],
+        fit: &'a Fit,
     ) -> (SideWishes<'a>, SideWishes<'a>) {
         let road_grades = RoadGrades {
             grade: 0.1,
@@ -535,8 +638,8 @@ mod tests {
                 natural,
                 road_grades,
                 margin: 200.0,
-                inner: &fit[0],
-                unfaded: &fit[2],
+                inner: &fit.inner[0],
+                unfaded: &fit.unfaded,
                 fade_width: 200.0,
             },
             SideWishes {
@@ -547,8 +650,8 @@ mod tests {
                 natural,
                 road_grades,
                 margin: 200.0,
-                inner: &fit[1],
-                unfaded: &fit[2],
+                inner: &fit.inner[1],
+                unfaded: &fit.unfaded,
                 fade_width: 200.0,
             },
         )
@@ -556,12 +659,11 @@ mod tests {
 
     /// Inland heights fitting `natural` on both sides, and its heights as
     /// the unfaded ground.
-    fn fit_both(natural: &[EdgeSample]) -> [Vec<f32>; 3] {
-        [
-            fitting(natural, Side::Left),
-            fitting(natural, Side::Right),
-            heights(natural),
-        ]
+    fn fit_both(natural: &[EdgeSample]) -> Fit {
+        Fit {
+            inner: [fitting(natural, Side::Left), fitting(natural, Side::Right)],
+            unfaded: heights(natural),
+        }
     }
 
     #[test]
@@ -630,8 +732,10 @@ mod tests {
         let mut fit = fit_both(&profile);
         // The right side's ground 65 m in is 10 m below its profile carried
         // inward: a crossing piece would float there.
-        for h in &mut fit[1] {
-            *h -= 10.0;
+        for depths in &mut fit.inner[1] {
+            for h in depths {
+                *h -= 10.0;
+            }
         }
         let road = [PortWish {
             along: 500.0,
@@ -652,12 +756,14 @@ mod tests {
     }
 
     #[test]
-    fn no_crossing_whose_piece_floats_above_the_bent_ground() {
+    fn rivers_step_down_onto_low_ground_but_roads_dont_cross() {
         let (profile, step) = valley();
         let fit = fit_both(&profile);
         // The right side's own ground is 50 m below the border. With a 200 m
         // margin its ground has already fallen about 10 m back towards its
-        // own height where the crossing piece ends.
+        // own height where the crossing piece ends. The river flowing into
+        // it may still cross (it steps down on the right side); the road
+        // may not.
         let low: Vec<EdgeSample> = profile
             .iter()
             .map(|s| EdgeSample {
@@ -683,13 +789,154 @@ mod tests {
         b.natural = &low;
         b.inner = &low_inner;
         b.unfaded = &low_heights;
-        assert!(agree_ports(&a, &b, &profile, step, &away_from_ends).is_empty());
+        let ports = agree_ports(&a, &b, &profile, step, &away_from_ends);
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].kind, PortKind::River { from: RegionId(1) });
+        // It flows into the right side and steps down there, by as much as
+        // the right side's ground has fallen below the border's slope.
+        assert_eq!(ports[0].downstream, Side::Right);
+        assert!(ports[0].drop > PIECE_GAP, "drop {}", ports[0].drop);
+        // A river flowing the other way, out of the low side, would float
+        // above the low ground on its way to the piece.
+        let (a2, mut b2) = sides(&[], &river, &[], &[], &profile, &fit);
+        b2.natural = &low;
+        b2.inner = &low_inner;
+        b2.unfaded = &low_heights;
+        assert!(agree_ports(&a2, &b2, &profile, step, &away_from_ends).is_empty());
         // Over a 2 km margin the ground there has hardly moved.
         b.margin = 2000.0;
         assert_eq!(
             agree_ports(&a, &b, &profile, step, &away_from_ends).len(),
             2
         );
+    }
+
+    /// A profile with two V-shaped valleys, lowest at `lows[0]` and
+    /// `lows[1]`; the ground across the border near each slopes as the
+    /// matching `slopes` (+0.1 lets region 1's rivers cross, −0.1 region
+    /// 2's).
+    fn two_valleys(lows: [f64; 2], slopes: [f32; 2]) -> (Vec<EdgeSample>, f64) {
+        let step = 8.0;
+        let profile = (0..=125)
+            .map(|i| {
+                let along = f64::from(i) * step;
+                let (d0, d1) = ((along - lows[0]).abs(), (along - lows[1]).abs());
+                EdgeSample {
+                    height: (20.0 + 0.05 * d0.min(d1)) as f32,
+                    slope: if d0 <= d1 { slopes[0] } else { slopes[1] },
+                    detail: 0.0,
+                }
+            })
+            .collect();
+        (profile, step)
+    }
+
+    #[test]
+    fn rivers_from_one_side_may_cross_closer_than_other_crossings() {
+        let wish = |along: f64| PortWish {
+            along,
+            level: 40.0,
+            width: 6.0,
+            ground: f32::INFINITY,
+        };
+        // Every pair of crossings agreed keeps its spacing, and the
+        // crossings agreed are the same whichever side asks.
+        let agree = |lows: [f64; 2],
+                     slopes: [f32; 2],
+                     a_rivers: &[PortWish],
+                     b_rivers: &[PortWish],
+                     b_roads: &[PortWish]| {
+            let (profile, step) = two_valleys(lows, slopes);
+            let fit = fit_both(&profile);
+            let (a, b) = sides(a_rivers, b_rivers, &[], b_roads, &profile, &fit);
+            let ports = agree_ports(&a, &b, &profile, step, &away_from_ends);
+            assert_eq!(ports, agree_ports(&b, &a, &profile, step, &away_from_ends));
+            for (i, p) in ports.iter().enumerate() {
+                for q in &ports[i + 1..] {
+                    assert!((p.along - q.along).abs() >= spacing(p, q), "{p:?} {q:?}");
+                }
+            }
+            ports
+        };
+
+        // Two rivers from region 1, 150 m apart: both cross.
+        let ports = agree(
+            [400.0, 552.0],
+            [0.1; 2],
+            &[wish(400.0), wish(552.0)],
+            &[],
+            &[],
+        );
+        let along: Vec<f64> = ports.iter().map(|p| p.along).collect();
+        assert_eq!(along, [400.0, 552.0]);
+
+        // 128 m apart, under 130 m (and too far apart for one to snap to the
+        // other's low point): only one crosses, though each would on its
+        // own.
+        let lows = [400.0, 528.0];
+        for along in lows {
+            let ports = agree(lows, [0.1; 2], &[wish(along)], &[], &[]);
+            assert_eq!(ports.iter().map(|p| p.along).collect::<Vec<_>>(), [along]);
+        }
+        let ports = agree(lows, [0.1; 2], &[wish(400.0), wish(528.0)], &[], &[]);
+        assert_eq!(ports.len(), 1);
+
+        // Two rivers 150 m apart flowing opposite ways: only one crosses,
+        // though each would on its own.
+        let (lows, slopes) = ([400.0, 552.0], [0.1, -0.1]);
+        let from_2 = agree(lows, slopes, &[], &[wish(552.0)], &[]);
+        assert_eq!(from_2.len(), 1);
+        assert_eq!(from_2[0].kind, PortKind::River { from: RegionId(2) });
+        assert_eq!(agree(lows, slopes, &[wish(400.0)], &[], &[]).len(), 1);
+        let ports = agree(lows, slopes, &[wish(400.0)], &[wish(552.0)], &[]);
+        assert_eq!(ports.len(), 1);
+
+        // A river and a road wished 150 m apart, each of which crosses on
+        // its own: any road crossing agreed with the river stays the full
+        // 195 m away from it.
+        let lows = [400.0, 552.0];
+        let road = agree(lows, [0.1; 2], &[], &[], &[wish(552.0)]);
+        assert_eq!(road.len(), 1);
+        assert_eq!(road[0].kind, PortKind::Road);
+        let ports = agree(lows, [0.1; 2], &[wish(400.0)], &[], &[wish(552.0)]);
+        let river = ports
+            .iter()
+            .find(|p| p.kind == PortKind::River { from: RegionId(1) })
+            .expect("the river crosses");
+        for p in ports.iter().filter(|p| p.kind == PortKind::Road) {
+            assert!((p.along - river.along).abs() >= 3.0 * FEATURE_CLEARANCE);
+        }
+    }
+
+    #[test]
+    fn a_piece_steps_down_only_past_the_border_step() {
+        let port = |drop: f32| Port {
+            kind: PortKind::River { from: RegionId(1) },
+            along: 0.0,
+            level: 20.0,
+            width: 6.0,
+            wish: 0.0,
+            slope: 0.01,
+            downstream: Side::Right,
+            drop,
+        };
+        let (flat, stepped) = (port(0.0), port(8.0));
+        let straddle = FEATURE_CLEARANCE / PIECE_POINTS as f64;
+        // Upstream of the border and across the step that straddles it,
+        // the levels are the agreed ones.
+        for across in [FEATURE_CLEARANCE, straddle, 0.0, -straddle] {
+            assert_eq!(stepped.level_at(across), flat.level_at(across));
+        }
+        // At the far end the piece is the whole drop lower, and it never
+        // rises on the way there.
+        let end = -FEATURE_CLEARANCE;
+        assert!((flat.level_at(end) - stepped.level_at(end) - 8.0).abs() < 1e-4);
+        let mut last = stepped.level_at(FEATURE_CLEARANCE);
+        for k in 1..=100 {
+            let level = stepped.level_at(FEATURE_CLEARANCE * (1.0 - f64::from(k) / 50.0));
+            assert!(level <= last);
+            last = level;
+        }
     }
 
     #[test]

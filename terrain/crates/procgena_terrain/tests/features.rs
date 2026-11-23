@@ -13,16 +13,19 @@ use procgena_terrain::{
 
 /// The test worlds, for each of [`CONFIGS`] in turn: two with only road
 /// crossings, one per river seed with a river crossing, and one per join
-/// seed with rivers joining on bends.
-fn worlds() -> Vec<StitchedWorld> {
-    let mut worlds = Vec::new();
-    for config in CONFIGS {
-        worlds.push(two_terrains(DVec2::ZERO, config));
-        worlds.push(triple_junction(config));
-        worlds.extend(RIVER_SEEDS.map(|s| hills_into_plains(s, config)));
-        worlds.extend(JOIN_SEEDS.map(|s| hills_into_plains(s, config)));
-    }
-    worlds
+/// seed with rivers joining on bends. Built once and shared by every test.
+fn worlds() -> &'static [StitchedWorld] {
+    static WORLDS: std::sync::OnceLock<Vec<StitchedWorld>> = std::sync::OnceLock::new();
+    WORLDS.get_or_init(|| {
+        let mut worlds = Vec::new();
+        for config in CONFIGS {
+            worlds.push(two_terrains(DVec2::ZERO, config));
+            worlds.push(triple_junction(config));
+            worlds.extend(RIVER_SEEDS.map(|s| hills_into_plains(s, config)));
+            worlds.extend(JOIN_SEEDS.map(|s| hills_into_plains(s, config)));
+        }
+        worlds
+    })
 }
 
 /// Every agreed crossing in `world`, with its edge.
@@ -155,14 +158,14 @@ fn every_river_runs_downhill() {
 fn rivers_cross_borders_and_keep_falling() {
     let mut crossed = 0;
     for world in worlds() {
-        for (edge, port) in crossings(&world) {
+        for (edge, port) in crossings(world) {
             let PortKind::River { from } = port.kind else {
                 continue;
             };
             crossed += 1;
             let (upstream, downstream) = (
-                terrain(&world, from),
-                terrain(&world, other(&world, &edge, from)),
+                terrain(world, from),
+                terrain(world, other(world, &edge, from)),
             );
             let (out_end, in_end) = (
                 end_inside(upstream, &edge, &port),
@@ -210,7 +213,8 @@ fn rivers_cross_borders_and_keep_falling() {
             // than that river's water there.
             let joins = downstream.rivers().iter().any(|r| {
                 !std::ptr::eq(r, leaving)
-                    && line_distance(r, last) <= f64::from(r.width)
+                    && line_distance(r, last)
+                        <= f64::from(r.widths.iter().copied().fold(0.0, f32::max))
                     && downstream.water_level(last).is_some()
             });
             assert!(
@@ -244,6 +248,44 @@ fn rivers_cross_borders_and_keep_falling() {
 }
 
 #[test]
+fn neighbouring_mountain_rivers_both_cross_and_join_below() {
+    // In the two-terrain world, two mountain rivers reach the bent border
+    // about 150 m apart. Both cross into the plains, and neither ends in a
+    // pond: each joins a river there.
+    let world = two_terrains(DVec2::ZERO, common::DEFAULT);
+    let mountains = procgena_terrain::RegionId(2);
+    let mut joined = 0;
+    for (edge, port) in crossings(&world) {
+        if port.kind != (PortKind::River { from: mountains }) || port.along < 2000.0 {
+            continue;
+        }
+        let plains = terrain(&world, other(&world, &edge, mountains));
+        let start = end_inside(plains, &edge, &port);
+        let leaving = plains
+            .rivers()
+            .iter()
+            .find(|r| r.points.first() == Some(&start))
+            .expect("a river leads on from the crossing");
+        let last = *leaving.points.last().unwrap();
+        assert!(
+            !plains.ponds().iter().any(|p| p.centre == last),
+            "the river from the crossing at {} m ends in a pond",
+            port.along
+        );
+        assert!(
+            plains
+                .rivers()
+                .iter()
+                .any(|r| !std::ptr::eq(r, leaving) && line_distance(r, last) < 1e-6),
+            "the river from the crossing at {} m joins no river",
+            port.along
+        );
+        joined += 1;
+    }
+    assert_eq!(joined, 2);
+}
+
+#[test]
 fn every_river_fixture_has_a_river_crossing() {
     for config in CONFIGS {
         for seed in RIVER_SEEDS {
@@ -264,7 +306,7 @@ fn every_river_fixture_has_a_river_crossing() {
 fn roads_cross_borders_within_their_grade() {
     let mut crossed = 0;
     for world in worlds() {
-        for (edge, port) in crossings(&world) {
+        for (edge, port) in crossings(world) {
             if port.kind != PortKind::Road {
                 continue;
             }
@@ -307,12 +349,12 @@ fn roads_cross_borders_within_their_grade() {
 #[test]
 fn no_cracks_around_crossings() {
     for world in worlds() {
-        for (edge, port) in crossings(&world) {
+        for (edge, port) in crossings(world) {
             let centre = port.point(&edge);
             for r in [3.0, 30.0, 70.0, 120.0] {
                 let ring = |s: f64| centre + DVec2::from_angle(s * std::f64::consts::TAU) * r;
                 assert_no_crack(
-                    &world,
+                    world,
                     ring,
                     std::f64::consts::TAU * r,
                     &format!("ring {r} m around crossing at {centre}"),
@@ -322,7 +364,7 @@ fn no_cracks_around_crossings() {
             let (left, right) = port.ends(&edge);
             let across = right - left;
             assert_no_crack(
-                &world,
+                world,
                 |s| left - across + across * 3.0 * s,
                 3.0 * across.length(),
                 "across a crossing",

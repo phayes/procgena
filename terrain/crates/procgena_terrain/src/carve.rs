@@ -4,10 +4,20 @@ use std::collections::HashMap;
 
 use glam::DVec2;
 
+use crate::gully;
 use crate::ports::BANK_REACH;
+use crate::seam::smootherstep;
 
-/// How steeply a river or pond bank rises, as rise over run.
+/// How steeply a river or pond bank, and a river's valley wall, rises, as
+/// rise over run (about 19°).
 const RIVER_BANK: f64 = 0.35;
+
+/// How much wider than its cut needs a river's valley may reach, so its
+/// wall still meets ground that rises away from the river.
+const VALLEY_SPARE: f64 = 1.5;
+
+/// The furthest a river's valley reaches from the water's edge, in metres.
+pub(crate) const MAX_VALLEY_REACH: f64 = 300.0;
 
 /// How far a road may sit above or below the ground beneath it before its
 /// banks start, in metres.
@@ -75,8 +85,9 @@ pub struct FeatureLine {
     pub points: Vec<DVec2>,
     /// The water or road surface height at each point, in metres.
     pub levels: Vec<f32>,
-    /// Width, in metres.
-    pub width: f32,
+    /// The width at each point, in metres. A river keeps one width; a road
+    /// narrows through deep cuttings, down to its `min_width`.
+    pub widths: Vec<f32>,
     /// For a river, depth of the bed below the water, in metres. 0 for roads.
     pub depth: f32,
 }
@@ -192,6 +203,8 @@ pub(crate) struct Features {
     pub rivers: Vec<FeatureLine>,
     pub ponds: Vec<Pond>,
     pub roads: Vec<FeatureLine>,
+    /// For each river, its valley's shape at each point.
+    river_valleys: Vec<Vec<ValleyShape>>,
     /// For each road, how steeply its banks start at each point, as rise
     /// over run.
     road_banks: Vec<Vec<f32>>,
@@ -216,6 +229,12 @@ fn segment_query(line: &FeatureLine, segment: usize, p: DVec2) -> (f64, f32) {
     (d, la + (lb - la) * t as f32)
 }
 
+/// Half the wider of a feature line's widths at the two ends of segment
+/// `segment`, in metres.
+fn half_width(line: &FeatureLine, segment: usize) -> f64 {
+    0.5 * f64::from(line.widths[segment].max(line.widths[segment + 1]))
+}
+
 /// The distance from `p` to a feature line's segment, and how far along
 /// the segment (0 to 1) its closest point is.
 fn segment_position(line: &FeatureLine, segment: usize, p: DVec2) -> (f64, f64) {
@@ -229,20 +248,156 @@ fn segment_position(line: &FeatureLine, segment: usize, p: DVec2) -> (f64, f64) 
     (p.distance(a + ab * t), t)
 }
 
-/// The height a river or pond cuts the ground down to at distance `d` from
-/// its centre line, or `None` beyond its banks.
+/// The shape of a river's valley on its two sides at one river point:
+/// index 0 is the left side looking downstream, 1 the right. All distances
+/// are in metres from the water's edge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ValleyShape {
+    /// How wide a flat floor, at the water's level, runs out from the water.
+    pub floor: [f32; 2],
+    /// How steeply the valley wall rises beyond the floor, as rise over run.
+    pub wall: [f32; 2],
+    /// How far out the valley reaches; beyond it the ground is untouched.
+    /// Always more than `floor`.
+    pub reach: [f32; 2],
+    /// Whether gullies cut the valley walls. Off for valleys that may reach
+    /// a region's border, such as crossing pieces': the neighbour couldn't
+    /// cut the same gullies.
+    pub gullies: bool,
+}
+
+impl ValleyShape {
+    /// The same valley on both sides: no floor, a wall at [`RIVER_BANK`],
+    /// reaching `reach` metres out, and no gullies.
+    pub(crate) fn even(reach: f64) -> Self {
+        Self {
+            floor: [0.0; 2],
+            wall: [RIVER_BANK as f32; 2],
+            reach: [reach as f32; 2],
+            gullies: false,
+        }
+    }
+
+    /// The furthest either side reaches, in metres.
+    fn extent(&self) -> f64 {
+        f64::from(self.reach[0].max(self.reach[1]))
+    }
+
+    /// The shape a fraction `t` of the way from `self` to `other`, taking
+    /// `left` (0 to 1) of the left side and the rest of the right: its
+    /// floor, wall and reach.
+    fn side_towards(&self, other: &Self, t: f64, left: f64) -> (f64, f64, f64) {
+        let pick = |v: [f32; 2]| f64::from(v[1]) + (f64::from(v[0]) - f64::from(v[1])) * left;
+        let lerp = |a: [f32; 2], b: [f32; 2]| pick(a) + (pick(b) - pick(a)) * t;
+        (
+            lerp(self.floor, other.floor),
+            lerp(self.wall, other.wall),
+            lerp(self.reach, other.reach),
+        )
+    }
+}
+
+/// How far the corner between a valley's floor and its wall is rounded
+/// off, in metres.
+const FLOOR_ROUNDING: f64 = 8.0;
+
+/// `max(t, 0)` with its corner rounded over [`FLOOR_ROUNDING`] metres, so
+/// its slope is continuous.
+fn rounded_ramp(t: f64) -> f64 {
+    if t <= 0.0 {
+        0.0
+    } else if t < FLOOR_ROUNDING {
+        t * t / (2.0 * FLOOR_ROUNDING)
+    } else {
+        t - 0.5 * FLOOR_ROUNDING
+    }
+}
+
+/// The shape a river or pond pulls the ground towards at distance `d` from
+/// its centre line: the profile height and how strongly (0 to 1) the
+/// ground is pulled to it, or `None` beyond its valley.
 ///
-/// Inside the water the bed is a parabola `depth` deep. Outside, the bank
-/// rises from the water's edge and steepens until it no longer cuts
-/// anything, [`BANK_REACH`] metres out.
-fn channel(d: f64, half_width: f64, level: f32, depth: f32) -> Option<f32> {
+/// Inside the water the bed is a parabola `depth` deep, and the ground is
+/// pulled all the way to it. Outside, the profile is a floor at the water's
+/// level `floor` metres wide, then a wall rising at `wall` (rise over run).
+/// The pull is full across the floor and fades to nothing `reach` metres
+/// from the water's edge. Ground above the profile is lowered by the pull
+/// times its height above the profile, so the valley keeps a growing share
+/// of the ground's own relief away from the water. A deep cut needs a large
+/// `reach` to open into a valley rather than a gorge.
+fn valley(
+    d: f64,
+    half_width: f64,
+    level: f32,
+    depth: f32,
+    (floor, wall, reach): (f64, f64, f64),
+) -> Option<(f64, f64)> {
     let level = f64::from(level);
     if d <= half_width {
         let r = d / half_width;
-        return Some((level - f64::from(depth) * (1.0 - r * r)) as f32);
+        return Some((level - f64::from(depth) * (1.0 - r * r), 1.0));
     }
     let x = d - half_width;
-    (x < BANK_REACH).then(|| (level + RIVER_BANK * x / (1.0 - (x / BANK_REACH).powi(2))) as f32)
+    (x < reach).then(|| {
+        let u = ((x - floor) / (reach - floor)).max(0.0);
+        let fade = 1.0 - u * u;
+        (level + wall * rounded_ramp(x - floor), fade * fade)
+    })
+}
+
+/// About how far apart gullies on a valley wall are, in metres.
+const GULLY_SPACING: f64 = 40.0;
+
+/// How deep a gully cuts, as a share of how far the valley wall stands
+/// above the water there.
+const GULLY_SHARE: f64 = 0.15;
+
+/// The deepest a gully cuts, in metres.
+const GULLY_DEPTH: f64 = 6.0;
+
+/// Gullies stay this far from a road's edge, in metres, and fade in over
+/// [`GULLY_ROAD_FADE`] metres beyond that.
+const GULLY_ROAD_CLEARANCE: f64 = 10.0;
+const GULLY_ROAD_FADE: f64 = 30.0;
+
+/// The deepest a river's gullies cut into a valley wall here, in metres:
+/// a gully's floor; [`grooves`] says how much of it the gullies cut at a
+/// given point. `x` is how far the point is from the water's edge,
+/// `(floor, wall, reach)` the valley's shape on this side, and `above` how
+/// high the valley wall stands above the water there.
+///
+/// Gullies are nothing on the floor and at the valley's reach and deepest
+/// on the lower wall; they are at most [`GULLY_SHARE`] of `above` and
+/// [`GULLY_DEPTH`] deep.
+fn gully_depth(x: f64, (floor, _, reach): (f64, f64, f64), above: f64) -> f64 {
+    if x <= floor || x >= reach || above <= 0.0 {
+        return 0.0;
+    }
+    // Strongest a third of the way up the wall.
+    let u = (x - floor) / (reach - floor);
+    let mask = 6.75 * u * (1.0 - u) * (1.0 - u);
+    (GULLY_SHARE * above).min(GULLY_DEPTH) * mask
+}
+
+/// How much of [`gully_depth`] the gullies cut at `p`, from 0 on the spurs
+/// between gullies to 1 along a gully's floor. `flow` is the unit
+/// direction towards the river.
+fn grooves(p: DVec2, flow: DVec2) -> f64 {
+    // Two octaves of stripes; narrow grooves, broad spurs.
+    let v = (gully::stripes(p, flow, GULLY_SPACING, 0)
+        + 0.5 * gully::stripes(p, flow, 0.5 * GULLY_SPACING, 1))
+        / 1.5;
+    let groove = 0.5 * (v + 1.0);
+    groove * groove
+}
+
+/// How far out a river's valley may reach at a point where it cuts `cut`
+/// metres below the natural ground, beyond a floor `floor` metres wide, with
+/// walls at `wall` (rise over run): far enough for its wall to climb out
+/// with room to spare, at least [`BANK_REACH`] and at most
+/// [`MAX_VALLEY_REACH`].
+pub(crate) fn valley_reach(cut: f64, floor: f64, wall: f64) -> f64 {
+    (floor + VALLEY_SPARE * cut.max(0.0) / wall).clamp(BANK_REACH, MAX_VALLEY_REACH)
 }
 
 /// How far a road lets the ground differ from its level at distance `d`
@@ -282,29 +437,40 @@ pub(crate) fn bank_for(ground: f64) -> f64 {
 impl Features {
     /// Gathers features and builds the spatial index.
     ///
-    /// `road_banks` gives, for each of `roads`, how steeply its banks start
-    /// at each of its points (see [`bank_for`]).
+    /// `river_valleys` gives, for each of `rivers`, its valley's shape at
+    /// each of its points; `road_banks` gives, for each of `roads`, how
+    /// steeply its banks start at each of its points (see [`bank_for`]).
     ///
     /// # Panics
     ///
-    /// If `road_banks` doesn't have one value per road point.
+    /// If `river_valleys` doesn't have one shape per river point, or
+    /// `road_banks` one value per road point.
     pub(crate) fn new(
         rivers: Vec<FeatureLine>,
+        river_valleys: Vec<Vec<ValleyShape>>,
         ponds: Vec<Pond>,
         roads: Vec<FeatureLine>,
         road_banks: Vec<Vec<f32>>,
         points_of_interest: Vec<PointOfInterest>,
     ) -> Self {
-        assert!(
-            road_banks.len() == roads.len()
-                && road_banks
+        fn matches<T>(values: &[Vec<T>], lines: &[FeatureLine]) -> bool {
+            values.len() == lines.len()
+                && values
                     .iter()
-                    .zip(&roads)
-                    .all(|(b, r)| b.len() == r.points.len()),
+                    .zip(lines)
+                    .all(|(v, l)| v.len() == l.points.len())
+        }
+        assert!(
+            matches(&river_valleys, &rivers),
+            "one valley shape per river point"
+        );
+        assert!(
+            matches(&road_banks, &roads),
             "one bank steepness per road point"
         );
         let mut features = Self {
             rivers,
+            river_valleys,
             ponds,
             roads,
             road_banks,
@@ -313,8 +479,10 @@ impl Features {
         };
         let mut entries = Vec::new();
         for (line, river) in features.rivers.iter().enumerate() {
+            let valleys = &features.river_valleys[line];
             for segment in 0..river.points.len().saturating_sub(1) {
-                let reach = f64::from(river.width) / 2.0 + BANK_REACH;
+                let valley = valleys[segment].extent().max(valleys[segment + 1].extent());
+                let reach = half_width(river, segment) + valley;
                 let (a, b) = (river.points[segment], river.points[segment + 1]);
                 entries.push((
                     a.min(b) - reach,
@@ -336,7 +504,7 @@ impl Features {
         }
         for (line, road) in features.roads.iter().enumerate() {
             for segment in 0..road.points.len().saturating_sub(1) {
-                let reach = f64::from(road.width) / 2.0 + BANK_REACH;
+                let reach = half_width(road, segment) + BANK_REACH;
                 let (a, b) = (road.points[segment], road.points[segment + 1]);
                 entries.push((
                     a.min(b) - reach,
@@ -369,7 +537,7 @@ impl Features {
         let lerp = |a: f32, b: f32| f64::from(a) + (f64::from(b) - f64::from(a)) * t;
         (
             d,
-            f64::from(road.width) / 2.0,
+            0.5 * lerp(road.widths[s], road.widths[s + 1]),
             lerp(road.levels[s], road.levels[s + 1]),
             lerp(banks[s], banks[s + 1]),
         )
@@ -390,36 +558,8 @@ impl Features {
             };
         };
 
-        // Rivers and ponds: the lowest cut wins; note the water surface
-        // wherever the point is within the water's width.
-        let mut height = h;
-        let mut water: Option<f32> = None;
-        let mut lowest: Option<f32> = None;
-        for item in items {
-            let (d, half_width, level, depth) = match *item {
-                Item::River { line, segment } => {
-                    let river = &self.rivers[line as usize];
-                    let (d, level) = segment_query(river, segment as usize, p);
-                    (d, f64::from(river.width) / 2.0, level, river.depth)
-                }
-                Item::Pond(i) => {
-                    let pond = &self.ponds[i as usize];
-                    (p.distance(pond.centre), pond.radius, pond.level, pond.depth)
-                }
-                Item::Road { .. } => continue,
-            };
-            if let Some(cut) = channel(d, half_width, level, depth) {
-                lowest = Some(lowest.map_or(cut, |l: f32| l.min(cut)));
-                if d <= half_width {
-                    water = Some(water.map_or(level, |w| w.max(level)));
-                }
-            }
-        }
-        if let Some(cut) = lowest {
-            height = smooth_min(f64::from(height), f64::from(cut), RIVER_BLEND) as f32;
-        }
-
-        // Roads: hold the ground within reach of the road's level.
+        // Roads near here: gullies keep away from them, then they hold the
+        // ground to their level.
         let roads: Vec<(f64, f64, f64, f64)> = items
             .iter()
             .filter_map(|item| match *item {
@@ -427,6 +567,79 @@ impl Features {
                 _ => None,
             })
             .collect();
+        let road_gap = roads
+            .iter()
+            .map(|&(d, half_width, _, _)| d - half_width)
+            .fold(f64::INFINITY, f64::min);
+        let road_fade = smootherstep((road_gap - GULLY_ROAD_CLEARANCE) / GULLY_ROAD_FADE);
+
+        // Rivers and ponds: each lowers ground above its valley profile by
+        // its pull, and a river's walls by its gullies; the deepest
+        // lowering wins. Note the water surface wherever the point is
+        // within the water's width.
+        let mut water: Option<f32> = None;
+        let mut lowering = 0.0_f64;
+        for item in items {
+            let (d, half_width, level, depth, shape, flow) = match *item {
+                Item::River { line, segment } => {
+                    let (river, valleys) = (
+                        &self.rivers[line as usize],
+                        &self.river_valleys[line as usize],
+                    );
+                    let s = segment as usize;
+                    let (d, level) = segment_query(river, s, p);
+                    let (_, t) = segment_position(river, s, p);
+                    // How much `p` is on the river's left (looking
+                    // downstream): all or nothing beside the segment,
+                    // blending round its ends so the two sides' shapes
+                    // meet without a step. And the way to the river.
+                    let (a, b) = (river.points[s], river.points[s + 1]);
+                    let lateral = (b - a).normalize_or_zero().perp_dot(p - a);
+                    let left = if d > 0.0 {
+                        (0.5 + 0.5 * lateral / d).clamp(0.0, 1.0)
+                    } else {
+                        0.5
+                    };
+                    let shape = valleys[s].side_towards(&valleys[s + 1], t, left);
+                    let flow = (valleys[s].gullies && valleys[s + 1].gullies)
+                        .then(|| (a.lerp(b, t) - p).normalize_or_zero());
+                    (d, half_width(river, s), level, river.depth, shape, flow)
+                }
+                Item::Pond(i) => {
+                    let pond = &self.ponds[i as usize];
+                    let shape = (0.0, RIVER_BANK, BANK_REACH);
+                    (
+                        p.distance(pond.centre),
+                        pond.radius,
+                        pond.level,
+                        pond.depth,
+                        shape,
+                        None,
+                    )
+                }
+                Item::Road { .. } => continue,
+            };
+            if let Some((profile, pull)) = valley(d, half_width, level, depth, shape) {
+                let above = smooth_max(f64::from(h) - profile, 0.0, RIVER_BLEND);
+                let mut lowered = pull * above;
+                // Gullies, unless even their deepest couldn't beat another
+                // river's lowering here.
+                if let Some(flow) = flow {
+                    let walled = f64::from(h) - lowered;
+                    let most = gully_depth(d - half_width, shape, walled - f64::from(level));
+                    if road_fade > 0.0 && most > 0.0 && lowered + road_fade * most > lowering {
+                        lowered += road_fade * (most * grooves(p, flow));
+                    }
+                }
+                lowering = lowering.max(lowered);
+                if d <= half_width {
+                    water = Some(water.map_or(level, |w| w.max(level)));
+                }
+            }
+        }
+        let mut height = (f64::from(h) - lowering) as f32;
+
+        // Roads: hold the ground within reach of the road's level.
         let uncut = f64::from(height);
         for &(d, half_width, level, bank) in &roads {
             if let Some(e) = road_tolerance(d, half_width, bank) {
@@ -518,14 +731,21 @@ mod tests {
             kind: FeatureKind::River,
             points: vec![DVec2::ZERO, DVec2::new(100.0, 0.0)],
             levels: vec![10.0, 9.0],
-            width: 6.0,
+            widths: vec![6.0; 2],
             depth: 1.5,
         }
     }
 
     #[test]
     fn rivers_cut_a_bed_and_hold_water() {
-        let features = Features::new(vec![river()], Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let features = Features::new(
+            vec![river()],
+            vec![vec![ValleyShape::even(BANK_REACH); 2]],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let middle = features.apply(DVec2::new(50.0, 0.0), 20.0);
         assert!((middle.height - 8.0).abs() < 1e-4);
         assert_eq!(middle.water, Some(9.5));
@@ -537,7 +757,14 @@ mod tests {
 
     #[test]
     fn banks_meet_the_ground_without_a_step() {
-        let features = Features::new(vec![river()], Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let features = Features::new(
+            vec![river()],
+            vec![vec![ValleyShape::even(BANK_REACH); 2]],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let mut last = features.apply(DVec2::new(50.0, 0.0), 20.0).height;
         for k in 1..2000 {
             let h = features
@@ -556,8 +783,14 @@ mod tests {
             depth: 0.0,
             ..river()
         };
-        let features =
-            Features::new(Vec::new(), Vec::new(), vec![road], vec![vec![0.6; 2]], Vec::new());
+        let features = Features::new(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![road],
+            vec![vec![0.6; 2]],
+            Vec::new(),
+        );
         let cut = features.apply(DVec2::new(50.0, 0.0), 30.0).height;
         let fill = features.apply(DVec2::new(50.0, 0.0), 0.0).height;
         assert!((cut - 9.75).abs() < 1e-4);
@@ -576,12 +809,16 @@ mod tests {
         let roads: Vec<FeatureLine> = [0.0, 1000.0, 2000.0]
             .iter()
             .map(|&z| FeatureLine {
-                points: road.points.iter().map(|p| *p + DVec2::new(0.0, z)).collect(),
+                points: road
+                    .points
+                    .iter()
+                    .map(|p| *p + DVec2::new(0.0, z))
+                    .collect(),
                 ..road.clone()
             })
             .collect();
         let banks = vec![vec![0.6; 2], vec![1.5; 2], vec![3.0; 2]];
-        let features = Features::new(Vec::new(), Vec::new(), roads, banks, Vec::new());
+        let features = Features::new(Vec::new(), Vec::new(), Vec::new(), roads, banks, Vec::new());
         // 5 m out from a road's edge (3 m from its centre), on high ground
         // (cut) or low ground (fill).
         let tags = |z: f64, ground: f32| features.apply(DVec2::new(50.0, z + 8.0), ground).tags;
@@ -591,9 +828,15 @@ mod tests {
         assert_eq!(tags(2000.0, cut), RoadTags::CUT | RoadTags::CLIFF);
         assert_eq!(tags(0.0, fill), RoadTags::EMBANKMENT);
         assert_eq!(tags(1000.0, fill), RoadTags::EMBANKMENT | RoadTags::BLUFF);
-        assert_eq!(tags(2000.0, fill), RoadTags::RETAINING_WALL | RoadTags::CLIFF);
+        assert_eq!(
+            tags(2000.0, fill),
+            RoadTags::RETAINING_WALL | RoadTags::CLIFF
+        );
         // The road itself, and ground the bank doesn't reach.
-        assert_eq!(features.apply(DVec2::new(50.0, 1.0), cut).tags, RoadTags::ROAD);
+        assert_eq!(
+            features.apply(DVec2::new(50.0, 1.0), cut).tags,
+            RoadTags::ROAD
+        );
         assert_eq!(tags(2000.0, 9.5), RoadTags::NONE);
         assert_eq!(
             (RoadTags::RETAINING_WALL | RoadTags::CLIFF).names(),
@@ -602,12 +845,223 @@ mod tests {
     }
 
     #[test]
+    fn deep_cuts_open_into_valleys() {
+        // A river 30 m below flat ground. With the narrowest reach the
+        // ground 60 m from the water is untouched (a gorge); with the reach
+        // a 30 m cut asks for, it is lowered there, though not all the way
+        // down to the plain 0.35 wall, and untouched beyond the reach.
+        let level = 9.5;
+        let carve = |reach: f64, out: f64, ground: f32| {
+            let features = Features::new(
+                vec![river()],
+                vec![vec![ValleyShape::even(reach); 2]],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+            features
+                .apply(DVec2::new(50.0, 3.0 + out), level + ground)
+                .height
+                - level
+        };
+        let wide = valley_reach(30.0, 0.0, RIVER_BANK);
+        assert!(wide > 86.0 && wide <= MAX_VALLEY_REACH, "reach {wide}");
+        assert!((carve(BANK_REACH, 60.0, 30.0) - 30.0).abs() < 1e-3);
+        let at_60 = carve(wide, 60.0, 30.0);
+        assert!(
+            at_60 > 0.35 * 60.0 && at_60 < 27.0,
+            "valley at 60 m: {at_60}"
+        );
+        assert_eq!(carve(wide, wide + 1.0, 30.0), 30.0);
+        // At the water's edge the ground is pulled right down to the water.
+        assert!(carve(wide, 0.0, 30.0).abs() < 1e-3);
+        // A shallow cut keeps the narrowest valley.
+        assert_eq!(valley_reach(2.0, 0.0, RIVER_BANK), BANK_REACH);
+    }
+
+    #[test]
+    fn valley_sides_take_their_own_shape() {
+        // The test river runs along +x, so its left side is +y. The left
+        // side has a 20 m floor and reaches 60 m; the right side has no
+        // floor and reaches 40 m.
+        let shape = ValleyShape {
+            floor: [20.0, 0.0],
+            wall: [0.5, RIVER_BANK as f32],
+            reach: [60.0, 40.0],
+            gullies: false,
+        };
+        let features = Features::new(
+            vec![river()],
+            vec![vec![shape; 2]],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let level = 9.5;
+        let carve = |y: f64| features.apply(DVec2::new(50.0, y), 30.0).height;
+        // On the left floor the ground is down at the water's level; 10 m
+        // out on the right it is already climbing the wall.
+        assert!((carve(13.0) - level).abs() < 1e-3);
+        assert!(carve(-13.0) > level + 3.0);
+        // 45 m out the left is still in its valley, the right is not.
+        assert!(carve(48.0) < 30.0);
+        assert_eq!(carve(-48.0), 30.0);
+    }
+
+    #[test]
+    fn gullied_valleys_have_no_steps_at_bends_joints_and_confluences() {
+        // A river with a sharp bend, whose valley changes shape from point
+        // to point, and a tributary joining it partway along a segment, all
+        // with gullies, cut into high ground. Stepping finely across the
+        // bend, the joints and the confluence, the ground never jumps.
+        let main = FeatureLine {
+            kind: FeatureKind::River,
+            points: vec![
+                DVec2::ZERO,
+                DVec2::new(100.0, 0.0),
+                DVec2::new(100.0, 100.0),
+            ],
+            levels: vec![10.0, 9.0, 8.0],
+            widths: vec![6.0; 3],
+            depth: 1.5,
+        };
+        let tributary = FeatureLine {
+            kind: FeatureKind::River,
+            points: vec![DVec2::new(50.0, -120.0), DVec2::new(50.0, -3.0)],
+            levels: vec![20.0, 9.5],
+            widths: vec![4.0; 2],
+            depth: 1.0,
+        };
+        let shape = |floor: [f32; 2], wall: [f32; 2], reach: [f32; 2]| ValleyShape {
+            floor,
+            wall,
+            reach,
+            gullies: true,
+        };
+        let features = Features::new(
+            vec![main, tributary],
+            vec![
+                vec![
+                    shape([0.0, 10.0], [0.6, 0.3], [90.0, 140.0]),
+                    shape([20.0, 0.0], [0.3, 0.8], [150.0, 70.0]),
+                    shape([5.0, 5.0], [0.5, 0.5], [110.0, 110.0]),
+                ],
+                vec![
+                    shape([0.0, 0.0], [0.7, 0.7], [80.0, 80.0]),
+                    shape([10.0, 10.0], [0.4, 0.4], [100.0, 100.0]),
+                ],
+            ],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+
+        // Rows and columns through the bend (100, 0), the confluence
+        // (50, −3) and open wall, in 1 cm steps.
+        let step = 0.01;
+        let mut worst = 0.0_f64;
+        for k in 0..12 {
+            let across = -60.0 + 15.0 * f64::from(k);
+            for (start, dir) in [
+                (DVec2::new(-60.0, across), DVec2::X),
+                (DVec2::new(across + 50.0, -140.0), DVec2::Y),
+            ] {
+                let height = |i: i32| {
+                    f64::from(
+                        features
+                            .apply(start + dir * (f64::from(i) * step), 60.0)
+                            .height,
+                    )
+                };
+                let mut last = height(0);
+                for i in 1..=30_000 {
+                    let h = height(i);
+                    worst = worst.max((h - last).abs());
+                    last = h;
+                }
+            }
+        }
+        // The steepest the carving makes is a wall at 0.8 with gullies
+        // in it, well under 3 cm per centimetre.
+        assert!(worst < 0.03, "step {worst} m in 1 cm");
+    }
+
+    #[test]
+    fn gullies_cut_into_valley_walls_and_never_raise_them() {
+        // The same valley with and without gullies: across its walls the
+        // gullies lower the ground by metres in places, and nowhere raise
+        // it.
+        let carve_with = |gullies: bool| {
+            let shape = ValleyShape {
+                gullies,
+                ..ValleyShape::even(100.0)
+            };
+            Features::new(
+                vec![river()],
+                vec![vec![shape; 2]],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+        };
+        let (with, without) = (carve_with(true), carve_with(false));
+        let mut deepest = 0.0_f32;
+        for i in 0..100 {
+            for j in -60..=60 {
+                let p = DVec2::new(f64::from(i), f64::from(j) * 2.0);
+                let cut = without.apply(p, 60.0).height - with.apply(p, 60.0).height;
+                assert!(cut >= 0.0, "raised by {} at {p}", -cut);
+                deepest = deepest.max(cut);
+            }
+        }
+        assert!(deepest > 2.0, "deepest gully {deepest} m");
+    }
+
+    #[test]
+    fn valley_walls_keep_the_grounds_relief() {
+        // On a valley wall, a 2 m bump in the ground stays a smaller bump,
+        // growing towards the valley's edge, and nothing is ever raised.
+        let reach = valley_reach(30.0, 0.0, RIVER_BANK);
+        let features = Features::new(
+            vec![river()],
+            vec![vec![ValleyShape::even(reach); 2]],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let carve =
+            |out: f64, ground: f32| features.apply(DVec2::new(50.0, 3.0 + out), ground).height;
+        let mut last_bump = 0.0;
+        for out in [10.0, 40.0, 80.0, 120.0] {
+            let bump = carve(out, 41.5) - carve(out, 39.5);
+            assert!(bump > last_bump && bump <= 2.0, "bump {bump} at {out} m");
+            last_bump = bump;
+        }
+        for ground in [5.0, 9.0, 15.0, 40.0] {
+            for out in [0.0, 2.0, 10.0, 60.0] {
+                assert!(
+                    carve(out, ground) <= ground,
+                    "raised at {out} m on {ground}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn steep_banks_are_flat_faces() {
         // A bank keeps its slope, within 5%, out to half its reach.
         for bank in [0.6, 2.0, 20.0] {
             let near = bank_slope(3.0 + 1.0, 3.0, bank).unwrap();
             let far = bank_slope(3.0 + 0.5 * BANK_REACH, 3.0, bank).unwrap();
-            assert!((far / near - 1.0).abs() < 0.05, "bank {bank}: {near} then {far}");
+            assert!(
+                (far / near - 1.0).abs() < 0.05,
+                "bank {bank}: {near} then {far}"
+            );
         }
     }
 
