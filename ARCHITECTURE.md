@@ -1056,6 +1056,16 @@ Each rule says what every asset does, and which crates have to change.
      shader module.
    - Every asset names its far form (strips, billboard leaves, a card), and
      its last level drops shadows where it should.
+   - **Small repeated parts can use baked cards before the far form.** Tree
+     fruit and flowers do this at levels 1 and 2 (decided 2026-11-23): each
+     preset's cluster is baked once into a small atlas of a few views,
+     keyed by the options hash plus the bake settings (one bake per pool,
+     outside the specimen budget). Each kept cluster then draws as a
+     two-triangle camera-facing card through the leaf billboard path, so it
+     keeps wind and instancing, with its view chosen from the cluster's
+     own axis, so hanging, upright and outward facings survive. Level 0 stays
+     real meshes. This is a part's form inside the mesh levels, not a
+     second impostor level.
    - The levels run in order: meshes, then the far form, then the impostor
      (from `procgena_impostor`, keyed by `SpecimenId`) where the asset has
      one, then the cull distance. The cull distance ends
@@ -1369,6 +1379,12 @@ it starts.
 - [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`
   keyed by `SpecimenId` for any asset, not only trees, and baking ahead
   per Ecotope instead of per grove.
+- [ ] **Cluster impostor cards for tree fruit and flowers** at levels 1 and
+  2 (rule 2): a standalone cluster mesher in cluster-local coordinates, a
+  per-pool bake with per-bake view count and size (global today), a
+  textured, alpha-masked cluster material on the leaf billboard path, and a
+  view chosen from the cluster's axis. Check first that each preset has one
+  cluster shape and layout. Needs F2's options hash.
 - [ ] **CPU and GPU building for every asset**, with parity tests: GPU paths
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy

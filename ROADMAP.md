@@ -503,6 +503,22 @@ that has one (rule 2).
   by `SpecimenId`, and fade from mesh to far form to impostor in the same
   way.
 
+#### I1b: Cluster impostor cards for tree fruit and flowers
+
+Decided by the user 2026-11-23.
+
+- **Covers:** TODO "Cluster impostor cards for tree fruit and flowers":
+  each preset's fruit or flower cluster baked once (keyed by options hash
+  plus bake settings) and drawn at levels 1 and 2 as camera-facing cards on
+  the leaf billboard path, with wind. Level 3 keeps the kept-and-enlarged
+  items and may move to the same cards.
+- **Needs:** F2 (options hash). It shares the bake path with I1, so it runs
+  beside or after I1.
+- **Done when:** Willow and Dogwood draw their level-1 and level-2 clusters
+  as cards with their triangle counts recorded (today 45,414 and 13,440 at
+  level 2), the outline test passes, and a headless screenshot comparison
+  shows the clusters keep their facing.
+
 #### I2: Impostors prepared per Ecotope
 
 - **Covers:** baking ahead moves from the grove to the Ecotope.
