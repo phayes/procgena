@@ -1,13 +1,15 @@
 //! Compare distant tree outlines with full-detail and neighbouring levels.
 //!
 //! Each preset is projected into a small black-and-white mask from eight directions
-//! around the trunk. Intersection over union (IoU) measures shared area divided by
+//! around the trunk, then pooled into 4 × 4 pixel blocks so thin twigs and small
+//! flowers count by where they are, not by which pixel centres they happen to
+//! cover. Intersection over union (IoU) measures shared area divided by
 //! combined area; 1 means identical masks. Leaf cards are solid squares here, so
 //! these approximate checks do not include texture transparency or lighting.
 
 use glam::{Vec2, Vec3};
 use procgena_tree::{
-    BillboardVertex, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod_levels,
+    BillboardVertex, LodDetail, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod_levels,
 };
 
 /// Width and height of each square mask, in pixels.
@@ -84,6 +86,25 @@ impl View {
     }
 }
 
+/// Pixels along each side of the square blocks a mask is pooled into before
+/// comparing.
+const BLOCK: usize = 4;
+
+/// Pools a `RESOLUTION`-square mask into `BLOCK`-square blocks, marking each
+/// block that has any covered pixel. Twigs and small flowers are thinner than
+/// a pixel and land on scattered pixel centres, so two meshes with the same
+/// outline cover different single pixels; blocks compare the outline instead
+/// of that speckle.
+fn pooled(mask: &[bool]) -> Vec<bool> {
+    let blocks = RESOLUTION / BLOCK;
+    let mut out = vec![false; blocks * blocks];
+    for (i, _) in mask.iter().enumerate().filter(|(_, covered)| **covered) {
+        let (x, y) = (i % RESOLUTION / BLOCK, i / RESOLUTION / BLOCK);
+        out[y * blocks + x] = true;
+    }
+    out
+}
+
 /// Returns shared area divided by combined area for equal-sized masks.
 /// Two empty masks return 0.
 fn iou(a: &[bool], b: &[bool]) -> f32 {
@@ -148,8 +169,9 @@ fn turned(b: &BillboardVertex, to_camera: Vec3) -> Vec3 {
     pivot + right * b.offset[0] + up * b.offset[1]
 }
 
-/// Average outline overlap across all presets and sampled views.
-#[derive(Debug, Default)]
+/// Outline overlap, averaged over the sampled views, and over presets for
+/// the whole set.
+#[derive(Debug, Default, Clone, Copy)]
 struct Scores {
     /// Fixed-shape overlap of LOD1, LOD2 and LOD3 with LOD0.
     stored: [f32; 3],
@@ -161,9 +183,42 @@ struct Scores {
     turned_switch: [f32; 2],
 }
 
-/// Measures overlap for the default levels, using LOD0 to frame every comparison.
-fn measure() -> Scores {
-    let levels = default_lod_levels();
+impl Scores {
+    fn values_mut(&mut self) -> impl Iterator<Item = &mut f32> {
+        self.stored
+            .iter_mut()
+            .chain(&mut self.turned)
+            .chain(&mut self.stored_switch)
+            .chain(&mut self.turned_switch)
+    }
+
+    /// The checked scores, each with its name and the minimum the average
+    /// over every preset must reach.
+    fn checks(&self) -> [(&'static str, f32, f32); 7] {
+        [
+            ("stored level 1 vs 0", self.stored[0], 0.88),
+            ("stored level 2 vs 0", self.stored[1], 0.84),
+            ("stored level 3 vs 0", self.stored[2], 0.80),
+            ("turned level 3 vs 0", self.turned[2], 0.84),
+            ("stored level 1 → 2", self.stored_switch[0], 0.88),
+            ("stored level 2 → 3", self.stored_switch[1], 0.82),
+            ("turned level 2 → 3", self.turned_switch[1], 0.84),
+        ]
+    }
+}
+
+/// The default detail levels' settings.
+fn default_details() -> [LodDetail; 4] {
+    default_lod_levels().map(|level| level.detail)
+}
+
+/// Measures each preset's overlap for `levels`, using LOD0 to frame every
+/// comparison. `change` receives each level's number and mesh, and may alter
+/// the mesh before it is measured.
+fn measure(
+    levels: [LodDetail; 4],
+    change: impl Fn(usize, &mut TreeMesh),
+) -> Vec<(TreePreset, Scores)> {
     let directions: Vec<Vec3> = (0..DIRECTIONS)
         .map(|k| {
             let angle = std::f32::consts::TAU * k as f32 / DIRECTIONS as f32;
@@ -171,21 +226,27 @@ fn measure() -> Scores {
         })
         .collect();
 
-    let mut scores = Scores::default();
+    let mut all = Vec::new();
     for preset in TreePreset::ALL {
         let options = preset.options();
         let skeleton = Skeleton::generate(&options).unwrap();
         let meshes: Vec<TreeMesh> = levels
             .iter()
-            .map(|level| skeleton.mesh(&options, &level.detail))
+            .enumerate()
+            .map(|(level, detail)| {
+                let mut mesh = skeleton.mesh(&options, detail);
+                change(level, &mut mesh);
+                mesh
+            })
             .collect();
         let triangles: Vec<Vec<Triangle>> = meshes.iter().map(stored_triangles).collect();
+        let mut scores = Scores::default();
         for &forward in &directions {
             let view = View::framing(forward, &triangles[0]);
-            let stored: Vec<Vec<bool>> = triangles.iter().map(|t| view.mask(t)).collect();
+            let stored: Vec<Vec<bool>> = triangles.iter().map(|t| pooled(&view.mask(t))).collect();
             let turned: Vec<Vec<bool>> = meshes
                 .iter()
-                .map(|m| view.mask(&turned_triangles(m, -forward)))
+                .map(|m| pooled(&view.mask(&turned_triangles(m, -forward))))
                 .collect();
             for level in 1..4 {
                 scores.stored[level - 1] += iou(&stored[0], &stored[level]);
@@ -196,37 +257,95 @@ fn measure() -> Scores {
                 scores.turned_switch[level - 1] += iou(&turned[level], &turned[level + 1]);
             }
         }
+        for s in scores.values_mut() {
+            *s /= DIRECTIONS as f32;
+        }
+        all.push((preset, scores));
     }
+    all
+}
 
-    let count = (TreePreset::ALL.len() * DIRECTIONS) as f32;
-    for s in scores
-        .stored
-        .iter_mut()
-        .chain(&mut scores.turned)
-        .chain(&mut scores.stored_switch)
-        .chain(&mut scores.turned_switch)
-    {
-        *s /= count;
+/// The lowest score any one preset may have on any check, so a preset that
+/// loses its outline can't hide in the average. A tree whose farthest level
+/// drops everything but its twigs scores about 0.5.
+const PRESET_MINIMUM: f32 = 0.7;
+
+/// Prints every preset's scores and their average, and returns each check
+/// that fails: an average below its minimum, or a preset below
+/// [`PRESET_MINIMUM`].
+fn failures(presets: &[(TreePreset, Scores)]) -> Vec<String> {
+    let mut average = Scores::default();
+    for (preset, scores) in presets {
+        eprintln!(
+            "{:<22} {}",
+            preset.name(),
+            scores.checks().map(|(_, s, _)| format!("{s:.3}")).join(" ")
+        );
+        let mut scores = *scores;
+        for (total, value) in average.values_mut().zip(scores.values_mut()) {
+            *total += *value / presets.len() as f32;
+        }
     }
-    scores
+    eprintln!("{average:#?}");
+
+    let mut failed = Vec::new();
+    for (name, score, minimum) in average.checks() {
+        if score < minimum {
+            failed.push(format!("average {name}: {score:.3} is below {minimum}"));
+        }
+    }
+    for (preset, scores) in presets {
+        for (name, score, _) in scores.checks() {
+            if score < PRESET_MINIMUM {
+                let preset = preset.name();
+                failed.push(format!(
+                    "{preset} {name}: {score:.3} is below {PRESET_MINIMUM}"
+                ));
+            }
+        }
+    }
+    failed
 }
 
 /// Checks minimum average outline overlap with full detail and across detail
-/// switches. Covers fixed fallback rendering and camera-facing LOD3 rendering.
+/// switches, and a lower minimum for every preset. Covers fixed fallback
+/// rendering and camera-facing LOD3 rendering.
 #[test]
 fn distant_levels_keep_the_outline() {
-    let scores = measure();
-    eprintln!("{scores:#?}");
-    let checks = [
-        ("stored level 1 vs 0", scores.stored[0], 0.88),
-        ("stored level 2 vs 0", scores.stored[1], 0.84),
-        ("stored level 3 vs 0", scores.stored[2], 0.80),
-        ("turned level 3 vs 0", scores.turned[2], 0.84),
-        ("stored level 1 → 2", scores.stored_switch[0], 0.88),
-        ("stored level 2 → 3", scores.stored_switch[1], 0.82),
-        ("turned level 2 → 3", scores.turned_switch[1], 0.84),
-    ];
-    for (name, score, minimum) in checks {
-        assert!(score >= minimum, "{name}: {score:.3} is below {minimum}");
+    let failed = failures(&measure(default_details(), |_, _| {}));
+    assert!(failed.is_empty(), "{failed:#?}");
+}
+
+/// The outline check must catch a farthest level that drops small fruit, as
+/// the default once did: Spring Pussy Willow then keeps only its twigs.
+#[test]
+fn the_outline_check_catches_dropped_catkins() {
+    let mut levels = default_details();
+    levels[3] = LodDetail {
+        item_scale: 1.25,
+        min_item_size: 0.05,
+        billboard_fruit: true,
+        item_stalks: true,
+        ..levels[3]
+    };
+    let failed = failures(&measure(levels, |_, _| {}));
+    assert!(
+        failed.iter().any(|f| f.starts_with("Spring Pussy Willow")),
+        "{failed:#?}"
+    );
+}
+
+/// The outline check must catch a level that loses every leaf, whether it is
+/// the nearest simplified level or the farthest.
+#[test]
+fn the_outline_check_catches_missing_leaves() {
+    for bare in [1, 3] {
+        let failed = failures(&measure(default_details(), |level, mesh| {
+            if level == bare {
+                mesh.leaves = MeshBuffers::default();
+                mesh.billboard_cull.leaves = MeshBuffers::default();
+            }
+        }));
+        assert!(!failed.is_empty(), "level {bare} without leaves passed");
     }
 }
