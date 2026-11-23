@@ -507,6 +507,12 @@ preset or options. One World seed fixes everything below it.
   building the levels in between. Specimens are the one exception: they
   hang off the World seed directly, not off their Scatter, so they can be
   shared across the World.
+- **Seed keys are stable dotted names** such as `"terrain.relief.hills"`
+  (`<crate>.<area>.<role>`), hashed into the salt at compile time, never
+  hand-picked numbers. A registry per crate tests that its keys and their
+  hashes are unique. Keys are frozen: renaming one changes every world built
+  from it. (Decided 2026-11-23. The terrain crate goes first, and F2 lifts
+  the function into `procgena_core`.)
 - **Sharing is a choice, not an accident.** When two things should come out
   identical, such as the specimens a Scatter draws from, they share an
   id on purpose, and the hash gives them the same seed.
