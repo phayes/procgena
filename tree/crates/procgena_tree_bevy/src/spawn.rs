@@ -1030,7 +1030,8 @@ mod tests {
     }
 
     /// Checks that LOD3 spawns only the main parts, with rotation data and bounds
-    /// for their camera-facing shapes. Crossed fallback shapes must not be spawned.
+    /// for the camera-facing bark and leaves; fruit is drawn flat. Crossed
+    /// fallback shapes must not be spawned.
     #[test]
     fn farthest_level_parts_turn_toward_the_camera() {
         let mut app = spawn_app_with(default_tree_lod_levels());
@@ -1049,7 +1050,8 @@ mod tests {
             let mesh = meshes.get(&mesh.0).unwrap();
             let billboard = mesh.contains_attribute(crate::ATTRIBUTE_BILLBOARD_PIVOT)
                 && mesh.contains_attribute(crate::ATTRIBUTE_BILLBOARD_AXIS);
-            let far = part.lod == 3 && part.kind != TreePartKind::Flowers;
+            let far =
+                part.lod == 3 && matches!(part.kind, TreePartKind::Bark | TreePartKind::Leaves);
             assert_eq!(billboard, far, "{part:?}");
             assert_eq!(fixed, far, "{part:?}");
             assert_eq!(bounds.is_some(), far, "{part:?}");

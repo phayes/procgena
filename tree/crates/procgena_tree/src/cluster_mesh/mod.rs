@@ -35,24 +35,17 @@ pub(crate) fn mesh_fruit(
     if fruit.placement.size < detail.min_item_size {
         return Vec::new();
     }
-    let stalk_color = rgba(fruit.cluster.stalk_color);
     let catkin = fruit.cluster.kind == ClusterKind::Catkin;
     let level = detail.item_detail;
 
-    // Keep every cluster and every `item_stride`th fruit in it, at original
-    // sizes and without supporting stalks.
+    // Billboards have no supporting stalks.
     if detail.billboard_fruit {
-        let every_item = LodDetail {
-            cluster_stride: 1,
-            item_scale: 1.0,
-            ..*detail
-        };
         return mesh_clusters(
             [out, cull],
             clusters,
+            ItemSelection::billboard_fruit(detail),
             None,
             winds,
-            &every_item,
             |[out, cull], cluster, items, wind| {
                 let facing = outward(cluster.origin);
                 for (k, item) in items.iter().enumerate() {
@@ -64,12 +57,13 @@ pub(crate) fn mesh_fruit(
     }
 
     let flat = !catkin && fruit.placement.size < detail.flat_item_size;
+    let stalk_color = rgba(fruit.cluster.stalk_color);
     mesh_clusters(
         [out, cull],
         clusters,
-        Some(stalk_color),
+        ItemSelection::new(detail, flat),
+        Stalks::new(detail, stalk_color),
         winds,
-        &keep_flat_items(detail, flat),
         |[out, _], cluster, items, wind| {
             if flat {
                 let facing = outward(cluster.origin);
@@ -99,18 +93,18 @@ pub(crate) fn mesh_flowers(
     if flowers.placement.size < detail.min_item_size {
         return Vec::new();
     }
-    let stalk_color = rgba(flowers.cluster.stalk_color);
     let catkin = flowers.cluster.kind == ClusterKind::Catkin;
     let level = detail.item_detail;
     let flat = !catkin && flowers.placement.size < detail.flat_item_size;
+    let stalk_color = rgba(flowers.cluster.stalk_color);
     // Flowers do not use crossed fallback shapes; their cull buffer stays empty.
     let mut no_cull = MeshBuffers::default();
     mesh_clusters(
         [out, &mut no_cull],
         clusters,
-        Some(stalk_color),
+        ItemSelection::new(detail, flat),
+        Stalks::new(detail, stalk_color),
         winds,
-        &keep_flat_items(detail, flat),
         |[out, _], _, items, wind| {
             if flat {
                 for item in items {
@@ -130,57 +124,133 @@ pub(crate) fn mesh_flowers(
     )
 }
 
-/// Returns `detail` with every item kept when items are drawn flat.
-fn keep_flat_items(detail: &LodDetail, flat: bool) -> LodDetail {
-    if !flat {
-        return *detail;
+/// Which fruit or flower clusters a detail level keeps, which items in each,
+/// and how much the kept items are enlarged to fill the gaps left by the
+/// others. It doesn't decide how items are drawn, so every way of drawing
+/// them keeps the same items.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ItemSelection {
+    /// Keep every this many clusters, starting with the first. At least 1.
+    cluster_stride: usize,
+    /// Keep every this many items in each kept cluster, starting with the
+    /// first. At least 1.
+    item_stride: usize,
+    /// Multiplies each kept item's size.
+    scale: f32,
+}
+
+/// A cluster a detail level keeps, with the items it keeps at their new sizes.
+pub(crate) struct KeptCluster<'a> {
+    /// The cluster's position in the skeleton's list.
+    pub(crate) index: usize,
+    pub(crate) cluster: &'a SkeletonCluster,
+    pub(crate) items: Vec<ClusterItem>,
+}
+
+impl ItemSelection {
+    /// The selection `detail` makes for items drawn in full or, when `flat`
+    /// is set, drawn flat. Flat items ignore the item stride and keep every
+    /// item in each kept cluster.
+    pub(crate) fn new(detail: &LodDetail, flat: bool) -> Self {
+        Self {
+            cluster_stride: detail.cluster_stride.max(1) as usize,
+            item_stride: if flat {
+                1
+            } else {
+                detail.item_stride.max(1) as usize
+            },
+            scale: detail.item_scale,
+        }
     }
-    LodDetail {
-        item_stride: 1,
-        ..*detail
+
+    /// The selection `detail` makes for fruit drawn as billboards: every
+    /// cluster and every item-stride item, at their original sizes.
+    pub(crate) fn billboard_fruit(detail: &LodDetail) -> Self {
+        Self {
+            cluster_stride: 1,
+            item_stride: detail.item_stride.max(1) as usize,
+            scale: 1.0,
+        }
+    }
+
+    /// The clusters kept from `clusters`, in order, each with its kept items
+    /// resized.
+    pub(crate) fn kept<'a>(
+        self,
+        clusters: &'a [SkeletonCluster],
+    ) -> impl Iterator<Item = KeptCluster<'a>> {
+        clusters
+            .iter()
+            .enumerate()
+            .step_by(self.cluster_stride)
+            .map(move |(index, cluster)| KeptCluster {
+                index,
+                cluster,
+                items: cluster
+                    .items
+                    .iter()
+                    .step_by(self.item_stride)
+                    .map(|item| ClusterItem {
+                        size: item.size * self.scale,
+                        ..*item
+                    })
+                    .collect(),
+            })
     }
 }
 
-/// Processes retained clusters in input order and returns their main and fallback
-/// buffer ranges. Adds supporting stalks to `out` unless `stalk_color` is `None`,
-/// then calls `items` with both buffers and the retained, resized items. Wind
-/// values still use the original cluster extent when items are skipped.
+/// How the stalks supporting fruit or flowers are drawn.
+#[derive(Clone, Copy)]
+struct Stalks {
+    color: Vec4,
+    detail: ItemDetail,
+}
+
+impl Stalks {
+    /// Stalks in `color` at `detail`'s shape detail, or `None` when `detail`
+    /// leaves stalks out.
+    fn new(detail: &LodDetail, color: Vec4) -> Option<Self> {
+        detail.item_stalks.then_some(Self {
+            color,
+            detail: detail.item_detail,
+        })
+    }
+}
+
+/// Draws the clusters `selection` keeps, in input order, and returns their
+/// main and fallback buffer ranges. Adds the stalks supporting the kept items
+/// to `out` when `stalks` is set, then calls `items` with both buffers and the
+/// kept, resized items. Wind values still use the original cluster extent
+/// when items are skipped.
 fn mesh_clusters(
     [out, cull]: [&mut MeshBuffers; 2],
     clusters: &[SkeletonCluster],
-    stalk_color: Option<Vec4>,
+    selection: ItemSelection,
+    stalks: Option<Stalks>,
     winds: &[BranchWind],
-    detail: &LodDetail,
     mut items: impl FnMut([&mut MeshBuffers; 2], &SkeletonCluster, &[ClusterItem], &ClusterWind),
 ) -> Vec<ClusterSpan> {
-    let cluster_stride = detail.cluster_stride.max(1) as usize;
-    let item_stride = detail.item_stride.max(1) as usize;
-
-    let mut spans = Vec::with_capacity(clusters.len().div_ceil(cluster_stride));
-    for (index, cluster) in clusters.iter().enumerate().step_by(cluster_stride) {
+    let mut spans = Vec::with_capacity(clusters.len().div_ceil(selection.cluster_stride));
+    for KeptCluster {
+        index,
+        cluster,
+        items: kept,
+    } in selection.kept(clusters)
+    {
         let (first_vertex, first_index) = (out.next_index(), out.indices.len());
         let (first_cull_vertex, first_cull_index) = (cull.next_index(), cull.indices.len());
         let wind = ClusterWind::new(cluster, wind_at(winds, &cluster.parent));
 
-        // Resize retained items and keep their full chain of supporting stalks.
-        let kept: Vec<ClusterItem> = cluster
-            .items
-            .iter()
-            .step_by(item_stride)
-            .map(|item| ClusterItem {
-                size: item.size * detail.item_scale,
-                ..*item
-            })
-            .collect();
-        if let Some(stalk_color) = stalk_color {
+        // Keep the full chain of stalks supporting the kept items.
+        if let Some(stalks) = stalks {
             let needed = needed_stalks(&cluster.stalks, &kept);
-            let shape = match detail.item_detail {
+            let shape = match stalks.detail {
                 ItemDetail::Full => StalkShape::Tube(STALK_SIDES),
                 ItemDetail::Simple => StalkShape::Tube(SIMPLE_STALK_SIDES),
                 ItemDetail::Minimal => StalkShape::Strip(outward(cluster.origin)),
             };
             for (stalk, _) in cluster.stalks.iter().zip(needed).filter(|(_, n)| *n) {
-                mesh_stalk(out, stalk, shape, stalk_color, &wind);
+                mesh_stalk(out, stalk, shape, stalks.color, &wind);
             }
         }
         items([&mut *out, &mut *cull], cluster, &kept, &wind);

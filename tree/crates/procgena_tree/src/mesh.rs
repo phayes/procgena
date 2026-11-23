@@ -106,6 +106,10 @@ pub struct LodDetail {
     pub item_scale: f32,
     /// Amount of shape detail to use for fruit, flowers, and their stalks.
     pub item_detail: ItemDetail,
+    /// Whether to draw the stalks that hold fruit and flowers. Turn them off
+    /// far away, where they are too thin to see, so the items cost less.
+    /// [`billboard_fruit`](Self::billboard_fruit) fruit never have stalks.
+    pub item_stalks: bool,
     /// Draw fruit and flowers flat when their configured size
     /// ([`ClusterPlacement::size`](crate::ClusterPlacement::size)) is below
     /// this many metres: each fruit becomes a rough disc and each flower a
@@ -151,6 +155,7 @@ impl Default for LodDetail {
             item_stride: 1,
             item_scale: 1.0,
             item_detail: ItemDetail::Full,
+            item_stalks: true,
             flat_item_size: 0.0,
             min_item_size: 0.0,
             billboard_fruit: false,
@@ -268,18 +273,18 @@ pub struct LodLevel {
 /// 7.5 cm (configured size) are drawn flat and keep every item.
 ///
 /// At 50 m (LOD3), renderers supporting [`MeshBuffers::billboard`] can turn
-/// branch strips, leaf cards and fruit toward the camera:
+/// branch strips and leaf cards toward the camera:
 ///
 /// - Branches use two-sided [`BranchShape::Ribbons`]. Branches with a base radius
 ///   below 1.5 cm are omitted, except for the trunk.
 /// - Every fourth leaf is kept, counting back from each branch tip, including on
 ///   omitted branches. Fixed fallback cards use 1.8 times the original size;
 ///   camera-facing cards use 1.25 times.
-/// - [`LodDetail::billboard_fruit`] keeps every second fruit in each cluster, as
-///   at 25 m, drawn as crossed hexagons without stalks at their original size.
-/// - Fruit and flowers with configured sizes below 5 cm are omitted. Flowers
-///   otherwise use the 25 m settings, but keep every second cluster and draw
-///   non-catkin flowers smaller than 15 cm flat.
+/// - Every second cluster of fruit and flowers is kept, at 1.4 times its size
+///   so the clusters cover about as much as before, without stalks. Small items
+///   are kept too, since on some trees, such as Spring Pussy Willow, they make
+///   the canopy. Non-catkin items smaller than 15 cm are drawn flat, keeping
+///   every item in each kept cluster; larger ones keep every second item.
 ///
 /// Renderers that rotate billboards should skip [`TreeMesh::billboard_cull`].
 pub fn default_lod_levels() -> [LodLevel; 4] {
@@ -331,11 +336,10 @@ pub fn default_lod_levels() -> [LodLevel; 4] {
                 leaf_billboard_scale: 1.25,
                 cluster_stride: 2,
                 item_stride: 2,
-                item_scale: 1.25,
+                item_scale: 1.4,
                 item_detail: ItemDetail::Minimal,
-                min_item_size: 0.05,
+                item_stalks: false,
                 flat_item_size: 0.15,
-                billboard_fruit: true,
                 ..LodDetail::default()
             },
         },

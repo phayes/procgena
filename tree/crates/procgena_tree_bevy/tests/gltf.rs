@@ -17,18 +17,22 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use bevy::world_serialization::WorldAssetRoot;
 use procgena_tree::export::gltf::{GltfOptions, to_glb};
-use procgena_tree::{Tree, TreePreset, default_lod_levels};
+use procgena_tree::{LodDetail, Tree, TreePreset, default_lod_levels};
 use procgena_tree_bevy::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, TreeMaterial, TreePlugin,
     add_tree_gltf_attributes,
 };
 
-/// Exports the Apple preset at the lowest default detail level, with wind data
-/// controlled by `wind`. Writes `<name>.glb` in the test’s output folder and
-/// returns that folder, reusing it if it already exists.
+/// Exports the Apple preset at the lowest default detail level with
+/// camera-facing fruit turned on, with wind data controlled by `wind`. Writes
+/// `<name>.glb` in the test’s output folder and returns that folder, reusing
+/// it if it already exists.
 fn export(name: &str, wind: bool) -> PathBuf {
     let tree = Tree::from_preset(TreePreset::Apple);
-    let mesh = tree.mesh_with_detail(&default_lod_levels()[3].detail);
+    let mesh = tree.mesh_with_detail(&LodDetail {
+        billboard_fruit: true,
+        ..default_lod_levels()[3].detail
+    });
     let options = GltfOptions {
         wind,
         ..GltfOptions::default()

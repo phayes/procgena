@@ -805,11 +805,61 @@ fn minimal_catkins_draw_their_items() {
     }
 }
 
-/// Builds LOD3 from the default settings to exercise camera-facing fruit.
+/// Leaving out stalks keeps the same clusters, each with fewer triangles.
+#[test]
+fn item_stalks_off_keeps_the_clusters_without_their_stalks() {
+    for kind in [
+        ClusterKind::Umbel,
+        ClusterKind::Raceme,
+        ClusterKind::Panicle,
+    ] {
+        let options = decorated(kind);
+        let skeleton = Skeleton::generate(&options).unwrap();
+        let with = skeleton.mesh(&options, &LodDetail::default());
+        let without = skeleton.mesh(
+            &options,
+            &LodDetail {
+                item_stalks: false,
+                ..LodDetail::default()
+            },
+        );
+        for (with, without, spans_with, spans_without) in [
+            (
+                &with.fruit,
+                &without.fruit,
+                &with.fruit_spans,
+                &without.fruit_spans,
+            ),
+            (
+                &with.flowers,
+                &without.flowers,
+                &with.flower_spans,
+                &without.flower_spans,
+            ),
+        ] {
+            let clusters =
+                |spans: &[ClusterSpan]| spans.iter().map(|s| s.cluster).collect::<Vec<_>>();
+            assert_eq!(clusters(spans_with), clusters(spans_without), "{kind:?}");
+            assert!(!spans_without.is_empty(), "{kind:?}");
+            for (a, b) in spans_with.iter().zip(spans_without) {
+                assert!(
+                    b.indices.len() < a.indices.len(),
+                    "{kind:?} cluster {}",
+                    a.cluster
+                );
+            }
+            assert!(without.triangle_count() < with.triangle_count(), "{kind:?}");
+        }
+    }
+}
+
+/// Builds LOD3 from the default settings with camera-facing fruit turned on.
 fn billboard_fruit(options: &TreeOptions) -> (Skeleton, TreeMesh) {
     let skeleton = Skeleton::generate(options).unwrap();
-    let detail = default_lod_levels()[3].detail;
-    assert!(detail.billboard_fruit);
+    let detail = LodDetail {
+        billboard_fruit: true,
+        ..default_lod_levels()[3].detail
+    };
     let mesh = skeleton.mesh(options, &detail);
     (skeleton, mesh)
 }
@@ -919,24 +969,30 @@ fn default_levels_simplify_fruit_and_flowers_further_away() {
     assert_eq!(far.item_detail, ItemDetail::Minimal);
     assert_eq!(farthest.item_detail, ItemDetail::Minimal);
     assert_eq!((far.item_stride, far.item_scale), (2, 1.25));
+    // The farthest level keeps half the clusters, enlarged by √2 to keep their area.
+    assert_eq!((farthest.cluster_stride, farthest.item_scale), (2, 1.4));
     assert_eq!(
         [near, middle, far, farthest].map(|d| d.flat_item_size),
         [0.0, 0.0, 0.075, 0.15]
     );
-    // The size filter is disabled for the first three levels and set to 5 cm for the fourth.
+    // No level drops small items, and only the farthest leaves out stalks.
     assert_eq!(
         [near, middle, far, farthest].map(|d| d.min_item_size),
-        [0.0, 0.0, 0.0, 0.05]
+        [0.0; 4]
+    );
+    assert_eq!(
+        [near, middle, far, farthest].map(|d| d.item_stalks),
+        [true, true, true, false]
     );
     // Farther levels must select a subset of the items and clusters kept nearby.
     for (nearer, farther) in [(near, middle), (middle, far), (far, farthest)] {
         assert_eq!(farther.item_stride % nearer.item_stride.max(1), 0);
         assert_eq!(farther.cluster_stride % nearer.cluster_stride.max(1), 0);
     }
-    // Only LOD3 draws fruit as billboards.
+    // No level draws fruit as billboards; far fruit is drawn flat like flowers.
     assert_eq!(
         [near, middle, far, farthest].map(|d| d.billboard_fruit),
-        [false, false, false, true]
+        [false; 4]
     );
 }
 

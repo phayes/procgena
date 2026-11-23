@@ -11,7 +11,8 @@ use procgena_tree::export::gltf::{
 };
 use procgena_tree::export::{TextureMap, TextureRef};
 use procgena_tree::{
-    BranchGrouping, MeshPart, RigOptions, Tree, TreeOptions, TreePreset, default_lod_levels,
+    BranchGrouping, LodDetail, MeshPart, RigOptions, Tree, TreeOptions, TreePreset,
+    default_lod_levels,
 };
 
 fn read(glb: &[u8]) -> Gltf {
@@ -317,12 +318,16 @@ fn levels_of_detail_get_suffixed_names() {
 }
 
 /// Checks LOD3 export tags, links between main and fallback nodes, rotation
-/// attributes and bark/leaf joint assignments on a fruiting tree.
+/// attributes and bark/leaf joint assignments on a fruiting tree, with
+/// camera-facing fruit turned on.
 #[test]
 fn billboard_parts_carry_their_tags() {
     let tree = fruiting_tree();
     let rig = tree.rig(&RigOptions::default()).unwrap();
-    let mesh = tree.mesh_with_detail(&default_lod_levels()[3].detail);
+    let mesh = tree.mesh_with_detail(&LodDetail {
+        billboard_fruit: true,
+        ..default_lod_levels()[3].detail
+    });
     let options = GltfOptions {
         rig: Some(&rig),
         ..GltfOptions::default()
