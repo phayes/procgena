@@ -5368,6 +5368,17 @@ name = "procgena_core"
 version = "0.1.0"
 dependencies = [
  "glam 0.33.12",
+ "serde",
+]
+
+[[package]]
+name = "procgena_core_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "naga",
+ "procgena_core",
+ "wesl",
 ]
 
 [[package]]
