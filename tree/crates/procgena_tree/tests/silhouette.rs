@@ -100,12 +100,14 @@ fn stored(buffers: &MeshBuffers, out: &mut Vec<Triangle>) {
     }
 }
 
-/// Collects fixed bark, leaf and fruit triangles, including crossed fallback
-/// shapes, to represent a renderer without billboard rotation. Omits flowers.
+/// Collects fixed bark, leaf, fruit and flower triangles, including crossed
+/// fallback shapes, to represent a renderer without billboard rotation.
+/// Flowers count because some presets, such as Flowering Dogwood, have no
+/// leaves and their flowers make the canopy.
 fn stored_triangles(mesh: &TreeMesh) -> Vec<Triangle> {
     let cull = &mesh.billboard_cull;
     let mut out = Vec::new();
-    for buffers in [&mesh.branches, &mesh.leaves, &mesh.fruit] {
+    for buffers in [&mesh.branches, &mesh.leaves, &mesh.fruit, &mesh.flowers] {
         stored(buffers, &mut out);
     }
     for buffers in [&cull.branches, &cull.leaves, &cull.fruit] {
@@ -114,12 +116,13 @@ fn stored_triangles(mesh: &TreeMesh) -> Vec<Triangle> {
     out
 }
 
-/// Collects bark, leaf and fruit triangles for an orthographic view toward
-/// `to_camera`. Rotates billboards with the [`BillboardVertex`] formula and
-/// omits their crossed fallback shapes. Non-billboard geometry stays fixed.
+/// Collects bark, leaf, fruit and flower triangles for an orthographic view
+/// toward `to_camera`. Rotates billboards with the [`BillboardVertex`]
+/// formula and omits their crossed fallback shapes. Non-billboard geometry
+/// stays fixed.
 fn turned_triangles(mesh: &TreeMesh, to_camera: Vec3) -> Vec<Triangle> {
     let mut out = Vec::new();
-    for buffers in [&mesh.branches, &mesh.leaves, &mesh.fruit] {
+    for buffers in [&mesh.branches, &mesh.leaves, &mesh.fruit, &mesh.flowers] {
         if buffers.billboard.is_empty() {
             stored(buffers, &mut out);
             continue;
