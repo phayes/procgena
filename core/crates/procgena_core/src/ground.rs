@@ -17,8 +17,8 @@ pub struct GroundSample {
     /// Height in metres, or NaN where there is no ground.
     pub height: f32,
     /// How much the height rises per metre along X (`x`) and along Z (`y`).
-    /// NaN where the ground can't say, such as next to a spot with no
-    /// ground.
+    /// NaN where the ground can't say, such as at a spot with no ground or
+    /// between two holes.
     pub gradient: Vec2,
 }
 
@@ -52,8 +52,10 @@ pub trait Ground: Send + Sync {
     /// Returns how much the height rises per metre along X and Z at `p`.
     ///
     /// The default compares heights [`GRADIENT_STEP`] metres to each side
-    /// of `p` (central differences), and is NaN if any of those four
-    /// heights is NaN.
+    /// of `p` (central differences). Where only one side has ground, such
+    /// as at the edge of the ground or of a hole, it compares that side with
+    /// `p` instead. On an axis where neither side has ground, or where `p`
+    /// has none and needs to be compared, the slope along that axis is NaN.
     fn gradient(&self, p: DVec2) -> Vec2 {
         central_differences(self, p, GRADIENT_STEP)
     }
@@ -71,10 +73,24 @@ pub trait Ground: Send + Sync {
 
 /// Returns the gradient of `ground` at `p` from heights `step` metres to
 /// each side along X and Z.
+///
+/// On an axis where only one side has ground, it compares that side with
+/// `p` itself instead. An axis is NaN where neither side has ground, or
+/// where only one side does and `p` has none.
 fn central_differences<G: Ground + ?Sized>(ground: &G, p: DVec2, step: f64) -> Vec2 {
-    let dx = ground.height(p + DVec2::X * step) - ground.height(p - DVec2::X * step);
-    let dz = ground.height(p + DVec2::Y * step) - ground.height(p - DVec2::Y * step);
-    Vec2::new(dx, dz) / (2.0 * step) as f32
+    // Ask for the height at `p` only if an axis needs it, and only once.
+    let mut here = None;
+    let mut slope = |axis: DVec2| {
+        let ahead = ground.height(p + axis * step);
+        let behind = ground.height(p - axis * step);
+        match (ahead.is_nan(), behind.is_nan()) {
+            (false, false) => (ahead - behind) / (2.0 * step) as f32,
+            (true, true) => f32::NAN,
+            (false, true) => (ahead - *here.get_or_insert_with(|| ground.height(p))) / step as f32,
+            (true, false) => (*here.get_or_insert_with(|| ground.height(p)) - behind) / step as f32,
+        }
+    };
+    Vec2::new(slope(DVec2::X), slope(DVec2::Y))
 }
 
 /// Flat ground at `y = 0`.
@@ -104,8 +120,10 @@ impl<F: Fn(DVec2) -> f32 + Send + Sync> Ground for F {
 /// slow to query, such as a mesh. Outside the grid there is no ground, and
 /// neither is there where any of the four surrounding samples has none.
 ///
-/// Its gradient compares heights one cell to each side, so it is NaN within
-/// one cell of the grid's edge or of a spot with no ground.
+/// Its gradient compares heights one cell to each side. Within one cell of
+/// the grid's edge, or of a spot with no ground, it compares the side that
+/// has ground with the point itself, so the slope is known everywhere the
+/// height is, except in a gap less than two cells wide between holes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeightGrid {
     origin: DVec2,
@@ -257,13 +275,39 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_neighbour_makes_the_slope_nan() {
-        let cliff = |p: DVec2| if p.x > 0.2 { f32::NAN } else { 0.0 };
+    fn a_missing_neighbour_uses_the_side_that_has_ground() {
+        // A tilted plane that ends just past x = 0.2.
+        let plane = tilted(DVec2::ZERO);
+        let cliff = move |p: DVec2| if p.x > 0.2 { f32::NAN } else { plane(p) };
         let s = cliff.sample(DVec2::ZERO);
         assert_eq!(s.height, 0.0);
+        assert!(close(s.gradient, Vec2::new(0.3, -0.1)));
+
+        // Past the edge there is no ground, so no slope either.
+        assert!(cliff.gradient(DVec2::new(0.5, 0.0)).x.is_nan());
+    }
+
+    #[test]
+    fn an_interior_hole_makes_the_slope_nan_only_with_no_neighbour_on_an_axis() {
+        // Holes at x = ±0.5 on the row z = 0 only, so at the origin neither
+        // neighbour along X has ground, but both along Z do.
+        let plane = tilted(DVec2::ZERO);
+        let holes = move |p: DVec2| {
+            if (p.x.abs() - 0.5).abs() < 1e-9 && p.y.abs() < 1e-9 {
+                f32::NAN
+            } else {
+                plane(p)
+            }
+        };
+        let s = holes.sample(DVec2::ZERO);
         assert!(s.gradient.x.is_nan());
+        assert!((s.gradient.y + 0.1).abs() < 1e-5);
         assert!(s.normal().is_nan());
         assert!(s.slope_degrees().is_nan());
+
+        // Beside a single hole the other side is used.
+        let s = holes.sample(DVec2::new(1.0, 0.0));
+        assert!(close(s.gradient, Vec2::new(0.3, -0.1)));
     }
 
     #[test]
@@ -283,8 +327,18 @@ mod tests {
         ] {
             assert!(close(grid.gradient(p), Vec2::new(0.3, -0.1)), "{p}");
         }
-        // Within one cell of the edge there is no neighbour to compare with.
-        assert!(grid.gradient(DVec2::new(3.8, 0.0)).x.is_nan());
+        // Within one cell of the edge, and at the corners, the side inside
+        // the grid gives the same slope.
+        for p in [
+            DVec2::new(3.8, 0.0),
+            DVec2::new(-4.0, 1.0),
+            DVec2::new(4.0, 4.0),
+            DVec2::new(-3.9, -3.9),
+        ] {
+            assert!(close(grid.gradient(p), Vec2::new(0.3, -0.1)), "{p}");
+        }
+        // Outside the grid there is no slope.
+        assert!(grid.gradient(DVec2::new(4.6, 0.0)).x.is_nan());
     }
 
     #[test]
