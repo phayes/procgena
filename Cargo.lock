@@ -5328,6 +5328,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "procgena_biome"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+ "procgena_terrain",
+]
+
+[[package]]
 name = "procgena_clump"
 version = "0.1.0"
 dependencies = [

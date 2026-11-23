@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "biome/crates/procgena_biome",
     "clump/crates/procgena_clump",
     "clump/crates/procgena_clump_bevy",
     "deadwood/crates/procgena_deadwood",

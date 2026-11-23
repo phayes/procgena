@@ -1,0 +1,11 @@
+[package]
+name = "procgena_biome"
+version = "0.1.0"
+description = "Biomes: one region's terrain and the ecotopes that cover it"
+edition.workspace = true
+
+[dependencies]
+procgena_terrain = { path = "../../../terrain/crates/procgena_terrain" }
+
+[dev-dependencies]
+glam = { workspace = true }

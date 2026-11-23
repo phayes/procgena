@@ -330,7 +330,10 @@ is a World of empty Biomes. So the World, its region graph and its Biome
 choice can be built and tested before any Ecotope exists, and the land is
 always built through the same path, with or without cover.
 
-**Status.** New.
+**Status.** Started: `procgena_biome` has empty Biomes (one Terrain by
+preset or inline, an Ecotope rule list that is always empty) and a
+default empty Biome preset per Terrain preset. Ecotope rules, border
+noise and the border negotiation are still to come.
 
 #### 4.2 Terrain
 
@@ -1204,6 +1207,8 @@ to be chosen (see "Decisions to make").
   `Level`, `Part`, `SurfaceMesh`, `Surface`, `Tag`, `TagSet` and
   `TagFilter` keep their names: they describe pieces of a specimen, not the
   specimen itself.
+- **New levels get their own crate** in the same layout as the assets:
+  the Biome is `procgena_biome` in `biome/crates/procgena_biome`.
 - **The doc's word "specimen"** also replaces the earlier "shape" for one
   generated variant: specimen id, specimen budget.
 - **The level is called Scatter**, and each kind is `<Asset>Scatter`.
@@ -1282,8 +1287,10 @@ it starts.
 - [ ] **WorldTerrain**: grow the terrain crate's reference stitcher into the
   level that runs the seam protocol over a whole region graph, with the
   region graph, E and a terrain source.
-- [ ] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
-  default empty Biome per Terrain preset.
+- [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
+  default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
+  The Terrain seed is the World seed for now, passed through
+  `terrain_seed`; open question 5 settles the final derivation.
 - [ ] **World crate**: region graph options, Biome choice per region
   (fields, rules, pins), seed derivation for every level below, specimen
   budgets per pool, and running the two-step Biome border negotiation.
