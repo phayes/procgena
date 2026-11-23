@@ -1,8 +1,8 @@
-//! Conversion to [`procgena_mesh::Object`], the shared format procgena
+//! Conversion to [`procgena_specimen::Specimen`], the shared format procgena
 //! generators use to hand meshes to each other, so that, for example, moss
 //! from `procgena_clump` can grow on a log.
 
-use procgena_mesh::{Level, Object, Part, SurfaceMesh, TagSet, tags};
+use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, TagSet, tags};
 
 use crate::detail::{DeadwoodLod, LodLevel};
 use crate::limb::SizeClass;
@@ -12,7 +12,7 @@ use crate::piece::Piece;
 
 impl SizeClass {
     /// Returns the tag for this size class: `trunk`, `limb` or `branch`.
-    pub fn tag(self) -> procgena_mesh::Tag {
+    pub fn tag(self) -> procgena_specimen::Tag {
         match self {
             SizeClass::Trunk => tags::TRUNK,
             SizeClass::Limb => tags::LIMB,
@@ -31,7 +31,7 @@ impl DeadwoodMesh {
     /// `branch`), plus `bark` while any bark remains on it. Strips in
     /// [`DeadwoodMesh::ribbons`] are left out, since nothing can grow on
     /// them.
-    pub fn object_parts(&self) -> Vec<Part> {
+    pub fn specimen_parts(&self) -> Vec<Part> {
         self.parts
             .iter()
             .map(|range| to_part(&self.surfaces, range))
@@ -40,7 +40,7 @@ impl DeadwoodMesh {
 }
 
 impl Piece {
-    /// Builds an [`Object`] with one level per level of `lod`, for handing
+    /// Builds a [`Specimen`] with one level per level of `lod`, for handing
     /// the piece to other procgena generators.
     ///
     /// # Errors
@@ -50,20 +50,20 @@ impl Piece {
     /// # Panics
     ///
     /// Panics if a mesh needs more vertices than fit in a 32-bit index.
-    pub fn object(&self, lod: &DeadwoodLod) -> Result<Object, OptionsError> {
-        Ok(object_from_meshes(&self.lod_meshes(lod)?))
+    pub fn specimen(&self, lod: &DeadwoodLod) -> Result<Specimen, OptionsError> {
+        Ok(specimen_from_meshes(&self.lod_meshes(lod)?))
     }
 }
 
-/// Builds an [`Object`] from meshes made by [`Piece::lod_meshes`]. Each
-/// level of the object starts at its [`LodLevel::distance`].
-pub fn object_from_meshes(meshes: &[(LodLevel, DeadwoodMesh)]) -> Object {
-    Object {
+/// Builds a [`Specimen`] from meshes made by [`Piece::lod_meshes`]. Each
+/// level of the specimen starts at its [`LodLevel::distance`].
+pub fn specimen_from_meshes(meshes: &[(LodLevel, DeadwoodMesh)]) -> Specimen {
+    Specimen {
         levels: meshes
             .iter()
             .map(|(level, mesh)| Level {
                 start: level.distance,
-                parts: mesh.object_parts(),
+                parts: mesh.specimen_parts(),
             })
             .collect(),
     }

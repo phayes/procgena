@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use procgena_clump::diagnostics::{edge_defects, signed_distances};
 use procgena_clump::{Clump, ClumpMesh, ClumpOptions, ClumpPreset, Direction};
-use procgena_mesh::SurfaceMesh;
+use procgena_specimen::SurfaceMesh;
 use procgena_stone::StonePreset;
 
 /// One test: an input and how to adjust the default snow cap.

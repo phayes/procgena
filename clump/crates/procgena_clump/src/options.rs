@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use procgena_mesh::{ObjectError, SurfaceError, TagFilter, TagSet, tags};
+use procgena_specimen::{SpecimenError, SurfaceError, TagFilter, TagSet, tags};
 
 use crate::material::{MaterialOptions, texture_set};
 
@@ -30,11 +30,11 @@ pub struct ClumpOptions {
     pub shape: ShapeOptions,
     /// How the clump is turned into triangles.
     pub mesh: MeshOptions,
-    /// Which parts of an [`Object`](procgena_mesh::Object) the clump grows on,
+    /// Which parts of a [`Specimen`](procgena_specimen::Specimen) the clump grows on,
     /// by their tags, when built with [`Clump::on`](crate::Clump::on).
     pub grows_on: TagFilter,
     /// The tags the clump's own part carries in
-    /// [`Clump::object`](crate::Clump::object), such as `clump` and `snow`.
+    /// [`Clump::specimen`](crate::Clump::specimen), such as `clump` and `snow`.
     pub tags: TagSet,
     /// How the clump looks.
     pub material: MaterialOptions,
@@ -466,8 +466,8 @@ impl std::error::Error for OptionsError {}
 pub enum ClumpError {
     /// The input surface is invalid.
     Surface(SurfaceError),
-    /// The input object is invalid.
-    Object(ObjectError),
+    /// The input specimen is invalid.
+    Specimen(SpecimenError),
     /// A setting is out of range.
     Options(OptionsError),
 }
@@ -476,7 +476,7 @@ impl fmt::Display for ClumpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Surface(e) => write!(f, "invalid surface: {e}"),
-            Self::Object(e) => write!(f, "invalid object: {e}"),
+            Self::Specimen(e) => write!(f, "invalid specimen: {e}"),
             Self::Options(e) => write!(f, "invalid options: {e}"),
         }
     }
@@ -486,15 +486,15 @@ impl std::error::Error for ClumpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Surface(e) => Some(e),
-            Self::Object(e) => Some(e),
+            Self::Specimen(e) => Some(e),
             Self::Options(e) => Some(e),
         }
     }
 }
 
-impl From<ObjectError> for ClumpError {
-    fn from(e: ObjectError) -> Self {
-        Self::Object(e)
+impl From<SpecimenError> for ClumpError {
+    fn from(e: SpecimenError) -> Self {
+        Self::Specimen(e)
     }
 }
 

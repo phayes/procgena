@@ -8,7 +8,7 @@ publish.workspace = true
 
 [dependencies]
 procgena_clump = { path = "../procgena_clump" }
-procgena_mesh = { path = "../../../mesh/crates/procgena_mesh", features = ["bevy"] }
+procgena_specimen = { path = "../../../specimen/crates/procgena_specimen", features = ["bevy"] }
 bevy = { version = "0.20.1", default-features = false, features = [
     "std",
     "async_executor",

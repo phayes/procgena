@@ -96,7 +96,7 @@ fn promote_nearby(
   `GroveTrees::ray_cast` finds the tree a ray hits first, tested against the
   triangles of its nearest detail level. Use it with
   `Camera::viewport_to_world` to pick trees with the mouse.
-- `GroveVariant::object` gives a variant's tree as a tagged `Object`, to
+- `GroveVariant::specimen` gives a variant's tree as a tagged `Specimen`, to
   build colliders from.
 
 The `grove_promote` example shows both: `--mode distance` promotes the trees
@@ -235,7 +235,7 @@ Each tree stands upright at the lowest of those samples, sunk by
 The last argument thins the grove in places: a function from X and Z to a
 value from 0 (no trees) to 1 (the full density).
 
-In Bevy, spawn the grove as a child of an entity with a `GeneratedObject` and
+In Bevy, spawn the grove as a child of an entity with a `GeneratedSpecimen` and
 call `TreeGroveParams::on_host` with the tags of the parts to stand on.
 
 ## Load and save `.grove.json` files

@@ -1,20 +1,20 @@
-//! Objects, clusters and scatter.
+//! Specimens, clusters and scatter.
 
 use glam::Vec3;
-use procgena_mesh::{Object, Part, SurfaceMesh, TagFilter, tags as mesh_tags};
 use procgena_mushroom::{
     ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomLod, MushroomOptions,
     MushroomPreset, MushroomScatter, ScatterError, ScatterOptions, tags,
 };
+use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags as mesh_tags};
 
 #[test]
-fn object_has_one_level_per_lod_level_with_tags() {
+fn specimen_has_one_level_per_lod_level_with_tags() {
     let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
     let lod = MushroomLod::for_size(mushroom.options().size);
-    let object = mushroom.object(&lod).unwrap();
-    object.validate().unwrap();
-    assert_eq!(object.levels.len(), lod.levels.len());
-    for (level, lod_level) in object.levels.iter().zip(&lod.levels) {
+    let specimen = mushroom.specimen(&lod).unwrap();
+    specimen.validate().unwrap();
+    assert_eq!(specimen.levels.len(), lod.levels.len());
+    for (level, lod_level) in specimen.levels.iter().zip(&lod.levels) {
         assert_eq!(level.start, lod_level.distance);
         for part in &level.parts {
             assert!(part.tags.contains(&tags::MUSHROOM));
@@ -22,11 +22,11 @@ fn object_has_one_level_per_lod_level_with_tags() {
     }
 
     // The full level has every kind; caps can be picked by tag.
-    let full = &object.levels[0];
+    let full = &specimen.levels[0];
     for tag in [tags::CAP, tags::STEM, tags::ANNULUS] {
         assert!(full.parts.iter().any(|p| p.tags.contains(&tag)), "{tag}");
     }
-    let caps = object.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
+    let caps = specimen.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
     assert!(caps.closed);
 }
 
@@ -94,10 +94,10 @@ fn clusters_spread_their_members() {
         );
         assert!(min_base_gap(members) > 0.0, "{layout:?}");
 
-        // The combined object keeps one closed cap piece per member.
-        let object = mushroom.object(&MushroomLod::default()).unwrap();
-        object.validate().unwrap();
-        let caps = object.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
+        // The combined specimen keeps one closed cap piece per member.
+        let specimen = mushroom.specimen(&MushroomLod::default()).unwrap();
+        specimen.validate().unwrap();
+        let caps = specimen.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
         assert!(caps.closed);
         assert_eq!(caps.shells.len(), members.len());
 
@@ -223,8 +223,8 @@ fn clusters_are_repeatable() {
 }
 
 /// A 2 m ground patch.
-fn ground() -> Object {
-    Object::single(vec![Part::new(
+fn ground() -> Specimen {
+    Specimen::single(vec![Part::new(
         [mesh_tags::GROUND],
         SurfaceMesh::ground(2.0, 8),
     )])
@@ -253,8 +253,8 @@ fn scatter_places_mushrooms_on_the_ground() {
         );
         assert!((m.rotation * Vec3::Y).y > 0.5);
     }
-    let object = scatter.object(&MushroomLod::default()).unwrap();
-    object.validate().unwrap();
+    let specimen = scatter.specimen(&MushroomLod::default()).unwrap();
+    specimen.validate().unwrap();
 }
 
 #[test]
@@ -265,7 +265,7 @@ fn scattered_clusters_drop_their_members_onto_the_surface() {
     for p in &mut tilted.positions {
         p[1] = p[2] * 0.2;
     }
-    let host = Object::single(vec![Part::new([mesh_tags::GROUND], tilted)]);
+    let host = Specimen::single(vec![Part::new([mesh_tags::GROUND], tilted)]);
     let mut mushroom = MushroomPreset::FairyRing.options();
     mushroom.cluster.fairy_ring.radius = 10.0;
     let options = ScatterOptions {

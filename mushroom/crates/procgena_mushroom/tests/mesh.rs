@@ -83,7 +83,7 @@ fn solid_parts_are_closed_and_face_outward() {
         let mushroom = Mushroom::from_preset(preset);
         let mesh = mushroom.mesh_with_detail(&detail).unwrap();
         assert!(!mesh.double_sided);
-        for (range, part) in mesh.parts.iter().zip(mesh.object_parts()) {
+        for (range, part) in mesh.parts.iter().zip(mesh.specimen_parts()) {
             let surface = part.surface().unwrap();
             assert_eq!(
                 surface.is_closed(),
@@ -130,7 +130,7 @@ fn shell_and_flat_levels_are_open_and_double_sided() {
     ] {
         let mesh = mushroom.mesh_with_detail(&detail).unwrap();
         assert!(mesh.double_sided);
-        for part in mesh.object_parts() {
+        for part in mesh.specimen_parts() {
             assert!(!part.closed);
             assert!(!part.surface().unwrap().is_closed());
         }

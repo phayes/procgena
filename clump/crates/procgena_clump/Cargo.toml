@@ -15,7 +15,7 @@ gpu = ["dep:wesl", "dep:wgpu"]
 [dependencies]
 glam = { workspace = true }
 procgena_core = { path = "../../../core/crates/procgena_core" }
-procgena_mesh = { path = "../../../mesh/crates/procgena_mesh" }
+procgena_specimen = { path = "../../../specimen/crates/procgena_specimen" }
 wgpu = { workspace = true, optional = true, features = ["std", "wgsl"] }
 
 [build-dependencies]

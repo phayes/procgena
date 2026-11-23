@@ -34,7 +34,7 @@
 //! Pieces rest on flat ground at `y = 0`, with Y up. Logs and branches turn
 //! onto a stable resting side, as if dropped; see [`Placement`]. Stumps
 //! stand upright with their roots and base below the ground. A piece's
-//! [`Piece::object`] lets other generators, such as moss from
+//! [`Piece::specimen`] lets other generators, such as moss from
 //! `procgena_clump`, grow on it.
 //!
 //! [`StickScatter`] spreads sticks and twigs over an area of ground, flat
@@ -61,20 +61,19 @@ pub mod export;
 mod leaves;
 mod limb;
 mod mesh;
-mod object;
 mod options;
 mod piece;
 mod presets;
 mod rng;
 mod scatter;
 mod settle;
+mod specimen;
 mod texture;
 
 pub use colour::{linear_from_hex, srgb_to_linear};
 pub use detail::{DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, LodLevel};
 pub use limb::SizeClass;
 pub use mesh::{BillboardVertex, DeadwoodMesh, MeshBuffers, PartRange, Ribbons, Zone};
-pub use object::object_from_meshes;
 pub use options::{
     BarkOptions, BranchingOptions, DeadwoodOptions, EndKind, EndsOptions, HollowOptions,
     LeafOptions, MAX_CHILDREN, MAX_DECAY, MAX_END_SHARE, MAX_LEVELS, MAX_LOBES, MAX_ROOTS,
@@ -89,6 +88,7 @@ pub use scatter::{
     ScatterOptions, StickScatter,
 };
 pub use settle::Placement;
+pub use specimen::specimen_from_meshes;
 pub use texture::{
     BARK_TEXTURE_SETS, END_TEXTURE_SETS, LEAF_TEXTURE_SETS, LeafMap, TextureCompression,
     TextureMap, TextureSize, bark_texture_path, end_texture_path, leaf_texture_path,

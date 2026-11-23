@@ -9,7 +9,7 @@ use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use procgena_mesh::{GeneratedObject, Object};
+use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
     BranchShape, LodLevel, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
     TreeError, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod_levels,
@@ -31,10 +31,10 @@ use crate::wind::Wind;
 /// The tree appears when background generation finishes. Bark and leaf children
 /// provide each configured detail level; visible trellis wires get their own children.
 /// Trees with identical options share meshes and materials. Once the parts
-/// spawn, the entity also gets a [`GeneratedObject`] describing the tree's
+/// spawn, the entity also gets a [`GeneratedSpecimen`] describing the tree's
 /// meshes, which other generators, such as clumps of snow or moss, grow on.
 /// Changing this component rebuilds its parts; removing it despawns the
-/// generated children and removes the [`GeneratedObject`].
+/// generated children and removes the [`GeneratedSpecimen`].
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub enum TreeParams {
@@ -254,9 +254,9 @@ struct LevelMeshes {
     flowers: Option<PartMesh<Mesh>>,
 }
 
-/// Generated detail levels and the tree as a tagged object, or the validation
+/// Generated detail levels and the tree as a tagged specimen, or the validation
 /// error that prevented generation.
-type TaskOutput = Result<(Vec<LevelMeshes>, Arc<Object>), OptionsError>;
+type TaskOutput = Result<(Vec<LevelMeshes>, Arc<Specimen>), OptionsError>;
 
 /// Mesh handles and the camera-distance range for one detail level.
 struct LevelAssets {
@@ -284,8 +284,8 @@ pub(crate) struct Generated {
     flowers: Handle<TreeMaterial>,
     /// One cylinder mesh and material shared by all wires, plus each wire's placement.
     pub(crate) trellis: Option<(Handle<Mesh>, Handle<StandardMaterial>, Vec<Transform>)>,
-    /// The tree as a tagged object, shared by every tree with these options.
-    pub(crate) object: Arc<Object>,
+    /// The tree as a tagged specimen, shared by every tree with these options.
+    pub(crate) specimen: Arc<Specimen>,
 }
 
 impl Generated {
@@ -452,13 +452,13 @@ pub(crate) fn reset_changed_trees(
         despawn_parts(&mut commands, kids);
         commands
             .entity(entity)
-            .remove::<(TreeKey, GeneratedObject, ImpostorShown)>()
+            .remove::<(TreeKey, GeneratedSpecimen, ImpostorShown)>()
             .insert(TreeGenerating);
     }
     for entity in removed.read() {
         despawn_parts(&mut commands, children.get(entity).ok());
         if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(TreeKey, TreeGenerating, GeneratedObject, ImpostorShown)>();
+            entity.remove::<(TreeKey, TreeGenerating, GeneratedSpecimen, ImpostorShown)>();
         }
     }
 }
@@ -527,7 +527,7 @@ fn generate(options: &TreeOptions, levels: &[TreeLodLevel]) -> TaskOutput {
         .iter()
         .map(|level| (level.level, skeleton.mesh(options, &level.level.detail)))
         .collect();
-    let object = Arc::new(skeleton.object(&lods));
+    let specimen = Arc::new(skeleton.specimen(&lods));
     let meshes = levels
         .into_iter()
         .zip(&lods)
@@ -539,7 +539,7 @@ fn generate(options: &TreeOptions, levels: &[TreeLodLevel]) -> TaskOutput {
             flowers: part(&mesh.flowers, &cluster_mesh),
         })
         .collect();
-    Ok((meshes, object))
+    Ok((meshes, specimen))
 }
 
 /// Collects completed tasks and registers shared meshes and materials.
@@ -561,7 +561,7 @@ pub(crate) fn finish_generation(
         let Some(output) = block_on(poll_once(task)) else {
             continue;
         };
-        let (levels, object) = match output {
+        let (levels, specimen) = match output {
             Ok(generated) => generated,
             Err(error) => {
                 error!("procgena_tree_bevy: cannot generate tree: {error}");
@@ -686,7 +686,7 @@ pub(crate) fn finish_generation(
             fruit,
             flowers,
             trellis,
-            object,
+            specimen,
         };
         *entry = Entry::Ready(Arc::new(generated));
     }
@@ -746,7 +746,7 @@ pub(crate) fn spawn_parts(
                 spawn_tree_parts(&mut commands, entity, generated);
                 commands
                     .entity(entity)
-                    .insert(GeneratedObject(generated.object.clone()));
+                    .insert(GeneratedSpecimen(generated.specimen.clone()));
                 Ok(())
             }
             Some(Entry::Failed(error)) => Err(error.clone()),
@@ -965,37 +965,37 @@ mod tests {
     }
 
     #[test]
-    fn finished_trees_carry_their_object_until_they_change() {
+    fn finished_trees_carry_their_specimen_until_they_change() {
         let mut app = spawn_app();
         let tree = app
             .world_mut()
             .spawn(TreeParams::preset(TreePreset::OakSmall))
             .id();
         app.update();
-        assert!(!app.world().entity(tree).contains::<GeneratedObject>());
+        assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
 
-        // The object arrives with the parts and matches the configured level.
+        // The specimen arrives with the parts and matches the configured level.
         update_until_finished(&mut app, tree);
         let expected = {
             let tree = procgena_tree::Tree::from_preset(TreePreset::OakSmall);
-            tree.object(&tree.lod_meshes(&[LodLevel::default()]))
+            tree.specimen(&tree.lod_meshes(&[LodLevel::default()]))
         };
-        let object = app.world().get::<GeneratedObject>(tree).unwrap();
-        assert_eq!(*object.0, expected);
+        let specimen = app.world().get::<GeneratedSpecimen>(tree).unwrap();
+        assert_eq!(*specimen.0, expected);
 
-        // Changing the options removes the stale object until the rebuild ends.
+        // Changing the options removes the stale specimen until the rebuild ends.
         let mut options = TreePreset::OakSmall.options();
         options.seed += 1;
         *app.world_mut().get_mut::<TreeParams>(tree).unwrap() = TreeParams::new(options);
         app.update();
-        assert!(!app.world().entity(tree).contains::<GeneratedObject>());
+        assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
         update_until_finished(&mut app, tree);
-        assert!(app.world().entity(tree).contains::<GeneratedObject>());
+        assert!(app.world().entity(tree).contains::<GeneratedSpecimen>());
 
-        // Removing the request removes the object.
+        // Removing the request removes the specimen.
         app.world_mut().entity_mut(tree).remove::<TreeParams>();
         app.update();
-        assert!(!app.world().entity(tree).contains::<GeneratedObject>());
+        assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
     }
 
     /// Checks that all four default levels have bark and leaves, and that bark

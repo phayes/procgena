@@ -7,7 +7,7 @@
 //!
 //! ```
 //! use procgena_clump::{Clump, ClumpOptions};
-//! use procgena_mesh::SurfaceMesh;
+//! use procgena_specimen::SurfaceMesh;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let ground = SurfaceMesh::ground(2.0, 8);
@@ -45,7 +45,7 @@ pub use presets::ClumpPreset;
 
 use field::ClumpField;
 use patch::Patch;
-use procgena_mesh::{Object, Part, Surface, SurfaceMesh};
+use procgena_specimen::{Part, Specimen, Surface, SurfaceMesh};
 
 /// A generated clump: its settings, mesh and build measurements.
 #[derive(Debug, Clone, PartialEq)]
@@ -89,16 +89,16 @@ impl Clump {
         })
     }
 
-    /// Generates a clump on the parts of `object`'s most detailed level that
+    /// Generates a clump on the parts of `specimen`'s most detailed level that
     /// [`ClumpOptions::grows_on`] picks, joined into one surface.
     ///
-    /// Returns an error if `object` is malformed (see
-    /// [`Object::validate`]) or a setting is out of range. If no part
+    /// Returns an error if `specimen` is malformed (see
+    /// [`Specimen::validate`]) or a setting is out of range. If no part
     /// matches, or nothing on them passes the mask, the clump mesh is empty.
-    pub fn on(object: &Object, options: &ClumpOptions) -> Result<Self, ClumpError> {
+    pub fn on(specimen: &Specimen, options: &ClumpOptions) -> Result<Self, ClumpError> {
         options.validate()?;
-        object.validate()?;
-        match object.merged(0, &options.grows_on) {
+        specimen.validate()?;
+        match specimen.merged(0, &options.grows_on) {
             Some(part) => Self::new(part.surface()?, options),
             None => Ok(Self {
                 options: options.clone(),
@@ -114,14 +114,14 @@ impl Clump {
         Self::new(surface, &preset.options()).expect("presets have valid settings")
     }
 
-    /// Returns the clump as a tagged [`Object`], so other clumps can grow on
+    /// Returns the clump as a tagged [`Specimen`], so other clumps can grow on
     /// it, such as snow on moss.
     ///
-    /// The object has one level. It holds one part with
+    /// The specimen has one level. It holds one part with
     /// [`ClumpOptions::tags`], or no parts if the clump mesh is empty. The
     /// part is marked closed when [`MeshOptions::closed`] is on; its shells
     /// are left unknown.
-    pub fn object(&self) -> Object {
+    pub fn specimen(&self) -> Specimen {
         let parts = (!self.mesh.is_empty())
             .then(|| {
                 let mesh = SurfaceMesh {
@@ -136,7 +136,7 @@ impl Clump {
             })
             .into_iter()
             .collect();
-        Object::single(parts)
+        Specimen::single(parts)
     }
 
     /// Returns the settings the clump was built with.
@@ -162,7 +162,7 @@ impl Clump {
 pub mod diagnostics {
     use glam::Vec3;
 
-    use procgena_mesh::Surface;
+    use procgena_specimen::Surface;
 
     use crate::bvh::Bvh;
 
@@ -243,7 +243,7 @@ pub mod diagnostics {
 
 #[cfg(test)]
 mod tests {
-    use procgena_mesh::{ObjectError, tags};
+    use procgena_specimen::{SpecimenError, tags};
 
     use super::*;
 
@@ -259,28 +259,29 @@ mod tests {
     #[test]
     fn clumps_grow_only_on_the_parts_they_pick() {
         let ground = SurfaceMesh::ground(1.0, 4);
-        let object = Object::single(vec![Part::new([tags::GROUND], ground.clone()), leaf_card()]);
+        let specimen =
+            Specimen::single(vec![Part::new([tags::GROUND], ground.clone()), leaf_card()]);
 
         // Snow skips the leaf card, so it is the same as snow on the ground alone.
-        let snow = Clump::on(&object, &ClumpOptions::default()).unwrap();
+        let snow = Clump::on(&specimen, &ClumpOptions::default()).unwrap();
         let bare = Clump::new(ground.surface().unwrap(), &ClumpOptions::default()).unwrap();
         assert!(!snow.mesh().is_empty());
         assert_eq!(snow.mesh(), bare.mesh());
 
         // A clump that grows only on bark finds nothing here.
-        let burl = Clump::on(&object, &ClumpPreset::Burl.options()).unwrap();
+        let burl = Clump::on(&specimen, &ClumpPreset::Burl.options()).unwrap();
         assert!(burl.mesh().is_empty());
-        assert!(burl.object().levels[0].parts.is_empty());
+        assert!(burl.specimen().levels[0].parts.is_empty());
     }
 
     #[test]
-    fn malformed_objects_are_rejected() {
-        let mut object = Object::single(vec![leaf_card()]);
+    fn malformed_specimens_are_rejected() {
+        let mut specimen = Specimen::single(vec![leaf_card()]);
         // The card has two triangles, so a shell list must cover 0..2.
-        object.levels[0].parts[0].shells = vec![0..1, 2..3];
+        specimen.levels[0].parts[0].shells = vec![0..1, 2..3];
         assert!(matches!(
-            Clump::on(&object, &ClumpOptions::default()),
-            Err(ClumpError::Object(ObjectError::Shells {
+            Clump::on(&specimen, &ClumpOptions::default()),
+            Err(ClumpError::Specimen(SpecimenError::Shells {
                 level: 0,
                 part: 0
             }))
@@ -288,12 +289,12 @@ mod tests {
     }
 
     #[test]
-    fn a_clump_is_an_object_other_clumps_grow_on() {
-        let ground = Object::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(1.0, 4))]);
+    fn a_clump_is_a_specimen_other_clumps_grow_on() {
+        let ground = Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(1.0, 4))]);
         let moss = Clump::on(&ground, &ClumpPreset::MossPatches.options()).unwrap();
-        let object = moss.object();
-        object.validate().unwrap();
-        let [part] = &object.levels[0].parts[..] else {
+        let specimen = moss.specimen();
+        specimen.validate().unwrap();
+        let [part] = &specimen.levels[0].parts[..] else {
             panic!("expected one part");
         };
         assert_eq!(part.tags, [tags::CLUMP, tags::MOSS].into());
@@ -301,7 +302,7 @@ mod tests {
         assert_eq!(part.mesh.indices, moss.mesh().indices);
 
         // Snow grows on moss.
-        let snow = Clump::on(&object, &ClumpOptions::default()).unwrap();
+        let snow = Clump::on(&specimen, &ClumpOptions::default()).unwrap();
         assert!(!snow.mesh().is_empty());
     }
 

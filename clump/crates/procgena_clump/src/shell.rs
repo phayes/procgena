@@ -10,7 +10,7 @@ use crate::bvh::{Bvh, triangles_cross};
 use crate::field::{ClumpField, SurfacePoint};
 use crate::mesh::{BuildStats, ClumpMesh};
 use crate::patch::{Patch, Tri};
-use procgena_mesh::Surface;
+use procgena_specimen::Surface;
 
 /// Most refinement passes. Each pass halves the longest edges, so this allows
 /// edges 2^16 times longer than the target.

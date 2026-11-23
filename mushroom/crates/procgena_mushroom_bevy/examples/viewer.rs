@@ -32,11 +32,11 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_mesh::{GeneratedObject, Object, Part, SurfaceMesh, tags};
 use procgena_mushroom::{LodLevel, MushroomDetail, MushroomLod, MushroomPreset, ScatterOptions};
 use procgena_mushroom_bevy::{
     MushroomGenerating, MushroomParams, MushroomPart, MushroomPlugin, MushroomScatterParams,
 };
+use procgena_specimen::{GeneratedSpecimen, Part, Specimen, SurfaceMesh, tags};
 
 /// Frames to wait after generation finishes before a screenshot, so meshes
 /// and shaders are ready.
@@ -289,7 +289,7 @@ fn setup(
                 ..default()
             })),
             Transform::from_xyz(0.0, -0.001, -4.0),
-            GeneratedObject(Arc::new(Object::single(vec![Part::new(
+            GeneratedSpecimen(Arc::new(Specimen::single(vec![Part::new(
                 [tags::GROUND],
                 ground,
             )]))),

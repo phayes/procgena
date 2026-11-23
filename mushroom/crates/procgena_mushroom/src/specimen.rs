@@ -1,20 +1,20 @@
-//! Conversion to [`procgena_mesh::Object`], the shared format procgena
+//! Conversion to [`procgena_specimen::Specimen`], the shared format procgena
 //! generators use to hand meshes to each other, so that, for example, moss
 //! can grow on a mushroom.
 
-use procgena_mesh::{Level, Object, Part, SurfaceMesh, Tag, TagSet};
+use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet};
 
 use crate::detail::{LodLevel, MushroomLod};
 use crate::mesh::{MeshBuffers, MushroomMesh, PartKind, PartRange};
 use crate::mushroom::Mushroom;
 use crate::options::OptionsError;
 
-/// Labels on the parts of a mushroom [`Object`], which other generators use
+/// Labels on the parts of a mushroom [`Specimen`], which other generators use
 /// to pick the parts they want.
 ///
 /// Every part has [`MUSHROOM`](tags::MUSHROOM) plus one of the others.
 pub mod tags {
-    use procgena_mesh::Tag;
+    use procgena_specimen::Tag;
 
     /// Any part of a mushroom.
     pub const MUSHROOM: Tag = Tag::new("mushroom");
@@ -45,7 +45,7 @@ impl MushroomMesh {
     /// Camera-facing shapes ([`MushroomMesh::billboard`]) are left out,
     /// because they turn with the camera and so have no fixed surface to
     /// grow on.
-    pub fn object_parts(&self) -> Vec<Part> {
+    pub fn specimen_parts(&self) -> Vec<Part> {
         self.parts
             .iter()
             .map(|range| to_part(&self.surfaces, range))
@@ -54,27 +54,27 @@ impl MushroomMesh {
 }
 
 impl Mushroom {
-    /// Builds an [`Object`] with one detail level for each level of `lod`.
+    /// Builds a [`Specimen`] with one detail level for each level of `lod`.
     /// Every member of a cluster is included, and parts of the same kind
-    /// are merged, so the object has one cap part, one stem part, and so on.
+    /// are merged, so the specimen has one cap part, one stem part, and so on.
     ///
     /// # Errors
     ///
     /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
-    pub fn object(&self, lod: &MushroomLod) -> Result<Object, OptionsError> {
-        Ok(object_from_meshes(&self.lod_meshes(lod)?))
+    pub fn specimen(&self, lod: &MushroomLod) -> Result<Specimen, OptionsError> {
+        Ok(specimen_from_meshes(&self.lod_meshes(lod)?))
     }
 }
 
-/// Builds an [`Object`] from meshes you already made with
+/// Builds a [`Specimen`] from meshes you already made with
 /// [`Mushroom::lod_meshes`], without meshing again.
-pub fn object_from_meshes(meshes: &[(LodLevel, MushroomMesh)]) -> Object {
-    Object {
+pub fn specimen_from_meshes(meshes: &[(LodLevel, MushroomMesh)]) -> Specimen {
+    Specimen {
         levels: meshes
             .iter()
             .map(|(level, mesh)| Level {
                 start: level.distance,
-                parts: mesh.object_parts(),
+                parts: mesh.specimen_parts(),
             })
             .collect(),
     }

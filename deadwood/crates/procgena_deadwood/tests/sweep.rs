@@ -6,7 +6,7 @@ use glam::Vec3;
 use procgena_deadwood::{
     DeadwoodDetail, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, MeshBuffers, Piece,
 };
-use procgena_mesh::Surface;
+use procgena_specimen::Surface;
 
 /// Signed volume enclosed by triangles `indices` of `b`; positive when the
 /// faces point outward. Measured about the first vertex in double

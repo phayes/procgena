@@ -27,7 +27,7 @@
 //! A mushroom can also be a group: with [`ClusterOptions::stems`] above 1,
 //! several mushrooms of one species grow together in a tuft, a row or a
 //! fairy ring. [`MushroomScatter`] spreads mushrooms and clusters over
-//! another generator's [`procgena_mesh::Object`], such as a rock. Both give
+//! another generator's [`procgena_specimen::Specimen`], such as a rock. Both give
 //! a list of placed copies of a few different [`MushroomBody`] meshes, so a
 //! renderer can mesh each one once and draw it many times.
 //!
@@ -47,13 +47,13 @@ mod detail;
 pub mod export;
 mod mesh;
 mod mushroom;
-mod object;
 mod options;
 mod presets;
 mod profile;
 mod rng;
 mod scatter;
 mod shape;
+mod specimen;
 mod texture;
 
 pub use cluster::{
@@ -65,7 +65,6 @@ pub use mesh::{
     BillboardMesh, BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, Zone,
 };
 pub use mushroom::{Mushroom, MushroomBody, MushroomError};
-pub use object::{object_from_meshes, tags};
 pub use options::{
     AnnulusOptions, BulbOptions, CapOptions, MAX_GILL_LINES, MAX_LOBES, MAX_SEGMENTS, MAX_WARTS,
     MaterialOptions, MushroomOptions, OptionsError, Pattern, StemOptions, UndersideOptions,
@@ -74,6 +73,7 @@ pub use options::{
 pub use presets::MushroomPreset;
 pub use profile::CapFamily;
 pub use scatter::{MAX_SITES, MushroomScatter, ScatterError, ScatterOptions};
+pub use specimen::{specimen_from_meshes, tags};
 pub use texture::{
     CAP_TEXTURE_SETS, STEM_TEXTURE_SETS, TextureCompression, TextureMap, TexturePart, TextureSize,
     stem_texture_average, texture_path,

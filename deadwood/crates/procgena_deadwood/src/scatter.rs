@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
-use procgena_mesh::{Level, Object, Part, SurfaceMesh};
+use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
 
 use crate::detail::DeadwoodLod;
 use crate::options::{DeadwoodOptions, OptionsError, PieceKind, int_range, positive, within};
@@ -28,9 +28,9 @@ pub const MAX_VARIANTS: u32 = 32;
 /// Most contact points kept per variant for fitting it to the ground.
 const MAX_CONTACTS: usize = 48;
 
-/// The ground shapes sticks lie on. They live in `procgena_mesh`, shared
+/// The ground shapes sticks lie on. They live in `procgena_specimen`, shared
 /// with the other generators that scatter over ground.
-pub use procgena_mesh::{FlatGround, Ground, HeightGrid};
+pub use procgena_specimen::{FlatGround, Ground, HeightGrid};
 
 /// Settings for a [`StickScatter`].
 #[derive(Debug, Clone, PartialEq)]
@@ -299,9 +299,9 @@ impl StickScatter {
         &self.instances
     }
 
-    /// Bakes every placed copy into one [`Object`], with one level per
+    /// Bakes every placed copy into one [`Specimen`], with one level per
     /// level of `lod`. Each level holds one part per set of tags, with every
-    /// copy's mesh merged in. Strips are left out, as in [`Piece::object`].
+    /// copy's mesh merged in. Strips are left out, as in [`Piece::specimen`].
     ///
     /// # Errors
     ///
@@ -311,11 +311,11 @@ impl StickScatter {
     ///
     /// Panics if a variant's mesh needs more vertices than fit in a 32-bit
     /// index.
-    pub fn object(&self, lod: &DeadwoodLod) -> Result<Object, OptionsError> {
-        let per_variant: Vec<Object> = self
+    pub fn specimen(&self, lod: &DeadwoodLod) -> Result<Specimen, OptionsError> {
+        let per_variant: Vec<Specimen> = self
             .variants
             .iter()
-            .map(|v| v.object(lod))
+            .map(|v| v.specimen(lod))
             .collect::<Result<_, _>>()?;
         let levels = lod
             .levels
@@ -334,7 +334,7 @@ impl StickScatter {
                 }
             })
             .collect();
-        Ok(Object { levels })
+        Ok(Specimen { levels })
     }
 }
 

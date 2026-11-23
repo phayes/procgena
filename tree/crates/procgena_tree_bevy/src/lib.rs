@@ -160,11 +160,11 @@
 //! ```
 //!
 //! To stand the trees on terrain or another generated surface, spawn the grove as a
-//! child of an entity with a `GeneratedObject` and use `on_host`:
+//! child of an entity with a `GeneratedSpecimen` and use `on_host`:
 //!
 //! ```no_run
 //! use bevy::prelude::*;
-//! use procgena_mesh::{TagFilter, tags};
+//! use procgena_specimen::{TagFilter, tags};
 //! use procgena_tree::GrovePreset;
 //! use procgena_tree_bevy::TreeGroveParams;
 //!

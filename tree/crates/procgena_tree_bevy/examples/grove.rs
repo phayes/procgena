@@ -24,7 +24,7 @@ use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
-use procgena_mesh::{GeneratedObject, Object, Part, SurfaceMesh, TagFilter, tags};
+use procgena_specimen::{GeneratedSpecimen, Part, Specimen, SurfaceMesh, TagFilter, tags};
 use procgena_tree::GrovePreset;
 use procgena_tree_bevy::{TreeGroveFinished, TreeGroveParams, TreePlugin};
 
@@ -44,7 +44,7 @@ struct Viewer {
     screenshot: Option<String>,
 }
 
-/// The flat ground plane, and the hilly ground mesh with its object.
+/// The flat ground plane, and the hilly ground mesh with its specimen.
 #[derive(Resource)]
 struct Grounds {
     flat: Entity,
@@ -150,7 +150,7 @@ fn setup(
         .spawn((
             Mesh3d(meshes.add(bevy_mesh(&surface))),
             MeshMaterial3d(grass),
-            GeneratedObject(Arc::new(Object::single(vec![Part::new(
+            GeneratedSpecimen(Arc::new(Specimen::single(vec![Part::new(
                 [tags::GROUND],
                 surface,
             )]))),

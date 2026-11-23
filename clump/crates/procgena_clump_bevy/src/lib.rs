@@ -56,7 +56,7 @@
 //! [`ClumpOptions::grows_on`](procgena_clump::ClumpOptions::grows_on) picks
 //! the parts to grow on; the presets already choose sensible ones, such as
 //! snow on rock, bark and ground but never on leaves. See
-//! [`procgena_mesh::tags`] for the tags in use.
+//! [`procgena_specimen::tags`] for the tags in use.
 //!
 //! To grow clumps on your own mesh, add [`ObjectTags`] to its entity and
 //! spawn the `ClumpParams` as its child.

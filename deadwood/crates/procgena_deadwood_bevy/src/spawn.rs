@@ -16,9 +16,9 @@ use bevy::transform::helper::TransformHelper;
 use procgena_deadwood::{
     DeadwoodError, DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, FlatGround, Ground,
     HeightGrid, LodLevel, OptionsError, Piece, Placement, ScatterError, ScatterOptions,
-    StickScatter, TextureCompression, TextureSize, object_from_meshes,
+    StickScatter, TextureCompression, TextureSize, specimen_from_meshes,
 };
-use procgena_mesh::{GeneratedObject, Object, TagFilter};
+use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 
 use crate::material::{
     BarkTextures, DeadwoodMaterial, EndTextures, LeafTextures, deadwood_material, leaf_material,
@@ -36,11 +36,11 @@ use crate::mesh::{deadwood_mesh, ribbon_aabb, ribbon_mesh};
 /// The piece lies on flat ground at the entity's `y`. Once the parts
 /// appear, the entity also gets a [`DeadwoodPlacement`], whose
 /// [`burial`](Placement::burial) says how far to lower the entity to sink
-/// a decayed piece into the ground, and a [`GeneratedObject`] describing
+/// a decayed piece into the ground, and a [`GeneratedSpecimen`] describing
 /// the piece, so other generators can grow on it (for example a
 /// `procgena_clump_bevy` moss child). Changing the options rebuilds the
 /// piece; removing this component removes the parts, the placement and the
-/// object.
+/// specimen.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub enum DeadwoodParams {
@@ -87,23 +87,23 @@ pub enum ScatterGround {
     /// Flat ground at the entity's `y`.
     Flat,
     /// The surface of the entity's parent, which must have a
-    /// [`GeneratedObject`], such as terrain from another procgena
+    /// [`GeneratedSpecimen`], such as terrain from another procgena
     /// generator.
     ///
     /// Spawn the scatter as a child of that host and leave its own
     /// transform at its default. The ground is the highest surface of the
-    /// object's first level that `filter` matches, read in the host's own
+    /// specimen's first level that `filter` matches, read in the host's own
     /// coordinates with its Y as up, sampled every `cell` metres; sticks
     /// are left out where it has no surface. Lengths stay in world metres
     /// however the host is scaled, but a host stretched differently along
     /// different axes is rejected with
     /// [`DeadwoodBuildError::NonUniformScale`].
     ///
-    /// The scatter waits until the host has its object, and rebuilds when
-    /// the object, the host's scale or these settings change. If the host
-    /// loses its object, the sticks are removed.
+    /// The scatter waits until the host has its specimen, and rebuilds when
+    /// the specimen, the host's scale or these settings change. If the host
+    /// loses its specimen, the sticks are removed.
     Host {
-        /// Which parts of the host's object count as ground.
+        /// Which parts of the host's specimen count as ground.
         filter: TagFilter,
         /// Spacing of the ground samples in metres. Must be positive.
         cell: f32,
@@ -177,7 +177,7 @@ pub enum DeadwoodBuildError {
     Options(OptionsError),
     /// The scatter's settings are out of range or ask for too many sticks.
     Scatter(ScatterError),
-    /// No part of the scatter host's object matched the ground filter.
+    /// No part of the scatter host's specimen matched the ground filter.
     NoGround,
     /// [`ScatterGround::Host`]'s `cell` is not positive.
     BadCell,
@@ -275,18 +275,18 @@ enum Input {
     Single(Arc<DeadwoodOptions>),
     /// A stick scatter on flat ground.
     FlatScatter(ScatterOptions),
-    /// A stick scatter over a host's object, with the host's (uniform)
+    /// A stick scatter over a host's specimen, with the host's (uniform)
     /// world scale.
     HostScatter {
         scatter: ScatterOptions,
         filter: TagFilter,
         cell: f32,
-        host: Arc<Object>,
+        host: Arc<Specimen>,
         scale: f32,
     },
 }
 
-// Host objects can be large, so they are compared by identity (the same
+// Host specimens can be large, so they are compared by identity (the same
 // shared copy) rather than by content.
 impl PartialEq for Input {
     fn eq(&self, other: &Self) -> bool {
@@ -335,8 +335,8 @@ struct Built {
     variants: Vec<BuiltVariant>,
     /// Where to draw copies of them, relative to the requesting entity.
     instances: Vec<(u32, Transform)>,
-    /// A single piece's object and placement; `None` for scatters.
-    single: Option<(Object, Placement)>,
+    /// A single piece's specimen and placement; `None` for scatters.
+    single: Option<(Specimen, Placement)>,
 }
 
 /// One variant's meshes, one per detail level.
@@ -401,7 +401,7 @@ pub(crate) struct DeadwoodCache {
 // --------------------------------------------------------------------------
 // Systems
 
-/// Removes the parts, markers, placement and object of entities whose piece
+/// Removes the parts, markers, placement and specimen of entities whose piece
 /// or scatter component was removed.
 pub(crate) fn remove_deadwood(
     mut commands: Commands,
@@ -418,7 +418,7 @@ pub(crate) fn remove_deadwood(
                 DeadwoodGenerating,
                 Building,
                 Attempted,
-                GeneratedObject,
+                GeneratedSpecimen,
                 DeadwoodPlacement,
             )>();
         }
@@ -441,7 +441,7 @@ fn despawn_parts(
 
 /// What an entity with a piece or scatter component needs this frame.
 enum Wanted {
-    /// Nothing yet: its options file or its host's object isn't available.
+    /// Nothing yet: its options file or its host's specimen isn't available.
     Wait,
     /// The input can't be built, for this reason.
     Fail(Input, DeadwoodBuildError),
@@ -466,7 +466,7 @@ pub(crate) fn start_generation(
         Option<&Children>,
         Has<DeadwoodGenerating>,
     )>,
-    hosts: Query<&GeneratedObject>,
+    hosts: Query<&GeneratedSpecimen>,
     transforms: TransformHelper,
     assets: Res<Assets<DeadwoodOptionsAsset>>,
     parts: Query<(), With<DeadwoodPart>>,
@@ -494,7 +494,7 @@ pub(crate) fn start_generation(
             ScatterGround::Host { filter, cell } => (filter, *cell),
         };
 
-        // Wait for the host's object. Work out the host's world scale from
+        // Wait for the host's specimen. Work out the host's world scale from
         // its parents, because Bevy may not have updated it yet this frame.
         let host = parent.map(ChildOf::parent);
         let found = host.and_then(|h| {
@@ -503,7 +503,7 @@ pub(crate) fn start_generation(
                 transforms.compute_global_transform(h).ok()?,
             ))
         });
-        let Some((object, transform)) = found else {
+        let Some((specimen, transform)) = found else {
             wanted.push((entity, Wanted::Wait));
             continue;
         };
@@ -512,7 +512,7 @@ pub(crate) fn start_generation(
             scatter: params.scatter.clone(),
             filter: filter.clone(),
             cell,
-            host: object.0.clone(),
+            host: specimen.0.clone(),
             scale: scale.x,
         };
         let tolerance = scale.abs().max_element() * 1e-4;
@@ -538,13 +538,13 @@ pub(crate) fn start_generation(
         };
         let input = match want {
             Wanted::Wait => {
-                // If the host lost its object, remove the sticks laid on it.
+                // If the host lost its specimen, remove the sticks laid on it.
                 if building.is_some() || attempted.is_some() {
                     despawn_parts(&mut commands, kids, &parts);
                     commands.entity(entity).remove::<(
                         Building,
                         Attempted,
-                        GeneratedObject,
+                        GeneratedSpecimen,
                         DeadwoodPlacement,
                     )>();
                 }
@@ -565,7 +565,7 @@ pub(crate) fn start_generation(
                     .remove::<(
                         Building,
                         DeadwoodGenerating,
-                        GeneratedObject,
+                        GeneratedSpecimen,
                         DeadwoodPlacement,
                     )>()
                     .insert(Attempted(input));
@@ -582,7 +582,7 @@ pub(crate) fn start_generation(
         let task = AsyncComputeTaskPool::get().spawn(async move { build(&task_input, &lod) });
         commands
             .entity(entity)
-            .remove::<(GeneratedObject, DeadwoodPlacement)>()
+            .remove::<(GeneratedSpecimen, DeadwoodPlacement)>()
             .insert((DeadwoodGenerating, Building { input, task }));
     }
 }
@@ -593,7 +593,7 @@ fn is_current(input: &Input, building: Option<&Building>, attempted: Option<&Att
     building.is_some_and(|b| b.input == *input) || attempted.is_some_and(|a| a.0 == *input)
 }
 
-/// Ground read from a host's object in the host's units, given in world
+/// Ground read from a host's specimen in the host's units, given in world
 /// metres by multiplying by the host's scale.
 struct ScaledGround {
     /// The ground in the host's units.
@@ -616,11 +616,11 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
         Input::Single(options) => {
             let piece = Piece::new((**options).clone())?;
             let (variant, meshes) = build_variant(&piece, lod)?;
-            let object = object_from_meshes(&meshes);
+            let specimen = specimen_from_meshes(&meshes);
             Ok(Built {
                 variants: vec![variant],
                 instances: vec![(0, Transform::IDENTITY)],
-                single: Some((object, *piece.placement())),
+                single: Some((specimen, *piece.placement())),
             })
         }
         Input::FlatScatter(scatter) => scatter_sticks(scatter, &FlatGround, 1.0, lod),
@@ -634,7 +634,7 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
             // Sample the host's surface in its own units, then work in
             // world metres; the parts are scaled back down to the host's
             // units at the end.
-            let grid = HeightGrid::from_object(host, 0, filter, cell / scale)
+            let grid = HeightGrid::from_specimen(host, 0, filter, cell / scale)
                 .ok_or(DeadwoodBuildError::NoGround)?;
             let ground = ScaledGround {
                 grid,
@@ -678,7 +678,7 @@ fn scatter_sticks(
 
 /// Meshes `piece` at every level of `lod` (scaled for its size) and
 /// converts the meshes for Bevy. Also returns the core meshes, for building
-/// the piece's object.
+/// the piece's specimen.
 fn build_variant(
     piece: &Piece,
     lod: &DeadwoodLod,
@@ -715,7 +715,7 @@ fn build_variant(
 }
 
 /// Collects finished background builds: replaces each entity's parts with
-/// the new ones, adds a single piece's [`GeneratedObject`] and
+/// the new ones, adds a single piece's [`GeneratedSpecimen`] and
 /// [`DeadwoodPlacement`], and triggers [`DeadwoodFinished`]. A failed build
 /// is logged and leaves no parts.
 #[expect(clippy::too_many_arguments, reason = "Bevy system parameters")]
@@ -827,9 +827,9 @@ pub(crate) fn finish_generation(
                 }
             }
         }
-        if let Some((object, placement)) = built.single {
+        if let Some((specimen, placement)) = built.single {
             commands.entity(entity).insert((
-                GeneratedObject(Arc::new(object)),
+                GeneratedSpecimen(Arc::new(specimen)),
                 DeadwoodPlacement(placement),
             ));
         }
@@ -1011,7 +1011,7 @@ pub(crate) fn prune_cache(
 mod tests {
     use std::time::{Duration, Instant};
 
-    use procgena_mesh::{Part, SurfaceMesh, tags};
+    use procgena_specimen::{Part, SurfaceMesh, tags};
 
     use super::*;
 
@@ -1062,7 +1062,7 @@ mod tests {
     }
 
     #[test]
-    fn a_log_gets_every_level_its_object_and_placement() {
+    fn a_log_gets_every_level_its_specimen_and_placement() {
         let mut app = app();
         let entity = app
             .world_mut()
@@ -1094,18 +1094,18 @@ mod tests {
                 .any(|p| p.kind == DeadwoodPartKind::Ribbon && p.lod == 3),
             "{parts:?}"
         );
-        assert!(app.world().entity(entity).contains::<GeneratedObject>());
+        assert!(app.world().entity(entity).contains::<GeneratedSpecimen>());
         let placement = app.world().get::<DeadwoodPlacement>(entity).unwrap();
         assert!(placement.0.burial > 0.0, "a rotten log suggests burial");
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
-        // Removing the request removes the parts, object and placement.
+        // Removing the request removes the parts, specimen and placement.
         app.world_mut()
             .entity_mut(entity)
             .remove::<DeadwoodParams>();
         app.update();
         assert!(self::parts(&mut app, entity).is_empty());
-        assert!(!app.world().entity(entity).contains::<GeneratedObject>());
+        assert!(!app.world().entity(entity).contains::<GeneratedSpecimen>());
         assert!(!app.world().entity(entity).contains::<DeadwoodPlacement>());
     }
 
@@ -1278,15 +1278,15 @@ mod tests {
             .len();
         let sticks: HashSet<usize> = parts(&mut app, entity).iter().map(|p| p.instance).collect();
         assert_eq!(sticks.len(), expected);
-        assert!(!app.world().entity(entity).contains::<GeneratedObject>());
+        assert!(!app.world().entity(entity).contains::<GeneratedSpecimen>());
     }
 
-    /// A host entity with a ground object, at `scale`.
+    /// A host entity with a ground specimen, at `scale`.
     fn host(app: &mut App, scale: Vec3) -> Entity {
         let part = Part::new([tags::GROUND], SurfaceMesh::ground(4.0, 8));
         app.world_mut()
             .spawn((
-                GeneratedObject(Arc::new(Object::single(vec![part]))),
+                GeneratedSpecimen(Arc::new(Specimen::single(vec![part]))),
                 Transform::from_scale(scale),
             ))
             .id()
@@ -1330,8 +1330,10 @@ mod tests {
             }
         }
 
-        // Losing the host's object removes the sticks.
-        app.world_mut().entity_mut(host).remove::<GeneratedObject>();
+        // Losing the host's specimen removes the sticks.
+        app.world_mut()
+            .entity_mut(host)
+            .remove::<GeneratedSpecimen>();
         app.update();
         assert!(parts(&mut app, entity).is_empty());
         assert!(app.world().entity(entity).contains::<DeadwoodGenerating>());
@@ -1360,7 +1362,7 @@ mod tests {
             ]
         );
 
-        // A host whose object has no matching ground.
+        // A host whose specimen has no matching ground.
         let mut app = self::app();
         let host = self::host(&mut app, Vec3::ONE);
         let rock = TagFilter::any_of([tags::ROCK]);

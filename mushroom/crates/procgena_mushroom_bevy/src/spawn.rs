@@ -12,12 +12,12 @@ use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
-use procgena_mesh::{GeneratedObject, Object};
 use procgena_mushroom::{
     BodyShape, DEFAULT_LOD_SIZE, Mushroom, MushroomBody, MushroomError, MushroomInstance,
     MushroomLod, MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError,
     ScatterOptions, TextureCompression, TexturePart, TextureSize,
 };
+use procgena_specimen::{GeneratedSpecimen, Specimen};
 
 use crate::material::{MushroomMaterial, TextureSet, billboard_material, mushroom_material};
 use crate::mesh::{billboard_aabb, billboard_mesh, mushroom_mesh};
@@ -31,10 +31,10 @@ use crate::mesh::{billboard_aabb, billboard_mesh, mushroom_mesh};
 /// [`MushroomOptions::cluster`]). Mushrooms with the same options share
 /// meshes and materials, so many identical ones are cheap.
 ///
-/// Once the parts appear, the entity also gets a [`GeneratedObject`]
+/// Once the parts appear, the entity also gets a [`GeneratedSpecimen`]
 /// describing the mushroom, with every member of a cluster combined, so
 /// other generators can grow on it. Changing the options rebuilds the
-/// mushroom; removing this component removes the parts and the object.
+/// mushroom; removing this component removes the parts and the specimen.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub enum MushroomParams {
@@ -60,13 +60,13 @@ impl MushroomParams {
 
 /// Spreads mushrooms over this entity's parent.
 ///
-/// Spawn it as a child of a host: an entity with a [`GeneratedObject`],
+/// Spawn it as a child of a host: an entity with a [`GeneratedSpecimen`],
 /// such as a rock from `procgena_stone_bevy`. Leave this entity's own
 /// transform at its default, so the mushrooms line up with the host.
 ///
-/// It waits until the host has its object, and rebuilds when the object, the
+/// It waits until the host has its specimen, and rebuilds when the specimen, the
 /// host's rotation or scale, or these settings change. If the host loses its
-/// object, the mushrooms are removed. [`ScatterOptions::up`] is in world
+/// specimen, the mushrooms are removed. [`ScatterOptions::up`] is in world
 /// coordinates, and lengths stay in world metres however the host is scaled.
 /// A host stretched differently along different axes is rejected with
 /// [`MushroomBuildError::NonUniformScale`].
@@ -213,18 +213,18 @@ pub(crate) struct TextureSettings {
 enum Input {
     /// One mushroom, or one cluster.
     Single(Arc<MushroomOptions>),
-    /// A scatter over a host's object, with the host's world rotation and
+    /// A scatter over a host's specimen, with the host's world rotation and
     /// (uniform) scale.
     Scatter {
         mushroom: Arc<MushroomOptions>,
         scatter: ScatterOptions,
-        host: Arc<Object>,
+        host: Arc<Specimen>,
         rotation: Quat,
         scale: f32,
     },
 }
 
-// Host objects can be large, so they are compared by identity (the same
+// Host specimens can be large, so they are compared by identity (the same
 // shared copy) rather than by content.
 impl PartialEq for Input {
     fn eq(&self, other: &Self) -> bool {
@@ -284,8 +284,8 @@ struct Built {
     variants: Vec<BuiltVariant>,
     /// Where to draw copies of them.
     instances: Vec<MushroomInstance>,
-    /// The combined object for a mushroom or cluster; `None` for scatters.
-    object: Option<Object>,
+    /// The combined specimen for a mushroom or cluster; `None` for scatters.
+    specimen: Option<Specimen>,
 }
 
 /// One variant's meshes, one per detail level.
@@ -347,7 +347,7 @@ pub(crate) struct MushroomCache {
 // --------------------------------------------------------------------------
 // Systems
 
-/// Removes the parts, markers and object of entities whose mushroom or
+/// Removes the parts, markers and specimen of entities whose mushroom or
 /// scatter component was removed.
 pub(crate) fn remove_mushrooms(
     mut commands: Commands,
@@ -360,7 +360,7 @@ pub(crate) fn remove_mushrooms(
     for entity in removed {
         despawn_parts(&mut commands, children.get(entity).ok(), &parts);
         if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(MushroomGenerating, Building, Attempted, GeneratedObject)>();
+            entity.remove::<(MushroomGenerating, Building, Attempted, GeneratedSpecimen)>();
         }
     }
 }
@@ -381,7 +381,7 @@ fn despawn_parts(
 
 /// What an entity with a mushroom or scatter component needs this frame.
 enum Wanted {
-    /// Nothing yet: its options file or its host's object isn't available.
+    /// Nothing yet: its options file or its host's specimen isn't available.
     Wait,
     /// The input can't be built, for this reason.
     Fail(Input, MushroomBuildError),
@@ -402,7 +402,7 @@ pub(crate) fn start_generation(
         Option<&Children>,
         Has<MushroomGenerating>,
     )>,
-    hosts: Query<&GeneratedObject>,
+    hosts: Query<&GeneratedSpecimen>,
     transforms: TransformHelper,
     assets: Res<Assets<MushroomOptionsAsset>>,
     parts: Query<(), With<MushroomPart>>,
@@ -421,7 +421,7 @@ pub(crate) fn start_generation(
         ));
     }
     for (entity, params, parent) in &scatters {
-        // Wait for the host's object. Work out the host's world transform
+        // Wait for the host's specimen. Work out the host's world transform
         // from its parents, because Bevy may not have updated it yet this
         // frame.
         let host = parent.map(ChildOf::parent);
@@ -431,7 +431,7 @@ pub(crate) fn start_generation(
                 transforms.compute_global_transform(h).ok()?,
             ))
         });
-        let Some((object, transform)) = found else {
+        let Some((specimen, transform)) = found else {
             wanted.push((entity, Wanted::Wait));
             continue;
         };
@@ -439,7 +439,7 @@ pub(crate) fn start_generation(
         let input = Input::Scatter {
             mushroom: params.mushroom.clone(),
             scatter: params.scatter.clone(),
-            host: object.0.clone(),
+            host: specimen.0.clone(),
             rotation,
             scale: scale.x,
         };
@@ -463,13 +463,13 @@ pub(crate) fn start_generation(
         };
         let input = match want {
             Wanted::Wait => {
-                // If the host lost its object, remove the mushrooms grown
+                // If the host lost its specimen, remove the mushrooms grown
                 // on it.
                 if building.is_some() || attempted.is_some() {
                     despawn_parts(&mut commands, kids, &parts);
                     commands
                         .entity(entity)
-                        .remove::<(Building, Attempted, GeneratedObject)>();
+                        .remove::<(Building, Attempted, GeneratedSpecimen)>();
                 }
                 if !generating {
                     commands.entity(entity).insert(MushroomGenerating);
@@ -485,7 +485,7 @@ pub(crate) fn start_generation(
                 despawn_parts(&mut commands, kids, &parts);
                 commands
                     .entity(entity)
-                    .remove::<(Building, MushroomGenerating, GeneratedObject)>()
+                    .remove::<(Building, MushroomGenerating, GeneratedSpecimen)>()
                     .insert(Attempted(input));
                 commands.trigger(MushroomFinished {
                     entity,
@@ -500,7 +500,7 @@ pub(crate) fn start_generation(
         let task = AsyncComputeTaskPool::get().spawn(async move { build(&task_input, &lod) });
         commands
             .entity(entity)
-            .remove::<GeneratedObject>()
+            .remove::<GeneratedSpecimen>()
             .insert((MushroomGenerating, Building { input, task }));
     }
 }
@@ -522,11 +522,11 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
                 .iter()
                 .map(|b| build_variant(b, lod))
                 .collect::<Result<Vec<_>, _>>()?;
-            let object = mushroom.object(&size_lod(lod, options.size))?;
+            let specimen = mushroom.specimen(&size_lod(lod, options.size))?;
             Ok(Built {
                 variants,
                 instances: mushroom.members().to_vec(),
-                object: Some(object),
+                specimen: Some(specimen),
             })
         }
         Input::Scatter {
@@ -555,7 +555,7 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             Ok(Built {
                 variants,
                 instances: built.instances().to_vec(),
-                object: None,
+                specimen: None,
             })
         }
     }
@@ -603,7 +603,7 @@ fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant,
 }
 
 /// Collects finished background builds: replaces each entity's parts with
-/// the new ones, adds its [`GeneratedObject`] if it has one, and triggers
+/// the new ones, adds its [`GeneratedSpecimen`] if it has one, and triggers
 /// [`MushroomFinished`]. A failed build is logged and leaves no parts.
 #[expect(clippy::too_many_arguments, reason = "Bevy system parameters")]
 pub(crate) fn finish_generation(
@@ -696,10 +696,10 @@ pub(crate) fn finish_generation(
                 }
             }
         }
-        if let Some(object) = built.object {
+        if let Some(specimen) = built.specimen {
             commands
                 .entity(entity)
-                .insert(GeneratedObject(Arc::new(object)));
+                .insert(GeneratedSpecimen(Arc::new(specimen)));
         }
         commands.trigger(MushroomFinished {
             entity,
@@ -858,7 +858,7 @@ pub(crate) fn prune_cache(
 mod tests {
     use std::time::{Duration, Instant};
 
-    use procgena_mesh::{Part, SurfaceMesh, tags};
+    use procgena_specimen::{Part, SurfaceMesh, tags};
 
     use super::*;
 
@@ -908,7 +908,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mushroom_gets_every_level_and_its_object() {
+    fn a_mushroom_gets_every_level_and_its_specimen() {
         let mut app = app();
         let entity = app
             .world_mut()
@@ -932,16 +932,16 @@ mod tests {
         // shapes only.
         assert_eq!(surfaces, [0, 1, 2, 3]);
         assert_eq!(billboards, [3, 4]);
-        assert!(app.world().entity(entity).contains::<GeneratedObject>());
+        assert!(app.world().entity(entity).contains::<GeneratedSpecimen>());
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
-        // Removing the request removes the parts and the object.
+        // Removing the request removes the parts and the specimen.
         app.world_mut()
             .entity_mut(entity)
             .remove::<MushroomParams>();
         app.update();
         assert!(self::parts(&mut app, entity).is_empty());
-        assert!(!app.world().entity(entity).contains::<GeneratedObject>());
+        assert!(!app.world().entity(entity).contains::<GeneratedSpecimen>());
     }
 
     #[test]
@@ -1004,15 +1004,15 @@ mod tests {
         let instances: HashSet<usize> =
             parts(&mut app, entity).iter().map(|p| p.instance).collect();
         assert!(instances.len() >= 3, "{instances:?}");
-        assert!(app.world().entity(entity).contains::<GeneratedObject>());
+        assert!(app.world().entity(entity).contains::<GeneratedSpecimen>());
     }
 
-    /// A host entity with a ground object, at `scale`.
+    /// A host entity with a ground specimen, at `scale`.
     fn host(app: &mut App, scale: Vec3) -> Entity {
         let part = Part::new([tags::GROUND], SurfaceMesh::ground(1.0, 4));
         app.world_mut()
             .spawn((
-                GeneratedObject(Arc::new(Object::single(vec![part]))),
+                GeneratedSpecimen(Arc::new(Specimen::single(vec![part]))),
                 Transform::from_scale(scale),
             ))
             .id()
@@ -1041,8 +1041,10 @@ mod tests {
         assert!(!parts(&mut app, entity).is_empty());
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
-        // Losing the host's object removes the mushrooms.
-        app.world_mut().entity_mut(host).remove::<GeneratedObject>();
+        // Losing the host's specimen removes the mushrooms.
+        app.world_mut()
+            .entity_mut(host)
+            .remove::<GeneratedSpecimen>();
         app.update();
         assert!(parts(&mut app, entity).is_empty());
         assert!(app.world().entity(entity).contains::<MushroomGenerating>());

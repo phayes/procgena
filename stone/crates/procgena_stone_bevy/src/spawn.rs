@@ -8,7 +8,7 @@ use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use procgena_mesh::{GeneratedObject, Object};
+use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_stone::{
     DetailLevel, OptionsError, Stone, StoneError, StoneOptions, TextureCompression, TextureSize,
 };
@@ -26,7 +26,7 @@ use crate::mesh::stone_mesh;
 /// [`PlacementOptions::settle`](procgena_stone::PlacementOptions::settle) also turns
 /// it onto an estimated resting side. The generated entity receives a
 /// [`StoneEmbedDepth`] suggesting how far to bury it; apply that offset yourself.
-/// It also receives a [`GeneratedObject`] describing the rock's meshes, which
+/// It also receives a [`GeneratedSpecimen`] describing the rock's meshes, which
 /// other generators, such as clumps of snow or moss, grow on.
 /// Changing this component rebuilds the rock; removing it despawns the generated
 /// children and removes both components.
@@ -151,8 +151,8 @@ struct LevelMesh {
 struct GeneratedMeshes {
     levels: Vec<LevelMesh>,
     embed_depth: f32,
-    /// The rock as a tagged object, for generators that grow on it.
-    object: Arc<Object>,
+    /// The rock as a tagged specimen, for generators that grow on it.
+    specimen: Arc<Specimen>,
 }
 
 /// Grounded meshes and burial depth, or the settings error that stopped generation.
@@ -173,8 +173,8 @@ struct Generated {
     levels: Vec<LevelAssets>,
     /// Suggested burial depth including option scale, before entity transform scaling.
     embed_depth: f32,
-    /// The rock as a tagged object, shared by every rock with these options.
-    object: Arc<Object>,
+    /// The rock as a tagged specimen, shared by every rock with these options.
+    specimen: Arc<Specimen>,
 }
 
 enum Entry {
@@ -245,13 +245,18 @@ pub(crate) fn reset_changed_stones(
         despawn_parts(&mut commands, kids);
         commands
             .entity(entity)
-            .remove::<(StoneKey, StoneEmbedDepth, GeneratedObject)>()
+            .remove::<(StoneKey, StoneEmbedDepth, GeneratedSpecimen)>()
             .insert(StoneGenerating);
     }
     for entity in removed.read() {
         despawn_parts(&mut commands, children.get(entity).ok());
         if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(StoneKey, StoneGenerating, StoneEmbedDepth, GeneratedObject)>();
+            entity.remove::<(
+                StoneKey,
+                StoneGenerating,
+                StoneEmbedDepth,
+                GeneratedSpecimen,
+            )>();
         }
     }
 }
@@ -316,7 +321,7 @@ fn generate(options: &StoneOptions) -> TaskOutput {
     Ok(GeneratedMeshes {
         levels,
         embed_depth: stone.embed_depth(),
-        object: Arc::new(stone.object()),
+        specimen: Arc::new(stone.specimen()),
     })
 }
 
@@ -340,7 +345,7 @@ pub(crate) fn finish_generation(
         let GeneratedMeshes {
             levels,
             embed_depth,
-            object,
+            specimen,
         } = match output {
             Ok(generated) => generated,
             Err(error) => {
@@ -383,7 +388,7 @@ pub(crate) fn finish_generation(
         *entry = Entry::Ready(Arc::new(Generated {
             levels: level_assets,
             embed_depth,
-            object,
+            specimen,
         }));
     }
 }
@@ -438,7 +443,7 @@ pub(crate) fn spawn_parts(
                 spawn_stone_parts(&mut commands, entity, generated);
                 commands.entity(entity).insert((
                     StoneEmbedDepth(generated.embed_depth),
-                    GeneratedObject(generated.object.clone()),
+                    GeneratedSpecimen(generated.specimen.clone()),
                 ));
                 Ok(())
             }
@@ -620,29 +625,29 @@ mod tests {
     }
 
     #[test]
-    fn finished_rocks_carry_their_object_until_they_change() {
+    fn finished_rocks_carry_their_specimen_until_they_change() {
         let mut app = spawn_app();
         let stone = app.world_mut().spawn(StoneParams::new(quick())).id();
         app.update();
-        assert!(!app.world().entity(stone).contains::<GeneratedObject>());
+        assert!(!app.world().entity(stone).contains::<GeneratedSpecimen>());
 
-        // The object arrives with the parts and matches the rock's levels.
+        // The specimen arrives with the parts and matches the rock's levels.
         update_until_finished(&mut app, stone);
-        let object = app.world().get::<GeneratedObject>(stone).unwrap();
-        assert_eq!(*object.0, Stone::new(quick()).unwrap().object());
+        let specimen = app.world().get::<GeneratedSpecimen>(stone).unwrap();
+        assert_eq!(*specimen.0, Stone::new(quick()).unwrap().specimen());
 
-        // Changing the options removes the stale object until the rebuild ends.
+        // Changing the options removes the stale specimen until the rebuild ends.
         let options = StoneOptions { seed: 7, ..quick() };
         *app.world_mut().get_mut::<StoneParams>(stone).unwrap() = StoneParams::new(options);
         app.update();
-        assert!(!app.world().entity(stone).contains::<GeneratedObject>());
+        assert!(!app.world().entity(stone).contains::<GeneratedSpecimen>());
         update_until_finished(&mut app, stone);
-        assert!(app.world().entity(stone).contains::<GeneratedObject>());
+        assert!(app.world().entity(stone).contains::<GeneratedSpecimen>());
 
-        // Removing the request removes the object.
+        // Removing the request removes the specimen.
         app.world_mut().entity_mut(stone).remove::<StoneParams>();
         app.update();
-        assert!(!app.world().entity(stone).contains::<GeneratedObject>());
+        assert!(!app.world().entity(stone).contains::<GeneratedSpecimen>());
     }
 
     /// Returns the distinct material identifiers used by a rock's child parts.

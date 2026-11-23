@@ -112,13 +112,13 @@ renderers that draw many copies of one mesh use `bodies()` and `members()`
 instead.
 
 `MushroomScatter::on(&host, &mushroom, &options)` spreads mushrooms over the
-parts of another generator's `procgena_mesh::Object` picked by a tag filter (for
+parts of another generator's `procgena_specimen::Specimen` picked by a tag filter (for
 example a rock), on surfaces no steeper than a chosen slope. Each spot grows the
 mushroom as configured, so a clustered mushroom scatters whole clusters, with
 members dropped onto the surface.
 
-`Mushroom::object` and `MushroomScatter::object` also return a tagged
-`procgena_mesh::Object`, so other generators can grow on mushrooms.
+`Mushroom::specimen` and `MushroomScatter::specimen` also return a tagged
+`procgena_specimen::Specimen`, so other generators can grow on mushrooms.
 
 ## Export
 
@@ -146,7 +146,7 @@ App::new()
 ```
 
 Spawn `MushroomParams` for one mushroom (or cluster), or
-`MushroomScatterParams` as a child of an entity with a `GeneratedObject` (such as
+`MushroomScatterParams` as a child of an entity with a `GeneratedSpecimen` (such as
 a rock from `procgena_stone_bevy`). Mushrooms are built in the background and
 appear as `MushroomPart` children, one or two per level, switched by Bevy's
 `VisibilityRange`. A `MushroomFinished` event fires when each build ends.

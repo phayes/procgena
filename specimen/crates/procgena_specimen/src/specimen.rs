@@ -1,4 +1,4 @@
-//! Generated objects: detail levels made of tagged parts.
+//! Generated specimens: detail levels made of tagged parts.
 
 use std::fmt;
 use std::ops::Range;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::surface::{Surface, SurfaceError, SurfaceMesh};
 use crate::tag::{TagFilter, TagSet};
 
-/// One tagged piece of a generated object, such as a tree's trunk or a
+/// One tagged piece of a generated specimen, such as a tree's trunk or a
 /// rock.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Part {
@@ -64,7 +64,7 @@ impl Part {
     }
 }
 
-/// One detail level of an [`Object`].
+/// One detail level of a [`Specimen`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct Level {
     /// Camera distance in metres at which this level starts to be drawn.
@@ -74,40 +74,40 @@ pub struct Level {
     pub parts: Vec<Part>,
 }
 
-/// The result of one generation, such as a rock, a tree, a ground patch or
-/// a clump.
+/// One generated example of an asset, such as a rock, a tree, a ground
+/// patch or a clump, which many placed copies can share.
 ///
 /// Other generators read it to decide what to grow on: a snow clump, for
 /// example, picks the parts tagged `rock` or `bark` with a [`TagFilter`].
 #[derive(Debug, Clone, PartialEq)]
-pub struct Object {
+pub struct Specimen {
     /// Detail levels, most detailed first. Must hold at least one.
     pub levels: Vec<Level>,
 }
 
-impl Object {
-    /// Creates an object with a single detail level made of `parts`.
+impl Specimen {
+    /// Creates a specimen with a single detail level made of `parts`.
     pub fn single(parts: Vec<Part>) -> Self {
         Self {
             levels: vec![Level { start: 0.0, parts }],
         }
     }
 
-    /// Checks that the object is well formed.
+    /// Checks that the specimen is well formed.
     ///
     /// Returns the first problem found: no levels, a level start that is
     /// negative, not finite or smaller than the one before it, a part whose
     /// mesh is not a valid [`Surface`], or shells that don't follow the
     /// rules on [`Part::shells`].
-    pub fn validate(&self) -> Result<(), ObjectError> {
+    pub fn validate(&self) -> Result<(), SpecimenError> {
         if self.levels.is_empty() {
-            return Err(ObjectError::NoLevels);
+            return Err(SpecimenError::NoLevels);
         }
         let mut previous = 0.0;
         for (l, level) in self.levels.iter().enumerate() {
             // Levels start at increasing distances.
             if !level.start.is_finite() || level.start < previous {
-                return Err(ObjectError::LevelStart {
+                return Err(SpecimenError::LevelStart {
                     level: l,
                     start: level.start,
                 });
@@ -117,14 +117,14 @@ impl Object {
             // Every part is a valid mesh with valid shells.
             for (p, part) in level.parts.iter().enumerate() {
                 if let Err(error) = part.surface() {
-                    return Err(ObjectError::Mesh {
+                    return Err(SpecimenError::Mesh {
                         level: l,
                         part: p,
                         error,
                     });
                 }
                 if !part.shells_are_valid() {
-                    return Err(ObjectError::Shells { level: l, part: p });
+                    return Err(SpecimenError::Shells { level: l, part: p });
                 }
             }
         }
@@ -196,11 +196,11 @@ impl Object {
     }
 }
 
-/// Why an [`Object`] is not well formed.
+/// Why a [`Specimen`] is not well formed.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum ObjectError {
-    /// The object has no detail levels.
+pub enum SpecimenError {
+    /// The specimen has no detail levels.
     NoLevels,
     /// A level's start distance is negative, not finite, or smaller than
     /// the previous level's.
@@ -215,10 +215,10 @@ pub enum ObjectError {
     Shells { level: usize, part: usize },
 }
 
-impl fmt::Display for ObjectError {
+impl fmt::Display for SpecimenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoLevels => write!(f, "the object has no detail levels"),
+            Self::NoLevels => write!(f, "the specimen has no detail levels"),
             Self::LevelStart { level, start } => write!(
                 f,
                 "level {level} starts at {start}, which is not a finite distance \
@@ -236,7 +236,7 @@ impl fmt::Display for ObjectError {
     }
 }
 
-impl std::error::Error for ObjectError {
+impl std::error::Error for SpecimenError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Mesh { error, .. } => Some(error),
@@ -260,8 +260,8 @@ mod tests {
         }
     }
 
-    fn tree() -> Object {
-        Object::single(vec![
+    fn tree() -> Specimen {
+        Specimen::single(vec![
             quad([BARK, TRUNK], true),
             quad([BARK, LIMB], true),
             Part::new([LEAF, CARD], SurfaceMesh::ground(1.0, 1)),
@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(bark.mesh.positions.len(), 8);
         assert_eq!(bark.mesh.indices[6..], [4, 6, 5, 5, 6, 7]);
         assert_eq!(bark.shells, [0..1, 1..2, 2..3, 3..4]);
-        assert!(Object::single(vec![bark]).validate().is_ok());
+        assert!(Specimen::single(vec![bark]).validate().is_ok());
     }
 
     #[test]
@@ -303,11 +303,11 @@ mod tests {
     #[test]
     // Single-range shell lists are some of the cases under test.
     #[allow(clippy::single_range_in_vec_init)]
-    fn malformed_objects_are_rejected() {
+    fn malformed_specimens_are_rejected() {
         assert!(tree().validate().is_ok());
         assert_eq!(
-            Object { levels: vec![] }.validate(),
-            Err(ObjectError::NoLevels)
+            Specimen { levels: vec![] }.validate(),
+            Err(SpecimenError::NoLevels)
         );
 
         // Levels must start at increasing, finite distances.
@@ -322,7 +322,7 @@ mod tests {
         });
         assert_eq!(
             far_first.validate(),
-            Err(ObjectError::LevelStart {
+            Err(SpecimenError::LevelStart {
                 level: 2,
                 start: 10.0
             })
@@ -331,7 +331,7 @@ mod tests {
         nan.levels[0].start = f32::NAN;
         assert!(matches!(
             nan.validate(),
-            Err(ObjectError::LevelStart { level: 0, .. })
+            Err(SpecimenError::LevelStart { level: 0, .. })
         ));
 
         // A part must be a valid mesh.
@@ -339,7 +339,7 @@ mod tests {
         empty.levels[0].parts[1] = Part::new([BARK], SurfaceMesh::default());
         assert_eq!(
             empty.validate(),
-            Err(ObjectError::Mesh {
+            Err(SpecimenError::Mesh {
                 level: 0,
                 part: 1,
                 error: SurfaceError::Empty
@@ -358,7 +358,7 @@ mod tests {
             bad.levels[0].parts[0].shells = shells;
             assert_eq!(
                 bad.validate(),
-                Err(ObjectError::Shells { level: 0, part: 0 })
+                Err(SpecimenError::Shells { level: 0, part: 0 })
             );
         }
     }

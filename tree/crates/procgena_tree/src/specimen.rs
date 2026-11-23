@@ -1,16 +1,16 @@
-//! Describe a generated tree as a tagged [`Object`] that other generators,
+//! Describe a generated tree as a tagged [`Specimen`] that other generators,
 //! such as procgena_clump, can grow on.
 
 use std::collections::BTreeMap;
 
-use procgena_mesh::{Level, Object, Part, SurfaceMesh, Tag, TagSet, tags};
+use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet, tags};
 
 use crate::mesh::{BranchShape, BranchSpan, LodDetail, LodLevel, MeshBuffers, TreeMesh};
 use crate::skeleton::Skeleton;
 use crate::tree::Tree;
 
 impl Tree {
-    /// Returns the tree as a tagged [`Object`] with one detail level per entry
+    /// Returns the tree as a tagged [`Specimen`] with one detail level per entry
     /// of `lods`, for generators that grow on it, such as procgena_clump.
     ///
     /// Pass the result of [`Tree::lod_meshes`], or any meshes made from this
@@ -22,20 +22,20 @@ impl Tree {
     /// # Panics
     ///
     /// Panics if `lods` is empty, or if a mesh was not made from this tree.
-    pub fn object(&self, lods: &[(LodLevel, TreeMesh)]) -> Object {
-        self.skeleton().object(lods)
+    pub fn specimen(&self, lods: &[(LodLevel, TreeMesh)]) -> Specimen {
+        self.skeleton().specimen(lods)
     }
 }
 
 impl Skeleton {
-    /// Same as [`Tree::object`], for meshes made from this skeleton with
+    /// Same as [`Tree::specimen`], for meshes made from this skeleton with
     /// [`Skeleton::mesh`].
     ///
     /// # Panics
     ///
     /// Panics if `lods` is empty, or if a mesh was not made from this skeleton.
-    pub fn object(&self, lods: &[(LodLevel, TreeMesh)]) -> Object {
-        assert!(!lods.is_empty(), "a tree object needs at least one level");
+    pub fn specimen(&self, lods: &[(LodLevel, TreeMesh)]) -> Specimen {
+        assert!(!lods.is_empty(), "a tree specimen needs at least one level");
         let levels = lods
             .iter()
             .enumerate()
@@ -44,7 +44,7 @@ impl Skeleton {
                 parts: mesh.parts(self, &lod.detail),
             })
             .collect();
-        Object { levels }
+        Specimen { levels }
     }
 }
 

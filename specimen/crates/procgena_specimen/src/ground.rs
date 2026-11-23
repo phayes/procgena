@@ -4,11 +4,11 @@
 //! Generators that spread copies over ground, such as sticks or trees, take
 //! a [`Ground`]. Use [`FlatGround`], any closure `Fn(f32, f32) -> f32`, or a
 //! [`HeightGrid`] sampled from a function or from another generator's
-//! [`Object`].
+//! [`Specimen`].
 
 use glam::{Vec2, Vec3};
 
-use crate::{Object, TagFilter};
+use crate::{Specimen, TagFilter};
 
 /// The shape of the ground, as a height for each point in X and Z, with Y
 /// up.
@@ -82,7 +82,7 @@ impl HeightGrid {
         }
     }
 
-    /// Samples the top surface of a shared [`Object`], such as terrain from
+    /// Samples the top surface of a shared [`Specimen`], such as terrain from
     /// another procgena generator, every `cell` metres. Plant fields use
     /// ground meshes the same way.
     ///
@@ -94,14 +94,14 @@ impl HeightGrid {
     /// # Panics
     ///
     /// Panics if `cell` is not positive or `level` is out of range.
-    pub fn from_object(
-        object: &Object,
+    pub fn from_specimen(
+        specimen: &Specimen,
         level: usize,
         filter: &TagFilter,
         cell: f32,
     ) -> Option<Self> {
         assert!(cell > 0.0);
-        let part = object.merged(level, filter)?;
+        let part = specimen.merged(level, filter)?;
         let mesh = &part.mesh;
         if mesh.positions.is_empty() {
             return None;
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn height_grid_from_an_object_follows_its_top() {
+    fn height_grid_from_a_specimen_follows_its_top() {
         // A tilted square, tagged as ground, under a small level square
         // that is not.
         let tilted = SurfaceMesh {
@@ -222,16 +222,17 @@ mod tests {
             normals: vec![[0.0, 1.0, 0.0]; 4],
             indices: vec![0, 2, 1, 0, 3, 2],
         };
-        let object = Object::single(vec![
+        let specimen = Specimen::single(vec![
             Part::new([tags::GROUND], tilted),
             Part::new([tags::ROCK], SurfaceMesh::ground(1.0, 1)),
         ]);
-        let grid =
-            HeightGrid::from_object(&object, 0, &TagFilter::any_of([tags::GROUND]), 0.1).unwrap();
+        let grid = HeightGrid::from_specimen(&specimen, 0, &TagFilter::any_of([tags::GROUND]), 0.1)
+            .unwrap();
         assert!((grid.height(1.0, 0.5) - 0.2).abs() < 1e-3);
         assert!(grid.height(3.0, 0.0).is_nan());
         assert!(
-            HeightGrid::from_object(&object, 0, &TagFilter::any_of([tags::BARK]), 0.1).is_none()
+            HeightGrid::from_specimen(&specimen, 0, &TagFilter::any_of([tags::BARK]), 0.1)
+                .is_none()
         );
     }
 

@@ -7,7 +7,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use bevy::shape::{Aabb3d, RayCast3d};
-use procgena_mesh::{Object, TagFilter};
+use procgena_specimen::{Specimen, TagFilter};
 
 use super::{PlacedTree, TreeGroveAssets, TreeGroveInstances};
 use crate::spawn::TreeParams;
@@ -175,10 +175,10 @@ impl GroveTrees<'_, '_> {
             if nearest.is_some_and(|n| n.distance <= entry) {
                 break;
             }
-            let Some(object) = assets.of(tree).object() else {
+            let Some(specimen) = assets.of(tree).specimen() else {
                 continue;
             };
-            let Some((distance, point)) = triangle_hit(ray, &world_from_tree, object) else {
+            let Some((distance, point)) = triangle_hit(ray, &world_from_tree, specimen) else {
                 continue;
             };
             if nearest.is_none_or(|n| distance < n.distance) {
@@ -245,13 +245,17 @@ fn box_entry(ray: Ray3d, world_from_tree: &Affine3A, bounds: &Aabb3d) -> Option<
     Some(point.distance(ray.origin))
 }
 
-/// Where `ray` first meets a triangle of `object`'s nearest detail level
+/// Where `ray` first meets a triangle of `specimen`'s nearest detail level
 /// placed by `world_from_tree`, as the distance along the ray and the point
 /// in the world.
-fn triangle_hit(ray: Ray3d, world_from_tree: &Affine3A, object: &Object) -> Option<(f32, Vec3)> {
+fn triangle_hit(
+    ray: Ray3d,
+    world_from_tree: &Affine3A,
+    specimen: &Specimen,
+) -> Option<(f32, Vec3)> {
     let (origin, direction) = local_ray(ray, world_from_tree)?;
     let mut nearest = f32::INFINITY;
-    for part in object.parts(0, &TagFilter::default()) {
+    for part in specimen.parts(0, &TagFilter::default()) {
         let mesh = &part.mesh;
         let (triangles, _) = mesh.indices.as_chunks::<3>();
         for triangle in triangles {

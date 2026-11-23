@@ -40,7 +40,7 @@ use procgena_clump::ClumpPreset;
 use procgena_clump_bevy::{
     ClumpFinished, ClumpGenerating, ClumpParams, ClumpPart, ClumpPlugin, ObjectTags,
 };
-use procgena_mesh::tags;
+use procgena_specimen::tags;
 use procgena_stone::StoneOptions;
 use procgena_stone_bevy::{StoneParams, StonePlugin};
 use procgena_tree::TreePreset;

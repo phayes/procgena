@@ -1,4 +1,4 @@
-//! Labels that say what each part of a generated object is.
+//! Labels that say what each part of a generated specimen is.
 
 use std::borrow::Cow;
 use std::fmt;

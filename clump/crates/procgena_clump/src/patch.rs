@@ -9,7 +9,7 @@ use glam::Vec3;
 use crate::bvh::Bvh;
 use crate::field::{ClumpField, SurfacePoint};
 use procgena_core::hash::pcg3d;
-use procgena_mesh::Surface;
+use procgena_specimen::Surface;
 
 /// Smallest cosine allowed between a simplified triangle's normal and the
 /// smooth normal at each of its corners, so triangles never turn far from
@@ -771,7 +771,7 @@ fn record_envelope(points: &mut [SurfacePoint], tris: &[Tri], fine: &[(Vec3, Vec
 mod tests {
     use super::*;
     use crate::options::ClumpOptions;
-    use procgena_mesh::SurfaceMesh;
+    use procgena_specimen::SurfaceMesh;
 
     /// A `size` metre ground patch with `divisions` cells per side and
     /// gentle bumps, with matching normals.

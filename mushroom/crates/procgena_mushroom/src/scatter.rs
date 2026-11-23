@@ -5,15 +5,15 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
-use procgena_mesh::{Object, Surface, SurfaceError, TagFilter};
+use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 
 use crate::cluster::{MushroomInstance, arrange, make_variants};
 use crate::detail::MushroomLod;
 use crate::mesh::{MushroomMesh, combine};
 use crate::mushroom::MushroomBody;
-use crate::object::object_from_meshes;
 use crate::options::{MushroomOptions, OptionsError, non_negative, positive, within};
 use crate::rng::Rng;
+use crate::specimen::specimen_from_meshes;
 
 /// The most growing spots a scatter makes, however large the surface or
 /// high the density.
@@ -24,7 +24,7 @@ const STREAM_SITES: u32 = 21;
 
 /// Settings for [`MushroomScatter::on`].
 ///
-/// Lengths are in the host object's units, which are metres for procgena
+/// Lengths are in the host specimen's units, which are metres for procgena
 /// generators.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScatterOptions {
@@ -32,9 +32,9 @@ pub struct ScatterOptions {
     /// settings and host always give the same scatter.
     pub seed: u32,
     /// Which parts of the host mushrooms grow on, chosen by their tags, such
-    /// as ground or rock; see [`procgena_mesh::tags`].
+    /// as ground or rock; see [`procgena_specimen::tags`].
     pub grows_on: TagFilter,
-    /// Which way is up, in the host object's coordinates. Any length other
+    /// Which way is up, in the host specimen's coordinates. Any length other
     /// than zero.
     pub up: Vec3,
     /// Growing spots per square metre of suitable surface. Must be zero or
@@ -68,7 +68,7 @@ impl Default for ScatterOptions {
     fn default() -> Self {
         Self {
             seed: 1,
-            grows_on: TagFilter::any_of([procgena_mesh::tags::GROUND]),
+            grows_on: TagFilter::any_of([procgena_specimen::tags::GROUND]),
             up: Vec3::Y,
             density: 4.0,
             max_slope: 50.0,
@@ -145,14 +145,14 @@ impl From<OptionsError> for ScatterError {
 }
 
 /// Mushrooms spread over another generator's output: a
-/// [`procgena_mesh::Object`] such as a rock or ground patch, called the
+/// [`procgena_specimen::Specimen`] such as a rock or ground patch, called the
 /// host.
 ///
 /// The result is a list of placed [`instances`](Self::instances), each a
 /// copy of one of a few [`bodies`](Self::bodies), in the host's
 /// coordinates. A renderer can mesh each body once and draw every instance
 /// from it, which is far cheaper than one big mesh. Use
-/// [`object`](Self::object) if you do need a single mesh.
+/// [`specimen`](Self::specimen) if you do need a single mesh.
 #[derive(Debug, Clone)]
 pub struct MushroomScatter {
     bodies: Vec<MushroomBody>,
@@ -186,7 +186,7 @@ impl MushroomScatter {
     /// [`ScatterError::Options`] if a setting in `mushroom` or `options` is
     /// out of range.
     pub fn on(
-        host: &Object,
+        host: &Specimen,
         mushroom: &MushroomOptions,
         options: &ScatterOptions,
     ) -> Result<Self, ScatterError> {
@@ -324,7 +324,7 @@ impl MushroomScatter {
         &self.instances
     }
 
-    /// Combines every instance into one [`Object`], with one detail level
+    /// Combines every instance into one [`Specimen`], with one detail level
     /// for each level of `lod` and parts of the same kind merged. This can
     /// be a large mesh; drawing [`instances`](Self::instances) is usually
     /// cheaper.
@@ -332,7 +332,7 @@ impl MushroomScatter {
     /// # Errors
     ///
     /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
-    pub fn object(&self, lod: &MushroomLod) -> Result<Object, OptionsError> {
+    pub fn specimen(&self, lod: &MushroomLod) -> Result<Specimen, OptionsError> {
         let meshes: Vec<_> = self
             .bodies
             .iter()
@@ -351,7 +351,7 @@ impl MushroomScatter {
                 (*level, combine(&placed))
             })
             .collect();
-        Ok(object_from_meshes(&levels))
+        Ok(specimen_from_meshes(&levels))
     }
 }
 

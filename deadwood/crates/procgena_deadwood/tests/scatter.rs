@@ -4,7 +4,7 @@ use glam::{Vec2, Vec3};
 use procgena_deadwood::{
     DeadwoodLod, FlatGround, HeightGrid, ScatterError, ScatterOptions, StickScatter,
 };
-use procgena_mesh::{Object, Part, SurfaceMesh, TagFilter, tags};
+use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 /// Kindling over a small 3 m square, to keep the tests quick.
 fn small() -> ScatterOptions {
@@ -80,7 +80,7 @@ fn no_ground_drops_sticks() {
 }
 
 #[test]
-fn height_grid_from_an_object_follows_its_top() {
+fn height_grid_from_a_specimen_follows_its_top() {
     // A tilted square, tagged as ground.
     let mesh = SurfaceMesh {
         positions: vec![
@@ -92,9 +92,9 @@ fn height_grid_from_an_object_follows_its_top() {
         normals: vec![[0.0, 1.0, 0.0]; 4],
         indices: vec![0, 2, 1, 0, 3, 2],
     };
-    let object = Object::single(vec![Part::new([tags::GROUND], mesh)]);
+    let specimen = Specimen::single(vec![Part::new([tags::GROUND], mesh)]);
     let grid =
-        HeightGrid::from_object(&object, 0, &TagFilter::any_of([tags::GROUND]), 0.1).unwrap();
+        HeightGrid::from_specimen(&specimen, 0, &TagFilter::any_of([tags::GROUND]), 0.1).unwrap();
     use procgena_deadwood::Ground;
     assert!((grid.height(1.0, 0.5) - 0.2).abs() < 1e-3);
     let s = StickScatter::new(&small(), &grid, None).unwrap();
@@ -115,11 +115,11 @@ fn too_many_sticks_is_an_error() {
 }
 
 #[test]
-fn baked_object_is_valid() {
+fn baked_specimen_is_valid() {
     let s = StickScatter::new(&small(), &FlatGround, None).unwrap();
-    let object = s.object(&DeadwoodLod::default()).unwrap();
-    object.validate().unwrap();
-    let part = &object.levels[0].parts[0];
+    let specimen = s.specimen(&DeadwoodLod::default()).unwrap();
+    specimen.validate().unwrap();
+    let part = &specimen.levels[0].parts[0];
     assert!(part.closed);
     let centre: Vec3 = part
         .mesh

@@ -7,7 +7,7 @@ use futures_lite::future::block_on;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use glam::{Affine3A, Quat, Vec3};
-use procgena_mesh::SurfaceMesh;
+use procgena_specimen::SurfaceMesh;
 
 use super::batch::*;
 use super::params::{ParamSlots, params_and_arena};

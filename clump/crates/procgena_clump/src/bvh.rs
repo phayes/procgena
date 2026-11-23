@@ -3,7 +3,7 @@
 
 use glam::Vec3;
 
-use procgena_mesh::Surface;
+use procgena_specimen::Surface;
 
 /// Most triangles stored in one leaf before it is split.
 const LEAF_SIZE: usize = 4;
@@ -535,7 +535,7 @@ mod tests {
         assert!(!triangles_cross(flat, sharing_edge));
     }
     use procgena_core::Rng;
-    use procgena_mesh::SurfaceMesh;
+    use procgena_specimen::SurfaceMesh;
 
     /// A bumpy ground patch, so triangles are not all coplanar.
     fn bumpy() -> SurfaceMesh {

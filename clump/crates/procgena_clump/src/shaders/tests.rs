@@ -10,7 +10,7 @@ use wesl::{CompileOptions, CompileResult, Compiler};
 
 use glam::Vec3;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
-use procgena_mesh::SurfaceMesh;
+use procgena_specimen::SurfaceMesh;
 
 use super::*;
 use crate::bvh::triangles_cross;

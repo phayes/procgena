@@ -7,7 +7,7 @@ use glam::Vec3;
 use crate::bvh::Bvh;
 use crate::options::{ClumpOptions, MAX_DIRECTIONS};
 use procgena_core::hash::{pcg3d, unit_float};
-use procgena_mesh::Surface;
+use procgena_specimen::Surface;
 
 /// Smallest lump radius, as a fraction of `lump_size`.
 pub(crate) const LUMP_RADIUS_MIN: f32 = 0.3;

@@ -19,7 +19,7 @@ use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use procgena_mesh::{GeneratedObject, Object, TagFilter};
+use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 use procgena_tree::{
     FlatGround, Ground, GroveError, GroveInstance, GrovePlacement, GrovePreset, HeightGrid,
     TreeGrove, TreeOptions,
@@ -103,11 +103,11 @@ pub enum GroveGround {
     /// Flat ground at the entity's height.
     Flat,
     /// The surface of the entity's parent, which must have a
-    /// [`GeneratedObject`], such as terrain or a rock from another procgena
+    /// [`GeneratedSpecimen`], such as terrain or a rock from another procgena
     /// generator.
     ///
     /// Spawn the grove as a child of that host and leave its own transform
-    /// at its default. The ground is the highest surface of the object's
+    /// at its default. The ground is the highest surface of the specimen's
     /// first level that `filter` matches, read in the host's own
     /// coordinates with its Y as up and sampled every `cell` metres. Trees
     /// are left out where it has no surface. Sizes and spacings stay in
@@ -115,11 +115,11 @@ pub enum GroveGround {
     /// differently along different axes is rejected with
     /// [`TreeGroveBuildError::NonUniformScale`].
     ///
-    /// The grove waits until the host has its object, and updates when the
-    /// object, the host's scale or these settings change. If the host loses
-    /// its object, the trees are removed.
+    /// The grove waits until the host has its specimen, and updates when the
+    /// specimen, the host's scale or these settings change. If the host loses
+    /// its specimen, the trees are removed.
     Host {
-        /// Which parts of the host's object count as ground.
+        /// Which parts of the host's specimen count as ground.
         filter: TagFilter,
         /// Spacing of the ground samples in metres. Must be positive.
         cell: f32,
@@ -257,10 +257,10 @@ impl GroveVariant {
         self.generated.is_some()
     }
 
-    /// The variant's tree as a tagged object, in the tree's own coordinates,
+    /// The variant's tree as a tagged specimen, in the tree's own coordinates,
     /// once generated. Use it to build colliders.
-    pub fn object(&self) -> Option<&Arc<Object>> {
-        self.generated.as_ref().map(|g| &g.object)
+    pub fn specimen(&self) -> Option<&Arc<Specimen>> {
+        self.generated.as_ref().map(|g| &g.specimen)
     }
 
     /// The parts each detail level draws, nearest level first; empty until
@@ -392,7 +392,7 @@ pub struct TreeGroveFinished {
 pub enum TreeGroveBuildError {
     /// A setting is out of range, or the grove asks for too many trees.
     Grove(GroveError),
-    /// No part of the host's object matched the ground filter.
+    /// No part of the host's specimen matched the ground filter.
     NoGround,
     /// [`GroveGround::Host`]'s `cell` is not positive.
     BadCell,
@@ -455,17 +455,17 @@ pub(crate) struct Input {
 #[derive(Debug, Clone)]
 enum InputGround {
     Flat,
-    /// A host's object, with the host's (uniform) world scale.
+    /// A host's specimen, with the host's (uniform) world scale.
     Host {
         filter: TagFilter,
         cell: f32,
-        host: Arc<Object>,
+        host: Arc<Specimen>,
         scale: f32,
     },
 }
 
 impl InputGround {
-    /// True when both are the same ground. Host objects can be large, so
+    /// True when both are the same ground. Host specimens can be large, so
     /// they are compared by identity (the same shared copy), not content.
     fn same(&self, other: &Self) -> bool {
         match (self, other) {
@@ -523,7 +523,7 @@ pub(crate) struct Placed {
 
 /// What a grove needs this frame.
 enum Wanted<'a> {
-    /// Nothing yet: its file or its host's object isn't available.
+    /// Nothing yet: its file or its host's specimen isn't available.
     Wait,
     /// Place `grove` at `size` on `ground`, or fail with `error` if given.
     Place {
@@ -573,7 +573,7 @@ pub(crate) fn start_groves(
         Option<&Placed>,
         Has<TreeGroveGenerating>,
     )>,
-    hosts: Query<&GeneratedObject>,
+    hosts: Query<&GeneratedSpecimen>,
     transforms: TransformHelper,
     assets: Res<Assets<TreeGroveAsset>>,
 ) {
@@ -587,7 +587,7 @@ pub(crate) fn start_groves(
         } = want
         else {
             // While waiting, remove trees laid on a host that lost its
-            // object.
+            // specimen.
             if placing.is_some() || placed.is_some() {
                 clear_trees(&mut commands, entity);
                 commands.entity(entity).remove::<(Placing, Placed)>();
@@ -625,7 +625,7 @@ pub(crate) fn start_groves(
 fn wanted<'a>(
     params: &'a TreeGroveParams,
     parent: Option<&ChildOf>,
-    hosts: &Query<&GeneratedObject>,
+    hosts: &Query<&GeneratedSpecimen>,
     transforms: &TransformHelper,
     assets: &'a Assets<TreeGroveAsset>,
 ) -> Wanted<'a> {
@@ -648,7 +648,7 @@ fn wanted<'a>(
         GroveGround::Host { filter, cell } => (filter, *cell),
     };
 
-    // Wait for the host's object. Work out the host's world scale from its
+    // Wait for the host's specimen. Work out the host's world scale from its
     // parents, because Bevy may not have updated it yet this frame.
     let host = parent.map(ChildOf::parent);
     let found = host.and_then(|h| {
@@ -657,7 +657,7 @@ fn wanted<'a>(
             transforms.compute_global_transform(h).ok()?,
         ))
     });
-    let Some((object, transform)) = found else {
+    let Some((specimen, transform)) = found else {
         return Wanted::Wait;
     };
     let (scale, _, _) = transform.to_scale_rotation_translation();
@@ -678,7 +678,7 @@ fn wanted<'a>(
         ground: InputGround::Host {
             filter: filter.clone(),
             cell,
-            host: object.0.clone(),
+            host: specimen.0.clone(),
             scale: scale.x,
         },
         error,
@@ -703,7 +703,7 @@ fn fail(commands: &mut Commands, entity: Entity, input: Input, error: TreeGroveB
     });
 }
 
-/// Ground read from a host's object in the host's units, given in world
+/// Ground read from a host's specimen in the host's units, given in world
 /// metres by multiplying by the host's scale.
 struct ScaledGround {
     grid: HeightGrid,
@@ -728,7 +728,7 @@ fn place(input: &Input) -> Result<Vec<GroveInstance>, TreeGroveBuildError> {
             host,
             scale,
         } => {
-            let grid = HeightGrid::from_object(host, 0, filter, cell / scale)
+            let grid = HeightGrid::from_specimen(host, 0, filter, cell / scale)
                 .ok_or(TreeGroveBuildError::NoGround)?;
             let ground = ScaledGround {
                 grid,
@@ -920,7 +920,7 @@ mod tests {
     use std::collections::HashSet;
     use std::time::{Duration, Instant};
 
-    use procgena_mesh::{Part, SurfaceMesh, tags};
+    use procgena_specimen::{Part, SurfaceMesh, tags};
     use procgena_tree::{GroveTree, LodLevel, TextureCompression, TextureSize, TreePreset};
 
     use super::*;
@@ -1077,7 +1077,7 @@ mod tests {
         assert_eq!(distinct.len(), assets.variants().len());
         for variant in assets.variants() {
             let parts: Vec<_> = variant.parts().collect();
-            assert!(!parts.is_empty() && variant.object().is_some());
+            assert!(!parts.is_empty() && variant.specimen().is_some());
             assert!(
                 parts
                     .iter()
@@ -1227,12 +1227,12 @@ mod tests {
     }
 
     #[test]
-    fn a_new_host_object_moves_the_trees_and_a_missing_surface_is_reported() {
+    fn a_new_host_specimen_moves_the_trees_and_a_missing_surface_is_reported() {
         let mut app = grove_app();
         let level = |height: f32| {
             let mut ground = SurfaceMesh::ground(16.0, 4);
             ground.positions.iter_mut().for_each(|p| p[1] = height);
-            GeneratedObject(Arc::new(Object::single(vec![Part::new(
+            GeneratedSpecimen(Arc::new(Specimen::single(vec![Part::new(
                 [tags::GROUND],
                 ground,
             )])))
@@ -1256,7 +1256,7 @@ mod tests {
         };
         assert!(height(&mut app) < 0.0);
 
-        // A new object on the host places the trees again, on its surface.
+        // A new specimen on the host places the trees again, on its surface.
         app.world_mut().entity_mut(host).insert(level(3.0));
         update_until_finished(&mut app, entity);
         assert!((height(&mut app) - (3.0 - small_grove().variation.sink)).abs() < 1e-3);
@@ -1301,7 +1301,7 @@ mod tests {
     }
 
     #[test]
-    fn host_ground_waits_for_its_object_and_follows_its_scale() {
+    fn host_ground_waits_for_its_specimen_and_follows_its_scale() {
         let mut app = grove_app();
         let host = app
             .world_mut()
@@ -1328,10 +1328,10 @@ mod tests {
         for p in &mut ground.positions {
             p[1] += 1.0;
         }
-        let object = Object::single(vec![Part::new([tags::GROUND], ground)]);
+        let specimen = Specimen::single(vec![Part::new([tags::GROUND], ground)]);
         app.world_mut()
             .entity_mut(host)
-            .insert(GeneratedObject(Arc::new(object)));
+            .insert(GeneratedSpecimen(Arc::new(specimen)));
         update_until_finished(&mut app, entity);
         let placed = trees(&app, entity);
         assert!(!placed.is_empty());
@@ -1348,8 +1348,10 @@ mod tests {
             assert!(transform.scale.x <= 0.5 * largest + 1e-4);
         }
 
-        // Losing the object removes the trees.
-        app.world_mut().entity_mut(host).remove::<GeneratedObject>();
+        // Losing the specimen removes the trees.
+        app.world_mut()
+            .entity_mut(host)
+            .remove::<GeneratedSpecimen>();
         app.update();
         app.update();
         assert!(trees(&app, entity).is_empty());
@@ -1360,10 +1362,10 @@ mod tests {
     fn a_bad_ground_cell_is_reported() {
         let mut app = grove_app();
         let ground = SurfaceMesh::ground(8.0, 2);
-        let object = Object::single(vec![Part::new([tags::GROUND], ground)]);
+        let specimen = Specimen::single(vec![Part::new([tags::GROUND], ground)]);
         let host = app
             .world_mut()
-            .spawn((GeneratedObject(Arc::new(object)), Transform::default()))
+            .spawn((GeneratedSpecimen(Arc::new(specimen)), Transform::default()))
             .id();
         let entity = app
             .world_mut()

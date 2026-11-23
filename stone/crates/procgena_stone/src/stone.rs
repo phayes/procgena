@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use procgena_mesh::{Level, Object, Part, SurfaceMesh, tags};
+use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, tags};
 
 use crate::detail::DetailLevel;
 use crate::field::StoneField;
@@ -134,16 +134,16 @@ impl Stone {
         self.options.mesh.detail.levels().iter().zip(&self.meshes)
     }
 
-    /// Returns the rock as a tagged [`Object`], for generators that grow on
+    /// Returns the rock as a tagged [`Specimen`], for generators that grow on
     /// it, such as procgena_clump.
     ///
-    /// There is one object level per detail level, most detailed first. Each
+    /// There is one specimen level per detail level, most detailed first. Each
     /// level holds a single part tagged [`tags::ROCK`], or no parts if that
     /// level's mesh is empty. Level start distances are in metres, scaled to
     /// this rock's size the same way the Bevy plugin scales them. A part is
     /// marked closed only if its mesh is watertight; its shells are left
     /// unknown.
-    pub fn object(&self) -> Object {
+    pub fn specimen(&self) -> Specimen {
         let size_factor = self.options.scale / StoneOptions::default().scale;
         let levels = self
             .levels()
@@ -158,7 +158,7 @@ impl Stone {
                 Level { start, parts }
             })
             .collect();
-        Object { levels }
+        Specimen { levels }
     }
 
     /// Wraps `mesh` as a part tagged `rock`, or returns `None` if it is empty.
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn the_object_has_one_closed_rock_part_per_level() {
+    fn the_specimen_has_one_closed_rock_part_per_level() {
         let mut options = StoneOptions {
             scale: 5.0,
             ..StoneOptions::default()
@@ -300,16 +300,16 @@ mod tests {
             DetailLevel::new(16, 10.0, TextureSize::Size512),
         ]);
         let stone = Stone::new(options).unwrap();
-        let object = stone.object();
-        object.validate().unwrap();
-        assert_eq!(object.levels.len(), 2);
+        let specimen = stone.specimen();
+        specimen.validate().unwrap();
+        assert_eq!(specimen.levels.len(), 2);
 
         // Level starts are scaled to the rock's size: 5 m is twice the default.
-        assert_eq!(object.levels[0].start, 0.0);
-        assert_eq!(object.levels[1].start, 20.0);
+        assert_eq!(specimen.levels[0].start, 0.0);
+        assert_eq!(specimen.levels[1].start, 20.0);
 
         // Each level is the matching mesh, as one watertight rock part.
-        for (level, (_, mesh)) in object.levels.iter().zip(stone.levels()) {
+        for (level, (_, mesh)) in specimen.levels.iter().zip(stone.levels()) {
             let [part] = &level.parts[..] else {
                 panic!("expected one part, got {}", level.parts.len());
             };

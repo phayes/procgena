@@ -5,7 +5,7 @@ use procgena_deadwood::{
     DeadwoodDetail, DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, EndKind,
     EndsOptions, HollowOptions, MeshBuffers, Piece, PieceKind,
 };
-use procgena_mesh::Surface;
+use procgena_specimen::Surface;
 
 /// Every named detail level.
 fn details() -> impl Iterator<Item = DeadwoodDetail> {

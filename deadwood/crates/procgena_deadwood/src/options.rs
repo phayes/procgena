@@ -357,7 +357,7 @@ pub struct RootOptions {
 /// ground, or below the suggested burial depth, get no spray.
 ///
 /// Decay does not change the leaves. Leaves don't affect how a piece
-/// settles, and aren't part of [`crate::Piece::object`], so nothing grows
+/// settles, and aren't part of [`crate::Piece::specimen`], so nothing grows
 /// on them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LeafOptions {

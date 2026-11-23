@@ -1,8 +1,8 @@
-//! Conversion to `procgena_mesh::Object`, with tags other generators can
+//! Conversion to `procgena_specimen::Specimen`, with tags other generators can
 //! grow on.
 
 use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, Piece};
-use procgena_mesh::{TagFilter, tags};
+use procgena_specimen::{TagFilter, tags};
 
 /// The surfaces procgena_clump's moss presets grow on.
 fn moss_filter() -> TagFilter {
@@ -10,14 +10,14 @@ fn moss_filter() -> TagFilter {
 }
 
 #[test]
-fn objects_are_valid_closed_and_tagged() {
+fn specimens_are_valid_closed_and_tagged() {
     for preset in DeadwoodPreset::ALL {
         let piece = Piece::from_preset(preset);
         let lod = DeadwoodLod::for_options(piece.options());
-        let object = piece.object(&lod).unwrap();
-        object.validate().unwrap();
-        assert_eq!(object.levels.len(), lod.levels.len());
-        for part in &object.levels[0].parts {
+        let specimen = piece.specimen(&lod).unwrap();
+        specimen.validate().unwrap();
+        assert_eq!(specimen.levels.len(), lod.levels.len());
+        for part in &specimen.levels[0].parts {
             assert!(part.closed, "{}", preset.name());
             assert!(!part.shells.is_empty());
             assert!(part.tags.contains(&tags::DEADWOOD));
@@ -38,7 +38,7 @@ fn bark_tag_follows_the_bark() {
     let rotten = Piece::from_preset(DeadwoodPreset::RottenLog);
     let lod = DeadwoodLod::default();
     let has_bark = |p: &Piece| {
-        p.object(&lod).unwrap().levels[0]
+        p.specimen(&lod).unwrap().levels[0]
             .parts
             .iter()
             .any(|part| part.tags.contains(&tags::BARK))
@@ -51,8 +51,8 @@ fn bark_tag_follows_the_bark() {
 fn moss_can_grow_on_bare_rotten_logs() {
     for preset in [DeadwoodPreset::RottenLog, DeadwoodPreset::MossyLog] {
         let piece = Piece::from_preset(preset);
-        let object = piece.object(&DeadwoodLod::default()).unwrap();
-        let merged = object
+        let specimen = piece.specimen(&DeadwoodLod::default()).unwrap();
+        let merged = specimen
             .merged(0, &moss_filter())
             .expect("moss finds a surface");
         assert!(merged.closed);
@@ -63,8 +63,8 @@ fn moss_can_grow_on_bare_rotten_logs() {
 #[test]
 fn trunk_moss_grows_on_stumps_but_not_roots() {
     let piece = Piece::from_preset(DeadwoodPreset::NotchedStump);
-    let object = piece.object(&DeadwoodLod::default()).unwrap();
+    let specimen = piece.specimen(&DeadwoodLod::default()).unwrap();
     let trunk = TagFilter::any_of([tags::TRUNK, tags::LIMB]);
-    let merged = object.merged(0, &trunk).unwrap();
+    let merged = specimen.merged(0, &trunk).unwrap();
     assert!(!merged.tags.contains(&tags::BRANCH));
 }

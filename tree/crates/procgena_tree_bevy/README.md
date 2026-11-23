@@ -165,7 +165,7 @@ only a handful of meshes. The grove entity gets:
 
 - `TreeGroveInstances`: every tree's species, shape variant, spot id and
   transform;
-- `TreeGroveAssets`: each variant's meshes, materials and tagged object;
+- `TreeGroveAssets`: each variant's meshes, materials and tagged specimen;
 - `TreeGroveStats`: the tree count, and vertices and triangles per detail
   level.
 
@@ -196,12 +196,12 @@ cargo run -p procgena_tree_bevy --example grove_promote -- --mode click
 ```
 
 To stand the trees on terrain or another generated surface, spawn the grove as
-a child of an entity with a `GeneratedObject`, and say which parts of it count
+a child of an entity with a `GeneratedSpecimen`, and say which parts of it count
 as ground:
 
 ```no_run
 use bevy::prelude::*;
-use procgena_mesh::{TagFilter, tags};
+use procgena_specimen::{TagFilter, tags};
 use procgena_tree::GrovePreset;
 use procgena_tree_bevy::TreeGroveParams;
 

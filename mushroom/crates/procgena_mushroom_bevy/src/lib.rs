@@ -8,7 +8,7 @@
 //! - [`MushroomParams`]: one mushroom, or a cluster of one species when its
 //!   options ask for more than one stem;
 //! - [`MushroomScatterParams`]: mushrooms spread over the entity's parent,
-//!   which must have a [`procgena_mesh::GeneratedObject`]. Rocks from
+//!   which must have a [`procgena_specimen::GeneratedSpecimen`]. Rocks from
 //!   `procgena_stone_bevy` and trees from `procgena_tree_bevy` get one
 //!   automatically.
 //!

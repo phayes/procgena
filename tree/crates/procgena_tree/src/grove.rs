@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Quat, Vec3};
-use procgena_mesh::Ground;
+use procgena_specimen::Ground;
 
 use crate::options::{OptionsError, TreeOptions};
 use crate::presets::TreePreset;

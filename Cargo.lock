@@ -5343,7 +5343,7 @@ dependencies = [
  "glam 0.33.12",
  "naga",
  "procgena_core",
- "procgena_mesh",
+ "procgena_specimen",
  "procgena_stone",
  "wesl",
  "wgpu",
@@ -5356,7 +5356,7 @@ dependencies = [
  "bevy",
  "image",
  "procgena_clump",
- "procgena_mesh",
+ "procgena_specimen",
  "procgena_stone",
  "procgena_stone_bevy",
  "procgena_tree",
@@ -5374,7 +5374,7 @@ dependencies = [
  "glam 0.33.12",
  "gltf",
  "gltf-json",
- "procgena_mesh",
+ "procgena_specimen",
  "serde",
  "serde_json",
 ]
@@ -5385,7 +5385,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "procgena_deadwood",
- "procgena_mesh",
+ "procgena_specimen",
  "serde_json",
 ]
 
@@ -5399,21 +5399,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "procgena_mesh"
-version = "0.1.0"
-dependencies = [
- "bevy_ecs",
- "glam 0.33.12",
-]
-
-[[package]]
 name = "procgena_mushroom"
 version = "0.1.0"
 dependencies = [
  "glam 0.33.12",
  "gltf",
  "gltf-json",
- "procgena_mesh",
+ "procgena_specimen",
  "serde",
  "serde_json",
 ]
@@ -5423,8 +5415,8 @@ name = "procgena_mushroom_bevy"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "procgena_mesh",
  "procgena_mushroom",
+ "procgena_specimen",
  "serde_json",
 ]
 
@@ -5455,6 +5447,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "procgena_specimen"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "glam 0.33.12",
+]
+
+[[package]]
 name = "procgena_stone"
 version = "0.1.0"
 dependencies = [
@@ -5464,7 +5464,7 @@ dependencies = [
  "gltf-json",
  "naga",
  "procgena_core",
- "procgena_mesh",
+ "procgena_specimen",
  "rayon",
  "serde",
  "serde_json",
@@ -5478,7 +5478,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "image",
- "procgena_mesh",
+ "procgena_specimen",
  "procgena_stone",
  "procgena_stone_bevy",
 ]
@@ -5501,7 +5501,7 @@ dependencies = [
  "gltf",
  "gltf-json",
  "naga",
- "procgena_mesh",
+ "procgena_specimen",
  "serde",
  "serde_json",
  "twox-hash",
@@ -5515,7 +5515,7 @@ dependencies = [
  "bevy",
  "image",
  "procgena_impostor",
- "procgena_mesh",
+ "procgena_specimen",
  "procgena_tree",
  "serde_json",
 ]

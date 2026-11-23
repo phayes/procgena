@@ -8,10 +8,10 @@
 //! - [`DeadwoodParams`]: one log, branch or stump;
 //! - [`DeadwoodScatterParams`]: sticks and twigs spread over flat ground or
 //!   over the entity's parent, which must have a
-//!   [`procgena_mesh::GeneratedObject`].
+//!   [`procgena_specimen::GeneratedSpecimen`].
 //!
 //! Pieces are built on background threads, so they appear a moment after
-//! spawning. A single piece then gets a [`procgena_mesh::GeneratedObject`],
+//! spawning. A single piece then gets a [`procgena_specimen::GeneratedSpecimen`],
 //! so moss or snow from `procgena_clump_bevy` can grow on it as a child.
 //!
 //! ```no_run

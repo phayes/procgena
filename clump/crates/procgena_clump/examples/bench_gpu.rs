@@ -21,7 +21,7 @@ use procgena_clump::gpu::{
     GpuVertexFormat,
 };
 use procgena_clump::{Clump, ClumpOptions, ClumpPreset};
-use procgena_mesh::SurfaceMesh;
+use procgena_specimen::SurfaceMesh;
 use procgena_stone::StoneOptions;
 use procgena_stone::gpu::{
     GPU_VERTEX_SIZE as STONE_VERTEX_SIZE, GpuStoneBatch, GpuStoneGenerator, GpuStoneRequest,

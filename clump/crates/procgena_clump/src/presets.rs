@@ -1,6 +1,6 @@
 //! Ready-made clump settings.
 
-use procgena_mesh::{TagFilter, tags};
+use procgena_specimen::{TagFilter, tags};
 
 use crate::material::MaterialOptions;
 use crate::options::{

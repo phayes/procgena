@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::f32::consts::TAU;
 
 use glam::Vec3;
-use procgena_mesh::SurfaceMesh;
+use procgena_specimen::SurfaceMesh;
 
 /// A lumpy, roughly spherical rock of about `radius`, resting on y = 0.
 ///

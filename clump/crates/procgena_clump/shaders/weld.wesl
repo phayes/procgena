@@ -1,5 +1,5 @@
 // Welds the batch's input vertices and measures whether each input is
-// closed, matching `procgena_mesh::Surface::welded` and
+// closed, matching `procgena_specimen::Surface::welded` and
 // `Surface::is_closed_welded`.
 //
 // Vertices at the same position (bit for bit, with -0.0 equal to 0.0) share

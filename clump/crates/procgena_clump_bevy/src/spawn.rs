@@ -13,14 +13,14 @@ use procgena_clump::{
     BuildStats, Clump, ClumpError, ClumpMesh, ClumpOptions, ClumpPreset, MaterialOptions,
     TextureCompression, TextureSize, texture_set,
 };
-use procgena_mesh::{GeneratedObject, Object};
+use procgena_specimen::{GeneratedSpecimen, Specimen};
 
 use crate::material::{ClumpMaterial, ClumpTextures, clump_material};
 use crate::mesh::clump_mesh;
 
 /// Grows a clump, such as snow or moss, on this entity's parent.
 ///
-/// Spawn it as a child of a host: an entity that gets a [`GeneratedObject`],
+/// Spawn it as a child of a host: an entity that gets a [`GeneratedSpecimen`],
 /// such as a rock from procgena_stone_bevy, a tree from procgena_tree_bevy,
 /// or your own mesh with [`ObjectTags`](crate::ObjectTags). The clump grows on the host's most
 /// detailed level, on the parts that [`ClumpOptions::grows_on`] picks, and
@@ -32,7 +32,7 @@ use crate::mesh::clump_mesh;
 /// the world however the host is turned, and lengths stay in world metres.
 /// The host's scale must be the same along every axis.
 ///
-/// The clump rebuilds when this component, the host's object, or the host's
+/// The clump rebuilds when this component, the host's specimen, or the host's
 /// world rotation or scale changes; moving the host doesn't rebuild it, and
 /// neither does a change to [`ClumpOptions::material`] alone, which only
 /// swaps the clump's material. The previous clump stays visible until its
@@ -40,7 +40,7 @@ use crate::mesh::clump_mesh;
 /// this component despawns the clump's parts. Every finished build triggers
 /// [`ClumpFinished`].
 ///
-/// Once built, this entity also gets a [`GeneratedObject`] for the clump
+/// Once built, this entity also gets a [`GeneratedSpecimen`] for the clump
 /// itself, tagged with [`ClumpOptions::tags`].
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
@@ -101,7 +101,7 @@ pub struct ClumpBuilt {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ClumpBuildError {
-    /// The settings were rejected, or the host's object can't carry a clump.
+    /// The settings were rejected, or the host's specimen can't carry a clump.
     Clump(ClumpError),
     /// The host is scaled differently along different axes.
     NonUniformScale,
@@ -139,7 +139,7 @@ pub(crate) struct SpawnSettings {
 #[derive(Debug, Clone)]
 struct BuildInput {
     options: Arc<ClumpOptions>,
-    object: Arc<Object>,
+    specimen: Arc<Specimen>,
     /// The host's world rotation.
     rotation: Quat,
     /// The host's world scale, the same along every axis.
@@ -147,11 +147,11 @@ struct BuildInput {
 }
 
 impl PartialEq for BuildInput {
-    /// Compares objects by identity: hosts replace their object when it
+    /// Compares specimens by identity: hosts replace their specimen when it
     /// changes. The options' material is ignored: it changes how the clump
     /// looks, not its mesh.
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.object, &other.object)
+        Arc::ptr_eq(&self.specimen, &other.specimen)
             && self.rotation == other.rotation
             && self.scale == other.scale
             && same_mesh_options(&self.options, &other.options)
@@ -185,8 +185,8 @@ fn same_mesh_options(a: &ClumpOptions, b: &ClumpOptions) -> bool {
         && *tags == b.tags
 }
 
-/// A finished build's mesh, its object description and its measurements.
-type Grown = Result<(ClumpMesh, Object, ClumpBuilt), ClumpError>;
+/// A finished build's mesh, its specimen description and its measurements.
+type Grown = Result<(ClumpMesh, Specimen, ClumpBuilt), ClumpError>;
 
 /// A clump build running in the background.
 #[derive(Component)]
@@ -239,14 +239,14 @@ pub(crate) fn remove_clumps(
     for entity in removed.read() {
         despawn_parts(&mut commands, children.get(entity).ok(), &parts);
         if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(ClumpGenerating, Building, Attempted, GeneratedObject)>();
+            entity.remove::<(ClumpGenerating, Building, Attempted, GeneratedSpecimen)>();
         }
     }
 }
 
 /// Starts a build for every clump whose inputs differ from its running or
-/// last finished build. A clump whose host has no object yet waits, and
-/// loses any clump built on the host's previous object.
+/// last finished build. A clump whose host has no specimen yet waits, and
+/// loses any clump built on the host's previous specimen.
 #[allow(clippy::type_complexity)]
 pub(crate) fn start_generation(
     mut commands: Commands,
@@ -259,12 +259,12 @@ pub(crate) fn start_generation(
         Option<&Children>,
         Has<ClumpGenerating>,
     )>,
-    hosts: Query<&GeneratedObject>,
+    hosts: Query<&GeneratedSpecimen>,
     transforms: TransformHelper,
     parts: Query<(), With<ClumpPart>>,
 ) {
     for (entity, params, parent, building, attempted, kids, generating) in &clumps {
-        // Wait for the host's object. A host that is regenerating takes its
+        // Wait for the host's specimen. A host that is regenerating takes its
         // clump with it. The host's world transform is worked out from the
         // hierarchy, as it may not have been propagated yet this frame.
         let host = parent.map(ChildOf::parent);
@@ -274,12 +274,12 @@ pub(crate) fn start_generation(
                 transforms.compute_global_transform(h).ok()?,
             ))
         });
-        let Some((object, transform)) = found else {
+        let Some((specimen, transform)) = found else {
             if attempted.is_some() || building.is_some() {
                 despawn_parts(&mut commands, kids, &parts);
                 commands
                     .entity(entity)
-                    .remove::<(Building, Attempted, GeneratedObject)>();
+                    .remove::<(Building, Attempted, GeneratedSpecimen)>();
             }
             if !generating {
                 commands.entity(entity).insert(ClumpGenerating);
@@ -291,7 +291,7 @@ pub(crate) fn start_generation(
         let (scale, rotation, _) = transform.to_scale_rotation_translation();
         let input = BuildInput {
             options: params.0.clone(),
-            object: object.0.clone(),
+            specimen: specimen.0.clone(),
             rotation,
             scale: scale.x,
         };
@@ -299,10 +299,10 @@ pub(crate) fn start_generation(
             continue;
         }
 
-        // The previous clump's object no longer describes what will be shown.
+        // The previous clump's specimen no longer describes what will be shown.
         commands
             .entity(entity)
-            .remove::<(Building, GeneratedObject)>();
+            .remove::<(Building, GeneratedSpecimen)>();
 
         // A host stretched along one axis has no single scale to divide by.
         if !is_uniform(scale) {
@@ -319,8 +319,8 @@ pub(crate) fn start_generation(
 
         // Build in the host's coordinates, with world directions and lengths.
         let options = host_options(&input);
-        let task_object = input.object.clone();
-        let task = AsyncComputeTaskPool::get().spawn(async move { grow(&task_object, &options) });
+        let task_specimen = input.specimen.clone();
+        let task = AsyncComputeTaskPool::get().spawn(async move { grow(&task_specimen, &options) });
         commands
             .entity(entity)
             .insert((ClumpGenerating, Building { input, task }));
@@ -346,21 +346,21 @@ fn host_options(input: &BuildInput) -> ClumpOptions {
     options
 }
 
-/// Grows a clump on `object` and measures how long it took.
-fn grow(object: &Object, options: &ClumpOptions) -> Grown {
+/// Grows a clump on `specimen` and measures how long it took.
+fn grow(specimen: &Specimen, options: &ClumpOptions) -> Grown {
     let started = Instant::now();
-    let clump = Clump::on(object, options)?;
+    let clump = Clump::on(specimen, options)?;
     let built = ClumpBuilt {
         stats: clump.stats(),
         build_time: started.elapsed(),
         vertices: clump.mesh().vertex_count(),
         triangles: clump.mesh().triangle_count(),
     };
-    Ok((clump.mesh().clone(), clump.object(), built))
+    Ok((clump.mesh().clone(), clump.specimen(), built))
 }
 
 /// Shows finished builds: replaces the clump's part, describes the clump
-/// with a [`GeneratedObject`], and triggers [`ClumpFinished`].
+/// with a [`GeneratedSpecimen`], and triggers [`ClumpFinished`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn finish_generation(
     mut commands: Commands,
@@ -380,7 +380,7 @@ pub(crate) fn finish_generation(
         // Replace the previous clump with the new one, in the current look:
         // the material may have changed while the clump was building.
         despawn_parts(&mut commands, kids, &parts);
-        let result = grown.map(|(mesh, object, built)| {
+        let result = grown.map(|(mesh, specimen, built)| {
             if !mesh.is_empty() {
                 let material =
                     cache.material(&params.0.material, &settings, &asset_server, &mut materials);
@@ -393,7 +393,7 @@ pub(crate) fn finish_generation(
             }
             commands
                 .entity(entity)
-                .insert(GeneratedObject(Arc::new(object)));
+                .insert(GeneratedSpecimen(Arc::new(specimen)));
             built
         });
         if let Err(error) = &result {
@@ -508,7 +508,7 @@ mod tests {
     use std::f32::consts::PI;
 
     use bevy::transform::TransformPlugin;
-    use procgena_mesh::{Part, SurfaceMesh, tags};
+    use procgena_specimen::{Part, SurfaceMesh, tags};
 
     use super::*;
     use crate::tagged::ObjectTags;
@@ -540,9 +540,9 @@ mod tests {
     }
 
     /// A one-metre ground patch, as a host would describe it.
-    fn ground() -> GeneratedObject {
+    fn ground() -> GeneratedSpecimen {
         let part = Part::new([tags::GROUND], SurfaceMesh::ground(1.0, 4));
-        GeneratedObject(Arc::new(Object::single(vec![part])))
+        GeneratedSpecimen(Arc::new(Specimen::single(vec![part])))
     }
 
     /// Spawns a host with `transform` and a snow clump on it; returns both.
@@ -585,8 +585,8 @@ mod tests {
 
     /// The highest point of `clump`'s mesh, in host coordinates.
     fn top(app: &App, clump: Entity) -> f32 {
-        let object = app.world().get::<GeneratedObject>(clump).unwrap();
-        let positions = &object.0.levels[0].parts[0].mesh.positions;
+        let specimen = app.world().get::<GeneratedSpecimen>(clump).unwrap();
+        let positions = &specimen.0.levels[0].parts[0].mesh.positions;
         positions.iter().map(|p| p[1]).fold(f32::MIN, f32::max)
     }
 
@@ -607,18 +607,20 @@ mod tests {
         let finished = &app.world().resource::<Finished>().0;
         assert_eq!(finished.len(), 1);
         assert!(finished[0].as_ref().unwrap().triangles > 0);
-        let object = app.world().get::<GeneratedObject>(clump).unwrap();
+        let specimen = app.world().get::<GeneratedSpecimen>(clump).unwrap();
         assert_eq!(
-            object.0.levels[0].parts[0].tags,
+            specimen.0.levels[0].parts[0].tags,
             [tags::CLUMP, tags::SNOW].into()
         );
 
         // A host that regenerates takes its clump with it until it is done.
-        app.world_mut().entity_mut(host).remove::<GeneratedObject>();
+        app.world_mut()
+            .entity_mut(host)
+            .remove::<GeneratedSpecimen>();
         app.update();
         assert_eq!(part_count(&mut app, clump), 0);
         assert!(app.world().entity(clump).contains::<ClumpGenerating>());
-        assert!(!app.world().entity(clump).contains::<GeneratedObject>());
+        assert!(!app.world().entity(clump).contains::<GeneratedSpecimen>());
         app.world_mut().entity_mut(host).insert(ground());
         update_until_finished(&mut app, clump);
         assert_eq!(part_count(&mut app, clump), 1);
@@ -627,7 +629,7 @@ mod tests {
         app.world_mut().entity_mut(clump).remove::<ClumpParams>();
         app.update();
         assert_eq!(part_count(&mut app, clump), 0);
-        assert!(!app.world().entity(clump).contains::<GeneratedObject>());
+        assert!(!app.world().entity(clump).contains::<GeneratedSpecimen>());
     }
 
     #[test]
@@ -649,9 +651,9 @@ mod tests {
         // The previous clump stayed until then, and only one build finished.
         assert_eq!(app.world().resource::<Finished>().0.len(), 2);
         assert_eq!(part_count(&mut app, clump), 1);
-        let object = app.world().get::<GeneratedObject>(clump).unwrap();
+        let specimen = app.world().get::<GeneratedSpecimen>(clump).unwrap();
         assert_eq!(
-            object.0.levels[0].parts[0].tags,
+            specimen.0.levels[0].parts[0].tags,
             [tags::CLUMP, tags::MOSS].into()
         );
     }
