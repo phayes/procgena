@@ -3,9 +3,7 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::Aabb;
 use bevy::math::Vec3;
-use bevy::mesh::{
-    Indices, Mesh, MeshVertexAttribute, PrimitiveTopology, VertexAttributeValues, VertexFormat,
-};
+use bevy::mesh::{Indices, Mesh, MeshVertexAttribute, PrimitiveTopology, VertexFormat};
 use procgena_tree::{BarkMaterial, BarkOptions, MeshBuffers};
 
 /// Wind controls stored on each vertex: trunk bend, branch movement weight,
@@ -131,7 +129,10 @@ pub fn billboard_aabb(buffers: &MeshBuffers) -> Option<Aabb> {
 /// Reads [`ATTRIBUTE_BILLBOARD_PIVOT`] and [`ATTRIBUTE_BILLBOARD_AXIS`] as
 /// four-component float attributes. Returns `None` if either is missing, empty
 /// or in another format. If their lengths differ, only paired entries contribute.
+#[cfg(feature = "gltf")]
 pub(crate) fn mesh_billboard_aabb(mesh: &Mesh) -> Option<Aabb> {
+    use bevy::mesh::VertexAttributeValues;
+
     let (
         Some(VertexAttributeValues::Float32x4(pivots)),
         Some(VertexAttributeValues::Float32x4(axes)),

@@ -48,7 +48,7 @@
 //! ```
 //! use glam::DVec2;
 //! use procgena_terrain::{
-//!     Convergence, HeightField, RegionId, RegionSpec, StitchedWorld, TerrainPreset,
+//!     Convergence, Elevation, HeightField, RegionId, RegionSpec, StitchedWorld, TerrainPreset,
 //! };
 //!
 //! let west = vec![DVec2::new(-500.0, -500.0), DVec2::new(0.0, -500.0), DVec2::new(0.0, 500.0), DVec2::new(-500.0, 500.0)];
@@ -56,7 +56,7 @@
 //! let world = StitchedWorld::build(vec![
 //!     RegionSpec { id: RegionId(1), polygon: west, options: TerrainPreset::Plains.options() },
 //!     RegionSpec { id: RegionId(2), polygon: east, options: TerrainPreset::Mountains.options() },
-//! ], &Convergence::default())?;
+//! ], &Convergence::default(), &Elevation::flat())?;
 //!
 //! // Both sides meet at the same height on their shared border.
 //! let on_border = DVec2::new(0.0, 120.0);
@@ -79,6 +79,7 @@
 mod calibration;
 mod carve;
 mod converge;
+mod elevation;
 mod grid;
 mod gully;
 mod hash;
@@ -103,6 +104,7 @@ pub use converge::{
     BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,
     blend_weights, relief_meeting_is_valid, relief_target,
 };
+pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,

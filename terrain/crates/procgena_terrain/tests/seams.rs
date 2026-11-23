@@ -4,8 +4,8 @@
 mod common;
 
 use common::{
-    CONFIGS, JUNCTION, RIVER_SEEDS, TWO_REGION_BORDER, assert_no_crack, hills_into_plains, preset,
-    triple_junction, two_terrains, two_regions,
+    CONFIGS, CURVED, JUNCTION, RIVER_SEEDS, TWO_REGION_BORDER, WITH_LAND, assert_no_crack,
+    hills_into_plains, preset, triple_junction, two_regions, two_terrains,
 };
 use glam::{DVec2, I64Vec2, UVec2};
 use procgena_terrain::{HeightField, HeightTile, StitchedWorld, Terrain, TerrainPreset};
@@ -65,7 +65,7 @@ fn border(offset: DVec2) -> Vec<DVec2> {
 
 #[test]
 fn every_preset_pair_joins_continuously() {
-    for config in CONFIGS {
+    for config in WITH_LAND {
         for (i, west) in TerrainPreset::ALL.into_iter().enumerate() {
             for (j, east) in TerrainPreset::ALL.into_iter().enumerate() {
                 let world = two_regions(
@@ -73,6 +73,7 @@ fn every_preset_pair_joins_continuously() {
                     preset(west, config.seed(1, i as u32 + 1)),
                     preset(east, config.seed(1, j as u32 + 11)),
                     config.convergence(),
+                    &config.elevation(),
                 );
                 assert_continuous(
                     &world,
@@ -86,7 +87,7 @@ fn every_preset_pair_joins_continuously() {
 
 #[test]
 fn borders_with_river_crossings_join_continuously() {
-    for config in CONFIGS {
+    for config in WITH_LAND {
         for seed in RIVER_SEEDS {
             assert_continuous(
                 &hills_into_plains(seed, config),
@@ -100,7 +101,10 @@ fn borders_with_river_crossings_join_continuously() {
 #[test]
 fn borders_join_far_from_the_origin() {
     let offset = DVec2::splat(1.0e7);
-    for config in CONFIGS {
+    // Flat land, and the curved land (this far out only its bounded noise
+    // layers: the bump is near the origin). Not the tilted land: it stands
+    // 250 km high this far out, beyond what f32 heights resolve.
+    for config in CONFIGS.into_iter().chain([CURVED]) {
         assert_continuous(
             &two_terrains(offset, config),
             &border(offset),
@@ -147,7 +151,7 @@ fn assert_no_cracks(world: &StitchedWorld, area: (DVec2, DVec2), vertices: &[DVe
 #[test]
 fn no_cracks_in_the_margins_of_a_bent_border() {
     let area = (DVec2::new(-750.0, -1450.0), DVec2::new(750.0, 1450.0));
-    for config in CONFIGS {
+    for config in WITH_LAND {
         let world = two_terrains(DVec2::ZERO, config);
         let label = format!("two terrains, {config:?}");
         assert_no_cracks(&world, area, &border(DVec2::ZERO)[1..4], &label);
@@ -163,7 +167,7 @@ fn no_cracks_around_a_triple_junction() {
         DVec2::new(700.0, -600.0),
     ];
     let area = (DVec2::new(-1200.0, -1100.0), DVec2::new(1300.0, 1400.0));
-    for config in CONFIGS {
+    for config in WITH_LAND {
         let world = triple_junction(config);
         let label = format!("triple junction, {config:?}");
         assert_no_cracks(&world, area, &vertices, &label);
@@ -172,7 +176,7 @@ fn no_cracks_around_a_triple_junction() {
 
 #[test]
 fn three_regions_meet_at_one_corner() {
-    for config in CONFIGS {
+    for config in WITH_LAND {
         assert_three_regions_meet(&triple_junction(config));
     }
 }
@@ -218,7 +222,7 @@ fn assert_three_regions_meet(world: &StitchedWorld) {
 
 #[test]
 fn a_tile_is_the_same_alone_or_inside_a_larger_tile() {
-    for config in CONFIGS {
+    for config in WITH_LAND {
         assert_tile_inside_larger(&two_terrains(DVec2::ZERO, config));
     }
 }
@@ -238,7 +242,7 @@ fn assert_tile_inside_larger(world: &StitchedWorld) {
 #[test]
 fn neighbouring_tiles_share_their_border_samples() {
     let step = 2.0;
-    for config in CONFIGS {
+    for config in WITH_LAND {
         let world = triple_junction(config);
         let left = HeightTile::sample(&world, I64Vec2::new(-32, -40), UVec2::splat(65), step);
         let right = HeightTile::sample(&world, I64Vec2::new(32, -40), UVec2::splat(65), step);
@@ -251,7 +255,7 @@ fn neighbouring_tiles_share_their_border_samples() {
 #[test]
 fn points_on_a_border_have_ground() {
     // Lattice points exactly on polygon sides must not fall between regions.
-    for config in CONFIGS {
+    for config in WITH_LAND {
         let world = two_terrains(DVec2::ZERO, config);
         for (q, _) in along(&border(DVec2::ZERO), 25) {
             assert!(world.height(q).is_finite(), "no ground at {q}");

@@ -31,12 +31,13 @@ const LOD_CHOICES: [&str; 5] = [
 
 /// The mushroom Level of Detail choices: switching by camera distance, then
 /// each of the mushroom detail levels, most detailed first.
-const MUSHROOM_LOD_CHOICES: [&str; 5] = [
+const MUSHROOM_LOD_CHOICES: [&str; 6] = [
     "Auto (by distance)",
     "0 · Full",
     "1 · High",
     "2 · Medium",
     "3 · Flat",
+    "4 · Billboard",
 ];
 
 /// The dead wood Level of Detail choices: switching by camera distance,

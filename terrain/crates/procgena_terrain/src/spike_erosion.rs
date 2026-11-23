@@ -30,6 +30,7 @@ fn one_region(preset: TerrainPreset, seed: u32) -> StitchedWorld {
             options,
         }],
         &Convergence::default(),
+        &crate::Elevation::flat(),
     )
     .expect("one-region world builds")
 }

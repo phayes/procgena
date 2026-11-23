@@ -3,9 +3,11 @@
 
 mod common;
 
-use common::{CONFIGS, Config, TWO_REGION_BORDER, hills_into_plains, two_terrains};
+use common::{CONFIGS, Config, DEFAULT, TWO_REGION_BORDER, hills_into_plains, two_terrains};
 use glam::DVec2;
-use procgena_terrain::{FeatureLine, PortKind, StitchedWorld};
+use procgena_terrain::{
+    Elevation, ElevationOptions, FeatureLine, NoiseLayer, PortKind, StitchedWorld, TerrainPreset,
+};
 
 /// Points along the two-region border, at most `spacing` metres apart.
 fn border_points(spacing: f64) -> Vec<DVec2> {
@@ -86,6 +88,51 @@ fn river_crossing_seeds() {
         eprintln!(
             "{}: {} of 300 give a river crossing: {seeds:?}",
             label(config),
+            seeds.len()
+        );
+    }
+}
+
+/// How many hill seeds from 0 to 299 give a river crossing in
+/// `hills_into_plains` (default settings) on flat land, and on land tilted
+/// by [`TILT`](common::TILT) down towards the plains and up towards them:
+/// the exit measurement of WorldTerrain phase W1.
+#[test]
+#[ignore]
+fn river_crossings_on_a_slope() {
+    let tilted = |tilt: DVec2| {
+        let flat = NoiseLayer {
+            height: 0.0,
+            ..ElevationOptions::default().uplift
+        };
+        let options = ElevationOptions {
+            continents: flat.clone(),
+            uplift: flat,
+            tilt,
+            max_slope: 0.05,
+            bumps: Vec::new(),
+        };
+        Elevation::new(options, 1).expect("valid tilt")
+    };
+    for (name, elevation) in [
+        ("flat", Elevation::flat()),
+        ("down towards the plains", tilted(common::TILT)),
+        ("up towards the plains", tilted(-common::TILT)),
+    ] {
+        let seeds: Vec<u32> = (0..300)
+            .filter(|&s| {
+                let world = common::two_regions(
+                    DVec2::ZERO,
+                    common::preset(TerrainPreset::Plains, s),
+                    common::preset(TerrainPreset::RollingHills, s),
+                    DEFAULT.convergence(),
+                    &elevation,
+                );
+                river_crossings(&world) > 0
+            })
+            .collect();
+        eprintln!(
+            "{name}: {} of 300 give a river crossing: {seeds:?}",
             seeds.len()
         );
     }
@@ -262,6 +309,34 @@ fn scene_dump() {
             "hills_into_plains_64",
             "Hills into plains, seed 64 (river joins)",
             hills_into_plains(64, default),
+            5.0,
+            None,
+        ),
+        (
+            "two_terrains_tilted",
+            "Two terrains on land tilted 2 % down to the west",
+            two_terrains(DVec2::ZERO, common::TILTED),
+            5.0,
+            None,
+        ),
+        (
+            "two_terrains_curved",
+            "Two terrains on curved land, a 40 m bump across the border",
+            two_terrains(DVec2::ZERO, common::CURVED),
+            5.0,
+            None,
+        ),
+        (
+            "hills_into_plains_33",
+            "Hills into plains, seed 33, flat land (no river crossing)",
+            hills_into_plains(33, default),
+            5.0,
+            None,
+        ),
+        (
+            "hills_into_plains_33_tilted",
+            "Hills into plains, seed 33, tilted towards the plains (two crossings)",
+            hills_into_plains(33, common::TILTED),
             5.0,
             None,
         ),

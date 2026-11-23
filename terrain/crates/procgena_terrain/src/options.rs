@@ -166,7 +166,9 @@ impl Default for RoadOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BaseOptions {
-    /// Mean ground height, in metres. May be negative.
+    /// Mean ground height above the world elevation E, in metres (see
+    /// [`Elevation`](crate::Elevation)); above sea level where the terrain
+    /// stands on flat land. May be negative.
     pub elevation: f32,
     /// Broad, gentle rises and dips.
     pub swells: NoiseLayer,

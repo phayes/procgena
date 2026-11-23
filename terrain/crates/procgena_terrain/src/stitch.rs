@@ -12,6 +12,7 @@ use glam::DVec2;
 use crate::converge::{
     BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
 };
+use crate::elevation::Elevation;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{Boundary, CornerId, Region, RegionCorner, RegionEdge, RegionError, RegionId};
 use crate::seam::{CornerAgreement, EdgeAgreement, SeamError, negotiate, negotiate_corner};
@@ -111,7 +112,9 @@ impl StitchedWorld {
     ///
     /// Before negotiating, neighbouring terrains become alike near each
     /// shared edge and corner, as `convergence` says
-    /// ([`Convergence::default`] unless you are experimenting).
+    /// ([`Convergence::default`] unless you are experimenting). Every
+    /// terrain stands on `elevation`; pass [`Elevation::flat`] for land at
+    /// sea level.
     ///
     /// # Errors
     ///
@@ -122,6 +125,7 @@ impl StitchedWorld {
     pub fn build(
         mut specs: Vec<RegionSpec>,
         convergence: &Convergence,
+        elevation: &Elevation,
     ) -> Result<Self, StitchError> {
         if !relief_meeting_is_valid(convergence.meeting) {
             return Err(StitchError::ReliefMeeting(convergence.meeting));
@@ -164,7 +168,9 @@ impl StitchedWorld {
         let generators = specs
             .iter()
             .map(|s| {
-                TerrainGenerator::new(s.options.clone()).map_err(|e| StitchError::Options(s.id, e))
+                TerrainGenerator::new(s.options.clone())
+                    .map(|g| g.with_elevation(elevation.clone()))
+                    .map_err(|e| StitchError::Options(s.id, e))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let index: BTreeMap<RegionId, usize> =

@@ -4,7 +4,8 @@
 
 use glam::DVec2;
 use procgena_terrain::{
-    Convergence, HeightField, RegionId, RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset,
+    Convergence, Elevation, ElevationOptions, HeightBump, HeightField, NoiseLayer, RegionId,
+    RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset,
 };
 
 /// The largest height change between neighbouring samples along `path`
@@ -55,6 +56,30 @@ pub enum Seeds {
     Unrelated,
 }
 
+/// The world elevation a test world stands on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Land {
+    /// Flat land at sea level.
+    Flat,
+    /// A steady slope, falling towards the west (and a little to the
+    /// south): [`TILT`].
+    Tilted,
+    /// The default continents and uplands, plus [`BUMP`] standing across
+    /// the two-region border.
+    Curved,
+}
+
+/// The slope of [`Land::Tilted`], rise over run along x and z.
+pub const TILT: DVec2 = DVec2::new(0.02, 0.005);
+
+/// The bump of [`Land::Curved`]: 40 m high, reaching 1.5 km, centred
+/// beside the two-region border so it rises on both sides of it.
+pub const BUMP: HeightBump = HeightBump {
+    centre: DVec2::new(-100.0, 0.0),
+    radius: 1500.0,
+    height: 40.0,
+};
+
 /// How a test world is built.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Config {
@@ -64,9 +89,35 @@ pub struct Config {
     pub meeting: f32,
     /// The relief blend passed to `StitchedWorld::build`.
     pub blend: f32,
+    /// The world elevation the regions stand on.
+    pub land: Land,
 }
 
 impl Config {
+    /// The world elevation to build with, from the world seed 1.
+    pub fn elevation(self) -> Elevation {
+        let flat = NoiseLayer {
+            height: 0.0,
+            ..ElevationOptions::default().uplift
+        };
+        let options = match self.land {
+            Land::Flat => return Elevation::flat(),
+            Land::Tilted => ElevationOptions {
+                continents: flat.clone(),
+                uplift: flat,
+                tilt: TILT,
+                max_slope: 0.05,
+                bumps: Vec::new(),
+            },
+            Land::Curved => ElevationOptions {
+                max_slope: 0.1,
+                bumps: vec![BUMP],
+                ..ElevationOptions::default()
+            },
+        };
+        Elevation::new(options, 1).expect("test elevations are valid")
+    }
+
     /// The convergence settings to build with.
     pub fn convergence(self) -> Convergence {
         Convergence {
@@ -90,6 +141,19 @@ pub const DEFAULT: Config = Config {
     seeds: Seeds::Shared,
     meeting: procgena_terrain::DEFAULT_RELIEF_MEETING,
     blend: procgena_terrain::DEFAULT_RELIEF_BLEND,
+    land: Land::Flat,
+};
+
+/// The usual world on a steady slope.
+pub const TILTED: Config = Config {
+    land: Land::Tilted,
+    ..DEFAULT
+};
+
+/// The usual world on curved land, with a bump across the border.
+pub const CURVED: Config = Config {
+    land: Land::Curved,
+    ..DEFAULT
 };
 
 /// Every configuration the suites run on: both kinds of seeding, each at
@@ -123,6 +187,19 @@ pub const CONFIGS: [Config; 12] = {
     out
 };
 
+/// [`CONFIGS`] on flat land, then the usual world on tilted and on curved
+/// land.
+pub const WITH_LAND: [Config; 14] = {
+    let mut out = [TILTED; 14];
+    let mut i = 0;
+    while i < 12 {
+        out[i] = CONFIGS[i];
+        i += 1;
+    }
+    out[13] = CURVED;
+    out
+};
+
 /// Settings for `preset` with `seed`.
 pub fn preset(preset: TerrainPreset, seed: u32) -> TerrainOptions {
     let mut options = preset.options();
@@ -146,16 +223,19 @@ pub fn two_terrains(offset: DVec2, config: Config) -> StitchedWorld {
         preset(TerrainPreset::Plains, config.seed(1, 1)),
         preset(TerrainPreset::Mountains, config.seed(1, 2)),
         config.convergence(),
+        &config.elevation(),
     )
 }
 
 /// Two regions with the given settings, split by the two-terrain bent border
-/// (non-convex on both sides), joined with `convergence`.
+/// (non-convex on both sides), joined with `convergence`, standing on
+/// `elevation`.
 pub fn two_regions(
     offset: DVec2,
     west: TerrainOptions,
     east: TerrainOptions,
     convergence: Convergence,
+    elevation: &Elevation,
 ) -> StitchedWorld {
     let west_points = [
         (-2000.0, -1500.0),
@@ -189,6 +269,7 @@ pub fn two_regions(
             },
         ],
         &convergence,
+        elevation,
     )
     .expect("two-region world builds")
 }
@@ -213,6 +294,7 @@ pub fn hills_into_plains(seed: u32, config: Config) -> StitchedWorld {
         preset(TerrainPreset::Plains, config.seed(seed, seed + 100)),
         preset(TerrainPreset::RollingHills, seed),
         config.convergence(),
+        &config.elevation(),
     )
 }
 
@@ -276,6 +358,7 @@ pub fn triple_junction(config: Config) -> StitchedWorld {
             },
         ],
         &config.convergence(),
+        &config.elevation(),
     )
     .expect("triple-junction world builds")
 }

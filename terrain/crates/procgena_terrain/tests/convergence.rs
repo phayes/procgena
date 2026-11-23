@@ -6,7 +6,8 @@ mod common;
 use common::{CONFIGS, DEFAULT, JUNCTION, TWO_REGION_BORDER, preset, triple_junction, two_regions};
 use glam::DVec2;
 use procgena_terrain::{
-    Convergence, DEFAULT_RELIEF_BLEND, StitchedWorld, Terrain, TerrainGenerator, TerrainPreset,
+    Convergence, DEFAULT_RELIEF_BLEND, Elevation, StitchedWorld, Terrain, TerrainGenerator,
+    TerrainPreset,
 };
 
 /// Points along the two-region border, at most `spacing` metres apart.
@@ -48,6 +49,7 @@ fn plains_and_mountains(meeting: f32, blend: f32) -> StitchedWorld {
         preset(TerrainPreset::Plains, 1),
         preset(TerrainPreset::Mountains, 1),
         Convergence { meeting, blend },
+        &Elevation::flat(),
     )
 }
 
@@ -64,7 +66,13 @@ fn alike_neighbours_already_match_at_their_border() {
                 blend,
                 ..DEFAULT.convergence()
             };
-            let world = two_regions(DVec2::ZERO, preset(p, 7), preset(p, 7), convergence);
+            let world = two_regions(
+                DVec2::ZERO,
+                preset(p, 7),
+                preset(p, 7),
+                convergence,
+                &Elevation::flat(),
+            );
             let [west, east] = [&world.terrains()[0], &world.terrains()[1]];
             for q in border_points(5.0) {
                 let (a, b) = (
@@ -196,7 +204,7 @@ fn bad_relief_meetings_are_refused() {
             ..Convergence::default()
         };
         assert!(matches!(
-            StitchedWorld::build(specs, &convergence),
+            StitchedWorld::build(specs, &convergence, &Elevation::flat()),
             Err(procgena_terrain::StitchError::ReliefMeeting(_))
         ));
     }
@@ -215,7 +223,7 @@ fn bad_relief_blends_are_refused() {
             ..Convergence::default()
         };
         assert!(matches!(
-            StitchedWorld::build(specs, &convergence),
+            StitchedWorld::build(specs, &convergence, &Elevation::flat()),
             Err(procgena_terrain::StitchError::ReliefBlend(_))
         ));
     }

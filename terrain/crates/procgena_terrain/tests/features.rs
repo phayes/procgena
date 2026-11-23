@@ -3,22 +3,23 @@
 mod common;
 
 use common::{
-    CONFIGS, JOIN_SEEDS, RIVER_SEEDS, assert_no_crack, hills_into_plains, triple_junction,
-    two_terrains,
+    CONFIGS, JOIN_SEEDS, RIVER_SEEDS, WITH_LAND, assert_no_crack, hills_into_plains,
+    triple_junction, two_terrains,
 };
 use glam::DVec2;
 use procgena_terrain::{
     FeatureKind, FeatureLine, Port, PortKind, RegionEdge, StitchedWorld, Terrain,
 };
 
-/// The test worlds, for each of [`CONFIGS`] in turn: two with only road
-/// crossings, one per river seed with a river crossing, and one per join
-/// seed with rivers joining on bends. Built once and shared by every test.
+/// The test worlds, for each of [`WITH_LAND`] in turn: two with only road
+/// crossings, one per river seed (with a river crossing on flat land), and
+/// one per join seed with rivers joining on bends. Built once and shared by
+/// every test.
 fn worlds() -> &'static [StitchedWorld] {
     static WORLDS: std::sync::OnceLock<Vec<StitchedWorld>> = std::sync::OnceLock::new();
     WORLDS.get_or_init(|| {
         let mut worlds = Vec::new();
-        for config in CONFIGS {
+        for config in WITH_LAND {
             worlds.push(two_terrains(DVec2::ZERO, config));
             worlds.push(triple_junction(config));
             worlds.extend(RIVER_SEEDS.map(|s| hills_into_plains(s, config)));

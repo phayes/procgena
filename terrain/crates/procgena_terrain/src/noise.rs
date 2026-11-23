@@ -6,7 +6,7 @@
 
 use glam::{DVec2, I64Vec2, Vec2};
 
-use crate::calibration::{NOISE_STD, RIDGED_MEAN, RIDGED_STD};
+use crate::calibration::{NOISE_SLOPE_MAX, NOISE_STD, RIDGED_MEAN, RIDGED_STD};
 use crate::hash::{derive_seed, hash2};
 
 /// The largest number of octaves a noise sum accepts.
@@ -67,11 +67,20 @@ pub(crate) fn gradient_noise(p: DVec2, seed: u32) -> NoiseSample {
     let cell = floor.as_i64vec2();
     let f = (p - floor).as_vec2();
 
-    // Corner gradients and their dot products with the offsets to `p`.
-    let ga = lattice_gradient(cell, seed);
-    let gb = lattice_gradient(cell + I64Vec2::new(1, 0), seed);
-    let gc = lattice_gradient(cell + I64Vec2::new(0, 1), seed);
-    let gd = lattice_gradient(cell + I64Vec2::new(1, 1), seed);
+    // The corners' gradients.
+    let corners = [
+        lattice_gradient(cell, seed),
+        lattice_gradient(cell + I64Vec2::new(1, 0), seed),
+        lattice_gradient(cell + I64Vec2::new(0, 1), seed),
+        lattice_gradient(cell + I64Vec2::new(1, 1), seed),
+    ];
+    blend_corners(corners, f)
+}
+
+/// The noise at fraction `f` of a lattice cell (0 to 1 along each axis)
+/// whose corners have gradients `[ga, gb, gc, gd]`: at (0, 0), (1, 0),
+/// (0, 1) and (1, 1).
+fn blend_corners([ga, gb, gc, gd]: [Vec2; 4], f: Vec2) -> NoiseSample {
     let va = ga.dot(f);
     let vb = gb.dot(f - Vec2::new(1.0, 0.0));
     let vc = gc.dot(f - Vec2::new(0.0, 1.0));
@@ -142,6 +151,42 @@ pub(crate) fn fbm(p: DVec2, seed: u32, octaves: Octaves, erosion: f32) -> f32 {
     sum / (NOISE_STD * octaves.rms_amplitude())
 }
 
+/// [`fbm`] without erosion, with its gradient (the rate of change along x
+/// and z, per unit of `p`).
+pub(crate) fn fbm_gradient(p: DVec2, seed: u32, octaves: Octaves) -> (f32, DVec2) {
+    let mut sum = 0.0;
+    let mut gradient = DVec2::ZERO;
+    let mut amplitude = 1.0;
+    let mut frequency = 1.0;
+    for i in 0..octaves.count {
+        let rotation = octave_rotation(i);
+        let q = rotation.rotate(p) * frequency;
+        let n = gradient_noise(q, derive_seed(seed, i));
+        sum += amplitude * n.value;
+        // Back from the octave's rotated, scaled input to `p`.
+        let back = DVec2::new(rotation.x, -rotation.y).rotate(n.gradient.as_dvec2());
+        gradient += back * f64::from(amplitude) * frequency;
+        amplitude *= octaves.gain;
+        frequency *= LACUNARITY;
+    }
+    let norm = NOISE_STD * octaves.rms_amplitude();
+    (sum / norm, gradient / f64::from(norm))
+}
+
+/// The largest gradient [`fbm`] without erosion can have, per unit of its
+/// input.
+pub(crate) fn fbm_slope_bound(octaves: Octaves) -> f64 {
+    let mut sum = 0.0;
+    let mut amplitude = 1.0;
+    let mut frequency = 1.0;
+    for _ in 0..octaves.count {
+        sum += amplitude * frequency;
+        amplitude *= f64::from(octaves.gain);
+        frequency *= LACUNARITY;
+    }
+    f64::from(NOISE_SLOPE_MAX) * sum / f64::from(NOISE_STD * octaves.rms_amplitude())
+}
+
 /// Ridged multifractal noise, scaled so its mean is about 0 and its standard
 /// deviation about 1. Sharp crests are positive and broad valleys negative.
 ///
@@ -171,6 +216,58 @@ pub(crate) fn ridged(p: DVec2, seed: u32, octaves: Octaves) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The steepest the noise gets: every choice of corner gradients, on a
+    /// fine grid over the cell. Run with `--ignored`; it takes seconds in
+    /// release builds.
+    #[test]
+    #[ignore]
+    fn measure_steepest_noise() {
+        let steps = 64;
+        let mut steepest = 0.0f32;
+        for combo in 0..GRADIENTS.len().pow(4) {
+            let corners =
+                [0, 1, 2, 3].map(|k| GRADIENTS[(combo >> (4 * k)) & (GRADIENTS.len() - 1)]);
+            for i in 0..=steps {
+                for j in 0..=steps {
+                    let f = Vec2::new(i as f32, j as f32) / steps as f32;
+                    steepest = steepest.max(blend_corners(corners, f).gradient.length());
+                }
+            }
+        }
+        println!("steepest noise gradient: {steepest}");
+    }
+
+    #[test]
+    fn fbm_gradient_matches_fbm_and_stays_within_its_bound() {
+        let octaves = Octaves {
+            count: 5,
+            gain: 0.5,
+        };
+        let bound = fbm_slope_bound(octaves);
+        let h = 1e-5;
+        let mut steepest = 0.0f64;
+        for i in 0..20_000 {
+            let p = DVec2::new(f64::from(i) * 0.0731 - 400.0, f64::from(i) * 0.0377 + 3.0);
+            let (value, gradient) = fbm_gradient(p, 9, octaves);
+            assert_eq!(value, fbm(p, 9, octaves, 0.0));
+            if i % 100 == 0 {
+                let d = |e: DVec2| {
+                    f64::from(fbm(p + e * h, 9, octaves, 0.0) - fbm(p - e * h, 9, octaves, 0.0))
+                        / (2.0 * h)
+                };
+                let numeric = DVec2::new(d(DVec2::X), d(DVec2::Y));
+                assert!(
+                    gradient.distance(numeric) < 0.05 * bound,
+                    "{p}: {gradient} vs {numeric}"
+                );
+            }
+            steepest = steepest.max(gradient.length());
+        }
+        assert!(steepest <= bound, "{steepest} over {bound}");
+        // The bound isn't wildly loose either.
+        assert!(steepest > 0.2 * bound, "{steepest} against {bound}");
+    }
 
     #[test]
     fn gradient_matches_finite_differences() {

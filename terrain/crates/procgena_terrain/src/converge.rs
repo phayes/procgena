@@ -589,12 +589,12 @@ impl Fade {
         Some(scales.map(|s| s as f32))
     }
 
-    /// The height at `p` faded into the border blend, given the terrain's
-    /// own height `own` there (without any fade), or `None` where the blend
-    /// doesn't reach and the height is `own`.
+    /// The relief at `p` faded into the border blend, given the terrain's
+    /// own relief `own` there (without any fade or the world elevation), or
+    /// `None` where the blend doesn't reach and the relief is `own`.
     ///
     /// On an edge it is the edge's blend: the sum, in region order, of each
-    /// region's own height times its share. Both terrains on the edge
+    /// region's own relief times its share. Both terrains on the edge
     /// compute the same sum, so they agree exactly there.
     pub(crate) fn blended(&self, p: DVec2, own: f64) -> Option<f64> {
         // Beyond the blend, without evaluating any neighbour.
@@ -610,7 +610,7 @@ impl Fade {
                 .iter()
                 .find(|(r, _)| *r == region)
                 .expect("every region with a blend share is known");
-            f64::from(relief.unfaded_height(p))
+            f64::from(relief.own_relief(p))
         };
         // Each region's height once, not once per segment.
         let mut heights: Vec<(RegionId, f64)> = Vec::new();
