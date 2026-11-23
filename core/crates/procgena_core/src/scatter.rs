@@ -157,8 +157,9 @@ pub struct Footing {
     /// stick so it still finds the slope across it.
     pub extra: Vec<Vec2>,
     /// How far, in metres, the ground under any contact, extra point or the
-    /// origin may lie from the tilted plane the piece rests on. Over a dip or a ridge sharper than
-    /// this the spot is rejected. Use `f32::INFINITY` to never reject.
+    /// origin may lie from the tilted plane the piece rests on. Over a dip
+    /// or a ridge sharper than this the spot is rejected. Use
+    /// `f32::INFINITY` to never reject.
     pub max_bend: f32,
 }
 
@@ -183,10 +184,11 @@ pub struct Settled {
 /// ground. Put the piece's origin at `at` and [`Settled::height`], and turn
 /// it by [`Settled::rotation`].
 ///
-/// The ground is sampled under every contact, every extra point and the
-/// piece's origin. Returns `None` where any of them has no ground (NaN),
-/// or lies further than [`Footing::max_bend`] from the fitted plane. Check the slope with [`steeper_than`] first: it is cheaper
-/// than settling.
+/// The ground is also sampled under the piece's origin. Returns `None`
+/// where the ground under any contact, extra point or the origin is missing
+/// (NaN), or lies further than [`Footing::max_bend`] from the fitted plane.
+/// A piece with no contacts rests its origin on the ground. Check the slope
+/// with [`steeper_than`] first: it is cheaper than settling.
 pub fn settle(ground: &dyn Ground, at: DVec2, yaw: f32, footing: &Footing) -> Option<Settled> {
     let turn = Quat::from_rotation_y(yaw);
     let height = |p: Vec3| ground.height(at + DVec2::new(f64::from(p.x), f64::from(p.z)));
@@ -207,12 +209,18 @@ pub fn settle(ground: &dyn Ground, at: DVec2, yaw: f32, footing: &Footing) -> Op
         samples.push((p, h));
     }
 
-    // Fit a plane h = a·x + b·z + c by least squares. The tiny diagonal
-    // term keeps a single point or a straight line of points solvable, as
-    // a level plane across it.
+    // Fit a plane h = a·x + b·z + c by least squares to the contacts and
+    // extra points; the origin joins the fit only when there are none. The
+    // tiny diagonal term keeps a single point or a straight line of points
+    // solvable, as a level plane across it.
+    let fitted = if samples.len() > 1 {
+        &samples[..samples.len() - 1]
+    } else {
+        &samples[..]
+    };
     let mut m = Mat3::ZERO;
     let mut rhs = Vec3::ZERO;
-    for &(p, h) in &samples {
+    for &(p, h) in fitted {
         let row = Vec3::new(p.x, p.z, 1.0);
         m += Mat3::from_cols(row * row.x, row * row.y, row * row.z);
         rhs += row * h;
@@ -365,6 +373,21 @@ mod tests {
         let s = settle(&gully, DVec2::ZERO, 0.0, &plank(f32::INFINITY)).unwrap();
         // It bridges the gully, resting on the high sides.
         assert!((s.height - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn only_the_contacts_and_extra_points_set_the_tilt() {
+        // A piece whose contacts lie 1 m and 2 m to one side of its origin,
+        // on curved ground. The plane through the two contacts rises 3 m
+        // per metre; the ground under the origin must not pull it.
+        let side = Footing {
+            contacts: vec![Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)],
+            extra: Vec::new(),
+            max_bend: f32::INFINITY,
+        };
+        let curve = |p: DVec2| (p.x * p.x) as f32;
+        let s = settle(&curve, DVec2::ZERO, 0.0, &side).unwrap();
+        assert!((s.normal - Vec3::new(-3.0, 1.0, 0.0).normalize()).length() < 1e-3);
     }
 
     #[test]
