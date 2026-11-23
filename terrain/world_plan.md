@@ -491,7 +491,7 @@ impl HeightField for WorldTerrain { … }
 1. ~~**Biome choice:** field first with overrides, or biomes first?~~
    Decided 2026-11-23: field first, and the World makes the choice (see
    "Choosing biomes").
-2. **Region size and shape:** a jittered square lattice gives fairly even
+2. **Region size and shape:** a jittered staggered (hexagonal) lattice gives fairly even
    regions. Is that wanted, or should region sizes vary more (a
    multi-scale lattice: large regions with occasional small ones)?
 3. **Moisture:** include it now as a Biome selector (deserts, wetlands)
