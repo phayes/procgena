@@ -4,6 +4,7 @@ members = [
     "clump/crates/procgena_clump",
     "clump/crates/procgena_clump_bevy",
     "deadwood/crates/procgena_deadwood",
+    "deadwood/crates/procgena_deadwood_bevy",
     "mesh/crates/procgena_mesh",
     "mushroom/crates/procgena_mushroom",
     "mushroom/crates/procgena_mushroom_bevy",

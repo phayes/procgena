@@ -3,3 +3,4 @@
 .venv/
 __pycache__/
 mushroom/prior_art/
+terrain/prior_art/

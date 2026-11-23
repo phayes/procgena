@@ -1,0 +1,9 @@
+{
+  "seed": 3,
+  "trees": [
+    { "tree": "big_leaf_maple_large", "densityScale": 0.3, "clustering": 0.3, "variants": 3 },
+    { "tree": "ash_large", "densityScale": 0.3, "clustering": 0.3, "variants": 3 },
+    { "tree": "aspen_medium", "densityScale": 0.2, "clustering": 0.6 },
+    { "tree": "oak_medium", "densityScale": 0.5 }
+  ]
+}

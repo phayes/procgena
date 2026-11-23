@@ -1,4 +1,5 @@
-//! The subject being shown (a tree, a grass field, a rock or a mushroom), the camera, and command handling.
+//! The subject being shown (a tree, a grass field, a rock, a mushroom, a
+//! grove or a piece of dead wood), the camera, and command handling.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -6,12 +7,18 @@ use std::time::Instant;
 use super::environment::{EnvironmentSettings, sky_fog};
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{
-    BuildStats, ClumpBuildError, ClumpSettings, ClumpSubject, FieldSettings, MeshSize, SceneMode,
-    SceneStart, ViewerCommand, ViewerEvent,
+    BuildStats, ClumpBuildError, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView,
+    FieldSettings, GroveSettings, GroveStats, MeshSize, SceneMode, SceneStart, ViewerCommand,
+    ViewerEvent,
 };
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
+use procgena_deadwood::{DeadwoodLod, DeadwoodOptions, PieceKind, ScatterOptions};
+use procgena_deadwood_bevy::{
+    DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
+    DeadwoodScatterParams, ScatterGround,
+};
 use procgena_mushroom::{Mushroom, MushroomOptions};
 use procgena_mushroom_bevy::{
     MushroomFinished, MushroomGenerating, MushroomMaterial, MushroomParams, MushroomPart,
@@ -23,7 +30,8 @@ use procgena_stone_bevy::{
 };
 use procgena_tree::TreeOptions;
 use procgena_tree_bevy::{
-    TreeFinished, TreeGenerating, TreeLodLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
+    GroveMember, TreeFinished, TreeGenerating, TreeGroveFinished, TreeGroveGenerating,
+    TreeGroveParams, TreeLodLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
     default_tree_lod_levels,
 };
 
@@ -69,8 +77,22 @@ pub(crate) struct SceneState {
     mushroom: Arc<MushroomOptions>,
     /// Camera view restored when returning to mushroom mode.
     mushroom_view: OrbitCamera,
+    /// The grove and its ground size, retained while another mode is shown.
+    grove: Arc<GroveSettings>,
+    /// Camera view restored when returning to grove mode.
+    grove_view: OrbitCamera,
+    /// Dead wood settings, retained while another mode is shown.
+    deadwood: Arc<DeadwoodSettings>,
+    /// Camera view restored when returning to dead wood mode.
+    deadwood_view: OrbitCamera,
     /// The tree detail level last reported with [`ViewerEvent::LodShown`].
     lod_reported: Option<usize>,
+    /// The mushroom detail level last reported with
+    /// [`ViewerEvent::MushroomLodShown`], or `None` before the first report.
+    mushroom_lod_reported: Option<Option<usize>>,
+    /// The dead wood detail level last reported with
+    /// [`ViewerEvent::DeadwoodLodShown`], or `None` before the first report.
+    deadwood_lod_reported: Option<Option<usize>>,
 }
 
 impl SceneState {
@@ -88,19 +110,37 @@ impl SceneState {
     pub(crate) fn clump(&self) -> &ClumpSettings {
         &self.clump
     }
+
+    /// What dead wood mode shows.
+    pub(crate) fn deadwood(&self) -> &DeadwoodSettings {
+        &self.deadwood
+    }
 }
 
-/// Matches tree, rock or mushroom entities whose meshes are still being built.
+/// Matches tree, rock, mushroom, grove or dead wood entities whose meshes
+/// are still being built.
 type Generating = Or<(
     With<TreeGenerating>,
     With<StoneGenerating>,
     With<MushroomGenerating>,
+    With<TreeGroveGenerating>,
+    With<DeadwoodGenerating>,
 )>;
 
 /// The tree detail level to show at every distance, or `None` to switch by
 /// camera distance.
 #[derive(Resource, Default)]
 pub(crate) struct LodChoice(pub Option<usize>);
+
+/// The mushroom detail level to show at every distance, or `None` to switch
+/// by camera distance.
+#[derive(Resource, Default)]
+pub(crate) struct MushroomLodChoice(pub Option<usize>);
+
+/// The dead wood detail level to show at every distance, or `None` to
+/// switch by camera distance.
+#[derive(Resource, Default)]
+pub(crate) struct DeadwoodLodChoice(pub Option<usize>);
 
 /// The grass and plant detail level to show at every distance, or `None` to switch
 /// by camera distance.
@@ -120,7 +160,8 @@ pub(crate) fn apply_plant_lod(
     }
 }
 
-/// A tree part's camera-distance range, set aside while one detail level is shown.
+/// A tree or mushroom part's camera-distance range, set aside while one
+/// detail level is shown.
 #[derive(Component)]
 pub(crate) struct SavedRange(VisibilityRange);
 
@@ -129,11 +170,13 @@ struct ViewSubjects<'a> {
     stone: &'a StoneOptions,
     clump: &'a ClumpSettings,
     mushroom: &'a MushroomOptions,
+    grove: &'a GroveSettings,
+    deadwood: &'a DeadwoodSettings,
 }
 
-/// Returns the starting camera view for a mode. In stone and mushroom mode,
-/// the focus and distance follow the subject's size. Clump mode uses the
-/// tree or stone view for its subject.
+/// Returns the starting camera view for a mode. In stone, mushroom and grove
+/// mode, the focus and distance follow the subject's size. Clump mode uses
+/// the tree or stone view for its subject.
 fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
     match mode {
         SceneMode::Clump => match &subjects.clump.subject {
@@ -147,6 +190,19 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
             ),
         },
         SceneMode::Mushroom => mushroom_view(subjects.mushroom),
+        SceneMode::Deadwood => deadwood_view(subjects.deadwood),
+        // Look down over the whole square of ground from beyond its corner.
+        SceneMode::Grove => OrbitCamera {
+            focus: Vec3::new(0.0, 3.0, 0.0),
+            yaw: 0.6,
+            pitch: 0.45,
+            distance: 1.4 * subjects.grove.size.max(10.0),
+            limits: OrbitLimits {
+                // Far enough out to reach the lowest tree detail level.
+                distance: (2.0, 600.0),
+                pitch: (-0.05, 1.5),
+            },
+        },
         SceneMode::Tree => OrbitCamera {
             focus: Vec3::new(0.0, 2.5, 0.0),
             yaw: 0.6,
@@ -206,6 +262,67 @@ fn mushroom_view(options: &MushroomOptions) -> OrbitCamera {
     }
 }
 
+/// The camera's nearest allowed distance in dead wood mode, kept clear of
+/// the camera's 0.1 m near clipping plane.
+const DEADWOOD_NEAREST: f32 = 0.15;
+
+/// Returns the starting view for dead wood mode: over a scatter's whole
+/// square of ground, or for a piece, [`piece_view`].
+fn deadwood_view(settings: &DeadwoodSettings) -> OrbitCamera {
+    let Some(scatter) = scatter_options(settings.view) else {
+        return piece_view(&settings.piece);
+    };
+    let size = scatter.size[0].max(scatter.size[1]);
+    OrbitCamera {
+        focus: Vec3::ZERO,
+        yaw: 0.6,
+        pitch: 0.5,
+        distance: 1.2 * size,
+        limits: OrbitLimits {
+            distance: (DEADWOOD_NEAREST, 10.0 * size),
+            pitch: (-0.05, 1.5),
+        },
+    }
+}
+
+/// The scatter that `view` shows, or `None` for a single piece.
+fn scatter_options(view: DeadwoodView) -> Option<ScatterOptions> {
+    match view {
+        DeadwoodView::Piece => None,
+        DeadwoodView::Kindling => Some(ScatterOptions::kindling()),
+        DeadwoodView::TwigLitter => Some(ScatterOptions::twig_litter()),
+    }
+}
+
+/// Returns the starting view for the dead wood piece built from `options`:
+/// aimed at the middle of the piece and far enough out to show all of it,
+/// and allowed out to where it stops being drawn.
+fn piece_view(options: &DeadwoodOptions) -> OrbitCamera {
+    // A stump stands its length tall on a base widened by its flare; logs
+    // and branches lie on the ground.
+    let stump = options.kind == PieceKind::Stump;
+    let (height, width) = if stump {
+        (
+            options.length,
+            options.diameter * (1.0 + options.roots.flare),
+        )
+    } else {
+        (options.diameter, options.diameter)
+    };
+    let extent = options.length.max(width);
+    let cull = DeadwoodLod::for_options(options).cull_distance;
+    OrbitCamera {
+        focus: Vec3::new(0.0, 0.5 * height, 0.0),
+        yaw: 0.6,
+        pitch: 0.35,
+        distance: (1.6 * extent).max(DEADWOOD_NEAREST),
+        limits: OrbitLimits {
+            distance: (DEADWOOD_NEAREST, (1.2 * cull).max(2.0)),
+            pitch: (-0.05, 1.5),
+        },
+    }
+}
+
 /// The settings the scene starts with, read once by [`setup_scene`].
 #[derive(Resource)]
 pub(crate) struct Start(pub SceneStart);
@@ -217,6 +334,8 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         stone: &start.stone,
         clump: &start.clump,
         mushroom: &start.mushroom,
+        grove: &start.grove,
+        deadwood: &start.deadwood,
     };
     let view_for = |mode| default_view(mode, &subjects);
     let state = SceneState {
@@ -231,10 +350,16 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         stone_view: view_for(SceneMode::Stone),
         clump_view: view_for(SceneMode::Clump),
         mushroom_view: view_for(SceneMode::Mushroom),
+        grove_view: view_for(SceneMode::Grove),
+        deadwood_view: view_for(SceneMode::Deadwood),
         stone: start.stone.clone(),
         clump: start.clump.clone(),
         mushroom: start.mushroom.clone(),
+        grove: start.grove.clone(),
+        deadwood: start.deadwood.clone(),
         lod_reported: None,
+        mushroom_lod_reported: None,
+        deadwood_lod_reported: None,
     };
 
     let view = view_for(start.mode);
@@ -251,12 +376,13 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
     commands.remove_resource::<Start>();
 }
 
-/// Adds the tree, plant field, stone or mushroom for the selected scene mode,
-/// or in clump mode, the clump's subject. Plant fields are square, with each side
-/// `field_size` metres long.
+/// Adds the tree, plant field, stone, mushroom or grove for the selected
+/// scene mode, or in clump mode, the clump's subject. Plant fields are
+/// square, with each side `field_size` metres long.
 fn spawn_subject(commands: &mut Commands, state: &SceneState, field_size: f32) -> Entity {
     match state.mode {
         SceneMode::Tree => commands.spawn(TreeParams::Options(state.tree.clone())).id(),
+        SceneMode::Grove => commands.spawn(grove_params(&state.grove)).id(),
         SceneMode::Plants => commands.spawn(grass_field(state, field_size)).id(),
         SceneMode::Stone => commands
             .spawn(StoneParams::Options(state.stone.clone()))
@@ -264,6 +390,7 @@ fn spawn_subject(commands: &mut Commands, state: &SceneState, field_size: f32) -
         SceneMode::Mushroom => commands
             .spawn(MushroomParams::Options(state.mushroom.clone()))
             .id(),
+        SceneMode::Deadwood => spawn_deadwood(commands, &state.deadwood),
         SceneMode::Clump => match &state.clump.subject {
             ClumpSubject::Tree(options) => commands.spawn(TreeParams::Options(options.clone())),
             ClumpSubject::Stone(options) => commands.spawn(StoneParams::Options(options.clone())),
@@ -283,6 +410,25 @@ fn grass_field(state: &SceneState, size: f32) -> PlantField {
     }
 }
 
+/// Spawns what dead wood mode shows for `settings`: the piece, or a
+/// scatter of sticks on flat ground around the origin.
+fn spawn_deadwood(commands: &mut Commands, settings: &DeadwoodSettings) -> Entity {
+    match scatter_options(settings.view) {
+        None => commands.spawn(DeadwoodParams::new(settings.piece.clone())),
+        Some(scatter) => commands.spawn(DeadwoodScatterParams {
+            scatter,
+            ground: ScatterGround::Flat,
+        }),
+    }
+    .id()
+}
+
+/// The grove component for `settings`: a square of flat ground at the
+/// origin.
+fn grove_params(settings: &GroveSettings) -> TreeGroveParams {
+    TreeGroveParams::new(settings.grove.clone(), Vec2::splat(settings.size))
+}
+
 /// Applies every [`ViewerCommand`] received this frame, in order, and renders
 /// enough frames to show the result.
 #[allow(clippy::too_many_arguments)]
@@ -293,6 +439,8 @@ pub(crate) fn apply_commands(
     mut environment: ResMut<EnvironmentSettings>,
     mut lod: ResMut<LodChoice>,
     mut plant_lod: ResMut<PlantLodChoice>,
+    mut mushroom_lod: ResMut<MushroomLodChoice>,
+    mut deadwood_lod: ResMut<DeadwoodLodChoice>,
     mut camera: Query<&mut OrbitCamera, With<ViewportCamera>>,
     generating: Query<(), Generating>,
     mut activity: ResMut<ViewportActivity>,
@@ -318,9 +466,10 @@ pub(crate) fn apply_commands(
                 }
                 state.mode = *mode;
                 state.requested = Instant::now();
-                if *mode == SceneMode::Tree {
-                    state.lod_reported = None;
-                }
+                // The newly shown mode reports its detail level again.
+                state.lod_reported = None;
+                state.mushroom_lod_reported = None;
+                state.deadwood_lod_reported = None;
                 state.subject = spawn_subject(&mut commands, state, environment.field_size);
             }
             ViewerCommand::SetTree(options) => {
@@ -350,6 +499,40 @@ pub(crate) fn apply_commands(
                     commands
                         .entity(target)
                         .insert(MushroomParams::Options(options.clone()));
+                }
+            }
+            ViewerCommand::SetDeadwood(settings) => {
+                // Keep the settings in every mode; rebuild only when dead wood is shown.
+                let old = std::mem::replace(&mut state.deadwood, settings.clone());
+                if state.mode != SceneMode::Deadwood {
+                    continue;
+                }
+                if old.view != settings.view {
+                    // A piece replaces a scatter, or one scatter another, at once.
+                    commands.entity(state.subject).despawn();
+                    if let Some(pending) = state.pending.take() {
+                        commands.entity(pending).despawn();
+                    }
+                    state.requested = Instant::now();
+                    state.deadwood_lod_reported = None;
+                    state.subject = spawn_deadwood(&mut commands, settings);
+                } else if settings.view == DeadwoodView::Piece && old.piece != settings.piece {
+                    // Keep the old piece shown while the new one builds. A
+                    // changed cover alone is regrown by `show_deadwood_cover`.
+                    let target = replacement(&mut commands, state, &generating);
+                    commands
+                        .entity(target)
+                        .insert(DeadwoodParams::new(settings.piece.clone()));
+                }
+            }
+            ViewerCommand::SetGrove(settings) => {
+                // Keep the settings in every mode; the shown grove updates in place.
+                state.grove = settings.clone();
+                if state.mode == SceneMode::Grove {
+                    state.requested = Instant::now();
+                    commands
+                        .entity(state.subject)
+                        .insert(grove_params(settings));
                 }
             }
             ViewerCommand::SetClump(settings) => {
@@ -413,12 +596,20 @@ pub(crate) fn apply_commands(
             ViewerCommand::SetPlantLod(choice) => {
                 plant_lod.0 = *choice;
             }
+            ViewerCommand::SetMushroomLod(choice) => {
+                mushroom_lod.0 = *choice;
+            }
+            ViewerCommand::SetDeadwoodLod(choice) => {
+                deadwood_lod.0 = *choice;
+            }
             ViewerCommand::ResetCamera => {
                 if let Ok(mut orbit) = camera.single_mut() {
                     let subjects = ViewSubjects {
                         stone: &state.stone,
                         clump: &state.clump,
                         mushroom: &state.mushroom,
+                        grove: &state.grove,
+                        deadwood: &state.deadwood,
                     };
                     *orbit = default_view(state.mode, &subjects);
                 }
@@ -450,11 +641,14 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
         SceneMode::Stone => &mut state.stone_view,
         SceneMode::Clump => &mut state.clump_view,
         SceneMode::Mushroom => &mut state.mushroom_view,
+        SceneMode::Grove => &mut state.grove_view,
+        SceneMode::Deadwood => &mut state.deadwood_view,
     }
 }
 
-/// Requests more frames while tree, rock or mushroom meshes or textures are
-/// loading, so an idle viewport still shows the completed result.
+/// Requests more frames while tree, rock, mushroom or dead wood meshes or
+/// textures are loading, so an idle viewport still shows the completed
+/// result.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_while_loading(
     generating: Query<(), Generating>,
@@ -464,6 +658,8 @@ pub(crate) fn render_while_loading(
     stone_materials: Res<Assets<StoneMaterial>>,
     mushroom_parts: Query<&MeshMaterial3d<MushroomMaterial>, With<MushroomPart>>,
     mushroom_materials: Res<Assets<MushroomMaterial>>,
+    deadwood_parts: Query<&MeshMaterial3d<DeadwoodMaterial>, With<DeadwoodPart>>,
+    deadwood_materials: Res<Assets<DeadwoodMaterial>>,
     server: Res<AssetServer>,
     mut activity: ResMut<ViewportActivity>,
 ) {
@@ -498,10 +694,22 @@ pub(crate) fn render_while_loading(
             let cap = &material.extension;
             loading(&cap.cap_color) || loading(&cap.cap_normal) || loading(&cap.cap_orh)
         });
+    let deadwood_textures_loading = deadwood_parts
+        .iter()
+        .filter_map(|part| deadwood_materials.get(&part.0))
+        .any(|material| {
+            let wood = &material.extension;
+            loading(&wood.bark_color)
+                || loading(&wood.bark_normal)
+                || loading(&wood.bark_roughness)
+                || loading(&wood.end_color)
+                || loading(&wood.end_normal)
+        });
     if !generating.is_empty()
         || textures_loading
         || stone_textures_loading
         || mushroom_textures_loading
+        || deadwood_textures_loading
     {
         activity.request_frames(ViewportActivity::SETTLE_FRAMES);
     }
@@ -518,53 +726,142 @@ type LodPart<'a> = (
 
 /// Shows only the chosen detail level's tree parts, or restores switching by
 /// camera distance. Trellis wires show at every level. Clump mode always
-/// shows level 0, the level its clump grows on.
+/// shows level 0, the level its clump grows on, and grove mode always
+/// switches by distance, so each tree shows the level that suits it.
 pub(crate) fn apply_lod(
     mut commands: Commands,
     choice: Res<LodChoice>,
     state: Option<Res<SceneState>>,
     mut parts: Query<LodPart>,
 ) {
-    let clump_mode = state.is_some_and(|state| state.mode == SceneMode::Clump);
-    let choice = if clump_mode { Some(0) } else { choice.0 };
+    let choice = match state.map(|state| state.mode) {
+        Some(SceneMode::Clump) => Some(0),
+        Some(SceneMode::Grove) => None,
+        _ => choice.0,
+    };
     for (entity, part, visibility, range, saved) in &mut parts {
         if part.kind == TreePartKind::Trellis {
             continue;
         }
+        let ranges = (range, saved);
+        show_level(&mut commands, entity, part.lod, choice, visibility, ranges);
+    }
+}
 
-        // Set the distance range aside while one level is shown, and put it back after.
-        let mut entity = commands.entity(entity);
-        let wanted = match choice {
-            Some(level) => {
-                if let Some(range) = range {
-                    entity
-                        .remove::<VisibilityRange>()
-                        .insert(SavedRange(range.clone()));
-                }
-                if part.lod == level {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                }
-            }
-            None => {
-                if let Some(SavedRange(range)) = saved {
-                    entity.remove::<SavedRange>().insert(range.clone());
-                }
-                Visibility::Inherited
-            }
-        };
+/// A mushroom part with its visibility and its distance range, current or set aside.
+type MushroomLodPart<'a> = (
+    Entity,
+    &'a MushroomPart,
+    Option<&'a mut Visibility>,
+    Option<&'a VisibilityRange>,
+    Option<&'a SavedRange>,
+);
 
-        // Touch the visibility only when it changes, so nothing is redrawn needlessly.
-        match visibility {
-            Some(mut visibility) => {
-                visibility.set_if_neq(wanted);
-            }
-            None if wanted != Visibility::Inherited => {
-                entity.insert(wanted);
-            }
-            None => {}
+/// Shows only the chosen detail level's mushroom parts, or restores
+/// switching by camera distance.
+pub(crate) fn apply_mushroom_lod(
+    mut commands: Commands,
+    choice: Res<MushroomLodChoice>,
+    mut parts: Query<MushroomLodPart>,
+) {
+    for (entity, part, visibility, range, saved) in &mut parts {
+        let ranges = (range, saved);
+        show_level(
+            &mut commands,
+            entity,
+            part.lod,
+            choice.0,
+            visibility,
+            ranges,
+        );
+    }
+}
+
+/// A dead wood part with its visibility and its distance range, current or
+/// set aside.
+type DeadwoodLodPart<'a> = (
+    Entity,
+    &'a DeadwoodPart,
+    Option<&'a mut Visibility>,
+    Option<&'a VisibilityRange>,
+    Option<&'a SavedRange>,
+);
+
+/// Shows only the chosen detail level's dead wood parts, or restores
+/// switching by camera distance.
+pub(crate) fn apply_deadwood_lod(
+    mut commands: Commands,
+    choice: Res<DeadwoodLodChoice>,
+    mut parts: Query<DeadwoodLodPart>,
+) {
+    for (entity, part, visibility, range, saved) in &mut parts {
+        let ranges = (range, saved);
+        show_level(
+            &mut commands,
+            entity,
+            part.lod,
+            choice.0,
+            visibility,
+            ranges,
+        );
+    }
+}
+
+/// A distance range that shows a part at every camera distance.
+///
+/// It still has a fade at its far end, far beyond any camera. Bevy keeps
+/// drawing a part with the shader it first picked for it, and a part first
+/// drawn with a fading range uses a fading shader; that shader needs a
+/// fading range to draw the part at all.
+fn every_distance() -> VisibilityRange {
+    VisibilityRange {
+        start_margin: 0.0..0.0,
+        end_margin: f32::MAX / 2.0..f32::MAX,
+        use_aabb: false,
+    }
+}
+
+/// Shows the part `entity` of detail level `level` only if `choice` is that
+/// level, at every distance, setting its own distance range aside; with no
+/// choice, puts each part's range back and leaves the ranges to decide.
+/// `ranges` holds the part's current range and the one set aside, if any.
+fn show_level(
+    commands: &mut Commands,
+    entity: Entity,
+    level: usize,
+    choice: Option<usize>,
+    visibility: Option<Mut<Visibility>>,
+    ranges: (Option<&VisibilityRange>, Option<&SavedRange>),
+) {
+    // The chosen level's range is set aside and replaced while it is
+    // chosen; every other part has its own range.
+    let (range, saved) = ranges;
+    let mut entity = commands.entity(entity);
+    let chosen = choice == Some(level);
+    match (chosen, range, saved) {
+        (true, Some(range), None) => {
+            entity.insert((SavedRange(range.clone()), every_distance()));
         }
+        (false, _, Some(SavedRange(range))) => {
+            entity.remove::<SavedRange>().insert(range.clone());
+        }
+        _ => {}
+    }
+    let wanted = if choice.is_none() || chosen {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+
+    // Touch the visibility only when it changes, so nothing is redrawn needlessly.
+    match visibility {
+        Some(mut visibility) => {
+            visibility.set_if_neq(wanted);
+        }
+        None if wanted != Visibility::Inherited => {
+            entity.insert(wanted);
+        }
+        None => {}
     }
 }
 
@@ -599,6 +896,97 @@ pub(crate) fn report_lod(
     }
 }
 
+/// Reports the mushroom detail level on screen whenever it changes.
+pub(crate) fn report_mushroom_lod(
+    mut state: ResMut<SceneState>,
+    choice: Res<MushroomLodChoice>,
+    camera: Query<&Transform, With<ViewportCamera>>,
+    children: Query<&Children>,
+    parts: Query<(&MushroomPart, Option<&VisibilityRange>, Option<&SavedRange>)>,
+    mut events: MessageWriter<ViewerEvent>,
+) {
+    if state.mode != SceneMode::Mushroom {
+        return;
+    }
+    let Ok(camera) = camera.single() else {
+        return;
+    };
+
+    // Each level's distance range, from the shown mushroom's parts. Their
+    // ranges grow with the mushroom's size.
+    let kids = children.get(state.subject).into_iter().flatten();
+    let ranges: Vec<(usize, &VisibilityRange)> = parts
+        .iter_many(kids)
+        .flatten()
+        .filter_map(|(part, range, saved)| Some((part.lod, saved.map(|s| &s.0).or(range)?)))
+        .collect();
+    if ranges.is_empty() {
+        return;
+    }
+
+    // The mushroom stands at the origin.
+    let shown = match choice.0 {
+        Some(level) => Some(level),
+        None => level_in_range(camera.translation.length(), &ranges),
+    };
+    if state.mushroom_lod_reported != Some(shown) {
+        state.mushroom_lod_reported = Some(shown);
+        events.write(ViewerEvent::MushroomLodShown(shown));
+    }
+}
+
+/// Reports the dead wood detail level on screen whenever it changes.
+pub(crate) fn report_deadwood_lod(
+    mut state: ResMut<SceneState>,
+    choice: Res<DeadwoodLodChoice>,
+    camera: Query<&Transform, With<ViewportCamera>>,
+    children: Query<&Children>,
+    parts: Query<(&DeadwoodPart, Option<&VisibilityRange>, Option<&SavedRange>)>,
+    mut events: MessageWriter<ViewerEvent>,
+) {
+    if state.mode != SceneMode::Deadwood {
+        return;
+    }
+    let Ok(camera) = camera.single() else {
+        return;
+    };
+
+    // Each level's distance range, from the shown piece's parts. Their
+    // ranges grow with the piece's size.
+    let kids = children.get(state.subject).into_iter().flatten();
+    let ranges: Vec<(usize, &VisibilityRange)> = parts
+        .iter_many(kids)
+        .flatten()
+        .filter_map(|(part, range, saved)| Some((part.lod, saved.map(|s| &s.0).or(range)?)))
+        .collect();
+    if ranges.is_empty() {
+        return;
+    }
+
+    // The piece lies at the origin.
+    let shown = match choice.0 {
+        Some(level) => Some(level),
+        None => level_in_range(camera.translation.length(), &ranges),
+    };
+    if state.deadwood_lod_reported != Some(shown) {
+        state.deadwood_lod_reported = Some(shown);
+        events.write(ViewerEvent::DeadwoodLodShown(shown));
+    }
+}
+
+/// The level, from `(level, range)` pairs, whose distance range covers
+/// `distance`, counting each blend between levels as switching halfway
+/// through. `None` if no range covers it.
+fn level_in_range(distance: f32, ranges: &[(usize, &VisibilityRange)]) -> Option<usize> {
+    let middle = |margin: &std::ops::Range<f32>| (margin.start + margin.end) / 2.0;
+    ranges
+        .iter()
+        .find(|(_, range)| {
+            middle(&range.start_margin) <= distance && distance < middle(&range.end_margin)
+        })
+        .map(|(level, _)| *level)
+}
+
 /// Swaps in a finished replacement tree, and reports the shown tree's size
 /// once it finishes generating.
 pub(crate) fn report_tree(
@@ -624,25 +1012,9 @@ pub(crate) fn report_tree(
         return;
     }
     let result = event.result.clone().map(|()| {
-        // Add each part to its level's size; trellis wires show at every level.
         let mut levels = vec![MeshSize::default(); lod_levels().len()];
         let kids = children.get(event.entity).into_iter().flatten();
-        for (part, mesh) in parts.iter_many(kids).flatten() {
-            let Some(mesh) = meshes.get(&mesh.0) else {
-                continue;
-            };
-            let vertices = mesh.count_vertices();
-            let triangles = mesh.indices().map_or(0, |i| i.len() / 3);
-            let sizes = if part.kind == TreePartKind::Trellis {
-                &mut levels[..]
-            } else {
-                levels.get_mut(part.lod..=part.lod).unwrap_or_default()
-            };
-            for size in sizes {
-                size.vertices += vertices;
-                size.triangles += triangles;
-            }
-        }
+        add_tree_parts(&mut levels, parts.iter_many(kids).flatten(), &meshes);
         BuildStats {
             levels,
             build_time: state.requested.elapsed(),
@@ -657,6 +1029,66 @@ pub(crate) fn report_tree(
         ))));
     }
     events.write(ViewerEvent::TreeBuilt(result));
+}
+
+/// Adds the size of each tree part in `parts` to its detail level's entry in
+/// `levels`. Trellis wires show at every level, so they count toward each.
+fn add_tree_parts<'a>(
+    levels: &mut [MeshSize],
+    parts: impl Iterator<Item = (&'a TreePart, &'a Mesh3d)>,
+    meshes: &Assets<Mesh>,
+) {
+    for (part, mesh) in parts {
+        let Some(mesh) = meshes.get(&mesh.0) else {
+            continue;
+        };
+        let vertices = mesh.count_vertices();
+        let triangles = mesh.indices().map_or(0, |i| i.len() / 3);
+        let sizes = if part.kind == TreePartKind::Trellis {
+            &mut levels[..]
+        } else {
+            levels.get_mut(part.lod..=part.lod).unwrap_or_default()
+        };
+        for size in sizes {
+            size.vertices += vertices;
+            size.triangles += triangles;
+        }
+    }
+}
+
+/// Reports the shown grove's tree count and size once a build ends, or why
+/// it could not be built.
+pub(crate) fn report_grove(
+    event: On<TreeGroveFinished>,
+    state: Res<SceneState>,
+    mut events: MessageWriter<ViewerEvent>,
+    children: Query<&Children>,
+    members: Query<(), With<GroveMember>>,
+    parts: Query<(&TreePart, &Mesh3d)>,
+    meshes: Res<Assets<Mesh>>,
+) {
+    if state.mode != SceneMode::Grove || event.entity != state.subject {
+        return;
+    }
+    let result = event.result.clone().map(|()| {
+        // Each tree is a child of the grove, with its parts as its own children.
+        let mut levels = vec![MeshSize::default(); lod_levels().len()];
+        let mut trees = 0;
+        let kids = children.get(event.entity).into_iter().flatten();
+        for tree in kids.filter(|kid| members.contains(**kid)) {
+            trees += 1;
+            let tree_parts = children.get(*tree).into_iter().flatten();
+            add_tree_parts(&mut levels, parts.iter_many(tree_parts).flatten(), &meshes);
+        }
+        GroveStats {
+            trees,
+            build: BuildStats {
+                levels,
+                build_time: state.requested.elapsed(),
+            },
+        }
+    });
+    events.write(ViewerEvent::GroveBuilt(result));
 }
 
 /// Displays a successfully built rock sunk into the ground by its suggested
@@ -774,6 +1206,53 @@ pub(crate) fn report_mushroom(
     events.write(ViewerEvent::MushroomBuilt(result));
 }
 
+/// Displays a successfully built dead wood piece in place of the previous
+/// one, and reports its mesh counts per detail level and build time.
+/// Reports rejected settings without replacing the old piece.
+pub(crate) fn report_deadwood(
+    event: On<DeadwoodFinished>,
+    mut commands: Commands,
+    mut state: ResMut<SceneState>,
+    mut events: MessageWriter<ViewerEvent>,
+    children: Query<&Children>,
+    parts: Query<(&DeadwoodPart, &Mesh3d)>,
+    meshes: Res<Assets<Mesh>>,
+) {
+    // Remove the old piece only after its replacement has built successfully.
+    if state.pending == Some(event.entity) {
+        state.pending = None;
+        if event.result.is_ok() {
+            commands.entity(state.subject).despawn();
+            state.subject = event.entity;
+        } else {
+            commands.entity(event.entity).despawn();
+        }
+    } else if event.entity != state.subject {
+        return;
+    }
+
+    // Add up each level's parts: a level can have round stems and strips.
+    let result = event.result.clone().map(|()| {
+        let mut levels: Vec<MeshSize> = Vec::new();
+        let kids = children.get(event.entity).into_iter().flatten();
+        for (part, mesh) in parts.iter_many(kids).flatten() {
+            let Some(mesh) = meshes.get(&mesh.0) else {
+                continue;
+            };
+            if levels.len() <= part.lod {
+                levels.resize(part.lod + 1, MeshSize::default());
+            }
+            levels[part.lod].vertices += mesh.count_vertices();
+            levels[part.lod].triangles += mesh.indices().map_or(0, |i| i.len() / 3);
+        }
+        BuildStats {
+            levels,
+            build_time: state.requested.elapsed(),
+        }
+    });
+    events.write(ViewerEvent::DeadwoodBuilt(result));
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::ecs::system::RunSystemOnce;
@@ -822,11 +1301,16 @@ mod tests {
         };
         world.spawn((trellis, Visibility::Inherited));
 
-        // Only level 2 and the trellis show, at any distance.
+        // Only level 2 and the trellis show, and level 2 shows at any distance.
         for (part, visibility, range) in apply(&mut world, Some(2)) {
             let shown = part.kind == TreePartKind::Trellis || part.lod == 2;
             assert_eq!(visibility == Visibility::Inherited, shown, "{part:?}");
-            assert!(range.is_none(), "{part:?} keeps its range");
+            let expected = match part.kind {
+                TreePartKind::Trellis => None,
+                _ if part.lod == 2 => Some(every_distance()),
+                _ => Some(ranges[part.lod].clone()),
+            };
+            assert!(range == expected, "{part:?} has the wrong range");
         }
 
         // Distance switching comes back with the original ranges.
@@ -835,6 +1319,95 @@ mod tests {
             let original = (part.kind != TreePartKind::Trellis).then(|| ranges[part.lod].clone());
             assert!(range == original, "{part:?} has the wrong range");
         }
+    }
+
+    /// Runs [`apply_mushroom_lod`] with `choice`, and returns each part's
+    /// level, visibility and distance range.
+    fn apply_mushroom(
+        world: &mut World,
+        choice: Option<usize>,
+    ) -> Vec<(usize, Visibility, Option<VisibilityRange>)> {
+        world.insert_resource(MushroomLodChoice(choice));
+        world.run_system_once(apply_mushroom_lod).unwrap();
+        let mut parts = world.query::<(&MushroomPart, &Visibility, Option<&VisibilityRange>)>();
+        parts
+            .iter(world)
+            .map(|(part, visibility, range)| (part.lod, *visibility, range.cloned()))
+            .collect()
+    }
+
+    #[test]
+    fn a_chosen_mushroom_level_shows_alone_even_on_a_new_mushroom() {
+        // Two levels, the second with a stem strip as well as a cap.
+        let mut world = World::new();
+        let ranges = [range(0.0, 1.5), range(1.5, 25.0)];
+        let spawn_parts = |world: &mut World| {
+            for (lod, ribbon) in [(0, false), (1, false), (1, true)] {
+                let part = MushroomPart {
+                    instance: 0,
+                    lod,
+                    ribbon,
+                };
+                world.spawn((part, Visibility::Inherited, ranges[lod].clone()));
+            }
+        };
+        spawn_parts(&mut world);
+
+        // Only level 1 shows, at any distance; a replacement mushroom's new
+        // parts follow the choice too.
+        let check = |parts: Vec<(usize, Visibility, Option<VisibilityRange>)>| {
+            for (lod, visibility, range) in parts {
+                assert_eq!(visibility == Visibility::Inherited, lod == 1, "level {lod}");
+                let expected = if lod == 1 {
+                    every_distance()
+                } else {
+                    ranges[lod].clone()
+                };
+                assert!(range == Some(expected), "level {lod} has the wrong range");
+            }
+        };
+        check(apply_mushroom(&mut world, Some(1)));
+        spawn_parts(&mut world);
+        let parts = apply_mushroom(&mut world, Some(1));
+        assert_eq!(parts.len(), 6);
+        check(parts);
+
+        // Choosing another level gives level 1 its own range back.
+        for (lod, _, range) in apply_mushroom(&mut world, Some(0)) {
+            let expected = if lod == 0 {
+                every_distance()
+            } else {
+                ranges[lod].clone()
+            };
+            assert!(range == Some(expected), "level {lod} has the wrong range");
+        }
+
+        // Distance switching comes back with the original ranges.
+        for (lod, visibility, range) in apply_mushroom(&mut world, None) {
+            assert_eq!(visibility, Visibility::Inherited, "level {lod}");
+            assert!(
+                range == Some(ranges[lod].clone()),
+                "level {lod} has the wrong range"
+            );
+        }
+    }
+
+    #[test]
+    fn camera_distance_picks_the_mushroom_level_from_its_ranges() {
+        // Levels blending over 1.4–1.6 m, and fading out over 20–30 m.
+        let blend = |start: std::ops::Range<f32>, end: std::ops::Range<f32>| VisibilityRange {
+            start_margin: start,
+            end_margin: end,
+            use_aabb: false,
+        };
+        let near = blend(0.0..0.0, 1.4..1.6);
+        let far = blend(1.4..1.6, 20.0..30.0);
+        let ranges = [(0, &near), (1, &far)];
+        assert_eq!(level_in_range(0.0, &ranges), Some(0));
+        assert_eq!(level_in_range(1.49, &ranges), Some(0));
+        assert_eq!(level_in_range(1.5, &ranges), Some(1));
+        assert_eq!(level_in_range(24.9, &ranges), Some(1));
+        assert_eq!(level_in_range(25.0, &ranges), None);
     }
 
     #[test]

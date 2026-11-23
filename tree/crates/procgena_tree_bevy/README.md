@@ -139,6 +139,81 @@ The filename must end in `.tree.json`. The tree waits for the asset to load,
 then generates in the background. It rebuilds when Bevy reports that the asset
 has changed; detecting live file edits requires Bevy asset watching to be enabled.
 
+## Plant a grove
+
+Spawn a `TreeGroveParams` to spread a mix of trees over the ground around an
+entity. Start from a grove preset, or build a `procgena_tree::TreeGrove` of
+your own:
+
+```no_run
+use bevy::prelude::*;
+use procgena_tree::GrovePreset;
+use procgena_tree_bevy::TreeGroveParams;
+
+fn plant_grove(mut commands: Commands) {
+    commands.spawn((
+        TreeGroveParams::preset(GrovePreset::OakWoodland, Vec2::new(60.0, 40.0)),
+        Transform::from_xyz(0.0, 0.0, -30.0),
+    ));
+}
+```
+
+Each tree becomes a child entity with its own `TreeParams` and a
+`GroveMember` component. Trees of the same species and shape variant share
+meshes and materials, so a grove of hundreds of trees generates only a handful
+of meshes. Each tree is still several entities, so keep a grove to hundreds of
+trees rather than thousands.
+
+Change the component to change the grove. Only the trees that appear,
+disappear or change are spawned, despawned or rebuilt, so lowering the density
+leaves the remaining trees exactly as they were. The grove has a
+`TreeGroveGenerating` component until every tree is ready, and
+`TreeGroveFinished` is triggered on it when the build ends, with an error if
+the grove could not be built.
+
+To stand the trees on terrain or another generated surface, spawn the grove as
+a child of an entity with a `GeneratedObject`, and say which parts of it count
+as ground:
+
+```no_run
+use bevy::prelude::*;
+use procgena_mesh::{TagFilter, tags};
+use procgena_tree::GrovePreset;
+use procgena_tree_bevy::TreeGroveParams;
+
+fn plant_on(terrain: Entity, mut commands: Commands) {
+    commands.spawn((
+        TreeGroveParams::preset(GrovePreset::PineStand, Vec2::splat(50.0))
+            .on_host(TagFilter::any_of([tags::GROUND]), 0.5),
+        ChildOf(terrain),
+    ));
+}
+```
+
+The ground is sampled every 0.5 m here. Trees are left out where the host has
+no surface or the slope is too steep.
+
+Groves also load from files. Save a grove as `assets/groves/woods.grove.json`
+(see [the grove guide](../../docs/groves.md) for the format), and load it with
+`GroveSource::Asset`:
+
+```no_run
+use bevy::prelude::*;
+use procgena_tree_bevy::{GroveGround, GroveSource, TreeGroveParams};
+
+fn load_grove(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn(TreeGroveParams {
+        grove: GroveSource::Asset(asset_server.load("groves/woods.grove.json")),
+        size: Vec2::splat(80.0),
+        ground: GroveGround::Flat,
+    });
+}
+```
+
+The filename must end in `.grove.json`. A file with an invalid setting fails
+to load. The grove updates when the file changes if Bevy is watching asset
+files.
+
 ## Control wind
 
 By default, trunks bend, branches sway, and leaves flutter. Change the global
@@ -228,6 +303,17 @@ If loading or saving fails, the viewer exits with an error. It also exits with a
 error if the scene is not ready within two minutes after the trees finish
 generating; tree generation itself has no time limit.
 See the top of `examples/viewer.rs` for all available options.
+
+To try groves, run:
+
+```sh
+cargo run -p procgena_tree_bevy --example grove -- --textures
+```
+
+Press Left/Right to switch grove presets, Up/Down to make the grove denser or
+sparser, and F to switch between flat ground and hills. Leave out `--textures`
+to use plain colours instead of the downloaded bark and leaf textures. See the
+top of `examples/grove.rs` for all options.
 
 ## Build your own entities
 

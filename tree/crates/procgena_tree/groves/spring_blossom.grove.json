@@ -1,0 +1,7 @@
+{
+  "seed": 7,
+  "trees": [
+    { "tree": "spring_pussy_willow", "densityScale": 0.05, "clustering": 0.5 },
+    { "tree": "flowering_dogwood", "densityScale": 0.8 }
+  ]
+}

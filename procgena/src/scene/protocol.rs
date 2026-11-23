@@ -5,12 +5,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use procgena_clump::ClumpOptions;
+use procgena_clump::{ClumpOptions, ClumpPreset};
+use procgena_deadwood::DeadwoodOptions;
+use procgena_deadwood_bevy::DeadwoodBuildError;
 use procgena_mushroom::MushroomOptions;
 use procgena_mushroom_bevy::MushroomBuildError;
 use procgena_plant::prelude::{FieldPreset, PlantField};
 use procgena_stone::{OptionsError as StoneOptionsError, StoneOptions};
-use procgena_tree::{OptionsError, TreeOptions, TreePreset};
+use procgena_tree::{GrovePreset, OptionsError, TreeGrove, TreeOptions, TreePreset};
+use procgena_tree_bevy::TreeGroveBuildError;
 
 use super::environment::EnvironmentSettings;
 
@@ -32,6 +35,10 @@ pub struct SceneStart {
     pub clump: Arc<ClumpSettings>,
     /// Mushroom settings, as for [`ViewerCommand::SetMushroom`].
     pub mushroom: Arc<MushroomOptions>,
+    /// Grove settings, as for [`ViewerCommand::SetGrove`].
+    pub grove: Arc<GroveSettings>,
+    /// Dead wood settings, as for [`ViewerCommand::SetDeadwood`].
+    pub deadwood: Arc<DeadwoodSettings>,
     /// Lighting, ground, wind and auto-rotation, as for [`ViewerCommand::SetEnvironment`].
     pub environment: EnvironmentSettings,
     /// The tree detail level to show, as for [`ViewerCommand::SetLod`].
@@ -50,6 +57,8 @@ impl Default for SceneStart {
             stone: Arc::default(),
             clump: Arc::default(),
             mushroom: Arc::default(),
+            grove: Arc::default(),
+            deadwood: Arc::default(),
             environment: EnvironmentSettings::default(),
             lod: None,
             plant_lod: None,
@@ -71,6 +80,11 @@ pub enum SceneMode {
     Clump,
     /// A single mushroom generated from the current mushroom settings.
     Mushroom,
+    /// A grove of trees on a square of flat ground.
+    Grove,
+    /// A single log, branch or stump generated from the current dead wood
+    /// settings.
+    Deadwood,
 }
 
 /// A change requested by the host application.
@@ -111,6 +125,21 @@ pub enum ViewerCommand {
     /// until mushroom mode is shown. The scene uses its own detail levels,
     /// scaled to the mushroom's size, and ignores `options.detail`.
     SetMushroom(Arc<MushroomOptions>),
+    /// Sets the grove and the size of its ground. In grove mode, the grove
+    /// updates in place: trees that keep their spot, species and shape stay,
+    /// and the rest are added, removed or rebuilt. A
+    /// [`ViewerEvent::GroveBuilt`] follows. In other modes, saves the settings
+    /// until grove mode is shown.
+    SetGrove(Arc<GroveSettings>),
+    /// Sets what dead wood mode shows: a piece, with any cover grown on it,
+    /// or a scatter of sticks. In dead wood mode, a changed piece or view is
+    /// built in the background and reported through
+    /// [`ViewerEvent::DeadwoodBuilt`]; a changed piece keeps the previous
+    /// one visible until it is ready, or if its settings are rejected. A
+    /// changed cover alone regrows only the cover. In other modes, saves the
+    /// settings until dead wood mode is shown. The scene uses its own detail
+    /// levels, scaled to the piece's size, and ignores `piece.detail`.
+    SetDeadwood(Arc<DeadwoodSettings>),
     /// Replaces the lighting, ground, wind and auto-rotation settings.
     SetEnvironment(EnvironmentSettings),
     /// Shows only the tree's detail level `n` (0 is the most detailed; see
@@ -121,6 +150,16 @@ pub enum ViewerCommand {
     /// detailed, 2 the coarsest) at every camera distance, or with `None`, at the
     /// level that suits the distance. Levels above 2 show level 2.
     SetPlantLod(Option<u32>),
+    /// Shows only the mushroom's detail level `n` (0 is the most detailed;
+    /// see [`BuildStats::levels`]) at every camera distance, or with `None`,
+    /// the level that suits the camera distance. A
+    /// [`ViewerEvent::MushroomLodShown`] follows in mushroom mode.
+    SetMushroomLod(Option<usize>),
+    /// Shows only the dead wood piece's detail level `n` (0 is the most
+    /// detailed; see [`BuildStats::levels`]) at every camera distance, or
+    /// with `None`, the level that suits the camera distance. A
+    /// [`ViewerEvent::DeadwoodLodShown`] follows in dead wood mode.
+    SetDeadwoodLod(Option<usize>),
     /// Returns the camera to the current mode's starting view.
     ResetCamera,
 }
@@ -143,6 +182,52 @@ impl Default for FieldSettings {
     fn default() -> Self {
         Self {
             field: FieldPreset::MEADOW.field,
+        }
+    }
+}
+
+/// What dead wood mode shows.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DeadwoodSettings {
+    /// The log, branch or stump shown in [`DeadwoodView::Piece`].
+    pub piece: DeadwoodOptions,
+    /// A single piece, or a scatter of sticks.
+    pub view: DeadwoodView,
+    /// A clump, such as moss, grown on the piece, or `None` for bare wood.
+    /// Scatters are always bare.
+    pub cover: Option<ClumpPreset>,
+}
+
+/// Whether dead wood mode shows one piece or a scatter of sticks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DeadwoodView {
+    /// The piece from [`DeadwoodSettings::piece`].
+    #[default]
+    Piece,
+    /// [`ScatterOptions::kindling`](procgena_deadwood::ScatterOptions::kindling):
+    /// sticks 1 to 7 cm thick on flat ground.
+    Kindling,
+    /// [`ScatterOptions::twig_litter`](procgena_deadwood::ScatterOptions::twig_litter):
+    /// thin twigs on flat ground.
+    TwigLitter,
+}
+
+/// What the grove mode shows: a grove of trees on a square of flat ground.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroveSettings {
+    /// The species, their densities and how the trees vary.
+    pub grove: TreeGrove,
+    /// Width and depth of the square of ground, in metres. Must be above 0
+    /// and at most [`MAX_GROVE_SIZE`](procgena_tree::MAX_GROVE_SIZE).
+    pub size: f32,
+}
+
+impl Default for GroveSettings {
+    /// The oak woodland preset on ground 40 metres across.
+    fn default() -> Self {
+        Self {
+            grove: GrovePreset::OakWoodland.grove(),
+            size: 40.0,
         }
     }
 }
@@ -222,10 +307,28 @@ pub enum ViewerEvent {
     /// level and build time on success, or why its settings were rejected.
     /// A rejected replacement leaves the previous mushroom visible.
     MushroomBuilt(Result<BuildStats, MushroomBuildError>),
+    /// Reports the result of building the grove in grove mode: how many
+    /// trees it has and their meshes added together, or why it could not be
+    /// built.
+    GroveBuilt(Result<GroveStats, TreeGroveBuildError>),
+    /// Reports the result of generating a dead wood piece: mesh sizes per
+    /// detail level and build time on success, or why its settings were
+    /// rejected. A rejected replacement leaves the previous piece visible.
+    DeadwoodBuilt(Result<BuildStats, DeadwoodBuildError>),
     /// The tree's detail level now on screen changed, because of
     /// [`ViewerCommand::SetLod`] or because the camera moved. Also sent when
     /// tree mode is shown.
     LodShown(usize),
+    /// The mushroom's detail level now on screen changed, because of
+    /// [`ViewerCommand::SetMushroomLod`] or because the camera moved. `None`
+    /// means the camera is too far away for any level to be drawn. Also sent
+    /// when mushroom mode is shown.
+    MushroomLodShown(Option<usize>),
+    /// The dead wood piece's detail level now on screen changed, because of
+    /// [`ViewerCommand::SetDeadwoodLod`] or because the camera moved. `None`
+    /// means the camera is too far away for any level to be drawn. Also
+    /// sent when dead wood mode is shown.
+    DeadwoodLodShown(Option<usize>),
 }
 
 /// Mesh counts and elapsed build time for a generated tree or rock.
@@ -239,6 +342,17 @@ pub struct BuildStats {
     /// Elapsed time from the latest build request until generation finishes,
     /// including time waiting for earlier work. This does not wait for textures to finish loading.
     pub build_time: Duration,
+}
+
+/// The size of a built grove.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroveStats {
+    /// How many trees the grove has.
+    pub trees: usize,
+    /// Vertex and triangle counts of every tree together, for each tree
+    /// detail level, and the build time. Trees that share a mesh are each
+    /// counted.
+    pub build: BuildStats,
 }
 
 /// Size of a mesh, or of several meshes together.

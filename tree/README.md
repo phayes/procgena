@@ -196,9 +196,38 @@ create joints with `Tree::rig` and vertex weights with `Rig::skin`.
 `BranchGrouping::parts` and `TreeMesh::part` let you extract separate tree parts.
 `TrellisOptions::wires` and `TrellisMaterial` describe the optional support wires.
 
+## Plant a grove
+
+A `TreeGrove` mixes several tree species over a stretch of ground. Each species
+has its own density in trees per hectare, a spacing its trunks keep from their
+neighbours, and how much it gathers into stands. `GrovePlacement::new` lays a
+grove out over ground of the size you choose and returns one instance per tree:
+
+```rust
+use procgena_tree::{FlatGround, GrovePlacement, GrovePreset};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let grove = GrovePreset::OakWoodland.grove();
+    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &FlatGround, None)?;
+    for instance in placement.instances() {
+        // Build each species' variant mesh once, and draw it with this transform.
+        let _options = grove.trees[instance.tree].variant(instance.variant);
+        let _transform = instance.transform;
+    }
+    Ok(())
+}
+```
+
+Each species is drawn from a few shape variants, so hundreds of trees need only
+a handful of meshes. Lowering the density only removes trees; the rest stay
+where they were. Trees can stand on uneven ground, and groves load and save as
+`.grove.json` files. See [docs/groves.md](docs/groves.md) for the presets,
+every setting, and the file format.
+
 ## Bevy integration
 
 The workspace also includes `procgena_tree_bevy`. Add its `TreePlugin` after Bevy's
 default plugins and spawn a `TreeParams` component to generate and display trees.
 It handles background generation, materials, wind, and mesh detail switching.
+Spawn a `TreeGroveParams` component to grow a whole grove.
 See that crate's documentation for setup and texture paths.

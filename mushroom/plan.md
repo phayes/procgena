@@ -42,9 +42,11 @@ Deviations from the design below:
 The `mushroom_top_001` files are published in `gs://ze_textures/mushroom/`,
 so the studio downloads them on first use on a machine without a local copy.
 
-Not done: no Detail Level picker for mushrooms (the overlay shows the most
-detailed level only); exports leave out the cap texture; no cluster or
-scatter in the studio.
+The tab has a Level of Detail picker; the overlay gives the size of the
+level on screen.
+
+Not done: exports leave out the cap texture; no cluster or scatter in the
+studio.
 
 ## Bottom line
 

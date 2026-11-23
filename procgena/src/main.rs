@@ -4,10 +4,12 @@
 //! without a window and follows the script; see [`headless`].
 
 mod clump;
+mod deadwood;
 mod download;
 mod environment;
 mod export;
 mod field;
+mod grove;
 #[cfg(any(test, debug_assertions))]
 mod headless;
 mod mushrooms;

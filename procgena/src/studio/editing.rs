@@ -3,9 +3,10 @@
 use std::sync::Arc;
 
 use crate::clump::editor::{ClumpEdited, ClumpEditor, ClumpEditorPlugin, spawn_clump_editor};
-use crate::scene::{ClumpSettings, FieldSettings, SceneMode, ViewerCommand};
+use crate::scene::{ClumpSettings, FieldSettings, GroveSettings, SceneMode, ViewerCommand};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use procgena_deadwood::DeadwoodOptions;
 use procgena_mushroom::MushroomOptions;
 use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams};
 use procgena_stone::StoneOptions;
@@ -14,11 +15,16 @@ use procgena_tree::TreeOptions;
 use super::layout::TabPage;
 use super::status::{BuildState, BuildStatus};
 use super::{ActiveTab, StudioTab};
+use crate::deadwood::editor::{
+    DeadwoodEdited, DeadwoodEditor, DeadwoodEditorPlugin, spawn_deadwood_editor,
+};
 use crate::export::FileOpsPlugin;
+use crate::export::deadwood::spawn_deadwood_export;
 use crate::export::mushroom::spawn_mushroom_export;
 use crate::export::stone_panel::spawn_stone_export;
 use crate::export::tree_panel::spawn_tree_export;
 use crate::field::editor::{FieldEdited, FieldEditorPlugin, FieldReader, spawn_field_editor};
+use crate::grove::editor::{GroveEdited, GroveEditorPlugin, GroveReader, spawn_grove_editor};
 use crate::mushrooms::editor::{
     MushroomEdited, MushroomEditor, MushroomEditorPlugin, spawn_mushroom_editor,
 };
@@ -39,8 +45,12 @@ impl Plugin for EditingPlugin {
             FieldEditorPlugin,
             ClumpEditorPlugin,
             MushroomEditorPlugin,
+            GroveEditorPlugin,
+            DeadwoodEditorPlugin,
             FileOpsPlugin,
         ))
+        .add_observer(send_deadwood)
+        .add_observer(send_grove)
         .add_observer(send_tree)
         .add_observer(send_stone)
         .add_observer(send_clump)
@@ -51,7 +61,8 @@ impl Plugin for EditingPlugin {
 }
 
 /// Spawns each tab's editor at the end of its page, followed on the Trees,
-/// Stones and Mushrooms tabs by the save, load and export controls.
+/// Stones, Mushrooms and Dead Wood tabs by the save, load and export
+/// controls.
 pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
     for (page, tab) in &pages {
         match tab.0 {
@@ -59,6 +70,7 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
                 spawn_tree_editor(&mut commands, page);
                 spawn_tree_export(&mut commands, page);
             }
+            StudioTab::TreeGrove => spawn_grove_editor(&mut commands, page),
             StudioTab::Plant => spawn_plant_editor(&mut commands, page),
             StudioTab::PlantField => spawn_field_editor(&mut commands, page),
             StudioTab::Stones => {
@@ -69,6 +81,10 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
             StudioTab::Mushrooms => {
                 spawn_mushroom_editor(&mut commands, page);
                 spawn_mushroom_export(&mut commands, page);
+            }
+            StudioTab::Deadwood => {
+                spawn_deadwood_editor(&mut commands, page);
+                spawn_deadwood_export(&mut commands, page);
             }
         }
     }
@@ -169,6 +185,48 @@ fn send_mushroom(
     }
     if edited.reframe {
         viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Rebuilds the dead wood piece when an edit changed it, and fits the
+/// camera to it after choosing a preset or loading settings.
+fn send_deadwood(
+    edited: On<DeadwoodEdited>,
+    editor: Single<&DeadwoodEditor>,
+    panels: Query<&ParamPanel<DeadwoodOptions>>,
+    mut sent: Local<Option<DeadwoodOptions>>,
+    mut state: ResMut<BuildState>,
+    mut viewer: MessageWriter<ViewerCommand>,
+) {
+    let Ok(panel) = panels.get(editor.panel()) else {
+        return;
+    };
+    let sent = sent.get_or_insert_with(|| crate::deadwood::START_PRESET.options());
+    if panel.value() != sent {
+        *sent = panel.value().clone();
+        state.deadwood = BuildStatus::Building;
+        viewer.write(ViewerCommand::SetDeadwood(Arc::new(sent.clone())));
+    }
+    if edited.reframe {
+        viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Sends the grove when an edit changed it.
+fn send_grove(
+    _: On<GroveEdited>,
+    reader: GroveReader,
+    mut sent: Local<Option<GroveSettings>>,
+    mut state: ResMut<BuildState>,
+    mut viewer: MessageWriter<ViewerCommand>,
+) {
+    let Some(grove) = reader.settings() else {
+        return;
+    };
+    if sent.as_ref() != Some(&grove) {
+        *sent = Some(grove.clone());
+        state.grove = BuildStatus::Building;
+        viewer.write(ViewerCommand::SetGrove(Arc::new(grove)));
     }
 }
 

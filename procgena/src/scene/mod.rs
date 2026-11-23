@@ -1,5 +1,6 @@
 //! The 3D scene: environment, orbit camera, and a tree, a plant field, a rock,
-//! a tree or rock with a clump grown on it, or a mushroom.
+//! a tree or rock with a clump grown on it, a mushroom, a grove, or a piece
+//! of dead wood.
 //!
 //! Add [`ScenePlugin`] to the app, show the scene in a UI node marked
 //! [`SceneViewport`], and drive it with [`ViewerCommand`] messages. The scene
@@ -26,6 +27,7 @@ mod viewport;
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
 use procgena_clump_bevy::ClumpPlugin;
+use procgena_deadwood_bevy::DeadwoodPlugin;
 use procgena_mushroom_bevy::MushroomPlugin;
 use procgena_plant::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
@@ -33,14 +35,15 @@ use procgena_tree::TextureCompression;
 use procgena_tree_bevy::TreePlugin;
 
 pub use assets::{
-    CLUMP_TEXTURE_ROOT, MUSHROOM_TEXTURE_ROOT, STONE_TEXTURE_ROOT, TREE_TEXTURE_ROOT,
-    add_asset_sources,
+    CLUMP_TEXTURE_ROOT, DEADWOOD_TEXTURE_ROOT, MUSHROOM_TEXTURE_ROOT, STONE_TEXTURE_ROOT,
+    TREE_TEXTURE_ROOT, add_asset_sources,
 };
 pub use environment::EnvironmentSettings;
 pub use protocol::{
-    BuildStats, ClumpSettings, ClumpSubject, FieldSettings, SceneMode, SceneStart, ViewerCommand,
-    ViewerEvent,
+    BuildStats, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView, FieldSettings,
+    GroveSettings, SceneMode, SceneStart, ViewerCommand, ViewerEvent,
 };
+pub use texture_reader::TextureDownloads;
 pub use viewport::SceneViewport;
 
 // Used by the headless studio, to tell when the scene is idle.
@@ -110,13 +113,20 @@ impl Plugin for ScenePlugin {
                 texture_root: Some(MUSHROOM_TEXTURE_ROOT.to_owned()),
                 ..default()
             },
+            DeadwoodPlugin {
+                texture_root: Some(DEADWOOD_TEXTURE_ROOT.to_owned()),
+                ..default()
+            },
             viewport::ViewportPlugin,
         ))
         .insert_resource(self.start.environment)
         .insert_resource(subject::LodChoice(self.start.lod))
         .insert_resource(subject::PlantLodChoice(self.start.plant_lod))
+        .init_resource::<subject::MushroomLodChoice>()
+        .init_resource::<subject::DeadwoodLodChoice>()
         .insert_resource(subject::Start(self.start.clone()))
         .init_resource::<clump::ShownClump>()
+        .init_resource::<clump::ShownCover>()
         .add_message::<ViewerCommand>()
         .add_message::<ViewerEvent>()
         .add_systems(
@@ -134,8 +144,12 @@ impl Plugin for ScenePlugin {
                 (orbit::drive_orbit, environment::apply_environment),
                 orbit::follow_orbit,
                 (subject::render_while_loading, clump::render_while_loading),
-                subject::report_lod,
-                clump::show_clump,
+                (
+                    subject::report_lod,
+                    subject::report_mushroom_lod,
+                    subject::report_deadwood_lod,
+                ),
+                (clump::show_clump, clump::show_deadwood_cover),
             )
                 .chain(),
         )
@@ -143,13 +157,22 @@ impl Plugin for ScenePlugin {
         // ranges removed or restored, before Bevy decides what is visible this frame.
         .add_systems(
             PostUpdate,
-            (subject::apply_lod, ApplyDeferred)
+            (
+                (
+                    subject::apply_lod,
+                    subject::apply_mushroom_lod,
+                    subject::apply_deadwood_lod,
+                ),
+                ApplyDeferred,
+            )
                 .chain()
                 .before(VisibilitySystems::VisibilityPropagate),
         )
         .add_observer(subject::report_tree)
         .add_observer(subject::report_stone)
         .add_observer(subject::report_mushroom)
+        .add_observer(subject::report_deadwood)
+        .add_observer(subject::report_grove)
         .add_observer(clump::report_clump);
     }
 }

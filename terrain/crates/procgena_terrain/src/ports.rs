@@ -389,7 +389,7 @@ fn road_crossing(
     let ramp = |i: usize| {
         [a, b]
             .iter()
-            .map(|s| f64::from((profile[i].height - s.natural[i].height).abs()) / steepest)
+            .map(|s| f64::from((profile[i].height - s.natural[i].height).abs()) / f64::from(a.road_grades.grade.min(b.road_grades.grade)))
             .fold(0.0, f64::max)
     };
     let off = |i: usize| (i as f64 * step - wished).abs();

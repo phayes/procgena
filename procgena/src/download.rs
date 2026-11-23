@@ -56,7 +56,7 @@ pub fn cached_or_fetch(
     cached: Option<&Path>,
     path: &str,
     sha256: &str,
-    fetch: &FetchFn,
+    fetch: impl FnOnce(&str) -> Result<Vec<u8>, String>,
 ) -> Result<Vec<u8>, String> {
     if let Some(cached) = cached
         && let Ok(bytes) = fs::read(cached)

@@ -8,6 +8,8 @@ pub enum StudioTab {
     /// A single tree.
     #[default]
     Trees,
+    /// A grove mixing several kinds of tree.
+    TreeGrove,
     /// One plant, previewed on its own.
     Plant,
     /// A field mixing several plants.
@@ -18,28 +20,34 @@ pub enum StudioTab {
     Clumps,
     /// A single mushroom.
     Mushrooms,
+    /// A single fallen log, branch or stump.
+    Deadwood,
 }
 
 impl StudioTab {
     /// Every tab, left to right.
-    pub const ALL: [StudioTab; 6] = [
+    pub const ALL: [StudioTab; 8] = [
         StudioTab::Trees,
+        StudioTab::TreeGrove,
         StudioTab::Plant,
         StudioTab::PlantField,
         StudioTab::Stones,
         StudioTab::Clumps,
         StudioTab::Mushrooms,
+        StudioTab::Deadwood,
     ];
 
     /// The tab's label.
     pub fn label(self) -> &'static str {
         match self {
             Self::Trees => "Trees",
+            Self::TreeGrove => "Tree Grove",
             Self::Plant => "Plant",
             Self::PlantField => "Plant Field",
             Self::Stones => "Stones",
             Self::Clumps => "Clumps",
             Self::Mushrooms => "Mushrooms",
+            Self::Deadwood => "Dead Wood",
         }
     }
 
@@ -48,10 +56,12 @@ impl StudioTab {
     pub fn mode(self) -> SceneMode {
         match self {
             Self::Trees => SceneMode::Tree,
+            Self::TreeGrove => SceneMode::Grove,
             Self::Plant | Self::PlantField => SceneMode::Plants,
             Self::Stones => SceneMode::Stone,
             Self::Clumps => SceneMode::Clump,
             Self::Mushrooms => SceneMode::Mushroom,
+            Self::Deadwood => SceneMode::Deadwood,
         }
     }
 

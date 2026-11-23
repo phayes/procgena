@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bevy::asset::io::file::FileAssetReader;
 use bevy::asset::io::{AssetReader, AssetReaderError, PathStream, Reader, VecReader};
@@ -22,6 +23,34 @@ use crate::download::{FetchFn, cached_or_fetch, http_fetch};
 /// that the published file list's paths are relative to.
 const TEXTURES: &str = "textures";
 
+/// How many texture files are downloading right now. Clones share one count,
+/// so one value can be handed to every generator's [`TextureFiles`].
+#[derive(Resource, Clone, Default)]
+pub struct TextureDownloads(Arc<AtomicUsize>);
+
+impl TextureDownloads {
+    /// The number of downloads in progress.
+    pub fn in_progress(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Counts one download until the returned guard is dropped.
+    fn start(&self) -> DownloadGuard {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        DownloadGuard(self.0.clone())
+    }
+}
+
+/// One download counted in a [`TextureDownloads`]; dropping it ends the count,
+/// even if the download fails or panics.
+struct DownloadGuard(Arc<AtomicUsize>);
+
+impl Drop for DownloadGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// A generator's published texture files, and where verified copies are kept.
 pub struct TextureFiles {
     /// SHA-256 checksum of each published file, by its path under `textures/`.
@@ -30,13 +59,20 @@ pub struct TextureFiles {
     cache: Option<PathBuf>,
     /// Downloads a published file, given its path under `textures/`.
     fetch: Box<FetchFn>,
+    /// Counts the downloads in progress.
+    downloads: TextureDownloads,
 }
 
 impl TextureFiles {
     /// Reads the published file list `manifest` (the text of an
     /// `assets_manifest.json`) and prepares to download from its `baseUrl`,
-    /// keeping copies in `cache`. Fails if the list is malformed.
-    pub fn from_manifest(manifest: &str, cache: Option<PathBuf>) -> Result<Self, String> {
+    /// keeping copies in `cache` and counting downloads in `downloads`.
+    /// Fails if the list is malformed.
+    pub fn from_manifest(
+        manifest: &str,
+        cache: Option<PathBuf>,
+        downloads: TextureDownloads,
+    ) -> Result<Self, String> {
         let manifest: serde_json::Value = serde_json::from_str(manifest)
             .map_err(|error| format!("the texture list is damaged: {error}"))?;
         let base_url = manifest["baseUrl"]
@@ -53,12 +89,17 @@ impl TextureFiles {
             .filter_map(|file| Some((file["path"].as_str()?, file["sha256"].as_str()?)))
             .map(|(path, sha256)| (path.to_owned(), sha256.to_owned()))
             .collect();
-        Ok(Self::with_fetch(listed, cache, http_fetch(base_url)))
+        Ok(Self::with_fetch(
+            listed,
+            cache,
+            downloads,
+            http_fetch(base_url),
+        ))
     }
 
     /// Publishes no files, so nothing is ever downloaded.
     pub fn none() -> Self {
-        Self::with_fetch(HashMap::new(), None, |_| {
+        Self::with_fetch(HashMap::new(), None, TextureDownloads::default(), |_| {
             Err("nothing is published".to_owned())
         })
     }
@@ -72,17 +113,19 @@ impl TextureFiles {
             .any(|path| format!("{TEXTURES}/{path}").starts_with(prefix))
     }
 
-    /// Creates the files from their checksums by path, a cache folder and a
-    /// download function.
+    /// Creates the files from their checksums by path, a cache folder, a
+    /// download count and a download function.
     fn with_fetch(
         listed: HashMap<String, String>,
         cache: Option<PathBuf>,
+        downloads: TextureDownloads,
         fetch: impl Fn(&str) -> Result<Vec<u8>, String> + Send + Sync + 'static,
     ) -> Self {
         Self {
             listed,
             cache,
             fetch: Box::new(fetch),
+            downloads,
         }
     }
 
@@ -107,7 +150,12 @@ impl TextureFiles {
     fn get(&self, path: &str) -> Result<Vec<u8>, String> {
         let sha256 = &self.listed[path];
         let cached = self.cache.as_ref().map(|cache| cache.join(path));
-        cached_or_fetch(cached.as_deref(), path, sha256, &*self.fetch)
+        // Count only real downloads, not files found in the cache.
+        let counted_fetch = |path: &str| {
+            let _counted = self.downloads.start();
+            (self.fetch)(path)
+        };
+        cached_or_fetch(cached.as_deref(), path, sha256, counted_fetch)
     }
 }
 
@@ -180,8 +228,7 @@ impl AssetReader for TextureReader {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::sync::Mutex;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Mutex, mpsc};
 
     use bevy::tasks::block_on;
 
@@ -224,7 +271,9 @@ mod tests {
         fn reader(&self, folder: &Path, cache: &Path, published: &[u8]) -> TextureReader {
             let server = self.clone();
             let listed = HashMap::from([(CAP.to_owned(), hex_sha256(published))]);
-            let files = TextureFiles::with_fetch(listed, Some(cache.to_owned()), move |path| {
+            let downloads = TextureDownloads::default();
+            let cache = Some(cache.to_owned());
+            let files = TextureFiles::with_fetch(listed, cache, downloads, move |path| {
                 server.requests.fetch_add(1, Ordering::SeqCst);
                 let served = server.served.lock().unwrap();
                 served
@@ -233,6 +282,35 @@ mod tests {
                     .ok_or_else(|| "offline".to_owned())
             });
             TextureReader::new(folder, Arc::new(files))
+        }
+    }
+
+    #[test]
+    fn downloads_are_counted_while_they_run() {
+        // A download source that waits for each reply to be sent.
+        let downloads = TextureDownloads::default();
+        let (started, has_started) = mpsc::channel();
+        let (reply, replies) = mpsc::channel::<Result<Vec<u8>, String>>();
+        let replies = Mutex::new(replies);
+        let listed = HashMap::from([(CAP.to_owned(), hex_sha256(b"cap"))]);
+        let files = TextureFiles::with_fetch(listed, None, downloads.clone(), move |_| {
+            started.send(()).unwrap();
+            replies.lock().unwrap().recv().unwrap()
+        });
+        let files = Arc::new(files);
+
+        // The count covers a download until it fails or succeeds.
+        for (answer, succeeds) in [
+            (Err("offline".to_owned()), false),
+            (Ok(b"cap".to_vec()), true),
+        ] {
+            let files = files.clone();
+            let download = std::thread::spawn(move || files.get(CAP));
+            has_started.recv().unwrap();
+            assert_eq!(downloads.in_progress(), 1);
+            reply.send(answer).unwrap();
+            assert_eq!(download.join().unwrap().is_ok(), succeeds);
+            assert_eq!(downloads.in_progress(), 0);
         }
     }
 

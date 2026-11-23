@@ -1,9 +1,12 @@
-//! Clump mode: growing a clump on the shown tree or rock.
+//! Clump mode: growing a clump on the shown tree or rock. Also grows dead
+//! wood mode's cover, such as moss, on its piece.
 
 use bevy::prelude::*;
 use procgena_clump_bevy::{ClumpFinished, ClumpGenerating, ClumpMaterial, ClumpParams, ClumpPart};
 
-use super::protocol::{BuildStats, ClumpBuildError, MeshSize, SceneMode, ViewerEvent};
+use super::protocol::{
+    BuildStats, ClumpBuildError, DeadwoodView, MeshSize, SceneMode, ViewerEvent,
+};
 use super::subject::SceneState;
 use super::viewport::ViewportActivity;
 
@@ -61,6 +64,68 @@ pub(crate) fn show_clump(
                 .spawn((ClumpParams::new(wanted.clone()), ChildOf(subject)))
                 .id();
             shown.0 = Some(clump);
+            activity.request_frames(ViewportActivity::SETTLE_FRAMES);
+        }
+    }
+}
+
+/// The cover, such as moss, grown on dead wood mode's piece: a
+/// [`ClumpParams`] child of the piece, or `None` when there is none.
+#[derive(Resource, Default)]
+pub(crate) struct ShownCover(Option<Entity>);
+
+/// Keeps the chosen cover growing on dead wood mode's piece, and removes it
+/// in other modes, for scatters, or when no cover is chosen.
+///
+/// A replaced piece gets a new cover, which grows once the piece is built.
+/// A changed cover replaces the old one's settings.
+pub(crate) fn show_deadwood_cover(
+    mut shown: ResMut<ShownCover>,
+    state: Res<SceneState>,
+    mut commands: Commands,
+    covers: Query<(&ClumpParams, &ChildOf, Has<ClumpGenerating>)>,
+    mut activity: ResMut<ViewportActivity>,
+) {
+    let settings = state.deadwood();
+    let wanted = match settings.cover {
+        Some(preset) if state.mode() == SceneMode::Deadwood && settings.view == DeadwoodView::Piece => {
+            preset.options()
+        }
+        _ => {
+            if let Some(cover) = shown.0.take()
+                && let Ok(mut cover) = commands.get_entity(cover)
+            {
+                cover.despawn();
+            }
+            return;
+        }
+    };
+
+    // Grow on the current piece. A replaced piece took its cover with it.
+    let subject = state.subject();
+    let current = shown
+        .0
+        .and_then(|cover| Some((cover, covers.get(cover).ok()?)));
+    match current {
+        Some((cover, (params, parent, generating))) if parent.parent() == subject => {
+            if *params.0 != wanted {
+                commands.entity(cover).insert(ClumpParams::new(wanted));
+                activity.request_frames(ViewportActivity::SETTLE_FRAMES);
+            }
+            if generating {
+                activity.request_frames(ViewportActivity::SETTLE_FRAMES);
+            }
+        }
+        stale => {
+            if let Some((cover, _)) = stale
+                && let Ok(mut cover) = commands.get_entity(cover)
+            {
+                cover.despawn();
+            }
+            let cover = commands
+                .spawn((ClumpParams::new(wanted), ChildOf(subject)))
+                .id();
+            shown.0 = Some(cover);
             activity.request_frames(ViewportActivity::SETTLE_FRAMES);
         }
     }

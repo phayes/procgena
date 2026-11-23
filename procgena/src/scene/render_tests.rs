@@ -107,6 +107,28 @@ fn every_chosen_detail_level_draws_the_tree() {
     }
 }
 
+/// Checks that choosing the detail level already on screen keeps the tree
+/// drawn, and so does switching by distance again.
+#[test]
+#[ignore = "needs a GPU"]
+fn choosing_the_shown_tree_level_keeps_the_tree() {
+    let mut scene = start(SceneMode::Tree);
+    assert!(matches!(
+        tree_event(&mut scene),
+        ViewerEvent::TreeBuilt(Ok(_))
+    ));
+    scene.settle();
+    for choice in [Some(0), None] {
+        scene.send(ViewerCommand::SetLod(choice));
+        let coverage = sky_coverage(&scene.settled_frame());
+        assert!(
+            coverage > 0.03,
+            "with {choice:?} the tree covers only {:.1}% of the sky",
+            coverage * 100.0
+        );
+    }
+}
+
 /// The fraction of the sky (the top 40% of rows) covered by something other
 /// than sky, judged against the top-left pixel.
 fn sky_coverage(frame: &Frame) -> f32 {
@@ -390,6 +412,65 @@ fn idle_mushroom_mode_draws_the_textured_mushroom() {
     assert_fly_agaric_is_textured(&mut scene);
 }
 
+/// Waits for a dead wood build result, ignoring other viewer events.
+fn deadwood_event(scene: &mut HeadlessScene) -> ViewerEvent {
+    scene.next_event(|event| matches!(event, ViewerEvent::DeadwoodBuilt(_)))
+}
+
+/// Checks that dead wood mode builds every detail level of a log and draws
+/// its bark and end-grain textures, and that a chosen detail level is
+/// reported.
+#[test]
+#[ignore = "needs a GPU"]
+fn idle_deadwood_mode_draws_the_textured_log() {
+    use procgena_deadwood::{DeadwoodLod, DeadwoodPreset};
+
+    let start = SceneStart {
+        mode: SceneMode::Deadwood,
+        deadwood: Arc::new(DeadwoodPreset::FreshCutLog.options()),
+        environment: EnvironmentSettings {
+            wind: false,
+            ..default()
+        },
+        ..default()
+    };
+    let mut scene = HeadlessScene::new(start, SIZE);
+    let ViewerEvent::DeadwoodBuilt(Ok(stats)) = deadwood_event(&mut scene) else {
+        panic!("the log was not built");
+    };
+    assert_eq!(stats.levels.len(), DeadwoodLod::default().levels.len());
+    let textured = scene.settled_frame();
+
+    // The same log without textures looks different.
+    let mut plain = DeadwoodPreset::FreshCutLog.options();
+    plain.material.bark_texture = None;
+    plain.material.end_texture = None;
+    scene.send(ViewerCommand::SetDeadwood(Arc::new(plain)));
+    assert!(matches!(
+        deadwood_event(&mut scene),
+        ViewerEvent::DeadwoodBuilt(Ok(_))
+    ));
+    let untextured = scene.settled_frame();
+    let differing = textured
+        .bgra
+        .chunks(4)
+        .zip(untextured.bgra.chunks(4))
+        .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 8))
+        .count();
+    assert!(
+        differing > (SIZE.x * SIZE.y / 100) as usize,
+        "only {differing} pixels changed without the textures"
+    );
+
+    // Choosing the strips-only level shows and reports it.
+    scene.send(ViewerCommand::SetDeadwoodLod(Some(3)));
+    let shown = scene.next_event(|event| matches!(event, ViewerEvent::DeadwoodLodShown(_)));
+    assert!(
+        matches!(shown, ViewerEvent::DeadwoodLodShown(Some(3))),
+        "{shown:?}"
+    );
+}
+
 /// Checks that with no textures on disk, the scene downloads the rock's
 /// textures into its cache and draws the rock looking as it does with the
 /// workspace's copies.
@@ -471,18 +552,78 @@ fn assert_fly_agaric_is_textured(scene: &mut HeadlessScene) {
         ViewerEvent::MushroomBuilt(Ok(_))
     ));
     let untextured = scene.settled_frame();
-    let changed = textured
-        .bgra
-        .chunks(4)
-        .zip(untextured.bgra.chunks(4))
-        .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 30))
-        .count();
-    let changed = changed as f32 / (SIZE.x * SIZE.y) as f32;
+    let changed = changed_share(&textured, &untextured);
     assert!(
         changed > 0.002,
         "the texture changed only {:.2}% of the view",
         changed * 100.0
     );
+}
+
+/// The fraction of pixels in which some colour channel differs by more
+/// than 30 between frames `a` and `b`.
+fn changed_share(a: &Frame, b: &Frame) -> f32 {
+    let changed = a
+        .bgra
+        .chunks(4)
+        .zip(b.bgra.chunks(4))
+        .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 30))
+        .count();
+    changed as f32 / (SIZE.x * SIZE.y) as f32
+}
+
+/// The mushroom detail levels reported as shown since the last check.
+fn mushroom_levels_shown(scene: &mut HeadlessScene) -> Vec<Option<usize>> {
+    scene
+        .take_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            ViewerEvent::MushroomLodShown(level) => Some(level),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Checks that each chosen mushroom detail level is drawn and reported,
+/// and that the flat level looks different from full detail.
+#[test]
+#[ignore = "needs a GPU"]
+fn every_chosen_mushroom_level_is_drawn_and_reported() {
+    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::FlyAgaric);
+    assert!(matches!(
+        mushroom_event(&mut scene),
+        ViewerEvent::MushroomBuilt(Ok(_))
+    ));
+    let full = scene.settled_frame();
+
+    let levels = procgena_mushroom::MushroomLod::default().levels.len();
+    let mut frames = Vec::new();
+    for lod in 0..levels {
+        scene.send(ViewerCommand::SetMushroomLod(Some(lod)));
+        let frame = scene.settled_frame();
+        let red = red_share(&frame);
+        assert!(
+            red > 0.005,
+            "level {lod} shows only {:.1}% red cap",
+            red * 100.0
+        );
+        let shown = mushroom_levels_shown(&mut scene);
+        assert_eq!(shown.last(), Some(&Some(lod)), "{shown:?}");
+        frames.push(frame);
+    }
+    let flat = changed_share(&full, &frames[levels - 1]);
+    assert!(
+        flat > 0.002,
+        "the flat level changed only {:.2}% of the view",
+        flat * 100.0
+    );
+
+    // Switching by distance again shows full detail, as the starting view
+    // is close enough for it.
+    scene.send(ViewerCommand::SetMushroomLod(None));
+    let auto = scene.settled_frame();
+    assert_eq!(mushroom_levels_shown(&mut scene).last(), Some(&Some(0)));
+    assert!(changed_share(&full, &auto) < 0.002);
 }
 
 /// Checks that invalid replacement settings report an error and leave the

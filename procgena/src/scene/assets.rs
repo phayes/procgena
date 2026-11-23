@@ -8,7 +8,7 @@ use std::sync::Arc;
 use bevy::asset::io::AssetSourceBuilder;
 use bevy::prelude::*;
 
-use super::texture_reader::{TextureFiles, TextureReader};
+use super::texture_reader::{TextureDownloads, TextureFiles, TextureReader};
 
 /// Asset path prefix of procgena_tree's bark and leaf textures.
 ///
@@ -35,6 +35,13 @@ pub const CLUMP_TEXTURE_ROOT: &str = "procgena_clump://textures";
 /// Use as `MushroomPlugin::texture_root` after registering the texture
 /// locations with [`add_asset_sources`].
 pub const MUSHROOM_TEXTURE_ROOT: &str = "procgena_mushroom://textures";
+
+/// Path prefix for loading the bark and end-grain textures supplied with
+/// procgena_deadwood.
+///
+/// Use as `DeadwoodPlugin::texture_root` after registering the texture
+/// locations with [`add_asset_sources`].
+pub const DEADWOOD_TEXTURE_ROOT: &str = "procgena_deadwood://textures";
 
 /// A generator's asset folder, registered as an asset source.
 struct GeneratorAssets {
@@ -66,24 +73,26 @@ macro_rules! generator_assets {
 }
 
 /// Every generator whose assets the studio loads.
-const GENERATORS: [GeneratorAssets; 4] = [
+const GENERATORS: [GeneratorAssets; 5] = [
     generator_assets!("procgena_tree", "tree"),
     generator_assets!("procgena_stone", "stone"),
     generator_assets!("procgena_clump", "clump"),
     generator_assets!("procgena_mushroom", "mushroom"),
+    generator_assets!("procgena_deadwood", "deadwood"),
 ];
 
-/// Makes tree, rock, clump and mushroom textures available through
-/// `procgena_tree://`, `procgena_stone://`, `procgena_clump://` and
-/// `procgena_mushroom://`.
+/// Makes tree, rock, clump, mushroom and dead wood textures available
+/// through `procgena_tree://`, `procgena_stone://`, `procgena_clump://`,
+/// `procgena_mushroom://` and `procgena_deadwood://`.
 ///
 /// Files are read from the workspace's `tree/assets`, `stone/assets`,
-/// `clump/assets` and `mushroom/assets` folders, at their build-time
+/// `clump/assets`, `mushroom/assets` and `deadwood/assets` folders, at their build-time
 /// locations. Published textures missing there are downloaded when first
 /// loaded and kept in the user's cache folder (such as
 /// `~/Library/Caches/procgena/textures/` on macOS), so the textures need no
 /// separate download step and a copied executable still finds them. Without
-/// a cache folder, downloads are kept only while the studio runs.
+/// a cache folder, downloads are kept only while the studio runs. Adds a
+/// [`TextureDownloads`] resource counting the downloads in progress.
 ///
 /// Call before adding `AssetPlugin` or the default plugins.
 pub fn add_asset_sources(app: &mut App) {
@@ -110,9 +119,12 @@ fn add_asset_sources_from(
     folder: impl Fn(&GeneratorAssets) -> PathBuf,
     cache: Option<PathBuf>,
 ) {
+    let downloads = TextureDownloads::default();
+    app.insert_resource(downloads.clone());
     for generator in &GENERATORS {
         let cache = cache.as_ref().map(|cache| cache.join(generator.cache));
-        let files = match TextureFiles::from_manifest(generator.manifest, cache) {
+        let manifest = generator.manifest;
+        let files = match TextureFiles::from_manifest(manifest, cache, downloads.clone()) {
             Ok(files) => Arc::new(files),
             Err(error) => {
                 error!(
@@ -144,10 +156,15 @@ mod tests {
                 "procgena_mushroom",
                 "textures/cap/mushroom_top_001-1k-color-bc7.ktx2",
             ),
+            (
+                "procgena_deadwood",
+                "textures/end/TreeEnd005-1k-color-bc7.ktx2",
+            ),
         ];
         for (generator, (source, sample)) in GENERATORS.iter().zip(samples) {
             assert_eq!(generator.source, source);
-            let files = TextureFiles::from_manifest(generator.manifest, None).unwrap();
+            let downloads = TextureDownloads::default();
+            let files = TextureFiles::from_manifest(generator.manifest, None, downloads).unwrap();
             assert!(
                 files.publishes_under(sample),
                 "{source} publishes nothing at {sample}"

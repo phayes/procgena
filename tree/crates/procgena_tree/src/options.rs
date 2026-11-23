@@ -1009,7 +1009,7 @@ impl TreeOptions {
 /// Overlays known source keys onto the default object, merging nested objects.
 /// Unknown keys and object-to-scalar replacements are ignored. Non-object values
 /// replace their slots directly and are type-checked during deserialization.
-fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
+pub(crate) fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
     use serde_json::Value;
 
     let (Value::Object(target), Value::Object(source)) = (target, source) else {

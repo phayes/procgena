@@ -16,7 +16,9 @@ use bevy::ui_widgets::ValueChange;
 use super::camera::camera_overlay;
 use super::status::status_overlay;
 use super::tabs::StudioTab;
-use super::{ActiveTab, LOD_CHOICES, PLANT_LOD_CHOICES};
+use super::{
+    ActiveTab, DEADWOOD_LOD_CHOICES, LOD_CHOICES, MUSHROOM_LOD_CHOICES, PLANT_LOD_CHOICES,
+};
 use crate::params::{ParamPanel, ParamsChanged, spawn_param_panel};
 use crate::ui::{TabSelected, divider, labelled_row, tab_bar};
 
@@ -107,6 +109,8 @@ pub fn spawn_layout(mut commands: Commands) {
                     Children [
                         @page(StudioTab::Trees) Children [ @lod_row() ]
                         --
+                        @page(StudioTab::TreeGrove)
+                        --
                         @page(StudioTab::Plant)
                         --
                         @page(StudioTab::PlantField)
@@ -117,7 +121,9 @@ pub fn spawn_layout(mut commands: Commands) {
                         --
                         @page(StudioTab::Clumps)
                         --
-                        @page(StudioTab::Mushrooms)
+                        @page(StudioTab::Mushrooms) Children [ @mushroom_lod_row() ]
+                        --
+                        @page(StudioTab::Deadwood) Children [ @deadwood_lod_row() ]
                         --
                         @shared_settings()
                     ]
@@ -154,6 +160,40 @@ fn lod_row() -> impl Scene {
             // The first choice switches by distance; the rest are levels 0, 1, ….
             if let Ok(index) = rows.get(change.value) {
                 viewer.write(ViewerCommand::SetLod(index.0.checked_sub(1)));
+            }
+        })
+    });
+    bsn! { @labelled_row("Level of Detail", picker) }
+}
+
+/// The mushroom Level of Detail picker.
+fn mushroom_lod_row() -> impl Scene {
+    let picker: Box<dyn Scene> = Box::new(bsn! {
+        @FeathersSelect { @options: list_rows_from_strings(MUSHROOM_LOD_CHOICES, Some(0)) }
+        Node { flex_grow: 1.0 }
+        on(|change: On<ValueChange<Entity>>,
+            rows: Query<&OptionIndex>,
+            mut viewer: MessageWriter<ViewerCommand>| {
+            // The first choice switches by distance; the rest are levels 0, 1, ….
+            if let Ok(index) = rows.get(change.value) {
+                viewer.write(ViewerCommand::SetMushroomLod(index.0.checked_sub(1)));
+            }
+        })
+    });
+    bsn! { @labelled_row("Level of Detail", picker) }
+}
+
+/// The dead wood Level of Detail picker.
+fn deadwood_lod_row() -> impl Scene {
+    let picker: Box<dyn Scene> = Box::new(bsn! {
+        @FeathersSelect { @options: list_rows_from_strings(DEADWOOD_LOD_CHOICES, Some(0)) }
+        Node { flex_grow: 1.0 }
+        on(|change: On<ValueChange<Entity>>,
+            rows: Query<&OptionIndex>,
+            mut viewer: MessageWriter<ViewerCommand>| {
+            // The first choice switches by distance; the rest are levels 0, 1, ….
+            if let Ok(index) = rows.get(change.value) {
+                viewer.write(ViewerCommand::SetDeadwoodLod(index.0.checked_sub(1)));
             }
         })
     });

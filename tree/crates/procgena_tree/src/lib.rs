@@ -190,6 +190,56 @@
 //! `BranchGrouping::parts` and `TreeMesh::part` let you extract separate tree parts.
 //! `TrellisOptions::wires` and `TrellisMaterial` describe the optional support wires.
 //!
+//! ## Plant a grove
+//!
+//! A [`TreeGrove`] mixes several species over a stretch of ground, like a plant
+//! field for trees. Each species is a [`GroveTree`] with its own density in trees
+//! per hectare, the spacing it keeps from its neighbours, and how much it gathers
+//! into stands. [`GrovePlacement::new`] lays the grove out over ground of a given
+//! size and returns one [`GroveInstance`] per tree:
+//!
+//! ```rust
+//! use procgena_tree::{FlatGround, GrovePlacement, GrovePreset, GroveTree, TreePreset};
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Start from a preset and add a few clumps of bushes.
+//!     let mut grove = GrovePreset::OakWoodland.grove();
+//!     grove.trees.insert(0, GroveTree::new(TreePreset::Bush2).scaled(0.05).clustered(0.7));
+//!
+//!     let placement = GrovePlacement::new(&grove, [40.0, 40.0], &FlatGround, None)?;
+//!     for instance in placement.instances() {
+//!         // Build each variant's mesh once and draw it at every instance.
+//!         let _options = grove.trees[instance.tree].variant(instance.variant);
+//!         let _transform = instance.transform;
+//!     }
+//!     Ok(())
+//! }
+//! ```
+//!
+//! Each species is drawn from a few shape variants ([`GroveTree::variants`]), so a
+//! grove of hundreds of trees needs only a handful of meshes. Lowering the grove's
+//! density only removes trees, and raising it only adds them; the others stay where
+//! they were. Ground is any [`Ground`]: [`FlatGround`], a closure taking X and Z,
+//! or a [`HeightGrid`] sampled from another generator's mesh.
+//!
+//! Groves are saved as `.grove.json` files with [`TreeGrove::to_json`] and read
+//! with [`TreeGrove::from_json`]. A file may name a [`GrovePreset`] as its `base`
+//! and list only what differs:
+//!
+//! ```rust
+//! use procgena_tree::TreeGrove;
+//!
+//! let grove = TreeGrove::from_json(r#"{
+//!     "base": "pine_stand",
+//!     "densityScale": 0.5,
+//!     "trees": [
+//!         { "tree": "cedar", "densityScale": 0.2, "clustering": 0.5 },
+//!         { "tree": { "base": "pine_medium", "seed": 9 }, "densityScale": 0.6 }
+//!     ]
+//! }"#).unwrap();
+//! assert_eq!(grove.trees.len(), 2);
+//! ```
+//!
 //! ## Bevy integration
 //!
 //! The workspace also includes `procgena_tree_bevy`. Add its `TreePlugin` after Bevy's
@@ -201,6 +251,7 @@ mod cluster;
 mod cluster_mesh;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
+mod grove;
 mod jiggle;
 mod material;
 mod mesh;
@@ -218,6 +269,11 @@ mod units;
 mod wind;
 
 pub use cluster::{ClusterItem, ClusterStalk, SkeletonCluster};
+pub use grove::{
+    GroveError, GroveFileError, GroveInstance, GrovePlacement, GrovePreset, GroveTree,
+    GroveVariation, MAX_GROVE_INSTANCES, MAX_GROVE_SIZE, MAX_GROVE_TREES, MAX_GROVE_VARIANTS,
+    TreeGrove,
+};
 pub use material::{
     BARK_KINDS, BarkMap, BarkMaterial, FlowerMaterial, FruitMaterial, LEAF_KINDS, LeafMap,
     LeafMaterial, TextureCompression, TextureSize, TrellisMaterial, bark_average_color,
@@ -234,6 +290,7 @@ pub use options::{
 };
 pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::TreePreset;
+pub use procgena_mesh::{FlatGround, Ground, HeightGrid};
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
 pub use rng::Rng;
 pub use skeleton::{Attachment, Section, Skeleton, SkeletonBranch, SkeletonLeaf};

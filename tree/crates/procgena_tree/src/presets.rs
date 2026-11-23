@@ -172,4 +172,89 @@ impl TreePreset {
     pub fn options(self) -> TreeOptions {
         TreeOptions::from_json(self.json()).expect("built-in presets are valid tree options")
     }
+
+    /// Returns the preset's key, such as `"oak_small"`: lower case with
+    /// underscores, as used in grove files.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::AshSmall => "ash_small",
+            Self::AshMedium => "ash_medium",
+            Self::AshLarge => "ash_large",
+            Self::AspenSmall => "aspen_small",
+            Self::AspenMedium => "aspen_medium",
+            Self::AspenLarge => "aspen_large",
+            Self::Bush1 => "bush_1",
+            Self::Bush2 => "bush_2",
+            Self::Bush3 => "bush_3",
+            Self::OakSmall => "oak_small",
+            Self::OakMedium => "oak_medium",
+            Self::OakLarge => "oak_large",
+            Self::PineSmall => "pine_small",
+            Self::PineMedium => "pine_medium",
+            Self::PineLarge => "pine_large",
+            Self::Trellis => "trellis",
+            Self::BigLeafMapleMedium => "big_leaf_maple_medium",
+            Self::BigLeafMapleLarge => "big_leaf_maple_large",
+            Self::Apple => "apple",
+            Self::FloweringDogwood => "flowering_dogwood",
+            Self::SpringPussyWillow => "spring_pussy_willow",
+            Self::WinterThicket => "winter_thicket",
+            Self::Cedar => "cedar",
+        }
+    }
+
+    /// Looks up a preset by its exact [`key`](Self::key), such as
+    /// `"oak_small"`. Returns `None` for an unrecognised key.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|preset| preset.key() == key)
+    }
+
+    /// Trees per hectare (10,000 m²) that suit this preset growing in a
+    /// grove of its own kind: about one tree for each crown's area, so the
+    /// canopy closes. Spacing then leaves out a few of these, about one in
+    /// six.
+    ///
+    /// [`Trellis`](Self::Trellis) is a garden support rather than a grove
+    /// tree, so its density is 0; set one yourself to grow it in a grove.
+    pub fn grove_density(self) -> f32 {
+        self.grove_stand().0
+    }
+
+    /// The smallest distance between this preset's trunk and a neighbour's
+    /// that suits it in a grove, in metres: about half its crown's radius,
+    /// so neighbouring crowns can interlock but trunks never crowd.
+    pub fn grove_spacing(self) -> f32 {
+        self.grove_stand().1
+    }
+
+    /// Grove density in trees per hectare, and grove spacing in metres, from
+    /// each preset's widest branch or leaf `r` from the trunk: a density of
+    /// 10,000 / (π r²) and a spacing of 0.55 r.
+    fn grove_stand(self) -> (f32, f32) {
+        match self {
+            Self::AshSmall => (1100.0, 0.95),
+            Self::AshMedium => (260.0, 1.9),
+            Self::AshLarge => (160.0, 2.5),
+            Self::AspenSmall => (2600.0, 0.6),
+            Self::AspenMedium => (980.0, 1.0),
+            Self::AspenLarge => (550.0, 1.3),
+            Self::Bush1 => (880.0, 1.05),
+            Self::Bush2 => (1100.0, 0.95),
+            Self::Bush3 => (800.0, 1.1),
+            Self::OakSmall => (720.0, 1.15),
+            Self::OakMedium => (400.0, 1.55),
+            Self::OakLarge => (130.0, 2.7),
+            Self::PineSmall => (2600.0, 0.6),
+            Self::PineMedium => (1100.0, 0.95),
+            Self::PineLarge => (550.0, 1.3),
+            Self::Trellis => (0.0, 0.65),
+            Self::BigLeafMapleMedium => (310.0, 1.75),
+            Self::BigLeafMapleLarge => (140.0, 2.6),
+            Self::Apple => (650.0, 1.2),
+            Self::FloweringDogwood => (470.0, 1.45),
+            Self::SpringPussyWillow => (2600.0, 0.6),
+            Self::WinterThicket => (1250.0, 0.9),
+            Self::Cedar => (600.0, 1.25),
+        }
+    }
 }

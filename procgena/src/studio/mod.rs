@@ -29,6 +29,26 @@ const LOD_CHOICES: [&str; 5] = [
     "3 · Lowest",
 ];
 
+/// The mushroom Level of Detail choices: switching by camera distance, then
+/// each of the mushroom detail levels, most detailed first.
+const MUSHROOM_LOD_CHOICES: [&str; 5] = [
+    "Auto (by distance)",
+    "0 · Full",
+    "1 · High",
+    "2 · Medium",
+    "3 · Flat",
+];
+
+/// The dead wood Level of Detail choices: switching by camera distance,
+/// then each of the dead wood detail levels, most detailed first.
+const DEADWOOD_LOD_CHOICES: [&str; 5] = [
+    "Auto (by distance)",
+    "0 · Full",
+    "1 · High",
+    "2 · Low",
+    "3 · Strips",
+];
+
 /// The plant Level of Detail choices: switching by camera distance, then each of
 /// the grass and plant detail levels, most detailed first. They apply to every
 /// blade and plant in the scene.
@@ -66,6 +86,7 @@ impl Plugin for StudioPlugin {
                     apply_tab,
                     status::record_events,
                     status::record_plant_commands,
+                    status::record_downloads,
                     status::update_overlay,
                 )
                     .chain(),
@@ -88,6 +109,8 @@ pub fn scene_start() -> SceneStart {
         stone: Arc::new(crate::stones::START_PRESET.options()),
         clump: Arc::new(crate::clump::start_settings()),
         mushroom: Arc::new(crate::mushrooms::START_PRESET.options()),
+        grove: Arc::new(crate::grove::editor::start_grove()),
+        deadwood: Arc::new(crate::deadwood::START_PRESET.options()),
         environment: EnvironmentSettings::default(),
         lod: None,
         plant_lod: None,
@@ -133,6 +156,8 @@ fn apply_tab(
         state.stone = BuildStatus::Building;
         state.clump = BuildStatus::Building;
         state.mushroom = BuildStatus::Building;
+        state.grove = BuildStatus::Building;
+        state.deadwood = BuildStatus::Building;
     }
     *shown_mode = Some(mode);
 
@@ -152,6 +177,12 @@ mod tests {
     #[test]
     fn every_detail_level_can_be_chosen() {
         assert_eq!(LOD_CHOICES.len(), crate::scene::lod_levels().len() + 1);
+        // The scene uses the mushroom plugin's default levels.
+        let mushroom_levels = procgena_mushroom::MushroomLod::default().levels.len();
+        assert_eq!(MUSHROOM_LOD_CHOICES.len(), mushroom_levels + 1);
+        // The scene uses the dead wood plugin's default levels.
+        let deadwood_levels = procgena_deadwood::DeadwoodLod::default().levels.len();
+        assert_eq!(DEADWOOD_LOD_CHOICES.len(), deadwood_levels + 1);
     }
 
     #[test]
@@ -162,6 +193,8 @@ mod tests {
         assert_eq!(*start.stone, crate::stones::START_PRESET.options());
         assert_eq!(*start.clump, crate::clump::start_settings());
         assert_eq!(*start.mushroom, crate::mushrooms::START_PRESET.options());
+        assert_eq!(*start.grove, crate::grove::editor::start_grove());
+        assert_eq!(*start.deadwood, crate::deadwood::START_PRESET.options());
         assert!(FieldPreset::named(crate::field::START_PRESET).is_some());
     }
 }

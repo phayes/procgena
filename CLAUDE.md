@@ -47,10 +47,15 @@ cargo test -p <package> --doc
 | `tree/`  | `procgena_tree`      | Features `export-obj`, `export-gltf`. One file per area in `tests/`.     |
 | `tree/`  | `procgena_tree_bevy` | Feature `gltf`                                                            |
 | `clump/` | `procgena_clump`     |                                                                           |
+| `clump/` | `procgena_clump_bevy`| Headless lifecycle tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders; download textures first with `uv run --project tools textures download clump`. |
+| `deadwood/` | `procgena_deadwood` | Features `export-obj`, `export-gltf`. One file per area in `tests/`. `--example export` writes every preset as GLB/OBJ to `target/procgena_deadwood_export/`. |
+| `deadwood/` | `procgena_deadwood_bevy` | Headless spawn tests in `src/spawn.rs`. `--test gpu -- --include-ignored` checks the shaders. `--example viewer -- --headless --screenshot <png>` (also `--preset <name> --closeup`, `--flat`) shows the presets; it reads bark and end grain from `deadwood/assets/textures` (`uv run --project tools textures download deadwood`). |
+| `mesh/`  | `procgena_mesh`      | Feature `bevy`. Every generator depends on it, so a change rebuilds most of the workspace. |
 | `mushroom/` | `procgena_mushroom` | Features `export-obj`, `export-gltf`. One file per area in `tests/`.   |
 | `mushroom/` | `procgena_mushroom_bevy` | Headless spawn tests in `src/spawn.rs`. `--example viewer -- --screenshot <png>` checks the shaders. |
 | `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing it. |
 | `plant/` | `procgena_plant_web` | Wasm demo                                                                 |
+| `terrain/` | `procgena_terrain` | Border tests in `tests/seams.rs`, rivers and roads in `tests/features.rs`. `--example seam_spike -- <dir>` writes shaded images of joined regions. |
 | `procgena/` | `procgena`        | Desktop studio app (binary). Its GPU tests are `#[ignore]`d: run with `-- --include-ignored`. Textures missing from `<project>/assets/textures/` are downloaded into the user's cache folder on first use, so the first run needs the network; `missing_textures_are_downloaded_and_drawn` always does. Use `cargo clippy -p procgena --all-targets --no-deps`. |
 
 ### The comment-rewrite step

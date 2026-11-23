@@ -45,6 +45,8 @@ procgena_clump = { path = "../clump/crates/procgena_clump" }
 procgena_clump_bevy = { path = "../clump/crates/procgena_clump_bevy" }
 procgena_mushroom = { path = "../mushroom/crates/procgena_mushroom", features = ["export-obj", "export-gltf"] }
 procgena_mushroom_bevy = { path = "../mushroom/crates/procgena_mushroom_bevy" }
+procgena_deadwood = { path = "../deadwood/crates/procgena_deadwood", features = ["export-obj", "export-gltf"] }
+procgena_deadwood_bevy = { path = "../deadwood/crates/procgena_deadwood_bevy" }
 # Download texture images, verify their contents and cache them for later exports.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 sha2 = "0.11"

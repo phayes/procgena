@@ -5282,6 +5282,8 @@ dependencies = [
  "dirs",
  "procgena_clump",
  "procgena_clump_bevy",
+ "procgena_deadwood",
+ "procgena_deadwood_bevy",
  "procgena_mushroom",
  "procgena_mushroom_bevy",
  "procgena_plant",
@@ -5331,6 +5333,16 @@ dependencies = [
  "gltf-json",
  "procgena_mesh",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "procgena_deadwood_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "procgena_deadwood",
+ "procgena_mesh",
  "serde_json",
 ]
 

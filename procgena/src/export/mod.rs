@@ -3,6 +3,7 @@
 //! [`FileOps`] asks the user for a file with the system's file dialog, then
 //! does the work in the background and reports the outcome as a toast.
 
+pub mod deadwood;
 pub mod images;
 pub mod mushroom;
 pub mod stone;
@@ -37,6 +38,7 @@ impl Plugin for FileOpsPlugin {
                 tree_panel::TreeExportPlugin,
                 stone_panel::StoneExportPlugin,
                 mushroom::MushroomExportPlugin,
+                deadwood::DeadwoodExportPlugin,
             ))
             .add_systems(Update, finish_file_ops);
     }

@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use crate::scene::{
-    BuildStats, EnvironmentSettings, FieldSettings, SceneMode, ViewerCommand, ViewerEvent,
+    BuildStats, EnvironmentSettings, FieldSettings, SceneMode, TextureDownloads, ViewerCommand,
+    ViewerEvent,
 };
 use bevy::feathers::display::label_small;
 use bevy::prelude::*;
@@ -51,10 +52,28 @@ pub struct BuildState {
     pub clump: BuildStatus,
     /// The mushroom's build status.
     pub mushroom: BuildStatus,
+    /// The grove's build status, with every tree's meshes added together.
+    pub grove: BuildStatus,
+    /// How many trees the last built grove has.
+    pub grove_trees: usize,
     /// The tree detail level on screen; the overlay shows that level's size.
     pub lod_shown: usize,
+    /// The mushroom detail level on screen, or the last one before the
+    /// camera moved too far away to draw any.
+    pub mushroom_lod_shown: usize,
+    /// Whether the camera is too far from the mushroom to draw it.
+    pub mushroom_too_far: bool,
+    /// The dead wood piece's build status.
+    pub deadwood: BuildStatus,
+    /// The dead wood detail level on screen, or the last one before the
+    /// camera moved too far away to draw any.
+    pub deadwood_lod_shown: usize,
+    /// Whether the camera is too far from the dead wood piece to draw it.
+    pub deadwood_too_far: bool,
     /// What the plant tabs show, as last sent to the scene.
     pub plants: PlantsShown,
+    /// How many texture files are downloading.
+    pub downloading: usize,
 }
 
 /// The plants the scene was last asked to show, for the plant tabs' overlay.
@@ -113,7 +132,29 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
             ViewerEvent::MushroomBuilt(result) => {
                 state.mushroom = BuildStatus::from_result(result);
             }
+            ViewerEvent::GroveBuilt(result) => {
+                if let Ok(stats) = result {
+                    state.grove_trees = stats.trees;
+                }
+                let built = result.as_ref().map(|stats| stats.build.clone());
+                state.grove = BuildStatus::from_result(&built);
+            }
             ViewerEvent::LodShown(level) => state.lod_shown = *level,
+            ViewerEvent::MushroomLodShown(level) => {
+                state.mushroom_too_far = level.is_none();
+                if let Some(level) = level {
+                    state.mushroom_lod_shown = *level;
+                }
+            }
+            ViewerEvent::DeadwoodBuilt(result) => {
+                state.deadwood = BuildStatus::from_result(result);
+            }
+            ViewerEvent::DeadwoodLodShown(level) => {
+                state.deadwood_too_far = level.is_none();
+                if let Some(level) = level {
+                    state.deadwood_lod_shown = *level;
+                }
+            }
         }
     }
 }
@@ -137,7 +178,16 @@ pub fn record_plant_commands(
     }
 }
 
-/// Shows the active tab's build status or, on the plant tabs, mesh sizes.
+/// Records how many texture files are downloading, when that changes.
+pub fn record_downloads(downloads: Option<Res<TextureDownloads>>, mut state: ResMut<BuildState>) {
+    let downloading = downloads.map_or(0, |downloads| downloads.in_progress());
+    if state.downloading != downloading {
+        state.downloading = downloading;
+    }
+}
+
+/// Shows the active tab's build status or, on the plant tabs, mesh sizes,
+/// with a line saying when textures are downloading.
 pub fn update_overlay(
     state: Res<BuildState>,
     tab: Res<ActiveTab>,
@@ -154,7 +204,7 @@ pub fn update_overlay(
     } else {
         status_line(&state, tab.0)
     };
-    text.0 = line;
+    text.0 = with_downloads(line, state.downloading);
     overlay.0 = if failed { FAILED_BG } else { NORMAL_BG };
 }
 
@@ -210,19 +260,43 @@ fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) 
 }
 
 /// The overlay text for `tab`, and whether it reports a failure.
-/// Tree sizes are for the detail level on screen; rock sizes are always for
-/// the most detailed mesh; clump sizes are for the clump alone.
+/// Tree and mushroom sizes are for the detail level on screen; rock sizes
+/// are always for the most detailed mesh; clump sizes are for the clump
+/// alone; grove sizes are for every tree at full detail.
 fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
     let (status, noun, level) = match tab {
         StudioTab::Stones => (&state.stone, "rock", None),
+        StudioTab::TreeGrove => (&state.grove, "grove", None),
         StudioTab::Clumps => (&state.clump, "clump", None),
-        StudioTab::Mushrooms => (&state.mushroom, "mushroom", None),
+        StudioTab::Mushrooms => (&state.mushroom, "mushroom", Some(state.mushroom_lod_shown)),
+        StudioTab::Deadwood => (&state.deadwood, "dead wood", Some(state.deadwood_lod_shown)),
         StudioTab::Trees | StudioTab::Plant | StudioTab::PlantField => {
             (&state.tree, "tree", Some(state.lod_shown))
         }
     };
     match status {
         BuildStatus::Building => (format!("Building {noun}…"), false),
+        BuildStatus::Built(_) if tab == StudioTab::Mushrooms && state.mushroom_too_far => (
+            "The camera is too far away to draw the mushroom".into(),
+            false,
+        ),
+        BuildStatus::Built(_) if tab == StudioTab::Deadwood && state.deadwood_too_far => (
+            "The camera is too far away to draw the dead wood".into(),
+            false,
+        ),
+        // Each tree of a grove switches detail by its own distance, so the
+        // grove's size is given at full detail.
+        BuildStatus::Built(stats) if tab == StudioTab::TreeGrove => {
+            let size = stats.levels.first().copied().unwrap_or_default();
+            let line = format!(
+                "{} trees · {} vertices · {} triangles at full detail · {} ms",
+                group_digits(state.grove_trees),
+                group_digits(size.vertices),
+                group_digits(size.triangles),
+                stats.build_time.as_millis()
+            );
+            (line, false)
+        }
         BuildStatus::Built(stats) => {
             let size = stats
                 .levels
@@ -239,6 +313,16 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
             (line, false)
         }
         BuildStatus::Failed(error) => (format!("Cannot build this {noun}: {error}"), true),
+    }
+}
+
+/// `line`, followed by a line saying that textures are downloading when
+/// `downloading` is above zero. What uses them appears once they arrive.
+fn with_downloads(line: String, downloading: usize) -> String {
+    match downloading {
+        0 => line,
+        1 => format!("{line}\nDownloading 1 texture…"),
+        n => format!("{line}\nDownloading {n} textures…"),
     }
 }
 
@@ -291,8 +375,19 @@ mod tests {
                 levels: vec![size(3000), size(800)],
                 build_time: Duration::from_millis(5),
             }),
+            grove: BuildStatus::Built(BuildStats {
+                levels: vec![size(120_000), size(30_000)],
+                build_time: Duration::from_millis(900),
+            }),
+            grove_trees: 64,
             lod_shown: 1,
+            mushroom_lod_shown: 1,
+            mushroom_too_far: false,
+            deadwood: BuildStatus::Building,
+            deadwood_lod_shown: 0,
+            deadwood_too_far: false,
             plants: PlantsShown::default(),
+            downloading: 0,
         };
         assert_eq!(
             status_line(&state, StudioTab::Trees),
@@ -309,10 +404,42 @@ mod tests {
             status_line(&state, StudioTab::Clumps),
             ("2,000 vertices · 1,000 triangles · 40 ms".into(), false)
         );
-        // Mushrooms report their most detailed level, whatever the tree shows.
         assert_eq!(
             status_line(&state, StudioTab::Mushrooms),
-            ("3,000 vertices · 1,500 triangles · 5 ms".into(), false)
+            ("LOD 1 · 800 vertices · 400 triangles · 5 ms".into(), false)
+        );
+        assert_eq!(
+            status_line(&state, StudioTab::TreeGrove),
+            (
+                "64 trees · 120,000 vertices · 60,000 triangles at full detail · 900 ms".into(),
+                false
+            )
+        );
+
+        // Past the last level, no mushroom is drawn, so there is no size to give.
+        let state = BuildState {
+            mushroom_too_far: true,
+            ..state
+        };
+        assert_eq!(
+            status_line(&state, StudioTab::Mushrooms),
+            (
+                "The camera is too far away to draw the mushroom".into(),
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn downloading_textures_adds_a_line() {
+        assert_eq!(with_downloads("Building tree…".into(), 0), "Building tree…");
+        assert_eq!(
+            with_downloads("Building tree…".into(), 1),
+            "Building tree…\nDownloading 1 texture…"
+        );
+        assert_eq!(
+            with_downloads("Building tree…".into(), 3),
+            "Building tree…\nDownloading 3 textures…"
         );
     }
 
