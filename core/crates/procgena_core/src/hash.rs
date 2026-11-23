@@ -1,15 +1,18 @@
-//! Repeatable pseudo-random values for rock shapes and surface patterns.
+//! Repeatable pseudo-random values from integer inputs.
+//!
+//! The same functions exist as WESL shaders in the generators that run on
+//! the GPU, and give the same results there.
 
 /// Multiplier applied to each input before mixing in [`pcg3d`].
-pub(crate) const PCG_MULTIPLIER: u32 = 1_664_525;
+pub const PCG_MULTIPLIER: u32 = 1_664_525;
 /// Increment added to each input before mixing in [`pcg3d`].
-pub(crate) const PCG_INCREMENT: u32 = 1_013_904_223;
+pub const PCG_INCREMENT: u32 = 1_013_904_223;
 
 /// Turns three integers into three repeatable pseudo-random integers.
 ///
 /// Uses the PCG3D hash described by Jarzynski and Olano in “Hash Functions for
 /// GPU Rendering” (2020). Wrapping arithmetic preserves 32-bit overflow behavior.
-pub(crate) fn pcg3d(v: [u32; 3]) -> [u32; 3] {
+pub fn pcg3d(v: [u32; 3]) -> [u32; 3] {
     let [mut x, mut y, mut z] =
         v.map(|c| c.wrapping_mul(PCG_MULTIPLIER).wrapping_add(PCG_INCREMENT));
 
@@ -30,12 +33,12 @@ pub(crate) fn pcg3d(v: [u32; 3]) -> [u32; 3] {
 
 /// Converts a hash to a number from 0 (inclusive) to 1 (exclusive).
 /// Only the upper 24 bits are used, so the conversion fits exactly in an `f32`.
-pub(crate) fn unit_float(h: u32) -> f32 {
+pub fn unit_float(h: u32) -> f32 {
     (h >> 8) as f32 * (1.0 / 16_777_216.0)
 }
 
 /// Hashes three integers and returns three repeatable values in `[0, 1)`.
-pub(crate) fn pcg3d_unit(v: [u32; 3]) -> [f32; 3] {
+pub fn pcg3d_unit(v: [u32; 3]) -> [f32; 3] {
     pcg3d(v).map(unit_float)
 }
 

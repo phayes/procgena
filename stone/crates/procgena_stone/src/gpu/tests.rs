@@ -338,7 +338,7 @@ fn assert_same_surface(
 /// Pseudo-random count pairs for scan tests.
 fn scan_input(count: u32) -> Vec<u32> {
     (0..2 * count)
-        .map(|i| crate::hash::pcg3d([i, count, 7])[0] % 13)
+        .map(|i| procgena_core::hash::pcg3d([i, count, 7])[0] % 13)
         .collect()
 }
 

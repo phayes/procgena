@@ -6,9 +6,9 @@
 
 use glam::Vec3;
 
-use crate::hash::pcg3d_unit;
 use crate::noise::Roughness;
 use crate::options::{CarveOptions, OptionsError, StoneOptions};
+use procgena_core::hash::pcg3d_unit;
 
 /// Fixed hash input that gives cut directions a separate random sequence from cut sizes.
 const CARVE_DIRECTION_SALT: u32 = 0x6361_7276;

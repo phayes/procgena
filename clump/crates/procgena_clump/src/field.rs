@@ -5,8 +5,8 @@ use std::f32::consts::TAU;
 use glam::Vec3;
 
 use crate::bvh::Bvh;
-use crate::hash::{pcg3d, unit_float};
 use crate::options::{ClumpOptions, MAX_DIRECTIONS};
+use procgena_core::hash::{pcg3d, unit_float};
 use procgena_mesh::Surface;
 
 /// Smallest lump radius, as a fraction of `lump_size`.

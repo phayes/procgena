@@ -15,8 +15,8 @@ use super::scan::{SCAN_PARAMS_SIZE, Scanner, plan_scan, sums_words};
 use super::sort::{SORT_PARAMS_SIZE, SortKey, Sorter, hist_words, plan_sort};
 use super::stages::{BatchResources, Pipelines, StageRequest};
 use super::{GpuSurfaceInput, GpuVertexFormat};
-use crate::hash::Rng;
 use crate::options::ClumpOptions;
+use procgena_core::Rng;
 
 /// Packs parameter blocks into one uniform buffer and returns the buffer
 /// and each block's byte offset.

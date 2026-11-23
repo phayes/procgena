@@ -15,7 +15,6 @@ use wesl::{CompileOptions, CompileResult, Compiler};
 use super::*;
 use crate::field::{HALF_EXTENT, SURFACE_OFFSET};
 use crate::grid::SampleGrid;
-use crate::hash::{PCG_INCREMENT, PCG_MULTIPLIER, pcg3d, pcg3d_unit};
 use crate::mesh::dc::REGULARIZATION;
 use crate::mesh::tables::{MC_CORNERS, MC_EDGES, TRI_TABLE};
 use crate::mesh::{crossing_edges, crossing_position};
@@ -26,6 +25,7 @@ use crate::placement::{
     PROFILE_KERNEL, REFINE_CANDIDATES, REFINE_ROUNDS, REFINE_SPREAD, StonePlacement,
 };
 use crate::{Mesher, StoneField, StoneMesh, StoneOptions, mesh_field};
+use procgena_core::hash::{PCG_INCREMENT, PCG_MULTIPLIER, pcg3d, pcg3d_unit};
 
 /// Modules with compute entry points.
 const ENTRY_MODULES: [&str; 5] = [

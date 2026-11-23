@@ -8,10 +8,10 @@ use glam::Vec3;
 
 use crate::bvh::triangles_cross;
 use crate::field::{ClumpField, SurfacePoint};
-use crate::hash::Rng;
 use crate::mesh::{BuildStats, ClumpMesh};
 use crate::options::ClumpOptions;
 use crate::shell::{face_normals, remove_unused_vertices};
+use procgena_core::Rng;
 
 /// Seed attempts per requested clump before giving up on placing more.
 pub(crate) const ATTEMPTS_PER_CLUMP: u32 = 64;

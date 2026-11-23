@@ -4,6 +4,7 @@ members = [
     "biome/crates/procgena_biome",
     "clump/crates/procgena_clump",
     "clump/crates/procgena_clump_bevy",
+    "core/crates/procgena_core",
     "deadwood/crates/procgena_deadwood",
     "deadwood/crates/procgena_deadwood_bevy",
     "impostor/crates/procgena_impostor",

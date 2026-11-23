@@ -77,7 +77,6 @@ mod field;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 mod grid;
-mod hash;
 mod material;
 mod mesh;
 mod noise;

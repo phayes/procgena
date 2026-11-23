@@ -15,11 +15,12 @@ use procgena_mesh::SurfaceMesh;
 use super::*;
 use crate::bvh::triangles_cross;
 use crate::field::{ClumpField, LUMP_HEIGHT_MIN, LUMP_RADIUS_MAX, LUMP_RADIUS_MIN, SurfacePoint};
-use crate::hash::{Rng, pcg3d, unit_float};
 use crate::options::{ClumpOptions, Direction, MAX_DIRECTIONS};
 use crate::patch::{MIN_CORNER_COS, MIN_QUALITY, Placement, border_stays_near, collapse_quality};
 use crate::presets::ClumpPreset;
 use crate::shell::{layer_top, limit_tilt, lowered};
+use procgena_core::Rng;
+use procgena_core::hash::{pcg3d, unit_float};
 
 /// Compiles `root` with every shader module available. With `strip`, only
 /// declarations reachable from entry points are kept.

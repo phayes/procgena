@@ -5,7 +5,7 @@
 
 use glam::{Vec2, Vec3};
 
-use crate::hash::pcg3d_unit;
+use procgena_core::hash::pcg3d_unit;
 
 /// Row-wise transform that rotates and slightly scales coordinates between noise
 /// layers, changing the alignment of successive details.

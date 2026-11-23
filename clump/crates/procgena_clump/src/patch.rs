@@ -8,7 +8,7 @@ use glam::Vec3;
 
 use crate::bvh::Bvh;
 use crate::field::{ClumpField, SurfacePoint};
-use crate::hash::pcg3d;
+use procgena_core::hash::pcg3d;
 use procgena_mesh::Surface;
 
 /// Smallest cosine allowed between a simplified triangle's normal and the

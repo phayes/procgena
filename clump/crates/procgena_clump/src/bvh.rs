@@ -534,7 +534,7 @@ mod tests {
         assert!(!triangles_cross(flat, above));
         assert!(!triangles_cross(flat, sharing_edge));
     }
-    use crate::hash::Rng;
+    use procgena_core::Rng;
     use procgena_mesh::SurfaceMesh;
 
     /// A bumpy ground patch, so triangles are not all coplanar.

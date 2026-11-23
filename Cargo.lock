@@ -5342,6 +5342,7 @@ dependencies = [
  "futures-lite",
  "glam 0.33.12",
  "naga",
+ "procgena_core",
  "procgena_mesh",
  "procgena_stone",
  "wesl",
@@ -5361,6 +5362,10 @@ dependencies = [
  "procgena_tree",
  "procgena_tree_bevy",
 ]
+
+[[package]]
+name = "procgena_core"
+version = "0.1.0"
 
 [[package]]
 name = "procgena_deadwood"
@@ -5458,6 +5463,7 @@ dependencies = [
  "gltf",
  "gltf-json",
  "naga",
+ "procgena_core",
  "procgena_mesh",
  "rayon",
  "serde",

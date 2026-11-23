@@ -24,7 +24,6 @@ mod bvh;
 mod field;
 #[cfg(feature = "gpu")]
 pub mod gpu;
-mod hash;
 mod material;
 mod mesh;
 mod options;
