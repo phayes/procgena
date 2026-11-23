@@ -3,6 +3,8 @@ name = "procgena_mesh"
 version = "0.1.0"
 description = "Tagged triangle meshes that procgena generators hand to each other"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 glam = { workspace = true }

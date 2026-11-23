@@ -3,6 +3,8 @@ name = "procgena_stone"
 version = "0.1.0"
 description = "Procedural rock generator, a Rust port of Unity-Procedural-Rock-Generation"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [features]
 default = ["rayon"]

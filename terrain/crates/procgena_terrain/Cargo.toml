@@ -3,6 +3,8 @@ name = "procgena_terrain"
 version = "0.1.0"
 description = "Labelled procedural terrain regions that join seamlessly and build in chunks"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [features]
 default = ["rayon"]

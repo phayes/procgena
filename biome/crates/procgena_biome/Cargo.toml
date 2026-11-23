@@ -3,6 +3,8 @@ name = "procgena_biome"
 version = "0.1.0"
 description = "Biomes: one region's terrain and the ecotopes that cover it"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 procgena_terrain = { path = "../../../terrain/crates/procgena_terrain" }

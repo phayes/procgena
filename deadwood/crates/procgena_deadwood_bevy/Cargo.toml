@@ -3,6 +3,8 @@ name = "procgena_deadwood_bevy"
 version = "0.1.0"
 description = "Bevy plugin for procgena_deadwood: fallen logs, branches, stumps and stick scatter with levels of detail"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 procgena_deadwood = { path = "../procgena_deadwood" }

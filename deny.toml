@@ -26,9 +26,18 @@ allow = [
     "BSL-1.0",
 ]
 
+# webpki-roots (through ureq, for the studio's texture downloads) ships
+# Mozilla's CA root list under a permissive data licence.
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace crates are unpublished (publish = false), so their path
+# dependencies need no version.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

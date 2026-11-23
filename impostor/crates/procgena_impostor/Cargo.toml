@@ -3,6 +3,8 @@ name = "procgena_impostor"
 version = "0.1.0"
 description = "Bakes generated Bevy objects into octahedral impostors and draws them far away as single quads"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 bevy = { version = "0.20.1", default-features = false, features = [

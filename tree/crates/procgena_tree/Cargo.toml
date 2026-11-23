@@ -3,6 +3,8 @@ name = "procgena_tree"
 version = "0.1.0"
 description = "Procedural tree generator, a Rust port of ez-tree"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [features]
 # Export OBJ mesh text and an MTL material file without additional dependencies.

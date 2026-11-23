@@ -3,6 +3,8 @@ name = "procgena_clump_bevy"
 version = "0.1.0"
 description = "Bevy plugin for procgena_clump: snow, moss and other clumps grown on generated rocks, trees and your own meshes"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 procgena_clump = { path = "../procgena_clump" }

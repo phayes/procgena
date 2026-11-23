@@ -3,6 +3,8 @@ name = "procgena_stone_bevy"
 version = "0.1.0"
 description = "Bevy plugin for procgena_stone procedural rocks: meshes, triplanar materials and LOD"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 procgena_stone = { path = "../procgena_stone" }

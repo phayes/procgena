@@ -3,6 +3,8 @@ name = "procgena_clump"
 version = "0.1.0"
 description = "Procedural clumps of snow, moss, mud and litter on top of a surface mesh"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [features]
 # Generate clumps on the GPU with wgpu. Compiles the WESL shaders to WGSL at

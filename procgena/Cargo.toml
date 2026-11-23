@@ -3,7 +3,8 @@ name = "procgena"
 description = "Desktop studio for procedural trees, plants and rocks"
 version = "0.1.0"
 edition.workspace = true
-publish = false
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 # The procgena crates' Bevy features, plus the window, UI and feathers widgets

@@ -3,6 +3,8 @@ name = "procgena_mushroom_bevy"
 version = "0.1.0"
 description = "Bevy plugin for procgena_mushroom: mushrooms, clusters and scatter with levels of detail"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 procgena_mushroom = { path = "../procgena_mushroom" }

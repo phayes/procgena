@@ -22,6 +22,8 @@ members = [
 
 [workspace.package]
 edition = "2024"
+license = "MIT"
+publish = false
 
 [workspace.dependencies]
 # Keep in step with the versions used by the targeted bevy release (bevy 0.20.1).

@@ -3,6 +3,8 @@ name = "procgena_deadwood"
 version = "0.1.0"
 description = "Procedural dead wood: fallen logs, fallen branches, sticks and stumps, with decay and levels of detail"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [features]
 # Create OBJ geometry and MTL material file contents for use in 3D tools.

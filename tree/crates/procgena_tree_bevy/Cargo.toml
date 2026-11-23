@@ -3,6 +3,8 @@ name = "procgena_tree_bevy"
 version = "0.1.0"
 description = "Bevy plugin for procgena_tree procedural trees: meshes, materials, wind and LOD"
 edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
 procgena_tree = { path = "../procgena_tree" }
