@@ -42,6 +42,57 @@ pub fn pcg3d_unit(v: [u32; 3]) -> [f32; 3] {
     pcg3d(v).map(unit_float)
 }
 
+/// Derives a seed for one use (`salt`) from a parent seed, so that separate
+/// streams of random numbers don't repeat each other.
+///
+/// For a named role, use [`seed_for`] with a seed key instead of picking a
+/// salt by hand. A numeric salt suits a second level only, such as each
+/// octave of one noise layer.
+pub fn derive_seed(seed: u32, salt: u32) -> u32 {
+    pcg3d([seed, salt, 0x7e44_a1d5])[0]
+}
+
+/// The salt for seed key `key`: the 32-bit FNV-1a hash of its bytes.
+///
+/// Seed keys are dotted names of the form `<crate>.<area>.<role>`, such as
+/// `"terrain.relief.hills"`. They are frozen: renaming a key changes every
+/// world built with it. Usable in `const` items.
+pub const fn salt(key: &str) -> u32 {
+    let bytes = key.as_bytes();
+    let mut hash = 0x811c_9dc5u32;
+    let mut i = 0;
+    while i < bytes.len() {
+        hash ^= bytes[i] as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+        i += 1;
+    }
+    hash
+}
+
+/// The seed for the role named by seed key `key`, under parent seed `seed`.
+///
+/// The same as `derive_seed(seed, salt(key))`.
+pub fn seed_for(seed: u32, key: &str) -> u32 {
+    derive_seed(seed, salt(key))
+}
+
+/// Mixes a 64-bit `value` into a 64-bit hash `state` and returns the new
+/// state.
+///
+/// For a fixed `state`, different values always give different results.
+/// The order of mixing matters: `mix64(mix64(s, a), b)` differs from
+/// `mix64(mix64(s, b), a)`.
+pub fn mix64(state: u64, value: u64) -> u64 {
+    // Combine like boost's hash_combine, then apply the SplitMix64 finaliser.
+    let mut z = state
+        ^ value
+            .wrapping_add(0x9e37_79b9_7f4a_7c15)
+            .wrapping_add(state << 6);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,6 +111,34 @@ mod tests {
         [0xfa9f_79a6, 0x48f2_f44c, 0x596f_5ab1],
         [0x7a3b_bcd7, 0x4168_5d55, 0xab04_d812],
     ];
+
+    /// Checks seeds against reference values calculated in Python from the
+    /// published FNV-1a and PCG3D definitions. The salts and seeds must
+    /// match `procgena_terrain`'s, so its worlds keep their shape when it
+    /// switches to these functions.
+    #[test]
+    fn seeds_match_reference_values() {
+        // FNV-1a's published value for "a".
+        assert_eq!(salt("a"), 0xe40c_292c);
+        assert_eq!(salt("terrain.relief.hills"), 0x0454_4a2b);
+        assert_eq!(derive_seed(0, 0), 0x4cfe_e1f2);
+        assert_eq!(derive_seed(42, 7), 0x6880_6509);
+        assert_eq!(seed_for(42, "terrain.relief.hills"), 0x3db9_3fcf);
+    }
+
+    #[test]
+    fn salt_is_usable_in_const_items() {
+        const SALT: u32 = salt("a");
+        assert_eq!(SALT, 0xe40c_292c);
+    }
+
+    /// `mix64(0, 0)` is SplitMix64's published first output for seed 0.
+    #[test]
+    fn mix64_matches_reference_values() {
+        assert_eq!(mix64(0, 0), 0xe220_a839_7b1d_cdaf);
+        assert_eq!(mix64(1, 2), 0x3706_970b_052f_16b1);
+        assert_ne!(mix64(1, 2), mix64(2, 1));
+    }
 
     #[test]
     fn unit_float_covers_the_unit_interval() {
