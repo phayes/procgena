@@ -41,7 +41,7 @@ pub use assets::{
 pub use environment::EnvironmentSettings;
 pub use protocol::{
     BuildStats, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView, FieldSettings,
-    GroveSettings, SceneMode, SceneStart, ViewerCommand, ViewerEvent,
+    SceneMode, SceneStart, ViewerCommand, ViewerEvent,
 };
 pub use texture_reader::TextureDownloads;
 pub use viewport::SceneViewport;

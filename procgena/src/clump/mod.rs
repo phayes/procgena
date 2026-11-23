@@ -15,7 +15,7 @@ use crate::scene::{ClumpSettings, ClumpSubject};
 /// The subject shown when the app starts.
 pub const START_SUBJECT: Subject = Subject::Stone(StonePreset::Boulder);
 /// The clump preset shown when the app starts.
-pub const START_PRESET: ClumpPreset = ClumpPreset::SnowCap;
+pub const START_PRESET: ClumpPreset = ClumpPreset::FreshSnowCap;
 
 /// A subject preset: a tree or a rock to grow a clump on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +76,7 @@ pub fn with_subject_seed(subject: &ClumpSubject, seed: i64) -> Option<ClumpSubje
     })
 }
 
-/// The menu label for a clump preset, such as `Snow Cap`.
+/// The menu label for a clump preset, such as `Dirty Snow Cap`.
 pub fn preset_label(preset: ClumpPreset) -> String {
     preset
         .name()
@@ -120,7 +120,8 @@ mod tests {
             Subject::Tree(TreePreset::OakMedium).label(),
             "Tree · Oak Medium"
         );
-        assert_eq!(preset_label(ClumpPreset::SnowCap), "Snow Cap");
+        assert_eq!(preset_label(ClumpPreset::DirtySnowCap), "Dirty Snow Cap");
+        assert_eq!(preset_label(ClumpPreset::FreshSnowCap), "Fresh Snow Cap");
         assert_eq!(preset_label(ClumpPreset::MossPatches), "Moss Patches");
         assert!(Subject::all().contains(&START_SUBJECT));
     }

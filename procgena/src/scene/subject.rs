@@ -8,7 +8,7 @@ use super::environment::{EnvironmentSettings, sky_fog};
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{
     BuildStats, ClumpBuildError, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView,
-    FieldSettings, GroveSettings, GroveStats, MeshSize, SceneMode, SceneStart, ViewerCommand,
+    FieldSettings, GroveStats, MeshSize, SceneMode, SceneStart, ViewerCommand,
     ViewerEvent,
 };
 use super::viewport::{ViewportActivity, ViewportCamera};
@@ -28,7 +28,7 @@ use procgena_stone::StoneOptions;
 use procgena_stone_bevy::{
     StoneEmbedDepth, StoneFinished, StoneGenerating, StoneMaterial, StoneParams, StonePart,
 };
-use procgena_tree::TreeOptions;
+use procgena_tree::{TreeGrove, TreeOptions};
 use procgena_tree_bevy::{
     GroveMember, TreeFinished, TreeGenerating, TreeGroveFinished, TreeGroveGenerating,
     TreeGroveParams, TreeLodLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
@@ -77,8 +77,8 @@ pub(crate) struct SceneState {
     mushroom: Arc<MushroomOptions>,
     /// Camera view restored when returning to mushroom mode.
     mushroom_view: OrbitCamera,
-    /// The grove and its ground size, retained while another mode is shown.
-    grove: Arc<GroveSettings>,
+    /// The grove, retained while another mode is shown.
+    grove: Arc<TreeGrove>,
     /// Camera view restored when returning to grove mode.
     grove_view: OrbitCamera,
     /// Dead wood settings, retained while another mode is shown.
@@ -170,7 +170,8 @@ struct ViewSubjects<'a> {
     stone: &'a StoneOptions,
     clump: &'a ClumpSettings,
     mushroom: &'a MushroomOptions,
-    grove: &'a GroveSettings,
+    /// Width of the grove's square of ground, in metres.
+    grove_size: f32,
     deadwood: &'a DeadwoodSettings,
 }
 
@@ -196,7 +197,7 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
             focus: Vec3::new(0.0, 3.0, 0.0),
             yaw: 0.6,
             pitch: 0.45,
-            distance: 1.4 * subjects.grove.size.max(10.0),
+            distance: 1.4 * subjects.grove_size.max(10.0),
             limits: OrbitLimits {
                 // Far enough out to reach the lowest tree detail level.
                 distance: (2.0, 600.0),
@@ -334,7 +335,7 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         stone: &start.stone,
         clump: &start.clump,
         mushroom: &start.mushroom,
-        grove: &start.grove,
+        grove_size: start.environment.grove_size,
         deadwood: &start.deadwood,
     };
     let view_for = |mode| default_view(mode, &subjects);
@@ -371,19 +372,27 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         sky_fog(),
     ));
 
-    let subject = spawn_subject(&mut commands, &state, start.environment.field_size);
+    let subject = spawn_subject(&mut commands, &state, &start.environment);
     commands.insert_resource(SceneState { subject, ..state });
     commands.remove_resource::<Start>();
 }
 
 /// Adds the tree, plant field, stone, mushroom or grove for the selected
-/// scene mode, or in clump mode, the clump's subject. Plant fields are
-/// square, with each side `field_size` metres long.
-fn spawn_subject(commands: &mut Commands, state: &SceneState, field_size: f32) -> Entity {
+/// scene mode, or in clump mode, the clump's subject. Plant fields and
+/// groves are square, sized by `environment`.
+fn spawn_subject(
+    commands: &mut Commands,
+    state: &SceneState,
+    environment: &EnvironmentSettings,
+) -> Entity {
     match state.mode {
         SceneMode::Tree => commands.spawn(TreeParams::Options(state.tree.clone())).id(),
-        SceneMode::Grove => commands.spawn(grove_params(&state.grove)).id(),
-        SceneMode::Plants => commands.spawn(grass_field(state, field_size)).id(),
+        SceneMode::Grove => commands
+            .spawn(grove_params(&state.grove, environment.grove_size))
+            .id(),
+        SceneMode::Plants => commands
+            .spawn(grass_field(state, environment.field_size))
+            .id(),
         SceneMode::Stone => commands
             .spawn(StoneParams::Options(state.stone.clone()))
             .id(),
@@ -423,10 +432,10 @@ fn spawn_deadwood(commands: &mut Commands, settings: &DeadwoodSettings) -> Entit
     .id()
 }
 
-/// The grove component for `settings`: a square of flat ground at the
-/// origin.
-fn grove_params(settings: &GroveSettings) -> TreeGroveParams {
-    TreeGroveParams::new(settings.grove.clone(), Vec2::splat(settings.size))
+/// The grove component for `grove` on a square of flat ground `size` metres
+/// across, centred on the origin.
+fn grove_params(grove: &TreeGrove, size: f32) -> TreeGroveParams {
+    TreeGroveParams::new(grove.clone(), Vec2::splat(size))
 }
 
 /// Applies every [`ViewerCommand`] received this frame, in order, and renders
@@ -470,7 +479,7 @@ pub(crate) fn apply_commands(
                 state.lod_reported = None;
                 state.mushroom_lod_reported = None;
                 state.deadwood_lod_reported = None;
-                state.subject = spawn_subject(&mut commands, state, environment.field_size);
+                state.subject = spawn_subject(&mut commands, state, &environment);
             }
             ViewerCommand::SetTree(options) => {
                 state.tree = options.clone();
@@ -525,14 +534,14 @@ pub(crate) fn apply_commands(
                         .insert(DeadwoodParams::new(settings.piece.clone()));
                 }
             }
-            ViewerCommand::SetGrove(settings) => {
-                // Keep the settings in every mode; the shown grove updates in place.
-                state.grove = settings.clone();
+            ViewerCommand::SetGrove(grove) => {
+                // Keep the grove in every mode; the shown grove updates in place.
+                state.grove = grove.clone();
                 if state.mode == SceneMode::Grove {
                     state.requested = Instant::now();
                     commands
                         .entity(state.subject)
-                        .insert(grove_params(settings));
+                        .insert(grove_params(grove, environment.grove_size));
                 }
             }
             ViewerCommand::SetClump(settings) => {
@@ -565,7 +574,7 @@ pub(crate) fn apply_commands(
                             commands.entity(pending).despawn();
                         }
                         state.requested = Instant::now();
-                        state.subject = spawn_subject(&mut commands, state, environment.field_size);
+                        state.subject = spawn_subject(&mut commands, state, &environment);
                     }
                 }
             }
@@ -581,13 +590,21 @@ pub(crate) fn apply_commands(
             }
             ViewerCommand::SetEnvironment(settings) => {
                 let resized = settings.field_size != environment.field_size;
+                let regrown = settings.grove_size != environment.grove_size;
                 environment.set_if_neq(*settings);
 
-                // Resize the plant field, including one created earlier in this frame.
+                // Resize the plant field or grove, including one created
+                // earlier in this frame.
                 if resized && state.mode == SceneMode::Plants {
                     commands
                         .entity(state.subject)
                         .insert(grass_field(state, settings.field_size));
+                }
+                if regrown && state.mode == SceneMode::Grove {
+                    state.requested = Instant::now();
+                    commands
+                        .entity(state.subject)
+                        .insert(grove_params(&state.grove, settings.grove_size));
                 }
             }
             ViewerCommand::SetLod(choice) => {
@@ -608,7 +625,7 @@ pub(crate) fn apply_commands(
                         stone: &state.stone,
                         clump: &state.clump,
                         mushroom: &state.mushroom,
-                        grove: &state.grove,
+                        grove_size: environment.grove_size,
                         deadwood: &state.deadwood,
                     };
                     *orbit = default_view(state.mode, &subjects);

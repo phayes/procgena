@@ -88,7 +88,9 @@ pub(crate) fn show_deadwood_cover(
 ) {
     let settings = state.deadwood();
     let wanted = match settings.cover {
-        Some(preset) if state.mode() == SceneMode::Deadwood && settings.view == DeadwoodView::Piece => {
+        Some(preset)
+            if state.mode() == SceneMode::Deadwood && settings.view == DeadwoodView::Piece =>
+        {
             preset.options()
         }
         _ => {

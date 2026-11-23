@@ -40,6 +40,10 @@ pub struct EnvironmentSettings {
     /// [`SceneMode::Plants`]. For example, 40 makes a
     /// 40-by-40-metre field. Must be greater than zero.
     pub field_size: f32,
+    /// Side length of the square of ground the grove grows on, in metres,
+    /// for [`SceneMode::Grove`]. Must be above zero and at most
+    /// [`MAX_GROVE_SIZE`](procgena_tree::MAX_GROVE_SIZE).
+    pub grove_size: f32,
 }
 
 impl Default for EnvironmentSettings {
@@ -52,6 +56,7 @@ impl Default for EnvironmentSettings {
             rotate_speed: 10.0,
             wind: true,
             field_size: 40.0,
+            grove_size: 40.0,
         }
     }
 }

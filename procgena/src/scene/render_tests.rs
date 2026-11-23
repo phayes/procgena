@@ -425,9 +425,10 @@ fn deadwood_event(scene: &mut HeadlessScene) -> ViewerEvent {
 fn idle_deadwood_mode_draws_the_textured_log() {
     use procgena_deadwood::{DeadwoodLod, DeadwoodPreset};
 
+    let log = |piece| Arc::new(super::DeadwoodSettings { piece, ..default() });
     let start = SceneStart {
         mode: SceneMode::Deadwood,
-        deadwood: Arc::new(DeadwoodPreset::FreshCutLog.options()),
+        deadwood: log(DeadwoodPreset::FreshCutLog.options()),
         environment: EnvironmentSettings {
             wind: false,
             ..default()
@@ -445,7 +446,7 @@ fn idle_deadwood_mode_draws_the_textured_log() {
     let mut plain = DeadwoodPreset::FreshCutLog.options();
     plain.material.bark_texture = None;
     plain.material.end_texture = None;
-    scene.send(ViewerCommand::SetDeadwood(Arc::new(plain)));
+    scene.send(ViewerCommand::SetDeadwood(log(plain)));
     assert!(matches!(
         deadwood_event(&mut scene),
         ViewerEvent::DeadwoodBuilt(Ok(_))
@@ -469,6 +470,73 @@ fn idle_deadwood_mode_draws_the_textured_log() {
         matches!(shown, ViewerEvent::DeadwoodLodShown(Some(3))),
         "{shown:?}"
     );
+}
+
+/// Checks that moss chosen as cover grows on dead wood mode's log, and
+/// that both scatter views build.
+#[test]
+#[ignore = "needs a GPU"]
+fn deadwood_mode_grows_moss_and_shows_scatters() {
+    use procgena_clump::ClumpPreset;
+    use procgena_deadwood::DeadwoodPreset;
+
+    use super::{DeadwoodSettings, DeadwoodView};
+
+    let bare = DeadwoodSettings {
+        piece: DeadwoodPreset::WindthrowLog.options(),
+        ..default()
+    };
+    let start = SceneStart {
+        mode: SceneMode::Deadwood,
+        deadwood: Arc::new(bare.clone()),
+        environment: EnvironmentSettings {
+            wind: false,
+            ..default()
+        },
+        ..default()
+    };
+    let mut scene = HeadlessScene::new(start, SIZE);
+    assert!(matches!(
+        deadwood_event(&mut scene),
+        ViewerEvent::DeadwoodBuilt(Ok(_))
+    ));
+
+    // Moss cushions appear on the log. Tests draw clumps without textures,
+    // and moss's plain colour is near white, unlike the log and ground.
+    let moss = |frame: &Frame| {
+        fraction(frame, 0..frame.height, |r, g, b| {
+            r > 200 && g > 200 && b > 200
+        })
+    };
+    let before = moss(&scene.settled_frame());
+    scene.send(ViewerCommand::SetDeadwood(Arc::new(DeadwoodSettings {
+        cover: Some(ClumpPreset::MossCushions),
+        ..bare.clone()
+    })));
+    // The moss grows in the background with no build event, so keep
+    // drawing until it shows or a while has passed.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut after = moss(&scene.settled_frame());
+    while after <= before + 0.002 && std::time::Instant::now() < deadline {
+        after = moss(&scene.settled_frame());
+    }
+    assert!(
+        after > before + 0.002,
+        "no moss grew: {before} of the image was moss-coloured before, {after} after"
+    );
+
+    // Each scatter builds in place of the log.
+    for view in [DeadwoodView::Kindling, DeadwoodView::TwigLitter] {
+        scene.send(ViewerCommand::SetDeadwood(Arc::new(DeadwoodSettings {
+            view,
+            ..bare.clone()
+        })));
+        let built = deadwood_event(&mut scene);
+        assert!(
+            matches!(built, ViewerEvent::DeadwoodBuilt(Ok(_))),
+            "{view:?}: {built:?}"
+        );
+    }
 }
 
 /// Checks that with no textures on disk, the scene downloads the rock's

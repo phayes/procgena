@@ -14,23 +14,22 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_tree::{GrovePreset, GroveTree, MAX_GROVE_TREES, TreeGrove, TreeOptions, TreePreset};
 
 use super::{
-    CUSTOM, RowStatus, START_PRESET, START_SIZE, added_tree, choice_of, params, per_ha_text,
-    read_grove, row_statuses,
+    CUSTOM, RowStatus, START_PRESET, added_tree, choice_of, params, per_ha_text, read_grove,
+    row_statuses,
 };
 use crate::export::{Done, FileOps, shown_name, write_file};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
-use crate::scene::GroveSettings;
 use crate::ui::{SelectOptions, labelled_row};
 
-/// Triggered after the grove changes. Read it with [`GroveReader::settings`].
+/// Triggered after the grove changes. Read it with [`GroveReader::grove`].
 #[derive(Event, Debug)]
 pub struct GroveEdited;
 
 /// The grove editor's state. There is one, on the Tree Grove tab.
 #[derive(Component)]
 pub struct GroveEditor {
-    /// The panel holding the grove's shared settings and size. Its grove has
-    /// no species; they come from the rows.
+    /// The panel holding the grove's shared settings. Its grove has no
+    /// species; they come from the rows.
     panel: Entity,
     /// The node whose children are the [`SpeciesRow`]s, in the grove's order.
     list: Entity,
@@ -78,7 +77,7 @@ pub struct GroveEditorPlugin;
 impl Plugin for GroveEditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            ParamPanelPlugin::<GroveSettings>::default(),
+            ParamPanelPlugin::<TreeGrove>::default(),
             ParamPanelPlugin::<GroveTree>::default(),
         ))
         .add_systems(
@@ -95,13 +94,13 @@ pub struct GroveReader<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     rows: Query<'w, 's, &'static SpeciesRow>,
     shares: Query<'w, 's, &'static ParamPanel<GroveTree>>,
-    groves: Query<'w, 's, &'static ParamPanel<GroveSettings>>,
+    groves: Query<'w, 's, &'static ParamPanel<TreeGrove>>,
 }
 
 impl GroveReader<'_, '_> {
-    /// The edited grove: its species, in row order, with its shared settings
-    /// and size. `None` before the editor is spawned.
-    pub fn settings(&self) -> Option<GroveSettings> {
+    /// The edited grove: its species, in row order, with its shared
+    /// settings. `None` before the editor is spawned.
+    pub fn grove(&self) -> Option<TreeGrove> {
         let editor = self.editors.single().ok()?;
         let panel = self.groves.get(editor.panel).ok()?;
         let trees: Vec<GroveTree> = self
@@ -113,18 +112,13 @@ impl GroveReader<'_, '_> {
             .filter_map(|row| self.shares.get(row.share).ok())
             .map(|share| share.value().clone())
             .collect();
-        let mut settings = panel.value().clone();
-        settings.grove.trees = trees;
-        Some(settings)
+        Some(panel.value().clone().with_trees(trees))
     }
 }
 
 /// The grove shown when the studio opens.
-pub fn start_grove() -> GroveSettings {
-    GroveSettings {
-        grove: START_PRESET.grove(),
-        size: START_SIZE,
-    }
+pub fn start_grove() -> TreeGrove {
+    START_PRESET.grove()
 }
 
 /// Spawns the grove editor, showing [`START_PRESET`], as the last child of
@@ -172,19 +166,13 @@ pub fn spawn_grove_editor(commands: &mut Commands, parent: Entity) {
             ]
         })
         .insert(ChildOf(editor));
-    for tree in &start.grove.trees {
+    for tree in &start.trees {
         spawn_row(commands, list, tree.clone());
     }
 
     // The grove's shared settings, with Grove open. Its species live in
     // the rows.
-    let shared = GroveSettings {
-        grove: TreeGrove {
-            trees: Vec::new(),
-            ..start.grove
-        },
-        size: start.size,
-    };
+    let shared = start.with_trees(Vec::new());
     let panel = spawn_param_panel(commands, editor, shared, params::sections(), &[0]);
     commands
         .entity(panel)
@@ -291,13 +279,13 @@ fn row_of(
 }
 
 /// Replaces every row and the shared settings with the chosen grove
-/// preset's. Keeps the grove's size.
+/// preset's.
 fn choose_grove_preset(
     change: On<ValueChange<Entity>>,
     options: Query<&OptionIndex>,
     editor: Single<&GroveEditor>,
     children: Query<&Children>,
-    mut groves: Query<&mut ParamPanel<GroveSettings>>,
+    mut groves: Query<&mut ParamPanel<TreeGrove>>,
     mut commands: Commands,
 ) {
     if let Some(preset) = options
@@ -316,25 +304,24 @@ fn choose_grove_preset(
 }
 
 /// Shows a loaded grove in the editor, replacing every row. The preset
-/// picker keeps its choice, and the grove keeps its size. Run it with
-/// `World::run_system_cached_with`.
+/// picker keeps its choice. Run it with `World::run_system_cached_with`.
 pub fn load_grove(
     In(grove): In<TreeGrove>,
     editor: Single<&GroveEditor>,
     children: Query<&Children>,
-    mut groves: Query<&mut ParamPanel<GroveSettings>>,
+    mut groves: Query<&mut ParamPanel<TreeGrove>>,
     mut commands: Commands,
 ) {
     show_grove(grove, &editor, &children, &mut groves, &mut commands);
 }
 
-/// Replaces every row and the shared settings with `grove`'s, keeps the
-/// size, and triggers [`GroveEdited`].
+/// Replaces every row and the shared settings with `grove`'s, and triggers
+/// [`GroveEdited`].
 fn show_grove(
     mut grove: TreeGrove,
     editor: &GroveEditor,
     children: &Query<&Children>,
-    groves: &mut Query<&mut ParamPanel<GroveSettings>>,
+    groves: &mut Query<&mut ParamPanel<TreeGrove>>,
     commands: &mut Commands,
 ) {
     for row in children.get(editor.list).into_iter().flatten() {
@@ -344,19 +331,18 @@ fn show_grove(
         spawn_row(commands, editor.list, tree);
     }
     if let Ok(mut panel) = groves.get_mut(editor.panel) {
-        let size = panel.value().size;
-        panel.set_value(GroveSettings { grove, size });
+        panel.set_value(grove);
     }
     commands.trigger(GroveEdited);
 }
 
-/// Saves the grove as a `.grove.json` file. The size is not saved.
+/// Saves the grove as a `.grove.json` file.
 fn save_grove(_: On<Activate>, reader: GroveReader, mut files: FileOps) {
-    let Some(settings) = reader.settings() else {
+    let Some(grove) = reader.grove() else {
         return;
     };
     files.save("grove.grove.json", move |path| {
-        write_file(path, settings.grove.to_json().as_bytes())?;
+        write_file(path, grove.to_json().as_bytes())?;
         Ok(Done::new(format!("Saved {}", shown_name(path))))
     });
 }
@@ -564,7 +550,7 @@ fn refresh_rows(
 /// The row statuses last worked out, and the grove they were worked out for.
 #[derive(Default)]
 struct StatusCache {
-    settings: Option<GroveSettings>,
+    grove: Option<TreeGrove>,
     statuses: Vec<RowStatus>,
 }
 
@@ -587,14 +573,14 @@ fn show_row_parts(
     mut cache: Local<StatusCache>,
     mut commands: Commands,
 ) {
-    let (Some(settings), Ok(editor)) = (reader.settings(), editors.single()) else {
+    let (Some(grove), Ok(editor)) = (reader.grove(), editors.single()) else {
         return;
     };
 
     // Place the grove again only when it changed.
-    if cache.settings.as_ref() != Some(&settings) {
-        cache.statuses = row_statuses(&settings.grove, settings.size);
-        cache.settings = Some(settings);
+    if cache.grove.as_ref() != Some(&grove) {
+        cache.statuses = row_statuses(&grove);
+        cache.grove = Some(grove);
     }
     let statuses = &cache.statuses;
     let row_entities: Vec<Entity> = children
@@ -757,37 +743,56 @@ mod tests {
 
     use super::*;
     use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
-    use crate::scene::ViewerCommand;
+    use crate::scene::{EnvironmentSettings, ViewerCommand};
 
     /// The grove being edited.
-    fn edited(studio: &mut HeadlessStudio) -> GroveSettings {
+    fn edited(studio: &mut HeadlessStudio) -> TreeGrove {
         let world = studio.app_mut().world_mut();
         world
-            .run_system_cached(|reader: GroveReader| reader.settings())
+            .run_system_cached(|reader: GroveReader| reader.grove())
             .unwrap()
             .unwrap()
     }
 
     /// The grove in the last `SetGrove` among `commands`.
-    fn last_grove(commands: &[ViewerCommand]) -> GroveSettings {
+    fn last_grove(commands: &[ViewerCommand]) -> TreeGrove {
         commands
             .iter()
             .rev()
             .find_map(|command| match command {
-                ViewerCommand::SetGrove(settings) => Some((**settings).clone()),
+                ViewerCommand::SetGrove(grove) => Some((**grove).clone()),
                 _ => None,
             })
             .expect("a grove was sent")
     }
 
+    /// The size of the grove the scene shows.
+    fn shown_size(studio: &mut HeadlessStudio) -> Vec2 {
+        let world = studio.app_mut().world_mut();
+        let mut groves = world.query::<&procgena_tree_bevy::TreeGroveParams>();
+        groves.single(world).unwrap().size
+    }
+
+    /// The tree count in the overlay line `line`.
+    fn tree_count(line: &str) -> usize {
+        let count = line.split(" trees").next().unwrap();
+        count.replace(',', "").parse().unwrap()
+    }
+
     /// Waits up to a minute for the overlay to report a built grove, and
     /// returns its line.
     fn built_line(studio: &mut HeadlessStudio) -> String {
+        built_line_other_than(studio, "")
+    }
+
+    /// Waits up to a minute for the overlay to report a built grove in a
+    /// line other than `old`, and returns it.
+    fn built_line_other_than(studio: &mut HeadlessStudio, old: &str) -> String {
         for _ in 0..120 {
             if let Some(shown) = studio
                 .texts()
                 .into_iter()
-                .find(|shown| shown.text.contains(" trees · "))
+                .find(|shown| shown.text.contains(" trees · ") && shown.text != old)
             {
                 return shown.text;
             }
@@ -819,22 +824,50 @@ mod tests {
             .into_iter()
             .filter(|shown| shown.text.ends_with("/ha"))
             .count();
-        assert_eq!(rows, start.grove.trees.len());
+        assert_eq!(rows, start.trees.len());
 
         // Adding a species sends it, ahead of the row that takes the rest.
         studio.click("+ Add Tree").unwrap();
         let added = last_grove(&lock(&sent));
-        assert_eq!(added.grove.trees.len(), start.grove.trees.len() + 1);
-        assert_eq!(added.grove.trees[start.grove.trees.len() - 1], added_tree());
+        assert_eq!(added.trees.len(), start.trees.len() + 1);
+        assert_eq!(added.trees[start.trees.len() - 1], added_tree());
         assert_eq!(added, edited(&mut studio));
 
-        // A grove preset replaces every row and keeps the size.
+        // A grove preset replaces every row.
         studio.click(START_PRESET.name()).unwrap();
         studio.click(GrovePreset::PineStand.name()).unwrap();
         let pines = last_grove(&lock(&sent));
-        assert_eq!(pines.grove, GrovePreset::PineStand.grove());
-        assert_eq!(pines.size, START_SIZE);
+        assert_eq!(pines, GrovePreset::PineStand.grove());
         assert!(built_line(&mut studio).ends_with(" ms"));
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn the_environments_grove_size_sizes_the_grove_shown() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        studio.click("Tree Grove").unwrap();
+        let start = EnvironmentSettings::default();
+        let first = built_line(&mut studio);
+        let small = tree_count(&first);
+        assert_eq!(shown_size(&mut studio), Vec2::splat(start.grove_size));
+
+        // A larger grove size grows more trees, without a new grove being sent.
+        let sent = studio.record::<ViewerCommand>();
+        let larger = EnvironmentSettings {
+            grove_size: 2.0 * start.grove_size,
+            ..start
+        };
+        let world = studio.app_mut().world_mut();
+        world.write_message(ViewerCommand::SetEnvironment(larger));
+        studio.settle();
+        assert_eq!(shown_size(&mut studio), Vec2::splat(larger.grove_size));
+        let large = tree_count(&built_line_other_than(&mut studio, &first));
+        assert!(large > 2 * small, "{small} trees grew to {large}");
+        assert!(
+            !lock(&sent)
+                .iter()
+                .any(|command| matches!(command, ViewerCommand::SetGrove(_)))
+        );
     }
 
     #[test]

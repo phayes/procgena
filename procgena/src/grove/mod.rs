@@ -17,12 +17,14 @@ use procgena_tree::{
 /// The grove preset shown when the app starts.
 pub const START_PRESET: GrovePreset = GrovePreset::OakWoodland;
 
-/// Width and depth of the grove's square of ground when the app starts, in
-/// metres.
-pub const START_SIZE: f32 = 40.0;
-
-/// Smallest and largest width of the grove's square of ground, in metres.
+/// Smallest and largest width of the grove's square of ground in the 3D
+/// view, in metres.
 pub const SIZE_RANGE: (f32, f32) = (10.0, 100.0);
+
+/// Width of the square of flat ground the rows' trees per hectare are
+/// counted on, in metres. It is fixed, so the counts don't change with the
+/// size of the view.
+const SAMPLE_SIZE: f32 = 100.0;
 
 /// Picker label for a tree whose settings match no built-in preset.
 pub const CUSTOM: &str = "Custom";
@@ -56,15 +58,17 @@ pub struct RowStatus {
     pub removable: bool,
 }
 
-/// Works out each species row's status for `grove` on a flat square of
-/// ground `size` metres across, in the grove's species order.
+/// Works out each species row's status for `grove`, in the grove's species
+/// order.
 ///
-/// Counts the trees a placement on flat ground actually grows. If the grove
-/// cannot be placed, for example because it asks for too many trees, the
-/// rows show the densities the settings ask for instead.
-pub fn row_statuses(grove: &TreeGrove, size: f32) -> Vec<RowStatus> {
+/// Counts the trees a placement on 100 metres of flat ground actually
+/// grows, after spacing and glades remove some. If the grove cannot be
+/// placed, for example because it asks for too many trees, the rows show
+/// the densities the settings ask for instead.
+pub fn row_statuses(grove: &TreeGrove) -> Vec<RowStatus> {
     let count = grove.trees.len();
     let rest = grove.trees.iter().rposition(|tree| tree.density() > 0.0);
+    let size = SAMPLE_SIZE;
     let placed = GrovePlacement::new(grove, [size, size], &FlatGround, None).ok();
 
     // Trees per species: placed ones when the placement worked, otherwise
@@ -144,22 +148,22 @@ mod tests {
         grove
             .trees
             .push(GroveTree::new(TreePreset::Apple).scaled(0.0));
-        let rows = row_statuses(&grove, 60.0);
+        let rows = row_statuses(&grove);
         let rest: Vec<bool> = rows.iter().map(|row| row.takes_rest).collect();
         assert_eq!(rest, [false, false, false, true, false]);
         assert!(rows.iter().all(|row| row.removable && row.placed));
         assert_eq!(rows[4].per_ha, 0.0);
 
         let alone = TreeGrove::new(vec![GroveTree::new(TreePreset::OakMedium)]);
-        let rows = row_statuses(&alone, 60.0);
+        let rows = row_statuses(&alone);
         assert!(!rows[0].removable);
         assert_eq!(rows[0].share, 1.0);
     }
 
     #[test]
-    fn rows_count_the_trees_spacing_leaves() {
-        let grove = GrovePreset::PineStand.grove();
-        let rows = row_statuses(&grove, 80.0);
+    fn rows_count_the_trees_spacing_and_glades_leave() {
+        let mut grove = GrovePreset::PineStand.grove();
+        let rows = row_statuses(&grove);
         let asked: f32 = grove.density();
         let placed: f32 = rows.iter().map(|row| row.per_ha).sum();
         assert!(rows.iter().all(|row| row.placed));
@@ -169,12 +173,20 @@ mod tests {
         );
         let shares: f32 = rows.iter().map(|row| row.share).sum();
         assert!((shares - 1.0).abs() < 1e-4);
+
+        // Glades take their trees away from the count.
+        grove.patchiness = 1.0;
+        let open: f32 = row_statuses(&grove).iter().map(|row| row.per_ha).sum();
+        assert!(
+            open < 0.6 * placed,
+            "{open}/ha with glades, {placed}/ha without"
+        );
     }
 
     #[test]
     fn rows_show_asked_densities_when_the_grove_cannot_be_placed() {
         let grove = GrovePreset::AspenStand.grove().with_density(20_000.0);
-        let rows = row_statuses(&grove, 100.0);
+        let rows = row_statuses(&grove);
         assert!(rows.iter().all(|row| !row.placed));
         let asked: f32 = rows.iter().map(|row| row.per_ha).sum();
         assert!((asked - 20_000.0).abs() < 1.0, "{asked}");

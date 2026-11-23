@@ -2,18 +2,16 @@
 //!
 //! Tree shape controls are shared with the Trees tab.
 
-use procgena_tree::{GroveTree, GroveVariation, MAX_GROVE_VARIANTS};
+use procgena_tree::{GroveTree, GroveVariation, MAX_GROVE_VARIANTS, TreeGrove};
 
-use super::SIZE_RANGE;
 use crate::params::{Group, Section, count, number};
-use crate::scene::GroveSettings;
 
 /// Largest grove seed the Seed control reaches.
 const MAX_SEED: u32 = 999;
 
 /// The grove's own settings, in display order. Its species are edited
 /// separately, one row each.
-pub fn sections() -> Vec<Section<GroveSettings>> {
+pub fn sections() -> Vec<Section<TreeGrove>> {
     vec![
         Section {
             title: "Grove",
@@ -22,9 +20,9 @@ pub fn sections() -> Vec<Section<GroveSettings>> {
         Section {
             title: "Variation",
             groups: vec![variation().lift(
-                "grove.variation",
-                |s: &GroveSettings| &s.grove.variation,
-                |s| &mut s.grove.variation,
+                "variation",
+                |g: &TreeGrove| &g.variation,
+                |g| &mut g.variation,
             )],
         },
     ]
@@ -67,26 +65,25 @@ pub fn share_sections() -> Vec<Section<GroveTree>> {
     }]
 }
 
-fn grove() -> Group<GroveSettings> {
+fn grove() -> Group<TreeGrove> {
     Group::plain(vec![
-        number!(
-            GroveSettings,
-            "size",
-            "Grove Size",
-            (SIZE_RANGE.0, SIZE_RANGE.1, 1.0),
-            |s| s.size
-        )
-        .exponential(),
-        count!(GroveSettings, "grove.seed", "Seed", (0, MAX_SEED), |s| s
-            .grove
-            .seed),
+        count!(TreeGrove, "seed", "Seed", (0, MAX_SEED), |g| g.seed),
         // Multiply every species' density without changing the mix.
         number!(
-            GroveSettings,
-            "grove.densityScale",
+            TreeGrove,
+            "densityScale",
             "Grove Density ×",
             (0.0, 2.0, 0.01),
-            |s| s.grove.density_scale
+            |g| g.density_scale
+        ),
+        // Open treeless glades: separate ones at medium values, joined ones
+        // high up, leaving islands of trees.
+        number!(
+            TreeGrove,
+            "patchiness",
+            "Patchiness",
+            (0.0, 1.0, 0.01),
+            |g| g.patchiness
         ),
     ])
 }
@@ -114,21 +111,17 @@ fn variation() -> Group<GroveVariation> {
 
 #[cfg(test)]
 mod tests {
-    use procgena_tree::{GrovePreset, TreeGrove};
+    use procgena_tree::GrovePreset;
 
     use super::*;
     use crate::params::{Param, checks};
 
-    /// Checks `settings` the way the grove tab's viewer will: the grove's
-    /// own settings and the size.
-    fn accepted(settings: GroveSettings) -> Result<(), String> {
-        if !(SIZE_RANGE.0..=SIZE_RANGE.1).contains(&settings.size) {
-            return Err(format!("size {} is out of range", settings.size));
-        }
-        settings.grove.validate().map_err(|error| error.to_string())
+    /// Checks a grove the way the grove tab's viewer will.
+    fn accepted(grove: TreeGrove) -> Result<(), String> {
+        grove.validate().map_err(|error| error.to_string())
     }
 
-    fn grove_params() -> Vec<Param<GroveSettings>> {
+    fn grove_params() -> Vec<Param<TreeGrove>> {
         params_of(sections())
     }
 
@@ -144,17 +137,11 @@ mod tests {
             .collect()
     }
 
-    /// Each grove preset at the starting size, named so failures identify it.
-    fn groves() -> Vec<(String, GroveSettings)> {
+    /// Each grove preset, named so failures identify it.
+    fn groves() -> Vec<(String, TreeGrove)> {
         GrovePreset::ALL
             .iter()
-            .map(|preset| {
-                let settings = GroveSettings {
-                    grove: preset.grove(),
-                    size: super::super::START_SIZE,
-                };
-                (preset.key().to_string(), settings)
-            })
+            .map(|preset| (preset.key().to_string(), preset.grove()))
             .collect()
     }
 
@@ -185,11 +172,7 @@ mod tests {
         checks::range_ends_are_valid(&grove_params(), &groves(), accepted);
 
         // A species' share is checked in a grove holding only that species.
-        let alone = |tree: GroveTree| {
-            TreeGrove::new(vec![tree])
-                .validate()
-                .map_err(|error| error.to_string())
-        };
+        let alone = |tree: GroveTree| accepted(TreeGrove::new(vec![tree]));
         checks::range_ends_are_valid(&share_params(), &shares(), alone);
     }
 

@@ -110,7 +110,7 @@ pub fn scene_start() -> SceneStart {
         clump: Arc::new(crate::clump::start_settings()),
         mushroom: Arc::new(crate::mushrooms::START_PRESET.options()),
         grove: Arc::new(crate::grove::editor::start_grove()),
-        deadwood: Arc::new(crate::deadwood::START_PRESET.options()),
+        deadwood: Arc::new(crate::deadwood::start_settings()),
         environment: EnvironmentSettings::default(),
         lod: None,
         plant_lod: None,
@@ -194,7 +194,7 @@ mod tests {
         assert_eq!(*start.clump, crate::clump::start_settings());
         assert_eq!(*start.mushroom, crate::mushrooms::START_PRESET.options());
         assert_eq!(*start.grove, crate::grove::editor::start_grove());
-        assert_eq!(*start.deadwood, crate::deadwood::START_PRESET.options());
+        assert_eq!(*start.deadwood, crate::deadwood::start_settings());
         assert!(FieldPreset::named(crate::field::START_PRESET).is_some());
     }
 }

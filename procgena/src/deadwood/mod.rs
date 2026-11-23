@@ -55,7 +55,8 @@ pub fn show_sections() -> Vec<Section<DeadwoodShow>> {
                 "None" => None,
                 "Moss Patches" => Some(ClumpPreset::MossPatches),
                 "Moss Cushions" => Some(ClumpPreset::MossCushions),
-                "Snow" => Some(ClumpPreset::SnowCap),
+                "Fresh Snow" => Some(ClumpPreset::FreshSnowCap),
+                "Dirty Snow" => Some(ClumpPreset::DirtySnowCap),
                 "Burl" => Some(ClumpPreset::Burl),
             ], |s| s.cover)
             .shown_if(|s| s.view == DeadwoodView::Piece),

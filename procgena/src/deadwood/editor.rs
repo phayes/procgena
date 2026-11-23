@@ -13,6 +13,7 @@ use procgena_tree::Rng;
 
 use super::{DeadwoodShow, START_PRESET, params, show_sections};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
+use crate::scene::DeadwoodView;
 use crate::ui::{LABEL_WIDTH, labelled_row};
 
 /// Triggered after the dead wood settings change. Read them from the panel
@@ -68,7 +69,7 @@ impl Plugin for DeadwoodEditorPlugin {
             ParamPanelPlugin::<DeadwoodOptions>::default(),
             ParamPanelPlugin::<DeadwoodShow>::default(),
         ))
-        .add_systems(PostUpdate, show_seed);
+        .add_systems(PostUpdate, (show_seed, show_piece_settings));
     }
 }
 
@@ -223,6 +224,26 @@ fn random_seed(
     let mut options = panel.value().clone();
     options.seed = editor.rng.next_u32() % 65536;
     replace(options, false, &editor, &mut panels, &mut commands);
+}
+
+/// Shows the piece's settings only while a single piece is shown; the
+/// scatters don't use them.
+fn show_piece_settings(
+    editor: Single<&DeadwoodEditor>,
+    shows: Query<&ParamPanel<DeadwoodShow>, Changed<ParamPanel<DeadwoodShow>>>,
+    mut nodes: Query<&mut Node>,
+) {
+    let Ok(show) = shows.get(editor.show_panel) else {
+        return;
+    };
+    let wanted = if show.value().view == DeadwoodView::Piece {
+        Display::Flex
+    } else {
+        Display::None
+    };
+    if let Ok(mut node) = nodes.get_mut(editor.panel) {
+        node.display = wanted;
+    }
 }
 
 /// Shows the options' seed in the seed field whenever it changes.

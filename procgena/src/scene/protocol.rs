@@ -12,7 +12,7 @@ use procgena_mushroom::MushroomOptions;
 use procgena_mushroom_bevy::MushroomBuildError;
 use procgena_plant::prelude::{FieldPreset, PlantField};
 use procgena_stone::{OptionsError as StoneOptionsError, StoneOptions};
-use procgena_tree::{GrovePreset, OptionsError, TreeGrove, TreeOptions, TreePreset};
+use procgena_tree::{OptionsError, TreeGrove, TreeOptions, TreePreset};
 use procgena_tree_bevy::TreeGroveBuildError;
 
 use super::environment::EnvironmentSettings;
@@ -35,8 +35,8 @@ pub struct SceneStart {
     pub clump: Arc<ClumpSettings>,
     /// Mushroom settings, as for [`ViewerCommand::SetMushroom`].
     pub mushroom: Arc<MushroomOptions>,
-    /// Grove settings, as for [`ViewerCommand::SetGrove`].
-    pub grove: Arc<GroveSettings>,
+    /// The grove, as for [`ViewerCommand::SetGrove`].
+    pub grove: Arc<TreeGrove>,
     /// Dead wood settings, as for [`ViewerCommand::SetDeadwood`].
     pub deadwood: Arc<DeadwoodSettings>,
     /// Lighting, ground, wind and auto-rotation, as for [`ViewerCommand::SetEnvironment`].
@@ -80,7 +80,8 @@ pub enum SceneMode {
     Clump,
     /// A single mushroom generated from the current mushroom settings.
     Mushroom,
-    /// A grove of trees on a square of flat ground.
+    /// A grove of trees on a square of flat ground,
+    /// [`EnvironmentSettings::grove_size`] across.
     Grove,
     /// A single log, branch or stump generated from the current dead wood
     /// settings.
@@ -125,12 +126,12 @@ pub enum ViewerCommand {
     /// until mushroom mode is shown. The scene uses its own detail levels,
     /// scaled to the mushroom's size, and ignores `options.detail`.
     SetMushroom(Arc<MushroomOptions>),
-    /// Sets the grove and the size of its ground. In grove mode, the grove
-    /// updates in place: trees that keep their spot, species and shape stay,
-    /// and the rest are added, removed or rebuilt. A
-    /// [`ViewerEvent::GroveBuilt`] follows. In other modes, saves the settings
-    /// until grove mode is shown.
-    SetGrove(Arc<GroveSettings>),
+    /// Sets the grove. In grove mode, the grove updates in place: trees that
+    /// keep their spot, species and shape stay, and the rest are added,
+    /// removed or rebuilt. A [`ViewerEvent::GroveBuilt`] follows. In other
+    /// modes, saves the grove until grove mode is shown. The grove grows on a
+    /// square of flat ground [`EnvironmentSettings::grove_size`] across.
+    SetGrove(Arc<TreeGrove>),
     /// Sets what dead wood mode shows: a piece, with any cover grown on it,
     /// or a scatter of sticks. In dead wood mode, a changed piece or view is
     /// built in the background and reported through
@@ -212,25 +213,6 @@ pub enum DeadwoodView {
     TwigLitter,
 }
 
-/// What the grove mode shows: a grove of trees on a square of flat ground.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GroveSettings {
-    /// The species, their densities and how the trees vary.
-    pub grove: TreeGrove,
-    /// Width and depth of the square of ground, in metres. Must be above 0
-    /// and at most [`MAX_GROVE_SIZE`](procgena_tree::MAX_GROVE_SIZE).
-    pub size: f32,
-}
-
-impl Default for GroveSettings {
-    /// The oak woodland preset on ground 40 metres across.
-    fn default() -> Self {
-        Self {
-            grove: GrovePreset::OakWoodland.grove(),
-            size: 40.0,
-        }
-    }
-}
 
 /// What the clump mode shows: a subject, and the clump grown on it.
 #[derive(Debug, Clone, PartialEq)]
@@ -243,7 +225,7 @@ pub struct ClumpSettings {
 }
 
 impl Default for ClumpSettings {
-    /// A snow cap on a rock with default settings.
+    /// A fresh snow cap on a rock with default settings.
     fn default() -> Self {
         Self {
             subject: ClumpSubject::Stone(Arc::default()),

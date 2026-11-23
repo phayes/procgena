@@ -3,14 +3,17 @@
 use std::sync::Arc;
 
 use crate::clump::editor::{ClumpEdited, ClumpEditor, ClumpEditorPlugin, spawn_clump_editor};
-use crate::scene::{ClumpSettings, FieldSettings, GroveSettings, SceneMode, ViewerCommand};
+use crate::deadwood::DeadwoodShow;
+use crate::scene::{
+    ClumpSettings, DeadwoodSettings, DeadwoodView, FieldSettings, SceneMode, ViewerCommand,
+};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use procgena_deadwood::DeadwoodOptions;
 use procgena_mushroom::MushroomOptions;
 use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams};
 use procgena_stone::StoneOptions;
-use procgena_tree::TreeOptions;
+use procgena_tree::{TreeGrove, TreeOptions};
 
 use super::layout::TabPage;
 use super::status::{BuildState, BuildStatus};
@@ -188,26 +191,35 @@ fn send_mushroom(
     }
 }
 
-/// Rebuilds the dead wood piece when an edit changed it, and fits the
-/// camera to it after choosing a preset or loading settings.
+/// Sends what the Dead Wood tab shows when an edit changed it: the piece,
+/// view and cover. Fits the camera after choosing a preset, loading
+/// settings or changing the view.
 fn send_deadwood(
     edited: On<DeadwoodEdited>,
     editor: Single<&DeadwoodEditor>,
     panels: Query<&ParamPanel<DeadwoodOptions>>,
-    mut sent: Local<Option<DeadwoodOptions>>,
+    shows: Query<&ParamPanel<DeadwoodShow>>,
+    mut sent: Local<Option<DeadwoodSettings>>,
     mut state: ResMut<BuildState>,
     mut viewer: MessageWriter<ViewerCommand>,
 ) {
-    let Ok(panel) = panels.get(editor.panel()) else {
+    let (Ok(panel), Ok(show)) = (panels.get(editor.panel()), shows.get(editor.show_panel())) else {
         return;
     };
-    let sent = sent.get_or_insert_with(|| crate::deadwood::START_PRESET.options());
-    if panel.value() != sent {
-        *sent = panel.value().clone();
-        state.deadwood = BuildStatus::Building;
+    let wanted = show.value().settings(panel.value().clone());
+    let sent = sent.get_or_insert_with(crate::deadwood::start_settings);
+    let view_changed = wanted.view != sent.view;
+    if wanted != *sent {
+        // A new view or piece is rebuilt and reported; a new cover alone isn't.
+        let piece_changed = wanted.view == DeadwoodView::Piece && wanted.piece != sent.piece;
+        if view_changed || piece_changed {
+            state.deadwood = BuildStatus::Building;
+        }
+        *sent = wanted;
         viewer.write(ViewerCommand::SetDeadwood(Arc::new(sent.clone())));
     }
-    if edited.reframe {
+    // Fit the camera to a new view, or when asked.
+    if edited.reframe || view_changed {
         viewer.write(ViewerCommand::ResetCamera);
     }
 }
@@ -216,11 +228,11 @@ fn send_deadwood(
 fn send_grove(
     _: On<GroveEdited>,
     reader: GroveReader,
-    mut sent: Local<Option<GroveSettings>>,
+    mut sent: Local<Option<TreeGrove>>,
     mut state: ResMut<BuildState>,
     mut viewer: MessageWriter<ViewerCommand>,
 ) {
-    let Some(grove) = reader.settings() else {
+    let Some(grove) = reader.grove() else {
         return;
     };
     if sent.as_ref() != Some(&grove) {
