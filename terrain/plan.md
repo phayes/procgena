@@ -1041,22 +1041,31 @@ strategy is used: 0 is Phase 2.5's scaling exactly, 1 is the blend alone.
   - At blend 1 both sides' own heights are equal bit for bit on the
     two-region border in every configuration, their slopes across it
     within 0.02, and the triple junction's within 1 mm.
+  - Blend 0 is Phase 2.5's code path unchanged, so its gaps at the other
+    exponents are those recorded under Phase 2.5's Results.
 - **River crossings in 300 seeds:** meeting −1 gives 12 / 8 at blend 0,
   24 / 26 at 0.5 and 29 / 29 at 1. At 0.5, 21–33 for −∞ to 0, and 12–13
   for 1. `RIVER_SEEDS` is now 81 and 293, the only seeds crossing in all
   12 configurations.
-- **Features, 300 seeds × 12 configurations:** no problems at blend 0 or
-  0.5, at any meeting exponent. The meeting-1 triple-junction road that
-  floated 13.6 m at blend 0 is gone at 0.5. One problem remains, at blend
-  1 only: in the plains–mountains world a road climbs 550 m into the
-  mountains within about 1.2 km of the border, at its 0.25 limit, and
-  cuts 17 m on rough patches. The blend fade lowers the mountains' mean
-  height by about 400 m across 1.6 km, steepest at about 0.45. That is
-  the presets' elevation difference, which E is to absorb; until then
-  `rivers_and_roads_stay_close_to_the_ground` fails on this one world.
+- **Features, 300 seeds × 12 configurations** (blend 0.5 at every
+  meeting exponent; blends 0 and 1 at meeting −1 only): no problems,
+  except one road at blend 1. Fixtures checked separately at meeting 1:
+  the triple-junction road still floats 13.6 m at blend 0 (shared seeds),
+  and is gone at blends 0.5 and 1.
+- **The blend-1 road** (plains–mountains world, shared seeds) climbs
+  550 m into the mountains within about 1.2 km of the border and cuts
+  17 m on rough patches 700–1150 m in, past the fade's ramp. It is not
+  the fade: mountains next to identical mountains (no fade at all, seed
+  11) give roads 36 m off the ground. The 25 m road planner can't follow
+  full-strength mountain ground; blend 1 only puts a road there. Until
+  that is fixed, `rivers_and_roads_stay_close_to_the_ground` fails on
+  this world.
+- **Coverage:** scaling alone (blend 0) is now tested only at meeting −1;
+  −∞, 0 and 1 at blend 0 dropped out of the seam and feature suites.
 - `BLEND_RATE` is 0.25, not the planned 0.1 (see "Fade width").
-- Cost: the seam suite went from about 30 s to 78 s (12 configurations
-  instead of 8, and the neighbour heights inside the fade band).
+- Cost: the seam suite went from about 30 s to 61 s: 12 configurations
+  instead of 8, and the neighbour heights inside the fade band (only
+  there; the interior skips them).
 
 ## Phases
 
@@ -1066,7 +1075,7 @@ strategy is used: 0 is Phase 2.5's scaling exactly, 1 is the blend alone.
 | 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Review pending. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two biomes and a triple junction. Includes the symmetry, seam and triple-junction tests. **Stop and review with the user.** | 0 |
 | 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Review pending. | 1 |
 | 2.5 | **Shared world noise and relief convergence** (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
-| 2.6 ✅ | **Relief blending** (built 2026-11-22; one road problem left at blend 1, see its Results) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
+| 2.6 | **Relief blending** (built 2026-11-22, review pending; one road problem at blend 1, see its Results) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
 | 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |
@@ -1127,6 +1136,30 @@ touch separate modules.
     2026-11-22: 0.5.** Test coverage, unless the user says otherwise:
     every configuration at 0.5, plus the seam and feature suites at 0
     and 1 for the default meeting exponent.
+12. **Road ends as points of interest.** Decided 2026-11-22: the end of a
+    region's road network (its hub) is a `PointOfInterest` of kind
+    `RoadEnd`, listed by `Terrain::points_of_interest()`, for the caller
+    to fill. Built as data only. Phase 5's classification gives it a
+    provenance label. Still open: whether the terrain flattens a clearing
+    there (perhaps a setting); where the hub goes (item 4 of the road
+    fixes: it is chosen for flatness and centrality and ignores height,
+    so a lone crossing in mountains climbs to a summit plateau).
+13. **Roads with no route within grade.** Found 2026-11-22: in the
+    blend-1 mountains and one triple-junction region, no route from the
+    crossing to the hub stays within `max_grade` on the 25 m grid (with
+    a hard cap the road isn't built at all). **Decided 2026-11-22:**
+    roads cut as deep as they need, so the route search keeps its soft
+    grade costs plus a cost for expected cutting and filling. Cuttings
+    steepen towards vertical; `Terrain::cutting_face(p)` reports a face
+    of 45° to 65° as a bluff and 65° to 90° as a cliff (Phase 5 turns
+    these into labels). Embankments stay capped at 10 m in the feature
+    test, and road levels take 3 m of cut to save 1 m of fill. Moving
+    the hub is still open (question 12).
+14. **Switchbacks.** Climbing roads still double back on the spot (zero
+    radius hairpins), and their legs can overlap. A turn limit in the
+    route search made routes steeper (1 to 22 over-grade steps) and a
+    turn cost didn't stop the hairpins, so both were taken out. Still to
+    design: hairpins with a radius and a minimum spacing between legs.
 
 ## Maybe later
 

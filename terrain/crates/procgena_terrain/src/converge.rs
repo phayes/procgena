@@ -116,8 +116,8 @@ const WEIGHT_STEPS: usize = 60;
 /// smoothest terrains share everything, and towards 1 the shares even out.
 /// Mixing terrains whose ground is unrelated lowers the roughness, so
 /// between similar amplitudes the mix is smoother than the target and the
-/// shares are as even as the rule allows. Equal amplitudes get equal
-/// shares. The shares don't depend on the order of `amplitudes`, bit for
+/// shares are close to even, leaning a little towards the rougher terrain.
+/// Equal amplitudes get equal shares. The shares don't depend on the order of `amplitudes`, bit for
 /// bit.
 ///
 /// # Panics

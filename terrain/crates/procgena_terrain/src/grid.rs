@@ -55,6 +55,12 @@ const NEIGHBOURS: [(isize, isize); 16] = [
 impl Grid {
     /// Builds the grid over `polygon`, with heights from `height`.
     pub(crate) fn new(polygon: &[DVec2], height: impl Fn(DVec2) -> f32) -> Self {
+        Self::with_cell(polygon, height, CELL)
+    }
+
+    /// Like [`Grid::new`], with cells of `cell` metres where the region is
+    /// small enough (larger regions get larger cells).
+    pub(crate) fn with_cell(polygon: &[DVec2], height: impl Fn(DVec2) -> f32, cell: f64) -> Self {
         // Bounding box and cell size.
         let (min, max) = polygon
             .iter()
@@ -62,7 +68,7 @@ impl Grid {
                 (lo.min(p), hi.max(p))
             });
         let size = max - min;
-        let cell = CELL.max((size.x * size.y / MAX_CELLS).sqrt());
+        let cell = cell.max((size.x * size.y / MAX_CELLS).sqrt());
         let width = (size.x / cell).ceil() as usize + 1;
         let depth = (size.y / cell).ceil() as usize + 1;
         let origin = min + DVec2::splat(cell / 2.0);
@@ -122,17 +128,36 @@ impl Grid {
     /// The inside neighbours of cell `i` in 16 directions (the 8 adjacent
     /// cells and the 8 a knight's move away), with the distance to each.
     pub(crate) fn neighbours(&self, i: usize) -> impl Iterator<Item = (usize, f64)> + '_ {
-        let (x, z) = ((i % self.width) as isize, (i / self.width) as isize);
-        NEIGHBOURS.iter().filter_map(move |&(dx, dz)| {
-            let (nx, nz) = (x + dx, z + dz);
-            if nx < 0 || nz < 0 || nx >= self.width as isize || nz >= self.depth as isize {
-                return None;
-            }
-            let j = nz as usize * self.width + nx as usize;
-            let step = ((dx * dx + dz * dz) as f64).sqrt();
-            self.inside[j].then_some((j, step * self.cell))
-        })
+        self.moves(i).map(|(j, length, _)| (j, length))
     }
+
+    /// Like [`Grid::neighbours`], with each move's direction as an index
+    /// below [`DIRECTIONS`] (see [`direction`]).
+    pub(crate) fn moves(&self, i: usize) -> impl Iterator<Item = (usize, f64, usize)> + '_ {
+        let (x, z) = ((i % self.width) as isize, (i / self.width) as isize);
+        NEIGHBOURS
+            .iter()
+            .enumerate()
+            .filter_map(move |(k, &(dx, dz))| {
+                let (nx, nz) = (x + dx, z + dz);
+                if nx < 0 || nz < 0 || nx >= self.width as isize || nz >= self.depth as isize {
+                    return None;
+                }
+                let j = nz as usize * self.width + nx as usize;
+                let step = ((dx * dx + dz * dz) as f64).sqrt();
+                self.inside[j].then_some((j, step * self.cell, k))
+            })
+    }
+}
+
+/// How many move directions [`Grid::moves`] uses.
+pub(crate) const DIRECTIONS: usize = NEIGHBOURS.len();
+
+/// The unit vector of move direction `k`, which must be below
+/// [`DIRECTIONS`].
+pub(crate) fn direction(k: usize) -> DVec2 {
+    let (dx, dz) = NEIGHBOURS[k];
+    DVec2::new(dx as f64, dz as f64).normalize()
 }
 
 impl Grid {

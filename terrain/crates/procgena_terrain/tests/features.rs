@@ -368,6 +368,8 @@ fn rivers_and_roads_stay_close_to_the_ground() {
                     "{at}: cut {cut} m deep, over {deepest_cut}"
                 );
             }
+            // Roads may cut as deep as they need (the cutting steepens to a
+            // cliff), but embankments stay at most 10 m high.
             for road in t.roads() {
                 let (cut, fill) = level_gaps(world, road);
                 let at = format!(
@@ -375,7 +377,7 @@ fn rivers_and_roads_stay_close_to_the_ground() {
                     t.region().id.0,
                     road.points.len()
                 );
-                assert!(cut.max(fill) <= 10.0, "{at}: cut {cut} m, fill {fill} m");
+                assert!(fill <= 10.0, "{at}: fill {fill} m (cut {cut} m)");
             }
         }
     }

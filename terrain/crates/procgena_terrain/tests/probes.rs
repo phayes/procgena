@@ -131,7 +131,7 @@ fn feature_problems(world: &StitchedWorld) -> Vec<String> {
         let o = t.generator().options();
 
         // Roads: grade against the steepest allowed where each step lies,
-        // and distance from the ground.
+        // and embankment height (cuttings may be any depth).
         for road in t.roads() {
             let (over, grade, allowed) = road
                 .points
@@ -150,7 +150,7 @@ fn feature_problems(world: &StitchedWorld) -> Vec<String> {
                 ));
             }
             let (cut, fill) = level_gaps(world, road);
-            if cut.max(fill) > 10.0 {
+            if fill > 10.0 {
                 out.push(format!(
                     "region {region}: road of {} points, cut {cut:.1} m, fill {fill:.1} m",
                     road.points.len()
@@ -222,6 +222,74 @@ fn feature_problems(world: &StitchedWorld) -> Vec<String> {
         }
     }
     out
+}
+
+/// TEMPORARY: writes the blend-1 two-biome world's carved ground around
+/// the mountain road for a 3D viewer: a header line, then per sample a
+/// little-endian f32 height and a u8 label (0 ground, 1 water, 2 bluff,
+/// 3 cliff, 4 road), then the roads and points of interest as JSON.
+#[test]
+#[ignore]
+fn scene_dump() {
+    let world = two_biomes(DVec2::ZERO, CONFIGS[10]);
+    let (x0, z0, step, n) = (0.0f64, -640.0f64, 2.5f64, 513usize);
+    let roads: Vec<&FeatureLine> = world.terrains().iter().flat_map(|t| t.roads()).collect();
+    let mut bytes = Vec::with_capacity(n * n * 5);
+    let mut labels = Vec::with_capacity(n * n);
+    for j in 0..n {
+        for i in 0..n {
+            let p = DVec2::new(x0 + step * i as f64, z0 + step * j as f64);
+            let t = world.owner(p).unwrap();
+            bytes.extend(t.height(p).to_le_bytes());
+            // Label bits: 1 water, 2 road, 4 cut, 8 embankment,
+            // 16 retaining wall, 32 bluff, 64 cliff.
+            let tags = t.road_tags(p);
+            let mut label = u8::from(t.water_level(p).is_some());
+            for (bit, tag) in [
+                (2u8, procgena_terrain::RoadTags::ROAD),
+                (4, procgena_terrain::RoadTags::CUT),
+                (8, procgena_terrain::RoadTags::EMBANKMENT),
+                (16, procgena_terrain::RoadTags::RETAINING_WALL),
+                (32, procgena_terrain::RoadTags::BLUFF),
+                (64, procgena_terrain::RoadTags::CLIFF),
+            ] {
+                if tags.contains(tag) {
+                    label |= bit;
+                }
+            }
+            labels.push(label);
+        }
+    }
+    bytes.extend(labels);
+    let lines: Vec<String> = roads
+        .iter()
+        .map(|r| {
+            let pts: Vec<String> = r
+                .points
+                .iter()
+                .zip(&r.levels)
+                .map(|(p, l)| format!("[{:.2},{:.2},{:.2}]", p.x, l, p.y))
+                .collect();
+            format!("{{\"width\":{},\"points\":[{}]}}", r.width, pts.join(","))
+        })
+        .collect();
+    let pois: Vec<String> = world
+        .terrains()
+        .iter()
+        .flat_map(|t| t.points_of_interest())
+        .map(|p| format!("[{:.2},{:.2},{:.2}]", p.position.x, p.level, p.position.y))
+        .collect();
+    let dir = std::env::var("SCENE_DIR").expect("SCENE_DIR");
+    std::fs::write(format!("{dir}/scene.bin"), bytes).unwrap();
+    std::fs::write(
+        format!("{dir}/scene.json"),
+        format!(
+            "{{\"x0\":{x0},\"z0\":{z0},\"step\":{step},\"n\":{n},\"roads\":[{}],\"pois\":[{}]}}",
+            lines.join(","),
+            pois.join(",")
+        ),
+    )
+    .unwrap();
 }
 
 /// Every break of the feature suite's limits in every test world, and in

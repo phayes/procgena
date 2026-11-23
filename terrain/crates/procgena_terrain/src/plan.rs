@@ -3,18 +3,24 @@
 
 use glam::DVec2;
 
-use crate::carve::{FeatureKind, FeatureLine, Features, Pond, chaikin};
+use crate::carve::{
+    FeatureKind, FeatureLine, Features, PoiKind, PointOfInterest, Pond, ROAD_BANK, chaikin,
+};
 use crate::grid::Grid;
 use crate::options::TerrainOptions;
 use crate::ports::{FEATURE_CLEARANCE, FREEBOARD, MAX_HALF_WIDTH, Port, PortKind, PortWish, Side};
 use crate::region::{Boundary, Region, RegionEdge, point_at, segments};
 use crate::relief::Relief;
 use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
-use crate::road::{RoadStart, route};
+use crate::road::{RoadStart, Routes, banks, route};
 use crate::seam::{EdgeAgreement, EdgeSample, smooth};
 
 /// Chaikin smoothing passes applied to rivers.
 const RIVER_SMOOTHING: usize = 3;
+
+/// The cell size of the grid roads are planned on, in metres: fine enough
+/// for a road to find ledges and saddles a little wider than itself.
+const ROAD_CELL: f64 = 8.0;
 
 /// The smallest depth a river may cut through a rise, in metres.
 const BREACH_BASE: f32 = 4.0;
@@ -513,19 +519,47 @@ pub(crate) fn features(
     }
 
     // Roads: the crossing pieces, then routes linking them.
-    let mut water = vec![false; bent.heights.len()];
+    // Roads are planned on their own, finer grid; every cell a river passes
+    // through is marked as water.
+    let Boundary::Polygon(polygon) = &region.boundary else {
+        unreachable!("a region without a polygon has no own rivers");
+    };
+    let road_grid = Grid::with_cell(polygon, base, ROAD_CELL);
+    let mut water = vec![false; road_grid.heights.len()];
     for river in &rivers {
-        for &p in &river.points {
-            if let Some(c) = bent.cell_of(p) {
-                water[c] = true;
+        for w in river.points.windows(2) {
+            let steps = (w[0].distance(w[1]) / (0.5 * road_grid.cell)).ceil().max(1.0) as usize;
+            for k in 0..=steps {
+                if let Some(c) = road_grid.cell_of(w[0].lerp(w[1], k as f64 / steps as f64)) {
+                    water[c] = true;
+                }
             }
         }
     }
-    let mut roads = route(&bent, &road_starts, &water, &|p| relief.road_grades(p));
+    let Routes { mut roads, end } = route(
+        &road_grid,
+        &road_starts,
+        &water,
+        &|p| relief.road_grades(p),
+        base,
+    );
+    let points_of_interest = end
+        .map(|(position, level)| PointOfInterest {
+            kind: PoiKind::RoadEnd,
+            position,
+            level,
+        })
+        .into_iter()
+        .collect();
+    let mut road_banks: Vec<Vec<f32>> = roads.iter().map(|r| banks(&r.points, base)).collect();
+
+    // Crossing pieces keep the gentlest banks, so both sides carve the
+    // same ground at the border.
     for &(index, agreement) in agreements {
         let edge = &region.edges[index];
         for port in agreement.ports.iter().filter(|p| p.kind == PortKind::Road) {
             let (points, levels) = port.piece(edge);
+            road_banks.push(vec![ROAD_BANK as f32; points.len()]);
             roads.push(FeatureLine {
                 kind: FeatureKind::Road,
                 points,
@@ -535,7 +569,7 @@ pub(crate) fn features(
             });
         }
     }
-    Features::new(rivers, ponds, roads)
+    Features::new(rivers, ponds, roads, road_banks, points_of_interest)
 }
 
 #[cfg(test)]

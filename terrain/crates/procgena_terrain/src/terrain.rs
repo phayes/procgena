@@ -4,7 +4,7 @@ use std::fmt;
 
 use glam::DVec2;
 
-use crate::carve::{FeatureLine, Features, Pond};
+use crate::carve::{FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::noise::{Octaves, fbm};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
@@ -478,6 +478,14 @@ impl Terrain {
         self.features.apply(p, base).water
     }
 
+    /// What the roads made of the ground at `p`: the road surface, a
+    /// cutting or an embankment, and how steep the bank is (see
+    /// [`RoadTags`]). Empty where no road changed the ground.
+    pub fn road_tags(&self, p: DVec2) -> RoadTags {
+        let base = self.base_height(p);
+        self.features.apply(p, base).tags
+    }
+
     /// The terrain's rivers. Each runs downstream from its first point,
     /// including the short straight pieces across borders.
     pub fn rivers(&self) -> &[FeatureLine] {
@@ -493,6 +501,13 @@ impl Terrain {
     /// borders.
     pub fn roads(&self) -> &[FeatureLine] {
         &self.features.roads
+    }
+
+    /// Places in the terrain left for the caller to fill, such as the end
+    /// of the region's road network. The terrain leaves the ground there
+    /// as it is.
+    pub fn points_of_interest(&self) -> &[PointOfInterest] {
+        &self.features.points_of_interest
     }
 
     /// Ground height at `p` (metres) before rivers, ponds and roads are cut
