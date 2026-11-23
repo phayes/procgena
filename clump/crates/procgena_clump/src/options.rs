@@ -51,8 +51,14 @@ impl Default for ClumpOptions {
             placement: PlacementOptions::default(),
             shape: ShapeOptions::default(),
             mesh: MeshOptions::default(),
-            grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND, tags::MOSS])
-                .excluding([tags::CARD]),
+            grows_on: TagFilter::any_of([
+                tags::ROCK,
+                tags::BARK,
+                tags::WOOD,
+                tags::GROUND,
+                tags::MOSS,
+            ])
+            .excluding([tags::CARD]),
             tags: [tags::CLUMP, tags::SNOW].into(),
             material: MaterialOptions::default(),
         }

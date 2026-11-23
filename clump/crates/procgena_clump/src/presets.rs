@@ -83,8 +83,14 @@ impl ClumpPreset {
                     closed: true,
                     strict: false,
                 },
-                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND, tags::MOSS])
-                    .excluding([tags::CARD]),
+                grows_on: TagFilter::any_of([
+                    tags::ROCK,
+                    tags::BARK,
+                    tags::WOOD,
+                    tags::GROUND,
+                    tags::MOSS,
+                ])
+                .excluding([tags::CARD]),
                 tags: [tags::CLUMP, tags::SNOW].into(),
                 material: MaterialOptions {
                     texture: Some("snow_02".to_owned()),
@@ -119,7 +125,7 @@ impl ClumpPreset {
                     closed: true,
                     strict: false,
                 },
-                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND])
+                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::WOOD, tags::GROUND])
                     .excluding([tags::CARD]),
                 tags: [tags::CLUMP, tags::MOSS].into(),
                 material: MaterialOptions {
@@ -161,7 +167,7 @@ impl ClumpPreset {
                     closed: true,
                     strict: false,
                 },
-                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::GROUND])
+                grows_on: TagFilter::any_of([tags::ROCK, tags::BARK, tags::WOOD, tags::GROUND])
                     .excluding([tags::CARD]),
                 tags: [tags::CLUMP, tags::MOSS].into(),
                 material: MaterialOptions {

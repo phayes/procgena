@@ -22,12 +22,15 @@
 mod blob;
 mod bvh;
 mod field;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 mod hash;
 mod material;
 mod mesh;
 mod options;
 mod patch;
 mod presets;
+pub mod shaders;
 mod shell;
 
 pub use material::{

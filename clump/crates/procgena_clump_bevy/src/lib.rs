@@ -170,6 +170,7 @@ pub(crate) fn spawn_systems() -> impl IntoScheduleConfigs<bevy::ecs::system::Sch
         spawn::remove_clumps,
         spawn::start_generation,
         spawn::finish_generation,
+        spawn::refresh_materials,
         spawn::prune_materials,
     )
         .chain()

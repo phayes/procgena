@@ -4,13 +4,28 @@ version = "0.1.0"
 description = "Procedural clumps of snow, moss, mud and litter on top of a surface mesh"
 edition.workspace = true
 
+[features]
+# Generate clumps on the GPU with wgpu. Compiles the WESL shaders to WGSL at
+# build time. Enables no wgpu backends; the application that creates the
+# device chooses them.
+gpu = ["dep:wesl", "dep:wgpu"]
+
 [dependencies]
 glam = { workspace = true }
 procgena_mesh = { path = "../../../mesh/crates/procgena_mesh" }
+wgpu = { workspace = true, optional = true, features = ["std", "wgsl"] }
+
+[build-dependencies]
+wesl = { version = "0.6", optional = true }
 
 [dev-dependencies]
-# Real rock meshes as test inputs for the spike example.
-procgena_stone = { path = "../../../stone/crates/procgena_stone" }
+futures-lite = "2.6.1"
+naga = { version = "30", features = ["wgsl-in"] }
+# Real rock meshes as test inputs, on the CPU and as GPU-resident batches.
+procgena_stone = { path = "../../../stone/crates/procgena_stone", features = ["gpu"] }
+wesl = { version = "0.6", features = ["eval"] }
+# Default backends, so GPU tests and examples can create a device.
+wgpu = { workspace = true, default-features = true }
 
 [[example]]
 name = "spike"

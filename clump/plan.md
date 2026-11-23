@@ -287,7 +287,7 @@ Preset intent:
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Workspace restructure into `crates/procgena_clump`, README, this plan | ✅ (README still to do) |
+| 0 | Workspace restructure into `crates/procgena_clump`, README, this plan | ✅ |
 | 1 | **Spike:** `Surface`, ground, BVH, up-ness and sky masks, and a single snow cap, exported to OBJ (see the details below). Decision gate on the geometry approach. | ✅ subdivide-then-displace chosen, Up offset dropped; border and fold questions open |
 | 2 | Options, presets, JSON, `validate()`, `OptionsError` and `ClumpError` | 🟡 `ClumpPreset` (`SnowCap`, `MossPatches`), `validate()` and the errors are done; JSON and the remaining presets are not |
 | 3 | Full masks (cavity, height, noise), scatter seeding with sample elimination, lumpiness, edge sink, clump groups, and the `fade` and `clump` attributes | ⬜ |
@@ -483,8 +483,12 @@ cargo run -p procgena_clump --example spike --features export-obj
 
 ## Later
 
-- Integration: a `procgena_clump_bevy` crate, adapters for procgena_stone and procgena_tree
-  meshes, and a zeapp panel.
+- Integration: done in `procgena_clump_bevy` and the studio's Clumps tab (see
+  `PLAN-clump-bevy.md` at the repository root). Stone and tree describe
+  their meshes as tagged `procgena_mesh::Object`s, and presets choose what
+  they grow on with `ClumpOptions::grows_on`. Still open there: using
+  `Part::shells` in the "inside another part" checks, wind on tree clumps,
+  and one clump level per host level. A zeapp panel remains later work.
 - A fused mode for closed inputs: smooth-union the clumps with the input's
   signed distance field and remesh.
 - Exclusion between passes, so moss avoids snow: pass an earlier `Clump` as an

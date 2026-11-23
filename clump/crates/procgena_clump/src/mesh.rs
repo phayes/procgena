@@ -11,9 +11,10 @@ pub struct ClumpMesh {
     pub positions: Vec<[f32; 3]>,
     /// Outward unit normals.
     pub normals: Vec<[f32; 3]>,
-    /// How fully covered each vertex is, from 0 at the clump's edge to 1 at
-    /// full thickness. Use it to blend the clump's material into the surface
-    /// underneath.
+    /// How fully covered each vertex is, from 0 at the clump's edge to 1 where
+    /// it is fully covered. A clump kept thin by thin input or a narrow gap is
+    /// still fully covered in its middle. Use it to blend the clump's material
+    /// into the surface underneath.
     pub fade: Vec<f32>,
     /// Triangle indices, three per triangle.
     pub indices: Vec<u32>,

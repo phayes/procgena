@@ -14,40 +14,40 @@ use crate::options::ClumpOptions;
 use crate::shell::{face_normals, remove_unused_vertices};
 
 /// Seed attempts per requested clump before giving up on placing more.
-const ATTEMPTS_PER_CLUMP: u32 = 64;
+pub(crate) const ATTEMPTS_PER_CLUMP: u32 = 64;
 
 /// Smallest size factor a clump may get from size variation, so no clump
 /// shrinks to nothing.
-const MIN_SIZE: f32 = 0.05;
+pub(crate) const MIN_SIZE: f32 = 0.05;
 
 /// Extra depth of a blob's buried bottom below the sink depth, as a
 /// fraction of its height, like a layer clump's underside.
-const BOTTOM_GAP: f32 = 0.25;
+pub(crate) const BOTTOM_GAP: f32 = 0.25;
 
 /// Fraction of the input's thickness a blob's buried bottom may reach.
-const GAP_FILL: f32 = 0.5;
+pub(crate) const GAP_FILL: f32 = 0.5;
 
 /// Widest a blob may be, as a fraction of the input's thickness under its
 /// centre, so it doesn't wrap around a thin branch.
-const ROOM_WIDTH: f32 = 0.5;
+pub(crate) const ROOM_WIDTH: f32 = 0.5;
 
 /// Fewest segments around a blob, and fewest rings from top to bottom.
-const MIN_SEGMENTS: u32 = 4;
-const MIN_RINGS: u32 = 3;
+pub(crate) const MIN_SEGMENTS: u32 = 4;
+pub(crate) const MIN_RINGS: u32 = 3;
 
 /// One clump to build: where it sits and how big it is.
 #[derive(Debug, Clone, Copy)]
-struct Seed {
+pub(crate) struct Seed {
     /// Point on the input surface.
-    point: Vec3,
+    pub(crate) point: Vec3,
     /// Unit normal of the input there.
-    normal: Vec3,
+    pub(crate) normal: Vec3,
     /// Distance from the centre to the widest part of the blob.
-    radius: f32,
+    pub(crate) radius: f32,
     /// Height of the blob's top above the surface.
-    height: f32,
+    pub(crate) height: f32,
     /// Depth of the blob's buried bottom below the surface.
-    depth: f32,
+    pub(crate) depth: f32,
 }
 
 /// A blob already kept in strict mode: its bounds and triangles.
@@ -113,7 +113,7 @@ pub(crate) fn scatter(field: &ClumpField, options: &ClumpOptions) -> (ClumpMesh,
 /// triangle's corners, which needs no rays, and each is kept with
 /// probability mask ÷ that weight. Rays are cast only for candidates that
 /// pass the spacing check.
-fn place_seeds(field: &ClumpField, options: &ClumpOptions) -> Vec<Seed> {
+pub(crate) fn place_seeds(field: &ClumpField, options: &ClumpOptions) -> Vec<Seed> {
     let placement = &options.placement;
     let scale = options.scale;
     let surface = field.surface();
@@ -246,7 +246,9 @@ fn build_blob(
             p += outward * field.lump_height(p) * visible;
         }
         positions.push(p.to_array());
-        fade.push(visible);
+        // Coverage is relative to this blob's own top, so a small or thinly
+        // masked blob is still fully covered at its crown.
+        fade.push((y / height.max(f32::MIN_POSITIVE)).clamp(0.0, 1.0));
         buried.push(y <= 0.0);
     };
     place(Vec3::Y);

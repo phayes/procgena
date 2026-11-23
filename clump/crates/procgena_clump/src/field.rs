@@ -10,13 +10,13 @@ use crate::options::{ClumpOptions, MAX_DIRECTIONS};
 use procgena_mesh::Surface;
 
 /// Smallest lump radius, as a fraction of `lump_size`.
-const LUMP_RADIUS_MIN: f32 = 0.3;
+pub(crate) const LUMP_RADIUS_MIN: f32 = 0.3;
 
 /// Largest lump radius, as a fraction of `lump_size`.
-const LUMP_RADIUS_MAX: f32 = 0.55;
+pub(crate) const LUMP_RADIUS_MAX: f32 = 0.55;
 
 /// Smallest lump height, as a fraction of a full round lump of its radius.
-const LUMP_HEIGHT_MIN: f32 = 0.6;
+pub(crate) const LUMP_HEIGHT_MIN: f32 = 0.6;
 
 /// A point on the clump's working surface with its smooth normal and the
 /// measurements the clump's height depends on.
@@ -404,6 +404,40 @@ impl<'a> ClumpField<'a> {
     pub(crate) fn may_cover(&self, corners: [&SurfacePoint; 3]) -> bool {
         corners.iter().any(|p| self.mask(p) > 0.0)
     }
+
+    /// Returns the field's settings packed as the `Field` struct in
+    /// `shaders/field.wesl`, as 48 little-endian words.
+    #[cfg(test)]
+    pub(crate) fn gpu_words(&self) -> [u32; 48] {
+        let mut words = [0u32; 48];
+
+        // One vec4 per direction: the unit vector toward its source, then strength.
+        for (d, s) in self.sources.iter().enumerate() {
+            let v = s.toward.extend(s.strength).to_array();
+            for (k, x) in v.iter().enumerate() {
+                words[4 * d + k] = x.to_bits();
+            }
+        }
+
+        // The scalars after the direction array.
+        let scalars = [
+            self.sources.len() as u32,
+            self.any_facing as u32,
+            self.facing_min.to_bits(),
+            self.facing_full.to_bits(),
+            self.exposure_power.to_bits(),
+            self.min_support.to_bits(),
+            self.thickness.to_bits(),
+            self.sink.to_bits(),
+            self.lumpiness.to_bits(),
+            self.lump_size.to_bits(),
+            self.seed,
+            self.epsilon.to_bits(),
+            self.closed_input as u32,
+        ];
+        words[32..32 + scalars.len()].copy_from_slice(&scalars);
+        words
+    }
 }
 
 /// Returns, for each source, `rays` ray directions spread over the
@@ -429,6 +463,66 @@ fn exposure_dirs(sources: &[Source], rays: u32) -> Vec<Vec<Vec3>> {
                 .collect()
         })
         .collect()
+}
+
+/// Returns the exposure ray directions [`ClumpField::new`] would use for
+/// `options`: `exposure_rays` per direction, direction after direction, or
+/// none when exposure isn't measured. `options` must be validated.
+#[cfg(feature = "gpu")]
+pub(crate) fn exposure_ray_dirs(options: &ClumpOptions) -> Vec<Vec3> {
+    let rays = options.mask.exposure_rays;
+    if rays == 0 || options.mask.exposure_power == 0.0 {
+        return Vec::new();
+    }
+    let sources: Vec<Source> = options
+        .directions
+        .iter()
+        .map(|d| Source {
+            toward: -Vec3::from(d.vector).normalize(),
+            strength: d.strength,
+        })
+        .collect();
+    exposure_dirs(&sources, rays)
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Returns the coverage settings of `options` packed as the `Field` struct in
+/// `shaders/field.wesl`, as 48 little-endian words, with every length
+/// multiplied by `scale` as [`ClumpField::new`] does. `options` must be
+/// validated. The input-dependent `epsilon` and `closed_input` are left 0,
+/// for the GPU to fill in.
+#[cfg(any(test, feature = "gpu"))]
+pub(crate) fn field_words(options: &ClumpOptions) -> [u32; 48] {
+    let mut words = [0u32; 48];
+
+    // One vec4 per direction: the unit vector toward its source, then strength.
+    for (d, direction) in options.directions.iter().enumerate() {
+        let toward = -Vec3::from(direction.vector).normalize();
+        let v = toward.extend(direction.strength).to_array();
+        for (k, x) in v.iter().enumerate() {
+            words[4 * d + k] = x.to_bits();
+        }
+    }
+
+    // The scalars after the direction array.
+    let (mask, shape, scale) = (&options.mask, &options.shape, options.scale);
+    let scalars = [
+        options.directions.len() as u32,
+        mask.any_facing as u32,
+        mask.facing_min.to_bits(),
+        mask.facing_full.to_bits(),
+        mask.exposure_power.to_bits(),
+        (shape.min_support * scale).to_bits(),
+        (shape.thickness * scale).to_bits(),
+        (shape.sink * scale).to_bits(),
+        shape.lumpiness.to_bits(),
+        (shape.lump_size * scale).to_bits(),
+        options.seed,
+    ];
+    words[32..32 + scalars.len()].copy_from_slice(&scalars);
+    words
 }
 
 /// Smooth Hermite step: 0 at or below `lo`, 1 at or above `hi`.

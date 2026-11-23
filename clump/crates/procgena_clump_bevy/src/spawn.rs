@@ -33,8 +33,10 @@ use crate::mesh::clump_mesh;
 /// The host's scale must be the same along every axis.
 ///
 /// The clump rebuilds when this component, the host's object, or the host's
-/// world rotation or scale changes; moving the host doesn't rebuild it. The
-/// previous clump stays visible until its replacement is ready. Removing
+/// world rotation or scale changes; moving the host doesn't rebuild it, and
+/// neither does a change to [`ClumpOptions::material`] alone, which only
+/// swaps the clump's material. The previous clump stays visible until its
+/// replacement is ready. Removing
 /// this component despawns the clump's parts. Every finished build triggers
 /// [`ClumpFinished`].
 ///
@@ -145,13 +147,42 @@ struct BuildInput {
 }
 
 impl PartialEq for BuildInput {
-    /// Compares objects by identity: hosts replace their object when it changes.
+    /// Compares objects by identity: hosts replace their object when it
+    /// changes. The options' material is ignored: it changes how the clump
+    /// looks, not its mesh.
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.object, &other.object)
             && self.rotation == other.rotation
             && self.scale == other.scale
-            && self.options == other.options
+            && same_mesh_options(&self.options, &other.options)
     }
+}
+
+/// Returns true if `a` and `b` build the same clump mesh: every setting but
+/// the material matches.
+fn same_mesh_options(a: &ClumpOptions, b: &ClumpOptions) -> bool {
+    // Name every field, so a new setting can't be left out of the comparison.
+    let ClumpOptions {
+        seed,
+        directions,
+        scale,
+        mask,
+        placement,
+        shape,
+        mesh,
+        grows_on,
+        tags,
+        material: _,
+    } = a;
+    *seed == b.seed
+        && *directions == b.directions
+        && *scale == b.scale
+        && *mask == b.mask
+        && *placement == b.placement
+        && *shape == b.shape
+        && *mesh == b.mesh
+        && *grows_on == b.grows_on
+        && *tags == b.tags
 }
 
 /// A finished build's mesh, its object description and its measurements.
@@ -333,7 +364,7 @@ fn grow(object: &Object, options: &ClumpOptions) -> Grown {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn finish_generation(
     mut commands: Commands,
-    mut clumps: Query<(Entity, &mut Building, Option<&Children>)>,
+    mut clumps: Query<(Entity, &mut Building, &ClumpParams, Option<&Children>)>,
     parts: Query<(), With<ClumpPart>>,
     settings: Res<SpawnSettings>,
     asset_server: Res<AssetServer>,
@@ -341,18 +372,18 @@ pub(crate) fn finish_generation(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ClumpMaterial>>,
 ) {
-    for (entity, mut building, kids) in &mut clumps {
+    for (entity, mut building, params, kids) in &mut clumps {
         let Some(grown) = block_on(poll_once(&mut building.task)) else {
             continue;
         };
 
-        // Replace the previous clump with the new one.
+        // Replace the previous clump with the new one, in the current look:
+        // the material may have changed while the clump was building.
         despawn_parts(&mut commands, kids, &parts);
-        let options = building.input.options.clone();
         let result = grown.map(|(mesh, object, built)| {
             if !mesh.is_empty() {
                 let material =
-                    cache.material(&options.material, &settings, &asset_server, &mut materials);
+                    cache.material(&params.0.material, &settings, &asset_server, &mut materials);
                 commands.spawn((
                     ClumpPart,
                     Mesh3d(meshes.add(clump_mesh(&mesh))),
@@ -418,6 +449,28 @@ impl ClumpMaterials {
                 materials.add(clump_material(material, textures.as_ref()))
             })
             .clone()
+    }
+}
+
+/// Gives the parts of clumps whose [`ClumpParams`] changed the material of
+/// their current look, without rebuilding their meshes.
+pub(crate) fn refresh_materials(
+    clumps: Query<(&ClumpParams, &Children), Changed<ClumpParams>>,
+    mut parts: Query<&mut MeshMaterial3d<ClumpMaterial>, With<ClumpPart>>,
+    settings: Res<SpawnSettings>,
+    asset_server: Res<AssetServer>,
+    mut cache: ResMut<ClumpMaterials>,
+    mut materials: ResMut<Assets<ClumpMaterial>>,
+) {
+    for (params, kids) in &clumps {
+        let wanted = cache.material(&params.0.material, &settings, &asset_server, &mut materials);
+        for &child in kids {
+            if let Ok(mut material) = parts.get_mut(child)
+                && material.0 != wanted
+            {
+                material.0 = wanted.clone();
+            }
+        }
     }
 }
 
@@ -598,6 +651,37 @@ mod tests {
             object.0.levels[0].parts[0].tags,
             [tags::CLUMP, tags::MOSS].into()
         );
+    }
+
+    #[test]
+    fn a_new_look_swaps_the_material_without_rebuilding() {
+        let mut app = clump_app();
+        let (host, clump) = spawn_snow(&mut app, Transform::default());
+        app.world_mut().entity_mut(host).insert(ground());
+        update_until_finished(&mut app, clump);
+        let material = |app: &mut App| {
+            let mut parts = app
+                .world_mut()
+                .query_filtered::<&MeshMaterial3d<ClumpMaterial>, With<ClumpPart>>();
+            parts.single(app.world()).unwrap().0.clone()
+        };
+        let before = material(&mut app);
+
+        // Tint the snow blue: the material changes, the mesh is kept.
+        let mut options = ClumpPreset::SnowCap.options();
+        options.material.color = [0.2, 0.3, 1.0];
+        *app.world_mut().get_mut::<ClumpParams>(clump).unwrap() = ClumpParams::new(options);
+        app.update();
+        assert!(!app.world().entity(clump).contains::<ClumpGenerating>());
+        assert_eq!(app.world().resource::<Finished>().0.len(), 1);
+        let after = material(&mut app);
+        assert_ne!(before, after);
+        let tint = app
+            .world()
+            .resource::<Assets<ClumpMaterial>>()
+            .get(&after)
+            .unwrap();
+        assert_eq!(tint.base.base_color, Color::linear_rgb(0.2, 0.3, 1.0));
     }
 
     #[test]

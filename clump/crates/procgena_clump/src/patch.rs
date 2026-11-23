@@ -8,18 +8,19 @@ use glam::Vec3;
 
 use crate::bvh::Bvh;
 use crate::field::{ClumpField, SurfacePoint};
+use crate::hash::pcg3d;
 use procgena_mesh::Surface;
 
 /// Smallest cosine allowed between a simplified triangle's normal and the
 /// smooth normal at each of its corners, so triangles never turn far from
 /// the surface they stand for.
-const MIN_CORNER_COS: f32 = 0.2;
+pub(crate) const MIN_CORNER_COS: f32 = 0.2;
 
 /// Smallest triangle quality a simplification step may create, where
 /// quality is 1 for an equilateral triangle and 0 for a flat one. A step
 /// that would go lower is still allowed if the triangles it replaces were
 /// already worse.
-const MIN_QUALITY: f32 = 0.2;
+pub(crate) const MIN_QUALITY: f32 = 0.2;
 
 /// Length thresholds of the simplification sweeps, as fractions of the
 /// target edge length. Short edges go first, so points thin out evenly.
@@ -81,11 +82,29 @@ impl Patch {
     pub(crate) fn is_empty(&self) -> bool {
         self.tris.is_empty()
     }
+
+    /// Returns the working surface right after simplifying, before the
+    /// envelope and measurements, and whether anything merged. For
+    /// comparing stages with the GPU.
+    #[cfg(all(test, feature = "gpu"))]
+    pub(crate) fn simplified(
+        field: &ClumpField,
+        edge_length: f32,
+    ) -> (Vec<SurfacePoint>, Vec<Tri>, bool) {
+        let welded_normals = welded_normals(field);
+        let (mut points, mut tris) = facing_triangles(field, &welded_normals);
+        let snap = Snap {
+            field,
+            normals: &welded_normals,
+        };
+        let collapsed = simplify(&mut points, &mut tris, edge_length, &snap);
+        (points, tris, collapsed)
+    }
 }
 
 /// Returns the smooth normal per input position id: the normalized sum of
 /// the normals of the vertices at that position.
-fn welded_normals(field: &ClumpField) -> Vec<Vec3> {
+pub(crate) fn welded_normals(field: &ClumpField) -> Vec<Vec3> {
     let surface = field.surface();
     let (weld, count) = field.welded();
     let mut sums = vec![Vec3::ZERO; count];
@@ -98,7 +117,10 @@ fn welded_normals(field: &ClumpField) -> Vec<Vec3> {
 /// Copies every input triangle with a corner whose facing term is above 0,
 /// sharing one point per input position, with `normals` per position id.
 /// Triangles that collapse once copies are merged are skipped.
-fn facing_triangles(field: &ClumpField, normals: &[Vec3]) -> (Vec<SurfacePoint>, Vec<Tri>) {
+pub(crate) fn facing_triangles(
+    field: &ClumpField,
+    normals: &[Vec3],
+) -> (Vec<SurfacePoint>, Vec<Tri>) {
     let surface = field.surface();
     let (weld, _) = field.welded();
     let mut points = Vec::new();
@@ -200,9 +222,9 @@ fn simplify(
 
 /// Where a merged point goes, and its normal.
 #[derive(Debug, Clone, Copy)]
-struct Placement {
-    point: Vec3,
-    normal: Vec3,
+pub(crate) struct Placement {
+    pub(crate) point: Vec3,
+    pub(crate) normal: Vec3,
 }
 
 /// Triangles being simplified, with the lookups edge collapse needs.
@@ -230,8 +252,9 @@ struct CollapseMesh {
     /// `u32::MAX` if it hasn't. An edge is only tried again once something
     /// around it has changed.
     failed: Vec<u32>,
-    /// Live triangles, refreshed before each sweep.
-    live: Vec<u32>,
+    /// The edge slots (`3 * triangle + k`) a sweep tries, each in the low 32
+    /// bits under its edge's priority, sorted; refreshed before each sweep.
+    order: Vec<u64>,
     /// Scratch lists, reused between attempts.
     ring_a: Vec<u32>,
     ring_b: Vec<u32>,
@@ -278,65 +301,99 @@ impl CollapseMesh {
             merges: 0,
             stamp: vec![0; points.len()],
             failed: vec![u32::MAX; tris.len() * 3],
-            live: Vec::new(),
+            order: Vec::new(),
             ring_a: Vec::new(),
             ring_b: Vec::new(),
         }
     }
 
-    /// Tries every live edge shorter than `limit`, in triangle order, whose
-    /// ends haven't changed in sweep `pass`. Returns how many merged.
+    /// Tries every live edge shorter than `limit` whose ends haven't changed
+    /// in sweep `pass`, in [`edge_priority`] order. Returns how many merged.
     fn sweep(&mut self, pass: u32, limit: f32, edge_length: f32, snap: &Snap) -> usize {
-        let mut merged = 0;
-        let mut live = std::mem::take(&mut self.live);
-        live.clear();
-        live.extend((0..self.tris.len() as u32).filter(|&t| self.alive[t as usize]));
-        for &t in &live {
-            let t = t as usize;
-            for k in 0..3 {
-                if !self.alive[t] {
-                    break;
-                }
-                let corners = self.tris[t].corners;
-                let (a, b) = (corners[k], corners[(k + 1) % 3]);
-                // An inner edge appears in two triangles, once each way; try
-                // it from one side only. A border edge appears once.
-                let may_be_border = self.border[a as usize] && self.border[b as usize];
-                if a > b && !may_be_border {
-                    continue;
-                }
-                if self.changed[a as usize] == pass || self.changed[b as usize] == pass {
-                    continue;
-                }
-                let when = self.failed[t * 3 + k];
-                if when != u32::MAX
-                    && self.stamp[a as usize] <= when
-                    && self.stamp[b as usize] <= when
-                {
-                    continue;
-                }
-                if self.point[a as usize].distance(self.point[b as usize]) >= limit {
-                    continue;
-                }
-                if !self.try_merge(a, b, edge_length, snap) {
-                    self.failed[t * 3 + k] = self.merges;
-                    continue;
-                }
-
-                // Mark a and everything around it as changed.
-                self.merges += 1;
-                for i in 0..self.around[a as usize].len() {
-                    let tri = self.around[a as usize][i];
-                    for w in self.tris[tri as usize].corners {
-                        self.changed[w as usize] = pass;
-                        self.stamp[w as usize] = self.merges;
-                    }
-                }
-                merged += 1;
+        // Order the edge slots worth trying by the priority of their edge. A
+        // slot ruled out now stays ruled out for the whole sweep: its ends
+        // only change by being marked, which rules it out anyway.
+        let mut order = std::mem::take(&mut self.order);
+        order.clear();
+        for slot in 0..self.tris.len() as u32 * 3 {
+            if !self.alive[(slot / 3) as usize] {
+                continue;
+            }
+            let (a, b) = self.slot_ends(slot);
+            if self.may_try(slot, a, b, pass, limit) {
+                order.push(self.slot_key(slot, pass));
             }
         }
-        self.live = live;
+        order.sort_unstable();
+
+        let mut merged = 0;
+        for slot in order.iter().map(|&key| key as u32) {
+            if !self.alive[(slot / 3) as usize] {
+                continue;
+            }
+            let (a, b) = self.slot_ends(slot);
+            if !self.may_try(slot, a, b, pass, limit) {
+                continue;
+            }
+            if !self.try_merge(a, b, edge_length, snap) {
+                self.failed[slot as usize] = self.merges;
+                continue;
+            }
+            self.mark_changed(a, pass);
+            merged += 1;
+        }
+        self.order = order;
         merged
+    }
+
+    /// Returns the sort key of edge `slot` in sweep `pass`: its edge's
+    /// [`edge_priority`] in the high 32 bits and the slot in the low 32, so
+    /// ties go to the lower slot and the slot can be read back.
+    fn slot_key(&self, slot: u32, pass: u32) -> u64 {
+        let (a, b) = self.slot_ends(slot);
+        (u64::from(edge_priority(a, b, pass)) << 32) | u64::from(slot)
+    }
+
+    /// Returns the two ends of triangle edge `slot`, in the triangle's
+    /// winding order.
+    fn slot_ends(&self, slot: u32) -> (u32, u32) {
+        let corners = self.tris[(slot / 3) as usize].corners;
+        let k = (slot % 3) as usize;
+        (corners[k], corners[(k + 1) % 3])
+    }
+
+    /// Returns whether sweep `pass` should try merging edge `slot`, which
+    /// runs from `a` to `b`: it is the edge's chosen side, neither end has
+    /// changed this sweep, it is shorter than `limit`, and it hasn't already
+    /// failed with nothing around it changed since.
+    fn may_try(&self, slot: u32, a: u32, b: u32, pass: u32, limit: f32) -> bool {
+        // An inner edge appears in two triangles, once each way; try it from
+        // one side only. A border edge appears once.
+        let may_be_border = self.border[a as usize] && self.border[b as usize];
+        if a > b && !may_be_border {
+            return false;
+        }
+        if self.changed[a as usize] == pass || self.changed[b as usize] == pass {
+            return false;
+        }
+        let when = self.failed[slot as usize];
+        if when != u32::MAX && self.stamp[a as usize] <= when && self.stamp[b as usize] <= when {
+            return false;
+        }
+        self.point[a as usize].distance(self.point[b as usize]) < limit
+    }
+
+    /// Records a merge into point `a` in sweep `pass`: marks `a` and every
+    /// point of the triangles around it as changed.
+    fn mark_changed(&mut self, a: u32, pass: u32) {
+        self.merges += 1;
+        for i in 0..self.around[a as usize].len() {
+            let tri = self.around[a as usize][i];
+            for w in self.tris[tri as usize].corners {
+                self.changed[w as usize] = pass;
+                self.stamp[w as usize] = self.merges;
+            }
+        }
     }
 
     /// Writes the points joined to `v` by an edge into `out`, sorted.
@@ -353,9 +410,20 @@ impl CollapseMesh {
     /// triangles come out best, if that is allowed. Returns whether it
     /// happened.
     fn try_merge(&mut self, a: u32, b: u32, edge_length: f32, snap: &Snap) -> bool {
+        let Some(placement) = self.plan_merge(a, b, edge_length, snap) else {
+            return false;
+        };
+        self.merge(a, b, placement);
+        true
+    }
+
+    /// Returns where merging point `b` into point `a` would place the result
+    /// so the triangles come out best, or `None` if the merge isn't allowed.
+    /// Changes nothing but scratch lists.
+    fn plan_merge(&mut self, a: u32, b: u32, edge_length: f32, snap: &Snap) -> Option<Placement> {
         let (ai, bi) = (a as usize, b as usize);
         if self.locked[ai] && self.locked[bi] {
-            return false;
+            return None;
         }
 
         // An inner edge has two triangles, a border edge one. An inner edge
@@ -367,7 +435,7 @@ impl CollapseMesh {
         let along_border = match shared {
             1 => true,
             2 if !(self.border[ai] && self.border[bi]) => false,
-            _ => return false,
+            _ => return None,
         };
 
         // The two ends may share no neighbours beyond the shared triangles'
@@ -383,7 +451,7 @@ impl CollapseMesh {
         self.ring_a = ring_a;
         self.ring_b = ring_b;
         if common != shared {
-            return false;
+            return None;
         }
 
         // Places the merged point may go: a fixed end stays put, a border
@@ -396,7 +464,7 @@ impl CollapseMesh {
         let fixed_b = self.locked[bi] || (!along_border && self.border[bi]);
         let mut options = [None; 3];
         match (fixed_a, fixed_b) {
-            (true, true) => return false,
+            (true, true) => return None,
             (true, false) => options[0] = Some(end(ai)),
             (false, true) => options[0] = Some(end(bi)),
             (false, false) => {
@@ -409,19 +477,15 @@ impl CollapseMesh {
         }
 
         // Keep the allowed placement with the best worst triangle.
-        let best = options
+        options
             .into_iter()
             .flatten()
             .filter_map(|p| {
                 self.worst_quality(a, b, p, edge_length, along_border)
                     .map(|q| (q, p))
             })
-            .max_by(|x, y| x.0.total_cmp(&y.0));
-        let Some((_, placement)) = best else {
-            return false;
-        };
-        self.merge(a, b, placement);
-        true
+            .max_by(|x, y| x.0.total_cmp(&y.0))
+            .map(|(_, placement)| placement)
     }
 
     /// Returns the midpoint of edge `a`–`b` moved onto the input, or `None`
@@ -457,41 +521,10 @@ impl CollapseMesh {
                 if old.contains(&a) && old.contains(&b) {
                     continue;
                 }
-                let at = |w: u32| {
-                    if w == a || w == b {
-                        placement.point
-                    } else {
-                        self.point[w as usize]
-                    }
-                };
-                let normal_at = |w: u32| {
-                    if w == a || w == b {
-                        placement.normal
-                    } else {
-                        self.normal[w as usize]
-                    }
-                };
-                let new = old.map(at);
-                if old.iter().any(|&w| {
-                    w != a
-                        && w != b
-                        && placement.point.distance(self.point[w as usize]) > edge_length
-                }) {
-                    return None;
-                }
+                let moved = old.map(|w| w == a || w == b);
                 let before = old.map(|w| self.point[w as usize]);
-                let n_new = (new[1] - new[0]).cross(new[2] - new[0]);
-                let n_old = (before[1] - before[0]).cross(before[2] - before[0]);
-                let unit = n_new.normalize_or_zero();
-                if n_new.dot(n_old) <= 0.0
-                    || old.iter().any(|&w| unit.dot(normal_at(w)) < MIN_CORNER_COS)
-                {
-                    return None;
-                }
-                let q = quality(new);
-                if q < MIN_QUALITY.min(quality(before)) {
-                    return None;
-                }
+                let normals = old.map(|w| self.normal[w as usize]);
+                let q = collapse_quality(before, normals, moved, placement, edge_length)?;
                 worst = worst.min(q);
             }
         }
@@ -524,15 +557,9 @@ impl CollapseMesh {
         let (Some(na), Some(nb)) = (outer(a, b), outer(b, a)) else {
             return false;
         };
-        let tolerance = 0.25 * edge_length;
-        let near = |p: Vec3, q: Vec3, x: Vec3| {
-            let pq = q - p;
-            let t = ((x - p).dot(pq) / pq.length_squared().max(f32::MIN_POSITIVE)).clamp(0.0, 1.0);
-            x.distance(p + pq * t) <= tolerance
-        };
         let (pa, pb) = (self.point[a as usize], self.point[b as usize]);
         let (qa, qb) = (self.point[na as usize], self.point[nb as usize]);
-        (near(point, qa, pa) || near(point, qb, pa)) && (near(point, qa, pb) || near(point, qb, pb))
+        border_stays_near(point, [qa, qb], [pa, pb], edge_length)
     }
 
     /// Merges `b` into `a` at `placement`: removes the triangles on edge
@@ -606,8 +633,88 @@ impl CollapseMesh {
     }
 }
 
+/// Returns the quality of one triangle after a merge, or `None` if the
+/// merge may not change it that way.
+///
+/// The triangle has corners `before` with smooth normals `normals`; the
+/// corners flagged in `moved` (the two merged points) move to `placement`
+/// and take its normal. The merge is refused if an unmoved corner ends up
+/// farther than `edge_length` from the placement, if the triangle turns over
+/// or far from any corner's normal, or if it becomes a sliver worse than
+/// both [`MIN_QUALITY`] and its old shape.
+pub(crate) fn collapse_quality(
+    before: [Vec3; 3],
+    normals: [Vec3; 3],
+    moved: [bool; 3],
+    placement: Placement,
+    edge_length: f32,
+) -> Option<f32> {
+    // The triangle after the merge, and its corners' normals.
+    let new: [Vec3; 3] =
+        std::array::from_fn(|k| if moved[k] { placement.point } else { before[k] });
+    let normal_at = |k: usize| {
+        if moved[k] {
+            placement.normal
+        } else {
+            normals[k]
+        }
+    };
+
+    // No new edge may be longer than the target.
+    if (0..3).any(|k| !moved[k] && placement.point.distance(before[k]) > edge_length) {
+        return None;
+    }
+
+    // It may not turn over, or turn far from a corner's normal.
+    let n_new = (new[1] - new[0]).cross(new[2] - new[0]);
+    let n_old = (before[1] - before[0]).cross(before[2] - before[0]);
+    let unit = n_new.normalize_or_zero();
+    if n_new.dot(n_old) <= 0.0 || (0..3).any(|k| unit.dot(normal_at(k)) < MIN_CORNER_COS) {
+        return None;
+    }
+
+    // It may not become a sliver, unless it already was one.
+    let q = quality(new);
+    if q < MIN_QUALITY.min(quality(before)) {
+        return None;
+    }
+    Some(q)
+}
+
+/// Returns whether both old border points `old` stay within a quarter of
+/// `edge_length` of the new border, which runs from the merged point `point`
+/// to either of the outer border neighbours `outer`.
+pub(crate) fn border_stays_near(
+    point: Vec3,
+    outer: [Vec3; 2],
+    old: [Vec3; 2],
+    edge_length: f32,
+) -> bool {
+    let tolerance = 0.25 * edge_length;
+    let near = |q: Vec3, x: Vec3| {
+        let pq = q - point;
+        let t = ((x - point).dot(pq) / pq.length_squared().max(f32::MIN_POSITIVE)).clamp(0.0, 1.0);
+        x.distance(point + pq * t) <= tolerance
+    };
+    old.iter().all(|&x| outer.iter().any(|&q| near(q, x)))
+}
+
+/// Returns the order in which sweep `pass` tries the edge between points
+/// `a` and `b`: lower values go first. Depends only on the two points, in
+/// either order, and the sweep.
+///
+/// The order is a hash, so edges that block each other rarely form long
+/// chains; a GPU can then reproduce a sweep in a few parallel rounds.
+pub(crate) fn edge_priority(a: u32, b: u32, pass: u32) -> u32 {
+    pcg3d([a.min(b), a.max(b), pass ^ SWEEP_ORDER_SALT])[0]
+}
+
+/// Mixed into [`edge_priority`] so sweep orders don't line up with other
+/// hashes of small integers.
+const SWEEP_ORDER_SALT: u32 = 0x51ed_c0de;
+
 /// Returns a triangle's shape quality: 1 for equilateral, 0 for flat.
-fn quality([a, b, c]: [Vec3; 3]) -> f32 {
+pub(crate) fn quality([a, b, c]: [Vec3; 3]) -> f32 {
     let area2 = (b - a).cross(c - a).length();
     let edges = (b - a).length_squared() + (c - b).length_squared() + (a - c).length_squared();
     if edges <= 0.0 {
@@ -721,5 +828,219 @@ mod tests {
                 assert!(t.source_normal.y > 0.0);
             }
         }
+    }
+
+    /// A merge that a sweep could make: its edge slot, ends, order key,
+    /// placement, and the points it marks as changed.
+    struct Candidate {
+        slot: u32,
+        a: u32,
+        b: u32,
+        key: u64,
+        placement: Placement,
+        marks: Vec<u32>,
+    }
+
+    impl CollapseMesh {
+        /// Runs sweep `pass` the way a GPU does, and returns how many points
+        /// merged and how many parallel rounds it took.
+        ///
+        /// Every merge is planned against the mesh as it was when the sweep
+        /// started, ignoring the retry cache. Then, round by round, a
+        /// candidate is accepted once no earlier candidate that could block
+        /// it is still undecided, and rejected once an accepted merge marks
+        /// one of its ends. Accepted merges are then applied in order.
+        fn sweep_in_rounds(
+            &mut self,
+            pass: u32,
+            limit: f32,
+            edge_length: f32,
+            snap: &Snap,
+        ) -> (usize, u32) {
+            // Plan every candidate against the starting mesh.
+            let mut slots: Vec<u32> = (0..self.tris.len() as u32 * 3)
+                .filter(|&slot| self.alive[(slot / 3) as usize])
+                .collect();
+            slots.sort_by_key(|&slot| self.slot_key(slot, pass));
+            let mut candidates = Vec::new();
+            for slot in slots {
+                let (a, b) = self.slot_ends(slot);
+                let chosen_side = a < b || (self.border[a as usize] && self.border[b as usize]);
+                let short = self.point[a as usize].distance(self.point[b as usize]) < limit;
+                if !chosen_side || !short {
+                    continue;
+                }
+                let Some(placement) = self.plan_merge(a, b, edge_length, snap) else {
+                    continue;
+                };
+                candidates.push(Candidate {
+                    slot,
+                    a,
+                    b,
+                    key: self.slot_key(slot, pass),
+                    placement,
+                    marks: self.marks_of(a, b),
+                });
+            }
+
+            // Decide in parallel rounds.
+            let n = self.point.len();
+            let mut undecided: Vec<usize> = (0..candidates.len()).collect();
+            let mut accepted = vec![false; candidates.len()];
+            let mut changed = vec![false; n];
+            let mut rounds = 0;
+            while !undecided.is_empty() {
+                rounds += 1;
+                let mut lowest = vec![u64::MAX; n];
+                for &c in &undecided {
+                    for &w in &candidates[c].marks {
+                        lowest[w as usize] = lowest[w as usize].min(candidates[c].key);
+                    }
+                }
+                let winners: Vec<usize> = undecided
+                    .iter()
+                    .copied()
+                    .filter(|&c| {
+                        let Candidate { a, b, key, .. } = candidates[c];
+                        lowest[a as usize] >= key && lowest[b as usize] >= key
+                    })
+                    .collect();
+                for &c in &winners {
+                    accepted[c] = true;
+                    for &w in &candidates[c].marks {
+                        changed[w as usize] = true;
+                    }
+                }
+                undecided.retain(|&c| {
+                    let Candidate { a, b, .. } = candidates[c];
+                    !accepted[c] && !changed[a as usize] && !changed[b as usize]
+                });
+            }
+
+            // Apply the accepted merges in order.
+            let mut merged = 0;
+            for (c, candidate) in candidates.iter().enumerate() {
+                if accepted[c] {
+                    assert!(self.alive[(candidate.slot / 3) as usize]);
+                    self.merge(candidate.a, candidate.b, candidate.placement);
+                    self.mark_changed(candidate.a, pass);
+                    merged += 1;
+                }
+            }
+            (merged, rounds)
+        }
+
+        /// Returns the points whose edges a merge of `b` into `a` blocks for
+        /// the rest of the sweep: every corner of the triangles around `a`
+        /// afterwards, which are marked as changed, plus `a` and `b`
+        /// themselves. Every other edge at `a` or `b` is gone or now ends at
+        /// a marked point, even when no triangle is left around `a`.
+        fn marks_of(&self, a: u32, b: u32) -> Vec<u32> {
+            let mut marks: Vec<u32> = [a, b]
+                .iter()
+                .flat_map(|&v| &self.around[v as usize])
+                .map(|&t| self.tris[t as usize].corners)
+                .filter(|c| !(c.contains(&a) && c.contains(&b)))
+                .flat_map(|c| c.map(|w| if w == b { a } else { w }))
+                .chain([a, b])
+                .collect();
+            marks.sort_unstable();
+            marks.dedup();
+            marks
+        }
+    }
+
+    /// Simplifies like [`simplify`], but with
+    /// [`CollapseMesh::sweep_in_rounds`]. Returns the most rounds any sweep
+    /// took.
+    fn simplify_in_rounds(
+        points: &mut Vec<SurfacePoint>,
+        tris: &mut Vec<Tri>,
+        edge_length: f32,
+        snap: &Snap,
+    ) -> u32 {
+        let mut mesh = CollapseMesh::new(points, tris);
+        let mut most = 0;
+        let mut collapsed = false;
+        let limits = SWEEP_THRESHOLDS
+            .iter()
+            .map(|f| f * edge_length)
+            .chain(std::iter::repeat_n(edge_length, MAX_FINAL_SWEEPS as usize));
+        for (i, limit) in limits.enumerate() {
+            let (merged, rounds) = mesh.sweep_in_rounds(i as u32 + 1, limit, edge_length, snap);
+            most = most.max(rounds);
+            collapsed |= merged > 0;
+            if merged == 0 && i >= SWEEP_THRESHOLDS.len() - 1 {
+                break;
+            }
+        }
+        if collapsed {
+            let (kept_points, kept_tris) = mesh.compact(points);
+            *points = kept_points;
+            *tris = kept_tris;
+        }
+        most
+    }
+
+    /// A procgena_stone rock as a surface mesh, at `resolution` cells per axis.
+    fn stone(preset: procgena_stone::StonePreset, resolution: u32) -> SurfaceMesh {
+        let mut options = preset.options();
+        options.mesh.detail =
+            procgena_stone::StoneDetail::single(resolution, procgena_stone::TextureSize::Size1k);
+        let stone = procgena_stone::Stone::new(options).unwrap();
+        let mesh = stone.mesh();
+        SurfaceMesh {
+            positions: mesh.positions.clone(),
+            normals: mesh.normals.clone(),
+            indices: mesh.indices.clone(),
+        }
+    }
+
+    #[test]
+    fn sweeps_match_their_parallel_rounds() {
+        let inputs = [
+            ("bumpy ground", bumpy_ground(2.0, 100)),
+            ("flat grid", SurfaceMesh::ground(1.0, 64)),
+            (
+                "flat slab",
+                stone(procgena_stone::StonePreset::FlatSlab, 64),
+            ),
+            ("boulder", stone(procgena_stone::StonePreset::Boulder, 96)),
+        ];
+        let mut options = ClumpOptions::default();
+        options.mask.exposure_rays = 0;
+        let mut most = 0;
+        for (name, input) in &inputs {
+            let field = ClumpField::new(input.surface().unwrap(), &options);
+            let normals = welded_normals(&field);
+            let snap = Snap {
+                field: &field,
+                normals: &normals,
+            };
+            for edge_length in [0.04, 0.1, 0.3] {
+                let (mut points, mut tris) = facing_triangles(&field, &normals);
+                let (mut ref_points, mut ref_tris) = (points.clone(), tris.clone());
+                simplify(&mut points, &mut tris, edge_length, &snap);
+                let rounds = simplify_in_rounds(&mut ref_points, &mut ref_tris, edge_length, &snap);
+                most = most.max(rounds);
+                eprintln!(
+                    "{name} at {edge_length}: {} triangles, {rounds} rounds",
+                    tris.len()
+                );
+
+                // The same points and triangles, bit for bit.
+                assert_eq!(points.len(), ref_points.len(), "{name} at {edge_length}");
+                for (p, q) in points.iter().zip(&ref_points) {
+                    assert_eq!(p.point, q.point, "{name} at {edge_length}");
+                    assert_eq!(p.normal, q.normal, "{name} at {edge_length}");
+                }
+                assert_eq!(tris.len(), ref_tris.len(), "{name} at {edge_length}");
+                for (t, u) in tris.iter().zip(&ref_tris) {
+                    assert_eq!(t.corners, u.corners, "{name} at {edge_length}");
+                    assert_eq!(t.source_normal, u.source_normal, "{name} at {edge_length}");
+                }
+            }
+        }
+        eprintln!("most rounds in any sweep: {most}");
     }
 }
