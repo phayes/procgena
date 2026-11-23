@@ -1230,8 +1230,9 @@ the move into the new crates rather than on its own.
   detail levels and tagged parts, that many placed copies share. Not all
   specimens are meshes (a stone's shape field, plants built on the GPU),
   so "mesh" is too narrow. "Instance" was rejected: here it means a placed
-  copy, the opposite of the shared specimen. This document still says
-  `procgena_mesh` and `Object` where it describes today's code.
+  copy, the opposite of the shared specimen. Done in F1 (2026-11-23); where
+  this document still says `procgena_mesh` or `Object` about today's code,
+  read `procgena_specimen` and `Specimen`.
 - **The types follow the crate:**
 
   | Today (`procgena_mesh`) | Becomes (`procgena_specimen`) |
@@ -1287,9 +1288,10 @@ it starts.
 
 ### Ground slope
 
-- [ ] **Add a gradient to `Ground`** (in `procgena_mesh` until the crate
-  move, then in the core crate), with a default from
-  central differences of `height`.
+- [x] **Add a gradient to `Ground`** (in the core crate), with a default
+  from central differences of `height`. Done in F1 for `FlatGround`,
+  `HeightGrid` and closures; `Terrain` implementing it is G2, and Scatters
+  using it is C1.
 - [ ] **Terrain slope**: an analytic gradient through relief, border bending
   and carving in `procgena_terrain`, `Ground` implemented for `Terrain`, and
   a gradient grid in `HeightTile`.
@@ -1357,10 +1359,11 @@ it starts.
 
 ### Asset alignment
 
-- [ ] **Shared crates**: name and create the engine-free core crate and the
-  shared Bevy crate, then move hashing, seeds and random numbers there
-  first.
-- [ ] **Rename `procgena_mesh` → `procgena_specimen`**, with the type
+- [ ] **Shared crates**: `procgena_core` is created (F1), holding the hash,
+  `Rng` (stone's and clump's) and `Ground`. Still to do: tree's,
+  deadwood's and mushroom's random numbers (F2), and `procgena_core_bevy`
+  (R1).
+- [x] **Rename `procgena_mesh` → `procgena_specimen`** (done in F1), with the type
   renames in "Naming" (`Object` → `Specimen`, `GeneratedObject` →
   `GeneratedSpecimen`, every asset's `object()` → `specimen()`), and move
   `Ground`, `FlatGround` and `HeightGrid` into the core crate, in the same
@@ -1390,8 +1393,8 @@ it starts.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
   ids, `Ground`, `validate()`, hash, export, promotion, and the shared Bevy
   pattern (`XParams`, `XGenerating`, `XFinished`, `XPart`).
-- [ ] **Tags**: mushroom's tags into `procgena_specimen::tags`; every
-  Scatter offers each slot's `Specimen` plus its copy list.
+- [ ] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
+  every Scatter offers each slot's `Specimen` plus its copy list (C2).
 - [ ] **One wind** for tree, plant and clumps on trees.
 - [ ] **One preset and file pattern**: preset structs and catalogues in
   plant's style, replacing the enums (`TreePreset`, `GrovePreset`,

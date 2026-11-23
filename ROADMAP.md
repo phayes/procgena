@@ -261,6 +261,9 @@ ARCHITECTURE.md.
 
 #### F1: Shared crates, specimen rename, `Ground` slope (churn window 1)
 
+**Done 2026-11-23** (merged at `6055455`; full suite green except plant
+goldens, which have no baseline on this machine).
+
 - **Covers:** TODOs "Shared crates", "Rename `procgena_mesh` →
   `procgena_specimen`" and "Add a gradient to `Ground`". Shared hashing,
   seeds and random numbers move first (clump drops its copy of stone's).

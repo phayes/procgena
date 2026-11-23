@@ -49,6 +49,21 @@ from this file once it is done.
   `inline_terrain_builds_the_same_land_and_takes_the_world_seed`,
   `stitched_biomes_build_the_same_world_as_stitched_terrains`
 
+## F1 (procgena_core, procgena_specimen and the renames)
+
+- `core/crates/procgena_core/src/{lib,hash,rng,ground}.rs`: everything
+  public, plus test helpers
+- `specimen/crates/procgena_specimen/src/`: `lib.rs`, `bevy.rs`,
+  `specimen.rs` (`Specimen`, `single`, `SpecimenError`, `Level`),
+  `height_grid.rs` (all), `tag.rs` (module doc and the four mushroom tags);
+  `specimen/README.md`
+- `tree/crates/procgena_tree/src/lib.rs` (the Ground paragraph),
+  `src/specimen.rs` (`Tree::specimen`, `Skeleton::specimen`), the frame
+  comments in `src/grove.rs`
+- `deadwood/crates/procgena_deadwood/src/scatter.rs` (`place`, the re-export
+  doc); the `specimen.rs` modules in deadwood and mushroom; `Stone::specimen`
+- `ScaledGround` in `tree_bevy/src/grove.rs` and `deadwood_bevy/src/spawn.rs`
+
 ## procgena_terrain (W1)
 
 All under `terrain/crates/procgena_terrain/`:
