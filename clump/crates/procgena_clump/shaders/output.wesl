@@ -8,7 +8,7 @@ import package::batch::{
     arena, batch, counters, requests, region, item_index, load3, counter,
     COUNTER_STRIDE, COUNTER_TRIANGLES, COUNTER_VERTICES, COUNTER_WELDED, COUNTER_CLOSED,
     COUNTER_FOLDED, COUNTER_THINNED, COUNTER_SLOPE_DONE, COUNTER_SHEET_FAILED,
-    COUNTER_ROUNDS_CAPPED, MODE_EVERYWHERE,
+    COUNTER_ROUNDS_CAPPED, COUNTER_CROSSINGS, MODE_EVERYWHERE,
     COUNTER_CLUMPS, COUNTER_WORK_VERTICES, COUNTER_WORK_TRIANGLES, COUNTER_OUT_VERTICES,
     COUNTER_OUT_INDICES, COUNTER_OVERFLOW, REGION_WORK_POSITIONS, REGION_WORK_FADE,
     REGION_WORK_CORNERS, REGION_WORK_USED, REGION_WORK_KEPT, REGION_WORK_NORMALS,
@@ -125,7 +125,8 @@ fn output_finish(
     let settled = counter(r, COUNTER_SLOPE_DONE) != 0u || counter(r, COUNTER_SHEET_FAILED) != 0u;
     status[s + 12u] = select(0u, 1u, layer && !settled);
     status[s + 13u] = counter(r, COUNTER_ROUNDS_CAPPED);
-    for (var k = 14u; k < STATUS_WORDS; k++) {
+    status[s + 14u] = counter(r, COUNTER_CROSSINGS);
+    for (var k = 15u; k < STATUS_WORDS; k++) {
         status[s + k] = 0u;
     }
 }

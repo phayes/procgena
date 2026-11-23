@@ -179,10 +179,11 @@ pub struct MaterialOptions {
 }
 
 impl Default for MaterialOptions {
-    /// Textured white snow, one repeat per metre.
+    /// Plain pure white with no texture, fully matte. A texture added later
+    /// repeats once per metre.
     fn default() -> Self {
         Self {
-            texture: Some("snow_02".to_owned()),
+            texture: None,
             color: [1.0; 3],
             roughness: 1.0,
             texture_size: 1.0,

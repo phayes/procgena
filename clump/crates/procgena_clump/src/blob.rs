@@ -18,18 +18,18 @@ pub(crate) const ATTEMPTS_PER_CLUMP: u32 = 64;
 
 /// Smallest size factor a clump may get from size variation, so no clump
 /// shrinks to nothing.
-pub(crate) const MIN_SIZE: f32 = 0.05;
+const MIN_SIZE: f32 = 0.05;
 
 /// Extra depth of a blob's buried bottom below the sink depth, as a
 /// fraction of its height, like a layer clump's underside.
 pub(crate) const BOTTOM_GAP: f32 = 0.25;
 
 /// Fraction of the input's thickness a blob's buried bottom may reach.
-pub(crate) const GAP_FILL: f32 = 0.5;
+const GAP_FILL: f32 = 0.5;
 
 /// Widest a blob may be, as a fraction of the input's thickness under its
 /// centre, so it doesn't wrap around a thin branch.
-pub(crate) const ROOM_WIDTH: f32 = 0.5;
+const ROOM_WIDTH: f32 = 0.5;
 
 /// Fewest segments around a blob, and fewest rings from top to bottom.
 pub(crate) const MIN_SEGMENTS: u32 = 4;
@@ -37,17 +37,17 @@ pub(crate) const MIN_RINGS: u32 = 3;
 
 /// One clump to build: where it sits and how big it is.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Seed {
+struct Seed {
     /// Point on the input surface.
-    pub(crate) point: Vec3,
+    point: Vec3,
     /// Unit normal of the input there.
-    pub(crate) normal: Vec3,
+    normal: Vec3,
     /// Distance from the centre to the widest part of the blob.
-    pub(crate) radius: f32,
+    radius: f32,
     /// Height of the blob's top above the surface.
-    pub(crate) height: f32,
+    height: f32,
     /// Depth of the blob's buried bottom below the surface.
-    pub(crate) depth: f32,
+    depth: f32,
 }
 
 /// A blob already kept in strict mode: its bounds and triangles.
@@ -113,7 +113,7 @@ pub(crate) fn scatter(field: &ClumpField, options: &ClumpOptions) -> (ClumpMesh,
 /// triangle's corners, which needs no rays, and each is kept with
 /// probability mask ÷ that weight. Rays are cast only for candidates that
 /// pass the spacing check.
-pub(crate) fn place_seeds(field: &ClumpField, options: &ClumpOptions) -> Vec<Seed> {
+fn place_seeds(field: &ClumpField, options: &ClumpOptions) -> Vec<Seed> {
     let placement = &options.placement;
     let scale = options.scale;
     let surface = field.surface();

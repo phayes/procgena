@@ -19,7 +19,7 @@
 //! Pass options after `--`, for example:
 //! `cargo run -p procgena_clump_bevy --example viewer -- --host tree --preset moss_patches`.
 //! `--host` is `rock`, `tree` or `ground`; `--preset` takes a preset name such
-//! as `snow_cap`. Use `--untextured` to draw plain colours only, `--eye x y z`
+//! as `fresh_snow_cap`. Use `--untextured` to draw plain colours only, `--eye x y z`
 //! and `--target x y z` to place the camera, and `--screenshot <file.png>`
 //! to save a PNG once the clump has grown, then exit. Add `--headless` to
 //! save the image without opening a window; it requires `--screenshot`.
@@ -101,7 +101,7 @@ fn main() -> AppExit {
         host: Host::Rock,
         host_seed: 0,
         preset: 0,
-        clump_seed: ClumpPreset::SnowCap.options().seed,
+        clump_seed: ClumpPreset::ALL[0].options().seed,
         turns: 0,
         screenshot: None,
         headless: false,

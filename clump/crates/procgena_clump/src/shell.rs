@@ -836,7 +836,7 @@ fn mean_edge_length(points: &[SurfacePoint], tris: &[Tri]) -> f32 {
 /// neighbouring pair sums, and so on, with a missing partner counting as 0.
 /// `edge_sum` in `shell.wesl` adds in the same order, so both give the same
 /// bits. Returns 0 for no values.
-pub(crate) fn pairwise_sum(mut values: Vec<f32>) -> f32 {
+fn pairwise_sum(mut values: Vec<f32>) -> f32 {
     while values.len() > 1 {
         values = values
             .chunks(2)

@@ -119,6 +119,7 @@ pub(crate) struct Pipelines {
     refine: [wgpu::ComputePipeline; 13],
     shell: [wgpu::ComputePipeline; 18],
     close: [wgpu::ComputePipeline; 16],
+    strict: [wgpu::ComputePipeline; 7],
 }
 
 impl Pipelines {
@@ -335,6 +336,20 @@ impl Pipelines {
                     "close_normals",
                 ],
             ),
+            strict: pipelines(
+                device,
+                "strict",
+                &[&batch_layout, &pass_layout],
+                [
+                    "strict_clear_tris",
+                    "strict_clear_points",
+                    "strict_cross",
+                    "strict_decide",
+                    "strict_mark",
+                    "strict_cut",
+                    "strict_relax",
+                ],
+            ),
             output: pipelines(
                 device,
                 "output",
@@ -396,6 +411,12 @@ struct ParamOffsets {
     close_kept: Vec<u32>,
     close_walls: Vec<u32>,
     close_around: Vec<u32>,
+    /// The strict layers' assembled-mesh BVH: flag scan, sort and its
+    /// scan, and `BvhPass` blocks.
+    work_flags: Vec<u32>,
+    work_sort: Vec<u32>,
+    work_sort_scan: Vec<u32>,
+    work_bvh_passes: Vec<u32>,
     /// One simplify `Step` per sweep and selection round, at
     /// `sweep * MAX_MIS_ROUNDS + round`.
     steps: Vec<u32>,
@@ -554,8 +575,8 @@ impl BatchResources {
             slots.push(&block)
         };
         // `BvhPass` blocks: pass numbers 0 (build) through the last refit.
-        let bvh_passes = |slots: &mut ParamSlots, mesh: u32| -> Vec<u32> {
-            (0..=plan.refit_passes)
+        let bvh_passes = |slots: &mut ParamSlots, mesh: u32, refit_passes: u32| -> Vec<u32> {
+            (0..=refit_passes)
                 .map(|n| {
                     let mut block = [0u8; 16];
                     block[..4].copy_from_slice(&n.to_le_bytes());
@@ -580,8 +601,16 @@ impl BatchResources {
             coarse_flags: scan_slots(&mut slots, &plan.coarse_flags_scan),
             coarse_sort: sort_slots(&mut slots, &plan.coarse_sort),
             coarse_sort_scan: scan_slots(&mut slots, &plan.coarse_sort.scan),
-            input_bvh_passes: bvh_passes(&mut slots, 0),
-            coarse_bvh_passes: bvh_passes(&mut slots, 1),
+            input_bvh_passes: bvh_passes(&mut slots, 0, plan.refit_passes),
+            coarse_bvh_passes: bvh_passes(&mut slots, 1, plan.refit_passes),
+            work_flags: scan_slots(&mut slots, &plan.work_flags_scan),
+            work_sort: sort_slots(&mut slots, &plan.work_sort),
+            work_sort_scan: scan_slots(&mut slots, &plan.work_sort.scan),
+            work_bvh_passes: if plan.has_strict_layers {
+                bvh_passes(&mut slots, 2, plan.work_refit_passes)
+            } else {
+                Vec::new()
+            },
             corner_owner: scan_slots(&mut slots, &plan.corner_owner_scan),
             around_start: scan_slots(&mut slots, &plan.around_start_scan),
             coarse_point: scan_slots(&mut slots, &plan.coarse_point_scan),
@@ -971,6 +1000,7 @@ impl BatchResources {
             pass,
             pipelines,
             BvhBuild {
+                slots: plan.total_triangles,
                 flags_scan: &plan.coarse_flags_scan,
                 flags_offsets: &o.coarse_flags,
                 sort: &plan.coarse_sort,
@@ -1179,8 +1209,39 @@ impl BatchResources {
         }
         numbered(pass, sink, w, 0);
         numbered(pass, keep, wt, 0);
+        if plan.has_closed_layers {
+            numbered(pass, &pipelines.close[0], w, 0);
+        }
+
+        // Lower the clump around triangles that turned over.
+        for number in 0..=MAX_REPAIR_PASSES {
+            numbered(pass, fold_mark, wt, number);
+            numbered(pass, fold_end, requests, number);
+            numbered(pass, fold_lower, w, number);
+        }
+        self.record_closing(pass, pipelines, max_groups);
+        if plan.has_strict_layers {
+            self.record_strict(pass, pipelines, max_groups);
+        }
+    }
+
+    /// Records numbering each closed layer's closing: the border edges and
+    /// pinch points of its kept top triangles, its copies, underside
+    /// vertices and walls; and checking the result fits.
+    fn record_closing(
+        &self,
+        pass: &mut wgpu::ComputePass<'_>,
+        pipelines: &Pipelines,
+        max_groups: u32,
+    ) {
+        let plan = &self.plan;
+        if !plan.has_closed_layers {
+            return;
+        }
+        let (w, wt) = (plan.total_work_vertices, plan.total_work_triangles);
+        let requests = plan.slices.len() as u32;
         let [
-            close_depth,
+            _,
             close_border,
             close_kept,
             close_fans,
@@ -1191,45 +1252,80 @@ impl BatchResources {
             close_size,
             ..,
         ] = &pipelines.close;
-        if plan.has_closed_layers {
-            numbered(pass, close_depth, w, 0);
-        }
-
-        // Lower the clump around triangles that turned over.
-        for number in 0..=MAX_REPAIR_PASSES {
-            numbered(pass, fold_mark, wt, number);
-            numbered(pass, fold_end, requests, number);
-            numbered(pass, fold_lower, w, number);
-        }
-        if !plan.has_closed_layers {
-            return;
-        }
-
-        // Closed layers: find the border edges and pinch points of the
-        // kept top triangles, number the copies, underside vertices and
-        // walls, and check the result fits.
         let o = &self.offsets;
+        let numbered =
+            |pass: &mut wgpu::ComputePass<'_>, pipeline: &wgpu::ComputePipeline, count: u32| {
+                self.numbered(pass, pipeline, count, 0, max_groups);
+            };
         let scan = |pass: &mut wgpu::ComputePass<'_>, levels: &[ScanLevel], offsets: &[u32]| {
             self.scan(pass, pipelines, levels, offsets, max_groups);
         };
-        numbered(pass, close_border, 3 * wt + 1, 0);
-        numbered(pass, close_kept, wt + 1, 0);
+        numbered(pass, close_border, 3 * wt + 1);
+        numbered(pass, close_kept, wt + 1);
         scan(pass, &plan.close_border_scan, &o.close_border);
         scan(pass, &plan.close_kept_scan, &o.close_kept);
-        numbered(pass, close_fans, w + 1, 0);
+        numbered(pass, close_fans, w + 1);
         scan(pass, &plan.close_copies_scan, &o.close_copies);
-        numbered(pass, close_split, 3 * wt, 0);
-        numbered(pass, close_first, 3 * wt + 1, 0);
+        numbered(pass, close_split, 3 * wt);
+        numbered(pass, close_first, 3 * wt + 1);
         scan(pass, &plan.close_first_scan, &o.close_first);
-        numbered(pass, close_below, 3 * wt, 0);
-        numbered(pass, close_walls, w + 1, 0);
+        numbered(pass, close_below, 3 * wt);
+        numbered(pass, close_walls, w + 1);
         scan(pass, &plan.close_walls_scan, &o.close_walls);
-        numbered(pass, close_size, requests, 0);
+        numbered(pass, close_size, requests);
+    }
+
+    /// Records the strict passes: each assembles the strict layers' meshes,
+    /// finds their crossing triangles, and thins or cuts around them. A
+    /// last check follows the last pass.
+    fn record_strict(
+        &self,
+        pass: &mut wgpu::ComputePass<'_>,
+        pipelines: &Pipelines,
+        max_groups: u32,
+    ) {
+        let plan = &self.plan;
+        let o = &self.offsets;
+        let (w, wt) = (plan.total_work_vertices, plan.total_work_triangles);
+        let requests = plan.slices.len() as u32;
+        let [clear_tris, clear_points, cross, decide, mark, cut, relax] = &pipelines.strict;
+        for number in 0..=plan.strict_passes {
+            // The meshes as they stand, and their BVH.
+            self.numbered(pass, clear_tris, wt, number, max_groups);
+            self.numbered(pass, clear_points, w, number, max_groups);
+            if number > 0 {
+                self.record_closing(pass, pipelines, max_groups);
+            }
+            self.record_assembly(pass, pipelines, max_groups);
+            self.record_bvh(
+                pass,
+                pipelines,
+                BvhBuild {
+                    slots: wt,
+                    flags_scan: &plan.work_flags_scan,
+                    flags_offsets: &o.work_flags,
+                    sort: &plan.work_sort,
+                    sort_offsets: &o.work_sort,
+                    sort_scan_offsets: &o.work_sort_scan,
+                    passes: &o.work_bvh_passes,
+                },
+                max_groups,
+            );
+
+            // Find what crosses, then repair it, except after the last.
+            self.numbered(pass, cross, wt, number, max_groups);
+            self.numbered(pass, decide, requests, number, max_groups);
+            if number < plan.strict_passes {
+                self.numbered(pass, mark, wt, number, max_groups);
+                self.numbered(pass, cut, wt, number, max_groups);
+                self.numbered(pass, relax, w, number, max_groups);
+            }
+        }
     }
 
     /// Records writing each layer's kept triangles and their vertices to the
-    /// working mesh. Runs after the scatter passes, which clear it.
-    fn record_layer_output(
+    /// working mesh, with closed layers' copies, undersides and walls.
+    fn record_assembly(
         &self,
         pass: &mut wgpu::ComputePass<'_>,
         pipelines: &Pipelines,
@@ -1245,22 +1341,39 @@ impl BatchResources {
         if !self.plan.has_closed_layers {
             return;
         }
-
-        // Closed layers: their copies, underside and walls, then the
-        // triangles around each vertex, for its normal.
         let [
             ..,
             close_out_vertices,
             close_out_tris,
             close_out_walls,
-            around_count,
-            around_copy,
-            around_fill,
+            _,
+            _,
+            _,
             _,
         ] = &pipelines.close;
         self.numbered(pass, close_out_vertices, w, 0, max_groups);
         self.numbered(pass, close_out_tris, wt, 0, max_groups);
         self.numbered(pass, close_out_walls, 3 * wt, 0, max_groups);
+    }
+
+    /// Records writing each layer's mesh to the working mesh, and for
+    /// closed layers the triangles around each vertex, for its normal. Runs
+    /// after the scatter passes, which clear it.
+    fn record_layer_output(
+        &self,
+        pass: &mut wgpu::ComputePass<'_>,
+        pipelines: &Pipelines,
+        max_groups: u32,
+    ) {
+        let (w, wt) = (
+            self.plan.total_work_vertices,
+            self.plan.total_work_triangles,
+        );
+        self.record_assembly(pass, pipelines, max_groups);
+        if !self.plan.has_closed_layers {
+            return;
+        }
+        let [.., around_count, around_copy, around_fill, _] = &pipelines.close;
         self.numbered(pass, around_count, wt, 0, max_groups);
         self.numbered(pass, around_copy, w + 1, 0, max_groups);
         self.scan(
@@ -1524,6 +1637,7 @@ impl BatchResources {
             &mut pass,
             pipelines,
             BvhBuild {
+                slots: plan.total_triangles,
                 flags_scan: &plan.triangle_flags_scan,
                 flags_offsets: &o.triangle_flags,
                 sort: &plan.triangle_sort,
@@ -1544,7 +1658,7 @@ impl BatchResources {
         build: BvhBuild,
         max_groups: u32,
     ) {
-        let t = self.plan.total_triangles;
+        let t = build.slots;
         let requests = self.plan.slices.len() as u32;
         let [init, bounds, keys, list, link, refit] = &pipelines.bvh;
         let numbered = |pass: &mut wgpu::ComputePass<'_>,
@@ -1582,9 +1696,11 @@ impl BatchResources {
     }
 }
 
-/// What one BVH build needs: its flag scan and sort, and where their params
-/// and the build's `BvhPass` blocks sit.
+/// What one BVH build needs: its triangle slots over the batch, its flag
+/// scan and sort, and where their params and the build's `BvhPass` blocks
+/// sit.
 struct BvhBuild<'a> {
+    slots: u32,
     flags_scan: &'a [ScanLevel],
     flags_offsets: &'a [u32],
     sort: &'a SortPlan,

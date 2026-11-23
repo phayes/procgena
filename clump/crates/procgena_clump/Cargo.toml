@@ -29,3 +29,7 @@ wgpu = { workspace = true, default-features = true }
 
 [[example]]
 name = "spike"
+
+[[example]]
+name = "bench_gpu"
+required-features = ["gpu"]

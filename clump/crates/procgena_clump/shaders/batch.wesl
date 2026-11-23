@@ -88,6 +88,15 @@ const COUNTER_SLOPE_DONE: u32 = 43u;
 const COUNTER_FOLD_COUNT: u32 = 44u;
 const COUNTER_FOLD_DONE: u32 = 46u;
 const COUNTER_FOLDED: u32 = 47u;
+/// Strict layers: triangles that still pass through another at the end;
+/// those found in the current pass; the fewest found so far; passes in a
+/// row without fewer; 1 once cutting started; 1 once done.
+const COUNTER_CROSSINGS: u32 = 48u;
+const COUNTER_STRICT_FOUND: u32 = 49u;
+const COUNTER_STRICT_FEWEST: u32 = 50u;
+const COUNTER_STRICT_STALLED: u32 = 51u;
+const COUNTER_STRICT_CUTTING: u32 = 52u;
+const COUNTER_STRICT_DONE: u32 = 53u;
 
 /// The input has more triangles than `triangle_capacity`, or references a
 /// vertex past `vertex_capacity`.
@@ -171,7 +180,7 @@ struct Batch {
     _pad: u32,
     /// Word offset of each region; index with `REGION_*` (in `arena`) and
     /// `FLAG_REGION_*` (in `flags`).
-    regions: array<vec4<u32>, 32>,
+    regions: array<vec4<u32>, 40>,
 }
 
 /// Region indices into `Batch.regions`. Sizes are per global vertex slot
@@ -423,8 +432,24 @@ const REGION_CLOSE_AROUND_LIST: u32 = 124u;
 /// finished mesh, counted, then a fill cursor.
 const FLAG_REGION_CLOSE_AROUND_COUNT: u32 = 125u;
 const FLAG_REGION_CLOSE_AROUND_CURSOR: u32 = 126u;
+/// Strict layers: the assembled working mesh's BVH, laid out as the input's
+/// (`REGION_TRI_*`, `REGION_BVH_*`) but per working triangle slot (Wt).
+const REGION_WORK_KEY_MORTON: u32 = 127u;
+const REGION_WORK_KEY_REQUEST: u32 = 128u;
+const REGION_WORK_BVH_FLAGS: u32 = 129u;
+const REGION_WORK_LIST_A: u32 = 130u;
+const REGION_WORK_LIST_B: u32 = 131u;
+const REGION_WORK_SORTED: u32 = 132u;
+const REGION_WORK_NODES: u32 = 133u;
+const REGION_WORK_READY: u32 = 134u;
+/// Strict layers, per working triangle slot (Wt): 1 where the triangle
+/// passes through another of its mesh.
+const REGION_STRICT_CROSSING: u32 = 135u;
+/// In `flags`, per sheet point slot (W): `TOUCH_*` bits marking what a
+/// strict pass changes at the point.
+const FLAG_REGION_STRICT_TOUCH: u32 = 136u;
 /// Entries of the region table in use.
-const REGION_COUNT: u32 = 127u;
+const REGION_COUNT: u32 = 137u;
 
 /// Words per working-surface point: position (3), smooth normal (3),
 /// exposure per direction (8), room, rise, dip, unused.

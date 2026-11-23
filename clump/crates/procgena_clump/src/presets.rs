@@ -16,9 +16,13 @@ use crate::options::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ClumpPreset {
-    /// A snow cap about 12 cm deep on upward-facing surfaces that are open to
-    /// the sky. On rough rocks it breaks into patches and flecks.
-    SnowCap,
+    /// A freshly fallen snow cap about 12 cm deep on upward-facing surfaces
+    /// that are open to the sky, plain pure white with no texture. On rough
+    /// rocks it breaks into patches and flecks.
+    FreshSnowCap,
+    /// The same snow cap as [`FreshSnowCap`](Self::FreshSnowCap), but with a
+    /// weathered, grimy snow texture.
+    DirtySnowCap,
     /// A thin moss carpet, about 3 cm deep with small lumps, over tops and
     /// upper sides. Ignores how sheltered the surface is.
     MossPatches,
@@ -32,17 +36,19 @@ pub enum ClumpPreset {
 
 impl ClumpPreset {
     /// Every preset, in declaration order.
-    pub const ALL: [ClumpPreset; 4] = [
-        ClumpPreset::SnowCap,
+    pub const ALL: [ClumpPreset; 5] = [
+        ClumpPreset::FreshSnowCap,
+        ClumpPreset::DirtySnowCap,
         ClumpPreset::MossPatches,
         ClumpPreset::MossCushions,
         ClumpPreset::Burl,
     ];
 
-    /// Returns the preset's name in snake case, such as `"snow_cap"`.
+    /// Returns the preset's name in snake case, such as `"fresh_snow_cap"`.
     pub fn name(self) -> &'static str {
         match self {
-            Self::SnowCap => "snow_cap",
+            Self::FreshSnowCap => "fresh_snow_cap",
+            Self::DirtySnowCap => "dirty_snow_cap",
             Self::MossPatches => "moss_patches",
             Self::MossCushions => "moss_cushions",
             Self::Burl => "burl",
@@ -57,7 +63,7 @@ impl ClumpPreset {
     /// Returns the preset's settings.
     pub fn options(self) -> ClumpOptions {
         match self {
-            Self::SnowCap => ClumpOptions {
+            Self::FreshSnowCap => ClumpOptions {
                 seed: 0,
                 directions: vec![Direction::DOWN],
                 scale: 1.0,
@@ -93,12 +99,17 @@ impl ClumpPreset {
                 .excluding([tags::CARD]),
                 tags: [tags::CLUMP, tags::SNOW].into(),
                 material: MaterialOptions {
-                    texture: Some("snow_02".to_owned()),
+                    texture: None,
                     color: [1.0; 3],
                     roughness: 1.0,
                     texture_size: 1.0,
                 },
             },
+            Self::DirtySnowCap => {
+                let mut options = Self::FreshSnowCap.options();
+                options.material.texture = Some("snow_02".to_owned());
+                options
+            }
             Self::MossPatches => ClumpOptions {
                 seed: 3,
                 directions: vec![Direction::DOWN],
@@ -237,7 +248,17 @@ mod tests {
     }
 
     #[test]
-    fn default_options_are_the_snow_cap() {
-        assert_eq!(ClumpOptions::default(), ClumpPreset::SnowCap.options());
+    fn default_options_are_the_fresh_snow_cap() {
+        assert_eq!(ClumpOptions::default(), ClumpPreset::FreshSnowCap.options());
+    }
+
+    #[test]
+    fn fresh_snow_is_untextured_white_dirty_snow() {
+        let fresh = ClumpPreset::FreshSnowCap.options();
+        assert_eq!(fresh.material.texture, None);
+        assert_eq!(fresh.material.color, [1.0; 3]);
+        let mut dirty = ClumpPreset::DirtySnowCap.options();
+        dirty.material.texture = None;
+        assert_eq!(fresh, dirty);
     }
 }

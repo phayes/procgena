@@ -41,7 +41,7 @@ pub struct ClumpOptions {
 }
 
 impl Default for ClumpOptions {
-    /// The [`ClumpPreset::SnowCap`](crate::ClumpPreset::SnowCap) settings.
+    /// The [`ClumpPreset::FreshSnowCap`](crate::ClumpPreset::FreshSnowCap) settings.
     fn default() -> Self {
         Self {
             seed: 0,
@@ -543,9 +543,11 @@ mod tests {
         assert_eq!(material(|m| m.roughness = f32::NAN), "material.roughness");
         assert_eq!(material(|m| m.texture_size = 0.0), "material.texture_size");
 
-        // No texture is allowed.
+        // No texture is allowed, and so is a known texture.
         let mut options = ClumpOptions::default();
         options.material.texture = None;
+        options.validate().unwrap();
+        options.material.texture = Some("snow_02".to_owned());
         options.validate().unwrap();
     }
 }

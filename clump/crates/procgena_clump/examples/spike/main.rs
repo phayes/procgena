@@ -316,13 +316,13 @@ fn write_gallery(out_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Er
     let rocks: Vec<(SurfaceMesh, String)> = presets.map(shapes::stone).into_iter().collect();
     let spacing = 3.2;
     // Snow falling from above plus wind-blown snow arriving from -X.
-    let mut wind = ClumpPreset::SnowCap.options();
+    let mut wind = ClumpPreset::DirtySnowCap.options();
     wind.directions.push(Direction {
         vector: [1.0, -0.3, 0.2],
         strength: 0.8,
     });
     for (file, options) in [
-        ("stones_snow.obj", ClumpPreset::SnowCap.options()),
+        ("stones_snow.obj", ClumpPreset::DirtySnowCap.options()),
         ("stones_moss.obj", ClumpPreset::MossPatches.options()),
         ("stones_wind.obj", wind),
     ] {

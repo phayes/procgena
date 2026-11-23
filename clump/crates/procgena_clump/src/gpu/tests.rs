@@ -913,6 +913,27 @@ fn run_stages_sized(
     cases: &[(SurfaceMesh, ClumpOptions)],
     covered_area: f32,
 ) -> (super::batch::BatchPlan, Vec<u32>, Vec<u32>, Vec<u32>) {
+    let (plan, counters, arena, flags, _) =
+        run_stages_limited(device, queue, cases, covered_area, None);
+    (plan, counters, arena, flags)
+}
+
+/// Runs [`run_stages_sized`], recording only `strict_passes` strict passes
+/// when given: 0 records only the first check for crossings. Also returns
+/// each request's status, decoded.
+fn run_stages_limited(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    cases: &[(SurfaceMesh, ClumpOptions)],
+    covered_area: f32,
+    strict_passes: Option<u32>,
+) -> (
+    super::batch::BatchPlan,
+    Vec<u32>,
+    Vec<u32>,
+    Vec<u32>,
+    Vec<super::GpuClumpStatus>,
+) {
     let pipelines = Pipelines::new(device);
     let uploads: Vec<GpuMesh> = cases
         .iter()
@@ -931,7 +952,10 @@ fn run_stages_sized(
             }
         })
         .collect();
-    let batch = BatchResources::new(device, &pipelines, &requests);
+    let mut batch = BatchResources::new(device, &pipelines, &requests);
+    if let Some(passes) = strict_passes {
+        batch.plan.strict_passes = passes;
+    }
     let outputs = batch.outputs(device, &pipelines);
     let mut encoder = device.create_command_encoder(&Default::default());
     batch.record(
@@ -944,12 +968,21 @@ fn run_stages_sized(
         device,
         queue,
         encoder,
-        &[&batch.counters, &batch.arena, &batch.flags],
+        &[&batch.counters, &batch.arena, &batch.flags, &outputs.status],
     );
+    let status = read.pop().unwrap();
     let flags = read.pop().unwrap();
     let arena = read.pop().unwrap();
     let counters = read.pop().unwrap();
-    (batch.plan, counters, arena, flags)
+    let status = status
+        .chunks(16)
+        .take(cases.len())
+        .map(|words| {
+            let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+            super::GpuClumpStatus::decode(&bytes)
+        })
+        .collect();
+    (batch.plan, counters, arena, flags, status)
 }
 
 /// Reads three floats from `words` at `at`.
@@ -1152,9 +1185,12 @@ fn gpu_working_surfaces_match_the_cpu() {
     // options keep every facing triangle. The fine grid at 4 cm merges
     // nothing, so its rise and dip stay 0.
     let cases = [
-        (bumpy.clone(), with(ClumpPreset::SnowCap.options(), 0.1)),
+        (
+            bumpy.clone(),
+            with(ClumpPreset::DirtySnowCap.options(), 0.1),
+        ),
         (bumpy, with(ClumpOptions::default(), 0.04)),
-        (slab(64), with(ClumpPreset::SnowCap.options(), 0.3)),
+        (slab(64), with(ClumpPreset::DirtySnowCap.options(), 0.3)),
         (slab(64), with(ClumpOptions::default(), 0.1)),
         (
             SurfaceMesh::ground(1.0, 8),
@@ -1259,10 +1295,12 @@ fn gpu_mixed_batches_and_grown_layers_match_the_cpu() {
 
     let (device, queue) = device();
     let generator = super::GpuClumpGenerator::new(&device);
-    let mut snow = ClumpPreset::SnowCap.options();
+    let mut snow = ClumpPreset::DirtySnowCap.options();
     snow.mesh.closed = false;
-    let mut closed_snow = ClumpPreset::SnowCap.options();
+    let mut closed_snow = ClumpPreset::DirtySnowCap.options();
     closed_snow.mesh.closed = true;
+    let mut strict = ClumpOptions::default();
+    strict.mesh.strict = true;
     let mut crowded = ClumpPreset::MossCushions.options();
     crowded.placement.count = 40;
     crowded.placement.min_spacing = 0.0;
@@ -1281,6 +1319,7 @@ fn gpu_mixed_batches_and_grown_layers_match_the_cpu() {
             crowded,
         ),
         ("closed snow cap on slab", slab(48), closed_snow),
+        ("strict default on slab", slab(48), strict),
     ];
     let uploads: Vec<GpuMesh> = cases
         .iter()
@@ -1326,9 +1365,9 @@ fn gpu_mixed_batches_and_grown_layers_match_the_cpu() {
         );
     }
 
-    // Layers with too little room, open and closed: grown and retried until
-    // they fit, they match the CPU.
-    for i in [0, 3] {
+    // Layers with too little room, open, closed and strict: grown and
+    // retried until they fit, they match the CPU.
+    for i in [0, 3, 4] {
         let name = cases[i].0;
         let mut small = request(i, 0.0);
         small.vertex_capacity = 16;
@@ -1434,6 +1473,7 @@ fn only_batches_with_layers_reserve_sheet_space() {
         strict_scatter: false,
         layer,
         closed_layer: false,
+        strict_layer: false,
     };
     let scatter = BatchPlan::new(&[shape(false)]);
     let layer = BatchPlan::new(&[shape(true)]);
@@ -1475,14 +1515,18 @@ fn gpu_open_layers_match_the_cpu() {
         (
             "snow cap on bumpy ground",
             bumpy.clone(),
-            open(ClumpPreset::SnowCap),
+            open(ClumpPreset::DirtySnowCap),
         ),
         (
             "moss patches on bumpy ground",
             bumpy,
             open(ClumpPreset::MossPatches),
         ),
-        ("snow cap on slab", slab(48), open(ClumpPreset::SnowCap)),
+        (
+            "snow cap on slab",
+            slab(48),
+            open(ClumpPreset::DirtySnowCap),
+        ),
         // See `gpu_open_sheets_match_the_cpu` for why `facing_min` is lifted.
         ("moss patches on a box", seamed(&sharp_box(0.3)), {
             let mut clear_of_sides = open(ClumpPreset::MossPatches);
@@ -1666,11 +1710,210 @@ fn enclosed_volume(positions: &[Vec3], indices: &[u32]) -> f32 {
         .sum()
 }
 
+/// Asserts that layer clump `got`, built on the GPU from `mesh` with
+/// `options`, fit its room and is the CPU's clump: the same counts,
+/// indices and stats, with positions, normals and fade within GPU rounding.
+fn assert_layer_matches_cpu(
+    name: &str,
+    mesh: &SurfaceMesh,
+    options: &ClumpOptions,
+    got: &GpuClumpMesh,
+) {
+    let surface = mesh.surface().unwrap();
+    let cpu = crate::Clump::new(surface, options).unwrap();
+    let want = cpu.mesh();
+    let status = &got.status;
+    eprintln!(
+        "{name}: {} vertices, {} indices, {} folded, {} thinned, {} crossings (CPU {} vertices, {} indices)",
+        status.vertex_count,
+        status.index_count,
+        status.folded,
+        status.thinned,
+        status.crossings,
+        want.positions.len(),
+        want.indices.len()
+    );
+    assert!(
+        !status.input_overflow && !status.vertex_overflow && !status.index_overflow,
+        "{name}: {status:?}"
+    );
+    assert!(!status.slope_unsettled, "{name}: {status:?}");
+
+    // Counts, stats and indices exactly.
+    assert_eq!(status.folded as usize, cpu.stats().folded, "{name}: folded");
+    assert_eq!(
+        status.thinned as usize,
+        cpu.stats().thinned,
+        "{name}: thinned"
+    );
+    assert_eq!(
+        status.crossings as usize,
+        cpu.stats().crossings,
+        "{name}: crossings"
+    );
+    assert_eq!(
+        status.vertex_count as usize,
+        want.positions.len(),
+        "{name}: vertices"
+    );
+    assert_eq!(got.indices, want.indices, "{name}: indices");
+    assert_eq!(
+        got.draw_args[0] as usize,
+        want.indices.len(),
+        "{name}: draw"
+    );
+
+    // Positions within a little of the input's size; normals and fade
+    // within GPU rounding.
+    let (lo, hi) = surface.bounds();
+    let tolerance = 1e-5 * (hi - lo).length();
+    let mut worst = 0.0f32;
+    let mut far = 0;
+    for (v, (&p, w)) in got.positions.iter().zip(&want.positions).enumerate() {
+        let d = p.distance(Vec3::from(*w));
+        worst = worst.max(d);
+        if d > tolerance {
+            far += 1;
+            if far <= 10 {
+                eprintln!("{name}: vertex {v}: {p} vs {w:?} ({d})");
+            }
+        }
+    }
+    assert_eq!(far, 0, "{name}: vertices out of place");
+    for (v, (&n, w)) in got.normals.iter().zip(&want.normals).enumerate() {
+        assert!(
+            n.distance(Vec3::from(*w)) <= 1e-3,
+            "{name}: normal {v}: {n} vs {w:?}"
+        );
+    }
+    for (v, (&f, &w)) in got.fade.iter().zip(&want.fade).enumerate() {
+        assert!((f - w).abs() <= 1e-5, "{name}: fade {v}: {f} vs {w}");
+    }
+    eprintln!("{name}: farthest vertex {worst}");
+}
+
+/// Returns `got` as a CPU clump mesh, for the crate's diagnostics.
+fn clump_mesh(got: &GpuClumpMesh) -> crate::ClumpMesh {
+    crate::ClumpMesh {
+        positions: got.positions.iter().map(|p| p.to_array()).collect(),
+        normals: got.normals.iter().map(|n| n.to_array()).collect(),
+        fade: got.fade.clone(),
+        indices: got.indices.clone(),
+    }
+}
+
+#[test]
+#[ignore = "gpu: needs a GPU adapter"]
+fn gpu_strict_layers_match_the_cpu() {
+    use crate::ClumpPreset;
+
+    let (device, queue) = device();
+    let generator = super::GpuClumpGenerator::new(&device);
+    let strict = |mut options: ClumpOptions, closed: bool| {
+        options.mesh.closed = closed;
+        options.mesh.strict = true;
+        options
+    };
+    let mut deep = ClumpPreset::MossPatches.options();
+    deep.shape.thickness = 0.2;
+    deep.mask.any_facing = true;
+    let mut flat_cap = ClumpOptions::default();
+    flat_cap.shape.lumpiness = 0.0;
+    flat_cap.mask.exposure_rays = 0;
+    let cases: Vec<(&str, SurfaceMesh, ClumpOptions)> = vec![
+        (
+            "closed default on slab",
+            slab(48),
+            strict(ClumpOptions::default(), true),
+        ),
+        (
+            "open default on slab",
+            slab(48),
+            strict(ClumpOptions::default(), false),
+        ),
+        (
+            "closed deep moss in a crevice",
+            crevice(),
+            strict(deep.clone(), true),
+        ),
+        (
+            "open deep moss in a crevice",
+            crevice(),
+            strict(deep, false),
+        ),
+        (
+            "closed flat cap on ground",
+            SurfaceMesh::ground(1.0, 4),
+            strict(flat_cap, true),
+        ),
+    ];
+    let uploads: Vec<GpuMesh> = cases
+        .iter()
+        .map(|(_, mesh, _)| GpuMesh::upload(&device, mesh, 0, 0))
+        .collect();
+    let mut requests: Vec<super::GpuClumpRequest> = cases
+        .iter()
+        .zip(&uploads)
+        .map(|((_, mesh, options), up)| {
+            let area = surface_area(mesh);
+            super::GpuClumpRequest::new(
+                up.input(mesh, Affine3A::IDENTITY, None),
+                options.clone(),
+                area,
+            )
+        })
+        .collect();
+    let gpu = run_batch_grown(&device, &queue, &generator, &mut requests);
+
+    // The batch again, warm, for its cost.
+    let start = Instant::now();
+    run_batch(&device, &queue, &generator, &requests);
+    eprintln!(
+        "warm batch of {} strict layers: {:?}",
+        requests.len(),
+        start.elapsed()
+    );
+    let start = Instant::now();
+    for (_, mesh, options) in &cases {
+        crate::Clump::new(mesh.surface().unwrap(), options).unwrap();
+    }
+    eprintln!("the same layers on the CPU: {:?}", start.elapsed());
+
+    for ((name, mesh, options), got) in cases.iter().zip(&gpu) {
+        assert_layer_matches_cpu(name, mesh, options, got);
+
+        // Nothing passes through anything else, and closed clumps stay
+        // watertight.
+        assert!(!got.indices.is_empty(), "{name}: empty");
+        let crossings = crate::diagnostics::crossing_count(&clump_mesh(got));
+        assert_eq!(crossings, 0, "{name}: triangles still cross");
+        if options.mesh.closed {
+            assert_eq!(unpaired_edges(&got.indices), (0, 0), "{name}: open edges");
+        }
+    }
+
+    // The room each reports needing is enough for every pass: reserving
+    // exactly that gives the same clumps.
+    for (request, got) in requests.iter_mut().zip(&gpu) {
+        request.vertex_capacity = got.status.work_vertex_count;
+        request.index_capacity = got.status.work_index_count;
+    }
+    let exact = run_batch(&device, &queue, &generator, &requests);
+    for ((name, _, _), (got, again)) in cases.iter().zip(gpu.iter().zip(&exact)) {
+        let s = &again.status;
+        assert!(
+            !s.vertex_overflow && !s.index_overflow,
+            "{name}: exact room: {s:?}"
+        );
+        assert_eq!(again.indices, got.indices, "{name}: exact room");
+    }
+}
+
 #[test]
 #[ignore = "gpu: needs a GPU adapter"]
 fn gpu_closed_layers_match_the_cpu() {
     use super::batch::{REGION_CLOSE_COPIES, REGION_CLOSE_KEPT};
-    use crate::{Clump, ClumpPreset};
+    use crate::ClumpPreset;
 
     let (device, queue) = device();
     let generator = super::GpuClumpGenerator::new(&device);
@@ -1701,14 +1944,18 @@ fn gpu_closed_layers_match_the_cpu() {
         (
             "snow cap on bumpy ground",
             bumpy.clone(),
-            closed(ClumpPreset::SnowCap),
+            closed(ClumpPreset::DirtySnowCap),
         ),
         (
             "moss patches on bumpy ground",
             bumpy,
             closed(ClumpPreset::MossPatches),
         ),
-        ("snow cap on slab", slab(48), closed(ClumpPreset::SnowCap)),
+        (
+            "snow cap on slab",
+            slab(48),
+            closed(ClumpPreset::DirtySnowCap),
+        ),
         // See `gpu_open_sheets_match_the_cpu` for why `facing_min` is lifted.
         ("moss patches on a box", seamed(&sharp_box(0.3)), {
             let mut clear_of_sides = closed(ClumpPreset::MossPatches);
@@ -1743,69 +1990,7 @@ fn gpu_closed_layers_match_the_cpu() {
     let gpu = run_batch_grown(&device, &queue, &generator, &mut requests);
 
     for ((name, mesh, options), got) in cases.iter().zip(&gpu) {
-        let surface = mesh.surface().unwrap();
-        let cpu = Clump::new(surface, options).unwrap();
-        let want = cpu.mesh();
-        let status = &got.status;
-        eprintln!(
-            "{name}: {} vertices, {} indices, {} folded, {} thinned (CPU {} vertices, {} indices)",
-            status.vertex_count,
-            status.index_count,
-            status.folded,
-            status.thinned,
-            want.positions.len(),
-            want.indices.len()
-        );
-        assert!(
-            !status.input_overflow && !status.vertex_overflow && !status.index_overflow,
-            "{name}: {status:?}"
-        );
-        assert!(!status.slope_unsettled, "{name}: {status:?}");
-
-        // The same mesh as the CPU's: counts and indices exactly, positions,
-        // normals and fade within GPU rounding.
-        assert_eq!(status.folded as usize, cpu.stats().folded, "{name}: folded");
-        assert_eq!(
-            status.thinned as usize,
-            cpu.stats().thinned,
-            "{name}: thinned"
-        );
-        assert_eq!(
-            status.vertex_count as usize,
-            want.positions.len(),
-            "{name}: vertices"
-        );
-        assert_eq!(got.indices, want.indices, "{name}: indices");
-        assert_eq!(
-            got.draw_args[0] as usize,
-            want.indices.len(),
-            "{name}: draw"
-        );
-        let (lo, hi) = surface.bounds();
-        let tolerance = 1e-5 * (hi - lo).length();
-        let mut worst = 0.0f32;
-        let mut far = 0;
-        for (v, (&p, w)) in got.positions.iter().zip(&want.positions).enumerate() {
-            let d = p.distance(Vec3::from(*w));
-            worst = worst.max(d);
-            if d > tolerance {
-                far += 1;
-                if far <= 10 {
-                    eprintln!("{name}: vertex {v}: {p} vs {w:?} ({d})");
-                }
-            }
-        }
-        assert_eq!(far, 0, "{name}: vertices out of place");
-        for (v, (&n, w)) in got.normals.iter().zip(&want.normals).enumerate() {
-            assert!(
-                n.distance(Vec3::from(*w)) <= 1e-3,
-                "{name}: normal {v}: {n} vs {w:?}"
-            );
-        }
-        for (v, (&f, &w)) in got.fade.iter().zip(&want.fade).enumerate() {
-            assert!((f - w).abs() <= 1e-5, "{name}: fade {v}: {f} vs {w}");
-        }
-        eprintln!("{name}: farthest vertex {worst}");
+        assert_layer_matches_cpu(name, mesh, options, got);
 
         // A watertight, edge-manifold solid that faces outward.
         assert!(!got.indices.is_empty(), "{name}: empty");
@@ -1976,6 +2161,137 @@ fn gpu_open_sheets_match_the_cpu() {
     }
 }
 
+/// Returns strict layer `r`'s assembled working mesh, read back from
+/// `arena` after the output scans, with its triangles' slots.
+fn working_mesh(
+    plan: &super::batch::BatchPlan,
+    arena: &[u32],
+    r: usize,
+) -> (crate::ClumpMesh, Vec<u32>) {
+    use super::batch::{REGION_WORK_CORNERS, REGION_WORK_KEPT, REGION_WORK_POSITIONS};
+
+    let s = plan.slices[r];
+    let regions = &plan.regions;
+    let positions: Vec<[f32; 3]> = (0..s.out_vertex_capacity)
+        .map(|v| {
+            vec3_at(
+                arena,
+                regions[REGION_WORK_POSITIONS] + 3 * (s.out_vertex_base + v),
+            )
+            .to_array()
+        })
+        .collect();
+    let first = s.out_index_base / 3;
+    let kept = |t: u32| {
+        let at = (regions[REGION_WORK_KEPT] + t) as usize;
+        arena[at + 1] != arena[at]
+    };
+    let slots: Vec<u32> = (first..first + s.out_index_capacity / 3)
+        .filter(|&t| kept(t))
+        .collect();
+    let indices = slots
+        .iter()
+        .flat_map(|&t| {
+            (0..3).map(move |k| {
+                arena[(regions[REGION_WORK_CORNERS] + 3 * t + k) as usize] - s.out_vertex_base
+            })
+        })
+        .collect();
+    let mesh = crate::ClumpMesh {
+        fade: vec![1.0; positions.len()],
+        positions,
+        indices,
+        ..crate::ClumpMesh::default()
+    };
+    (mesh, slots)
+}
+
+#[test]
+#[ignore = "gpu: needs a GPU adapter"]
+fn gpu_strict_crossings_match_the_cpu() {
+    use super::batch::REGION_STRICT_CROSSING;
+    use crate::ClumpPreset;
+    use crate::shell::crossing_triangles;
+
+    // The first check only, before anything is thinned: the GPU's crossing
+    // triangles are the CPU's on the very same mesh.
+    let (device, queue) = device();
+    let strict = |closed: bool| {
+        let mut options = ClumpOptions::default();
+        options.mesh.closed = closed;
+        options.mesh.strict = true;
+        options
+    };
+    let mut deep = ClumpPreset::MossPatches.options();
+    deep.shape.thickness = 0.2;
+    deep.mask.any_facing = true;
+    deep.mesh.closed = true;
+    deep.mesh.strict = true;
+    let mut deep_open = deep.clone();
+    deep_open.mesh.closed = false;
+    let cases = [
+        (slab(48), strict(true)),
+        (slab(48), strict(false)),
+        (crevice(), deep),
+        (crevice(), deep_open),
+    ];
+    let mut crossing = Vec::new();
+    for (r, case) in cases.iter().enumerate() {
+        let one = std::slice::from_ref(case);
+        let area = 2.0 * surface_area(&case.0);
+        let (plan, _, arena, _, _) = run_stages_limited(&device, &queue, one, area, Some(0));
+        let (mesh, slots) = working_mesh(&plan, &arena, 0);
+        let want: Vec<u32> = crossing_triangles(&mesh)
+            .into_iter()
+            .map(|i| slots[i])
+            .collect();
+        let got: Vec<u32> = slots
+            .iter()
+            .copied()
+            .filter(|&t| arena[(plan.regions[REGION_STRICT_CROSSING] + t) as usize] != 0)
+            .collect();
+        eprintln!(
+            "case {r}: {} triangles, {} crossing on the GPU, {} on the CPU",
+            slots.len(),
+            got.len(),
+            want.len()
+        );
+        assert_eq!(got, want, "case {r}: crossing triangles");
+        crossing.push(!want.is_empty());
+    }
+    eprintln!("cases with crossings: {crossing:?}");
+    assert!(crossing[0], "the closed slab crosses itself");
+}
+
+#[test]
+#[ignore = "gpu: needs a GPU adapter"]
+fn gpu_strict_layers_out_of_passes_report_their_crossings() {
+    use crate::ClumpPreset;
+
+    // The deep crevice needs 10 passes; with 2 it still crosses itself, and
+    // the count is that of the mesh it outputs.
+    let (device, queue) = device();
+    let mut deep = ClumpPreset::MossPatches.options();
+    deep.shape.thickness = 0.2;
+    deep.mask.any_facing = true;
+    deep.mesh.closed = true;
+    deep.mesh.strict = true;
+    let case = [(crevice(), deep)];
+    let area = 2.0 * surface_area(&case[0].0);
+    let (plan, _, arena, _, status) = run_stages_limited(&device, &queue, &case, area, Some(2));
+    let reported = status[0].crossings;
+    let (mesh, _) = working_mesh(&plan, &arena, 0);
+    let actual = crate::diagnostics::crossing_count(&mesh);
+    eprintln!("after 2 passes: {reported} reported, {actual} in the mesh");
+    assert!(reported > 0, "nothing reported");
+    assert_eq!(reported as usize, actual, "reported crossings");
+    assert!(
+        !status[0].vertex_overflow && !status[0].index_overflow,
+        "{:?}",
+        status[0]
+    );
+}
+
 #[test]
 #[ignore = "gpu: needs a GPU adapter"]
 fn gpu_closed_undersides_match_the_cpu() {
@@ -2070,12 +2386,12 @@ fn gpu_refined_sheets_match_the_cpu() {
             SurfaceMesh::ground(1.0, 8),
             with(ClumpOptions::default(), 0.04),
         ),
-        (slab(24), with(ClumpPreset::SnowCap.options(), 0.03)),
+        (slab(24), with(ClumpPreset::DirtySnowCap.options(), 0.03)),
         (
             bumpy.clone(),
             with(ClumpPreset::MossPatches.options(), 0.05),
         ),
-        (bumpy, with(ClumpPreset::SnowCap.options(), 0.1)),
+        (bumpy, with(ClumpPreset::DirtySnowCap.options(), 0.1)),
     ];
     let (plan, counters, arena, _) = run_stages_sized(&device, &queue, &cases, 12.0);
     let regions = &plan.regions;

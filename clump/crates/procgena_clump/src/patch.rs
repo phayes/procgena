@@ -705,7 +705,7 @@ pub(crate) fn border_stays_near(
 ///
 /// The order is a hash, so edges that block each other rarely form long
 /// chains; a GPU can then reproduce a sweep in a few parallel rounds.
-pub(crate) fn edge_priority(a: u32, b: u32, pass: u32) -> u32 {
+fn edge_priority(a: u32, b: u32, pass: u32) -> u32 {
     pcg3d([a.min(b), a.max(b), pass ^ SWEEP_ORDER_SALT])[0]
 }
 

@@ -33,7 +33,7 @@
 //!     rock.material.color = [0.35, 0.33, 0.3];
 //!     commands
 //!         .spawn(StoneParams::new(rock))
-//!         .with_child(ClumpParams::preset(ClumpPreset::SnowCap));
+//!         .with_child(ClumpParams::preset(ClumpPreset::FreshSnowCap));
 //!     commands.spawn((
 //!         Camera3d::default(),
 //!         Transform::from_xyz(3.0, 2.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),

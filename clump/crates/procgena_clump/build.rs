@@ -9,9 +9,9 @@ fn main() {
 /// Shader modules with entry points, compiled to `<module>.wgsl`. Keep in
 /// step with `ENTRY_MODULES` in `src/shaders.rs`.
 #[cfg(feature = "gpu")]
-const ENTRY_MODULES: [&str; 14] = [
+const ENTRY_MODULES: [&str; 15] = [
     "scan", "sort", "ingest", "weld", "bvh", "measure", "scatter", "output", "patch", "simplify",
-    "envelope", "refine", "shell", "close",
+    "envelope", "refine", "shell", "close", "strict",
 ];
 
 /// Writes `<module>.wgsl` to `OUT_DIR` for each module in [`ENTRY_MODULES`].

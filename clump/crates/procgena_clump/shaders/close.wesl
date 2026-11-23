@@ -478,11 +478,11 @@ fn leaving_border(r: u32, p: u32, x: u32, below: u32) -> u32 {
     return count;
 }
 
-/// Sets each closed layer's working mesh size: the sheet points, copies and
-/// underside vertices; and the sheet triangle slots, underside triangles
-/// and two wall triangles per border edge. A layer that doesn't fit its
-/// output capacity fails with the matching overflow bits and writes
-/// nothing. One item per request.
+/// Raises each closed layer's working mesh size to what it needs now: the
+/// sheet points, copies and underside vertices; and the sheet triangle
+/// slots, underside triangles and two wall triangles per border edge. A
+/// layer that doesn't fit its output capacity fails with the matching
+/// overflow bits and writes nothing. One item per request.
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn close_size(
     @builtin(global_invocation_id) global_id: vec3<u32>,
@@ -495,9 +495,11 @@ fn close_size(
     let c = closing(r);
     let vertices = counter(r, COUNTER_SHEET_POINTS) + c.copies + c.undersides;
     let triangles = counter(r, COUNTER_SHEET_TRIANGLES) + c.kept + 2u * c.border;
+    // A strict layer closes again after every pass; it must reserve the
+    // most any pass needed.
     let at = r * COUNTER_STRIDE;
-    atomicStore(&counters[at + COUNTER_WORK_VERTICES], vertices);
-    atomicStore(&counters[at + COUNTER_WORK_TRIANGLES], triangles);
+    atomicMax(&counters[at + COUNTER_WORK_VERTICES], vertices);
+    atomicMax(&counters[at + COUNTER_WORK_TRIANGLES], triangles);
     var overflow = 0u;
     if vertices > requests[r].out_vertex_capacity {
         overflow |= OVERFLOW_VERTICES;

@@ -553,7 +553,10 @@ mod tests {
             .id();
         let clump = app
             .world_mut()
-            .spawn((ClumpParams::preset(ClumpPreset::SnowCap), ChildOf(host)))
+            .spawn((
+                ClumpParams::preset(ClumpPreset::DirtySnowCap),
+                ChildOf(host),
+            ))
             .id();
         (host, clump)
     }
@@ -668,7 +671,7 @@ mod tests {
         let before = material(&mut app);
 
         // Tint the snow blue: the material changes, the mesh is kept.
-        let mut options = ClumpPreset::SnowCap.options();
+        let mut options = ClumpPreset::DirtySnowCap.options();
         options.material.color = [0.2, 0.3, 1.0];
         *app.world_mut().get_mut::<ClumpParams>(clump).unwrap() = ClumpParams::new(options);
         app.update();
@@ -753,7 +756,10 @@ mod tests {
             .id();
         let clump = app
             .world_mut()
-            .spawn((ClumpParams::preset(ClumpPreset::SnowCap), ChildOf(host)))
+            .spawn((
+                ClumpParams::preset(ClumpPreset::DirtySnowCap),
+                ChildOf(host),
+            ))
             .id();
         update_until_finished(&mut app, clump);
         assert_eq!(part_count(&mut app, clump), 1);

@@ -24,14 +24,18 @@ import package::batch::{
     REGION_BVH_READY, REGION_COARSE_POINTS, REGION_COARSE_TRIS, REGION_COARSE_KEY_MORTON,
     REGION_COARSE_KEY_REQUEST, REGION_COARSE_BVH_FLAGS, REGION_COARSE_LIST_A,
     REGION_COARSE_SORTED, REGION_COARSE_NODES, REGION_COARSE_READY, POINT_WORDS,
-    PATCH_TRI_WORDS, WORKGROUP_SIZE,
+    PATCH_TRI_WORDS, WORKGROUP_SIZE, request_of_work_triangle, MODE_EVERYWHERE,
+    REGION_WORK_POSITIONS, REGION_WORK_CORNERS, REGION_WORK_KEPT, REGION_WORK_KEY_MORTON,
+    REGION_WORK_KEY_REQUEST, REGION_WORK_BVH_FLAGS, REGION_WORK_LIST_A, REGION_WORK_SORTED,
+    REGION_WORK_NODES, REGION_WORK_READY,
 };
 import package::math::{dot3, length_squared, F32_MAX};
 
-/// `BvhPass.mesh` values: each request's input, or a layer's simplified
-/// working surface.
+/// `BvhPass.mesh` values: each request's input, a layer's simplified
+/// working surface, or a strict layer's assembled working mesh.
 const MESH_INPUT: u32 = 0u;
 const MESH_COARSE: u32 = 1u;
+const MESH_WORK: u32 = 2u;
 
 /// Where one mesh's triangles and BVH live, as word offsets into the arena.
 struct MeshSource {
@@ -52,8 +56,11 @@ struct MeshSource {
     sorted: u32,
     nodes: u32,
     ready: u32,
-    /// The counter holding each request's triangle count.
+    /// The counter holding each request's triangle count (unused for the
+    /// working mesh).
     count: u32,
+    /// `MESH_*`: which mesh this is.
+    kind: u32,
 }
 
 /// Returns where the input's triangles and BVH are.
@@ -62,7 +69,7 @@ fn input_mesh() -> MeshSource {
         region(REGION_POSITIONS), 3u, region(REGION_CORNERS), 3u,
         region(REGION_TRI_KEY_MORTON), region(REGION_TRI_KEY_REQUEST), region(REGION_TRI_FLAGS),
         region(REGION_TRI_LIST_A), region(REGION_TRI_SORTED), region(REGION_BVH_NODES),
-        region(REGION_BVH_READY), COUNTER_TRIANGLES,
+        region(REGION_BVH_READY), COUNTER_TRIANGLES, MESH_INPUT,
     );
 }
 
@@ -73,6 +80,18 @@ fn coarse_mesh() -> MeshSource {
         region(REGION_COARSE_KEY_MORTON), region(REGION_COARSE_KEY_REQUEST),
         region(REGION_COARSE_BVH_FLAGS), region(REGION_COARSE_LIST_A), region(REGION_COARSE_SORTED),
         region(REGION_COARSE_NODES), region(REGION_COARSE_READY), COUNTER_COARSE_TRIANGLES,
+        MESH_COARSE,
+    );
+}
+
+/// Returns where the strict layers' assembled working meshes and their BVH
+/// are.
+fn work_mesh() -> MeshSource {
+    return MeshSource(
+        region(REGION_WORK_POSITIONS), 3u, region(REGION_WORK_CORNERS), 3u,
+        region(REGION_WORK_KEY_MORTON), region(REGION_WORK_KEY_REQUEST),
+        region(REGION_WORK_BVH_FLAGS), region(REGION_WORK_LIST_A), region(REGION_WORK_SORTED),
+        region(REGION_WORK_NODES), region(REGION_WORK_READY), 0u, MESH_WORK,
     );
 }
 
@@ -81,7 +100,44 @@ fn build_mesh() -> MeshSource {
     if bvh_pass.mesh == MESH_COARSE {
         return coarse_mesh();
     }
+    if bvh_pass.mesh == MESH_WORK {
+        return work_mesh();
+    }
     return input_mesh();
+}
+
+/// Returns how many triangle slots mesh `m` has over the whole batch.
+fn slot_count(m: MeshSource) -> u32 {
+    return select(batch.total_triangles, batch.total_work_triangles, m.kind == MESH_WORK);
+}
+
+/// Returns the request owning triangle slot `slot` of mesh `m`.
+fn request_in(m: MeshSource, slot: u32) -> u32 {
+    if m.kind == MESH_WORK {
+        return request_of_work_triangle(slot);
+    }
+    return request_of_triangle(slot);
+}
+
+/// Returns request `r`'s first triangle slot in mesh `m`.
+fn first_in(m: MeshSource, r: u32) -> u32 {
+    return select(requests[r].triangle_base, requests[r].out_index_base / 3u, m.kind == MESH_WORK);
+}
+
+/// Returns request `r`'s triangle slots in mesh `m`.
+fn capacity_in(m: MeshSource, r: u32) -> u32 {
+    return select(requests[r].triangle_capacity, requests[r].out_index_capacity / 3u, m.kind == MESH_WORK);
+}
+
+/// Returns whether triangle slot `slot` of request `r` holds a triangle of
+/// mesh `m`, before the mesh's flags are scanned. The working mesh holds
+/// only strict layers' kept triangles.
+fn used_in(m: MeshSource, r: u32, slot: u32) -> bool {
+    if m.kind == MESH_WORK {
+        return requests[r].mode == MODE_EVERYWHERE && requests[r].strict != 0u
+            && arena[region(REGION_WORK_KEPT) + slot] != 0u;
+    }
+    return slot - requests[r].triangle_base < count_in(m, r);
 }
 
 /// Words per inner node: left and right child, then each child's bounds
@@ -122,7 +178,8 @@ fn from_order_bits(bits: u32) -> f32 {
 /// request `r`.
 fn corners_in(m: MeshSource, r: u32, slot: u32) -> array<vec3<f32>, 3> {
     let at = m.corners + m.corner_stride * slot;
-    let base = requests[r].vertex_base;
+    // The working mesh's corners are already global vertex slots.
+    let base = select(requests[r].vertex_base, 0u, m.kind == MESH_WORK);
     return array<vec3<f32>, 3>(
         load3(m.positions + m.position_stride * (base + arena[at])),
         load3(m.positions + m.position_stride * (base + arena[at + 1u])),
@@ -130,15 +187,20 @@ fn corners_in(m: MeshSource, r: u32, slot: u32) -> array<vec3<f32>, 3> {
     );
 }
 
-/// Returns how many triangles request `r` has in mesh `m`.
+/// Returns how many triangles request `r` has in mesh `m`. For the working
+/// mesh, only once its flags are scanned.
 fn count_in(m: MeshSource, r: u32) -> u32 {
+    if m.kind == MESH_WORK {
+        let first = first_in(m, r);
+        return arena[m.flags + first + capacity_in(m, r)] - arena[m.flags + first];
+    }
     return min(counter(r, m.count), requests[r].triangle_capacity);
 }
 
 /// Returns the global triangle slot at sorted position `position` of
 /// request `r`'s triangles in mesh `m`.
 fn sorted_in(m: MeshSource, r: u32, position: u32) -> u32 {
-    return arena[m.sorted + arena[m.flags + requests[r].triangle_base] + position];
+    return arena[m.sorted + arena[m.flags + first_in(m, r)] + position];
 }
 
 /// Returns the corners of the input's triangle slot `slot`, which belongs
@@ -181,12 +243,12 @@ fn bvh_bounds(
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
     let slot = item_index(global_id, num_workgroups);
-    if slot >= batch.total_triangles {
+    let m = build_mesh();
+    if slot >= slot_count(m) {
         return;
     }
-    let r = request_of_triangle(slot);
-    let m = build_mesh();
-    if slot - requests[r].triangle_base >= count_in(m, r) {
+    let r = request_in(m, slot);
+    if !used_in(m, r, slot) {
         return;
     }
     let c = centroid(corners_in(m, r, slot));
@@ -216,14 +278,14 @@ fn bvh_keys(
 ) {
     let slot = item_index(global_id, num_workgroups);
     let m = build_mesh();
-    if slot >= batch.total_triangles {
-        if slot == batch.total_triangles {
+    if slot >= slot_count(m) {
+        if slot == slot_count(m) {
             arena[m.flags + slot] = 0u;
         }
         return;
     }
-    let r = request_of_triangle(slot);
-    let used = slot - requests[r].triangle_base < count_in(m, r);
+    let r = request_in(m, slot);
+    let used = used_in(m, r, slot);
     arena[m.flags + slot] = select(0u, 1u, used);
     arena[m.request_key + slot] = r;
     if !used {
@@ -252,10 +314,10 @@ fn bvh_list(
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
     let slot = item_index(global_id, num_workgroups);
-    if slot >= batch.total_triangles {
+    let m = build_mesh();
+    if slot >= slot_count(m) {
         return;
     }
-    let m = build_mesh();
     if arena[m.flags + slot + 1u] != arena[m.flags + slot] {
         arena[m.list + arena[m.flags + slot]] = slot;
     }
@@ -285,13 +347,13 @@ fn bvh_build(
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
     let slot = item_index(global_id, num_workgroups);
-    if slot >= batch.total_triangles {
+    let m = build_mesh();
+    if slot >= slot_count(m) {
         return;
     }
-    let r = request_of_triangle(slot);
-    let m = build_mesh();
+    let r = request_in(m, slot);
     let n = count_in(m, r);
-    let node = slot - requests[r].triangle_base;
+    let node = slot - first_in(m, r);
     arena[m.ready + slot] = NOT_READY;
     if n < 2u || node >= n - 1u {
         return;
@@ -356,7 +418,7 @@ fn child_bounds(
         *bounds = triangle_bounds(corners_in(m, r, sorted_in(m, r, child & ~LEAF)));
         return true;
     }
-    let slot = requests[r].triangle_base + child;
+    let slot = first_in(m, r) + child;
     if arena[m.ready + slot] >= current {
         return false;
     }
@@ -374,13 +436,13 @@ fn bvh_refit(
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
     let slot = item_index(global_id, num_workgroups);
-    if slot >= batch.total_triangles {
+    let m = build_mesh();
+    if slot >= slot_count(m) {
         return;
     }
-    let r = request_of_triangle(slot);
-    let m = build_mesh();
+    let r = request_in(m, slot);
     let n = count_in(m, r);
-    let node = slot - requests[r].triangle_base;
+    let node = slot - first_in(m, r);
     if n < 2u || node >= n - 1u || arena[m.ready + slot] != NOT_READY {
         return;
     }
@@ -519,7 +581,7 @@ fn ray_hit_in(m: MeshSource, r: u32, origin: vec3<f32>, dir: vec3<f32>, t_max: f
     }
     let ray = make_ray(origin, dir);
     let inv_dir = 1.0 / dir;
-    let nodes = m.nodes + NODE_WORDS * requests[r].triangle_base;
+    let nodes = m.nodes + NODE_WORDS * first_in(m, r);
 
     // Walk nodes nearest first; a lone triangle is its own root.
     var stack: array<vec2<u32>, STACK_SIZE>;
@@ -575,7 +637,7 @@ fn ray_blocked(r: u32, origin: vec3<f32>, dir: vec3<f32>, t_max: f32) -> bool {
     }
     let ray = make_ray(origin, dir);
     let inv_dir = 1.0 / dir;
-    let nodes = m.nodes + NODE_WORDS * requests[r].triangle_base;
+    let nodes = m.nodes + NODE_WORDS * first_in(m, r);
     var stack: array<u32, STACK_SIZE>;
     var top = 1u;
     stack[0] = select(0u, LEAF, n == 1u);
@@ -676,7 +738,7 @@ fn closest_point_in(m: MeshSource, r: u32, p: vec3<f32>) -> Closest {
     if n == 0u {
         return best;
     }
-    let nodes = m.nodes + NODE_WORDS * requests[r].triangle_base;
+    let nodes = m.nodes + NODE_WORDS * first_in(m, r);
     var stack: array<vec2<u32>, STACK_SIZE>;
     var top = 1u;
     stack[0] = vec2<u32>(select(0u, LEAF, n == 1u), 0u);

@@ -50,7 +50,7 @@ procgena_stone, procgena_tree, Bevy or zeapp.
 
   Dependencies are glam 0.33, serde and serde_json, plus optional rayon and
   gltf-json, at the siblings' versions.
-- **CPU only for v1.** A GPU twin is later work.
+- **A GPU twin behind the `gpu` feature.** See "GPU twin" below.
 - **Same house pattern as the siblings.** A `crates/procgena_clump` workspace member
   with `Options`, `Preset`, JSON, `validate()` and `OptionsError`, deterministic
   output for a given seed, and OBJ and glTF export behind features.
@@ -481,6 +481,51 @@ cargo doc --workspace --all-features --no-deps
 cargo run -p procgena_clump --example spike --features export-obj
 ```
 
+## GPU twin
+
+`procgena_clump::gpu` (feature `gpu`) builds clumps in batches with wgpu,
+directly on input meshes already on the GPU, such as `procgena_stone`'s GPU
+rocks. Output stays on the GPU, ready for indirect drawing.
+
+- **Coverage:** every option the CPU has: scattered clumps and layers, open
+  or closed, in strict mode too. One input mesh per request, placed with an
+  affine transform; `grows_on` tag filtering is CPU only.
+- **Parity:** the GPU builds the same surface as `Clump::new`. On the test
+  inputs, counts and indices match exactly and positions agree within about
+  a millionth of the input's size. On 48 rock clumps in the bench, 46 match
+  exactly and 2 differ by a few vertices; that difference is not traced yet.
+- **CPU change it needed:** simplification tries edges in a seeded hash
+  order instead of triangle order, and the mean edge length adds in pairs,
+  so the GPU can make the same decisions in parallel.
+- **How it runs:**
+  - Shaders are WESL, compiled to WGSL by `build.rs`.
+  - Requests in a batch run in lockstep: one dispatch covers every request,
+    and loops run as many passes as the slowest request needs.
+  - All scratch lives in one `u32` arena split into regions, whose size
+    counts against the device's 128 MiB storage binding limit.
+- **Capacity:** each request reserves its output in advance. One that
+  needs more draws nothing and reports what it needed;
+  `GpuClumpRequest::grow_to_fit` and a retry fix it. A layer that overflows
+  part way through only knows what it needed so far, so a closed or strict
+  layer can take 3 or 4 tries.
+- **Bench** (`examples/bench_gpu.rs`, M1 Max, 8 rocks at resolution 48):
+  - layers are 3 to 6 times faster than the CPU, strict layers included;
+  - scattered clumps are slower than the CPU (0.5 to 0.8 times);
+  - closed layers fit only 1 or 2 rocks per batch under the arena limit.
+- **Follow-ups:**
+  - Strict layers pay for all 33 strict passes even when nothing crosses
+    (57 against 27 ms for one clean layer): stop early and refit only the
+    tree levels used.
+  - Scattered clumps: the per-request serial loops (`scatter_weights`,
+    `strict_decide`).
+  - Layers: about 280 slope and fold end dispatches, and the neighbour
+    search that builds the neighbour list, which is still quadratic in the
+    number of neighbours.
+  - Arena use per output slot, which limits batch sizes.
+  - Fewer `grow_to_fit` rounds for closed and strict layers.
+  - Trace the 2 rock clumps that differ from the CPU.
+  - Feed `procgena_clump_bevy` from GPU output, and GPU tag filtering.
+
 ## Later
 
 - Integration: done in `procgena_clump_bevy` and the studio's Clumps tab (see
@@ -496,7 +541,7 @@ cargo run -p procgena_clump --example spike --features export-obj
 - Geodesic falloff (Dijkstra on the edge graph), if Euclidean falloff bleeds
   through thin walls.
 - Camera-facing stalk cards, and wind data for stalks.
-- A GPU twin.
+- GPU twin follow-ups: see "GPU twin" above.
 
 ## Open items
 

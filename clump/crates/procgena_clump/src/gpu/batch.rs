@@ -13,7 +13,7 @@ use crate::options::{ClumpOptions, Placement};
 
 /// Byte sizes of `Request` and `Batch` in `batch.wesl`.
 pub(crate) const REQUEST_SIZE: usize = 416;
-pub(crate) const BATCH_SIZE: usize = 544;
+pub(crate) const BATCH_SIZE: usize = 672;
 
 /// Words of the counters buffer per request.
 pub(crate) const COUNTER_STRIDE: u32 = 64;
@@ -164,8 +164,18 @@ pub(crate) const REGION_CLOSE_AROUND_START: usize = 123;
 pub(crate) const REGION_CLOSE_AROUND_LIST: usize = 124;
 pub(crate) const FLAG_REGION_CLOSE_AROUND_COUNT: usize = 125;
 pub(crate) const FLAG_REGION_CLOSE_AROUND_CURSOR: usize = 126;
+pub(crate) const REGION_WORK_KEY_MORTON: usize = 127;
+pub(crate) const REGION_WORK_KEY_REQUEST: usize = 128;
+pub(crate) const REGION_WORK_BVH_FLAGS: usize = 129;
+pub(crate) const REGION_WORK_LIST_A: usize = 130;
+pub(crate) const REGION_WORK_LIST_B: usize = 131;
+pub(crate) const REGION_WORK_SORTED: usize = 132;
+pub(crate) const REGION_WORK_NODES: usize = 133;
+pub(crate) const REGION_WORK_READY: usize = 134;
+pub(crate) const REGION_STRICT_CROSSING: usize = 135;
+pub(crate) const FLAG_REGION_STRICT_TOUCH: usize = 136;
 /// Entries of the region table in use.
-pub(crate) const REGION_COUNT: usize = 127;
+pub(crate) const REGION_COUNT: usize = 137;
 
 /// Most blur and slope passes, and fold passes before folded triangles are
 /// left out (`MAX_BLUR_PASSES`, `MAX_SLOPE_PASSES` and `MAX_REPAIR_PASSES`
@@ -173,6 +183,10 @@ pub(crate) const REGION_COUNT: usize = 127;
 pub(crate) const MAX_BLUR_PASSES: u32 = 256;
 pub(crate) const MAX_SLOPE_PASSES: u32 = 256;
 pub(crate) const MAX_REPAIR_PASSES: u32 = 24;
+
+/// Strict passes a layer gets to remove its crossings (`MAX_STRICT_PASSES`
+/// in `strict.wesl`): thinning for up to `MAX_REPAIR_PASSES`, then cutting.
+pub(crate) const MAX_STRICT_PASSES: u32 = 32;
 
 /// Refine passes (`REFINE_PASSES` in `refine.wesl`).
 pub(crate) const REFINE_PASSES: u32 = 16;
@@ -188,8 +202,8 @@ pub(crate) const MAX_MIS_ROUNDS: u32 = 16;
 pub(crate) const POINT_WORDS: u32 = 18;
 pub(crate) const PATCH_TRI_WORDS: u32 = 6;
 
-/// Region slots in `Batch.regions` (thirty-two `vec4<u32>`).
-const REGION_SLOTS: usize = 128;
+/// Region slots in `Batch.regions` (forty `vec4<u32>`).
+const REGION_SLOTS: usize = 160;
 
 /// Words per inner BVH node (`NODE_WORDS` in `bvh.wesl`).
 pub(crate) const NODE_WORDS: u32 = 16;
@@ -223,6 +237,8 @@ pub(crate) struct RequestShape {
     /// closed into a solid.
     pub(crate) layer: bool,
     pub(crate) closed_layer: bool,
+    /// Whether the request's layer is checked for crossings (strict mode).
+    pub(crate) strict_layer: bool,
 }
 
 impl RequestShape {
@@ -253,6 +269,7 @@ impl RequestShape {
             strict_scatter: options.mesh.strict && options.placement.mode == Placement::Scatter,
             layer: options.placement.mode == Placement::Everywhere,
             closed_layer: options.placement.mode == Placement::Everywhere && options.mesh.closed,
+            strict_layer: options.placement.mode == Placement::Everywhere && options.mesh.strict,
         }
     }
 
@@ -321,10 +338,11 @@ pub(crate) struct BatchPlan {
     /// Words the flags buffer needs: one per seed slot, then every strict
     /// request's crossing bits.
     pub(crate) flag_words: u64,
-    /// Whether any request grows a layer, closes its layer, or scatters
-    /// clumps.
+    /// Whether any request grows a layer, closes its layer, checks its layer
+    /// in strict mode, or scatters clumps.
     pub(crate) has_layers: bool,
     pub(crate) has_closed_layers: bool,
+    pub(crate) has_strict_layers: bool,
     pub(crate) has_scatter: bool,
     pub(crate) weld_flags_scan: Vec<ScanLevel>,
     pub(crate) weld_starts_scan: Vec<ScanLevel>,
@@ -341,6 +359,13 @@ pub(crate) struct BatchPlan {
     /// Refit passes that finish every BVH node: one per tree level, and the
     /// tree is no deeper than its sort key is long.
     pub(crate) refit_passes: u32,
+    /// Strict layers: the assembled mesh's BVH refit passes, flags scan and
+    /// sort; and the strict passes to record, each acting on what the one
+    /// before found (`MAX_STRICT_PASSES` unless a test lowers it).
+    pub(crate) work_refit_passes: u32,
+    pub(crate) work_flags_scan: Vec<ScanLevel>,
+    pub(crate) work_sort: SortPlan,
+    pub(crate) strict_passes: u32,
     pub(crate) blob_vertices_scan: Vec<ScanLevel>,
     pub(crate) blob_triangles_scan: Vec<ScanLevel>,
     pub(crate) work_used_scan: Vec<ScanLevel>,
@@ -556,13 +581,31 @@ impl BatchPlan {
         regions[REGION_CLOSE_AROUND_START] = alloc(close_w64 + 1);
         regions[REGION_CLOSE_AROUND_LIST] = alloc(3 * close_wt64);
 
+        // Strict layers' regions: the assembled mesh's BVH and crossing
+        // marks, empty when no layer is strict.
+        let has_strict_layers = shapes.iter().any(|s| s.strict_layer);
+        let (strict_w, strict_wt) = if has_strict_layers { (w, wt) } else { (0, 0) };
+        let (strict_w64, strict_wt64) = (u64::from(strict_w), u64::from(strict_wt));
+        for one_per_triangle in [
+            REGION_WORK_KEY_MORTON,
+            REGION_WORK_KEY_REQUEST,
+            REGION_WORK_LIST_A,
+            REGION_WORK_LIST_B,
+            REGION_WORK_READY,
+            REGION_STRICT_CROSSING,
+        ] {
+            regions[one_per_triangle] = alloc(strict_wt64);
+        }
+        regions[REGION_WORK_BVH_FLAGS] = alloc(strict_wt64 + 1);
+        regions[REGION_WORK_NODES] = alloc(NODE_WORDS as u64 * strict_wt64);
+
         // Scratch shared by the scans and sorts, which run one at a time.
         let largest = [v, e, s, w, wt, sheet_wt.saturating_mul(3)]
             .into_iter()
             .max()
             .unwrap_or(0);
         let scan_scratch = alloc(sums_words(largest + 1) as u64);
-        let sort_scratch = alloc(hist_words(v.max(e)) as u64);
+        let sort_scratch = alloc(hist_words(v.max(e).max(strict_wt)) as u64);
 
         // The scans, each over its region plus the total at the end.
         let scan = |region: usize, count: u32| plan_scan(count + 1, regions[region], scan_scratch);
@@ -594,6 +637,7 @@ impl BatchPlan {
         let close_kept_scan = scan(REGION_CLOSE_KEPT, close_wt);
         let close_walls_scan = scan(REGION_CLOSE_WALLS, close_w);
         let close_around_scan = scan(REGION_CLOSE_AROUND_START, close_w);
+        let work_flags_scan = scan(REGION_WORK_BVH_FLAGS, strict_wt);
 
         // Sort vertices by position bits then request, edges by their
         // welded ends then request, and triangles by Morton code then
@@ -657,10 +701,28 @@ impl BatchPlan {
             ],
             sort_scratch,
         );
+        let work_sort = plan_sort(
+            strict_wt,
+            regions[REGION_WORK_BVH_FLAGS] + strict_wt,
+            regions[REGION_WORK_LIST_A],
+            regions[REGION_WORK_LIST_B],
+            &[
+                key(REGION_WORK_KEY_MORTON, MORTON_BITS),
+                key(REGION_WORK_KEY_REQUEST, request_bits),
+            ],
+            sort_scratch,
+        );
         regions[REGION_WELD_SORTED] = weld_sort.result_offset;
         regions[REGION_EDGE_SORTED] = edge_sort.result_offset;
         regions[REGION_TRI_SORTED] = triangle_sort.result_offset;
         regions[REGION_COARSE_SORTED] = coarse_sort.result_offset;
+        regions[REGION_WORK_SORTED] = work_sort.result_offset;
+        let max_strict_triangles = shapes
+            .iter()
+            .filter(|s| s.strict_layer)
+            .map(|s| s.out_indices / 3)
+            .max()
+            .unwrap_or(1);
 
         // Flags-buffer regions follow the crossing bits.
         let mut flag_words = pair_base as u64;
@@ -693,6 +755,8 @@ impl BatchPlan {
             regions[one_per_closed_vertex] = flag_words.min(u32::MAX as u64) as u32;
             flag_words += close_w64;
         }
+        regions[FLAG_REGION_STRICT_TOUCH] = flag_words.min(u32::MAX as u64) as u32;
+        flag_words += strict_w64;
 
         Self {
             slices,
@@ -717,6 +781,11 @@ impl BatchPlan {
             coarse_flags_scan,
             coarse_sort,
             refit_passes: MORTON_BITS + bits_for(max_triangles) + 1,
+            work_refit_passes: MORTON_BITS + bits_for(max_strict_triangles) + 1,
+            work_flags_scan,
+            work_sort,
+            strict_passes: MAX_STRICT_PASSES,
+            has_strict_layers,
             blob_vertices_scan,
             blob_triangles_scan,
             work_used_scan,

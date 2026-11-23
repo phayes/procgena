@@ -8,10 +8,10 @@
 //! necessarily the same buffers: GPU rounding can change a few vertices, and
 //! a decision that falls right at a threshold can go the other way.
 //!
-//! So far the GPU builds scattered clumps ([`Placement::Scatter`]), open or
-//! closed, in strict mode too, and layers ([`Placement::Everywhere`]), open
-//! or closed. Strict layers are still to come; requests for them return
-//! [`GpuError::Unsupported`].
+//! The GPU builds scattered clumps ([`Placement::Scatter`]) and layers
+//! ([`Placement::Everywhere`]), open or closed, in strict mode too. Strict
+//! mode on the GPU has a fixed number of passes: a layer that still crosses
+//! itself after them reports it in [`GpuClumpStatus::crossings`].
 //!
 //! Each request reserves room for its output in advance. A request that
 //! needs more draws nothing, and its [`GpuClumpStatus`] reports the counts
@@ -272,6 +272,10 @@ pub struct GpuClumpStatus {
     /// Layer clumps: simplifying the surface ran out of selection rounds in
     /// some pass, so it may have merged less than the CPU would.
     pub simplify_rounds_capped: bool,
+    /// Strict layer clumps: triangles that still pass through another,
+    /// because strict mode ran out of passes; 0 otherwise, and always 0 for
+    /// other clumps.
+    pub crossings: u32,
 }
 
 impl GpuClumpStatus {
@@ -297,6 +301,7 @@ impl GpuClumpStatus {
             thinned: word(11),
             slope_unsettled: word(12) != 0,
             simplify_rounds_capped: word(13) != 0,
+            crossings: word(14),
         }
     }
 }
@@ -468,9 +473,6 @@ fn check_request(index: usize, request: &GpuClumpRequest) -> Result<(), GpuError
         .validate()
         .map_err(|error| GpuError::InvalidOptions { index, error })?;
     let unsupported = |what| Err(GpuError::Unsupported { index, what });
-    if options.placement.mode == Placement::Everywhere && options.mesh.strict {
-        return unsupported("strict layer clumps (placement.mode Everywhere, mesh.strict)");
-    }
     if options.placement.count > MAX_GPU_SCATTER_COUNT {
         return unsupported("more than MAX_GPU_SCATTER_COUNT clumps");
     }

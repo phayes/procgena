@@ -74,6 +74,8 @@ const MIN_SOLID: f32 = 0.05;
 const TRI_HIDDEN: u32 = 0u;
 const TRI_KEPT: u32 = 1u;
 const TRI_FOLDED: u32 = 2u;
+/// A kept triangle cut out in strict mode because it crossed another.
+const TRI_CUT: u32 = 3u;
 
 /// No point.
 const NONE: u32 = 0xffffffffu;

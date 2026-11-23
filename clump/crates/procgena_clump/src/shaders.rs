@@ -91,8 +91,12 @@ pub const SHELL_WESL: &str = include_str!("../shaders/shell.wesl");
 /// Declares entry points. Import as `package::close`.
 pub const CLOSE_WESL: &str = include_str!("../shaders/close.wesl");
 
+/// Removes crossings from strict layers by thinning or cutting. Declares
+/// bindings and entry points. Import as `package::strict`.
+pub const STRICT_WESL: &str = include_str!("../shaders/strict.wesl");
+
 /// Every shader module as `(module path, source)`, for registering with a WESL resolver.
-pub const SHADER_MODULES: [(&str, &str); 20] = [
+pub const SHADER_MODULES: [(&str, &str); 21] = [
     ("package::hash", HASH_WESL),
     ("package::math", MATH_WESL),
     ("package::geometry", GEOMETRY_WESL),
@@ -113,19 +117,20 @@ pub const SHADER_MODULES: [(&str, &str); 20] = [
     ("package::refine", REFINE_WESL),
     ("package::shell", SHELL_WESL),
     ("package::close", CLOSE_WESL),
+    ("package::strict", STRICT_WESL),
 ];
 
 /// Modules with entry points, compiled to WGSL by `build.rs`. Keep in step
 /// with `ENTRY_MODULES` there.
 #[cfg(test)]
-pub(crate) const ENTRY_MODULES: [&str; 14] = [
+pub(crate) const ENTRY_MODULES: [&str; 15] = [
     "scan", "sort", "ingest", "weld", "bvh", "measure", "scatter", "output", "patch", "simplify",
-    "envelope", "refine", "shell", "close",
+    "envelope", "refine", "shell", "close", "strict",
 ];
 
 /// WGSL compiled at build time from [`ENTRY_MODULES`], as `(module name, source)`.
 #[cfg(feature = "gpu")]
-pub(crate) const COMPILED_WGSL: [(&str, &str); 14] = [
+pub(crate) const COMPILED_WGSL: [(&str, &str); 15] = [
     ("scan", include_str!(concat!(env!("OUT_DIR"), "/scan.wgsl"))),
     ("sort", include_str!(concat!(env!("OUT_DIR"), "/sort.wgsl"))),
     (
@@ -169,6 +174,10 @@ pub(crate) const COMPILED_WGSL: [(&str, &str); 14] = [
     (
         "close",
         include_str!(concat!(env!("OUT_DIR"), "/close.wgsl")),
+    ),
+    (
+        "strict",
+        include_str!(concat!(env!("OUT_DIR"), "/strict.wgsl")),
     ),
 ];
 
