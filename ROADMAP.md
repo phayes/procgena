@@ -149,6 +149,23 @@ flowchart TD
     GM4["GM4 Biome base ground and borders"]
     GM5["GM5 Far grass and forest tints"]
 
+    D5{{"D5 World and Biome scale"}}
+    G7["G7 Scale-aware terrain lengths"]
+    IX["IX Impostor-heavy experiment"]
+
+    ST0["ST0 Studio shell"]
+    ST1["ST1 Settings metadata, Inspector"]
+    ST2["ST2 Saving presets, project folder"]
+    ST3["ST3 Library and Outline"]
+    ST4["ST4 Capture and thumbnails"]
+    ST5a["ST5a Picking by tags"]
+    ST5b["ST5b Picking by part paths"]
+    ST6["ST6 Texture library"]
+    ST7a["ST7a Problems, overlays, stats"]
+    ST7b["ST7b Viewing distance"]
+    ST8["ST8 Export and commands"]
+    ST9["ST9 Studio later"]
+
     M0 --> F1
     D1 --> F1
     D1 --> F3
@@ -230,6 +247,33 @@ flowchart TD
     GM1 --> GM5
     R3 --> GM5
     S1 --> GM5
+
+    D5 --> G7
+    D5 --> W0
+    I1 --> IX
+    I1b --> IX
+
+    I1b --> ST0
+    ST0 --> ST1
+    ST0 --> ST2
+    ST1 --> ST3
+    ST2 --> ST3
+    ST0 --> ST4
+    I1b --> ST4
+    ST3 --> ST5a
+    R4 --> ST5a
+    X1 --> ST5b
+    ST2 --> ST6
+    ST3 --> ST6
+    ST4 --> ST6
+    GM1 --> ST6
+    ST1 --> ST7a
+    IX --> ST7b
+    ST0 --> ST7b
+    ST0 --> ST8
+    ST4 --> ST8
+    B1 --> ST9
+    W1 --> ST9
 
     classDef spine stroke-width:3px
     class M0,F1,C1,D2,C2,C3,B1,W1,S1 spine
@@ -1036,9 +1080,9 @@ a cell run in order within the wave.
 | 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files. After its premise was corrected (2026-11-24) it no longer blocks W0, which starts on today's 4 km region size. |
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
-| 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1 | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. |
-| 8 | W1; S1 (single Biome); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part) | |
-| 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; Later | |
+| 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
+| 8 | W1; S1 (single Biome); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. |
+| 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
 coordinator runs the full suite once per wave.
