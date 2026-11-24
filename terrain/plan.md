@@ -1754,12 +1754,27 @@ What that asks of this crate, and where it stands:
   Phase 2.7).
 - [x] **"Two terrains", not "two biomes".** A Biome is the level above
   that binds a Terrain to its Ecotopes.
-- [ ] **Slope as part of the ground.** `Terrain` implements
-  `procgena_mesh::Ground` with a gradient: analytic through relief (it
-  already has `relief.gradient`), border bending and carving, or
-  central differences where that isn't worth it; `HeightTile` gains a
-  gradient grid filled in the same pass. Labels' `Measures::slope` uses
-  the same gradient.
+- [x] **Slope as part of the ground** (G2, built 2026-11-24).
+  `Terrain` implements `procgena_core::Ground` with a gradient
+  (`Terrain::sample`), and `HeightTile` carries a gradient grid filled in
+  the same pass. Labels' `Measures::slope` will use the same gradient.
+  - Analytic: relief (fBm through the noise's gradient; eroded hills
+    through its second derivatives; ridged mountains, which take one
+    side's slope on a sharp crest), the fade's scaling and blend, E, the
+    shared border detail, and all carving (valley profile and pull,
+    gullies, road cuts and fills, the smooth minimum and maximum).
+  - By differences: the soft distance and mixed targets of the border's
+    and the fade's pulls, 0.5 m either side in f64 (`pull_gradients`). The
+    pulls' closed forms move with the point in ways not worth deriving.
+  - Heights are bit-identical to before. The border offers still read the
+    old central-difference `Relief::gradient`; switching them moves every
+    agreed profile, so it waits for G3 step 1.
+  - Precision: mountain heights carry up to about 5e-3 m of f32 rounding,
+    so tests compare the slope with differences over 4 m spans
+    (`tests/ground.rs`, `relief::tests::slopes_match_the_heights`).
+  - Cost: a sample near a border costs several pull evaluations (5 for the
+    bend, 5 for each fade blend); G3 step 2's batched path is the place to
+    make that cheaper.
 - [ ] **Labels for Biome rules.** `annotate` gives the primary `Landform`,
   `Flags` (WET, SNOW, ROAD …) and `Measures` (slope, height above water,
   distance to water or road). Today's `RoadTags` (road, cut, embankment,

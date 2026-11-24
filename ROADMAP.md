@@ -334,6 +334,14 @@ goldens, which have no baseline on this machine).
 - **Done when:** a grove planted directly on a `Terrain` matches its
   analytic slope against central differences, and the seam suites still
   pass.
+- **Status (2026-11-24): done.** `Terrain` implements `Ground`
+  (`Terrain::sample`, `Terrain::gradient`), `HeightField::sample` and
+  `HeightTile::gradients` carry the gradient. Analytic through relief
+  (noise derivatives, erosion through the noise's second derivatives),
+  fade, border bending and carving; the border's and fade's pulls are
+  differenced 0.5 m apart in f64. Heights are bit-identical to before.
+  Test `tests/ground.rs` (`a_grove_on_a_terrain_matches_its_slope`): worst
+  error 1.1e-3 against central differences over 4 m spans.
 
 #### G3: Terrain Phases 3 and 4
 

@@ -2,14 +2,15 @@
 
 use std::fmt;
 
-use glam::DVec2;
+use glam::{DVec2, Vec2};
+use procgena_core::{Ground, GroundSample};
 
-use crate::border::{Pull, SegmentIndex, surely_beyond};
+use crate::border::{Pull, SegmentIndex, pull_gradients, surely_beyond};
 use crate::carve::{FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
 use crate::hash::{SEAM_DETAIL, salt};
-use crate::noise::{Octaves, fbm};
+use crate::noise::{Octaves, fbm, fbm_gradient};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
 use crate::ports::{INNER_DEPTHS, Side, inner_depth, slope_reach};
@@ -19,7 +20,7 @@ use crate::region::{
 use crate::relief::Relief;
 use crate::seam::{
     CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
-    relative_to, sample_count, smooth, smootherstep,
+    relative_to, sample_count, smooth, smootherstep, smootherstep_slope,
 };
 
 /// Distances below this (metres) count as on the edge.
@@ -619,6 +620,128 @@ impl Terrain {
         let seam = border.seam(p);
         (seam + (broad - seam) * smootherstep(distance / band)) as f32
     }
+
+    /// The soft distance from `p` to the border and the border's targets
+    /// (agreed height, own height and detail, as heights above E) mixed by
+    /// their pull, or `None` where no edge is within reach. Unlike
+    /// [`base_height`](Self::base_height) it always mixes the targets.
+    fn bend_at(&self, p: DVec2) -> Option<(f64, [f64; 3])> {
+        let reach = BORDER_REACH * self.margin;
+        let near = self.index.near(p);
+        let mut pull = Pull::<3>::default();
+        for &(e, k) in near {
+            pull.add_distance(&self.seams[e].agreed.segments()[k], p, reach);
+        }
+        for &(e, k) in near {
+            let seam = &self.seams[e];
+            let target = |along: f64, across: f64| {
+                let carry = slope_reach(across);
+                let at = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * carry;
+                let (agreed, own) = (seam.agreed.sample(along), seam.own.sample(along));
+                [at(agreed), at(own), f64::from(agreed.detail)]
+            };
+            pull.add_targets(&seam.agreed.segments()[k], p, reach, EDGE_STEP, &target);
+        }
+        let distance = pull.distance(reach);
+        let mixed = pull.mixed()?;
+        distance.is_finite().then_some((distance, mixed))
+    }
+
+    /// The gradient of [`base_height`](Self::base_height) at `p`: analytic
+    /// through the terrain's own relief, E and the shared detail, with the
+    /// border's pull (its soft distance and mixed targets) taken by
+    /// differences (see [`pull_gradients`]).
+    fn base_slope(&self, p: DVec2) -> DVec2 {
+        let relief = &self.generator.relief;
+        let own_slope = relief.slope(p);
+        if self.seams.is_empty() {
+            return own_slope;
+        }
+
+        // The same choices as `base_height`.
+        let reach = BORDER_REACH * self.margin;
+        let near = self.index.near(p);
+        let segments = near
+            .iter()
+            .map(|&(e, k)| &self.seams[e].agreed.segments()[k]);
+        if surely_beyond(segments, p, reach, self.margin) {
+            return own_slope;
+        }
+        let on_edge = near.iter().find_map(|&(e, k)| {
+            let seam = &self.seams[e];
+            let (targets, distance) = Targets::at(seam, &seam.agreed.segments()[k], p);
+            (distance < ON_EDGE).then_some(targets)
+        });
+        let Some((distance, [agreed, own_target, detail])) = self.bend_at(p) else {
+            return own_slope;
+        };
+        if on_edge.is_none() && distance >= self.margin {
+            return own_slope;
+        }
+        let (distance_slope, [agreed_slope, own_target_slope, detail_slope]) =
+            pull_gradients(p, |q| self.bend_at(q));
+
+        // The shared detail and E, with their slopes.
+        let (noise, noise_slope) = fbm_gradient(p / DETAIL_WAVELENGTH, DETAIL_SEED, DETAIL_OCTAVES);
+        let (noise, noise_slope) = (f64::from(noise), noise_slope / DETAIL_WAVELENGTH);
+        let elevation = relief.elevation();
+        let (e, e_slope) = if elevation.is_flat() {
+            (0.0, DVec2::ZERO)
+        } else {
+            (f64::from(elevation.height(p)), elevation.gradient(p))
+        };
+        let seam_slope = |detail: f64| {
+            agreed_slope + e_slope + (detail_slope * noise + noise_slope * detail) * 0.5
+        };
+        if let Some(targets) = on_edge {
+            return seam_slope(targets.detail);
+        }
+
+        // Across the margin, then next to the border, as `base_height`.
+        let own = f64::from(relief.height(p));
+        let t = distance / self.margin;
+        let broad = own + (agreed - own_target) * (1.0 - smootherstep(t));
+        let broad_slope = own_slope + (agreed_slope - own_target_slope) * (1.0 - smootherstep(t))
+            - distance_slope * ((agreed - own_target) * smootherstep_slope(t) / self.margin);
+        let band = DETAIL_BAND.min(self.margin);
+        let seam = agreed + e + 0.5 * detail * noise;
+        let u = distance / band;
+        seam_slope(detail) * (1.0 - smootherstep(u))
+            + broad_slope * smootherstep(u)
+            + distance_slope * ((broad - seam) * smootherstep_slope(u) / band)
+    }
+
+    /// The ground's height at `p` with its gradient, the same as
+    /// [`height`](Self::height) gives, and how much it rises per metre
+    /// along x and z.
+    pub fn sample(&self, p: DVec2) -> GroundSample {
+        let base = self.base_height(p);
+        let (carved, slope) = self.features.carve(p, base, Some(self.base_slope(p)));
+        GroundSample {
+            height: carved.height,
+            gradient: slope.as_vec2(),
+        }
+    }
+
+    /// How much the ground rises per metre along x and z at `p`, as
+    /// [`sample`](Self::sample) gives it.
+    pub fn gradient(&self, p: DVec2) -> Vec2 {
+        self.sample(p).gradient
+    }
+}
+
+impl Ground for Terrain {
+    fn height(&self, p: DVec2) -> f32 {
+        Terrain::height(self, p)
+    }
+
+    fn gradient(&self, p: DVec2) -> Vec2 {
+        Terrain::gradient(self, p)
+    }
+
+    fn sample(&self, p: DVec2) -> GroundSample {
+        Terrain::sample(self, p)
+    }
 }
 
 /// What the border asks for at one point, mixed from nearby edges.
@@ -672,11 +795,29 @@ pub trait HeightField: Sync {
     /// Ground height at world position `p` (x and z, metres). NaN where
     /// there is no ground.
     fn height(&self, p: DVec2) -> f32;
+
+    /// The height at `p` with how much it rises per metre along x and z.
+    /// The default takes central differences of [`height`](Self::height)
+    /// [`GRADIENT_STEP`](procgena_core::GRADIENT_STEP) metres either side.
+    fn sample(&self, p: DVec2) -> GroundSample {
+        let step = procgena_core::GRADIENT_STEP;
+        let slope = |axis: DVec2| {
+            (self.height(p + axis * step) - self.height(p - axis * step)) / (2.0 * step) as f32
+        };
+        GroundSample {
+            height: self.height(p),
+            gradient: Vec2::new(slope(DVec2::X), slope(DVec2::Y)),
+        }
+    }
 }
 
 impl HeightField for Terrain {
     fn height(&self, p: DVec2) -> f32 {
         Terrain::height(self, p)
+    }
+
+    fn sample(&self, p: DVec2) -> GroundSample {
+        Terrain::sample(self, p)
     }
 }
 
@@ -684,9 +825,17 @@ impl HeightField for TerrainGenerator {
     fn height(&self, p: DVec2) -> f32 {
         self.natural_height(p)
     }
+
+    fn sample(&self, p: DVec2) -> GroundSample {
+        GroundSample {
+            height: self.natural_height(p),
+            gradient: self.relief.slope(p).as_vec2(),
+        }
+    }
 }
 
-/// A grid of heights on the world lattice.
+/// A grid of heights, with the ground's gradient at each, on the world
+/// lattice.
 ///
 /// Sample `(i, j)` is at world position `((origin.x + i)·step, (origin.y +
 /// j)·step)`. Positions are computed from integers, so two tiles with the
@@ -701,6 +850,11 @@ pub struct HeightTile {
     pub size: glam::UVec2,
     /// Heights in metres, row by row (x fastest).
     pub heights: Vec<f32>,
+    /// How much the ground rises per metre along x and z at each sample,
+    /// in the same order as `heights`. Each is the field's own gradient at
+    /// that point (see [`HeightField::sample`]), not a difference of
+    /// neighbouring samples.
+    pub gradients: Vec<Vec2>,
 }
 
 impl HeightTile {
@@ -712,29 +866,37 @@ impl HeightTile {
         size: glam::UVec2,
         step: f64,
     ) -> Self {
-        let row = |j: u32| -> Vec<f32> {
+        let row = |j: u32| -> Vec<GroundSample> {
             let z = (origin.y + i64::from(j)) as f64 * step;
             (0..size.x)
-                .map(|i| field.height(DVec2::new((origin.x + i64::from(i)) as f64 * step, z)))
+                .map(|i| field.sample(DVec2::new((origin.x + i64::from(i)) as f64 * step, z)))
                 .collect()
         };
         #[cfg(feature = "rayon")]
-        let rows: Vec<Vec<f32>> = {
+        let rows: Vec<Vec<GroundSample>> = {
             use rayon::prelude::*;
             (0..size.y).into_par_iter().map(row).collect()
         };
         #[cfg(not(feature = "rayon"))]
-        let rows: Vec<Vec<f32>> = (0..size.y).map(row).collect();
+        let rows: Vec<Vec<GroundSample>> = (0..size.y).map(row).collect();
+        let samples = rows.concat();
         Self {
             origin,
             step,
             size,
-            heights: rows.concat(),
+            heights: samples.iter().map(|s| s.height).collect(),
+            gradients: samples.iter().map(|s| s.gradient).collect(),
         }
     }
 
     /// The height at sample `(i, j)`.
     pub fn get(&self, i: u32, j: u32) -> f32 {
         self.heights[(j * self.size.x + i) as usize]
+    }
+
+    /// The gradient at sample `(i, j)`: how much the ground rises per metre
+    /// along x and z.
+    pub fn gradient(&self, i: u32, j: u32) -> Vec2 {
+        self.gradients[(j * self.size.x + i) as usize]
     }
 }

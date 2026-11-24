@@ -6,7 +6,7 @@ use glam::DVec2;
 
 use crate::gully;
 use crate::ports::BANK_REACH;
-use crate::seam::smootherstep;
+use crate::seam::{smootherstep, smootherstep_slope};
 
 /// How steeply a river or pond bank, and a river's valley wall, rises, as
 /// rise over run (about 19°).
@@ -248,6 +248,42 @@ fn segment_position(line: &FeatureLine, segment: usize, p: DVec2) -> (f64, f64) 
     (p.distance(a + ab * t), t)
 }
 
+/// How the distance from `p` to a feature line's segment, and the share
+/// along it of its closest point, change along x and z (see
+/// [`segment_position`]). Both are taken as not changing where the closest
+/// point is an end, or `p` is on the segment.
+fn segment_slopes(line: &FeatureLine, segment: usize, p: DVec2) -> (DVec2, DVec2) {
+    let (a, b) = (line.points[segment], line.points[segment + 1]);
+    let ab = b - a;
+    let (d, t) = segment_position(line, segment, p);
+    let distance = if d > 0.0 {
+        (p - (a + ab * t)) / d
+    } else {
+        DVec2::ZERO
+    };
+    let along = if t > 0.0 && t < 1.0 {
+        ab / ab.length_squared()
+    } else {
+        DVec2::ZERO
+    };
+    (distance, along)
+}
+
+/// The gradients of [`smooth_min`]'s result by `a` and by `b`.
+fn smooth_min_slopes(a: f64, b: f64, k: f64) -> (f64, f64) {
+    let h = (k - (a - b).abs()).max(0.0) / k;
+    if a < b {
+        (1.0 - 0.5 * h, 0.5 * h)
+    } else {
+        (0.5 * h, 1.0 - 0.5 * h)
+    }
+}
+
+/// The gradients of [`smooth_max`]'s result by `a` and by `b`.
+fn smooth_max_slopes(a: f64, b: f64, k: f64) -> (f64, f64) {
+    smooth_min_slopes(-a, -b, k)
+}
+
 /// The shape of a river's valley on its two sides at one river point:
 /// index 0 is the left side looking downstream, 1 the right. All distances
 /// are in metres from the water's edge.
@@ -295,6 +331,30 @@ impl ValleyShape {
             lerp(self.reach, other.reach),
         )
     }
+
+    /// The gradients of [`side_towards`](Self::side_towards)'s floor, wall
+    /// and reach, given the gradients `t_slope` of `t` and `left_slope` of
+    /// `left`.
+    fn side_towards_slopes(
+        &self,
+        other: &Self,
+        t: f64,
+        left: f64,
+        t_slope: DVec2,
+        left_slope: DVec2,
+    ) -> [DVec2; 3] {
+        let slope = |a: [f32; 2], b: [f32; 2]| {
+            let pick = |v: [f32; 2]| f64::from(v[1]) + (f64::from(v[0]) - f64::from(v[1])) * left;
+            let gap = |v: [f32; 2]| f64::from(v[0]) - f64::from(v[1]);
+            let by_left = gap(a) + (gap(b) - gap(a)) * t;
+            t_slope * (pick(b) - pick(a)) + left_slope * by_left
+        };
+        [
+            slope(self.floor, other.floor),
+            slope(self.wall, other.wall),
+            slope(self.reach, other.reach),
+        ]
+    }
 }
 
 /// How far the corner between a valley's floor and its wall is rounded
@@ -311,6 +371,64 @@ fn rounded_ramp(t: f64) -> f64 {
     } else {
         t - 0.5 * FLOOR_ROUNDING
     }
+}
+
+/// The slope of [`rounded_ramp`] at `t`.
+fn rounded_ramp_slope(t: f64) -> f64 {
+    if t <= 0.0 {
+        0.0
+    } else if t < FLOOR_ROUNDING {
+        t / FLOOR_ROUNDING
+    } else {
+        1.0
+    }
+}
+
+/// What the gradients of the inputs of [`valley`] are: of the distance, the
+/// level, and the floor, wall and reach. The half width and depth don't
+/// change within one segment.
+struct ValleySlopes {
+    distance: DVec2,
+    level: DVec2,
+    shape: [DVec2; 3],
+}
+
+/// The gradients of [`valley`]'s profile and pull, for the same inputs and
+/// their gradients `slopes`. Zero where `valley` gives `None`.
+fn valley_slopes(
+    d: f64,
+    half_width: f64,
+    depth: f32,
+    (floor, wall, reach): (f64, f64, f64),
+    slopes: &ValleySlopes,
+) -> (DVec2, DVec2) {
+    if d <= half_width {
+        let r = d / half_width;
+        let profile = slopes.level + slopes.distance * (2.0 * f64::from(depth) * r / half_width);
+        return (profile, DVec2::ZERO);
+    }
+    let x = d - half_width;
+    if x >= reach {
+        return (DVec2::ZERO, DVec2::ZERO);
+    }
+    let [floor_slope, wall_slope, reach_slope] = slopes.shape;
+    let width = reach - floor;
+    let raw = (x - floor) / width;
+    let (u, u_slope) = if raw > 0.0 {
+        let along = slopes.distance - floor_slope;
+        (
+            raw,
+            (along * width - (reach_slope - floor_slope) * (x - floor)) / (width * width),
+        )
+    } else {
+        (0.0, DVec2::ZERO)
+    };
+    let fade = 1.0 - u * u;
+    let pull = u_slope * (-4.0 * u * fade);
+    let profile = slopes.level
+        + wall_slope * rounded_ramp(x - floor)
+        + (slopes.distance - floor_slope) * (wall * rounded_ramp_slope(x - floor));
+    (profile, pull)
 }
 
 /// The shape a river or pond pulls the ground towards at distance `d` from
@@ -391,6 +509,43 @@ fn grooves(p: DVec2, flow: DVec2) -> f64 {
     groove * groove
 }
 
+/// The gradient of [`gully_depth`], given the gradients of `x`, of the
+/// shape's floor and reach (`floor_slope`, `reach_slope`), and of `above`.
+fn gully_depth_slope(
+    x: f64,
+    (floor, _, reach): (f64, f64, f64),
+    above: f64,
+    [x_slope, floor_slope, reach_slope, above_slope]: [DVec2; 4],
+) -> DVec2 {
+    if x <= floor || x >= reach || above <= 0.0 {
+        return DVec2::ZERO;
+    }
+    let width = reach - floor;
+    let u = (x - floor) / width;
+    let u_slope = ((x_slope - floor_slope) * width - (reach_slope - floor_slope) * (x - floor))
+        / (width * width);
+    let mask = 6.75 * u * (1.0 - u) * (1.0 - u);
+    let mask_slope = u_slope * (6.75 * (1.0 - u) * (1.0 - 3.0 * u));
+    let (cap, cap_slope) = if GULLY_SHARE * above < GULLY_DEPTH {
+        (GULLY_SHARE * above, above_slope * GULLY_SHARE)
+    } else {
+        (GULLY_DEPTH, DVec2::ZERO)
+    };
+    cap_slope * mask + mask_slope * cap
+}
+
+/// The gradient of [`grooves`], where `flow` changes with `p` by
+/// `flow_slope` (along x, then along z).
+fn grooves_slope(p: DVec2, flow: DVec2, flow_slope: [DVec2; 2]) -> DVec2 {
+    let v = (gully::stripes(p, flow, GULLY_SPACING, 0)
+        + 0.5 * gully::stripes(p, flow, 0.5 * GULLY_SPACING, 1))
+        / 1.5;
+    let v_slope = (gully::stripes_slope(p, flow, flow_slope, GULLY_SPACING, 0)
+        + gully::stripes_slope(p, flow, flow_slope, 0.5 * GULLY_SPACING, 1) * 0.5)
+        / 1.5;
+    v_slope * (0.5 * (v + 1.0))
+}
+
 /// How far out a river's valley may reach at a point where it cuts `cut`
 /// metres below the natural ground, beyond a floor `floor` metres wide, with
 /// walls at `wall` (rise over run): far enough for its wall to climb out
@@ -411,6 +566,18 @@ fn road_tolerance(d: f64, half_width: f64, bank: f64) -> Option<f64> {
         return Some(ROAD_TOLERANCE);
     }
     (x < BANK_REACH).then(|| ROAD_TOLERANCE + bank * x / (1.0 - (x / BANK_REACH).powi(8)))
+}
+
+/// The gradient of [`road_tolerance`] at `x` metres beyond the road's
+/// edge, given the gradients of `x` and of `bank`.
+fn road_tolerance_slope(x: f64, bank: f64, x_slope: DVec2, bank_slope: DVec2) -> DVec2 {
+    if x <= 0.0 || x >= BANK_REACH {
+        return DVec2::ZERO;
+    }
+    let u8 = (x / BANK_REACH).powi(8);
+    let fall = 1.0 - u8;
+    let fall_slope = x_slope * (-8.0 * u8 / x);
+    bank_slope * (x / fall) + (x_slope * fall - fall_slope * x) * (bank / (fall * fall))
 }
 
 /// The slope, as rise over run, of a road's cutting or embankment bank at
@@ -543,35 +710,84 @@ impl Features {
         )
     }
 
+    /// The gradients of [`road_at`](Self::road_at)'s distance, half width,
+    /// level and bank steepness.
+    fn road_slopes(&self, line: u32, segment: u32, p: DVec2) -> [DVec2; 4] {
+        let (road, banks) = (&self.roads[line as usize], &self.road_banks[line as usize]);
+        let s = segment as usize;
+        let (distance, t) = segment_slopes(road, s, p);
+        let change = |a: f32, b: f32| t * (f64::from(b) - f64::from(a));
+        [
+            distance,
+            change(road.widths[s], road.widths[s + 1]) * 0.5,
+            change(road.levels[s], road.levels[s + 1]),
+            change(banks[s], banks[s + 1]),
+        ]
+    }
+
     /// Carves ground of height `h` at `p`: rivers and ponds cut it down,
     /// then roads cut or fill it to their level.
     pub(crate) fn apply(&self, p: DVec2, h: f32) -> Carved {
+        self.carve(p, h, None).0
+    }
+
+    /// [`apply`](Self::apply), with the gradient of the carved ground when
+    /// `slope`, the gradient of the uncarved ground at `p`, is given;
+    /// otherwise the gradient returned is zero.
+    pub(crate) fn carve(&self, p: DVec2, h: f32, slope: Option<DVec2>) -> (Carved, DVec2) {
         let key = (
             (p.x / INDEX_CELL).floor() as i64,
             (p.y / INDEX_CELL).floor() as i64,
         );
+        let h_slope = slope.unwrap_or_default();
         let Some(items) = self.index.get(&key) else {
-            return Carved {
+            let carved = Carved {
                 height: h,
                 water: None,
                 tags: RoadTags::NONE,
             };
+            return (carved, h_slope);
         };
+        let track = slope.is_some();
 
         // Roads near here: gullies keep away from them, then they hold the
         // ground to their level.
-        let roads: Vec<(f64, f64, f64, f64)> = items
+        let road_items: Vec<(u32, u32)> = items
             .iter()
             .filter_map(|item| match *item {
-                Item::Road { line, segment } => Some(self.road_at(line, segment, p)),
+                Item::Road { line, segment } => Some((line, segment)),
                 _ => None,
             })
             .collect();
+        let roads: Vec<(f64, f64, f64, f64)> = road_items
+            .iter()
+            .map(|&(line, segment)| self.road_at(line, segment, p))
+            .collect();
+        let road_slopes: Vec<[DVec2; 4]> = if track {
+            road_items
+                .iter()
+                .map(|&(line, segment)| self.road_slopes(line, segment, p))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let road_gap = roads
             .iter()
             .map(|&(d, half_width, _, _)| d - half_width)
             .fold(f64::INFINITY, f64::min);
         let road_fade = smootherstep((road_gap - GULLY_ROAD_CLEARANCE) / GULLY_ROAD_FADE);
+        let road_fade_slope = if track && road_gap.is_finite() {
+            // The nearest road's gap, as `fold` picks it.
+            let nearest = roads
+                .iter()
+                .position(|&(d, half_width, _, _)| d - half_width == road_gap)
+                .expect("the gap is one road's");
+            let [distance, half_width, _, _] = road_slopes[nearest];
+            let t = (road_gap - GULLY_ROAD_CLEARANCE) / GULLY_ROAD_FADE;
+            (distance - half_width) * (smootherstep_slope(t) / GULLY_ROAD_FADE)
+        } else {
+            DVec2::ZERO
+        };
 
         // Rivers and ponds: each lowers ground above its valley profile by
         // its pull, and a river's walls by its gullies; the deepest
@@ -579,8 +795,17 @@ impl Features {
         // within the water's width.
         let mut water: Option<f32> = None;
         let mut lowering = 0.0_f64;
+        let mut lowering_slope = DVec2::ZERO;
+        let no_slopes = || ValleySlopes {
+            distance: DVec2::ZERO,
+            level: DVec2::ZERO,
+            shape: [DVec2::ZERO; 3],
+        };
         for item in items {
-            let (d, half_width, level, depth, shape, flow) = match *item {
+            // Each item's inputs to its valley, with their gradients when
+            // tracked, and for a gullied river the way to it and how that
+            // way turns.
+            let (d, half_width, level, depth, shape, flow, slopes, flow_slope) = match *item {
                 Item::River { line, segment } => {
                     let (river, valleys) = (
                         &self.rivers[line as usize],
@@ -594,27 +819,79 @@ impl Features {
                     // blending round its ends so the two sides' shapes
                     // meet without a step. And the way to the river.
                     let (a, b) = (river.points[s], river.points[s + 1]);
-                    let lateral = (b - a).normalize_or_zero().perp_dot(p - a);
+                    let direction = (b - a).normalize_or_zero();
+                    let lateral = direction.perp_dot(p - a);
+                    let raw_left = 0.5 + 0.5 * lateral / d;
                     let left = if d > 0.0 {
-                        (0.5 + 0.5 * lateral / d).clamp(0.0, 1.0)
+                        raw_left.clamp(0.0, 1.0)
                     } else {
                         0.5
                     };
                     let shape = valleys[s].side_towards(&valleys[s + 1], t, left);
                     let flow = (valleys[s].gullies && valleys[s + 1].gullies)
                         .then(|| (a.lerp(b, t) - p).normalize_or_zero());
-                    (d, half_width(river, s), level, river.depth, shape, flow)
+                    let (mut slopes, mut flow_slope) = (no_slopes(), [DVec2::ZERO; 2]);
+                    if track {
+                        let (d_slope, t_slope) = segment_slopes(river, s, p);
+                        let left_slope = if d > 0.0 && raw_left > 0.0 && raw_left < 1.0 {
+                            (direction.perp() * d - d_slope * lateral) * (0.5 / (d * d))
+                        } else {
+                            DVec2::ZERO
+                        };
+                        let level_change =
+                            f64::from(river.levels[s + 1]) - f64::from(river.levels[s]);
+                        slopes = ValleySlopes {
+                            distance: d_slope,
+                            level: t_slope * level_change,
+                            shape: valleys[s].side_towards_slopes(
+                                &valleys[s + 1],
+                                t,
+                                left,
+                                t_slope,
+                                left_slope,
+                            ),
+                        };
+                        // The way to the river's closest point, `n / |n|`.
+                        let n = a.lerp(b, t) - p;
+                        let length = n.length();
+                        if flow.is_some() && length > 0.0 {
+                            let f = n / length;
+                            flow_slope = [DVec2::X, DVec2::Y].map(|e| {
+                                let dn = (b - a) * t_slope.dot(e) - e;
+                                (dn - f * f.dot(dn)) / length
+                            });
+                        }
+                    }
+                    let width = half_width(river, s);
+                    (
+                        d,
+                        width,
+                        level,
+                        river.depth,
+                        shape,
+                        flow,
+                        slopes,
+                        flow_slope,
+                    )
                 }
                 Item::Pond(i) => {
                     let pond = &self.ponds[i as usize];
                     let shape = (0.0, RIVER_BANK, BANK_REACH);
+                    let d = p.distance(pond.centre);
+                    let mut slopes = no_slopes();
+                    if track && d > 0.0 {
+                        slopes.distance = (p - pond.centre) / d;
+                    }
+                    let flow_slope = [DVec2::ZERO; 2];
                     (
-                        p.distance(pond.centre),
+                        d,
                         pond.radius,
                         pond.level,
                         pond.depth,
                         shape,
                         None,
+                        slopes,
+                        flow_slope,
                     )
                 }
                 Item::Road { .. } => continue,
@@ -622,14 +899,42 @@ impl Features {
             if let Some((profile, pull)) = valley(d, half_width, level, depth, shape) {
                 let above = smooth_max(f64::from(h) - profile, 0.0, RIVER_BLEND);
                 let mut lowered = pull * above;
+                let mut lowered_slope = DVec2::ZERO;
+                let (profile_slope, pull_slope) = if track {
+                    valley_slopes(d, half_width, depth, shape, &slopes)
+                } else {
+                    (DVec2::ZERO, DVec2::ZERO)
+                };
+                if track {
+                    let (by_above, _) = smooth_max_slopes(f64::from(h) - profile, 0.0, RIVER_BLEND);
+                    let above_slope = (h_slope - profile_slope) * by_above;
+                    lowered_slope = pull_slope * above + above_slope * pull;
+                }
                 // Gullies, unless even their deepest couldn't beat another
                 // river's lowering here.
                 if let Some(flow) = flow {
                     let walled = f64::from(h) - lowered;
                     let most = gully_depth(d - half_width, shape, walled - f64::from(level));
                     if road_fade > 0.0 && most > 0.0 && lowered + road_fade * most > lowering {
-                        lowered += road_fade * (most * grooves(p, flow));
+                        let groove = grooves(p, flow);
+                        if track {
+                            let above_slope = h_slope - lowered_slope - slopes.level;
+                            let [floor_slope, _, reach_slope] = slopes.shape;
+                            let most_slope = gully_depth_slope(
+                                d - half_width,
+                                shape,
+                                walled - f64::from(level),
+                                [slopes.distance, floor_slope, reach_slope, above_slope],
+                            );
+                            lowered_slope += road_fade_slope * (most * groove)
+                                + (most_slope * groove + grooves_slope(p, flow, flow_slope) * most)
+                                    * road_fade;
+                        }
+                        lowered += road_fade * (most * groove);
                     }
+                }
+                if lowered > lowering {
+                    lowering_slope = lowered_slope;
                 }
                 lowering = lowering.max(lowered);
                 if d <= half_width {
@@ -638,12 +943,27 @@ impl Features {
             }
         }
         let mut height = (f64::from(h) - lowering) as f32;
+        let mut height_slope = h_slope - lowering_slope;
 
         // Roads: hold the ground within reach of the road's level.
         let uncut = f64::from(height);
-        for &(d, half_width, level, bank) in &roads {
+        for (i, &(d, half_width, level, bank)) in roads.iter().enumerate() {
             if let Some(e) = road_tolerance(d, half_width, bank) {
                 let held = smooth_min(f64::from(height), level + e, ROAD_BLEND);
+                if track {
+                    let [d_slope, width_slope, level_slope, bank_slope] = road_slopes[i];
+                    let e_slope = road_tolerance_slope(
+                        d - half_width,
+                        bank,
+                        d_slope - width_slope,
+                        bank_slope,
+                    );
+                    let (by_ground, by_top) =
+                        smooth_min_slopes(f64::from(height), level + e, ROAD_BLEND);
+                    let held_slope = height_slope * by_ground + (level_slope + e_slope) * by_top;
+                    let (by_held, by_bottom) = smooth_max_slopes(held, level - e, ROAD_BLEND);
+                    height_slope = held_slope * by_held + (level_slope - e_slope) * by_bottom;
+                }
                 height = smooth_max(held, level - e, ROAD_BLEND) as f32;
             }
         }
@@ -680,11 +1000,12 @@ impl Features {
                 tags |= RoadTags::BLUFF;
             }
         }
-        Carved {
+        let carved = Carved {
             height,
             water: water.filter(|&w| height < w),
             tags,
-        }
+        };
+        (carved, height_slope)
     }
 }
 

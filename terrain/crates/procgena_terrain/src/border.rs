@@ -189,6 +189,48 @@ impl<const N: usize> Pull<N> {
     }
 }
 
+/// How far either side of a point, in metres, a pull is read to find how
+/// its soft distance and mixed targets change there (see
+/// [`pull_gradients`]). Well under the shortest distance over which the
+/// targets change shape.
+const PULL_STEP: f64 = 0.5;
+
+/// How a pull's soft distance and its mixed targets change along x and z at
+/// `p`, by central differences [`PULL_STEP`] metres either side. `at` gives
+/// the soft distance and the mixed targets at a point, or `None` where
+/// nothing is within reach; on an axis with nothing within reach on one
+/// side, that side is replaced by `p` itself, and on an axis with nothing
+/// on either side the change is zero.
+pub(crate) fn pull_gradients<const N: usize>(
+    p: DVec2,
+    at: impl Fn(DVec2) -> Option<(f64, [f64; N])>,
+) -> (DVec2, [DVec2; N]) {
+    let here = std::cell::OnceCell::new();
+    let mut distance = DVec2::ZERO;
+    let mut mixed = [DVec2::ZERO; N];
+    for (axis, unit) in [DVec2::X, DVec2::Y].into_iter().enumerate() {
+        let ahead = at(p + unit * PULL_STEP);
+        let behind = at(p - unit * PULL_STEP);
+        let (ahead, behind, span) = match (ahead, behind) {
+            (Some(a), Some(b)) => (a, b, 2.0 * PULL_STEP),
+            (Some(a), None) => match *here.get_or_init(|| at(p)) {
+                Some(h) => (a, h, PULL_STEP),
+                None => continue,
+            },
+            (None, Some(b)) => match *here.get_or_init(|| at(p)) {
+                Some(h) => (h, b, PULL_STEP),
+                None => continue,
+            },
+            (None, None) => continue,
+        };
+        distance[axis] = (ahead.0 - behind.0) / span;
+        for (m, (a, b)) in mixed.iter_mut().zip(ahead.1.iter().zip(behind.1)) {
+            m[axis] = (a - b) / span;
+        }
+    }
+    (distance, mixed)
+}
+
 /// Whether the soft distance from `p` to `segments`, with pulls out to
 /// `reach`, is certainly at least `width`, judged from each segment's plain
 /// distance and length alone, which is much cheaper than adding the pulls.

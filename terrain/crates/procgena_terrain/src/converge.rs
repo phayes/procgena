@@ -4,11 +4,11 @@
 
 use glam::DVec2;
 
-use crate::border::{Pull, SegmentIndex, surely_beyond};
+use crate::border::{Pull, SegmentIndex, pull_gradients, surely_beyond};
 use crate::options::RoadGrades;
 use crate::region::{EdgeId, Region, RegionId, Segment, segments};
 use crate::relief::Relief;
-use crate::seam::smootherstep;
+use crate::seam::{smootherstep, smootherstep_slope};
 use crate::terrain::{BORDER_REACH, ON_EDGE};
 
 /// The default [`relief_target`] exponent: each side of an edge changes its
@@ -607,6 +607,146 @@ impl Fade {
             *o += (m - *o) * fade;
         }
         Some(out)
+    }
+
+    /// The soft distance from `p` to the faded edges and their values mixed
+    /// by their pull, for a fade `width` metres wide, or `None` where no
+    /// edge is within reach. Unlike [`blend`](Self::blend) it always mixes
+    /// the values, however far `p` is from the edges.
+    fn pull_at<const N: usize>(
+        &self,
+        p: DVec2,
+        width: f64,
+        value: &impl Fn(&FadeEdge, f64) -> [f64; N],
+    ) -> Option<(f64, [f64; N])> {
+        let reach = BORDER_REACH * width;
+        let mut pull = Pull::<N>::default();
+        let near = self.index.near(p);
+        for &(e, k) in near {
+            pull.add_distance(&self.edges[e].segments[k], p, reach);
+        }
+        for &(e, k) in near {
+            let (edge, segment) = (&self.edges[e], &self.edges[e].segments[k]);
+            pull.add_targets(segment, p, reach, FADE_STEP, &|along, _| value(edge, along));
+        }
+        let distance = pull.distance(reach);
+        let mixed = pull.mixed()?;
+        distance.is_finite().then_some((distance, mixed))
+    }
+
+    /// [`blend`](Self::blend) with gradients: `own_slope` is the gradient
+    /// of `own`, and the result is the mix with its gradient. The values'
+    /// own change along x and z is taken from differences of their pull
+    /// (see [`pull_gradients`]), with `value` read only along the edges.
+    fn blend_gradient<const N: usize>(
+        &self,
+        p: DVec2,
+        width: f64,
+        own: [f64; N],
+        own_slope: [DVec2; N],
+        value: impl Fn(&FadeEdge, f64) -> [f64; N],
+    ) -> Option<([f64; N], [DVec2; N])> {
+        // The same choices as `blend`.
+        let reach = BORDER_REACH * width;
+        let near = self.index.near(p);
+        let segments = near.iter().map(|&(e, k)| &self.edges[e].segments[k]);
+        if surely_beyond(segments, p, reach, width) {
+            return None;
+        }
+        let on_edge = near.iter().find_map(|&(e, k)| {
+            let projection = self.edges[e].segments[k].project(p);
+            (projection.distance < ON_EDGE).then(|| value(&self.edges[e], projection.along))
+        });
+        let (distance, mixed) = self.pull_at(p, width, &value)?;
+        let (distance_slope, mixed_slope) = pull_gradients(p, |q| self.pull_at(q, width, &value));
+        if let Some(on_edge) = on_edge {
+            return Some((on_edge, mixed_slope));
+        }
+        if distance >= width {
+            return None;
+        }
+
+        // From the edges' values to `own` across the fade width.
+        let t = distance / width;
+        let fade = 1.0 - smootherstep(t);
+        let fade_slope = -distance_slope * (smootherstep_slope(t) / width);
+        let mut out = own;
+        let mut out_slope = own_slope;
+        for i in 0..N {
+            out[i] += (mixed[i] - own[i]) * fade;
+            out_slope[i] +=
+                (mixed_slope[i] - own_slope[i]) * fade + fade_slope * (mixed[i] - own[i]);
+        }
+        Some((out, out_slope))
+    }
+
+    /// The layer scales at `p` with their gradients, or `None` where the
+    /// fade doesn't reach and every layer is kept as it is.
+    pub(crate) fn scales_gradient(&self, p: DVec2) -> Option<([f64; 3], [DVec2; 3])> {
+        self.blend_gradient(p, self.width, [1.0; 3], [DVec2::ZERO; 3], |edge, along| {
+            let target = edge.target.amplitude_at(along, edge.length);
+            scales_at(level_for(self.own.spreads, target)).map(f64::from)
+        })
+    }
+
+    /// [`blended`](Self::blended) with its gradient, given the gradient
+    /// `own_slope` of `own`.
+    pub(crate) fn blended_gradient(
+        &self,
+        p: DVec2,
+        own: f64,
+        own_slope: DVec2,
+    ) -> Option<(f64, DVec2)> {
+        // Each region's height and slope at `p`, once.
+        let mut heights: Vec<(RegionId, f64, DVec2)> = Vec::new();
+        for edge in &self.edges {
+            for &region in &edge.regions {
+                if heights.iter().any(|(r, _, _)| *r == region) {
+                    continue;
+                }
+                let (h, slope) = if region == self.own.region {
+                    (own, own_slope)
+                } else {
+                    let (_, relief) = self
+                        .neighbours
+                        .iter()
+                        .find(|(r, _)| *r == region)
+                        .expect("every region with a blend share is known");
+                    (f64::from(relief.own_relief(p)), relief.own_relief_slope(p))
+                };
+                heights.push((region, h, slope));
+            }
+        }
+
+        // The blend is linear in the regions' heights, so mixing their
+        // slopes by the same shares gives the part of its gradient that
+        // comes from the heights; the shares' own change comes from the
+        // pull.
+        let value = |edge: &FadeEdge, along: f64| {
+            let sum = |part: fn(&(RegionId, f64, DVec2)) -> f64| {
+                edge.target
+                    .blend_sum(&edge.regions, along, edge.length, |region| {
+                        part(
+                            heights
+                                .iter()
+                                .find(|(r, _, _)| *r == region)
+                                .expect("height"),
+                        )
+                    })
+            };
+            [sum(|h| h.1), sum(|h| h.2.x), sum(|h| h.2.y)]
+        };
+        // Faded from zero, `out[1..]` is the fade's share of the mixed
+        // slopes; `slopes[0]` is the change of the blend with the heights
+        // held as they are at `p`.
+        let (out, slopes) = self.blend_gradient(
+            p,
+            self.blend_width,
+            [own, 0.0, 0.0],
+            [own_slope, DVec2::ZERO, DVec2::ZERO],
+            value,
+        )?;
+        Some((out[0], slopes[0] + DVec2::new(out[1], out[2])))
     }
 
     /// The layer scales at `p`, or `None` where the fade doesn't reach and
