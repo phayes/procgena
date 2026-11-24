@@ -25,7 +25,7 @@ use procgena_core::scatter::{
     DEFAULT_SPACING_ROUNDS, Disc, Footprint, Lattice, Placement, Rank, Reach, Rest, Scatter,
     ScatterCopy, ScatterError, ScatterInput, ScatterSlot, Spaced, keep_spaced, place, steeper_than,
 };
-use procgena_core::{CellId, ChildKey, CopyAddress};
+use procgena_core::{CellId, ChildKey, CopyAddress, SpecimenId};
 use serde::{Deserialize, Serialize};
 
 use crate::options::{OptionsError, TreeOptions};
@@ -255,12 +255,18 @@ impl ScatterTree {
     /// changing their shapes.
     pub fn variant(&self, variant: u32) -> TreeOptions {
         let mut options = self.tree.clone();
-        // The seed's bits, read as unsigned, so negative seeds stay distinct.
-        let specimen = self
-            .tree
-            .specimen_id(self.tree.default_seed as u32, variant);
-        options.default_seed = specimen.seed() as i32;
+        options.default_seed = self.specimen_id(variant).seed() as i32;
         options
+    }
+
+    /// The specimen id of shape variant `variant`: specimen `variant` of the
+    /// tree's pool, with the tree's own
+    /// [`default_seed`](TreeOptions::default_seed) standing in for the World
+    /// seed. [`variant`](Self::variant)'s settings grow from its seed.
+    pub fn specimen_id(&self, variant: u32) -> SpecimenId {
+        // The seed's bits, read as unsigned, so negative seeds stay distinct.
+        self.tree
+            .specimen_id(self.tree.default_seed as u32, variant)
     }
 
     fn validate(&self, index: usize) -> Result<(), TreeScatterError> {
@@ -766,7 +772,7 @@ impl Scatter for TreeScatter {
             .flat_map(|(entry, tree)| {
                 (0..tree.variants).map(move |v| ScatterSlot {
                     entry: entry as u16,
-                    specimen: tree.tree.specimen_id(tree.tree.default_seed as u32, v),
+                    specimen: tree.specimen_id(v),
                 })
             })
             .collect()

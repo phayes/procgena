@@ -57,8 +57,8 @@ use bevy::winit::WinitPlugin;
 use procgena_core::Rng;
 use procgena_tree::{BARK_KINDS, BarkUvMode, LEAF_KINDS, TreeOptions, TreePreset, WindParams};
 use procgena_tree_bevy::{
-    TreeGenerating, TreeImpostor, TreeMaterial, TreeParams, TreePart, TreePartKind, TreePlugin,
-    Wind, default_tree_lod,
+    TreeGenerating, TreeMaterial, TreeParams, TreePart, TreePartKind, TreePlugin, Wind,
+    default_tree_impostor, default_tree_lod,
 };
 
 /// Distance between neighbouring trees in the forest, in metres.
@@ -257,7 +257,7 @@ fn main() -> AppExit {
         ));
     }
 
-    let impostor = viewer.impostors.then(TreeImpostor::default);
+    let impostor = viewer.impostors.then(default_tree_impostor);
     app.add_plugins(TreePlugin {
         texture_root: Some("textures".to_owned()),
         lod,

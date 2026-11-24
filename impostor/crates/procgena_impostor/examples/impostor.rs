@@ -19,9 +19,11 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
+use procgena_core::{GeneratorKind, OptionsHash, PoolId, SpecimenId};
 use procgena_impostor::{
-    BakeOutput, BakePart, BakedImpostor, ImpostorKey, ImpostorMaterial, ImpostorPlugin,
-    ImpostorQuad, ImpostorReady, ImpostorRequest, ImpostorSettings, ImpostorWrites, bake_standard,
+    BakeOutput, BakePart, BakeSettings, BakedImpostor, ImpostorKey, ImpostorMaterial,
+    ImpostorPlugin, ImpostorQuad, ImpostorReady, ImpostorRequest, ImpostorSettings, ImpostorWrites,
+    bake_standard,
 };
 
 /// Frames to wait after the impostor is ready before the picture.
@@ -157,8 +159,15 @@ fn setup(
             )
         })
         .collect();
+    // The primitives aren't generated, so they stand in as slot 0 of a pool
+    // of their own.
+    let pool = PoolId::new(
+        GeneratorKind::from_key("impostor.example.kind"),
+        OptionsHash(0),
+    );
+    let specimen = SpecimenId::new(0, pool, 0);
     commands.spawn(ImpostorRequest {
-        key: ImpostorKey::new("example", 1, &[]),
+        key: ImpostorKey::specimen(specimen, BakeSettings::default(), &[]),
         parts: bake_parts,
         wait_for: Vec::new(),
     });

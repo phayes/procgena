@@ -13,6 +13,7 @@ use bevy::shader::ShaderRef;
 use procgena_core_bevy::instanced::{
     INSTANCED_MESH_SHADER, INSTANCED_PREPASS_SHADER, instanced_vertex,
 };
+use procgena_impostor::BakeOutput;
 use procgena_stone::{MaterialOptions, TextureCompression, TextureMap, TextureSize, texture_path};
 
 /// Fragment shader for rocks in the main pass and in deferred rendering.
@@ -56,6 +57,19 @@ pub struct TriplanarExtension {
     #[texture(105)]
     #[sampler(106)]
     pub orh: Option<Handle<Image>>,
+    /// What a bake copy of the material draws instead of lit colour; see
+    /// [`bake_copy`]. Ordinary materials draw lit colour.
+    #[reflect(ignore)]
+    pub(crate) bake: BakeOutput,
+}
+
+/// A copy of `material` for an impostor bake, drawing `output` (the
+/// textured base colour, or the textured normal) instead of lit colour. See
+/// [`procgena_impostor`] for how bakes use it.
+pub fn bake_copy(material: &StoneMaterial, output: BakeOutput) -> StoneMaterial {
+    let mut copy = material.clone();
+    copy.extension.bake = output;
+    copy
 }
 
 /// Texture settings for a [`TriplanarExtension`], in the layout the rock shaders use.
@@ -86,13 +100,18 @@ pub struct TriplanarKey {
     /// renderer, each naming its own mesh record through an extra per-copy
     /// vertex input.
     pub(crate) instanced: bool,
+    /// What a bake copy draws instead of lit colour.
+    pub(crate) bake: BakeOutput,
 }
 
 impl From<&TriplanarExtension> for TriplanarKey {
-    fn from(_: &TriplanarExtension) -> Self {
+    fn from(extension: &TriplanarExtension) -> Self {
         // Materials are drawn as single rocks; the instanced renderer asks
         // for its pipelines with `instanced` set.
-        Self { instanced: false }
+        Self {
+            instanced: false,
+            bake: extension.bake,
+        }
     }
 }
 
@@ -124,6 +143,21 @@ impl MaterialExtension for TriplanarExtension {
     ) -> Result<(), SpecializedMeshPipelineError> {
         if key.bind_group_data.instanced {
             instanced_vertex(descriptor);
+        }
+
+        // Bake copies keep the projected textures, and write the textured
+        // base colour or normal in the forward pass instead of lit colour.
+        let prepass = descriptor
+            .vertex
+            .shader_defs
+            .contains(&"PREPASS_PIPELINE".into());
+        let define = match key.bind_group_data.bake {
+            BakeOutput::None => None,
+            BakeOutput::Albedo => Some("BAKE_ALBEDO"),
+            BakeOutput::Normal => Some("BAKE_NORMAL"),
+        };
+        if let (Some(define), false, Some(fragment)) = (define, prepass, &mut descriptor.fragment) {
+            fragment.shader_defs.push(define.into());
         }
         Ok(())
     }
@@ -224,6 +258,7 @@ pub fn stone_material(
         color: textures.map(|t| t.color.clone()),
         normal: textures.map(|t| t.normal.clone()),
         orh: textures.map(|t| t.orh.clone()),
+        bake: BakeOutput::None,
     };
     StoneMaterial { base, extension }
 }

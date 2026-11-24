@@ -231,6 +231,7 @@
 //! [`MaterialOptions::texture`]: procgena_stone::MaterialOptions::texture
 //! [`MaterialOptions::texture_size`]: procgena_stone::MaterialOptions::texture_size
 
+mod impostor;
 mod material;
 mod mesh;
 #[cfg(feature = "gpu")]
@@ -243,10 +244,12 @@ use bevy::prelude::*;
 use bevy::shader::load_shader_library;
 use procgena_core_bevy::LodPlugin;
 use procgena_core_bevy::instanced::InstancedPlugin;
+use procgena_impostor::{ImpostorLevel, ImpostorPlugin};
 use procgena_stone::TextureCompression;
 
+pub use impostor::default_stone_impostor;
 pub use material::{
-    StoneMaterial, StoneTextures, TriplanarExtension, TriplanarKey, TriplanarSettings,
+    StoneMaterial, StoneTextures, TriplanarExtension, TriplanarKey, TriplanarSettings, bake_copy,
     stone_material,
 };
 pub use mesh::stone_mesh;
@@ -271,6 +274,12 @@ pub struct StonePlugin {
     /// Which texture files to load. Defaults to BC7; UASTC needs Bevy's
     /// `basis-universal` feature.
     pub texture_compression: TextureCompression,
+    /// Draws [`StoneParams`] rocks far away as baked impostors, as the last
+    /// level after each rock's own detail levels. Defaults to
+    /// [`default_stone_impostor`]. `None` draws each rock's farthest level
+    /// at every distance beyond. Rocks in a GPU stone pool have no
+    /// impostors yet.
+    pub impostor: Option<ImpostorLevel>,
 }
 
 impl Default for StonePlugin {
@@ -278,6 +287,7 @@ impl Default for StonePlugin {
         Self {
             texture_root: Some("procgena_stone/textures".to_owned()),
             texture_compression: TextureCompression::Bc7,
+            impostor: Some(default_stone_impostor()),
         }
     }
 }
@@ -288,6 +298,12 @@ impl Plugin for StonePlugin {
         load_shader_library!(app, "shaders/stone_material.wesl");
         embedded_asset!(app, "shaders/stone.wesl");
         embedded_asset!(app, "shaders/stone_prepass.wesl");
+
+        // Impostors, unless the app added the plugin itself with settings of
+        // its own.
+        if self.impostor.is_some() && !app.is_plugin_added::<ImpostorPlugin>() {
+            app.add_plugins(ImpostorPlugin::default());
+        }
 
         app.add_plugins((
             LodPlugin,
@@ -300,6 +316,7 @@ impl Plugin for StonePlugin {
         .insert_resource(SpawnSettings {
             texture_root: self.texture_root.clone(),
             texture_compression: self.texture_compression,
+            impostor: self.impostor,
         })
         .add_systems(
             Update,
@@ -313,6 +330,14 @@ impl Plugin for StonePlugin {
             )
                 .chain(),
         );
+        if self.impostor.is_some() {
+            app.add_systems(
+                Update,
+                (impostor::request_impostors, impostor::show_impostors)
+                    .chain()
+                    .after(spawn::prune_cache),
+            );
+        }
 
         #[cfg(feature = "gpu")]
         app.add_plugins(pool::StonePoolPlugin);

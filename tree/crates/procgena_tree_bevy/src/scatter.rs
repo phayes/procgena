@@ -809,9 +809,10 @@ pub(crate) fn finish_placing(
             .map(|instance| {
                 let pair = (instance.tree, instance.variant);
                 let slot = *slots.entry(pair).or_insert_with(|| {
-                    let options =
-                        Arc::new(input.grove.trees[instance.tree].variant(instance.variant));
-                    let key = cache.request(&options, &settings);
+                    let species = &input.grove.trees[instance.tree];
+                    let options = Arc::new(species.variant(instance.variant));
+                    let specimen = species.specimen_id(instance.variant);
+                    let key = cache.request_specimen(&options, specimen, &settings);
                     let kept = old_assets
                         .and_then(|old| old.variants.iter().find(|v| v.key == key && v.settled()));
                     variants.push(TreeScatterVariant {
