@@ -26,10 +26,21 @@ use super::Ecotope;
 ///       mushroom: chanterelle
 ///       density: 0.1
 ///       min_spacing: 1.0
+///     fly_agarics: null     # remove a Scatter the base has
+///   ground:
+///     litter:               # change one setting of one ground layer
+///       opacity: 0.6
+///     mud:                  # add a ground layer
+///       material: mud
+///       order: 330
+///       when:
+///         - slope: { fall: [0.05, 0.1] }
+///     moss: null            # remove a ground layer the base has
 /// ```
 ///
 /// Scatters are listed by key, and a file gives only what differs from its
-/// `base`. A new Scatter gives its `priority` and `kind` (`tree`, `stone`,
+/// `base`. A Scatter set to `null` is removed. Write a file with
+/// [`EcotopePreset::to_file`]. A new Scatter gives its `priority` and `kind` (`tree`, `stone`,
 /// `deadwood` or `mushroom`), an optional `clearance`, and the settings of
 /// its kind that differ from the kind's defaults. A tree Scatter's settings
 /// are a [`TreeScatter`](procgena_tree::TreeScatter)'s, a stone Scatter's a
@@ -39,6 +50,11 @@ use super::Ecotope;
 /// plus its `mushroom`. Each stone class gives what differs from
 /// [`StoneClass::new`](procgena_stone::StoneClass::new) with default stone
 /// settings, a density of 0.01 and a spacing of 2.
+///
+/// Ground layers are listed by key in the same way. A new layer gives its
+/// `material` and `order` and the settings of a
+/// [`GroundLayer`](procgena_terrain::ground::GroundLayer) that differ from
+/// its defaults.
 ///
 /// A stone class's `stone`, a dead wood Scatter's `piece` and a mushroom
 /// Scatter's `mushroom` each name a built-in preset of their generator by
@@ -71,6 +87,33 @@ fn embedded(key: &str, text: &str) -> Ecotope {
             panic!("built-in preset {key} is not a valid Ecotope file: {error}")
         })
         .ecotope
+}
+
+impl EcotopePreset {
+    /// The text of a `.ecotope.yml` file that
+    /// [`from_yaml`](Self::from_yaml) reads back to this preset's Ecotope,
+    /// name, description and group. The key is not written: it is the
+    /// file's name.
+    ///
+    /// With a `base`, the file names it and gives only what differs from
+    /// it: each changed Scatter's changed settings, each new Scatter, and
+    /// `null` for each of the base's Scatters this preset doesn't have.
+    /// Without one, each Scatter gives its settings that differ from its
+    /// kind's defaults.
+    ///
+    /// Prefer it to `to_yaml`, which can't remove a Scatter of the base and
+    /// writes every setting of each Scatter.
+    pub fn to_file(&self, base: Option<&EcotopePreset>) -> String {
+        let document = procgena_core::preset::Document {
+            base: base.map(|base| base.key.to_string()),
+            name: Some(self.name.to_string()),
+            description: (!self.description.is_empty()).then(|| self.description.to_string()),
+            group: (self.group != procgena_core::preset::FILE_GROUP)
+                .then(|| self.group.to_string()),
+            settings: super::file::settings_over(base.map(|base| &base.ecotope), &self.ecotope),
+        };
+        document.to_yaml(<Self as procgena_core::preset::Preset>::KIND)
+    }
 }
 
 /// Reads the embedded file of a built-in preset in `ecotopes/`.

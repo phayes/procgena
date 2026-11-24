@@ -6,9 +6,11 @@
 mod clump;
 mod deadwood;
 mod download;
+mod ecotope;
 mod environment;
 mod export;
 mod field;
+mod fruit;
 mod grove;
 #[cfg(any(test, debug_assertions))]
 mod headless;
@@ -18,6 +20,7 @@ mod plant;
 mod scene;
 mod stones;
 mod studio;
+mod terrain;
 mod tree;
 mod ui;
 

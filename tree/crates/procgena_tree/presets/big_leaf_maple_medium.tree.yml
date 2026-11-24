@@ -66,22 +66,3 @@ tree:
     size_variance: 0.19999999
     tint: 14478540
     flatten: 0.7
-  fruit:
-    placement:
-      min_level: 2
-      facing_jitter: 25.0
-      size: 0.05
-    cluster:
-      stalk_length: 0.0
-      stalk_color: 6113838
-    shape:
-      elongation: 0.9
-      top_dimple: 0.5
-      bottom_taper: 0.2
-      lobes: 5
-      lobe_depth: 0.06
-      stem_length: 0.25
-      color: 12597547
-      unripe_color: 9159498
-      blush_color: 16734780
-      blush_amount: 0.6

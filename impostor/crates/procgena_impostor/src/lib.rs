@@ -1,6 +1,6 @@
-//! Impostors for generated objects: an object drawn from a hemisphere of
-//! views into two atlases (colour and normals), then drawn far away as one
-//! quad that shows the view nearest the camera, lit by the scene.
+//! Impostors for generated objects: an object drawn from many directions
+//! into two atlases (colour and normals), then drawn far away as one quad
+//! that shows the view nearest the camera, lit by the scene.
 //!
 //! Add [`ImpostorPlugin`], then spawn an [`ImpostorRequest`] naming the
 //! object's meshes and bake materials. The impostor is baked in the
@@ -20,8 +20,39 @@
 //! with its own material extension calls [`use_bake_shader`] from its
 //! `specialize` instead, keeping its vertex shader.
 //!
-//! Impostors don't move with their object's animation, such as wind, and
-//! show a fixed set of views, so use them only far away.
+//! Each bake declares which viewer elevations it covers, as a
+//! [`ViewCoverage`] in its [`BakeSettings`]: every direction by default.
+//! Objects never seen from far below, such as trees on hillsides, declare a
+//! lowest elevation instead, so the atlas spends its views only where
+//! viewers can be.
+//!
+//! Impostors show a fixed set of views, so use them only far away. The
+//! built-in [`ImpostorMaterial`] doesn't move with its object's animation,
+//! such as wind; a material of your own can move the whole quad (see below).
+//!
+//! # Drawing impostors with your own transform
+//!
+//! A host asset that draws attached objects, such as fruit on a tree, can
+//! draw their impostors with a [`MaterialExtension`](bevy::pbr::MaterialExtension)
+//! of its own, which composes each copy's transform itself and can move the
+//! whole quad, for example with the host's wind:
+//!
+//! - Bind the impostor exactly as [`ImpostorExtension`] does: an
+//!   [`ImpostorUniform`] at binding 100, the albedo atlas at 101, its
+//!   sampler at 102 and the normal atlas at 103. Your own bindings follow.
+//! - Use [`IMPOSTOR_SHADER`] as the fragment shader and
+//!   [`IMPOSTOR_PREPASS_SHADER`] as the prepass fragment shader.
+//! - In your vertex shader, import `impostor` from
+//!   `procgena_impostor::shaders::common`, and return
+//!   `impostor_vertex(impostor, corner, world_from_local, local_from_world,
+//!   world_offset, record)` from `procgena_impostor::shaders::vertex` (in
+//!   the prepass, `impostor_prepass_vertex` from
+//!   `procgena_impostor::shaders::vertex_prepass`). `corner` is the
+//!   [`ImpostorQuad`] vertex's position; `world_offset` moves the whole
+//!   quad in world units; `record` is the mesh record whose flags the
+//!   fragment uses. Set the visibility-range dither yourself.
+//!
+//! Add [`ImpostorPlugin`] so these shader libraries are loaded.
 //!
 //! Each bake briefly spawns its own 3D cameras, marked
 //! [`ImpostorBakeCamera`]; leave them out of queries for your own camera.
@@ -55,13 +86,14 @@ pub use bake::{
 pub use batch::{ImpostorBatch, ImpostorBatchFinished, ImpostorBatchProgress};
 pub use key::{BakeLayout, BakeSettings, ImpostorKey};
 pub use layout::{
-    elevation_basis, elevation_direction, elevation_index, view_basis, view_cell, view_direction,
+    ViewCoverage, elevation_basis, elevation_direction, elevation_index, view_basis, view_cell,
+    view_direction,
 };
 pub use level::ImpostorLevel;
 pub use material::{
-    BAKE_SHADER, BakeExtension, BakeKey, BakeOutput, BakeStandardMaterial, INSTANCE_LOCATION,
-    INSTANCE_SIZE, ImpostorExtension, ImpostorMaterial, ImpostorPipelineKey, ImpostorUniform,
-    bake_standard, instance_buffer_layout, use_bake_shader,
+    BAKE_SHADER, BakeExtension, BakeKey, BakeOutput, BakeStandardMaterial, IMPOSTOR_PREPASS_SHADER,
+    IMPOSTOR_SHADER, INSTANCE_LOCATION, INSTANCE_SIZE, ImpostorExtension, ImpostorMaterial,
+    ImpostorPipelineKey, ImpostorUniform, bake_standard, instance_buffer_layout, use_bake_shader,
 };
 
 /// How impostors are baked and stored. Each impostor's view count and size
@@ -105,6 +137,9 @@ pub struct ImpostorPlugin {
 impl Plugin for ImpostorPlugin {
     fn build(&self, app: &mut App) {
         load_shader_library!(app, "shaders/layout.wesl");
+        load_shader_library!(app, "shaders/place.wesl");
+        load_shader_library!(app, "shaders/vertex.wesl");
+        load_shader_library!(app, "shaders/vertex_prepass.wesl");
         load_shader_library!(app, "shaders/common.wesl");
         embedded_asset!(app, "shaders/impostor.wesl");
         embedded_asset!(app, "shaders/impostor_prepass.wesl");

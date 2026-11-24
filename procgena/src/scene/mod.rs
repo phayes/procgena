@@ -1,6 +1,6 @@
 //! The 3D scene: environment, orbit camera, and a tree, a plant field, a rock,
-//! a tree or rock with a clump grown on it, a mushroom, a grove, or a piece
-//! of dead wood.
+//! a tree or rock with a clump grown on it, a mushroom, a grove, a piece
+//! of dead wood, or an Ecotope.
 //!
 //! Add [`ScenePlugin`] to the app, show the scene in a UI node marked
 //! [`SceneViewport`], and drive it with [`ViewerCommand`] messages. The scene
@@ -11,6 +11,7 @@
 
 mod assets;
 mod clump;
+mod ecotope;
 mod environment;
 #[cfg(any(test, debug_assertions))]
 pub mod headless;
@@ -21,6 +22,7 @@ mod protocol;
 #[cfg(test)]
 mod render_tests;
 mod subject;
+mod terrain;
 mod texture_reader;
 mod viewport;
 
@@ -42,9 +44,11 @@ pub use assets::{
 };
 pub use environment::EnvironmentSettings;
 pub use protocol::{
-    BuildStats, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView, FieldSettings,
-    GroveProgress, SceneMode, SceneStart, ViewerCommand, ViewerEvent,
+    BuildStats, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView, EcotopeGround,
+    EcotopeSettings, FieldSettings, GroveProgress, SceneMode, SceneStart, ViewerCommand,
+    ViewerEvent,
 };
+pub use terrain::{TerrainSettings, TerrainShow};
 pub use texture_reader::TextureDownloads;
 pub use viewport::SceneViewport;
 
@@ -161,6 +165,20 @@ impl Plugin for ScenePlugin {
             },
             viewport::ViewportPlugin,
         ))
+        .add_plugins((
+            procgena_biome_bevy::EcotopePlugin,
+            ecotope::EcotopeScenePlugin,
+        ))
+        .add_plugins(procgena_fruit_bevy::FruitPlugin)
+        .add_plugins(terrain::plugin())
+        .add_systems(
+            Update,
+            (
+                terrain::apply_show,
+                terrain::hide_ground.after(environment::apply_environment),
+                terrain::report_progress,
+            ),
+        )
         .insert_resource(self.start.environment)
         .insert_resource(subject::LodChoice(self.start.lod))
         .insert_resource(subject::PlantLodChoice(self.start.plant_lod))
@@ -215,6 +233,7 @@ impl Plugin for ScenePlugin {
         .add_observer(subject::report_tree)
         .add_observer(subject::report_stone)
         .add_observer(subject::report_mushroom)
+        .add_observer(subject::report_fruit)
         .add_observer(subject::report_deadwood)
         .add_observer(subject::report_grove)
         .add_observer(clump::report_clump);

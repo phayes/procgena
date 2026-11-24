@@ -53,16 +53,11 @@ impl crate::TreeOptions {
         trellis.force.strength *= factor;
         trellis.force.max_distance *= factor;
 
-        // Fruit and flower clusters. Item shapes are relative to item size.
-        for (placement, cluster) in [
-            (&mut self.fruit.placement, &mut self.fruit.cluster),
-            (&mut self.flowers.placement, &mut self.flowers.cluster),
-        ] {
-            placement.density /= factor;
-            placement.size *= factor;
-            cluster.axis_length *= factor;
-            cluster.stalk_length *= factor;
-            cluster.stalk_radius *= factor;
+        // Fruit and flower clusters: their density along branches, and their
+        // size through the per-copy scale, stalks included.
+        for attached in [&mut self.fruit, &mut self.flowers].into_iter().flatten() {
+            attached.placement.density /= factor;
+            attached.placement.scale *= factor;
         }
     }
 }
@@ -82,16 +77,10 @@ mod tests {
         "branch.length.2",
         "branch.length.3",
         "branch.radius.0",
-        "flowers.cluster.axis_length",
-        "flowers.cluster.stalk_length",
-        "flowers.cluster.stalk_radius",
         "flowers.placement.density",
-        "flowers.placement.size",
-        "fruit.cluster.axis_length",
-        "fruit.cluster.stalk_length",
-        "fruit.cluster.stalk_radius",
+        "flowers.placement.scale",
         "fruit.placement.density",
-        "fruit.placement.size",
+        "fruit.placement.scale",
         "leaves.size",
         "trellis.cylinder_radius",
         "trellis.force.max_distance",
@@ -130,7 +119,11 @@ mod tests {
     #[test]
     fn scale_lengths_changes_exactly_the_length_settings() {
         // Give every number a nonzero value so no scaled setting can hide at zero.
-        let mut options = TreeOptions::default();
+        let mut options = TreeOptions {
+            fruit: Some(crate::AttachedFruit::default()),
+            flowers: Some(crate::AttachedFruit::default()),
+            ..TreeOptions::default()
+        };
         let mut json = serde_json::to_value(&options).unwrap();
         fn fill(value: &mut serde_json::Value) {
             match value {

@@ -107,8 +107,11 @@ pub fn scene_start() -> SceneStart {
         stone: Arc::new(crate::stones::start_options()),
         clump: Arc::new(crate::clump::start_settings()),
         mushroom: Arc::new(crate::mushrooms::start_options()),
+        fruit: Arc::new(crate::fruit::start_options(true)),
         grove: Arc::new(crate::grove::editor::start_grove()),
         deadwood: Arc::new(crate::deadwood::start_settings()),
+        ecotope: Arc::new(crate::ecotope::start_settings()),
+        terrain: Arc::new(crate::terrain::start_settings()),
         environment: EnvironmentSettings::default(),
         lod: None,
         plant_lod: None,
@@ -156,6 +159,7 @@ fn apply_tab(
         state.mushroom = BuildStatus::Building;
         state.grove = BuildStatus::Building;
         state.deadwood = BuildStatus::Building;
+        state.ecotope = crate::ecotope::EcotopeStatus::Placing;
     }
     *shown_mode = Some(mode);
 
@@ -208,6 +212,13 @@ mod tests {
         );
         assert_eq!(*start.grove, crate::grove::editor::start_grove());
         assert_eq!(*start.deadwood, crate::deadwood::start_settings());
+        assert_eq!(
+            start.ecotope.ecotope,
+            procgena_biome::EcotopePreset::named(crate::ecotope::START_PRESET)
+                .unwrap()
+                .ecotope
+        );
+        assert_eq!(*start.terrain, crate::terrain::start_settings());
         let field = procgena_plant::prelude::PlantScatterPreset::named(crate::field::START_PRESET);
         assert_eq!(start.field.field, field.unwrap().plant_scatter);
     }

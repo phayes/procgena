@@ -11,11 +11,13 @@ use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
-use procgena_impostor::{BakeOutput, BakeSettings, instance_buffer_layout, use_bake_shader};
+use procgena_core_bevy::instanced::attached_vertex;
+use procgena_impostor::{BakeOutput, instance_buffer_layout, use_bake_shader};
+use procgena_tree::procgena_fruit::FruitMaterial;
 use procgena_tree::{
-    BarkMap, BarkMaterial, BarkOptions, BarkUvMode, FlowerMaterial, FruitMaterial, LeafMap,
-    LeafMaterial, LeafOptions, TextureCompression, TextureSize, TrellisMaterial, TrellisOptions,
-    WindParams, bark_average_color, bark_texture_path, leaf_has_normal_map, leaf_texture_path,
+    BarkMap, BarkMaterial, BarkOptions, BarkUvMode, LeafMap, LeafMaterial, LeafOptions,
+    TextureCompression, TextureSize, TrellisMaterial, TrellisOptions, WindParams,
+    bark_average_color, bark_texture_path, leaf_has_normal_map, leaf_texture_path,
 };
 
 use crate::mesh::{
@@ -60,45 +62,6 @@ pub struct WindExtension {
     /// [`bake_copy`]. Ordinary materials draw lit colour.
     #[reflect(ignore)]
     pub(crate) bake: BakeOutput,
-    /// Whether the material draws cluster cards; see [`card_material`].
-    #[reflect(ignore)]
-    pub(crate) card: bool,
-}
-
-/// How cluster cards are baked: a strip of 16 elevation views (4 × 4) of
-/// 64 pixels each, a 256-pixel atlas. The card shader's `CARD_FRAMES`
-/// must match `frames`.
-pub const CARD_BAKE: BakeSettings = BakeSettings::elevations(4, 64);
-
-/// A wind-animated material drawing cluster cards
-/// ([`TreeMesh::fruit_cards`](procgena_tree::TreeMesh::fruit_cards) and
-/// [`flower_cards`](procgena_tree::TreeMesh::flower_cards), converted with
-/// [`cluster_mesh`](crate::cluster_mesh)) from `albedo`, the colour atlas of
-/// their cluster's bake with [`CARD_BAKE`]. Each card turns to face the
-/// view and shows the atlas view nearest the view's elevation above the
-/// cluster's axis; uncovered texels are cut out.
-/// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global
-/// [`Wind`](crate::Wind).
-pub fn card_material(albedo: Handle<Image>, wind: WindParams) -> TreeMaterial {
-    let settings = FruitMaterial::default();
-    let base = StandardMaterial {
-        base_color: Color::WHITE,
-        base_color_texture: Some(albedo),
-        alpha_mode: AlphaMode::Mask(0.5),
-        metallic: settings.metallic,
-        perceptual_roughness: settings.roughness,
-        cull_mode: None,
-        double_sided: true,
-        ..default()
-    };
-    TreeMaterial {
-        base,
-        extension: WindExtension {
-            wind: wind.into(),
-            bake: BakeOutput::None,
-            card: true,
-        },
-    }
 }
 
 /// A copy of `material` for an impostor bake: still, and drawing `output`
@@ -120,20 +83,21 @@ pub struct WindKey {
     /// Whether the pipeline draws grove trees: many trees from one mesh, each
     /// naming its own mesh record through an extra per-tree vertex input.
     pub(crate) grove: bool,
+    /// Whether the pipeline draws fruit or flowers attached to trees, each
+    /// naming its tree's mesh record and its place on the tree.
+    pub(crate) attached: bool,
     /// What a bake copy draws instead of lit colour.
     pub(crate) bake: BakeOutput,
-    /// Whether the pipeline draws cluster cards.
-    pub(crate) card: bool,
 }
 
 impl From<&WindExtension> for WindKey {
     fn from(extension: &WindExtension) -> Self {
-        // Materials are always created for single trees; groves ask for their
-        // pipelines with `grove` set.
+        // Materials are always created for single trees; groves and attached
+        // fruit ask for their pipelines with `grove` or `attached` set.
         Self {
             grove: false,
+            attached: false,
             bake: extension.bake,
-            card: extension.card,
         }
     }
 }
@@ -195,15 +159,12 @@ impl MaterialExtension for WindExtension {
         // Bake copies draw base colour or normals in the forward pass.
         use_bake_shader(descriptor, key.bind_group_data.bake);
 
-        // Cluster cards turn to face the view and pick their atlas view.
-        if key.bind_group_data.card {
-            descriptor.vertex.shader_defs.push("CLUSTER_CARD".into());
-        }
-
         // Grove trees read their mesh record index and dither from a second,
         // per-instance vertex buffer, laid out as for instanced impostors so
         // a grove feeds both from one buffer.
-        if key.bind_group_data.grove {
+        if key.bind_group_data.attached {
+            attached_vertex(descriptor);
+        } else if key.bind_group_data.grove {
             descriptor.vertex.shader_defs.push("GROVE".into());
             descriptor.vertex.buffers.push(instance_buffer_layout());
         }
@@ -408,7 +369,6 @@ pub fn bark_material(
         extension: WindExtension {
             wind: wind.into(),
             bake: BakeOutput::None,
-            card: false,
         },
     }
 }
@@ -439,7 +399,6 @@ pub fn average_bark_material(bark: &BarkOptions, wind: WindParams) -> TreeMateri
         extension: WindExtension {
             wind: wind.into(),
             bake: BakeOutput::None,
-            card: false,
         },
     }
 }
@@ -479,7 +438,6 @@ pub fn leaf_material(
         extension: WindExtension {
             wind: wind.into(),
             bake: BakeOutput::None,
-            card: false,
         },
     }
 }
@@ -489,7 +447,7 @@ pub fn leaf_material(
 /// vertex colours. Both sides of each triangle are visible.
 /// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
 pub fn fruit_material(wind: WindParams) -> TreeMaterial {
-    let settings = FruitMaterial::default();
+    let settings = FruitMaterial::FRUIT;
     vertex_color_material(
         settings.metallic,
         settings.roughness,
@@ -503,7 +461,7 @@ pub fn fruit_material(wind: WindParams) -> TreeMaterial {
 /// vertex colours. Both sides of each triangle are visible.
 /// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
 pub fn flower_material(wind: WindParams) -> TreeMaterial {
-    let settings = FlowerMaterial::default();
+    let settings = FruitMaterial::FLOWER;
     vertex_color_material(
         settings.metallic,
         settings.roughness,
@@ -532,7 +490,6 @@ fn vertex_color_material(
         extension: WindExtension {
             wind: wind.into(),
             bake: BakeOutput::None,
-            card: false,
         },
     }
 }

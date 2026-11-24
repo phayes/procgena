@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::ecotope::EcotopeStatus;
 use crate::scene::{
     BuildStats, EnvironmentSettings, FieldSettings, GroveProgress, SceneMode, TextureDownloads,
     ViewerCommand, ViewerEvent,
@@ -11,6 +12,8 @@ use bevy::prelude::*;
 use bevy::scene::Scene;
 use procgena_plant::MAX_PLANTS;
 use procgena_plant::prelude::PlantSettings;
+use procgena_terrain::{FeatureTier, RegionStage};
+use procgena_terrain_bevy::TerrainProgress;
 
 use super::ActiveTab;
 use super::tabs::StudioTab;
@@ -52,6 +55,9 @@ pub struct BuildState {
     pub clump: BuildStatus,
     /// The mushroom's build status.
     pub mushroom: BuildStatus,
+    /// The fruit or flower cluster's build status, for the Fruit and
+    /// Flower tabs, which share one view.
+    pub fruit: BuildStatus,
     /// The grove's build status, with every tree's meshes added together.
     pub grove: BuildStatus,
     /// How many trees the last built grove has.
@@ -73,6 +79,10 @@ pub struct BuildState {
     pub deadwood_lod_shown: usize,
     /// Whether the camera is too far from the dead wood piece to draw it.
     pub deadwood_too_far: bool,
+    /// Where placing the Ecotope stands.
+    pub ecotope: EcotopeStatus,
+    /// How far the terrain has got, once terrain mode has reported.
+    pub terrain: Option<TerrainProgress>,
     /// What the plant tabs show, as last sent to the scene.
     pub plants: PlantsShown,
     /// How many texture files are downloading.
@@ -135,6 +145,7 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
             ViewerEvent::MushroomBuilt(result) => {
                 state.mushroom = BuildStatus::from_result(result);
             }
+            ViewerEvent::FruitBuilt(result) => state.fruit = BuildStatus::from_result(result),
             ViewerEvent::GroveBuilt(result) => {
                 if let Ok(stats) = result {
                     state.grove_trees = stats.trees;
@@ -153,12 +164,16 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
             ViewerEvent::DeadwoodBuilt(result) => {
                 state.deadwood = BuildStatus::from_result(result);
             }
+            ViewerEvent::EcotopeBuilt(result) => {
+                state.ecotope = EcotopeStatus::from_result(result);
+            }
             ViewerEvent::DeadwoodLodShown(level) => {
                 state.deadwood_too_far = level.is_none();
                 if let Some(level) = level {
                     state.deadwood_lod_shown = *level;
                 }
             }
+            ViewerEvent::TerrainProgress(progress) => state.terrain = Some(*progress),
         }
     }
 }
@@ -269,11 +284,15 @@ fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) 
 /// alone; grove sizes are for every tree at full detail.
 fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
     let (status, noun, level) = match tab {
+        StudioTab::Terrain => return terrain_line(state.terrain),
         StudioTab::Stones => (&state.stone, "rock", None),
         StudioTab::TreeScatter => (&state.grove, "tree Scatter", None),
         StudioTab::Clumps => (&state.clump, "clump", None),
         StudioTab::Mushrooms => (&state.mushroom, "mushroom", Some(state.mushroom_lod_shown)),
+        StudioTab::Fruit => (&state.fruit, "fruit", None),
+        StudioTab::Flowers => (&state.fruit, "flower", None),
         StudioTab::Deadwood => (&state.deadwood, "dead wood", Some(state.deadwood_lod_shown)),
+        StudioTab::Ecotope => return state.ecotope.line(),
         StudioTab::Trees | StudioTab::Plant | StudioTab::PlantScatter => {
             (&state.tree, "tree", Some(state.lod_shown))
         }
@@ -321,6 +340,35 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
         }
         BuildStatus::Failed(error) => (format!("Cannot build this {noun}: {error}"), true),
     }
+}
+
+/// The overlay text for the Terrain tab, and whether it reports a failure:
+/// how many chunks are drawn, or how many are still being built.
+fn terrain_line(progress: Option<TerrainProgress>) -> (String, bool) {
+    let Some(progress) = progress else {
+        return ("Building terrain…".into(), false);
+    };
+    let failed = progress.failed > 0;
+    let mut line = if progress.settled {
+        format!("{} terrain chunks", group_digits(progress.drawn))
+    } else {
+        let doing = match progress.stage {
+            Some(RegionStage::Plan) => "planning regions",
+            Some(RegionStage::Tier(FeatureTier::Rough)) => "shaping ground",
+            Some(RegionStage::Tier(FeatureTier::Fine)) => "adding roads",
+            None if progress.refining > 0 => "adding roads to near ground",
+            None => "reading chunks",
+        };
+        let percent = (progress.fraction * 100.0).floor();
+        format!("Building terrain… {percent}% · {doing}")
+    };
+    if failed {
+        line.push_str(&format!(
+            "\n{} chunks could not be built",
+            group_digits(progress.failed)
+        ));
+    }
+    (line, failed)
 }
 
 /// The overlay text while the grove builds, with how many of its tree
@@ -385,6 +433,52 @@ mod tests {
     }
 
     #[test]
+    fn the_terrain_line_shows_its_chunks_and_failures() {
+        assert_eq!(terrain_line(None), ("Building terrain…".into(), false));
+        let mut progress = TerrainProgress {
+            fraction: 0.427,
+            stage: Some(RegionStage::Tier(FeatureTier::Fine)),
+            drawn: 0,
+            refining: 0,
+            wanted: 1200,
+            reading: 4,
+            failed: 0,
+            settled: false,
+        };
+        assert_eq!(
+            terrain_line(Some(progress)),
+            ("Building terrain… 42% · adding roads".into(), false)
+        );
+        progress.stage = None;
+        assert_eq!(
+            terrain_line(Some(progress)),
+            ("Building terrain… 42% · reading chunks".into(), false)
+        );
+        progress.refining = 30;
+        assert_eq!(
+            terrain_line(Some(progress)),
+            (
+                "Building terrain… 42% · adding roads to near ground".into(),
+                false
+            )
+        );
+        progress = TerrainProgress {
+            drawn: 1200,
+            reading: 0,
+            failed: 2,
+            settled: true,
+            ..progress
+        };
+        assert_eq!(
+            terrain_line(Some(progress)),
+            (
+                "1,200 terrain chunks\n2 chunks could not be built".into(),
+                true
+            )
+        );
+    }
+
+    #[test]
     fn the_line_shows_the_shown_tree_level_and_rock_failures() {
         let size = |n| MeshSize {
             vertices: n,
@@ -404,6 +498,10 @@ mod tests {
                 levels: vec![size(3000), size(800)],
                 build_time: Duration::from_millis(5),
             }),
+            fruit: BuildStatus::Built(BuildStats {
+                levels: vec![size(600), size(200)],
+                build_time: Duration::from_millis(1),
+            }),
             grove: BuildStatus::Built(BuildStats {
                 levels: vec![size(120_000), size(30_000)],
                 build_time: Duration::from_millis(900),
@@ -416,15 +514,28 @@ mod tests {
             deadwood: BuildStatus::Building,
             deadwood_lod_shown: 0,
             deadwood_too_far: false,
+            ecotope: EcotopeStatus::Failed("Scatters a and b share priority 5".into()),
+            terrain: None,
             plants: PlantsShown::default(),
             downloading: 0,
         };
+        assert_eq!(
+            status_line(&state, StudioTab::Ecotope),
+            (
+                "Cannot place this Ecotope: Scatters a and b share priority 5".into(),
+                true
+            )
+        );
         assert_eq!(
             status_line(&state, StudioTab::Trees),
             (
                 "LOD 1 · 1,000 vertices · 500 triangles · 12 ms".into(),
                 false
             )
+        );
+        assert_eq!(
+            status_line(&state, StudioTab::Flowers),
+            ("600 vertices · 300 triangles · 1 ms".into(), false)
         );
         assert_eq!(
             status_line(&state, StudioTab::Stones),

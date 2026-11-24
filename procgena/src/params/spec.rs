@@ -263,6 +263,76 @@ pub fn revive<T: Clone>(sections: &[Section<T>], before: &T, after: &mut T) -> b
     changed
 }
 
+impl<S: Sync + 'static> Param<S> {
+    /// Turns a setting of an `S` into a setting of a `T` that may contain an
+    /// `S`, such as a tree's optional fruit. `prefix` is prepended to the
+    /// key, separated by a dot. While `get` finds no `S`, the setting reads
+    /// from `absent`, writing it changes nothing, and it is hidden.
+    pub fn lift_option<T: 'static>(
+        self,
+        prefix: &str,
+        get: fn(&T) -> Option<&S>,
+        get_mut: fn(&mut T) -> Option<&mut S>,
+        absent: &'static S,
+    ) -> Param<T> {
+        let control = match self.control {
+            Control::Number {
+                min,
+                max,
+                step,
+                scale,
+                get: value,
+                set: write,
+            } => Control::Number {
+                min,
+                max,
+                step,
+                scale,
+                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
+                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
+            },
+            Control::Toggle {
+                get: value,
+                set: write,
+            } => Control::Toggle {
+                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
+                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
+            },
+            Control::Color {
+                get: value,
+                set: write,
+            } => Control::Color {
+                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
+                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
+            },
+            Control::Choice {
+                options,
+                get: value,
+                set: write,
+            } => Control::Choice {
+                options,
+                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
+                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
+            },
+        };
+        let present: Getter<T, bool> = Arc::new(move |t| get(t).is_some());
+        let shown: Getter<T, bool> = match self.shown {
+            Some(shown) => Arc::new(move |t| get(t).is_some_and(|s| shown(s))),
+            None => present,
+        };
+        let revive = self.revive.map(|revive| -> Getter<T, f32> {
+            Arc::new(move |t| revive(get(t).unwrap_or(absent)))
+        });
+        Param {
+            key: format!("{prefix}.{}", self.key),
+            label: self.label,
+            control,
+            shown: Some(shown),
+            revive,
+        }
+    }
+}
+
 impl<S: 'static> Param<S> {
     /// Turns a setting of an `S` into a setting of a `T` that contains an `S`.
     /// `prefix` is prepended to the key, separated by a dot.

@@ -383,6 +383,7 @@ pub(crate) fn finish_reads(
             albedo: images.add(loaded.albedo),
             normal: images.add(loaded.normal),
             frames: loaded.frames,
+            coverage: key.bake().coverage,
             center: loaded.center,
             radius: loaded.radius,
         };
@@ -520,6 +521,7 @@ pub(crate) fn finish_writes(
                     albedo: images.add(albedo),
                     normal: images.add(normal),
                     frames: stored.frames,
+                    coverage: key.bake().coverage,
                     center: stored.center,
                     radius: stored.radius,
                 };

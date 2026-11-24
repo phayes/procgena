@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::ecotope::EcotopeState;
 use super::environment::{EnvironmentSettings, sky_fog};
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{
@@ -11,15 +12,19 @@ use super::protocol::{
     FieldSettings, GroveProgress, GroveStats, MeshSize, SceneMode, SceneStart, ViewerCommand,
     ViewerEvent,
 };
+use super::terrain::{self, TerrainSettings};
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
+use procgena_biome_bevy::EcotopePlacing;
 use procgena_core::LodLevel;
 use procgena_deadwood::{DeadwoodOptions, PieceKind, ScatterOptions, default_lod, size_factor};
 use procgena_deadwood_bevy::{
     DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
     DeadwoodScatterParams, ScatterGround,
 };
+use procgena_fruit::{Facing, Fruit, FruitOptions};
+use procgena_fruit_bevy::{FruitFinished, FruitParams};
 use procgena_impostor::{BakedImpostor, ImpostorRequest};
 use procgena_mushroom::{Mushroom, MushroomOptions};
 use procgena_mushroom_bevy::{
@@ -50,8 +55,9 @@ pub(crate) const IMPOSTOR_DISTANCE: f32 = 800.0;
 const GROVE_FARTHEST: f32 = 1.25 * IMPOSTOR_DISTANCE;
 
 /// The scene camera's far clipping distance, in metres: beyond the far side
-/// of the largest grove seen from the grove camera's farthest distance.
-const FAR_CLIP: f32 = 2500.0;
+/// of the largest grove seen from the grove camera's farthest distance, and
+/// beyond the terrain's view distance seen from high above.
+const FAR_CLIP: f32 = 2.0 * terrain::VIEW_DISTANCE;
 
 /// The tree detail levels the scene shows, most detailed first: procgena_tree_bevy's
 /// default levels, switched at greater camera distances so that full detail
@@ -92,6 +98,10 @@ pub(crate) struct SceneState {
     mushroom: Arc<MushroomOptions>,
     /// Camera view restored when returning to mushroom mode.
     mushroom_view: OrbitCamera,
+    /// Fruit or flower cluster settings, retained while another mode is shown.
+    fruit: Arc<FruitOptions>,
+    /// Camera view restored when returning to fruit mode.
+    fruit_view: OrbitCamera,
     /// The grove, retained while another mode is shown.
     grove: Arc<TreeScatter>,
     /// Camera view restored when returning to grove mode.
@@ -100,6 +110,14 @@ pub(crate) struct SceneState {
     deadwood: Arc<DeadwoodSettings>,
     /// Camera view restored when returning to dead wood mode.
     deadwood_view: OrbitCamera,
+    /// The Ecotope and its ground, retained while another mode is shown.
+    ecotope: EcotopeState,
+    /// Camera view restored when returning to Ecotope mode.
+    ecotope_view: OrbitCamera,
+    /// Terrain settings, retained while another mode is shown.
+    terrain: Arc<TerrainSettings>,
+    /// Camera view restored when returning to terrain mode.
+    terrain_view: OrbitCamera,
     /// The tree detail level last reported with [`ViewerEvent::LodShown`].
     lod_reported: Option<usize>,
     /// The mushroom detail level last reported with
@@ -133,6 +151,11 @@ impl SceneState {
     pub(crate) fn deadwood(&self) -> &DeadwoodSettings {
         &self.deadwood
     }
+
+    /// What terrain mode shows.
+    pub(crate) fn terrain(&self) -> &TerrainSettings {
+        &self.terrain
+    }
 }
 
 /// Matches tree, rock, mushroom, grove or dead wood entities whose meshes
@@ -143,6 +166,7 @@ type Generating = Or<(
     With<MushroomGenerating>,
     With<TreeScatterGenerating>,
     With<DeadwoodGenerating>,
+    With<EcotopePlacing>,
 )>;
 
 /// Matches requests for impostors that are not baked yet.
@@ -191,9 +215,13 @@ struct ViewSubjects<'a> {
     stone: &'a StoneOptions,
     clump: &'a ClumpSettings,
     mushroom: &'a MushroomOptions,
+    fruit: &'a FruitOptions,
     /// Width of the grove's square of ground, in metres.
     grove_size: f32,
     deadwood: &'a DeadwoodSettings,
+    /// Width of the Ecotope's square of ground, in metres.
+    ecotope_size: f32,
+    terrain: &'a TerrainSettings,
 }
 
 /// Returns the starting camera view for a mode. In stone, mushroom and grove
@@ -212,7 +240,20 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
             ),
         },
         SceneMode::Mushroom => mushroom_view(subjects.mushroom),
+        SceneMode::Fruit => fruit_view(subjects.fruit),
         SceneMode::Deadwood => deadwood_view(subjects.deadwood),
+        // Look down over the patch from beyond its corner.
+        SceneMode::Ecotope => OrbitCamera {
+            focus: Vec3::new(0.0, 1.0, 0.0),
+            yaw: 0.6,
+            pitch: 0.5,
+            distance: 1.1 * subjects.ecotope_size.max(5.0),
+            limits: OrbitLimits {
+                distance: (1.0, (3.0 * subjects.ecotope_size).max(60.0)),
+                pitch: (-0.05, 1.5),
+            },
+        },
+        SceneMode::Terrain => terrain::view(subjects.terrain),
         // Look down over the whole square of ground from beyond its corner.
         SceneMode::Grove => OrbitCamera {
             focus: Vec3::new(0.0, 3.0, 0.0),
@@ -289,6 +330,56 @@ fn mushroom_view(options: &MushroomOptions) -> OrbitCamera {
     }
 }
 
+/// The camera's nearest allowed distance in fruit mode, kept clear of the
+/// camera's 0.1 m near clipping plane.
+const FRUIT_NEAREST: f32 = 0.12;
+
+/// The height above the ground at which fruit mode shows its cluster.
+pub(crate) const FRUIT_HEIGHT: f32 = 1.0;
+
+/// Returns the starting view for the cluster grown from `options`: aimed at
+/// its middle and far enough out to show all of it. Settings that can't be
+/// grown fall back to a view sized from the item size.
+fn fruit_view(options: &FruitOptions) -> OrbitCamera {
+    let radius = Fruit::new(options.clone(), options.default_seed, 0)
+        .map_or(2.0 * options.size, |fruit| fruit.radius())
+        .max(0.02);
+    OrbitCamera {
+        focus: Vec3::new(0.0, FRUIT_HEIGHT, 0.0),
+        yaw: 0.6,
+        pitch: 0.2,
+        distance: (4.0 * radius).max(FRUIT_NEAREST),
+        limits: OrbitLimits {
+            distance: (FRUIT_NEAREST, (200.0 * radius).max(2.0)),
+            pitch: (-1.2, 1.5),
+        },
+    }
+}
+
+/// Spawns fruit mode's cluster, its attachment point `FRUIT_HEIGHT` above
+/// the ground.
+fn spawn_fruit(commands: &mut Commands, options: &Arc<FruitOptions>) -> Entity {
+    commands
+        .spawn((FruitParams(options.clone()), fruit_transform(options)))
+        .id()
+}
+
+/// Where fruit mode shows a cluster: attached `FRUIT_HEIGHT` above the
+/// ground, turned as it would grow on a level branch. A cluster's own +Y
+/// is its facing, so hanging clusters are turned upside down, and outward
+/// ones face the camera's starting side with their down still down.
+fn fruit_transform(options: &FruitOptions) -> Transform {
+    let rotation = match options.facing {
+        Facing::Up => Quat::IDENTITY,
+        Facing::Hang => Quat::from_rotation_x(std::f32::consts::PI),
+        Facing::Outward => {
+            Quat::from_rotation_y(std::f32::consts::PI)
+                * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+        }
+    };
+    Transform::from_xyz(0.0, FRUIT_HEIGHT, 0.0).with_rotation(rotation)
+}
+
 /// The camera's nearest allowed distance in dead wood mode, kept clear of
 /// the camera's 0.1 m near clipping plane.
 const DEADWOOD_NEAREST: f32 = 0.15;
@@ -362,8 +453,11 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         stone: &start.stone,
         clump: &start.clump,
         mushroom: &start.mushroom,
+        fruit: &start.fruit,
         grove_size: start.environment.grove_size,
         deadwood: &start.deadwood,
+        ecotope_size: start.ecotope.size,
+        terrain: &start.terrain,
     };
     let view_for = |mode| default_view(mode, &subjects);
     let state = SceneState {
@@ -378,11 +472,17 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         stone_view: view_for(SceneMode::Stone),
         clump_view: view_for(SceneMode::Clump),
         mushroom_view: view_for(SceneMode::Mushroom),
+        fruit_view: view_for(SceneMode::Fruit),
         grove_view: view_for(SceneMode::Grove),
         deadwood_view: view_for(SceneMode::Deadwood),
+        ecotope: EcotopeState::new(start.ecotope.clone()),
+        ecotope_view: view_for(SceneMode::Ecotope),
+        terrain_view: view_for(SceneMode::Terrain),
+        terrain: start.terrain.clone(),
         stone: start.stone.clone(),
         clump: start.clump.clone(),
         mushroom: start.mushroom.clone(),
+        fruit: start.fruit.clone(),
         grove: start.grove.clone(),
         deadwood: start.deadwood.clone(),
         lod_reported: None,
@@ -399,6 +499,7 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
             ..default()
         }),
         ViewportCamera,
+        procgena_terrain_bevy::TerrainViewer,
         view,
         view.transform(),
         sky_fog(),
@@ -431,7 +532,10 @@ fn spawn_subject(
         SceneMode::Mushroom => commands
             .spawn(MushroomParams::Options(state.mushroom.clone()))
             .id(),
+        SceneMode::Fruit => spawn_fruit(commands, &state.fruit),
         SceneMode::Deadwood => spawn_deadwood(commands, &state.deadwood),
+        SceneMode::Ecotope => commands.spawn(state.ecotope.params()).id(),
+        SceneMode::Terrain => terrain::spawn(commands, &state.terrain),
         SceneMode::Clump => match &state.clump.subject {
             ClumpSubject::Tree(options) => commands.spawn(TreeParams::Options(options.clone())),
             ClumpSubject::Stone(options) => commands.spawn(StoneParams::Options(options.clone())),
@@ -545,6 +649,15 @@ pub(crate) fn apply_commands(
                         .insert(MushroomParams::Options(options.clone()));
                 }
             }
+            ViewerCommand::SetFruit(options) => {
+                // Keep the settings in every mode; grow again only when fruit is shown.
+                state.fruit = options.clone();
+                if state.mode == SceneMode::Fruit {
+                    commands
+                        .entity(state.subject)
+                        .insert((FruitParams(options.clone()), fruit_transform(options)));
+                }
+            }
             ViewerCommand::SetDeadwood(settings) => {
                 // Keep the settings in every mode; rebuild only when dead wood is shown.
                 let old = std::mem::replace(&mut state.deadwood, settings.clone());
@@ -569,6 +682,15 @@ pub(crate) fn apply_commands(
                         .insert(DeadwoodParams::new(settings.piece.clone()));
                 }
             }
+            ViewerCommand::SetTerrain(settings) => {
+                // Keep the settings in every mode; new ground replaces the
+                // shown terrain's chunks once they are ready.
+                let old = std::mem::replace(&mut state.terrain, settings.clone());
+                if state.mode == SceneMode::Terrain && old.terrain != settings.terrain {
+                    state.requested = Instant::now();
+                    terrain::replace(&mut commands, state.subject, settings);
+                }
+            }
             ViewerCommand::SetGrove(grove) => {
                 // Keep the grove in every mode; the shown grove updates in place.
                 state.grove = grove.clone();
@@ -577,6 +699,16 @@ pub(crate) fn apply_commands(
                     commands
                         .entity(state.subject)
                         .insert(grove_params(grove, environment.grove_size));
+                }
+            }
+            ViewerCommand::SetEcotope(settings) => {
+                // Keep the Ecotope in every mode; the shown one updates in place.
+                state.ecotope.set(settings.clone());
+                if state.mode == SceneMode::Ecotope {
+                    state.requested = Instant::now();
+                    commands
+                        .entity(state.subject)
+                        .insert(state.ecotope.params());
                 }
             }
             ViewerCommand::SetClump(settings) => {
@@ -660,8 +792,11 @@ pub(crate) fn apply_commands(
                         stone: &state.stone,
                         clump: &state.clump,
                         mushroom: &state.mushroom,
+                        fruit: &state.fruit,
                         grove_size: environment.grove_size,
                         deadwood: &state.deadwood,
+                        ecotope_size: state.ecotope.settings().size,
+                        terrain: &state.terrain,
                     };
                     *orbit = default_view(state.mode, &subjects);
                 }
@@ -693,8 +828,11 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
         SceneMode::Stone => &mut state.stone_view,
         SceneMode::Clump => &mut state.clump_view,
         SceneMode::Mushroom => &mut state.mushroom_view,
+        SceneMode::Fruit => &mut state.fruit_view,
         SceneMode::Grove => &mut state.grove_view,
         SceneMode::Deadwood => &mut state.deadwood_view,
+        SceneMode::Ecotope => &mut state.ecotope_view,
+        SceneMode::Terrain => &mut state.terrain_view,
     }
 }
 
@@ -799,7 +937,7 @@ pub(crate) fn apply_lod(
 ) {
     let choice = match state.map(|state| state.mode) {
         Some(SceneMode::Clump) => Some(0),
-        Some(SceneMode::Grove) => None,
+        Some(SceneMode::Grove | SceneMode::Ecotope) => None,
         _ => choice.0,
     };
     for (entity, part, visibility, range, saved) in &mut parts {
@@ -821,22 +959,17 @@ type MushroomLodPart<'a> = (
 );
 
 /// Shows only the chosen detail level's mushroom parts, or restores
-/// switching by camera distance.
+/// switching by camera distance. Ecotope mode always switches by distance.
 pub(crate) fn apply_mushroom_lod(
     mut commands: Commands,
     choice: Res<MushroomLodChoice>,
+    state: Option<Res<SceneState>>,
     mut parts: Query<MushroomLodPart>,
 ) {
+    let choice = by_distance_in_ecotope(choice.0, state.as_deref());
     for (entity, part, visibility, range, saved) in &mut parts {
         let ranges = (range, saved);
-        show_level(
-            &mut commands,
-            entity,
-            part.lod,
-            choice.0,
-            visibility,
-            ranges,
-        );
+        show_level(&mut commands, entity, part.lod, choice, visibility, ranges);
     }
 }
 
@@ -851,22 +984,26 @@ type DeadwoodLodPart<'a> = (
 );
 
 /// Shows only the chosen detail level's dead wood parts, or restores
-/// switching by camera distance.
+/// switching by camera distance. Ecotope mode always switches by distance.
 pub(crate) fn apply_deadwood_lod(
     mut commands: Commands,
     choice: Res<DeadwoodLodChoice>,
+    state: Option<Res<SceneState>>,
     mut parts: Query<DeadwoodLodPart>,
 ) {
+    let choice = by_distance_in_ecotope(choice.0, state.as_deref());
     for (entity, part, visibility, range, saved) in &mut parts {
         let ranges = (range, saved);
-        show_level(
-            &mut commands,
-            entity,
-            part.lod,
-            choice.0,
-            visibility,
-            ranges,
-        );
+        show_level(&mut commands, entity, part.lod, choice, visibility, ranges);
+    }
+}
+
+/// The detail level `choice` asks for, or `None` (switch by distance) in
+/// Ecotope mode, where each copy shows the level that suits it.
+fn by_distance_in_ecotope(choice: Option<usize>, state: Option<&SceneState>) -> Option<usize> {
+    match state.map(SceneState::mode) {
+        Some(SceneMode::Ecotope) => None,
+        _ => choice,
     }
 }
 
@@ -1260,6 +1397,29 @@ pub(crate) fn report_stone(
         ))));
     }
     events.write(ViewerEvent::StoneBuilt(result));
+}
+
+/// Reports a grown fruit or flower cluster's mesh counts per detail level,
+/// or why its settings were rejected.
+pub(crate) fn report_fruit(
+    event: On<FruitFinished>,
+    state: Res<SceneState>,
+    mut events: MessageWriter<ViewerEvent>,
+) {
+    if event.entity != state.subject {
+        return;
+    }
+    let result = event.result.clone().map(|sizes| BuildStats {
+        levels: sizes
+            .into_iter()
+            .map(|(vertices, triangles)| MeshSize {
+                vertices,
+                triangles,
+            })
+            .collect(),
+        build_time: state.requested.elapsed(),
+    });
+    events.write(ViewerEvent::FruitBuilt(result));
 }
 
 /// Displays a successfully built mushroom in place of the previous one, and

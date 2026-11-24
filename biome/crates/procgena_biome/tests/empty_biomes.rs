@@ -2,7 +2,7 @@
 //! same land as building the Terrain on its own.
 
 use glam::DVec2;
-use procgena_biome::{Biome, BiomePreset, BiomeTerrain, terrain_seed};
+use procgena_biome::{Biome, BiomePreset, BiomeTerrain};
 use procgena_terrain::{
     Boundary, Convergence, Elevation, Region, RegionId, RegionSpec, StitchedWorld, Terrain,
     TerrainGenerator, TerrainOptions, TerrainPreset,
@@ -39,11 +39,11 @@ fn square(origin: DVec2) -> Vec<DVec2> {
     ]
 }
 
-/// The Terrain built straight from the terrain crate, with `options` and the
-/// Terrain seed for `world_seed`.
+/// The Terrain built straight from the terrain crate, with `options` and
+/// the World seed `world_seed`, which every Terrain in a World takes.
 fn reference(options: TerrainOptions, world_seed: u32) -> Terrain {
     let options = TerrainOptions {
-        default_seed: terrain_seed(world_seed),
+        default_seed: world_seed,
         ..options
     };
     TerrainGenerator::new(options)
@@ -153,7 +153,7 @@ fn inline_terrain_builds_the_same_land_and_takes_the_world_seed() {
             let resolved = inline
                 .terrain_options(seed)
                 .expect("inline settings resolve");
-            assert_eq!(resolved.default_seed, terrain_seed(seed));
+            assert_eq!(resolved.default_seed, seed);
             let built = inline.build(seed, region(), &[]).expect("Biome builds");
             let alone = reference(terrain.terrain.clone(), seed);
             assert_same_land(&built, &alone, DVec2::ZERO, &label);
@@ -202,7 +202,7 @@ fn stitched_biomes_build_the_same_world_as_stitched_terrains() {
             id,
             polygon: square(origin),
             options: TerrainOptions {
-                default_seed: terrain_seed(seed),
+                default_seed: seed,
                 ..terrain.terrain.clone()
             },
         });

@@ -58,15 +58,24 @@ use procgena_mushroom_bevy::MushroomGroundScatterParams;
 use procgena_stone_bevy::StoneParams;
 use procgena_tree_bevy::TreeParams;
 
-/// Marks the entity that holds a drawn Ecotope. It stands at the centre of
-/// the area the Ecotope was placed over, at height 0, and holds one
-/// [`EcotopeLayer`] child per Scatter.
+mod ground;
+mod placing;
+
+pub use ground::{ground_mesh, rolling_hills};
+pub use placing::{
+    EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, EcotopeSummary, LayerSummary,
+};
+
+/// Marks the entity that holds an Ecotope drawn by [`spawn_ecotope`]. It
+/// stands at the World origin and holds one [`EcotopeLayer`] child per
+/// Scatter.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 #[require(Transform, Visibility)]
 pub struct EcotopeRoot;
 
-/// Marks the entity that holds one Scatter of a drawn Ecotope. Its children
-/// are the Scatter's copies: one [`TreeParams`], [`StoneParams`] or
+/// Marks the entity that holds one Scatter of a drawn Ecotope. It stands at
+/// the centre of the area the Ecotope was placed over, at height 0. Its
+/// children are the Scatter's copies: one [`TreeParams`], [`StoneParams`] or
 /// [`DeadwoodParams`] per copy, or one [`MushroomGroundScatterParams`] for
 /// the whole Scatter.
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
@@ -84,7 +93,8 @@ pub struct EcotopeLayer {
 ///
 /// Pass the same Ecotope, ground, area and coverage the placement was made
 /// with: mushrooms are placed again by `procgena_mushroom_bevy`, and come
-/// out the same only from the same inputs.
+/// out the same only from the same inputs. To place in the background and
+/// redraw only what an edit changes, use [`EcotopeParams`] instead.
 ///
 /// # Panics
 ///
@@ -98,75 +108,99 @@ pub fn spawn_ecotope(
     area: ScatterArea,
     coverage: Option<Arc<dyn Mask>>,
 ) -> Entity {
-    let centre = area.centre.as_vec2();
-    let root = commands
-        .spawn((EcotopeRoot, Transform::from_xyz(centre.x, 0.0, centre.y)))
-        .id();
-    for layer in placed.layers() {
-        let settings = &ecotope.scatters[layer.key()];
-        let parent = commands
-            .spawn((
-                EcotopeLayer {
-                    key: layer.key().to_string(),
-                    priority: layer.priority(),
-                },
-                ChildOf(root),
-            ))
-            .id();
-        let at = |transform: &bevy::math::Affine3A| {
-            (
-                Transform::from_matrix(Mat4::from(*transform)),
-                ChildOf(parent),
-            )
-        };
-        match (&settings.scatter, layer.copies()) {
-            (ScatterKind::Tree(scatter), ScatterCopies::Tree(trees)) => {
-                for tree in trees.instances() {
-                    let options = scatter.trees[tree.tree].variant(tree.variant);
-                    commands.spawn((TreeParams::new(options), at(&tree.transform)));
-                }
-            }
-            (ScatterKind::Stone(_), ScatterCopies::Stone(stones)) => {
-                for stone in stones.instances() {
-                    let options = stones.variant(stone.class, stone.variant).clone();
-                    commands.spawn((StoneParams::new(options), at(&stone.transform)));
-                }
-            }
-            (ScatterKind::Deadwood(_), ScatterCopies::Deadwood(wood)) => {
-                for copy in wood.instances() {
-                    let options = wood.variants()[copy.variant as usize].options().clone();
-                    commands.spawn((DeadwoodParams::new(options), at(&copy.transform)));
-                }
-            }
-            (ScatterKind::Mushroom { mushroom, scatter }, ScatterCopies::Mushroom(_)) => {
-                // Placed again by the mushroom crate, with the same input.
-                let mut scatter = scatter.clone();
-                scatter.default_seed = layer.seed();
-                let above = placed
-                    .mask_above(layer.key().as_str())
-                    .expect("the layer is in the placement");
-                commands.spawn((
-                    MushroomGroundScatterParams {
-                        mushroom: Arc::new(mushroom.clone()),
-                        scatter,
-                        ground: ground.clone(),
-                        area,
-                        mask: Some(Arc::new(Covered {
-                            above,
-                            coverage: coverage.clone(),
-                        })),
-                    },
-                    ChildOf(parent),
-                ));
-            }
-            (kind, _) => panic!(
-                "Scatter {} placed as another kind than its {} settings",
-                layer.key(),
-                kind.name()
-            ),
-        }
+    let root = commands.spawn(EcotopeRoot).id();
+    for index in 0..placed.layers().len() {
+        spawn_layer(
+            commands,
+            root,
+            ecotope,
+            placed,
+            index,
+            ground.clone(),
+            area,
+            coverage.clone(),
+        );
     }
     root
+}
+
+/// Spawns the [`EcotopeLayer`] drawing the layer at `index` of `placed` as
+/// a child of `parent`, and returns it. The other arguments are as for
+/// [`spawn_ecotope`].
+#[allow(clippy::too_many_arguments)]
+fn spawn_layer(
+    commands: &mut Commands,
+    parent: Entity,
+    ecotope: &Ecotope,
+    placed: &EcotopePlacement,
+    index: usize,
+    ground: Arc<dyn Ground>,
+    area: ScatterArea,
+    coverage: Option<Arc<dyn Mask>>,
+) -> Entity {
+    let layer = &placed.layers()[index];
+    let settings = &ecotope.scatters[layer.key()];
+    let centre = area.centre.as_vec2();
+    let holder = commands
+        .spawn((
+            EcotopeLayer {
+                key: layer.key().to_string(),
+                priority: layer.priority(),
+            },
+            Transform::from_xyz(centre.x, 0.0, centre.y),
+            ChildOf(parent),
+        ))
+        .id();
+    let at = |transform: &bevy::math::Affine3A| {
+        (
+            Transform::from_matrix(Mat4::from(*transform)),
+            ChildOf(holder),
+        )
+    };
+    match (&settings.scatter, layer.copies()) {
+        (ScatterKind::Tree(scatter), ScatterCopies::Tree(trees)) => {
+            for tree in trees.instances() {
+                let options = scatter.trees[tree.tree].variant(tree.variant);
+                commands.spawn((TreeParams::new(options), at(&tree.transform)));
+            }
+        }
+        (ScatterKind::Stone(_), ScatterCopies::Stone(stones)) => {
+            for stone in stones.instances() {
+                let options = stones.variant(stone.class, stone.variant).clone();
+                commands.spawn((StoneParams::new(options), at(&stone.transform)));
+            }
+        }
+        (ScatterKind::Deadwood(_), ScatterCopies::Deadwood(wood)) => {
+            for copy in wood.instances() {
+                let options = wood.variants()[copy.variant as usize].options().clone();
+                commands.spawn((DeadwoodParams::new(options), at(&copy.transform)));
+            }
+        }
+        (ScatterKind::Mushroom { mushroom, scatter }, ScatterCopies::Mushroom(_)) => {
+            // Placed again by the mushroom crate, with the same input.
+            let mut scatter = scatter.clone();
+            scatter.default_seed = layer.seed();
+            let above = placed
+                .mask_above(layer.key().as_str())
+                .expect("the layer is in the placement");
+            commands.spawn((
+                MushroomGroundScatterParams {
+                    mushroom: Arc::new(mushroom.clone()),
+                    scatter,
+                    ground,
+                    area,
+                    mask: Some(Arc::new(Covered { above, coverage })),
+                },
+                ChildOf(holder),
+            ));
+        }
+        (kind, _) => panic!(
+            "Scatter {} placed as another kind than its {} settings",
+            layer.key(),
+            kind.name()
+        ),
+    }
+    holder
 }
 
 /// The mask a mushroom Scatter was placed with: the Ecotope's coverage,

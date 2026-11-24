@@ -657,6 +657,64 @@ pub struct HeightTile { pub height: Vec<f32>, pub water: Vec<f32>, pub landform:
 - **Grids for plant and heightmap users.** `tile(key)` returns the 2D grids
   without building a mesh.
 
+**As built (G6, 2026-11-24): heightfield chunks** (`src/chunk.rs`), following
+the 2026-11-23 decision (heightfield by default; no marching cubes or
+Transvoxel yet, so the band and the licence question wait for volume
+patches).
+
+- `ChunkKey { x, z, level }`: 64 m · 2^level, `CHUNK_CELLS` = 64 cells a
+  side, vertices on the world lattice from integers, so chunks that share
+  a point read the same height bit for bit.
+- `ChunkSamples::sample(source, key, stage)` reads the chunk once: the
+  vertex lattice, a one-sample ring for normals, and three half-step rows
+  along every side. `ChunkSamples::mesh(transitions, skirt)` meshes it for
+  any `Transitions` without reading again.
+- `Transitions` holds four side bits and four corner bits for a finer
+  neighbour. As planned, the **coarser** chunk owns the transition: along
+  such a side it adds the finer chunk's half-step vertices and fans its
+  edge cells to them, so there are no T-junctions. Normals are lattice
+  differences; along a transition side, and at a corner any finer chunk
+  touches, they are taken at the finer step, so both sides shade a shared
+  vertex alike.
+- `ChunkSelection::around(lod, factor, viewers, previous)` is the
+  restricted quadtree: levels from a `procgena_core::Lod` (level `i` is
+  chunk level `i`, its cull distance the view distance), split by distance
+  with each level's hysteresis against the last selection, and balanced so
+  neighbours across a side or a corner are at most one level apart.
+- **Feature tiers** (features_plan.md §9, "Feature tiers"). Chunks are
+  read at a `FeatureTier` (`Rough`, `Fine`); only fine is canonical. Each
+  `FeatureKind` declares its tiers (`tiers`, `first_tier`) and what it
+  reads (`reads`; a unit test checks none is drawn before what it reads):
+  rivers and ponds at every tier, roads fine only. `Terrain::with_tier`
+  plans each kind at its first tier; `WorldTerrain::terrain_tier` caches
+  every tier on its own and builds each from the one before (fine is
+  bit-identical to before). A different method per tier has no user yet,
+  so it isn't built; rough roads would be the first.
+- **Skirts between tiers.** Each terrain records how far each tier moved
+  the ground (`Terrain::tier_difference`): measured along every road
+  when roads are planned, on the centreline, both edges and 4 m beyond,
+  times 1.1 plus 1 m. `ChunkSource::tier_difference` gives it for an
+  area. In Bevy, wherever two drawn chunks of different tiers touch, both
+  get skirts at least that deep, kept per chunk across swaps. A test
+  checks every shared side a road crosses: the gap is never more than the
+  bound. Labels (G4) will add per-vertex weights and parts to
+  `ChunkMesh`; the struct marks the place.
+- Water: each chunk's `WaterMesh` covers every triangle with water at a
+  corner, with dry corners at the wet corners' mean level so it runs into
+  the banks.
+- **Benchmark (2026-11-24, provisional):** release, `--test bench chunks`,
+  load average 160 to 180 while other lanes built; rerun on a quiet
+  machine. Warm read of one chunk (6,000 samples, rayon): p50 31 ms at
+  level 0, 112 ms at level 3, 60 ms at level 6. Meshing: about 0.4 ms at
+  every level, split sides or not, so a neighbour changing level costs
+  almost nothing. Cold first chunk of a fresh world (builds the regions
+  it touches and their neighbours' plans): canonical p50 18 s (p95 61 s),
+  provisional p50 7 s at level 0 and 9 s at level 5: the road-free stage
+  cuts a cold start by about 2.5×.
+- Not built: the vertical band, volume patches, exports (Phase 9),
+  geometric-error LOD (distance only), and `tile(key)` beyond
+  `HeightTile`.
+
 ### Exports
 
 `export-obj` and `export-gltf` features (house pattern). A chunk or a

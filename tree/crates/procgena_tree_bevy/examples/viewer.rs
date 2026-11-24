@@ -28,7 +28,10 @@
 //! the texture's own colour. Both bark options stay in effect when changing presets.
 //! Use `--still` for leaf-only wind or `--flat` for mirrored bark coordinates
 //! without normal maps (this does not enable flat shading). Set camera positions
-//! with `--eye x y z` and `--target x y z`. Use `--resolution <width> <height>` to set
+//! with `--eye x y z` and `--target x y z`, and the vertical field of view with
+//! `--fov <degrees>`. `--slope <degrees>` tilts the ground so it falls away
+//! towards +Z, for looking up at a tree from down a hillside: for example
+//! `--slope 40 --eye 0 -105 128 --target 0 9 0`. Use `--resolution <width> <height>` to set
 //! the window or screenshot size in pixels (default: 1280 × 720).
 //! Use `--screenshot <file.png>` to save a screenshot and close the viewer once
 //! the trees and textures (the images that give bark and leaves their appearance)
@@ -37,9 +40,7 @@
 //! after the trees finish generating; tree generation itself has no time limit.
 //! Add `--headless` with `--screenshot` to capture without opening a window.
 //! This keeps trees and leaves still so wind does not change their appearance
-//! between screenshots. `--cluster-cards <n>` draws fruit and flower clusters at
-//! detail levels 1 and 2 as cards showing `n` baked cluster variants, and `0`
-//! as geometry; pass it before `--lod`. Use `--lod <0–3>` to lock the
+//! between screenshots. Use `--lod <0–3>` to lock the
 //! viewer to one default detail level at all distances. For example, `--lod 3`
 //! lets you inspect the distant tree’s camera-facing shapes and shadows up close.
 //! Trees beyond 120 m are drawn as baked impostors; `--no-impostor` keeps the
@@ -132,6 +133,8 @@ fn main() -> AppExit {
     let mut size = UVec2::new(1280, 720);
     let mut eye = Vec3::new(0.0, 3.0, 11.0);
     let mut target = Vec3::new(0.0, 2.8, 0.0);
+    let mut slope = 0.0;
+    let mut fov = None;
     let mut lod = default_tree_lod();
 
     // Apply command-line choices before creating the scene.
@@ -200,17 +203,22 @@ fn main() -> AppExit {
                 i += 1;
             }
             "--headless" => viewer.headless = true,
+            "--slope" => {
+                slope = args[i + 1].parse::<f32>().expect("a slope in degrees");
+                i += 1;
+            }
+            "--fov" => {
+                fov = Some(
+                    args[i + 1]
+                        .parse::<f32>()
+                        .expect("a field of view in degrees"),
+                );
+                i += 1;
+            }
             "--resolution" => {
                 let n = |k: usize| args[i + k].parse::<u32>().expect("a whole number");
                 size = UVec2::new(n(1), n(2));
                 i += 2;
-            }
-            "--cluster-cards" => {
-                let variants: u32 = args[i + 1].parse().expect("a number of card variants");
-                for level in lod.levels.iter_mut().skip(1).take(2) {
-                    level.detail.detail.cluster_cards = variants;
-                }
-                i += 1;
             }
             "--lod" => {
                 let index: usize = args[i + 1].parse().expect("a detail level number");
@@ -274,7 +282,13 @@ fn main() -> AppExit {
         ..default()
     })
     .insert_resource(viewer)
-    .insert_resource(Camera3dSetup { eye, target, size })
+    .insert_resource(Camera3dSetup {
+        eye,
+        target,
+        size,
+        slope,
+        fov,
+    })
     .add_systems(Startup, setup)
     .add_systems(Update, (controls, show_trees, screenshot))
     .run()
@@ -286,6 +300,10 @@ struct Camera3dSetup {
     target: Vec3,
     /// Width and height in pixels for the image saved with `--headless`.
     size: UVec2,
+    /// Ground slope in degrees, falling away towards +Z.
+    slope: f32,
+    /// Vertical field of view in degrees; `None` keeps Bevy's default.
+    fov: Option<f32>,
 }
 
 fn setup(
@@ -305,6 +323,12 @@ fn setup(
             ..default()
         },
     ));
+    if let Some(fov) = camera.fov {
+        camera_entity.insert(Projection::Perspective(PerspectiveProjection {
+            fov: fov.to_radians(),
+            ..default()
+        }));
+    }
 
     // Give the camera an image to draw into when there is no window.
     if viewer.headless {
@@ -332,9 +356,12 @@ fn setup(
         ..default()
     });
     commands.insert_resource(ClearColor(Color::srgb(0.62, 0.76, 0.9)));
+    // A sloped ground is made large enough to reach a camera far down it.
+    let ground = if camera.slope == 0.0 { 80.0 } else { 600.0 };
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(ground, ground))),
         MeshMaterial3d(materials.add(Color::srgb(0.32, 0.42, 0.22))),
+        Transform::from_rotation(Quat::from_rotation_x(camera.slope.to_radians())),
     ));
 }
 
@@ -381,7 +408,7 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, mut viewer: ResMut<Viewer>) {
     if step != 0.0 {
         let current = viewer
             .maturity
-            .unwrap_or_else(|| preset_at(viewer.preset).tree.fruit.maturity);
+            .unwrap_or_else(|| cluster_maturity(&preset_at(viewer.preset).tree));
         viewer.maturity = Some((current + step).clamp(0.0, 1.0));
     }
     if keys.just_pressed(KeyCode::KeyF) {
@@ -433,8 +460,12 @@ fn show_trees(
         BarkUvMode::Mirrored
     };
     if let Some(maturity) = viewer.maturity {
-        options.fruit.maturity = maturity;
-        options.flowers.maturity = maturity;
+        for attached in [&mut options.fruit, &mut options.flowers]
+            .into_iter()
+            .flatten()
+        {
+            attached.fruit.maturity = maturity;
+        }
     }
     if let Some(leaves) = viewer.leaves {
         options.leaves.kind = LEAF_KINDS[leaves].to_owned();
@@ -449,7 +480,7 @@ fn show_trees(
         "{} (leaves {}, maturity {:.1}, bark normal maps {}, wind {}, variation {})",
         preset.name,
         options.leaves.kind,
-        options.fruit.maturity,
+        cluster_maturity(&options),
         if viewer.continuous { "on" } else { "off" },
         if viewer.headless {
             "off"
@@ -624,4 +655,13 @@ fn tree_textures_state(
         }
     }
     Ok(loaded)
+}
+
+/// The maturity of the tree's fruit, else of its flowers, else 1.
+fn cluster_maturity(options: &procgena_tree::TreeOptions) -> f32 {
+    options
+        .fruit
+        .as_ref()
+        .or(options.flowers.as_ref())
+        .map_or(1.0, |attached| attached.fruit.maturity)
 }

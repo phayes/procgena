@@ -6,9 +6,11 @@
 //!
 //! This is an early version. It makes ground heights, joins regions, and
 //! cuts in rivers, ponds and roads, including rivers and roads that cross
-//! from one region into the next. Labels, lakes, caves and meshes come later
-//! (see `terrain/plan.md` in the repository). Rivers and roads are planned
-//! only for regions with a polygon boundary.
+//! from one region into the next. It meshes the ground in chunks with
+//! levels of detail, for drawing (see [`ChunkSamples`] and
+//! [`ChunkSelection`]). Labels, lakes and caves come later (see
+//! `terrain/plan.md` in the repository). Rivers and roads are planned only
+//! for regions with a polygon boundary.
 //!
 //! ## Rivers and roads across borders
 //!
@@ -81,6 +83,7 @@
 mod border;
 mod calibration;
 mod carve;
+mod chunk;
 mod converge;
 // Measurements only, for now: see the module's own documentation.
 #[cfg(test)]
@@ -89,6 +92,7 @@ mod elevation;
 mod feature;
 mod graph;
 mod grid;
+pub mod ground;
 mod gully;
 mod hash;
 mod noise;
@@ -107,15 +111,21 @@ mod warp;
 mod world;
 
 pub use carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, RoadTags};
+pub use chunk::{
+    CHUNK_CELLS, CHUNK_SIZE, ChunkCorner, ChunkError, ChunkKey, ChunkMesh, ChunkSamples,
+    ChunkSelection, ChunkSelectionError, ChunkSide, ChunkSource, MAX_CHUNK_LEVEL, SurfacePoint,
+    Transitions, WaterMesh, chunk_lod,
+};
 pub use converge::{
     BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,
     blend_weights, relief_meeting_is_valid, relief_target,
 };
 pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
-pub use feature::{FeatureId, FeatureShape, TerrainFeature};
+pub use feature::{FeatureId, FeatureShape, FeatureTier, TerrainFeature};
 pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };
+pub use hash::region_local_seed;
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,
@@ -139,4 +149,7 @@ pub use terrain::{
     HeightField, HeightTile, RiverTrace, Terrain, TerrainError, TerrainGenerator, TerrainSample,
 };
 pub use warp::{BorderWarp, BorderWarpError, MIN_WARP_WAVELENGTH, warp_borders};
-pub use world::{DEFAULT_CACHE, TerrainSource, WorldError, WorldTerrain, WorldTerrainOptions};
+pub use world::{
+    DEFAULT_CACHE, ProgressHook, RegionProgress, RegionStage, TerrainSource, WorldError,
+    WorldTerrain, WorldTerrainOptions,
+};

@@ -12,9 +12,8 @@
 use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, PoolId, SpecimenId};
 
 use crate::{
-    BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterKind, ClusterPlacement, ClusterShape,
-    Facing, FlowerOptions, FlowerShape, FruitOptions, FruitShape, GrowthForce, LeafOptions,
-    PerLevel, Tree, TreeOptions, TreeType, TrellisForce, TrellisOptions,
+    AttachedFruit, BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterPlacement,
+    GrowthForce, LeafOptions, PerLevel, Tree, TreeOptions, TreeType, TrellisForce, TrellisOptions,
 };
 
 /// The generator kind of every tree: the first half of every tree
@@ -36,6 +35,10 @@ pub struct TreeCacheKey {
     pub pool: PoolId,
     /// The seed the tree is grown from, [`TreeOptions::default_seed`].
     pub seed: i32,
+    /// A hash of what picks the tree's fruit and flower specimens besides
+    /// its settings: each cluster settings' own seed and the number of
+    /// slots ([`AttachedFruit::default_slots`](crate::AttachedFruit::default_slots)).
+    pub attached: u64,
 }
 
 impl TreeCacheKey {
@@ -48,9 +51,14 @@ impl TreeCacheKey {
 
 impl ContentHash for TreeCacheKey {
     fn content_hash(&self, hasher: &mut ContentHasher) {
-        let Self { pool, seed } = self;
+        let Self {
+            pool,
+            seed,
+            attached,
+        } = self;
         hasher.write(pool);
         hasher.write_i32(*seed);
+        hasher.write_u64(*attached);
     }
 }
 
@@ -104,9 +112,18 @@ impl TreeOptions {
     /// assert_ne!(a.cache_key(), b.cache_key());
     /// ```
     pub fn cache_key(&self) -> TreeCacheKey {
+        let mut attached = ContentHasher::new();
+        for part in [&self.fruit, &self.flowers] {
+            attached.write_bool(part.is_some());
+            if let Some(part) = part {
+                attached.write_u32(part.fruit.default_seed);
+                attached.write_u32(part.default_slots);
+            }
+        }
         TreeCacheKey {
             pool: self.pool_id(),
             seed: self.default_seed,
+            attached: attached.finish(),
         }
     }
 }
@@ -139,24 +156,6 @@ fn uv_mode_number(value: BarkUvMode) -> u32 {
     match value {
         BarkUvMode::Mirrored => 0,
         BarkUvMode::Continuous => 1,
-    }
-}
-
-fn facing_number(value: Facing) -> u32 {
-    match value {
-        Facing::Hang => 0,
-        Facing::Up => 1,
-        Facing::Outward => 2,
-    }
-}
-
-fn cluster_kind_number(value: ClusterKind) -> u32 {
-    match value {
-        ClusterKind::Single => 0,
-        ClusterKind::Umbel => 1,
-        ClusterKind::Raceme => 2,
-        ClusterKind::Panicle => 3,
-        ClusterKind::Catkin => 4,
     }
 }
 
@@ -328,33 +327,17 @@ impl ContentHash for TrellisForce {
     }
 }
 
-impl ContentHash for FruitOptions {
+/// The cluster settings' own options hash, then the placement. Leaves out
+/// [`AttachedFruit::default_slots`], which [`TreeCacheKey`] holds instead.
+impl ContentHash for AttachedFruit {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
+            fruit,
             placement,
-            cluster,
-            shape,
-            maturity,
+            default_slots: _,
         } = self;
+        hasher.write(&fruit.options_hash());
         hasher.write(placement);
-        hasher.write(cluster);
-        hasher.write(shape);
-        hasher.write_f32(*maturity);
-    }
-}
-
-impl ContentHash for FlowerOptions {
-    fn content_hash(&self, hasher: &mut ContentHasher) {
-        let Self {
-            placement,
-            cluster,
-            shape,
-            maturity,
-        } = self;
-        hasher.write(placement);
-        hasher.write(cluster);
-        hasher.write(shape);
-        hasher.write_f32(*maturity);
     }
 }
 
@@ -366,122 +349,17 @@ impl ContentHash for ClusterPlacement {
             count,
             density,
             start,
-            facing,
             facing_jitter,
-            size,
-            size_variance,
+            scale,
+            scale_variance,
         } = self;
         hasher.write_u32(*min_level);
         hasher.write_f32(*tips);
         hasher.write_u32(*count);
         hasher.write_f32(*density);
         hasher.write_f32(*start);
-        hasher.write_u32(facing_number(*facing));
         hasher.write_f32(*facing_jitter);
-        hasher.write_f32(*size);
-        hasher.write_f32(*size_variance);
-    }
-}
-
-impl ContentHash for ClusterShape {
-    fn content_hash(&self, hasher: &mut ContentHasher) {
-        let Self {
-            kind,
-            items,
-            items_variance,
-            spread,
-            axis_length,
-            droop,
-            taper,
-            side_stalks,
-            side_length,
-            stalk_length,
-            stalk_radius,
-            stalk_color,
-        } = self;
-        hasher.write_u32(cluster_kind_number(*kind));
-        hasher.write_u32(*items);
-        hasher.write_f32(*items_variance);
-        hasher.write_f32(*spread);
-        hasher.write_f32(*axis_length);
-        hasher.write_f32(*droop);
-        hasher.write_f32(*taper);
-        hasher.write_u32(*side_stalks);
-        hasher.write_f32(*side_length);
-        hasher.write_f32(*stalk_length);
-        hasher.write_f32(*stalk_radius);
-        hasher.write_u32(*stalk_color);
-    }
-}
-
-impl ContentHash for FruitShape {
-    fn content_hash(&self, hasher: &mut ContentHasher) {
-        let Self {
-            elongation,
-            top_dimple,
-            bottom_taper,
-            lobes,
-            lobe_depth,
-            segments,
-            rings,
-            stem_length,
-            stem_radius,
-            stem_curve,
-            calyx,
-            color,
-            unripe_color,
-            blush_color,
-            blush_amount,
-        } = self;
-        hasher.write_f32(*elongation);
-        hasher.write_f32(*top_dimple);
-        hasher.write_f32(*bottom_taper);
-        hasher.write_u32(*lobes);
-        hasher.write_f32(*lobe_depth);
-        hasher.write_u32(*segments);
-        hasher.write_u32(*rings);
-        hasher.write_f32(*stem_length);
-        hasher.write_f32(*stem_radius);
-        hasher.write_f32(*stem_curve);
-        hasher.write_bool(*calyx);
-        hasher.write_u32(*color);
-        hasher.write_u32(*unripe_color);
-        hasher.write_u32(*blush_color);
-        hasher.write_f32(*blush_amount);
-    }
-}
-
-impl ContentHash for FlowerShape {
-    fn content_hash(&self, hasher: &mut ContentHasher) {
-        let Self {
-            petal_count,
-            rings,
-            petal_length,
-            petal_width,
-            cup,
-            curl,
-            notch,
-            petal_segments,
-            center_size,
-            center_color,
-            petal_color,
-            base_color,
-            bud_color,
-            fade_color,
-        } = self;
-        hasher.write_u32(*petal_count);
-        hasher.write_u32(*rings);
-        hasher.write_f32(*petal_length);
-        hasher.write_f32(*petal_width);
-        hasher.write_f32(*cup);
-        hasher.write_f32(*curl);
-        hasher.write_f32(*notch);
-        hasher.write_u32(*petal_segments);
-        hasher.write_f32(*center_size);
-        hasher.write_u32(*center_color);
-        hasher.write_u32(*petal_color);
-        hasher.write_u32(*base_color);
-        hasher.write_u32(*bud_color);
-        hasher.write_u32(*fade_color);
+        hasher.write_f32(*scale);
+        hasher.write_f32(*scale_variance);
     }
 }

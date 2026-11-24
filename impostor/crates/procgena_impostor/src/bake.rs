@@ -24,7 +24,9 @@ use bevy::render::{Extract, RenderApp};
 use crate::ImpostorSettings;
 use crate::cache::{self, DiskReads, ImpostorWrites};
 use crate::key::{BakeLayout, ImpostorKey};
-use crate::layout::{elevation_basis, elevation_direction, view_basis, view_direction};
+use crate::layout::{
+    ViewCoverage, elevation_basis, elevation_direction, view_basis, view_direction,
+};
 use crate::material::{
     BakeOutput, ImpostorExtension, ImpostorMaterial, ImpostorUniform, impostor_base,
 };
@@ -96,6 +98,8 @@ pub struct Impostor {
     pub normal: Handle<Image>,
     /// Views along each side of the atlases.
     pub frames: u32,
+    /// The viewer elevations the views cover.
+    pub coverage: ViewCoverage,
     /// Centre of the object's bounding sphere, in its own coordinates.
     pub center: Vec3,
     /// Radius of the bounding sphere.
@@ -114,6 +118,7 @@ impl Impostor {
                     center: self.center,
                     radius: self.radius,
                     frames: self.frames,
+                    lowest_elevation: self.coverage.lowest_elevation_deg(),
                 },
                 albedo: self.albedo.clone(),
                 normal: self.normal.clone(),
@@ -523,7 +528,9 @@ fn spawn_bake(
         .map(|index| {
             let cell_index = UVec2::new(index % frames, index / frames);
             let basis = match bake.layout {
-                BakeLayout::Hemisphere => view_basis(view_direction(cell_index, frames)),
+                BakeLayout::Octahedral => {
+                    view_basis(view_direction(cell_index, frames, bake.coverage))
+                }
                 BakeLayout::Elevations => {
                     elevation_basis(elevation_direction(index, frames * frames))
                 }
@@ -609,6 +616,7 @@ fn spawn_bake(
         albedo: atlases[0].clone(),
         normal: atlases[1].clone(),
         frames,
+        coverage: bake.coverage,
         center,
         radius,
     };

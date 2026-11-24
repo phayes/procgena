@@ -1,6 +1,7 @@
-//! Appearance settings to apply in your renderer for bark, leaves, fruit, flowers,
-//! and trellis guide wires. These settings do not configure the renderer themselves.
-//! Fruit and flowers use mesh vertex colours. For bark and leaf textures, use
+//! Appearance settings to apply in your renderer for bark, leaves and trellis
+//! guide wires. These settings do not configure the renderer themselves.
+//! Fruit and flowers use mesh vertex colours and
+//! `procgena_fruit::FruitMaterial`. For bark and leaf textures, use
 //! [`BARK_KINDS`] and [`LEAF_KINDS`] with [`bark_texture_path`] and
 //! [`leaf_texture_path`] to find files in the repository's `assets/textures/` folder.
 
@@ -394,59 +395,6 @@ impl TrellisMaterial {
             base_color: srgb_hex_to_linear(options.color),
             metallic: 0.0,
             roughness: 0.8,
-        }
-    }
-}
-
-/// Appearance settings for fruit and their supporting stalks.
-///
-/// Use [`MeshBuffers::colors`](crate::MeshBuffers::colors) as the surface
-/// colour; these per-vertex values are already in linear RGBA for lighting.
-/// No texture is required. Apply these settings in your renderer.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FruitMaterial {
-    /// Metallic appearance from 0 (nonmetal) to 1 (metal). Defaults to 0.
-    pub metallic: f32,
-    /// Surface roughness from 0 (smooth and shiny) to 1 (matte).
-    /// Defaults to 0.45.
-    pub roughness: f32,
-    /// Whether to render both faces of each triangle. Defaults to true, because
-    /// low-detail fruit stalks and flat fruit are single surfaces seen from both sides.
-    pub double_sided: bool,
-}
-
-impl Default for FruitMaterial {
-    fn default() -> Self {
-        Self {
-            metallic: 0.0,
-            roughness: 0.45,
-            double_sided: true,
-        }
-    }
-}
-
-/// Appearance settings for flowers and their supporting stalks.
-///
-/// Use [`MeshBuffers::colors`](crate::MeshBuffers::colors) as the surface
-/// colour; these per-vertex values are already in linear RGBA for lighting.
-/// No texture is required. Apply these settings in your renderer.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FlowerMaterial {
-    /// Metallic appearance from 0 (nonmetal) to 1 (metal). Defaults to 0.
-    pub metallic: f32,
-    /// Surface roughness from 0 (smooth and shiny) to 1 (matte).
-    /// Defaults to 0.8.
-    pub roughness: f32,
-    /// Whether to render both faces of each triangle. Defaults to true.
-    pub double_sided: bool,
-}
-
-impl Default for FlowerMaterial {
-    fn default() -> Self {
-        Self {
-            metallic: 0.0,
-            roughness: 0.8,
-            double_sided: true,
         }
     }
 }

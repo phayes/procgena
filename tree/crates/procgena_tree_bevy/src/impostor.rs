@@ -6,19 +6,21 @@ use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
 use procgena_core::SpecimenId;
 use procgena_impostor::{
-    BakeOutput, BakePart, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial, ImpostorQuad,
-    ImpostorRequest, Impostors,
+    BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial,
+    ImpostorQuad, ImpostorRequest, Impostors, ViewCoverage,
 };
 
 use crate::material::{TreeMaterial, bake_copy};
 use crate::spawn::{
     CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreePart,
-    TreePartKind, part_range,
+    TreePartKind, part_range, spawn_clusters,
 };
 
 /// The impostor trees use unless told otherwise: from 120 m, crossfading
-/// over 10% on each side, baked from level 1 with the default
-/// [`BakeSettings`](procgena_impostor::BakeSettings). Set it on
+/// over 10% on each side, baked from level 1 as 10 × 10 views of 128
+/// pixels covering viewers from straight above down to 45° below level.
+/// That covers looking up a hillside of up to about 40° at a tree; from
+/// further below, the tree shows its view from 45° below. Set it on
 /// [`TreePlugin::impostor`](crate::TreePlugin::impostor).
 ///
 /// Each distinct tree is baked once, in the background, the first time it
@@ -27,7 +29,10 @@ use crate::spawn::{
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`TreePlugin`](crate::TreePlugin).
 pub fn default_tree_impostor() -> ImpostorLevel {
-    ImpostorLevel::new(120.0, 0.1, 1)
+    ImpostorLevel {
+        bake: BakeSettings::new(10, 128).with_coverage(ViewCoverage::from_lowest_elevation(-45.0)),
+        ..ImpostorLevel::new(120.0, 0.1, 1)
+    }
 }
 
 /// A tree's impostor, once baked, with the quad and material that draw it.
@@ -112,10 +117,15 @@ fn tree_request(
 ) -> ImpostorRequest {
     let mut parts = Vec::new();
     let mut wait_for: Vec<UntypedAssetId> = Vec::new();
-    for (lod, _, mesh, material) in generated.parts() {
-        if lod != impostor.baked_level {
-            continue;
-        }
+    let baked_parts = generated
+        .parts()
+        .filter(|(lod, ..)| *lod == impostor.baked_level)
+        .map(|(_, _, mesh, material)| (&mesh.mesh, material));
+    let clusters = generated
+        .baked_clusters
+        .iter()
+        .map(|(mesh, material)| (mesh, material));
+    for (mesh, material) in baked_parts.chain(clusters) {
         let Some(source) = materials.get(material).cloned() else {
             continue;
         };
@@ -133,7 +143,7 @@ fn tree_request(
         );
         let albedo = materials.add(bake_copy(&source, BakeOutput::Albedo));
         let normal = materials.add(bake_copy(&source, BakeOutput::Normal));
-        parts.push(BakePart::new(mesh.mesh.clone(), albedo, normal));
+        parts.push(BakePart::new(mesh.clone(), albedo, normal));
     }
 
     ImpostorRequest {
@@ -172,17 +182,23 @@ pub(crate) fn show_impostors(
 
         // Every mesh level takes its bands with the impostor as the last
         // level: the farthest now fades out where the impostor fades in.
+        // Clusters are rebuilt to stop where the impostor fades in.
         for child in children.into_iter().flatten() {
             let Ok(part) = parts.get(*child) else {
                 continue;
             };
-            if part.kind == TreePartKind::Trellis {
-                continue;
-            }
-            if let Some(range) = part_range(&ranges[part.lod]) {
-                commands.entity(*child).insert(range);
+            match part.kind {
+                TreePartKind::Trellis => {}
+                TreePartKind::Clusters => commands.entity(*child).despawn(),
+                _ => {
+                    if let Some(range) = part_range(&ranges[part.lod]) {
+                        commands.entity(*child).insert(range);
+                    }
+                }
             }
         }
+        let specimen = cache.specimen_id(*key);
+        spawn_clusters(&mut commands, tree, generated, specimen, &settings, true);
         let lod = generated.level_count();
         let mut impostor = commands.spawn((
             TreePart {

@@ -10,8 +10,7 @@ use glam::{Quat, Vec3};
 use procgena_core::{FarForm, LevelForm, Lod, LodLevel};
 use serde::{Deserialize, Serialize};
 
-use crate::cluster_card::{ClusterPart, mesh_cards};
-use crate::cluster_mesh::{mesh_flowers, mesh_fruit};
+use crate::compose::compose_clusters;
 use crate::units::LEAF_NORMAL_REFERENCE;
 use crate::wind::{BranchWind, branch_winds, wind_at};
 use crate::{
@@ -93,65 +92,19 @@ pub struct LodDetail {
     /// [`leaf_scale`](Self::leaf_scale). Both sizes keep the original leaf centre.
     /// A card facing the camera can be smaller while still filling gaps in the canopy.
     pub leaf_billboard_scale: f32,
-    /// Keep every Nth group of fruit and every Nth group of flowers, starting
-    /// with group 0 in each skeleton list. Both 0 and 1 keep all groups.
+    /// Keep every Nth fruit cluster and every Nth flower cluster, starting
+    /// with cluster 0 in each skeleton list. Both 0 and 1 keep all clusters.
     pub cluster_stride: u32,
-    /// Keep every Nth fruit or flower within each retained cluster, starting with
-    /// item 0, along with the stalks supporting it. Both 0 and 1 keep all items.
-    /// Flat items ignore this stride. [`billboard_fruit`](Self::billboard_fruit)
-    /// fruit follow it but have no stalks.
-    pub item_stride: u32,
-    /// Scale each retained fruit or flower, leaving supporting cluster stalks
-    /// unchanged. Values above 1 help fill gaps left by skipped items.
-    /// Has no effect on [`billboard_fruit`](Self::billboard_fruit).
-    pub item_scale: f32,
-    /// Amount of shape detail to use for fruit, flowers, and their stalks.
-    pub item_detail: ItemDetail,
-    /// Whether to draw the stalks that hold fruit and flowers. Turn them off
-    /// far away, where they are too thin to see, so the items cost less.
-    /// [`billboard_fruit`](Self::billboard_fruit) fruit never have stalks.
-    pub item_stalks: bool,
-    /// Draw fruit and flowers flat when their configured size
-    /// ([`ClusterPlacement::size`](crate::ClusterPlacement::size)) is below
-    /// this many metres: each fruit becomes a rough disc and each flower a
-    /// single triangle. Flat items keep every item, ignoring
-    /// [`item_stride`](Self::item_stride), but are still resized by
-    /// [`item_scale`](Self::item_scale). Catkins are not affected. 0 turns this off.
-    pub flat_item_size: f32,
-    /// Minimum configured fruit or flower size, in metres. If
-    /// [`size`](crate::ClusterPlacement::size) is below this threshold, that
-    /// entire category is omitted, including stalks and catkins (hanging clusters).
-    /// Its [`TreeMesh`] buffer and span list are empty. Set to 0 to disable this filter.
-    pub min_item_size: f32,
-    /// Replace fruit bodies with flat hexagons that supported renderers turn
-    /// toward the camera. Stalks and individual stems are omitted.
-    ///
-    /// Each fruit has one hexagon in [`TreeMesh::fruit`], with
-    /// [`MeshBuffers::billboard`] data and no normals, and a perpendicular fallback
-    /// hexagon in [`BillboardCull::fruit`]. Renderers that turn the first skip the second.
-    ///
-    /// Every fruit cluster is kept, and within each cluster every
-    /// [`item_stride`](Self::item_stride)th fruit, all at their original sizes.
-    /// [`cluster_stride`](Self::cluster_stride), [`item_scale`](Self::item_scale),
-    /// [`item_detail`](Self::item_detail) and
-    /// [`flat_item_size`](Self::flat_item_size) then affect flowers only.
-    /// [`min_item_size`](Self::min_item_size) still filters fruit.
-    pub billboard_fruit: bool,
-    /// Draw each kept fruit and flower cluster as one camera-facing card
-    /// showing a baked picture of a cluster, instead of its own geometry.
-    /// The value is the number of baked cluster variants to choose among,
-    /// at least 1; 0 (the default) draws clusters as geometry.
-    ///
-    /// Cards go into [`TreeMesh::fruit_cards`] and
-    /// [`TreeMesh::flower_cards`], one buffer per variant, and
-    /// [`TreeMesh::fruit`] and [`TreeMesh::flowers`] stay empty. Each card
-    /// is sized to its own cluster and turned about the cluster's axis;
-    /// see [`cluster_card_mesh`](crate::cluster_card_mesh) for the pictures
-    /// they show. [`cluster_stride`](Self::cluster_stride) and
-    /// [`min_item_size`](Self::min_item_size) still choose the clusters.
-    /// Use the same value on every level that draws cards. Overrides
-    /// [`billboard_fruit`](Self::billboard_fruit).
-    pub cluster_cards: u32,
+    /// Scale each kept cluster, stalks included. Values above 1 help fill
+    /// the gaps left by skipped clusters.
+    pub cluster_scale: f32,
+    /// The viewing distance, in metres, that [`TreeMesh::fruit`] and
+    /// [`TreeMesh::flowers`] are built for. Each kept cluster is drawn at
+    /// its own `procgena_fruit` level of detail for this distance
+    /// ([`procgena_fruit::default_lod`], scaled by the cluster's size), so
+    /// small clusters simplify sooner than large ones. Set it to the
+    /// distance this level starts at.
+    pub fruit_distance: f32,
 }
 
 impl Default for LodDetail {
@@ -168,14 +121,8 @@ impl Default for LodDetail {
             leaf_billboard: None,
             leaf_billboard_scale: 1.0,
             cluster_stride: 1,
-            item_stride: 1,
-            item_scale: 1.0,
-            item_detail: ItemDetail::Full,
-            item_stalks: true,
-            flat_item_size: 0.0,
-            min_item_size: 0.0,
-            billboard_fruit: false,
-            cluster_cards: 0,
+            cluster_scale: 1.0,
+            fruit_distance: 0.0,
         }
     }
 }
@@ -237,27 +184,6 @@ pub enum BranchShape {
     Ribbons,
 }
 
-/// Controls how much geometry is used for fruit, flowers, and their stalks.
-///
-/// Lower detail uses fewer triangles for distant trees. It still uses the
-/// configured maturity and colours, but small features may disappear.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ItemDetail {
-    /// Use the full fruit and flower shape settings.
-    #[default]
-    Full,
-    /// Use fewer sides for fruit and stalks, and omit the calyx (the small
-    /// flower remains on a fruit). Flowers have one petal layer with at most
-    /// two divisions along each petal, and a cone-shaped centre.
-    Simple,
-    /// Use coarse fruit bodies without individual stems or flower remains
-    /// (calyxes), and a star-shaped surface for each non-catkin flower.
-    /// Supporting stalks become flat strips; render both sides. Catkins
-    /// (hanging clusters along a stem) still draw their retained items separately.
-    Minimal,
-}
-
 /// A tree's levels of detail: the shared [`Lod`] type, with the mesh
 /// settings of each level as its detail. Pass a level's `detail` to
 /// [`Skeleton::mesh`]. This crate does not track a camera: the application
@@ -279,12 +205,15 @@ pub const LOD_REFERENCE_SIZE: f32 = 10.0;
 /// The levels at 25 and 50 m (LOD2 and LOD3) are for drawing distant trees only.
 /// Their bark is open, and coarse tubes may fold over themselves at sharp bends.
 ///
+/// Each level draws its fruit and flowers as seen from its own distance
+/// ([`LodDetail::fruit_distance`]): each cluster takes its own
+/// `procgena_fruit` level for that distance, so small clusters simplify
+/// sooner than large ones.
+///
 /// At 10 m, branches use fewer sections and sides, and every second leaf is kept
-/// at 1.25 times its size. Fruit and flowers use [`ItemDetail::Simple`].
+/// at 1.25 times its size.
 /// At 25 m, branches simplify further; every second leaf uses a single card at
-/// 1.3 times its size. Fruit and flowers use [`ItemDetail::Minimal`], retaining
-/// every second item at 1.25 times its size. Non-catkin items smaller than
-/// 7.5 cm (configured size) are drawn flat and keep every item.
+/// 1.3 times its size.
 ///
 /// At 50 m (LOD3), renderers supporting [`MeshBuffers::billboard`] can turn
 /// branch strips and leaf cards toward the camera:
@@ -294,14 +223,18 @@ pub const LOD_REFERENCE_SIZE: f32 = 10.0;
 /// - Every fourth leaf is kept, counting back from each branch tip, including on
 ///   omitted branches. Fixed fallback cards use 1.8 times the original size;
 ///   camera-facing cards use 1.25 times.
-/// - Every second cluster of fruit and flowers is kept, at 1.4 times its size
-///   so the clusters cover about as much as before, without stalks. Small items
-///   are kept too, since on some trees, such as Spring Pussy Willow, they make
-///   the canopy. Non-catkin items smaller than 15 cm are drawn flat, keeping
-///   every item in each kept cluster; larger ones keep every second item.
+/// - Every second cluster of fruit and flowers is kept, at 1.12 times its
+///   size, so the clusters cover about as much as before. Small clusters
+///   are kept too, since on some trees, such as Spring Pussy Willow, they
+///   make the canopy.
 ///
 /// Renderers that rotate billboards should skip [`TreeMesh::billboard_cull`].
 pub fn default_lod() -> TreeLod {
+    /// The farthest level keeps every second cluster; at this scale, with
+    /// the 1.25 times larger items of the cluster's own farthest level, its
+    /// items are 1.4 times their size.
+    const FARTHEST_CLUSTER_SCALE: f32 = 1.12;
+
     let near = LodDetail::default();
     let middle = LodDetail {
         section_stride: 3,
@@ -309,7 +242,7 @@ pub fn default_lod() -> TreeLod {
         leaf_stride: 2,
         leaf_scale: 1.25,
         billboard: None,
-        item_detail: ItemDetail::Simple,
+        fruit_distance: 10.0,
         ..LodDetail::default()
     };
     let far = LodDetail {
@@ -319,11 +252,7 @@ pub fn default_lod() -> TreeLod {
         leaf_stride: 2,
         leaf_scale: 1.3,
         billboard: Some(Billboard::Single),
-        cluster_stride: 1,
-        item_stride: 2,
-        item_scale: 1.25,
-        item_detail: ItemDetail::Minimal,
-        flat_item_size: 0.075,
+        fruit_distance: 25.0,
         ..LodDetail::default()
     };
     let farthest = LodDetail {
@@ -337,11 +266,8 @@ pub fn default_lod() -> TreeLod {
         leaf_billboard: Some(BillboardMode::Camera),
         leaf_billboard_scale: 1.25,
         cluster_stride: 2,
-        item_stride: 2,
-        item_scale: 1.4,
-        item_detail: ItemDetail::Minimal,
-        item_stalks: false,
-        flat_item_size: 0.15,
+        cluster_scale: FARTHEST_CLUSTER_SCALE,
+        fruit_distance: 50.0,
         ..LodDetail::default()
     };
     Lod::new(
@@ -490,37 +416,28 @@ pub struct TreeMesh {
     pub branches: MeshBuffers,
     /// All leaves retained by the detail settings, ready for a leaf material.
     pub leaves: MeshBuffers,
-    /// Fruit bodies and supporting stalks, with per-vertex colours. Catkin fruit
-    /// have no individual stems. Empty if the skeleton has no fruit clusters.
+    /// The kept fruit clusters, each drawn at its own `procgena_fruit` level
+    /// for [`LodDetail::fruit_distance`] and moved into place, with
+    /// per-vertex colours. Empty if the tree grows no fruit. Render both
+    /// sides, since stalk strips and flat fruit have no thickness.
     pub fruit: MeshBuffers,
-    /// Flowers and supporting stalks, with per-vertex colours. Empty if the
-    /// skeleton has no flower clusters. Render both sides of petals by disabling
-    /// back-face culling, since petals have no thickness.
+    /// The kept flower clusters, as for [`fruit`](Self::fruit). Render both
+    /// sides of petals, since they have no thickness.
     pub flowers: MeshBuffers,
-    /// Crossed fallback shapes for bark, leaves and fruit. Draw these alongside
-    /// the main buffers only when the renderer does not rotate billboards toward
+    /// Crossed fallback shapes for bark and leaves. Draw these alongside the
+    /// main buffers only when the renderer does not rotate billboards toward
     /// the camera.
     pub billboard_cull: BillboardCull,
     /// Buffer ranges for each skeleton branch, in the order of [`Skeleton::branches`].
     pub branch_spans: Vec<BranchSpan>,
     /// Buffer ranges for retained leaves, in the order of [`Skeleton::leaves`].
     pub leaf_spans: Vec<LeafSpan>,
-    /// Ranges in [`fruit`](Self::fruit), one per cluster in [`Skeleton::fruit`]
-    /// and in the same order. A cluster that produces no surface has empty ranges.
+    /// Ranges in [`fruit`](Self::fruit), one per kept cluster, in the order
+    /// of [`Skeleton::fruit`].
     pub fruit_spans: Vec<ClusterSpan>,
-    /// Ranges in [`flowers`](Self::flowers), one per cluster in [`Skeleton::flowers`]
-    /// and in the same order. A cluster that produces no surface has empty ranges.
+    /// Ranges in [`flowers`](Self::flowers), one per kept cluster, in the
+    /// order of [`Skeleton::flowers`].
     pub flower_spans: Vec<ClusterSpan>,
-    /// Fruit cluster cards ([`LodDetail::cluster_cards`]), one buffer per
-    /// cluster variant; empty when clusters are drawn as geometry. Each card
-    /// is two triangles with [`MeshBuffers::billboard`] data: its pivot is
-    /// the centre of the cluster's baked picture, its axis the cluster's
-    /// axis, and its offsets the corners of a square as wide as the picture.
-    /// Its positions are the card unturned, facing across the axis, and its
-    /// texture coordinates cover 0 to 1 for renderers that draw it so.
-    pub fruit_cards: Vec<MeshBuffers>,
-    /// Flower cluster cards, as [`fruit_cards`](Self::fruit_cards).
-    pub flower_cards: Vec<MeshBuffers>,
 }
 
 impl TreeMesh {
@@ -532,12 +449,6 @@ impl TreeMesh {
             + self.fruit.vertex_count()
             + self.flowers.vertex_count()
             + self.billboard_cull.vertex_count()
-            + self.cards().map(MeshBuffers::vertex_count).sum::<usize>()
-    }
-
-    /// Every cluster card buffer: fruit, then flowers.
-    fn cards(&self) -> impl Iterator<Item = &MeshBuffers> {
-        self.fruit_cards.iter().chain(&self.flower_cards)
     }
 
     /// Returns the total triangle count, including crossed fallback shapes.
@@ -550,7 +461,6 @@ impl TreeMesh {
             + self.fruit.triangle_count()
             + self.flowers.triangle_count()
             + self.billboard_cull.triangle_count()
-            + self.cards().map(MeshBuffers::triangle_count).sum::<usize>()
     }
 }
 
@@ -560,9 +470,9 @@ impl TreeMesh {
 /// unavailable: crossed shapes help keep distant geometry visible from more angles.
 /// Renderers that rotate the main shapes toward the camera should skip these buffers.
 ///
-/// These buffers contain positions, texture coordinates, wind data and, for fruit,
-/// colours. Leaf cards also have normals, matching their main cards. None have
-/// tangents or billboard data. A buffer is empty when its part has no crossed pairs.
+/// These buffers contain positions, texture coordinates and wind data. Leaf
+/// cards also have normals, matching their main cards. None have tangents or
+/// billboard data. A buffer is empty when its part has no crossed pairs.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BillboardCull {
     /// Fallback bark strips for [`BranchShape::Ribbons`]. Locate each branch with
@@ -572,21 +482,18 @@ pub struct BillboardCull {
     /// [`LodDetail::leaf_billboard`] enabled. Locate each card with
     /// [`LeafSpan::cull_vertices`] and [`LeafSpan::cull_indices`].
     pub leaves: MeshBuffers,
-    /// Fallback fruit hexagons for [`LodDetail::billboard_fruit`]. Locate each
-    /// cluster with [`ClusterSpan::cull_vertices`] and [`ClusterSpan::cull_indices`].
-    pub fruit: MeshBuffers,
 }
 
 impl BillboardCull {
     /// Returns the total fallback vertex count, including duplicate vertices.
     pub fn vertex_count(&self) -> usize {
-        self.branches.vertex_count() + self.leaves.vertex_count() + self.fruit.vertex_count()
+        self.branches.vertex_count() + self.leaves.vertex_count()
     }
 
     /// Returns the total fallback triangle count, ignoring incomplete trailing
     /// triangles in manually edited buffers.
     pub fn triangle_count(&self) -> usize {
-        self.branches.triangle_count() + self.leaves.triangle_count() + self.fruit.triangle_count()
+        self.branches.triangle_count() + self.leaves.triangle_count()
     }
 }
 
@@ -667,7 +574,7 @@ pub struct LeafSpan {
     pub cull_indices: Range<u32>,
 }
 
-/// Locates one cluster’s fruit or flowers and supporting stalks in the
+/// Locates one kept cluster's fruit or flowers and supporting stalks in the
 /// corresponding [`TreeMesh`] buffers. Ranges can be empty.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClusterSpan {
@@ -682,23 +589,17 @@ pub struct ClusterSpan {
     /// including the start and excluding the end. Each triangle uses three
     /// entries; these offsets are not triangle numbers or vertex indices.
     pub indices: Range<u32>,
-    /// Start-inclusive, end-exclusive vertex range in [`BillboardCull::fruit`].
-    /// Empty for flowers and for fruit without [`LodDetail::billboard_fruit`].
-    pub cull_vertices: Range<u32>,
-    /// Start-inclusive, end-exclusive entry range in the [`BillboardCull::fruit`]
-    /// index buffer. Empty whenever [`cull_vertices`](Self::cull_vertices) is empty.
-    pub cull_indices: Range<u32>,
 }
 
 impl Skeleton {
     /// Builds bark, leaf, fruit, and flower triangle meshes from this skeleton.
     ///
     /// Pass the options used to generate the skeleton and [`LodDetail::default()`]
-    /// for full detail. You can change fruit and flower shapes, maturity, and
-    /// cluster stalk colours before meshing to change their appearance. Cluster
-    /// kind selects catkin surfaces: rounded flowers and fruit without individual
-    /// stems. Changing placement or growth settings here does not move clusters
-    /// or reshape branches; generate a new skeleton for those changes.
+    /// for full detail. Changing growth settings here does not reshape
+    /// branches; generate a new skeleton for that. Fruit and flowers are the
+    /// cluster specimens grown with the skeleton ([`Skeleton::fruit_slots`]),
+    /// so their settings here are ignored; generate a new skeleton to change
+    /// them.
     ///
     /// Bark texture scale and UV mode, leaf billboard and normal settings also
     /// affect the result. A billboard override in `detail` takes precedence.
@@ -775,28 +676,18 @@ impl Skeleton {
             );
             mesh.leaf_spans.push(span);
         }
-        // Fruit and flowers: one card per kept cluster, or their geometry.
-        if detail.cluster_cards > 0 {
-            let parts = [
-                (&mut mesh.fruit_cards, &self.fruit, ClusterPart::Fruit),
-                (&mut mesh.flower_cards, &self.flowers, ClusterPart::Flowers),
-            ];
-            for (cards, clusters, part) in parts {
-                mesh_cards(cards, clusters, options, part, &winds, detail);
-            }
-            return mesh;
-        }
-        mesh.fruit_spans = mesh_fruit(
-            [&mut mesh.fruit, &mut cull.fruit],
+        // Fruit and flowers: each kept cluster's specimen, moved into place.
+        mesh.fruit_spans = compose_clusters(
+            &mut mesh.fruit,
             &self.fruit,
-            &options.fruit,
+            &self.fruit_slots,
             &winds,
             detail,
         );
-        mesh.flower_spans = mesh_flowers(
+        mesh.flower_spans = compose_clusters(
             &mut mesh.flowers,
             &self.flowers,
-            &options.flowers,
+            &self.flower_slots,
             &winds,
             detail,
         );

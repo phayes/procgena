@@ -60,25 +60,9 @@ tree:
     size: 0.2
     size_variance: 0.3
   flowers:
+    fruit: dogwood_bloom
     placement:
       min_level: 3
       tips: 1.0
       count: 5
       facing_jitter: 40.0
-      size: 0.105
-    cluster:
-      stalk_length: 0.0
-      stalk_radius: 0.003
-      stalk_color: 5927982
-    shape:
-      petal_count: 4
-      petal_width: 0.42
-      cup: 0.15
-      notch: 1.0
-      petal_segments: 2
-      center_size: 0.16
-      center_color: 13158496
-      petal_color: 16316656
-      base_color: 14740680
-      bud_color: 13162656
-      fade_color: 14207152

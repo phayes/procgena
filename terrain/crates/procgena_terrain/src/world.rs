@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 use glam::{DVec2, IVec2, Vec2};
 use procgena_core::{Ground, GroundSample};
@@ -12,11 +13,12 @@ use crate::converge::{
     BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
 };
 use crate::elevation::{Elevation, ElevationError, ElevationOptions};
+use crate::feature::FeatureTier;
 use crate::graph::{RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{CornerId, EdgeId, Region, RegionId};
 use crate::seam::{CornerAgreement, EdgeOffer, SeamError, negotiate, negotiate_corner};
-use crate::terrain::{HeightField, Terrain, TerrainError, TerrainGenerator};
+use crate::terrain::{HeightField, RiverTrace, Terrain, TerrainError, TerrainGenerator};
 
 /// The default [`WorldTerrainOptions::cache`]: how many built terrains a
 /// [`WorldTerrain`] keeps.
@@ -167,8 +169,59 @@ pub struct WorldTerrain {
     regions: Cache<Region>,
     settings: Cache<Settings>,
     plans: Cache<Plan>,
-    terrains: Cache<Terrain>,
+    /// Terrains at each tier, in [`FeatureTier::ALL`] order.
+    tiers: [Cache<Terrain>; FeatureTier::ALL.len()],
+    /// Told when each region's stages start and finish.
+    progress: Option<ProgressHook>,
 }
+
+/// One stage of building a region, in the order a region goes through
+/// them. Their costs differ a lot: on the machines measured so far, the
+/// fine tier (the roads) takes several times as long as the rest together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum RegionStage {
+    /// The region's own side of its borders: its relief, its rivers'
+    /// courses and its border offers. Every region next to a region being
+    /// built needs this stage too.
+    Plan,
+    /// The features of one tier (see [`FeatureTier`]): for the roughest,
+    /// the ground fitted to its borders with that tier's features; for each
+    /// later one, the features it adds.
+    Tier(FeatureTier),
+}
+
+/// A region stage starting or finishing, as told to a [`ProgressHook`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RegionProgress {
+    /// `region` started `stage`.
+    Started {
+        /// The region being built.
+        region: RegionId,
+        /// The stage it started.
+        stage: RegionStage,
+    },
+    /// `region` finished `stage`, which took `elapsed`.
+    Finished {
+        /// The region being built.
+        region: RegionId,
+        /// The stage it finished.
+        stage: RegionStage,
+        /// How long the stage took.
+        elapsed: Duration,
+        /// Whether the stage succeeded; `false` if the region can't be
+        /// built (see [`WorldTerrain::terrain`] for why).
+        built: bool,
+    },
+}
+
+/// Told about every region stage a [`WorldTerrain`] starts and finishes
+/// (see [`WorldTerrain::with_progress`]), for example to drive a loading
+/// screen.
+///
+/// It is called on whichever thread builds the region, often several at
+/// once, so it should return quickly. It must not ask the same world for
+/// terrain: that can wait on the build it is being told about, forever.
+pub type ProgressHook = Arc<dyn Fn(&RegionProgress) + Send + Sync>;
 
 impl fmt::Debug for WorldTerrain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -190,14 +243,14 @@ struct Settings {
 /// One region's side of its borders: what it needs from itself before any
 /// negotiation.
 ///
-/// This is where a region's plan will later be split into stages cached
-/// on their own (relief and offers, then rivers, roads and local
-/// features), so a far region can be drawn before its features are
-/// planned. For now it holds the whole offer, rivers included.
+/// The first planning stage: relief, river trace and offers. The feature
+/// tiers are later stages, cached as terrains of each tier.
 struct Plan {
     region: Arc<Region>,
     /// The generator, converged towards its neighbours.
     generator: TerrainGenerator,
+    /// The region's own rivers, traced once for the offers and the build.
+    trace: RiverTrace,
     /// The offer for each shared edge.
     offers: HashMap<EdgeId, EdgeOffer>,
 }
@@ -237,12 +290,20 @@ impl WorldTerrain {
             regions: Cache::new(cache.saturating_mul(16)),
             settings: Cache::new(cache.saturating_mul(16)),
             plans: Cache::new(cache.saturating_mul(4)),
-            terrains: Cache::new(cache),
+            tiers: std::array::from_fn(|_| Cache::new(cache)),
+            progress: None,
             options,
             source,
             elevation,
             graph,
         })
+    }
+
+    /// This world, telling `hook` whenever a region stage starts or
+    /// finishes. Only stages built after this call are told.
+    pub fn with_progress(mut self, hook: ProgressHook) -> Self {
+        self.progress = Some(hook);
+        self
     }
 
     /// The settings.
@@ -285,8 +346,7 @@ impl WorldTerrain {
     /// or if one of its borders can't be agreed. The same error comes back
     /// every time while it is kept.
     pub fn terrain(&self, region: RegionId) -> Result<Arc<Terrain>, WorldError> {
-        let key = RegionKey::from_id(region);
-        self.terrains.get(key, || self.build_terrain(key))
+        self.terrain_tier(region, FeatureTier::Fine)
     }
 
     /// The terrain of the region holding `p` (see [`region_at`](Self::region_at)).
@@ -296,6 +356,49 @@ impl WorldTerrain {
     /// As for [`terrain`](Self::terrain).
     pub fn terrain_at(&self, p: DVec2) -> Result<Arc<Terrain>, WorldError> {
         self.terrain(self.region_at(p))
+    }
+
+    /// The terrain of `region` with its features planned to `tier` (see
+    /// [`FeatureTier`]), built now if it isn't kept already. At
+    /// [`Fine`](FeatureTier::Fine) it is [`terrain`](Self::terrain).
+    ///
+    /// An earlier tier comes much sooner, since the costly features are
+    /// left out: today the roads, the slowest part of building a region.
+    /// It is the same ground away from the features it leaves out. Use it
+    /// only to draw far ground while the fine terrain is built; placement
+    /// and queries need the fine terrain. Each tier is kept on its own, so
+    /// asking for an earlier tier gives that tier even when a later one is
+    /// built.
+    ///
+    /// # Errors
+    ///
+    /// As for [`terrain`](Self::terrain).
+    pub fn terrain_tier(
+        &self,
+        region: RegionId,
+        tier: FeatureTier,
+    ) -> Result<Arc<Terrain>, WorldError> {
+        let key = RegionKey::from_id(region);
+        let index = tier.position();
+        self.tiers[index].get(key, || {
+            self.reported(key, RegionStage::Tier(tier), || {
+                match index.checked_sub(1) {
+                    // The roughest tier: fit the ground to its borders.
+                    None => self.build_roughest(key),
+                    // A later tier: add its features to the tier before.
+                    Some(before) => {
+                        let earlier = self.terrain_tier(region, FeatureTier::ALL[before])?;
+                        Ok(Terrain::clone(&earlier).with_tier(tier))
+                    }
+                }
+            })
+        })
+    }
+
+    /// The terrain of `region` at `tier` if it is kept already, without
+    /// building anything.
+    pub(crate) fn kept_terrain(&self, region: RegionId, tier: FeatureTier) -> Option<Arc<Terrain>> {
+        self.tiers[tier.position()].peek(RegionKey::from_id(region))
     }
 
     /// The ground height at `p` (x and z, metres): E plus the relief of
@@ -365,7 +468,33 @@ impl WorldTerrain {
 
     /// Region `key`'s plan, kept.
     fn plan(&self, key: RegionKey) -> Result<Arc<Plan>, WorldError> {
-        self.plans.get(key, || self.build_plan(key))
+        self.plans.get(key, || {
+            self.reported(key, RegionStage::Plan, || self.build_plan(key))
+        })
+    }
+
+    /// Runs `build`, region `key`'s `stage`, telling the progress hook
+    /// when it starts and finishes.
+    fn reported<T>(
+        &self,
+        key: RegionKey,
+        stage: RegionStage,
+        build: impl FnOnce() -> Result<T, WorldError>,
+    ) -> Result<T, WorldError> {
+        let Some(hook) = &self.progress else {
+            return build();
+        };
+        let region = key.id();
+        hook(&RegionProgress::Started { region, stage });
+        let started = Instant::now();
+        let result = build();
+        hook(&RegionProgress::Finished {
+            region,
+            stage,
+            elapsed: started.elapsed(),
+            built: result.is_ok(),
+        });
+        result
     }
 
     /// Converges region `key`'s generator towards every region along its
@@ -445,21 +574,23 @@ impl WorldTerrain {
                 self.options.convergence.blend,
             )
             .map_err(|e| WorldError::Terrain(id, e))?;
+        let trace = generator.trace_rivers(&region);
         let offers = generator
-            .offers(&region)
+            .offers_traced(&region, &trace)
             .into_iter()
             .map(|o| (o.edge, o))
             .collect();
         Ok(Plan {
             region,
             generator,
+            trace,
             offers,
         })
     }
 
     /// Agrees every corner and edge of region `key` with the regions
-    /// round it, and builds its terrain.
-    fn build_terrain(&self, key: RegionKey) -> Result<Terrain, WorldError> {
+    /// round it, and builds its terrain at the roughest tier.
+    fn build_roughest(&self, key: RegionKey) -> Result<Terrain, WorldError> {
         let plan = self.plan(key)?;
         let region = &plan.region;
         let id = region.id;
@@ -505,7 +636,7 @@ impl WorldTerrain {
 
         plan.generator
             .clone()
-            .build(Region::clone(region), &agreements)
+            .build_traced(Region::clone(region), &agreements, &plan.trace)
             .map_err(|e| WorldError::Terrain(id, e))
     }
 }
@@ -575,6 +706,13 @@ impl<T> Cache<T> {
                 slots: HashMap::new(),
             }),
         }
+    }
+
+    /// The value for `key` if it is kept and built, without building it.
+    fn peek(&self, key: RegionKey) -> Option<Arc<T>> {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let (_, slot) = state.slots.get(&key)?;
+        slot.get()?.as_ref().ok().cloned()
     }
 
     /// The value for `key`, built with `build` if it isn't kept. Threads

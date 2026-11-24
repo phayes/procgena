@@ -83,6 +83,7 @@ fn load_instanced_shaders(app: &mut App) {
     bevy::asset::embedded_asset!(app, "shaders/instanced_mesh.wesl");
     bevy::asset::embedded_asset!(app, "shaders/instanced_prepass.wesl");
     bevy::asset::embedded_asset!(app, "shaders/instanced_cull.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/instanced_attach.wesl");
 }
 
 /// The quality setting every asset scales its drawing distances by.

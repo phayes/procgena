@@ -237,12 +237,17 @@ step pinned to the `SpecimenId` it indexes, for example
 `… / fruit 17 / item 2` (see "Queries: reading the result" and
 [D3](docs/decisions/D3.md) section 7b).
 
-**Status.** Planned: `procgena_fruit` (milestone I1b in
-[ROADMAP.md](ROADMAP.md)). Today the tree still builds its own fruit and
-flower clusters. Cluster cards for them (baked views per cluster variant,
-drawn at levels 1 and 2) were built on 2026-11-24, before this
-decision was applied, and are off by default; see the "Fruit as an
-attached asset" TODO.
+**Status.** `procgena_fruit` is built (milestone I1b in
+[ROADMAP.md](ROADMAP.md), fruit step AC1): the tree places clusters and
+picks each one's slot per tree specimen, and fruit specimens have their
+own mesh levels. The cluster cards built on 2026-11-24 are removed.
+Fruit steps B1 and B2 are built: tree groves and single trees draw their
+clusters as attached copies of the shared instanced renderer
+(`InstancedAttached`: one row table per host slot, a GPU step per host
+copy, then one per row), each cluster at its own fruit level. Fruit
+impostors are still to do; see the
+"Fruit as an attached asset" TODO and the "As built" notes in
+[fruit/plan.md](fruit/plan.md).
 
 ### 2. Scatter
 
@@ -300,6 +305,14 @@ ground.
   - Tree trunks clear a disc around themselves.
   - Canopy shade thins grass.
   - Boulders and logs clear the plants under them.
+- Its ground layers: materials such as needle litter, moss and mud, each
+  with a rule over slope, height, water and road distance, labels, noise
+  and its own Scatters (litter under trees), laid over its Biome's base
+  ground and weighted by its coverage. Planned (milestones GM0–GM6) in
+  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md);
+  GM0 built the engine-free model (`procgena_terrain::ground`) and the
+  Ecotope's `ground` map, painted from its placed copies (coverage not
+  yet).
 
 **What it gets from above.** Its area, as a coverage function from 0 to 1
 that the Biome works out from Terrain labels and border noise. Also the
@@ -335,15 +348,23 @@ mask is 0 inside them, checked only at each candidate's centre. The
 calls into each Scatter are one adapter per kind in
 `procgena_biome/src/ecotope/scatters.rs`, to be replaced by the `Scatter`
 trait in C3. Plant is not in it yet: `procgena_plant` is a Bevy crate
-placed on the GPU with no `Ground`.
+placed on the GPU with no `Ground`. `procgena_biome_bevy`'s
+`EcotopeParams` places an Ecotope in the background and, after an edit,
+draws again only the Scatters whose settings, seed or footprints above
+them changed. The studio's Ecotope tab edits an Ecotope over flat or
+rolling ground with it.
 
 ### 4. Biome and Terrain
 
 Biome and Terrain live at the same level. Each region of the World has
-exactly one Biome, and each Biome exactly one Terrain. A region is one
-Biome's whole area: its outline is where the Biome changes, and two
-neighbouring regions never share a Biome (decided by the user in D3; how
-the region graph achieves this is decision gate D4). Terrain is still its
+exactly one Biome, and each Biome exactly one Terrain. Each region has
+its own Biome instance, seeded per region, so a Biome instance never
+spans regions and neighbouring regions never share one. Neighbouring
+regions may use the same Biome type (preset): two "pine forest" regions
+side by side differ in seed, and the Ecotope border protocol blends their
+cover across the border like any other region border. Nothing forces
+neighbours to choose different types (decided by the user in D3,
+corrected 2026-11-24). Region size and shape are decision gate D4. Terrain is still its
 own type: it is edited on its own (in its own studio tab), and one Terrain
 preset can be reused by many Biome presets ("alpine forest" and "alpine
 meadow" on the same mountains).
@@ -395,7 +416,11 @@ side it came from. Because priorities share one World-wide scale, the
 merge is a sort by `priority`. A tie between the two sides is broken by
 the Scatters' address prefixes (region, Ecotope key, Scatter key; see
 "Queries"), which never depends on which side made the offer, so both
-sides build the same blend.
+sides build the same blend. When two neighbouring regions use the same
+Biome type, every Scatter has an equal priority on both sides, so which
+side wins at each spot along the border falls to that tie-break by
+region. Such a border is a bit random; the user accepts that
+(2026-11-24).
 
 **Empty Biomes.** A Biome with a Terrain and no Ecotope rules is valid,
 and every Terrain preset has a default empty Biome. A World of bare land
@@ -460,7 +485,11 @@ which can be bounded or infinite. Today it gives `height`, `water_level`,
 `road_tags`, slope (`Terrain` is a `Ground`), all of these at once
 (`query`), `HeightTile` with heights and optionally gradients, and its
 rivers, roads and ponds as features with stable ids and bounds. Roads
-are a planning stage of their own, so a distant view can skip them. The
+are a planning stage of their own, so a distant view can skip them. It
+meshes the ground as heightfield chunks on the shared chunk grid (64 m,
+doubling per level), with crack-free transitions between levels and a
+provisional (road-free) stage for far chunks; `procgena_terrain_bevy`
+streams them around the camera, and the studio has a Terrain tab. The
 planned `annotate` labels are not exposed yet.
 
 ### 5. World
@@ -470,13 +499,19 @@ The World holds the Biomes; it does not hold Terrains directly.
 
 **What it owns.**
 
+- Its scale: a pair `{ horizontal, vertical }` that stretches every
+  landscape length (Terrain relief, E, the selector fields), never object
+  sizes, road or river widths, chunks or LOD. World presets per scale
+  class set it with region size and Biome extent (decision gate D5,
+  [docs/decisions/D5.md](docs/decisions/D5.md)).
 - The region graph's options: region size, jitter and border warp, or a
   designer's polygons. The terrain crate computes the graph from them (see
   "5.1 WorldTerrain"), because the land needs it before anything grows.
-  Each region is one Biome's whole area, so neighbouring regions never
-  share a Biome. How the graph and the Biome choice achieve that, while
-  keeping each `RegionId` stable and computable from the World's options
-  and seed alone, is decision gate D4.
+  Each region gets its own Biome instance, seeded per region, so
+  neighbouring regions never share an instance, though they may share a
+  Biome type (D3, corrected 2026-11-24). Each `RegionId` stays stable and
+  computable from the World's options and seed alone. Region size and
+  shape are decision gate D4.
 - Which Biome fills each region, chosen field first: rules match the
   world elevation E and the World's own selector fields (ruggedness,
   moisture) at each region, and a user can pin a region's Biome. A pin
@@ -489,7 +524,17 @@ The World holds the Biomes; it does not hold Terrains directly.
 - Running every Biome border negotiation: step 1 through WorldTerrain,
   step 2 the Ecotope seams (see "4.1 Biome", "Borders").
 
-**Status.** New. The terrain plan calls it "World generator (TBD)".
+**Status.** Started (W0, 2026-11-24): `procgena_world` holds a World of
+bare land. `WorldOptions` carry the seed, the scale pair, the region graph,
+E, the selector fields, ordered Biome rules with a fallback, and pins;
+`WorldPreset` has one preset per scale class. Each region gets its Biome
+(pin, else the first matching rule at its site, else the fallback), its
+own Biome seed and its Terrain's local seed, and `WorldTerrain` builds the
+land from a source that reads the Biome. The scale pair stretches E and
+the selector fields, and the rules' elevation bounds follow `vertical`;
+Terrain presets, region size and the border warp are not scaled yet
+(roadmap G7). Specimen budgets and the Biome border negotiation come with
+W1.
 
 #### 5.1 WorldTerrain
 
@@ -651,8 +696,8 @@ preset or options. One World seed fixes everything below it.
   hand-picked numbers. A registry per crate tests that its keys and their
   hashes are unique. Keys are frozen: renaming one changes every world built
   from it. (Decided 2026-11-23.) The functions live in `procgena_core`:
-  `hash::{salt, derive_seed, seed_for}`, plus `ChildKey` and `child_seed`
-  at the crate root. The terrain crate still has its own copies until
+  `hash::{salt, derive_seed, seed_for}`, plus `ChildKey`, `child_seed` and
+  `region_seed` at the crate root. The terrain crate still has its own copies until
   it switches over.
 - **Data keys use the same `salt`**, hashed at load time instead of at
   compile time, and always under a code `kind` key. A parent rejects two
@@ -833,12 +878,17 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   plans. Ecotope border offers must keep the same rule: built from their
   own Biome alone, never from labels that depend on a neighbour's plan.
 - **A Terrain's plan comes in stages**, each cached on its own: relief and
-  seam offers, then rivers, then roads, then local features (see
+  seam offers, then its features in **tiers** from rough to fine. Each
+  feature type declares the tiers it is drawn at, and builds each as it
+  sees fit (decided 2026-11-24; see "Feature tiers" in
   [terrain/features_plan.md](terrain/features_plan.md)). A far region can
-  be drawn from its relief and agreements before its roads are routed,
-  so a distant mountain never waits for a road search (story 5). Such a
-  far tile is **provisional**: only drawing may use it. Placement, masks
-  and queries wait for the stages they read.
+  be drawn from an early tier before its costly features are planned, so
+  a distant mountain never waits for a road search (story 5). Such a far
+  tile is **provisional**: only drawing may use it. Placement, masks and
+  queries read the fine tier. Built so far: two tiers, roads fine only
+  (`FeatureTier`, `WorldTerrain::terrain_tier`), with near chunks refined
+  in the background and skirts sized by how far each tier moves the
+  ground.
 - **Place.** Placement is decided per Scatter and per chunk. It needs the
   plan, the Ground and the masks from above, and never the drawn meshes.
 - **Draw.** Drawing picks a detail level per copy, as rule 2 says. An
@@ -1620,17 +1670,22 @@ it starts.
   World cells wherever they can, so D4 can't move them.
 - [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
   default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
-  The Terrain seed is the World seed for now, passed through
-  `terrain_seed`. D3 settled the final derivation: the Terrain keeps the
-  World seed for its noise, and `terrain_seed` goes away (W0).
-- [ ] **One region per Biome** (decision gate D4): a region graph whose
-  regions are whole Biome areas, so neighbouring regions never share a
-  Biome, with stable region ids computable from the World's options and
-  seed alone.
+  As D3 settled, the Terrain takes the World seed for its noise
+  (`Biome::terrain_options` sets it; `terrain_seed` was removed in W0).
+- [ ] **Region size and shape** (decision gate D4): the region graph's
+  size and shape (even regions or a multi-scale mix), after the G3 step 2
+  cold benchmarks and W0's image example. Each region already has its own
+  Biome instance and a stable id computable from the World's options and
+  seed alone; neighbours may share a Biome type (D3, corrected
+  2026-11-24).
 - [ ] **World crate**: region graph options, Biome choice per region
   (fields, rules, pins), seed derivation for every level below, specimen
   budgets per pool, and running the two-step Biome border negotiation.
-  Starts with empty Biomes, before Ecotopes exist.
+  Started in `procgena_world` (W0): options and scale-class presets, the
+  Biome choice, the region seeds of each Biome and Terrain, and the terrain
+  source, with empty Biomes. Still to do: seeds below the Biome, specimen
+  budgets, the border negotiation (W1), designer polygons with stable ids,
+  and scaling Terrain presets (G7).
 
 ### Extensibility
 
@@ -1648,7 +1703,9 @@ it starts.
   Scatter key salts, `CellId`, index) from a world-anchored lattice, as
   "Queries" describes. Done in C2 for tree, stone, deadwood and mushroom
   (`procgena_core::CopyAddress`); plant's blades wait for World tile
-  cells (R3). Part paths (`PartStep`, `Address`) are still to do.
+  cells (R3). Part paths (`PartStep`, `Address`) are built in
+  `procgena_core`; the tree and fruit resolve their own steps
+  (`Skeleton::part`, `Fruit::part`). A World-level `resolve` is still to do.
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
   serde.
 - [ ] **Core queries**: at a point, near a point, along a ray, and spot
@@ -1703,7 +1760,9 @@ it starts.
   `InstancedMaterialPlugin` for any material with an `INSTANCED` vertex
   path, and external meshes for GPU-built specimens. Tree groves, stone
   pools, and deadwood and mushroom scatters draw through it; groves draw
-  their baked impostors as the last level. Left for later: tree's shaders
+  their baked impostors as the last level. Attached copies
+  (`InstancedAttached`, fruit step B2) draw rows of other slots on each
+  host copy, culled per row on the GPU. Left for later: tree's shaders
   still name the per-copy input `GROVE` and read it themselves rather than
   through `procgena_core_bevy::shaders::instanced`, and plant keeps its
   own GPU path (rule 6).
@@ -1727,27 +1786,38 @@ it starts.
   the default 35° slope limit. Stone declares its own lowest elevation:
   −45° for things on slopes, or 0° (today's upper hemisphere) for low
   things seen mostly from above. Deadwood and mushroom do the same if
-  they ever gain an impostor. View coverage is not built yet (see
-  "Impostor bake options").
+  they ever gain an impostor. View coverage is built (see "Impostor bake
+  options"): `default_tree_impostor()` declares −45° at 10 × 10 views and
+  `default_stone_impostor()` −45° at 8 × 8.
 - [ ] **Fruit as an attached asset** ([fruit/plan.md](fruit/plan.md)):
   the `procgena_fruit` crate (cluster builder and meshers moved from the
   tree, in the cluster frame), the tree's `AttachedFruit`, pools and
   per-tree-specimen slots, fruit LOD levels and impostors, cluster-table
   instancing in the grove with a two-step detail check. Needs F1, F2 and
   D3 for its first step, then R1 and I1. Milestone I1b.
-  - Built before this decision was applied: cluster impostor cards, the
-    plan this one supersedes, were built on 2026-11-24. With
-    `LodDetail::cluster_cards` set, each kept cluster at levels 1 and 2
-    draws as one card showing one of that many seeded cluster variants,
-    baked per pool part. They are off by default in `default_lod`.
-    The user decided on 2026-11-24 to remove them in the fruit crate's
-    first step.
-- [ ] **Impostor bake options**: per-bake view count and frame size,
+  - Done in fruit step AC1 (2026-11-24): the crate, `AttachedFruit`,
+    per-tree-specimen slots, part paths, export, and the removal of the
+    superseded cluster cards. The rest is still to do.
+- [x] **Impostor bake options**: per-bake view count and frame size,
   view coverage declared per preset as a lowest viewer elevation (−90° by
   default, −45° for trees, in the bake key), with the octahedral layout
   warped to the declared range, a composed host-plus-attached instance,
   and a vertex offset hook for wind. Per-bake view count and size are
-  done (`BakeSettings`, I1).
+  done (`BakeSettings`, I1). The rest is done (fruit step D1):
+  - `ViewCoverage` is a field of `BakeSettings`, so it is in the key.
+    −90° (`SPHERE`) lays out the whole octahedron; any other value warps
+    the angle from +Y so the declared cap fills the atlas, and 0°
+    (`UPPER_HEMISPHERE`) is the old layout exactly. Coverage is declared
+    by each asset's impostor settings (`ImpostorLevel::bake`), not yet by
+    its preset files.
+  - The hook is a material hook rather than an instanced variant: a
+    host's own `MaterialExtension` binds the impostor at bindings 100–103,
+    reuses the impostor fragment shaders, and calls `impostor_vertex` /
+    `impostor_prepass_vertex` with its composed `world_from_local` and a
+    world offset (the wind). The impostor fragment shader takes the view's
+    world axes from screen-space derivatives, so it needs no mesh record
+    transform. The cluster table and instance format stay the fruit
+    crate's.
 - [ ] **CPU and GPU building for every asset**, with parity tests: GPU paths
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
@@ -1801,8 +1871,12 @@ it starts.
   (F3), on every asset, Scatter and Terrain options type; plant gained a
   `default_seed` that nothing reads yet (R3 wires it in). Still to do:
   `region_seed`, and the terrain switching to core's functions.
-- [ ] **Studio**: a tab per new level (Ecotope, Biome, World), each built on
-  the tabs of the level below. Terrain keeps a tab of its own.
+- [ ] **Studio**: every level (Ecotope, Biome, World, and each asset and
+  Scatter) is a kind in the studio's registry, opened from its Library
+  and shown in its Outline beside the levels below, instead of a tab per
+  level (decided by the user 2026-11-24; see
+  [procgena/studio_plan.md](procgena/studio_plan.md), milestones ST0–ST9
+  in ROADMAP.md).
 
 ### Later
 

@@ -13,17 +13,83 @@ use crate::hash::mix64;
 /// feature starts.
 ///
 /// A feature keeps its id however many other features the terrain plans,
-/// and whether or not its roads are planned yet (see
-/// [`Terrain::with_roads`](crate::Terrain::with_roads)): the same world
-/// built again gives the same ids, and a river keeps its id when a
-/// neighbour's river starts flowing in. A feature that moves, such as a
-/// river whose source moves when the settings change, gets a new id.
+/// and whatever tier the terrain is built to (see [`FeatureTier`]): the
+/// same world built again gives the same ids, and a river keeps its id
+/// when a neighbour's river starts flowing in. A feature that moves, such
+/// as a river whose source moves when the settings change, gets a new id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FeatureId {
     /// What the feature is.
     pub kind: FeatureKind,
     /// The key: a hash of where the feature starts.
     pub key: u64,
+}
+
+/// How far a terrain's features are planned, from rough to fine.
+///
+/// A terrain is built tier by tier (see
+/// [`Terrain::with_tier`](crate::Terrain::with_tier)). Each kind of feature
+/// says which tiers it is drawn at ([`FeatureKind::tiers`]), by how costly it
+/// is to plan, so a far view can be drawn before the costly features are
+/// planned. Only a terrain at [`Fine`](Self::Fine) is the real ground:
+/// placement, masks and queries must read that, and an earlier tier is for
+/// drawing only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum FeatureTier {
+    /// The relief, its borders and the cheap features: enough to draw far
+    /// ground soon.
+    Rough,
+    /// Every feature: the real ground.
+    #[default]
+    Fine,
+}
+
+impl FeatureTier {
+    /// Every tier, from roughest to finest.
+    pub const ALL: [FeatureTier; 2] = [FeatureTier::Rough, FeatureTier::Fine];
+
+    /// The position of this tier in [`ALL`](Self::ALL).
+    pub(crate) fn position(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|&t| t == self)
+            .expect("every tier is listed")
+    }
+}
+
+impl FeatureKind {
+    /// Every kind of feature.
+    pub const ALL: [FeatureKind; 3] = [FeatureKind::River, FeatureKind::Pond, FeatureKind::Road];
+
+    /// The tiers this kind of feature is drawn at, roughest first. A kind
+    /// drawn at several tiers is planned once, at the first of them, and
+    /// kept unchanged at the later ones. Every kind is drawn at
+    /// [`Fine`](FeatureTier::Fine).
+    ///
+    /// Rivers and ponds are cheap to plan, so they are drawn at every
+    /// tier; roads take most of a region's planning, so they are fine only.
+    pub fn tiers(self) -> &'static [FeatureTier] {
+        match self {
+            Self::River | Self::Pond => &FeatureTier::ALL,
+            Self::Road => &[FeatureTier::Fine],
+        }
+    }
+
+    /// The first tier this kind of feature is drawn at.
+    pub fn first_tier(self) -> FeatureTier {
+        self.tiers()[0]
+    }
+
+    /// The kinds of feature this kind reads while it is planned: roads
+    /// avoid rivers and ponds, and ponds end rivers. A kind is never drawn
+    /// at a tier before the ones it reads.
+    pub fn reads(self) -> &'static [FeatureKind] {
+        match self {
+            Self::River => &[],
+            Self::Pond => &[FeatureKind::River],
+            Self::Road => &[FeatureKind::River, FeatureKind::Pond],
+        }
+    }
 }
 
 /// The keys of features of one `kind` that start at `starts` (each a
@@ -139,5 +205,25 @@ impl FeatureIndex {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_is_fine_and_never_drawn_before_what_it_reads() {
+        for kind in FeatureKind::ALL {
+            let tiers = kind.tiers();
+            assert!(!tiers.is_empty() && tiers.is_sorted(), "{kind:?}");
+            assert_eq!(tiers.last(), Some(&FeatureTier::Fine), "{kind:?}");
+            for &read in kind.reads() {
+                assert!(
+                    read.first_tier() <= kind.first_tier(),
+                    "{kind:?} reads {read:?}, which comes later"
+                );
+            }
+        }
     }
 }

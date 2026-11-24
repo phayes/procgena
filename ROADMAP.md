@@ -47,7 +47,7 @@ asks.
   gate.
 - **Decisions are gates.** Four gates (crate names, YAML crate and
   coordinates; GPU masks and chunk reach; stable keys and slot choice;
-  one region per Biome) block specific milestones (see "Decision gates"). Each sits just before
+  region size and shape) block specific milestones (see "Decision gates"). Each sits just before
   the first work it blocks, not all up front.
 - **Two churn windows.** The crate rename and the preset and file rewrite
   each touch every crate and rebuild most of the workspace. Each runs once,
@@ -109,7 +109,7 @@ flowchart TD
     D1{{"D1 Crate names, YAML crate, coordinates (OQ 8)"}}
     D2{{"D2 GPU masks and placement (OQ 1), chunk reach (OQ 6)"}}
     D3{{"D3 Stable keys (OQ 4, 5), slot choice"}}
-    D4{{"D4 One region per Biome"}}
+    D4{{"D4 Region size and shape"}}
 
     F1["F1 Shared crates, specimen rename, Ground slope"]
     F2["F2 Content hash, SpecimenId, seed hashing"]
@@ -141,6 +141,30 @@ flowchart TD
     W1["W1 World with cover"]
     S1["S1 Streaming"]
     X1["X1 Edits, interaction, queries, hooks, MeshScatter"]
+
+    GM0["GM0 Ground materials: engine-free model"]
+    GM1["GM1 Ground colours drawn"]
+    GM2["GM2 Ground textures"]
+    GM3["GM3 Ground on measures and labels"]
+    GM4["GM4 Biome base ground and borders"]
+    GM5["GM5 Far grass and forest tints"]
+
+    D5{{"D5 World and Biome scale"}}
+    G7["G7 Scale-aware terrain lengths"]
+    IX["IX Impostor-heavy experiment"]
+
+    ST0["ST0 Studio shell"]
+    ST1["ST1 Settings metadata, Inspector"]
+    ST2["ST2 Saving presets, project folder"]
+    ST3["ST3 Library and Outline"]
+    ST4["ST4 Capture and thumbnails"]
+    ST5a["ST5a Picking by tags"]
+    ST5b["ST5b Picking by part paths"]
+    ST6["ST6 Texture library"]
+    ST7a["ST7a Problems, overlays, stats"]
+    ST7b["ST7b Viewing distance"]
+    ST8["ST8 Export and commands"]
+    ST9["ST9 Studio later"]
 
     M0 --> F1
     D1 --> F1
@@ -212,6 +236,45 @@ flowchart TD
     R4 --> X1
     B1 --> X1
 
+    G6 --> GM0
+    GM0 --> GM1
+    GM1 --> GM2
+    GM1 --> GM3
+    G4 --> GM3
+    GM3 --> GM4
+    B1 --> GM4
+    W1 --> GM4
+    GM1 --> GM5
+    R3 --> GM5
+    S1 --> GM5
+
+    D5 --> G7
+    D5 --> W0
+    I1 --> IX
+    I1b --> IX
+
+    I1b --> ST0
+    ST0 --> ST1
+    ST0 --> ST2
+    ST1 --> ST3
+    ST2 --> ST3
+    ST0 --> ST4
+    I1b --> ST4
+    ST3 --> ST5a
+    R4 --> ST5a
+    X1 --> ST5b
+    ST2 --> ST6
+    ST3 --> ST6
+    ST4 --> ST6
+    GM1 --> ST6
+    ST1 --> ST7a
+    IX --> ST7b
+    ST0 --> ST7b
+    ST0 --> ST8
+    ST4 --> ST8
+    B1 --> ST9
+    W1 --> ST9
+
     classDef spine stroke-width:3px
     class M0,F1,C1,D2,C2,C3,B1,W1,S1 spine
 ```
@@ -228,8 +291,9 @@ blocks. Until then, nothing that depends on it starts.
 |------|---------|--------|-------|
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
-| D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided one region per Biome, which opened D4. |
-| D4 | **One region per Biome**: how the region graph and the Biome choice make each region one Biome's whole area, so neighbouring regions never share a Biome, while every `RegionId` stays stable and computable from the World's options and seed alone, in any build order. Region size and shape (world_plan open question 2) move here | W0 (Biome choice per region, region seeds) | Opened by the user in D3, 2026-11-23. **G5 is not gated:** it keeps building W2–W4 on today's lattice graph, at the risk that D4 asks for rework there (the graph's construction, W3's warp, W4's region cache). Region size also sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). |
+| D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
+| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks; W0's image example is done (world_plan.md, "W0 image example": nothing in it argues against 4 km). Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
+| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Draft: the class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -390,6 +454,12 @@ goldens, which have no baseline on this machine).
 - **Needs:** G2, G3. Non-water labels need only Phase 3, so if the Biome
   needs labels sooner, they can land before lakes and water labels follow.
 - **Done when:** an image example shows labelled regions.
+- **Split (decided by the user 2026-11-24, for ground materials):**
+  **G4a** adds `Measures` to `Terrain::query` first (water and road
+  distance, height above water, curvature, from the feature index), so
+  ground rules (GM3) and Biome rules can use them early. **G4b** adds
+  `Landform`, `Flags` and labelled tiles. See
+  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
 
 #### G5: WorldTerrain (W1–W4)
 
@@ -400,9 +470,9 @@ goldens, which have no baseline on this machine).
   measurement, with a closure source). TODO "WorldTerrain". W5 moved to
   W0.
 - **Needs:** M0. W1 needs only Phase 2.5, which is built, so G5 doesn't
-  wait for G1. G5 does not wait for D4 (one region per Biome), but D4 may
-  change the region graph that W2 built and W3 and W4 build on, so expect
-  some rework there.
+  wait for G1. G5 does not wait for D4 (region size and shape). D4 may
+  change the region graph's size options, but not the graph's
+  construction, W3's warp or W4's region cache.
 - **Done when:** a lattice world of many regions builds on demand from a
   closure source, and the seam suites pass on warped borders.
 - **Status (2026-11-24):** W1–W3 and W3b are built. W3b skips border pulls
@@ -433,6 +503,36 @@ goldens, which have no baseline on this machine).
   meshes the terrain builds. See
   [terrain/features_plan_review.md](terrain/features_plan_review.md),
   "Decisions".
+- **Status (2026-11-24): heightfield part built.** Chunk meshes on the
+  shared grid with crack-free level transitions, feature tiers (rough and
+  fine; far chunks and a coarse first load use the rough tier, with
+  skirts sized by how far each tier moves the ground), loading progress
+  through a hook, water surfaces (`procgena_terrain`, `src/chunk.rs`;
+  plan.md "Chunks and meshing", "As built"); `procgena_terrain_bevy`
+  streams them around the camera with a slope- and height-coloured
+  material, a cull-distance dither and a chunk-level debug overlay, with a
+  headless viewer; the studio has a Terrain tab (presets, `.terrain.yml`
+  save and load, seed, every setting). Not done: Phase 6 volume patches,
+  labels (G4, so no parts by label or label texturing), exports (Phase 9),
+  `terrain/textures.yml` (Phase 10 textures).
+
+#### G7: Scale-aware terrain lengths
+
+From D5 (decided by the user 2026-11-24; see
+[docs/decisions/D5.md](docs/decisions/D5.md)).
+
+- **Covers:** every landscape length in the terrain crate that is fixed in
+  metres today (fades, margins, ramps, clearances, the region-size floor)
+  derived instead from the World's scale pair and the local size; noise
+  octaves scaled with their wavelength; the border, seam and feature
+  suites re-run at the small and large scale classes. Object sizes, road
+  and river widths, chunks, LOD and masks never scale.
+- **Needs:** D5. Runs before or with W0.
+- **Churn:** it changes terrain results everywhere, so it runs in a wave
+  where no other terrain work is in flight.
+- **Done when:** the seam and feature suites pass at the small, medium
+  and large classes, and the region floor follows from scale (about
+  1.4 km with today's fixed widths; see D5's "floor tension").
 
 ### Bare worlds
 
@@ -457,13 +557,33 @@ goldens, which have no baseline on this machine).
   image example, redone through the World. A studio World tab once G6 can
   draw the land.
 - **Needs:** B0, G5, F2 (seed hashing), D3 (open question 5: Terrain and
-  Biome ids), D4 (one region per Biome). D3 adds: `region_seed` with
+  Biome ids). D4 (region size and shape) sets only the final region size;
+  W0 starts on today's 4 km default and chooses each region's Biome type
+  freely, so neighbours may share a type. D3 adds: `region_seed` with
   `"terrain.region.local"` and `"biome.region.local"`, `terrain_seed`
   removed, `Biome::terrain_options` passing the World seed, stable ids for
   designer polygons, and gully cells and seam detail kept fixed.
 - **Done when:** a World of empty Biomes builds the same land whatever order
   its regions are asked for, pinned regions keep their Biome, and the
   image example shows Biomes following E and the selector fields.
+- **Status (2026-11-24): done, at scale 1 on 4 km regions, except stable
+  ids for designer polygons (lattice worlds only so far).** New crate
+  `procgena_world` (`world/crates/procgena_world`): `WorldOptions` (seed,
+  scale pair, region graph, E, convergence, ruggedness and moisture
+  fields, ordered Biome rules with a fallback, pins by region id) in F3's
+  preset pattern, with one `WorldPreset` per D5 scale class
+  (`.world.yml`); `World` picks each region's Biome (pin, else the first
+  matching rule at the region's site, else the fallback; neighbours may
+  share a type), gives each region its own Biome seed
+  (`region_seed(W, "biome.region.local", id)`, `procgena_biome::biome_seed`)
+  and Terrain seed (`"terrain.region.local"`,
+  `procgena_terrain::region_local_seed`), and hands `WorldTerrain` a source
+  reading the Biome. `terrain_seed` is gone; `Biome::terrain_options` sets
+  the World seed. The scale pair stretches E (layers, tilt, bumps) and the
+  selector fields, and the rules' elevation bounds follow `vertical`;
+  Terrain presets, region size and border warp are not scaled (G7). Image
+  example `--example large_world`; see world_plan.md, "W0 as built", for
+  what it shows and what is left.
 
 ### Cover track
 
@@ -530,6 +650,14 @@ goldens, which have no baseline on this machine).
   `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. Plant
   is left out: it is a Bevy crate placed on the GPU, with no `Ground` and
   no seed, so it joins in C3 after R3. The viewer draws without textures.
+- **Studio tab (wave 6, 2026-11-24):** built. The studio's Ecotope tab
+  lists the built-in Ecotopes and loaded `.ecotope.yml` files, edits the
+  seed and each Scatter by key (priority,
+  clearance, kind, and the kind's settings with the asset tabs' controls;
+  add, remove, rename), saves and loads, and draws over flat or rolling
+  ground. `procgena_biome_bevy`'s `EcotopeParams` places in the background
+  and redraws only the Scatters an edit can move. C3's studio tab grows
+  from it.
 - **Done when:** a "pine forest floor" Ecotope preset loads from a
   `.ecotope.yml` file and draws trees, boulders, logs and mushrooms on a
   `HeightGrid` in a viewer or studio tab, with each Scatter keyed and
@@ -637,8 +765,12 @@ that has one (rule 2).
   `TreePlugin::impostor` and the new `StonePlugin::impostor` (80 m for a
   2.5 m rock, scaled by size and quality). Stone's bake keeps its
   projected textures. Deadwood and mushroom gain none (see the TODO). Not
-  built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`),
-  view coverage (added to "Covers" after this status was written).
+  built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`).
+  View coverage was built with fruit step D1 (I1b): `ViewCoverage` in
+  `BakeSettings`; trees declare −45° at 10 × 10 views and stone −45° at
+  8 × 8; 0° reproduces the old layout. A tree seen from about 42° below,
+  up a 40° hillside, now shows a baked view from below instead of a
+  horizon view.
 
 #### I1b: Fruit as an attached asset
 
@@ -678,12 +810,24 @@ confused with the B1 milestone or the D1 and D2 gates.
   - They are off by default in `default_lod`. **Decided by the user
     2026-11-24: remove them** as part of fruit step AC1; fruit's own
     levels and impostor replace them.
+- **Status (2026-11-24): fruit step D1 done.** `ViewCoverage` in the bake
+  key with the warped octahedral layout (trees −45° at 10 × 10, stone −45°),
+  and a material hook for drawing impostors with a host-composed transform
+  and a world offset (`impostor_vertex`, `impostor_prepass_vertex`; see
+  `procgena_impostor`'s crate docs and the `impostor` example's `--hang`).
+  Fruit step D2 waits for AC1, B1 and B2.
 - **Studio (decided by the user 2026-11-24):** fruit and flowers each get
   their own tab, a Fruit tab and a Flower tab, with their own presets and
   viewer, and the tree panels pick a fruit preset and a flower preset by
   key.
-- **Status (2026-11-24):** started: fruit steps AC1 → B1 → B2 and the two
-  studio tabs in one lane, fruit steps D1 → D2 in another.
+- **Status (2026-11-24):** fruit step AC1 done (the crate, slots, part
+  paths, export; cluster cards removed; see "As built" in
+  [fruit/plan.md](fruit/plan.md)). Fruit steps B1 and B2 and the Fruit
+  and Flower tabs are done in the fruit lane: B2 extends the shared
+  renderer with attached copies (`InstancedAttached`) and draws grove and
+  single-tree clusters through it. Its coarse step runs on the GPU, which
+  awaits the coordinator's sign-off ("As built (fruit step B2)"). Fruit
+  steps D1 → D2 are in another lane.
 
 #### I2: Impostors prepared per Ecotope
 
@@ -698,6 +842,64 @@ confused with the B1 milestone or the D1 and D2 gates.
 - **Done when:** preparing a "pine forest floor" Ecotope bakes its trees,
   boulders and logs once each, and the Ecotope then draws its far copies
   as impostors with no bakes while it is on screen.
+
+#### IX: Experiment: lean heavily on impostors
+
+Asked for by the user 2026-11-24, instead of a harsher quality level:
+find out how far impostors can carry the scene, so that detail budgets
+go to the few copies near the camera.
+
+- **Planning step first (with the user).** Before any build work, a
+  planning session talks the experiment through in detail with the user
+  and the advisor, and writes `docs/decisions/IX-plan.md`. It settles at
+  least:
+  - **How detail levels and impostors interact** (the user, 2026-11-24).
+    Lower mesh levels serve two different purposes that should not be
+    tied together: a simply lower-poly game (low-poly meshes used near the
+    camera, for speed or for the look), and distance drawing, which may
+    lean heavily on impostors. Both must be configurable per game and per
+    asset, so the plan designs a clear API that describes and sets them:
+    which mesh levels exist and when each is used near the camera,
+    where impostors take over for distance, and how the quality setting
+    moves each. It replaces or extends today's shared LOD type and
+    quality factors (R1), so the plan says what changes there.
+  - **Level 1 is the default for everything** (the user, 2026-11-24).
+    Every asset draws at detail level 1 by default, even near the camera,
+    and for meshes as well as textures; full-detail level 0 is an opt-in,
+    per game or per asset. The plan works out what this means for each
+    asset's level table, the quality setting, the studio (which may show
+    level 0 for editing), bakes and the specimen budget.
+  - **The question and the measures:** how close impostors can come
+    (per asset kind and size) before they look wrong, and what that saves
+    in frame time, draw calls, triangles, memory and bake time.
+  - **What "looks wrong" means:** parallax, lighting and shadow
+    mismatches, the fade from mesh, views from below on slopes (view
+    coverage), wind, and how it is judged (side-by-side shots, a
+    walk-through, the user's eye).
+  - **Variants to try:** impostor distances pulled in per asset; more
+    views or larger frames for near impostors; depth or normal-based
+    impostor lighting and shadows; impostors for clusters of small
+    copies (a patch of stones or a stand of grass as one impostor); fewer
+    mesh levels between the near mesh and the impostor.
+  - **Scenes and hardware:** which Ecotopes and Worlds, which camera
+    paths, and which machines (ties to "Test machines and performance
+    budgets" under "For the user").
+  - **Bake cost and memory:** the specimen budget's `N` slots per pool
+    against atlas memory, and baking ahead per Ecotope (I2).
+  - **What would make it the default:** the bar for each result to change
+    the shared LOD model and the assets' default levels.
+  - **The studio's viewing distance** (added 2026-11-24 from
+    [procgena/studio_plan.md](procgena/studio_plan.md)): a per-view LOD
+    distance override and level forcing, honoured by entity levels, the
+    instanced renderer, plant's shader, fruit's detail check and the
+    impostor level, plus a read-back of the level drawn. Milestone ST7b
+    waits for it.
+- **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
+  build; the planning step can start any time.
+- **Done when:** the plan is agreed with the user, the variants are
+  built behind settings and measured on the agreed scenes and machines,
+  and the results and the user's decision on defaults are recorded in
+  the plan.
 
 ### Where the tracks meet
 
@@ -757,6 +959,137 @@ confused with the B1 milestone or the D1 and D2 gates.
 - **Can split:** edits, interaction and Scatter-level queries can start
   right after C2 and R4; Biome and World hooks follow their levels.
 
+### Ground materials
+
+Planned with the user 2026-11-24 in
+[docs/decisions/ground-materials.md](docs/decisions/ground-materials.md):
+the terrain crates hold the material catalogue and the bare-terrain look,
+each Biome a base ground, each Ecotope ground layers on top. A pure CPU
+evaluator fills a weight texture per terrain chunk. Each step below adds
+to the one before; only GM0 can start now. GM2 takes over G6's Phase 10
+textures (`terrain/textures.yml`), and GM1 replaces Phase 8's
+label-chosen material.
+
+#### GM0: Engine-free ground model
+
+- **Covers:** `procgena_terrain::ground` (material catalogue with
+  colours, layers, conditions, compositing, `GroundPainter`, per-chunk
+  weights on G6's `ChunkKey` with an 8-material palette, the default
+  bare-terrain stack with roads and riverbeds) and the Ecotope's `ground`
+  layers in `procgena_biome`, with Scatter influence from footprints,
+  `Ecotope::ground_at` and `.ecotope.yml` support. Image dumps.
+- **Needs:** G6's engine-free chunks (merged). It starts on the proposed
+  answers to "For the user" item 23 unless the user decides otherwise.
+- **Done when:** a top-down image of the pine forest floor shows litter
+  under pines and dirt round boulders, and tests show equal edges between
+  same-level chunks under the cap, build-order independence, file merge
+  and `null` removal, and the default stack matching G6's colours.
+- **Status (2026-11-24): done.** `procgena_terrain::ground` and the
+  Ecotope's `ground` map are built, with image dumps
+  (`--example ground_dump` in both crates) and the tests the done-when
+  names. Not yet: material presets and `.ground_material.yml` files, far
+  (density-field) Scatter influence, coverage, and the relief height
+  (no source fills it yet). See "As built" in the plan.
+
+#### GM1: Ground colours drawn
+
+- **Covers:** `procgena_terrain_bevy` draws any painter's chunk weights in
+  colour, replacing `TerrainSurface`'s fixed rules; the Ecotope tab draws
+  its ground layers (one weight texture over its patch, drawn with the
+  terrain material); the Terrain tab shows the default stack; the
+  level-ring seam is checked; the build cost per chunk is measured.
+- **Needs:** GM0 (G6 is merged).
+- **Done when:** headless screenshots of the terrain viewer and the
+  Ecotope tab show ground colours, and the cost per chunk is recorded.
+
+#### GM2: Ground textures
+
+- **Covers:** the shared texture loader in `procgena_core_bevy` (TODO
+  "Shared plumbing"), ground texture arrays, `terrain/textures.yml` as the
+  catalogue's texture list, shared triplanar WESL on steep ground, height
+  blending, the far colour, and budget warnings.
+- **Needs:** GM1.
+- **Done when:** the pine forest floor and a cliff draw with real
+  textures, memory matches the plan's arithmetic, and far ground samples
+  no textures.
+
+#### GM3: Ground on measures and labels, and the Biome base ground
+
+- **Covers:** water and road distance, height above water and curvature
+  conditions (G4a), then `Landform` and `Flags` conditions (G4b). The
+  Biome's base ground on empty Biomes (B0).
+- **Needs:** GM1, G4 (G4a first, G4b for labels).
+- **Done when:** mud follows river banks and gravel lines roads on a
+  Terrain in an image dump, an empty Biome's base ground replaces the
+  default stack, and a cliff label picks cliff rock.
+
+#### GM4: Ground over Ecotope coverage and borders
+
+- **Covers:** the painter over Ecotope coverage, an interim crossfade at
+  region borders, then the Ecotope border agreement inside a Biome (B1)
+  and across Biomes (W1).
+- **Needs:** GM3, B1, W1.
+- **Done when:** a Biome shows its roads and riverbeds under two Ecotopes,
+  with no seam at Ecotope or Biome borders.
+
+#### GM5: Far grass and forest tints
+
+- **Covers:** far grass from plant's far colour (where that function
+  lives, so the terrain crate needn't depend on plant, is settled with the
+  plant-align lane), and TODO "Far forest tint" (S1), as distance-gated
+  tints in the chunk textures.
+- **Needs:** GM1, R3 (plant in an Ecotope), S1 (and density-field masks).
+- **Done when:** grass and forest keep their colour past the last blade
+  and the last impostor, with no seam.
+
+A GPU port of the rules (GM6) is built only if GM1's measurements call
+for it.
+
+### Studio track
+
+Planned with the user 2026-11-24 in
+[procgena/studio_plan.md](procgena/studio_plan.md): one window with a
+Library, an Outline, a view frame and one Inspector replaces the tabs;
+settings metadata lives in `<kind>.meta.yml` beside each crate's
+presets; user presets live in a project folder over the built-in
+catalogues. Each milestone's needs and done-when are in the plan; the
+summary below is for ordering.
+
+| Milestone | Covers | Needs |
+|---|---|---|
+| **ST0** Studio shell | Kind registry replacing the per-kind enumerations, documents, the new layout, environment and detail on the view frame, headless `type`/`hover`/`select`/`command` | The Fruit and Flower tabs (I1b) merged; runs alone in `procgena/src/` (churn window) |
+| **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips | Core module, then per-crate workers beside ST0; studio half after ST0 |
+| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update keeping comments (`yamlpatch` + `yamlpath`), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
+| **ST3** Library and Outline | Search, filters, shared selection, editing a referenced preset in context | ST1, ST2 |
+| **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
+| **ST5a** Picking by tags | CPU ray picks to parts, hover, highlight | ST3; R4 for Scatters other than trees |
+| **ST5b** Picking by part paths | D3 part paths for single parts | X1's `part()`, fruit AC1 |
+| **ST6** Texture library | One `TextureCatalogue` shared with GM2, import to BC7 KTX2 with `ctt` | ST2, ST3, ST4; agreement with GM2 |
+| **ST7a** Problems, overlays, stats | Problems panel, debug overlays, live stats, one Detail and Quality control | ST0, ST1 |
+| **ST7b** Viewing distance and level 0 | View-frame distance; game default (level 1) apart from level 0 preview; level readout with its reason; game profile in the project | IX's per-view LOD distance override and default-level API |
+| **ST8** Export and commands | One Export, screenshot, turntable, command palette, shortcuts | ST0; turntable after ST4 |
+| **ST9** Later | A/B compare, seed browser, node diagram, preview contexts, Biome and World kinds | B1, W1 for their kinds |
+| Far future | The studio as an extension of the Bevy editor (decided by the user 2026-11-24: not planned until Bevy offers editor extensions; research in the plan's "Bevy editor") | Bevy editor extensions |
+
+- **IX gains a studio requirement:** a per-view LOD distance override and
+  level forcing honoured by every renderer, with a read-back of the level
+  drawn (see the plan's "Viewing distance"). It can be pulled forward on
+  its own for ST7b.
+- **GM2 and ST6 share one texture catalogue** in `procgena_core`
+  (decided 2026-11-24); the ground material catalogue stays in the
+  terrain crates and names texture ids from it. Whichever starts first
+  lands the type.
+- **Tabs promised elsewhere become kinds.** The studio tabs named under
+  C3, B1, W1 and I1b (Fruit and Flower) are, after ST0, kinds in the
+  studio's registry, opened from the Library; their milestones add a
+  kind, not a tab.
+- **A churn window inside ST2, if needed:** moving `Preset` and the
+  `catalogue!` macro from `&'static` presets to owned ones rebuilds the
+  workspace and runs alone.
+- **In parallel:** after ST0, each milestone adds its own folder under
+  `procgena/src/studio/`, so up to three lanes run at once; the plan's
+  "Running them in parallel" gives the waves.
+
 ### Later
 
 - TODO "Modifiers pushed down" (a Biome's snow line, an Ecotope's
@@ -777,12 +1110,12 @@ a cell run in order within the wave.
 | 1 | M0; D1 research; D2 research | M0 is commits and review. D1 and D2 are reading and spikes, and touch no shared files. |
 | 2 | F1 alone | Churn window 1. |
 | 3 | F2 (one worker per crate); G1 → G3; G2; G5; B0; C1 (one worker per crate); R1; D3 | D3's slot choice uses D2's GPU spike. G5 can run beside G1, but both edit `procgena_terrain`, so give them separate files or run them one after the other. |
-| 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files, and must land before W0 in wave 5. |
+| 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files. After its premise was corrected (2026-11-24) it no longer blocks W0, which starts on today's 4 km region size. |
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
-| 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2 | The first B1 is the Biome milestone; the fruit steps are I1b's. |
-| 8 | W1; S1 (single Biome) | |
-| 9 | S1 (World-wide); X1 (Biome and World hooks); Later | |
+| 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
+| 8 | W1; S1 (single Biome); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. |
+| 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
 coordinator runs the full suite once per wave.
@@ -815,30 +1148,31 @@ where the details are.
 
 ### Blocking a milestone
 
-5. **One region per Biome (D4, blocks W0).**
-   - *What:* D3 decided that a region is one Biome's whole area, so two
-     neighbouring regions never share a Biome. Today's region graph cuts
-     the World into cells of about 4 km and nothing stops neighbours
-     choosing the same Biome. D4 decides how that is prevented while
-     every `RegionId` stays computable from the World's options and seed,
-     in any build order.
-   - *Options:* **A** keep one cell per region and make each cell's Biome
-     differ from all its neighbours' (no change to the graph, the warp or
-     `WorldTerrain`); **B1** cluster cells around coarse sites into larger
-     regions (shapes ignore the Biome choice); **B2** cluster cells by
-     their first-choice Biome inside fixed blocks (shapes follow the
-     selector fields); **C** merge same-Biome cells without limit, which
-     only works for bounded or designer-drawn worlds.
-   - *Recommendation:* build W0 on A with a ranked, priority-ordered Biome
-     choice, judge W0's image example, and move to B1 or B2 if forced
-     variety at cell scale looks wrong. Keep C for designer maps.
-   - *Also needed before W0 can be built:* D4.md's seven sub-questions,
-     above all fallback Biomes (a region has about six neighbours but W0
-     has only three empty Biomes) or exempting Biomes with no cover, such
-     as ocean. Region size waits on the quiet-machine benchmark rerun
-     (item 14).
+5. **Region size and shape (D4, no longer blocks W0).**
+   - *Premise corrected 2026-11-24:* D3 was first recorded as "two
+     neighbouring regions never share a Biome". The user clarified that
+     neighbours never share a Biome *instance* (each region has its own,
+     seeded per region) but may share a Biome *type* (preset). Two
+     neighbouring "pine forest" regions differ in seed, and the Ecotope
+     border protocol blends them like any other border. The forced
+     differ-from-neighbours choice, fallback Biomes and options A, B1, B2
+     and C in D4.md are superseded.
+   - *What is still open:* how large regions are, and whether they are
+     even or a multi-scale mix (world_plan.md open question 2). Today's
+     graph uses cells of about 4 km. Region size sets how long a region's
+     plan takes (and so the plan-ahead ring and its memory), the share of
+     land in border blend zones, and how large one Biome patch can be.
+   - *What W0 needs:* only a region size. W0 chooses each region's Biome
+     type freely from the selector fields and pins, on today's region
+     graph, and can start on the 4 km default.
+   - *Waits on:* the quiet-machine rerun of the G3 step 2 cold benchmarks
+     (item 14). W0's image example is done: see world_plan.md, "W0 image
+     example" (4 km regions make Biome areas clusters of regions; nothing
+     argues against 4 km).
    - *Details:* [docs/decisions/D4.md](docs/decisions/D4.md), "Bottom
-     line" and "Open questions for the user".
+     line" and "Region size".
+   - *Scale (D5, 2026-11-24):* region size becomes a per-class World
+     setting. D4 still sets the default shape and the medium class's size.
 6. ~~**Fruit cluster cards versus the fruit crate.**~~ Decided by the user
    2026-11-24. The cluster cards (built in wave 5 under I1b's earlier
    scope, set by `LodDetail::cluster_cards`, off by default) are removed
@@ -846,6 +1180,118 @@ where the details are.
    replace them. In the studio, fruit and flowers each get their own tab,
    and the tree panels pick a fruit preset and a flower preset by key.
    See the "I1b" milestone above.
+22. **World and Biome scale (D5): what is still open.**
+    - *Decided by the user 2026-11-24:*
+      - Game scales first; real-life is a stretch goal.
+      - A World scale pair `{ horizontal, vertical }` with World presets
+        per class.
+      - No landscape length fixed in metres: fades, margins, ramps and
+        clearances derive from scale and local size, which will lower
+        the region floor.
+      - Huge Biomes come from many same-type regions.
+      - Real-life limits are recorded.
+    - *Still open:*
+      - The class numbers (pair, region size, Biome extent and E per
+        class), tuned with W0's image examples. W0 starts at scale 1.
+      - How low the region floor goes. With road and river widths fixed
+        (the user's choice), the floor is about 1.4 km unless the 40 m
+        bank reach also scales. If Minecraft-sized regions of about 1 km
+        need narrower roads and rivers, fixed widths would have to be
+        revisited (D5, open question 3).
+      - A World-level, analytic river-size field, so rivers widen
+        downstream across regions. Opened by the user.
+      - Whether Ecotope geometry scales.
+      - E's slope bound under unequal pairs.
+      - When large-world coordinates are needed (S1's choice, per D1).
+    - *Details:* [docs/decisions/D5.md](docs/decisions/D5.md), "Decisions",
+      "Scale classes" and "Open questions".
+
+23. **Ground materials: what is still open.**
+    - *Decided by the user 2026-11-24:* three tiers (terrain catalogue and
+      bare-terrain look, Biome base ground, Ecotope layers); the model
+      first, then colours, then textures; CPU weight textures per chunk;
+      G4 split into G4a (Measures) and G4b (labels).
+    - *Also decided 2026-11-24:* ground never feeds placement (Scatter
+      density rules get the same condition types instead); a rule's height
+      is an enum, either absolute (scaling with the World's `vertical`) or
+      relative to the region's relief; texture defaults go well down,
+      with a 128 px version of every material baked too, and full
+      resolution an opt-in level ("level 1 is the default for everything,
+      level 0 optional").
+    - *Still open:* exact texture sizes per level and the resident cap,
+      in GM2 with the machines from item 18.
+    - *Also open:* the level-ring seam in the weight textures (GM1), and
+      where plant's far colour function lives (before GM5, with the
+      plant-align lane).
+    - *Details:* [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),
+      "Open questions".
+24. **Studio revamp: what is still open.**
+    - *Decided by the user 2026-11-24:* Library, Outline, view frame and
+      one Inspector replace the tabs; an outliner first, a diagram later;
+      metadata in `<kind>.meta.yml` beside each crate's presets; a
+      project folder; updates keep comments (`yamlpatch` + `yamlpath`);
+      thumbnails cached, not committed; textures converted on import
+      with `ctt` (BC7); one texture catalogue in `procgena_core`;
+      viewing distance a requirement on IX; editing in context edits the
+      referenced preset; which extras come early.
+    - *Proposed, not decided:* the kind registry, document and selection
+      model, the runtime preset registry and the `Preset` change, the
+      capture service's home, and the "what is saved where" table.
+    - *Open:* key clashes between project and built-in presets, enum
+      coverage in the metadata drift test, whether built-in thumbnails
+      ship pre-rendered, where the capture module lives, Biome climate
+      on the view frame, and the tree's Fruit chip.
+    - *Needed by:* ST0 for the registry and layout, ST2 for key clashes,
+      ST4 for thumbnails and capture.
+    - *Details:* [procgena/studio_plan.md](procgena/studio_plan.md),
+      "Proposed, not decided" and "Open questions".
+
+### From wave 6 (W0, GM0, fruit B2)
+
+25. **Do hand-placed height bumps stretch with the World's scale? (W0)**
+    A World can add a hand-placed bump or dip to the large-scale
+    elevation E, for example to put a mountain range where a story needs
+    one. W0 stretches each bump with the scale pair, like the rest of E:
+    on a World scaled ×4 horizontally, a bump 10 km across becomes 40 km.
+    **Stretch (as built)** keeps a hand-made layout looking the same
+    at every scale class. **Fixed metres** keeps a bump a known real
+    size, but its place in the landscape changes with scale.
+    Recommendation: stretch, matching D5's rule that landscape lengths
+    scale and objects don't.
+26. **How World pins name a region (W0).** A pin forces a region to one
+    Biome ("this region is a mountain"). W0 names the region by its
+    id number, which is exact but means nothing to someone writing the
+    file by hand. The alternatives are a lattice cell (`[12, -3]`) or a
+    world point (the region containing `x, z`). A point is easiest to
+    write and survives region-size changes best, but two pins may land in
+    the same region. Recommendation: accept a point in files and resolve
+    it to the id when the World loads.
+27. **Making fruit cheap to draw (fruit B2 measured).** 1,007 willows, the
+    camera plus four shadow cascades, on an M1 Max: catkins add about
+    32 ms a frame near the grove and 10 ms in the middle distance, while
+    the GPU cull costs only 1.2–1.7 ms. Drawing, not culling, is the
+    cost. The worker's proposals, in order of payoff:
+    1. only fruit level 0 casts shadows, and catkins thin out at the
+       tree's middle levels (changes the look: needs your eye);
+    2. the per-row cull runs only over trees its first stage keeps,
+       which removes most of the far camera's 1.5 ms (no look change);
+    3. smaller cull entries, saving memory more than time.
+
+    Recommendation: do 2 now. Do 1 after before/after screenshots, and
+    fold it into IX planning, since thinning is a far-form choice.
+    Details: [fruit/plan.md](fruit/plan.md), "Measured".
+28. **Ground look choices (GM0).** GM0 picked the ground material
+    colours, the bare terrain's layer order, and the pine forest floor's
+    opacities, and these need your eye. The images are in GM0's notes
+    folder: `gm0-pine-forest-floor.png` and `gm0-bare-terrain.png`. The
+    needle litter under the pines looks fairly round and hard-edged. GM0
+    also made calls you may want to check:
+    - a plain `Ground` reports "no water, no roads", so riverbeds and
+      roads don't paint everywhere;
+    - a height rule relative to the region's relief counts as everywhere
+      until something fills in relief;
+    - pine litter reaches a fixed 3 m, because trees expose only their
+      trunk.
 
 ### Looks of work already built (wave 5)
 
@@ -869,17 +1315,14 @@ where the details are.
    species with the same key are an error. Is that the wanted policy, or
    should every species always name its key? Details: C2-plan.md, "As
    built".
-10. **Shared renderer (R2).** Three choices, with before and after
-    screenshots in the R2 report's `r2-shots/` folder:
-    - *Shadows:* each copy casts from one level, not dithered, so in a
-      band where a copy fades between two levels only one of them casts.
-      Keep that, or add dithered shadows (a fragment shader in the shadow
-      pass, which costs shadow-pass speed)?
-    - *Small differences:* stone, deadwood and mushroom shots differ from
-      before in at most 0.2% of pixels, mostly at shadow edges. Accept?
-    - *Wind:* every copy now carries its own wind phase, but trees still
-      sway by world position. Switch trees to their own phase? Groves
-      would then move visibly less in unison.
+10. ~~**Shared renderer (R2).**~~ Decided by the user 2026-11-24:
+    - *Shadows:* keep one undithered level per copy in shadow maps.
+      Shadows are expensive, and the switch is unlikely to be noticed.
+    - *Small differences:* accepted (at most 0.2% of pixels, at shadow
+      edges).
+    - *Wind:* trees sway by world position **plus a small per-tree offset**
+      from the copy's wind phase, keeping travelling gusts with some
+      individuality. To build (see "Decided, to build" below).
 11. **One base elevation for the terrain presets (W4).** Plains, rolling
     hills and mountains sit 20, 50 and 120 m above the World's elevation
     field E. Unequal offsets bring back a step of up to 100 m at every
@@ -930,21 +1373,32 @@ where the details are.
 ### Shared settings and release (earlier waves)
 
 15. **Quality, far forms and file defaults (R1).**
-    - Plant has a `Competitive` quality tier for 240 Hz play (a 4.167 ms
-      budget). The shared `Quality` setting has four levels with distance
-      factors 0.4, 0.7, 1 and 1.5. Add `Competitive` as a fifth?
-    - `FarForm` names three far forms (strips, billboard leaves, a card).
-      Mushroom's "flat cap plus ribbon" is mapped to plain `Mesh` today,
-      and plant's "far ground material" has no name. Give either its own
-      variant?
-    - In files, every detail level must spell out `form` and
-      `casts_shadows`. Default them to `Mesh` and `true`?
-16. **Tree sizes for detail distances.** Every tree counts as 10 m tall
-    when its detail-level distances are worked out, so a 4 m dogwood
-    switches levels as late as a 30 m pine. Sizing by each preset's real
-    height needs per-preset impostor distances chosen. Related: C2 uses a
-    fixed draw range of 2000 m for trees and 1000 m for stones until they
-    have cull distances.
+    - ~~*A fifth `Competitive` quality level:*~~ **no** (the user,
+      2026-11-24). Rather than cutting detail harder, the project leans
+      heavily into impostors (see the "IX" experiment). Plant keeps its own
+      tier for now.
+    - ~~*Far form names:*~~ **add both** (the user, 2026-11-24): a
+      `FarForm` variant for mushroom's "flat cap plus ribbon" and one for
+      plant's "far ground material". To build.
+    - *Still open:* in files, every detail level must spell out `form` and
+      `casts_shadows`. Default them to `Mesh` and `true`? Files would get
+      shorter and only unusual levels say anything; the cost is that a
+      missing value no longer errors. Recommended: default them.
+16. ~~**Tree sizes for detail distances.**~~ Decided by the user
+    2026-11-24: **by each tree's actual height**, the shared rule every
+    other asset follows (distances written for a reference size, scaled by
+    the copy's size). Today every tree counts as 10 m tall, so a 4 m
+    dogwood keeps full detail as far out as a 30 m pine. This moves tree
+    level distances (visible). It also replaces C2's fixed 2000 m tree
+    draw range with one from the tree's cull distance. To build.
+
+#### Decided, to build
+
+One worker after the fruit crate lane merges (it edits the tree shaders
+and tree_bevy at the same time): tree wind as world position plus a small
+per-tree offset (item 10); the two new `FarForm` names (item 15); tree
+detail distances scaled by actual height, with the draw range from the
+cull distance (item 16).
 17. **Releasing plant and core.** `procgena_plant` is marked
     `publish = false` because it now depends on `procgena_core`, which is
     not on crates.io. Before the next plant release: publish

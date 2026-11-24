@@ -17,6 +17,8 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "bevy_render",
     "bevy_core_pipeline",
 ] }
+# Timestamp queries for `InstancedTimings`, which Bevy doesn't re-export.
+wgpu = { workspace = true }
 
 [dev-dependencies]
 # The GPU tests render headless frames with Bevy's default plugins.

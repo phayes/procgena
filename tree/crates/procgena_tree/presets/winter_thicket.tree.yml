@@ -63,30 +63,3 @@ tree:
     count: 10
     start: 0.07
     size_variance: 0.75
-  fruit:
-    placement:
-      min_level: 0
-      start: 0.15
-      facing: up
-      facing_jitter: 20.0
-      size: 0.015
-      size_variance: 0.3
-    cluster:
-      arrangement: panicle
-      items: 3
-      stalk_length: 0.0
-      stalk_radius: 0.002
-      stalk_color: 7031342
-    shape:
-      elongation: 2.0
-      bottom_taper: 0.35
-      segments: 8
-      rings: 5
-      stem_length: 0.0
-      stem_radius: 0.02
-      stem_curve: 0.0
-      calyx: false
-      color: 14468808
-      unripe_color: 7027246
-      blush_color: 14715552
-      blush_amount: 0.6

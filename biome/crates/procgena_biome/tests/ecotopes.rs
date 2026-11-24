@@ -395,3 +395,69 @@ fn without_the_scatters_above_more_mushrooms_grow() {
     let n = |p: &procgena_biome::EcotopePlacement| p.get("porcini").unwrap().copies().len();
     assert!(n(&alone) > n(&placed), "{} vs {}", n(&alone), n(&placed));
 }
+
+/// `ecotope` as a preset written to a file over the pine forest floor, and
+/// read back; also returns the file's text.
+fn round_trip(ecotope: &Ecotope) -> (Ecotope, String) {
+    let base = EcotopePreset::pine_forest_floor();
+    let preset = EcotopePreset {
+        key: "mine".into(),
+        name: "Mine".into(),
+        description: "".into(),
+        group: "File".into(),
+        ecotope: ecotope.clone(),
+    };
+    let text = preset.to_file(Some(base));
+    let read = EcotopePreset::from_yaml("mine", &text).expect(&text);
+    (read.ecotope, text)
+}
+
+#[test]
+fn a_setting_set_back_to_its_kinds_default_is_written_over_a_base() {
+    let mut ecotope = pine_floor();
+    let ScatterKind::Deadwood(logs) = &mut ecotope.scatters.get_mut(&key("logs")).unwrap().scatter
+    else {
+        panic!("logs are dead wood");
+    };
+    let default = procgena_deadwood::ScatterOptions::fallen_logs().density;
+    assert_ne!(logs.density, default);
+    logs.density = default;
+    let (read, text) = round_trip(&ecotope);
+    assert_eq!(read, ecotope, "{text}");
+    assert!(text.contains("base: pine_forest_floor"), "{text}");
+    assert!(!text.contains("pines"), "only the changed Scatter: {text}");
+}
+
+#[test]
+fn a_scatter_removed_from_the_base_is_written_as_null() {
+    let mut ecotope = pine_floor();
+    ecotope.scatters.remove(&key("fly_agarics"));
+    let (read, text) = round_trip(&ecotope);
+    assert_eq!(read, ecotope, "{text}");
+    assert!(text.contains("fly_agarics: null"), "{text}");
+    assert!(text.contains("base: pine_forest_floor"), "{text}");
+}
+
+#[test]
+fn a_scatter_added_over_the_base_is_written_whole() {
+    let mut ecotope = pine_floor();
+    let mut logs = ecotope.scatters[&key("logs")].clone();
+    logs.priority = 700;
+    ecotope.scatters.insert(key("more_logs"), logs);
+    let (read, text) = round_trip(&ecotope);
+    assert_eq!(read, ecotope, "{text}");
+    assert!(text.contains("more_logs:"), "{text}");
+
+    // Without a base, every Scatter is written short and reads back too.
+    let preset = EcotopePreset {
+        key: "mine".into(),
+        name: "Mine".into(),
+        description: "".into(),
+        group: "File".into(),
+        ecotope: ecotope.clone(),
+    };
+    let text = preset.to_file(None);
+    assert!(!text.contains("base: pine_forest_floor"), "{text}");
+    let read = EcotopePreset::from_yaml("mine", &text).expect(&text);
+    assert_eq!(read.ecotope, ecotope, "{text}");
+}

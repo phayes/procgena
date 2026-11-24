@@ -37,6 +37,8 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "bevy_feathers",
     "bevy_scene",
 ] }
+procgena_biome = { path = "../biome/crates/procgena_biome" }
+procgena_biome_bevy = { path = "../biome/crates/procgena_biome_bevy" }
 procgena_core = { path = "../core/crates/procgena_core" }
 procgena_tree = { path = "../tree/crates/procgena_tree", features = ["export-obj", "export-gltf"] }
 procgena_tree_bevy = { path = "../tree/crates/procgena_tree_bevy" }
@@ -46,10 +48,14 @@ procgena_stone = { path = "../stone/crates/procgena_stone", features = ["export-
 procgena_stone_bevy = { path = "../stone/crates/procgena_stone_bevy" }
 procgena_clump = { path = "../clump/crates/procgena_clump" }
 procgena_clump_bevy = { path = "../clump/crates/procgena_clump_bevy" }
+procgena_fruit = { path = "../fruit/crates/procgena_fruit", features = ["export-obj", "export-gltf"] }
+procgena_fruit_bevy = { path = "../fruit/crates/procgena_fruit_bevy" }
 procgena_mushroom = { path = "../mushroom/crates/procgena_mushroom", features = ["export-obj", "export-gltf"] }
 procgena_mushroom_bevy = { path = "../mushroom/crates/procgena_mushroom_bevy" }
 procgena_deadwood = { path = "../deadwood/crates/procgena_deadwood", features = ["export-obj", "export-gltf"] }
 procgena_deadwood_bevy = { path = "../deadwood/crates/procgena_deadwood_bevy" }
+procgena_terrain = { path = "../terrain/crates/procgena_terrain" }
+procgena_terrain_bevy = { path = "../terrain/crates/procgena_terrain_bevy" }
 # Download texture images, verify their contents and cache them for later exports.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 sha2 = "0.11"
