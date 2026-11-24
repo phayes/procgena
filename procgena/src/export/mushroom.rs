@@ -13,7 +13,7 @@ use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use procgena_mushroom::export::{gltf, obj};
-use procgena_mushroom::{Mushroom, MushroomDetail, MushroomLod, MushroomMesh, MushroomOptions};
+use procgena_mushroom::{Mushroom, MushroomDetail, MushroomMesh, MushroomOptions, default_lod};
 
 use super::{Done, FileOps, chosen_stem, shown_name, write_file, write_files};
 use crate::mushrooms::editor::{MushroomEditor, load_mushroom};
@@ -195,7 +195,7 @@ fn meshes(options: &MushroomOptions, detail_levels: bool) -> Result<Vec<Mushroom
             .map_err(|error| error.to_string())?;
         return Ok(vec![mesh]);
     }
-    let lod = MushroomLod::for_size(options.size);
+    let lod = default_lod();
     Ok(mushroom
         .lod_meshes(&lod)
         .map_err(|error| error.to_string())?
@@ -280,7 +280,7 @@ mod tests {
         let options = MushroomOptions::default();
         assert_eq!(
             meshes(&options, true).unwrap().len(),
-            MushroomLod::default().levels.len()
+            default_lod().levels.len()
         );
         assert_eq!(meshes(&options, false).unwrap().len(), 1);
     }

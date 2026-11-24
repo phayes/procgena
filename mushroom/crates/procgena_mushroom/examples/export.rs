@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use procgena_mushroom::export::{gltf, obj};
-use procgena_mushroom::{Mushroom, MushroomLod, MushroomPreset};
+use procgena_mushroom::{Mushroom, MushroomPreset, default_lod};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for preset in MushroomPreset::ALL {
         let mushroom = Mushroom::from_preset(preset);
-        let lod = MushroomLod::for_size(mushroom.options().size);
+        let lod = default_lod();
         let meshes: Vec<_> = mushroom
             .lod_meshes(&lod)?
             .into_iter()

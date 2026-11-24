@@ -10,17 +10,20 @@
 //!
 //! Distant objects don't need fine detail, so renderers swap in simpler
 //! meshes as the camera moves away; each of those is a "level of detail".
-//! [`MushroomLod`] says which detail to use at which distance, and
-//! [`MushroomLod::for_size`] scales the distances to suit the mushroom's
-//! size.
+//! A [`MushroomLod`], such as [`default_lod`], says which detail to use at
+//! which distance, and [`Lod::factor`](procgena_core::Lod::factor) scales
+//! the distances to suit the mushroom's size.
 //!
 //! ```
-//! use procgena_mushroom::{Mushroom, MushroomLod, MushroomPreset};
+//! use procgena_core::Quality;
+//! use procgena_mushroom::{Mushroom, MushroomPreset, default_lod};
 //!
 //! let mushroom = Mushroom::from_preset(MushroomPreset::Porcini);
-//! let lod = MushroomLod::for_size(mushroom.options().size);
+//! let lod = default_lod();
+//! let factor = lod.factor(mushroom.options().size, Quality::High);
 //! for (level, mesh) in mushroom.lod_meshes(&lod).unwrap() {
-//!     println!("from {} m: {} triangles", level.distance, mesh.triangle_count());
+//!     let from = level.distance * factor;
+//!     println!("from {from} m: {} triangles", mesh.triangle_count());
 //! }
 //! ```
 //!
@@ -61,7 +64,10 @@ pub use cluster::{
     ClusterLayout, ClusterOptions, FairyRingOptions, MAX_STEMS, MAX_VARIANTS, MushroomInstance,
 };
 pub use colour::{linear_from_hex, srgb_to_linear};
-pub use detail::{BodyShape, DEFAULT_LOD_SIZE, LodLevel, MushroomDetail, MushroomLod};
+pub use detail::{
+    BodyShape, DEFAULT_LOD_SIZE, MushroomDetail, MushroomLod, MushroomLodLevel, default_lod,
+    validate_lod,
+};
 pub use mesh::{
     BillboardMesh, BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, Zone,
 };

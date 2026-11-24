@@ -31,10 +31,13 @@
 //! Each mushroom is drawn by [`MushroomPart`] child entities, one or two per
 //! detail level. Bevy's `VisibilityRange` shows each level only within its
 //! distance band, blending between neighbouring levels. The bands come from
-//! [`MushroomPlugin::lod`], scaled by each mushroom's size, and the farthest
-//! level fades out at the cull distance. At the two farthest default levels,
-//! the stem, and then the cap too, are flat shapes that [`MushroomMaterial`]
-//! keeps turned toward the camera.
+//! [`MushroomPlugin::lod`], scaled by each mushroom's size and by the
+//! [`LodQuality`](procgena_core_bevy::LodQuality) setting when the mushroom
+//! is built, and the farthest level fades out at the cull distance. At the
+//! two farthest default levels, the stem, and then the cap too, are flat
+//! shapes that [`MushroomMaterial`] keeps turned toward the camera; levels
+//! that don't cast shadows, such as the default farthest one, get
+//! `NotShadowCaster`.
 //!
 //! The material draws each mushroom's warts, gill lines and cap pattern, so
 //! they cost no triangles.
@@ -52,7 +55,8 @@ use bevy::asset::embedded_asset;
 use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
 use bevy::shader::load_shader_library;
-use procgena_mushroom::{MushroomLod, TextureCompression, TextureSize};
+use procgena_core_bevy::{LodPlugin, LodQuality};
+use procgena_mushroom::{MushroomLod, TextureCompression, TextureSize, default_lod, validate_lod};
 
 pub use material::{
     MushroomExtension, MushroomMaterial, MushroomSurface, TextureSet, billboard_material,
@@ -70,19 +74,21 @@ pub use spawn::{
 use spawn::{MushroomCache, MushroomOptionsLoader, SpawnSettings, TextureSettings};
 
 /// Adds mushroom building and drawing, and loading of `.mushroom.json`
-/// files, to a Bevy app.
+/// files, to a Bevy app. It also adds [`LodPlugin`], which holds the
+/// [`LodQuality`] setting and the shared dither shader.
 ///
 /// # Panics
 ///
 /// Adding the plugin panics if [`lod`](Self::lod) is invalid; see
-/// [`MushroomLod::validate`].
+/// [`validate_lod`].
 #[derive(Debug, Clone)]
 pub struct MushroomPlugin {
-    /// Detail levels for a mushroom with an 8 cm cap
-    /// ([`DEFAULT_LOD_SIZE`](procgena_mushroom::DEFAULT_LOD_SIZE)). Each
-    /// mushroom multiplies the distances by its size relative to that, and
-    /// by its size within a cluster or scatter. Every mushroom uses these
-    /// levels; [`MushroomOptions::detail`] is not used by the plugin.
+    /// Detail levels, written for a cap of their
+    /// [`reference_size`](procgena_core::Lod::reference_size). Each mushroom
+    /// scales the distances by its size relative to that, by its size within
+    /// a cluster or scatter, and by the [`LodQuality`] when it is built.
+    /// Every mushroom uses these levels; [`MushroomOptions::detail`] is not
+    /// used by the plugin. Defaults to [`default_lod`].
     ///
     /// [`MushroomOptions::detail`]: procgena_mushroom::MushroomOptions::detail
     pub lod: MushroomLod,
@@ -109,7 +115,7 @@ pub struct MushroomPlugin {
 impl Default for MushroomPlugin {
     fn default() -> Self {
         Self {
-            lod: MushroomLod::default(),
+            lod: default_lod(),
             texture_root: Some("procgena_mushroom/textures".to_owned()),
             texture_size: TextureSize::Size1k,
             texture_compression: TextureCompression::Bc7,
@@ -125,10 +131,10 @@ impl Plugin for MushroomPlugin {
         embedded_asset!(app, "shaders/mushroom_prepass.wesl");
         embedded_asset!(app, "shaders/mushroom_fragment.wesl");
 
-        if let Err(error) = self.lod.validate() {
+        if let Err(error) = validate_lod(&self.lod) {
             panic!("MushroomPlugin::lod is invalid: {error}");
         }
-        app.add_plugins(MaterialPlugin::<MushroomMaterial>::default());
+        app.add_plugins((LodPlugin, MaterialPlugin::<MushroomMaterial>::default()));
         add_systems(app, self.lod.clone());
         app.world_mut().resource_mut::<SpawnSettings>().textures =
             self.texture_root.clone().map(|root| TextureSettings {
@@ -146,6 +152,7 @@ pub(crate) fn add_systems(app: &mut App, lod: MushroomLod) {
     app.init_asset::<MushroomOptionsAsset>()
         .register_asset_loader(MushroomOptionsLoader)
         .init_resource::<MushroomCache>()
+        .init_resource::<LodQuality>()
         .insert_resource(SpawnSettings {
             lod,
             textures: None,

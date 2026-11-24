@@ -598,12 +598,12 @@ fn missing_textures_are_downloaded_and_drawn() {
 /// Checks that `scene`, started showing the fly agaric, builds every detail
 /// level and draws its cap texture, then shows it without the texture.
 fn assert_fly_agaric_is_textured(scene: &mut HeadlessScene) {
-    use procgena_mushroom::{MushroomLod, MushroomPreset};
+    use procgena_mushroom::{MushroomPreset, default_lod};
 
     let ViewerEvent::MushroomBuilt(Ok(stats)) = mushroom_event(scene) else {
         panic!("the fly agaric was rejected");
     };
-    assert_eq!(stats.levels.len(), MushroomLod::default().levels.len());
+    assert_eq!(stats.levels.len(), default_lod().levels.len());
     assert!(
         stats.levels.iter().all(|level| level.triangles > 0),
         "{stats:?}"
@@ -669,7 +669,7 @@ fn every_chosen_mushroom_level_is_drawn_and_reported() {
     ));
     let full = scene.settled_frame();
 
-    let levels = procgena_mushroom::MushroomLod::default().levels.len();
+    let levels = procgena_mushroom::default_lod().levels.len();
     let mut frames = Vec::new();
     for lod in 0..levels {
         scene.send(ViewerCommand::SetMushroomLod(Some(lod)));

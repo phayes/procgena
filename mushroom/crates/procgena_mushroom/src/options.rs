@@ -8,6 +8,7 @@
 use std::fmt;
 
 use glam::Vec2;
+use procgena_core::LodError;
 use serde::{Deserialize, Serialize};
 
 use crate::cluster::ClusterOptions;
@@ -492,6 +493,9 @@ pub enum OptionsError {
         /// The names the setting accepts.
         allowed: &'static [&'static str],
     },
+    /// The levels of a [`MushroomLod`](crate::MushroomLod) are invalid, for
+    /// example out of order or blending into each other.
+    Lod(LodError),
 }
 
 impl fmt::Display for OptionsError {
@@ -534,11 +538,19 @@ impl fmt::Display for OptionsError {
                 value,
                 allowed,
             } => write!(f, "{field} is {value:?}, but must be one of {allowed:?}"),
+            OptionsError::Lod(error) => write!(f, "invalid levels of detail: {error}"),
         }
     }
 }
 
-impl std::error::Error for OptionsError {}
+impl std::error::Error for OptionsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            OptionsError::Lod(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl MushroomOptions {
     /// Checks every setting, including [`cluster`](Self::cluster) and

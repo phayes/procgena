@@ -32,7 +32,10 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_mushroom::{LodLevel, MushroomDetail, MushroomLod, MushroomPreset, ScatterOptions};
+use procgena_core::{Lod, LodLevel};
+use procgena_mushroom::{
+    DEFAULT_LOD_SIZE, MushroomDetail, MushroomPreset, ScatterOptions, default_lod,
+};
 use procgena_mushroom_bevy::{
     MushroomGenerating, MushroomParams, MushroomPart, MushroomPlugin, MushroomScatterParams,
 };
@@ -97,21 +100,15 @@ fn main() {
     });
 
     // `--flat` and `--billboard` use only that one detail, drawn out to
-    // 100 m.
-    let only = |detail| MushroomLod {
-        levels: vec![LodLevel {
-            distance: 0.0,
-            hysteresis: 0.1,
-            detail,
-        }],
-        cull_distance: 100.0,
-    };
+    // 100 m for an 8 cm cap.
+    let only =
+        |detail| Lod::new(DEFAULT_LOD_SIZE, vec![LodLevel::new(0.0, 0.1, detail)]).with_cull(100.0);
     let lod = if args.iter().any(|a| a == "--flat") {
         only(MushroomDetail::FLAT)
     } else if args.iter().any(|a| a == "--billboard") {
         only(MushroomDetail::BILLBOARD)
     } else {
-        MushroomLod::default()
+        default_lod()
     };
     // Read assets from the repository's `mushroom/assets`. The fly agaric's
     // cap texture is used when its files have been converted or downloaded

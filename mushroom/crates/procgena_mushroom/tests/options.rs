@@ -1,7 +1,9 @@
 //! Options validation and JSON.
 
+use procgena_core::{FarForm, LevelForm, LodRange, Quality};
 use procgena_mushroom::{
-    CapFamily, Mushroom, MushroomError, MushroomLod, MushroomOptions, MushroomPreset, OptionsError,
+    CapFamily, DEFAULT_LOD_SIZE, Mushroom, MushroomDetail, MushroomError, MushroomOptions,
+    MushroomPreset, OptionsError, default_lod, validate_lod,
 };
 
 #[test]
@@ -10,7 +12,7 @@ fn defaults_and_presets_validate() {
     for preset in MushroomPreset::ALL {
         preset.options().validate().unwrap();
     }
-    MushroomLod::default().validate().unwrap();
+    validate_lod(&default_lod()).unwrap();
 }
 
 #[test]
@@ -130,17 +132,38 @@ fn from_json_reports_both_kinds_of_error() {
 
 #[test]
 fn lod_scales_with_size() {
-    let small = MushroomLod::for_size(0.04);
-    let big = MushroomLod::for_size(0.16);
-    assert!((big.cull_distance - small.cull_distance * 4.0).abs() < 1e-3);
-    assert_eq!(small.levels[0].distance, 0.0);
+    let lod = default_lod();
+    let small = lod.ranges(lod.factor(0.04, Quality::High));
+    let big = lod.ranges(lod.factor(0.16, Quality::High));
+    let cull = |ranges: &[LodRange]| ranges.last().unwrap().fade_out.end;
+    assert!((cull(&big) - cull(&small) * 4.0).abs() < 1e-3);
+    assert_eq!(small[0].fade_in, 0.0..0.0);
 
-    let mut bad = MushroomLod {
-        cull_distance: 1.0,
-        ..MushroomLod::default()
-    };
-    assert!(bad.validate().is_err());
-    bad = MushroomLod::default();
+    let mut bad = default_lod().with_cull(1.0);
+    assert!(matches!(validate_lod(&bad), Err(OptionsError::Lod(_))));
+    bad = default_lod();
     bad.levels.swap(1, 2);
-    assert!(bad.validate().is_err());
+    assert!(matches!(validate_lod(&bad), Err(OptionsError::Lod(_))));
+    bad = default_lod();
+    bad.levels[0].detail.cap_sides = 2;
+    assert!(matches!(
+        validate_lod(&bad),
+        Err(OptionsError::IntOutOfRange { .. })
+    ));
+}
+
+#[test]
+fn the_farthest_default_level_is_a_card_without_shadows() {
+    let lod = default_lod();
+    let last = lod.levels.last().unwrap();
+    assert_eq!(last.detail, MushroomDetail::BILLBOARD);
+    assert_eq!(last.form, LevelForm::Far(FarForm::Card));
+    assert!(!last.casts_shadows);
+    assert!(
+        lod.levels[..lod.levels.len() - 1]
+            .iter()
+            .all(|l| { l.form == LevelForm::Mesh && l.casts_shadows })
+    );
+    assert_eq!(lod.cull_distance, Some(40.0));
+    assert_eq!(lod.reference_size, DEFAULT_LOD_SIZE);
 }

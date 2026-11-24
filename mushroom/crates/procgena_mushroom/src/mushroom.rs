@@ -8,7 +8,7 @@ use procgena_core::SpecimenId;
 
 use crate::cluster::{ClusterOptions, MushroomInstance, arrange, body_seed, make_bodies};
 use crate::colour::Palette;
-use crate::detail::{LodLevel, MushroomDetail, MushroomLod};
+use crate::detail::{MushroomDetail, MushroomLod, MushroomLodLevel, validate_lod};
 use crate::mesh::{MushroomMesh, build, combine};
 use crate::options::{MushroomOptions, OptionsError};
 use crate::presets::MushroomPreset;
@@ -193,17 +193,18 @@ impl Mushroom {
     /// Builds one mesh of every member for each level of `lod`, nearest
     /// level first, paired with the level it belongs to.
     ///
-    /// The distances in `lod` are used as given; use
-    /// [`MushroomLod::for_size`] to suit them to this mushroom's size.
+    /// The levels are returned as written in `lod`, for its reference size;
+    /// use [`Lod::factor`](procgena_core::Lod::factor) with this mushroom's
+    /// size to scale their distances.
     ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
+    /// Returns an error if `lod` is invalid; see [`validate_lod`].
     pub fn lod_meshes(
         &self,
         lod: &MushroomLod,
-    ) -> Result<Vec<(LodLevel, MushroomMesh)>, OptionsError> {
-        lod.validate()?;
+    ) -> Result<Vec<(MushroomLodLevel, MushroomMesh)>, OptionsError> {
+        validate_lod(lod)?;
         Ok(lod
             .levels
             .iter()
@@ -311,17 +312,16 @@ impl MushroomBody {
     }
 
     /// Builds one mesh for each level of `lod`, nearest level first, paired
-    /// with the level it belongs to. The distances in `lod` are used as
-    /// given.
+    /// with the level it belongs to, as written in `lod`.
     ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
+    /// Returns an error if `lod` is invalid; see [`validate_lod`].
     pub fn lod_meshes(
         &self,
         lod: &MushroomLod,
-    ) -> Result<Vec<(LodLevel, MushroomMesh)>, OptionsError> {
-        lod.validate()?;
+    ) -> Result<Vec<(MushroomLodLevel, MushroomMesh)>, OptionsError> {
+        validate_lod(lod)?;
         Ok(lod
             .levels
             .iter()

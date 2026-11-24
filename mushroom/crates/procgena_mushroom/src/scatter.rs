@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
-use procgena_core::Rng;
 use procgena_core::hash::{derive_seed, seed_for};
+use procgena_core::{Quality, Rng};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 
 use crate::cluster::{MushroomInstance, arrange, make_bodies};
@@ -343,10 +343,14 @@ impl MushroomScatter {
     /// be a large mesh; drawing [`instances`](Self::instances) is usually
     /// cheaper.
     ///
+    /// Each level starts at its distance in `lod` scaled to the species'
+    /// size at [`Quality::High`], as for [`crate::Mushroom::specimen`].
+    ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
+    /// Returns an error if `lod` is invalid; see [`crate::validate_lod`].
     pub fn specimen(&self, lod: &MushroomLod) -> Result<Specimen, OptionsError> {
+        let size = self.bodies[0].options().size;
         let meshes: Vec<_> = self
             .bodies
             .iter()
@@ -365,7 +369,10 @@ impl MushroomScatter {
                 (*level, combine(&placed))
             })
             .collect();
-        Ok(specimen_from_meshes(&levels))
+        Ok(specimen_from_meshes(
+            &levels,
+            lod.factor(size, Quality::High),
+        ))
     }
 }
 

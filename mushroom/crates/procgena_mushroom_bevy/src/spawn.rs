@@ -8,15 +8,17 @@ use std::sync::Arc;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::Aabb;
-use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
+use bevy::camera::visibility::NoAutoAabb;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
 use procgena_core::{ContentHasher, SpecimenId};
+use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_mushroom::{
-    BodyShape, DEFAULT_LOD_SIZE, Mushroom, MushroomBody, MushroomError, MushroomInstance,
-    MushroomLod, MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError,
-    ScatterOptions, TextureCompression, TexturePart, TextureSize,
+    BodyShape, Mushroom, MushroomBody, MushroomError, MushroomInstance, MushroomLod,
+    MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError, ScatterOptions,
+    TextureCompression, TexturePart, TextureSize,
 };
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 
@@ -186,8 +188,9 @@ impl AssetLoader for MushroomOptionsLoader {
 /// The plugin's settings, for the build systems.
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct SpawnSettings {
-    /// Detail levels for a mushroom of [`DEFAULT_LOD_SIZE`]; each build
-    /// scales them to the mushroom's size.
+    /// Detail levels, already validated. Every body is meshed at each
+    /// level, and each part's distance band is scaled to its mushroom's
+    /// size and the [`LodQuality`].
     pub lod: MushroomLod,
     /// Where to load cap textures from, or `None` for vertex colours only.
     pub textures: Option<TextureSettings>,
@@ -300,9 +303,7 @@ struct BuiltVariant {
     key: BodyKey,
     /// The variant's options.
     options: MushroomOptions,
-    /// Detail levels scaled for the variant's size.
-    lod: MushroomLod,
-    /// One entry per detail level.
+    /// One entry per detail level of [`SpawnSettings::lod`].
     levels: Vec<BuiltLevel>,
 }
 
@@ -321,10 +322,10 @@ struct BuiltLevel {
 
 /// One variant's meshes and materials, after adding them to Bevy's assets.
 struct VariantAssets {
-    /// Detail levels scaled for the variant's size, but not for an
-    /// instance's own scale.
-    lod: MushroomLod,
-    /// One entry per detail level.
+    /// The variant's cap diameter in its own units, before an instance's
+    /// scale and the parent's scale, for scaling the detail levels.
+    size: f32,
+    /// One entry per detail level of [`SpawnSettings::lod`].
     levels: Vec<LevelAssets>,
 }
 
@@ -517,8 +518,8 @@ fn is_current(input: &Input, building: Option<&Building>, attempted: Option<&Att
     building.is_some_and(|b| b.input == *input) || attempted.is_some_and(|a| a.0 == *input)
 }
 
-/// Builds the meshes and placements for `input`. Runs on a background
-/// thread. `lod` is for a mushroom of [`DEFAULT_LOD_SIZE`].
+/// Builds the meshes and placements for `input` at every level of `lod`.
+/// Runs on a background thread.
 fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> {
     match input {
         Input::Single(options) => {
@@ -528,7 +529,7 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
                 .iter()
                 .map(|b| build_variant(b, lod))
                 .collect::<Result<Vec<_>, _>>()?;
-            let specimen = mushroom.specimen(&size_lod(lod, options.size))?;
+            let specimen = mushroom.specimen(lod)?;
             Ok(Built {
                 variants,
                 instances: mushroom.members().to_vec(),
@@ -567,18 +568,12 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
     }
 }
 
-/// Returns `lod`, written for a mushroom of [`DEFAULT_LOD_SIZE`], scaled for
-/// a cap of diameter `size` metres.
-fn size_lod(lod: &MushroomLod, size: f32) -> MushroomLod {
-    lod.clone().scaled(size / DEFAULT_LOD_SIZE)
-}
-
-/// Meshes `body` at every level of `lod` (scaled for its size) and converts
-/// the meshes for Bevy. Warts are left out of the vertex colours, because
-/// the material draws them.
+/// Meshes `body` at every level of `lod` and converts the meshes for Bevy.
+/// Warts are left out of the vertex colours, because the material draws
+/// them.
 fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant, OptionsError> {
     let options = body.options().clone();
-    let mut lod = size_lod(lod, options.size);
+    let mut lod = lod.clone();
     for level in &mut lod.levels {
         level.detail.paint_warts = false;
     }
@@ -598,7 +593,6 @@ fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant,
     Ok(BuiltVariant {
         key: (body.specimen(), body.index()),
         options,
-        lod,
         levels,
     })
 }
@@ -616,6 +610,7 @@ pub(crate) fn finish_generation(
     mut materials: ResMut<Assets<MushroomMaterial>>,
     asset_server: Res<AssetServer>,
     settings: Res<SpawnSettings>,
+    quality: Res<LodQuality>,
 ) {
     for (entity, mut b, kids) in &mut building {
         let Some(result) = block_on(poll_once(&mut b.task)) else {
@@ -653,47 +648,65 @@ pub(crate) fn finish_generation(
 
         // Spawn one child per mushroom and level (two for a flat level), each
         // shown only within its own distance band, which grows with the
-        // mushroom's size.
+        // mushroom's size in the world and with the quality setting.
         let world_scale = input.world_scale();
         for (i, instance) in built.instances.iter().enumerate() {
             let variant = &variants[instance.variant as usize];
-            let ranges =
-                visibility_ranges(&variant.lod.clone().scaled(instance.scale * world_scale));
+            let size = variant.size * instance.scale * world_scale;
+            let ranges = settings.lod.ranges(settings.lod.factor(size, quality.0));
             let transform = Transform {
                 translation: instance.translation,
                 rotation: instance.rotation,
                 scale: Vec3::splat(instance.scale),
             };
-            for (lod, (level, range)) in variant.levels.iter().zip(ranges).enumerate() {
+            let levels = variant.levels.iter().zip(&settings.lod.levels);
+            for (lod, ((level, lod_level), range)) in levels.zip(&ranges).enumerate() {
+                let range = visibility_range(range);
+                let mut spawned = Vec::with_capacity(2);
                 if let Some((mesh, material)) = &level.surfaces {
-                    commands.spawn((
-                        MushroomPart {
-                            instance: i,
-                            lod,
-                            billboard: false,
-                        },
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(material.clone()),
-                        transform,
-                        range.clone(),
-                        ChildOf(entity),
-                    ));
+                    let part = MushroomPart {
+                        instance: i,
+                        lod,
+                        billboard: false,
+                    };
+                    spawned.push(
+                        commands
+                            .spawn((
+                                part,
+                                Mesh3d(mesh.clone()),
+                                MeshMaterial3d(material.clone()),
+                                transform,
+                                range.clone(),
+                                ChildOf(entity),
+                            ))
+                            .id(),
+                    );
                 }
                 if let Some((mesh, material, aabb)) = &level.billboard {
-                    commands.spawn((
-                        MushroomPart {
-                            instance: i,
-                            lod,
-                            billboard: true,
-                        },
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(material.clone()),
-                        transform,
-                        range.clone(),
-                        *aabb,
-                        NoAutoAabb,
-                        ChildOf(entity),
-                    ));
+                    let part = MushroomPart {
+                        instance: i,
+                        lod,
+                        billboard: true,
+                    };
+                    spawned.push(
+                        commands
+                            .spawn((
+                                part,
+                                Mesh3d(mesh.clone()),
+                                MeshMaterial3d(material.clone()),
+                                transform,
+                                range.clone(),
+                                *aabb,
+                                NoAutoAabb,
+                                ChildOf(entity),
+                            ))
+                            .id(),
+                    );
+                }
+                if !lod_level.casts_shadows {
+                    for part in spawned {
+                        commands.entity(part).insert(NotShadowCaster);
+                    }
                 }
             }
         }
@@ -773,7 +786,7 @@ fn upload(
         })
         .collect();
     let assets = Arc::new(VariantAssets {
-        lod: variant.lod,
+        size: variant.options.size,
         levels,
     });
     cache.variants.insert(variant.key, assets.clone());
@@ -794,34 +807,6 @@ fn material_hash(o: &MushroomOptions) -> u64 {
     h.write(&o.cap.family);
     h.write(&o.cap.height);
     h.finish()
-}
-
-/// Returns the distance band to show each level of `lod` in. Neighbouring
-/// levels blend over `distance × hysteresis` either side of each switch,
-/// and the last level fades out around the cull distance.
-pub(crate) fn visibility_ranges(lod: &MushroomLod) -> Vec<VisibilityRange> {
-    let margin = |distance: f32, hysteresis: f32| {
-        let half = distance * hysteresis;
-        (distance - half).max(0.0)..distance + half
-    };
-    let last_hysteresis = lod.levels.last().map_or(0.0, |l| l.hysteresis);
-    (0..lod.levels.len())
-        .map(|i| {
-            let level = &lod.levels[i];
-            VisibilityRange {
-                start_margin: if i == 0 {
-                    0.0..0.0
-                } else {
-                    margin(level.distance, level.hysteresis)
-                },
-                end_margin: match lod.levels.get(i + 1) {
-                    Some(next) => margin(next.distance, next.hysteresis),
-                    None => margin(lod.cull_distance, last_hysteresis),
-                },
-                use_aabb: false,
-            }
-        })
-        .collect()
 }
 
 /// After parts are removed, forgets cached variants and materials that no
@@ -862,8 +847,12 @@ pub(crate) fn prune_cache(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::time::{Duration, Instant};
 
+    use bevy::camera::visibility::VisibilityRange;
+    use procgena_core::Quality;
+    use procgena_mushroom::default_lod;
     use procgena_specimen::{Part, SurfaceMesh, tags};
 
     use super::*;
@@ -885,7 +874,7 @@ mod tests {
                     finished.0.push(event.result.clone());
                 },
             );
-        crate::add_systems(&mut app, MushroomLod::default());
+        crate::add_systems(&mut app, default_lod());
         app
     }
 
@@ -1068,13 +1057,73 @@ mod tests {
         );
     }
 
+    /// The fade-in and fade-out margins of `range`.
+    fn margins(range: &VisibilityRange) -> (Range<f32>, Range<f32>) {
+        (range.start_margin.clone(), range.end_margin.clone())
+    }
+
+    /// Each part under `entity` with its level, distance band and whether it
+    /// casts shadows.
+    fn ranges(app: &mut App, entity: Entity) -> Vec<(usize, VisibilityRange, bool)> {
+        let mut query = app.world_mut().query::<(
+            &MushroomPart,
+            &VisibilityRange,
+            Has<NotShadowCaster>,
+            &ChildOf,
+        )>();
+        query
+            .iter(app.world())
+            .filter(|(.., parent)| parent.parent() == entity)
+            .map(|(part, range, shadowless, _)| (part.lod, range.clone(), !shadowless))
+            .collect()
+    }
+
     #[test]
     fn levels_hand_over_and_fade_out_at_the_cull_distance() {
-        let lod = MushroomLod::default();
-        let ranges = visibility_ranges(&lod);
-        assert_eq!(ranges.len(), 5);
-        assert_eq!(ranges[0].start_margin, 0.0..0.0);
-        assert_eq!(ranges[0].end_margin, ranges[1].start_margin);
-        assert!(ranges[4].end_margin.contains(&lod.cull_distance));
+        let mut app = app();
+        let options = MushroomPreset::Porcini.options();
+        let entity = app
+            .world_mut()
+            .spawn(MushroomParams::new(options.clone()))
+            .id();
+        run_until_finished(&mut app, entity);
+
+        // Each part shows over its level's band, scaled to the mushroom's
+        // size, and only the card level drops its shadow.
+        let lod = default_lod();
+        let expected = lod.ranges(lod.factor(options.size, Quality::High));
+        let parts = ranges(&mut app, entity);
+        assert!(!parts.is_empty());
+        for (level, range, shadows) in &parts {
+            let want = visibility_range(&expected[*level]);
+            assert_eq!(margins(range), margins(&want), "level {level}");
+            assert!(!range.use_aabb);
+            assert_eq!(*shadows, lod.levels[*level].casts_shadows, "level {level}");
+        }
+        assert!(parts.iter().any(|(level, ..)| *level == 4));
+        let last = &expected[4];
+        assert!(
+            last.fade_out
+                .contains(&(40.0 * lod.factor(options.size, Quality::High)))
+        );
+    }
+
+    #[test]
+    fn the_quality_setting_scales_every_band() {
+        let mut app = app();
+        app.insert_resource(LodQuality(Quality::Low));
+        let options = MushroomPreset::Porcini.options();
+        let entity = app
+            .world_mut()
+            .spawn(MushroomParams::new(options.clone()))
+            .id();
+        run_until_finished(&mut app, entity);
+
+        let lod = default_lod();
+        let expected = lod.ranges(lod.factor(options.size, Quality::Low));
+        for (level, range, _) in ranges(&mut app, entity) {
+            let want = visibility_range(&expected[level]);
+            assert_eq!(margins(&range), margins(&want), "level {level}");
+        }
     }
 }
