@@ -73,6 +73,7 @@ mod detail;
 pub mod export;
 mod ground;
 mod mesh;
+mod meta;
 mod mushroom;
 mod options;
 mod presets;
@@ -96,6 +97,7 @@ pub use ground::MAX_CELLS;
 pub use mesh::{
     BillboardMesh, BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, Zone,
 };
+pub use meta::{MUSHROOM_META, meta_choices};
 pub use mushroom::{BodyId, Mushroom, MushroomBody};
 pub use options::{
     AnnulusOptions, BulbOptions, CapOptions, MAX_GILL_LINES, MAX_LOBES, MAX_SEGMENTS, MAX_WARTS,
