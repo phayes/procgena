@@ -15,6 +15,7 @@ use std::f32::consts::{PI, TAU};
 use glam::{Mat3, Vec3};
 
 use crate::decay::Decay;
+use crate::detail::DeadwoodDetail;
 use crate::limb::Limb;
 use crate::options::{DeadwoodOptions, PieceKind};
 use crate::rng::smoothstep;
@@ -34,8 +35,11 @@ const REFINE_SPREAD: f32 = 0.157;
 /// The golden angle as a fraction of a full turn. Stepping around a circle
 /// by this much spreads candidate directions evenly, with no two lining up.
 const GOLDEN_FRACTION: f32 = 0.381_966_02;
-/// Directions sampled around a stem when measuring its surface.
-const ANALYSIS_SIDES: u32 = 16;
+/// Directions sampled around a stem when measuring its surface: one per
+/// side of the most detailed preset mesh, so every vertex angle of
+/// [`DeadwoodDetail::FULL`] and the coarser presets is checked against the
+/// ground.
+const ANALYSIS_SIDES: u32 = DeadwoodDetail::FULL.sides;
 
 /// Where a piece came to rest on the ground.
 ///

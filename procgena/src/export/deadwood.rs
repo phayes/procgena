@@ -13,7 +13,7 @@ use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use procgena_deadwood::export::{gltf, obj};
-use procgena_deadwood::{DeadwoodDetail, DeadwoodLod, DeadwoodMesh, DeadwoodOptions, Piece};
+use procgena_deadwood::{DeadwoodDetail, DeadwoodMesh, DeadwoodOptions, Piece, default_lod};
 
 use super::{Done, FileOps, chosen_stem, shown_name, write_file, write_files};
 use crate::deadwood::editor::{DeadwoodEditor, load_deadwood};
@@ -192,9 +192,8 @@ fn meshes(options: &DeadwoodOptions, detail_levels: bool) -> Result<Vec<Deadwood
     if !detail_levels {
         return Ok(vec![piece.mesh_with_detail(&DeadwoodDetail::FULL)]);
     }
-    let lod = DeadwoodLod::for_options(options);
     Ok(piece
-        .lod_meshes(&lod)
+        .lod_meshes(&default_lod())
         .map_err(|error| error.to_string())?
         .into_iter()
         .map(|(_, mesh)| mesh)
@@ -275,7 +274,7 @@ mod tests {
     #[test]
     fn exports_have_every_level_when_asked() {
         let options = DeadwoodOptions::default();
-        let levels = DeadwoodLod::default().levels.len();
+        let levels = default_lod().levels.len();
         assert_eq!(meshes(&options, true).unwrap().len(), levels);
         assert_eq!(meshes(&options, false).unwrap().len(), 1);
         let path = std::env::temp_dir().join("procgena_deadwood_export_test.glb");

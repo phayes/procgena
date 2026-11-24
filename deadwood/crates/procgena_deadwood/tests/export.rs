@@ -3,14 +3,13 @@
 #![cfg(all(feature = "export-obj", feature = "export-gltf"))]
 
 use procgena_deadwood::export::{gltf::to_glb, obj::to_obj};
-use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, Piece};
+use procgena_deadwood::{DeadwoodPreset, Piece, default_lod};
 
 /// Builds `preset` and its meshes at every default level of detail.
 fn meshes(preset: DeadwoodPreset) -> (Piece, Vec<procgena_deadwood::DeadwoodMesh>) {
     let piece = Piece::from_preset(preset);
-    let lod = DeadwoodLod::for_options(piece.options());
     let meshes = piece
-        .lod_meshes(&lod)
+        .lod_meshes(&default_lod())
         .unwrap()
         .into_iter()
         .map(|(_, m)| m)

@@ -45,7 +45,7 @@ impl Piece {
     ///
     /// # Errors
     ///
-    /// Returns the first problem with `lod`; see [`DeadwoodLod::validate`].
+    /// Returns the first problem with `lod`; see [`crate::validate_lod`].
     ///
     /// # Panics
     ///
@@ -56,7 +56,8 @@ impl Piece {
 }
 
 /// Builds a [`Specimen`] from meshes made by [`Piece::lod_meshes`]. Each
-/// level of the specimen starts at its [`LodLevel::distance`].
+/// level of the specimen starts at its level's
+/// [`distance`](procgena_core::LodLevel::distance).
 pub fn specimen_from_meshes(meshes: &[(LodLevel, DeadwoodMesh)]) -> Specimen {
     Specimen {
         levels: meshes

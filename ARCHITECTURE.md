@@ -1422,8 +1422,10 @@ it starts.
 
 ### New Scatters
 
-- [ ] **`DeadwoodScatter`**: grow `StickScatter` to cover logs and stumps,
-  and give it a slope limit.
+- [x] **`DeadwoodScatter`**: grow `StickScatter` to cover logs and stumps,
+  and give it a slope limit. Done in C1 under its old name (F3 renames it):
+  it takes a `ScatterInput`, has `max_slope`, a `fallen_logs` preset, and
+  places with `place()`, logs along the slope and stumps upright.
 - [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
   clustering and partial burial. Done in C1 for single stones: clustering
   is patches in the density, not groups. Pebble clusters as groups wait

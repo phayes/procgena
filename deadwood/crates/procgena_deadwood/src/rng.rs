@@ -2,88 +2,34 @@
 //!
 //! Everything here is "pseudo-random": it looks random but is worked out
 //! from a seed, so the same seed always gives the same piece of wood.
+//! Random number streams are [`procgena_core::Rng`], each started from a
+//! seed for one use (see [`crate::seed_keys`]).
 
 use glam::Vec3;
+use procgena_core::Rng;
+use procgena_core::hash::{pcg3d, seed_for, unit_float};
 
-/// Multiplier applied to each input before mixing in [`pcg3d`].
-const PCG_MULTIPLIER: u32 = 1_664_525;
-/// Increment added to each input before mixing in [`pcg3d`].
-const PCG_INCREMENT: u32 = 1_013_904_223;
-
-/// Turns three integers into three repeatable pseudo-random integers.
-///
-/// Uses the PCG3D hash from Jarzynski and Olano, "Hash Functions for GPU
-/// Rendering" (2020), with wrapping 32-bit arithmetic.
-pub(crate) fn pcg3d(v: [u32; 3]) -> [u32; 3] {
-    let [mut x, mut y, mut z] =
-        v.map(|c| c.wrapping_mul(PCG_MULTIPLIER).wrapping_add(PCG_INCREMENT));
-
-    x = x.wrapping_add(y.wrapping_mul(z));
-    y = y.wrapping_add(z.wrapping_mul(x));
-    z = z.wrapping_add(x.wrapping_mul(y));
-
-    x ^= x >> 16;
-    y ^= y >> 16;
-    z ^= z >> 16;
-
-    x = x.wrapping_add(y.wrapping_mul(z));
-    y = y.wrapping_add(z.wrapping_mul(x));
-    z = z.wrapping_add(x.wrapping_mul(y));
-
-    [x, y, z]
+/// Starts the random number stream for the use named by seed key `key`
+/// under `seed`.
+pub(crate) fn stream(seed: u32, key: &str) -> Rng {
+    Rng::new(seed_for(seed, key))
 }
 
-/// Converts a hash to a number from 0 (inclusive) to 1 (exclusive), using its
-/// upper 24 bits so the result is exact in an `f32`.
-pub(crate) fn unit_float(h: u32) -> f32 {
-    (h >> 8) as f32 * (1.0 / 16_777_216.0)
-}
-
-/// Mixes two numbers into one seed, so that sub-parts of a piece (a stub, a
-/// root) get their own independent random streams.
-pub(crate) fn sub_seed(seed: u32, id: u32) -> u32 {
-    pcg3d([seed, id, 0x5eed_0001])[0]
-}
-
-/// A small seeded random number stream. The same seed and stream id always
-/// give the same values.
-#[derive(Debug, Clone)]
-pub(crate) struct Rng {
-    seed: u32,
-    stream: u32,
-    counter: u32,
-}
-
-impl Rng {
-    /// Starts stream `stream` for `seed`. Different streams of one seed are
-    /// independent, so adding draws to one never shifts another.
-    pub(crate) fn new(seed: u32, stream: u32) -> Self {
-        Self {
-            seed,
-            stream,
-            counter: 0,
-        }
-    }
-
-    /// Returns the next value in `[0, 1)`.
-    pub(crate) fn next_f32(&mut self) -> f32 {
-        let h = pcg3d([self.counter, self.seed, self.stream]);
-        self.counter = self.counter.wrapping_add(1);
-        unit_float(h[0])
-    }
-
-    /// Returns the next value in `[lo, hi)`.
-    pub(crate) fn range(&mut self, lo: f32, hi: f32) -> f32 {
-        lo + (hi - lo) * self.next_f32()
-    }
-
+/// Draws that this crate needs beyond [`Rng`]'s own.
+pub(crate) trait RngExt {
     /// Returns the next value in `[1 - amount, 1 + amount)`.
-    pub(crate) fn jitter(&mut self, amount: f32) -> f32 {
+    fn jitter(&mut self, amount: f32) -> f32;
+
+    /// Returns true with probability `p`.
+    fn chance(&mut self, p: f32) -> bool;
+}
+
+impl RngExt for Rng {
+    fn jitter(&mut self, amount: f32) -> f32 {
         self.range(1.0 - amount, 1.0 + amount)
     }
 
-    /// Returns true with probability `p`.
-    pub(crate) fn chance(&mut self, p: f32) -> bool {
+    fn chance(&mut self, p: f32) -> bool {
         self.next_f32() < p
     }
 }
@@ -186,13 +132,14 @@ mod tests {
 
     #[test]
     fn streams_repeat_and_differ() {
-        let draw = |seed, stream| {
-            let mut r = Rng::new(seed, stream);
+        let draw = |seed, key| {
+            let mut r = stream(seed, key);
             (0..8).map(|_| r.next_f32()).collect::<Vec<_>>()
         };
-        assert_eq!(draw(3, 1), draw(3, 1));
-        assert_ne!(draw(3, 1), draw(3, 2));
-        assert_ne!(draw(3, 1), draw(4, 1));
+        let (a, b) = (crate::seed_keys::STEM_SHAPE, crate::seed_keys::STUB_SHAPE);
+        assert_eq!(draw(3, a), draw(3, a));
+        assert_ne!(draw(3, a), draw(3, b));
+        assert_ne!(draw(3, a), draw(4, a));
     }
 
     #[test]
