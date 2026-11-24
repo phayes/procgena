@@ -44,7 +44,10 @@
 //! viewer to one default detail level at all distances. For example, `--lod 3`
 //! lets you inspect the distant tree’s camera-facing shapes and shadows up close.
 //! Trees beyond 120 m are drawn as baked impostors; `--no-impostor` keeps the
-//! farthest mesh level instead.
+//! farthest mesh level instead. Fruit and flower clusters are drawn as
+//! impostors from 20 m for a 10 cm cluster (see `default_fruit_impostor`);
+//! `--fruit-impostor <m>` sets that distance, and `--no-fruit-impostor`
+//! keeps their farthest level instead.
 
 use std::time::Duration;
 
@@ -58,10 +61,11 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core::Rng;
+use procgena_impostor::ImpostorLevel;
 use procgena_tree::{BARK_KINDS, BarkUvMode, LEAF_KINDS, TreeOptions, TreePreset, WindParams};
 use procgena_tree_bevy::{
     TreeGenerating, TreeMaterial, TreeParams, TreePart, TreePartKind, TreePlugin, Wind,
-    default_tree_impostor, default_tree_lod,
+    default_fruit_impostor, default_tree_impostor, default_tree_lod,
 };
 
 /// Distance between neighbouring trees in the forest, in metres.
@@ -135,6 +139,7 @@ fn main() -> AppExit {
     let mut target = Vec3::new(0.0, 2.8, 0.0);
     let mut slope = 0.0;
     let mut fov = None;
+    let mut fruit_impostor = Some(default_fruit_impostor());
     let mut lod = default_tree_lod();
 
     // Apply command-line choices before creating the scene.
@@ -189,6 +194,15 @@ fn main() -> AppExit {
             }
             "--still" => viewer.sway = false,
             "--no-impostor" => viewer.impostors = false,
+            "--no-fruit-impostor" => fruit_impostor = None,
+            "--fruit-impostor" => {
+                let distance = args[i + 1].parse::<f32>().expect("a distance in metres");
+                fruit_impostor = Some(ImpostorLevel {
+                    distance,
+                    ..default_fruit_impostor()
+                });
+                i += 1;
+            }
             "--flat" => viewer.continuous = false,
             "--eye" => {
                 eye = vec3(&args, i);
@@ -279,6 +293,7 @@ fn main() -> AppExit {
         texture_root: Some("textures".to_owned()),
         lod,
         impostor,
+        fruit_impostor,
         ..default()
     })
     .insert_resource(viewer)

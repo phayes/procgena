@@ -19,7 +19,7 @@ use procgena_tree::{
 };
 
 use crate::clusters::{
-    BuiltClusters, TreeClusters, add_meshes, build_clusters, single_tree_clusters,
+    BuiltClusters, ClusterImpostors, TreeClusters, add_meshes, build_clusters, single_tree_clusters,
 };
 use crate::impostor::{ImpostorShown, TreeImpostorAssets};
 use crate::material::{
@@ -209,6 +209,9 @@ pub(crate) struct SpawnSettings {
     /// The mesh and far-form levels, without the impostor.
     pub lod: Lod<TreeLevel>,
     pub impostor: Option<ImpostorLevel>,
+    /// The impostor of fruit and flower clusters, drawn beyond their fruit
+    /// levels once the tree's own impostor is baked; unused without it.
+    pub fruit_impostor: Option<ImpostorLevel>,
 }
 
 impl SpawnSettings {
@@ -863,7 +866,7 @@ pub(crate) fn spawn_parts(
                 // Drawn without the impostor until `show_impostors` adds it.
                 let specimen = cache.specimen_id(*key);
                 spawn_tree_parts(&mut commands, entity, generated);
-                spawn_clusters(&mut commands, entity, generated, specimen, &settings, false);
+                spawn_clusters(&mut commands, entity, generated, specimen, &settings, None);
                 commands
                     .entity(entity)
                     .insert(GeneratedSpecimen(generated.specimen.clone()));
@@ -890,14 +893,22 @@ pub(crate) fn spawn_clusters(
     generated: &Generated,
     specimen: SpecimenId,
     settings: &SpawnSettings,
-    impostor: bool,
+    impostor: Option<&TreeImpostorAssets>,
 ) {
+    let impostors = impostor.and_then(|assets| {
+        Some(ClusterImpostors {
+            level: settings.fruit_impostor?,
+            quad: &assets.quad,
+            baked: &assets.clusters,
+        })
+    });
     let Some((scatter, attached)) = single_tree_clusters(
         &generated.clusters,
         specimen,
         &settings.lod.levels,
-        tree_lod(settings, impostor),
+        tree_lod(settings, impostor.is_some()),
         generated.bounds(SWAY_ALLOWANCE),
+        impostors,
     ) else {
         return;
     };
@@ -1062,6 +1073,7 @@ mod tests {
                 texture_compression: TextureCompression::Bc7,
                 lod,
                 impostor: None,
+                fruit_impostor: None,
             })
             .add_systems(
                 Update,
@@ -1477,6 +1489,7 @@ mod tests {
             texture_compression: TextureCompression::Bc7,
             lod,
             impostor: None,
+            fruit_impostor: None,
         };
         let default = settings(default_tree_lod());
         let ranges: Vec<VisibilityRange> = default

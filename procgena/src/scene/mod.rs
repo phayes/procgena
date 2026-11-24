@@ -143,6 +143,7 @@ impl Plugin for ScenePlugin {
                     distance: subject::IMPOSTOR_DISTANCE,
                     ..default_tree_impostor()
                 }),
+                ..default()
             },
             PlantPlugins,
             StonePlugin {

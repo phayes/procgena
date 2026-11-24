@@ -813,7 +813,14 @@ confused with the B1 milestone or the D1 and D2 gates.
   and a material hook for drawing impostors with a host-composed transform
   and a world offset (`impostor_vertex`, `impostor_prepass_vertex`; see
   `procgena_impostor`'s crate docs and the `impostor` example's `--hang`).
-  Fruit step D2 waits for AC1, B1 and B2.
+- **Status (2026-11-24): fruit step D2 done.** Each cluster specimen bakes
+  its own impostor (full sphere, 6 × 6 views of 32 px, baked from fruit
+  level 1), drawn as the last fruit level from 20 m for a 10 cm cluster
+  (`default_fruit_impostor`, `TreePlugin::fruit_impostor`). It is drawn
+  attached, through the D1 hook, with the branch's sway. The tree's
+  impostor key names its cluster specimens, so a new fruit `N` or seed
+  rebakes it. See "As built (fruit step D2)" in
+  [fruit/plan.md](fruit/plan.md).
 - **Studio (decided by the user 2026-11-24):** fruit and flowers each get
   their own tab, a Fruit tab and a Flower tab, with their own presets and
   viewer, and the tree panels pick a fruit preset and a flower preset by

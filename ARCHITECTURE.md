@@ -1797,7 +1797,9 @@ it starts.
   D3 for its first step, then R1 and I1. Milestone I1b.
   - Done in fruit step AC1 (2026-11-24): the crate, `AttachedFruit`,
     per-tree-specimen slots, part paths, export, and the removal of the
-    superseded cluster cards. The rest is still to do.
+    superseded cluster cards. Fruit levels, the attached instancing (B1,
+    B2) and the fruit impostors (D2) are done since; see the "As built"
+    sections in [fruit/plan.md](fruit/plan.md).
 - [x] **Impostor bake options**: per-bake view count and frame size,
   view coverage declared per preset as a lowest viewer elevation (−90° by
   default, −45° for trees, in the bake key), with the octahedral layout
