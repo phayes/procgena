@@ -1302,6 +1302,16 @@ where the details are.
     - pine litter reaches a fixed 3 m, because trees expose only their
       trunk.
 
+29. **Saved-file format (preset bundles).** The proposal is a zipped
+    project folder with every entry stored uncompressed, named
+    `.procgena`, and mounted in Bevy as `procgena://<bundle>/<path>`.
+    It has 11 open questions, each with options and a recommendation:
+    save versus export, how games load bundles, key clashes, an entry
+    list, flattening built-in bases, thumbnails, JSON, texture encodings,
+    wasm, the zip library, and the extension. Details:
+    [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md),
+    "Questions for the user".
+
 ### Looks of work already built (wave 5)
 
 7. **Plant goldens.** None of the 48 golden images has a baseline for this
