@@ -531,8 +531,8 @@ goldens, which have no baseline on this machine).
   is left out: it is a Bevy crate placed on the GPU, with no `Ground` and
   no seed, so it joins in C3 after R3. The viewer draws without textures.
 - **Studio tab (wave 6, 2026-11-24):** built. The studio's Ecotope tab
-  lists the built-in Ecotopes and loaded `.ecotope.yml` files (re-read when
-  they change on disk), edits the seed and each Scatter by key (priority,
+  lists the built-in Ecotopes and loaded `.ecotope.yml` files, edits the
+  seed and each Scatter by key (priority,
   clearance, kind, and the kind's settings with the asset tabs' controls;
   add, remove, rename), saves and loads, and draws over flat or rolling
   ground. `procgena_biome_bevy`'s `EcotopeParams` places in the background

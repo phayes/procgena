@@ -1,8 +1,7 @@
 //! The Ecotope tab's controls: preset, seed, ground, one row per Scatter,
 //! the selected Scatter's settings, and saving and loading.
 
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::path::PathBuf;
 
 use bevy::feathers::constants::icons;
 use bevy::feathers::controls::{
@@ -35,9 +34,6 @@ use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, Section, spawn_
 use crate::ui::toast::{ShowToast, ToastKind};
 use crate::ui::{LABEL_WIDTH, SelectOptions, labelled_row};
 
-/// How often loaded files are checked for changes on disk.
-const WATCH_INTERVAL: Duration = Duration::from_secs(1);
-
 /// Picker label for an asset whose settings match no built-in preset.
 const CUSTOM: &str = "Custom";
 
@@ -60,14 +56,7 @@ struct Entry {
     /// The built-in preset that saved files name as their base.
     base: Option<&'static EcotopePreset>,
     /// The file it was read from, for a loaded file.
-    file: Option<WatchedFile>,
-}
-
-/// A loaded file, and when it last changed on disk.
-#[derive(Debug, Clone)]
-struct WatchedFile {
-    path: PathBuf,
-    modified: Option<SystemTime>,
+    file: Option<PathBuf>,
 }
 
 /// The Ecotope editor's state. There is one, on the Ecotope tab.
@@ -266,7 +255,7 @@ impl Plugin for EcotopeEditorPlugin {
             ParamPanelPlugin::<DeadwoodScatterOptions>::default(),
             ParamPanelPlugin::<MushroomScatterOptions>::default(),
         ))
-        .add_systems(Update, (watch_files, rebuild, fill_key_field).chain())
+        .add_systems(Update, (rebuild, fill_key_field).chain())
         .add_systems(PostUpdate, (show_seed, show_asset_choices))
         .add_observer(edit_tree_scatter);
     }
@@ -1131,35 +1120,32 @@ fn load_ecotope_file(_: On<Activate>, mut files: FileOps) {
     files.open_file(|path, text, world| {
         let key = file_key(path, EcotopePreset::KIND);
         let preset = read_ecotope(&key, text)?;
-        let path = path.to_owned();
+        let base = procgena_core::preset::Document::parse(EcotopePreset::KIND, text)
+            .ok()
+            .and_then(|document| document.base)
+            .and_then(|base| EcotopePreset::named(&base));
+        let entry = Entry {
+            name: format!("File: {}", preset.name),
+            ecotope: preset.ecotope,
+            base,
+            file: Some(path.to_owned()),
+        };
         world
-            .run_system_cached_with(add_file, (path, preset))
+            .run_system_cached_with(add_file, entry)
             .map_err(|error| format!("Cannot show the Ecotope: {error}"))?;
         Ok(Done::new(format!("Loaded the Ecotope {key}")))
     });
 }
 
-/// Adds a loaded file to the preset list, or replaces the entry it already
-/// has, and shows it. Run it with `World::run_system_cached_with`.
-fn add_file(
-    In((path, preset)): In<(PathBuf, EcotopePreset)>,
-    editor: Single<&mut EcotopeEditor>,
-    mut commands: Commands,
-) {
+/// Adds a loaded file's entry to the preset list, or replaces the entry the
+/// same file already has, and shows it. Run it with
+/// `World::run_system_cached_with`.
+fn add_file(In(entry): In<Entry>, editor: Single<&mut EcotopeEditor>, mut commands: Commands) {
     let mut editor = editor.into_inner();
-    let entry = Entry {
-        name: format!("File: {}", preset.name),
-        base: EcotopePreset::all().find(|base| file_base(&path, base)),
-        ecotope: preset.ecotope,
-        file: Some(WatchedFile {
-            modified: modified(&path),
-            path,
-        }),
-    };
     let index = match editor
         .entries
         .iter()
-        .position(|e| e.file.as_ref().map(|f| &f.path) == entry.file.as_ref().map(|f| &f.path))
+        .position(|e| e.file.is_some() && e.file == entry.file)
     {
         Some(index) => {
             editor.entries[index] = entry;
@@ -1174,84 +1160,6 @@ fn add_file(
     let ecotope = editor.entries[index].ecotope.clone();
     editor.show(ecotope);
     commands.trigger(EcotopeEdited { reframe: true });
-}
-
-/// Whether the file at `path` names `base` as its base.
-fn file_base(path: &Path, base: &EcotopePreset) -> bool {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|text| procgena_core::preset::Document::parse(EcotopePreset::KIND, &text).ok())
-        .and_then(|document| document.base)
-        .is_some_and(|key| key == base.key)
-}
-
-/// When the file at `path` last changed, if that can be read.
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path).and_then(|m| m.modified()).ok()
-}
-
-/// Reads loaded files again when they change on disk. The file shown
-/// replaces the Ecotope being edited; a file that no longer reads keeps its
-/// last settings and reports why.
-fn watch_files(
-    time: Res<Time<Real>>,
-    mut last: Local<Duration>,
-    editor: Option<Single<&mut EcotopeEditor>>,
-    mut commands: Commands,
-) {
-    if time.elapsed().saturating_sub(*last) < WATCH_INTERVAL {
-        return;
-    }
-    *last = time.elapsed();
-    let Some(mut editor) = editor.map(Single::into_inner) else {
-        return;
-    };
-    for index in 0..editor.entries.len() {
-        // Only files whose change time moved.
-        let Some(file) = &editor.entries[index].file else {
-            continue;
-        };
-        let now = modified(&file.path);
-        if now.is_none() || now == file.modified {
-            continue;
-        }
-        let path = file.path.clone();
-        if let Some(file) = &mut editor.entries[index].file {
-            file.modified = now;
-        }
-
-        // Read it again, and show it if it is the one shown.
-        let key = file_key(&path, EcotopePreset::KIND);
-        let read = std::fs::read_to_string(&path)
-            .map_err(|error| format!("Cannot read {}: {error}", path.display()))
-            .and_then(|text| read_ecotope(&key, &text));
-        match read {
-            Ok(preset) => {
-                editor.entries[index].name = format!("File: {}", preset.name);
-                editor.entries[index].ecotope = preset.ecotope.clone();
-                editor.stale.presets = true;
-                if index == editor.chosen {
-                    let selected = editor.selected.clone();
-                    editor.show(preset.ecotope);
-                    // Keep the same Scatter selected if it is still there.
-                    if let Some(key) =
-                        selected.filter(|key| editor.ecotope.scatters.contains_key(key))
-                    {
-                        editor.selected = Some(key);
-                    }
-                    commands.trigger(EcotopeEdited { reframe: false });
-                }
-                commands.trigger(ShowToast {
-                    kind: ToastKind::Success,
-                    message: format!("Reloaded {}", shown_name(&path)),
-                });
-            }
-            Err(message) => commands.trigger(ShowToast {
-                kind: ToastKind::Error,
-                message,
-            }),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1456,7 +1364,7 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn ecotopes_save_load_and_reload_when_their_file_changes() {
+    fn ecotopes_save_and_load_and_loaded_files_join_the_list() {
         let dir = folder("ecotope");
         let path = dir.join("mossy.ecotope.yml");
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
@@ -1486,23 +1394,18 @@ mod tests {
             assert_eq!(editor.chosen, editor.entries.len() - 1);
         }
 
-        // Changing the file on disk shows the change.
-        let changed = format!("{text}\n# edited\n").replace("default_seed: 11", "default_seed: 5");
-        let changed = if changed.contains("default_seed: 5") {
-            changed
-        } else {
-            changed.replace("ecotope:\n", "ecotope:\n  default_seed: 5\n")
-        };
-        std::thread::sleep(Duration::from_millis(1100));
+        // Loading the file again after it changed replaces its entry.
+        let changed = text.replace("ecotope:\n", "ecotope:\n  default_seed: 5\n");
         std::fs::write(&path, changed).unwrap();
-        for _ in 0..20 {
-            studio.wait(Duration::from_millis(500));
-            if edited(&mut studio).0.default_seed == 5 {
-                break;
-            }
-        }
+        studio.answer_dialog(Some(path.clone()));
+        studio.click("Load Preset…").unwrap();
         assert_eq!(edited(&mut studio).0.default_seed, 5);
-        assert!(studio.find("Reloaded mossy.ecotope.yml").is_ok());
+        {
+            let world = studio.app_mut().world_mut();
+            let mut editors = world.query::<&EcotopeEditor>();
+            let editor = editors.single(world).unwrap();
+            assert_eq!(editor.entries.len(), EcotopePreset::all().count() + 1);
+        }
 
         // A file that is not an Ecotope changes nothing.
         std::fs::write(dir.join("bad.ecotope.yml"), "not a preset").unwrap();

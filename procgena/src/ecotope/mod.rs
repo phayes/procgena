@@ -4,8 +4,7 @@
 //!
 //! The Ecotope tab starts from an Ecotope preset. Its list shows one row per
 //! Scatter, highest priority first; the selected Scatter's settings show
-//! below the list. Loaded `.ecotope.yml` files join the preset list, and are
-//! read again whenever they change on disk.
+//! below the list. Loaded `.ecotope.yml` files join the preset list.
 
 pub mod editor;
 pub mod params;
@@ -13,7 +12,7 @@ pub mod params;
 use procgena_biome::{Ecotope, EcotopeError, EcotopePreset, EcotopeScatter, ScatterKind};
 use procgena_biome_bevy::EcotopeSummary;
 use procgena_core::ChildKey;
-use procgena_core::preset::{FILE_GROUP, Preset, PresetMeta, read as read_preset_file, write};
+use procgena_core::preset::{FILE_GROUP, Preset, PresetMeta, read as read_preset_file};
 use procgena_deadwood::ScatterOptions as DeadwoodScatterOptions;
 use procgena_mushroom::{MushroomPreset, ScatterOptions as MushroomScatterOptions};
 use procgena_stone::{StoneClass, StonePreset, StoneScatterOptions};
@@ -247,24 +246,15 @@ pub fn read_ecotope(key: &str, text: &str) -> Result<EcotopePreset, String> {
 
 /// The text of a `.ecotope.yml` file named `key` holding `ecotope`.
 ///
-/// The file names `base` and holds only what differs from it, unless the
-/// Ecotope has lost a Scatter that `base` has: a file can't remove a
-/// Scatter from its base, so it then gives every setting and no base.
+/// The file names `base`, if any, and holds only what differs from it.
 pub fn file_text(ecotope: &Ecotope, key: &str, base: Option<&'static EcotopePreset>) -> String {
-    let base = base.filter(|base| {
-        base.ecotope
-            .scatters
-            .keys()
-            .all(|key| ecotope.scatters.contains_key(key))
-    });
     let meta = PresetMeta {
         key: key.to_owned(),
         name: key.to_owned(),
         description: String::new(),
         group: FILE_GROUP.to_owned(),
     };
-    let preset = EcotopePreset::from_parts(meta, ecotope.clone(), base);
-    write(&preset, base)
+    EcotopePreset::from_parts(meta, ecotope.clone(), base).to_file(base)
 }
 
 #[cfg(test)]
@@ -323,10 +313,11 @@ mod tests {
         assert!(text.contains("base: pine_forest_floor"), "{text}");
         assert_eq!(read(&text), ecotope);
 
-        // A removed Scatter can't be expressed over the base.
+        // A renamed Scatter removes its old key from the base.
         rename_scatter(&mut ecotope, &key("logs"), "old_logs").unwrap();
         let text = file_text(&ecotope, "mine", Some(base));
-        assert!(!text.contains("base: pine_forest_floor"), "{text}");
+        assert!(text.contains("base: pine_forest_floor"), "{text}");
+        assert!(text.contains("logs: null"), "{text}");
         assert_eq!(read(&text), ecotope);
     }
 
