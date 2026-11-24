@@ -603,7 +603,10 @@ the faster integral).
   presets picked by a hash of the region id): every shared edge round the
   centre region joins in height (1 mm) and slope (0.05, long step) on
   flat, tilted and curved land; every corner meets at one height with no
-  step on a 0.5 m ring; no cracks along three 6 km lines; a 121 × 121
+  step on a 0.5 m ring, and so does a merged corner of four or more
+  regions, two of which share no edge (so a build reads a plan that is
+  not an edge neighbour's); the world's water level is the owner's along
+  its rivers; no cracks along three 6 km lines; a 121 × 121
   tile is bit-identical cold and with the regions built first in reverse
   order on four threads; a dropped terrain rebuilds bit-identically; each
   region's options are its source's; the owner agrees with the graph's

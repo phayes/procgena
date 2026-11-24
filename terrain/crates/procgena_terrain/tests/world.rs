@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use glam::{DVec2, I64Vec2, UVec2};
+use glam::{DVec2, I64Vec2, IVec2, UVec2};
 use procgena_terrain::{
     BorderWarp, Convergence, Elevation, ElevationOptions, HeightBump, HeightField, HeightTile,
-    NoiseLayer, OptionsError, RegionId, RegionSpec, StitchedWorld, Terrain, TerrainOptions,
-    TerrainPreset, WorldError, WorldTerrain, WorldTerrainOptions,
+    NoiseLayer, OptionsError, RegionCorner, RegionId, RegionKey, RegionSpec, StitchedWorld,
+    Terrain, TerrainOptions, TerrainPreset, WorldError, WorldTerrain, WorldTerrainOptions,
 };
 
 /// The world seed of every test world.
@@ -183,37 +183,64 @@ fn corners_meet_at_one_height() {
         let world = world(land);
         let centre = world.region_at(DVec2::ZERO);
         for corner in &world.region(centre).corners {
-            // Every terrain at the corner reaches the same height there.
-            let heights: Vec<f32> = corner
-                .incident
-                .iter()
-                .map(|&r| world.terrain(r).unwrap().height(corner.position))
-                .collect();
-            for h in &heights {
-                assert!(
-                    (h - heights[0]).abs() < 1e-3,
-                    "{land:?}: corner heights at {}: {heights:?}",
-                    corner.position
-                );
-            }
-
-            // Round the corner the world's ground has no step.
-            let ring: Vec<f32> = (0..=360)
-                .map(|k| {
-                    let a = f64::from(k).to_radians();
-                    world.height(corner.position + DVec2::from_angle(a) * 0.5)
-                })
-                .collect();
-            for w in ring.windows(2) {
-                assert!(
-                    (w[1] - w[0]).abs() < 0.05,
-                    "{land:?}: jump near the corner at {}: {} to {}",
-                    corner.position,
-                    w[0],
-                    w[1]
-                );
-            }
+            assert_corner_meets(&world, corner, &format!("{land:?}"));
         }
+    }
+}
+
+#[test]
+fn a_corner_of_four_regions_meets() {
+    // The regions at a merged corner include some that share no edge with
+    // each other, which a region still needs for its corner offer and
+    // blend.
+    let world = world(Land::Curved);
+    let corner = (-6..=6)
+        .flat_map(|z| (-6..=6).map(move |x| RegionKey(IVec2::new(x, z)).id()))
+        .flat_map(|id| world.region(id).corners.clone())
+        .find(|c| c.incident.len() >= 4)
+        .expect("a merged corner near the origin");
+    let ids: Vec<RegionId> = corner.incident.clone();
+    let shares_no_edge = ids.iter().any(|&a| {
+        ids.iter()
+            .any(|&b| a != b && !world.region(a).edges.iter().any(|e| e.neighbor == Some(b)))
+    });
+    assert!(
+        shares_no_edge,
+        "two regions at {} share no edge",
+        corner.position
+    );
+    assert_corner_meets(&world, &corner, "merged corner");
+}
+
+/// Checks that every terrain at `corner` reaches the same height there,
+/// and that the world's ground has no step on a small ring round it.
+fn assert_corner_meets(world: &WorldTerrain, corner: &RegionCorner, label: &str) {
+    let heights: Vec<f32> = corner
+        .incident
+        .iter()
+        .map(|&r| world.terrain(r).unwrap().height(corner.position))
+        .collect();
+    for h in &heights {
+        assert!(
+            (h - heights[0]).abs() < 1e-3,
+            "{label}: corner heights at {}: {heights:?}",
+            corner.position
+        );
+    }
+    let ring: Vec<f32> = (0..=360)
+        .map(|k| {
+            let a = f64::from(k).to_radians();
+            world.height(corner.position + DVec2::from_angle(a) * 0.5)
+        })
+        .collect();
+    for w in ring.windows(2) {
+        assert!(
+            (w[1] - w[0]).abs() < 0.05,
+            "{label}: jump near the corner at {}: {} to {}",
+            corner.position,
+            w[0],
+            w[1]
+        );
     }
 }
 
@@ -334,6 +361,26 @@ fn each_region_builds_from_its_source() {
         assert_eq!(terrain.generator().options(), &expected, "region {id:?}");
         assert_eq!(terrain.region().id, id);
     }
+}
+
+#[test]
+fn water_lies_where_the_owners_rivers_run() {
+    let world = world(Land::Flat);
+    let mut wet = 0;
+    for id in patch(&world) {
+        let terrain = world.terrain(id).unwrap();
+        for river in terrain.rivers() {
+            for &p in river.points.iter().step_by(5) {
+                if world.region_at(p) != id {
+                    continue;
+                }
+                let level = world.water_level(p);
+                assert_eq!(level, terrain.water_level(p), "at {p}");
+                wet += usize::from(level.is_some());
+            }
+        }
+    }
+    assert!(wet > 0, "the patch should have rivers");
 }
 
 #[test]

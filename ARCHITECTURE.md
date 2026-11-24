@@ -459,8 +459,7 @@ whole worlds of bare land are built through the World with empty Biomes
 **Status.** Built inside `procgena_terrain` as `WorldTerrain` (phase W4):
 an endless lattice world whose regions are built on demand from a terrain
 source, with each region's settings, plan and terrain cached. The
-reference "stitcher" (`StitchedWorld`) stays for tests and designer
-polygons.
+reference "stitcher" (`StitchedWorld`) stays as a test fixture.
 
 ## Interfaces between levels
 
