@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-use glam::{DVec2, IVec2, Vec2, Vec3};
+use glam::{DVec2, Vec2, Vec3};
 use procgena_core::scatter::{Placement, Rest, ScatterArea, ScatterInput};
-use procgena_core::{FlatGround, Ground, SpecimenId};
+use procgena_core::{CopyAddress, FlatGround, Ground, SpecimenId};
 use procgena_mushroom::{
     Mushroom, MushroomCopy, MushroomOptions, MushroomPreset, MushroomScatter, ScatterError,
     ScatterOptions,
@@ -39,20 +39,20 @@ fn scatter(
     MushroomScatter::new(mushroom, options, &input).unwrap()
 }
 
-/// The copies of `s` by cell.
-fn by_cell(s: &MushroomScatter) -> HashMap<IVec2, &MushroomCopy> {
-    s.copies().iter().map(|c| (c.cell, c)).collect()
+/// The copies of `s` by address.
+fn by_cell(s: &MushroomScatter) -> HashMap<CopyAddress, &MushroomCopy> {
+    s.copies().iter().map(|c| (c.address, c)).collect()
 }
 
 /// Asserts that `a` and `b` are the same copy, wherever their instances
 /// sit in their scatters' lists.
 fn assert_same_copy(a: &MushroomCopy, b: Option<&&MushroomCopy>) {
-    let b = b.unwrap_or_else(|| panic!("cell {} is missing", a.cell));
+    let b = b.unwrap_or_else(|| panic!("{:?} is missing", a.address));
     assert_eq!(
         (a.slot, a.translation, a.yaw, a.scale, &a.members),
         (b.slot, b.translation, b.yaw, b.scale, &b.members),
-        "cell {}",
-        a.cell
+        "{:?}",
+        a.address
     );
 }
 
@@ -62,8 +62,10 @@ fn copies_fill_the_area_at_about_the_density() {
     let s = scatter(&porcini, &options(), &rolling, DVec2::ZERO, 10.0, 4);
     let n = s.copies().len() as f32;
     assert!((150.0..450.0).contains(&n), "{n} copies on 100 m²");
+    // The area holds the copies whose cell's corner lies inside it, so a
+    // copy may stand up to one 0.2 m cell past its edge.
     for c in s.copies() {
-        assert!(c.translation.x.abs() <= 5.0 && c.translation.z.abs() <= 5.0);
+        assert!(c.translation.x.abs() <= 5.2 && c.translation.z.abs() <= 5.2);
         assert_eq!(c.instances.len(), 1, "a single mushroom has one member");
     }
 }
@@ -76,7 +78,7 @@ fn a_larger_area_keeps_the_copies_already_there() {
     let large = by_cell(&large);
     assert!(!small.copies().is_empty());
     for c in small.copies() {
-        assert_same_copy(c, large.get(&c.cell));
+        assert_same_copy(c, large.get(&c.address));
     }
 }
 
@@ -93,7 +95,7 @@ fn less_density_or_a_mask_only_removes_copies() {
     let sparse = scatter(&porcini, &sparse, &rolling, DVec2::ZERO, 10.0, 4);
     assert!(sparse.copies().len() < full.copies().len());
     for c in sparse.copies() {
-        assert_same_copy(c, full_cells.get(&c.cell));
+        assert_same_copy(c, full_cells.get(&c.address));
     }
 
     let mask = |p: DVec2| if p.x < 0.0 { 0.0 } else { 0.5 };
@@ -103,19 +105,21 @@ fn less_density_or_a_mask_only_removes_copies() {
     assert!(!masked.copies().is_empty());
     for c in masked.copies() {
         assert!(c.translation.x >= 0.0);
-        assert_same_copy(c, full_cells.get(&c.cell));
+        assert_same_copy(c, full_cells.get(&c.address));
     }
 }
 
+/// An even mask only removes copies, even where neighbours crowd each
+/// other. (A mask that varies from place to place reranks candidates where
+/// it varies, so it may also swap which of two crowded neighbours stands;
+/// see "Masks and placement" in ARCHITECTURE.md.)
 #[test]
-fn a_patchy_mask_only_removes_copies_even_when_crowded() {
-    // Dense enough that neighbours often crowd each other, under a mask
-    // that changes from cell to cell.
+fn an_even_mask_only_removes_copies_even_when_crowded() {
     let crowded = ScatterOptions {
         density: 20.0,
         ..options()
     };
-    let mask = |p: DVec2| (0.5 + 0.5 * (7.0 * p.x).sin() * (5.0 * p.y).cos()) as f32;
+    let mask = |_: DVec2| 0.45;
     let porcini = MushroomPreset::porcini().mushroom.clone();
     for seed in [1, 2, 3, 4, 5] {
         let full = scatter(&porcini, &crowded, &rolling, DVec2::ZERO, 8.0, seed);
@@ -125,7 +129,7 @@ fn a_patchy_mask_only_removes_copies_even_when_crowded() {
         let masked = MushroomScatter::new(&porcini, &crowded, &input).unwrap();
         assert!(masked.copies().len() < full.copies().len());
         for c in masked.copies() {
-            assert_same_copy(c, full_cells.get(&c.cell));
+            assert_same_copy(c, full_cells.get(&c.address));
         }
     }
 }
@@ -208,18 +212,33 @@ fn steep_ground_is_left_bare() {
     assert!(s.copies().iter().all(|c| c.translation.x < 0.05));
 }
 
+/// Copies stand on a lattice fixed to the World: any area holding a spot,
+/// far from the origin or not, gives it the same copy and address, with
+/// positions relative to its own centre.
 #[test]
-fn a_far_centre_gives_the_same_layout() {
-    // Ground that moves with the area, so both see the same shape.
+fn the_same_world_spot_gives_the_same_copy_from_any_area() {
     let far = DVec2::new(1.0e6, -3.0e6);
-    let shifted = move |p: DVec2| rolling(p - far);
     let porcini = MushroomPreset::porcini().mushroom.clone();
-    let here = scatter(&porcini, &options(), &rolling, DVec2::ZERO, 8.0, 4);
-    let there = scatter(&porcini, &options(), &shifted, far, 8.0, 4);
-    assert_eq!(here.copies().len(), there.copies().len());
-    for (a, b) in here.copies().iter().zip(there.copies()) {
-        assert_eq!(a.cell, b.cell);
-        assert!(a.translation.distance(b.translation) < 1e-3);
+    let world = |s: &MushroomScatter, centre: DVec2| {
+        s.copies()
+            .iter()
+            .map(|c| {
+                let p = centre + DVec2::new(f64::from(c.translation.x), f64::from(c.translation.z));
+                (c.address, (p, c.slot, c.yaw, c.scale))
+            })
+            .collect::<HashMap<_, _>>()
+    };
+    let shifted = far + DVec2::new(1.3, -0.7);
+    let small = world(&scatter(&porcini, &options(), &rolling, far, 6.0, 4), far);
+    let large = world(
+        &scatter(&porcini, &options(), &rolling, shifted, 10.0, 4),
+        shifted,
+    );
+    assert!(small.len() > 20);
+    for (address, (p, slot, yaw, scale)) in &small {
+        let (q, other_slot, other_yaw, other_scale) = large[address];
+        assert!(p.distance(q) < 1e-3, "{p} vs {q}");
+        assert_eq!((*slot, *yaw, *scale), (other_slot, other_yaw, other_scale));
     }
 }
 
@@ -273,21 +292,28 @@ fn a_member_without_ground_is_dropped_alone() {
         min_spacing: 1.0,
         ..options()
     };
-    let flat = scatter(&ring, &opts, &FlatGround, DVec2::ZERO, 6.0, 9);
-    let holed = scatter(&ring, &opts, &ground, DVec2::ZERO, 6.0, 9);
-    let whole = by_cell(&flat);
     let mut partial = 0;
-    for c in holed.copies() {
-        let full = whole.get(&c.cell).expect("the same copies");
-        // The members kept are a subset, with their own indices.
-        assert!(c.members.iter().all(|m| full.members.contains(m)));
-        assert!(c.members.windows(2).all(|w| w[0] < w[1]));
-        if c.members.len() < full.members.len() {
-            partial += 1;
-            assert!(!c.members.is_empty());
-        }
-        for m in &holed.instances()[c.instances.clone()] {
-            assert!(m.translation.x <= 1.0);
+    for seed in 9..21 {
+        let flat = scatter(&ring, &opts, &FlatGround, DVec2::ZERO, 6.0, seed);
+        let holed = scatter(&ring, &opts, &ground, DVec2::ZERO, 6.0, seed);
+        let whole = by_cell(&flat);
+        for c in holed.copies() {
+            // A copy with no member on ground is gone before spacing, so a
+            // neighbour it crowded out on whole ground may appear; compare the
+            // copies both grounds grow.
+            let Some(full) = whole.get(&c.address) else {
+                continue;
+            };
+            // The members kept are a subset, with their own indices.
+            assert!(c.members.iter().all(|m| full.members.contains(m)));
+            assert!(c.members.windows(2).all(|w| w[0] < w[1]));
+            if c.members.len() < full.members.len() {
+                partial += 1;
+                assert!(!c.members.is_empty());
+            }
+            for m in &holed.instances()[c.instances.clone()] {
+                assert!(m.translation.x <= 1.0);
+            }
         }
     }
     assert!(partial > 0, "no ring crossed the edge of the ground");
