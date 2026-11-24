@@ -21,6 +21,7 @@
 
 mod blob;
 mod bvh;
+mod content;
 mod field;
 #[cfg(feature = "gpu")]
 pub mod gpu;
@@ -32,6 +33,7 @@ mod presets;
 pub mod shaders;
 mod shell;
 
+pub use content::CLUMP_KIND;
 pub use material::{
     MaterialOptions, TEXTURE_SETS, TextureCompression, TextureMap, TextureSet, TextureSize,
     texture_set,
