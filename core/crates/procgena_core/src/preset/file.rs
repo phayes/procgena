@@ -142,7 +142,8 @@ pub fn read<P: Preset>(key: &str, text: &str) -> Result<P, PresetFileError> {
 /// With a `base`, the file names it and holds only the settings that
 /// differ from it; without one, only those that differ from the options'
 /// defaults. The key is not written: it is the file's name. The group is
-/// left out when it is [`FILE_GROUP`].
+/// left out when it is [`FILE_GROUP`]. The text is written afresh, so
+/// saving it over a file drops that file's comments and layout.
 #[must_use]
 pub fn write<P: Preset>(preset: &P, base: Option<&P>) -> String {
     let base_value = match base {

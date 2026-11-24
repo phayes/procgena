@@ -10,7 +10,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::document::{Document, FILE_GROUP};
-use super::merge::{from_value, merge, to_value};
+use super::merge::{diff, from_value, merge, to_value};
 use super::{Preset, PresetFileError, PresetMeta};
 use crate::{ChildKey, KeyError};
 
@@ -818,6 +818,42 @@ impl Registry {
             }
             other => other,
         })
+    }
+
+    /// The text of a preset file of kind `kind` for `document`, whose
+    /// `settings` are the preset's full settings in file form (as
+    /// [`settings`](Self::settings) gives them, edited).
+    ///
+    /// The file names the document's `base`, name, description and group
+    /// as given, and holds only the settings that differ from the base's
+    /// full settings, or from the defaults without a base, in the order the
+    /// settings are declared. The same document always gives the same text.
+    /// Comments and layout of a file the text replaces are not kept.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`settings`](Self::settings) for the base.
+    pub fn file_text(&self, kind: &str, document: &Document) -> Result<String, PresetFileError> {
+        let entry = self.kind_or_error(kind)?;
+        let base = match &document.base {
+            Some(base) => self
+                .settings(entry.kind, base)
+                .map_err(|error| match error {
+                    PresetFileError::UnknownPreset { key, known, .. } => {
+                        PresetFileError::UnknownBase { key, known }
+                    }
+                    other => other,
+                })?,
+            None => (entry.default_value)(),
+        };
+        let differences = Document {
+            settings: document
+                .settings
+                .as_ref()
+                .and_then(|settings| diff(&base, settings)),
+            ..document.clone()
+        };
+        Ok(differences.to_yaml(entry.kind))
     }
 
     /// The built-in preset at the root of the `base` chain of `document`,

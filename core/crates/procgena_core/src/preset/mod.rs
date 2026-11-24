@@ -46,10 +46,20 @@
 //! [`catalogue!`](crate::catalogue) declares a crate's built-in presets and implements
 //! [`Preset`] for them. [`read`] turns a file's text into a preset, and
 //! [`write`](fn@write) turns a preset into a file's text, writing only what differs
-//! from a base.
+//! from a base. Writing always produces a fresh file: comments and layout
+//! in a file it replaces are lost.
 //! Formats that need more than this, such as Scatter files that refer to
 //! asset presets by key, build on [`Document`], [`merge`], [`to_value`],
 //! [`from_value`], [`diff`] and [`to_yaml`].
+//!
+//! # Projects
+//!
+//! A [`Registry`] holds the built-in presets of every registered kind and a
+//! project's own preset files, from a folder laid out as
+//! `presets/<kind>/<key>.<kind>.yml`. A project file's `base` may name
+//! another project preset, and its settings may refer to project presets
+//! by key, such as a Scatter's trees. Each key names one preset of a kind:
+//! a project preset can't take a built-in preset's key.
 
 mod catalogue;
 mod document;

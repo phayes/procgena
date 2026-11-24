@@ -479,6 +479,46 @@ fn a_presets_folder_loads_and_reports_what_it_skips() {
 }
 
 #[test]
+fn a_file_is_written_as_differences_from_its_project_base() {
+    let mut registry = registry();
+    registry
+        .add("rock", "tall", "base: boulder\nrock:\n  size: 5.0\n", None)
+        .unwrap();
+
+    // An edited copy of `tall`'s full settings, saved over `tall`.
+    let mut settings = registry.settings("rock", "tall").unwrap();
+    settings["rough"] = Value::Bool(false);
+    let document = Document {
+        base: Some("tall".to_owned()),
+        name: Some("Smooth".to_owned()),
+        settings: Some(settings),
+        ..Document::default()
+    };
+    let text = registry.file_text("rock", &document).unwrap();
+    assert_eq!(text, "base: tall\nname: Smooth\nrock:\n  rough: false\n");
+    assert_eq!(registry.file_text("rock", &document).unwrap(), text);
+
+    // It reads back to the same settings.
+    registry.add("rock", "smooth", &text, None).unwrap();
+    let smooth = registry.resolve::<RockPreset>("smooth").unwrap();
+    assert_eq!(
+        smooth.rock,
+        RockOptions {
+            size: 5.0,
+            rough: false
+        }
+    );
+
+    // Nothing differing writes no settings.
+    let same = Document {
+        base: Some("tall".to_owned()),
+        settings: Some(registry.settings("rock", "tall").unwrap()),
+        ..Document::default()
+    };
+    assert_eq!(registry.file_text("rock", &same).unwrap(), "base: tall\n");
+}
+
+#[test]
 fn a_document_not_in_the_registry_reads_over_project_bases() {
     let mut registry = registry();
     registry
