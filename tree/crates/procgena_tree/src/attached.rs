@@ -19,7 +19,8 @@ pub const DEFAULT_FRUIT_SLOTS: u32 = 6;
 /// settings and seed shows the same clusters in the same places.
 ///
 /// In a `.tree.yml` file, [`fruit`](Self::fruit) is either the key of a
-/// built-in `procgena_fruit` preset (`fruit: apple`) or a map of cluster
+/// built-in `procgena_fruit` fruit or flower preset (`fruit: apple`,
+/// `fruit: dogwood_bloom`) or a map of cluster
 /// settings, which may name a preset as its `base` and give only what
 /// differs. When deserialized, omitted fields use their defaults.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -165,42 +166,45 @@ impl AttachedFruit {
 /// settings with an optional `base` preset key.
 mod fruit_file {
     use procgena_core::preset::{from_value, merge, to_value};
-    use procgena_fruit::{FruitOptions, FruitPreset};
+    use procgena_fruit::{FruitOptions, cluster_presets};
     use serde::de::Error;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use serde_json::Value;
 
-    /// Writes the key of the built-in preset with these exact settings, or
-    /// every setting when none matches.
+    /// Writes the key of the built-in fruit or flower preset with these
+    /// exact settings, or every setting when none matches.
     pub(crate) fn serialize<S: Serializer>(
         fruit: &FruitOptions,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        match FruitPreset::key_of(fruit) {
-            Some(key) => serializer.serialize_str(key),
+        match cluster_presets().find(|(_, options)| *options == fruit) {
+            Some((key, _)) => serializer.serialize_str(key),
             None => fruit.serialize(serializer),
         }
     }
 
-    /// Reads a preset key, or settings laid over a `base` preset's or over
-    /// the defaults.
+    /// Reads a fruit or flower preset key, or settings laid over a `base`
+    /// preset's or over the defaults.
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<FruitOptions, D::Error> {
         let preset = |key: &str| {
-            FruitPreset::named(key).ok_or_else(|| {
-                let keys: Vec<_> = FruitPreset::all().map(|p| p.key.as_ref()).collect();
-                D::Error::custom(format!(
-                    "unknown fruit preset {key:?}; valid keys are {}",
-                    keys.join(", ")
-                ))
-            })
+            cluster_presets()
+                .find(|(name, _)| *name == key)
+                .map(|(_, options)| options)
+                .ok_or_else(|| {
+                    let keys: Vec<_> = cluster_presets().map(|(key, _)| key).collect();
+                    D::Error::custom(format!(
+                        "unknown fruit or flower preset {key:?}; valid keys are {}",
+                        keys.join(", ")
+                    ))
+                })
         };
         match Value::deserialize(deserializer)? {
-            Value::String(key) => Ok(preset(&key)?.fruit.clone()),
+            Value::String(key) => Ok(preset(&key)?.clone()),
             Value::Object(mut settings) => {
                 let mut value = match settings.remove("base") {
-                    Some(Value::String(key)) => to_value(&preset(&key)?.fruit),
+                    Some(Value::String(key)) => to_value(preset(&key)?),
                     Some(_) => return Err(D::Error::custom("fruit.base must be a preset key")),
                     None => to_value(&FruitOptions::default()),
                 };

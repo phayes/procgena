@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use procgena_core::content_hash;
-use procgena_tree::procgena_fruit::{ClusterKind, Facing, FruitPreset};
+use procgena_tree::procgena_fruit::{ClusterKind, Facing, FlowerPreset};
 use procgena_tree::{
     AttachedFruit, GrowthForce, TREE_KIND, Tree, TreeOptions, TreePreset, TreeType, TrellisForce,
 };
@@ -95,7 +95,7 @@ fn every_kind_of_setting_changes_the_hash() {
         }),
         ("fruit.fruit.maturity", |o| fruit(o).fruit.maturity = 0.5),
         ("flowers.fruit", |o| {
-            flowers(o).fruit = FruitPreset::dogwood_bloom().fruit.clone()
+            flowers(o).fruit = FlowerPreset::dogwood_bloom().flower.clone()
         }),
         ("flowers.fruit.variation", |o| {
             flowers(o).fruit.variation.hue_spread = 0.75

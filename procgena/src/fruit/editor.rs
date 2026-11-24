@@ -13,7 +13,7 @@ use bevy::scene::Scene;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_fruit::export::{gltf, obj};
-use procgena_fruit::{Fruit, FruitMesh, FruitOptions, FruitPreset, default_lod};
+use procgena_fruit::{FlowerPreset, Fruit, FruitMesh, FruitOptions, FruitPreset, default_lod};
 
 use super::params;
 use crate::export::{
@@ -32,11 +32,73 @@ pub struct FruitEdited {
     pub reframe: bool,
 }
 
+/// The built-in preset a cluster editor edits: a fruit preset, saved as a
+/// `.fruit.yml` file, or a flower preset, saved as a `.flower.yml` file.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClusterPreset {
+    /// A fruit preset.
+    Fruit(&'static FruitPreset),
+    /// A flower preset.
+    Flower(&'static FlowerPreset),
+}
+
+impl ClusterPreset {
+    /// The built-in fruit or flower preset `key`, if there is one.
+    pub fn named(key: &str) -> Option<Self> {
+        FruitPreset::named(key)
+            .map(Self::Fruit)
+            .or_else(|| FlowerPreset::named(key).map(Self::Flower))
+    }
+
+    /// The preset's key, such as `apple`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Fruit(preset) => &preset.key,
+            Self::Flower(preset) => &preset.key,
+        }
+    }
+
+    /// The preset's settings.
+    pub fn options(self) -> &'static FruitOptions {
+        match self {
+            Self::Fruit(preset) => &preset.fruit,
+            Self::Flower(preset) => &preset.flower,
+        }
+    }
+
+    /// The preset files' kind: `fruit` or `flower`, as in `.fruit.yml`.
+    pub fn file_kind(self) -> &'static str {
+        match self {
+            Self::Fruit(_) => "fruit",
+            Self::Flower(_) => "flower",
+        }
+    }
+
+    /// Writes `options` to `path` as a preset file of this kind over this
+    /// preset.
+    fn save(self, options: FruitOptions, path: &Path) -> Result<Done, String> {
+        match self {
+            Self::Fruit(base) => save_preset(options, base, path),
+            Self::Flower(base) => save_preset(options, base, path),
+        }
+    }
+
+    /// Reads the settings of a preset file of this kind and checks their
+    /// values. Returns a readable error for text that isn't a file of this
+    /// kind or for invalid settings.
+    pub fn read_options(self, text: &str) -> Result<FruitOptions, String> {
+        match self {
+            Self::Fruit(_) => read_preset::<FruitPreset>(text, "fruit"),
+            Self::Flower(_) => read_preset::<FlowerPreset>(text, "flower"),
+        }
+    }
+}
+
 /// A cluster editor's state, one per open fruit or flower.
 #[derive(Component)]
 pub struct FruitEditor {
     /// The preset edited.
-    preset: &'static FruitPreset,
+    preset: ClusterPreset,
     /// The panel holding the edited options.
     panel: Entity,
     /// Picks seeds for Random Seed.
@@ -72,9 +134,9 @@ impl Plugin for FruitEditorPlugin {
 ///
 /// Panics if `key` names no built-in fruit or flower preset.
 pub fn spawn_fruit_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
-    let preset = FruitPreset::named(key).expect("the fruit preset is built in");
-    let fruit = preset.fruit.item.is_fruit();
-    let options = preset.fruit.clone();
+    let preset = ClusterPreset::named(key).expect("the fruit or flower preset is built in");
+    let options = preset.options().clone();
+    let fruit = options.item.is_fruit();
     let seed = i64::from(options.default_seed);
 
     // Seed, and the seed button, above the panel.
@@ -245,12 +307,13 @@ fn show_seed(
 fn snapshot(
     editor: &FruitEditor,
     panels: &Query<&ParamPanel<FruitOptions>>,
-) -> Option<(FruitOptions, &'static FruitPreset, String)> {
+) -> Option<(FruitOptions, ClusterPreset, String)> {
     let options = panels.get(editor.panel).ok()?.value().clone();
-    Some((options, editor.preset, editor.preset.key.to_string()))
+    Some((options, editor.preset, editor.preset.key().to_owned()))
 }
 
-/// Saves the settings as a `.fruit.yml` preset file based on the preset.
+/// Saves the settings as a `.fruit.yml` or `.flower.yml` preset file based
+/// on the preset.
 fn save_fruit_preset(
     _: On<Activate>,
     editor: Single<&FruitEditor, Without<Dormant>>,
@@ -258,16 +321,22 @@ fn save_fruit_preset(
     mut files: FileOps,
 ) {
     if let Some((options, base, stem)) = snapshot(&editor, &panels) {
-        files.save(&format!("{stem}.fruit.yml"), move |path| {
-            save_preset(options, base, path)
+        files.save(&format!("{stem}.{}.yml", base.file_kind()), move |path| {
+            base.save(options, path)
         });
     }
 }
 
-/// Loads settings from a `.fruit.yml` preset file into the editor.
+/// Loads settings from a preset file of the selected editor's kind,
+/// `.fruit.yml` or `.flower.yml`, into the editor.
 fn load_fruit_preset(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
-        let options = read_options(text)?;
+        let preset = world
+            .query_filtered::<&FruitEditor, Without<Dormant>>()
+            .single(world)
+            .map_err(|_| "No fruit or flower is selected".to_owned())?
+            .preset;
+        let options = preset.read_options(text)?;
         world
             .run_system_cached_with(load_fruit, options)
             .map_err(|error| format!("Cannot show the cluster settings: {error}"))?;
@@ -301,13 +370,6 @@ fn export_fruit_obj(
             export_obj(&options, &stem, path)
         });
     }
-}
-
-/// Reads the settings of a `.fruit.yml` preset file and checks their values.
-/// Returns a readable error for text that isn't a fruit preset file or for
-/// invalid settings.
-pub fn read_options(text: &str) -> Result<FruitOptions, String> {
-    read_preset::<FruitPreset>(text, "fruit or flower")
 }
 
 /// Grows the cluster's first specimen and meshes it: every default level
@@ -364,15 +426,23 @@ mod tests {
     use crate::fruit::start_options;
 
     #[test]
-    fn loading_checks_the_settings() {
-        assert!(read_options("base: apple\n").is_ok());
-        let error = read_options("fruit:\n  size: -1\n").unwrap_err();
+    fn loading_checks_the_settings_and_the_kind_of_file() {
+        let fruit = ClusterPreset::named("apple").unwrap();
+        assert!(fruit.read_options("base: apple\n").is_ok());
+        let error = fruit.read_options("fruit:\n  size: -1\n").unwrap_err();
         assert!(error.contains("size"), "{error}");
+
+        // Each kind reads only its own files.
+        let flower = ClusterPreset::named("dogwood_bloom").unwrap();
+        assert_eq!(flower.file_kind(), "flower");
+        assert!(flower.read_options("base: dogwood_bloom\n").is_ok());
+        assert!(flower.read_options("base: apple\n").is_err());
+        assert!(fruit.read_options("base: dogwood_bloom\n").is_err());
     }
 
     #[test]
     fn exports_have_every_level_when_asked() {
-        let options = start_options(true);
+        let options = start_options();
         assert_eq!(
             meshes(&options, true).unwrap().len(),
             default_lod().levels.len()

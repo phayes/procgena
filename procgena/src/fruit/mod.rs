@@ -1,6 +1,6 @@
 //! Fruit and flower documents: each edits a fruit or flower preset's
-//! settings, saves and loads `.fruit.yml` files, and exports the cluster as
-//! a model.
+//! settings, saves and loads `.fruit.yml` or `.flower.yml` files, and
+//! exports the cluster as a model.
 
 pub mod editor;
 pub mod params;
@@ -14,11 +14,10 @@ pub const START_FRUIT: &str = "apple";
 /// first.
 pub const START_FLOWER: &str = "dogwood_bloom";
 
-/// The settings of [`START_FRUIT`] (`fruit` true) or [`START_FLOWER`].
+/// The settings of [`START_FRUIT`].
 #[cfg(test)]
-pub fn start_options(fruit: bool) -> FruitOptions {
-    let key = if fruit { START_FRUIT } else { START_FLOWER };
-    FruitPreset::named(key)
+pub fn start_options() -> FruitOptions {
+    FruitPreset::named(START_FRUIT)
         .expect("the start preset is built in")
         .fruit
         .clone()

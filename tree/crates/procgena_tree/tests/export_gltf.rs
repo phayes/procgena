@@ -663,15 +663,15 @@ fn flat_shaded_bark_omits_normals_and_tangents() {
 
 /// Creates a small test tree with fruit, flowers and flat-shaded bark.
 fn fruiting_tree() -> Tree {
-    use procgena_tree::procgena_fruit::{ClusterKind, FruitPreset};
+    use procgena_tree::procgena_fruit::{ClusterKind, FlowerPreset, FruitPreset};
     use procgena_tree::{AttachedFruit, ClusterPlacement};
 
     let mut options = TreePreset::ash_small().tree.clone();
-    for (part, preset) in [
-        (&mut options.fruit, FruitPreset::apple()),
-        (&mut options.flowers, FruitPreset::dogwood_bloom()),
+    for (part, cluster) in [
+        (&mut options.fruit, &FruitPreset::apple().fruit),
+        (&mut options.flowers, &FlowerPreset::dogwood_bloom().flower),
     ] {
-        let mut fruit = preset.fruit.clone();
+        let mut fruit = cluster.clone();
         fruit.cluster.kind = ClusterKind::Umbel;
         fruit.cluster.items = 5;
         let placement = ClusterPlacement {

@@ -1,8 +1,8 @@
-//! Fruit and flowers: one fruit or flower cluster, from a `.fruit.yml`
-//! preset.
+//! Fruit and flowers: one fruit cluster, from a `.fruit.yml` preset, or one
+//! flower cluster, from a `.flower.yml` preset.
 
 use bevy::prelude::*;
-use procgena_fruit::{FruitOptions, FruitPreset};
+use procgena_fruit::{FlowerPreset, FruitOptions, FruitPreset};
 
 use super::{Kind, RegisterKind, entries};
 use crate::fruit::editor::{FruitEdited, FruitEditor, FruitEditorPlugin, spawn_fruit_editor};
@@ -22,14 +22,7 @@ pub fn register_fruit(app: &mut App) {
         .register_kind(Kind {
             id: "fruit",
             label: "Fruit",
-            presets: || {
-                entries(
-                    FruitPreset::of_kind(true),
-                    |p| &p.key,
-                    |p| &p.name,
-                    |p| &p.group,
-                )
-            },
+            presets: || entries(FruitPreset::all(), |p| &p.key, |p| &p.name, |p| &p.group),
             start: crate::fruit::START_FRUIT,
             spawn_editor: spawn_fruit_editor,
             show,
@@ -44,14 +37,7 @@ pub fn register_flower(app: &mut App) {
     app.register_kind(Kind {
         id: "flower",
         label: "Flowers",
-        presets: || {
-            entries(
-                FruitPreset::of_kind(false),
-                |p| &p.key,
-                |p| &p.name,
-                |p| &p.group,
-            )
-        },
+        presets: || entries(FlowerPreset::all(), |p| &p.key, |p| &p.name, |p| &p.group),
         start: crate::fruit::START_FLOWER,
         spawn_editor: spawn_fruit_editor,
         show,

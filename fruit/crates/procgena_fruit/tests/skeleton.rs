@@ -4,6 +4,7 @@
 use glam::Vec3;
 use procgena_fruit::{
     ClusterDetail, ClusterKind, Facing, Fruit, FruitOptions, FruitPreset, FruitSkeleton, ItemShape,
+    cluster_presets,
 };
 
 /// Default fruit settings arranged as `kind`.
@@ -292,33 +293,28 @@ fn same_shape(a: &[Vec3], b: &[Vec3]) -> bool {
 /// shape, merely scaled and turned.
 #[test]
 fn every_presets_slots_differ() {
-    for preset in FruitPreset::all() {
-        let skeletons: Vec<_> = (0..6).map(|slot| grow_slot(&preset.fruit, slot)).collect();
+    for (key, options) in cluster_presets() {
+        let skeletons: Vec<_> = (0..6).map(|slot| grow_slot(options, slot)).collect();
         for (i, a) in skeletons.iter().enumerate() {
             for b in &skeletons[i + 1..] {
-                assert_ne!(a.skeleton(), b.skeleton(), "{}", preset.key);
+                assert_ne!(a.skeleton(), b.skeleton(), "{key}");
             }
         }
-        if preset.fruit.cluster.kind != ClusterKind::Single {
+        if options.cluster.kind != ClusterKind::Single {
             continue;
         }
 
-        let shapes: Vec<_> = (0..6).map(|slot| item_shape(&preset.fruit, slot)).collect();
+        let shapes: Vec<_> = (0..6).map(|slot| item_shape(options, slot)).collect();
         for (i, a) in shapes.iter().enumerate() {
             for b in &shapes[i + 1..] {
-                assert!(
-                    !same_shape(a, b),
-                    "{}: two slots have the same shape",
-                    preset.key
-                );
+                assert!(!same_shape(a, b), "{key}: two slots have the same shape");
             }
         }
-        let mut still = preset.fruit.clone();
+        let mut still = options.clone();
         still.variation = Default::default();
         assert!(
             same_shape(&item_shape(&still, 0), &item_shape(&still, 1)),
-            "{}",
-            preset.key
+            "{key}"
         );
     }
 }

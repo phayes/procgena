@@ -2,7 +2,10 @@
 //! simpler and cheaper with distance.
 
 use procgena_core::{LevelForm, Quality};
-use procgena_fruit::{FRUIT_LOD_REFERENCE_SIZE, Fruit, FruitPreset, ItemDetail, default_lod};
+use procgena_fruit::{
+    FRUIT_LOD_REFERENCE_SIZE, FlowerPreset, Fruit, FruitPreset, ItemDetail, cluster_presets,
+    default_lod,
+};
 
 #[test]
 fn the_default_levels_are_valid_mesh_levels() {
@@ -51,25 +54,21 @@ fn distances_scale_with_the_cluster_size() {
 #[test]
 fn farther_levels_use_fewer_triangles() {
     let lod = default_lod();
-    for preset in FruitPreset::all() {
-        let fruit = Fruit::from_preset(preset).unwrap();
+    for (key, options) in cluster_presets() {
+        let fruit = Fruit::new(options.clone(), options.default_seed, 0).unwrap();
         let counts: Vec<usize> = fruit
             .lod_meshes(&lod)
             .iter()
             .map(|(_, mesh)| mesh.triangle_count())
             .collect();
-        assert!(
-            counts.windows(2).all(|w| w[1] < w[0]),
-            "{}: {counts:?}",
-            preset.key
-        );
+        assert!(counts.windows(2).all(|w| w[1] < w[0]), "{key}: {counts:?}");
     }
 }
 
 #[test]
 fn a_cluster_specimen_has_one_part_per_level() {
     let lod = default_lod();
-    let fruit = Fruit::from_preset(FruitPreset::dogwood_bloom()).unwrap();
+    let fruit = Fruit::from_flower_preset(FlowerPreset::dogwood_bloom()).unwrap();
     let specimen = fruit.specimen(&fruit.lod_meshes(&lod));
     assert_eq!(specimen.levels.len(), lod.levels.len());
     assert!(specimen.levels.iter().all(|l| l.parts.len() == 1));
