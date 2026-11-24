@@ -74,9 +74,10 @@ settings:
     ref: tree
   trees.*.density:
     label: Natural Density
-    description: "Trees per hectare that suit this species on its own."
+    description: "Trees per hectare that suit this species on its own. It comes with the tree preset."
     range: [0, 5000]
     step: 1
+    hidden: true
   trees.*.density_scale:
     label: Density ×
     description: "Multiplies the species' natural density here: 0.5 is half as dense, 0 removes it."
