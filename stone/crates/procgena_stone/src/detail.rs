@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 
+use procgena_core::{Lod, LodLevel};
 use serde::{Deserialize, Serialize};
 
 use crate::material::TextureSize;
@@ -145,6 +146,42 @@ impl StoneDetail {
             .find(|(_, preset)| preset == self)
             .map(|(name, _)| *name)
     }
+
+    /// The levels as the shared level-of-detail type every procgena asset
+    /// uses: distances for a rock [`LOD_REFERENCE_SIZE`] metres across, no
+    /// cull distance, and every level a shadow-casting mesh.
+    ///
+    /// Use [`Lod::factor`] with a rock's [`scale`](crate::StoneOptions::scale)
+    /// times its own size to scale the distances, and [`Lod::ranges`] for
+    /// each level's fade bands.
+    pub fn lod(&self) -> Lod<StoneLevel> {
+        let levels = self
+            .levels()
+            .iter()
+            .map(|level| {
+                let detail = StoneLevel {
+                    resolution: level.resolution,
+                    texture_size: level.texture_size,
+                };
+                LodLevel::new(level.distance, level.hysteresis, detail)
+            })
+            .collect();
+        Lod::new(LOD_REFERENCE_SIZE, levels)
+    }
+}
+
+/// The size in metres of the rock [`DetailLevel::distance`] is written for:
+/// the default [`StoneOptions::scale`](crate::StoneOptions::scale).
+pub const LOD_REFERENCE_SIZE: f32 = 2.5;
+
+/// What one level of a rock's [`StoneDetail::lod`] builds: its mesh
+/// resolution and texture size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoneLevel {
+    /// Number of sampling cells along each axis.
+    pub resolution: u32,
+    /// Texture image size suited to this level.
+    pub texture_size: TextureSize,
 }
 
 impl Default for StoneDetail {

@@ -349,14 +349,20 @@ fn stones_stay_off_missing_ground() {
 }
 
 #[test]
-fn variants_match_the_class_settings() {
+fn variants_match_the_class_settings_in_the_inputs_world() {
     let mut o = options();
     o.classes[0].stretch_jitter = 0.3;
+    // `scatter` uses seed 7 as the World seed.
     let stones = scatter(&o, &FlatGround, 8.0);
     for v in 0..2 {
-        assert_eq!(*stones.variant(0, v), o.classes[0].stone.variant(v, 0.3));
+        assert_eq!(*stones.variant(0, v), o.classes[0].stone.variant(7, v, 0.3));
     }
     assert_ne!(stones.variant(0, 0).stretch, stones.variant(0, 1).stretch);
+
+    // Another World grows other shapes from the same settings.
+    let input = ScatterInput::new(&FlatGround, area(DVec2::ZERO, 8.0), 8);
+    let other = StoneScatter::new(&o, &input).unwrap();
+    assert_ne!(other.variant(0, 0).seed, stones.variant(0, 0).seed);
 }
 
 #[test]

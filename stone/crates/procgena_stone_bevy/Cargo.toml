@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 procgena_stone = { path = "../procgena_stone" }
+procgena_core = { path = "../../../core/crates/procgena_core" }
+procgena_core_bevy = { path = "../../../core/crates/procgena_core_bevy" }
 procgena_specimen = { path = "../../../specimen/crates/procgena_specimen", features = ["bevy"] }
 bevy = { version = "0.20.1", default-features = false, features = [
     "std",

@@ -50,8 +50,10 @@ pub const MAX_CLUSTER_MEMBERS: u32 = 16;
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoneClass {
     /// The shape settings every variant starts from. Variant `v` uses
-    /// [`StoneOptions::variant`]`(v, stretch_jitter)`, the same shapes a
-    /// `StonePool` with these settings draws.
+    /// [`StoneOptions::variant`]`(world_seed, v, stretch_jitter)`, with the
+    /// [`ScatterInput::seed`] as the World seed: the same shapes a
+    /// `StonePool` with these settings and that World seed draws. The
+    /// stone's own seed is not used.
     pub stone: StoneOptions,
     /// Number of different shapes, from 1 to [`MAX_STONE_VARIANTS`].
     pub variants: u32,
@@ -125,10 +127,11 @@ impl StoneClass {
         }
     }
 
-    /// Returns the settings of shape `variant` of this class. Use an index
+    /// Returns the settings of shape `variant` of this class in a World
+    /// seeded with `world_seed` (see [`StoneOptions::variant`]). Use an index
     /// below [`variants`](Self::variants); this method does not check it.
-    pub fn variant(&self, variant: u32) -> StoneOptions {
-        self.stone.variant(variant, self.stretch_jitter)
+    pub fn variant(&self, world_seed: u32, variant: u32) -> StoneOptions {
+        self.stone.variant(world_seed, variant, self.stretch_jitter)
     }
 
     /// Checks every setting, including the stone's own.
@@ -474,7 +477,11 @@ impl StoneScatter {
         let variants: Vec<Vec<StoneOptions>> = options
             .classes
             .iter()
-            .map(|class| (0..class.variants).map(|v| class.variant(v)).collect())
+            .map(|class| {
+                (0..class.variants)
+                    .map(|v| class.variant(input.seed, v))
+                    .collect()
+            })
             .collect();
         let shapes: Vec<Vec<VariantShape>> = variants
             .iter()

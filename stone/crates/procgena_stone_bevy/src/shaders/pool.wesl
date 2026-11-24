@@ -1,7 +1,8 @@
 // Draws pooled rocks in the main pass with projected textures and Bevy's lighting.
 
 import package::shaders::pool_bridge::{stone_pbr_input, stone_lit, view_clip_from_world, view_mip_bias};
-import package::shaders::pool_draw::{pool_vertex, dither_discard};
+import package::shaders::pool_draw::pool_vertex;
+import procgena_core_bevy::shaders::dither::dither_discard;
 import package::shaders::pool_surface::pool_surface;
 
 struct VertexOutput {

@@ -29,6 +29,8 @@ use bevy::render::sync_world::{MainEntity, RenderEntity};
 use bevy::render::view::ViewUniform;
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::Shader;
+use procgena_core::Quality;
+use procgena_core_bevy::LodQuality;
 
 use super::{PoolDefinitions, PoolDrawer, PoolInstances};
 use pools::PoolMaterialUniform;
@@ -169,6 +171,9 @@ impl PoolLayouts {
 pub(crate) struct ExtractedPools {
     pub definitions: PoolDefinitions,
     pub instances: PoolInstances,
+    /// The main world's [`LodQuality`], which scales every pool's detail
+    /// distances.
+    pub quality: Quality,
     /// The render and main entity of the [`PoolDrawer`], once it exists.
     pub drawer: Option<(Entity, MainEntity)>,
 }
@@ -177,8 +182,10 @@ fn extract_pools(
     mut extracted: ResMut<ExtractedPools>,
     definitions: Extract<Res<PoolDefinitions>>,
     instances: Extract<Res<PoolInstances>>,
+    quality: Extract<Res<LodQuality>>,
     drawer: Extract<Query<(Entity, &RenderEntity), With<PoolDrawer>>>,
 ) {
+    extracted.quality = quality.0;
     if definitions.version != extracted.definitions.version {
         extracted.definitions = definitions.clone();
     }
