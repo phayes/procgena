@@ -2,9 +2,9 @@
 //!
 //! A [`TreeGrove`] says which trees grow (a list of [`GroveTree`]s, each with
 //! its own density, spacing and clustering) and how the placed trees vary.
-//! [`GrovePlacement::new`] lays a grove out over ground of a given size and
-//! returns one [`GroveInstance`] per tree: which species and which of its
-//! shape variants to draw, and where.
+//! [`GrovePlacement::new`] lays a grove out over a [`ScatterInput`] (ground,
+//! area, seed and an optional mask) and returns one [`GroveInstance`] per
+//! tree: which species and which of its shape variants to draw, and where.
 //!
 //! Each species is drawn from a few shape variants (the same settings with
 //! different seeds), so a renderer builds a handful of tree meshes and draws
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
-use procgena_core::Ground;
+use procgena_core::scatter::{Footprint, Placement, Rest, ScatterInput, place, steeper_than};
 
 use crate::options::{OptionsError, TreeOptions};
 use crate::presets::TreePreset;
@@ -57,6 +57,22 @@ const FOOTING_DIRECTIONS: [(f32, f32); 8] = {
 
 /// Smallest radius around a trunk at which the ground is sampled, in metres.
 const MIN_FOOTPRINT: f32 = 0.25;
+
+impl TreeOptions {
+    /// How a tree stands on uneven ground: upright, its trunk resting on the
+    /// lowest ground around it, not sunk, on any bend. A grove sinks its
+    /// trees further by its [`sink`](GroveVariation::sink).
+    ///
+    /// It moves copies, not shapes, so it is not part of the options hash.
+    pub fn ground_placement(&self) -> Placement {
+        Placement {
+            conform: 0.0,
+            rest: Rest::Lowest,
+            embed: 0.0,
+            max_bend: None,
+        }
+    }
+}
 /// Square metres in a hectare.
 const HECTARE: f32 = 10_000.0;
 /// Width of the patches of ground that are either wooded or glade, in
@@ -285,7 +301,8 @@ impl GroveVariation {
 /// counterpart of a plant field.
 ///
 /// A grove holds its species itself, and says nothing about where it grows:
-/// pass the size and ground to [`GrovePlacement::new`]. Start from a
+/// pass a [`ScatterInput`] (ground, area, seed and an optional mask) to
+/// [`GrovePlacement::new`]. Start from a
 /// [`GrovePreset`] with [`TreeGrove::from_preset`], or list species with
 /// [`TreeGrove::new`].
 ///
@@ -304,9 +321,12 @@ impl GroveVariation {
 ///   density asks for.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TreeGrove {
-    /// Picks where trees stand, which species each one is and how it is
-    /// turned and sized. Changing it moves every tree but keeps the shape
-    /// variants the same.
+    /// The seed to place this grove with when it is placed on its own: pass
+    /// it as the [`ScatterInput`]'s seed. Inside a larger scene the input's
+    /// seed comes from the scene instead. The placement seed picks where
+    /// trees stand, which species each one is and how it is turned and
+    /// sized. Changing it moves every tree but keeps the shape variants the
+    /// same.
     pub seed: u32,
     /// The species that grow here, at most [`MAX_GROVE_TREES`].
     pub trees: Vec<GroveTree>,
@@ -477,7 +497,7 @@ pub struct GroveInstance {
 /// Create one with [`GrovePlacement::new`], then draw each of
 /// [`instances`](Self::instances) with the mesh of its species' variant.
 ///
-/// The same grove, size and ground always give the same trees. Lowering the
+/// The same grove and input always give the same trees. Lowering the
 /// grove's [`density_scale`](TreeGrove::density_scale) only removes trees,
 /// and raising it only adds them; the others stay exactly where they were.
 /// Changing the size keeps the trees away from the edges where they were; a
@@ -496,30 +516,26 @@ struct Site {
 }
 
 impl GrovePlacement {
-    /// Places `grove` on a `size` rectangle (width in X, depth in Z, in
-    /// metres) centred on the origin, standing each tree on `ground`.
+    /// Places `grove` over `input`'s area, standing each tree on its ground.
     ///
-    /// `density` thins the grove in places: it takes X and Z and returns from
-    /// 0 (no trees) to 1 (the grove's full density); `None` is full
-    /// everywhere. Trees are left out where any ground around their trunk is
-    /// missing (NaN) or steeper than their species'
-    /// [`max_slope`](GroveTree::max_slope), or the grove's
-    /// [`max_slope`](GroveVariation::max_slope) when the species sets none.
+    /// Positions are in metres from the area's centre. The input's mask thins
+    /// the grove in places (`None` is full density everywhere), and its seed
+    /// sets where trees stand; the grove's own [`seed`](TreeGrove::seed) is
+    /// not used here. Trees are left out where the ground at the trunk is
+    /// steeper than their species' [`max_slope`](GroveTree::max_slope), or
+    /// the grove's [`max_slope`](GroveVariation::max_slope) when the species
+    /// sets none, or where any ground around the trunk is missing (NaN).
     ///
     /// # Errors
     ///
-    /// Returns [`GroveError::Options`] if `size` is not between 0 (exclusive)
-    /// and [`MAX_GROVE_SIZE`], any [`GroveError`] from
+    /// Returns [`GroveError::Options`] if either side of the area is not
+    /// between 0 (exclusive) and [`MAX_GROVE_SIZE`], any [`GroveError`] from
     /// [`TreeGrove::validate`], and [`GroveError::TooMany`] if the grove's
-    /// density over this size asks for more than [`MAX_GROVE_INSTANCES`]
+    /// density over the area asks for more than [`MAX_GROVE_INSTANCES`]
     /// trees.
-    pub fn new(
-        grove: &TreeGrove,
-        size: [f32; 2],
-        ground: &dyn Ground,
-        density: Option<&dyn Fn(f32, f32) -> f32>,
-    ) -> Result<Self, GroveError> {
+    pub fn new(grove: &TreeGrove, input: &ScatterInput) -> Result<Self, GroveError> {
         // Check the settings and the number of trees asked for.
+        let size = input.area.size.to_array();
         for side in size {
             check(
                 side > 0.0 && side <= MAX_GROVE_SIZE,
@@ -543,8 +559,8 @@ impl GrovePlacement {
         }
 
         // Visit every candidate site. Sites sit on a lattice fixed to the
-        // origin, so a site keeps its place, rank and id however the size or
-        // density changes.
+        // area's centre, so a site keeps its place, rank and id however the
+        // size or density changes.
         let half = [size[0] * 0.5, size[1] * 0.5];
         let cells = |h: f32| {
             (
@@ -558,7 +574,7 @@ impl GrovePlacement {
         for i in x0..x1 {
             for j in z0..z1 {
                 let id = site_id(i, j);
-                let h = mix(u64::from(grove.seed) ^ mix(id));
+                let h = mix(u64::from(input.seed) ^ mix(id));
                 let x = (i as f32 + draw(h, SALT_X)) * SITE_CELL;
                 let z = (j as f32 + draw(h, SALT_Z)) * SITE_CELL;
                 if x.abs() > half[0] || z.abs() > half[1] {
@@ -567,10 +583,10 @@ impl GrovePlacement {
 
                 // Keep the site with a chance equal to the local density per
                 // site. Each site has a fixed rank, scaled up where the
-                // density function thins the grove, and is kept below a
-                // threshold that grows with density, so a lower density keeps
-                // a subset of a higher one's sites.
-                let local = density.map_or(1.0, |f| f(x, z).clamp(0.0, 1.0));
+                // mask thins the grove, and is kept below a threshold that
+                // grows with density, so a lower density keeps a subset of a
+                // higher one's sites.
+                let local = input.density(Vec2::new(x, z));
                 if local <= 0.0 {
                     continue;
                 }
@@ -578,8 +594,8 @@ impl GrovePlacement {
                 if rank >= total * SITE_CELL * SITE_CELL {
                     continue;
                 }
-                let tree = pick_tree(grove, &per_m2, total, h, x, z);
-                if let Some(instance) = stand(grove, tree, id, h, x, z, ground) {
+                let tree = pick_tree(grove, input.seed, &per_m2, total, h, x, z);
+                if let Some(instance) = stand(grove, tree, id, h, x, z, input) {
                     sites.push(Site {
                         rank,
                         spacing: grove.trees[tree].spacing,
@@ -631,7 +647,7 @@ impl GrovePlacement {
         // Clear the glades last, so a tree in a glade still keeps its
         // neighbours at a distance and raising the patchiness only removes
         // trees.
-        kept.retain(|tree| !in_glade(grove, tree.position.x, tree.position.z));
+        kept.retain(|tree| !in_glade(grove, input.seed, tree.position.x, tree.position.z));
         Ok(Self { instances: kept })
     }
 
@@ -644,8 +660,17 @@ impl GrovePlacement {
 
 /// Picks the species for the site at `x`, `z`, in list order: each species
 /// takes its share of what the species before it left, biased toward its own
-/// patches by its clustering.
-fn pick_tree(grove: &TreeGrove, per_m2: &[f32], total: f32, h: u64, x: f32, z: f32) -> usize {
+/// patches by its clustering. `seed` is the placement seed the patches come
+/// from.
+fn pick_tree(
+    grove: &TreeGrove,
+    seed: u32,
+    per_m2: &[f32],
+    total: f32,
+    h: u64,
+    x: f32,
+    z: f32,
+) -> usize {
     let mut left = total;
     let mut last = 0;
     for (index, (tree, &d)) in grove.trees.iter().zip(per_m2).enumerate() {
@@ -661,7 +686,7 @@ fn pick_tree(grove: &TreeGrove, per_m2: &[f32], total: f32, h: u64, x: f32, z: f
         let salt = index as u64;
         let u = if draw(h, SALT_CLUSTER + salt) < tree.clustering {
             let patch = (tree.spacing * 6.0).max(4.0);
-            let seed = mix(u64::from(grove.seed) ^ (SALT_PATCHES + salt));
+            let seed = mix(u64::from(seed) ^ (SALT_PATCHES + salt));
             patch_value(seed, x / patch, z / patch)
         } else {
             draw(h, SALT_SPECIES + salt)
@@ -673,9 +698,10 @@ fn pick_tree(grove: &TreeGrove, per_m2: &[f32], total: f32, h: u64, x: f32, z: f
     last
 }
 
-/// Stands species `tree` at `x`, `z`: picks its variant, size, lean and turn,
-/// and sets it on the ground. Returns `None` where the ground around the
-/// trunk is missing or too steep.
+/// Stands species `tree` at `x`, `z` (from the area's centre): picks its
+/// variant, size, lean and turn, and sets it on the ground. Returns `None`
+/// where the ground at the trunk is too steep, or any ground around it is
+/// missing.
 fn stand(
     grove: &TreeGrove,
     tree: usize,
@@ -683,34 +709,46 @@ fn stand(
     h: u64,
     x: f32,
     z: f32,
-    ground: &dyn Ground,
+    input: &ScatterInput,
 ) -> Option<GroveInstance> {
     let species = &grove.trees[tree];
     let variation = &grove.variation;
-    let variant = (draw(h, SALT_VARIANT) * species.variants as f32) as u32;
-    let scale = tree_scale(draw(h, SALT_SCALE), variation.scale_jitter);
 
-    // Sample the ground at the trunk and at eight points around its edge.
-    let footprint = (species.tree.branch.radius[0] * scale).max(MIN_FOOTPRINT);
-    // The grove's own frame is the World frame, so its points widen as is.
-    let centre = ground.height(Vec2::new(x, z).as_dvec2());
-    let mut lowest = centre;
-    let mut steepest: f32 = 0.0;
-    for (dx, dz) in FOOTING_DIRECTIONS {
-        let y = ground.height(Vec2::new(x + dx * footprint, z + dz * footprint).as_dvec2());
-        if y.is_nan() {
-            return None;
-        }
-        lowest = lowest.min(y);
-        steepest = steepest.max((y - centre).abs());
-    }
+    // Reject steep ground first, from one sample at the trunk.
     let max_slope = species.max_slope.unwrap_or(variation.max_slope);
-    if centre.is_nan() || (steepest / footprint).atan().to_degrees() > max_slope {
+    let local = Vec2::new(x, z);
+    if steeper_than(&input.sample(local), max_slope) {
         return None;
     }
 
-    // Size, lean and turn the tree, and stand it on the lowest sample.
-    let position = Vec3::new(x, lowest - variation.sink, z);
+    // Stand the trunk on the lowest ground under it and eight points round
+    // its edge, sunk by the grove's sink.
+    let variant = (draw(h, SALT_VARIANT) * species.variants as f32) as u32;
+    let scale = tree_scale(draw(h, SALT_SCALE), variation.scale_jitter);
+    let radius = (species.tree.branch.radius[0] * scale).max(MIN_FOOTPRINT);
+    let footprint = Footprint {
+        contacts: FOOTING_DIRECTIONS
+            .iter()
+            .map(|&(dx, dz)| Vec3::new(dx * radius, 0.0, dz * radius))
+            .collect(),
+        extra: Vec::new(),
+        size: 2.0 * radius,
+    };
+    let placement = Placement {
+        embed: variation.sink / footprint.size,
+        ..species.tree.ground_placement()
+    };
+    // The yaw turns the tree below; the footing is the same at any turn.
+    let placed = place(
+        input.ground,
+        input.area.world(local),
+        0.0,
+        &footprint,
+        &placement,
+    )?;
+
+    // Size, lean and turn the tree.
+    let position = Vec3::new(x, placed.height, z);
     let yaw = draw(h, SALT_YAW) * std::f32::consts::TAU;
     let lean_direction = draw(h, SALT_LEAN_DIRECTION) * std::f32::consts::TAU;
     let lean = (draw(h, SALT_LEAN) * variation.lean).to_radians();
@@ -741,17 +779,18 @@ fn tree_scale(u: f32, jitter: f32) -> f32 {
     1.0 + jitter * (BODY_SPREAD * v + GIANT_GROWTH * tail)
 }
 
-/// Whether `x`, `z` lies in one of `grove`'s glades, where no tree grows.
+/// Whether `x`, `z` lies in one of `grove`'s glades, where no tree grows,
+/// for placement seed `seed`.
 ///
 /// The ground is split into patches about [`GLADE_CELL`] metres across,
 /// each with its own value from 0 to 1; patches whose value falls below the
 /// open share for the grove's patchiness are glades. Raising the patchiness
 /// only turns more patches into glades.
-fn in_glade(grove: &TreeGrove, x: f32, z: f32) -> bool {
+fn in_glade(grove: &TreeGrove, seed: u32, x: f32, z: f32) -> bool {
     if grove.patchiness <= 0.0 {
         return false;
     }
-    let seed = mix(u64::from(grove.seed) ^ SALT_GLADES);
+    let seed = mix(u64::from(seed) ^ SALT_GLADES);
     patch_value(seed, x / GLADE_CELL, z / GLADE_CELL) < grove.patchiness * MAX_OPEN
 }
 
@@ -880,7 +919,8 @@ mod tests {
     fn areas(grove: &TreeGrove, open: bool) -> Vec<usize> {
         const N: usize = 200;
         let at = |i: usize, j: usize| {
-            in_glade(grove, i as f32 * 2.0 - 200.0, j as f32 * 2.0 - 200.0) == open
+            let (x, z) = (i as f32 * 2.0 - 200.0, j as f32 * 2.0 - 200.0);
+            in_glade(grove, grove.seed, x, z) == open
         };
         let mut seen = vec![false; N * N];
         let mut sizes = Vec::new();

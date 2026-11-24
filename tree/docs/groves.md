@@ -11,18 +11,23 @@ counterpart of a plant field. Two types describe it:
   species' density, and how individual trees vary in size, lean and footing.
 
 A grove says nothing about where it grows. `GrovePlacement::new` in
-`procgena_tree` lays it out over ground of a size you choose, and the
-`TreeGroveParams` component in `procgena_tree_bevy` does the same for a Bevy
-entity and draws the trees.
+`procgena_tree` lays it out over a `ScatterInput`: the ground, an area (a World
+centre and a size), a seed and an optional mask that thins it. Positions come
+back in metres from the area's centre. The `TreeGroveParams` component in
+`procgena_tree_bevy` does the same for a Bevy entity, with the entity at the
+centre and the grove's own seed, and draws the trees.
 
 ## Start from a preset
 
 ```rust
-use procgena_tree::{FlatGround, GrovePlacement, GrovePreset};
+use glam::{DVec2, Vec2};
+use procgena_tree::{FlatGround, GrovePlacement, GrovePreset, ScatterArea, ScatterInput};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grove = GrovePreset::PineStand.grove();
-    let placement = GrovePlacement::new(&grove, [60.0, 40.0], &FlatGround, None)?;
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::new(60.0, 40.0));
+    let input = ScatterInput::new(&FlatGround, area, grove.seed);
+    let placement = GrovePlacement::new(&grove, &input)?;
     println!("{} trees", placement.instances().len());
     Ok(())
 }
@@ -221,17 +226,19 @@ many of them as they can:
 
 ## Stand trees on uneven ground
 
-`GrovePlacement::new` takes any `Ground`: `FlatGround`, a closure from a World
+The input's ground can be any `Ground`: `FlatGround`, a closure from a World
 position (`DVec2`, X and Z) to a height, or a `HeightGrid` sampled from another
 generator's specimen with `Specimen::height_grid`. A height of NaN means there
 is no ground there.
 
-The ground is sampled at each trunk and at eight points around it, one trunk
-radius away. A tree is left out where any of that ground is missing, or where
-it is steeper than its species' `max_slope` (the grove's `variation.max_slope`
-when the species sets none), so shrubs can grow on slopes large trees can't.
-Each tree stands upright at the lowest of those samples, sunk by
-`variation.sink` so its roots never show on a slope.
+A tree is left out where the ground at its trunk is steeper than its species'
+`max_slope` (the grove's `variation.max_slope` when the species sets none), so
+shrubs can grow on slopes large trees can't. The ground is then sampled at the
+trunk and at eight points around it, one trunk radius away, and the tree is
+left out where any of that is missing. Each tree stands upright at the lowest
+of those samples, sunk by `variation.sink` so its roots never show on a slope.
+This is the shared `place()` with the tree's `ground_placement()`: upright,
+resting on the lowest ground.
 
 The last argument thins the grove in places: a function from X and Z to a
 value from 0 (no trees) to 1 (the full density).

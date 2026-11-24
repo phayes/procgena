@@ -199,18 +199,25 @@
 //! A [`TreeGrove`] mixes several species over a stretch of ground, like a plant
 //! field for trees. Each species is a [`GroveTree`] with its own density in trees
 //! per hectare, the spacing it keeps from its neighbours, and how much it gathers
-//! into stands. [`GrovePlacement::new`] lays the grove out over ground of a given
-//! size and returns one [`GroveInstance`] per tree:
+//! into stands. [`GrovePlacement::new`] lays the grove out over a [`ScatterInput`]
+//! (ground, area, seed and an optional mask) and returns one [`GroveInstance`] per
+//! tree:
 //!
 //! ```rust
-//! use procgena_tree::{FlatGround, GrovePlacement, GrovePreset, GroveTree, TreePreset};
+//! use glam::{DVec2, Vec2};
+//! use procgena_tree::{
+//!     FlatGround, GrovePlacement, GrovePreset, GroveTree, ScatterArea, ScatterInput, TreePreset,
+//! };
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Start from a preset and add a few clumps of bushes.
 //!     let mut grove = GrovePreset::OakWoodland.grove();
 //!     grove.trees.insert(0, GroveTree::new(TreePreset::Bush2).scaled(0.05).clustered(0.7));
 //!
-//!     let placement = GrovePlacement::new(&grove, [40.0, 40.0], &FlatGround, None)?;
+//!     // A 40 m square around the World origin, placed with the grove's own seed.
+//!     let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(40.0));
+//!     let input = ScatterInput::new(&FlatGround, area, grove.seed);
+//!     let placement = GrovePlacement::new(&grove, &input)?;
 //!     for instance in placement.instances() {
 //!         // Build each variant's mesh once and draw it at every instance.
 //!         let _options = grove.trees[instance.tree].variant(instance.variant);
@@ -296,6 +303,7 @@ pub use options::{
 };
 pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::TreePreset;
+pub use procgena_core::scatter::{Mask, Placement, Rest, ScatterArea, ScatterInput};
 pub use procgena_core::{FlatGround, Ground, HeightGrid};
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
 pub use skeleton::{Attachment, Section, Skeleton, SkeletonBranch, SkeletonLeaf};

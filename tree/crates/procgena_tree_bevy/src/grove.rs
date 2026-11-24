@@ -23,7 +23,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 use procgena_tree::{
     FlatGround, Ground, GroveError, GroveInstance, GrovePlacement, GrovePreset, HeightGrid,
-    TreeGrove, TreeOptions,
+    ScatterArea, ScatterInput, TreeGrove, TreeOptions,
 };
 
 use crate::impostor::TreeImpostorAssets;
@@ -722,12 +722,19 @@ impl Ground for ScaledGround {
     }
 }
 
-/// Places the grove described by `input`, in world metres. Runs on a
-/// background thread.
+/// Places the grove described by `input`, in metres from the grove entity,
+/// with the grove's own seed. Runs on a background thread.
 fn place(input: &Input) -> Result<Vec<GroveInstance>, TreeGroveBuildError> {
-    let size = input.size.to_array();
+    // The grove entity's transform puts the area's centre in the world.
+    let area = ScatterArea::new(DVec2::ZERO, input.size);
+    let at = |ground: &dyn Ground| {
+        GrovePlacement::new(
+            &input.grove,
+            &ScatterInput::new(ground, area, input.grove.seed),
+        )
+    };
     let placement = match &input.ground {
-        InputGround::Flat => GrovePlacement::new(&input.grove, size, &FlatGround, None),
+        InputGround::Flat => at(&FlatGround),
         InputGround::Host {
             filter,
             cell,
@@ -741,7 +748,7 @@ fn place(input: &Input) -> Result<Vec<GroveInstance>, TreeGroveBuildError> {
                 grid,
                 scale: *scale,
             };
-            GrovePlacement::new(&input.grove, size, &ground, None)
+            at(&ground)
         }
     };
     placement
@@ -1082,7 +1089,9 @@ mod tests {
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
         // Every placed tree, and no tree entities.
-        let placed = GrovePlacement::new(&grove, SIZE.to_array(), &FlatGround, None).unwrap();
+        let area = ScatterArea::new(DVec2::ZERO, SIZE);
+        let input = ScatterInput::new(&FlatGround, area, grove.seed);
+        let placed = GrovePlacement::new(&grove, &input).unwrap();
         let drawn = trees(&app, entity);
         assert!(drawn.len() > 4);
         assert_eq!(drawn.len(), placed.instances().len());

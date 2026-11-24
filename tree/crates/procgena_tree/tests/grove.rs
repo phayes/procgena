@@ -1,13 +1,29 @@
 use std::collections::HashMap;
 
-use glam::{DVec2, Vec3};
+use glam::{DVec2, Vec2, Vec3};
 use procgena_tree::{
-    FlatGround, GroveError, GroveFileError, GroveInstance, GrovePlacement, GrovePreset, GroveTree,
-    MAX_GROVE_TREES, Tree, TreeGrove, TreePreset,
+    FlatGround, Ground, GroveError, GroveFileError, GroveInstance, GrovePlacement, GrovePreset,
+    GroveTree, MAX_GROVE_TREES, Mask, ScatterArea, ScatterInput, Tree, TreeGrove, TreePreset,
 };
 
+/// Places `grove` with its own seed over a `size` rectangle centred on the
+/// World origin, on `ground`, thinned by `mask` if given.
+fn placed(
+    grove: &TreeGrove,
+    size: [f32; 2],
+    ground: &dyn Ground,
+    mask: Option<&dyn Mask>,
+) -> Result<GrovePlacement, GroveError> {
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::from(size));
+    let mut input = ScatterInput::new(ground, area, grove.seed);
+    if let Some(mask) = mask {
+        input = input.with_mask(mask);
+    }
+    GrovePlacement::new(grove, &input)
+}
+
 fn place(grove: &TreeGrove, size: f32) -> Vec<GroveInstance> {
-    GrovePlacement::new(grove, [size, size], &FlatGround, None)
+    placed(grove, [size, size], &FlatGround, None)
         .unwrap()
         .instances()
         .to_vec()
@@ -37,9 +53,9 @@ fn the_same_grove_places_the_same_trees() {
 #[test]
 fn lowering_density_under_a_density_function_only_removes_trees() {
     let grove = GrovePreset::PineStand.grove();
-    let fade = |x: f32, _z: f32| (x / 40.0 + 0.5).clamp(0.0, 1.0);
+    let fade = |p: DVec2| (p.x as f32 / 40.0 + 0.5).clamp(0.0, 1.0);
     let at = |grove: &TreeGrove| {
-        GrovePlacement::new(grove, [40.0, 40.0], &FlatGround, Some(&fade))
+        placed(grove, [40.0, 40.0], &FlatGround, Some(&fade))
             .unwrap()
             .instances()
             .to_vec()
@@ -216,13 +232,13 @@ fn spacing_leaves_most_of_a_presets_density() {
 fn missing_and_steep_ground_leave_gaps() {
     let grove = even_pair();
     let half_missing = |p: DVec2| if p.x < 0.0 { f32::NAN } else { 0.0 };
-    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &half_missing, None).unwrap();
+    let placement = placed(&grove, [40.0, 40.0], &half_missing, None).unwrap();
     assert!(!placement.instances().is_empty());
     assert!(placement.instances().iter().all(|t| t.position.x > 0.0));
 
     // A 45° slope is steeper than the default 35° limit.
     let steep = |p: DVec2| p.x as f32;
-    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &steep, None).unwrap();
+    let placement = placed(&grove, [40.0, 40.0], &steep, None).unwrap();
     assert!(placement.instances().is_empty());
 }
 
@@ -232,7 +248,7 @@ fn trees_stand_on_the_ground_and_sink_below_it() {
     grove.variation.lean = 0.0;
     let gentle = |x: f32, z: f32| 0.1 * x + 0.05 * z + 3.0;
     let ground = |p: DVec2| gentle(p.x as f32, p.y as f32);
-    let placement = GrovePlacement::new(&grove, [30.0, 30.0], &ground, None).unwrap();
+    let placement = placed(&grove, [30.0, 30.0], &ground, None).unwrap();
     for tree in placement.instances() {
         let p = tree.position;
         let below = gentle(p.x, p.z) - p.y;
@@ -249,7 +265,7 @@ fn each_species_can_have_its_own_slope_limit() {
     let slope = |p: DVec2| tan * p.x as f32;
     let alone = |tree: GroveTree| {
         let grove = TreeGrove::new(vec![tree]);
-        GrovePlacement::new(&grove, [30.0, 30.0], &slope, None)
+        placed(&grove, [30.0, 30.0], &slope, None)
             .unwrap()
             .instances()
             .len()
@@ -285,7 +301,7 @@ fn trees_on_a_diagonal_slope_stand_below_its_lowest_side() {
     let tan = 25f32.to_radians().tan();
     let diagonal = |x: f32, z: f32| tan * (x + z) * std::f32::consts::FRAC_1_SQRT_2;
     let ground = |p: DVec2| diagonal(p.x as f32, p.y as f32);
-    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &ground, None).unwrap();
+    let placement = placed(&grove, [40.0, 40.0], &ground, None).unwrap();
     assert!(!placement.instances().is_empty());
     let trunk = TreePreset::OakLarge.options().branch.radius[0];
     for tree in placement.instances() {
@@ -300,13 +316,45 @@ fn trees_on_a_diagonal_slope_stand_below_its_lowest_side() {
 }
 
 #[test]
-fn a_density_function_thins_the_grove() {
+fn a_mask_thins_the_grove() {
     let grove = even_pair();
-    let east_only = |x: f32, _z: f32| if x > 0.0 { 1.0 } else { 0.0 };
-    let placement =
-        GrovePlacement::new(&grove, [40.0, 40.0], &FlatGround, Some(&east_only)).unwrap();
+    let east_only = |p: DVec2| if p.x > 0.0 { 1.0 } else { 0.0 };
+    let placement = placed(&grove, [40.0, 40.0], &FlatGround, Some(&east_only)).unwrap();
     assert!(!placement.instances().is_empty());
     assert!(placement.instances().iter().all(|t| t.position.x > 0.0));
+}
+
+/// An area away from the origin places the same trees, relative to its
+/// centre, as one at the origin, and asks the ground and the mask at World
+/// positions.
+#[test]
+fn trees_are_placed_relative_to_the_area_centre() {
+    let grove = even_pair();
+    let centre = DVec2::new(1000.0, -500.0);
+    let at_origin = place(&grove, 40.0);
+
+    // Level ground 2 m up that exists only far from the origin, so trees
+    // stand only if it is asked at World positions, and a mask keeping the
+    // area's east half.
+    let ground = |p: DVec2| if p.x > 500.0 { 2.0 } else { f32::NAN };
+    let east = |p: DVec2| if p.x > centre.x { 1.0 } else { 0.0 };
+    let area = ScatterArea::new(centre, Vec2::splat(40.0));
+    let input = ScatterInput::new(&ground, area, grove.seed).with_mask(&east);
+    let moved = GrovePlacement::new(&grove, &input).unwrap();
+
+    // The same sites, east half only, standing on the raised ground.
+    let expected: Vec<_> = at_origin
+        .iter()
+        .filter(|t| t.position.x > 0.0)
+        .map(|t| t.id)
+        .collect();
+    let ids: Vec<_> = moved.instances().iter().map(|t| t.id).collect();
+    assert!(!ids.is_empty());
+    assert_eq!(ids, expected);
+    for tree in moved.instances() {
+        assert!(tree.position.x > 0.0);
+        assert!((tree.position.y - (2.0 - grove.variation.sink)).abs() < 1e-5);
+    }
 }
 
 #[test]
@@ -338,7 +386,7 @@ fn bad_settings_and_too_many_trees_are_errors() {
     let mut grove = even_pair();
     grove.trees[1].clustering = 2.0;
     assert!(matches!(
-        GrovePlacement::new(&grove, [10.0, 10.0], &FlatGround, None),
+        placed(&grove, [10.0, 10.0], &FlatGround, None),
         Err(GroveError::Options(_))
     ));
 
@@ -357,10 +405,10 @@ fn bad_settings_and_too_many_trees_are_errors() {
     ));
 
     assert!(matches!(
-        GrovePlacement::new(&even_pair(), [1000.0, 1000.0], &FlatGround, None),
+        placed(&even_pair(), [1000.0, 1000.0], &FlatGround, None),
         Err(GroveError::TooMany { .. })
     ));
-    assert!(GrovePlacement::new(&even_pair(), [0.0, 10.0], &FlatGround, None).is_err());
+    assert!(placed(&even_pair(), [0.0, 10.0], &FlatGround, None).is_err());
 }
 
 #[test]

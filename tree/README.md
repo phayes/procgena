@@ -201,14 +201,18 @@ create joints with `Tree::rig` and vertex weights with `Rig::skin`.
 A `TreeGrove` mixes several tree species over a stretch of ground. Each species
 has its own density in trees per hectare, a spacing its trunks keep from their
 neighbours, and how much it gathers into stands. `GrovePlacement::new` lays a
-grove out over ground of the size you choose and returns one instance per tree:
+grove out over a `ScatterInput` (the ground, an area, a seed and an optional
+mask) and returns one instance per tree:
 
 ```rust
-use procgena_tree::{FlatGround, GrovePlacement, GrovePreset};
+use glam::{DVec2, Vec2};
+use procgena_tree::{FlatGround, GrovePlacement, GrovePreset, ScatterArea, ScatterInput};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grove = GrovePreset::OakWoodland.grove();
-    let placement = GrovePlacement::new(&grove, [40.0, 40.0], &FlatGround, None)?;
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(40.0));
+    let input = ScatterInput::new(&FlatGround, area, grove.seed);
+    let placement = GrovePlacement::new(&grove, &input)?;
     for instance in placement.instances() {
         // Build each species' variant mesh once, and draw it with this transform.
         let _options = grove.trees[instance.tree].variant(instance.variant);
