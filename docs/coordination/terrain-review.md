@@ -76,6 +76,63 @@ plan.md, "Re-recorded after the string-key seed salts".
     for rolling hills). The test checks 10 seeds per preset within 15%. This
     shifts the convergence targets of eroded presets.
 
+## D2. Border distance and mixing (option A, distance power 16)
+
+Borders now pull on nearby ground along their whole length (an integral
+in closed form) instead of once per straight piece, so cutting an edge into
+pieces changes nothing. That's the fix W3's warped borders need. The cost is
+2.0–2.4× the old time per height. Results move most near border corners and
+bends, because the old soft distance was short there.
+
+20. **The distance to the border, soft, against the true distance.** The
+    old method (per-piece soft minimum) came out about 8% short near any
+    bent edge, because a corner counted once for each piece meeting there.
+    A comes out long outside convex corners and short inside concave ones.
+    You chose power 16 (from the sweep below).
+
+    | Point (bent test border) | True | Old | A, power 8 | A, power 16 |
+    |---|---|---|---|---|
+    | (825, −525), outside a convex bend | 697 m | 639 m | 746 m | 730 m |
+    | (600, 0) | 716 m | 652 m | 683 m | 701 m |
+    | (−500, 0) | 300 m | 275 m | 326 m | 317 m |
+    | (1000, 1000), near the border's open end | 919 m | 843 m | 954 m | 968 m |
+
+    Swept over the distance power, A's largest error against the true
+    distance, 10–500 m out (open ends of the test border left out), with
+    how sharp the crease along a concave bend's bisector gets (the slope
+    change across ±10 m; the true distance has a kink of 1.83 there):
+
+    | Power | Bent border, long | Bent border, short | Region cell, short | Crease at 100 m / 400 m |
+    |---|---|---|---|---|
+    | 8 | 9.0% | 6.7% | 8.2% | 0.33 / 0.09 |
+    | 12 | 7.0% | 5.0% | 5.6% | 0.43 / 0.12 |
+    | 16 | 5.8% | 3.9% | 4.2% | 0.51 / 0.15 |
+    | 24 | 4.5% | 2.8% | 2.8% | 0.64 / 0.21 |
+
+    No power keeps within 3% outside convex corners (power 24 is 4.5%).
+    Height time doesn't depend on the power. The power also sets the
+    bending's soft distance (`Terrain` and the fade share it), so it moves
+    the margins too.
+
+    **Later option:** a correction for the overshoot outside convex corners
+    (the 4.7% at (825, −525)). Revisit once warped borders exist, since the
+    warp changes how many corners there are and how sharp they get.
+21. **Biggest height changes A makes** (uncarved ground, against before A):
+
+    | World | Power 8 | Power 16 | Where (power 16) | Away from any corner or bend |
+    |---|---|---|---|---|
+    | Two terrains | 142 m | 121 m | (825, −525), 697 m outside the convex bend at (150, −700) | 0.27 m |
+    | Triple junction | 40 m | 31 m | (1185, 745), 1.2 km from the border | 2.7 m |
+    | Hills into plains, seed 102 | 3 m | 2.6 m | (315, −685), 166 m from a bend | 0.17 m |
+
+    Most of the size comes from the relief fade, which reaches kilometres;
+    about half of each change is the old 8% shortfall going away.
+22. **Seeds after A at power 16:** `RIVER_SEEDS` 102, 173 still cross in
+    all 12 configurations, so they stay. The neighbouring-rivers test moves
+    from seed 30 (its two rivers no longer both cross) to seed 217, the only
+    seed of 300 whose closest pair of mountain rivers is under 195 m apart
+    (159 m) with both joining a plains river; the test is unchanged.
+
 ## E. Housekeeping
 
 18. `spike_erosion.rs` (Phase 2.8 erosion spikes, test-only, ignored) is

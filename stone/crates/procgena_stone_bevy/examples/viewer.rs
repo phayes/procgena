@@ -15,6 +15,10 @@
 //!   10 000 rocks on a 100 × 100 grid. P again returns to the CPU rocks.
 //! - G: toggle burial for CPU rocks using each rock's suggested embed depth.
 //!   GPU pool rocks are unaffected.
+//! - C: switch to a stone scatter: the boulder field preset spread over 60 m
+//!   of rolling ground, tilted to the slope and partly buried, drawn from
+//!   one GPU stone pool per class. Left / Right change its seed. C again
+//!   returns to the CPU rocks.
 //! - Hold the right mouse button to look around (M keeps the cursor captured).
 //!   Use WASD to fly, E / Q to rise / sink, and hold left Shift to fly faster.
 //!
@@ -22,7 +26,8 @@
 //! `cargo run -p procgena_stone_bevy --example viewer -- --seed 3 --texture lichen_rock_02 --field`.
 //! Use `--dc` to start with dual contouring, `--size <metres>` to set the
 //! rock size, and `--untextured` to draw material colours only. Use `--pool`
-//! to start with the stone pool, and `--twin` to show a CPU rock (left) next to
+//! to start with the stone pool, `--scatter` to start with the stone scatter,
+//! and `--twin` to show a CPU rock (left) next to
 //! the same shape drawn from a stone pool (right). Use `--embed` to start with
 //! CPU rocks buried to their suggested depth (the same setting as G). Use
 //! `--prepass` to add depth, normal and motion-vector prepasses, or
@@ -31,7 +36,7 @@
 //! the window or screenshot size in pixels (default: 1280 × 720).
 //! Use `--screenshot <file.png>` to save a PNG image and exit. The viewer waits
 //! for CPU rocks and textures to load, then allows a few more frames before
-//! capturing the image. Pool rocks get an additional six-second wait for the
+//! capturing the image. Pool and scatter rocks get an additional six-second wait for the
 //! graphics processor (GPU) to generate their shapes; completion is not checked.
 //! The run reports an error if a texture fails to load, saving fails, or the
 //! scene remains unready for two minutes after CPU rock generation finishes.
@@ -53,7 +58,10 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_stone::{Mesher, StoneOptions, TEXTURE_SETS};
+use procgena_stone::{
+    Ground, HeightGrid, Mesher, ScatterArea, ScatterInput, StoneOptions, StoneScatter,
+    StoneScatterOptions, TEXTURE_SETS,
+};
 use procgena_stone_bevy::{
     PooledStone, StoneEmbedDepth, StoneGenerating, StoneMaterial, StoneParams, StonePart,
     StonePlugin, StonePool,
@@ -77,6 +85,10 @@ const SCREENSHOT_TIMEOUT: f32 = 120.0;
 const FIELD_SPACING: f32 = 2.5;
 /// Factor applied to the rock size for each press of [ or ].
 const SIZE_STEP: f32 = 1.25;
+/// Width and depth in metres of the ground in scatter mode.
+const SCATTER_SIZE: f32 = 60.0;
+/// Metres between ground heights sampled in scatter mode.
+const SCATTER_CELL: f32 = 0.5;
 /// Linear grey used for rocks without textures.
 const UNTEXTURED_COLOR: [f32; 3] = [0.35, 0.33, 0.3];
 
@@ -102,6 +114,8 @@ struct Viewer {
     pool: bool,
     /// Show a CPU rock next to the same shape from a stone pool.
     twin: bool,
+    /// Draw a stone scatter over rolling ground instead of CPU rocks.
+    scatter: bool,
     /// Apply suggested burial to CPU rocks; leave pool rocks at ground level.
     embed: bool,
     textured: bool,
@@ -138,6 +152,7 @@ fn main() -> AppExit {
         field: false,
         pool: false,
         twin: false,
+        scatter: false,
         embed: false,
         textured: true,
         screenshot: None,
@@ -175,6 +190,7 @@ fn main() -> AppExit {
             "--field" => viewer.field = true,
             "--pool" => viewer.pool = true,
             "--twin" => viewer.twin = true,
+            "--scatter" => viewer.scatter = true,
             "--embed" => viewer.embed = true,
             "--untextured" => viewer.textured = false,
             "--prepass" => camera.mode = RenderMode::Prepass,
@@ -366,6 +382,9 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, mut viewer: ResMut<Viewer>) {
     if keys.just_pressed(KeyCode::KeyG) {
         viewer.embed = !viewer.embed;
     }
+    if keys.just_pressed(KeyCode::KeyC) {
+        viewer.scatter = !viewer.scatter;
+    }
 }
 
 /// Applies burial once when a CPU rock receives its suggested depth, if enabled.
@@ -388,12 +407,25 @@ fn show_rocks(
     viewer: Res<Viewer>,
     shown: Query<Entity, With<Shown>>,
     mut pools: ResMut<Assets<StonePool>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if !viewer.is_changed() {
         return;
     }
     for entity in &shown {
         commands.entity(entity).despawn();
+    }
+
+    if viewer.scatter {
+        show_scatter(
+            &mut commands,
+            &viewer,
+            &mut pools,
+            &mut meshes,
+            &mut materials,
+        );
+        return;
     }
 
     let mut options = StoneOptions {
@@ -477,6 +509,93 @@ fn show_rocks(
     }
 }
 
+/// Spawns the boulder field preset over rolling ground, with one stone pool
+/// per class.
+fn show_scatter(
+    commands: &mut Commands,
+    viewer: &Viewer,
+    pools: &mut Assets<StonePool>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    // Rolling ground with a steeper ridge, sampled once into a grid.
+    let half = f64::from(SCATTER_SIZE) * 0.5;
+    let hills = |p: bevy::math::DVec2| {
+        let (x, z) = (p.x as f32, p.y as f32);
+        0.1 + 2.5 * (1.0 + (0.25 * x).sin()) + 0.8 * (1.0 + (0.11 * z + 0.05 * x).cos())
+    };
+    let ground = HeightGrid::from_fn(
+        bevy::math::DVec2::splat(-half),
+        bevy::math::DVec2::splat(half),
+        f64::from(SCATTER_CELL),
+        hills,
+    );
+
+    // Scatter the stones over the whole grid.
+    let options = StoneScatterOptions::boulder_field();
+    let area = ScatterArea::new(bevy::math::DVec2::ZERO, Vec2::splat(SCATTER_SIZE));
+    let input = ScatterInput::new(&ground, area, viewer.seed);
+    let scatter = match StoneScatter::new(&options, &input) {
+        Ok(scatter) => scatter,
+        Err(error) => {
+            error!("stone scatter failed: {error}");
+            return;
+        }
+    };
+    info!(
+        "scatter seed {}: {} stones",
+        viewer.seed,
+        scatter.instances().len()
+    );
+
+    // Draw the ground as a mesh following the grid.
+    let cuts = (SCATTER_SIZE / SCATTER_CELL) as u32 - 1;
+    let mut mesh = Plane3d::default()
+        .mesh()
+        .size(SCATTER_SIZE, SCATTER_SIZE)
+        .subdivisions(cuts)
+        .build();
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for p in positions.iter_mut() {
+            let at = bevy::math::DVec2::new(f64::from(p[0]), f64::from(p[2]));
+            p[1] = ground.height(at);
+        }
+    }
+    mesh.compute_smooth_normals();
+    commands.spawn((
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(materials.add(Color::srgb(0.36, 0.44, 0.26))),
+        Shown,
+    ));
+
+    // One pool per class, and one pooled stone per placed stone.
+    let handles: Vec<Handle<StonePool>> = options
+        .classes
+        .iter()
+        .map(|class| {
+            let mut stone = class.stone.clone();
+            if !viewer.textured {
+                stone.material.color = UNTEXTURED_COLOR;
+            }
+            let mut pool = StonePool::new(stone, class.variants);
+            pool.stretch_jitter = class.stretch_jitter;
+            pools.add(pool)
+        })
+        .collect();
+    for stone in scatter.instances() {
+        commands.spawn((
+            PooledStone {
+                pool: handles[stone.class].clone(),
+                variant: stone.variant,
+            },
+            Transform::from_matrix(Mat4::from(stone.transform)),
+            Shown,
+        ));
+    }
+}
+
 /// Saves one PNG image and exits when `--screenshot` is set.
 /// Waits for CPU rocks and textures, then gives them extra frames to appear.
 /// Pool rocks get an additional delay because GPU generation is not checked.
@@ -525,7 +644,7 @@ fn screenshot(
             return;
         }
     };
-    let rocks = if viewer.pool {
+    let rocks = if viewer.pool || viewer.scatter {
         !pooled.is_empty()
     } else {
         !parts.is_empty() && generating.is_empty()

@@ -15,6 +15,7 @@ use glam::{DVec2, I64Vec2, IVec2};
 use crate::hash::{GRAPH_SITE_X, GRAPH_SITE_Z, hash2, seed_for};
 use crate::ports::CORNER_CLEARANCE;
 use crate::region::{Boundary, Region, RegionCorner, RegionEdge, RegionId};
+use crate::warp::{BorderWarp, BorderWarpError, side_amplitude, warp_side};
 
 /// The most a site may move from its lattice point, as a share of half
 /// the lattice spacing along each axis (see
@@ -100,6 +101,9 @@ pub struct RegionGraphOptions {
     /// corners become one corner, touched by four or more regions. At
     /// least [`MIN_EDGE`].
     pub min_edge: f64,
+    /// How the borders between regions are made irregular. Corners stay
+    /// where they are; the edges between them wiggle.
+    pub warp: BorderWarp,
 }
 
 impl Default for RegionGraphOptions {
@@ -108,6 +112,7 @@ impl Default for RegionGraphOptions {
             size: 4000.0,
             jitter: 0.6,
             min_edge: MIN_EDGE,
+            warp: BorderWarp::default(),
         }
     }
 }
@@ -123,6 +128,8 @@ pub enum RegionGraphError {
     Jitter(f64),
     /// The minimum edge must be finite and at least [`MIN_EDGE`].
     MinEdge(f64),
+    /// The border warp settings aren't valid.
+    Warp(BorderWarpError),
 }
 
 impl fmt::Display for RegionGraphError {
@@ -138,6 +145,7 @@ impl fmt::Display for RegionGraphError {
                 f,
                 "the minimum edge must be finite and at least {MIN_EDGE} m, not {m}"
             ),
+            Self::Warp(e) => e.fmt(f),
         }
     }
 }
@@ -169,7 +177,7 @@ impl RegionGraphOptions {
         if !(0.0..=MAX_JITTER).contains(&self.jitter) {
             return Err(RegionGraphError::Jitter(self.jitter));
         }
-        Ok(())
+        self.warp.validate().map_err(RegionGraphError::Warp)
     }
 }
 
@@ -307,45 +315,41 @@ impl RegionGraph {
     /// terrain. Both regions on an edge get identical edges, and every
     /// region at a corner gets the identical corner.
     pub fn region(&self, key: RegionKey) -> Region {
-        let mut local = Local::new(self);
-        let Ring {
-            neighbours: ring,
-            corners: raw,
-        } = local.ring(key).clone();
-        let n = ring.len();
+        self.build(&mut Local::new(self), key)
+    }
 
-        // Each raw corner of the cell, merged with any corners near it.
-        // Side `i`, shared with `ring[i]`, runs from corner `i` to `i + 1`.
-        let corners: Vec<RegionCorner> = raw.into_iter().map(|c| local.corner(c)).collect();
-
-        // Sides whose two ends merged into one corner vanish.
-        let mut points = Vec::with_capacity(n);
-        let mut edges = Vec::with_capacity(n);
-        let mut kept = Vec::with_capacity(n);
-        for i in 0..n {
-            let (a, b) = (&corners[i], &corners[(i + 1) % n]);
-            if a.id == b.id {
-                continue;
-            }
-            points.push(a.position);
+    /// The region `key`, with its borders warped, reusing the cells and
+    /// corners already worked out in `local`.
+    fn build(&self, local: &mut Local, key: RegionKey) -> Region {
+        let sides = local.sides(key).to_vec();
+        let mut points = Vec::new();
+        let mut edges = Vec::with_capacity(sides.len());
+        let mut corners: Vec<RegionCorner> = Vec::with_capacity(sides.len());
+        for side in &sides {
+            let (a, b) = (side.from.position, side.to.position);
+            let amplitude = local.amplitude(side);
+            let polyline = warp_side(a, b, amplitude, &self.options.warp, self.seed);
+            points.extend_from_slice(&polyline[..polyline.len() - 1]);
             edges.push(
-                RegionEdge::new(key.id(), Some(ring[i].id()), [a.position, b.position])
+                RegionEdge::new(key.id(), Some(side.neighbour.id()), polyline)
                     .expect("two distinct corners make an edge"),
             );
-            if !kept.iter().any(|c: &RegionCorner| c.id == a.id) {
-                kept.push(a.clone());
+            if !corners.iter().any(|c| c.id == side.from.id) {
+                corners.push(side.from.clone());
             }
         }
         Region {
             id: key.id(),
             boundary: Boundary::Polygon(points),
             edges,
-            corners: kept,
+            corners,
         }
     }
 
     /// The region holding `p`. Points on a border may go to either side.
     pub fn region_at(&self, p: DVec2) -> RegionKey {
+        let mut local = Local::new(self);
+
         // The regions nearest first; merged corners shift outlines away
         // from the plain Voronoi cells, so the owner isn't always the
         // nearest site, but it is close by.
@@ -355,19 +359,61 @@ impl RegionGraph {
             .map(|k| (self.site(k).distance_squared(p), k))
             .collect();
         candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-        candidates
+        let straight = candidates
             .iter()
             .map(|&(_, k)| k)
-            .find(|&k| self.region(k).boundary.contains(p))
-            .unwrap_or(candidates[0].1)
+            .find(|&k| local.outline(k).contains(p))
+            .unwrap_or(candidates[0].1);
+
+        // Warping moves a border by at most the amplitude, and only between
+        // the two regions on it, so only a point that near a border can
+        // belong to one of the owner's neighbours instead.
+        let amplitude = self.options.warp.amplitude;
+        if amplitude == 0.0 || local.outline(straight).distance_to_border(p) > amplitude {
+            return straight;
+        }
+        let near: Vec<RegionKey> = std::iter::once(straight)
+            .chain(local.sides(straight).iter().map(|s| s.neighbour))
+            .collect();
+        near.into_iter()
+            .find(|&k| self.build(&mut local, k).boundary.contains(p))
+            .unwrap_or(straight)
+    }
+
+    /// How far the edge between `key` and its `neighbour` may be warped,
+    /// in metres: the amplitude of the warp, less wherever the edges
+    /// around it leave less room. For tests that report how often edges
+    /// are held back.
+    #[cfg(test)]
+    pub(crate) fn warp_amplitude(&self, key: RegionKey, neighbour: RegionKey) -> Option<f64> {
+        let mut local = Local::new(self);
+        let side = local
+            .sides(key)
+            .iter()
+            .find(|s| s.neighbour == neighbour)?
+            .clone();
+        Some(local.amplitude(&side))
     }
 }
 
-/// Raw Voronoi cells worked out while building one region, kept so each
-/// is worked out once.
+/// One straight side of a region's unwarped outline.
+#[derive(Debug, Clone)]
+struct Side {
+    /// The corner it starts at, going anticlockwise round the region.
+    from: RegionCorner,
+    /// The corner it ends at.
+    to: RegionCorner,
+    /// The region on the other side.
+    neighbour: RegionKey,
+}
+
+/// Raw Voronoi cells, merged corners and unwarped outlines worked out while
+/// building regions, kept so each is worked out once.
 struct Local<'a> {
     graph: &'a RegionGraph,
     rings: HashMap<RegionKey, Ring>,
+    corners: HashMap<Corner, RegionCorner>,
+    sides: HashMap<RegionKey, Vec<Side>>,
 }
 
 impl<'a> Local<'a> {
@@ -375,7 +421,64 @@ impl<'a> Local<'a> {
         Self {
             graph,
             rings: HashMap::new(),
+            corners: HashMap::new(),
+            sides: HashMap::new(),
         }
+    }
+
+    /// The straight sides of region `key`'s unwarped outline, anticlockwise.
+    /// Sides whose two ends merged into one corner are left out.
+    fn sides(&mut self, key: RegionKey) -> &[Side] {
+        if !self.sides.contains_key(&key) {
+            let Ring {
+                neighbours,
+                corners: raw,
+            } = self.ring(key).clone();
+            // Side `i`, shared with `neighbours[i]`, runs from corner `i` to
+            // `i + 1`.
+            let corners: Vec<RegionCorner> = raw.into_iter().map(|c| self.corner(c)).collect();
+            let n = neighbours.len();
+            let sides = (0..n)
+                .filter(|&i| corners[i].id != corners[(i + 1) % n].id)
+                .map(|i| Side {
+                    from: corners[i].clone(),
+                    to: corners[(i + 1) % n].clone(),
+                    neighbour: neighbours[i],
+                })
+                .collect();
+            self.sides.insert(key, sides);
+        }
+        &self.sides[&key]
+    }
+
+    /// Region `key`'s unwarped outline.
+    fn outline(&mut self, key: RegionKey) -> Boundary {
+        Boundary::Polygon(self.sides(key).iter().map(|s| s.from.position).collect())
+    }
+
+    /// How far `side` may be warped, from the sides of every region at
+    /// either of its corners: the same whichever region on it asks.
+    fn amplitude(&mut self, side: &Side) -> f64 {
+        let warp = self.graph.options.warp;
+        if warp.amplitude == 0.0 {
+            return 0.0;
+        }
+        let around: BTreeSet<RegionId> = side
+            .from
+            .incident
+            .iter()
+            .chain(&side.to.incident)
+            .copied()
+            .collect();
+        let mut pieces = Vec::new();
+        for id in around {
+            pieces.extend(
+                self.sides(RegionKey::from_id(id))
+                    .iter()
+                    .map(|s| (s.from.position, s.to.position)),
+            );
+        }
+        side_amplitude(side.from.position, side.to.position, pieces, &warp)
     }
 
     /// The raw Voronoi cell of `key`: the same for whichever region asks,
@@ -403,6 +506,16 @@ impl<'a> Local<'a> {
     /// merged in: at the mean of the merged raw corners (summed in sorted
     /// order), touched by every region touching any of them.
     fn corner(&mut self, corner: Corner) -> RegionCorner {
+        if let Some(known) = self.corners.get(&corner) {
+            return known.clone();
+        }
+        let merged = self.merge(corner.clone());
+        self.corners.insert(corner, merged.clone());
+        merged
+    }
+
+    /// [`corner`](Self::corner), worked out afresh.
+    fn merge(&mut self, corner: Corner) -> RegionCorner {
         let min_edge = self.graph.options.min_edge;
         let mut merged: BTreeSet<Corner> = BTreeSet::from([corner.clone()]);
         let mut todo = vec![corner];
@@ -577,19 +690,46 @@ fn circumcentre(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::warp::segment_distance;
+
+    /// No border warp.
+    const STRAIGHT: BorderWarp = BorderWarp {
+        amplitude: 0.0,
+        wavelength: 800.0,
+    };
+
+    /// The strongest border warp allowed at the default wavelength.
+    fn strongest_warp() -> BorderWarp {
+        let wavelength = BorderWarp::default().wavelength;
+        let Err(BorderWarpError::TooSteep { most, .. }) = (BorderWarp {
+            amplitude: 1e6,
+            wavelength,
+        })
+        .validate() else {
+            unreachable!("a huge amplitude is too steep")
+        };
+        BorderWarp {
+            amplitude: most,
+            wavelength,
+        }
+    }
 
     /// Graphs with no jitter, the default and the most, each with no
-    /// merging (raw cells) and the default minimum edge.
+    /// merging (raw cells) and the default minimum edge, and each with
+    /// straight borders and the strongest warp.
     fn graphs() -> Vec<RegionGraph> {
         let mut out = Vec::new();
         for jitter in [0.0, 0.6, MAX_JITTER] {
             for min_edge in [0.0, MIN_EDGE] {
-                let options = RegionGraphOptions {
-                    size: 2000.0,
-                    jitter,
-                    min_edge,
-                };
-                out.push(RegionGraph::unfloored(options, 7).unwrap());
+                for warp in [STRAIGHT, strongest_warp()] {
+                    let options = RegionGraphOptions {
+                        size: 2000.0,
+                        jitter,
+                        min_edge,
+                        warp,
+                    };
+                    out.push(RegionGraph::unfloored(options, 7).unwrap());
+                }
             }
         }
         out
@@ -745,7 +885,15 @@ mod tests {
     fn assert_simple(graph: &RegionGraph, keys: impl Iterator<Item = RegionKey>) {
         let cross = |a: DVec2, b: DVec2, c: DVec2, d: DVec2| {
             let side = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
-            side(c, d, a) * side(c, d, b) <= 0.0 && side(a, b, c) * side(a, b, d) <= 0.0
+            let (s1, s2) = (side(c, d, a), side(c, d, b));
+            let (s3, s4) = (side(a, b, c), side(a, b, d));
+            if [s1, s2, s3, s4].iter().all(|&s| s == 0.0) {
+                // On one line: they meet only if they overlap.
+                let (lo, hi) = (a.min(b), a.max(b));
+                let (lo2, hi2) = (c.min(d), c.max(d));
+                return lo.cmple(hi2).all() && lo2.cmple(hi).all();
+            }
+            s1 * s2 <= 0.0 && s3 * s4 <= 0.0
         };
         for key in keys {
             let Boundary::Polygon(points) = graph.region(key).boundary else {
@@ -772,7 +920,12 @@ mod tests {
                     }
                     let (a, b) = (points[i], points[(i + 1) % n]);
                     let (c, d) = (points[j], points[(j + 1) % n]);
-                    assert!(!cross(a, b, c, d), "{key:?}: sides {i} and {j} meet");
+                    assert!(
+                        !cross(a, b, c, d),
+                        "{key:?}: sides {i} and {j} meet; {:?}; {:?}",
+                        graph.options,
+                        &points[i.saturating_sub(2)..(j + 3).min(n)]
+                    );
                 }
             }
         }
@@ -805,6 +958,7 @@ mod tests {
             size: 2000.0,
             jitter: 0.0,
             min_edge: 0.0,
+            warp: STRAIGHT,
         };
         let graph = RegionGraph::unfloored(options, 1)
             .unwrap()
@@ -933,6 +1087,7 @@ mod tests {
         let unjittered = RegionGraph::new(
             RegionGraphOptions {
                 jitter: 0.0,
+                warp: STRAIGHT,
                 ..options
             },
             5,
@@ -1015,5 +1170,148 @@ mod tests {
             .validate_unfloored()
             .is_err()
         );
+        // So are the warp's settings.
+        assert!(matches!(
+            RegionGraphOptions {
+                warp: BorderWarp {
+                    amplitude: -1.0,
+                    ..ok.warp
+                },
+                ..ok
+            }
+            .validate(),
+            Err(RegionGraphError::Warp(BorderWarpError::Amplitude(_)))
+        ));
+    }
+
+    /// The default graph at the most jitter, with the strongest warp.
+    fn warped(seed: u32) -> RegionGraph {
+        let options = RegionGraphOptions {
+            jitter: MAX_JITTER,
+            warp: strongest_warp(),
+            ..Default::default()
+        };
+        RegionGraph::new(options, seed).unwrap()
+    }
+
+    /// The distance from `p` to the line through `a` and `b`.
+    fn off_line(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+        (p - a).perp_dot(b - a).abs() / a.distance(b)
+    }
+
+    #[test]
+    fn both_regions_get_the_same_warped_polyline_for_an_edge() {
+        let graph = warped(3);
+        let bits = |p: &[DVec2]| {
+            p.iter()
+                .map(|q| (q.x.to_bits(), q.y.to_bits()))
+                .collect::<Vec<_>>()
+        };
+        let (mut edges, mut moved) = (0, 0);
+        for key in block(3) {
+            let region = graph.region(key);
+            for edge in &region.edges {
+                let other = graph.region(key_of(edge.neighbor.unwrap()));
+                let theirs = other
+                    .edges
+                    .iter()
+                    .find(|e| e.id == edge.id)
+                    .expect("the neighbour has the edge");
+                assert_eq!(bits(&theirs.polyline), bits(&edge.polyline), "{key:?}");
+                // The edge really is warped, not left straight.
+                let (a, b) = (edge.polyline[0], *edge.polyline.last().unwrap());
+                let furthest = edge
+                    .polyline
+                    .iter()
+                    .map(|&p| off_line(p, a, b))
+                    .fold(0.0, f64::max);
+                edges += 1;
+                moved += usize::from(furthest > 10.0);
+            }
+        }
+        assert!(
+            2 * moved > edges,
+            "only {moved} of {edges} edges are warped"
+        );
+    }
+
+    #[test]
+    fn warped_borders_keep_their_distance() {
+        // Borders that don't meet at a corner stay at least the shortest
+        // edge apart, or as far apart as they were if that was less, so no
+        // region closes up.
+        for seed in [3, 8] {
+            let graph = warped(seed);
+            for key in block(2) {
+                let region = graph.region(key);
+                for (i, e) in region.edges.iter().enumerate() {
+                    for g in &region.edges[i + 1..] {
+                        if [e.start, e.end]
+                            .iter()
+                            .any(|c| [g.start, g.end].contains(c))
+                        {
+                            continue;
+                        }
+                        let chord = |r: &RegionEdge| (r.polyline[0], *r.polyline.last().unwrap());
+                        let ((a, b), (c, d)) = (chord(e), chord(g));
+                        let straight = segment_distance(a, b, c, d);
+                        let warped = e
+                            .polyline
+                            .windows(2)
+                            .flat_map(|p| {
+                                g.polyline
+                                    .windows(2)
+                                    .map(move |q| segment_distance(p[0], p[1], q[0], q[1]))
+                            })
+                            .fold(f64::INFINITY, f64::min);
+                        assert!(
+                            warped >= straight.min(MIN_EDGE) - 1e-6,
+                            "{key:?}: {warped} m apart, {straight} m unwarped"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn edges_held_back_by_the_edges_around_them_are_counted() {
+        // How often an edge gets less than the full warp, and how often
+        // none, since short or sharply angled edges are held back.
+        for (name, warp) in [
+            ("default", BorderWarp::default()),
+            ("strongest", strongest_warp()),
+        ] {
+            for jitter in [0.6, MAX_JITTER] {
+                let options = RegionGraphOptions {
+                    jitter,
+                    warp,
+                    ..Default::default()
+                };
+                let graph = RegionGraph::new(options, 3).unwrap();
+                let (mut edges, mut half, mut none) = (0, 0, 0);
+                for key in block(5) {
+                    let mut local = Local::new(&graph);
+                    let neighbours: Vec<RegionKey> =
+                        local.sides(key).iter().map(|s| s.neighbour).collect();
+                    for neighbour in neighbours.into_iter().filter(|&n| key < n) {
+                        let amplitude = graph.warp_amplitude(key, neighbour).unwrap();
+                        edges += 1;
+                        half += usize::from(amplitude < 0.5 * warp.amplitude);
+                        none += usize::from(amplitude == 0.0);
+                    }
+                }
+                println!(
+                    "{name} warp, jitter {jitter}: {edges} edges, {half} under half the \
+                     amplitude, {none} not warped"
+                );
+                // Measured: 6–11% held under half, none unwarped.
+                assert!(
+                    100 * half <= 15 * edges,
+                    "{half} of {edges} held under half"
+                );
+                assert!(50 * none <= edges, "{none} of {edges} not warped");
+            }
+        }
     }
 }

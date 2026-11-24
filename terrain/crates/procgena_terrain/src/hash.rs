@@ -86,6 +86,8 @@ pub(crate) const ELEVATION_UPLIFT: &str = "terrain.elevation.uplift";
 pub(crate) const GRAPH_SITE_X: &str = "terrain.graph.site_x";
 /// How far region sites move along z.
 pub(crate) const GRAPH_SITE_Z: &str = "terrain.graph.site_z";
+/// The irregularities of region borders made by the border warp.
+pub(crate) const GRAPH_BORDER_WARP: &str = "terrain.graph.border_warp";
 /// The gully cells' jitter. A fixed seed, the same in every world, so
 /// gullies match across borders whatever the neighbours' seeds.
 pub(crate) const GULLY_CELLS: &str = "terrain.gully.cells";
@@ -104,6 +106,7 @@ pub(crate) const KEYS: &[&str] = &[
     ELEVATION_UPLIFT,
     GRAPH_SITE_X,
     GRAPH_SITE_Z,
+    GRAPH_BORDER_WARP,
     GULLY_CELLS,
     SEAM_DETAIL,
 ];

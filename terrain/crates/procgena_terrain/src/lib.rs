@@ -76,6 +76,7 @@
 //! The default `rayon` feature samples tiles on several threads; the results
 //! are the same without it.
 
+mod border;
 mod calibration;
 mod carve;
 mod converge;
@@ -99,6 +100,7 @@ mod seam;
 mod spike_erosion;
 mod stitch;
 mod terrain;
+mod warp;
 
 pub use carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, RoadTags};
 pub use converge::{
@@ -128,3 +130,4 @@ pub use seam::{
 };
 pub use stitch::{RegionSpec, StitchError, StitchedWorld};
 pub use terrain::{HeightField, HeightTile, Terrain, TerrainError, TerrainGenerator};
+pub use warp::{BorderWarp, BorderWarpError, MIN_WARP_WAVELENGTH, warp_borders};

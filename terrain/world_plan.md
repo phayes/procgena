@@ -463,12 +463,35 @@ impl HeightField for WorldTerrain { … }
   test pass. Hand-placed sites widen the search by how far they moved, as
   real jitter does. The regular-hexagon test allows 1 mm, the snapping.
 
+### W3 so far: border pull along whole edges (2026-11-23)
+
+- **What changed** (`src/border.rs`): a border pulls on nearby ground by
+  an integral along each straight piece, in closed form, instead of once
+  per piece. Cutting an edge into more pieces changes heights by under
+  1e-9 m, which the warp needs. Pieces are found through a grid index with
+  cells one reach wide, so a height reads only nearby pieces.
+- **Soft distance:** distance power 16 (chosen from a sweep of 8–24). On
+  the bent test border it is up to 5.8% long outside convex corners and
+  3.9% short inside concave ones (4.2% short in a region-graph cell); the
+  old per-piece soft minimum was about 8% short near any bend. The crease
+  along a concave bend's bisector stays smooth (slope change 0.51 across
+  ±10 m at 100 m out). A correction for the convex overshoot is a later
+  option, once warped borders exist.
+- **Cost:** 2.0–2.4× the old time per height, whatever the power.
+- **Height changes** (uncarved, against before): 121 m in the two-terrain
+  world, 697 m outside a convex bend, where the relief fade reaches; 31 m
+  at the triple junction; 2.6 m in hills into plains. Away from corners
+  and bends, at most 2.7 m.
+- **Seeds:** the neighbouring-rivers test moved from seed 30 to 217;
+  `RIVER_SEEDS` are unchanged.
+- **Still to do:** the border warp itself and its tests.
+
 ## Open questions
 
 1. ~~**Biome choice:** field first with overrides, or biomes first?~~
    Decided 2026-11-23: field first, and the World makes the choice (see
    "Choosing biomes").
-2. **Region size and shape:** a jittered square lattice gives fairly even
+2. **Region size and shape:** a jittered staggered (hexagonal) lattice gives fairly even
    regions. Is that wanted, or should region sizes vary more (a
    multi-scale lattice: large regions with occasional small ones)?
 3. **Moisture:** include it now as a Biome selector (deserts, wetlands)

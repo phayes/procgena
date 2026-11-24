@@ -437,6 +437,37 @@ fn unit_interval(field: &'static str, value: f32) -> Result<(), OptionsError> {
     }
 }
 
+impl StoneOptions {
+    /// Returns the settings of shape `variant` in a set of related rocks
+    /// built from these settings.
+    ///
+    /// Variant `v` has seed `seed + v` (wrapping), and each of its
+    /// [`stretch`](Self::stretch) axes is reduced by a repeatable random share
+    /// of up to `stretch_jitter`: 0.3 shrinks each axis to between 70% and
+    /// 100%. Pass a `stretch_jitter` of at least 0 and below 1; this method does
+    /// not check it.
+    pub fn variant(&self, variant: u32, stretch_jitter: f32) -> StoneOptions {
+        let mut options = self.clone();
+        options.seed = self.seed.wrapping_add(variant);
+        for (axis, stretch) in options.stretch.iter_mut().enumerate() {
+            *stretch *= 1.0 - stretch_jitter * unit_hash(options.seed, axis as u32);
+        }
+        options
+    }
+}
+
+/// Returns a value in `[0, 1)` that depends only on `seed` and `axis`.
+fn unit_hash(seed: u32, axis: u32) -> f32 {
+    // Mix the inputs with the "lowbias32" integer hash.
+    let mut x = seed ^ axis.wrapping_mul(0x9e37_79b9);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7feb_352d);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846c_a68b);
+    x ^= x >> 16;
+    (x >> 8) as f32 / (1u32 << 24) as f32
+}
+
 // ---------------------------------------------------------------------------
 // JSON support
 
