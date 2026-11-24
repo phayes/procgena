@@ -1265,16 +1265,16 @@ where the details are.
     **Stretch (as built)** keeps a hand-made layout looking the same
     at every scale class. **Fixed metres** keeps a bump a known real
     size, but its place in the landscape changes with scale.
-    Recommendation: stretch, matching D5's rule that landscape lengths
-    scale and objects don't.
+    **Decided by the user (2026-11-24): bumps stay in real metres.**
+    Built in W0 (5ad5388).
 26. **How World pins name a region (W0).** A pin forces a region to one
     Biome ("this region is a mountain"). W0 names the region by its
     id number, which is exact but means nothing to someone writing the
     file by hand. The alternatives are a lattice cell (`[12, -3]`) or a
     world point (the region containing `x, z`). A point is easiest to
     write and survives region-size changes best, but two pins may land in
-    the same region. Recommendation: accept a point in files and resolve
-    it to the id when the World loads.
+    the same region. **Decided by the user (2026-11-24): a pin takes
+    either a point or a region id.** Built in W0 (5ad5388).
 27. **Making fruit cheap to draw (fruit B2 measured).** 1,007 willows, the
     camera plus four shadow cascades, on an M1 Max: catkins add about
     32 ms a frame near the grove and 10 ms in the middle distance, while
