@@ -55,6 +55,9 @@ pub struct BuildState {
     pub clump: BuildStatus,
     /// The mushroom's build status.
     pub mushroom: BuildStatus,
+    /// The fruit or flower cluster's build status, for the Fruit and
+    /// Flower tabs, which share one view.
+    pub fruit: BuildStatus,
     /// The grove's build status, with every tree's meshes added together.
     pub grove: BuildStatus,
     /// How many trees the last built grove has.
@@ -142,6 +145,7 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
             ViewerEvent::MushroomBuilt(result) => {
                 state.mushroom = BuildStatus::from_result(result);
             }
+            ViewerEvent::FruitBuilt(result) => state.fruit = BuildStatus::from_result(result),
             ViewerEvent::GroveBuilt(result) => {
                 if let Ok(stats) = result {
                     state.grove_trees = stats.trees;
@@ -285,6 +289,8 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
         StudioTab::TreeScatter => (&state.grove, "tree Scatter", None),
         StudioTab::Clumps => (&state.clump, "clump", None),
         StudioTab::Mushrooms => (&state.mushroom, "mushroom", Some(state.mushroom_lod_shown)),
+        StudioTab::Fruit => (&state.fruit, "fruit", None),
+        StudioTab::Flowers => (&state.fruit, "flower", None),
         StudioTab::Deadwood => (&state.deadwood, "dead wood", Some(state.deadwood_lod_shown)),
         StudioTab::Ecotope => return state.ecotope.line(),
         StudioTab::Trees | StudioTab::Plant | StudioTab::PlantScatter => {
@@ -492,6 +498,10 @@ mod tests {
                 levels: vec![size(3000), size(800)],
                 build_time: Duration::from_millis(5),
             }),
+            fruit: BuildStatus::Built(BuildStats {
+                levels: vec![size(600), size(200)],
+                build_time: Duration::from_millis(1),
+            }),
             grove: BuildStatus::Built(BuildStats {
                 levels: vec![size(120_000), size(30_000)],
                 build_time: Duration::from_millis(900),
@@ -522,6 +532,10 @@ mod tests {
                 "LOD 1 · 1,000 vertices · 500 triangles · 12 ms".into(),
                 false
             )
+        );
+        assert_eq!(
+            status_line(&state, StudioTab::Flowers),
+            ("600 vertices · 300 triangles · 1 ms".into(), false)
         );
         assert_eq!(
             status_line(&state, StudioTab::Stones),

@@ -169,6 +169,7 @@ impl Plugin for ScenePlugin {
             procgena_biome_bevy::EcotopePlugin,
             ecotope::EcotopeScenePlugin,
         ))
+        .add_plugins(procgena_fruit_bevy::FruitPlugin)
         .add_plugins(terrain::plugin())
         .add_systems(
             Update,
@@ -232,6 +233,7 @@ impl Plugin for ScenePlugin {
         .add_observer(subject::report_tree)
         .add_observer(subject::report_stone)
         .add_observer(subject::report_mushroom)
+        .add_observer(subject::report_fruit)
         .add_observer(subject::report_deadwood)
         .add_observer(subject::report_grove)
         .add_observer(clump::report_clump);

@@ -4,6 +4,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::Aabb;
 use bevy::math::Vec3;
 use bevy::mesh::{Indices, Mesh, MeshVertexAttribute, PrimitiveTopology, VertexFormat};
+use procgena_tree::procgena_fruit::FruitMesh;
 use procgena_tree::{BarkMaterial, BarkOptions, MeshBuffers};
 
 /// Wind controls stored on each vertex: trunk bend, branch movement weight,
@@ -105,6 +106,24 @@ pub fn leaf_mesh(buffers: &MeshBuffers) -> Mesh {
 pub fn cluster_mesh(buffers: &MeshBuffers) -> Mesh {
     let uvs = buffers.uvs.iter().map(|&[u, v]| [u, 1.0 - v]).collect();
     base_mesh(buffers, uvs).with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, buffers.colors.clone())
+}
+
+/// Creates a Bevy mesh of one fruit or flower cluster specimen at one
+/// detail level, in the cluster's own frame, for drawing attached to trees
+/// with [`fruit_material`](crate::fruit_material) or
+/// [`flower_material`](crate::flower_material). Its wind input holds only
+/// each vertex's own flutter; the tree adds its branch's sway where the
+/// cluster hangs.
+pub fn attached_cluster_mesh(mesh: &FruitMesh) -> Mesh {
+    cluster_mesh(&MeshBuffers {
+        positions: mesh.positions.clone(),
+        normals: mesh.normals.clone(),
+        uvs: mesh.uvs.clone(),
+        wind: mesh.flutter.iter().map(|&f| [0.0, 0.0, 0.0, f]).collect(),
+        colors: mesh.colors.clone(),
+        indices: mesh.indices.clone(),
+        ..MeshBuffers::default()
+    })
 }
 
 /// Returns a bounding box in tree coordinates that contains every rotation of

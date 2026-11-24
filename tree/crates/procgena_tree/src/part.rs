@@ -169,11 +169,11 @@ impl TreeMesh {
     /// Use these when drawing fixed shapes; skip them when rotating the main billboards
     /// toward the camera.
     ///
-    /// Bark selections copy their fallback strips. [`MeshPart::Leaves`] and
-    /// [`MeshPart::Fruit`] copy the corresponding [`BillboardCull`](crate::BillboardCull)
-    /// buffers. [`MeshPart::Flowers`] and selections without crossed shapes return
-    /// an empty part. [`PartMesh::source_vertices`] indexes the matching fallback
-    /// buffer, not the main mesh.
+    /// Bark selections copy their fallback strips, and [`MeshPart::Leaves`]
+    /// copies [`BillboardCull::leaves`](crate::BillboardCull::leaves).
+    /// [`MeshPart::Fruit`], [`MeshPart::Flowers`] and selections without
+    /// crossed shapes return an empty part. [`PartMesh::source_vertices`]
+    /// indexes the matching fallback buffer, not the main mesh.
     ///
     /// # Panics
     ///
@@ -182,8 +182,7 @@ impl TreeMesh {
         let cull = &self.billboard_cull;
         let whole = match part {
             MeshPart::Leaves => Some(&cull.leaves),
-            MeshPart::Fruit => Some(&cull.fruit),
-            MeshPart::Flowers => return PartMesh::default(),
+            MeshPart::Fruit | MeshPart::Flowers => return PartMesh::default(),
             MeshPart::Trunk | MeshPart::Branches | MeshPart::BranchLevel(_) => None,
         };
         if let Some(buffers) = whole {

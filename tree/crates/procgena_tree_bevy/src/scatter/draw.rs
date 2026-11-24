@@ -1,21 +1,26 @@
 //! Draws groves through the shared instanced renderer of
 //! `procgena_core_bevy`: each grove entity gets an [`InstancedScatter`] with
 //! one slot per species variant (its detail levels, then its impostor once
-//! baked) and one copy per placed tree that isn't promoted.
+//! baked) and one copy per placed tree that isn't promoted, then one slot
+//! per fruit or flower cluster specimen the variants show, drawn by the
+//! [`InstancedAttached`] rows of the variants' slots.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
+use std::sync::Arc;
 
 use bevy::camera::primitives::Aabb;
 use bevy::platform::hash::FixedHasher;
 use bevy::prelude::*;
 use procgena_core::{CopyAddress, Lod};
 use procgena_core_bevy::instanced::{
-    InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, PartMesh, SpecimenCache,
+    InstancedAttached, InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, PartMesh,
+    SpecimenCache,
 };
 
 use super::promote::{PromotedAs, PromotedTree};
 use super::{TreeScatterAssets, TreeScatterInstances, TreeScatterVariant};
+use crate::clusters::grove_clusters;
 use crate::spawn::{SpawnSettings, TreeCache, TreeGenerating};
 
 /// How much a variant's bounding sphere is enlarged to cover wind sway.
@@ -40,6 +45,7 @@ pub(crate) fn update_grove_draws(
         Ref<TreeScatterInstances>,
         Ref<TreeScatterAssets>,
         Option<&InstancedScatter>,
+        Option<&InstancedAttached>,
         Option<&GroveDraw>,
     )>,
     gone: Query<Entity, (With<GroveDraw>, Without<TreeScatterInstances>)>,
@@ -51,7 +57,7 @@ pub(crate) fn update_grove_draws(
     for entity in &gone {
         commands
             .entity(entity)
-            .remove::<(GroveDraw, InstancedScatter)>();
+            .remove::<(GroveDraw, InstancedScatter, InstancedAttached)>();
     }
 
     // Promoted trees that draw themselves, which their groves leave out.
@@ -64,28 +70,32 @@ pub(crate) fn update_grove_draws(
         }
     }
 
-    // Rebuild what changed: the slots when the variants did, the copies when
-    // the trees or the promoted trees did.
-    for (entity, instances, assets, current, drawn) in &groves {
+    // Rebuild what changed: the slots and rows when the variants did, the
+    // copies when the trees or the promoted trees did.
+    for (entity, instances, assets, current, current_rows, drawn) in &groves {
         let hide = hidden.remove(&entity).unwrap_or_default();
-        let current = current.filter(|_| drawn.is_some());
+        let current = current.zip(current_rows).filter(|_| drawn.is_some());
         let copies = match current {
-            Some(scatter) if !instances.is_changed() && drawn.is_some_and(|d| d.hidden == hide) => {
+            Some((scatter, _))
+                if !instances.is_changed() && drawn.is_some_and(|d| d.hidden == hide) =>
+            {
                 scatter.copies.clone()
             }
             _ => grove_copies(&instances, &hide, settings.lod.reference_size),
         };
-        let slots = match current {
-            Some(scatter) if !assets.is_changed() => scatter.slots.clone(),
+        let (slots, rows) = match current {
+            Some((scatter, rows)) if !assets.is_changed() => (scatter.slots.clone(), rows.clone()),
             _ => grove_slots(&assets, &settings, &cache, &mut specimens),
         };
-        let unchanged = current.is_some_and(|scatter| {
-            std::sync::Arc::ptr_eq(&scatter.copies, &copies)
-                && std::sync::Arc::ptr_eq(&scatter.slots, &slots)
+        let unchanged = current.is_some_and(|(scatter, current_rows)| {
+            Arc::ptr_eq(&scatter.copies, &copies)
+                && Arc::ptr_eq(&scatter.slots, &slots)
+                && Arc::ptr_eq(&current_rows.tables, &rows.tables)
         });
         if !unchanged {
             commands.entity(entity).insert((
                 InstancedScatter { slots, copies },
+                rows,
                 GroveDraw { hidden: hide },
             ));
         }
@@ -95,15 +105,16 @@ pub(crate) fn update_grove_draws(
 /// One slot per variant of a grove: its parts at every level, and its
 /// impostor as one more level once baked. A variant that isn't ready has no
 /// parts and draws nothing. Each ready variant's parts are cached by its
-/// specimen and level.
+/// specimen and level. Then one slot per cluster specimen the variants
+/// show, and the variants' cluster rows.
 fn grove_slots(
     assets: &TreeScatterAssets,
     settings: &SpawnSettings,
     cache: &TreeCache,
     specimens: &mut SpecimenCache,
-) -> std::sync::Arc<[InstancedSlot]> {
+) -> (Arc<[InstancedSlot]>, InstancedAttached) {
     let mesh_levels = settings.lod.levels.len() as u32;
-    assets
+    let mut slots: Vec<InstancedSlot> = assets
         .variants()
         .iter()
         .map(|variant| {
@@ -123,7 +134,21 @@ fn grove_slots(
                 parts,
             }
         })
-        .collect()
+        .collect();
+
+    // The clusters, after the variants.
+    let (cluster_slots, tables) = grove_clusters(
+        assets.variants().iter().map(|variant| variant.clusters()),
+        &settings.lod.levels,
+        slots.len() as u32,
+    );
+    slots.extend(cluster_slots);
+    (
+        slots.into(),
+        InstancedAttached {
+            tables: tables.into(),
+        },
+    )
 }
 
 /// A variant's detail levels and parts: its mesh levels, then its impostor

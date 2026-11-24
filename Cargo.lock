@@ -5367,6 +5367,8 @@ dependencies = [
  "procgena_core",
  "procgena_deadwood",
  "procgena_deadwood_bevy",
+ "procgena_fruit",
+ "procgena_fruit_bevy",
  "procgena_impostor",
  "procgena_mushroom",
  "procgena_mushroom_bevy",
@@ -5460,6 +5462,7 @@ dependencies = [
  "naga",
  "procgena_core",
  "wesl",
+ "wgpu",
 ]
 
 [[package]]
@@ -5484,6 +5487,29 @@ dependencies = [
  "procgena_core_bevy",
  "procgena_deadwood",
  "procgena_specimen",
+]
+
+[[package]]
+name = "procgena_fruit"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+ "gltf",
+ "gltf-json",
+ "procgena_core",
+ "procgena_specimen",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "procgena_fruit_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "procgena_core",
+ "procgena_core_bevy",
+ "procgena_fruit",
 ]
 
 [[package]]
@@ -5618,6 +5644,7 @@ dependencies = [
  "gltf-json",
  "naga",
  "procgena_core",
+ "procgena_fruit",
  "procgena_specimen",
  "serde",
  "serde_json",

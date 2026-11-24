@@ -247,8 +247,7 @@
 //! At the farthest level (LOD3), thin branches are omitted and the remaining branches
 //! use flat strips. With textures configured, those strips use a single colour
 //! approximating the bark texture, and fewer, larger leaf cards show clumps of leaves.
-//! Fruit above the size threshold become flat hexagons without stalks. These flat
-//! shapes, called billboards, turn toward the camera to help preserve the tree’s
+//! These flat shapes, called billboards, turn toward the camera to help preserve the tree’s
 //! outline as the view changes. For shadow rendering, they turn toward the light.
 //! To see shadows at this distance, extend the directional light’s shadow cascades
 //! far enough to cover the trees.
@@ -342,6 +341,7 @@
 //! To load your own file, append `-- path/to/tree.glb`. Hold the left mouse button
 //! to look around, and use WASD and Q/E to fly.
 
+mod clusters;
 #[cfg(feature = "gltf")]
 mod gltf;
 mod impostor;
@@ -360,9 +360,9 @@ use procgena_tree::{TextureCompression, WIND_WESL};
 
 pub use impostor::default_tree_impostor;
 pub use material::{
-    BarkTextures, CARD_BAKE, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
-    average_bark_material, bake_copy, bark_material, card_material, flower_material,
-    fruit_material, leaf_material, trellis_material,
+    BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
+    average_bark_material, bake_copy, bark_material, flower_material, fruit_material,
+    leaf_material, trellis_material,
 };
 pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
@@ -485,9 +485,8 @@ impl Plugin for TreePlugin {
         }
         let impostor = settings.impostor;
 
-        // Impostors and cluster card pictures, unless the app added the
-        // plugin itself with settings of its own. The tree shaders always
-        // import its layout functions.
+        // Impostors, unless the app added the plugin itself with settings
+        // of its own.
         if !app.is_plugin_added::<ImpostorPlugin>() {
             app.add_plugins(ImpostorPlugin::default());
         }
@@ -499,6 +498,9 @@ impl Plugin for TreePlugin {
             MaterialPlugin::<TreeMaterial>::default(),
             InstancedMaterialPlugin::<TreeMaterial, TreeMaterialKey>::new(|key| {
                 key.extension.grove = true;
+            }),
+            InstancedMaterialPlugin::<TreeMaterial, TreeMaterialKey>::attached(|key| {
+                key.extension.attached = true;
             }),
             InstancedMaterialPlugin::<ImpostorMaterial, ImpostorMaterialKey>::new(|key| {
                 key.extension.instanced = true;
@@ -529,7 +531,6 @@ impl Plugin for TreePlugin {
                 spawn::reset_changed_trees,
                 spawn::start_generation,
                 spawn::finish_generation,
-                spawn::bake_cards,
                 spawn::spawn_parts,
                 scatter::refresh_grove_assets,
                 spawn::prune_cache,

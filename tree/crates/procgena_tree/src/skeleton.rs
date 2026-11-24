@@ -9,9 +9,11 @@ use glam::{EulerRot, Mat3, Quat, Vec3};
 use procgena_core::Rng;
 use procgena_core::hash::seed_for;
 
+use procgena_fruit::Fruit;
+
 use crate::cluster::{SkeletonCluster, grow_clusters};
 use crate::units::{GNARL_REFERENCE_RADIUS, TIP_RADIUS};
-use crate::{OptionsError, TreeOptions, TreeType};
+use crate::{AttachedFruit, ClusterPart, OptionsError, TreeOptions, TreeType};
 
 // Seed keys for the tree's separate random streams. Each is frozen: renaming
 // one changes every tree. Add a new key to `KEYS` too.
@@ -24,6 +26,10 @@ const FRUIT_SEED: &str = "tree.skeleton.fruit";
 const FLOWER_SEED: &str = "tree.skeleton.flowers";
 /// The random stream for placing several trunks.
 const STEM_SEED: &str = "tree.skeleton.stems";
+/// The key each fruit cluster's slot is chosen from, per tree specimen.
+const FRUIT_SLOT_SEED: &str = "tree.fruit.slots";
+/// The key each flower cluster's slot is chosen from, per tree specimen.
+const FLOWER_SLOT_SEED: &str = "tree.flowers.slots";
 
 /// Every seed key in this crate, for the test that they are all different.
 #[cfg(test)]
@@ -32,6 +38,8 @@ pub(crate) const KEYS: &[&str] = &[
     FRUIT_SEED,
     FLOWER_SEED,
     STEM_SEED,
+    FRUIT_SLOT_SEED,
+    FLOWER_SLOT_SEED,
     "tree.generator.kind",
     crate::scatter::LATTICE_SEED,
     crate::scatter::PATCHES_SEED,
@@ -48,9 +56,9 @@ fn stream(seed: i32, key: &str) -> Rng {
 /// A tree's branch structure, with positions for leaves, fruit, and flowers.
 ///
 /// Branches are described by circular slices along their length. Fruit and
-/// flower clusters include supporting stalks and individual item placements.
-/// Use [`Skeleton::generate`] to create this structure from settings and a seed;
-/// the result contains no drawable surfaces.
+/// flower clusters are placements, each showing one of the tree's cluster
+/// specimens. Use [`Skeleton::generate`] to create this structure from
+/// settings and a seed; the result contains no drawable surfaces.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Skeleton {
     /// Generated branches, with the trunks first and each parent before its children.
@@ -58,12 +66,18 @@ pub struct Skeleton {
     pub branches: Vec<SkeletonBranch>,
     /// Generated leaves, in the order they were placed.
     pub leaves: Vec<SkeletonLeaf>,
-    /// Fruit clusters ordered by their supporting branch. Empty when fruit
-    /// placement is disabled or no eligible positions receive a cluster.
+    /// Fruit clusters ordered by their supporting branch. Index `i` is part
+    /// `fruit i`. Empty when the tree grows no fruit.
     pub fruit: Vec<SkeletonCluster>,
-    /// Flower clusters ordered by their supporting branch. Empty when flower
-    /// placement is disabled or no eligible positions receive a cluster.
+    /// Flower clusters ordered by their supporting branch. Index `i` is part
+    /// `flower i`. Empty when the tree grows no flowers.
     pub flowers: Vec<SkeletonCluster>,
+    /// The fruit cluster specimens, by slot: one per
+    /// [`AttachedFruit::default_slots`]. Empty when the tree grows no fruit.
+    pub fruit_slots: Vec<Fruit>,
+    /// The flower cluster specimens, by slot, as for
+    /// [`fruit_slots`](Self::fruit_slots).
+    pub flower_slots: Vec<Fruit>,
 }
 
 /// A branch represented by a sequence of circular cross-sections from base to tip.
@@ -167,23 +181,47 @@ impl Skeleton {
         // Use separate random sequences for fruit and flowers so changes to one
         // do not alter the other or the already generated branches and leaves.
         let mut skeleton = grower.skeleton;
-        let (fruit, flowers) = (&options.fruit, &options.flowers);
-        skeleton.fruit = grow_clusters(
-            &skeleton.branches,
-            options,
-            &fruit.placement,
-            &fruit.cluster,
-            stream(options.default_seed, FRUIT_SEED),
-        );
-        skeleton.flowers = grow_clusters(
-            &skeleton.branches,
-            options,
-            &flowers.placement,
-            &flowers.cluster,
-            stream(options.default_seed, FLOWER_SEED),
-        );
+        let seed = options.default_seed;
+        if let Some(fruit) = &options.fruit {
+            let slots = seed_for(seed as u32, FRUIT_SLOT_SEED);
+            let rng = stream(seed, FRUIT_SEED);
+            skeleton.fruit = grow_clusters(&skeleton.branches, options, fruit, slots, rng);
+            skeleton.fruit_slots = grow_slots(fruit);
+        }
+        if let Some(flowers) = &options.flowers {
+            let slots = seed_for(seed as u32, FLOWER_SLOT_SEED);
+            let rng = stream(seed, FLOWER_SEED);
+            skeleton.flowers = grow_clusters(&skeleton.branches, options, flowers, slots, rng);
+            skeleton.flower_slots = grow_slots(flowers);
+        }
         Ok(skeleton)
     }
+
+    /// The fruit or flower clusters placed on the tree, and the specimens
+    /// they show, by slot.
+    pub fn clusters(&self, part: ClusterPart) -> (&[SkeletonCluster], &[Fruit]) {
+        match part {
+            ClusterPart::Fruit => (&self.fruit, &self.fruit_slots),
+            ClusterPart::Flowers => (&self.flowers, &self.flower_slots),
+        }
+    }
+}
+
+/// Grows every slot's cluster specimen. A tree outside a World uses the
+/// cluster settings' own seed as the World seed, so every tree with the
+/// same cluster settings shares the same specimens.
+///
+/// # Panics
+///
+/// Panics if the cluster settings are invalid; validate the tree first.
+fn grow_slots(attached: &AttachedFruit) -> Vec<Fruit> {
+    let fruit = &attached.fruit;
+    (0..attached.default_slots)
+        .map(|slot| {
+            Fruit::new(fruit.clone(), fruit.default_seed, slot)
+                .expect("the tree's options were validated")
+        })
+        .collect()
 }
 
 /// Starting position, dimensions, and settings for a branch that has not grown yet.

@@ -1,0 +1,30 @@
+# A built-in FruitPreset. Copy it, change what you like, and read it
+# with FruitPreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Apple
+description: A ripe apple hanging straight from the branch, flushed red on its sunny side.
+group: Fruit
+fruit:
+  default_seed: 29258
+  size: 0.05
+  cluster:
+    stalk_length: 0.0
+    stalk_color: 6113838
+  item:
+    kind: fruit
+    elongation: 0.9
+    top_dimple: 0.5
+    bottom_taper: 0.2
+    lobes: 5
+    lobe_depth: 0.06
+    stem_length: 0.25
+    color: 12597547
+    unripe_color: 9159498
+    blush_color: 16734780
+    blush_amount: 0.6
+  variation:
+    maturity_spread: 0.2
+    hue_spread: 0.1
+    blush_spread: 0.4
+    shape_jitter: 0.5
+    stem_curve_jitter: 1.0

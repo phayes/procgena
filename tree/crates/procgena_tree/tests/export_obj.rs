@@ -250,21 +250,35 @@ fn srgb(c: f32) -> f32 {
     }
 }
 
+/// A small tree with umbels of five apples and of five dogwood blooms, two
+/// of each on every branch at level 2 or deeper.
+fn fruiting_options() -> procgena_tree::TreeOptions {
+    use procgena_tree::procgena_fruit::{ClusterKind, FruitPreset};
+    use procgena_tree::{AttachedFruit, ClusterPlacement};
+
+    let mut options = TreePreset::ash_small().tree.clone();
+    for (part, preset) in [
+        (&mut options.fruit, FruitPreset::apple()),
+        (&mut options.flowers, FruitPreset::dogwood_bloom()),
+    ] {
+        let mut fruit = preset.fruit.clone();
+        fruit.cluster.kind = ClusterKind::Umbel;
+        fruit.cluster.items = 5;
+        let placement = ClusterPlacement {
+            count: 2,
+            min_level: 2,
+            ..ClusterPlacement::default()
+        };
+        *part = Some(AttachedFruit::new(fruit, placement));
+    }
+    options
+}
+
 /// Checks that fruit and flowers have separate objects and materials, with
 /// sRGB colours stored on their vertices. Bark and leaf vertices carry no colours.
 #[test]
 fn fruit_and_flowers_carry_vertex_colours() {
-    let mut options = TreePreset::ash_small().tree.clone();
-    for (placement, cluster) in [
-        (&mut options.fruit.placement, &mut options.fruit.cluster),
-        (&mut options.flowers.placement, &mut options.flowers.cluster),
-    ] {
-        placement.count = 2;
-        placement.min_level = 2;
-        cluster.kind = procgena_tree::ClusterKind::Umbel;
-        cluster.items = 5;
-    }
-    let tree = Tree::new(options).unwrap();
+    let tree = Tree::new(fruiting_options()).unwrap();
     let mesh = tree.mesh();
     let files = to_obj(mesh, tree.options(), &ObjOptions::default());
     let obj = &files.obj;

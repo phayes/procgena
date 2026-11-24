@@ -18,22 +18,18 @@ use bevy::winit::WinitPlugin;
 use bevy::world_serialization::WorldAssetRoot;
 use procgena_core::Lod;
 use procgena_tree::export::gltf::{GltfOptions, to_glb};
-use procgena_tree::{LOD_REFERENCE_SIZE, LodDetail, Tree, TreePreset, default_lod};
+use procgena_tree::{LOD_REFERENCE_SIZE, Tree, TreePreset, default_lod};
 use procgena_tree_bevy::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, TreeMaterial, TreePlugin,
     add_tree_gltf_attributes,
 };
 
-/// Exports the Apple preset at the lowest default detail level with
-/// camera-facing fruit turned on, with wind data controlled by `wind`. Writes
-/// `<name>.glb` in the test’s output folder and returns that folder, reusing
-/// it if it already exists.
+/// Exports the Apple preset at the lowest default detail level, with wind
+/// data controlled by `wind`. Writes `<name>.glb` in the test’s output
+/// folder and returns that folder, reusing it if it already exists.
 fn export(name: &str, wind: bool) -> PathBuf {
     let tree = Tree::from_preset(TreePreset::apple()).unwrap();
-    let mesh = tree.mesh_with_detail(&LodDetail {
-        billboard_fruit: true,
-        ..default_lod().levels[3].detail
-    });
+    let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
     let options = GltfOptions {
         wind,
         ..GltfOptions::default()
@@ -169,7 +165,7 @@ fn billboard_nodes_turn_and_their_partners_are_removed() {
         names.iter().all(|n| !n.ends_with("_billboard_cull")),
         "{names:?}"
     );
-    for node in ["trunk", "branches", "leaves", "fruit"] {
+    for node in ["trunk", "branches", "leaves"] {
         let meshes = meshes_under(&mut app, node);
         assert!(!meshes.is_empty(), "{node}");
         for entity in meshes {

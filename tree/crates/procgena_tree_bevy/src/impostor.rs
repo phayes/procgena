@@ -13,7 +13,7 @@ use procgena_impostor::{
 use crate::material::{TreeMaterial, bake_copy};
 use crate::spawn::{
     CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreePart,
-    TreePartKind, part_range,
+    TreePartKind, part_range, spawn_clusters,
 };
 
 /// The impostor trees use unless told otherwise: from 120 m, crossfading
@@ -117,10 +117,15 @@ fn tree_request(
 ) -> ImpostorRequest {
     let mut parts = Vec::new();
     let mut wait_for: Vec<UntypedAssetId> = Vec::new();
-    for (lod, _, mesh, material) in generated.parts() {
-        if lod != impostor.baked_level {
-            continue;
-        }
+    let baked_parts = generated
+        .parts()
+        .filter(|(lod, ..)| *lod == impostor.baked_level)
+        .map(|(_, _, mesh, material)| (&mesh.mesh, material));
+    let clusters = generated
+        .baked_clusters
+        .iter()
+        .map(|(mesh, material)| (mesh, material));
+    for (mesh, material) in baked_parts.chain(clusters) {
         let Some(source) = materials.get(material).cloned() else {
             continue;
         };
@@ -138,7 +143,7 @@ fn tree_request(
         );
         let albedo = materials.add(bake_copy(&source, BakeOutput::Albedo));
         let normal = materials.add(bake_copy(&source, BakeOutput::Normal));
-        parts.push(BakePart::new(mesh.mesh.clone(), albedo, normal));
+        parts.push(BakePart::new(mesh.clone(), albedo, normal));
     }
 
     ImpostorRequest {
@@ -177,17 +182,23 @@ pub(crate) fn show_impostors(
 
         // Every mesh level takes its bands with the impostor as the last
         // level: the farthest now fades out where the impostor fades in.
+        // Clusters are rebuilt to stop where the impostor fades in.
         for child in children.into_iter().flatten() {
             let Ok(part) = parts.get(*child) else {
                 continue;
             };
-            if part.kind == TreePartKind::Trellis {
-                continue;
-            }
-            if let Some(range) = part_range(&ranges[part.lod]) {
-                commands.entity(*child).insert(range);
+            match part.kind {
+                TreePartKind::Trellis => {}
+                TreePartKind::Clusters => commands.entity(*child).despawn(),
+                _ => {
+                    if let Some(range) = part_range(&ranges[part.lod]) {
+                        commands.entity(*child).insert(range);
+                    }
+                }
             }
         }
+        let specimen = cache.specimen_id(*key);
+        spawn_clusters(&mut commands, tree, generated, specimen, &settings, true);
         let lod = generated.level_count();
         let mut impostor = commands.spawn((
             TreePart {

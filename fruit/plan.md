@@ -741,6 +741,153 @@ on purpose.
   by a test that compares slot meshes.
 - **Part paths resolve to the same frame at every detail level.**
 
+## As built (fruit step AC1, 2026-11-24)
+
+Where the build differs from the plan above, or settles what it left open.
+The coordinator approved each of these.
+
+- **`Facing` lives in `FruitOptions` only** (the move map kept it in the
+  tree). The cluster is shaped for its facing (droop and the frame), so
+  there is one source of truth and no mismatch to validate. The tree's
+  `ClusterPlacement` keeps `facing_jitter`, and adds `scale` and
+  `scale_variance` for the per-copy size.
+- **Fruit `SpecimenId`s use the fruit options' own `default_seed` as the
+  World seed**, outside a World. Every tree variant in a grove with the same
+  fruit settings then shares one fruit pool, instead of one pool per tree
+  variant. A World will pass its own seed.
+- **The pool budget `N` is `AttachedFruit::default_slots`**, outside the
+  tree's options hash like `default_seed`, but inside its `TreeCacheKey`
+  (together with the fruit's seed), because both change which specimens
+  the tree shows.
+- **Slot keys** are `derive_seed(seed_for(tree.default_seed,
+  "tree.fruit.slots"), i)` (flowers: `"tree.flowers.slots"`): fixed per
+  tree specimen, since a Scatter variant's `default_seed` is its
+  `SpecimenId`'s seed. Slots use `procgena_core::choose_slot`
+  (rendezvous). Part paths use `procgena_core::{PartStep, Address}`, with
+  kinds `tree.part.fruit`, `tree.part.flower`, `fruit.part.stalk` and
+  `fruit.part.item`.
+- **`TreeMesh::{fruit, flowers}` stay**, as the CPU composition: each kept
+  cluster's specimen mesh at its own fruit level for
+  `LodDetail::fruit_distance`, moved into place. Export, specimens, the
+  outline test and (until fruit step B2) the Bevy crate use them.
+- **Tree files name a fruit preset by key** (`fruit: { fruit: apple, … }`),
+  or give settings over a `base` fruit preset. The studio's tree panels
+  pick a preset by key.
+- **Tree glTF export writes fruit merged per level**, as OBJ does; one mesh
+  per fruit slot with glTF instancing is not built yet.
+
+## As built (fruit step B2, shared renderer, 2026-11-24)
+
+The coordinator chose to extend R2's shared renderer
+(`procgena_core_bevy::instanced`) with general sub-instances, rather than
+give fruit a GPU pass of its own. How the plan maps onto it:
+
+- **Cluster table → `InstancedAttached`.** A component beside the grove's
+  `InstancedScatter` holds one table of `AttachedRow`s per host slot (tree
+  variant): the row's slot (fruit specimen), its place, turn and scale in
+  host coordinates, its size for fruit levels, three wind floats (the
+  branch sway `[trunk_bend, branch_weight, branch_phase]`), and
+  `host_levels`, a mask of the host levels that draw it. Rows are stored
+  once per tree variant; nothing is stored per tree copy.
+- **The tree decides which clusters are drawn, through `host_levels`.**
+  `cluster_stride` and `cluster_scale` become rows: a cluster kept at
+  every level is one row; one enlarged at far levels is a second row with
+  those levels' bits and the larger scale. Rows leave out the impostor
+  level, because the tree impostor carries fruit (D2). The host level is
+  the one it switches to mid-band, as in shadow maps, so rows appear and
+  vanish there without fading.
+- **The coarse step runs on the GPU, not on the CPU** (a change from
+  "Fruit's own LOD chain", approved by the coordinator on 2026-11-24). R2
+  has a per-view CPU pass (`prepare_views`), but it works per Scatter, not
+  per copy, and the per-copy cull already runs on the GPU. A per-tree CPU
+  check would add a CPU loop over every tree for every view each frame,
+  plus an upload of its results; on the GPU the host step costs about
+  0.05 ms for 1,000 trees over five views (see "Measured"). Instead `cull_hosts` runs once per tree
+  copy per view and writes a per-view state: skip (out of view, or
+  beyond every row's reach), whole at one fruit level (the tree's
+  distance ± its row radius, over the smallest and largest row size,
+  lies inside one level's undithered core, in cameras only), or one by
+  one. `cull_rows` reads that state. Moving the coarse step to the CPU
+  later would change only the code that writes the state.
+- **Whole trees still write one entry per cluster.** The plan's "the
+  vertex shader splits `instance_index` into (tree entry, cluster)" is
+  not built: every drawn cluster gets its own 64-byte entry (host record,
+  dither, place, turn, wind), so whole trees save the distance and
+  frustum maths, not the entries.
+- **The fine step is R2's per-copy cull**, per row: frustum test against
+  the row's own sphere, its own distance and dither, shadow views at one
+  level by switch distance.
+- **Single trees** get one child entity (`TreePartKind::Clusters`) with
+  their own `InstancedScatter`: slot 0 is the tree, with no parts, only its
+  levels, and one copy; its clusters are rows as in a grove. When the
+  tree's impostor arrives, the child is rebuilt with the impostor level, so
+  clusters stop where it fades in.
+- **Fruit is drawn with the tree's `fruit_material` and
+  `flower_material`.** The tree shaders' `ATTACHED` path moves each
+  vertex onto the tree and adds the row's branch sway to the vertex's
+  own flutter, so wind matches the merged meshes. `procgena_fruit_bevy`'s
+  own material is used only for fruit drawn on its own (the studio's
+  Fruit and Flower tabs).
+- **The impostor still bakes merged fruit**: the baked level's
+  `TreeMesh::{fruit, flowers}` become two meshes used only by the bake
+  (D2 replaces this). `Skeleton::mesh` still composes fruit at every
+  level, which the Bevy crate no longer draws; skipping that work is a
+  follow-up.
+- **Memory:** each view keeps `attached copies × fruit levels × 64` bytes
+  of entries, where attached copies are every tree copy in the grove
+  (not only those in range) times its rows, and rows count each cluster
+  once plus once more where a far tree level enlarges it. Measured with
+  the default tree levels: Willow 785 clusters and 1,178 rows, Apple 687
+  and 1,031, Dogwood 1,680 and 2,520. With 3 fruit levels that is
+  about 226 KB per Willow and 484 KB per Dogwood, per view. A grove of
+  100 Willows needs about 23 MB per view, so about 113 MB for a camera
+  and four shadow cascades; 100 Dogwoods need about 48 MB per view.
+  This is an open question for the coordinator. Possible fixes: smaller
+  entries (a row index read from a storage buffer), lists sized per level
+  from what can be in range, or one shared entry buffer per Scatter
+  instead of per view.
+
+### Measured (fruit step B2, 2026-11-24)
+
+`cargo run -p procgena_tree_bevy --release --example fruit_bench -- --trees
+1450`: 1,007 Spring Pussy Willows (4 variants, 1,178 catkin rows each) on
+190 m × 190 m, with the default tree levels and impostor, one sun with its
+default four shadow cascades (five views), 1280 × 720, no textures, on an
+Apple M1 Max. Cull times come from `InstancedTimings` (timestamps at
+compute pass boundaries), drawn counts from `read_instance_counts`, frame
+times are medians over 120 frames with the CPU waiting for the GPU. With
+`--no-fruit`, the same grove without catkins.
+
+| Camera | Frame, fruit | Frame, no fruit | Cull GPU, fruit (copies / hosts / rows / args) | Attached copies drawn | Written per frame |
+|---|---|---|---|---|---|
+| Near (inside, 1.7 m up) | 40.6 ms | 8.1 ms | 0.06 / 0.04 / 1.07 / 0.02 ms | 266,241 | 17.1 MB |
+| Middle (25 m up, 30 m out) | 18.7 ms | 8.7 ms | 0.07 / 0.06 / 1.28 / 0.02 ms | 99,822 | 6.4 MB |
+| Far (80 m up, 250 m out) | 9.1 ms | 7.0 ms | 0.08 / 0.06 / 1.54 / 0.03 ms | 0 | 0.01 MB |
+
+What the numbers say:
+
+- **Drawing the catkins dominates, not culling them.** Fruit adds about
+  32 ms to the near frame and 10 ms to the middle one, while the whole
+  cull, both attached steps included, takes 1.2 to 1.7 ms.
+- **Writing the 64-byte entries does not dominate the cull either.** The
+  row step takes about the same time at the far camera, where it writes
+  nothing, as at the near one, where it writes 17 MB. Its cost is the
+  threads themselves: one per row of every tree in every view (about 5.9
+  million a frame here), each searching for its host and reading its
+  state, even for trees the host step skipped.
+- **Proposed next steps**, in order of payoff:
+  1. Draw fewer catkins. The near frame's 266,000 are counted over the
+     camera and its four shadow views together (the bench doesn't split
+     them yet), and fruit levels 0 and 1 cast shadows. Letting only level
+     0 cast shadows, and thinning catkins at the tree's middle levels
+     (`cluster_stride` at level 2 as well as 3), both cut it.
+  2. Dispatch rows only for trees the host step keeps: `cull_hosts`
+     appends each kept tree and its row range to a list, and `cull_rows`
+     runs as an indirect dispatch over those rows. That removes the row
+     step's cost for skipped trees (all of the far camera's 1.5 ms).
+  3. Only then, smaller entries (a row index into a storage buffer, 8
+     bytes), which cuts the memory above by 8 times but saves little time.
+
 ## Decisions
 
 The user answered on 2026-11-23:
