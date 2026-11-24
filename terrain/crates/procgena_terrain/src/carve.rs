@@ -1232,6 +1232,128 @@ mod tests {
     }
 
     #[test]
+    fn carving_slopes_match_differences() {
+        // Uneven gullied valleys round a bend and a confluence, a pond, and
+        // a road across a valley wall, cutting and filling, all on a tilted
+        // plane. At a grid of points the carved slope matches differences
+        // of the carved heights.
+        let main = FeatureLine {
+            kind: FeatureKind::River,
+            points: vec![
+                DVec2::ZERO,
+                DVec2::new(100.0, 0.0),
+                DVec2::new(100.0, 100.0),
+            ],
+            levels: vec![10.0, 9.0, 8.0],
+            widths: vec![6.0; 3],
+            depth: 1.5,
+        };
+        let tributary = FeatureLine {
+            kind: FeatureKind::River,
+            points: vec![DVec2::new(50.0, -120.0), DVec2::new(50.0, -3.0)],
+            levels: vec![20.0, 9.5],
+            widths: vec![4.0; 2],
+            depth: 1.0,
+        };
+        let road = FeatureLine {
+            kind: FeatureKind::Road,
+            points: vec![DVec2::new(-60.0, 60.0), DVec2::new(60.0, 75.0)],
+            levels: vec![24.0, 27.0],
+            widths: vec![6.0, 5.0],
+            depth: 0.0,
+        };
+        let pond = Pond {
+            centre: DVec2::new(-30.0, -60.0),
+            level: 18.0,
+            radius: 12.0,
+            depth: 2.0,
+        };
+        let shape = |floor: [f32; 2], wall: [f32; 2], reach: [f32; 2]| ValleyShape {
+            floor,
+            wall,
+            reach,
+            gullies: true,
+        };
+        let features = Features::new(
+            vec![main, tributary],
+            vec![
+                vec![
+                    shape([0.0, 10.0], [0.6, 0.3], [90.0, 140.0]),
+                    shape([20.0, 0.0], [0.3, 0.8], [150.0, 70.0]),
+                    shape([5.0, 5.0], [0.5, 0.5], [110.0, 110.0]),
+                ],
+                vec![
+                    shape([0.0, 0.0], [0.7, 0.7], [80.0, 80.0]),
+                    shape([10.0, 10.0], [0.4, 0.4], [100.0, 100.0]),
+                ],
+            ],
+            vec![pond],
+            vec![road],
+            vec![vec![0.8, 1.5]],
+            Vec::new(),
+        );
+        let tilt = DVec2::new(0.12, -0.05);
+        let ground = |p: DVec2| (30.0 + tilt.dot(p)) as f32;
+        let height = |p: DVec2| f64::from(features.apply(p, ground(p)).height);
+        let slope = |p: DVec2| features.carve(p, ground(p), Some(tilt)).1;
+
+        // Along x and z through each point, the difference of the heights
+        // 0.5 m either side must match the slope averaged over that span
+        // (Simpson's rule). Spans across a crease, where the slope jumps
+        // between neighbouring samples 1/64 m apart (where the deepest
+        // lowering changes, or a gully's cap starts), are skipped.
+        const HALF: f64 = 0.5;
+        const STEPS: i32 = 64;
+        let (mut skipped, mut total, mut carved) = (0, 0, 0);
+        for i in 0..40 {
+            for j in 0..40 {
+                let p = DVec2::new(-70.0 + 5.83 * f64::from(i), -140.0 + 7.31 * f64::from(j));
+                let out = features.carve(p, ground(p), Some(tilt)).0;
+                assert_eq!(out.height, features.apply(p, ground(p)).height);
+                if out.height != ground(p) {
+                    carved += 1;
+                }
+                for axis in [DVec2::X, DVec2::Y] {
+                    total += 1;
+                    let slopes: Vec<f64> = (0..=STEPS)
+                        .map(|k| {
+                            let at =
+                                p + axis * HALF * (2.0 * f64::from(k) / f64::from(STEPS) - 1.0);
+                            slope(at).dot(axis)
+                        })
+                        .collect();
+                    if slopes.windows(2).any(|w| (w[1] - w[0]).abs() > 0.02) {
+                        skipped += 1;
+                        continue;
+                    }
+                    let mean = slopes
+                        .iter()
+                        .enumerate()
+                        .map(|(k, &s)| match k as i32 {
+                            0 | STEPS => s,
+                            k if k % 2 == 1 => 4.0 * s,
+                            _ => 2.0 * s,
+                        })
+                        .sum::<f64>()
+                        / (3.0 * f64::from(STEPS));
+                    let difference =
+                        (height(p + axis * HALF) - height(p - axis * HALF)) / (2.0 * HALF);
+                    assert!(
+                        (difference - mean).abs() < 1e-4 + 1e-3 * mean.abs(),
+                        "at {p} along {axis}: mean slope {mean} against difference {difference}"
+                    );
+                }
+            }
+        }
+        assert!(
+            carved * 2 > total / 2,
+            "only {carved} of {} points carved",
+            total / 2
+        );
+        assert!(skipped * 10 <= total, "{skipped} of {total} spans skipped");
+    }
+
+    #[test]
     fn gullied_valleys_have_no_steps_at_bends_joints_and_confluences() {
         // A river with a sharp bend, whose valley changes shape from point
         // to point, and a tributary joining it partway along a segment, all
