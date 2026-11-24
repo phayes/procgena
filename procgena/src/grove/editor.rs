@@ -1016,7 +1016,14 @@ mod tests {
         studio.click("+ Add Tree").unwrap();
         let added = last_grove(&lock(&sent));
         assert_eq!(added.trees.len(), start.trees.len() + 1);
-        assert_eq!(added.trees[start.trees.len() - 1], added_tree());
+        // A new species is the added tree under the first free key.
+        assert_eq!(
+            added.trees[start.trees.len() - 1],
+            ScatterTree {
+                key: procgena_core::ChildKey::from_static("added_1"),
+                ..added_tree()
+            }
+        );
         assert_eq!(added, edited(&mut studio));
 
         // A tree Scatter preset replaces every row.
