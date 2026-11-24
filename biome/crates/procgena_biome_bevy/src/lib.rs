@@ -1,5 +1,5 @@
 //! Bevy drawing for [`procgena_biome`]: draws one placed
-//! [`Ecotope`](procgena_biome::Ecotope) over a patch of ground, each Scatter
+//! [`Ecotope`] over a patch of ground, each Scatter
 //! with its own asset's Bevy crate.
 //!
 //! Place the Ecotope first with
