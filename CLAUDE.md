@@ -76,7 +76,8 @@ cargo test -p <package> --doc
 | `specimen/` | `procgena_specimen` | Feature `bevy`. `Specimen`, levels, tags. Every generator depends on it, so a change rebuilds most of the workspace. |
 | `mushroom/` | `procgena_mushroom` | Features `export-obj`, `export-gltf`. One file per area in `tests/`.   |
 | `mushroom/` | `procgena_mushroom_bevy` | Headless spawn tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders (also `--preset <name>`, `--flat`). |
-| `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing it. |
+| `plant/` | `procgena_plant`     | Engine-free: plant and Scatter settings, presets and their YAML files. Feature `reflect` (Bevy's `Reflect` on every settings type). Also check it with `--no-default-features`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing either plant crate. |
+| `plant/` | `procgena_plant_bevy`| Features `debug`, `rapier`, `avian`. The grass renderer, its WESL shaders and CPU mirror; examples and goldens live in this crate. `-- --ignored gpu` runs the readback tests. |
 | `plant/` | `procgena_plant_web` | Wasm demo                                                                 |
 | `terrain/` | `procgena_terrain` | Border tests in `tests/seams.rs`, rivers and roads in `tests/features.rs`, chunk meshes and their level transitions in `tests/chunks.rs`, ground materials and chunk weights (`src/ground*`) in `tests/ground_layers.rs`. `--example seam_spike -- <dir>` writes shaded images of joined regions; `--example ground_dump -- <dir>` a PPM of bare terrain's ground colours. |
 | `terrain/` | `procgena_terrain_bevy` | Streams terrain chunks around the camera. Headless streaming tests in `src/lib.rs`, swap logic in `src/stream.rs`. `--example viewer -- --headless --screenshot <png>` (also `--preset`, `--seed`, `--eye`, `--target`, `--view`, `--levels`, `--borders`, `--rough-from`); a cold world takes minutes to build in dev. |
@@ -95,18 +96,20 @@ Wait until every worker has reported done before you start. Then run each
 step once, and send each failure to the worker that owns those files. Do not
 fix failures in files that a worker is still editing.
 
-The list comes from `.github/workflows/ci.yml`. CI checks only `plant/`, so
-the first three lines add the rest of the workspace.
+The list comes from `.github/workflows/ci.yml`. CI checks only the plant crates,
+so the first three lines add the rest of the workspace.
 
 1. `cargo fmt --all --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. `cargo test --workspace --all-features`
-4. From `plant/`: `python tools/lint.py`, `cargo test`,
+4. `python tools/plant/lint.py`; `cargo test -p procgena_plant` and
+   `cargo check -p procgena_plant --no-default-features`; then from
+   `plant/crates/procgena_plant_bevy/`: `cargo test`,
    `cargo test --features rapier`, `cargo test --features avian`, and
    `cargo test --example bench`
 5. `RUSTDOCFLAGS=-D warnings cargo doc --workspace --no-deps --all-features`
 6. `cargo machete`, `typos`, `cargo deny check`
-7. From `plant/`, if your machine supports these:
+7. From `plant/crates/procgena_plant_bevy/`, if your machine supports these:
    `cargo check --target wasm32-unknown-unknown --lib --examples`, the
    MSRV check `cargo +1.97.1 check --all-targets --all-features`, and the
    goldens with `cargo run --example golden`
