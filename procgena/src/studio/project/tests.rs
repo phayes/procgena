@@ -91,33 +91,50 @@ fn a_bundle_manifest_opens_as_a_project() {
 }
 
 #[test]
-fn a_shared_key_makes_a_built_in_base_s_bare_references_ambiguous() {
-    // Today's behaviour, pinned while the coordinator decides it: a
-    // project tree named pine_small makes the bare `tree: pine_small` that
-    // a project Ecotope inherits from the built-in pine forest floor
-    // ambiguous, though the reference was written in a built-in file.
+fn references_resolve_in_the_namespace_of_the_file_that_wrote_them() {
+    // The user's rule: names a built-in file wrote mean built-in presets,
+    // and a project file sees the project's presets first.
     let root = folder("inherited");
     let mut project = Project::create(&root, "my_forest", "My forest").unwrap();
     let forest = edited(&project, "ecotope", "pine_forest_floor", |_| {});
-    project.save_new("ecotope", "my_floor", &forest).unwrap();
-    assert!(
-        project
-            .registry()
-            .resolve::<EcotopePreset>("my_floor")
-            .is_ok()
+    let path = project.save_new("ecotope", "my_floor", &forest).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        "base: pine_forest_floor\n"
     );
 
-    let pine = edited(&project, "tree", "pine_small", |_| {});
-    let pine = Document {
-        base: Some("builtin:pine_small".to_owned()),
-        ..pine
-    };
+    // The project's own pine_small, written over the built-in one by its
+    // bare key (a file's base never names the file itself).
+    let pine = edited(&project, "tree", "pine_small", |tree| {
+        tree["default_seed"] = json!(5);
+    });
     project.save_new("tree", "pine_small", &pine).unwrap();
-    let error = project
-        .registry()
-        .resolve::<EcotopePreset>("my_floor")
-        .unwrap_err();
-    assert!(error.to_string().contains("builtin:pine_small"), "{error}");
+    let pines = |project: &Project, ecotope: &str| {
+        let ecotope = project
+            .registry()
+            .resolve::<EcotopePreset>(ecotope)
+            .unwrap();
+        let pines = &ecotope.ecotope.scatters[&ChildKey::from_static("pines")];
+        let ScatterKind::Tree(scatter) = &pines.scatter else {
+            panic!("pines is a tree Scatter");
+        };
+        scatter
+            .trees
+            .iter()
+            .map(|tree| (tree.key.as_str().to_owned(), tree.tree.default_seed))
+            .collect::<Vec<_>>()
+    };
+
+    // The Ecotope still grows the built-in small pines it inherited.
+    let small = TreePreset::pine_small().tree.default_seed;
+    assert!(pines(&project, "my_floor").contains(&("pine_small".to_owned(), small)));
+
+    // A project Ecotope that names pine_small itself gets the project's.
+    let mine = edited(&project, "ecotope", "pine_forest_floor", |ecotope| {
+        ecotope["scatters"]["pines"]["trees"] = json!([{ "tree": "pine_small" }]);
+    });
+    project.save_new("ecotope", "mine", &mine).unwrap();
+    assert_eq!(pines(&project, "mine"), [("pine_small".to_owned(), 5)]);
     std::fs::remove_dir_all(&root).unwrap();
 }
 

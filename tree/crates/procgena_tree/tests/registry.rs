@@ -127,7 +127,7 @@ fn a_species_key_never_includes_the_namespace() {
     assert_eq!(mine.tree.default_seed, 5);
     assert_eq!(old.tree, TreePreset::pine_medium().tree);
 
-    // The bare key is ambiguous inside a Scatter too.
+    // A project file's bare key names the project's tree first.
     registry
         .add(
             "tree_scatter",
@@ -136,10 +136,17 @@ fn a_species_key_never_includes_the_namespace() {
             None,
         )
         .unwrap();
-    let error = registry.resolve::<TreeScatterPreset>("bare").unwrap_err();
-    assert!(
-        error.to_string().contains("my_forest:pine_medium"),
-        "{error}"
+    let bare = registry.resolve::<TreeScatterPreset>("bare").unwrap();
+    assert_eq!(bare.tree_scatter.trees[0].tree.default_seed, 5);
+
+    // Built-in Scatters keep their built-in trees.
+    registry
+        .add("tree_scatter", "stand", "base: pine_stand\n", None)
+        .unwrap();
+    let stand = registry.resolve::<TreeScatterPreset>("stand").unwrap();
+    assert_eq!(
+        stand.tree_scatter.trees,
+        TreeScatterPreset::pine_stand().tree_scatter.trees
     );
 }
 

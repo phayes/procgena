@@ -1455,6 +1455,11 @@ Each rule says what every asset does, and which crates have to change.
       (`builtin:pine_small`, `my_forest:pine_small`) otherwise; a shared
       key is reported as a problem. The namespace is never part of a
       preset's key, so it never reaches child keys or seeds.
+    - **A reference resolves first in the namespace of the file that
+      wrote it** (user decision, 2026-11-24): names in a built-in file
+      always mean built-in presets, and a project file sees the project's
+      presets first; a bare key goes to the general lookup only when that
+      file's layer lacks it. A file's `base` never names the file itself.
 11. **Export everywhere.** Every asset and every Scatter exports OBJ and
     glTF from its CPU path.
     - Change: plant and clump; Scatters as a whole.
