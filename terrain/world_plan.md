@@ -657,3 +657,9 @@ the faster integral).
    preset. Each changes how the hills and mountains worlds look, and moves
    the border gap probe and the river crossing counts, which would be
    re-recorded. Recommended: 20 m, the smallest visible change.
+   **Deferred by the user (2026-11-24).** The user is considering a hybrid
+   instead of one fixed offset: a terrain preset declares where on the
+   large low-frequency E it wants to sit (a mountains preset asking for
+   high E, for example), and can also adjust E locally within its own
+   region. Not designed yet; it matters once one World mixes presets
+   across borders (W0).

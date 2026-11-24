@@ -890,6 +890,9 @@ where the details are.
     mountains by 70 m; **0** puts plains' mean at sea level and lowers
     every preset. Every option changes the signed-off hills and mountains
     worlds, and the border-gap and river-crossing figures are re-recorded.
+    **Deferred by the user (2026-11-24),** who is considering a hybrid: a
+    terrain preset declares where on the large low-frequency E it wants to
+    sit, and can also adjust E locally in its own region. Needed by W0.
     Details: [terrain/world_plan.md](terrain/world_plan.md), open
     question 5.
 
