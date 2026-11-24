@@ -120,6 +120,20 @@ fn the_pine_floor_holds_trees_boulders_logs_mushrooms_and_plants() {
 }
 
 #[test]
+fn the_oak_and_maple_forest_places_every_scatter() {
+    let ecotope = EcotopePreset::oak_maple_forest().ecotope.clone();
+    let placed = place(&ecotope, ecotope.default_seed);
+    assert_eq!(placed.layers().len(), 8);
+    for layer in placed.layers() {
+        let placed_something = match layer.copies() {
+            ScatterCopies::Plant(bake) => bake.density.iter().any(|&d| d > 0.0),
+            copies => !copies.is_empty(),
+        };
+        assert!(placed_something, "{} placed nothing", layer.key());
+    }
+}
+
+#[test]
 fn a_file_changes_one_scatter_and_adds_another_without_restating_the_rest() {
     let text = "\
 base: pine_forest_floor
