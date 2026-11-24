@@ -1788,7 +1788,14 @@ it starts.
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
   ids, `Ground`, `validate()`, hash, export, promotion, and the shared Bevy
-  pattern (`XParams`, `XGenerating`, `XFinished`, `XPart`).
+  pattern (`XParams`, `XGenerating`, `XFinished`, `XPart`). Staged
+  (decided 2026-11-24, [plant/alignment_plan.md](plant/alignment_plan.md)):
+  P1 split, P2 plants in the early Ecotope, P3 World cells and integer
+  placement, P4 a sibling `Scatter` trait for GPU-placed Scatters (C3).
+  The rest follows. Grass blades get addresses (World tile cell plus tile
+  point) but are never listed as copies. The split keeps two crates, and
+  each engine-free core gains an optional `reflect` feature for its
+  options (plant first, the others as a follow-up).
 - [x] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
   every Scatter offers each slot's `Specimen` plus its copy list (C2).
   Done in C2: `Scatter::slots` names each slot's `SpecimenId` and mix
