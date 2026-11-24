@@ -15,14 +15,18 @@
 //!   [`HeightGrid`] are ready-made grounds.
 //! - [`Lod`]: an asset's levels of detail, scaled by each copy's size and
 //!   by the [`Quality`] setting.
-//! - [`scatter`]: what every Scatter takes as input, and the shared rules
+//! - [`scatter`]: the [`Scatter`](scatter::Scatter) trait, what every
+//!   Scatter takes as input, the shared integer placement rules on a
+//!   lattice fixed to the World, footprints and masks, and the shared rules
 //!   for slope limits and resting rigid pieces on the ground.
+//! - [`CopyAddress`]: names one placed copy anywhere in a World.
 //! - [`preset`]: named, ready-made options in catalogues, and `.<kind>.yml`
 //!   preset files that name a base preset and give only what differs.
 //!
 //! This crate uses no game engine. Code about one generated specimen's
 //! shape belongs in `procgena_specimen`, which builds on this crate.
 
+mod address;
 mod content_hash;
 mod ground;
 pub mod hash;
@@ -34,6 +38,7 @@ pub mod scatter;
 mod seed;
 mod specimen_id;
 
+pub use address::{AddressPrefix, CellId, CopyAddress, RegionId};
 pub use content_hash::{ContentHash, ContentHasher, OptionsHash, content_hash};
 pub use ground::{FlatGround, GRADIENT_STEP, Ground, GroundSample, HeightGrid};
 pub use lod::{FarForm, LevelForm, Lod, LodError, LodLevel, LodRange};

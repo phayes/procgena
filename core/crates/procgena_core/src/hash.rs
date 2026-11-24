@@ -31,6 +31,23 @@ pub fn pcg3d(v: [u32; 3]) -> [u32; 3] {
     [x, y, z]
 }
 
+/// Turns one integer into a repeatable pseudo-random integer.
+///
+/// This is the 32-bit PCG hash that Scatter placement uses on the CPU and
+/// the GPU (plant's `hash` in its shaders). It uses only wrapping 32-bit
+/// arithmetic, so both sides give the same bits.
+pub fn pcg(x: u32) -> u32 {
+    let state = x.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
+    let word = ((state >> ((state >> 28) + 4)) ^ state).wrapping_mul(277_803_737);
+    (word >> 22) ^ word
+}
+
+/// Turns two integers into one repeatable pseudo-random integer, with
+/// [`pcg`]. The order matters: `pcg2(a, b)` differs from `pcg2(b, a)`.
+pub fn pcg2(a: u32, b: u32) -> u32 {
+    pcg(a ^ pcg(b))
+}
+
 /// Converts a hash to a number from 0 (inclusive) to 1 (exclusive).
 /// Only the upper 24 bits are used, so the conversion fits exactly in an `f32`.
 pub fn unit_float(h: u32) -> f32 {
@@ -138,6 +155,17 @@ mod tests {
         assert_eq!(mix64(0, 0), 0xe220_a839_7b1d_cdaf);
         assert_eq!(mix64(1, 2), 0x3706_970b_052f_16b1);
         assert_ne!(mix64(1, 2), mix64(2, 1));
+    }
+
+    /// Reference values calculated in Python from the PCG hash's
+    /// definition, masked to 32 bits.
+    #[test]
+    fn pcg_matches_reference_values() {
+        assert_eq!(pcg(0), 0x07bb_2fe2);
+        assert_eq!(pcg(1), 0xa8be_ea3c);
+        assert_eq!(pcg(0xdead_beef), 0x6729_9972);
+        assert_eq!(pcg2(1, 2), 0x7ded_a5d8);
+        assert_ne!(pcg2(1, 2), pcg2(2, 1));
     }
 
     #[test]
