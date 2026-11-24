@@ -226,7 +226,11 @@ fn run_until_drawn(app: &mut App) {
                 "mesh ready: {}, material ready: {}, registered: {}",
                 meshes.get(mesh).is_some(),
                 materials.get(part.material).is_some(),
-                registered.0.contains_key(&part.type_id),
+                if part.attached {
+                    registered.attached.contains_key(&part.type_id)
+                } else {
+                    registered.copies.contains_key(&part.type_id)
+                },
             )
         })
         .collect();
@@ -392,4 +396,238 @@ fn gpu_quality_scales_the_switch_distance() {
     let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
     let args = view_draw_args(&mut app).remove(&camera).expect("culled");
     assert_eq!((count(&args, 0, 0), count(&args, 0, 1)), (0, 1));
+}
+
+/// The rows of `attached_app`'s host slot: two that every host level draws,
+/// and one only host level 0 draws.
+fn attached_rows() -> Vec<AttachedRow> {
+    let row = |position: Vec3, host_levels: u32| AttachedRow {
+        slot: 1,
+        position,
+        rotation: Quat::from_rotation_y(0.5),
+        scale: 0.5,
+        size: 1.0,
+        wind: Vec3::new(0.1, 0.2, 0.3),
+        host_levels,
+    };
+    vec![
+        row(Vec3::new(0.5, 0.5, 0.0), AttachedRow::ALL_LEVELS),
+        row(Vec3::new(-0.5, 0.5, 0.0), AttachedRow::ALL_LEVELS),
+        row(Vec3::new(0.0, 1.0, 0.0), 1),
+    ]
+}
+
+/// A headless app like `headless_app`, whose camera also has a depth
+/// prepass, with one Scatter of two slots: slot 0, a host with the levels
+/// of `headless_app`, copied at `hosts`; and slot 1, drawn only by the rows
+/// of [`attached_rows`] on each host copy, with levels up to 10 m and
+/// beyond, fading over 9 to 11 m, and culled from `row_cull` if given.
+fn attached_app(hosts: &[Vec3], row_cull: Option<f32>) -> App {
+    let mut app = headless_app(&[], true);
+    let world = app.world_mut();
+    let mesh = world
+        .resource_mut::<Assets<Mesh>>()
+        .add(Cuboid::from_length(0.4));
+    let material = world
+        .resource_mut::<Assets<InstancedStandardMaterial>>()
+        .add(InstancedStandardMaterial::default());
+    let kind = GeneratorKind::from_key("procgena_core_bevy.test.attached");
+    let pool = PoolId::new(kind, OptionsHash(2));
+    let slot = |index: u32, lod: Lod| InstancedSlot {
+        specimen: SpecimenId::new(0, pool, index),
+        piece: 0,
+        lod,
+        parts: (0..2)
+            .map(|level| InstancedPart {
+                level,
+                mesh: PartMesh::Mesh(mesh.clone()),
+                material: material.clone().untyped(),
+            })
+            .collect(),
+        bounds: (Vec3::ZERO, 0.4),
+    };
+    let host_lod = Lod::new(
+        1.0,
+        vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(20.0, 0.1, ())],
+    );
+    let mut row_lod = Lod::new(
+        1.0,
+        vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(10.0, 0.1, ())],
+    );
+    if let Some(cull) = row_cull {
+        row_lod = row_lod.with_cull(cull);
+    }
+    let copies: Vec<InstancedCopy> = hosts
+        .iter()
+        .map(|&position| InstancedCopy {
+            slot: 0,
+            transform: Affine3A::from_translation(position),
+            size: 1.0,
+            wind_phase: 0.0,
+        })
+        .collect();
+    world.spawn((
+        InstancedScatter {
+            slots: vec![slot(0, host_lod), slot(1, row_lod)].into(),
+            copies: copies.into(),
+        },
+        InstancedAttached {
+            tables: vec![Arc::from(attached_rows())].into(),
+        },
+    ));
+    let mut cameras = world.query_filtered::<Entity, With<Camera3d>>();
+    let camera = cameras.single(world).expect("one camera");
+    world
+        .entity_mut(camera)
+        .insert(bevy::core_pipeline::prepass::DepthPrepass);
+    app
+}
+
+/// Runs frames until some view of the Scatter has every pipeline it chose
+/// in `pass` compiled, and has chosen one for every part. Panics after
+/// `MAX_FRAMES`.
+fn run_until_compiled(app: &mut App, pass: u8) {
+    for _ in 0..MAX_FRAMES {
+        app.update();
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        let cache = world.resource::<PipelineCache>();
+        let ready = world.resource::<ScatterViews>().0.values().any(|state| {
+            let pipelines = &state.pipelines[pass as usize];
+            !pipelines.is_empty()
+                && pipelines
+                    .iter()
+                    .all(|id| id.is_some_and(|id| cache.get_render_pipeline(id).is_some()))
+        });
+        if ready {
+            app.update();
+            return;
+        }
+    }
+    panic!("no view compiled every pipeline of pass {pass}");
+}
+
+/// One attached entry as the cull writes it: host record, dither, and the
+/// row's place, turn and wind, as raw words.
+type Entry = [u32; 16];
+
+/// What the cull should write for row `row` of the host with mesh record
+/// `record`, drawn with `dither`.
+fn expected_entry(record: u32, dither: i32, row: &AttachedRow) -> Entry {
+    let mut entry = [0; 16];
+    entry[0] = record;
+    entry[1] = dither as u32;
+    let floats = [
+        row.position.extend(row.scale),
+        Vec4::from(row.rotation),
+        row.wind.extend(0.0),
+    ];
+    for (i, value) in floats.iter().flat_map(|v| v.to_array()).enumerate() {
+        entry[4 + i] = value.to_bits();
+    }
+    entry
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn gpu_attached_rows_are_drawn_at_their_own_levels() {
+    // Host 0 is 8 m ahead, at its level 0: its rows are tested one by one
+    // (their distances straddle the rows' fade band) and all drawn at row
+    // level 0. Host 1 is 40 m ahead, at its level 1: its rows all lie
+    // inside row level 1, so they are drawn whole there, without the row
+    // that only host level 0 draws. Host 2 is behind the camera.
+    let hosts = [
+        Vec3::new(0.0, 0.0, -8.0),
+        Vec3::new(0.0, 0.0, -40.0),
+        Vec3::new(0.0, 0.0, 8.0),
+    ];
+    let mut app = attached_app(&hosts, None);
+    run_until_drawn(&mut app);
+    run_until_compiled(&mut app, pass::PREPASS);
+    run_until_compiled(&mut app, pass::SHADOW);
+    let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
+    let mut views = view_draw_args(&mut app);
+    let camera_args = views.remove(&camera).expect("the camera culled nothing");
+
+    // The hosts as before, and the rows by level.
+    assert_eq!(count(&camera_args, 0, 0), 1, "near host");
+    assert_eq!(count(&camera_args, 0, 1), 1, "far host");
+    assert_eq!(count(&camera_args, 1, 0), 3, "rows at level 0");
+    assert_eq!(count(&camera_args, 1, 1), 2, "rows at level 1");
+
+    // The entries the camera's lists hold, against a CPU reference. Copies
+    // keep their order, so host `i` has mesh record `i`.
+    let rows = attached_rows();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let device = world.resource::<RenderDevice>().clone();
+    let queue = world.resource::<RenderQueue>().clone();
+    let (words, host_state, attached_count) = {
+        let scatters = world.resource::<Scatters>();
+        let gpu = scatters.0.values().next().expect("a Scatter");
+        let state = world
+            .resource::<ScatterViews>()
+            .0
+            .iter()
+            .find(|((view, _), _)| *view == camera)
+            .map(|(_, state)| state)
+            .expect("the camera's state");
+        let buffers = state.buffers.as_ref().expect("buffers");
+        (
+            read_words(&device, &queue, &buffers.attached_visible),
+            read_words(&device, &queue, &buffers.host_state),
+            gpu.attached_count,
+        )
+    };
+    assert_eq!(attached_count, 9, "three hosts of three rows");
+
+    // The host step: the near host's rows one by one at host level 0, the
+    // far host's whole at row level 1 and host level 1, the host behind
+    // skipped. (Modes as in `instanced_attach.wesl`.)
+    let (each_row, whole) = (1, 2);
+    assert_eq!(
+        host_state[..3],
+        [each_row, (whole + 1) | (1 << 16), 0],
+        "host states"
+    );
+    let entries = |level: u32, len: usize| {
+        let mut list: Vec<Entry> = (0..len)
+            .map(|i| {
+                let at = (level * attached_count) as usize + i;
+                words[at * 16..][..16].try_into().unwrap()
+            })
+            .collect();
+        list.sort();
+        list
+    };
+    let mut near: Vec<Entry> = rows.iter().map(|row| expected_entry(0, 0, row)).collect();
+    near.sort();
+    let mut far: Vec<Entry> = rows[..2]
+        .iter()
+        .map(|row| expected_entry(1, 0, row))
+        .collect();
+    far.sort();
+    assert_eq!(entries(0, 3), near, "rows of the near host");
+    assert_eq!(entries(1, 2), far, "rows of the far host");
+
+    // Shadow views draw each row at one level at most, and some cascade
+    // draws the near host's rows.
+    for args in views.values() {
+        assert!(count(args, 1, 0) + count(args, 1, 1) <= 9);
+    }
+    assert!(
+        views.values().any(|args| count(args, 1, 0) == 3),
+        "no shadow view drew the near host's rows"
+    );
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn gpu_attached_rows_beyond_their_reach_are_skipped() {
+    // Rows are culled from 50 m, so a host 200 m away draws none of them,
+    // while it still draws itself.
+    let mut app = attached_app(&[Vec3::new(0.0, 0.0, -200.0)], Some(50.0));
+    run_until_drawn(&mut app);
+    let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
+    let args = view_draw_args(&mut app).remove(&camera).expect("culled");
+    assert_eq!(count(&args, 0, 1), 1, "the host");
+    assert_eq!(count(&args, 1, 0) + count(&args, 1, 1), 0, "its rows");
 }

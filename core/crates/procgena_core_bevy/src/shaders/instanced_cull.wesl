@@ -28,6 +28,10 @@ struct CullView {
     shadow: u32,
     /// 1 to keep copies in front of the near plane, for directional shadows.
     skip_near: u32,
+    /// Attached copies' counts, read by `instanced_attach.wesl` only.
+    host_count: u32,
+    row_threads: u32,
+    attached_count: u32,
 }
 
 /// Mirrors `GpuCopy`.

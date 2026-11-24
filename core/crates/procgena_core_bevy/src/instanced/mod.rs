@@ -35,15 +35,16 @@ use bevy::app::{App, Last, Plugin};
 use bevy::asset::UntypedHandle;
 use bevy::camera::visibility::Visibility;
 use bevy::ecs::prelude::*;
-use bevy::math::{Affine3A, Vec3};
+use bevy::math::{Affine3A, Quat, Vec3};
 use bevy::mesh::Mesh;
 use bevy::prelude::{Handle, Transform};
 use procgena_core::{Lod, SpecimenId};
 
 pub use material::{
-    INSTANCE_LOCATION, INSTANCE_SIZE, INSTANCED_MESH_SHADER, INSTANCED_PREPASS_SHADER,
-    InstancedMaterialPlugin, InstancedStandard, InstancedStandardKey, InstancedStandardMaterial,
-    instance_buffer_layout, instanced_vertex,
+    ATTACHED_SIZE, INSTANCE_LOCATION, INSTANCE_SIZE, INSTANCED_MESH_SHADER,
+    INSTANCED_PREPASS_SHADER, InstancedMaterialPlugin, InstancedStandard, InstancedStandardKey,
+    InstancedStandardMaterial, attached_buffer_layout, attached_vertex, instance_buffer_layout,
+    instanced_vertex,
 };
 pub use render::{ExternalMesh, ExternalMeshes, InstancedSystems};
 
@@ -163,6 +164,72 @@ pub struct InstancedCopy {
     /// one specimen don't sway in step. Shaders read it with
     /// `copy_wind_phase` from `procgena_core_bevy::shaders::instanced`.
     pub wind_phase: f32,
+}
+
+/// Attached copies drawn on the copies of an [`InstancedScatter`] on the
+/// same entity, such as the fruit a tree grows on its branches.
+///
+/// Each host slot (a tree specimen) has a table of rows. Every copy of that
+/// slot draws every row of its table: the row's own slot (a fruit
+/// specimen), placed relative to the copy, moving with it. Rows are stored
+/// once per host slot, so a thousand copies of one tree cost nothing more
+/// per copy than the tree itself.
+///
+/// Each camera and shadow map picks the rows it draws and the level each
+/// is drawn at on the GPU, in two steps. First, once per host copy: copies
+/// out of view, or too far for any row to be drawn, draw no rows, and in a
+/// camera, copies whose rows all fall inside one level (outside its fade
+/// bands) draw every row at that level without testing each one. Then, for
+/// the other host copies, each row is tested against the view on its own
+/// and drawn at the level its own distance gives, fading as copies do.
+///
+/// A slot that rows draw is drawn only by rows: copies of it in
+/// [`InstancedScatter::copies`] are skipped, and its own table, if any, is
+/// ignored. Its parts' materials must be registered with
+/// [`InstancedMaterialPlugin::attached`], whose pipelines read the attached
+/// input described at [`attached_vertex`]. Rows whose slot is out of range
+/// are skipped.
+#[derive(Component, Clone, Debug)]
+pub struct InstancedAttached {
+    /// The rows of each host slot, by the slot's index in
+    /// [`InstancedScatter::slots`]. Slots past the end, and empty tables,
+    /// have no attached copies.
+    pub tables: Arc<[Arc<[AttachedRow]>]>,
+}
+
+/// One attached copy, placed relative to its host copy.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AttachedRow {
+    /// Which of the [`InstancedScatter::slots`] to draw.
+    pub slot: u32,
+    /// Where the attached copy is, in the host copy's own coordinates.
+    pub position: Vec3,
+    /// How it is turned, in the host copy's own coordinates.
+    pub rotation: Quat,
+    /// How much it is scaled, the same along every axis.
+    pub scale: f32,
+    /// Its size for choosing detail levels, in the units of its slot's
+    /// [`Lod::reference_size`], before the host copy's own scale. Must be
+    /// positive.
+    pub size: f32,
+    /// Three numbers a material's vertex shader reads with
+    /// `attached_wind`, such as how its host's branch sways where it is
+    /// attached.
+    pub wind: Vec3,
+    /// The host's detail levels at which the row is drawn, one bit per
+    /// level (bit 0 for level 0). The host's level here is the one it
+    /// switches to at the middle of each fade band, as in shadow maps, so
+    /// rows appear and vanish there without fading. Use it to thin rows on
+    /// far hosts (keep fewer rows at far levels, perhaps as enlarged
+    /// duplicates), or to stop drawing rows where the host's own far level
+    /// already shows them. [`AttachedRow::ALL_LEVELS`] draws the row at
+    /// every level.
+    pub host_levels: u32,
+}
+
+impl AttachedRow {
+    /// A [`host_levels`](Self::host_levels) mask with every level set.
+    pub const ALL_LEVELS: u32 = u32::MAX;
 }
 
 /// Built parts by specimen, piece and detail level, shared by every Scatter.
