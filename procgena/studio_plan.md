@@ -933,6 +933,9 @@ node-link diagram; preview contexts; budget badges; Biome and World
 documents as B1 and W1 bring their types (registered as new kinds,
 not new tabs).
 
+Far future, with no milestone: the studio as an extension of the Bevy
+editor, once Bevy offers editor extensions (see "Bevy editor").
+
 ### Running them in parallel
 
 | Wave | Run together | Notes |
@@ -949,6 +952,47 @@ defined in ST0; changes to those two are coordinated, not made in
 passing. Builds stay scoped: `cargo clippy -p procgena --all-targets
 --no-deps` and headless scripts; GPU tests only where a lane touched
 drawing.
+
+## Bevy editor
+
+Researched 2026-11-24 at the user's request, to see whether the studio
+should also become a plugin to the Bevy editor.
+
+**Decided by the user (2026-11-24): not now.** The official editor has
+no extension API, and its design book says adding editor functionality
+is, for now, done by forking. The studio is planned as a standalone app
+only. Becoming an extension of the Bevy editor is a **far-future goal,
+taken up once Bevy offers editor extensions**. No milestone, crate split
+or host interface is planned for it, and ST0–ST9 are unchanged.
+
+### What exists (November 2026)
+
+| Project | What it is | Architecture | Status |
+|---|---|---|---|
+| Official Bevy editor ([design book](https://bevyengine.github.io/bevy_editor_prototypes/architecture.html), [roadmap](https://bevyengine.github.io/bevy_editor_prototypes/roadmap.html), [constraints](https://bevyengine.github.io/bevy_editor_prototypes/design-constraints.html), [prototypes repo](https://github.com/bevyengine/bevy_editor_prototypes)) | A standalone Bevy app built only on `bevy_ui` and feathers; it edits `.bsn` scenes. | Self-contained tools (asset browser, entity inspector) are meant to be plugins usable without the editor. Roadmap stages: read-only scene viewer, basic editing, undo and hot reload, design pass, end-to-end projects (first alpha, moving into the Bevy repo), customisation. | The prototypes repo was archived 2026-04-16; work continues in the main repo. Open: undo design, extensions ("forking" for now), talking to a running game, distribution, preferences. |
+| Bevy 0.19 and 0.20 groundwork ([0.20](https://bevy.org/news/bevy-0-20/), [0.19](https://bevy.org/news/bevy-0-19/)) | Pieces the editor will be built from. | BSN syntax "largely nailed down", `.bsn` asset files coming; feathers (text, number, colour, dropdown, list, tabs, contextual theming) called "editor-centric"; headless `bevy_ui_widgets`; `PanOrbitCamera` upstreamed; App Settings saved through `Reflect`. | "What's next" lists `.bsn` assets, assets as entities and a remote inspector. No editor date. |
+| [Discussion #24010](https://github.com/bevyengine/bevy/discussions/24010) | A proposal (2026-04-28) for a thin editor host with WebAssembly (WIT) extensions. | Reflection across the boundary and how extensions contribute UI are its hard problems. | One reply, no maintainer response, no conclusion. |
+| [jackdaw](https://github.com/jbuehler23/jackdaw) ([docs.rs](https://docs.rs/crate/jackdaw/latest), [API](https://docs.rs/jackdaw_api/latest/jackdaw_api/)) | Community scene editor that the archived repo points to for experiments; 0.20.2 on Bevy 0.20 (2026-11-10). | A plugin group plus a binary. `JackdawExtension` adds docked windows, menus and inspector categories. Undo goes through "operators", which group into history spans. Selection is a resource plus a `Selected` marker. It uses `.bsn` scenes and its own feathers fork. | Active; undo described as still buggy. Not an official Bevy project. |
+| [bevy-inspector-egui](https://github.com/jakobhellermann/bevy-inspector-egui) | `Reflect`-driven inspector plugins. | `#[derive(InspectorOptions)]` with `#[inspector(min, max)]` for ranges; egui. No selection or undo. | 0.38 on Bevy 0.20, maintained. |
+| [Yoleck](https://github.com/idanarye/bevy-yoleck) | Kit to build your own level editor into the game binary. | Type handlers per entity type; UI generated from `Reflect` and attributes since 0.30; egui; `.yol` JSON levels. | 0.35 (2026-10-31) on Bevy 0.20, adds BSN. |
+| [Space Editor](https://github.com/rewin123/space_editor) | Prefab and scene editor. | egui with docking; its own undo crate; inspector via bevy-inspector-egui; RON scenes. | Stable branch on Bevy 0.14. |
+| [Blenvy](https://github.com/kaosat-dev/Blenvy), [Skein](https://bevy-skein.netlify.app) ([reflection](https://bevy-skein.netlify.app/docs/reflection)) | Blender as the editor. | Both read Bevy's `Reflect` type registry (Skein over the remote protocol) and store components in glTF extras. | Blenvy alpha; Skein 0.5 on Bevy 0.18. |
+
+### What it means for this plan
+
+- **Nothing changes now.** The studio already uses feathers,
+  `bevy_ui_widgets` and BSN scene functions, which is what any future
+  Bevy editor extension would be built from.
+- **Themes to recheck when extensions arrive:** a `Reflect`-driven
+  inspector (every editor above builds inspectors from `Reflect`, so
+  procgena options may need an optional `Reflect` derive), presets as
+  Bevy assets for an asset browser and `.bsn` scenes, the host's own undo
+  and selection, and which studio parts are editor-agnostic (the kind
+  registry, metadata, preset registry, capture service and project folder
+  are the likely ones).
+- **Worth adopting on its own merit (proposed, not part of this
+  decision):** Bevy's `PanOrbitCamera` in place of the studio's own orbit
+  camera, and Bevy's App Settings for the studio's session state.
 
 ## Effects on other documents
 
