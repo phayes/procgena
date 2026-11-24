@@ -26,10 +26,11 @@ use json::validation::USize64;
 use json::{Index, Root};
 
 use super::{TextureMap, TextureRef, export_parts, scaled_bark_uvs};
+use procgena_fruit::FruitMaterial;
+
 use crate::{
-    BarkMaterial, BarkUvMode, BranchGrouping, BranchShape, FlowerMaterial, FruitMaterial,
-    LeafMaterial, MeshBuffers, MeshPart, PartMesh, Rig, SkinWeights, TreeMesh, TreeOptions,
-    leaf_has_normal_map,
+    BarkMaterial, BarkUvMode, BranchGrouping, BranchShape, LeafMaterial, MeshBuffers, MeshPart,
+    PartMesh, Rig, SkinWeights, TreeMesh, TreeOptions, leaf_has_normal_map,
 };
 
 /// Callback returning a texture image URI, or `None` to omit that map.
@@ -335,11 +336,11 @@ fn build(
             .any(|mesh| export_parts(gltf.grouping, mesh).contains(&part))
     };
     let fruit = has(MeshPart::Fruit).then(|| {
-        let fruit = FruitMaterial::default();
+        let fruit = FruitMaterial::FRUIT;
         b.colored_material("fruit", fruit.metallic, fruit.roughness, fruit.double_sided)
     });
     let flowers = has(MeshPart::Flowers).then(|| {
-        let flower = FlowerMaterial::default();
+        let flower = FruitMaterial::FLOWER;
         b.colored_material(
             "flowers",
             flower.metallic,

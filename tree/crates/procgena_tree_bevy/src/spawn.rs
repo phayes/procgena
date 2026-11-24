@@ -16,15 +16,14 @@ use procgena_impostor::{
 };
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
-    BranchShape, ClusterPart, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression,
-    TextureSize, TreeCacheKey, TreeMesh, TreeOptions, TreePreset, TrellisWire, cluster_card_mesh,
-    default_lod,
+    BranchShape, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
+    TreeCacheKey, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod,
 };
 
 use crate::impostor::{ImpostorShown, TreeImpostorAssets};
 use crate::material::{
-    BarkTextures, CARD_BAKE, LeafTextures, TreeMaterial, average_bark_material, bake_copy,
-    bark_material, card_material, flower_material, fruit_material, leaf_material, trellis_material,
+    BarkTextures, LeafTextures, TreeMaterial, average_bark_material, bark_material,
+    flower_material, fruit_material, leaf_material, trellis_material,
 };
 use crate::material_key::{BarkKey, LeafKey, TrellisKey};
 use crate::mesh::{bark_mesh, billboard_aabb, cluster_mesh, leaf_mesh};
@@ -307,21 +306,11 @@ struct LevelMeshes {
     leaves: Option<PartMesh<Mesh>>,
     fruit: Option<PartMesh<Mesh>>,
     flowers: Option<PartMesh<Mesh>>,
-    /// Cluster cards, by part and variant.
-    cards: Vec<(ClusterPart, u32, PartMesh<Mesh>)>,
 }
 
-/// Generated detail levels, the meshes their cluster cards' pictures are
-/// baked from (by part and variant), and the tree as a tagged specimen, or
-/// the validation error that prevented generation.
-type TaskOutput = Result<
-    (
-        Vec<LevelMeshes>,
-        Vec<(ClusterPart, u32, Mesh)>,
-        Arc<Specimen>,
-    ),
-    OptionsError,
->;
+/// Generated detail levels and the tree as a tagged specimen, or the
+/// validation error that prevented generation.
+type TaskOutput = Result<(Vec<LevelMeshes>, Arc<Specimen>), OptionsError>;
 
 /// Mesh handles and materials for one detail level.
 struct LevelAssets {
@@ -333,8 +322,6 @@ struct LevelAssets {
     fruit: Option<PartMesh<Handle<Mesh>>>,
     /// Flower mesh, absent when this level contains no flower triangles.
     flowers: Option<PartMesh<Handle<Mesh>>>,
-    /// Cluster card meshes, by part and variant.
-    cards: Vec<(ClusterPart, u32, PartMesh<Handle<Mesh>>)>,
     /// Bark material, shared by levels with matching bark settings and sidedness.
     bark_material: Handle<TreeMaterial>,
     /// Leaf material, shared by levels using the same leaf image selection.
@@ -352,9 +339,6 @@ pub(crate) struct Generated {
     impostor_ranges: Option<Vec<LodRange>>,
     fruit: Handle<TreeMaterial>,
     flowers: Handle<TreeMaterial>,
-    /// The material of each cluster card part and variant, drawing its
-    /// baked picture.
-    card_materials: HashMap<(ClusterPart, u32), Handle<TreeMaterial>>,
     /// One cylinder mesh and material shared by all wires, plus each wire's placement.
     pub(crate) trellis: Option<(Handle<Mesh>, Handle<StandardMaterial>, Vec<Transform>)>,
     /// The tree as a tagged specimen, shared by every tree with these options.
@@ -363,8 +347,7 @@ pub(crate) struct Generated {
 
 impl Generated {
     /// Every mesh part of every detail level, nearest level first, with its
-    /// material. Cluster cards count as fruit or flower parts. Trellis wires
-    /// are not included.
+    /// material. Trellis wires are not included.
     pub(crate) fn parts(
         &self,
     ) -> impl Iterator<
@@ -379,7 +362,7 @@ impl Generated {
             .iter()
             .enumerate()
             .flat_map(move |(lod, level)| {
-                let meshes = [
+                [
                     (TreePartKind::Bark, &level.bark, &level.bark_material),
                     (TreePartKind::Leaves, &level.leaves, &level.leaf_material),
                     (TreePartKind::Fruit, &level.fruit, &self.fruit),
@@ -388,20 +371,7 @@ impl Generated {
                 .into_iter()
                 .filter_map(move |(kind, mesh, material)| {
                     Some((lod, kind, mesh.as_ref()?, material))
-                });
-                let cards = level.cards.iter().filter_map(move |(part, variant, mesh)| {
-                    let kind = match part {
-                        ClusterPart::Fruit => TreePartKind::Fruit,
-                        ClusterPart::Flowers => TreePartKind::Flowers,
-                    };
-                    Some((
-                        lod,
-                        kind,
-                        mesh,
-                        self.card_materials.get(&(*part, *variant))?,
-                    ))
-                });
-                meshes.chain(cards)
+                })
             })
     }
 
@@ -419,19 +389,8 @@ impl Generated {
 
 enum Entry {
     Pending(Task<TaskOutput>, Arc<TreeOptions>),
-    /// Generated, waiting for its cluster cards' pictures to bake.
-    Baking(Box<Generated>, Vec<CardBake>),
     Ready(Arc<Generated>),
     Failed(OptionsError),
-}
-
-/// One cluster card picture a generated tree waits for.
-struct CardBake {
-    part: ClusterPart,
-    variant: u32,
-    key: ImpostorKey,
-    /// The lone cluster the picture is baked from.
-    mesh: Handle<Mesh>,
 }
 
 /// Where a tree's generation stands in the [`TreeCache`].
@@ -537,7 +496,7 @@ impl TreeCache {
         match self.trees.get(&key) {
             Some(Entry::Ready(generated)) => CacheState::Ready(generated),
             Some(Entry::Failed(_)) => CacheState::Failed,
-            Some(Entry::Pending(..) | Entry::Baking(..)) | None => CacheState::Pending,
+            Some(Entry::Pending(..)) | None => CacheState::Pending,
         }
     }
 }
@@ -649,44 +608,15 @@ fn generate(options: &TreeOptions, levels: &[LodLevel<TreeLevel>]) -> TaskOutput
     let meshes: Vec<LevelMeshes> = levels
         .iter()
         .zip(&lods)
-        .map(|(level, (_, mesh))| {
-            let cards = [
-                (ClusterPart::Fruit, &mesh.fruit_cards),
-                (ClusterPart::Flowers, &mesh.flower_cards),
-            ]
-            .into_iter()
-            .flat_map(|(cluster, buffers)| {
-                buffers.iter().zip(0u32..).filter_map(move |(b, variant)| {
-                    Some((cluster, variant, part(b, &cluster_mesh)?))
-                })
-            })
-            .collect();
-            LevelMeshes {
-                level: level.detail,
-                bark: part(&mesh.branches, &|b| bark_mesh(b, &options.bark)),
-                leaves: part(&mesh.leaves, &leaf_mesh),
-                fruit: part(&mesh.fruit, &cluster_mesh),
-                flowers: part(&mesh.flowers, &cluster_mesh),
-                cards,
-            }
+        .map(|(level, (_, mesh))| LevelMeshes {
+            level: level.detail,
+            bark: part(&mesh.branches, &|b| bark_mesh(b, &options.bark)),
+            leaves: part(&mesh.leaves, &leaf_mesh),
+            fruit: part(&mesh.fruit, &cluster_mesh),
+            flowers: part(&mesh.flowers, &cluster_mesh),
         })
         .collect();
-
-    // The lone cluster behind each card part and variant any level draws.
-    let mut drawn: Vec<(ClusterPart, u32)> = meshes
-        .iter()
-        .flat_map(|level| level.cards.iter().map(|(p, v, _)| (*p, *v)))
-        .collect();
-    drawn.sort_by_key(|(part, variant)| (*part as u8, *variant));
-    drawn.dedup();
-    let bakes = drawn
-        .into_iter()
-        .map(|(cluster, variant)| {
-            let buffers = cluster_card_mesh(options, cluster, variant);
-            (cluster, variant, cluster_mesh(&buffers))
-        })
-        .collect();
-    Ok((meshes, bakes, specimen))
+    Ok((meshes, specimen))
 }
 
 /// Collects completed tasks and registers shared meshes and materials.
@@ -711,7 +641,7 @@ pub(crate) fn finish_generation(
         let Some(output) = block_on(poll_once(task)) else {
             continue;
         };
-        let (levels, card_meshes, specimen) = match output {
+        let (levels, specimen) = match output {
             Ok(generated) => generated,
             Err(error) => {
                 error!("procgena_tree_bevy: cannot generate tree: {error}");
@@ -801,11 +731,6 @@ pub(crate) fn finish_generation(
                 leaves: add(l.leaves),
                 fruit: add(l.fruit),
                 flowers: add(l.flowers),
-                cards: l
-                    .cards
-                    .into_iter()
-                    .filter_map(|(part, variant, mesh)| Some((part, variant, add(Some(mesh))?)))
-                    .collect(),
                 bark_material: bark.clone(),
                 leaf_material: leaves.clone(),
             });
@@ -840,100 +765,10 @@ pub(crate) fn finish_generation(
             impostor_ranges: settings.impostor_ranges(quality.0),
             fruit,
             flowers,
-            card_materials: HashMap::new(),
             trellis,
             specimen,
         };
-
-        // Trees with cluster cards wait for every card's picture to bake.
-        let pool = options.pool_id();
-        let bakes: Vec<CardBake> = card_meshes
-            .into_iter()
-            .map(|(part, variant, mesh)| CardBake {
-                part,
-                variant,
-                key: card_key(pool, part, variant),
-                mesh: meshes.add(mesh),
-            })
-            .collect();
-        *entry = if bakes.is_empty() {
-            Entry::Ready(Arc::new(generated))
-        } else {
-            Entry::Baking(Box::new(generated), bakes)
-        };
-    }
-}
-
-/// The impostor key of the cluster card picture of `part`'s variant
-/// `variant` for trees of `pool`.
-fn card_key(pool: PoolId, part: ClusterPart, variant: u32) -> ImpostorKey {
-    ImpostorKey::pool_part(
-        pool,
-        part.name(),
-        CARD_BAKE,
-        &[&variant.to_le_bytes(), env!("CARGO_PKG_VERSION").as_bytes()],
-    )
-}
-
-/// Asks the shared impostor cache for every waiting tree's cluster card
-/// pictures, and readies each tree once all of its pictures are baked,
-/// with one card material per picture.
-pub(crate) fn bake_cards(
-    mut commands: Commands,
-    mut cache: ResMut<TreeCache>,
-    mut impostors: ResMut<Impostors>,
-    wind: Res<Wind>,
-    mut tree_materials: ResMut<Assets<TreeMaterial>>,
-) {
-    let cache = &mut *cache;
-    let (fruit, flowers) = (cache.fruit_material.clone(), cache.flower_material.clone());
-    let mut done = Vec::new();
-    for (key, entry) in &cache.trees {
-        let Entry::Baking(_, bakes) = entry else {
-            continue;
-        };
-        let mut ready = Vec::new();
-        for bake in bakes.iter() {
-            let source = match bake.part {
-                ClusterPart::Fruit => &fruit,
-                ClusterPart::Flowers => &flowers,
-            };
-            let baked = impostors
-                .request(&mut commands, bake.key, || {
-                    // Still, unlit copies of the shared fruit or flower material.
-                    let source = source
-                        .as_ref()
-                        .and_then(|handle| tree_materials.get(handle))
-                        .cloned()
-                        .unwrap_or_else(|| fruit_material(wind.0));
-                    let albedo = tree_materials.add(bake_copy(&source, BakeOutput::Albedo));
-                    let normal = tree_materials.add(bake_copy(&source, BakeOutput::Normal));
-                    ImpostorRequest {
-                        key: bake.key,
-                        parts: vec![BakePart::new(bake.mesh.clone(), albedo, normal)],
-                        wait_for: Vec::new(),
-                    }
-                })
-                .map(|impostor| impostor.albedo.clone());
-            ready.push(baked);
-        }
-        if let Some(albedos) = ready.into_iter().collect::<Option<Vec<_>>>() {
-            done.push((*key, albedos));
-        }
-    }
-
-    // Each tree whose pictures are all baked gets its card materials.
-    for (key, albedos) in done {
-        let Some(Entry::Baking(mut generated, bakes)) = cache.trees.remove(&key) else {
-            continue;
-        };
-        for (bake, albedo) in bakes.iter().zip(albedos) {
-            let material = tree_materials.add(card_material(albedo, wind.0));
-            generated
-                .card_materials
-                .insert((bake.part, bake.variant), material);
-        }
-        cache.trees.insert(key, Entry::Ready(Arc::new(*generated)));
+        *entry = Entry::Ready(Arc::new(generated));
     }
 }
 
@@ -970,7 +805,7 @@ pub(crate) fn spawn_parts(
                 Ok(())
             }
             Some(Entry::Failed(error)) => Err(error.clone()),
-            Some(Entry::Pending(..) | Entry::Baking(..)) | None => continue,
+            Some(Entry::Pending(..)) | None => continue,
         };
         commands.entity(entity).remove::<TreeGenerating>();
         commands.trigger(TreeFinished { entity, result });

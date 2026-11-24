@@ -360,9 +360,9 @@ use procgena_tree::{TextureCompression, WIND_WESL};
 
 pub use impostor::default_tree_impostor;
 pub use material::{
-    BarkTextures, CARD_BAKE, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
-    average_bark_material, bake_copy, bark_material, card_material, flower_material,
-    fruit_material, leaf_material, trellis_material,
+    BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
+    average_bark_material, bake_copy, bark_material, flower_material, fruit_material,
+    leaf_material, trellis_material,
 };
 pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
@@ -485,9 +485,8 @@ impl Plugin for TreePlugin {
         }
         let impostor = settings.impostor;
 
-        // Impostors and cluster card pictures, unless the app added the
-        // plugin itself with settings of its own. The tree shaders always
-        // import its layout functions.
+        // Impostors, unless the app added the plugin itself with settings
+        // of its own.
         if !app.is_plugin_added::<ImpostorPlugin>() {
             app.add_plugins(ImpostorPlugin::default());
         }
@@ -529,7 +528,6 @@ impl Plugin for TreePlugin {
                 spawn::reset_changed_trees,
                 spawn::start_generation,
                 spawn::finish_generation,
-                spawn::bake_cards,
                 spawn::spawn_parts,
                 scatter::refresh_grove_assets,
                 spawn::prune_cache,

@@ -5483,6 +5483,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "procgena_fruit"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+ "gltf",
+ "gltf-json",
+ "procgena_core",
+ "procgena_specimen",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "procgena_impostor"
 version = "0.1.0"
 dependencies = [
@@ -5603,6 +5616,7 @@ dependencies = [
  "gltf-json",
  "naga",
  "procgena_core",
+ "procgena_fruit",
  "procgena_specimen",
  "serde",
  "serde_json",

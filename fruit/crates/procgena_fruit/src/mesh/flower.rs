@@ -4,9 +4,18 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use glam::{Vec3, Vec4};
 
-use super::{Grid, loop_angle, push_triangle, rgba, smoothstep};
-use crate::mesh::{ItemDetail, MeshBuffers};
-use crate::{ClusterItem, FlowerOptions};
+use super::{FruitMesh, Grid, ItemDetail, lerp, loop_angle, push_triangle, rgba, smoothstep, turn_hue};
+use crate::{ClusterItem, FlowerShape, FruitOptions};
+
+/// How far [`Variation::shape_jitter`](crate::Variation::shape_jitter) at
+/// its full value turns each petal, as a fraction of the gap between petals.
+const PETAL_TURN_JITTER: f32 = 0.2;
+/// How much [`Variation::shape_jitter`](crate::Variation::shape_jitter) at
+/// its full value lengthens or shortens each petal.
+const PETAL_LENGTH_JITTER: f32 = 0.25;
+/// Fractional part of the golden ratio, which spreads per-petal
+/// differences evenly.
+const GOLDEN_RATIO_FRACTION: f32 = 0.618_034;
 
 /// Amount by which each inner layer of petals shrinks relative to the outer layer.
 const RING_SHRINK: f32 = 0.15;
@@ -82,36 +91,48 @@ impl Bloom {
     }
 }
 
-/// Appends a flower at `item.origin`, facing its local +Y direction. Supply
-/// validated options, attachment wind values, and the desired shape detail.
-/// Minimal detail uses one star-shaped surface in place of separate petals
-/// and a raised centre. Adds nothing for nonpositive item sizes.
+/// The item's bloom: the cluster's maturity, moved by the item's own
+/// variation and kept within 0–1.
+fn item_bloom(item: &ClusterItem, options: &FruitOptions) -> Bloom {
+    Bloom::new((options.maturity + item.variation.maturity).clamp(0.0, 1.0))
+}
+
+/// The item's petal colours, turned by its hue variation.
+fn petal_colors(item: &ClusterItem, shape: &FlowerShape) -> PetalColors {
+    let turn = |hex| turn_hue(rgba(hex), item.variation.hue);
+    PetalColors {
+        base: turn(shape.base_color),
+        petal: turn(shape.petal_color),
+        bud: turn(shape.bud_color),
+        fade: turn(shape.fade_color),
+    }
+}
+
+/// Appends a flower at `item.origin`, facing its local +Y direction, with
+/// the given flutter and shape detail. Minimal detail uses one star-shaped
+/// surface in place of separate petals and a raised centre. Adds nothing
+/// for nonpositive item sizes.
 pub(super) fn mesh_item(
-    out: &mut MeshBuffers,
+    out: &mut FruitMesh,
     item: &ClusterItem,
-    flowers: &FlowerOptions,
-    wind: [f32; 4],
+    shape: &FlowerShape,
+    options: &FruitOptions,
+    flutter: f32,
     detail: ItemDetail,
 ) {
-    let shape = &flowers.shape;
-    let bloom = Bloom::new(flowers.maturity);
+    let bloom = item_bloom(item, options);
     let size = item.size;
     if size <= 0.0 {
         return;
     }
     let to_tree = |local: Vec3| item.origin + item.orientation * local;
-    let colors = PetalColors {
-        base: rgba(shape.base_color),
-        petal: rgba(shape.petal_color),
-        bud: rgba(shape.bud_color),
-        fade: rgba(shape.fade_color),
-    };
+    let colors = petal_colors(item, shape);
     let centre_radius = shape.center_size * size / 2.0;
     let facing = item.orientation * Vec3::Y;
     if detail == ItemDetail::Minimal {
         let petal = Petal::layer(shape, &bloom, size, centre_radius, 0, STAR_SEGMENTS);
         let grid = star(&petal, shape, &bloom, &colors, &to_tree);
-        grid.emit(out, facing, |_| wind);
+        grid.emit(out, facing, |_| flutter);
         return;
     }
 
@@ -123,13 +144,19 @@ pub(super) fn mesh_item(
             (shape.petal_segments as usize).min(SIMPLE_PETAL_SEGMENTS),
         ),
     };
+    // A lopsided flower turns and stretches each petal a little differently.
     let count = shape.petal_count;
+    let [turn, stretch, phase] = item.variation.shape;
     for ring in 0..rings {
         let petal = Petal::layer(shape, &bloom, size, centre_radius, ring, segments);
         for p in 0..count {
-            let azimuth = TAU * p as f32 / count as f32 + PI * ring as f32 / count as f32;
+            let wobble = TAU * ((p as f32 + phase) * GOLDEN_RATIO_FRACTION).fract();
+            let jitter = PETAL_TURN_JITTER * TAU / count as f32 * turn * wobble.sin();
+            let azimuth =
+                TAU * p as f32 / count as f32 + PI * ring as f32 / count as f32 + jitter;
+            let petal = petal.stretched(1.0 + PETAL_LENGTH_JITTER * stretch * wobble.cos());
             let grid = petal.grid(azimuth, shape, &bloom, &colors, &to_tree);
-            grid.emit(out, facing, |_| wind);
+            grid.emit(out, facing, |_| flutter);
         }
     }
 
@@ -153,28 +180,21 @@ pub(super) fn mesh_item(
                 grid.push(point, [j as f32 / sides as f32, f], color);
             }
         }
-        grid.emit(out, facing, |_| wind);
+        grid.emit(out, facing, |_| flutter);
     }
-}
-
-/// Returns the width and length of a rounded catkin flower in metres,
-/// adjusted for how far the flower has opened.
-pub(super) fn catkin_size(item: &ClusterItem, flowers: &FlowerOptions) -> (f32, f32) {
-    let size = item.size * lerp(0.5, 1.0, Bloom::new(flowers.maturity).open);
-    (size, size * BUMP_ELONGATION)
 }
 
 /// Appends one flower as a single triangle in its petal colour for the bloom
 /// stage, with corners at three of its outer petal tips, opening toward the
 /// item's local +Y. Nonpositive item sizes add nothing.
 pub(super) fn mesh_triangle(
-    out: &mut MeshBuffers,
+    out: &mut FruitMesh,
     item: &ClusterItem,
-    flowers: &FlowerOptions,
-    wind: [f32; 4],
+    shape: &FlowerShape,
+    options: &FruitOptions,
+    flutter: f32,
 ) {
-    let shape = &flowers.shape;
-    let bloom = Bloom::new(flowers.maturity);
+    let bloom = item_bloom(item, options);
     if item.size <= 0.0 {
         return;
     }
@@ -189,40 +209,31 @@ pub(super) fn mesh_triangle(
             .expect("spine has points");
         item.origin + item.orientation * tip
     });
-    let color = bloom.color(
-        rgba(shape.petal_color),
-        rgba(shape.bud_color),
-        rgba(shape.fade_color),
-    );
-    push_triangle(out, corners, item.orientation * Vec3::Y, color, wind);
-}
-
-/// Returns the catkin flower colour in linear RGBA for the current bloom stage.
-pub(super) fn catkin_color(flowers: &FlowerOptions) -> Vec4 {
-    let shape = &flowers.shape;
-    Bloom::new(flowers.maturity).color(
-        rgba(shape.petal_color),
-        rgba(shape.bud_color),
-        rgba(shape.fade_color),
-    )
+    let colors = petal_colors(item, shape);
+    let color = bloom.color(colors.petal, colors.bud, colors.fade);
+    push_triangle(out, corners, item.orientation * Vec3::Y, color, flutter);
 }
 
 /// Appends a rounded catkin flower from its attachment along local +Y.
-/// Maturity controls its size and colour; `detail` controls its side and
-/// lengthwise division counts. Uses only the shape’s `petal_color`,
-/// `bud_color`, and `fade_color`. Adds nothing for nonpositive scaled sizes.
+/// Maturity sets its size and colour; `detail` sets its side and
+/// lengthwise division counts. Uses only the shape's `petal_color`,
+/// `bud_color` and `fade_color`. Adds nothing for nonpositive scaled sizes.
 pub(super) fn mesh_catkin_item(
-    out: &mut MeshBuffers,
+    out: &mut FruitMesh,
     item: &ClusterItem,
-    flowers: &FlowerOptions,
-    wind: [f32; 4],
+    shape: &FlowerShape,
+    options: &FruitOptions,
+    flutter: f32,
     detail: ItemDetail,
 ) {
-    let (size, height) = catkin_size(item, flowers);
+    let bloom = item_bloom(item, options);
+    let size = item.size * lerp(0.5, 1.0, bloom.open);
+    let height = size * BUMP_ELONGATION;
     if size <= 0.0 {
         return;
     }
-    let color = catkin_color(flowers);
+    let colors = petal_colors(item, shape);
+    let color = bloom.color(colors.petal, colors.bud, colors.fade);
     let (segments, rings) = match detail {
         ItemDetail::Full => (BUMP_SEGMENTS, BUMP_RINGS),
         ItemDetail::Simple => (SIMPLE_BUMP_SEGMENTS, SIMPLE_BUMP_RINGS),
@@ -247,7 +258,7 @@ pub(super) fn mesh_catkin_item(
             grid.push(item.origin + item.orientation * local, uv, color);
         }
     }
-    grid.emit(out, item.orientation * Vec3::Y, |_| wind);
+    grid.emit(out, item.orientation * Vec3::Y, |_| flutter);
 }
 
 /// Creates one star-shaped surface to represent a flower, with a point for
@@ -325,6 +336,7 @@ struct PetalColors {
 
 /// Dimensions and curve settings shared by the petals in one layer.
 /// Lengths are in metres; angles use radians.
+#[derive(Clone, Copy)]
 struct Petal {
     length: f32,
     width: f32,
@@ -357,6 +369,14 @@ impl Petal {
             lift: 0.01 * size * ring as f32,
             rise: 0.1 * ring as f32,
             segments,
+        }
+    }
+
+    /// The same petal with its length multiplied by `factor`.
+    fn stretched(&self, factor: f32) -> Self {
+        Self {
+            length: self.length * factor,
+            ..*self
         }
     }
 
@@ -447,10 +467,4 @@ impl Petal {
 fn outline(s: f32) -> f32 {
     let x = (s - 0.55) / 0.55;
     (1.0 - x * x).max(0.0).sqrt().max(0.12)
-}
-
-/// Blends from `a` at `t = 0` to `b` at `t = 1`. Values outside 0–1
-/// continue beyond the endpoints rather than being clamped.
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
 }

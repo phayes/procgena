@@ -1,15 +1,14 @@
-//! Create fruit bodies, short stems, and calyxes (the flower remains at the bottom).
+//! Fruit bodies, their short stems, and calyxes (the flower remains at the bottom).
 
-use std::f32::consts::{FRAC_PI_2, PI, TAU};
+use std::f32::consts::{PI, TAU};
 
 use glam::{Quat, Vec3, Vec4};
 
 use super::{
-    Grid, SIMPLE_STALK_SIDES, STALK_SIDES, blush_direction, loop_angle, push_triangle, rgba,
-    smoothstep, tube,
+    FruitMesh, Grid, ItemDetail, SIMPLE_STALK_SIDES, STALK_SIDES, loop_angle, out_direction,
+    push_triangle, rgba, smoothstep, tube, turn_hue, up_direction,
 };
-use crate::mesh::{ItemDetail, MeshBuffers};
-use crate::{ClusterItem, FruitOptions};
+use crate::{ClusterItem, Facing, FruitOptions, FruitShape};
 
 /// Unripe fruit size as a fraction of fully ripe size.
 const UNRIPE_SCALE: f32 = 0.3;
@@ -19,12 +18,18 @@ const DIMPLE_DEPTH: f32 = 0.25;
 const DIMPLE_REACH: f32 = 0.45;
 /// Maximum sideways stem bend as a fraction of stem length.
 const STEM_BOW: f32 = 0.3;
-/// Number of points used to describe the curve of a fruit’s short stem.
+/// Number of points describing the curve of a fruit's short stem.
 const STEM_POINTS: usize = 5;
 /// Number of small, pointed flower remains forming the calyx.
 const SEPALS: u32 = 5;
 /// Length of each calyx point as a fraction of fruit size.
 const SEPAL_LENGTH: f32 = 0.15;
+/// How much [`Variation::shape_jitter`](crate::Variation::shape_jitter)
+/// at its full value can deepen or flatten a fruit's ribs.
+const LOBE_JITTER: f32 = 0.5;
+/// How much [`Variation::shape_jitter`](crate::Variation::shape_jitter)
+/// at its full value can stretch or squash a fruit.
+const ELONGATION_JITTER: f32 = 0.15;
 
 /// Lower limit for reduced fruit side counts, unless the shape already uses fewer.
 const SIMPLE_MIN_SEGMENTS: usize = 6;
@@ -43,35 +48,34 @@ const DISC_RIM_SHADE: f32 = 0.75;
 /// Fractional part of the golden ratio; stepping by it spreads values evenly over 0–1.
 const GOLDEN_RATIO_FRACTION: f32 = 0.618_034;
 
-/// Shape detail and colour choices shared by fruit in one cluster.
+/// Shape detail and colour choices shared by the fruit in one cluster.
 pub(super) struct Style {
     /// Colour for stems and flower remains, in linear RGBA.
     stalk_color: Vec4,
-    /// Unit direction in tree coordinates toward the fruit’s contrasting colour patch.
+    /// Unit direction in the cluster frame toward each fruit's blush.
     blush: Vec3,
-    /// Number of sides around a fruit stem; `None` omits the stem.
+    /// Number of sides around a fruit stem; `None` leaves the stem out.
     stem_sides: Option<usize>,
     /// Number of sides around the fruit body.
     segments: usize,
-    /// Number of divisions along the fruit body’s length.
+    /// Number of divisions along the fruit body's length.
     rings: usize,
-    /// Whether to include the small flower remains at the end opposite the stem.
+    /// Whether to add the small flower remains opposite the stem.
     calyx: bool,
 }
 
 impl Style {
-    /// Selects shape detail without exceeding the configured side and division
-    /// counts. Set `with_stem` to false for directly attached fruit. Pass the
-    /// cluster origin in tree coordinates to orient the contrasting colour patch,
-    /// and a linear RGBA colour for stems and flower remains.
+    /// Picks shape detail without exceeding the shape's own side and ring
+    /// counts. Set `with_stem` to false for fruit attached directly to a
+    /// stem. The blush faces up and away from the host, for a cluster
+    /// shaped for `facing`.
     pub(super) fn new(
-        fruit: &FruitOptions,
+        shape: &FruitShape,
         detail: ItemDetail,
         stalk_color: Vec4,
         with_stem: bool,
-        origin: Vec3,
+        facing: Facing,
     ) -> Self {
-        let shape = &fruit.shape;
         let (segments, rings) = (shape.segments as usize, shape.rings as usize);
         let (segments, rings, stem_sides) = match detail {
             ItemDetail::Full => (segments, rings, Some(STALK_SIDES)),
@@ -88,7 +92,7 @@ impl Style {
         };
         Self {
             stalk_color,
-            blush: blush_direction(origin),
+            blush: (out_direction(facing) + up_direction(facing)).normalize(),
             stem_sides: stem_sides.filter(|_| with_stem),
             segments,
             rings,
@@ -97,33 +101,43 @@ impl Style {
     }
 }
 
-/// Returns fruit width and length in metres, adjusted for maturity.
-pub(super) fn body_size(item: &ClusterItem, fruit: &FruitOptions) -> (f32, f32) {
-    let size = item.size * (UNRIPE_SCALE + (1.0 - UNRIPE_SCALE) * fruit.maturity);
-    (size, size * fruit.shape.elongation)
+/// The item's maturity: the cluster's, moved by the item's own variation
+/// and kept within 0–1.
+fn maturity(item: &ClusterItem, options: &FruitOptions) -> f32 {
+    (options.maturity + item.variation.maturity).clamp(0.0, 1.0)
 }
 
-/// Returns the skin colour for the configured maturity in linear RGBA,
-/// without the contrasting blush patch.
-pub(super) fn body_color(fruit: &FruitOptions) -> Vec4 {
-    rgba(fruit.shape.unripe_color).lerp(rgba(fruit.shape.color), fruit.maturity)
+/// Fruit width and length in metres, after maturity and shape jitter.
+fn body_size(item: &ClusterItem, shape: &FruitShape, maturity: f32) -> (f32, f32) {
+    let size = item.size * (UNRIPE_SCALE + (1.0 - UNRIPE_SCALE) * maturity);
+    let stretch = 1.0 + ELONGATION_JITTER * item.variation.shape[2];
+    (size, size * shape.elongation * stretch)
 }
 
-/// Appends one fruit as a flat, rough disc the size of its body, centred where
-/// the body would be. The disc faces roughly along the unit direction `facing`
-/// (normally away from the trunk), leaning up to [`DISC_LEAN`] radians in a
-/// direction that varies with `index`, the fruit's position in its cluster.
-/// Its long axis follows the fruit's own axis. Discs have no stem or calyx.
-/// Nonpositive sizes add nothing.
+/// The skin colour at `maturity` in linear RGBA, without the blush, turned
+/// by the item's hue variation.
+fn body_color(item: &ClusterItem, shape: &FruitShape, maturity: f32) -> Vec4 {
+    let color = rgba(shape.unripe_color).lerp(rgba(shape.color), maturity);
+    turn_hue(color, item.variation.hue)
+}
+
+/// Appends one fruit as a flat, rough disc the size of its body, centred
+/// where the body would be. The disc faces roughly along the unit direction
+/// `facing`, leaning up to [`DISC_LEAN`] radians in a direction that varies
+/// with `index`, the fruit's place among the drawn items. Its long axis
+/// follows the fruit's own axis. Discs have no stem or calyx. Nonpositive
+/// sizes add nothing.
 pub(super) fn mesh_disc(
-    out: &mut MeshBuffers,
+    out: &mut FruitMesh,
     item: &ClusterItem,
     index: usize,
-    fruit: &FruitOptions,
+    shape: &FruitShape,
+    options: &FruitOptions,
     facing: Vec3,
-    wind: [f32; 4],
+    flutter: f32,
 ) {
-    let (size, height) = body_size(item, fruit);
+    let maturity = maturity(item, options);
+    let (size, height) = body_size(item, shape, maturity);
     if size <= 0.0 {
         return;
     }
@@ -144,7 +158,7 @@ pub(super) fn mesh_disc(
     let centre = item.origin + fruit_axis * (height / 2.0);
 
     // A darker rim than centre suggests the fruit's roundness.
-    let color = body_color(fruit);
+    let color = body_color(item, shape, maturity);
     let rim = (color.truncate() * DISC_RIM_SHADE).extend(color.w);
     let mut grid = Grid::new(DISC_SIDES + 1, true);
     for j in 0..=DISC_SIDES {
@@ -155,101 +169,44 @@ pub(super) fn mesh_disc(
     for j in 0..=DISC_SIDES {
         grid.push(centre, [j as f32 / DISC_SIDES as f32, 1.0], color);
     }
-    grid.emit(out, normal, |_| wind);
+    grid.emit(out, normal, |_| flutter);
 }
 
-/// Adds a main fruit hexagon to `out` and a perpendicular fallback hexagon to
-/// `cull`, without normals, stems or flower remains. Pass the outward unit
-/// direction as `facing`; `index` varies the stored shape’s tilt as in [`mesh_disc`].
-/// Only the main hexagon carries camera-facing data. Its rotated shape is regular
-/// and centred on the fruit body, with a diameter equal to the mean of the body’s
-/// width and height. A nonpositive body width adds nothing.
-pub(super) fn mesh_billboard(
-    [out, cull]: [&mut MeshBuffers; 2],
-    item: &ClusterItem,
-    index: usize,
-    fruit: &FruitOptions,
-    facing: Vec3,
-    wind: [f32; 4],
-) {
-    let (size, height) = body_size(item, fruit);
-    if size <= 0.0 {
-        return;
-    }
-
-    // Give the fixed fallback shape the same tilt and proportions as a flat fruit disc.
-    let t = (index as f32 * GOLDEN_RATIO_FRACTION).fract();
-    let (u, v) = facing.any_orthonormal_pair();
-    let turn = TAU * (index as f32 * GOLDEN_RATIO_FRACTION * 2.0).fract();
-    let lean_axis = u * turn.cos() + v * turn.sin();
-    let normal = Quat::from_axis_angle(lean_axis, DISC_LEAN * t) * facing;
-    let fruit_axis = item.orientation * Vec3::Y;
-    let along = (fruit_axis - normal * normal.dot(fruit_axis))
-        .normalize_or(normal.any_orthonormal_vector());
-    let across = normal.cross(along);
-    let centre = item.origin + fruit_axis * (height / 2.0);
-    // Rotate the fallback copy around the first hexagon’s long axis so they cross at 90°.
-    let quarter_turn = Quat::from_axis_angle(along, FRAC_PI_2);
-    let radius = (size + height) / 4.0;
-    let color = body_color(fruit).to_array();
-
-    // Order the corners so triangle fronts face outward from each hexagon.
-    for (k, buffers) in [out, cull].into_iter().enumerate() {
-        let first = buffers.next_index();
-        for j in 0..DISC_SIDES {
-            let phi = loop_angle(j, DISC_SIDES);
-            let (sin, cos) = phi.sin_cos();
-            let flat = along * (cos * height / 2.0) + across * (sin * size / 2.0);
-            let point = if k == 0 {
-                centre + flat
-            } else {
-                centre + quarter_turn * flat
-            };
-            buffers.push_unlit(point, [0.5 + cos / 2.0, 0.5 + sin / 2.0], wind);
-            buffers.colors.push(color);
-            if k == 0 {
-                buffers.push_billboard(centre, Vec3::ZERO, [cos * radius, sin * radius]);
-            }
-        }
-        for j in 1..DISC_SIDES as u32 - 1 {
-            buffers.indices.extend([first, first + j, first + j + 1]);
-        }
-    }
-}
-
-/// Appends one fruit with the supplied shape detail and wind values. Pass
-/// validated options. The fruit extends from its attachment along local +Y,
-/// starting with its stem when present, then its body. Adds nothing when the
-/// width after maturity scaling is nonpositive.
+/// Appends one fruit. The fruit extends from its attachment along its local
+/// +Y, starting with its stem when present, then its body. Adds nothing
+/// when its width after maturity is nonpositive.
 pub(super) fn mesh_item(
-    out: &mut MeshBuffers,
+    out: &mut FruitMesh,
     item: &ClusterItem,
-    fruit: &FruitOptions,
+    shape: &FruitShape,
+    options: &FruitOptions,
     style: &Style,
-    wind: [f32; 4],
+    flutter: f32,
 ) {
-    let shape = &fruit.shape;
-    let maturity = fruit.maturity;
-    let (size, height) = body_size(item, fruit);
+    let maturity = maturity(item, options);
+    let (size, height) = body_size(item, shape, maturity);
     if size <= 0.0 {
         return;
     }
-    let to_tree = |local: Vec3| item.origin + item.orientation * local;
+    let to_cluster = |local: Vec3| item.origin + item.orientation * local;
     let (stalk_color, blush) = (style.stalk_color, style.blush);
+    let jitter = item.variation.shape;
 
-    // Scale the body, stem, and stem hollow to this fruit’s size.
+    // Scale the body, stem and stem hollow to this fruit's size.
     let radius = size / 2.0;
     let stem = match style.stem_sides {
         Some(_) => shape.stem_length * size,
         None => 0.0,
     };
     let dip = shape.top_dimple * DIMPLE_DEPTH * height;
+    let lobe_depth = (shape.lobe_depth * (1.0 + LOBE_JITTER * jitter[1])).clamp(0.0, 0.95);
+    let lobe_phase = PI * jitter[0];
 
-    // Ripening changes the skin colour and strengthens its contrasting blush patch.
-    let base = body_color(fruit);
-    let blush_color = rgba(shape.blush_color);
-    let blush_amount = shape.blush_amount * maturity;
-    let centre = to_tree(Vec3::new(0.0, stem + height / 2.0, 0.0));
+    // Ripening changes the skin colour and strengthens its blush.
+    let base = body_color(item, shape, maturity);
+    let blush_color = turn_hue(rgba(shape.blush_color), item.variation.hue);
+    let blush_amount = (shape.blush_amount * item.variation.blush).clamp(0.0, 1.0) * maturity;
+    let centre = to_cluster(Vec3::new(0.0, stem + height / 2.0, 0.0));
 
     // Build closed rings from the stem end to the bottom of the fruit.
     let (rings, segments) = (style.rings, style.segments);
@@ -268,29 +225,30 @@ pub(super) fn mesh_item(
         let y = stem + height / 2.0 * (1.0 - theta.cos()) + dip * hollow;
         for j in 0..=segments {
             let phi = loop_angle(j, segments);
-            let groove = (1.0 - (shape.lobes as f32 * phi).cos()) / 2.0;
-            let r = radius * sine * taper * (1.0 - shape.lobe_depth * groove);
-            let point = to_tree(Vec3::new(r * phi.cos(), y, r * phi.sin()));
+            let groove = (1.0 - (shape.lobes as f32 * phi + lobe_phase).cos()) / 2.0;
+            let r = radius * sine * taper * (1.0 - lobe_depth * groove);
+            let point = to_cluster(Vec3::new(r * phi.cos(), y, r * phi.sin()));
             let facing = (point - centre).normalize_or_zero().dot(blush);
             let weight = blush_amount * ((facing + 0.3) / 1.3).clamp(0.0, 1.0).powi(2);
             let color = base.lerp(blush_color, weight);
             grid.push(point, [j as f32 / segments as f32, along], color);
         }
     }
-    grid.emit(out, item.orientation * Vec3::Y, |_| wind);
+    grid.emit(out, item.orientation * Vec3::Y, |_| flutter);
 
     // Curve the stem from its attachment into the hollow at the top of the fruit.
     let stem_radius = shape.stem_radius * size;
     if let (Some(sides), true) = (style.stem_sides, stem > 0.0) {
+        let bend = Vec3::new(item.variation.stem_turn.cos(), 0.0, item.variation.stem_turn.sin());
         let points: Vec<Vec3> = (0..STEM_POINTS)
             .map(|k| {
                 let t = k as f32 / (STEM_POINTS - 1) as f32;
                 let bow = shape.stem_curve * STEM_BOW * stem * (PI * t).sin();
-                to_tree(Vec3::new(bow, t * (stem + dip), 0.0))
+                to_cluster(bend * bow + Vec3::Y * (t * (stem + dip)))
             })
             .collect();
         if let Some(grid) = tube(&points, stem_radius, sides, stalk_color) {
-            grid.emit(out, item.orientation * Vec3::Y, |_| wind);
+            grid.emit(out, item.orientation * Vec3::Y, |_| flutter);
         }
     }
 
@@ -310,8 +268,8 @@ pub(super) fn mesh_item(
                 root - side * half_width,
                 root + out_dir * SEPAL_LENGTH * size,
             ]
-            .map(to_tree);
-            push_triangle(out, corners, normal, stalk_color, wind);
+            .map(to_cluster);
+            push_triangle(out, corners, normal, stalk_color, flutter);
         }
     }
 }

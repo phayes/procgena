@@ -152,7 +152,7 @@ fn zero_leaf_count_grows_no_leaves() {
             tree_type,
             ..TreeOptions::default()
         };
-        options.fruit.placement.count = 2;
+        options.fruit = Some(procgena_tree::AttachedFruit::default());
         options.leaves.count = 0;
         let bare = Skeleton::generate(&options).unwrap();
         assert!(bare.leaves.is_empty(), "{tree_type:?}");

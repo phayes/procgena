@@ -9,6 +9,7 @@ members = [
     "core/crates/procgena_core_bevy",
     "deadwood/crates/procgena_deadwood",
     "deadwood/crates/procgena_deadwood_bevy",
+    "fruit/crates/procgena_fruit",
     "impostor/crates/procgena_impostor",
     "mushroom/crates/procgena_mushroom",
     "mushroom/crates/procgena_mushroom_bevy",

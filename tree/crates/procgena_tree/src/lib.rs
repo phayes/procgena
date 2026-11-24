@@ -270,9 +270,9 @@
 //! It handles background generation, materials, wind, and mesh detail switching.
 //! See that crate's documentation for setup and texture paths.
 
+mod attached;
 mod cluster;
-mod cluster_card;
-mod cluster_mesh;
+mod compose;
 mod content_hash;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
@@ -291,24 +291,24 @@ mod trellis;
 mod units;
 mod wind;
 
-pub use cluster::{ClusterItem, ClusterStalk, SkeletonCluster};
-pub use cluster_card::{ClusterPart, cluster_card_bounds, cluster_card_mesh};
+pub use attached::{AttachedFruit, ClusterPlacement, DEFAULT_FRUIT_SLOTS};
+pub use cluster::{ClusterPart, SkeletonCluster};
+pub use compose::ClusterRow;
 pub use content_hash::{TREE_KIND, TreeCacheKey};
 pub use material::{
-    BARK_KINDS, BarkMap, BarkMaterial, FlowerMaterial, FruitMaterial, LEAF_KINDS, LeafMap,
-    LeafMaterial, TextureCompression, TextureSize, TrellisMaterial, bark_average_color,
-    bark_texture_path, leaf_has_normal_map, leaf_texture_path,
+    BARK_KINDS, BarkMap, BarkMaterial, LEAF_KINDS, LeafMap, LeafMaterial, TextureCompression,
+    TextureSize, TrellisMaterial, bark_average_color, bark_texture_path, leaf_has_normal_map,
+    leaf_texture_path,
 };
 pub use mesh::{
     BillboardCull, BillboardMode, BillboardVertex, BranchShape, BranchSpan, ClusterSpan,
-    ItemDetail, LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh,
-    default_lod,
+    LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh, default_lod,
 };
 pub use options::{
-    BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterKind, ClusterPlacement, ClusterShape,
-    Facing, FlowerOptions, FlowerShape, FruitOptions, FruitShape, GrowthForce, LeafOptions,
-    MAX_LEVELS, OptionsError, PerLevel, TreeOptions, TreeType, TrellisForce, TrellisOptions,
+    BarkOptions, BarkUvMode, Billboard, BranchOptions, GrowthForce, LeafOptions, MAX_LEVELS,
+    OptionsError, PerLevel, TreeOptions, TreeType, TrellisForce, TrellisOptions,
 };
+pub use procgena_fruit;
 pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::{TreePreset, TreeStand};
 pub use procgena_core::preset::PresetFileError;

@@ -8,9 +8,11 @@ use std::fmt::Write;
 use glam::Vec3;
 
 use super::{TextureMap, TextureRef, export_parts, scaled_bark_uvs};
+use procgena_fruit::FruitMaterial;
+
 use crate::{
-    BarkMaterial, BranchGrouping, FlowerMaterial, FruitMaterial, LeafMaterial, MeshBuffers,
-    MeshPart, TreeMesh, TreeOptions, leaf_has_normal_map,
+    BarkMaterial, BranchGrouping, LeafMaterial, MeshBuffers, MeshPart, TreeMesh, TreeOptions,
+    leaf_has_normal_map,
 };
 
 /// Callback returning an image path for a requested texture, or `None` to omit it.
@@ -266,8 +268,8 @@ fn material_library(
 
     // Use white materials to avoid tinting fruit and flower vertex colours
     // when the receiving application uses those colours.
-    let fruit = FruitMaterial::default();
-    let flower = FlowerMaterial::default();
+    let fruit = FruitMaterial::FRUIT;
+    let flower = FruitMaterial::FLOWER;
     for (part, name, roughness, metallic) in [
         (MeshPart::Fruit, "fruit", fruit.roughness, fruit.metallic),
         (

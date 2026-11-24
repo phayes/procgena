@@ -6,9 +6,7 @@ import bevy_pbr::render::{
     mesh_view_bindings::globals,
     view_transformations::position_world_to_clip,
 };
-import package::shaders::tree_billboard::{
-    TurnedVertex, turn_billboard, turn_card, turn_lit_billboard,
-};
+import package::shaders::tree_billboard::{TurnedVertex, turn_billboard, turn_lit_billboard};
 import package::shaders::tree_wind::tree_wind_offset;
 
 /// Wind controls and optional billboard rotation data added to Bevy’s vertex inputs.
@@ -40,18 +38,10 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
 
     // Rotate billboards toward this view before adding wind movement.
     var position = vertex.position;
-    // Cluster cards also choose where they sample their atlas.
-    var card_uv = vec2<f32>(0.0);
 @if(BILLBOARD) {
     let local_from_world = mesh_functions::get_local_from_world(index);
     var turned: TurnedVertex;
-@if(CLUSTER_CARD) {
-    let card = turn_card(tree.billboard_pivot, tree.billboard_axis, local_from_world);
-    turned.position = card.position;
-    turned.normal = card.normal;
-    card_uv = card.uv;
-}
-@if(!CLUSTER_CARD && BILLBOARD_NORMAL) {
+@if(BILLBOARD_NORMAL) {
     turned = turn_lit_billboard(
         tree.billboard_pivot,
         tree.billboard_axis,
@@ -59,7 +49,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
         local_from_world,
     );
 }
-@if(!CLUSTER_CARD && !BILLBOARD_NORMAL) {
+@if(!BILLBOARD_NORMAL) {
     turned = turn_billboard(tree.billboard_pivot, tree.billboard_axis, local_from_world);
 }
     position = turned.position;
@@ -78,8 +68,6 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, index);
 @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-@if(CLUSTER_CARD && VERTEX_UVS_A)
-    out.uv = card_uv;
 @if(VERTEX_UVS_B)
     out.uv_b = vertex.uv_b;
 @if(VERTEX_TANGENTS)

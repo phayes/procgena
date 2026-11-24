@@ -1,0 +1,27 @@
+[package]
+name = "procgena_fruit"
+version = "0.1.0"
+description = "Procedural fruit and flower clusters, attached to trees and other host assets"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Create OBJ geometry and MTL material file contents for use in 3D tools.
+export-obj = []
+# Create glTF (.gltf + .bin) or GLB (.glb) contents, one node per detail level.
+export-gltf = ["dep:gltf-json"]
+
+[dependencies]
+glam = { workspace = true }
+procgena_core = { path = "../../../core/crates/procgena_core" }
+procgena_specimen = { path = "../../../specimen/crates/procgena_specimen" }
+gltf-json = { version = "1.4.1", optional = true, features = ["names", "extras"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names", "extras"] }
+
+[package.metadata.docs.rs]
+all-features = true
