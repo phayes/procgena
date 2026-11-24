@@ -5373,6 +5373,8 @@ dependencies = [
  "procgena_plant",
  "procgena_stone",
  "procgena_stone_bevy",
+ "procgena_terrain",
+ "procgena_terrain_bevy",
  "procgena_tree",
  "procgena_tree_bevy",
  "rfd",
@@ -5594,6 +5596,17 @@ dependencies = [
  "procgena_core",
  "rayon",
  "serde",
+]
+
+[[package]]
+name = "procgena_terrain_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "glam 0.33.12",
+ "procgena_core",
+ "procgena_core_bevy",
+ "procgena_terrain",
 ]
 
 [[package]]

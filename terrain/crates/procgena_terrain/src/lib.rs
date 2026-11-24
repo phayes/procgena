@@ -6,9 +6,11 @@
 //!
 //! This is an early version. It makes ground heights, joins regions, and
 //! cuts in rivers, ponds and roads, including rivers and roads that cross
-//! from one region into the next. Labels, lakes, caves and meshes come later
-//! (see `terrain/plan.md` in the repository). Rivers and roads are planned
-//! only for regions with a polygon boundary.
+//! from one region into the next. It meshes the ground in chunks with
+//! levels of detail, for drawing (see [`ChunkSamples`] and
+//! [`ChunkSelection`]). Labels, lakes and caves come later (see
+//! `terrain/plan.md` in the repository). Rivers and roads are planned only
+//! for regions with a polygon boundary.
 //!
 //! ## Rivers and roads across borders
 //!
@@ -81,6 +83,7 @@
 mod border;
 mod calibration;
 mod carve;
+mod chunk;
 mod converge;
 // Measurements only, for now: see the module's own documentation.
 #[cfg(test)]
@@ -107,6 +110,11 @@ mod warp;
 mod world;
 
 pub use carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, RoadTags};
+pub use chunk::{
+    CHUNK_CELLS, CHUNK_SIZE, ChunkCorner, ChunkError, ChunkKey, ChunkMesh, ChunkSamples,
+    ChunkSelection, ChunkSelectionError, ChunkSide, ChunkSource, ChunkStage, MAX_CHUNK_LEVEL,
+    SurfacePoint, Transitions, WaterMesh, chunk_lod,
+};
 pub use converge::{
     BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,
     blend_weights, relief_meeting_is_valid, relief_target,

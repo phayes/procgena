@@ -19,6 +19,7 @@ mod plant;
 mod scene;
 mod stones;
 mod studio;
+mod terrain;
 mod tree;
 mod ui;
 

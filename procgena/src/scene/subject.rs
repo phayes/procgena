@@ -12,6 +12,7 @@ use super::protocol::{
     FieldSettings, GroveProgress, GroveStats, MeshSize, SceneMode, SceneStart, ViewerCommand,
     ViewerEvent,
 };
+use super::terrain::{self, TerrainSettings};
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
@@ -52,8 +53,9 @@ pub(crate) const IMPOSTOR_DISTANCE: f32 = 800.0;
 const GROVE_FARTHEST: f32 = 1.25 * IMPOSTOR_DISTANCE;
 
 /// The scene camera's far clipping distance, in metres: beyond the far side
-/// of the largest grove seen from the grove camera's farthest distance.
-const FAR_CLIP: f32 = 2500.0;
+/// of the largest grove seen from the grove camera's farthest distance, and
+/// beyond the terrain's view distance seen from high above.
+const FAR_CLIP: f32 = 2.0 * terrain::VIEW_DISTANCE;
 
 /// The tree detail levels the scene shows, most detailed first: procgena_tree_bevy's
 /// default levels, switched at greater camera distances so that full detail
@@ -106,6 +108,10 @@ pub(crate) struct SceneState {
     ecotope: EcotopeState,
     /// Camera view restored when returning to Ecotope mode.
     ecotope_view: OrbitCamera,
+    /// Terrain settings, retained while another mode is shown.
+    terrain: Arc<TerrainSettings>,
+    /// Camera view restored when returning to terrain mode.
+    terrain_view: OrbitCamera,
     /// The tree detail level last reported with [`ViewerEvent::LodShown`].
     lod_reported: Option<usize>,
     /// The mushroom detail level last reported with
@@ -138,6 +144,11 @@ impl SceneState {
     /// What dead wood mode shows.
     pub(crate) fn deadwood(&self) -> &DeadwoodSettings {
         &self.deadwood
+    }
+
+    /// What terrain mode shows.
+    pub(crate) fn terrain(&self) -> &TerrainSettings {
+        &self.terrain
     }
 }
 
@@ -203,6 +214,7 @@ struct ViewSubjects<'a> {
     deadwood: &'a DeadwoodSettings,
     /// Width of the Ecotope's square of ground, in metres.
     ecotope_size: f32,
+    terrain: &'a TerrainSettings,
 }
 
 /// Returns the starting camera view for a mode. In stone, mushroom and grove
@@ -233,6 +245,7 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
                 pitch: (-0.05, 1.5),
             },
         },
+        SceneMode::Terrain => terrain::view(subjects.terrain),
         // Look down over the whole square of ground from beyond its corner.
         SceneMode::Grove => OrbitCamera {
             focus: Vec3::new(0.0, 3.0, 0.0),
@@ -385,6 +398,7 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         grove_size: start.environment.grove_size,
         deadwood: &start.deadwood,
         ecotope_size: start.ecotope.size,
+        terrain: &start.terrain,
     };
     let view_for = |mode| default_view(mode, &subjects);
     let state = SceneState {
@@ -403,6 +417,8 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         deadwood_view: view_for(SceneMode::Deadwood),
         ecotope: EcotopeState::new(start.ecotope.clone()),
         ecotope_view: view_for(SceneMode::Ecotope),
+        terrain_view: view_for(SceneMode::Terrain),
+        terrain: start.terrain.clone(),
         stone: start.stone.clone(),
         clump: start.clump.clone(),
         mushroom: start.mushroom.clone(),
@@ -422,6 +438,7 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
             ..default()
         }),
         ViewportCamera,
+        procgena_terrain_bevy::TerrainViewer,
         view,
         view.transform(),
         sky_fog(),
@@ -456,6 +473,7 @@ fn spawn_subject(
             .id(),
         SceneMode::Deadwood => spawn_deadwood(commands, &state.deadwood),
         SceneMode::Ecotope => commands.spawn(state.ecotope.params()).id(),
+        SceneMode::Terrain => terrain::spawn(commands, &state.terrain),
         SceneMode::Clump => match &state.clump.subject {
             ClumpSubject::Tree(options) => commands.spawn(TreeParams::Options(options.clone())),
             ClumpSubject::Stone(options) => commands.spawn(StoneParams::Options(options.clone())),
@@ -593,6 +611,15 @@ pub(crate) fn apply_commands(
                         .insert(DeadwoodParams::new(settings.piece.clone()));
                 }
             }
+            ViewerCommand::SetTerrain(settings) => {
+                // Keep the settings in every mode; new ground replaces the
+                // shown terrain's chunks once they are ready.
+                let old = std::mem::replace(&mut state.terrain, settings.clone());
+                if state.mode == SceneMode::Terrain && old.terrain != settings.terrain {
+                    state.requested = Instant::now();
+                    terrain::replace(&mut commands, state.subject, settings);
+                }
+            }
             ViewerCommand::SetGrove(grove) => {
                 // Keep the grove in every mode; the shown grove updates in place.
                 state.grove = grove.clone();
@@ -697,6 +724,7 @@ pub(crate) fn apply_commands(
                         grove_size: environment.grove_size,
                         deadwood: &state.deadwood,
                         ecotope_size: state.ecotope.settings().size,
+                        terrain: &state.terrain,
                     };
                     *orbit = default_view(state.mode, &subjects);
                 }
@@ -731,6 +759,7 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
         SceneMode::Grove => &mut state.grove_view,
         SceneMode::Deadwood => &mut state.deadwood_view,
         SceneMode::Ecotope => &mut state.ecotope_view,
+        SceneMode::Terrain => &mut state.terrain_view,
     }
 }
 

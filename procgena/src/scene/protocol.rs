@@ -14,10 +14,12 @@ use procgena_mushroom::MushroomOptions;
 use procgena_mushroom_bevy::MushroomBuildError;
 use procgena_plant::prelude::{PlantScatter, PlantScatterPreset};
 use procgena_stone::{OptionsError as StoneOptionsError, StoneOptions};
+use procgena_terrain_bevy::TerrainProgress;
 use procgena_tree::{OptionsError, TreeOptions, TreePreset, TreeScatter};
 use procgena_tree_bevy::TreeScatterBuildError;
 
 use super::environment::EnvironmentSettings;
+use super::terrain::TerrainSettings;
 
 /// What a new scene shows first, and the settings it starts with.
 ///
@@ -43,6 +45,8 @@ pub struct SceneStart {
     pub deadwood: Arc<DeadwoodSettings>,
     /// The Ecotope and its ground, as for [`ViewerCommand::SetEcotope`].
     pub ecotope: Arc<EcotopeSettings>,
+    /// Terrain settings, as for [`ViewerCommand::SetTerrain`].
+    pub terrain: Arc<TerrainSettings>,
     /// Lighting, ground, wind and auto-rotation, as for [`ViewerCommand::SetEnvironment`].
     pub environment: EnvironmentSettings,
     /// The tree detail level to show, as for [`ViewerCommand::SetLod`].
@@ -64,6 +68,7 @@ impl Default for SceneStart {
             grove: Arc::default(),
             deadwood: Arc::default(),
             ecotope: Arc::default(),
+            terrain: Arc::default(),
             environment: EnvironmentSettings::default(),
             lod: None,
             plant_lod: None,
@@ -94,6 +99,8 @@ pub enum SceneMode {
     /// An Ecotope's Scatters over a square of ground; see
     /// [`ViewerCommand::SetEcotope`].
     Ecotope,
+    /// An endless world of terrain, streamed around the camera.
+    Terrain,
 }
 
 /// A change requested by the host application.
@@ -176,6 +183,11 @@ pub enum ViewerCommand {
     /// with `None`, the level that suits the camera distance. A
     /// [`ViewerEvent::DeadwoodLodShown`] follows in dead wood mode.
     SetDeadwoodLod(Option<usize>),
+    /// Sets what terrain mode shows. In terrain mode, changed terrain
+    /// settings build a new world, whose chunks replace the old ones once
+    /// ready; changed debug drawing alone applies at once. In other modes,
+    /// saves the settings until terrain mode is shown.
+    SetTerrain(Arc<TerrainSettings>),
     /// Returns the camera to the current mode's starting view.
     ResetCamera,
 }
@@ -366,6 +378,9 @@ pub enum ViewerEvent {
     /// copies each Scatter has and which were drawn again, or why it could
     /// not be placed. The copies' meshes may still be generating.
     EcotopeBuilt(Result<EcotopeSummary, EcotopeError>),
+    /// How far the terrain in terrain mode has got, sent whenever that
+    /// changes.
+    TerrainProgress(TerrainProgress),
 }
 
 /// Mesh counts and elapsed build time for a generated tree or rock.

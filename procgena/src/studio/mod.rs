@@ -110,6 +110,7 @@ pub fn scene_start() -> SceneStart {
         grove: Arc::new(crate::grove::editor::start_grove()),
         deadwood: Arc::new(crate::deadwood::start_settings()),
         ecotope: Arc::new(crate::ecotope::start_settings()),
+        terrain: Arc::new(crate::terrain::start_settings()),
         environment: EnvironmentSettings::default(),
         lod: None,
         plant_lod: None,
@@ -216,6 +217,7 @@ mod tests {
                 .unwrap()
                 .ecotope
         );
+        assert_eq!(*start.terrain, crate::terrain::start_settings());
         let field = procgena_plant::prelude::PlantScatterPreset::named(crate::field::START_PRESET);
         assert_eq!(start.field.field, field.unwrap().plant_scatter);
     }

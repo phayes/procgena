@@ -75,7 +75,8 @@ cargo test -p <package> --doc
 | `mushroom/` | `procgena_mushroom_bevy` | Headless spawn tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders (also `--preset <name>`, `--flat`). |
 | `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing it. |
 | `plant/` | `procgena_plant_web` | Wasm demo                                                                 |
-| `terrain/` | `procgena_terrain` | Border tests in `tests/seams.rs`, rivers and roads in `tests/features.rs`. `--example seam_spike -- <dir>` writes shaded images of joined regions. |
+| `terrain/` | `procgena_terrain` | Border tests in `tests/seams.rs`, rivers and roads in `tests/features.rs`, chunk meshes and their level transitions in `tests/chunks.rs`. `--example seam_spike -- <dir>` writes shaded images of joined regions. |
+| `terrain/` | `procgena_terrain_bevy` | Streams terrain chunks around the camera. Headless streaming tests in `src/lib.rs`, swap logic in `src/stream.rs`. `--example viewer -- --headless --screenshot <png>` (also `--preset`, `--seed`, `--eye`, `--target`, `--view`, `--levels`, `--borders`, `--provisional-from`); a cold world takes minutes to build in dev. |
 | `procgena/` | `procgena`        | Desktop studio app (binary). Its GPU tests are `#[ignore]`d: run with `-- --include-ignored`. Textures missing from `<project>/assets/textures/` are downloaded into the user's cache folder on first use, so the first run needs the network; `missing_textures_are_downloaded_and_drawn` always does. Use `cargo clippy -p procgena --all-targets --no-deps`. The Ecotope tab's GPU tests: `--bin procgena ecotope:: -- --include-ignored`. |
 
 ### The comment-rewrite step

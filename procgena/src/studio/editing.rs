@@ -39,6 +39,7 @@ use crate::mushrooms::editor::{
 use crate::params::ParamPanel;
 use crate::plant::editor::{PlantEdited, PlantEditor, PlantEditorPlugin, spawn_plant_editor};
 use crate::stones::editor::{StoneEdited, StoneEditor, StoneEditorPlugin, spawn_stone_editor};
+use crate::terrain::editor::{TerrainEditorPlugin, spawn_terrain_editor};
 use crate::tree::editor::{TreeEdited, TreeEditor, TreeEditorPlugin, spawn_tree_editor};
 
 /// The editors, and the observers sending their edits to the scene.
@@ -56,6 +57,7 @@ impl Plugin for EditingPlugin {
             GroveEditorPlugin,
             DeadwoodEditorPlugin,
             EcotopeEditorPlugin,
+            TerrainEditorPlugin,
             FileOpsPlugin,
         ))
         .add_observer(send_ecotope)
@@ -97,6 +99,7 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
                 spawn_deadwood_export(&mut commands, page);
             }
             StudioTab::Ecotope => spawn_ecotope_editor(&mut commands, page),
+            StudioTab::Terrain => spawn_terrain_editor(&mut commands, page),
         }
     }
 }

@@ -1,0 +1,26 @@
+[package]
+name = "procgena_terrain_bevy"
+version = "0.1.0"
+description = "Bevy plugin for procgena_terrain: terrain chunks streamed around the camera with levels of detail"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+glam = { workspace = true }
+procgena_core = { path = "../../../core/crates/procgena_core" }
+procgena_core_bevy = { path = "../../../core/crates/procgena_core_bevy" }
+procgena_terrain = { path = "../procgena_terrain" }
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_pbr",
+] }
+
+[dev-dependencies]
+bevy = { version = "0.20.1", features = ["free_camera"] }
+
+[package.metadata.docs.rs]
+all-features = true

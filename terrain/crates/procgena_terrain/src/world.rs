@@ -16,7 +16,7 @@ use crate::graph::{RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey}
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{CornerId, EdgeId, Region, RegionId};
 use crate::seam::{CornerAgreement, EdgeOffer, SeamError, negotiate, negotiate_corner};
-use crate::terrain::{HeightField, Terrain, TerrainError, TerrainGenerator};
+use crate::terrain::{HeightField, RiverTrace, Terrain, TerrainError, TerrainGenerator};
 
 /// The default [`WorldTerrainOptions::cache`]: how many built terrains a
 /// [`WorldTerrain`] keeps.
@@ -167,6 +167,8 @@ pub struct WorldTerrain {
     regions: Cache<Region>,
     settings: Cache<Settings>,
     plans: Cache<Plan>,
+    /// Terrains without their roads.
+    provisional: Cache<Terrain>,
     terrains: Cache<Terrain>,
 }
 
@@ -190,14 +192,14 @@ struct Settings {
 /// One region's side of its borders: what it needs from itself before any
 /// negotiation.
 ///
-/// This is where a region's plan will later be split into stages cached
-/// on their own (relief and offers, then rivers, roads and local
-/// features), so a far region can be drawn before its features are
-/// planned. For now it holds the whole offer, rivers included.
+/// The first planning stage: relief, river trace and offers. Rivers and
+/// roads are later stages, cached as the provisional and full terrains.
 struct Plan {
     region: Arc<Region>,
     /// The generator, converged towards its neighbours.
     generator: TerrainGenerator,
+    /// The region's own rivers, traced once for the offers and the build.
+    trace: RiverTrace,
     /// The offer for each shared edge.
     offers: HashMap<EdgeId, EdgeOffer>,
 }
@@ -237,6 +239,7 @@ impl WorldTerrain {
             regions: Cache::new(cache.saturating_mul(16)),
             settings: Cache::new(cache.saturating_mul(16)),
             plans: Cache::new(cache.saturating_mul(4)),
+            provisional: Cache::new(cache),
             terrains: Cache::new(cache),
             options,
             source,
@@ -296,6 +299,23 @@ impl WorldTerrain {
     /// As for [`terrain`](Self::terrain).
     pub fn terrain_at(&self, p: DVec2) -> Result<Arc<Terrain>, WorldError> {
         self.terrain(self.region_at(p))
+    }
+
+    /// The terrain of `region` without its roads, built now if it isn't
+    /// kept already.
+    ///
+    /// Routing roads is the slowest part of building a region, so this
+    /// comes much sooner than [`terrain`](Self::terrain), which adds the
+    /// roads to it. It is the same ground away from the roads and their
+    /// border crossings. Use it only to draw far ground while the full
+    /// terrain is built; placement and queries need the full terrain.
+    ///
+    /// # Errors
+    ///
+    /// As for [`terrain`](Self::terrain).
+    pub fn provisional_terrain(&self, region: RegionId) -> Result<Arc<Terrain>, WorldError> {
+        let key = RegionKey::from_id(region);
+        self.provisional.get(key, || self.build_provisional(key))
     }
 
     /// The ground height at `p` (x and z, metres): E plus the relief of
@@ -445,21 +465,30 @@ impl WorldTerrain {
                 self.options.convergence.blend,
             )
             .map_err(|e| WorldError::Terrain(id, e))?;
+        let trace = generator.trace_rivers(&region);
         let offers = generator
-            .offers(&region)
+            .offers_traced(&region, &trace)
             .into_iter()
             .map(|o| (o.edge, o))
             .collect();
         Ok(Plan {
             region,
             generator,
+            trace,
             offers,
         })
     }
 
-    /// Agrees every corner and edge of region `key` with the regions
-    /// round it, and builds its terrain.
+    /// Region `key`'s terrain: its terrain without roads, with the roads
+    /// added.
     fn build_terrain(&self, key: RegionKey) -> Result<Terrain, WorldError> {
+        let provisional = self.provisional.get(key, || self.build_provisional(key))?;
+        Ok(Terrain::clone(&provisional).with_roads())
+    }
+
+    /// Agrees every corner and edge of region `key` with the regions
+    /// round it, and builds its terrain without roads.
+    fn build_provisional(&self, key: RegionKey) -> Result<Terrain, WorldError> {
         let plan = self.plan(key)?;
         let region = &plan.region;
         let id = region.id;
@@ -505,7 +534,7 @@ impl WorldTerrain {
 
         plan.generator
             .clone()
-            .build(Region::clone(region), &agreements)
+            .build_traced(Region::clone(region), &agreements, &plan.trace)
             .map_err(|e| WorldError::Terrain(id, e))
     }
 }

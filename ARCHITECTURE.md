@@ -472,7 +472,11 @@ which can be bounded or infinite. Today it gives `height`, `water_level`,
 `road_tags`, slope (`Terrain` is a `Ground`), all of these at once
 (`query`), `HeightTile` with heights and optionally gradients, and its
 rivers, roads and ponds as features with stable ids and bounds. Roads
-are a planning stage of their own, so a distant view can skip them. The
+are a planning stage of their own, so a distant view can skip them. It
+meshes the ground as heightfield chunks on the shared chunk grid (64 m,
+doubling per level), with crack-free transitions between levels and a
+provisional (road-free) stage for far chunks; `procgena_terrain_bevy`
+streams them around the camera, and the studio has a Terrain tab. The
 planned `annotate` labels are not exposed yet.
 
 ### 5. World

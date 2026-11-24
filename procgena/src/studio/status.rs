@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use bevy::scene::Scene;
 use procgena_plant::MAX_PLANTS;
 use procgena_plant::prelude::PlantSettings;
+use procgena_terrain_bevy::TerrainProgress;
 
 use super::ActiveTab;
 use super::tabs::StudioTab;
@@ -76,6 +77,8 @@ pub struct BuildState {
     pub deadwood_too_far: bool,
     /// Where placing the Ecotope stands.
     pub ecotope: EcotopeStatus,
+    /// How far the terrain has got, once terrain mode has reported.
+    pub terrain: Option<TerrainProgress>,
     /// What the plant tabs show, as last sent to the scene.
     pub plants: PlantsShown,
     /// How many texture files are downloading.
@@ -165,6 +168,7 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
                     state.deadwood_lod_shown = *level;
                 }
             }
+            ViewerEvent::TerrainProgress(progress) => state.terrain = Some(*progress),
         }
     }
 }
@@ -275,6 +279,7 @@ fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) 
 /// alone; grove sizes are for every tree at full detail.
 fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
     let (status, noun, level) = match tab {
+        StudioTab::Terrain => return terrain_line(state.terrain),
         StudioTab::Stones => (&state.stone, "rock", None),
         StudioTab::TreeScatter => (&state.grove, "tree Scatter", None),
         StudioTab::Clumps => (&state.clump, "clump", None),
@@ -328,6 +333,31 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
         }
         BuildStatus::Failed(error) => (format!("Cannot build this {noun}: {error}"), true),
     }
+}
+
+/// The overlay text for the Terrain tab, and whether it reports a failure:
+/// how many chunks are drawn, or how many are still being built.
+fn terrain_line(progress: Option<TerrainProgress>) -> (String, bool) {
+    let Some(progress) = progress else {
+        return ("Building terrain…".into(), false);
+    };
+    let failed = progress.failed > 0;
+    let mut line = if progress.settled {
+        format!("{} terrain chunks", group_digits(progress.drawn))
+    } else {
+        format!(
+            "Building terrain… {} chunks, {} in progress",
+            group_digits(progress.wanted),
+            group_digits(progress.reading)
+        )
+    };
+    if failed {
+        line.push_str(&format!(
+            "\n{} chunks could not be built",
+            group_digits(progress.failed)
+        ));
+    }
+    (line, failed)
 }
 
 /// The overlay text while the grove builds, with how many of its tree
@@ -392,6 +422,39 @@ mod tests {
     }
 
     #[test]
+    fn the_terrain_line_shows_its_chunks_and_failures() {
+        assert_eq!(terrain_line(None), ("Building terrain…".into(), false));
+        let mut progress = TerrainProgress {
+            drawn: 0,
+            wanted: 1200,
+            reading: 4,
+            failed: 0,
+            settled: false,
+        };
+        assert_eq!(
+            terrain_line(Some(progress)),
+            (
+                "Building terrain… 1,200 chunks, 4 in progress".into(),
+                false
+            )
+        );
+        progress = TerrainProgress {
+            drawn: 1200,
+            reading: 0,
+            failed: 2,
+            settled: true,
+            ..progress
+        };
+        assert_eq!(
+            terrain_line(Some(progress)),
+            (
+                "1,200 terrain chunks\n2 chunks could not be built".into(),
+                true
+            )
+        );
+    }
+
+    #[test]
     fn the_line_shows_the_shown_tree_level_and_rock_failures() {
         let size = |n| MeshSize {
             vertices: n,
@@ -424,6 +487,7 @@ mod tests {
             deadwood_lod_shown: 0,
             deadwood_too_far: false,
             ecotope: EcotopeStatus::Failed("Scatters a and b share priority 5".into()),
+            terrain: None,
             plants: PlantsShown::default(),
             downloading: 0,
         };

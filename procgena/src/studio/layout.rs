@@ -126,6 +126,7 @@ pub fn spawn_layout(mut commands: Commands) {
                         @page(StudioTab::Deadwood) Children [ @deadwood_lod_row() ]
                         --
                         @page(StudioTab::Ecotope)
+                        @page(StudioTab::Terrain)
                         --
                         @shared_settings()
                     ]

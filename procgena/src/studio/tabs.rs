@@ -25,11 +25,13 @@ pub enum StudioTab {
     /// An Ecotope: trees, stones, dead wood and mushrooms over a patch of
     /// ground.
     Ecotope,
+    /// An endless world of terrain.
+    Terrain,
 }
 
 impl StudioTab {
     /// Every tab, left to right.
-    pub const ALL: [StudioTab; 9] = [
+    pub const ALL: [StudioTab; 10] = [
         StudioTab::Trees,
         StudioTab::TreeScatter,
         StudioTab::Plant,
@@ -39,6 +41,7 @@ impl StudioTab {
         StudioTab::Mushrooms,
         StudioTab::Deadwood,
         StudioTab::Ecotope,
+        StudioTab::Terrain,
     ];
 
     /// The tab's label.
@@ -53,6 +56,7 @@ impl StudioTab {
             Self::Mushrooms => "Mushrooms",
             Self::Deadwood => "Dead Wood",
             Self::Ecotope => "Ecotope",
+            Self::Terrain => "Terrain",
         }
     }
 
@@ -68,6 +72,7 @@ impl StudioTab {
             Self::Mushrooms => SceneMode::Mushroom,
             Self::Deadwood => SceneMode::Deadwood,
             Self::Ecotope => SceneMode::Ecotope,
+            Self::Terrain => SceneMode::Terrain,
         }
     }
 

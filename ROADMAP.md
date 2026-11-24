@@ -434,6 +434,16 @@ goldens, which have no baseline on this machine).
   meshes the terrain builds. See
   [terrain/features_plan_review.md](terrain/features_plan_review.md),
   "Decisions".
+- **Status (2026-11-24): heightfield part built.** Chunk meshes on the
+  shared grid with crack-free level transitions, a road-free provisional
+  stage for far chunks, water surfaces (`procgena_terrain`, `src/chunk.rs`;
+  plan.md "Chunks and meshing", "As built"); `procgena_terrain_bevy`
+  streams them around the camera with a slope- and height-coloured
+  material, a cull-distance dither and a chunk-level debug overlay, with a
+  headless viewer; the studio has a Terrain tab (presets, `.terrain.yml`
+  save and load, seed, every setting). Not done: Phase 6 volume patches,
+  labels (G4, so no parts by label or label texturing), exports (Phase 9),
+  `terrain/textures.yml` (Phase 10 textures).
 
 #### G7: Scale-aware terrain lengths
 
