@@ -86,7 +86,7 @@ fn main() {
         let size = ChunkKey::size_at(level);
         println!(
             "{level:>5}  {size:>7}  {:>7}  {:>10.1}  {:>10.1}  {:>5.1}",
-            size as f64 / f64::from(GROUND_TEXELS - 1),
+            size / f64::from(GROUND_TEXELS - 1),
             ms(s),
             ms(w),
             w.as_secs_f64() / s.as_secs_f64()

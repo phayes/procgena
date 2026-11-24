@@ -1,7 +1,7 @@
 # Ground materials: Ecotope-owned, driven by terrain measures and labels
 
-Status: **planned with the user on 2026-11-24; GM0 built the same day**
-(see "As built"). The choices under "Decisions" are the user's. Anything
+Status: **planned with the user on 2026-11-24; GM0 and GM1 built the same
+day** (see "As built"). The choices under "Decisions" are the user's. Anything
 still marked "proposed, not decided" is a recommendation waiting for the
 user (see "Open questions").
 
@@ -434,6 +434,109 @@ dump `--example ground_dump`):
   (bare dirt, 450, 0.6 m round boulders). A test checks that ground layers
   leave placement unchanged.
 
+## As built: GM1 (2026-11-24)
+
+**Weights over any grid.** `ChunkWeights` became `GroundWeights`:
+`GroundWeights::chunk(painter, source, key, tier)` paints a chunk as
+before (texel `(i, j)` at `GroundWeights::chunk_point`), and
+`GroundWeights::grid(painter, source, min, max, size, tier)` paints any
+rectangle with texels spread evenly, the outer ones on its edges. Both
+share the palette, cap and quantising.
+
+**Terrain chunks** (`procgena_terrain_bevy`):
+
+- `TerrainStream` gains `ground: Arc<dyn GroundPainter + Send>`, and its
+  `source` is now any `TerrainSource` (a `ChunkSource` that is also a
+  `GroundSource`, such as `Terrain` and `WorldTerrain`).
+  `TerrainStream::world` paints with `GroundStack::bare(world seed, 1.0)`,
+  `TerrainStream::new` with `GroundStack::bare(0, 1.0)`. The vertical
+  scale is 1 until the World has one (D5).
+- The read task builds the chunk's samples and its `GroundWeights` at the
+  same tier, and packs the two weight images and the palette there. So a
+  coarse-first chunk is painted again, with roads, when it is read at its
+  later tier.
+- One `TerrainMaterial` per chunk, kept while the chunk is redrawn from
+  the same read (skirt and transition redraws) and freed with it. A test
+  checks one material and two images per drawn chunk.
+- `TerrainExtension { surface, weights_low, weights_high }`: two `Rgba8Unorm`
+  textures (slots 0 to 3 and 4 to 7), linear filtering, clamped, no mips.
+  `TerrainSurface { palette: [Vec4; 8] (colour and roughness), texels,
+  variation, fade, tint, border }` replaces the old grass, rock and snow
+  rules; `TerrainPlugin::with_surface` became `with_variation`.
+- The mesh carries UVs from 0 to 1 across the chunk, and the shader maps
+  them onto texel centres, so the weights follow the mesh, whatever the
+  stream's transform. Colour and roughness are the weighted palette; the
+  two-scale patchy variation stays in the shader and now applies to every
+  material (G6 left snow unvaried).
+- `TerrainMaterialPlugin` draws the material without streaming;
+  `TerrainPlugin` and `EcotopePlugin` add it if it isn't added.
+  `TerrainExtension::new(weights, catalogue, images)` and
+  `TerrainSurface::new(weights, catalogue)` make one from any weights.
+
+**The Ecotope patch** (`procgena_biome_bevy`): `EcotopeParams` gains
+`patch: Option<GroundPatch { base, margin, cell }>`. After each placement,
+in the same background task, the Ecotope's ground over `base` is painted
+with `GroundWeights::grid` over the area plus the margin, one texel on
+every vertex of `ground_mesh`, and drawn as an `EcotopeGroundPatch` child
+with the terrain material. The entity is kept across edits (so its
+visibility stays); a patch that can't be painted keeps its last drawing.
+`EcotopeSummary::ground_time` reports the paint time. The studio's Ecotope
+view and the biome viewer use it, over bare terrain's look seeded with
+the Ecotope's seed; the studio's status line shows "ground in N ms".
+
+**The Terrain view** shows the default stack through
+`TerrainStream::world`; nothing else changed there.
+
+**Cost per chunk** (`cargo run -p procgena_terrain --example ground_cost`,
+dev profile (workspace crates at opt-level 1), `rayon` on, Apple M1 Max,
+median of 8 chunks along a row, fine tier, regions built first). The
+machine was busy with other lanes' builds (load average about 150), so
+these are upper bounds; the ratio is the steadier number.
+
+| Level | Chunk | Texel | Hills: samples | Hills: weights | Mountains: samples | Mountains: weights |
+|------:|------:|------:|------:|------:|------:|------:|
+| 0 | 64 m | 0.5 m | 35 ms | 96 ms | 55 ms | 340 ms |
+| 1 | 128 m | 1 m | 30 ms | 71 ms | 132 ms | 469 ms |
+| 2 | 256 m | 2 m | 36 ms | 84 ms | 154 ms | 376 ms |
+| 3 | 512 m | 4 m | 38 ms | 99 ms | 124 ms | 259 ms |
+| 4 | 1024 m | 8 m | 50 ms | 131 ms | 77 ms | 500 ms |
+| 5 | 2048 m | 16 m | 77 ms | 338 ms | 62 ms | 568 ms |
+
+- Painting costs about 2.5 to 4 times the chunk's own samples on hills
+  and 2 to 9 times on mountains: it reads 129² sites with gradients
+  (`Terrain::query(p, true)`) against about 4,500 surface points. On the
+  busy machine the headless terrain viewer's screenshots took from 1.5 to
+  7.5 minutes after the change and 1.5 to 9 before, so the cost hides
+  behind region building there; it isn't measured on an idle machine.
+- The Ecotope patch (48 m at 0.5 m, 97² texels, with Scatter influence
+  from the placed copies) paints in 9 to 46 ms.
+- Not optimised: a cheaper site (gradient from the samples already read,
+  or fewer texels at coarse levels) or GM6's GPU port are the levers if
+  release builds still call for them. Release timings aren't taken.
+
+**The level-ring seam** (open question 6). The same example paints a fine
+chunk and the coarser chunk beside it. Their texels on the same points
+agree (checked); between them the coarser chunk draws the mean of its
+two texels where the finer one has its own. On mountains the largest
+difference there is 0.14 in linear RGB (mean 0.001 to 0.0015) at rock
+edges; on hills, 0.09 where a road crosses at level 3 and 0 elsewhere.
+Screenshots with chunk borders drawn show no visible step. Recommendation:
+accept it, as the level change is already dithered; look again with
+textures in GM2.
+
+**Look changes from G6's shader**, for the user to judge (before and
+after shots in GM1's notes):
+
+- Rock and snow edges no longer move with the shader's noise; they follow
+  the weights' slope and height bands, sampled per texel (0.5 m near,
+  16 m at level 5).
+- Slope comes from the terrain's own gradient, not the drawn mesh's
+  normal, so on coarse far chunks grass patches on mountains break up
+  into smaller pieces.
+- Roads (gravel), cut and built-up banks (bare dirt) and riverbeds now
+  draw on bare terrain.
+- Roughness comes from the catalogue instead of 0.95 everywhere.
+
 ## Decisions
 
 The user, 2026-11-24:
@@ -480,7 +583,9 @@ The user, 2026-11-24:
    starting points; GM1 and GM2 measure them on the triple-junction scene.
 6. **The level-ring seam** in the weight textures (see "Chunk weight
    textures"): accept it or have the coarser chunk read its finer
-   neighbour's edge. GM1.
+   neighbour's edge. GM1 measured it (largest 0.14 linear RGB, mean
+   about 0.001, invisible in screenshots) and recommends accepting it;
+   the user decides.
 7. **Where `plant_far_color` lives** (`procgena_core_bevy`, or a hook the
    terrain material offers): with the plant-align lane, before GM5.
 

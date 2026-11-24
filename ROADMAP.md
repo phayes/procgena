@@ -1025,6 +1025,13 @@ label-chosen material.
 - **Needs:** GM0 (G6 is merged).
 - **Done when:** headless screenshots of the terrain viewer and the
   Ecotope tab show ground colours, and the cost per chunk is recorded.
+- **Status (2026-11-24): built, look waiting for the user.** Terrain
+  chunks draw any painter's weights (bare terrain by default, with roads
+  and riverbeds), the Ecotope document draws its ground layers over a
+  patch, and the Terrain document shows the default stack. Painting costs
+  about 2.5 to 9 times a chunk's samples in dev; the level-ring seam is
+  measured and recommended for acceptance. See "As built: GM1" in the
+  plan.
 
 #### GM2: Ground textures
 
@@ -1244,7 +1251,8 @@ where the details are.
       level 0 optional").
     - *Still open:* exact texture sizes per level and the resident cap,
       in GM2 with the machines from item 18.
-    - *Also open:* the level-ring seam in the weight textures (GM1), and
+    - *Also open:* the level-ring seam in the weight textures (GM1
+      measured it and recommends accepting it), and
       where plant's far colour function lives (before GM5, with the
       plant-align lane).
     - *Details:* [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),

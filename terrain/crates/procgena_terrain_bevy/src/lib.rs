@@ -493,6 +493,7 @@ fn reset_streams(
 
 /// Chooses each stream's chunks around the viewers, reads them, and swaps
 /// the drawn chunks once the new set is ready.
+#[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn stream_chunks(
     mut commands: Commands,
     settings: Res<TerrainSettings>,
