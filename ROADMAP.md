@@ -336,6 +336,14 @@ goldens, which have no baseline on this machine).
 - **Needs:** G1. Not `Ground` or slope.
 - **Done when:** lakes fill hollows and overflow as rivers, and the feature
   suites pass with them.
+- **Terrain features:** steps 1 and 2 of
+  [terrain/features_plan.md](terrain/features_plan.md) (one feature type,
+  staged planning, one sample path, benchmarks) come first in G3, before
+  Phase 3's landforms and Phase 4. Step 2's sample path is where G2's
+  gradient and G4's labels live; see the review's "Milestone order" for
+  which goes first. Lakes and macro cells here wait on the user's answers
+  in [terrain/features_plan_review.md](terrain/features_plan_review.md),
+  Conflicts 3 and 4.
 
 #### G4: Terrain labels (Phase 5)
 
@@ -370,6 +378,11 @@ goldens, which have no baseline on this machine).
   sets the one chunk grid (64 m, doubling per level) that streaming uses.
 - **Done when:** the studio shows a Terrain tab, and a viewer streams terrain
   chunks around a camera.
+- **Open:** whether Phases 6 and 7 mesh one volume everywhere or a
+  heightfield with local volume, and whether rock outcrops are meshes.
+  This reshapes G6. See
+  [terrain/features_plan_review.md](terrain/features_plan_review.md),
+  Conflicts 1 and 2.
 
 ### Bare worlds
 
