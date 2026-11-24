@@ -3,10 +3,10 @@
 //! Scatters are a map from key to settings, so a file built on a `base`
 //! changes, adds or replaces one Scatter without restating the others. Each
 //! Scatter names its `kind`, and gives only the settings that differ from
-//! that kind's defaults. Assets inside it (a stone class's `stone`, dead
-//! wood's `piece`, a mushroom Scatter's `mushroom`) name a built-in preset
-//! by key, or give settings laid over one (`{ base: <key>, ... }`) or over
-//! the asset's defaults.
+//! that kind's defaults; a Scatter set to `null` is removed. Assets inside
+//! it (a stone class's `stone`, dead wood's `piece`, a mushroom Scatter's
+//! `mushroom`) name a built-in preset by key, or give settings laid over
+//! one (`{ base: <key>, ... }`) or over the asset's defaults.
 
 use std::collections::BTreeMap;
 
@@ -22,8 +22,8 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use super::EcotopeScatter;
 use super::scatters::ScatterKind;
+use super::{Ecotope, EcotopeScatter};
 
 /// Reads and writes an Ecotope's map of Scatters with [`ChildKey`]s as keys.
 pub(crate) mod keyed {
@@ -43,8 +43,10 @@ pub(crate) mod keyed {
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<BTreeMap<ChildKey, EcotopeScatter>, D::Error> {
-        let raw = BTreeMap::<String, EcotopeScatter>::deserialize(deserializer)?;
+        // A Scatter whose settings are `null` is removed.
+        let raw = BTreeMap::<String, Option<EcotopeScatter>>::deserialize(deserializer)?;
         raw.into_iter()
+            .filter_map(|(key, scatter)| Some((key, scatter?)))
             .map(|(key, scatter)| match ChildKey::new(key.as_str()) {
                 Ok(key) => Ok((key, scatter)),
                 Err(error) => Err(D::Error::custom(format!("Scatter key {key:?}: {error}"))),
@@ -55,7 +57,7 @@ pub(crate) mod keyed {
 
 impl Serialize for EcotopeScatter {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        to_file(self).serialize(serializer)
+        to_file(self, false).serialize(serializer)
     }
 }
 
@@ -185,9 +187,40 @@ fn from_file(value: Value) -> Result<EcotopeScatter, String> {
     })
 }
 
-/// Writes one Scatter as its file settings, leaving out what equals its
-/// kind's defaults.
-fn to_file(scatter: &EcotopeScatter) -> Value {
+/// The settings of an Ecotope file holding `ecotope`, laid over `base`'s
+/// Ecotope or, without one, over the defaults. `None` when nothing differs.
+///
+/// Over a base, each Scatter gives what differs from the base's Scatter
+/// with the same key, compared on every setting, and a Scatter the base
+/// has and `ecotope` lacks is written as `null`. Without a base, each
+/// Scatter gives what differs from its kind's defaults.
+pub(crate) fn settings_over(base: Option<&Ecotope>, ecotope: &Ecotope) -> Option<Value> {
+    let Some(base) = base else {
+        let mut value = to_value(ecotope);
+        for (key, scatter) in &ecotope.scatters {
+            value["scatters"][key.as_str()] = to_file(scatter, true);
+        }
+        return diff(&to_value(&Ecotope::default()), &value);
+    };
+
+    // Exact differences, then the removed Scatters.
+    let mut settings = diff(&to_value(base), &to_value(ecotope));
+    for key in base.scatters.keys() {
+        if !ecotope.scatters.contains_key(key) {
+            let settings = settings.get_or_insert_with(|| Value::Object(Map::new()));
+            if settings.get("scatters").is_none() {
+                settings["scatters"] = Value::Object(Map::new());
+            }
+            settings["scatters"][key.as_str()] = Value::Null;
+        }
+    }
+    settings
+}
+
+/// Writes one Scatter as its file settings. With `short`, the settings of
+/// its kind that equal the kind's defaults are left out; otherwise every
+/// setting is written.
+fn to_file(scatter: &EcotopeScatter, short: bool) -> Value {
     let mut map = Map::new();
     map.insert("priority".to_owned(), Value::from(scatter.priority));
     map.insert("clearance".to_owned(), to_value(&scatter.clearance));
@@ -197,7 +230,7 @@ fn to_file(scatter: &EcotopeScatter) -> Value {
     );
 
     // The kind's own settings, and the defaults they are compared with.
-    let (settings, base) = match &scatter.scatter {
+    let (settings, defaults) = match &scatter.scatter {
         ScatterKind::Tree(options) => (to_value(options), to_value(&TreeScatter::default())),
         ScatterKind::Stone(options) => (stone_file(options), stone_file(&stone_default())),
         ScatterKind::Deadwood(options) => {
@@ -211,8 +244,13 @@ fn to_file(scatter: &EcotopeScatter) -> Value {
             )
         }
     };
-    if let Some(Value::Object(changed)) = diff(&base, &settings) {
-        map.extend(changed);
+    let written = if short {
+        diff(&defaults, &settings)
+    } else {
+        Some(settings)
+    };
+    if let Some(Value::Object(written)) = written {
+        map.extend(written);
     }
     Value::Object(map)
 }

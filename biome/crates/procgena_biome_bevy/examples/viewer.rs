@@ -30,7 +30,7 @@
 //!   colours.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
@@ -42,8 +42,10 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_biome::{Ecotope, EcotopePreset, ScatterKind};
-use procgena_biome_bevy::spawn_ecotope;
-use procgena_core::scatter::{ScatterArea, ScatterInput};
+use procgena_biome_bevy::{
+    EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, ground_mesh, rolling_hills,
+};
+use procgena_core::scatter::ScatterArea;
 use procgena_core::{Ground, HeightGrid};
 use procgena_deadwood_bevy::{DeadwoodGenerating, DeadwoodPart, DeadwoodPlugin};
 use procgena_mushroom_bevy::{MushroomGenerating, MushroomPart, MushroomPlugin};
@@ -176,6 +178,7 @@ fn main() {
             texture_root: root("mushroom"),
             ..default()
         },
+        EcotopePlugin,
     ))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
     .insert_resource(ScreenshotPath(value("--screenshot")))
@@ -215,14 +218,7 @@ fn plain_colours(ecotope: &mut Ecotope) {
     }
 }
 
-/// Rolling ground: long swells with a shallower ripple across them.
-fn rolling(p: DVec2) -> f32 {
-    let (x, z) = (p.x as f32, p.y as f32);
-    1.2 * (0.09 * x).sin() + 0.8 * (0.07 * z + 0.03 * x).cos() + 0.25 * (0.31 * x + 0.2 * z).sin()
-}
-
-/// Places the Ecotope, and spawns the ground, the Ecotope's copies, the
-/// camera and the light.
+/// Spawns the ground, the Ecotope to place, the camera and the light.
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -236,22 +232,14 @@ fn setup(
         DVec2::splat(-half),
         DVec2::splat(half),
         GROUND_CELL,
-        rolling,
+        rolling_hills,
     ));
-    let side = (2.0 * half) as f32;
-    let mut mesh = Plane3d::default()
-        .mesh()
-        .size(side, side)
-        .subdivisions((2.0 * half / GROUND_CELL) as u32 - 1)
-        .build();
-    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
-        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
-    {
-        for p in positions.iter_mut() {
-            p[1] = ground.height(DVec2::new(f64::from(p[0]), f64::from(p[2])));
-        }
-    }
-    mesh.compute_smooth_normals();
+    let mesh = ground_mesh(
+        &*ground,
+        DVec2::splat(-half),
+        DVec2::splat(half),
+        GROUND_CELL,
+    );
     commands.spawn((
         Mesh3d(meshes.add(mesh)),
         MeshMaterial3d(materials.add(StandardMaterial {
@@ -261,24 +249,16 @@ fn setup(
         })),
     ));
 
-    // Place the Ecotope, then draw it.
-    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(scene.size));
-    let input = ScatterInput::new(&*ground, area, scene.seed);
-    let started = Instant::now();
-    let placed = scene
-        .ecotope
-        .place(&input)
-        .unwrap_or_else(|e| panic!("the Ecotope could not be placed: {e}"));
-    info!("placed seed {} in {:?}", scene.seed, started.elapsed());
-    for layer in placed.layers() {
-        info!(
-            "  {} (priority {}): {} copies",
-            layer.key(),
-            layer.priority(),
-            layer.copies().len()
-        );
-    }
-    spawn_ecotope(&mut commands, &scene.ecotope, &placed, ground, area, None);
+    // The Ecotope, placed in the background and drawn once placed.
+    commands
+        .spawn(EcotopeParams {
+            ecotope: Arc::new(scene.ecotope.clone()),
+            seed: scene.seed,
+            ground,
+            area: ScatterArea::new(DVec2::ZERO, Vec2::splat(scene.size)),
+            coverage: None,
+        })
+        .observe(log_placement);
 
     // The camera, drawing into an image when headless.
     let target = scene.target.unwrap_or(Vec3::new(0.0, 1.0, 0.0));
@@ -313,8 +293,29 @@ fn setup(
     });
 }
 
-/// Entities whose asset is still being built.
+/// Logs how long placing took and each Scatter's copies, or exits with an
+/// error if the Ecotope could not be placed.
+fn log_placement(finished: On<EcotopeFinished>, mut exit: MessageWriter<AppExit>) {
+    match &finished.result {
+        Ok(summary) => {
+            info!("placed in {:?}", summary.place_time);
+            for layer in &summary.layers {
+                info!(
+                    "  {} (priority {}): {} copies",
+                    layer.key, layer.priority, layer.copies
+                );
+            }
+        }
+        Err(error) => {
+            error!("the Ecotope could not be placed: {error}");
+            exit.write(AppExit::error());
+        }
+    }
+}
+
+/// Entities whose asset is still being built, or Ecotopes being placed.
 type Generating = Or<(
+    With<EcotopePlacing>,
     With<TreeGenerating>,
     With<StoneGenerating>,
     With<DeadwoodGenerating>,

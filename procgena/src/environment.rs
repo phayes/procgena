@@ -22,9 +22,11 @@ pub fn hidden_keys(mode: SceneMode) -> &'static [&'static str] {
     match mode {
         SceneMode::Plants => &[GROVE_SIZE],
         SceneMode::Grove => &[FIELD_SIZE],
-        SceneMode::Tree | SceneMode::Stone | SceneMode::Mushroom | SceneMode::Deadwood => {
-            &[FIELD_SIZE, GROVE_SIZE]
-        }
+        SceneMode::Tree
+        | SceneMode::Stone
+        | SceneMode::Mushroom
+        | SceneMode::Deadwood
+        | SceneMode::Ecotope => &[FIELD_SIZE, GROVE_SIZE],
         // The clump would not sway with its tree, so clump mode has no wind.
         SceneMode::Clump => &[FIELD_SIZE, GROVE_SIZE, WIND],
     }
@@ -93,6 +95,7 @@ mod tests {
             SceneMode::Mushroom,
             SceneMode::Grove,
             SceneMode::Deadwood,
+            SceneMode::Ecotope,
         ];
         for mode in modes {
             for hidden in hidden_keys(mode) {

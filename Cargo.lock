@@ -5360,6 +5360,8 @@ dependencies = [
  "bevy",
  "blocking",
  "dirs",
+ "procgena_biome",
+ "procgena_biome_bevy",
  "procgena_clump",
  "procgena_clump_bevy",
  "procgena_core",

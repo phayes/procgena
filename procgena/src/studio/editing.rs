@@ -5,7 +5,8 @@ use std::sync::Arc;
 use crate::clump::editor::{ClumpEdited, ClumpEditor, ClumpEditorPlugin, spawn_clump_editor};
 use crate::deadwood::DeadwoodShow;
 use crate::scene::{
-    ClumpSettings, DeadwoodSettings, DeadwoodView, FieldSettings, SceneMode, ViewerCommand,
+    ClumpSettings, DeadwoodSettings, DeadwoodView, EcotopeSettings, FieldSettings, SceneMode,
+    ViewerCommand,
 };
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -20,6 +21,10 @@ use super::status::{BuildState, BuildStatus};
 use super::{ActiveTab, StudioTab};
 use crate::deadwood::editor::{
     DeadwoodEdited, DeadwoodEditor, DeadwoodEditorPlugin, spawn_deadwood_editor,
+};
+use crate::ecotope::EcotopeStatus;
+use crate::ecotope::editor::{
+    EcotopeEdited, EcotopeEditor, EcotopeEditorPlugin, spawn_ecotope_editor,
 };
 use crate::export::FileOpsPlugin;
 use crate::export::deadwood::spawn_deadwood_export;
@@ -50,8 +55,10 @@ impl Plugin for EditingPlugin {
             MushroomEditorPlugin,
             GroveEditorPlugin,
             DeadwoodEditorPlugin,
+            EcotopeEditorPlugin,
             FileOpsPlugin,
         ))
+        .add_observer(send_ecotope)
         .add_observer(send_deadwood)
         .add_observer(send_grove)
         .add_observer(send_tree)
@@ -89,6 +96,7 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
                 spawn_deadwood_editor(&mut commands, page);
                 spawn_deadwood_export(&mut commands, page);
             }
+            StudioTab::Ecotope => spawn_ecotope_editor(&mut commands, page),
         }
     }
 }
@@ -220,6 +228,27 @@ fn send_deadwood(
     }
     // Fit the camera to a new view, or when asked.
     if edited.reframe || view_changed {
+        viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Sends the Ecotope and its ground when an edit changed them, and fits the
+/// camera to the patch when asked.
+fn send_ecotope(
+    edited: On<EcotopeEdited>,
+    editor: Single<&EcotopeEditor>,
+    mut sent: Local<Option<EcotopeSettings>>,
+    mut state: ResMut<BuildState>,
+    mut viewer: MessageWriter<ViewerCommand>,
+) {
+    let wanted = crate::ecotope::settings(editor.ecotope(), editor.view());
+    let sent = sent.get_or_insert_with(crate::ecotope::start_settings);
+    if wanted != *sent {
+        *sent = wanted;
+        state.ecotope = EcotopeStatus::Placing;
+        viewer.write(ViewerCommand::SetEcotope(Arc::new(sent.clone())));
+    }
+    if edited.reframe {
         viewer.write(ViewerCommand::ResetCamera);
     }
 }

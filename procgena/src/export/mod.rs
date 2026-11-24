@@ -91,7 +91,7 @@ impl FileDialogs {
 }
 
 /// Reads a chosen file's text into the app. Returns what to tell the user.
-type ApplyFn = Box<dyn FnOnce(&str, &mut World) -> Result<Done, String> + Send>;
+type ApplyFn = Box<dyn FnOnce(&Path, &str, &mut World) -> Result<Done, String> + Send>;
 
 /// How a file operation ended.
 enum Outcome {
@@ -161,6 +161,15 @@ impl FileOps<'_, '_> {
     pub fn open(
         &mut self,
         apply: impl FnOnce(&str, &mut World) -> Result<Done, String> + Send + 'static,
+    ) {
+        self.open_file(move |_, text, world| apply(text, world));
+    }
+
+    /// Like [`open`](Self::open), but also passes `apply` the path of the
+    /// file that was read.
+    pub fn open_file(
+        &mut self,
+        apply: impl FnOnce(&Path, &str, &mut World) -> Result<Done, String> + Send + 'static,
     ) {
         let scripted = self.dialogs.scripted_answer();
         let dialog =
@@ -235,7 +244,7 @@ fn finish_file_ops(
                     .take();
                 commands.queue(move |world: &mut World| {
                     let result = match (text, apply) {
-                        (Ok(text), Some(apply)) => apply(&text, world),
+                        (Ok(text), Some(apply)) => apply(&path, &text, world),
                         (Ok(_), None) => return,
                         (Err(error), _) => Err(error),
                     };

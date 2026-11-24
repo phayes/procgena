@@ -335,7 +335,11 @@ mask is 0 inside them, checked only at each candidate's centre. The
 calls into each Scatter are one adapter per kind in
 `procgena_biome/src/ecotope/scatters.rs`, to be replaced by the `Scatter`
 trait in C3. Plant is not in it yet: `procgena_plant` is a Bevy crate
-placed on the GPU with no `Ground`.
+placed on the GPU with no `Ground`. `procgena_biome_bevy`'s
+`EcotopeParams` places an Ecotope in the background and, after an edit,
+draws again only the Scatters whose settings, seed or footprints above
+them changed. The studio's Ecotope tab edits an Ecotope over flat or
+rolling ground with it.
 
 ### 4. Biome and Terrain
 
