@@ -434,7 +434,7 @@ impl Project {
     ) -> Result<PathBuf, ProjectError> {
         let text = self
             .registry
-            .file_text(kind, document)
+            .file_text(kind, key, document)
             .map_err(ProjectError::Preset)?;
         let path = preset_path(&self.presets(), kind, key);
         write_file(&path, &text)?;

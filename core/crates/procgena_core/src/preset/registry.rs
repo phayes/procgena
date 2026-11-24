@@ -209,6 +209,11 @@ pub fn slot_reference(slot: &Value) -> Option<&str> {
 /// rest of the map laid over the base preset's settings. A map without a
 /// `base`, and anything else, is left as it is and gives `None`.
 ///
+/// The reference is read as a project file writes it (see
+/// [`Registry::resolve_from`]): a bare key names the project's preset when
+/// the project has one. References a built-in preset wrote already name
+/// their namespace in a settings tree from [`Registry::settings`].
+///
 /// # Errors
 ///
 /// Returns the registry's error when the reference names no preset, or
@@ -220,14 +225,14 @@ pub fn expand_slot<P: Preset>(
 ) -> Result<Option<PresetRef<P>>, PresetFileError> {
     match slot {
         Value::String(text) => {
-            let preset = registry.resolve::<P>(text)?;
+            let preset = registry.resolve_from::<P>(text, Layer::Project)?;
             *slot = to_value(preset.options());
             Ok(Some(preset))
         }
         Value::Object(map) => match map.remove("base") {
             None => Ok(None),
             Some(Value::String(text)) => {
-                let preset = registry.resolve::<P>(&text)?;
+                let preset = registry.resolve_from::<P>(&text, Layer::Project)?;
                 let mut full = to_value(preset.options());
                 merge(&mut full, slot.take());
                 *slot = full;
@@ -432,8 +437,14 @@ fn default_value<P: Preset>() -> Value {
 /// reference may be a bare key, which works while only one layer has it,
 /// or a namespace and a key, such as `builtin:pine_small` (see
 /// [`Reference`]). A project preset may share a built-in preset's key;
-/// [`problems`](Self::problems) lists every key shared this way, since
-/// bare references to it fail.
+/// [`problems`](Self::problems) lists every key shared this way, since a
+/// general lookup of the bare key fails.
+///
+/// References inside preset files resolve first in the namespace of the
+/// file that wrote them: names in a built-in preset always mean built-in
+/// presets (the settings of a built-in preset come with `builtin:` written
+/// before them), and a project file's bare keys name the project's presets
+/// when it has them (see [`find_from`](Self::find_from)).
 #[derive(Default)]
 pub struct Registry {
     kinds: Vec<KindEntry>,
@@ -799,12 +810,61 @@ impl Registry {
     /// [`PresetFileError::Ambiguous`] when a bare key is in more than one
     /// layer.
     pub fn find(&self, kind: &str, reference: &str) -> Result<(Layer, String), PresetFileError> {
+        self.find_in(kind, reference, None, None)
+    }
+
+    /// Finds the preset of kind `kind` that `reference` names as a file in
+    /// layer `from` writes it, and returns its layer and key.
+    ///
+    /// A file sees its own layer first: a bare key that `from` has names
+    /// that layer's preset, and only a key `from` lacks is looked up in
+    /// every layer, as [`find`](Self::find) does. A reference with a
+    /// namespace names that layer whatever file wrote it.
+    ///
+    /// # Errors
+    ///
+    /// As for [`find`](Self::find).
+    pub fn find_from(
+        &self,
+        kind: &str,
+        reference: &str,
+        from: Layer,
+    ) -> Result<(Layer, String), PresetFileError> {
+        self.find_in(kind, reference, Some(from), None)
+    }
+
+    /// [`find`](Self::find) for a reference written in a file of layer
+    /// `from`, if any. A bare key equal to `except` skips `from`, so a
+    /// file's `base` never names the file itself.
+    fn find_in(
+        &self,
+        kind: &str,
+        reference: &str,
+        from: Option<Layer>,
+        except: Option<&str>,
+    ) -> Result<(Layer, String), PresetFileError> {
         let entry = self.kind_or_error(kind)?;
         let parsed = Reference::parse(reference)?;
+        let has = |layer: &Layer| match layer {
+            Layer::Project => self.project_preset(kind, parsed.key).is_some(),
+            Layer::BuiltIn => (entry.builtin_value)(parsed.key).is_some(),
+        };
+
+        // A bare key the writing file's own layer has.
+        let skip_own = except == Some(parsed.key);
+        if let (None, Some(layer)) = (parsed.namespace, from)
+            && !skip_own
+            && has(&layer)
+        {
+            return Ok((layer, parsed.key.to_owned()));
+        }
 
         // The layers to look in: the one named, or all of them.
         let layers: Vec<Layer> = match parsed.namespace {
-            None => Layer::ALL.to_vec(),
+            None => Layer::ALL
+                .into_iter()
+                .filter(|&layer| !(skip_own && Some(layer) == from))
+                .collect(),
             Some(namespace) => {
                 let layer = Layer::ALL
                     .into_iter()
@@ -821,10 +881,6 @@ impl Registry {
         };
 
         // The layers that have the key.
-        let has = |layer: &Layer| match layer {
-            Layer::Project => self.project_preset(kind, parsed.key).is_some(),
-            Layer::BuiltIn => (entry.builtin_value)(parsed.key).is_some(),
-        };
         let found: Vec<Layer> = layers.into_iter().filter(has).collect();
         match found.as_slice() {
             [layer] => Ok((*layer, parsed.key.to_owned())),
@@ -878,7 +934,9 @@ impl Registry {
     /// The full settings tree of the preset of kind `kind` that `reference`
     /// names, in file form: its file's settings laid over its base's, down
     /// to a built-in preset or the defaults. References to other presets in
-    /// it are kept as written.
+    /// it are kept as written, except that references a built-in preset
+    /// wrote without a namespace get `builtin:` in front, so they keep
+    /// naming built-in presets.
     ///
     /// # Errors
     ///
@@ -918,11 +976,14 @@ impl Registry {
         let entry = self.kind_or_error(kind)?;
         match layer {
             Layer::BuiltIn => {
-                (entry.builtin_value)(key).ok_or_else(|| PresetFileError::UnknownPreset {
-                    kind: entry.kind.to_owned(),
-                    key: key.to_owned(),
-                    known: self.known_references(entry.kind),
-                })
+                let mut value =
+                    (entry.builtin_value)(key).ok_or_else(|| PresetFileError::UnknownPreset {
+                        kind: entry.kind.to_owned(),
+                        key: key.to_owned(),
+                        known: self.known_references(entry.kind),
+                    })?;
+                qualify_builtin_references(entry, &mut value);
+                Ok(value)
             }
             Layer::Project => {
                 let preset = self.project_preset(kind, key).ok_or_else(|| {
@@ -962,7 +1023,7 @@ impl Registry {
         chain.push(key.to_owned());
         let base = match &document.base {
             Some(base) => self
-                .find_base(entry.kind, base)
+                .find_base(entry.kind, base, key)
                 .and_then(|(layer, base)| self.settings_of(entry.kind, layer, &base, chain)),
             None => Ok((entry.default_value)()),
         };
@@ -976,20 +1037,29 @@ impl Registry {
         Ok(value)
     }
 
-    /// [`find`](Self::find) for a file's `base`, reporting an unknown key
-    /// as [`PresetFileError::UnknownBase`].
-    fn find_base(&self, kind: &str, base: &str) -> Result<(Layer, String), PresetFileError> {
-        self.find(kind, base).map_err(|error| match error {
-            PresetFileError::UnknownPreset { key, known, .. } => {
-                PresetFileError::UnknownBase { key, known }
-            }
-            other => other,
-        })
+    /// Finds the `base` of the project file `key`, as that file writes it:
+    /// the project first, but never the file itself. Reports an unknown
+    /// key as [`PresetFileError::UnknownBase`].
+    fn find_base(
+        &self,
+        kind: &str,
+        base: &str,
+        key: &str,
+    ) -> Result<(Layer, String), PresetFileError> {
+        self.find_in(kind, base, Some(Layer::Project), Some(key))
+            .map_err(|error| match error {
+                PresetFileError::UnknownPreset { key, known, .. } => {
+                    PresetFileError::UnknownBase { key, known }
+                }
+                other => other,
+            })
     }
 
-    /// The text of a preset file of kind `kind` for `document`, whose
-    /// `settings` are the preset's full settings in file form (as
-    /// [`settings`](Self::settings) gives them, edited).
+    /// The text of the project preset file `key` of kind `kind` for
+    /// `document`, whose `settings` are the preset's full settings in file
+    /// form (as [`settings`](Self::settings) gives them, edited). Its
+    /// `base` is read as that file would read it: the project first, but
+    /// never the file itself.
     ///
     /// The file names the document's `base`, name, description and group
     /// as given, and holds only the settings that differ from the base's
@@ -1000,11 +1070,16 @@ impl Registry {
     /// # Errors
     ///
     /// Returns the errors of [`settings`](Self::settings) for the base.
-    pub fn file_text(&self, kind: &str, document: &Document) -> Result<String, PresetFileError> {
+    pub fn file_text(
+        &self,
+        kind: &str,
+        key: &str,
+        document: &Document,
+    ) -> Result<String, PresetFileError> {
         let entry = self.kind_or_error(kind)?;
         let base = match &document.base {
             Some(base) => {
-                let (layer, base) = self.find_base(entry.kind, base)?;
+                let (layer, base) = self.find_base(entry.kind, base, key)?;
                 self.settings_of(entry.kind, layer, &base, &mut Vec::new())?
             }
             None => (entry.default_value)(),
@@ -1020,16 +1095,18 @@ impl Registry {
     }
 
     /// The built-in preset at the root of the `base` chain of `document`,
-    /// if the chain ends in one.
-    fn root_builtin<P: Preset>(&self, document: &Document) -> Option<&'static P> {
+    /// the project file `key`, if the chain ends in one.
+    fn root_builtin<P: Preset>(&self, key: &str, document: &Document) -> Option<&'static P> {
+        let mut file = key.to_owned();
         let mut base = document.base.clone();
         let mut steps = 0;
         while let Some(reference) = base {
-            let (layer, key) = self.find_base(P::KIND, &reference).ok()?;
+            let (layer, found) = self.find_base(P::KIND, &reference, &file).ok()?;
             match layer {
-                Layer::BuiltIn => return P::named(&key),
+                Layer::BuiltIn => return P::named(&found),
                 Layer::Project => {
-                    base = self.project_preset(P::KIND, &key)?.document.base.clone();
+                    base = self.project_preset(P::KIND, &found)?.document.base.clone();
+                    file = found;
                 }
             }
             // A loop is reported when the settings are laid; stop here.
@@ -1056,7 +1133,31 @@ impl Registry {
     /// expanding the presets it refers to, and the errors of reading and
     /// checking its options, as [`read`](super::read) does.
     pub fn resolve<P: Preset>(&self, reference: &str) -> Result<PresetRef<P>, PresetFileError> {
-        let (layer, key) = self.find(P::KIND, reference)?;
+        let found = self.find(P::KIND, reference)?;
+        self.resolve_found(found)
+    }
+
+    /// [`resolve`](Self::resolve) for a reference written in a file of
+    /// layer `from`, which sees its own layer first (see
+    /// [`find_from`](Self::find_from)).
+    ///
+    /// # Errors
+    ///
+    /// As for [`resolve`](Self::resolve).
+    pub fn resolve_from<P: Preset>(
+        &self,
+        reference: &str,
+        from: Layer,
+    ) -> Result<PresetRef<P>, PresetFileError> {
+        let found = self.find_from(P::KIND, reference, from)?;
+        self.resolve_found(found)
+    }
+
+    /// The preset of type `P` found as `(layer, key)`.
+    fn resolve_found<P: Preset>(
+        &self,
+        (layer, key): (Layer, String),
+    ) -> Result<PresetRef<P>, PresetFileError> {
         match layer {
             Layer::BuiltIn => P::named(&key).map(PresetRef::BuiltIn).ok_or_else(|| {
                 PresetFileError::UnknownPreset {
@@ -1111,7 +1212,7 @@ impl Registry {
         Ok(P::from_parts(
             meta,
             options,
-            self.root_builtin::<P>(document),
+            self.root_builtin::<P>(key, document),
         ))
     }
 
@@ -1119,18 +1220,27 @@ impl Registry {
     /// directly: as its `base`, or by a reference in its settings.
     ///
     /// A preset's references are those in its full settings, so references
-    /// it takes from its base count as its own. Built-in presets never use
-    /// project presets. A reference that names no single preset, and a
-    /// project preset whose settings can't be laid, are skipped.
+    /// it takes from its base count as its own, read in the namespace of
+    /// the file that wrote them. Built-in presets never use project
+    /// presets. A reference that names no single preset, and a project
+    /// preset whose settings can't be laid, are skipped.
     #[must_use]
     pub fn used_by(&self, kind: &str, layer: Layer, key: &str) -> Vec<Use> {
         let target = Some((layer, key.to_owned()));
-        let names = |reference: &str| self.find(kind, reference).ok() == target;
+        let names =
+            |reference: &str| self.find_from(kind, reference, Layer::Project).ok() == target;
         let mut uses = Vec::new();
 
         // Project presets: their base, then the references in their settings.
         for preset in &self.project {
-            if preset.kind == kind && preset.document.base.as_deref().is_some_and(names) {
+            let base_is_it = || {
+                preset
+                    .document
+                    .base
+                    .as_deref()
+                    .is_some_and(|base| self.find_base(kind, base, &preset.key).ok() == target)
+            };
+            if preset.kind == kind && base_is_it() {
                 uses.push(Use {
                     layer: Layer::Project,
                     kind: preset.kind,
@@ -1188,6 +1298,37 @@ impl Registry {
         }
         uses
     }
+}
+
+/// Writes [`BUILTIN`] before every bare reference in `value`, a built-in
+/// preset's settings of the kind `entry` describes, so the references a
+/// built-in preset wrote keep naming built-in presets when project presets
+/// share their keys.
+fn qualify_builtin_references(entry: &KindEntry, value: &mut Value) {
+    for slot in (entry.references.slots)(value) {
+        if slot.reference.contains(':') {
+            continue;
+        }
+        let qualified = Value::String(Reference::qualified(BUILTIN, &slot.reference));
+        match setting_mut(value, &slot.path) {
+            Some(text @ Value::String(_)) => *text = qualified,
+            Some(Value::Object(map)) => {
+                map.insert("base".to_owned(), qualified);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The setting at the dotted `path` in `value`, such as `trees.0.tree`:
+/// map keys, and list indices as plain numbers.
+fn setting_mut<'a>(value: &'a mut Value, path: &str) -> Option<&'a mut Value> {
+    path.split('.')
+        .try_fold(value, |value, segment| match value {
+            Value::Object(map) => map.get_mut(segment),
+            Value::Array(items) => items.get_mut(segment.parse::<usize>().ok()?),
+            _ => None,
+        })
 }
 
 /// Where the file of the project preset `key` of kind `kind` goes, in a

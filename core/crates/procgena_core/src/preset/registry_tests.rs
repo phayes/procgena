@@ -520,9 +520,12 @@ fn a_file_is_written_as_differences_from_its_project_base() {
         settings: Some(settings),
         ..Document::default()
     };
-    let text = registry.file_text("rock", &document).unwrap();
+    let text = registry.file_text("rock", "smooth", &document).unwrap();
     assert_eq!(text, "base: tall\nname: Smooth\nrock:\n  rough: false\n");
-    assert_eq!(registry.file_text("rock", &document).unwrap(), text);
+    assert_eq!(
+        registry.file_text("rock", "smooth", &document).unwrap(),
+        text
+    );
 
     // It reads back to the same settings.
     registry.add("rock", "smooth", &text, None).unwrap();
@@ -541,7 +544,47 @@ fn a_file_is_written_as_differences_from_its_project_base() {
         settings: Some(registry.settings("rock", "tall").unwrap()),
         ..Document::default()
     };
-    assert_eq!(registry.file_text("rock", &same).unwrap(), "base: tall\n");
+    assert_eq!(
+        registry.file_text("rock", "same", &same).unwrap(),
+        "base: tall\n"
+    );
+}
+
+#[test]
+fn a_file_s_references_look_in_its_own_layer_first() {
+    let mut registry = registry();
+    registry.set_namespace("quarry").unwrap();
+
+    // The project's own pebble, beside the built-in one; a bare `base`
+    // naming the file's own key skips the file itself.
+    registry
+        .add("rock", "pebble", "base: pebble\nrock:\n  size: 0.5\n", None)
+        .unwrap();
+    let mine = registry.resolve::<RockPreset>("quarry:pebble").unwrap();
+    assert_eq!(mine.rock.size, 0.5);
+    assert_eq!(mine.weight, 0.1);
+
+    // A project file's bare key names the project's pebble...
+    registry
+        .add("pile", "heap", "pile:\n  rocks: [pebble, boulder]\n", None)
+        .unwrap();
+    let heap = registry.resolve::<PilePreset>("heap").unwrap();
+    assert_eq!(heap.pile.rocks[0].size, 0.5);
+    assert_eq!(heap.pile.rocks[1].size, 2.5);
+
+    // "Used by" reads the file's references the same way.
+    let used = registry.used_by("rock", Layer::Project, "pebble");
+    let users: Vec<(&str, Option<&str>)> = used
+        .iter()
+        .map(|used| (used.key.as_str(), used.path.as_deref()))
+        .collect();
+    assert_eq!(users, [("heap", Some("rocks.0"))]);
+
+    // A general lookup of the bare key is still ambiguous.
+    assert!(matches!(
+        registry.resolve::<RockPreset>("pebble"),
+        Err(PresetFileError::Ambiguous { .. })
+    ));
 }
 
 #[test]

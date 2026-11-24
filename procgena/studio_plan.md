@@ -65,7 +65,9 @@ the "Studio track".
   from its `procgena.yml` (later a bundle's id), as in
   `builtin:pine_small` or `my_forest:pine_small`. A bare key works while
   only one layer has it; a key in two layers is a problem, fixed by
-  writing the namespace. `builtin` is reserved.
+  writing the namespace. `builtin` is reserved. A reference resolves
+  first in the namespace of the file that wrote it (user decision,
+  2026-11-24).
 - **Editing in context edits the referenced preset** (decided). Click a
   pine in an Ecotope and you edit the pine preset, with its "used by"
   list in view. A built-in pine offers "Save as new", then offers to
@@ -513,6 +515,14 @@ my_project/
   and `problems()` lists every shared key, including one a newer
   procgena's built-ins introduce, so nothing silently changes meaning.
   Writing the namespace fixes it; the rename dialog is a convenience.
+  **A reference resolves first in the namespace of the file that wrote
+  it** (user decision, 2026-11-24): names in a built-in file always mean
+  `builtin:` (the registry writes `builtin:` before them when it lays a
+  built-in base), and a project file sees the project's presets first,
+  with a bare key going to the general lookup only when the project
+  lacks it. A file's bare `base` never names the file itself, so
+  `pine_small.tree.yml` with `base: pine_small` is written over the
+  built-in one.
   The namespace is never part of a preset's key, so it never reaches
   child keys or seeds. `builtin`, and any id that isn't a valid key, is
   refused when `procgena.yml` is read or a project is made. Two loaded
