@@ -46,6 +46,38 @@ pub enum PresetFileError {
         /// What the options' own check reported.
         message: String,
     },
+    /// A reference names no preset of its kind in a
+    /// [`Registry`](super::Registry).
+    UnknownPreset {
+        /// The kind of preset looked for, such as `"tree"`.
+        kind: String,
+        /// The reference as written.
+        key: String,
+        /// Every key a reference of this kind may name.
+        known: Vec<String>,
+    },
+    /// A project preset and a built-in preset share this key, so it names
+    /// neither until the project preset is renamed; see
+    /// [`Problem::KeyClash`](super::Problem::KeyClash).
+    KeyClash {
+        /// The kind of both presets.
+        kind: String,
+        /// The key they share.
+        key: String,
+    },
+    /// A chain of `base` presets leads back to a preset already in it.
+    BaseCycle {
+        /// The kind of the presets.
+        kind: String,
+        /// The keys of the chain, ending with the one seen twice.
+        keys: Vec<String>,
+    },
+    /// The [`Registry`](super::Registry) has no preset type registered for
+    /// this kind.
+    UnknownKind {
+        /// The kind asked for.
+        kind: String,
+    },
 }
 
 impl fmt::Display for PresetFileError {
@@ -65,6 +97,21 @@ impl fmt::Display for PresetFileError {
             ),
             Self::Setting { path, message } => write!(f, "{path}: {message}"),
             Self::Invalid { message } => write!(f, "{message}"),
+            Self::UnknownPreset { kind, key, known } => write!(
+                f,
+                "unknown {kind} preset {key:?}; valid keys are {}",
+                known.join(", ")
+            ),
+            Self::KeyClash { kind, key } => write!(
+                f,
+                "the project's {kind} preset {key:?} has a built-in preset's key; rename it"
+            ),
+            Self::BaseCycle { kind, keys } => write!(
+                f,
+                "the {kind} presets' bases form a loop: {}",
+                keys.join(" → ")
+            ),
+            Self::UnknownKind { kind } => write!(f, "no preset kind is named {kind:?}"),
         }
     }
 }

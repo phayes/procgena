@@ -56,11 +56,18 @@ mod document;
 mod error;
 mod file;
 mod merge;
+mod registry;
 
 pub use document::{Document, FILE_GROUP};
 pub use error::PresetFileError;
 pub use file::{Preset, PresetMeta, groups, read, write};
 pub use merge::{diff, from_value, merge, to_value, to_yaml};
+pub use registry::{
+    Entry, Layer, PresetRef, Problem, ProjectPreset, ReferenceSlot, References, Registry, Use,
+    expand_slot, preset_path, slot_reference,
+};
 
+#[cfg(test)]
+mod registry_tests;
 #[cfg(test)]
 mod tests;
