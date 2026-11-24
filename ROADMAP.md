@@ -984,7 +984,7 @@ summary below is for ordering.
 | **ST5b** Picking by part paths | D3 part paths for single parts | X1's `part()`, fruit AC1 |
 | **ST6** Texture library | One `TextureCatalogue` shared with GM2, import to BC7 KTX2 with `ctt` | ST2, ST3, ST4; agreement with GM2 |
 | **ST7a** Problems, overlays, stats | Problems panel, debug overlays, live stats, one Detail and Quality control | ST0, ST1 |
-| **ST7b** Viewing distance | View-frame distance and level readout | IX's per-view LOD distance override |
+| **ST7b** Viewing distance and level 0 | View-frame distance; game default (level 1) apart from level 0 preview; level readout with its reason; game profile in the project | IX's per-view LOD distance override and default-level API |
 | **ST8** Export and commands | One Export, screenshot, turntable, command palette, shortcuts | ST0; turntable after ST4 |
 | **ST9** Later | A/B compare, seed browser, node diagram, preview contexts, Biome and World kinds | B1, W1 for their kinds |
 

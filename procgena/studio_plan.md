@@ -113,7 +113,7 @@ the "Studio track".
 | 6 | Preset library with search | Library search over the registry and metadata | ST3 |
 | 7 | Metadata per type and setting, what it does and which part it targets; click a part to get its editor; "update" or "save as new" | `<kind>.meta.yml`, Inspector, picking, documents | ST1, ST5, ST2 |
 | 8 | Names and descriptions in the metadata feed the UI | Labels, tooltips, part names and kind names from metadata | ST1 |
-| 9 | Split viewing distance from LOD | Per-view LOD distance override (IX), view-frame control | ST7b |
+| 9 | Split viewing distance from LOD | Per-view LOD distance override (IX), view-frame control; game default (level 1) shown apart from level 0 preview | ST7b |
 | 10 | Viewing distance on the view frame | View frame | ST0, ST7b |
 | 11 | Environment on the view frame; clear what is saved and what is studio-only | View frame, "what is saved where" table | ST0 |
 
@@ -634,7 +634,9 @@ never in project files.
 | Show ground | Environment panel | View frame |
 | Field size (plant), Scatter size (tree Scatter) | Environment panel, per tab | View frame ("preview area"): a Scatter's area comes from above, never from its preset |
 | Auto rotate, speed, reset camera | Camera overlay | View frame |
-| Level of detail dropdowns (tree, mushroom, dead wood, plant) | Settings column | View frame: one "Detail" control, per kind's levels from metadata and LOD types |
+| Level of detail dropdowns (tree, mushroom, dead wood, plant) | Settings column | View frame: one "Detail" control (game default, level 0 preview, any level, impostor); see "Game default and level 0" |
+| Level 0 opt-in, per asset | — | **Preset**, if IX puts it in the asset's options |
+| Level 0 opt-in and quality, per game | — | **Project** (`procgena.yml` game profile), as IX decides |
 | Viewing distance | — | View frame (ST7b) |
 | Quality (`LOW`..`ULTRA`) | — | View frame |
 | Overlays, stats | — | View frame |
@@ -666,6 +668,48 @@ With these, "look up close, see the 300 m impostor" is the override set
 to 300 with the camera wherever the user puts it. ST7b builds the view
 frame control and waits for this piece of IX, which can be pulled forward
 on its own.
+
+### Game default and level 0
+
+Decided by the user 2026-11-24 and recorded under IX in ROADMAP.md:
+every asset draws at detail level 1 by default, near the camera too, for
+meshes and textures; full-detail level 0 is opt-in, per game or per
+asset. IX's plan designs the API; the studio is planned around it, and
+shows both what a game gets and level 0 where it is switched on.
+
+- **Two different things, kept apart in the UI:**
+  - **The opt-in** is saved data. Per asset, it is a setting of the
+    preset (if IX puts it in the asset's options), shown in the
+    Inspector's Detail section from the metadata. Per game, it lives in
+    the project's game settings (`procgena.yml`, a "game profile" with
+    the quality and level-0 choices), since a project stands for one
+    game's content. Where exactly each lives follows IX.
+  - **Previewing level 0** is a view-frame setting, never saved: look at
+    an asset in full detail while editing it, whether or not the game
+    turns level 0 on.
+- **The Detail control on the view frame** offers: *Game default* (what
+  the game draws: level 1, or level 0 where the preset or the game
+  profile opts in), *Level 0 preview*, and forcing any level or the
+  impostor. Game default is the starting choice, so what you see is what
+  the game gets unless you ask otherwise.
+- **The readout says which and why:** for example "level 1 · game
+  default", "level 0 · opted in by this preset", or "level 0 · preview
+  only, not on in this game". Previewing level 0 when it is not opted in
+  shows a mark on the view frame, so a screenshot or a judgement isn't
+  made on detail the game won't draw.
+- **Settings that only show at level 0** (full-size textures, the
+  finest mesh detail) carry `levels: [0]` in the metadata. The Inspector
+  marks them "level 0 only", says when the game won't draw them, and
+  offers to switch the view to Level 0 preview while one is edited.
+- **Thumbnails and captures** use the game default unless their recipe
+  asks otherwise, so the Library shows what a game gets.
+- **What the studio needs from IX's API** (added to IX's studio
+  requirement): the effective level for an asset under a game profile
+  and why (preset opt-in, game opt-in, or default); a per-view override
+  that draws level 0 even when not opted in; the levels each asset has,
+  with names, for the Detail control; and where the per-asset and
+  per-game opt-ins are stored, so the metadata and the project file can
+  show them.
 
 ## Problems, overlays and stats
 
@@ -862,11 +906,17 @@ own folders.
   them; stats; camera bookmarks; one Detail control for every kind; the
   Quality control. Needs ST0, ST1. Done when a headless script breaks a
   setting and the Problems panel lists it and selects it on click, and
-  the LOD overlay colours a tree Scatter by level.
-- **ST7b:** the viewing-distance control and the level readout. Needs
-  IX's per-view override. Done when a headless shot of a tree 5 m away
-  with viewing distance 300 m shows its impostor, and the readout says
-  so.
+  the LOD overlay colours a tree Scatter by level. (Until IX's API
+  lands, the Detail control forces levels as today's dropdowns do.)
+- **ST7b:** the viewing-distance control, the game default and level 0
+  preview in the Detail control, the level readout with its reason, the
+  "level 0 only" marks in the Inspector, and the game profile in the
+  project. Needs IX's per-view override and its default-level API. Done
+  when a headless shot of a tree 5 m away with viewing distance 300 m
+  shows its impostor, and the readout says so; and when a tree not opted
+  into level 0 reads "level 1 · game default" up close, switches to
+  level 0 under Level 0 preview with the preview mark shown, and reads
+  "level 0 · opted in by this preset" once its preset opts in.
 
 ### ST8: Export, capture and commands
 
@@ -943,3 +993,7 @@ drawing.
    shows the tree's own placement settings (where on the branches fruit
    grows) beside a link to the fruit preset needs the fruit tab's design
    (I1b) to settle.
+8. **The game profile.** Whether the per-game level-0 opt-in and quality
+   belong in the project's `procgena.yml` (proposed) or in a separate
+   game settings file a project can hold several of (for example one per
+   target machine); settled with IX's plan.
