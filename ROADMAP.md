@@ -780,4 +780,33 @@ not resolved.
 5. **One region per Biome** (D4, before W0). The user decided in D3 that a
    region is one Biome's whole area. How the region graph and the Biome
    choice achieve it, and how big regions get, is for the user to decide
-   in D4.
+   in D4. The options and a recommendation are drafted in
+   [docs/decisions/D4.md](docs/decisions/D4.md) (not decided).
+
+Raised by wave 5 (2026-11-24):
+
+6. **Plant goldens.** None of the 48 golden images has a baseline for this
+   machine (`apple-m1-max`), so `cargo run --example golden` fails. Bless
+   them once the look is accepted.
+7. **Stone placement (C2, built).** Every stone class now shares one World
+   lattice and each cell picks its class, so stone scenes look different
+   from before. See [docs/decisions/C2-plan.md](docs/decisions/C2-plan.md).
+8. **Shared renderer looks (R2, built).** Keep one undithered level per
+   copy in shadow maps (in a fade band only one level casts)? Accept the
+   small shadow-edge changes on stone, deadwood and mushroom? Should trees
+   sway by their per-copy wind phase instead of by world position (groves
+   would move visibly differently)?
+9. **Fruit and flower cards (I1b, built, off by default).** The default
+   `cluster_variants` (1 or 4), whether level 3 moves to cards (needed
+   before cards can be on by default), and whether the slightly paler
+   unlit bake is acceptable. See "I1b" above.
+10. **Equal preset offsets (W4).** Which common `base.elevation` the
+    terrain presets share: 20 m (plains unchanged, recommended), 50 m or 0.
+    See open question 5 in [terrain/world_plan.md](terrain/world_plan.md).
+11. **Terrain questions from G1 and G3** (in
+    [terrain/plan.md](terrain/plan.md)): should river levels, widths and
+    types follow drainage area (up to 176 m deeper cuts in mountains)?
+    Should the border offers read the analytic relief gradient (moves
+    every agreed profile)? Are macro cells worth adding, given that roads
+    dominate a cold region plan? The step 2 benchmarks are provisional
+    (taken under load) and wait for a rerun on a quiet machine.
