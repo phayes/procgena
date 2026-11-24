@@ -239,3 +239,70 @@ fn the_input_seed_wins_over_the_options_seed() {
         StickScatter::new(&other, &input).unwrap()
     );
 }
+
+/// A few stumps over a 6 m square of `ground`, allowed on any slope.
+fn stumps(ground: &dyn Ground) -> StickScatter {
+    let o = ScatterOptions {
+        max_slope: 90.0,
+        density: 0.5,
+        min_spacing: 1.5,
+        variants: 2,
+        decay: [0.5, 1.5],
+        diameter: [0.3, 0.4],
+        length: [0.4, 0.6],
+        piece: procgena_deadwood::DeadwoodPreset::FelledStump.options(),
+        ..small()
+    };
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(6.0));
+    StickScatter::new(&o, &ScatterInput::new(ground, area, o.seed)).unwrap()
+}
+
+#[test]
+fn stumps_stand_upright_on_a_slope() {
+    let slope = |p: DVec2| 0.4 * p.x as f32;
+    let s = stumps(&slope);
+    assert!(!s.instances().is_empty());
+    for i in s.instances() {
+        // Turned about Y only.
+        let up = i.transform.matrix3 * glam::Vec3A::Y;
+        assert!((up - glam::Vec3A::Y).length() < 1e-5, "up {up}");
+    }
+}
+
+#[test]
+fn stumps_sink_to_the_low_side_of_a_slope() {
+    // On flat ground the base rests at y = 0. On a slope the same stump
+    // rests where the lowest ground around its base is, below the ground
+    // at its middle.
+    let flat = stumps(&FlatGround);
+    let slope = |p: DVec2| 0.4 * p.x as f32;
+    let tilted = stumps(&slope);
+    for i in flat.instances() {
+        assert!(i.transform.translation.y.abs() < 1e-4, "{}", i.position);
+    }
+    for i in tilted.instances() {
+        let base = i.transform.translation.y;
+        assert!(
+            base < i.position.y - 1e-3,
+            "base {base}, ground {}",
+            i.position.y
+        );
+    }
+}
+
+#[test]
+fn logs_lie_along_a_slope() {
+    let o = ScatterOptions {
+        max_slope: 90.0,
+        ..ScatterOptions::fallen_logs()
+    };
+    let slope = |p: DVec2| 0.4 * p.x as f32;
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(20.0));
+    let s = StickScatter::new(&o, &ScatterInput::new(&slope, area, o.seed)).unwrap();
+    assert!(!s.instances().is_empty());
+    let normal = glam::Vec3A::new(-0.4, 1.0, 0.0).normalize();
+    for i in s.instances() {
+        let up = i.transform.matrix3 * glam::Vec3A::Y;
+        assert!((up - normal).length() < 1e-3, "up {up}");
+    }
+}

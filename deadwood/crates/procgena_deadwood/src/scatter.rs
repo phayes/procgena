@@ -10,9 +10,11 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
+use glam::{Affine3A, Mat3, Vec2, Vec3};
 use procgena_core::hash::{derive_seed, seed_for};
-use procgena_core::scatter::{ScatterInput, steeper_than};
+use procgena_core::scatter::{
+    Footprint, Placement as GroundPlacement, Rest, ScatterInput, place, steeper_than,
+};
 use procgena_core::{Rng, SpecimenId};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
 
@@ -63,9 +65,10 @@ pub struct ScatterOptions {
     /// smallest first.
     pub length: [f32; 2],
     /// Settings every variant starts from, before its own seed, decay,
-    /// diameter and length are chosen. Usually a [`PieceKind::Branch`]; a
-    /// [`PieceKind::Stump`] is made into a branch. Where a variant turns out
-    /// too short for its ends, those ends become flat saw cuts.
+    /// diameter and length are chosen. Its kind decides how copies are put
+    /// on the ground (see [`PieceKind::placement`]): logs and branches lie
+    /// along it, stumps stand upright. Where a variant turns out too short
+    /// for its ends, those ends become flat saw cuts.
     pub piece: DeadwoodOptions,
 }
 
@@ -202,17 +205,15 @@ pub struct StickScatter {
     instances: Vec<Instance>,
 }
 
-/// Where a variant touches the ground, and which way it lies.
-struct Footprint {
-    /// The middle of the variant in X and Z, at `y = 0`.
+/// How one variant is put on the ground.
+struct Fit {
+    /// The middle of the variant in X and Z, at `y = 0`. Copies are placed
+    /// around this point.
     centre: Vec3,
-    /// Surface points near the ground, measured from `centre`.
-    contacts: Vec<Vec3>,
-    /// The main stem's direction in X and Z, as a unit vector.
-    axis: Vec3,
-    /// How far either side of the middle to sample the ground's
-    /// cross-slope, in metres.
-    width: f32,
+    /// Where the variant touches the ground, measured from `centre`.
+    footprint: Footprint,
+    /// How the variant follows the ground, from its kind.
+    placement: GroundPlacement,
 }
 
 impl StickScatter {
@@ -253,12 +254,9 @@ impl StickScatter {
             let (lo, hi) = (options.diameter[0].ln(), options.diameter[1].ln());
             o.diameter = rng.range(lo, hi).exp();
             o.length = rng.range(options.length[0], options.length[1]);
-            if o.kind == PieceKind::Stump {
-                o.kind = PieceKind::Branch;
-            }
             variants.push(Piece::new(o)?);
         }
-        let footprints: Vec<Footprint> = variants.iter().map(footprint).collect();
+        let fits: Vec<Fit> = variants.iter().map(fit).collect();
 
         // One candidate per cell of a jittered grid anchored to the area's
         // centre. Each passes the mask, then the slope limit, then spacing,
@@ -292,7 +290,7 @@ impl StickScatter {
                     continue;
                 }
                 let variant = variant.min(options.variants - 1);
-                let Some(transform) = place(&footprints[variant as usize], site, yaw, input) else {
+                let Some(transform) = put_down(&fits[variant as usize], site, yaw, input) else {
                     continue;
                 };
                 spacing.insert(site);
@@ -361,8 +359,31 @@ impl StickScatter {
     }
 }
 
-/// Measures where `piece` touches the ground and which way it lies.
-fn footprint(piece: &Piece) -> Footprint {
+impl PieceKind {
+    /// How copies of a piece of this kind are put on uneven ground by a
+    /// [`StickScatter`]: logs and branches lie along the ground's slope,
+    /// resting on the plane fitted under them; stumps stay upright, sunk
+    /// until the lowest ground around their base meets it.
+    pub fn placement(self) -> GroundPlacement {
+        match self {
+            PieceKind::Log | PieceKind::Branch => GroundPlacement {
+                conform: 1.0,
+                rest: Rest::Plane,
+                ..GroundPlacement::default()
+            },
+            PieceKind::Stump => GroundPlacement {
+                conform: 0.0,
+                rest: Rest::Lowest,
+                ..GroundPlacement::default()
+            },
+        }
+    }
+}
+
+/// Measures where `piece` touches flat ground and how it follows uneven
+/// ground.
+fn fit(piece: &Piece) -> Fit {
+    let o = piece.options();
     let points = surface_points(piece.limbs(), |_| true);
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for p in &points {
@@ -370,75 +391,62 @@ fn footprint(piece: &Piece) -> Footprint {
         hi = hi.max(*p);
     }
     let centre = Vec3::new((lo.x + hi.x) * 0.5, 0.0, (lo.z + hi.z) * 0.5);
-    let near = 0.25 * piece.options().diameter + 1e-3;
-    let low: Vec<Vec3> = points
-        .iter()
-        .filter(|p| p.y <= near)
-        .map(|&p| p - centre)
-        .collect();
+
+    // Contacts: for a lying piece, the surface near the ground; for a stump,
+    // whose base and roots reach below the ground, the ring where its
+    // surface crosses the ground, flattened onto `y = 0`.
+    let near = 0.25 * o.diameter + 1e-3;
+    let stump = o.kind == PieceKind::Stump;
+    let low: Vec<Vec3> = if stump {
+        points
+            .iter()
+            .filter(|p| p.y.abs() <= near)
+            .map(|p| Vec3::new(p.x, 0.0, p.z) - centre)
+            .collect()
+    } else {
+        points
+            .iter()
+            .filter(|p| p.y <= near)
+            .map(|&p| p - centre)
+            .collect()
+    };
     let stride = low.len().div_ceil(MAX_CONTACTS).max(1);
     let contacts: Vec<Vec3> = low.into_iter().step_by(stride).collect();
 
-    // The main stem's direction in X and Z.
-    let main = &piece.limbs()[0].curve;
-    let (a, b) = (main.at(0.0).position, main.at(1.0).position);
-    let axis = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or(Vec3::X);
-    Footprint {
+    // A lying piece also samples the ground either side of its middle,
+    // across its main stem, so a straight stick still finds the cross-slope.
+    let width = o.diameter.max(0.1 * o.length);
+    let extra = if stump {
+        Vec::new()
+    } else {
+        let main = &piece.limbs()[0].curve;
+        let (a, b) = (main.at(0.0).position, main.at(1.0).position);
+        let axis = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or(Vec3::X);
+        let side = axis.cross(Vec3::Y) * width;
+        vec![Vec2::new(side.x, side.z), -Vec2::new(side.x, side.z)]
+    };
+    Fit {
         centre,
-        contacts,
-        axis,
-        width: piece.options().diameter.max(0.1 * piece.options().length),
+        footprint: Footprint {
+            contacts,
+            extra,
+            size: width,
+        },
+        placement: o.kind.placement(),
     }
 }
 
-/// Returns the transform that puts footprint `f` at `site` (relative to
-/// the area's centre), turned by `yaw`, tilted to `input`'s ground and
-/// resting on it, or `None` where there is no ground under it.
-fn place(f: &Footprint, site: Vec2, yaw: f32, input: &ScatterInput<'_>) -> Option<Affine3A> {
-    let turn = Quat::from_rotation_y(yaw);
-    let height = |p: Vec3| {
-        let local = Vec2::new(site.x + p.x, site.y + p.z);
-        input.ground.height(input.area.world(local))
-    };
-
-    // Fit a plane h = a·x + b·z + c to the ground under the contacts and two
-    // points beside the middle, so a straight stick still finds the
-    // cross-slope.
-    let side = turn * f.axis.cross(Vec3::Y) * f.width;
-    let mut samples: Vec<Vec3> = f.contacts.iter().map(|&p| turn * p).collect();
-    samples.extend([side, -side]);
-    let mut m = Mat3::ZERO;
-    let mut rhs = Vec3::ZERO;
-    for p in &samples {
-        let h = height(*p);
-        if !h.is_finite() {
-            return None;
-        }
-        let row = Vec3::new(p.x, p.z, 1.0);
-        m += Mat3::from_cols(row * row.x, row * row.y, row * row.z);
-        rhs += row * h;
-    }
-    m += Mat3::from_diagonal(Vec3::new(1e-6, 1e-6, 0.0));
-    let [a, b, _] = (m.inverse() * rhs).to_array();
-    let normal = Vec3::new(-a, 1.0, -b).normalize();
-    let rotation = Quat::from_rotation_arc(Vec3::Y, normal) * turn;
-
-    // Rest on the ground: lift until no contact point is below it.
-    let mut lift = f32::NEG_INFINITY;
-    for &c in &f.contacts {
-        let p = rotation * c;
-        let h = height(p);
-        if !h.is_finite() {
-            return None;
-        }
-        lift = lift.max(h - p.y);
-    }
-    if !lift.is_finite() {
-        lift = height(Vec3::ZERO);
-    }
+/// Returns the transform that puts `fit`'s variant at `site` (relative to
+/// the area's centre), turned by `yaw`, on `input`'s ground, or `None`
+/// where there is no ground under it.
+fn put_down(fit: &Fit, site: Vec2, yaw: f32, input: &ScatterInput<'_>) -> Option<Affine3A> {
+    let at = input.area.world(site);
+    let placed = place(input.ground, at, yaw, &fit.footprint, &fit.placement)?;
     Some(
-        Affine3A::from_rotation_translation(rotation, Vec3::new(site.x, lift, site.y))
-            * Affine3A::from_translation(-f.centre),
+        Affine3A::from_rotation_translation(
+            placed.rotation,
+            Vec3::new(site.x, placed.height, site.y),
+        ) * Affine3A::from_translation(-fit.centre),
     )
 }
 
