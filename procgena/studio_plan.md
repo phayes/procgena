@@ -1,0 +1,945 @@
+# Studio revamp: plan
+
+Status: **planned with the user on 2026-11-24.** The choices under
+"Decisions" are the user's. Everything marked "proposed" is a
+recommendation the user has not decided; each is listed under "Open
+questions" or "Proposed, not decided". No code was changed or run.
+
+Written from ARCHITECTURE.md (the hierarchy, "Attached assets", rule 2
+"One LOD model", rule 10 "One preset and file pattern", the impostor
+paragraph in "Where shared code lives", "Ecotope", "Extensibility",
+"Queries: reading the result"), ROADMAP.md (IX, I1, I1b, I2, C3a, C3,
+B1, GM0–GM5, X1), [ground-materials](../docs/decisions/ground-materials.md),
+[D3](../docs/decisions/D3.md) section 7b, [D5](../docs/decisions/D5.md),
+[fruit/plan.md](../fruit/plan.md), `procgena_core::preset`,
+`procgena_impostor`, `procgena_specimen::tag`, plant's web tuning panel
+(`plant/web/src/tune.rs`), and the studio code (`procgena/src/`: `studio/`,
+`scene/`, `params/`, every tab's `params.rs` and `editor.rs`,
+`environment.rs`, `export/`, `headless.rs`).
+
+Milestones here are named **ST0–ST9** (studio). In ROADMAP.md they form
+the "Studio track".
+
+## Bottom line
+
+- **One selection-driven window replaces the tabs** (decided). Left: a
+  **Library** (every preset of every kind, with search, thumbnails and
+  filters) above an **Outline** (the tree of what is open: World → Biome
+  → Ecotope → Scatter → asset → parts → attached assets → their parts).
+  Centre: the **viewport** inside a **view frame** that holds everything
+  that is never saved into a preset (camera, viewing distance, LOD
+  forcing, quality, environment, overlays, stats). Right: one
+  **Inspector** showing only the settings of what is selected. The kinds
+  (Trees, Stones, …) become Library filters. A node-link diagram of the
+  same tree comes later (decided: outliner first).
+- **Everything hangs off one edit model keyed by serde path.** An open
+  preset is a **document**: its kind, key, origin (built-in or project),
+  base, and options. Every edit is `(path, old, new)` at a dotted serde
+  path such as `branch.length.0`, the same paths that today's studio
+  specs use and that `preset::diff` and `merge` write. Undo and redo,
+  unsaved state, "differs from base", "reset to base", save, the
+  comment-keeping update and "used by" are all built on it.
+- **Metadata is YAML beside each crate's presets** (decided):
+  `<kind>.meta.yml` gives each setting its label, description, unit,
+  range, step, scale, the **part** it targets (branch, leaf, fruit,
+  cap, …) and simple "shown if" conditions. A test in each generator
+  crate keeps it in step with the options types: every serde field has
+  an entry, every entry names a field. The Inspector, tooltips, search
+  and part filtering are generated from it; today's hand-written studio
+  specs (about 390 settings in `procgena/src/*/params.rs` and
+  `environment.rs`) are migrated into it and deleted.
+- **User presets live in a project folder** (decided): `presets/<kind>/`,
+  `textures/`, and an ignored `.cache/` for thumbnails and bakes, all
+  git-friendly. A runtime **preset registry** in `procgena_core::preset`
+  layers project presets over the built-in catalogues, so user presets
+  can be the `base` of other user presets, and Scatters and Ecotopes can
+  refer to them by key. Built-in presets only offer "Save as new"; user
+  presets offer "Update" too.
+- **"Update" keeps hand-written comments** (decided): saving patches the
+  changed settings in place with `yamlpatch` + `yamlpath` (MIT, 1.x),
+  inserting and removing keys as well as replacing values; new files are
+  written whole. A spike at the start of ST2 confirms the crate can do
+  this.
+- **Editing in context edits the referenced preset** (decided). Click a
+  pine in an Ecotope and you edit the pine preset, with its "used by"
+  list in view. A built-in pine offers "Save as new", then offers to
+  point this Ecotope at the new preset.
+- **Clicking a part in the viewport selects that part's settings.** First
+  by the tags every specimen part already carries (bark, leaf, fruit,
+  flower), mapped to a part through the metadata; later by D3 part paths
+  (`fruit 17 / item 2`) once X1 and fruit's AC1 give assets `part()`.
+  Selection is always at the options level: the document, the child by
+  key, and the part kind. An address only gets you there.
+- **One capture service takes pictures of anything** (proposed). It owns
+  the offscreen camera on its own render layer, framing from bounds, a
+  queue with a per-frame budget, GPU readback and the disk cache. The
+  impostor bake becomes one user of it (octahedral views, albedo and
+  normal outputs); preset thumbnails, turntables and screenshots are
+  others. Thumbnails are cached by content hash and never committed
+  (decided).
+- **One texture catalogue** (decided, shared with GM2): an engine-free
+  `TextureCatalogue` in `procgena_core` lists every texture set. Every
+  crate's `textures.yml`, the terrain's ground textures and the
+  project's own `textures.yml` are its sources. The ground *material*
+  catalogue stays in the terrain crates as ground-materials.md decided,
+  and names texture ids from it, so there is one texture library, not
+  two. Replacing the compile-time kind lists (`BARK_KINDS`, …) with it is
+  proposed. Importing converts images to BC7 KTX2
+  with mipmaps and Zstandard right away, in Rust, with `ctt` (decided);
+  UASTC copies for shipping stay with the Python tool.
+- **Viewing distance is split from LOD and lives on the view frame**
+  (decided). Look at a tree up close while it draws as it would at
+  300 m, impostor included. This needs a per-view LOD distance override
+  that every renderer honours; that is a **requirement on IX**, whose
+  plan designs the API (decided). ST7b waits for it.
+- **Staging: one churn window, then lanes in separate folders.** ST0
+  runs alone, after the Fruit and Flower tabs land, and replaces the
+  enumerations of every kind (`StudioTab`, `SceneMode`, `SceneStart`,
+  `BuildState`, `editing.rs`) with a kind registry and the new layout.
+  After it, each milestone adds its own module (`studio/library/`,
+  `studio/outline/`, …) and up to three lanes run side by side.
+  Metadata files and the preset registry can start in the generator and
+  core crates while ST0 runs.
+
+## Requirements map
+
+| # | Requirement (the user's) | Design | Milestone |
+|---|---|---|---|
+| 1 | Save our own named presets | Project folder, preset registry, documents | ST2 |
+| 2 | A nice UI for navigating presets and assets | Library | ST3 |
+| 3 | Tree graph of how the parts fit together | Outline (outliner); diagram later | ST3; ST9 |
+| 4 | Preset icon or preview picture, impostor machinery made generic | Capture service, thumbnail cache | ST4 |
+| 5 | Texture library with import | Texture catalogue, import with `ctt`, Library's texture view | ST6 |
+| 6 | Preset library with search | Library search over the registry and metadata | ST3 |
+| 7 | Metadata per type and setting, what it does and which part it targets; click a part to get its editor; "update" or "save as new" | `<kind>.meta.yml`, Inspector, picking, documents | ST1, ST5, ST2 |
+| 8 | Names and descriptions in the metadata feed the UI | Labels, tooltips, part names and kind names from metadata | ST1 |
+| 9 | Split viewing distance from LOD | Per-view LOD distance override (IX), view-frame control | ST7b |
+| 10 | Viewing distance on the view frame | View frame | ST0, ST7b |
+| 11 | Environment on the view frame; clear what is saved and what is studio-only | View frame, "what is saved where" table | ST0 |
+
+## Decisions
+
+Made by the user on 2026-11-24 in this planning session.
+
+1. **Navigation.** Replace the tabs with Library and Outline on the left,
+   the viewport and view frame in the centre, and one Inspector on the
+   right. Kinds become Library filters; the Fruit and Flower tabs (decided
+   the same day under I1b) become fruit and flower documents opened from
+   the Library or from a tree's Outline. ARCHITECTURE.md's "Studio: a tab
+   per new level" TODO is reworded to match.
+2. **Tree graph.** An outliner first: an indented, collapsible tree with
+   icons and thumbnails. A node-link diagram of the same data is a later
+   milestone (ST9).
+3. **Metadata.** YAML beside the presets, `<kind>.meta.yml` in each
+   generator crate, with a drift test in that crate. No new dependency.
+4. **User presets.** A project folder: `presets/<kind>/<key>.<kind>.yml`,
+   `textures/` with its `textures.yml`, and an ignored `.cache/`. A
+   default project in the user's Documents folder on first run. User
+   presets can be the base of other user presets.
+5. **Updating a preset keeps comments,** with `yamlpatch` + `yamlpath`
+   (MIT, v1.33, about 460k and 770k downloads on crates.io on
+   2026-11-24). Chosen over `yaml-edit` (reported to misplace comments),
+   `noyalib` (0.0.x) and our own line patcher. The crates' abilities,
+   their origin (the zizmor project) and a third-party comparison that
+   found them round-tripping files exactly come from search results, not
+   from reading their code: **ST2 starts with a spike** that replaces a
+   value, inserts a missing nested key (most updates do, since files
+   hold only differences from their base) and removes one (reset to
+   base) in a commented preset file. If it fails, the fallback is
+   `yaml-edit`, then our own patcher; the worker asks the user before
+   switching.
+6. **Thumbnails are cached, not committed.** Keyed by content hash under
+   the project's `.cache/`. (Whether built-in presets' thumbnails ship
+   pre-rendered is open question 4.)
+7. **Textures convert on import,** with `ctt` (MIT/Apache/Zlib, v0.6.1,
+   about 100k downloads): BC7 KTX2 with mipmaps and Zstandard. UASTC
+   copies are made by the Python tool when publishing. Chosen over adding
+   `basisu_c_sys` (a C++ build) and over `intel_tex_2` + `ktx2` (our own
+   mip and container code). Its abilities also come from search results:
+   **ST6 starts with a spike** converting one bark set and loading it in
+   Bevy; if it fails, the fallback is `intel_tex_2` + `ktx2`.
+8. **Viewing distance is a requirement on IX.** This plan states what the
+   studio needs; IX's plan designs the per-view override in the shared LOD
+   runtime.
+9. **Early extras:** undo, redo, unsaved state and reset to base;
+   debug overlays, live stats and a problems panel; export,
+   screenshot and turntable capture, a command palette and shortcuts. A/B
+   compare and the seed browser come later.
+10. **Editing in context edits the referenced preset.** No inline
+    overrides inside Scatter or Ecotope files.
+11. **One texture catalogue in `procgena_core`.** It lists every texture
+    set (every crate's, the terrain's ground textures, the project's).
+    The ground material catalogue stays in the terrain crates, as
+    ground-materials.md decided, and names texture ids from it.
+
+### Proposed, not decided
+
+- The kind registry, the document and edit model, and the `Selection`
+  shape (the user agreed the layout; these are how it is built).
+- The metadata file's exact shape and its "shown if" language.
+- The runtime preset registry in `procgena_core::preset`, and changing
+  `Preset::from_parts`, `read` and the `catalogue!` macro from
+  `&'static` presets to a `PresetRef` (see "Staging" for its cost).
+- The capture service in `procgena_core_bevy`, with the impostor bake on
+  top (open question 5).
+- Replacing the compile-time texture kind lists with catalogue lookups.
+- The "what is saved where" table: environment, preview area, detail
+  and quality as view-frame settings kept in session state.
+- Picking through tags first and part paths later.
+
+## The window
+
+```
+┌──────────────┬───────────────────────────────────────┬──────────────┐
+│ Library      │ View frame: camera · distance · LOD · │ Inspector    │
+│  search      │   quality · environment · overlays    │  doc header: │
+│  kind chips  │ ┌───────────────────────────────────┐ │  name, key,  │
+│  thumbnails  │ │                                   │ │  origin,     │
+│──────────────│ │             viewport              │ │  Save / Save │
+│ Outline      │ │                                   │ │  as new      │
+│  Ecotope     │ └───────────────────────────────────┘ │  part chips  │
+│   ▸ pines    │ stats · build status · LOD readout    │  settings of │
+│     ▸ pine_… │                                       │  the part    │
+├──────────────┴───────────────────────────────────────┴──────────────┤
+│ Problems (collapsible) · toasts                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+- **Library** (ST3): every preset in the registry, built-in and project,
+  as a grid of thumbnails or a list. Search matches name, key,
+  description, group, kind and the metadata's part names, with substring
+  and word-start matching (no fuzzy-search dependency). Filters by kind,
+  origin and group; recent and pinned presets at the top. Actions: open,
+  duplicate (save as new), rename, delete (moves the file to the system
+  trash after confirming), reveal in Finder, show "used by". A second
+  view lists textures (ST6).
+- **Outline** (ST3): the open document as a tree (see "Outline and
+  selection"). Icons for kinds and parts, thumbnails for referenced
+  presets, a link mark on references, a dot on nodes with unsaved
+  changes or problems.
+- **Viewport and view frame** (ST0, ST7): the scene, with the controls
+  that are not part of any preset on a bar above it and a readout below
+  (see "The view frame").
+- **Inspector** (ST1): a header for the document (name, key, origin,
+  base, Save, Save as new, Revert), then chips for the parts of the
+  selection, then the settings of the selected part, built from the
+  metadata. Each changed setting has a "differs from base" dot with
+  "reset to base" (ST2).
+- **Problems** (ST7a): validation errors, unresolved references, missing
+  textures and files that failed to read, each linking to its setting.
+
+Today's per-tab extras (preset and seed rows, export panels, the
+Ecotope's Scatter list editor) move into the Inspector header or into a
+kind's custom Inspector sections (see "The kind registry").
+
+## Documents and the edit model
+
+A **document** is one open preset:
+
+```rust
+pub struct Document {
+    pub kind: KindId,                 // "tree", "tree_scatter", "ecotope", …
+    pub key: String,                  // the preset's key
+    pub origin: Origin,               // BuiltIn, Project(PathBuf), Unsaved
+    pub base: Option<PresetRef>,      // the preset this one is written over
+    pub value: serde_json::Value,     // the options as the file's settings tree
+    saved: Value,                     // as last saved or opened
+    undo: Vec<EditGroup>, redo: Vec<EditGroup>,
+}
+
+pub struct Edit { pub path: SettingPath, pub old: Value, pub new: Value }
+```
+
+(Sketch, not an API. `Value` is `serde_json::Value`, which
+`procgena_core::preset` already uses for `diff`, `merge`, `to_value` and
+`from_value`.)
+
+- **One path language.** A `SettingPath` is the dotted serde path the
+  studio specs use today (`bark.texture_scale.x`, `branch.length.0`),
+  plus `[i]` for list items and the child key for keyed maps
+  (`scatters.pines.density_scale`). The metadata, the drift test, file
+  diffs, comment-keeping updates, undo and reset all use it.
+- **Typed options come from the value.** After each edit the document
+  rebuilds its kind's options with `from_value` and sends them to the
+  scene. Options are small (a tree's is a few hundred values), so this
+  is cheap even during a slider drag; ST1 measures it on the tree. The
+  kind's `validate()` and `Preset::check` stay the authority on what is
+  valid; metadata ranges only shape the controls.
+- **Undo and redo** (ST2) per document. A slider drag or a text entry
+  coalesces into one group; structural edits (adding a Scatter, a list
+  item) are path edits too. Undo crosses saves.
+- **Unsaved state.** A document is dirty while `value != saved`. The
+  Outline, Library and window title mark it, and quitting or closing asks
+  first (today's quit handling in `studio/quit.rs` grows this).
+- **Differs from base and reset to base.** `preset::diff(base, value)`
+  gives the set of changed paths; the Inspector marks them, and reset
+  writes the base's value back as an ordinary edit.
+- **Save.** A built-in preset offers only "Save as new". A project preset
+  offers "Update" and "Save as new" (write a new file over the same base
+  with today's `preset::write`). Update compares the file's differences
+  from its base before and after (`preset::diff`) and patches the file
+  in place with `yamlpatch`: replace a changed value, insert a newly
+  differing key under its group, remove a key that now matches the base.
+  Comments and layout outside the touched keys are kept. A list or a
+  group whose `kind` changed is replaced as one subtree, since the file
+  format replaces those whole anyway.
+- **Several documents open at once,** for editing in context: opening a
+  pine from an Ecotope opens the pine's document as well, and the Outline
+  shows it under the Ecotope. Saving one never saves another.
+
+## The kind registry
+
+Today every kind is spelled out across the studio: `StudioTab` (10
+variants), `SceneMode`, `SceneStart`, `BuildState`, the `spawn_editors`
+match, `ViewerCommand` variants per kind, and an `XEditorPlugin` per tab.
+Adding Fruit and Flower touches all of them. ST0 replaces that with a
+registry of kinds, so each later kind (fruit, flower, Biome, World,
+ground material) is one new module plus one registration line.
+
+A kind registration says (sketch):
+
+- **Identity:** `KindId` (the preset file kind, `"tree"`), its metadata,
+  its preset type (through a small object-safe wrapper over `Preset`).
+- **Scene:** how to show a document of this kind: a scene subject plugin
+  that takes the typed options (today's `scene/subject.rs` arms, split per
+  kind) and reports build status and stats.
+- **Children:** the references and inline children in a value, for the
+  Outline and "used by". Generic from metadata (`ref: tree` fields and
+  keyed maps), so most kinds need nothing here.
+- **Capture recipe:** how to frame a thumbnail (single object, patch from
+  above, terrain overview).
+- **Custom Inspector sections,** where the metadata can't describe the
+  control: the Ecotope's Scatter list (add, remove, rename a key, pick a
+  kind), the tree Scatter's species list, the Terrain's preview controls.
+- **Picking map** from specimen tags to parts (also from metadata).
+
+The registry lives in the studio (`procgena/src/studio/kinds/`). The
+engine-free parts (metadata, preset registry, references) live in
+`procgena_core` so games and other tools can use them.
+
+## Metadata
+
+### The file
+
+Each generator crate ships one file per preset kind next to its presets,
+for example `tree/crates/procgena_tree/presets/tree.meta.yml`,
+embedded with `include_str!` like the presets. Proposed shape:
+
+```yaml
+# tree.meta.yml
+kind: tree
+name: Tree
+description: "One tree: trunk, branches, leaves, and optional fruit and flowers."
+parts:
+  trunk:   { name: Trunk,    description: "The main stem.",     tags: [trunk] }
+  branch:  { name: Branches, description: "Every branch level.", tags: [limb, branch] }
+  bark:    { name: Bark,     description: "The bark texture and tint on trunk and branches." }
+  leaf:    { name: Leaves,   tags: [leaf] }
+  fruit:   { name: Fruit,    tags: [fruit],  attached: fruit }     # an attached asset
+  flower:  { name: Flowers,  tags: [flower], attached: flower }
+sections:                         # Inspector order within each part
+  - { title: Look, part: bark, settings: [bark.tint, bark.flat_shading, bark.textured] }
+settings:
+  bark.texture_scale.x:
+    label: Texture Scale X
+    description: How many times the bark texture repeats around the trunk.
+    unit: repeats
+    range: [5, 200]
+    step: 1
+    scale: exponential
+    shown_if: bark.textured
+  bark.kind:
+    label: Type
+    texture: bark                 # chooses from the texture catalogue's bark category
+  branch.length.*:                # one entry for every branch level
+    label: Length
+    unit: m
+    range: [0.1, 50]
+    part: branch
+    shown_if: "levels > {index}"
+  fruit.preset:
+    label: Fruit
+    ref: fruit                    # a preset key of another kind: drives Outline and "used by"
+```
+
+- **Entries per setting:** `label`, `description` (written for end
+  users; Rust doc comments stay written for programmers), `unit`,
+  `range`, `step`, `scale` (linear or exponential), a control override
+  (`color`, `choice` with labels for enum variants, `texture: <category>`,
+  `ref: <kind>`), `part`, `revive` (the value to use when a setting comes
+  back into effect, today's `revive` closures), `advanced` (folded away by
+  default), `hidden` (in the file format but not in the Inspector, such as
+  `default_seed`, which the Inspector header edits).
+- **"Shown if" conditions** are a tiny language over other settings:
+  `path`, `!path`, `path == value`, `path in [a, b]`, `path > n`, joined
+  with `&&` and `||`, with `{index}` for the list or level index. It
+  replaces the 86 `shown_if` closures in today's specs (counted
+  2026-11-24, plus a few dozen `revive` values, which become data).
+  Anything it can't say belongs in a custom Inspector section.
+- **Parts** name what a setting targets, give the picking map (`tags`),
+  and mark attached assets (`attached: fruit`), so the Outline can show a
+  tree's fruit as a link to the fruit preset.
+- **Patterns:** `*` matches a list index, a level, or a map key, so one
+  entry covers every branch level or every Scatter in an Ecotope.
+- **Enums:** each variant's settings are listed under the enum's path
+  with the variant name, for example `leaf.billboard{Cross}.angle`, so a
+  variant not used by any built-in preset is still covered.
+
+### Reading it
+
+`procgena_core::meta` (engine-free, new module) parses the file into
+`KindMeta`, `PartMeta`, `SettingMeta` and `Condition`, matches setting
+paths against patterns, and evaluates conditions over a `Value`. Games
+can use it for their own tools.
+
+### Keeping it in step with the code
+
+A helper in `procgena_core::meta`, called from one test in each generator
+crate:
+
+- serialises the defaults, every built-in preset, and each enum variant
+  the metadata names, and collects every leaf path;
+- fails if a leaf path has no entry (or `hidden: true`), if an entry
+  matches no path, if a `shown_if` names a missing path, if a `ref`
+  names an unknown kind, or if a part has no setting;
+- reports any built-in preset value outside its entry's `range` (the
+  range is too narrow).
+
+This replaces today's studio test that each spec key names the field it
+writes, and moves the check next to the options types, so a renamed
+field fails in the crate that renamed it.
+
+### Migration
+
+The first metadata files are written from today's specs: labels, ranges,
+steps, scales and conditions are in `procgena/src/*/params.rs` already.
+Descriptions are new writing, taken from the options' doc comments and
+rewritten for end users. This is a large mechanical step; per the user's
+rules, the worker asks before using a script to draft it.
+
+## Preset registry and the project folder
+
+### The project folder
+
+```
+my_project/
+  procgena.yml                  # project name, format version
+  presets/
+    tree/        tall_pine.tree.yml
+    tree_scatter/ pine_belt.tree_scatter.yml
+    ecotope/     dark_forest.ecotope.yml
+    fruit/ …
+  textures/
+    textures.yml                # the project's texture catalogue
+    bark/my_bark/…              # converted BC7 KTX2 (512, 1k, 2k)
+  .cache/                       # ignored: thumbnails, impostor bakes
+  .gitignore                    # written when the project is made: .cache/
+```
+
+- Files are the F3 format unchanged: `base`, `name`, `description`,
+  `group`, and the options under the kind's key.
+- **Studio session state is not in the project:** open documents,
+  window layout, view-frame settings and camera bookmarks are kept per
+  project under the user's app-data folder, so switching machines or
+  pulling a branch never conflicts on them.
+- **Outside edits reload.** The studio watches `presets/` and
+  `textures/`; a changed file reloads its document if it is clean, and
+  shows a problem if it has unsaved edits.
+
+### The registry
+
+`procgena_core::preset` gains a runtime registry (proposed, ST2):
+
+- **Layers:** the built-in catalogue (today's `&'static` presets) and
+  one project. Lookup by key goes project first, then built-in.
+- **Owned presets.** Project presets are owned (`Arc<P>`); built-in ones
+  stay `&'static`. Code that holds `&'static XPreset` today (every studio
+  editor, `Preset::from_parts`' `base: Option<&'static Self>`, `read`'s
+  built-in-only `base`) moves to a `PresetRef` that can be either.
+- **User bases.** A file's `base` may name a project preset; the chain is
+  resolved in dependency order, and a cycle is an error naming the files.
+- **References resolve through the registry.** Scatter and Ecotope files
+  refer to asset presets by key (`tree: pine_small` in
+  `pine_forest_floor.ecotope.yml`); today they call `TreePreset::named`
+  (`procgena_tree/src/scatter/file.rs`, `procgena_biome/src/ecotope/file.rs`,
+  `procgena_biome/src/biome.rs` for the Terrain). They take a resolver
+  instead, so a project Ecotope can use a project tree. Built-in presets
+  may refer only to built-in presets.
+- **Used by.** The registry indexes references (from the metadata's `ref`
+  fields), so "used by" answers for any preset, and renaming a key offers
+  to update every reference.
+- **Key clashes** between a project preset and a built-in one are a
+  problem shown in the Problems panel (proposed; see "Open questions").
+
+## Outline and selection
+
+One `Selection` resource drives the Outline, the Inspector and the
+viewport highlight:
+
+```rust
+pub struct Selection {
+    pub document: DocumentId,
+    pub node: NodePath,          // child keys and list items inside the document,
+                                 // e.g. scatters.pines / trees[1]
+    pub part: Option<PartId>,    // "branch", "leaf", "fruit", from the metadata
+}
+```
+
+- **The Outline is built from documents.** An Ecotope lists its Scatters
+  by key in priority order (inline children); each Scatter lists the
+  presets it refers to (references, with a link mark and a thumbnail);
+  each asset lists its parts from the metadata; an attached part (fruit,
+  flower) lists the fruit or flower preset it refers to, and so on.
+  Biome and World documents join with B1 and W1 (a Biome shows its
+  Terrain and Ecotope rules above its Ecotopes).
+- **Selecting a reference opens the referenced document** (decided:
+  edits go to the referenced preset), keeping the Outline anchored in the
+  parent so the context is still visible.
+- **The Inspector shows the selected node's settings filtered to the
+  selected part,** with part chips to switch. Selecting the asset itself
+  shows every part, grouped.
+- **Addresses are not selection.** A D3 `Address` names one copy or one
+  fruit in a world; it is used only to get from a pick to a document,
+  child and part. Selection stays at the options level, because the
+  settings are per part kind (all branches of level 2 share settings),
+  not per instance.
+
+## Picking in the viewport
+
+- **ST5a, by tags (needs only ST3).** A click casts a ray on the CPU:
+  - for a single asset, against its CPU specimen's parts (each
+    `procgena_specimen::Part` carries tags such as `bark`, `trunk`,
+    `limb`, `branch`, `leaf`, `fruit`, `flower`, `cap`, `stem`), and the
+    metadata's part `tags` map the hit part to a part id.
+  - **Branch levels need tree-specific work:** the tree's `Specimen`
+    tags its bark by role (trunk, limb, branch), not by level, while its
+    settings are per level. The tree's picking adapter casts against
+    `TreeMesh::part(MeshPart::BranchLevel(n))` instead, so a hit names the
+    level and the Inspector opens that level's settings.
+  - for a Scatter or Ecotope, first against copy bounds
+    (`TreeScatterTrees::ray_cast` today; R4 gives every Scatter
+    `within` and ray casts), then into that copy's specimen as above.
+    The hit names the Scatter by key and the specimen's preset, which
+    gives the document, node and part.
+  - Hover shows the part's name and description as a tooltip; the
+    selected part is drawn highlighted with an outline pass over its
+    part mesh.
+- **ST5b, by part paths (after X1 and fruit AC1).** Assets with
+  `part()` (tree first, then fruit and the mushroom ring) turn a hit into
+  a D3 part path, so a single fruit or branch can be highlighted and its
+  address shown. Editing still happens at the part kind.
+- **Plants** are built in a shader, with no CPU specimen until R3, so
+  they pick as a whole Plant Scatter until then.
+
+## The capture service
+
+Today `procgena_impostor` owns an offscreen bake camera
+(`ImpostorBakeCamera`), a request queue (`Impostors::request`,
+`ImpostorBatch`), readback and a disk cache (`cache.rs`), all specialised
+to octahedral atlases. Thumbnails, turntables and screenshots need the
+same machinery with different views and outputs.
+
+**Proposed:** a `capture` module in `procgena_core_bevy` (the shared Bevy
+runtime), which the impostor bake then uses.
+
+| Shared (capture) | Stays in the impostor bake |
+|---|---|
+| Offscreen camera on an isolated render layer, sized render targets | Octahedral and elevation-strip view layouts, view coverage |
+| Framing from bounds (fit, margin, ¾ view, top-down) | Albedo and normal material overrides, atlas packing |
+| A request queue with a per-frame budget and cancellation | `ImpostorKey`, `BakeSettings`, the impostor material |
+| GPU readback to an `Image` and to PNG | The bake version and its cache layout |
+| A disk cache by key with pruning, and its writer thread | |
+
+- **Outputs:** lit colour (thumbnails, turntables, screenshots), or
+  material overrides supplied by the caller (impostors).
+- **Subjects:** a single specimen spawned on the capture layer, or a
+  whole scene (a Scatter or Ecotope patch, a Terrain overview), spawned
+  by the kind's scene subject on that layer. Plants are captured as
+  scenes.
+- **Thumbnail key:** the kind, the options' content hash (F2's
+  `OptionsHash`), `default_seed`, the capture recipe and a
+  `THUMBNAIL_VERSION`. A preset whose references change (a tree used by
+  an Ecotope) changes the key through the referenced presets' hashes.
+- **Thumbnail cache:** `<project>/.cache/thumbnails/<kind>/<key>.png`,
+  never committed (decided). Built-in presets' thumbnails are rendered
+  ahead by a headless command (`procgena --render-thumbnails <dir>`) and
+  shipped in the studio's assets.
+- **Budget:** thumbnails render in the background a few per frame while
+  the studio is idle, never during a slider drag, and only for presets
+  scrolled into view.
+
+The move touches `procgena_impostor` (bake on top of capture), which the
+fruit D2 and IX lanes also touch, so ST4's crate half is scheduled with
+them (see "Stages"). `procgena_impostor` depends only on `procgena_core`
+today and `procgena_core_bevy` does not depend on it (checked
+2026-11-24), so the impostor crate gaining a dependency on
+`procgena_core_bevy` makes no cycle.
+
+## The texture library
+
+Today each generator lists its textures in `<crate>/textures.yml`, the
+Python `textures` tool converts and publishes them, the studio downloads
+missing files into the user's cache (`scene/assets.rs`), and the valid
+kinds are compile-time arrays in Rust (`BARK_KINDS`, `LEAF_KINDS`, and
+the like). GM2 plans a ground texture list (`terrain/textures.yml`) and a
+shared loader.
+
+**One catalogue, shared with GM2** (decided; the details below are
+proposed).
+
+- **`procgena_core::texture::TextureCatalogue`** (engine-free): entries
+  with an id, a category (`bark`, `leaf`, `rock`, `ground`, `snow`,
+  `card`, …), the map layout (`roughness` or `orh`), sizes and formats on
+  disk, tile size in metres where it applies, licence, source and author.
+  Its sources are every crate's `textures.yml`, the terrain's ground list,
+  and the project's `textures/textures.yml`.
+- **Options keep string ids** (`BarkOptions::kind`); validity moves from
+  the const arrays to a catalogue lookup, reported by `validate` with the
+  catalogue passed in, and by the Problems panel.
+- **GM2 owns the loader** (`procgena_core_bevy`, rule 13) and the ground
+  arrays; the terrain crates keep the ground material catalogue (decided
+  in ground-materials.md), whose materials name texture ids in this
+  catalogue (decided here). The studio owns the import and the library
+  view. The two meet at the catalogue type, which ST6 or GM2 lands
+  first, whichever starts first; the other builds on it.
+- **Import** (ST6): choose the maps (colour, normal, roughness or
+  packed AO/roughness/height; a folder is matched by file-name
+  suggestions), a category, an id and the licence (required, as the repo
+  takes only CC0 or MIT-style textures). The studio converts each map
+  with `ctt` to BC7 KTX2 with mipmaps and Zstandard at 512, 1k and 2k,
+  writes them under `textures/<category>/<id>/`, adds the entry to the
+  project's `textures.yml`, and registers the project as one more asset
+  source. The source images are kept beside them only if the user asks
+  (they are large).
+- **The library's texture view** shows each set as a lit sphere or flat
+  swatch (through the capture service), filtered by category, with "used
+  by". A texture picker in the Inspector (`texture: bark` in the
+  metadata) opens the same view.
+- **Publishing:** the Python tool learns to read a project's
+  `textures.yml`, to make UASTC copies and export images.
+
+## The view frame
+
+The view frame holds everything that is not saved into a preset. Its
+settings are kept per project in the studio's session state (app data),
+never in project files.
+
+**What is saved where** (today's settings, classified):
+
+| Setting | Today | Saved in |
+|---|---|---|
+| Every asset, Scatter, Ecotope and Terrain option | Tab panels | **Preset** (project file) |
+| `default_seed` | Seed row on each tab | **Preset** (Inspector header) |
+| Sun angle and height, wind on/off | Environment panel (every tab) | **View frame**, session only. Later read-only "from Biome" when previewing inside a Biome that owns its climate |
+| Show ground | Environment panel | View frame |
+| Field size (plant), Scatter size (tree Scatter) | Environment panel, per tab | View frame ("preview area"): a Scatter's area comes from above, never from its preset |
+| Auto rotate, speed, reset camera | Camera overlay | View frame |
+| Level of detail dropdowns (tree, mushroom, dead wood, plant) | Settings column | View frame: one "Detail" control, per kind's levels from metadata and LOD types |
+| Viewing distance | — | View frame (ST7b) |
+| Quality (`LOW`..`ULTRA`) | — | View frame |
+| Overlays, stats | — | View frame |
+| Impostor bake settings, LOD distances of a preset | Preset options where they exist | Preset |
+
+The bar above the viewport groups them: **Camera** (orbit, frame
+selection, bookmarks, auto rotate), **Distance** (viewing distance,
+"lock to camera"), **Detail** (auto, level N, impostor), **Quality**,
+**Environment** (a popover: sun, wind, ground, preview area),
+**Overlays**. The readout below shows triangles, draw calls, the level
+drawn and build or bake progress.
+
+### Viewing distance (requirement on IX)
+
+The studio needs, from the shared LOD runtime (`procgena_core_bevy`,
+designed in IX's plan):
+
+1. A **per-view LOD distance override**: a camera component that says
+   "choose levels as if every subject were `d` metres away", honoured by
+   entity levels (today Bevy's `VisibilityRange`), the shared instanced
+   renderer's GPU cull and level choice, plant's shader levels, fruit's
+   two-step check, and the impostor level. Shadows keep using the real
+   view.
+2. **Forcing a level** ("show level N", "show impostor") through the same
+   component, replacing today's four per-kind `SetLod` commands.
+3. A way to **read back which level each subject drew**, for the readout.
+
+With these, "look up close, see the 300 m impostor" is the override set
+to 300 with the camera wherever the user puts it. ST7b builds the view
+frame control and waits for this piece of IX, which can be pulled forward
+on its own.
+
+## Problems, overlays and stats
+
+- **Problems panel** (ST7a): each open document's `validate()` and
+  `check`, unresolved references, missing textures, project files that
+  failed to read (with the file and setting path from `PresetFileError`),
+  key clashes, and base cycles. Clicking a problem selects the setting.
+- **Overlays** (ST7a, each as far as its renderer offers it): LOD level
+  colours per copy, Scatter footprints and masks (the Ecotope already
+  computes footprints), terrain chunk borders and levels (the terrain
+  viewer has `--borders` and `--levels`), bounds, and normals.
+- **Stats** (ST7a): triangles and draw calls (Bevy's render
+  diagnostics), copies per Scatter, specimens per pool, build time per
+  document, bake times and queue length from the capture service.
+
+## Export, capture and commands
+
+- **Export** (ST8): one Export action for every kind with a CPU path
+  (today tree, stone, mushroom and dead wood; plant and clump after R3),
+  replacing the per-tab export panels; glTF and OBJ with texture images.
+  Scatters export as a whole when rule 11 lands for them.
+- **Screenshot and turntable** (ST8): a screenshot of the viewport at a
+  chosen size; a turntable as a PNG sequence of N frames around the
+  subject, through the capture service.
+- **Command palette and shortcuts** (ST8): one command registry (open,
+  save, save as new, undo, redo, frame selection, toggle overlays,
+  export, screenshot, …) behind a palette (`cmd+K`) and shortcuts
+  (`cmd+Z`, `cmd+shift+Z`, `cmd+S`, `cmd+shift+S`, `F` to frame).
+  Commands are also what the headless harness drives.
+
+## Testing
+
+The headless harness (`procgena --headless <script>`, `HeadlessStudio`)
+stays the way each milestone proves itself. It needs, in ST0:
+
+- `type TEXT` (today `key` takes only letters and a few named keys),
+- `hover X Y` (tooltips),
+- `select PATH` (select a document node and part by path, for scripts that
+  don't click through the Outline),
+- `command NAME` (run a palette command).
+
+Each milestone's "done when" below names a headless script; screenshots
+follow the bevy-screenshots skill.
+
+## Coordinator ideas and additions
+
+| Idea | Verdict | Where |
+|---|---|---|
+| Undo/redo and unsaved-change state | Adopt, early (user) | ST2 |
+| Differs from base / reset to base | Adopt, early (user) | ST2 |
+| A/B compare of two presets or seeds | Later (user) | ST9 |
+| Seed browser (step, randomise, pin) | Later (user); stepping the seed stays in the Inspector header from ST1 | ST9 |
+| Debug overlays and live stats | Adopt, early (user) | ST7a |
+| Problems panel | Adopt, early (user) | ST7a |
+| "Used by" | Adopt (falls out of the registry) | ST2, shown in ST3 |
+| Project folder, git-friendly | Adopt (decided) | ST2 |
+| glTF export, screenshot and turntable | Adopt, early (user) | ST8 |
+| Command palette and shortcuts | Adopt, early (user) | ST8 |
+| Tooltips from the metadata | Adopt | ST1 |
+| **Added:** outside edits reload (git pull, hand edits) | Adopt | ST2 |
+| **Added:** autosave of unsaved documents to app data, restored after a crash | Adopt | ST2 |
+| **Added:** preview contexts (an asset alone, in a Scatter, in an Ecotope, on a Terrain) | Later | ST9 |
+| **Added:** camera bookmarks per document | Adopt, small | ST7a |
+| **Added:** budget badges (triangles per level against a target, bake memory) | Later, after IX sets targets | ST9 |
+| **Added:** node-link diagram of the Outline | Later (decided) | ST9 |
+
+## Stages
+
+Every milestone ends with something usable, and names what it needs and
+when it is done. Studio files are split so that lanes after ST0 add their
+own folders.
+
+### ST0: Studio shell (churn window, alone)
+
+- **Covers:** the kind registry replacing `StudioTab`, `SceneMode`,
+  `SceneStart`, `BuildState` and the `spawn_editors` match; documents
+  (open, close, several at once) without saving changes yet; the new
+  layout with Library and Outline as plain lists, the Inspector showing
+  today's hand-written specs for the selected document, the view frame
+  holding environment, camera and the detail dropdowns; headless `type`,
+  `hover`, `select` and `command`.
+- **Needs:** the Fruit and Flower tabs merged (I1b's studio lane), and no
+  other worker in `procgena/src/`. Runs alone.
+- **Done when:** every kind that had a tab opens from the Library list
+  and edits as before; headless scripts open a tree, an Ecotope and the
+  Terrain and take screenshots; the existing studio tests pass with their
+  intent kept.
+
+### ST1: Metadata and the generated Inspector
+
+- **Covers:** `procgena_core::meta` and its drift helper; one
+  `<kind>.meta.yml` per kind with a drift test in each crate (tree, tree
+  Scatter, plant, plant Scatter, stone, clump, mushroom, dead wood, fruit,
+  flower, Ecotope, Terrain); the Inspector built from metadata, with part
+  chips, tooltips and "shown if"; today's `procgena/src/*/params.rs` specs
+  deleted, keeping custom sections where needed.
+- **Needs:** the core module first; then one worker per crate, each only
+  adding a `meta.yml` and one test file in its own crate, so they run
+  beside ST0. They still share crates with other lanes: the tree and
+  fruit workers wait until fruit AC1 has left `tree/` and `fruit/`, the
+  plant workers coordinate with the plant-align lane (R3), and the
+  Ecotope worker with GM0 and B1 in `procgena_biome`. The studio
+  switch-over runs after ST0.
+- **Done when:** every crate's drift test passes; a headless script
+  selects the tree's Leaves chip and finds only leaf settings, hovers one
+  and shows its description; no hand-written spec remains.
+
+### ST2: Saving presets and the project folder
+
+- **Covers:** the runtime registry with owned presets, user bases and
+  resolvers for references (tree Scatter, Ecotope and Biome files); the
+  project folder, `procgena.yml`, the default project; Save as new and
+  Update with `yamlpatch` + `yamlpath`; undo and redo, unsaved state,
+  differs from base and reset; outside-edit reload; autosave; "used by".
+- **Needs:** ST0 for the studio half. The core half has two parts with
+  different costs:
+  - **Additive** (beside ST0 and ST1): the registry type, resolvers
+    passed to the tree Scatter, Ecotope and Biome file readers, and
+    user bases read through a new function next to today's `read`.
+  - **Workspace-wide** (a short churn window of its own): changing
+    `Preset::from_parts`, `read` and the `catalogue!` macro from
+    `&'static` presets to `PresetRef` touches every generator crate and
+    rebuilds the workspace. It runs alone, batched with any other change
+    to `procgena_core::preset` waiting at the time, and is skipped if the
+    additive form proves enough.
+  - The new dependency goes through the coordinator first (root
+    `Cargo.toml`, `Cargo.lock`, `deny.toml`).
+- **Done when:** a headless script saves a built-in pine as
+  `tall_pine`, makes `taller_pine` over it, puts it in a project
+  Ecotope, updates `tall_pine` three ways (a changed value, a newly
+  differing nested setting, a setting reset to its base) and finds its
+  hand-written comments kept each time, undoes and redoes, and reopens
+  the project to the same result.
+
+### ST3: Library, Outline and selection
+
+- **Covers:** the Library (grid and list, search, filters, recent and
+  pinned, open, duplicate, rename with reference updates, delete to
+  trash, reveal); the Outline with references and parts; the shared
+  `Selection`; editing in context (opening a referenced preset from its
+  parent).
+- **Needs:** ST1 (parts and names), ST2 (registry, used by).
+- **Done when:** a headless script types "pine" in the search, opens the
+  pine forest floor Ecotope, expands `pines` in the Outline, selects
+  `pine_small`'s Branches, and the Inspector shows only branch settings
+  with the "used by" list naming the Ecotope.
+
+### ST4: Capture service and thumbnails
+
+- **Covers:** `procgena_core_bevy::capture`; the impostor bake moved
+  onto it; thumbnail recipes per kind; the thumbnail cache; the headless
+  `--render-thumbnails`; thumbnails in the Library and Outline.
+- **Needs:** ST0. The crate half needs `procgena_impostor` free of the
+  fruit D2 and IX lanes, or done in agreement with them; the studio half
+  needs ST3.
+- **Done when:** impostor bakes match their pictures from before the
+  move (the impostor crate's tests, and a side-by-side shot); the Library
+  shows a thumbnail for every preset kind, a changed preset gets a new
+  one, and a scroll through the Library never drops a frame below the
+  budget.
+
+### ST5: Picking parts in the viewport
+
+- **ST5a (by tags):** CPU ray picks for single assets and for Scatter
+  and Ecotope copies, hover tooltips, part highlight, click to select.
+  Needs ST3 (and R4's ray casts for Scatters other than trees). Done when
+  a headless script clicks a leaf of a single tree and the Inspector
+  shows the leaf settings, and clicks a log in the Ecotope and gets the
+  log preset's settings.
+- **ST5b (by part paths):** D3 part paths for highlighting single parts
+  and showing addresses. Needs X1's `part()` for tree, fruit's AC1. Done
+  when clicking one apple shows its address `… / fruit i / item k` and
+  highlights that apple only.
+
+### ST6: Texture library
+
+- **Covers:** `TextureCatalogue` (unless GM2 lands it first) and the
+  generator crates moving from const kind lists to it; the project as an
+  asset source; import with `ctt`; the texture view in the Library; the
+  texture picker in the Inspector; the Python tool reading project
+  catalogues.
+- **Needs:** ST2 (project), ST3 (Library), ST4 (swatches). Agreement with
+  the GM2 worker on the catalogue type. The generator-crate changes touch
+  every crate with textures, so they run as one worker, not beside other
+  writers in those crates.
+- **Done when:** a headless script imports three images as a bark set,
+  picks it on a tree, sees it drawn, saves, and the project reopens with
+  the bark; the catalogue lists built-in bark, leaf, rock and ground sets
+  together.
+
+### ST7: View frame, overlays, stats and problems
+
+- **ST7a:** the Problems panel; overlays as far as each renderer offers
+  them; stats; camera bookmarks; one Detail control for every kind; the
+  Quality control. Needs ST0, ST1. Done when a headless script breaks a
+  setting and the Problems panel lists it and selects it on click, and
+  the LOD overlay colours a tree Scatter by level.
+- **ST7b:** the viewing-distance control and the level readout. Needs
+  IX's per-view override. Done when a headless shot of a tree 5 m away
+  with viewing distance 300 m shows its impostor, and the readout says
+  so.
+
+### ST8: Export, capture and commands
+
+- **Covers:** one Export action, screenshot and turntable, the command
+  registry, palette and shortcuts.
+- **Needs:** ST0; turntables need ST4.
+- **Done when:** a headless script exports the open tree to glTF from
+  the palette, and a turntable writes N frames.
+
+### ST9: Later
+
+A/B compare in a split viewport; the seed browser; the Outline as a
+node-link diagram; preview contexts; budget badges; Biome and World
+documents as B1 and W1 bring their types (registered as new kinds,
+not new tabs).
+
+### Running them in parallel
+
+| Wave | Run together | Notes |
+|---|---|---|
+| a | ST0; `procgena_core::meta` → per-crate `meta.yml` workers; ST2's additive registry in `procgena_core`, then the tree Scatter, Ecotope and Biome resolvers | ST0 alone in `procgena/src/`. Meta workers each stay in their crate, and wait for or agree with the lanes named in ST1 (fruit AC1 in `tree/`, R3 in `plant/`, GM0 and B1 in `procgena_biome`). The registry worker touches `core/preset` and the file readers, so it is not beside other writers of `scatter/file.rs` or `ecotope/file.rs`. |
+| a′ | ST2's workspace-wide `Preset` change, if needed | Alone: it rebuilds the workspace. |
+| b | ST1 studio switch-over; ST2 studio half; ST4 crate half | ST1 owns `studio/inspector/`, ST2 `studio/documents/` and `studio/project/`. ST4 is in `procgena_core_bevy` and `procgena_impostor` (with the fruit D2 and IX lanes' agreement). |
+| c | ST3; ST7a; ST8 (without turntable) | `studio/library/` and `studio/outline/`; `studio/problems/` and `view_frame/`; `studio/commands/`. All three register through ST0's registry and read `Selection`. |
+| d | ST4 studio half; ST5a; ST6 | ST6's crate changes run as one worker. |
+| later | ST5b (after X1 and fruit AC1); ST7b (after IX's override); ST8 turntable; ST9 | |
+
+Every lane registers through `studio/kinds/` and reads `Selection`, both
+defined in ST0; changes to those two are coordinated, not made in
+passing. Builds stay scoped: `cargo clippy -p procgena --all-targets
+--no-deps` and headless scripts; GPU tests only where a lane touched
+drawing.
+
+## Effects on other documents
+
+- **ARCHITECTURE.md:** the "Studio" TODO ("a tab per new level") is
+  reworded: each level is a kind in the studio's registry, opened from
+  the Library and shown in the Outline. Rule 10 gains the metadata file
+  and the runtime registry (project presets over built-in catalogues,
+  references resolved through it) when ST1 and ST2 land.
+- **ROADMAP.md:** the Studio track (ST0–ST9), with IX gaining the
+  per-view override as a studio need and GM2 sharing the texture
+  catalogue.
+- **IX plan (`docs/decisions/IX-plan.md`, not written yet):** must cover
+  "Viewing distance (requirement on IX)" above.
+- **ground-materials.md:** GM2's texture list is a source of the shared
+  `TextureCatalogue`, not a list of its own.
+- **fruit/plan.md:** the Fruit and Flower tabs become kinds at ST0.
+
+## Open questions
+
+1. **Key clashes.** A project preset with the same key as a built-in one:
+   an error (proposed), a warning with the project winning, or namespaced
+   keys (`project:tall_pine`)? Built-in catalogues grow over time, so a
+   clash can appear after an upgrade.
+2. **Metadata language.** Descriptions are English only for now. If the
+   studio is ever translated, the metadata files are where the strings
+   live; no i18n work is planned.
+3. **Enum coverage in the drift test.** Listing variant settings by name
+   in the metadata (proposed) versus each crate supplying one sample value
+   per variant to the test.
+4. **Built-in thumbnails in git.** Shipping pre-rendered built-in
+   thumbnails puts binary files in the repository (proposed: in the
+   studio's assets, re-rendered by the headless command when presets
+   change). Alternative: render them on first run into the user's cache.
+5. **Where the capture module lives.** `procgena_core_bevy` (proposed) or
+   a new `procgena_capture` crate, or inside `procgena_impostor` with the
+   bake on top.
+6. **Biome climate on the view frame.** When a Biome owns its sun and
+   wind, should previewing inside a Biome lock the environment to it, or
+   keep the view frame's environment with a "use Biome's" switch?
+7. **Fruit and flower editing in context.** Opening the fruit preset from
+   a tree's Fruit part is decided; whether the tree's Fruit chip also
+   shows the tree's own placement settings (where on the branches fruit
+   grows) beside a link to the fruit preset needs the fruit tab's design
+   (I1b) to settle.

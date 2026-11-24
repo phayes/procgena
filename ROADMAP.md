@@ -818,6 +818,12 @@ go to the few copies near the camera.
     against atlas memory, and baking ahead per Ecotope (I2).
   - **What would make it the default:** the bar for each result to change
     the shared LOD model and the assets' default levels.
+  - **The studio's viewing distance** (added 2026-11-24 from
+    [procgena/studio_plan.md](procgena/studio_plan.md)): a per-view LOD
+    distance override and level forcing, honoured by entity levels, the
+    instanced renderer, plant's shader, fruit's detail check and the
+    impostor level, plus a read-back of the level drawn. Milestone ST7b
+    waits for it.
 - **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
   build; the planning step can start any time.
 - **Done when:** the plan is agreed with the user, the variants are
@@ -963,6 +969,50 @@ label-chosen material.
 A GPU port of the rules (GM6) is built only if GM1's measurements call
 for it.
 
+### Studio track
+
+Planned with the user 2026-11-24 in
+[procgena/studio_plan.md](procgena/studio_plan.md): one window with a
+Library, an Outline, a view frame and one Inspector replaces the tabs;
+settings metadata lives in `<kind>.meta.yml` beside each crate's
+presets; user presets live in a project folder over the built-in
+catalogues. Each milestone's needs and done-when are in the plan; the
+summary below is for ordering.
+
+| Milestone | Covers | Needs |
+|---|---|---|
+| **ST0** Studio shell | Kind registry replacing the per-kind enumerations, documents, the new layout, environment and detail on the view frame, headless `type`/`hover`/`select`/`command` | The Fruit and Flower tabs (I1b) merged; runs alone in `procgena/src/` (churn window) |
+| **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips | Core module, then per-crate workers beside ST0; studio half after ST0 |
+| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update keeping comments (`yamlpatch` + `yamlpath`), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
+| **ST3** Library and Outline | Search, filters, shared selection, editing a referenced preset in context | ST1, ST2 |
+| **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
+| **ST5a** Picking by tags | CPU ray picks to parts, hover, highlight | ST3; R4 for Scatters other than trees |
+| **ST5b** Picking by part paths | D3 part paths for single parts | X1's `part()`, fruit AC1 |
+| **ST6** Texture library | One `TextureCatalogue` shared with GM2, import to BC7 KTX2 with `ctt` | ST2, ST3, ST4; agreement with GM2 |
+| **ST7a** Problems, overlays, stats | Problems panel, debug overlays, live stats, one Detail and Quality control | ST0, ST1 |
+| **ST7b** Viewing distance | View-frame distance and level readout | IX's per-view LOD distance override |
+| **ST8** Export and commands | One Export, screenshot, turntable, command palette, shortcuts | ST0; turntable after ST4 |
+| **ST9** Later | A/B compare, seed browser, node diagram, preview contexts, Biome and World kinds | B1, W1 for their kinds |
+
+- **IX gains a studio requirement:** a per-view LOD distance override and
+  level forcing honoured by every renderer, with a read-back of the level
+  drawn (see the plan's "Viewing distance"). It can be pulled forward on
+  its own for ST7b.
+- **GM2 and ST6 share one texture catalogue** in `procgena_core`
+  (decided 2026-11-24); the ground material catalogue stays in the
+  terrain crates and names texture ids from it. Whichever starts first
+  lands the type.
+- **Tabs promised elsewhere become kinds.** The studio tabs named under
+  C3, B1, W1 and I1b (Fruit and Flower) are, after ST0, kinds in the
+  studio's registry, opened from the Library; their milestones add a
+  kind, not a tab.
+- **A churn window inside ST2, if needed:** moving `Preset` and the
+  `catalogue!` macro from `&'static` presets to owned ones rebuilds the
+  workspace and runs alone.
+- **In parallel:** after ST0, each milestone adds its own folder under
+  `procgena/src/studio/`, so up to three lanes run at once; the plan's
+  "Running them in parallel" gives the waves.
+
 ### Later
 
 - TODO "Modifiers pushed down" (a Biome's snow line, an Ecotope's
@@ -1096,6 +1146,26 @@ where the details are.
       plant-align lane).
     - *Details:* [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),
       "Open questions".
+24. **Studio revamp: what is still open.**
+    - *Decided by the user 2026-11-24:* Library, Outline, view frame and
+      one Inspector replace the tabs; an outliner first, a diagram later;
+      metadata in `<kind>.meta.yml` beside each crate's presets; a
+      project folder; updates keep comments (`yamlpatch` + `yamlpath`);
+      thumbnails cached, not committed; textures converted on import
+      with `ctt` (BC7); one texture catalogue in `procgena_core`;
+      viewing distance a requirement on IX; editing in context edits the
+      referenced preset; which extras come early.
+    - *Proposed, not decided:* the kind registry, document and selection
+      model, the runtime preset registry and the `Preset` change, the
+      capture service's home, and the "what is saved where" table.
+    - *Open:* key clashes between project and built-in presets, enum
+      coverage in the metadata drift test, whether built-in thumbnails
+      ship pre-rendered, where the capture module lives, Biome climate
+      on the view frame, and the tree's Fruit chip.
+    - *Needed by:* ST0 for the registry and layout, ST2 for key clashes,
+      ST4 for thumbnails and capture.
+    - *Details:* [procgena/studio_plan.md](procgena/studio_plan.md),
+      "Proposed, not decided" and "Open questions".
 
 ### Looks of work already built (wave 5)
 
