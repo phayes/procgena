@@ -243,6 +243,7 @@ use bevy::asset::load_embedded_asset;
 use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
 use bevy::shader::load_shader_library;
+use procgena_core_bevy::LodPlugin;
 use procgena_stone::TextureCompression;
 
 pub use material::{
@@ -288,7 +289,7 @@ impl Plugin for StonePlugin {
         embedded_asset!(app, "shaders/stone.wesl");
         embedded_asset!(app, "shaders/stone_prepass.wesl");
 
-        app.add_plugins(MaterialPlugin::<StoneMaterial>::default())
+        app.add_plugins((LodPlugin, MaterialPlugin::<StoneMaterial>::default()))
             .init_asset::<StoneOptionsAsset>()
             .register_asset_loader(StoneOptionsLoader)
             .init_resource::<StoneCache>()

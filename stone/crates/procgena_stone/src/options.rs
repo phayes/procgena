@@ -6,8 +6,11 @@
 
 use std::fmt;
 
+use procgena_core::scatter::{Placement, Rest};
+use procgena_core::{LodError, OptionsHash, PoolId, SpecimenId};
 use serde::{Deserialize, Serialize};
 
+use crate::content::STONE_KIND;
 use crate::detail::{DetailLevel, StoneDetail};
 
 /// Minimum allowed number of grid cells per axis in [`DetailLevel::resolution`].
@@ -385,7 +388,23 @@ fn check_detail(detail: &StoneDetail) -> Result<(), OptionsError> {
         }
         previous = Some(level);
     }
-    Ok(())
+
+    // The shared level-of-detail rules also need the first level at 0 and
+    // fade bands that don't overlap.
+    match detail.lod().validate() {
+        Ok(()) => Ok(()),
+        Err(LodError::FirstDistance(distance)) => Err(OptionsError::FloatOutOfRange {
+            field: "mesh.detail.distance",
+            value: distance,
+            requirement: "0 for the first level",
+        }),
+        Err(LodError::BandsOverlap { level }) => Err(OptionsError::FloatOutOfRange {
+            field: "mesh.detail.hysteresis",
+            value: levels[level].hysteresis,
+            requirement: "narrow enough that the level's fade band doesn't overlap the previous level's",
+        }),
+        Err(other) => unreachable!("checked above: {other}"),
+    }
 }
 
 fn int_range(field: &'static str, value: u32, min: u32, max: u32) -> Result<(), OptionsError> {
@@ -438,17 +457,44 @@ fn unit_interval(field: &'static str, value: f32) -> Result<(), OptionsError> {
 }
 
 impl StoneOptions {
-    /// Returns the settings of shape `variant` in a set of related rocks
-    /// built from these settings.
+    /// How a rock with these settings stands on uneven ground, when
+    /// scattered:
+    /// - a rock that [settles](PlacementOptions::settle) onto a resting side
+    ///   tilts halfway to the slope, like a boulder that has rolled to rest;
+    /// - a rock that keeps its generated orientation, such as a standing
+    ///   stone, stays upright.
     ///
-    /// Variant `v` has seed `seed + v` (wrapping), and each of its
-    /// [`stretch`](Self::stretch) axes is reduced by a repeatable random share
-    /// of up to `stretch_jitter`: 0.3 shrinks each axis to between 70% and
-    /// 100%. Pass a `stretch_jitter` of at least 0 and below 1; this method does
-    /// not check it.
-    pub fn variant(&self, variant: u32, stretch_jitter: f32) -> StoneOptions {
+    /// Either way it rests on the lowest ground under it, so it never
+    /// floats, is not sunk any further, and is left out where the ground
+    /// under it bends by more than a tenth of its size. Its suggested burial
+    /// is applied separately.
+    pub fn ground_placement(&self) -> Placement {
+        Placement {
+            conform: if self.placement.settle { 0.5 } else { 0.0 },
+            rest: Rest::Lowest,
+            embed: 0.0,
+            max_bend: Some(0.1),
+        }
+    }
+
+    /// Returns the settings of shape `slot` in a set of related rocks built
+    /// from these settings, in a World seeded with `world_seed`.
+    ///
+    /// The set is a pool: these settings plus `stretch_jitter`, whatever
+    /// their own [`seed`](Self::seed). Slot `slot`'s seed is the
+    /// [`SpecimenId`] seed of that pool and slot in `world_seed`'s World, so
+    /// every World grows its own shapes, and each slot's shape is the same
+    /// wherever it is used in one World. A set built on its own, outside any
+    /// World, passes its own seed as `world_seed`.
+    ///
+    /// Each of the shape's [`stretch`](Self::stretch) axes is also reduced
+    /// by a repeatable random share of up to `stretch_jitter`: 0.3 shrinks
+    /// each axis to between 70% and 100%. Pass a `stretch_jitter` of at
+    /// least 0 and below 1; this method does not check it.
+    pub fn variant(&self, world_seed: u32, slot: u32, stretch_jitter: f32) -> StoneOptions {
+        let pool = PoolId::new(STONE_KIND, OptionsHash::of(&(self, stretch_jitter)));
         let mut options = self.clone();
-        options.seed = self.seed.wrapping_add(variant);
+        options.seed = SpecimenId::new(world_seed, pool, slot).seed();
         for (axis, stretch) in options.stretch.iter_mut().enumerate() {
             *stretch *= 1.0 - stretch_jitter * unit_hash(options.seed, axis as u32);
         }
@@ -685,6 +731,22 @@ mod tests {
                 let mut bad = level(32, 0.0);
                 bad.hysteresis = 1.0;
                 o.mesh.detail = StoneDetail::new(vec![bad]);
+            },
+            "mesh.detail.hysteresis",
+        );
+        // The first level is the one drawn up close, so it starts at 0.
+        check(
+            |o| o.mesh.detail = StoneDetail::new(vec![level(32, 5.0), level(16, 10.0)]),
+            "mesh.detail.distance",
+        );
+        // Fade bands 9..11 and 10.5..11.5 overlap.
+        check(
+            |o| {
+                let mut wide = level(16, 10.0);
+                wide.hysteresis = 0.1;
+                let mut next = level(8, 11.0);
+                next.hysteresis = 0.045;
+                o.mesh.detail = StoneDetail::new(vec![level(32, 0.0), wide, next]);
             },
             "mesh.detail.hysteresis",
         );

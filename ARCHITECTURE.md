@@ -243,7 +243,7 @@ time, and gives its mask over a chunk without drawing anything. See
 | `PlantScatter` | Built as `PlantField` ([plant/docs/fields.md](plant/docs/fields.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
 | `MushroomScatter` | Exists, but grows on tagged host meshes | Becomes a ground Scatter of `Mushroom`s (single, tuft or fairy ring). Growing on hosts moves to the later `MushroomGrowth` modifier. |
 | `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
-| `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of single stones over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. Pebble clusters wait for the group half of open question 3. |
+| `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of stones, single or in clusters, over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. |
 
 ### 3. Ecotope
 
@@ -1427,9 +1427,8 @@ it starts.
   it takes a `ScatterInput`, has `max_slope`, a `fallen_logs` preset, and
   places with `place()`, logs along the slope and stumps upright.
 - [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
-  clustering and partial burial. Done in C1 for single stones: clustering
-  is patches in the density, not groups. Pebble clusters as groups wait
-  for open question 3.
+  clustering and partial burial. Done in C1: patches in the density, and
+  pebble clusters whose members are ordinary copies.
 - [ ] **Scatter masks out**: each Scatter reports the mask it leaves for the
   Scatters below it (trunk discs, canopy shade, stone and log footprints).
 
@@ -1598,14 +1597,26 @@ it starts.
    transform, but a fairy ring is metres across and a fallen log is long.
    On a slope their members or ends need ground heights. Does the asset get
    the `Ground` at build time, or does the Scatter settle its parts?
-   **Decided 2026-11-23 (C1 and D3):** the asset never sees the `Ground`,
-   so its specimens stay shared. The Scatter settles rigid wide pieces
-   (logs, stumps, boulders) with `procgena_core::scatter::settle` (see
-   [docs/decisions/C1.md](docs/decisions/C1.md)). A group the asset
-   defines (a fairy ring is part of `Mushroom`) is one copy with its
-   members as part steps, and the Scatter settles each member on the
-   ground; a group a Scatter defines (pebble clusters in `StoneScatter`)
-   is ordinary copies, each with its own index. See "Queries".
+   **Decided 2026-11-23 (C1, with D3's Addresses):** the asset never sees
+   the `Ground`, so its specimens stay shared.
+   - **Placement is declarative.** Each asset declares a `Placement` (in
+     `procgena_core::scatter`): `conform` (0 keeps the piece upright, 1
+     lies it along the ground, values in between tilt it partway),
+     `rest` (`Lowest` so nothing floats, or `Plane`), `embed` (how deep
+     it sinks, as a share of its size) and `max_bend` (how much the ground
+     may bend under it). A Scatter may override it per class or species.
+     One executor, `procgena_core::scatter::place`, puts every piece down
+     from the points where it touches flat ground. Placement is not part
+     of any options hash or specimen id. Typical values: logs conform 1,
+     stumps, trees and mushrooms 0, boulders partway.
+   - **A group the asset defines** (a fairy ring in `Mushroom`): one copy,
+     whose members are part steps in its address. The Scatter settles each
+     member, and drops a member that can't settle while the rest stays.
+   - **A group the Scatter defines** (pebble clusters in `StoneScatter`):
+     its members are ordinary copies, each with its own `index` within its
+     cell.
+
+   See [docs/decisions/C1.md](docs/decisions/C1.md) and "Queries".
 4. ~~**Ids from list positions.**~~ Decided 2026-11-23 (D3): Scatters,
    Ecotopes and mix entries have frozen `ChildKey`s, and priority is a
    number on one World-wide scale. See "Seeds" and "3. Ecotope".

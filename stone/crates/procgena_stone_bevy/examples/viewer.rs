@@ -581,6 +581,8 @@ fn show_scatter(
             }
             let mut pool = StonePool::new(stone, class.variants);
             pool.stretch_jitter = class.stretch_jitter;
+            // The scatter's seed is the World seed its shapes grow from.
+            pool.world_seed = viewer.seed;
             pools.add(pool)
         })
         .collect();

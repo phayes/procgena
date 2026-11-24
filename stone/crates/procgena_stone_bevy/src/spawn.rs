@@ -8,9 +8,12 @@ use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use procgena_core::{LodRange, PoolId, Quality, content_hash};
+use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_stone::{
-    DetailLevel, OptionsError, Stone, StoneError, StoneOptions, TextureCompression, TextureSize,
+    DetailLevel, OptionsError, Stone, StoneDetail, StoneError, StoneOptions, TextureCompression,
+    TextureSize,
 };
 
 use crate::material::{StoneMaterial, StoneTextures, stone_material};
@@ -112,10 +115,26 @@ pub(crate) struct SpawnSettings {
     pub texture_compression: TextureCompression,
 }
 
-/// The rock's options as JSON, used to find shared generation results.
+/// Names a rock's generated meshes: its pool and seed (which fix its shape
+/// and look) plus the hash of its detail levels (which fix its meshes).
 /// Entities with the same key reuse one [`Generated`] entry.
 #[derive(Component, Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct StoneKey(Arc<str>);
+pub(crate) struct StoneKey {
+    pool: PoolId,
+    seed: u32,
+    detail: u64,
+}
+
+impl StoneKey {
+    /// The key of a rock built from `options`.
+    fn of(options: &StoneOptions) -> Self {
+        Self {
+            pool: options.pool_id(),
+            seed: options.seed,
+            detail: content_hash(&options.mesh.detail),
+        }
+    }
+}
 
 /// Present on a [`StoneParams`] entity while its rock is being prepared.
 ///
@@ -296,7 +315,7 @@ pub(crate) fn start_generation(
                 None => continue,
             },
         };
-        let key = StoneKey(options.to_json().into());
+        let key = StoneKey::of(&options);
         cache.stones.entry(key.clone()).or_insert_with(|| {
             let task_options = options.clone();
             let task = AsyncComputeTaskPool::get().spawn(async move { generate(&task_options) });
@@ -330,6 +349,7 @@ fn generate(options: &StoneOptions) -> TaskOutput {
 pub(crate) fn finish_generation(
     mut cache: ResMut<StoneCache>,
     settings: Res<SpawnSettings>,
+    quality: Res<LodQuality>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StoneMaterial>>,
@@ -360,9 +380,10 @@ pub(crate) fn finish_generation(
         // pattern scale. Reuse texture images; without a texture folder, use
         // plain colours.
         let compression = settings.texture_compression;
-        let ranges = visibility_ranges(levels.iter().map(|l| l.level), options.scale);
+        let ranges = level_ranges(&options.mesh.detail, options.scale, quality.0);
         let mut level_assets = Vec::with_capacity(levels.len());
         for (l, range) in levels.into_iter().zip(ranges) {
+            let range = bevy_range(&range);
             let size = l.level.texture_size;
             let set = &options.material.texture;
             let textured = settings.texture_root.is_some().then(|| (set.clone(), size));
@@ -393,41 +414,17 @@ pub(crate) fn finish_generation(
     }
 }
 
-/// Builds camera-distance limits for detail levels supplied in nearest-first
-/// order, for a rock of world size `scale`. A single level has no distance limit.
-///
-/// Distances are multiplied by `scale / 2.5`, the ratio to the default rock
-/// size. The first level starts at distance zero; the last extends
-/// indefinitely. At each intervening switch, adjacent levels fade over a band
-/// extending `distance × hysteresis` to either side of the scaled switching distance.
-pub(crate) fn visibility_ranges(
-    levels: impl Iterator<Item = DetailLevel>,
-    scale: f32,
-) -> Vec<Option<VisibilityRange>> {
-    let levels: Vec<DetailLevel> = levels.collect();
-    if levels.len() < 2 {
-        return vec![None; levels.len()];
-    }
-    let factor = scale / StoneOptions::default().scale;
-    let margin = |level: &DetailLevel| {
-        let distance = level.distance * factor;
-        let half = distance * level.hysteresis;
-        (distance - half).max(0.0)..distance + half
-    };
-    (0..levels.len())
-        .map(|i| {
-            let start_margin = if i == 0 { 0.0..0.0 } else { margin(&levels[i]) };
-            let end_margin = match levels.get(i + 1) {
-                Some(next) => margin(next),
-                None => f32::INFINITY..f32::INFINITY,
-            };
-            Some(VisibilityRange {
-                start_margin,
-                end_margin,
-                use_aabb: false,
-            })
-        })
-        .collect()
+/// Each of `detail`'s levels' fade bands, nearest first, for a rock `scale`
+/// metres across drawn at `quality`.
+pub(crate) fn level_ranges(detail: &StoneDetail, scale: f32, quality: Quality) -> Vec<LodRange> {
+    let lod = detail.lod();
+    lod.ranges(lod.factor(scale, quality))
+}
+
+/// Bevy's visibility range for a level drawn over `range`, or `None` for a
+/// level drawn at every distance.
+fn bevy_range(range: &LodRange) -> Option<VisibilityRange> {
+    (!range.is_always()).then(|| visibility_range(range))
 }
 
 /// Adds child entities once a waiting rock's assets are ready.
@@ -537,6 +534,7 @@ mod tests {
             .init_asset::<StoneOptionsAsset>()
             .register_asset_loader(StoneOptionsLoader)
             .init_resource::<StoneCache>()
+            .init_resource::<LodQuality>()
             .init_resource::<Finished>()
             .insert_resource(SpawnSettings {
                 texture_root: None,
@@ -756,10 +754,10 @@ mod tests {
 
     #[test]
     fn detail_levels_hand_over_at_scaled_distances() {
-        let levels = StoneDetail::MEDIUM.levels().to_vec();
-        let ranges: Vec<VisibilityRange> = visibility_ranges(levels.iter().copied(), 2.5)
-            .into_iter()
-            .map(Option::unwrap)
+        let high = Quality::High;
+        let ranges: Vec<VisibilityRange> = level_ranges(&StoneDetail::MEDIUM, 2.5, high)
+            .iter()
+            .map(|r| bevy_range(r).unwrap())
             .collect();
         assert_eq!(ranges[0].start_margin, 0.0..0.0);
         assert_eq!(ranges[0].end_margin, 14.25..15.75);
@@ -769,11 +767,20 @@ mod tests {
         assert_eq!(ranges[2].end_margin.start, f32::INFINITY);
 
         // A rock twice the default size switches twice as far away.
-        let large = visibility_ranges(levels.iter().copied(), 5.0);
-        assert_eq!(large[0].as_ref().unwrap().end_margin, 28.5..31.5);
+        let large = level_ranges(&StoneDetail::MEDIUM, 5.0, high);
+        assert_eq!(large[0].fade_out, 28.5..31.5);
+
+        // A lower quality switches nearer.
+        let low = level_ranges(&StoneDetail::MEDIUM, 2.5, Quality::Low);
+        let out = &low[0].fade_out;
+        assert!(
+            (out.start - 5.7).abs() < 1e-5 && (out.end - 6.3).abs() < 1e-5,
+            "{out:?}"
+        );
 
         // A lone detail level must remain visible at every camera distance.
-        let single = visibility_ranges([levels[0]].into_iter(), 2.5);
-        assert!(matches!(single[..], [None]));
+        let single = StoneDetail::new(vec![StoneDetail::MEDIUM.levels()[0]]);
+        let single = level_ranges(&single, 2.5, high);
+        assert!(matches!(single[..], [ref r] if bevy_range(r).is_none()));
     }
 }

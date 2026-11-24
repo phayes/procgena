@@ -29,7 +29,8 @@ use procgena_stone::gpu::{
 
 use super::{ExtractedPools, PoolLayouts};
 use crate::pool::{PoolDefinition, PoolInstance, StonePool};
-use crate::spawn::visibility_ranges;
+use crate::spawn::level_ranges;
+use procgena_core::{LodRange, Quality};
 
 /// One pooled rock as the shaders read it. Mirrors `PoolInstance` in `pool_types.wesl`.
 #[derive(Debug, Clone, Copy, ShaderType)]
@@ -101,9 +102,12 @@ pub(crate) struct RenderPool {
     readback: Option<StatusReadback>,
     pub lod_count: u32,
     pub variant_count: u32,
-    /// Camera-distance limits of each detail level, as Bevy's visibility
-    /// ranges (`x..y` fade in, `z..w` fade out), in metres.
+    /// Camera-distance limits of each detail level, packed by
+    /// `LodRange::to_vec4` (`x..y` fade in, `z..w` fade out), in metres, at
+    /// [`quality`](Self::quality).
     pub lod_ranges: Vec<Vec4>,
+    /// The quality setting `lod_ranges` were worked out for.
+    quality: Quality,
     /// Radius enclosing every variant about its origin, including the pool's
     /// option scale but excluding each entity's transform scale.
     pub radius: f32,
@@ -151,18 +155,7 @@ impl RenderPool {
             })
             .collect();
         let scale = pool.options.scale;
-        let lod_ranges = visibility_ranges(levels.iter().copied(), scale)
-            .into_iter()
-            .map(|range| match range {
-                Some(range) => Vec4::new(
-                    range.start_margin.start,
-                    range.start_margin.end,
-                    range.end_margin.start.min(f32::MAX),
-                    range.end_margin.end.min(f32::MAX),
-                ),
-                None => Vec4::new(0.0, 0.0, f32::MAX, f32::MAX),
-            })
-            .collect();
+        let quality = Quality::default();
         Self {
             version: definition.version,
             definition: definition.clone(),
@@ -174,7 +167,8 @@ impl RenderPool {
             readback: None,
             lod_count,
             variant_count: pool.variants,
-            lod_ranges,
+            lod_ranges: packed_ranges(pool, quality),
+            quality,
             radius: scale * UNPLACED_RADIUS,
             instances: None,
             variant_start: StorageBuffer::from(vec![0; pool.variants as usize]),
@@ -416,6 +410,15 @@ fn plan_batches(requests: &[GpuStoneRequest], lods: usize, limit: u64) -> Vec<Ra
     batches
 }
 
+/// Each of `pool`'s detail levels' fade bands at `quality`, packed for the
+/// culling shader.
+fn packed_ranges(pool: &StonePool, quality: Quality) -> Vec<Vec4> {
+    level_ranges(&pool.options.mesh.detail, pool.options.scale, quality)
+        .iter()
+        .map(LodRange::to_vec4)
+        .collect()
+}
+
 /// Creates, regenerates and removes pools as their definitions change, reads
 /// back generation status, and uploads changed rocks.
 pub(crate) fn prepare_pools(
@@ -441,6 +444,14 @@ pub(crate) fn prepare_pools(
         if !current {
             pools.insert(*id, RenderPool::new(definition));
             new_pools = true;
+        }
+    }
+
+    // Follow the quality setting.
+    for pool in pools.values_mut() {
+        if pool.quality != extracted.quality {
+            pool.quality = extracted.quality;
+            pool.lod_ranges = packed_ranges(&pool.definition.pool, pool.quality);
         }
     }
 

@@ -5495,6 +5495,8 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "image",
+ "procgena_core",
+ "procgena_core_bevy",
  "procgena_specimen",
  "procgena_stone",
  "procgena_stone_bevy",

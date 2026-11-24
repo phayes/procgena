@@ -7,6 +7,7 @@
 // `visible`, where draw (v, l) reads entries from `l * instance_count + variant_start[v]`.
 
 import package::shaders::pool_types::{PoolInstance, instance_center, instance_linear};
+import procgena_core_bevy::shaders::dither::{dither_level, is_drawn, switch_distance};
 
 /// Mirrors `CullUniform` in `src/pool/render/views.rs`.
 struct CullView {
@@ -14,8 +15,9 @@ struct CullView {
     planes: array<vec4<f32>, 6>,
     /// The position detail levels are chosen from, in `xyz`.
     lod_origin: vec4<f32>,
-    /// Camera-distance limits of each detail level, as Bevy's visibility
-    /// ranges: fade in over `x..y`, fully shown over `y..z`, fade out over `z..w`.
+    /// Camera-distance limits of each detail level, packed as
+    /// `LodRange::to_vec4` packs them: fade in over `x..y`, fully shown over
+    /// `y..z`, fade out over `z..w`.
     lod_ranges: array<vec4<f32>, 8>,
     instance_count: u32,
     variant_count: u32,
@@ -64,37 +66,12 @@ fn in_frustum(center: vec3<f32>, radius: f32) -> bool {
     return true;
 }
 
-/// Bevy's dither level for a rock at `distance` in a detail level's `range`:
-/// -16 to 0 while fading in, 0 when fully shown, 0 to 16 while fading out.
-/// Returns 16 when the rock is outside the range.
-fn dither_level(range: vec4<f32>, distance: f32) -> i32 {
-    if distance < range.x || distance >= range.w {
-        return 16;
-    }
-    if distance < range.y {
-        return -16 + band_level(range.x, range.y, distance);
-    }
-    if distance < range.z {
-        return 0;
-    }
-    return band_level(range.z, range.w, distance);
-}
-
-/// How far `distance` is through the band `start..end`, from 0 to 16.
-fn band_level(start: f32, end: f32, distance: f32) -> i32 {
-    if end <= start {
-        return 16;
-    }
-    return clamp(i32(round((distance - start) / (end - start) * 16.0)), 0, 16);
-}
-
 /// The single detail level a shadow view draws at `distance`: the level whose
 /// switching distance (the middle of its fade-in band) was passed last.
 fn shadow_lod(distance: f32) -> u32 {
     var lod = 0u;
     for (var l = 1u; l < cull_view.lod_count; l++) {
-        let range = cull_view.lod_ranges[l];
-        if distance >= 0.5 * (range.x + range.y) {
+        if distance >= switch_distance(cull_view.lod_ranges[l]) {
             lod = l;
         }
     }
@@ -132,7 +109,7 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     for (var lod = 0u; lod < cull_view.lod_count; lod++) {
         let dither = dither_level(cull_view.lod_ranges[lod], distance);
-        if dither > -16 && dither < 16 {
+        if is_drawn(dither) {
             emit(index, instance.variant, lod, dither);
         }
     }
