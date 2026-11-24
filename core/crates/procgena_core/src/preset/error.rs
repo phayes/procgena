@@ -117,3 +117,27 @@ impl fmt::Display for PresetFileError {
 }
 
 impl std::error::Error for PresetFileError {}
+
+impl PresetFileError {
+    /// The error as found at the setting `path`, such as
+    /// `scatters.pines`: a [`Setting`](Self::Setting) error's path is put
+    /// under it, and any other error becomes a `Setting` error at `path`
+    /// with its message. An empty `path` leaves the error as it is.
+    #[must_use]
+    pub fn at(self, path: &str) -> Self {
+        match self {
+            _ if path.is_empty() => self,
+            Self::Setting {
+                path: inner,
+                message,
+            } => Self::Setting {
+                path: format!("{path}.{inner}"),
+                message,
+            },
+            other => Self::Setting {
+                path: path.to_owned(),
+                message: other.to_string(),
+            },
+        }
+    }
+}

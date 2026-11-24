@@ -79,7 +79,8 @@ pub struct References {
     /// Replaces every reference in a full settings tree of this kind with
     /// the settings it names, looked up in the registry, so the tree reads
     /// with [`from_value`] without a registry. Errors name the setting's
-    /// path under the kind, such as `tree_scatter.trees.0.tree`.
+    /// path within the tree, such as `trees.0.tree` (see
+    /// [`PresetFileError::at`]); the registry puts the kind in front.
     pub expand: fn(&mut Value, &Registry) -> Result<(), PresetFileError>,
 }
 
@@ -891,7 +892,7 @@ impl Registry {
     fn build<P: Preset>(&self, key: &str, document: &Document) -> Result<P, PresetFileError> {
         // The full settings, with references replaced by what they name.
         let mut value = self.document_settings(P::KIND, key, document)?;
-        (P::references().expand)(&mut value, self)?;
+        (P::references().expand)(&mut value, self).map_err(|error| error.at(P::KIND))?;
 
         // Read and check the options.
         let options: P::Options = from_value(value, P::KIND)?;

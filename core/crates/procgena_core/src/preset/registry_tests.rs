@@ -100,12 +100,8 @@ fn pile_slots(settings: &Value) -> Vec<ReferenceSlot> {
 fn pile_expand(settings: &mut Value, registry: &Registry) -> Result<(), PresetFileError> {
     if let Some(Value::Array(rocks)) = settings.get_mut("rocks") {
         for (i, rock) in rocks.iter_mut().enumerate() {
-            expand_slot::<RockPreset>(rock, registry).map_err(|error| {
-                PresetFileError::Setting {
-                    path: format!("pile.rocks.{i}"),
-                    message: error.to_string(),
-                }
-            })?;
+            expand_slot::<RockPreset>(rock, registry)
+                .map_err(|error| error.at(&format!("rocks.{i}")))?;
         }
     }
     Ok(())
