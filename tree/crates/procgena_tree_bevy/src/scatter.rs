@@ -1,17 +1,17 @@
 //! Tree Scatters: many generated trees spread over ground and drawn by one
 //! entity.
 
+mod draw;
 mod prepare;
 mod promote;
-mod render;
 
+pub(crate) use draw::update_grove_draws;
 pub use prepare::{
     PrepareTreeScatter, TreeScatterPreparing, TreeScatterReady, tree_scatter_variants,
 };
 pub(crate) use prepare::{PreparedTrees, start_preparing, stop_preparing, track_preparing};
 pub use promote::{PromotedTree, TreeScatterHit, TreeScatterTrees};
 pub(crate) use promote::{demote_trees, sync_promoted_trees};
-pub(crate) use render::GroveRenderPlugin;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -161,7 +161,8 @@ pub struct PlacedTree {
 /// trees are placed and replaces it whenever they are placed again, so
 /// `Changed<TreeScatterInstances>` finds groves whose trees moved.
 ///
-/// Groves draw their trees themselves; the trees are not entities. To give
+/// Groves draw their trees through the shared instanced renderer (an
+/// `InstancedScatter` on the grove entity); the trees are not entities. To give
 /// one tree an entity of its own, for a collider or to interact with it, see
 /// [`PromotedTree`](crate::PromotedTree).
 #[derive(Component, Debug, Clone)]
@@ -959,6 +960,7 @@ mod tests {
     use procgena_core::CellId;
     use procgena_core::{Lod, LodLevel};
     use procgena_core_bevy::LodQuality;
+    use procgena_core_bevy::instanced::{InstancedScatter, SpecimenCache};
     use procgena_specimen::{Part, SurfaceMesh, tags};
     use procgena_tree::{
         AddressPrefix, LOD_REFERENCE_SIZE, LodDetail, ScatterTree, TextureCompression, TextureSize,
@@ -1025,10 +1027,12 @@ mod tests {
                     refresh_grove_assets,
                     prune_cache,
                     finish_groves,
+                    update_grove_draws,
                     track_preparing,
                 )
                     .chain(),
             )
+            .init_resource::<SpecimenCache>()
             .add_observer(
                 |event: On<TreeScatterFinished>, mut finished: ResMut<Finished>| {
                     finished.0.push(event.result.clone());
@@ -1604,11 +1608,34 @@ mod tests {
         let mut app = grove_app();
         let (grove, drawn) = finished_grove(&mut app);
         let tree = drawn.values().next().unwrap().tree.clone();
+
+        // The grove draws every tree, and an idle grove keeps its copies and
+        // slots instead of uploading them again.
+        let scatter = |app: &App| app.world().get::<InstancedScatter>(grove).unwrap().clone();
+        let trees = app
+            .world()
+            .get::<TreeScatterInstances>(grove)
+            .unwrap()
+            .trees()
+            .len();
+        let before = scatter(&app);
+        assert_eq!(before.copies.len(), trees);
+        for _ in 0..10 {
+            app.update();
+        }
+        let idle = scatter(&app);
+        assert!(Arc::ptr_eq(&before.copies, &idle.copies));
+        assert!(Arc::ptr_eq(&before.slots, &idle.slots));
+
         let promoted = app
             .world_mut()
             .spawn((PromotedTree::new(grove, tree.address), Collider))
             .id();
         app.update();
+
+        // The grove leaves the promoted tree out, which draws itself.
+        app.update();
+        assert_eq!(scatter(&app).copies.len(), trees - 1);
 
         // The entity is the grove's tree, with its parts, in the grove.
         let entity = app.world().entity(promoted);
@@ -1629,6 +1656,10 @@ mod tests {
         assert!(entity.contains::<Collider>());
         assert!(!entity.contains::<TreeParams>());
         assert!(!has_parts(&app, promoted));
+
+        // The grove draws the tree again.
+        app.update();
+        assert_eq!(scatter(&app).copies.len(), trees);
     }
 
     #[test]

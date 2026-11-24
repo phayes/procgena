@@ -410,12 +410,6 @@ impl Generated {
         self.levels.len()
     }
 
-    /// Each level's fade bands, nearest first, as drawn before the impostor
-    /// is baked.
-    pub(crate) fn ranges(&self) -> &[LodRange] {
-        &self.ranges
-    }
-
     /// Each level's fade bands, then the impostor's, as drawn once the
     /// impostor is baked; `None` when trees have no impostor.
     pub(crate) fn impostor_ranges(&self) -> Option<&[LodRange]> {

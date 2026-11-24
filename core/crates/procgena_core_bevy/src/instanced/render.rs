@@ -74,6 +74,8 @@ use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderStartup, R
 use bevy::shader::Shader;
 
 #[cfg(test)]
+mod cull_test;
+#[cfg(test)]
 mod gpu_test;
 
 use super::material::{INSTANCE_SIZE, InstancedMaterials};

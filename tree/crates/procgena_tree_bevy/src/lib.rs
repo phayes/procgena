@@ -123,8 +123,9 @@
 //! }
 //! ```
 //!
-//! The grove draws all its trees itself, without an entity per tree, so one grove
-//! can hold thousands of trees. Trees of the same species and shape variant share
+//! The grove draws all its trees through the shared instanced renderer of
+//! `procgena_core_bevy` (an `InstancedScatter` on the grove entity), without an
+//! entity per tree, so one grove can hold thousands of trees. Trees of the same species and shape variant share
 //! meshes and materials, so even a large grove generates only a handful of meshes.
 //! `TreeScatterInstances` on the grove lists every tree.
 //!
@@ -380,9 +381,18 @@ pub use spawn::{
 };
 pub use wind::Wind;
 
+use bevy::pbr::StandardMaterialKey;
+use bevy::render::combined_bind_group::CombinedBindGroupData;
 use procgena_core::Lod;
 use procgena_core_bevy::LodPlugin;
-use procgena_impostor::{ImpostorLevel, ImpostorPlugin};
+use procgena_core_bevy::instanced::InstancedMaterialPlugin;
+use procgena_impostor::{ImpostorLevel, ImpostorMaterial, ImpostorPipelineKey, ImpostorPlugin};
+
+/// The pipeline key of a [`TreeMaterial`].
+type TreeMaterialKey = CombinedBindGroupData<StandardMaterialKey, WindKey>;
+
+/// The pipeline key of an [`ImpostorMaterial`].
+type ImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, ImpostorPipelineKey>;
 
 #[cfg(feature = "gltf")]
 pub use gltf::add_tree_gltf_attributes;
@@ -482,10 +492,17 @@ impl Plugin for TreePlugin {
             app.add_plugins(ImpostorPlugin::default());
         }
 
+        // Groves draw through the shared instanced renderer, with tree
+        // materials and, beyond the farthest level, impostor materials.
         app.add_plugins((
             LodPlugin,
             MaterialPlugin::<TreeMaterial>::default(),
-            scatter::GroveRenderPlugin,
+            InstancedMaterialPlugin::<TreeMaterial, TreeMaterialKey>::new(|key| {
+                key.extension.grove = true;
+            }),
+            InstancedMaterialPlugin::<ImpostorMaterial, ImpostorMaterialKey>::new(|key| {
+                key.extension.instanced = true;
+            }),
         ))
         .init_asset::<TreePresetAsset>()
         .register_asset_loader(TreePresetLoader)
@@ -517,6 +534,7 @@ impl Plugin for TreePlugin {
                 scatter::refresh_grove_assets,
                 spawn::prune_cache,
                 scatter::finish_groves,
+                scatter::update_grove_draws,
                 wind::sync_wind,
             )
                 .chain(),
