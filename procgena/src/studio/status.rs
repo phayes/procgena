@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use bevy::scene::Scene;
 use procgena_plant::MAX_PLANTS;
 use procgena_plant::prelude::PlantSettings;
+use procgena_terrain::RegionStage;
 use procgena_terrain_bevy::TerrainProgress;
 
 use super::ActiveTab;
@@ -345,11 +346,15 @@ fn terrain_line(progress: Option<TerrainProgress>) -> (String, bool) {
     let mut line = if progress.settled {
         format!("{} terrain chunks", group_digits(progress.drawn))
     } else {
-        format!(
-            "Building terrain… {} chunks, {} in progress",
-            group_digits(progress.wanted),
-            group_digits(progress.reading)
-        )
+        let doing = match progress.stage {
+            Some(RegionStage::Plan) => "planning regions",
+            Some(RegionStage::Ground) => "shaping ground",
+            Some(RegionStage::Roads) => "routing roads",
+            None if progress.refining > 0 => "adding roads to near ground",
+            None => "reading chunks",
+        };
+        let percent = (progress.fraction * 100.0).floor();
+        format!("Building terrain… {percent}% · {doing}")
     };
     if failed {
         line.push_str(&format!(
@@ -425,7 +430,10 @@ mod tests {
     fn the_terrain_line_shows_its_chunks_and_failures() {
         assert_eq!(terrain_line(None), ("Building terrain…".into(), false));
         let mut progress = TerrainProgress {
+            fraction: 0.427,
+            stage: Some(RegionStage::Roads),
             drawn: 0,
+            refining: 0,
             wanted: 1200,
             reading: 4,
             failed: 0,
@@ -433,8 +441,18 @@ mod tests {
         };
         assert_eq!(
             terrain_line(Some(progress)),
+            ("Building terrain… 42% · routing roads".into(), false)
+        );
+        progress.stage = None;
+        assert_eq!(
+            terrain_line(Some(progress)),
+            ("Building terrain… 42% · reading chunks".into(), false)
+        );
+        progress.refining = 30;
+        assert_eq!(
+            terrain_line(Some(progress)),
             (
-                "Building terrain… 1,200 chunks, 4 in progress".into(),
+                "Building terrain… 42% · adding roads to near ground".into(),
                 false
             )
         );

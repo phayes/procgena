@@ -7,7 +7,7 @@
 //! - Add [`TerrainPlugin`].
 //! - Spawn a [`TerrainStream`] with the ground to draw: a
 //!   [`Terrain`](procgena_terrain::Terrain), or a
-//!   [`WorldTerrain`](procgena_terrain::WorldTerrain) of many regions.
+//!   [`WorldTerrain`] of many regions (see [`TerrainStream::world`]).
 //! - Put [`TerrainViewer`] on each camera the terrain is drawn for.
 //!
 //! Chunks are read on Bevy's async compute threads, and the drawn chunks
@@ -32,7 +32,7 @@
 //!         TerrainPreset::rolling_hills().terrain.clone()
 //!     };
 //!     let world = WorldTerrain::new(WorldTerrainOptions::default(), Arc::new(source)).unwrap();
-//!     commands.spawn(TerrainStream::new(Arc::new(world)));
+//!     commands.spawn(TerrainStream::world(world));
 //!     commands.spawn((
 //!         Camera3d::default(),
 //!         TerrainViewer,
@@ -47,6 +47,7 @@
 //! ```
 
 mod material;
+mod progress;
 mod stream;
 
 use std::collections::HashMap;
@@ -62,10 +63,11 @@ use procgena_core::Lod;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::{
     ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSelectionError,
-    ChunkSource, ChunkStage, Transitions, WaterMesh, chunk_lod,
+    ChunkSource, ChunkStage, RegionStage, Transitions, WaterMesh, WorldTerrain, chunk_lod,
 };
 
 pub use material::{TerrainExtension, TerrainMaterial, TerrainSurface};
+pub use progress::RegionTracker;
 
 use stream::{Read, Stream};
 
@@ -158,18 +160,48 @@ pub struct TerrainStream {
     pub source: Arc<dyn ChunkSource + Send>,
     /// Chunk levels at and above this one are drawn from
     /// [`Provisional`](ChunkStage::Provisional) ground, which a
-    /// [`WorldTerrain`](procgena_terrain::WorldTerrain) builds without
+    /// [`WorldTerrain`] builds without
     /// routing roads, so far ground appears sooner. `None` draws canonical
     /// ground everywhere.
     pub provisional_from: Option<u8>,
+    /// Counts the source's region builds, so [`TerrainProgress`] can
+    /// include them; `None` counts chunks only.
+    pub regions: Option<RegionTracker>,
+    /// Draw every chunk from provisional ground first, which a
+    /// [`WorldTerrain`] builds without routing roads, then read the chunks
+    /// below [`provisional_from`](Self::provisional_from) again from
+    /// canonical ground in the background and redraw each when ready. The
+    /// view appears much sooner; near chunks briefly lack their roads.
+    /// `false` waits for each chunk's own stage before drawing anything.
+    pub coarse_first: bool,
 }
 
 impl TerrainStream {
-    /// A stream of `source`'s canonical ground at every level.
+    /// A stream of `source`'s canonical ground at every level, loaded
+    /// coarse first, counting chunks only.
     pub fn new(source: Arc<dyn ChunkSource + Send>) -> Self {
         Self {
             source,
             provisional_from: None,
+            regions: None,
+            coarse_first: true,
+        }
+    }
+
+    /// A stream of `world`'s canonical ground at every level, loaded
+    /// coarse first, with its
+    /// region builds counted in [`TerrainProgress`]. This replaces any
+    /// progress hook `world` had; to keep your own as well, make a
+    /// [`RegionTracker`], call its hook from yours, and set
+    /// [`regions`](Self::regions) yourself.
+    pub fn world(world: WorldTerrain) -> Self {
+        let tracker = RegionTracker::default();
+        let world = world.with_progress(tracker.hook());
+        Self {
+            source: Arc::new(world),
+            provisional_from: None,
+            regions: Some(tracker),
+            coarse_first: true,
         }
     }
 
@@ -183,10 +215,22 @@ impl TerrainStream {
 }
 
 /// How far a [`TerrainStream`] has got. Updated every frame.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub struct TerrainProgress {
+    /// How much of the work wanted now is done, from 0 to 1, for a loading
+    /// bar: the region stages started in the current batch (with
+    /// [`TerrainStream::regions`]) and the chunks wanted, each weighted by
+    /// its usual cost. It can step back when the viewer moves on and more
+    /// work is wanted. 1 once settled.
+    pub fraction: f32,
+    /// The costliest region stage being built, if any: what a loading
+    /// screen can say the terrain is doing.
+    pub stage: Option<RegionStage>,
     /// Chunks drawn.
     pub drawn: usize,
+    /// Drawn chunks still from provisional ground, waiting to be read
+    /// again from canonical ground (see [`TerrainStream::coarse_first`]).
+    pub refining: usize,
     /// Chunks wanted around the viewers now.
     pub wanted: usize,
     /// Chunks being read.
@@ -194,8 +238,8 @@ pub struct TerrainProgress {
     /// Chunks that could not be read since the stream last changed; they
     /// are left as holes.
     pub failed: usize,
-    /// Whether the drawn chunks are the ones wanted and nothing is being
-    /// read.
+    /// Whether the drawn chunks are the ones wanted, each from the ground
+    /// it should have, and nothing is being read.
     pub settled: bool,
 }
 
@@ -411,62 +455,131 @@ fn stream_chunks(
             state.stream.finish(key, generation, read);
         }
 
-        // Start reading the nearest missing chunks.
-        let free = settings.max_reads.saturating_sub(state.stream.reading());
-        for key in state.stream.missing(&flat).into_iter().take(free) {
+        // Start reading the nearest missing chunks: from provisional ground
+        // first when the stream loads coarse first. Only when none is
+        // missing, read drawn provisional chunks again from canonical
+        // ground with the reads left over.
+        let mut free = settings.max_reads.saturating_sub(state.stream.reading());
+        let missing = state.stream.missing(&flat);
+        let wants_canonical = |key: ChunkKey| source.stage(key.level) == ChunkStage::Canonical;
+        let upgrades = state.stream.upgrades(&flat, wants_canonical);
+        let mut reads: Vec<(ChunkKey, ChunkStage)> = Vec::new();
+        for &key in missing.iter().take(free) {
+            let stage = if source.coarse_first {
+                ChunkStage::Provisional
+            } else {
+                source.stage(key.level)
+            };
+            reads.push((key, stage));
+        }
+        free -= reads.len();
+        if missing.is_empty() {
+            reads.extend(
+                upgrades
+                    .iter()
+                    .take(free)
+                    .map(|&k| (k, ChunkStage::Canonical)),
+            );
+        }
+        for (key, stage) in reads {
             state.stream.start(key);
             let ground = Arc::clone(&source.source);
-            let stage = source.stage(key.level);
             let task = AsyncComputeTaskPool::get()
                 .spawn(async move { ChunkSamples::sample(&*ground, key, stage) });
             state.tasks.push((key, state.stream.generation, task));
         }
 
-        // Swap the drawn chunks once the whole new set is read.
+        // Swap the drawn chunks once the whole new set is read; redraw
+        // upgraded chunks one by one. `redraw` removes a chunk's entity and
+        // draws its samples, if any.
+        let mut redraw = |state: &mut StreamState, key, transitions, read: Read| {
+            if let Some(chunk) = state.entities.remove(&key) {
+                commands.entity(chunk).despawn();
+            }
+            let Some(samples) = read else { return };
+            let level = usize::from(key.level).min(materials.0.len() - 1);
+            let chunk = spawn_chunk(
+                &mut commands,
+                &mut meshes,
+                &materials.0[level],
+                entity,
+                &samples.mesh(transitions, skirt_depth(key)),
+            );
+            state.entities.insert(key, chunk);
+        };
         if let Some(swap) = state.stream.swap() {
             for key in swap.remove {
-                if let Some(chunk) = state.entities.remove(&key) {
-                    commands.entity(chunk).despawn();
-                }
+                redraw(state, key, Transitions::NONE, None);
             }
             for (key, transitions, read) in swap.add {
-                let Some(samples) = read else { continue };
-                let mesh = samples.mesh(transitions, skirt_depth(key));
-                let material = &materials.0[usize::from(key.level).min(materials.0.len() - 1)];
-                let origin = mesh.translation().as_vec3();
-                let chunk = commands
-                    .spawn((
-                        TerrainChunk {
-                            key,
-                            transitions,
-                            stage: mesh.stage,
-                        },
-                        Mesh3d(meshes.add(chunk_mesh(&mesh))),
-                        MeshMaterial3d(material.clone()),
-                        Transform::from_translation(origin),
-                        ChildOf(entity),
-                    ))
-                    .id();
-                if let Some(water) = &mesh.water {
-                    commands.spawn((
-                        TerrainWater,
-                        Mesh3d(meshes.add(water_mesh(water))),
-                        Transform::default(),
-                        ChildOf(chunk),
-                    ));
-                }
-                state.entities.insert(key, chunk);
+                redraw(state, key, transitions, read);
             }
         }
+        for (key, transitions, read) in state.stream.take_refreshed() {
+            redraw(state, key, transitions, read);
+        }
 
+        // Region work from the hook, and chunk reads, by their usual cost;
+        // chunks waiting for canonical ground count as not read.
+        let refining = state.stream.upgrades(&flat, wants_canonical).len();
+        let settled = state.stream.is_settled() && refining == 0;
+        let regions = source
+            .regions
+            .as_ref()
+            .map(|r| r.counts())
+            .unwrap_or_default();
+        let wanted = (state.stream.target.len() + refining) as f32 * progress::CHUNK_COST;
+        let read = state.stream.read_in_target() as f32 * progress::CHUNK_COST;
+        let total = regions.total + wanted;
+        let fraction = if settled || total == 0.0 {
+            1.0
+        } else {
+            ((regions.done + read) / total).clamp(0.0, 1.0)
+        };
         *progress = TerrainProgress {
+            fraction,
+            stage: regions.stage(),
             drawn: state.entities.len(),
+            refining,
             wanted: state.stream.target.len(),
             reading: state.stream.reading(),
             failed: state.failed,
-            settled: state.stream.is_settled(),
+            settled,
         };
     }
+}
+
+/// Spawns `mesh` as a chunk of `stream`, with its water as a child, and
+/// returns the chunk entity.
+fn spawn_chunk(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    material: &Handle<TerrainMaterial>,
+    stream: Entity,
+    mesh: &ChunkMesh,
+) -> Entity {
+    let chunk = commands
+        .spawn((
+            TerrainChunk {
+                key: mesh.key,
+                transitions: mesh.transitions,
+                stage: mesh.stage,
+            },
+            Mesh3d(meshes.add(chunk_mesh(mesh))),
+            MeshMaterial3d(material.clone()),
+            Transform::from_translation(mesh.translation().as_vec3()),
+            ChildOf(stream),
+        ))
+        .id();
+    if let Some(water) = &mesh.water {
+        commands.spawn((
+            TerrainWater,
+            Mesh3d(meshes.add(water_mesh(water))),
+            Transform::default(),
+            ChildOf(chunk),
+        ));
+    }
+    chunk
 }
 
 /// Keeps the materials' fade and debug drawing up to date.
@@ -627,6 +740,59 @@ mod tests {
         assert!(keys.contains(&under), "the chunk under the viewer is drawn");
         let unique: std::collections::HashSet<_> = keys.iter().collect();
         assert_eq!(unique.len(), keys.len());
+    }
+
+    #[test]
+    fn progress_counts_region_builds_until_the_terrain_settles() {
+        use procgena_terrain::{
+            Elevation, MIN_EDGE, RegionGraphOptions, WorldTerrain, WorldTerrainOptions,
+        };
+
+        let mut app = app();
+        let options = WorldTerrainOptions {
+            regions: RegionGraphOptions {
+                size: 2000.0,
+                min_edge: MIN_EDGE,
+                ..RegionGraphOptions::default()
+            },
+            ..WorldTerrainOptions::default()
+        };
+        let source = |_: RegionId, _: DVec2, _: &Elevation| TerrainPreset::plains().terrain.clone();
+        let world = WorldTerrain::new(options, Arc::new(source)).unwrap();
+        app.world_mut().spawn(TerrainStream::world(world));
+        app.world_mut()
+            .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)));
+
+        // While regions build, the stage is named and the fraction is
+        // below 1; once settled it is 1.
+        let mut seen: Vec<TerrainProgress> = Vec::new();
+        for _ in 0..20_000 {
+            app.update();
+            std::thread::sleep(Duration::from_millis(2));
+            let mut query = app.world_mut().query::<&TerrainProgress>();
+            let progress = *query.single(app.world()).unwrap();
+            seen.push(progress);
+            if progress.settled && progress.drawn > 0 {
+                break;
+            }
+        }
+        let last = seen.last().unwrap();
+        assert!(last.settled, "the terrain settles");
+        assert_eq!(last.fraction, 1.0);
+        assert_eq!(last.refining, 0);
+        assert!(seen.iter().any(|p| p.stage.is_some() && p.fraction < 1.0));
+
+        // Coarse first: chunks were drawn from provisional ground while
+        // the canonical ground was still being built, and all end
+        // canonical.
+        assert!(seen.iter().any(|p| p.drawn > 0 && p.refining > 0));
+        let mut chunks = app.world_mut().query::<&TerrainChunk>();
+        assert!(
+            chunks
+                .iter(app.world())
+                .all(|c| c.stage == ChunkStage::Canonical)
+        );
+        assert!(seen.iter().all(|p| (0.0..=1.0).contains(&p.fraction)));
     }
 
     #[test]

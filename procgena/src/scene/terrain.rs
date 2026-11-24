@@ -90,8 +90,8 @@ pub(crate) fn replace(commands: &mut Commands, entity: Entity, settings: &Terrai
 /// The stream drawing `world`.
 fn stream(world: WorldTerrain) -> TerrainStream {
     TerrainStream {
-        source: Arc::new(world),
         provisional_from: Some(PROVISIONAL_FROM),
+        ..TerrainStream::world(world)
     }
 }
 

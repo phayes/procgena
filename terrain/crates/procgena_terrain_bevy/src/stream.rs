@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use glam::DVec2;
-use procgena_terrain::{CHUNK_CELLS, ChunkKey, ChunkSamples, ChunkSelection, Transitions};
+use procgena_terrain::{
+    CHUNK_CELLS, ChunkKey, ChunkSamples, ChunkSelection, ChunkStage, Transitions,
+};
 
 /// A chunk's samples, or `None` if it could not be read (it is then drawn
 /// as a hole rather than holding up every other chunk).
@@ -16,7 +18,10 @@ pub(crate) type Read = Option<Arc<ChunkSamples>>;
 ///
 /// The drawn chunks change all at once: a new selection replaces the drawn
 /// one only when every chunk in it has been read, so the drawn chunks
-/// always tile the ground and fit their neighbours.
+/// always tile the ground and fit their neighbours. A drawn chunk read
+/// from provisional ground can then be read again from canonical ground
+/// and replaced on its own ([`upgrades`](Self::upgrades)), since that
+/// changes its heights but not the tiling.
 #[derive(Default)]
 pub(crate) struct Stream {
     /// Counts resets, so reads started before one can be told apart.
@@ -31,6 +36,11 @@ pub(crate) struct Stream {
     samples: HashMap<ChunkKey, Read>,
     /// Chunks being read.
     reading: HashSet<ChunkKey>,
+    /// Drawn chunks whose samples were upgraded, to be redrawn.
+    refreshed: Vec<ChunkKey>,
+    /// Chunks whose canonical read failed; they keep their provisional
+    /// ground and aren't tried again in this generation.
+    no_upgrade: HashSet<ChunkKey>,
 }
 
 /// What to change in the drawn chunks.
@@ -49,6 +59,8 @@ impl Stream {
         self.generation += 1;
         self.samples.clear();
         self.reading.clear();
+        self.refreshed.clear();
+        self.no_upgrade.clear();
     }
 
     /// Wants `target` from now on.
@@ -76,6 +88,14 @@ impl Stream {
         missing.into_iter().map(|(_, key)| key).collect()
     }
 
+    /// How many chunks of the target are read.
+    pub(crate) fn read_in_target(&self) -> usize {
+        self.target
+            .iter()
+            .filter(|(key, _)| self.samples.contains_key(key))
+            .count()
+    }
+
     /// How many chunks are being read.
     pub(crate) fn reading(&self) -> usize {
         self.reading.len()
@@ -94,13 +114,80 @@ impl Stream {
     }
 
     /// Keeps the result of reading `key` in `generation`; a result from an
-    /// earlier generation is dropped.
+    /// earlier generation is dropped. A result for a chunk already read is
+    /// an upgrade: it replaces the samples, and a drawn chunk is queued
+    /// for [`take_refreshed`](Self::take_refreshed). A failed upgrade keeps
+    /// the samples it would have replaced.
     pub(crate) fn finish(&mut self, key: ChunkKey, generation: u64, read: Read) {
         if generation != self.generation {
             return;
         }
         self.reading.remove(&key);
-        self.samples.insert(key, read);
+        match self.samples.get(&key) {
+            Some(Some(_)) if read.is_none() => {
+                self.no_upgrade.insert(key);
+            }
+            Some(Some(_)) => {
+                self.samples.insert(key, read);
+                if self.is_drawn(key) {
+                    self.refreshed.push(key);
+                }
+            }
+            _ => {
+                self.samples.insert(key, read);
+            }
+        }
+    }
+
+    /// Whether `key` is drawn from samples of this generation.
+    fn is_drawn(&self, key: ChunkKey) -> bool {
+        self.drawn_generation == self.generation && self.drawn.get(key).is_some()
+    }
+
+    /// Drawn chunks read from provisional ground that `wants_canonical`
+    /// says should be canonical, and that are not being read, nearest to
+    /// `viewers` first.
+    pub(crate) fn upgrades(
+        &self,
+        viewers: &[DVec2],
+        wants_canonical: impl Fn(ChunkKey) -> bool,
+    ) -> Vec<ChunkKey> {
+        let mut wanted: Vec<(f64, ChunkKey)> = self
+            .drawn
+            .iter()
+            .map(|(key, _)| key)
+            .filter(|&key| {
+                self.is_drawn(key)
+                    && wants_canonical(key)
+                    && !self.reading.contains(&key)
+                    && !self.no_upgrade.contains(&key)
+                    && matches!(
+                        self.samples.get(&key),
+                        Some(Some(s)) if s.stage() == ChunkStage::Provisional
+                    )
+            })
+            .map(|key| {
+                let d = viewers
+                    .iter()
+                    .map(|&v| key.distance_to(v))
+                    .fold(f64::INFINITY, f64::min);
+                (d, key)
+            })
+            .collect();
+        wanted.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        wanted.into_iter().map(|(_, key)| key).collect()
+    }
+
+    /// The drawn chunks upgraded since the last call, with their
+    /// transitions and new samples, to redraw one by one.
+    pub(crate) fn take_refreshed(&mut self) -> Vec<(ChunkKey, Transitions, Read)> {
+        std::mem::take(&mut self.refreshed)
+            .into_iter()
+            .filter_map(|key| {
+                let transitions = self.drawn.get(key).filter(|_| self.is_drawn(key))?;
+                Some((key, transitions, self.samples.get(&key)?.clone()))
+            })
+            .collect()
     }
 
     /// The changes that draw the target, once every chunk of it is read;
@@ -180,6 +267,73 @@ mod tests {
             let generation = stream.generation;
             stream.finish(key, generation, None);
         }
+    }
+
+    /// Flat ground at height 1 from provisional reads and 2 from canonical
+    /// ones.
+    struct TwoStages;
+
+    impl procgena_terrain::ChunkSource for TwoStages {
+        fn surface(&self, _: DVec2, stage: ChunkStage) -> procgena_terrain::SurfacePoint {
+            procgena_terrain::SurfacePoint {
+                height: if stage == ChunkStage::Canonical {
+                    2.0
+                } else {
+                    1.0
+                },
+                water: None,
+            }
+        }
+
+        fn stage(&self, stage: ChunkStage) -> ChunkStage {
+            stage
+        }
+    }
+
+    /// Reads `key` from [`TwoStages`] at `stage` and finishes it.
+    fn read(stream: &mut Stream, key: ChunkKey, stage: ChunkStage) {
+        stream.start(key);
+        let samples = ChunkSamples::sample(&TwoStages, key, stage).unwrap();
+        let generation = stream.generation;
+        stream.finish(key, generation, Some(Arc::new(samples)));
+    }
+
+    #[test]
+    fn provisional_chunks_are_drawn_then_upgraded_one_by_one() {
+        let mut stream = Stream::default();
+        stream.retarget(select(0.0, None));
+        for key in stream.missing(&[DVec2::ZERO]) {
+            read(&mut stream, key, ChunkStage::Provisional);
+        }
+        assert!(stream.swap().is_some());
+
+        // Only chunks wanted canonical are upgraded, nearest first.
+        let fine = |key: ChunkKey| key.level == 0;
+        let upgrades = stream.upgrades(&[DVec2::ZERO], fine);
+        let level_0 = stream.drawn.iter().filter(|(k, _)| k.level == 0).count();
+        assert_eq!(upgrades.len(), level_0);
+        assert!(upgrades.len() < stream.drawn.len());
+
+        // An upgraded chunk is redrawn alone, with canonical ground; a
+        // failed upgrade keeps the provisional ground and isn't retried.
+        read(&mut stream, upgrades[0], ChunkStage::Canonical);
+        stream.start(upgrades[1]);
+        let generation = stream.generation;
+        stream.finish(upgrades[1], generation, None);
+        let refreshed = stream.take_refreshed();
+        assert_eq!(refreshed.len(), 1);
+        let (key, transitions, samples) = &refreshed[0];
+        assert_eq!(*key, upgrades[0]);
+        assert_eq!(stream.drawn.get(*key), Some(*transitions));
+        let samples = samples.as_ref().unwrap();
+        assert_eq!(samples.stage(), ChunkStage::Canonical);
+        assert_eq!(samples.vertex(3, 3).height, 2.0);
+        let left = stream.upgrades(&[DVec2::ZERO], fine);
+        assert_eq!(left.len(), upgrades.len() - 2);
+        assert!(!left.contains(&upgrades[0]) && !left.contains(&upgrades[1]));
+        assert!(stream.take_refreshed().is_empty());
+        // Upgrades don't change the tiling.
+        assert!(stream.swap().is_none());
     }
 
     #[test]

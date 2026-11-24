@@ -4,15 +4,15 @@
 mod common;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use common::{DEFAULT, RIVER_SEEDS, hills_into_plains};
 use glam::{DVec2, DVec3};
 use procgena_core::{Lod, LodLevel};
 use procgena_terrain::{
     CHUNK_CELLS, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide, ChunkSource,
-    ChunkStage, EdgeAgreement, Elevation, RegionGraphOptions, RegionId, Terrain, TerrainPreset,
-    Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod,
+    ChunkStage, EdgeAgreement, Elevation, RegionGraphOptions, RegionId, RegionProgress,
+    RegionStage, Terrain, TerrainPreset, Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
@@ -427,12 +427,64 @@ fn a_world_gives_provisional_and_canonical_chunks() {
         ..WorldTerrainOptions::default()
     };
     let source = |_: RegionId, _: DVec2, _: &Elevation| TerrainPreset::plains().terrain.clone();
-    let world = WorldTerrain::new(options, Arc::new(source)).unwrap();
+    let told: Arc<Mutex<Vec<RegionProgress>>> = Arc::default();
+    let hook = {
+        let told = Arc::clone(&told);
+        Arc::new(move |p: &RegionProgress| told.lock().unwrap().push(*p))
+    };
+    let world = WorldTerrain::new(options, Arc::new(source))
+        .unwrap()
+        .with_progress(hook);
 
     let p = DVec2::new(100.0, -50.0);
     let region = world.region_at(p);
     let provisional = world.provisional_terrain(region).unwrap();
+
+    // Building the ground without roads planned the region and every
+    // region round it, and built only this region's ground.
+    let after_ground = told.lock().unwrap().clone();
+    let finished = |events: &[RegionProgress], stage| -> Vec<RegionId> {
+        events
+            .iter()
+            .filter_map(|e| match *e {
+                RegionProgress::Finished {
+                    region,
+                    stage: s,
+                    built,
+                    ..
+                } if s == stage => {
+                    assert!(built);
+                    Some(region)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let planned = finished(&after_ground, RegionStage::Plan);
+    assert!(
+        planned.contains(&region) && planned.len() > 3,
+        "{planned:?}"
+    );
+    assert_eq!(finished(&after_ground, RegionStage::Ground), vec![region]);
+    assert!(finished(&after_ground, RegionStage::Roads).is_empty());
+    // Every stage that started also finished, after it started.
+    for (i, e) in after_ground.iter().enumerate() {
+        if let RegionProgress::Started { region, stage } = *e {
+            assert!(after_ground[i..].iter().any(|later| matches!(
+                *later,
+                RegionProgress::Finished { region: r, stage: s, .. } if r == region && s == stage
+            )));
+        }
+    }
+
+    // The full terrain adds only the roads; nothing is built twice.
     let canonical = world.terrain(region).unwrap();
+    let all = told.lock().unwrap().clone();
+    assert_eq!(
+        finished(&all[after_ground.len()..], RegionStage::Roads),
+        vec![region]
+    );
+    assert_eq!(all.len(), after_ground.len() + 2);
     assert!(!provisional.has_roads() && canonical.has_roads());
     assert_eq!(provisional.rivers(), canonical.rivers());
 
