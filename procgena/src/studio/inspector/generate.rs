@@ -177,9 +177,12 @@ where
         }
         ControlKind::Color => vec![color(key, label, path.clone())],
         ControlKind::Ref(_) => Vec::new(),
+        // A setting `value` lacks (such as one of a variant not in use) is a
+        // number when its entry has a range, so it is ready when it appears.
         ControlKind::FromValue => match current {
             Value::Bool(_) => vec![toggle(key, label, path.clone())],
-            Value::Number(_) | Value::Null if meta.optional.is_some() || current.is_number() => {
+            Value::Number(_) => number_params(key, label, path, meta, index, value),
+            Value::Null if meta.optional.is_some() || meta.range.is_some() => {
                 number_params(key, label, path, meta, index, value)
             }
             _ => Vec::new(),

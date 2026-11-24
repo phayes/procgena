@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::*;
 use crate::params::checks::{self, variants};
-use crate::params::{Param, Section};
+use crate::params::{Control, Param, Section};
 
 /// Every setting of `sections`, in display order.
 fn params_of<T>(sections: Vec<Section<T>>) -> Vec<Param<T>> {
@@ -64,6 +64,8 @@ where
     };
     checks::range_ends_are_valid(&params, &end_cases, |s| P::check(s.options()));
     checks::cases_fit_the_controls(&params, &cases);
+    checks::settings_follow_what_shows_them(&params, &cases);
+    checks::no_setting_hides_itself(&params, &cases);
     for param in &params {
         let mut shown = cases
             .iter()
@@ -362,6 +364,157 @@ fn measure_one_tree_edit() {
     }
     let each = start.elapsed() / steps;
     println!("one tree edit takes {each:?}");
+}
+
+/// The setting with key `key` among `params`.
+fn param<'a, T>(params: &'a [Param<T>], key: &str) -> &'a Param<T> {
+    params
+        .iter()
+        .find(|p| p.key == key)
+        .unwrap_or_else(|| panic!("no setting {key}"))
+}
+
+#[test]
+fn a_trees_fruit_settings_appear_once_it_grows_fruit() {
+    use procgena_tree::TreeOptions;
+
+    // Oak Medium grows no fruit, yet its panel has the fruit settings.
+    let tree = Settings::new(procgena_tree::TreePreset::oak_medium().tree.clone());
+    assert!(tree.options().fruit.is_none());
+    let params = params_of(sections::<TreeOptions>(
+        &crate::tree::META,
+        tree.value(),
+        &crate::tree::custom,
+    ));
+    let count = param(&params, "fruit.placement.count");
+    assert!(!count.is_shown(&tree));
+
+    // Picking a fruit preset shows them, ready to edit.
+    let Control::Choice { set, .. } = &param(&params, "fruit").control else {
+        panic!("the fruit picker is a choice");
+    };
+    let mut fruiting = tree.clone();
+    set(&mut fruiting, 1);
+    assert!(fruiting.options().fruit.is_some());
+    assert!(count.is_shown(&fruiting));
+    let Control::Number { set, get, .. } = &count.control else {
+        panic!("the cluster count is a number");
+    };
+    set(&mut fruiting, 5.0);
+    assert_eq!(get(&fruiting), 5.0);
+    assert_eq!(
+        fruiting.options().fruit.as_ref().unwrap().placement.count,
+        5
+    );
+}
+
+#[test]
+fn an_end_shapes_settings_appear_once_it_is_chosen() {
+    use procgena_deadwood::{DeadwoodOptions, EndKind};
+
+    // A log sawn at its base has no chainsaw step yet.
+    let mut options = DeadwoodOptions::default();
+    options.ends.base = EndKind::Saw { tilt: 0.0 };
+    let log = Settings::new(options);
+    let params = params_of(sections::<DeadwoodOptions>(
+        &crate::deadwood::META,
+        log.value(),
+        &|_, _| Vec::new(),
+    ));
+    let step = param(&params, "ends.base.step");
+    assert!(!step.is_shown(&log));
+
+    // Choosing the chainsaw cut shows its step, and every shape can be
+    // chosen.
+    let Control::Choice { set, options, .. } = &param(&params, "ends.base").control else {
+        panic!("the end shape is a choice");
+    };
+    let chainsaw = options.iter().position(|o| *o == "Chainsaw Cut").unwrap();
+    let mut cut = log.clone();
+    set(&mut cut, chainsaw);
+    assert!(matches!(cut.options().ends.base, EndKind::Chainsaw { .. }));
+    assert!(step.is_shown(&cut));
+    for index in 0..options.len() {
+        let mut shaped = log.clone();
+        set(&mut shaped, index);
+        assert_ne!(shaped.value(), &serde_json::Value::Null);
+    }
+}
+
+#[test]
+fn colours_survive_the_picker_in_every_form() {
+    let mut settings = Settings::new(procgena_mushroom::MushroomOptions::default());
+    let params = params_of(sections::<procgena_mushroom::MushroomOptions>(
+        &crate::mushrooms::META,
+        settings.value(),
+        &|_, _| Vec::new(),
+    ));
+    // "#rrggbb" text, as mushrooms write colours.
+    let Control::Color { set, get } = &param(&params, "material.cap_centre").control else {
+        panic!("the cap colour is a colour");
+    };
+    set(&mut settings, 0x12_3456);
+    assert_eq!(get(&settings), 0x12_3456);
+    assert_eq!(settings.options().material.cap_centre, "#123456");
+
+    // Linear RGB numbers, as stones write colours.
+    let mut stone = Settings::new(procgena_stone::StoneOptions::default());
+    let params = params_of(sections::<procgena_stone::StoneOptions>(
+        &crate::stones::META,
+        stone.value(),
+        &|_, _| Vec::new(),
+    ));
+    let Control::Color { set, get } = &param(&params, "material.color").control else {
+        panic!("the stone tint is a colour");
+    };
+    set(&mut stone, 0xfe_dcba);
+    assert_eq!(get(&stone), 0xfe_dcba);
+}
+
+/// Each species of each tree Scatter preset, named by its place.
+fn shares() -> Vec<(String, Settings<procgena_tree::ScatterTree>)> {
+    procgena_tree::TreeScatterPreset::all()
+        .flat_map(|preset| {
+            preset
+                .tree_scatter
+                .trees
+                .iter()
+                .enumerate()
+                .map(|(i, tree)| {
+                    (
+                        format!("{}.trees.{i}", preset.key),
+                        Settings::new(tree.clone()),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[test]
+fn every_species_share_fits_its_controls_and_every_end_is_valid() {
+    let shares = shares();
+    let species = crate::grove::META
+        .meta
+        .sections
+        .iter()
+        .flat_map(|section| &section.groups)
+        .find(|group| group.custom.as_deref() == Some("species_list"))
+        .unwrap();
+    let params = item_params::<procgena_tree::ScatterTree>(
+        &crate::grove::META,
+        species,
+        &SettingPath::parse("trees.0"),
+        shares[0].1.value(),
+    );
+    checks::keys_are_unique(&params);
+    checks::cases_fit_the_controls(&params, &shares);
+    // A species' share is checked in a Scatter holding only that species.
+    checks::range_ends_are_valid(&params, &shares, |share| {
+        procgena_tree::TreeScatter::new(vec![share.options().clone()])
+            .validate()
+            .map_err(|error| error.to_string())
+    });
 }
 
 #[test]

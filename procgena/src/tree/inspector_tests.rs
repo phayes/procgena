@@ -368,6 +368,17 @@ fn no_setting_hides_itself() {
 }
 
 #[test]
+fn a_tree_without_fruit_still_has_its_fruit_and_flower_settings() {
+    // The settings come from a tree with neither, so the range-end and
+    // hidden-setting tests above reach these too.
+    assert!(TreeOptions::default().fruit.is_none());
+    let keys: Vec<String> = all_params().into_iter().map(|p| p.key).collect();
+    for key in ["fruit.placement.count", "flowers.default_slots"] {
+        assert!(keys.iter().any(|k| k == key), "no setting {key}");
+    }
+}
+
+#[test]
 fn every_tree_part_has_settings_and_every_setting_a_part() {
     let params = all_params();
     for (key, _) in &META.meta.parts {

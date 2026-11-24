@@ -151,22 +151,25 @@ struct PartChipsAdded;
 pub struct NestedPanel;
 
 /// Sends the edits a panel recorded as one [`InspectorEdited`], naming the
-/// document whose page holds the panel. Nested panels report nothing.
+/// document whose page holds the panel. Nested panels' edits are dropped.
 fn report_edits<T>(
     changed: On<ParamsChanged>,
-    mut panels: Query<&mut ParamPanel<Settings<T>>, Without<NestedPanel>>,
+    mut panels: Query<(&mut ParamPanel<Settings<T>>, Has<NestedPanel>)>,
     parents: Query<&ChildOf>,
     documents: Query<(Entity, &Document)>,
     mut commands: Commands,
 ) where
     T: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + 'static,
 {
-    let Ok(mut panel) = panels.get_mut(changed.entity) else {
+    let Ok((mut panel, nested)) = panels.get_mut(changed.entity) else {
         return;
     };
     let mut settings = panel.value().clone();
     let edits = settings.take_edits();
     panel.set_value(settings);
+    if nested {
+        return;
+    }
     let pages: Vec<Entity> = parents.iter_ancestors(changed.entity).collect();
     let document = documents
         .iter()
