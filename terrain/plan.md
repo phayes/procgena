@@ -1805,8 +1805,10 @@ touch separate modules.
 [features_plan_review.md](features_plan_review.md)) add two steps at the
 start of G3, before Phase 3's landforms and before Phase 4:
 
-1. Rivers, roads and ponds become one feature type with one index, with
-   every feature test result unchanged.
+1. Rivers, roads and ponds become one feature type with one index. Their
+   results may change where the new structure makes that simpler (the
+   repo is early); any test whose expected values move is reported and
+   re-checked for its intent, never loosened.
 2. Planning is split into stages that are cached on their own, with
    stable feature ids, one batched sample path, and cold and warm
    benchmarks, so a far view needs relief and seam offers but not inland

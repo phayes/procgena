@@ -1502,8 +1502,8 @@ it starts.
 - [ ] **WorldTerrain**: grow the terrain crate's reference stitcher into the
   level that runs the seam protocol over a whole region graph, with the
   region graph, E and a terrain source.
-- [ ] **Terrain features**: one feature type for rivers, roads and ponds
-  with unchanged results, then staged and separately cached planning with
+- [ ] **Terrain features**: one feature type for rivers, roads and ponds,
+  then staged and separately cached planning with
   benchmarks, then cliffs and landforms (see
   [terrain/features_plan_review.md](terrain/features_plan_review.md) for
   the steps and the open points). Feature seeds follow "Seeds": 32-bit,

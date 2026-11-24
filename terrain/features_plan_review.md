@@ -33,7 +33,7 @@ documents link to it.
 
 | Proposal step | What it is | Terrain phase today | Milestone | Waits on |
 |---|---|---|---|---|
-| 1. Behaviour-preserving extraction | One feature type for rivers, roads and ponds, with their index; every feature test result unchanged | New | G3, first | Nothing |
+| 1. Feature extraction | One feature type for rivers, roads and ponds, with their index; results may move, each moved test reported | New | G3, first | Nothing |
 | 2. Planning and evaluation split | Stable feature ids, planning stages cached on their own, one batched sample path (height, gradient, water, labels), cold and warm benchmarks, coarse relief without inland road routing | New | G3, second; meets G2 and G4 (see below) | Step 1 |
 | 3. First structural features | Plateau and mesa landforms and a cliff profile, heightfield only, with labels and protected corridors | Phase 3 ("landforms") | G3 | Step 2 |
 | 4. Heightfield realization and LOD | Regular chunk meshes, coarse vistas, canonical versus provisional | Phase 7, if Conflict 1 goes that way | G6 | Phase 5 (labels split meshes) |
@@ -187,17 +187,19 @@ migration" and to "avoid changing serialization or seeds without a
 deliberate compatibility decision" (its sections 6 and 11). The workspace
 rule is that no change keeps compatibility unless the user asks, and F3 is
 already renaming the terrain's `seed` and turning its presets into
-structs. So the rule stands. What survives from the proposal is a
-behaviour test: step 1 must leave every feature fixture and test result
-unchanged. It isn't a promise about the API.
+structs. So the rule stands. Step 1 doesn't have to keep results
+unchanged either (user, 2026-11-24: the repo is early): results may move
+where the new structure makes that simpler, as long as each moved test is
+reported and its intent kept.
 
 ## Gaps
 
-- **Gap 1. Height where a rock mesh stands.** A rock mesh that isn't part
-  of `height(x, z)` breaks two rules: placement samples the true ground
-  ("Placement does not depend on distance"), and nothing stands inside a
-  boulder (story 3). Every mesh a feature adds must also change the
-  terrain's own height, or at least its labels, over its footprint.
+- **Gap 1. Labels where a rock mesh stands.** Nothing may stand inside a
+  boulder (story 3). The answer is annotation: every mesh a feature adds
+  labels and segments the ground over its footprint, so placement knows
+  the spot is taken. Changing `height(x, z)` there is optional, chosen
+  per feature for how it looks and how things stand next to it. How the
+  label reaches the Scatters exactly enough is Gap 3.
 - **Gap 2. Slope for every operator.** G2 (`Terrain` as `Ground`) needs
   an analytic gradient through relief, border bending and carving. Each
   new height operator (raise, flatten, terrace, cliff profile) needs one
