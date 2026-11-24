@@ -314,7 +314,7 @@ mod tests {
     fn scatter_trees_key_their_impostors_by_their_real_specimens() {
         bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
         let settings = settings(&[(0.0, 0.0)], Some(default_tree_impostor()));
-        let species = procgena_tree::ScatterTree::new(&procgena_tree::TreePreset::oak_small());
+        let species = procgena_tree::ScatterTree::new(procgena_tree::TreePreset::oak_small());
         let mut cache = TreeCache::default();
 
         let options = std::sync::Arc::new(species.variant(2));
