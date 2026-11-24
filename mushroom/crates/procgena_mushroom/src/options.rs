@@ -41,6 +41,10 @@ pub struct MushroomOptions {
     /// positions, the annulus's ragged edge, and where the members of a
     /// cluster stand. The same seed and settings always give the same
     /// mushroom; change it for a variation.
+    ///
+    /// The seed is not used directly: it stands in for the World seed of
+    /// the mushroom's [`specimen_id`](Self::specimen_id), which seeds the
+    /// shape. It is left out of the options hash.
     pub seed: u32,
     /// Cap diameter in metres. Must be positive. Defaults to 0.08 (8 cm).
     pub size: f32,

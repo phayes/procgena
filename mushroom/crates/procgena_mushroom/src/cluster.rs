@@ -4,11 +4,13 @@
 use std::f32::consts::TAU;
 
 use glam::{Affine3A, Quat, Vec3};
+use procgena_core::hash::{derive_seed, seed_for};
+use procgena_core::{Rng, SpecimenId};
 use serde::{Deserialize, Serialize};
 
 use crate::mushroom::MushroomBody;
 use crate::options::{MushroomOptions, OptionsError, int_range, within};
-use crate::rng::Rng;
+use crate::rng::{CLUSTER_BODY, CLUSTER_LAYOUT, CLUSTER_VARIATION, RngExt};
 
 /// Largest allowed [`ClusterOptions::stems`].
 pub const MAX_STEMS: u32 = 64;
@@ -19,11 +21,6 @@ const SLIDE_STEPS: u32 = 24;
 /// Furthest a member slides from its starting point, in cap radii of the
 /// first variant at full size.
 const SLIDE_RANGE: f32 = 5.0;
-
-/// Random-number stream for the variants' differences.
-const STREAM_VARIANTS: u32 = 11;
-/// Random-number stream for member sizes and placement.
-const STREAM_LAYOUT: u32 = 12;
 
 /// How the mushrooms of a cluster are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -168,28 +165,35 @@ impl MushroomInstance {
     }
 }
 
-/// Makes `count` variations of `base`, each a single mushroom with its own
-/// seed; all but the first also vary stem and cap height a little. `salt`
-/// changes which variations are made, so different groups of the same
-/// species differ.
+/// Returns the seed of body `index` of the specimen seeded with
+/// `specimen_seed`.
+pub(crate) fn body_seed(specimen_seed: u32, index: u32) -> u32 {
+    derive_seed(seed_for(specimen_seed, CLUSTER_BODY), index)
+}
+
+/// Makes the first `count` bodies of cluster specimen `specimen`, grown
+/// from `base`: single mushrooms, each seeded from the specimen and its
+/// index; all but the first also vary stem and cap height a little. A body's
+/// shape depends only on `base`, `specimen` and its index, never on `count`.
 ///
-/// With `cluster.sweep` above 0, every variant's stem leans by about
-/// `sweep` times its height toward +X, so [`arrange`] can turn it to face
-/// away from the cluster's centre. Otherwise each keeps `base`'s lean, in a
-/// random direction.
-pub(crate) fn make_variants(
+/// With `cluster.sweep` above 0, every body's stem leans by about `sweep`
+/// times its height toward +X, so [`arrange`] can turn it to face away from
+/// the cluster's centre. Otherwise each keeps `base`'s lean, in a random
+/// direction.
+pub(crate) fn make_bodies(
     base: &MushroomOptions,
+    specimen: SpecimenId,
     count: u32,
-    salt: u32,
 ) -> Result<Vec<MushroomBody>, OptionsError> {
     base.validate()?;
     let sweep = base.cluster.sweep;
-    let mut rng = Rng::new(base.seed ^ salt, STREAM_VARIANTS);
+    let specimen_seed = specimen.seed();
     (0..count)
         .map(|i| {
             let mut o = base.clone();
             o.cluster = ClusterOptions::default();
-            o.seed = base.seed.wrapping_add(i.wrapping_mul(0x9e37_79b9) ^ salt);
+            o.seed = body_seed(specimen_seed, i);
+            let mut rng = Rng::new(seed_for(o.seed, CLUSTER_VARIATION));
             if i > 0 {
                 o.stem.height *= rng.jitter(0.2);
                 o.cap.height *= rng.jitter(0.1);
@@ -203,7 +207,7 @@ pub(crate) fn make_variants(
                 o.stem.lean = (sweep * amount).min(1.0);
                 o.stem.lean_direction = 0.0;
             }
-            MushroomBody::new(o)
+            MushroomBody::new(o, specimen, i)
         })
         .collect()
 }
@@ -263,7 +267,8 @@ fn segment_distance(p: Vec3, s: [Vec3; 2]) -> f32 {
 
 /// Places the members of a cluster of `variants` with settings `o` and
 /// returns them, relative to the cluster's centre on the ground. `seed`
-/// picks the sizes and positions, and `variants` must not be empty.
+/// picks the sizes and positions (through the cluster-layout seed key), and
+/// `variants` must not be empty.
 ///
 /// Each member starts near the centre, at its place in a row, or on the
 /// fairy ring, and slides outward until its stand-in clears the members
@@ -273,7 +278,7 @@ pub(crate) fn arrange(
     o: &ClusterOptions,
     seed: u32,
 ) -> Vec<MushroomInstance> {
-    let mut rng = Rng::new(seed, STREAM_LAYOUT);
+    let mut rng = Rng::new(seed_for(seed, CLUSTER_LAYOUT));
     let count = o.stems;
     let reach = variants[0].cap_radius();
     let gap = variants[0].cap_radius() * o.spacing;

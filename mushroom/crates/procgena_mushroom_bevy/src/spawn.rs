@@ -12,6 +12,7 @@ use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
+use procgena_core::{ContentHasher, SpecimenId};
 use procgena_mushroom::{
     BodyShape, DEFAULT_LOD_SIZE, Mushroom, MushroomBody, MushroomError, MushroomInstance,
     MushroomLod, MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError,
@@ -288,11 +289,15 @@ struct Built {
     specimen: Option<Specimen>,
 }
 
+/// Names one body: the specimen it belongs to and its index there. Every
+/// body is meshed at the plugin's detail levels, which never change while
+/// the app runs, so bodies with equal keys share uploaded meshes.
+type BodyKey = (SpecimenId, u32);
+
 /// One variant's meshes, one per detail level.
 struct BuiltVariant {
-    /// The options and detail levels as JSON. Variants with the same key
-    /// share uploaded meshes.
-    key: String,
+    /// Which body this is.
+    key: BodyKey,
     /// The variant's options.
     options: MushroomOptions,
     /// Detail levels scaled for the variant's size.
@@ -336,10 +341,11 @@ struct LevelAssets {
 #[derive(Resource, Default)]
 pub(crate) struct MushroomCache {
     /// Variants by [`BuiltVariant::key`].
-    variants: HashMap<String, Arc<VariantAssets>>,
-    /// Materials by material settings (as JSON), two-sidedness, and whether
-    /// they draw vertex colours only (for billboard levels).
-    materials: HashMap<(String, bool, bool), Handle<MushroomMaterial>>,
+    variants: HashMap<BodyKey, Arc<VariantAssets>>,
+    /// Materials by the content hash of their settings (see
+    /// [`material_hash`]), two-sidedness, and whether they draw vertex
+    /// colours only (for billboard levels).
+    materials: HashMap<(u64, bool, bool), Handle<MushroomMaterial>>,
     /// Cap and stem texture images by part and set name, kept for reuse.
     texture_sets: HashMap<(TexturePart, String), TextureSet>,
 }
@@ -589,13 +595,8 @@ fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant,
             plain: level.detail.shape == BodyShape::Billboard,
         })
         .collect();
-    let key = format!(
-        "{}{}",
-        options.to_json(),
-        serde_json::to_string(&lod).unwrap_or_default()
-    );
     Ok(BuiltVariant {
-        key,
+        key: (body.specimen(), body.index()),
         options,
         lod,
         levels,
@@ -744,23 +745,12 @@ fn upload(
     let cap = texture_set(TexturePart::Cap, &m.cap_texture);
     let stem = texture_set(TexturePart::Stem, &m.stem_texture);
 
-    // Materials depend on the material settings, the size, the stem's width
-    // (for flat stems), and the warts and cap outline (for warts).
     let o = &variant.options;
-    let material_json = serde_json::to_string(&(
-        m,
-        o.size,
-        o.stem.radius,
-        o.stem.base,
-        &o.warts,
-        o.cap.family,
-        o.cap.height,
-    ))
-    .unwrap_or_default();
+    let material_key = material_hash(o);
     let mut material = |double_sided: bool, plain: bool| {
         cache
             .materials
-            .entry((material_json.clone(), double_sided, plain))
+            .entry((material_key, double_sided, plain))
             .or_insert_with(|| {
                 materials.add(if plain {
                     billboard_material(o)
@@ -788,6 +778,22 @@ fn upload(
     });
     cache.variants.insert(variant.key, assets.clone());
     assets
+}
+
+/// Returns the content hash of every setting in `o` that a mushroom's
+/// materials depend on: the material settings, the size, the stem's width
+/// (for flat stems), and the warts and cap outline (for warts). Mushrooms
+/// with equal hashes share materials.
+fn material_hash(o: &MushroomOptions) -> u64 {
+    let mut h = ContentHasher::new();
+    h.write(&o.material);
+    h.write(&o.size);
+    h.write(&o.stem.radius);
+    h.write(&o.stem.base);
+    h.write(&o.warts);
+    h.write(&o.cap.family);
+    h.write(&o.cap.height);
+    h.finish()
 }
 
 /// Returns the distance band to show each level of `lod` in. Neighbouring

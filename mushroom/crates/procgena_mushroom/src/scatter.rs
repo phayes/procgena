@@ -5,22 +5,21 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
+use procgena_core::Rng;
+use procgena_core::hash::{derive_seed, seed_for};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 
-use crate::cluster::{MushroomInstance, arrange, make_variants};
+use crate::cluster::{MushroomInstance, arrange, make_bodies};
 use crate::detail::MushroomLod;
 use crate::mesh::{MushroomMesh, combine};
 use crate::mushroom::MushroomBody;
 use crate::options::{MushroomOptions, OptionsError, non_negative, positive, within};
-use crate::rng::Rng;
+use crate::rng::{RngExt, SCATTER_CLUSTER, SCATTER_SITES};
 use crate::specimen::specimen_from_meshes;
 
 /// The most growing spots a scatter makes, however large the surface or
 /// high the density.
 pub const MAX_SITES: u32 = 20_000;
-
-/// Random-number stream for growing spots, sizes and turns.
-const STREAM_SITES: u32 = 21;
 
 /// Settings for [`MushroomScatter::on`].
 ///
@@ -28,8 +27,12 @@ const STREAM_SITES: u32 = 21;
 /// generators.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScatterOptions {
-    /// Number that picks the growing spots, sizes and turns. The same seed,
-    /// settings and host always give the same scatter.
+    /// Number that picks the growing spots, sizes, turns, which variant
+    /// grows at each spot, and how each spot's cluster is laid out. The
+    /// variants themselves come from the mushroom's own
+    /// [`seed`](MushroomOptions::seed), so scatters with different seeds
+    /// share them. The same seeds, settings and host always give the same
+    /// scatter.
     pub seed: u32,
     /// Which parts of the host mushrooms grow on, chosen by their tags, such
     /// as ground or rock; see [`procgena_specimen::tags`].
@@ -167,7 +170,11 @@ impl MushroomScatter {
     /// when [`ClusterOptions::stems`](crate::ClusterOptions::stems) is more
     /// than one. Every spot gets its own variations, picked from
     /// [`ClusterOptions::variants`](crate::ClusterOptions::variants)
-    /// different bodies.
+    /// different bodies. For a single mushroom these are the first
+    /// specimens of the mushroom's pool
+    /// ([`MushroomOptions::specimen_id`] slots 0, 1, …); for a cluster they
+    /// are the bodies of its specimen 0, the same ones [`crate::Mushroom::new`]
+    /// makes.
     ///
     /// Mushrooms grow only on the parts of the host's most detailed level
     /// that [`ScatterOptions::grows_on`] picks, and only where the surface is
@@ -191,8 +198,15 @@ impl MushroomScatter {
         options: &ScatterOptions,
     ) -> Result<Self, ScatterError> {
         options.validate()?;
+        mushroom.validate()?;
         let cluster = &mushroom.cluster;
-        let bodies = make_variants(mushroom, cluster.variants, options.seed)?;
+        let bodies = if cluster.stems == 1 {
+            (0..cluster.variants)
+                .map(|slot| MushroomBody::single(mushroom, mushroom.specimen_id(slot)))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            make_bodies(mushroom, mushroom.specimen_id(0), cluster.variants)?
+        };
         let part = host
             .merged(0, &options.grows_on)
             .ok_or(ScatterError::NoSurface)?;
@@ -223,7 +237,8 @@ impl MushroomScatter {
         // Try random spots and keep those far enough from earlier ones. A
         // grid of cells, each `min_spacing` wide, means only nearby spots
         // need checking.
-        let mut rng = Rng::new(options.seed, STREAM_SITES);
+        let mut rng = Rng::new(seed_for(options.seed, SCATTER_SITES));
+        let cluster_seeds = seed_for(options.seed, SCATTER_CLUSTER);
         let wanted = ((options.density * total).round() as u32).min(MAX_SITES);
         let cell = options.min_spacing.max(1e-4);
         let mut grid: HashMap<[i32; 3], Vec<Vec3>> = HashMap::new();
@@ -295,8 +310,7 @@ impl MushroomScatter {
 
             // A cluster around the spot, each member dropped onto the
             // surface and sunk a little into it.
-            let seed = options.seed ^ sites.wrapping_mul(0x85eb_ca6b);
-            for member in arrange(&bodies, cluster, seed) {
+            for member in arrange(&bodies, cluster, derive_seed(cluster_seeds, sites)) {
                 let planned = point + rotation * (member.translation * scale);
                 let Some(ground) = columns.drop(planned) else {
                     continue;

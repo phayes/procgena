@@ -5420,6 +5420,7 @@ dependencies = [
  "glam 0.33.12",
  "gltf",
  "gltf-json",
+ "procgena_core",
  "procgena_specimen",
  "serde",
  "serde_json",
@@ -5430,9 +5431,9 @@ name = "procgena_mushroom_bevy"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "procgena_core",
  "procgena_mushroom",
  "procgena_specimen",
- "serde_json",
 ]
 
 [[package]]

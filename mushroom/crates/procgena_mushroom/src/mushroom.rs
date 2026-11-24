@@ -4,8 +4,9 @@
 use std::fmt;
 
 use glam::{Affine3A, Vec3};
+use procgena_core::SpecimenId;
 
-use crate::cluster::{ClusterOptions, MushroomInstance, arrange, make_variants};
+use crate::cluster::{ClusterOptions, MushroomInstance, arrange, body_seed, make_bodies};
 use crate::colour::Palette;
 use crate::detail::{LodLevel, MushroomDetail, MushroomLod};
 use crate::mesh::{MushroomMesh, build, combine};
@@ -42,6 +43,7 @@ use crate::shape::Shape;
 #[derive(Debug, Clone)]
 pub struct Mushroom {
     options: MushroomOptions,
+    id: SpecimenId,
     bodies: Vec<MushroomBody>,
     members: Vec<MushroomInstance>,
 }
@@ -52,9 +54,15 @@ pub struct Mushroom {
 /// Its options are the [`Mushroom`]'s, with this body's own seed, small
 /// differences in height, and a single stem. It stands on the ground at the
 /// origin, growing up the +Y axis, in metres.
+///
+/// A body is named by the specimen it belongs to and its index there:
+/// bodies with the same [`specimen`](Self::specimen) and
+/// [`index`](Self::index) are identical.
 #[derive(Debug, Clone)]
 pub struct MushroomBody {
     options: MushroomOptions,
+    specimen: SpecimenId,
+    index: u32,
     shape: Shape,
 }
 
@@ -88,22 +96,22 @@ impl std::error::Error for MushroomError {
 
 impl Mushroom {
     /// Creates a mushroom, or a cluster, from `options`, after checking
-    /// them.
+    /// them. It is specimen 0 of the options' pool, with
+    /// [`MushroomOptions::seed`] standing in for the World seed; see
+    /// [`MushroomOptions::specimen_id`].
     ///
     /// # Errors
     ///
     /// Returns the first setting that is out of range.
     pub fn new(options: MushroomOptions) -> Result<Self, OptionsError> {
         options.validate()?;
+        let id = options.specimen_id(0);
 
         // A single mushroom is exactly what the options describe; a
         // cluster's members are variations of it.
         let cluster = &options.cluster;
         let (bodies, members) = if cluster.stems == 1 {
-            let body = MushroomBody::new(MushroomOptions {
-                cluster: ClusterOptions::default(),
-                ..options.clone()
-            })?;
+            let body = MushroomBody::single(&options, id)?;
             let member = MushroomInstance {
                 variant: 0,
                 translation: Vec3::ZERO,
@@ -112,12 +120,13 @@ impl Mushroom {
             };
             (vec![body], vec![member])
         } else {
-            let bodies = make_variants(&options, cluster.variants.min(cluster.stems), 0)?;
-            let members = arrange(&bodies, cluster, options.seed);
+            let bodies = make_bodies(&options, id, cluster.variants.min(cluster.stems))?;
+            let members = arrange(&bodies, cluster, id.seed());
             (bodies, members)
         };
         Ok(Self {
             options,
+            id,
             bodies,
             members,
         })
@@ -144,6 +153,12 @@ impl Mushroom {
     /// Returns the options this mushroom was made from.
     pub fn options(&self) -> &MushroomOptions {
         &self.options
+    }
+
+    /// Returns the id of this specimen. Mushrooms with equal ids are
+    /// identical.
+    pub fn id(&self) -> SpecimenId {
+        self.id
     }
 
     /// Returns the different single mushrooms the members are copies of.
@@ -235,11 +250,46 @@ impl Mushroom {
 
 impl MushroomBody {
     /// Works out the shape of a single mushroom made from `options`, after
-    /// checking them. The cluster settings are not used.
-    pub(crate) fn new(options: MushroomOptions) -> Result<Self, OptionsError> {
+    /// checking them, as body `index` of `specimen`. The cluster settings
+    /// are not used, and `options.seed` must already be the body's own seed.
+    pub(crate) fn new(
+        options: MushroomOptions,
+        specimen: SpecimenId,
+        index: u32,
+    ) -> Result<Self, OptionsError> {
         options.validate()?;
         let shape = Shape::new(&options);
-        Ok(Self { options, shape })
+        Ok(Self {
+            options,
+            specimen,
+            index,
+            shape,
+        })
+    }
+
+    /// Makes the one body of single-stem specimen `specimen`, grown from
+    /// `options`: exactly the mushroom the options describe, with the body's
+    /// own seed. The cluster settings are not used.
+    pub(crate) fn single(
+        options: &MushroomOptions,
+        specimen: SpecimenId,
+    ) -> Result<Self, OptionsError> {
+        let options = MushroomOptions {
+            seed: body_seed(specimen.seed(), 0),
+            cluster: ClusterOptions::default(),
+            ..options.clone()
+        };
+        Self::new(options, specimen, 0)
+    }
+
+    /// Returns the id of the specimen this body belongs to.
+    pub fn specimen(&self) -> SpecimenId {
+        self.specimen
+    }
+
+    /// Returns this body's index within its [`specimen`](Self::specimen).
+    pub fn index(&self) -> u32 {
+        self.index
     }
 
     /// Returns this body's options. Its

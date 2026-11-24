@@ -59,12 +59,14 @@ fn one_stem_is_exactly_the_mushroom_its_options_describe() {
     let mushroom = Mushroom::new(options.clone()).unwrap();
     assert_eq!(mushroom.bodies().len(), 1);
     assert_eq!(mushroom.members().len(), 1);
-    // The body keeps every setting but the cluster's.
+    // The body keeps every setting but the cluster's and the seed, which
+    // comes from the mushroom's specimen id.
     let body = mushroom.bodies()[0].options();
     assert_eq!(body.cluster, ClusterOptions::default());
     assert_eq!(
         *body,
         MushroomOptions {
+            seed: body.seed,
             cluster: ClusterOptions::default(),
             ..options.clone()
         }
