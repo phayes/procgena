@@ -530,8 +530,11 @@ E, the selector fields, ordered Biome rules with a fallback, and pins;
 `WorldPreset` has one preset per scale class. Each region gets its Biome
 (pin, else the first matching rule at its site, else the fallback), its
 own Biome seed and its Terrain's local seed, and `WorldTerrain` builds the
-land from a source that reads the Biome. The scale pair stretches E and
-the selector fields, and the rules' elevation bounds follow `vertical`;
+land from a source that reads the Biome. The scale pair stretches what
+the World generates (E's layers and tilt, the selector fields; the rules'
+elevation bounds follow `vertical`), while anything placed by hand (E's
+bumps, pins by a point or a region id) stays in real metres (decided by
+the user, 2026-11-24);
 Terrain presets, region size and the border warp are not scaled yet
 (roadmap G7). Specimen budgets and the Biome border negotiation come with
 W1.
