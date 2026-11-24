@@ -1,0 +1,108 @@
+# What tools that edit tree Scatter presets show for each setting. Kept in
+# step with TreeScatter by tests/meta.rs.
+kind: tree_scatter
+name: Tree Scatter
+description: "A mix of tree species scattered over the ground, with how densely each grows and how the trees differ."
+parts:
+  scatter:
+    name: Scatter
+    description: "The Scatter as a whole: its seed, density, glades and how trees differ."
+  species:
+    name: Species
+    description: "Each species in the mix and its share of the trees."
+    tags: [trunk, limb, branch, leaf]
+sections:
+  - title: Scatter
+    part: scatter
+    settings: [default_seed, density_scale, patchiness]
+  - title: Variation
+    part: scatter
+    settings: [variation.scale_jitter, variation.lean, variation.max_slope, variation.sink]
+  - title: Species
+    part: species
+    groups:
+      - custom: species_list
+        settings: [trees, trees.*.key, trees.*.tree, trees.*.density, trees.*.density_scale, trees.*.clustering, trees.*.spacing, trees.*.variants, trees.*.max_slope]
+settings:
+  default_seed:
+    label: Seed
+    description: "Where trees stand, which species each one is and how it is turned and sized. Changing it moves every tree but keeps their shapes."
+    range: [0, 999]
+    step: 1
+  density_scale:
+    label: Scatter Density ×
+    description: "Multiplies every species' density, keeping the mix."
+    range: [0, 2]
+    step: 0.01
+  patchiness:
+    label: Patchiness
+    description: "How much ground is left as treeless glades. Around 0.5 there are separate glades; higher, they join and the trees stand in islands."
+    range: [0, 1]
+    step: 0.01
+  variation.scale_jitter:
+    label: Size Variation
+    description: "How much tree sizes vary. A few trees grow into giants at high values."
+    range: [0, 0.9]
+    step: 0.01
+  variation.lean:
+    label: Lean
+    unit: °
+    description: "The most a trunk leans from upright, each in its own direction."
+    range: [0, 45]
+    step: 0.5
+  variation.max_slope:
+    label: Max Slope
+    unit: °
+    description: "The steepest ground trees grow on, unless a species sets its own."
+    range: [0, 90]
+    step: 1
+  variation.sink:
+    label: Sink
+    unit: m
+    description: "How far each tree is sunk into the ground, so its roots never show on a slope."
+    range: [0, 1]
+    step: 0.01
+  trees:
+    label: Species
+    description: "The species that grow in the Scatter."
+  trees.*.key:
+    label: Name
+    description: "The species' name within the Scatter. Its own random choices come from it, so renaming moves its trees."
+  trees.*.tree:
+    label: Tree
+    description: "The tree preset the species grows, or tree settings of its own."
+    ref: tree
+  trees.*.density:
+    label: Natural Density
+    description: "Trees per hectare that suit this species on its own."
+    range: [0, 5000]
+    step: 1
+  trees.*.density_scale:
+    label: Density ×
+    description: "Multiplies the species' natural density here: 0.5 is half as dense, 0 removes it."
+    range: [0.001, 2]
+    step: 0.001
+    scale: exponential
+  trees.*.clustering:
+    label: Clustering
+    description: "How much the species grows in stands of its own, from evenly mixed at 0."
+    range: [0, 1]
+    step: 0.01
+  trees.*.spacing:
+    label: Spacing
+    unit: m
+    description: "The smallest distance between this species' trunks and any neighbour's."
+    range: [0, 10]
+    step: 0.05
+  trees.*.variants:
+    label: Variants
+    description: "How many shapes the species is drawn from. More look less repetitive but cost a mesh each."
+    range: [1, 8]
+    step: 1
+  trees.*.max_slope:
+    label: Max Slope
+    unit: °
+    description: "The steepest ground this species grows on. Unset, it uses the Scatter's."
+    range: [0, 90]
+    step: 0.5
+    optional: 35
