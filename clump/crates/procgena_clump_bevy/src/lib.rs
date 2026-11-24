@@ -68,8 +68,9 @@
 //! - Directions such as falling snow are in world space. Turning or
 //!   scaling the host rebuilds its clumps; moving it doesn't. The host must
 //!   be scaled the same along every axis.
-//! - Clumps grow on the host's most detailed level and are drawn at every
-//!   distance, even when the host switches to a simpler mesh.
+//! - Clumps grow on the host's most detailed level and are drawn wherever
+//!   any of the host's levels is: they stay on when the host switches to a
+//!   simpler mesh, and fade out with the host's farthest level.
 //! - Rocks drawn from a GPU stone pool can't carry clumps: their meshes
 //!   exist only on the GPU.
 //! - Clumps on trees don't sway in the wind.
@@ -162,8 +163,8 @@ impl Plugin for ClumpPlugin {
     }
 }
 
-/// The systems that describe tagged meshes and grow, show and remove clumps,
-/// in order.
+/// The systems that describe tagged meshes, grow, show and remove clumps,
+/// and keep each clump drawn over its host's distances, in order.
 pub(crate) fn spawn_systems() -> impl IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, ()> {
     (
         tagged::describe_tagged_meshes,
@@ -172,6 +173,7 @@ pub(crate) fn spawn_systems() -> impl IntoScheduleConfigs<bevy::ecs::system::Sch
         spawn::finish_generation,
         spawn::refresh_materials,
         spawn::prune_materials,
+        spawn::follow_host_range,
     )
         .chain()
 }

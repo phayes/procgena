@@ -6,6 +6,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
@@ -503,9 +504,72 @@ fn despawn_parts(
     }
 }
 
+/// Gives each clump part the distances its host is drawn at: from where the
+/// host's nearest level starts to where its farthest level ends.
+///
+/// A clump has no levels of its own; it grows on the host's most detailed
+/// level and shows whenever any of the host's levels does. A host whose
+/// meshes have no distance limits (or which has no meshes) leaves its clumps
+/// drawn at every distance.
+pub(crate) fn follow_host_range(
+    mut commands: Commands,
+    parts: Query<(Entity, &ChildOf, Option<&VisibilityRange>), With<ClumpPart>>,
+    clumps: Query<&ChildOf, With<ClumpParams>>,
+    host_children: Query<&Children>,
+    meshes: Query<Option<&VisibilityRange>, (With<Mesh3d>, Without<ClumpPart>)>,
+) {
+    for (part, clump, current) in &parts {
+        let Ok(host) = clumps.get(clump.parent()) else {
+            continue;
+        };
+
+        // The host's drawn levels: its own mesh, or its mesh children.
+        let host = host.parent();
+        let children = host_children.get(host).into_iter().flatten().copied();
+        let levels: Vec<Option<&VisibilityRange>> = std::iter::once(host)
+            .chain(children)
+            .filter_map(|e| meshes.get(e).ok())
+            .collect();
+        let wanted = host_range(&levels);
+        if wanted.as_ref() != current {
+            match wanted {
+                Some(range) => commands.entity(part).insert(range),
+                None => commands.entity(part).remove::<VisibilityRange>(),
+            };
+        }
+    }
+}
+
+/// The union of a host's level ranges, or `None` when the host has no levels
+/// or any level is drawn at every distance.
+fn host_range(levels: &[Option<&VisibilityRange>]) -> Option<VisibilityRange> {
+    let mut union: Option<VisibilityRange> = None;
+    for level in levels {
+        let range = (*level)?;
+        union = Some(match union {
+            None => range.clone(),
+            Some(u) => VisibilityRange {
+                start_margin: if range.start_margin.start < u.start_margin.start {
+                    range.start_margin.clone()
+                } else {
+                    u.start_margin
+                },
+                end_margin: if range.end_margin.end > u.end_margin.end {
+                    range.end_margin.clone()
+                } else {
+                    u.end_margin
+                },
+                use_aabb: u.use_aabb,
+            },
+        });
+    }
+    union
+}
+
 #[cfg(test)]
 mod tests {
     use std::f32::consts::PI;
+    use std::ops::Range;
 
     use bevy::transform::TransformPlugin;
     use procgena_specimen::{Part, SurfaceMesh, tags};
@@ -773,5 +837,53 @@ mod tests {
         app.update();
         update_until_finished(&mut app, clump);
         assert_eq!(part_count(&mut app, clump), 0);
+    }
+
+    #[test]
+    fn clumps_are_drawn_over_their_hosts_levels() {
+        let mut app = clump_app();
+        let (host, clump) = spawn_snow(&mut app, Transform::IDENTITY);
+        app.world_mut().entity_mut(host).insert(ground());
+
+        // Two host levels: near until 10–12 m, far from there to 30–33 m.
+        let level = |start: Range<f32>, end: Range<f32>| VisibilityRange {
+            start_margin: start,
+            end_margin: end,
+            use_aabb: false,
+        };
+        let near = level(0.0..0.0, 10.0..12.0);
+        let far = level(10.0..12.0, 30.0..33.0);
+        for range in [near, far] {
+            app.world_mut()
+                .spawn((Mesh3d(Handle::default()), range, ChildOf(host)));
+        }
+        update_until_finished(&mut app, clump);
+        app.update();
+        app.update();
+
+        let mut parts = app
+            .world_mut()
+            .query_filtered::<(&ChildOf, Option<&VisibilityRange>), With<ClumpPart>>();
+        let ranges: Vec<_> = parts
+            .iter(app.world())
+            .filter(|(p, _)| p.parent() == clump)
+            .map(|(_, r)| r.map(|r| (r.start_margin.clone(), r.end_margin.clone())))
+            .collect();
+        assert_eq!(ranges, [Some((0.0..0.0, 30.0..33.0))]);
+
+        // A host level drawn at every distance keeps the clump on everywhere.
+        app.world_mut()
+            .spawn((Mesh3d(Handle::default()), ChildOf(host)));
+        app.update();
+        app.update();
+        let mut parts = app
+            .world_mut()
+            .query_filtered::<(&ChildOf, Option<&VisibilityRange>), With<ClumpPart>>();
+        assert!(
+            parts
+                .iter(app.world())
+                .filter(|(p, _)| p.parent() == clump)
+                .all(|(_, r)| r.is_none())
+        );
     }
 }
