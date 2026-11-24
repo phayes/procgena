@@ -1,7 +1,7 @@
-//! Ground weights for one terrain chunk: a small palette of materials and
-//! how much of each lies at every texel.
+//! Ground weights over a grid of texels, such as one terrain chunk: a
+//! small palette of materials and how much of each lies at every texel.
 
-use glam::DVec2;
+use glam::{DVec2, UVec2};
 
 use super::{GroundMix, GroundPainter, GroundSource, MaterialCatalogue, MaterialId};
 use crate::chunk::rows;
@@ -11,32 +11,34 @@ use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier};
 /// every half cell of the chunk's mesh, the outer ones on its edges.
 pub const GROUND_TEXELS: u32 = 2 * CHUNK_CELLS + 1;
 
-/// The most materials one chunk's weights hold.
+/// The most materials one set of weights holds.
 pub const PALETTE_SIZE: usize = 8;
 
-/// The ground of one chunk as weights: up to [`PALETTE_SIZE`] materials,
-/// and at each of [`GROUND_TEXELS`]² texels how much of each lies there,
-/// in 255ths that add up to 255.
+/// The ground over a grid of texels as weights: up to [`PALETTE_SIZE`]
+/// materials, and at each texel how much of each lies there, in 255ths
+/// that add up to 255.
 ///
-/// Texel `(i, j)` lies `i` half steps along x and `j` along z from the
-/// chunk's smallest corner (see [`ChunkKey::step`]), so neighbouring chunks
-/// of one level share their edge texels. Where neither chunk had to drop
-/// materials (see [`dropped`](Self::dropped)), those shared texels have
-/// equal weights for every material.
+/// Build a terrain chunk's with [`chunk`](Self::chunk), or any rectangle's
+/// with [`grid`](Self::grid).
 ///
 /// Weights are for drawing only; nothing is placed from them.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ChunkWeights {
-    key: ChunkKey,
+pub struct GroundWeights {
+    size: UVec2,
     palette: Vec<MaterialId>,
     /// Row by row along x, a weight per palette slot.
     texels: Vec<[u8; PALETTE_SIZE]>,
     dropped: usize,
 }
 
-impl ChunkWeights {
+impl GroundWeights {
     /// Paints chunk `key` with `painter`, reading sites from `source` at
-    /// `tier`.
+    /// `tier`: [`GROUND_TEXELS`] × [`GROUND_TEXELS`] texels, texel `(i, j)`
+    /// at [`chunk_point`](Self::chunk_point).
+    ///
+    /// Neighbouring chunks of one level share their edge texels. Where
+    /// neither chunk had to drop materials (see [`dropped`](Self::dropped)),
+    /// those shared texels have equal weights for every material.
     ///
     /// If more than [`PALETTE_SIZE`] materials lie in the chunk, it keeps
     /// those with the most weight over the chunk, and gives each other
@@ -45,19 +47,62 @@ impl ChunkWeights {
     /// # Errors
     ///
     /// [`ChunkError::NoGround`] if any texel has no ground.
-    pub fn build(
+    pub fn chunk(
         painter: &(impl GroundPainter + ?Sized),
         source: &(impl GroundSource + ?Sized),
         key: ChunkKey,
         tier: FeatureTier,
     ) -> Result<Self, ChunkError> {
-        let n = i64::from(GROUND_TEXELS);
+        let size = UVec2::splat(GROUND_TEXELS);
+        Self::build(painter, source, size, tier, |i, j| {
+            Self::chunk_point(key, i, j)
+        })
+    }
 
+    /// Paints the rectangle from `min` to `max` (world x and z, metres)
+    /// with `painter`, reading sites from `source` at `tier`, with `size`
+    /// texels along x and z. The texels are spread evenly, the outer ones
+    /// on the rectangle's edges, so texel `(i, j)` lies at
+    /// `min + (max − min) × (i, j) / (size − 1)`.
+    ///
+    /// Materials past [`PALETTE_SIZE`] are dropped as in
+    /// [`chunk`](Self::chunk).
+    ///
+    /// # Errors
+    ///
+    /// [`ChunkError::NoGround`] if any texel has no ground.
+    ///
+    /// # Panics
+    ///
+    /// If `size` is below 2 along either axis.
+    pub fn grid(
+        painter: &(impl GroundPainter + ?Sized),
+        source: &(impl GroundSource + ?Sized),
+        min: DVec2,
+        max: DVec2,
+        size: UVec2,
+        tier: FeatureTier,
+    ) -> Result<Self, ChunkError> {
+        assert!(size.min_element() >= 2, "a grid needs 2 texels a side");
+        let last = (size - 1).as_dvec2();
+        Self::build(painter, source, size, tier, |i, j| {
+            min + (max - min) * DVec2::new(f64::from(i), f64::from(j)) / last
+        })
+    }
+
+    /// Paints `size` texels, texel `(i, j)` at `point(i, j)`.
+    fn build(
+        painter: &(impl GroundPainter + ?Sized),
+        source: &(impl GroundSource + ?Sized),
+        size: UVec2,
+        tier: FeatureTier,
+        point: impl Fn(u32, u32) -> DVec2 + Sync,
+    ) -> Result<Self, ChunkError> {
         // Paint every texel, row by row.
         let row = |j: i64| -> Result<Vec<GroundMix>, ChunkError> {
-            (0..n)
+            (0..size.x)
                 .map(|i| {
-                    let p = key.half_point(i, j);
+                    let p = point(i, j as u32);
                     let site = source.site(p, tier);
                     if site.height.is_finite() {
                         Ok(painter.paint(p, &site))
@@ -67,12 +112,12 @@ impl ChunkWeights {
                 })
                 .collect()
         };
-        let mixes = rows(n, row)?.concat();
-        Ok(Self::from_mixes(key, &mixes, painter.catalogue()))
+        let mixes = rows(i64::from(size.y), row)?.concat();
+        Ok(Self::from_mixes(size, &mixes, painter.catalogue()))
     }
 
     /// Weights from one mix per texel, row by row along x.
-    fn from_mixes(key: ChunkKey, mixes: &[GroundMix], catalogue: &MaterialCatalogue) -> Self {
+    fn from_mixes(size: UVec2, mixes: &[GroundMix], catalogue: &MaterialCatalogue) -> Self {
         // Each material's total over the chunk, added in texel order.
         let mut totals = vec![0.0_f64; catalogue.len()];
         for mix in mixes {
@@ -133,27 +178,33 @@ impl ChunkWeights {
             })
             .collect();
         Self {
-            key,
+            size,
             palette,
             texels,
             dropped,
         }
     }
 
-    /// The chunk the weights are for.
-    pub fn key(&self) -> ChunkKey {
-        self.key
+    /// The number of texels along x and z.
+    pub fn size(&self) -> UVec2 {
+        self.size
     }
 
-    /// The chunk's materials, by id, one per weight slot.
+    /// The materials, by id, one per weight slot.
     pub fn palette(&self) -> &[MaterialId] {
         &self.palette
     }
 
-    /// How many materials lay in the chunk beyond the [`PALETTE_SIZE`]
+    /// How many materials lay on the texels beyond the [`PALETTE_SIZE`]
     /// kept, 0 if none were dropped.
     pub fn dropped(&self) -> usize {
         self.dropped
+    }
+
+    /// The weights at every texel, row by row along x, as
+    /// [`texel`](Self::texel) gives them.
+    pub fn texels(&self) -> &[[u8; PALETTE_SIZE]] {
+        &self.texels
     }
 
     /// The weights at texel `(i, j)`, in 255ths, one per palette slot; the
@@ -161,10 +212,10 @@ impl ChunkWeights {
     ///
     /// # Panics
     ///
-    /// If `i` or `j` is not below [`GROUND_TEXELS`].
+    /// If `(i, j)` is outside [`size`](Self::size).
     pub fn texel(&self, i: u32, j: u32) -> [u8; PALETTE_SIZE] {
-        assert!(i < GROUND_TEXELS && j < GROUND_TEXELS, "texel out of range");
-        self.texels[(j * GROUND_TEXELS + i) as usize]
+        assert!(i < self.size.x && j < self.size.y, "texel out of range");
+        self.texels[(j * self.size.x + i) as usize]
     }
 
     /// The weight of `material` at texel `(i, j)`, in 255ths; 0 if it isn't
@@ -172,7 +223,7 @@ impl ChunkWeights {
     ///
     /// # Panics
     ///
-    /// If `i` or `j` is not below [`GROUND_TEXELS`].
+    /// If `(i, j)` is outside [`size`](Self::size).
     pub fn weight(&self, i: u32, j: u32, material: MaterialId) -> u8 {
         self.palette
             .binary_search(&material)
@@ -202,8 +253,9 @@ impl ChunkWeights {
     }
 
     /// The world position (x and z, metres) of texel `(i, j)` of chunk
-    /// `key`.
-    pub fn texel_point(key: ChunkKey, i: u32, j: u32) -> DVec2 {
+    /// `key`'s weights: `i` half steps along x and `j` along z from the
+    /// chunk's smallest corner (see [`ChunkKey::step`]).
+    pub fn chunk_point(key: ChunkKey, i: u32, j: u32) -> DVec2 {
         key.half_point(i64::from(i), i64::from(j))
     }
 }

@@ -141,5 +141,11 @@ procgena_core::catalogue! {
             description: "Pines of three sizes over boulders, mossy fallen logs, porcini, a few \
                 fly agarics and an undergrowth of moss, ferns and leaf litter.",
         } => ecotope_file!(pine_forest_floor);
+        oak_maple_forest {
+            name: "Oak and maple forest",
+            description: "A mature deciduous forest of oaks and big-leaf maples with the odd \
+                cedar, over bushes, ferns and shrubs, mossy boulders, fallen logs, old stumps and \
+                clusters of mushrooms.",
+        } => ecotope_file!(oak_maple_forest);
     }
 }

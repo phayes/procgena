@@ -8,7 +8,7 @@
 //!
 //! It writes `bare.ppm` (a binary PPM image): a 3 × 3 block of level 1
 //! chunks (384 m square) around the middle of a road on the plains of the
-//! test world, lightly shaded by slope, built with `ChunkWeights`.
+//! test world, lightly shaded by slope, built with `GroundWeights`.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -17,7 +17,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use procgena_terrain::ground::{ChunkWeights, GROUND_TEXELS, GroundStack};
+use procgena_terrain::ground::{GROUND_TEXELS, GroundStack, GroundWeights};
 use procgena_terrain::{ChunkKey, FeatureTier};
 
 /// Chunks along each side of the image.
@@ -45,7 +45,7 @@ fn main() -> std::io::Result<()> {
     for cz in 0..CHUNKS {
         for cx in 0..CHUNKS {
             let key = centre.offset(cx - CHUNKS / 2, cz - CHUNKS / 2);
-            let weights = ChunkWeights::build(&bare, plains, key, FeatureTier::Fine)
+            let weights = GroundWeights::chunk(&bare, plains, key, FeatureTier::Fine)
                 .expect("the plains have ground there");
             let colours = weights.colours(bare.catalogue());
             for j in 0..side {
