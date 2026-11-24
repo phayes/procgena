@@ -28,7 +28,10 @@
 //! the texture's own colour. Both bark options stay in effect when changing presets.
 //! Use `--still` for leaf-only wind or `--flat` for mirrored bark coordinates
 //! without normal maps (this does not enable flat shading). Set camera positions
-//! with `--eye x y z` and `--target x y z`. Use `--resolution <width> <height>` to set
+//! with `--eye x y z` and `--target x y z`, and the vertical field of view with
+//! `--fov <degrees>`. `--slope <degrees>` tilts the ground so it falls away
+//! towards +Z, for looking up at a tree from down a hillside: for example
+//! `--slope 40 --eye 0 -105 128 --target 0 9 0`. Use `--resolution <width> <height>` to set
 //! the window or screenshot size in pixels (default: 1280 × 720).
 //! Use `--screenshot <file.png>` to save a screenshot and close the viewer once
 //! the trees and textures (the images that give bark and leaves their appearance)
@@ -132,6 +135,8 @@ fn main() -> AppExit {
     let mut size = UVec2::new(1280, 720);
     let mut eye = Vec3::new(0.0, 3.0, 11.0);
     let mut target = Vec3::new(0.0, 2.8, 0.0);
+    let mut slope = 0.0;
+    let mut fov = None;
     let mut lod = default_tree_lod();
 
     // Apply command-line choices before creating the scene.
@@ -200,6 +205,18 @@ fn main() -> AppExit {
                 i += 1;
             }
             "--headless" => viewer.headless = true,
+            "--slope" => {
+                slope = args[i + 1].parse::<f32>().expect("a slope in degrees");
+                i += 1;
+            }
+            "--fov" => {
+                fov = Some(
+                    args[i + 1]
+                        .parse::<f32>()
+                        .expect("a field of view in degrees"),
+                );
+                i += 1;
+            }
             "--resolution" => {
                 let n = |k: usize| args[i + k].parse::<u32>().expect("a whole number");
                 size = UVec2::new(n(1), n(2));
@@ -274,7 +291,13 @@ fn main() -> AppExit {
         ..default()
     })
     .insert_resource(viewer)
-    .insert_resource(Camera3dSetup { eye, target, size })
+    .insert_resource(Camera3dSetup {
+        eye,
+        target,
+        size,
+        slope,
+        fov,
+    })
     .add_systems(Startup, setup)
     .add_systems(Update, (controls, show_trees, screenshot))
     .run()
@@ -286,6 +309,10 @@ struct Camera3dSetup {
     target: Vec3,
     /// Width and height in pixels for the image saved with `--headless`.
     size: UVec2,
+    /// Ground slope in degrees, falling away towards +Z.
+    slope: f32,
+    /// Vertical field of view in degrees; `None` keeps Bevy's default.
+    fov: Option<f32>,
 }
 
 fn setup(
@@ -305,6 +332,12 @@ fn setup(
             ..default()
         },
     ));
+    if let Some(fov) = camera.fov {
+        camera_entity.insert(Projection::Perspective(PerspectiveProjection {
+            fov: fov.to_radians(),
+            ..default()
+        }));
+    }
 
     // Give the camera an image to draw into when there is no window.
     if viewer.headless {
@@ -332,9 +365,12 @@ fn setup(
         ..default()
     });
     commands.insert_resource(ClearColor(Color::srgb(0.62, 0.76, 0.9)));
+    // A sloped ground is made large enough to reach a camera far down it.
+    let ground = if camera.slope == 0.0 { 80.0 } else { 600.0 };
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(ground, ground))),
         MeshMaterial3d(materials.add(Color::srgb(0.32, 0.42, 0.22))),
+        Transform::from_rotation(Quat::from_rotation_x(camera.slope.to_radians())),
     ));
 }
 
