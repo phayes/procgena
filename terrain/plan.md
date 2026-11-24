@@ -1909,6 +1909,10 @@ What that asks of this crate, and where it stands:
     the same figures before and after (see "Re-recorded after the
     string-key seed salts" for the slope-crossing figures, which had
     drifted before this change).
+  - Cost (cold region bench, old and new binaries run back to back, load
+    about 25–30): offers p50 30 → 31 ms, p95 68 → 80 ms (cold ÷ warm
+    0.7 → 0.8); a whole region plan 631 → 644 ms at p50, within the
+    noise. A busier pair (load about 45) showed the same picture.
   - Precision: mountain heights carry up to about 5e-3 m of f32 rounding,
     so tests compare the slope with differences over 4 m spans
     (`tests/ground.rs`, `relief::tests::slopes_match_the_heights`).
