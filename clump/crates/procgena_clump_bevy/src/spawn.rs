@@ -54,8 +54,8 @@ impl ClumpParams {
     }
 
     /// Creates a clump request from a preset's options.
-    pub fn preset(preset: ClumpPreset) -> Self {
-        Self::new(preset.options())
+    pub fn preset(preset: &ClumpPreset) -> Self {
+        Self::new(preset.clump.clone())
     }
 }
 
@@ -164,7 +164,7 @@ impl PartialEq for BuildInput {
 fn same_mesh_options(a: &ClumpOptions, b: &ClumpOptions) -> bool {
     // Name every field, so a new setting can't be left out of the comparison.
     let ClumpOptions {
-        seed,
+        default_seed,
         directions,
         scale,
         mask,
@@ -175,7 +175,7 @@ fn same_mesh_options(a: &ClumpOptions, b: &ClumpOptions) -> bool {
         tags,
         material: _,
     } = a;
-    *seed == b.seed
+    *default_seed == b.default_seed
         && *directions == b.directions
         && *scale == b.scale
         && *mask == b.mask
@@ -618,7 +618,7 @@ mod tests {
         let clump = app
             .world_mut()
             .spawn((
-                ClumpParams::preset(ClumpPreset::DirtySnowCap),
+                ClumpParams::preset(ClumpPreset::dirty_snow_cap()),
                 ChildOf(host),
             ))
             .id();
@@ -704,12 +704,12 @@ mod tests {
         update_until_finished(&mut app, clump);
 
         // Change the settings twice before the first change can finish.
-        let set = |app: &mut App, preset: ClumpPreset| {
+        let set = |app: &mut App, preset: &ClumpPreset| {
             *app.world_mut().get_mut::<ClumpParams>(clump).unwrap() = ClumpParams::preset(preset);
             app.update();
         };
-        set(&mut app, ClumpPreset::MossCushions);
-        set(&mut app, ClumpPreset::MossPatches);
+        set(&mut app, ClumpPreset::moss_cushions());
+        set(&mut app, ClumpPreset::moss_patches());
         update_until_finished(&mut app, clump);
 
         // The previous clump stayed until then, and only one build finished.
@@ -737,7 +737,7 @@ mod tests {
         let before = material(&mut app);
 
         // Tint the snow blue: the material changes, the mesh is kept.
-        let mut options = ClumpPreset::DirtySnowCap.options();
+        let mut options = ClumpPreset::dirty_snow_cap().clump.clone();
         options.material.color = [0.2, 0.3, 1.0];
         *app.world_mut().get_mut::<ClumpParams>(clump).unwrap() = ClumpParams::new(options);
         app.update();
@@ -823,7 +823,7 @@ mod tests {
         let clump = app
             .world_mut()
             .spawn((
-                ClumpParams::preset(ClumpPreset::DirtySnowCap),
+                ClumpParams::preset(ClumpPreset::dirty_snow_cap()),
                 ChildOf(host),
             ))
             .id();

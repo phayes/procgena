@@ -386,9 +386,8 @@ fn constants_match_rust() {
 
 /// Fields for every preset plus a few direction setups, built on a ground patch.
 fn test_fields(ground: &SurfaceMesh) -> Vec<(String, ClumpField<'_>)> {
-    let mut options: Vec<(String, ClumpOptions)> = ClumpPreset::ALL
-        .into_iter()
-        .map(|p| (p.name().to_string(), p.options()))
+    let mut options: Vec<(String, ClumpOptions)> = ClumpPreset::all()
+        .map(|p| (p.key.to_string(), p.clump.clone()))
         .collect();
     let mut sideways = ClumpOptions {
         directions: vec![
@@ -399,7 +398,7 @@ fn test_fields(ground: &SurfaceMesh) -> Vec<(String, ClumpField<'_>)> {
                 ..Direction::new([0.0, 0.0, -1.0])
             },
         ],
-        seed: 0xdead_beef,
+        default_seed: 0xdead_beef,
         ..ClumpOptions::default()
     };
     sideways.shape.min_support = 0.2;
@@ -421,7 +420,7 @@ fn test_fields(ground: &SurfaceMesh) -> Vec<(String, ClumpField<'_>)> {
 #[test]
 fn options_pack_like_a_prepared_field() {
     let ground = SurfaceMesh::ground(1.0, 2);
-    let mut all: Vec<ClumpOptions> = ClumpPreset::ALL.iter().map(|p| p.options()).collect();
+    let mut all: Vec<ClumpOptions> = ClumpPreset::all().map(|p| p.clump.clone()).collect();
     all.push(ClumpOptions {
         directions: vec![Direction::DOWN, Direction::new([1.0, -0.3, 0.2])],
         scale: 2.5,

@@ -983,8 +983,8 @@ mod tests {
     }
 
     /// A procgena_stone rock as a surface mesh, at `resolution` cells per axis.
-    fn stone(preset: procgena_stone::StonePreset, resolution: u32) -> SurfaceMesh {
-        let mut options = preset.options();
+    fn stone(preset: &procgena_stone::StonePreset, resolution: u32) -> SurfaceMesh {
+        let mut options = preset.stone.clone();
         options.mesh.detail =
             procgena_stone::StoneDetail::single(resolution, procgena_stone::TextureSize::Size1k);
         let stone = procgena_stone::Stone::new(options).unwrap();
@@ -1003,9 +1003,9 @@ mod tests {
             ("flat grid", SurfaceMesh::ground(1.0, 64)),
             (
                 "flat slab",
-                stone(procgena_stone::StonePreset::FlatSlab, 64),
+                stone(procgena_stone::StonePreset::flat_slab(), 64),
             ),
-            ("boulder", stone(procgena_stone::StonePreset::Boulder, 96)),
+            ("boulder", stone(procgena_stone::StonePreset::boulder(), 96)),
         ];
         let mut options = ClumpOptions::default();
         options.mask.exposure_rays = 0;

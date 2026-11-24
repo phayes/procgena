@@ -17,6 +17,29 @@
 //! # }
 //! ```
 //!
+//! Start from a [`ClumpPreset`], or from a `.clump.yml` file that names a
+//! preset as its `base` and gives only the settings it changes:
+//!
+//! ```
+//! use procgena_clump::{Clump, ClumpPreset};
+//! use procgena_specimen::SurfaceMesh;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let preset = ClumpPreset::from_yaml(
+//!     "deep_snow",
+//!     "base: fresh_snow_cap\n\
+//!      clump:\n  \
+//!        default_seed: 7\n  \
+//!        shape:\n    \
+//!          thickness: 0.3\n",
+//! )?;
+//! let ground = SurfaceMesh::ground(2.0, 8);
+//! let clump = Clump::from_preset(ground.surface()?, &preset)?;
+//! assert!(!clump.mesh().is_empty());
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! This crate is under construction; see `plan.md` in the repository.
 
 mod blob;
@@ -44,6 +67,7 @@ pub use options::{
     OptionsError, Placement, PlacementOptions, ShapeOptions,
 };
 pub use presets::ClumpPreset;
+pub use procgena_core::preset::PresetFileError;
 
 use field::ClumpField;
 use patch::Patch;
@@ -111,9 +135,11 @@ impl Clump {
     }
 
     /// Generates a clump on `surface` with a preset's settings.
-    pub fn from_preset(surface: Surface, preset: ClumpPreset) -> Self {
-        // Presets are checked by this crate's tests.
-        Self::new(surface, &preset.options()).expect("presets have valid settings")
+    ///
+    /// Returns an error if a setting is out of range, which can happen only
+    /// for a preset whose [`ClumpPreset::clump`] options were edited.
+    pub fn from_preset(surface: Surface, preset: &ClumpPreset) -> Result<Self, ClumpError> {
+        Self::new(surface, &preset.clump)
     }
 
     /// Returns the clump as a tagged [`Specimen`], so other clumps can grow on
@@ -271,7 +297,7 @@ mod tests {
         assert_eq!(snow.mesh(), bare.mesh());
 
         // A clump that grows only on bark finds nothing here.
-        let burl = Clump::on(&specimen, &ClumpPreset::Burl.options()).unwrap();
+        let burl = Clump::on(&specimen, &ClumpPreset::burl().clump).unwrap();
         assert!(burl.mesh().is_empty());
         assert!(burl.specimen().levels[0].parts.is_empty());
     }
@@ -293,7 +319,7 @@ mod tests {
     #[test]
     fn a_clump_is_a_specimen_other_clumps_grow_on() {
         let ground = Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(1.0, 4))]);
-        let moss = Clump::on(&ground, &ClumpPreset::MossPatches.options()).unwrap();
+        let moss = Clump::on(&ground, &ClumpPreset::moss_patches().clump).unwrap();
         let specimen = moss.specimen();
         specimen.validate().unwrap();
         let [part] = &specimen.levels[0].parts[..] else {
@@ -318,16 +344,23 @@ mod tests {
         assert_eq!(a.mesh(), b.mesh());
         assert!(!a.mesh().is_empty());
 
-        let other = Clump::new(surface, &ClumpOptions { seed: 1, ..options }).unwrap();
+        let other = Clump::new(
+            surface,
+            &ClumpOptions {
+                default_seed: 1,
+                ..options
+            },
+        )
+        .unwrap();
         assert_ne!(a.mesh(), other.mesh());
     }
 
     #[test]
     fn every_preset_covers_the_ground() {
         let ground = SurfaceMesh::ground(1.0, 4);
-        for preset in ClumpPreset::ALL {
-            let clump = Clump::from_preset(ground.surface().unwrap(), preset);
-            assert!(!clump.mesh().is_empty(), "{}", preset.name());
+        for preset in ClumpPreset::all() {
+            let clump = Clump::from_preset(ground.surface().unwrap(), preset).unwrap();
+            assert!(!clump.mesh().is_empty(), "{}", preset.key);
         }
     }
 
@@ -614,7 +647,7 @@ mod tests {
 
     /// A procgena_stone flat slab meshed at a low resolution, as a surface mesh.
     fn low_detail_slab() -> SurfaceMesh {
-        let mut options = procgena_stone::StonePreset::FlatSlab.options();
+        let mut options = procgena_stone::StonePreset::flat_slab().stone.clone();
         options.mesh.detail =
             procgena_stone::StoneDetail::single(48, procgena_stone::TextureSize::Size1k);
         let stone = procgena_stone::Stone::new(options).unwrap();

@@ -47,7 +47,7 @@ fn main() {
     let stone_requests: Vec<_> = (0..ROCKS)
         .map(|seed| {
             let options = StoneOptions {
-                seed,
+                default_seed: seed,
                 ..StoneOptions::default()
             };
             GpuStoneRequest::new(options, RESOLUTION)
@@ -61,11 +61,10 @@ fn main() {
     let meshes = read_rocks(&device, &queue, &rocks);
 
     // Each preset, and the snow cap in strict mode.
-    let mut cases: Vec<(String, ClumpOptions)> = ClumpPreset::ALL
-        .iter()
-        .map(|p| (p.name().to_string(), p.options()))
+    let mut cases: Vec<(String, ClumpOptions)> = ClumpPreset::all()
+        .map(|p| (p.key.to_string(), p.clump.clone()))
         .collect();
-    let mut strict = ClumpPreset::DirtySnowCap.options();
+    let mut strict = ClumpPreset::dirty_snow_cap().clump.clone();
     strict.mesh.strict = true;
     cases.push(("dirty_snow_cap strict".to_string(), strict));
 

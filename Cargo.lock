@@ -5397,6 +5397,7 @@ dependencies = [
  "procgena_core",
  "procgena_specimen",
  "procgena_stone",
+ "serde",
  "wesl",
  "wgpu",
 ]
@@ -5526,6 +5527,7 @@ dependencies = [
  "bevy_ecs",
  "glam 0.33.12",
  "procgena_core",
+ "serde",
 ]
 
 [[package]]
@@ -5564,9 +5566,9 @@ name = "procgena_terrain"
 version = "0.1.0"
 dependencies = [
  "glam 0.33.12",
+ "procgena_core",
  "rayon",
  "serde",
- "serde_json",
 ]
 
 [[package]]

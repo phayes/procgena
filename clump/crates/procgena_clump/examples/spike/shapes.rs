@@ -67,8 +67,8 @@ pub fn branch_fork() -> SurfaceMesh {
 
 /// A procgena_stone rock from `preset`, in metres and resting on y = 0, with
 /// the name of its procgena_stone texture set.
-pub fn stone(preset: procgena_stone::StonePreset) -> (SurfaceMesh, String) {
-    let stone = procgena_stone::Stone::from_preset(preset);
+pub fn stone(preset: &procgena_stone::StonePreset) -> (SurfaceMesh, String) {
+    let stone = procgena_stone::Stone::from_preset(preset).expect("built-in presets are valid");
     let mesh = stone.mesh();
     let surface = SurfaceMesh {
         positions: mesh.positions.clone(),

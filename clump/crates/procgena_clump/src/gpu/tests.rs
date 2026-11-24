@@ -438,7 +438,7 @@ fn crevice() -> SurfaceMesh {
 
 /// A procgena_stone flat slab at `resolution` cells per axis.
 fn slab(resolution: u32) -> SurfaceMesh {
-    let mut options = procgena_stone::StonePreset::FlatSlab.options();
+    let mut options = procgena_stone::StonePreset::flat_slab().stone.clone();
     options.mesh.detail =
         procgena_stone::StoneDetail::single(resolution, procgena_stone::TextureSize::Size1k);
     let stone = procgena_stone::Stone::new(options).unwrap();
@@ -700,18 +700,18 @@ fn gpu_scattered_clumps_match_the_cpu() {
         let slope = Vec3::new(-(x * 3.1).cos() * 0.465, 1.0, (z * 2.3).sin() * 0.23);
         *n = slope.normalize().to_array();
     }
-    let mut exposed = ClumpPreset::MossCushions.options();
+    let mut exposed = ClumpPreset::moss_cushions().clump.clone();
     exposed.directions = vec![Direction::DOWN, Direction::new([1.0, -0.5, 0.0])];
     exposed.mask.exposure_rays = 16;
     exposed.mask.exposure_power = 1.0;
     exposed.mesh.closed = false;
     exposed.placement.count = 30;
-    exposed.seed = 7;
-    let mut many = ClumpPreset::MossCushions.options();
+    exposed.default_seed = 7;
+    let mut many = ClumpPreset::moss_cushions().clump.clone();
     many.placement.count = 60;
     many.placement.min_spacing = 0.05;
     // Overlapping cushions, so strict mode leaves some out.
-    let mut crowded = ClumpPreset::MossCushions.options();
+    let mut crowded = ClumpPreset::moss_cushions().clump.clone();
     crowded.placement.count = 40;
     crowded.placement.min_spacing = 0.0;
     crowded.placement.radius = 0.12;
@@ -720,9 +720,9 @@ fn gpu_scattered_clumps_match_the_cpu() {
         (
             "cushions on ground",
             SurfaceMesh::ground(1.0, 8),
-            ClumpPreset::MossCushions.options(),
+            ClumpPreset::moss_cushions().clump.clone(),
         ),
-        ("burl on slab", slab(48), ClumpPreset::Burl.options()),
+        ("burl on slab", slab(48), ClumpPreset::burl().clump.clone()),
         ("exposed cushions on bumpy ground", bumpy.clone(), exposed),
         ("many cushions on slab", slab(48), many),
         (
@@ -733,7 +733,7 @@ fn gpu_scattered_clumps_match_the_cpu() {
         ("strict crowded open cushions", bumpy.clone(), {
             let mut open = crowded;
             open.mesh.closed = false;
-            open.seed = 11;
+            open.default_seed = 11;
             open
         }),
     ];
@@ -853,7 +853,7 @@ fn gpu_overflowing_clumps_draw_nothing_until_grown_and_batches_repeat() {
     let ground = SurfaceMesh::ground(1.0, 8);
     let up = GpuMesh::upload(&device, &ground, 0, 0);
     let input = up.input(&ground, Affine3A::IDENTITY, None);
-    let options = ClumpPreset::MossCushions.options();
+    let options = ClumpPreset::moss_cushions().clump.clone();
 
     // Too little room: the clump reports what it needs and draws nothing,
     // while a request beside it is unaffected.
@@ -1012,11 +1012,11 @@ fn gpu_facing_triangles_match_the_cpu() {
     };
     let cases = vec![
         (SurfaceMesh::ground(1.0, 8), ClumpOptions::default()),
-        (bumpy, ClumpPreset::MossPatches.options()),
+        (bumpy, ClumpPreset::moss_patches().clump.clone()),
         (slab(48), ClumpOptions::default()),
         (seamed(&sharp_box(0.3)), sideways),
         // A scattered request alongside makes no working surface.
-        (slab(32), ClumpPreset::MossCushions.options()),
+        (slab(32), ClumpPreset::moss_cushions().clump.clone()),
     ];
     let (plan, counters, arena) = run_stages(&device, &queue, &cases);
     let regions = &plan.regions;
@@ -1187,10 +1187,13 @@ fn gpu_working_surfaces_match_the_cpu() {
     let cases = [
         (
             bumpy.clone(),
-            with(ClumpPreset::DirtySnowCap.options(), 0.1),
+            with(ClumpPreset::dirty_snow_cap().clump.clone(), 0.1),
         ),
         (bumpy, with(ClumpOptions::default(), 0.04)),
-        (slab(64), with(ClumpPreset::DirtySnowCap.options(), 0.3)),
+        (
+            slab(64),
+            with(ClumpPreset::dirty_snow_cap().clump.clone(), 0.3),
+        ),
         (slab(64), with(ClumpOptions::default(), 0.1)),
         (
             SurfaceMesh::ground(1.0, 8),
@@ -1295,13 +1298,13 @@ fn gpu_mixed_batches_and_grown_layers_match_the_cpu() {
 
     let (device, queue) = device();
     let generator = super::GpuClumpGenerator::new(&device);
-    let mut snow = ClumpPreset::DirtySnowCap.options();
+    let mut snow = ClumpPreset::dirty_snow_cap().clump.clone();
     snow.mesh.closed = false;
-    let mut closed_snow = ClumpPreset::DirtySnowCap.options();
+    let mut closed_snow = ClumpPreset::dirty_snow_cap().clump.clone();
     closed_snow.mesh.closed = true;
     let mut strict = ClumpOptions::default();
     strict.mesh.strict = true;
-    let mut crowded = ClumpPreset::MossCushions.options();
+    let mut crowded = ClumpPreset::moss_cushions().clump.clone();
     crowded.placement.count = 40;
     crowded.placement.min_spacing = 0.0;
     crowded.placement.radius = 0.12;
@@ -1311,7 +1314,7 @@ fn gpu_mixed_batches_and_grown_layers_match_the_cpu() {
         (
             "cushions on ground",
             SurfaceMesh::ground(1.0, 8),
-            ClumpPreset::MossCushions.options(),
+            ClumpPreset::moss_cushions().clump.clone(),
         ),
         (
             "strict crowded cushions",
@@ -1404,7 +1407,7 @@ fn gpu_layers_at_the_facing_limit_stay_close_to_the_cpu() {
     // input normal down by 1e-7 changes the CPU's own clump, so the GPU,
     // which rounds normals differently, can only match it closely, not
     // exactly.
-    let mut options = ClumpPreset::MossPatches.options();
+    let mut options = ClumpPreset::moss_patches().clump.clone();
     options.mesh.closed = false;
     let mesh = seamed(&sharp_box(0.3));
     let mut tilted = mesh.clone();
@@ -1503,8 +1506,8 @@ fn gpu_open_layers_match_the_cpu() {
         let slope = Vec3::new(-(x * 3.1).cos() * 0.465, 1.0, (z * 2.3).sin() * 0.23);
         *n = slope.normalize().to_array();
     }
-    let open = |preset: ClumpPreset| {
-        let mut options = preset.options();
+    let open = |preset: &ClumpPreset| {
+        let mut options = preset.clump.clone();
         options.mesh.closed = false;
         options
     };
@@ -1515,26 +1518,26 @@ fn gpu_open_layers_match_the_cpu() {
         (
             "snow cap on bumpy ground",
             bumpy.clone(),
-            open(ClumpPreset::DirtySnowCap),
+            open(ClumpPreset::dirty_snow_cap()),
         ),
         (
             "moss patches on bumpy ground",
             bumpy,
-            open(ClumpPreset::MossPatches),
+            open(ClumpPreset::moss_patches()),
         ),
         (
             "snow cap on slab",
             slab(48),
-            open(ClumpPreset::DirtySnowCap),
+            open(ClumpPreset::dirty_snow_cap()),
         ),
         // See `gpu_open_sheets_match_the_cpu` for why `facing_min` is lifted.
         ("moss patches on a box", seamed(&sharp_box(0.3)), {
-            let mut clear_of_sides = open(ClumpPreset::MossPatches);
+            let mut clear_of_sides = open(ClumpPreset::moss_patches());
             clear_of_sides.mask.facing_min = 0.01;
             clear_of_sides
         }),
         ("deep moss in a crevice", crevice(), {
-            let mut deep = open(ClumpPreset::MossPatches);
+            let mut deep = open(ClumpPreset::moss_patches());
             deep.shape.thickness = 0.2;
             deep.mask.any_facing = true;
             deep
@@ -1814,7 +1817,7 @@ fn gpu_strict_layers_match_the_cpu() {
         options.mesh.strict = true;
         options
     };
-    let mut deep = ClumpPreset::MossPatches.options();
+    let mut deep = ClumpPreset::moss_patches().clump.clone();
     deep.shape.thickness = 0.2;
     deep.mask.any_facing = true;
     let mut flat_cap = ClumpOptions::default();
@@ -1924,8 +1927,8 @@ fn gpu_closed_layers_match_the_cpu() {
         let slope = Vec3::new(-(x * 3.1).cos() * 0.465, 1.0, (z * 2.3).sin() * 0.23);
         *n = slope.normalize().to_array();
     }
-    let closed = |preset: ClumpPreset| {
-        let mut options = preset.options();
+    let closed = |preset: &ClumpPreset| {
+        let mut options = preset.clump.clone();
         options.mesh.closed = true;
         options
     };
@@ -1944,26 +1947,26 @@ fn gpu_closed_layers_match_the_cpu() {
         (
             "snow cap on bumpy ground",
             bumpy.clone(),
-            closed(ClumpPreset::DirtySnowCap),
+            closed(ClumpPreset::dirty_snow_cap()),
         ),
         (
             "moss patches on bumpy ground",
             bumpy,
-            closed(ClumpPreset::MossPatches),
+            closed(ClumpPreset::moss_patches()),
         ),
         (
             "snow cap on slab",
             slab(48),
-            closed(ClumpPreset::DirtySnowCap),
+            closed(ClumpPreset::dirty_snow_cap()),
         ),
         // See `gpu_open_sheets_match_the_cpu` for why `facing_min` is lifted.
         ("moss patches on a box", seamed(&sharp_box(0.3)), {
-            let mut clear_of_sides = closed(ClumpPreset::MossPatches);
+            let mut clear_of_sides = closed(ClumpPreset::moss_patches());
             clear_of_sides.mask.facing_min = 0.01;
             clear_of_sides
         }),
         ("deep moss in a crevice", crevice(), {
-            let mut deep = closed(ClumpPreset::MossPatches);
+            let mut deep = closed(ClumpPreset::moss_patches());
             deep.shape.thickness = 0.2;
             deep.mask.any_facing = true;
             deep
@@ -2073,15 +2076,15 @@ fn gpu_open_sheets_match_the_cpu() {
     use crate::shell::open_sheet;
 
     let (device, queue) = device();
-    let open = |preset: ClumpPreset| {
-        let mut options = preset.options();
+    let open = |preset: &ClumpPreset| {
+        let mut options = preset.clump.clone();
         options.mesh.closed = false;
         options
     };
     // The box's sides face exactly sideways, so with a `facing_min` of 0,
     // whether they may be covered rests on the last bit of their normals,
     // which the GPU rounds differently; lifting it keeps them clear.
-    let mut clear_of_sides = open(ClumpPreset::MossPatches);
+    let mut clear_of_sides = open(ClumpPreset::moss_patches());
     clear_of_sides.mask.facing_min = 0.01;
     let cases = [(seamed(&sharp_box(0.3)), clear_of_sides)];
     let (plan, counters, arena, flags) = run_stages_sized(&device, &queue, &cases, 8.0);
@@ -2222,7 +2225,7 @@ fn gpu_strict_crossings_match_the_cpu() {
         options.mesh.strict = true;
         options
     };
-    let mut deep = ClumpPreset::MossPatches.options();
+    let mut deep = ClumpPreset::moss_patches().clump.clone();
     deep.shape.thickness = 0.2;
     deep.mask.any_facing = true;
     deep.mesh.closed = true;
@@ -2271,7 +2274,7 @@ fn gpu_strict_layers_out_of_passes_report_their_crossings() {
     // The deep crevice needs 10 passes; with 2 it still crosses itself, and
     // the count is that of the mesh it outputs.
     let (device, queue) = device();
-    let mut deep = ClumpPreset::MossPatches.options();
+    let mut deep = ClumpPreset::moss_patches().clump.clone();
     deep.shape.thickness = 0.2;
     deep.mask.any_facing = true;
     deep.mesh.closed = true;
@@ -2301,7 +2304,7 @@ fn gpu_closed_undersides_match_the_cpu() {
     use crate::shell::{BOTTOM_GAP, open_sheet, sink};
 
     let (device, queue) = device();
-    let mut options = ClumpPreset::MossPatches.options();
+    let mut options = ClumpPreset::moss_patches().clump.clone();
     options.mesh.closed = true;
     options.mask.facing_min = 0.01;
     let cases = [(seamed(&sharp_box(0.3)), options)];
@@ -2386,12 +2389,18 @@ fn gpu_refined_sheets_match_the_cpu() {
             SurfaceMesh::ground(1.0, 8),
             with(ClumpOptions::default(), 0.04),
         ),
-        (slab(24), with(ClumpPreset::DirtySnowCap.options(), 0.03)),
+        (
+            slab(24),
+            with(ClumpPreset::dirty_snow_cap().clump.clone(), 0.03),
+        ),
         (
             bumpy.clone(),
-            with(ClumpPreset::MossPatches.options(), 0.05),
+            with(ClumpPreset::moss_patches().clump.clone(), 0.05),
         ),
-        (bumpy, with(ClumpPreset::DirtySnowCap.options(), 0.1)),
+        (
+            bumpy,
+            with(ClumpPreset::dirty_snow_cap().clump.clone(), 0.1),
+        ),
     ];
     let (plan, counters, arena, _) = run_stages_sized(&device, &queue, &cases, 12.0);
     let regions = &plan.regions;

@@ -14,7 +14,7 @@ fn hashes_match_pinned_values() {
         OptionsHash(0x950b_9b8a_fbfd_afcd)
     );
     assert_eq!(
-        ClumpPreset::MossCushions.options().pool_id().options,
+        ClumpPreset::moss_cushions().clump.pool_id().options,
         OptionsHash(0x1bea_8826_9ac8_39f9)
     );
 }
@@ -23,7 +23,7 @@ fn hashes_match_pinned_values() {
 fn the_seed_is_not_part_of_the_pool() {
     let base = ClumpOptions::default();
     let reseeded = ClumpOptions {
-        seed: base.seed + 1,
+        default_seed: base.default_seed + 1,
         ..base.clone()
     };
     assert_eq!(base.pool_id(), reseeded.pool_id());

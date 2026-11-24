@@ -101,7 +101,7 @@ fn main() -> AppExit {
         host: Host::Rock,
         host_seed: 0,
         preset: 0,
-        clump_seed: ClumpPreset::ALL[0].options().seed,
+        clump_seed: ClumpPreset::fresh_snow_cap().clump.default_seed,
         turns: 0,
         screenshot: None,
         headless: false,
@@ -132,9 +132,9 @@ fn main() -> AppExit {
             }
             "--preset" => {
                 i += 1;
-                let preset = ClumpPreset::from_name(&args[i]).expect("unknown preset");
-                viewer.preset = ClumpPreset::ALL.iter().position(|&p| p == preset).unwrap();
-                viewer.clump_seed = preset.options().seed;
+                let preset = ClumpPreset::named(&args[i]).expect("unknown preset");
+                viewer.preset = ClumpPreset::all().position(|p| p == preset).unwrap();
+                viewer.clump_seed = preset.clump.default_seed;
             }
             "--untextured" => textured = false,
             "--eye" => {
@@ -253,7 +253,7 @@ fn setup(
 
 /// Changes the host, preset and seeds from the keyboard.
 fn controls(keys: Res<ButtonInput<KeyCode>>, mut viewer: ResMut<Viewer>) {
-    let presets = ClumpPreset::ALL.len();
+    let presets = ClumpPreset::all().count();
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     if keys.just_pressed(KeyCode::KeyH) {
         viewer.host = viewer.host.next();
@@ -302,7 +302,7 @@ fn show_host(
     let mut host = match viewer.host {
         Host::Rock => {
             let rock = StoneOptions {
-                seed: viewer.host_seed,
+                default_seed: viewer.host_seed,
                 scale: 1.5,
                 ..StoneOptions::default()
             };
@@ -325,16 +325,15 @@ fn show_host(
     host.insert((Shown, Transform::from_rotation(turn)));
 
     // Grow the chosen preset on it.
-    let preset = ClumpPreset::ALL[viewer.preset];
-    let mut options = preset.options();
-    options.seed = viewer.clump_seed;
+    let preset = ClumpPreset::all()
+        .nth(viewer.preset)
+        .expect("the viewer's preset index is in range");
+    let mut options = preset.clump.clone();
+    options.default_seed = viewer.clump_seed;
     host.with_child(ClumpParams::new(options));
     info!(
         "host {:?} seed {}, clump {} seed {}",
-        viewer.host,
-        viewer.host_seed,
-        preset.name(),
-        viewer.clump_seed
+        viewer.host, viewer.host_seed, preset.key, viewer.clump_seed
     );
 }
 
