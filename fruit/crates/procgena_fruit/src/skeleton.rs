@@ -567,7 +567,8 @@ mod tests {
 
     #[test]
     fn droop_bends_the_end_toward_down() {
-        let curve = |down, droop| Path::curve(Vec3::ZERO, Vec3::X, Vec3::X, down, 1.0, droop, 1.0, 4);
+        let curve =
+            |down, droop| Path::curve(Vec3::ZERO, Vec3::X, Vec3::X, down, 1.0, droop, 1.0, 4);
         assert!(curve(Vec3::NEG_Y, 0.0).end().y.abs() < 1e-6);
         assert!(curve(Vec3::NEG_Y, 1.0).end().y < -0.2);
         assert!(curve(Vec3::Z, 1.0).end().z > 0.2);

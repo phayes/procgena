@@ -293,7 +293,7 @@ mod wind;
 
 pub use attached::{AttachedFruit, ClusterPlacement, DEFAULT_FRUIT_SLOTS};
 pub use cluster::{ClusterPart, SkeletonCluster};
-pub use compose::ClusterRow;
+pub use compose::{ClusterLink, ClusterRow, FLOWER_PART, FRUIT_PART};
 pub use content_hash::{TREE_KIND, TreeCacheKey};
 pub use material::{
     BARK_KINDS, BarkMap, BarkMaterial, LEAF_KINDS, LeafMap, LeafMaterial, TextureCompression,
@@ -308,7 +308,6 @@ pub use options::{
     BarkOptions, BarkUvMode, Billboard, BranchOptions, GrowthForce, LeafOptions, MAX_LEVELS,
     OptionsError, PerLevel, TreeOptions, TreeType, TrellisForce, TrellisOptions,
 };
-pub use procgena_fruit;
 pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::{TreePreset, TreeStand};
 pub use procgena_core::preset::PresetFileError;
@@ -316,6 +315,7 @@ pub use procgena_core::scatter::{
     Footprints, Mask, Placement, Rest, Scatter, ScatterArea, ScatterInput,
 };
 pub use procgena_core::{AddressPrefix, ChildKey, CopyAddress, FlatGround, Ground, HeightGrid};
+pub use procgena_fruit;
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
 pub use scatter::{
     MAX_SCATTER_COPIES, MAX_SCATTER_SIZE, MAX_SCATTER_TREES, MAX_SCATTER_VARIANTS, ScatterTree,

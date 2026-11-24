@@ -98,7 +98,10 @@ mod tests {
     #[test]
     fn every_built_in_preset_is_valid() {
         for preset in FruitPreset::all() {
-            preset.fruit.validate().unwrap_or_else(|e| panic!("{}: {e}", preset.key));
+            preset
+                .fruit
+                .validate()
+                .unwrap_or_else(|e| panic!("{}: {e}", preset.key));
         }
     }
 
@@ -117,9 +120,14 @@ mod tests {
     #[test]
     fn presets_split_into_fruit_and_flowers() {
         let fruit: Vec<_> = FruitPreset::of_kind(true).map(|p| p.key.as_ref()).collect();
-        let flowers: Vec<_> = FruitPreset::of_kind(false).map(|p| p.key.as_ref()).collect();
+        let flowers: Vec<_> = FruitPreset::of_kind(false)
+            .map(|p| p.key.as_ref())
+            .collect();
         assert_eq!(fruit, ["apple", "pussy_willow_catkin"]);
         assert_eq!(flowers, ["dogwood_bloom"]);
-        assert_eq!(FruitPreset::key_of(&FruitPreset::apple().fruit), Some("apple"));
+        assert_eq!(
+            FruitPreset::key_of(&FruitPreset::apple().fruit),
+            Some("apple")
+        );
     }
 }

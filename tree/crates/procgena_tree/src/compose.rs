@@ -2,7 +2,7 @@
 //! into place as one mesh.
 
 use glam::{Quat, Vec3};
-use procgena_core::Quality;
+use procgena_core::{PartStep, Quality, SpecimenId};
 use procgena_fruit::{Fruit, FruitMesh, default_lod};
 
 use crate::mesh::{ClusterSpan, LodDetail, MeshBuffers};
@@ -107,4 +107,60 @@ pub(crate) fn compose_clusters(
 fn index_range(start: usize, end: usize) -> std::ops::Range<u32> {
     let convert = |i: usize| u32::try_from(i).expect("index buffer longer than u32::MAX");
     convert(start)..convert(end)
+}
+
+/// The part kind key of a tree's fruit clusters: step `fruit i` names
+/// [`Skeleton::fruit`]`[i]`.
+pub const FRUIT_PART: &str = "tree.part.fruit";
+/// The part kind key of a tree's flower clusters: step `flower i` names
+/// [`Skeleton::flowers`]`[i]`.
+pub const FLOWER_PART: &str = "tree.part.flower";
+
+/// A fruit or flower cluster that a part step names on a tree: where it is,
+/// and the cluster specimen it shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClusterLink<'a> {
+    /// Which clusters the step names: fruit or flowers.
+    pub part: ClusterPart,
+    /// The placed cluster, with its frame in tree coordinates.
+    pub cluster: &'a SkeletonCluster,
+    /// The specimen the cluster shows. Its [`Fruit::id`] pins the next
+    /// step, such as `item 2`.
+    pub specimen: &'a Fruit,
+}
+
+impl ClusterPart {
+    /// This part's kind key: [`FRUIT_PART`] or [`FLOWER_PART`].
+    pub fn kind_key(self) -> &'static str {
+        match self {
+            Self::Fruit => FRUIT_PART,
+            Self::Flowers => FLOWER_PART,
+        }
+    }
+}
+
+impl Skeleton {
+    /// The step naming cluster `index` of `part` on the tree specimen `tree`.
+    pub fn cluster_step(&self, part: ClusterPart, index: u32, tree: SpecimenId) -> PartStep {
+        PartStep::new(part.kind_key(), index, tree)
+    }
+
+    /// The cluster that `step` names, or `None` when its kind is not
+    /// [`FRUIT_PART`] or [`FLOWER_PART`] or its index is out of range.
+    ///
+    /// The skeleton doesn't know which tree specimen it is, so the caller
+    /// checks `step.pin` against the tree's own [`SpecimenId`]. The same
+    /// step names the same cluster at every level of detail.
+    pub fn part(&self, step: PartStep) -> Option<ClusterLink<'_>> {
+        let part = ClusterPart::ALL
+            .into_iter()
+            .find(|part| PartStep::kind_of(part.kind_key()) == step.kind)?;
+        let (clusters, slots) = self.clusters(part);
+        let cluster = clusters.get(step.index as usize)?;
+        Some(ClusterLink {
+            part,
+            cluster,
+            specimen: &slots[cluster.slot as usize],
+        })
+    }
 }

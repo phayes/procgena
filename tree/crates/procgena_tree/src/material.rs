@@ -399,7 +399,6 @@ impl TrellisMaterial {
     }
 }
 
-
 /// Converts a display colour written as `0xRRGGBB` to linear red, green, and
 /// blue values in 0–1 for lighting calculations. Ignores bits above the lowest
 /// 24; the input does not supply an alpha value.

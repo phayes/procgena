@@ -239,7 +239,11 @@ pub(super) fn mesh_item(
     // Curve the stem from its attachment into the hollow at the top of the fruit.
     let stem_radius = shape.stem_radius * size;
     if let (Some(sides), true) = (style.stem_sides, stem > 0.0) {
-        let bend = Vec3::new(item.variation.stem_turn.cos(), 0.0, item.variation.stem_turn.sin());
+        let bend = Vec3::new(
+            item.variation.stem_turn.cos(),
+            0.0,
+            item.variation.stem_turn.sin(),
+        );
         let points: Vec<Vec3> = (0..STEM_POINTS)
             .map(|k| {
                 let t = k as f32 / (STEM_POINTS - 1) as f32;

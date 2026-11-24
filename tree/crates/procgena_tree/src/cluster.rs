@@ -7,9 +7,9 @@
 use std::f32::consts::TAU;
 
 use glam::{Quat, Vec3};
-use procgena_core::Rng;
 use procgena_core::hash::derive_seed;
-use procgena_fruit::{Facing, choose_slot};
+use procgena_core::{Rng, choose_slot};
+use procgena_fruit::Facing;
 
 use crate::skeleton::{place, shuffled_indices};
 use crate::{AttachedFruit, Attachment, Section, SkeletonBranch, TreeOptions, TreeType};

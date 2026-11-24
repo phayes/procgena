@@ -142,7 +142,7 @@ impl AttachedFruit {
         )?;
         v.unit(p.scale_variance, "placement.scale_variance")?;
         v.check(
-            (1..=procgena_fruit::MAX_SLOTS).contains(&self.default_slots),
+            (1..=procgena_core::MAX_SLOTS).contains(&self.default_slots),
             "default_slots",
             "between 1 and 256",
         )?;

@@ -4,7 +4,9 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use glam::{Vec3, Vec4};
 
-use super::{FruitMesh, Grid, ItemDetail, lerp, loop_angle, push_triangle, rgba, smoothstep, turn_hue};
+use super::{
+    FruitMesh, Grid, ItemDetail, lerp, loop_angle, push_triangle, rgba, smoothstep, turn_hue,
+};
 use crate::{ClusterItem, FlowerShape, FruitOptions};
 
 /// How far [`Variation::shape_jitter`](crate::Variation::shape_jitter) at
@@ -152,8 +154,7 @@ pub(super) fn mesh_item(
         for p in 0..count {
             let wobble = TAU * ((p as f32 + phase) * GOLDEN_RATIO_FRACTION).fract();
             let jitter = PETAL_TURN_JITTER * TAU / count as f32 * turn * wobble.sin();
-            let azimuth =
-                TAU * p as f32 / count as f32 + PI * ring as f32 / count as f32 + jitter;
+            let azimuth = TAU * p as f32 / count as f32 + PI * ring as f32 / count as f32 + jitter;
             let petal = petal.stretched(1.0 + PETAL_LENGTH_JITTER * stretch * wobble.cos());
             let grid = petal.grid(azimuth, shape, &bloom, &colors, &to_tree);
             grid.emit(out, facing, |_| flutter);

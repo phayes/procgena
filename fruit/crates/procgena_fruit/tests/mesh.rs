@@ -106,12 +106,21 @@ fn assert_well_formed(name: &str, mesh: &FruitMesh) {
     for (p, normal) in mesh.positions.iter().zip(&mesh.normals) {
         assert!(Vec3::from_array(*p).is_finite(), "{name}: {p:?}");
         let length = Vec3::from_array(*normal).length();
-        assert!((length - 1.0).abs() < 1e-4, "{name}: normal length {length}");
+        assert!(
+            (length - 1.0).abs() < 1e-4,
+            "{name}: normal length {length}"
+        );
     }
     assert!(mesh.indices.iter().all(|&i| (i as usize) < n), "{name}");
-    assert!(mesh.flutter.iter().all(|f| (0.0..=1.0).contains(f)), "{name}");
     assert!(
-        mesh.colors.iter().flatten().all(|c| (0.0..=1.0).contains(c)),
+        mesh.flutter.iter().all(|f| (0.0..=1.0).contains(f)),
+        "{name}"
+    );
+    assert!(
+        mesh.colors
+            .iter()
+            .flatten()
+            .all(|c| (0.0..=1.0).contains(c)),
         "{name}"
     );
 
@@ -122,7 +131,10 @@ fn assert_well_formed(name: &str, mesh: &FruitMesh) {
         let face = (p(t[1]) - p(t[0])).cross(p(t[2]) - p(t[0]));
         assert!(face.length_squared() > 0.0, "{name}: triangle without area");
         let smooth = normal(t[0]) + normal(t[1]) + normal(t[2]);
-        assert!(face.dot(smooth) > 0.0, "{name}: triangle faces away from its normals");
+        assert!(
+            face.dot(smooth) > 0.0,
+            "{name}: triangle faces away from its normals"
+        );
     }
 }
 
@@ -179,11 +191,20 @@ fn every_arrangement_and_detail_builds_well_formed_meshes() {
 
 #[test]
 fn unripe_fruit_is_smaller_than_ripe_fruit() {
+    // Each maturity is a pool of its own, so fix the size and measure from
+    // the attachment, which the item's random turn leaves alone.
     let mut options = bare_single(fruit(ClusterKind::Single));
+    options.size_variance = 0.0;
+    let reach = |mesh: FruitMesh| {
+        mesh.positions
+            .iter()
+            .map(|p| Vec3::from_array(*p).length())
+            .fold(0.0, f32::max)
+    };
     options.maturity = 0.0;
-    let unripe = extent(&mesh(&options, &ClusterDetail::default()));
+    let unripe = reach(mesh(&options, &ClusterDetail::default()));
     options.maturity = 1.0;
-    let ripe = extent(&mesh(&options, &ClusterDetail::default()));
+    let ripe = reach(mesh(&options, &ClusterDetail::default()));
     // At maturity zero, every fruit dimension is 30% of its ripe value.
     assert!((unripe / ripe - 0.3).abs() < 1e-3, "{unripe} vs {ripe}");
 }
@@ -222,7 +243,10 @@ fn blush_colours_the_upper_side_of_ripe_fruit() {
     // Compare the skin at the most upward- and downward-facing vertices.
     let up = |i: &usize| -mesh.normals[*i][1];
     let range = 0..mesh.vertex_count();
-    let top = range.clone().max_by(|a, b| up(a).total_cmp(&up(b))).unwrap();
+    let top = range
+        .clone()
+        .max_by(|a, b| up(a).total_cmp(&up(b)))
+        .unwrap();
     let bottom = range.min_by(|a, b| up(a).total_cmp(&up(b))).unwrap();
     assert!(mesh.colors[top][0] > 0.2, "{:?}", mesh.colors[top]);
     assert_eq!(mesh.colors[bottom], [0.0, 1.0, 0.0, 1.0]);
@@ -260,7 +284,10 @@ fn lobes_change_the_outline() {
     let (min, max) = ring_radii(0);
     assert!(max - min < 1e-4 * max, "smooth fruit: {min} to {max}");
     let (min, max) = ring_radii(6);
-    assert!((min / max - 0.6).abs() < 1e-3, "ribbed fruit: {min} to {max}");
+    assert!(
+        (min / max - 0.6).abs() < 1e-3,
+        "ribbed fruit: {min} to {max}"
+    );
 }
 
 #[test]
@@ -355,9 +382,19 @@ fn catkins_ignore_petal_settings() {
     shape.center_color = 0x123456;
     shape.base_color = 0x654321;
 
+    // Changed settings name another pool, so the items land elsewhere; but
+    // they keep the same geometry and the same colours.
+    let colours = |mesh: &FruitMesh| {
+        let mut colours: Vec<[u32; 4]> = mesh.colors.iter().map(|c| c.map(f32::to_bits)).collect();
+        colours.sort_unstable();
+        colours.dedup();
+        colours
+    };
     let original = mesh(&options, &ClusterDetail::default());
+    let varied = mesh(&changed, &ClusterDetail::default());
     assert!(original.vertex_count() > 0);
-    assert_eq!(original, mesh(&changed, &ClusterDetail::default()));
+    assert_eq!(original.triangle_count(), varied.triangle_count());
+    assert_eq!(colours(&original), colours(&varied));
 }
 
 #[test]
@@ -408,7 +445,11 @@ fn item_scale_resizes_each_item() {
     ] {
         let normal = extent(&mesh(&options, &detail(ItemDetail::Full, 1, 1.0)));
         let doubled = extent(&mesh(&options, &detail(ItemDetail::Full, 1, 2.0)));
-        assert!((doubled / normal - 2.0).abs() < 1e-3, "{}", doubled / normal);
+        assert!(
+            (doubled / normal - 2.0).abs() < 1e-3,
+            "{}",
+            doubled / normal
+        );
     }
 }
 
@@ -465,7 +506,11 @@ fn minimal_flowers_are_single_stars() {
     for (maturity, shows_centre) in [(0.0, false), (0.5, true)] {
         options.maturity = maturity;
         let mesh = mesh(&options, &detail(ItemDetail::Minimal, 1, 1.0));
-        assert_eq!(mesh.colors.contains(&centre), shows_centre, "maturity {maturity}");
+        assert_eq!(
+            mesh.colors.contains(&centre),
+            shows_centre,
+            "maturity {maturity}"
+        );
         if maturity == 0.0 {
             assert!(mesh.colors.iter().all(|c| *c == [1.0, 0.0, 0.0, 1.0]));
         }
@@ -488,7 +533,11 @@ fn minimal_catkins_draw_their_items() {
 /// Leaving out stalks keeps the items, with fewer triangles.
 #[test]
 fn stalks_off_keeps_the_items_without_their_stalks() {
-    for kind in [ClusterKind::Umbel, ClusterKind::Raceme, ClusterKind::Panicle] {
+    for kind in [
+        ClusterKind::Umbel,
+        ClusterKind::Raceme,
+        ClusterKind::Panicle,
+    ] {
         for options in [fruit(kind), flowers(kind)] {
             let with = mesh(&options, &ClusterDetail::default());
             let without = mesh(
@@ -570,7 +619,10 @@ fn flat_fruit_discs_face_out_at_varied_angles() {
 
 #[test]
 fn items_at_or_above_the_flat_size_keep_their_shape() {
-    for mut options in [small_items(fruit(ClusterKind::Single)), small_items(flowers(ClusterKind::Single))] {
+    for mut options in [
+        small_items(fruit(ClusterKind::Single)),
+        small_items(flowers(ClusterKind::Single)),
+    ] {
         options.size = 0.75;
         assert_eq!(mesh(&options, &flat(0.75)), mesh(&options, &flat(0.0)));
     }
@@ -578,7 +630,10 @@ fn items_at_or_above_the_flat_size_keep_their_shape() {
 
 #[test]
 fn catkins_ignore_the_flat_size() {
-    for options in [small_items(fruit(ClusterKind::Catkin)), small_items(flowers(ClusterKind::Catkin))] {
+    for options in [
+        small_items(fruit(ClusterKind::Catkin)),
+        small_items(flowers(ClusterKind::Catkin)),
+    ] {
         assert_eq!(mesh(&options, &flat(0.75)), mesh(&options, &flat(0.0)));
     }
 }

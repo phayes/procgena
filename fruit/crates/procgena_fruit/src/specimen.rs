@@ -15,7 +15,10 @@ impl Fruit {
     ///
     /// Panics if `lods` is empty.
     pub fn specimen(&self, lods: &[(LodLevel<ClusterDetail>, FruitMesh)]) -> Specimen {
-        assert!(!lods.is_empty(), "a fruit specimen needs at least one level");
+        assert!(
+            !lods.is_empty(),
+            "a fruit specimen needs at least one level"
+        );
         let tag = if self.options().item.is_fruit() {
             tags::FRUIT
         } else {

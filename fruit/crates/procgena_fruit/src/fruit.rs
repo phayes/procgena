@@ -1,9 +1,12 @@
 //! One generated fruit or flower cluster: a specimen of a fruit pool.
 
-use procgena_core::{LodLevel, SpecimenId};
+use procgena_core::{LodLevel, PartStep, SpecimenId};
 
 use crate::mesh::mesh_cluster;
-use crate::{ClusterDetail, FruitLod, FruitMesh, FruitOptions, FruitPreset, FruitSkeleton, OptionsError};
+use crate::{
+    ClusterDetail, ClusterItem, ClusterStalk, FruitLod, FruitMesh, FruitOptions, FruitPreset,
+    FruitSkeleton, OptionsError,
+};
 
 /// One fruit or flower cluster, grown from its settings and its
 /// [`SpecimenId`], ready to mesh at any level of detail.
@@ -93,5 +96,46 @@ impl Fruit {
             .iter()
             .map(|level| (*level, self.mesh(&level.detail)))
             .collect()
+    }
+}
+
+/// The part kind key of a cluster's stalks: step `stalk k` names
+/// [`FruitSkeleton::stalks`]`[k]`.
+pub const STALK_PART: &str = "fruit.part.stalk";
+/// The part kind key of a cluster's items: step `item k` names
+/// [`FruitSkeleton::items`]`[k]`.
+pub const ITEM_PART: &str = "fruit.part.item";
+
+/// A part of a cluster that a [`PartStep`] names.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FruitPart<'a> {
+    /// A supporting stalk or main stem.
+    Stalk(&'a ClusterStalk),
+    /// One fruit or flower.
+    Item(&'a ClusterItem),
+}
+
+impl Fruit {
+    /// The part that `step` names in this cluster, or `None` when its kind
+    /// is not [`STALK_PART`] or [`ITEM_PART`], its index is out of range, or
+    /// it is pinned to another specimen. The same step names the same part
+    /// at every level of detail.
+    pub fn part(&self, step: PartStep) -> Option<FruitPart<'_>> {
+        if step.pin != self.id {
+            return None;
+        }
+        let index = step.index as usize;
+        if step.kind == PartStep::kind_of(STALK_PART) {
+            self.skeleton.stalks.get(index).map(FruitPart::Stalk)
+        } else if step.kind == PartStep::kind_of(ITEM_PART) {
+            self.skeleton.items.get(index).map(FruitPart::Item)
+        } else {
+            None
+        }
+    }
+
+    /// The step naming item `index` of this cluster.
+    pub fn item_step(&self, index: u32) -> PartStep {
+        PartStep::new(ITEM_PART, index, self.id)
     }
 }

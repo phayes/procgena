@@ -28,7 +28,7 @@
 //! Every cluster grown from one set of settings belongs to one pool
 //! ([`FruitOptions::pool_id`]). A pool holds a small number of distinct
 //! specimens, its slots, and every copy draws one of them, chosen with
-//! [`choose_slot`]. [`Variation`] makes the specimens of a pool differ in
+//! [`procgena_core::choose_slot`]. [`Variation`] makes the specimens of a pool differ in
 //! ripeness, colour and shape, so even single-fruit clusters vary.
 //!
 //! ## Preset files
@@ -62,11 +62,10 @@ mod mesh;
 mod options;
 mod presets;
 mod skeleton;
-mod slot;
 mod specimen;
 
 pub use content_hash::FRUIT_KIND;
-pub use fruit::Fruit;
+pub use fruit::{Fruit, FruitPart, ITEM_PART, STALK_PART};
 pub use lod::{FRUIT_LOD_REFERENCE_SIZE, FruitLod, default_lod};
 pub use material::FruitMaterial;
 pub use mesh::{ClusterDetail, FruitMesh, ItemDetail};
@@ -77,4 +76,3 @@ pub use options::{
 pub use presets::FruitPreset;
 pub use procgena_core::preset::PresetFileError;
 pub use skeleton::{ClusterItem, ClusterStalk, FruitSkeleton, ItemVariation};
-pub use slot::{MAX_SLOTS, choose_slot};

@@ -9,7 +9,9 @@ use glam::{Quat, Vec3, Vec4};
 use serde::{Deserialize, Serialize};
 
 use crate::skeleton::polyline_length;
-use crate::{ClusterItem, ClusterKind, ClusterStalk, Facing, FruitOptions, FruitSkeleton, ItemShape};
+use crate::{
+    ClusterItem, ClusterKind, ClusterStalk, Facing, FruitOptions, FruitSkeleton, ItemShape,
+};
 
 /// Number of sides around a full-detail stalk.
 const STALK_SIDES: usize = 6;
@@ -707,7 +709,10 @@ mod tests {
     fn turning_the_hue_keeps_value_and_wraps() {
         let red = Vec4::new(0.8, 0.1, 0.1, 1.0);
         let green = turn_hue(red, 1.0 / 3.0);
-        assert!(green.abs_diff_eq(Vec4::new(0.1, 0.8, 0.1, 1.0), 1e-5), "{green}");
+        assert!(
+            green.abs_diff_eq(Vec4::new(0.1, 0.8, 0.1, 1.0), 1e-5),
+            "{green}"
+        );
         assert!(turn_hue(red, 1.0).abs_diff_eq(red, 1e-5));
         let grey = Vec4::new(0.5, 0.5, 0.5, 1.0);
         assert_eq!(turn_hue(grey, 0.2), grey);

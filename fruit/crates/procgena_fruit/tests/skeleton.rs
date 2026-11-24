@@ -3,7 +3,7 @@
 
 use glam::Vec3;
 use procgena_fruit::{
-    ClusterDetail, ClusterKind, Facing, Fruit, FruitOptions, FruitPreset, FruitSkeleton,
+    ClusterDetail, ClusterKind, Facing, Fruit, FruitOptions, FruitPreset, FruitSkeleton, ItemShape,
 };
 
 /// Default fruit settings arranged as `kind`.
@@ -88,12 +88,9 @@ fn a_hanging_single_fruit_hangs_from_its_stalk() {
 
 #[test]
 fn droop_bends_stems_toward_the_frames_ground() {
-    // Down is +Y for hanging clusters, −Y for upright ones and −Z for outward ones.
-    for (facing, down) in [
-        (Facing::Hang, Vec3::Y),
-        (Facing::Up, Vec3::NEG_Y),
-        (Facing::Outward, Vec3::NEG_Z),
-    ] {
+    // Down is −Y for upright clusters and −Z for outward ones. A hanging
+    // cluster already faces down (+Y), so droop has nothing to add there.
+    for (facing, down) in [(Facing::Up, Vec3::NEG_Y), (Facing::Outward, Vec3::NEG_Z)] {
         let tip = |droop: f32| {
             let mut options = arranged(ClusterKind::Raceme);
             options.facing = facing;
@@ -246,25 +243,39 @@ fn clusters_are_repeatable_and_follow_the_slot() {
 /// items look, never where they are.
 #[test]
 fn variation_never_moves_items() {
+    // Grow both from one seed: the settings alone name different pools.
     let plain = FruitPreset::apple().fruit.clone();
     let mut still = plain.clone();
     still.variation = Default::default();
-    let (a, b) = (grow(&plain), grow(&still));
+    let (a, b) = (
+        FruitSkeleton::generate(&plain, 99),
+        FruitSkeleton::generate(&still, 99),
+    );
     assert_eq!(a.stalks, b.stalks);
     for (x, y) in a.items.iter().zip(&b.items) {
-        assert_eq!((x.origin, x.orientation, x.size), (y.origin, y.orientation, y.size));
+        assert_eq!(
+            (x.origin, x.orientation, x.size),
+            (y.origin, y.orientation, y.size)
+        );
     }
 }
 
 /// The shape of slot `slot`'s single item in the item's own frame, with its
 /// size, place and turn undone.
+///
+/// Only geometry built in the item's frame counts: a fruit's body, which
+/// comes first in its mesh, or a whole flower. A stem's tube rings start at
+/// an angle that depends on the item's turn, so stems are left out.
 fn item_shape(options: &FruitOptions, slot: u32) -> Vec<Vec3> {
     let fruit = grow_slot(options, slot);
     let item = fruit.skeleton().items[0];
     let to_item = item.orientation.inverse();
-    fruit
-        .mesh(&ClusterDetail::default())
-        .positions
+    let positions = fruit.mesh(&ClusterDetail::default()).positions;
+    let count = match &options.item {
+        ItemShape::Fruit(shape) => ((shape.rings + 1) * (shape.segments + 1)) as usize,
+        ItemShape::Flower(_) => positions.len(),
+    };
+    positions[..count]
         .iter()
         .map(|p| to_item * (Vec3::from_array(*p) - item.origin) / item.size)
         .collect()
@@ -295,7 +306,11 @@ fn every_presets_slots_differ() {
         let shapes: Vec<_> = (0..6).map(|slot| item_shape(&preset.fruit, slot)).collect();
         for (i, a) in shapes.iter().enumerate() {
             for b in &shapes[i + 1..] {
-                assert!(!same_shape(a, b), "{}: two slots have the same shape", preset.key);
+                assert!(
+                    !same_shape(a, b),
+                    "{}: two slots have the same shape",
+                    preset.key
+                );
             }
         }
         let mut still = preset.fruit.clone();

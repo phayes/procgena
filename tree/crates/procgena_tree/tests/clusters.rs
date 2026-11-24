@@ -41,7 +41,10 @@ fn flowers(options: &mut TreeOptions) -> &mut AttachedFruit {
             count: 0,
             ..ClusterPlacement::default()
         },
-        ..AttachedFruit::new(FruitPreset::dogwood_bloom().fruit.clone(), Default::default())
+        ..AttachedFruit::new(
+            FruitPreset::dogwood_bloom().fruit.clone(),
+            Default::default(),
+        )
     })
 }
 
@@ -387,4 +390,52 @@ fn every_copy_of_a_tree_specimen_carries_the_same_fruit() {
     let slots = |s: &Skeleton| s.fruit.iter().map(|c| c.slot).collect::<Vec<_>>();
     assert_eq!(slots(&a), slots(&b));
     assert_eq!(a.fruit_slots, b.fruit_slots);
+}
+
+/// A part path `/ fruit i / item k` resolves through the cluster's specimen,
+/// and names the same cluster whatever detail level draws it.
+#[test]
+fn a_part_path_resolves_to_a_fruit_item_on_every_level() {
+    use procgena_tree::procgena_fruit::FruitPart;
+    use procgena_tree::{FRUIT_PART, default_lod};
+
+    let options = TreePreset::spring_pussy_willow().tree.clone();
+    let skeleton = Skeleton::generate(&options).unwrap();
+    let tree = options.specimen_id(options.default_seed as u32, 0);
+    let step = skeleton.cluster_step(ClusterPart::Fruit, 17, tree);
+    assert_eq!(step.kind, procgena_core::PartStep::kind_of(FRUIT_PART));
+
+    let link = skeleton.part(step).unwrap();
+    assert_eq!(link.part, ClusterPart::Fruit);
+    assert_eq!(link.cluster, &skeleton.fruit[17]);
+    let item = link.specimen.item_step(2);
+    let Some(FruitPart::Item(found)) = link.specimen.part(item) else {
+        panic!("item 2 doesn't resolve");
+    };
+    assert_eq!(*found, link.specimen.skeleton().items[2]);
+
+    // A step pinned to another fruit specimen is set aside.
+    let other = skeleton
+        .fruit_slots
+        .iter()
+        .find(|f| f.id() != link.specimen.id())
+        .unwrap();
+    assert_eq!(other.part(item), None);
+    assert!(
+        skeleton
+            .part(skeleton.cluster_step(ClusterPart::Fruit, 1 << 30, tree))
+            .is_none()
+    );
+
+    // Every level that keeps cluster 17 draws it from that same cluster.
+    for level in default_lod().levels {
+        let mesh = skeleton.mesh(&options, &level.detail);
+        for span in &mesh.fruit_spans {
+            assert!(
+                skeleton
+                    .part(skeleton.cluster_step(ClusterPart::Fruit, span.cluster as u32, tree))
+                    .is_some()
+            );
+        }
+    }
 }
