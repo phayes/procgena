@@ -767,6 +767,11 @@ The user answered on 2026-11-23:
 
 ## Proposed doc edits (for the coordinator to apply)
 
+Applied to ARCHITECTURE.md and ROADMAP.md on 2026-11-24, adapted to
+their current text (I1b keeps its ID, records the cluster cards built
+that day, and moves to waves 6 and 7). The CLAUDE.md package-table edit
+waits until the `procgena_fruit` crates exist.
+
 ### ARCHITECTURE.md
 
 **§ Bottom line, first bullet.** After the Modifiers sentence, add:

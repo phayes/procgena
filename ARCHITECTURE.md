@@ -13,6 +13,8 @@ Everything is in metres, as in the rest of the workspace.
 - **Five levels**, from small to large:
   1. **Asset**: one tree, plant, mushroom, piece of dead wood or stone.
      **Modifiers** such as clumps grow on top of an asset.
+     **Attached assets** such as fruit and flowers are assets that a host
+     asset places on itself, with no Scatter of their own.
   2. **Scatter**: many copies of one kind of asset, and how they cluster on
      the ground. `TreeScatter`, `PlantScatter`, `MushroomScatter`,
      `StoneScatter`, `DeadwoodScatter`.
@@ -93,6 +95,7 @@ flowchart TD
         Mushroom["Mushroom<br/>stems and cluster, fairy rings"]
         Deadwood["Deadwood"]
         Stone["Stone"]
+        Fruit["Fruit<br/>fruit and flower clusters"]
     end
 
     Modifiers["Modifiers<br/>Clump today; MushroomGrowth and PlantGrowth later"]
@@ -116,6 +119,7 @@ flowchart TD
     MushroomScatter --> Mushroom
     DeadwoodScatter --> Deadwood
     StoneScatter --> Stone
+    Tree -.->|"places on its branches"| Fruit
     Modifiers -.->|"grow on tagged surfaces"| Assets
 ```
 
@@ -170,7 +174,8 @@ levels of detail, materials and textures. It makes a tagged `Specimen`
 for each copy, a transform. An asset does not know where it stands.
 
 **Status.** Built: `procgena_tree`, `procgena_plant`, `procgena_deadwood`,
-`procgena_stone`, and `procgena_mushroom`.
+`procgena_stone`, and `procgena_mushroom`. Planned: `procgena_fruit`,
+an attached asset (see 1.2 and [fruit/plan.md](fruit/plan.md)).
 
 **Mushrooms.** A `Mushroom` asset is a whole growth: how many stems, and
 how they cluster, including fairy-ring layouts. A single mushroom, a tuft
@@ -203,6 +208,41 @@ Deadwood's studio tab already grows clump covers on a single piece. Further
 out, **`MushroomGrowth`** and **`PlantGrowth`** let mushrooms and plants
 grow on stumps, logs and rocks as modifiers, the way mushrooms grow on
 host meshes today.
+
+#### 1.2 Attached assets
+
+Decided by the user on 2026-11-23 (see [fruit/plan.md](fruit/plan.md)).
+
+**What they are.** Assets whose copies a host asset places as part of its
+own structure: fruit and flower clusters on a tree's branches. They follow
+the whole asset contract (options, presets, `default_seed`, LOD, impostor,
+`Specimen`, export) but have no Scatter, no ground and no mask.
+
+**How they differ from Modifiers.** A Modifier samples a finished host
+mesh through a `TagFilter`, and stays outside the host's content hash. An
+attached asset is placed by the host's own generator (branch, section,
+tip), is part of the host's options and hash, and sways and thins with the
+host's levels.
+
+**Specimens and copies.** Each attached asset's options are a pool with
+its own budget `N`. The host chooses a slot for each attached copy per
+host *specimen*, so every copy of a host specimen carries the same
+attached specimens, and the host's impostor can include them. A host
+impostor's bake key therefore includes the attached pool's hash and `N`.
+
+**Addresses.** The hop from a host's part to an attached specimen is a
+*link*, like the hop from a copy to its specimen. An attached copy is
+addressed by its host's address plus a part path through the link, each
+step pinned to the `SpecimenId` it indexes, for example
+`… / fruit 17 / item 2` (see "Queries: reading the result" and
+[D3](docs/decisions/D3.md) section 7b).
+
+**Status.** Planned: `procgena_fruit` (milestone I1b in
+[ROADMAP.md](ROADMAP.md)). Today the tree still builds its own fruit and
+flower clusters. Cluster cards for them (baked views per cluster variant,
+drawn at levels 1 and 2) were built on 2026-11-24, before this
+decision was applied, and are off by default; see the "Fruit as an
+attached asset" TODO.
 
 ### 2. Scatter
 
@@ -703,6 +743,10 @@ over the whole World, and copies are spread over that cap by hashing.
 - **No cap across pools.** Each pool has its own `N`, and the World does not
   cap the total. The total is the sum of every pool's `N`, so it is known
   from the World's definition before anything is built.
+- **Attached pools are pools.** An attached asset's options (fruit on a
+  tree) are a pool with their own `N`, counted like any other. The host
+  picks attached slots per host specimen, so attached specimens never
+  multiply with host copies.
 - **The budget counts pools, so pools must not multiply by accident.** Each
   options change made by a Biome, an Ecotope or a hook makes a new pool
   with its own `N`. Levels should change copies through per-copy data
@@ -1234,20 +1278,26 @@ Each rule says what every asset does, and which crates have to change.
      shader module.
    - Every asset names its far form (strips, billboard leaves, a card), and
      its last level drops shadows where it should.
-   - **Small repeated parts can use baked cards before the far form.** Tree
-     fruit and flowers do this at levels 1 and 2 (decided 2026-11-23): each
-     preset's cluster is baked once into a small atlas of a few views,
-     keyed by the options hash plus the bake settings (one bake per pool,
-     outside the specimen budget). Each kept cluster then draws as a
-     two-triangle camera-facing card through the leaf billboard path, so it
-     keeps wind and instancing, with its view chosen from the cluster's
-     own axis, so hanging, upright and outward facings survive. Level 0 stays
-     real meshes. This is a part's form inside the mesh levels, not a
-     second impostor level.
+   - **Attached assets own their levels.** Fruit and flowers are their own
+     asset (decided by the user, superseding the cluster-card plan of
+     2026-11-23): each cluster specimen has its own mesh levels, sized by
+     the cluster, then its own impostor, keyed by its `SpecimenId` like any
+     specimen and inside the specimen budget. The host decides which
+     attached copies each of its levels draws; the attached asset decides
+     how each looks. The host picks it in two steps: a coarse range per
+     host on the CPU, then, only for hosts that span more than one
+     attached level, a fine check per attached copy on the GPU. (The
+     superseded cluster cards were built anyway on 2026-11-24, and are
+     off by default; see the "Fruit as an attached asset" TODO.)
    - The levels run in order: meshes, then the far form, then the impostor
      (from `procgena_impostor`, keyed by `SpecimenId`) where the asset has
      one, then the cull distance. The cull distance ends
-     the Scatter's draw range (see "Loading by chunk").
+     the Scatter's draw range (see "Loading by chunk"). An attached asset's
+     chain ends where its host's impostor begins, and the host's impostor
+     includes it. Every impostor covers the viewer elevations its preset
+     declares, from straight above down to a lowest elevation: −90° (the
+     full sphere) by default. Trees declare −45°, so they look right from
+     below on a mountain slope.
    - One quality setting (`LOW`..`ULTRA`) that scales every asset's
      distances together.
    - Change: everyone. Tree gains size scaling; clump follows its host's
@@ -1395,6 +1445,13 @@ specimen into an octahedral impostor, the last level of the shared LOD
 model (rule 2). A bake is keyed by the specimen's `SpecimenId` and its
 bake settings. Baking ahead is done per Ecotope: every specimen slot its
 Scatters can draw. (Today it is keyed by tree, and prepared per grove.)
+Each bake sets its own view count and frame size, and its view coverage,
+which its preset declares as the lowest viewer elevation baked
+(`ViewCoverage`, −90°, the full sphere, by default). The octahedral
+layout is warped so that the whole atlas covers only the declared views.
+Views below the lowest elevation show the lowest baked ring. Coverage is
+part of the bake key. An instanced draw may compose a host's record with
+an attached copy's transform.
 
 Changing `procgena_specimen` rebuilds most of the workspace, so the new
 crates take whatever changes often, and the rename is done together with
@@ -1665,18 +1722,33 @@ it starts.
   with their own build seed; passing the real slot id is I2's. Still to
   do: baking ahead per Ecotope (I2), and impostors in the shared renderer
   (R2).
-- [ ] **Cluster impostor cards for tree fruit and flowers** at levels 1 and
-  2 (rule 2): a standalone cluster mesher in cluster-local coordinates, a
-  per-pool bake with per-bake view count and size (global today), a
-  textured, alpha-masked cluster material on the leaf billboard path, and a
-  view chosen from the cluster's axis. Check first that each preset has one
-  cluster shape and layout. Needs F2's options hash.
-  - Built opt-in in I1b. A preset has one cluster *shape*, but each
-    cluster draws its own item count, tilt and stalk curves. So cards show
-    a representative cluster (variant 0) or one of `cluster_cards` seeded
-    variants, each sized and turned to its own cluster.
-  - Still to do: turning cards on in `default_lod`. That waits on whether
-    level 3 also moves to cards, and on the default variant count.
+  The impostor's default view coverage is the full sphere (lowest
+  elevation −90°). The tree declares −45°: a viewer looking up a hillside
+  at an impostor-distance tree sees it from at most about 38° below, at
+  the default 35° slope limit. Stone declares its own lowest elevation:
+  −45° for things on slopes, or 0° (today's upper hemisphere) for low
+  things seen mostly from above. Deadwood and mushroom do the same if
+  they ever gain an impostor. View coverage is not built yet (see
+  "Impostor bake options").
+- [ ] **Fruit as an attached asset** ([fruit/plan.md](fruit/plan.md)):
+  the `procgena_fruit` crate (cluster builder and meshers moved from the
+  tree, in the cluster frame), the tree's `AttachedFruit`, pools and
+  per-tree-specimen slots, fruit LOD levels and impostors, cluster-table
+  instancing in the grove with a two-step detail check. Needs F1, F2 and
+  D3 for its first step, then R1 and I1. Milestone I1b.
+  - Built before this decision was applied: cluster impostor cards, the
+    plan this one supersedes, were built on 2026-11-24. With
+    `LodDetail::cluster_cards` set, each kept cluster at levels 1 and 2
+    draws as one card showing one of that many seeded cluster variants,
+    baked per pool part. They are off by default in `default_lod`.
+    The user decided on 2026-11-24 to remove them in the fruit crate's
+    first step.
+- [ ] **Impostor bake options**: per-bake view count and frame size,
+  view coverage declared per preset as a lowest viewer elevation (−90° by
+  default, −45° for trees, in the bake key), with the octahedral layout
+  warped to the declared range, a composed host-plus-attached instance,
+  and a vertex offset hook for wind. Per-bake view count and size are
+  done (`BakeSettings`, I1).
 - [ ] **CPU and GPU building for every asset**, with parity tests: GPU paths
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
@@ -1800,4 +1872,7 @@ it starts.
     promoted tree turns back into a copy. Its game state (damage, a
     harvested fruit) has to live somewhere: a new edit kind next to remove,
     replace, reserve and stamp, or the game's own save data keyed by copy
-    id?
+    id? An attached copy (one fruit) is addressed by its host's address
+    plus a part path, so the same choice covers it. A part edit such as a
+    harvest hides that copy for that host copy only, and leaves the shared
+    specimens and impostors alone.

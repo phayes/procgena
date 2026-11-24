@@ -53,7 +53,8 @@ asks.
   each touch every crate and rebuild most of the workspace. Each runs once,
   in a wave of its own, with everything that touches the same code
   batched into it.
-- **One question** (the terrain review) still needs the user's call before the milestones that touch them (see "For the user").
+- **Open decisions** for the user, with their context, are listed under
+  "For the user" at the end, most urgent first.
 
 ## Where things stand (2026-11-23)
 
@@ -131,6 +132,7 @@ flowchart TD
     R3["R3 CPU and GPU building, plant alignment"]
     R4["R4 Promotion and Bevy queries"]
     I1["I1 Impostors per specimen"]
+    I1b["I1b Fruit as an attached asset"]
     I2["I2 Impostors prepared per Ecotope"]
 
     B0["B0 Empty Biomes"]
@@ -181,6 +183,11 @@ flowchart TD
     F2 --> I1
     I1 --> I2
     C3 --> I2
+    F1 --> I1b
+    F2 --> I1b
+    D3 --> I1b
+    R1 --> I1b
+    I1 --> I1b
 
     M0 --> B0
     B0 --> W0
@@ -611,6 +618,14 @@ that has one (rule 2).
   impostor's place in the shared LOD type, its dither transition and
   quality scaling come from R1. Bakes per pool are capped by the specimen
   budget's `N` slots (see "Loading by chunk" in ARCHITECTURE.md).
+  View coverage becomes a lowest viewer elevation, in the bake key, with
+  the octahedral layout warped so the atlas covers only that range. The
+  default is −90°, the full sphere. Tree presets declare −45° at 10×10
+  views, so trees look right from below on a mountain slope, at today's
+  view density. 0° reproduces today's layout exactly. Stone declares its
+  own value, and so do deadwood and mushroom if they ever gain an
+  impostor. Done when a tree seen from 40° below, up a slope, shows a
+  baked view rather than a horizon view.
 - **Needs:** R1, F2.
 - **Done when:** a tree and a boulder share one bake path and cache keyed
   by `SpecimenId`, and fade from mesh to far form to impostor in the same
@@ -622,37 +637,53 @@ that has one (rule 2).
   `TreePlugin::impostor` and the new `StonePlugin::impostor` (80 m for a
   2.5 m rock, scaled by size and quality). Stone's bake keeps its
   projected textures. Deadwood and mushroom gain none (see the TODO). Not
-  built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`).
+  built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`),
+  view coverage (added to "Covers" after this status was written).
 
-#### I1b: Cluster impostor cards for tree fruit and flowers
+#### I1b: Fruit as an attached asset
 
-Decided by the user 2026-11-23.
+Decided by the user 2026-11-23, superseding the cluster-card plan.
+Plan: [fruit/plan.md](fruit/plan.md). Its steps are named AC1, B1, B2, D1
+and D2 there; below they are called "fruit steps" so they are not
+confused with the B1 milestone or the D1 and D2 gates.
 
-- **Covers:** TODO "Cluster impostor cards for tree fruit and flowers":
-  each preset's fruit or flower cluster baked once (keyed by options hash
-  plus bake settings) and drawn at levels 1 and 2 as camera-facing cards on
-  the leaf billboard path, with wind. Level 3 keeps the kept-and-enlarged
-  items and may move to the same cards.
-- **Needs:** F2 (options hash). It shares the bake path with I1, so it runs
-  beside or after I1.
-- **Done when:** Willow and Dogwood draw their level-1 and level-2 clusters
-  as cards with their triangle counts recorded (today 45,414 and 13,440 at
-  level 2), the outline test passes, and a headless screenshot comparison
-  shows the clusters keep their facing.
-- **Status (2026-11-24):** built, opt-in. `LodDetail::cluster_cards` (the
-  variant count) draws each kept cluster as one card, and
-  `cluster_card_mesh` builds the lone cluster that each variant's picture
-  shows. The pictures are baked per pool part through `Impostors::request`,
-  with a new `BakeLayout::Elevations` strip (4 × 4 views of 64 px), and the
-  tree shaders' `CLUSTER_CARD` path draws them with wind.
+- **Covers:** TODO "Fruit as an attached asset": the `procgena_fruit`
+  crate, the tree's `AttachedFruit`, per-tree-specimen slots, fruit LOD
+  levels and impostors, cluster-table instancing, and TODO "Impostor
+  bake options".
+- **Needs:** F1, F2 and D3 with Addresses for the crate and pools (fruit
+  step AC1); R1 for fruit levels (fruit step B1); I1 for impostors (fruit
+  steps D1 and D2).
+- **Done when:**
+  - Apple, Flowering Dogwood and Spring Pussy Willow draw their fruit
+    from fruit pools with a World `N`, and the slots visibly differ.
+  - The outline test passes with fruit composed in.
+  - A grove of Willows draws its catkins through the cluster table, with
+    no record per cluster, and with a per-cluster detail check only on
+    trees that span levels.
+  - Catkins draw as full-sphere impostors seen from below.
+  - The tree impostor includes the fruit and is rebaked when the fruit
+    `N` changes.
+  - A part path `/ fruit i / item k` resolves on every level.
+- **Built before this decision was applied (2026-11-24):** the superseded
+  cluster cards. `LodDetail::cluster_cards` (the variant count) draws each
+  kept cluster at levels 1 and 2 as one card, showing one of that many
+  seeded cluster variants. The pictures are baked per pool part through
+  `Impostors::request`, with a `BakeLayout::Elevations` strip (4 × 4 views
+  of 64 px), and the tree shaders' `CLUSTER_CARD` path draws them with
+  wind.
   - Measured at level 2: Willow 45,530 → 1,570 cluster triangles, Dogwood
-    13,440 → 3,360. The recorded 45,414 predates the F3 preset rewrite.
-  - The outline test passes with cards on at levels 1 and 2.
-  - Headless shots show the clusters keep their facing.
-  - Cards are not yet on in `default_lod`. With them on, level 3 costs
-    more than level 2 for fruit trees (Apple 3,144 vs 5,106 / 2). So
-    level 3 moving to cards, and the default variant count, are the
-    user's decisions.
+    13,440 → 3,360. The outline test passes with cards on at levels 1 and
+    2, and headless shots show the clusters keep their facing.
+  - They are off by default in `default_lod`. **Decided by the user
+    2026-11-24: remove them** as part of fruit step AC1; fruit's own
+    levels and impostor replace them.
+- **Studio (decided by the user 2026-11-24):** fruit and flowers each get
+  their own tab, a Fruit tab and a Flower tab, with their own presets and
+  viewer, and the tree panels pick a fruit preset and a flower preset by
+  key.
+- **Status (2026-11-24):** started: fruit steps AC1 → B1 → B2 and the two
+  studio tabs in one lane, fruit steps D1 → D2 in another.
 
 #### I2: Impostors prepared per Ecotope
 
@@ -748,8 +779,8 @@ a cell run in order within the wave.
 | 3 | F2 (one worker per crate); G1 → G3; G2; G5; B0; C1 (one worker per crate); R1; D3 | D3's slot choice uses D2's GPU spike. G5 can run beside G1, but both edit `procgena_terrain`, so give them separate files or run them one after the other. |
 | 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files, and must land before W0 in wave 5. |
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
-| 6 | C3; G6; R4 | |
-| 7 | B1; I2; X1 (Scatter part) | |
+| 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
+| 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2 | The first B1 is the Biome milestone; the fruit steps are I1b's. |
 | 8 | W1; S1 (single Biome) | |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); Later | |
 
@@ -774,39 +805,188 @@ not resolved.
 3. ~~**Plant consumers outside this repository.**~~ Settled 2026-11-23:
    zeapp, named in plant's old field plan (now removed), no longer exists, so the plant split and the `PlantScatter` rename stay
    inside this repository.
-4. **Terrain review** (in M0). Terrain Phases 1, 2, 2.6, 2.7 and 2.8 are
-   marked "review pending", and Phase 1 asked to stop for a review with the
-   user. The Ground track builds on them.
-5. **One region per Biome** (D4, before W0). The user decided in D3 that a
-   region is one Biome's whole area. How the region graph and the Biome
-   choice achieve it, and how big regions get, is for the user to decide
-   in D4. The options and a recommendation are drafted in
-   [docs/decisions/D4.md](docs/decisions/D4.md) (not decided).
+4. ~~**Terrain review** (in M0).~~ Signed off by the user 2026-11-23:
+   "Terrains look good." Recorded in
+   [docs/coordination/terrain-review.md](docs/coordination/terrain-review.md).
 
-Raised by wave 5 (2026-11-24):
+Still open, most urgent first. Each says what is being decided, the
+options with what they change, the recommendation where there is one, and
+where the details are.
 
-6. **Plant goldens.** None of the 48 golden images has a baseline for this
-   machine (`apple-m1-max`), so `cargo run --example golden` fails. Bless
-   them once the look is accepted.
-7. **Stone placement (C2, built).** Every stone class now shares one World
-   lattice and each cell picks its class, so stone scenes look different
-   from before. See [docs/decisions/C2-plan.md](docs/decisions/C2-plan.md).
-8. **Shared renderer looks (R2, built).** Keep one undithered level per
-   copy in shadow maps (in a fade band only one level casts)? Accept the
-   small shadow-edge changes on stone, deadwood and mushroom? Should trees
-   sway by their per-copy wind phase instead of by world position (groves
-   would move visibly differently)?
-9. **Fruit and flower cards (I1b, built, off by default).** The default
-   `cluster_variants` (1 or 4), whether level 3 moves to cards (needed
-   before cards can be on by default), and whether the slightly paler
-   unlit bake is acceptable. See "I1b" above.
-10. **Equal preset offsets (W4).** Which common `base.elevation` the
-    terrain presets share: 20 m (plains unchanged, recommended), 50 m or 0.
-    See open question 5 in [terrain/world_plan.md](terrain/world_plan.md).
-11. **Terrain questions from G1 and G3** (in
-    [terrain/plan.md](terrain/plan.md)): should river levels, widths and
-    types follow drainage area (up to 176 m deeper cuts in mountains)?
-    Should the border offers read the analytic relief gradient (moves
-    every agreed profile)? Are macro cells worth adding, given that roads
-    dominate a cold region plan? The step 2 benchmarks are provisional
-    (taken under load) and wait for a rerun on a quiet machine.
+### Blocking a milestone
+
+5. **One region per Biome (D4, blocks W0).**
+   - *What:* D3 decided that a region is one Biome's whole area, so two
+     neighbouring regions never share a Biome. Today's region graph cuts
+     the World into cells of about 4 km and nothing stops neighbours
+     choosing the same Biome. D4 decides how that is prevented while
+     every `RegionId` stays computable from the World's options and seed,
+     in any build order.
+   - *Options:* **A** keep one cell per region and make each cell's Biome
+     differ from all its neighbours' (no change to the graph, the warp or
+     `WorldTerrain`); **B1** cluster cells around coarse sites into larger
+     regions (shapes ignore the Biome choice); **B2** cluster cells by
+     their first-choice Biome inside fixed blocks (shapes follow the
+     selector fields); **C** merge same-Biome cells without limit, which
+     only works for bounded or designer-drawn worlds.
+   - *Recommendation:* build W0 on A with a ranked, priority-ordered Biome
+     choice, judge W0's image example, and move to B1 or B2 if forced
+     variety at cell scale looks wrong. Keep C for designer maps.
+   - *Also needed before W0 can be built:* D4.md's seven sub-questions,
+     above all fallback Biomes (a region has about six neighbours but W0
+     has only three empty Biomes) or exempting Biomes with no cover, such
+     as ocean. Region size waits on the quiet-machine benchmark rerun
+     (item 14).
+   - *Details:* [docs/decisions/D4.md](docs/decisions/D4.md), "Bottom
+     line" and "Open questions for the user".
+6. ~~**Fruit cluster cards versus the fruit crate.**~~ Decided by the user
+   2026-11-24. The cluster cards (built in wave 5 under I1b's earlier
+   scope, set by `LodDetail::cluster_cards`, off by default) are removed
+   in the fruit crate's first step, and fruit's own levels and impostor
+   replace them. In the studio, fruit and flowers each get their own tab,
+   and the tree panels pick a fruit preset and a flower preset by key.
+   See the "I1b" milestone above.
+
+### Looks of work already built (wave 5)
+
+7. **Plant goldens.** None of the 48 golden images has a baseline for this
+   machine (there is no `plant/tests/golden/apple-m1-max/` folder), so
+   `cargo run --example golden` fails in every full suite. Only the user
+   blesses goldens: run `cargo run --example golden -- --bless` from
+   `plant/` once the look in `target/golden/` is accepted.
+8. **Stone placement on one lattice (C2).** Every stone class (boulders,
+   rocks, pebbles) now shares one World lattice of small cells, and each
+   cell picks its class, so that each stone has one stable address (D3).
+   Spacing now thins rocks more than before, so stone scenes look
+   different, though the density test still passes. Accept the look, or
+   ask for per-class lattices back (which needs a different address
+   scheme). Details: [docs/decisions/C2-plan.md](docs/decisions/C2-plan.md).
+9. **Tree species keys in files (C2).** Each species in a tree Scatter now
+   has a key that seeds its own trees, so editing one species no longer
+   moves another's. In `.tree_scatter.yml` and `.ecotope.yml` files a
+   species that names a tree preset may leave out `key` and takes the
+   preset's key; a species with inline tree settings must give one; two
+   species with the same key are an error. Is that the wanted policy, or
+   should every species always name its key? Details: C2-plan.md, "As
+   built".
+10. **Shared renderer (R2).** Three choices, with before and after
+    screenshots in the R2 report's `r2-shots/` folder:
+    - *Shadows:* each copy casts from one level, not dithered, so in a
+      band where a copy fades between two levels only one of them casts.
+      Keep that, or add dithered shadows (a fragment shader in the shadow
+      pass, which costs shadow-pass speed)?
+    - *Small differences:* stone, deadwood and mushroom shots differ from
+      before in at most 0.2% of pixels, mostly at shadow edges. Accept?
+    - *Wind:* every copy now carries its own wind phase, but trees still
+      sway by world position. Switch trees to their own phase? Groves
+      would then move visibly less in unison.
+11. **One base elevation for the terrain presets (W4).** Plains, rolling
+    hills and mountains sit 20, 50 and 120 m above the World's elevation
+    field E. Unequal offsets bring back a step of up to 100 m at every
+    plains–mountains border, so world_plan sets them equal and lets E
+    carry the differences. **20 m** (recommended, the smallest
+    change) leaves plains as they are and lowers hills by 30 m and
+    mountains by 100 m; **50 m** raises plains by 30 m and lowers
+    mountains by 70 m; **0** puts plains' mean at sea level and lowers
+    every preset. Every option changes the signed-off hills and mountains
+    worlds, and the border-gap and river-crossing figures are re-recorded.
+    Details: [terrain/world_plan.md](terrain/world_plan.md), open
+    question 5.
+
+### Terrain choices (G1, G3)
+
+12. **River depth from water flow.** G1 measured each river's drainage
+    area and the profile stream-power erosion would carve. Wiring that in
+    would set river levels, widths and types from how much water flows
+    along them, which is more natural, but it only ever deepens cuts: up
+    to 176 m deeper in mountains. The user decided earlier to leave deep
+    cuts until lakes exist (Phase 4), so nothing changed. Wire it in now,
+    wait for lakes, or never? Details: [terrain/plan.md](terrain/plan.md),
+    "As built in G1".
+13. **Exact slope in border negotiation.** Neighbouring regions agree on
+    their shared border from each side's slope. G2 added an exact slope,
+    but the border offers still use the old estimate from nearby heights,
+    which averages across sharp ridge tops (one crest jumps from 1.97 to
+    −1.0). Switching moves every agreed border profile and may unsettle
+    test seeds, for borders that follow ridges more exactly. Switch, or
+    keep the estimate? Details: terrain/plan.md, G2 notes.
+14. **Macro cells, after a quiet benchmark rerun.** The user decided
+    macro cells (planning on coarse 1 km cells inside a region) are added
+    only if the benchmarks call for them. G3 step 2 measured a cold
+    region plan at p50 0.50 s and p95 2.0 s with roads, and 0.12 s and
+    0.43 s without; roads are most of the cost. Those numbers were taken
+    with the machine under heavy load and need a rerun on a quiet machine
+    (`cargo test -p procgena_terrain --release --test bench -- --ignored
+    --nocapture --test-threads 1`). Then: are macro cells needed? The
+    rerun also feeds D4's region size.
+
+### Shared settings and release (earlier waves)
+
+15. **Quality, far forms and file defaults (R1).**
+    - Plant has a `Competitive` quality tier for 240 Hz play (a 4.167 ms
+      budget). The shared `Quality` setting has four levels with distance
+      factors 0.4, 0.7, 1 and 1.5. Add `Competitive` as a fifth?
+    - `FarForm` names three far forms (strips, billboard leaves, a card).
+      Mushroom's "flat cap plus ribbon" is mapped to plain `Mesh` today,
+      and plant's "far ground material" has no name. Give either its own
+      variant?
+    - In files, every detail level must spell out `form` and
+      `casts_shadows`. Default them to `Mesh` and `true`?
+16. **Tree sizes for detail distances.** Every tree counts as 10 m tall
+    when its detail-level distances are worked out, so a 4 m dogwood
+    switches levels as late as a 30 m pine. Sizing by each preset's real
+    height needs per-preset impostor distances chosen. Related: C2 uses a
+    fixed draw range of 2000 m for trees and 1000 m for stones until they
+    have cull distances.
+17. **Releasing plant and core.** `procgena_plant` is marked
+    `publish = false` because it now depends on `procgena_core`, which is
+    not on crates.io. Before the next plant release: publish
+    `procgena_core` too, or move the shared preset code it uses back into
+    plant.
+18. **Test machines and performance budgets.** The D2 GPU spike passed on
+    an M1 Max, but its timing run on a low-end integrated GPU and on a
+    discrete GPU is still owed (is either machine available?). The terrain
+    features review's Conflict 6 asks the same: which machines count for
+    streaming and far-view budgets, and what the budgets are. Details:
+    [terrain/features_plan_review.md](terrain/features_plan_review.md),
+    Conflict 6.
+19. **Large features across region borders (later).** An escarpment or
+    geological field spanning regions must look the same from both sides.
+    It can enter through the natural height field before the border
+    offers, or through a shared field both sides sample. Nothing needs it
+    until the first such feature. Details: features_plan_review.md,
+    Conflict 5.
+
+### Housekeeping that needs the user
+
+20. **Disk.** The main `target/` is about 295 GB and the disk had under
+    20 GB free during wave 5; agents may not delete under `target/`.
+    Clearing it (or parts of it, such as `target/wave5/`, a leftover
+    shared build folder nothing uses now) is the user's call.
+21. **Codex comment rewrites.** Paused while Codex has no credits. Every
+    package's list is in
+    [docs/coordination/codex-comment-backlog.md](docs/coordination/codex-comment-backlog.md).
+
+### Follow-ups noted, no decision needed
+
+- Plant: implement core's `Preset` trait, and replace its `levels` list
+  whole in files instead of merging it entry by entry (F3).
+- Private "grove" and "field" names left from the Scatter renames, and the
+  public fields `PromotedTree::grove` and `TreeScatterHit::grove`;
+  studio module names (C2).
+- Tree shaders still call the per-copy input `GROVE` instead of the shared
+  renderer's shader functions (R2).
+- Merge the two `ScaledGround` types (tree_bevy, deadwood_bevy); rename
+  `ObjectTags` to `SpecimenTags` in clump_bevy; a shared candidate-loop
+  helper for Scatters (C2).
+- `tree/tests/export_images.rs` needs `required-features`.
+- One studio GPU test logs that plant's shared shader module isn't found
+  (the test passes).
+- Two timing-sensitive tree Bevy spawn tests each failed once in about a
+  dozen runs.
+- Changing the quality setting doesn't rebuild trees already built, and
+  tree's per-level `casts_shadows` is passed through but unused (R1).
+- Stale text: ROADMAP's "Where things stand (2026-11-23)",
+  `procgena_mesh`, `Object` and `tree_id` in ARCHITECTURE.md, "review
+  pending" in terrain/plan.md, and D2 decision 4 (mask resolutions) still
+  marked unsettled.
