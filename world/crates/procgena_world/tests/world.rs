@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use glam::{DVec2, IVec2};
 use procgena_biome::{Biome, BiomePreset, BiomeTerrain};
 use procgena_terrain::{
-    ElevationOptions, HeightField, NoiseLayer, RegionId, RegionKey, TerrainPreset,
+    ElevationOptions, FeatureTier, HeightField, NoiseLayer, RegionId, RegionKey, TerrainPreset,
 };
 use procgena_world::{
     BiomePin, BiomeRule, BiomeRules, FieldRange, World, WorldError, WorldOptions,
@@ -208,7 +208,7 @@ fn pinned_regions_keep_their_biome() {
     }
     let terrain = world
         .terrain()
-        .provisional_terrain(pinned)
+        .terrain_tier(pinned, FeatureTier::Rough)
         .expect("pinned region builds");
     let mut expected = TerrainPreset::mountains().terrain.clone();
     expected.default_seed = 3;
@@ -318,9 +318,12 @@ fn one_terrain_preset_gives_each_region_its_own_land() {
     let other = neighbour(&plains, region);
     let here = plains
         .terrain()
-        .provisional_terrain(region)
+        .terrain_tier(region, FeatureTier::Rough)
         .expect("builds");
-    let there = plains.terrain().provisional_terrain(other).expect("builds");
+    let there = plains
+        .terrain()
+        .terrain_tier(other, FeatureTier::Rough)
+        .expect("builds");
     assert_eq!(here.generator().options(), there.generator().options());
     assert_eq!(here.generator().options().default_seed, 5);
     let site = plains.terrain().site(region);
@@ -335,7 +338,7 @@ fn one_terrain_preset_gives_each_region_its_own_land() {
     // land exactly.
     let switched = steppe
         .terrain()
-        .provisional_terrain(region)
+        .terrain_tier(region, FeatureTier::Rough)
         .expect("builds");
     assert_eq!(
         height_bits(here.as_ref(), a, b, 11),

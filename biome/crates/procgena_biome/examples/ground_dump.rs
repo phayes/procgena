@@ -21,7 +21,7 @@ use procgena_biome::{EcotopePreset, ScatterCopies};
 use procgena_core::HeightGrid;
 use procgena_core::scatter::{ScatterArea, ScatterInput};
 use procgena_terrain::ground::{ChunkWeights, GROUND_TEXELS, GroundStack, OnGround};
-use procgena_terrain::{ChunkKey, ChunkStage};
+use procgena_terrain::{ChunkKey, FeatureTier};
 
 /// Pixels per texel (a texel is half a metre).
 const ZOOM: usize = 4;
@@ -53,7 +53,7 @@ fn main() -> std::io::Result<()> {
     let painter = ecotope
         .ground(&bare, &placement)
         .expect("the pine floor's ground fits the standard catalogue");
-    let weights = ChunkWeights::build(&painter, &OnGround(&grid), key, ChunkStage::Canonical)
+    let weights = ChunkWeights::build(&painter, &OnGround(&grid), key, FeatureTier::Fine)
         .expect("the grid covers the chunk");
     let colours = weights.colours(bare.catalogue());
 

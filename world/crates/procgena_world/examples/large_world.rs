@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use glam::{DVec2, Vec3};
-use procgena_terrain::RegionId;
+use procgena_terrain::{FeatureTier, RegionId};
 use procgena_world::{BiomePin, World, WorldPreset};
 
 /// The settings read from the command line.
@@ -289,7 +289,7 @@ fn main() -> std::io::Result<()> {
                 for &region in chunk {
                     world
                         .terrain()
-                        .provisional_terrain(region)
+                        .terrain_tier(region, FeatureTier::Rough)
                         .expect("region builds");
                 }
             });
@@ -306,7 +306,7 @@ fn main() -> std::io::Result<()> {
     let height = |p: DVec2| {
         let terrain = world
             .terrain()
-            .provisional_terrain(world.region_at(p))
+            .terrain_tier(world.region_at(p), FeatureTier::Rough)
             .expect("region builds");
         (terrain.height(p), terrain.water_level(p))
     };

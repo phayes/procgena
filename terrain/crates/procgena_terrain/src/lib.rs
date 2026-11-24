@@ -113,15 +113,15 @@ mod world;
 pub use carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, RoadTags};
 pub use chunk::{
     CHUNK_CELLS, CHUNK_SIZE, ChunkCorner, ChunkError, ChunkKey, ChunkMesh, ChunkSamples,
-    ChunkSelection, ChunkSelectionError, ChunkSide, ChunkSource, ChunkStage, MAX_CHUNK_LEVEL,
-    SurfacePoint, Transitions, WaterMesh, chunk_lod,
+    ChunkSelection, ChunkSelectionError, ChunkSide, ChunkSource, MAX_CHUNK_LEVEL, SurfacePoint,
+    Transitions, WaterMesh, chunk_lod,
 };
 pub use converge::{
     BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,
     blend_weights, relief_meeting_is_valid, relief_target,
 };
 pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
-pub use feature::{FeatureId, FeatureShape, TerrainFeature};
+pub use feature::{FeatureId, FeatureShape, FeatureTier, TerrainFeature};
 pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };

@@ -14,7 +14,7 @@ use procgena_terrain::ground::{
     GroundNoise, GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack, HeightRule,
     MaterialCatalogue, MaterialId, OnGround, PALETTE_SIZE, Ramp,
 };
-use procgena_terrain::{ChunkKey, ChunkStage, RoadTags, Terrain};
+use procgena_terrain::{ChunkKey, FeatureTier, RoadTags, Terrain};
 
 fn key(k: &str) -> ChildKey {
     ChildKey::new(k).unwrap()
@@ -107,11 +107,11 @@ fn roads_and_riverbeds_show_on_a_terrain() {
         .iter()
         .copied()
         .find(|&p| {
-            let site = plains.site(p, ChunkStage::Canonical);
+            let site = plains.site(p, FeatureTier::Fine);
             site.road_tags == Some(RoadTags::ROAD) && site.slope < 0.3
         })
         .expect("a gentle stretch of road");
-    let mix = bare.paint(on_road, &plains.site(on_road, ChunkStage::Canonical));
+    let mix = bare.paint(on_road, &plains.site(on_road, FeatureTier::Fine));
     assert_eq!(mix.weight(catalogue.id("gravel_road").unwrap()), 1.0);
 
     // A riverbed lies under the river.
@@ -121,16 +121,16 @@ fn roads_and_riverbeds_show_on_a_terrain() {
         .copied()
         .find(|&p| {
             plains
-                .site(p, ChunkStage::Canonical)
+                .site(p, FeatureTier::Fine)
                 .height_above_water()
                 .is_some_and(|h| h < -0.5)
         })
         .expect("a deep stretch of river");
-    let mix = bare.paint(wet, &plains.site(wet, ChunkStage::Canonical));
+    let mix = bare.paint(wet, &plains.site(wet, FeatureTier::Fine));
     assert!(mix.weight(catalogue.id("riverbed").unwrap()) > 0.99);
 
     // Plain ground has neither.
-    let site = OnGround(&procgena_core::FlatGround).site(on_road, ChunkStage::Canonical);
+    let site = OnGround(&procgena_core::FlatGround).site(on_road, FeatureTier::Fine);
     assert_eq!(
         bare.paint(on_road, &site)
             .weight(catalogue.id("grass").unwrap()),
@@ -163,8 +163,8 @@ fn neighbouring_chunks_agree_along_their_edge() {
     for level in [0, 1] {
         let west = ChunkKey::containing(road[road.len() / 2], level);
         let east = west.offset(1, 0);
-        let a = ChunkWeights::build(&bare, &plains, west, ChunkStage::Canonical).unwrap();
-        let b = ChunkWeights::build(&bare, &plains, east, ChunkStage::Canonical).unwrap();
+        let a = ChunkWeights::build(&bare, &plains, west, FeatureTier::Fine).unwrap();
+        let b = ChunkWeights::build(&bare, &plains, east, FeatureTier::Fine).unwrap();
         assert_eq!((a.dropped(), b.dropped()), (0, 0));
         assert!(
             a.palette().len() > 1,
@@ -211,7 +211,7 @@ fn blended_edges_agree_when_the_palettes_differ() {
     let stack = GroundStack::new(&layers, catalogue.clone(), "test.ground", 9, 1.0).unwrap();
     let rising = |p: DVec2| p.x as f32 * 0.01;
     let source = OnGround(&rising);
-    let build = |k| ChunkWeights::build(&stack, &source, k, ChunkStage::Canonical).unwrap();
+    let build = |k| ChunkWeights::build(&stack, &source, k, FeatureTier::Fine).unwrap();
     let dirt = catalogue.id("bare_dirt").unwrap();
 
     // Across an x edge: the west chunk has dirt, the east one doesn't.
@@ -258,7 +258,7 @@ fn chunks_are_the_same_whatever_order_they_are_built_in() {
         let bare = GroundStack::bare(3, 1.0);
         let mut built: BTreeMap<ChunkKey, ChunkWeights> = BTreeMap::new();
         for &k in keys {
-            let weights = ChunkWeights::build(&bare, &plains, k, ChunkStage::Canonical).unwrap();
+            let weights = ChunkWeights::build(&bare, &plains, k, FeatureTier::Fine).unwrap();
             built.insert(k, weights);
         }
         built
@@ -295,7 +295,7 @@ fn a_chunk_keeps_its_eight_heaviest_materials() {
         &painter,
         &OnGround(&procgena_core::FlatGround),
         ChunkKey::new(0, 0, 1),
-        ChunkStage::Canonical,
+        FeatureTier::Fine,
     )
     .unwrap();
     assert_eq!(weights.palette().len(), PALETTE_SIZE);

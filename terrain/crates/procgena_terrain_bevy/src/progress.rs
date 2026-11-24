@@ -3,17 +3,24 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use procgena_terrain::{ProgressHook, RegionProgress, RegionStage};
+use procgena_terrain::{FeatureTier, ProgressHook, RegionProgress, RegionStage};
 
 /// Rough cost of one region stage, in units of a region plan. Measured in
-/// the terrain crate's benchmark: the road search dominates.
+/// the terrain crate's benchmark: the fine tier's road search dominates.
 pub(crate) fn stage_cost(stage: RegionStage) -> f32 {
     match stage {
         RegionStage::Plan => 1.0,
-        RegionStage::Ground => 0.6,
-        RegionStage::Roads => 5.0,
+        RegionStage::Tier(FeatureTier::Rough) => 0.6,
+        RegionStage::Tier(FeatureTier::Fine) => 5.0,
     }
 }
+
+/// Every stage, cheapest first in region order: the plan, then each tier.
+const STAGES: [RegionStage; 1 + FeatureTier::ALL.len()] = [
+    RegionStage::Plan,
+    RegionStage::Tier(FeatureTier::Rough),
+    RegionStage::Tier(FeatureTier::Fine),
+];
 
 /// Rough cost of reading one chunk, in the same units.
 pub(crate) const CHUNK_COST: f32 = 0.7;
@@ -38,26 +45,26 @@ pub(crate) struct Counts {
     pub(crate) total: f32,
     /// Cost of the stages finished.
     pub(crate) done: f32,
-    /// Stages running, by stage, in [`RegionStage`] order.
-    pub(crate) running: [usize; 3],
+    /// Stages running, by stage, in [`STAGES`] order.
+    pub(crate) running: [usize; STAGES.len()],
 }
 
 impl Counts {
-    /// The costliest stage running, if any.
+    /// The costliest stage running, if any: the latest in region order.
     pub(crate) fn stage(&self) -> Option<RegionStage> {
-        [RegionStage::Roads, RegionStage::Ground, RegionStage::Plan]
+        STAGES
             .into_iter()
+            .rev()
             .find(|&s| self.running[index(s)] > 0)
     }
 }
 
 /// The position of `stage` in [`Counts::running`].
 fn index(stage: RegionStage) -> usize {
-    match stage {
-        RegionStage::Plan => 0,
-        RegionStage::Ground => 1,
-        RegionStage::Roads => 2,
-    }
+    STAGES
+        .iter()
+        .position(|&s| s == stage)
+        .expect("every stage is listed")
 }
 
 impl RegionTracker {
@@ -118,21 +125,22 @@ mod tests {
 
     #[test]
     fn counts_follow_a_batch_and_start_over_after_it() {
+        let fine = RegionStage::Tier(FeatureTier::Fine);
         let tracker = RegionTracker::default();
         let hook = tracker.hook();
         hook(&started(RegionStage::Plan));
-        hook(&started(RegionStage::Roads));
+        hook(&started(fine));
         let counts = tracker.counts();
         assert_eq!(counts.total, 6.0);
-        assert_eq!(counts.stage(), Some(RegionStage::Roads));
+        assert_eq!(counts.stage(), Some(fine));
         hook(&finished(RegionStage::Plan));
-        hook(&finished(RegionStage::Roads));
+        hook(&finished(fine));
         let counts = tracker.counts();
         assert_eq!((counts.done, counts.total), (6.0, 6.0));
         assert_eq!(counts.stage(), None);
 
         // A new batch starts from nothing.
-        hook(&started(RegionStage::Ground));
+        hook(&started(RegionStage::Tier(FeatureTier::Rough)));
         assert_eq!(tracker.counts().total, 0.6);
         assert_eq!(tracker.counts().done, 0.0);
     }

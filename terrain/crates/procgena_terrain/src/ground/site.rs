@@ -3,7 +3,7 @@
 use glam::{DVec2, Vec2};
 use procgena_core::{Ground, GroundSample};
 
-use crate::{ChunkStage, RoadTags, Terrain, TerrainSample, WorldTerrain};
+use crate::{FeatureTier, RoadTags, Terrain, TerrainSample, WorldTerrain};
 
 /// Whether water covers a point, where that is known.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -100,43 +100,38 @@ impl GroundSite {
 /// Something ground sites can be read from: a terrain, a world of them, or
 /// any [`Ground`] wrapped in [`OnGround`].
 pub trait GroundSource: Sync {
-    /// The site at world position `p` (x and z, metres), from the ground at
-    /// `stage` where the source has stages. Its height is NaN where there
-    /// is no ground.
-    fn site(&self, p: DVec2, stage: ChunkStage) -> GroundSite;
+    /// The site at world position `p` (x and z, metres), from the ground
+    /// with its features planned to `tier` where the source has tiers. Its
+    /// height is NaN where there is no ground.
+    fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite;
 }
 
 impl GroundSource for Terrain {
-    /// The terrain's own ground, whatever stage is asked for.
-    fn site(&self, p: DVec2, _: ChunkStage) -> GroundSite {
+    /// The terrain's own ground, whatever tier is asked for.
+    fn site(&self, p: DVec2, _: FeatureTier) -> GroundSite {
         GroundSite::from_query(&self.query(p, true))
     }
 }
 
 impl GroundSource for WorldTerrain {
-    /// The ground of the region holding `p`, at `stage` (see
-    /// [`ChunkSource`](crate::ChunkSource) for [`WorldTerrain`]). NaN height
-    /// where the region can't be built.
-    fn site(&self, p: DVec2, stage: ChunkStage) -> GroundSite {
-        let region = self.region_at(p);
-        let terrain = match stage {
-            ChunkStage::Canonical => self.terrain(region),
-            ChunkStage::Provisional => self.provisional_terrain(region),
-        };
-        match terrain {
-            Ok(terrain) => terrain.site(p, stage),
+    /// The ground of the region holding `p`, at `tier` (see
+    /// [`WorldTerrain::terrain_tier`]). NaN height where the region can't
+    /// be built.
+    fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
+        match self.terrain_tier(self.region_at(p), tier) {
+            Ok(terrain) => terrain.site(p, tier),
             Err(_) => GroundSite::new(f32::NAN, Vec2::ZERO),
         }
     }
 }
 
 /// Any [`Ground`] as a [`GroundSource`]: plain ground with no water and no
-/// roads (see [`GroundSite::from_ground`]), the same at every stage.
+/// roads (see [`GroundSite::from_ground`]), the same at every tier.
 #[derive(Clone, Copy)]
 pub struct OnGround<'a>(pub &'a dyn Ground);
 
 impl GroundSource for OnGround<'_> {
-    fn site(&self, p: DVec2, _: ChunkStage) -> GroundSite {
+    fn site(&self, p: DVec2, _: FeatureTier) -> GroundSite {
         GroundSite::from_ground(self.0.sample(p))
     }
 }

@@ -887,8 +887,9 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   a distant mountain never waits for a road search (story 5). Such a far
   tile is **provisional**: only drawing may use it. Placement, masks and
   queries read the fine tier. Built so far: two tiers, roads fine only
-  (`WorldTerrain::provisional_terrain`), with near chunks refined in the
-  background.
+  (`FeatureTier`, `WorldTerrain::terrain_tier`), with near chunks refined
+  in the background and skirts sized by how far each tier moves the
+  ground.
 - **Place.** Placement is decided per Scatter and per chunk. It needs the
   plan, the Ground and the masks from above, and never the drawn meshes.
 - **Draw.** Drawing picks a detail level per copy, as rule 2 says. An

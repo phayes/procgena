@@ -5,7 +5,7 @@ use glam::DVec2;
 
 use super::{GroundMix, GroundPainter, GroundSource, MaterialCatalogue, MaterialId};
 use crate::chunk::rows;
-use crate::{CHUNK_CELLS, ChunkError, ChunkKey, ChunkStage};
+use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier};
 
 /// Texels along each side of a chunk's weights, at every level: one on
 /// every half cell of the chunk's mesh, the outer ones on its edges.
@@ -36,7 +36,7 @@ pub struct ChunkWeights {
 
 impl ChunkWeights {
     /// Paints chunk `key` with `painter`, reading sites from `source` at
-    /// `stage`.
+    /// `tier`.
     ///
     /// If more than [`PALETTE_SIZE`] materials lie in the chunk, it keeps
     /// those with the most weight over the chunk, and gives each other
@@ -49,7 +49,7 @@ impl ChunkWeights {
         painter: &(impl GroundPainter + ?Sized),
         source: &(impl GroundSource + ?Sized),
         key: ChunkKey,
-        stage: ChunkStage,
+        tier: FeatureTier,
     ) -> Result<Self, ChunkError> {
         let n = i64::from(GROUND_TEXELS);
 
@@ -58,7 +58,7 @@ impl ChunkWeights {
             (0..n)
                 .map(|i| {
                     let p = key.half_point(i, j);
-                    let site = source.site(p, stage);
+                    let site = source.site(p, tier);
                     if site.height.is_finite() {
                         Ok(painter.paint(p, &site))
                     } else {

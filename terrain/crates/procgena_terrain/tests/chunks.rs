@@ -11,7 +11,7 @@ use glam::{DVec2, DVec3};
 use procgena_core::{Lod, LodLevel};
 use procgena_terrain::{
     CHUNK_CELLS, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide, ChunkSource,
-    ChunkStage, EdgeAgreement, Elevation, RegionGraphOptions, RegionId, RegionProgress,
+    EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId, RegionProgress,
     RegionStage, Terrain, TerrainPreset, Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod,
 };
 
@@ -41,7 +41,7 @@ fn plains() -> (Terrain, Terrain) {
     let bare = generator
         .build_traced(region, &mine, &trace)
         .expect("the plains build without roads");
-    assert!(full.has_roads() && !full.roads().is_empty());
+    assert!(full.tier() == FeatureTier::Fine && !full.roads().is_empty());
     (full, bare)
 }
 
@@ -96,7 +96,7 @@ fn meshes(source: &impl ChunkSource, selection: &ChunkSelection) -> Vec<ChunkMes
     selection
         .iter()
         .map(|(key, transitions)| {
-            ChunkSamples::sample(source, key, ChunkStage::Canonical)
+            ChunkSamples::sample(source, key, FeatureTier::Fine)
                 .expect("the terrain has ground everywhere")
                 .mesh(transitions, 0.0)
         })
@@ -315,8 +315,7 @@ fn chunks_one_level_apart_join_without_cracks() {
 #[test]
 fn a_chunk_without_finer_neighbours_is_a_plain_grid() {
     let (full, _) = plains();
-    let samples =
-        ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 1), ChunkStage::Canonical).unwrap();
+    let samples = ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 1), FeatureTier::Fine).unwrap();
     let cells = CHUNK_CELLS as usize;
     let plain = samples.mesh(Transitions::NONE, 0.0);
     assert_eq!(plain.positions.len(), (cells + 1) * (cells + 1));
@@ -338,29 +337,34 @@ fn a_chunk_without_finer_neighbours_is_a_plain_grid() {
     assert_eq!(v.height, full.height(at));
 
     // Level 0 has no finer level, so its transitions are ignored.
-    let finest =
-        ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 0), ChunkStage::Canonical).unwrap();
+    let finest = ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 0), FeatureTier::Fine).unwrap();
     let mesh = finest.mesh(Transitions::ALL, 0.0);
     assert_eq!(mesh.transitions, Transitions::NONE);
     assert_eq!(mesh, finest.mesh(Transitions::NONE, 0.0));
 }
 
 #[test]
-fn provisional_chunks_match_canonical_ones_away_from_roads() {
+fn rough_chunks_match_fine_ones_away_from_roads() {
     let (full, bare) = plains();
-    assert_eq!(full.stage(ChunkStage::Provisional), ChunkStage::Canonical);
-    assert_eq!(bare.stage(ChunkStage::Canonical), ChunkStage::Provisional);
+    assert_eq!(
+        ChunkSource::tier(&full, FeatureTier::Rough),
+        FeatureTier::Fine
+    );
+    assert_eq!(
+        ChunkSource::tier(&bare, FeatureTier::Fine),
+        FeatureTier::Rough
+    );
 
     // A level 2 chunk a road runs through.
     let road = &full.roads()[0].points;
     let key = ChunkKey::containing(road[road.len() / 2], 2);
-    let canonical = ChunkSamples::sample(&full, key, ChunkStage::Canonical).unwrap();
-    let provisional = ChunkSamples::sample(&bare, key, ChunkStage::Canonical).unwrap();
-    assert_eq!(canonical.stage(), ChunkStage::Canonical);
-    assert_eq!(provisional.stage(), ChunkStage::Provisional);
-    let a = canonical.mesh(Transitions::NONE, 0.0);
-    let b = provisional.mesh(Transitions::NONE, 0.0);
-    assert_eq!(b.stage, ChunkStage::Provisional);
+    let fine = ChunkSamples::sample(&full, key, FeatureTier::Fine).unwrap();
+    let rough = ChunkSamples::sample(&bare, key, FeatureTier::Fine).unwrap();
+    assert_eq!(fine.tier(), FeatureTier::Fine);
+    assert_eq!(rough.tier(), FeatureTier::Rough);
+    let a = fine.mesh(Transitions::NONE, 0.0);
+    let b = rough.mesh(Transitions::NONE, 0.0);
+    assert_eq!(b.tier, FeatureTier::Rough);
 
     // Outside every road's bounds, the ground is the same.
     let roads: Vec<[DVec2; 2]> = full
@@ -388,12 +392,65 @@ fn provisional_chunks_match_canonical_ones_away_from_roads() {
 }
 
 #[test]
+fn skirts_sized_by_the_tier_difference_close_gaps_between_tiers() {
+    let (full, bare) = plains();
+    let moved = ChunkSource::tier_difference(&full, DVec2::ZERO, DVec2::ZERO, FeatureTier::Rough);
+    assert!(moved > 1.0, "the roads move the ground: {moved} m");
+    assert_eq!(full.tier_difference(FeatureTier::Fine), 0.0);
+    assert_eq!(bare.tier_difference(FeatureTier::Rough), 0.0);
+
+    // Chunks at levels 0 to 2 along every road, where it crosses from one
+    // chunk into the next: one drawn fine, its neighbour rough.
+    let mut checked = 0;
+    let mut largest = 0.0f32;
+    for road in full.roads() {
+        for w in road.points.windows(2) {
+            for level in 0..=2 {
+                let (a, b) = (
+                    ChunkKey::containing(w[0], level),
+                    ChunkKey::containing(w[1], level),
+                );
+                if a == b || a.level != b.level || (a.x - b.x).abs() + (a.z - b.z).abs() != 1 {
+                    continue;
+                }
+                let fine = ChunkSamples::sample(&full, a, FeatureTier::Fine).unwrap();
+                let rough = ChunkSamples::sample(&bare, b, FeatureTier::Fine).unwrap();
+                let n = CHUNK_CELLS;
+                // The vertex pairs along the shared side.
+                let pairs: Vec<((u32, u32), (u32, u32))> = (0..=n)
+                    .map(|k| match (b.x - a.x, b.z - a.z) {
+                        (1, 0) => ((n, k), (0, k)),
+                        (-1, 0) => ((0, k), (n, k)),
+                        (0, 1) => ((k, n), (k, 0)),
+                        _ => ((k, 0), (k, n)),
+                    })
+                    .collect();
+                for ((fi, fj), (ri, rj)) in pairs {
+                    let (hf, hr) = (fine.vertex(fi, fj).height, rough.vertex(ri, rj).height);
+                    // The higher side's skirt, `moved` deep, reaches the
+                    // lower side.
+                    assert!(
+                        hf.max(hr) - moved <= hf.min(hr),
+                        "{a} fine and {b} rough part by {} m, more than {moved} m",
+                        (hf - hr).abs()
+                    );
+                    largest = largest.max((hf - hr).abs());
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "roads cross chunk sides");
+    assert!(largest > 0.5, "the road moves the shared side: {largest} m");
+}
+
+#[test]
 fn rivers_get_a_water_surface() {
     let (full, _) = plains();
     let river = &full.rivers()[0].points;
     let p = river[river.len() / 2];
     let key = ChunkKey::containing(p, 0);
-    let mesh = ChunkSamples::sample(&full, key, ChunkStage::Canonical)
+    let mesh = ChunkSamples::sample(&full, key, FeatureTier::Fine)
         .unwrap()
         .mesh(Transitions::NONE, 0.0);
     let water = mesh.water.as_ref().expect("the river is in the chunk");
@@ -409,7 +466,7 @@ fn rivers_get_a_water_surface() {
     }
     assert!(wet > 0);
     // A chunk far from water has none.
-    let dry = ChunkSamples::sample(&full, ChunkKey::new(400, 400, 0), ChunkStage::Canonical)
+    let dry = ChunkSamples::sample(&full, ChunkKey::new(400, 400, 0), FeatureTier::Fine)
         .unwrap()
         .mesh(Transitions::NONE, 0.0);
     assert!(dry.water.is_none());
@@ -438,10 +495,10 @@ fn a_world_gives_provisional_and_canonical_chunks() {
 
     let p = DVec2::new(100.0, -50.0);
     let region = world.region_at(p);
-    let provisional = world.provisional_terrain(region).unwrap();
+    let rough = world.terrain_tier(region, FeatureTier::Rough).unwrap();
 
-    // Building the ground without roads planned the region and every
-    // region round it, and built only this region's ground.
+    // Building the rough tier planned the region and every region round
+    // it, and built only this region's rough ground.
     let after_ground = told.lock().unwrap().clone();
     let finished = |events: &[RegionProgress], stage| -> Vec<RegionId> {
         events
@@ -465,8 +522,10 @@ fn a_world_gives_provisional_and_canonical_chunks() {
         planned.contains(&region) && planned.len() > 3,
         "{planned:?}"
     );
-    assert_eq!(finished(&after_ground, RegionStage::Ground), vec![region]);
-    assert!(finished(&after_ground, RegionStage::Roads).is_empty());
+    let rough_stage = RegionStage::Tier(FeatureTier::Rough);
+    let fine_stage = RegionStage::Tier(FeatureTier::Fine);
+    assert_eq!(finished(&after_ground, rough_stage), vec![region]);
+    assert!(finished(&after_ground, fine_stage).is_empty());
     // Every stage that started also finished, after it started.
     for (i, e) in after_ground.iter().enumerate() {
         if let RegionProgress::Started { region, stage } = *e {
@@ -477,26 +536,27 @@ fn a_world_gives_provisional_and_canonical_chunks() {
         }
     }
 
-    // The full terrain adds only the roads; nothing is built twice.
-    let canonical = world.terrain(region).unwrap();
+    // The fine tier adds only the roads; nothing is built twice.
+    let fine = world.terrain(region).unwrap();
     let all = told.lock().unwrap().clone();
     assert_eq!(
-        finished(&all[after_ground.len()..], RegionStage::Roads),
+        finished(&all[after_ground.len()..], fine_stage),
         vec![region]
     );
     assert_eq!(all.len(), after_ground.len() + 2);
-    assert!(!provisional.has_roads() && canonical.has_roads());
-    assert_eq!(provisional.rivers(), canonical.rivers());
+    assert!(rough.tier() == FeatureTier::Rough && fine.tier() == FeatureTier::Fine);
+    assert!(rough.roads().is_empty() && !fine.roads().is_empty());
+    assert_eq!(rough.rivers(), fine.rivers());
+    // With the fine tier built, the rough tier is still the rough one.
+    let again = world.terrain_tier(region, FeatureTier::Rough).unwrap();
+    assert!(Arc::ptr_eq(&again, &rough));
 
-    // A coarse chunk from each stage: the stage is what was asked for, and
-    // the heights are each stage's own.
+    // A coarse chunk from each tier: the tier is what was asked for, and
+    // the heights are each tier's own.
     let key = ChunkKey::containing(p, 3);
-    for (stage, terrain) in [
-        (ChunkStage::Provisional, &provisional),
-        (ChunkStage::Canonical, &canonical),
-    ] {
-        let samples = ChunkSamples::sample(&world, key, stage).unwrap();
-        assert_eq!(samples.stage(), stage);
+    for (tier, terrain) in [(FeatureTier::Rough, &rough), (FeatureTier::Fine, &fine)] {
+        let samples = ChunkSamples::sample(&world, key, tier).unwrap();
+        assert_eq!(samples.tier(), tier);
         let v = samples.vertex(32, 32);
         let at = key.min_corner() + DVec2::splat(32.0 * key.step());
         if world.region_at(at) == region {

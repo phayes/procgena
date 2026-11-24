@@ -18,7 +18,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use procgena_terrain::ground::{ChunkWeights, GROUND_TEXELS, GroundStack};
-use procgena_terrain::{ChunkKey, ChunkStage};
+use procgena_terrain::{ChunkKey, FeatureTier};
 
 /// Chunks along each side of the image.
 const CHUNKS: i64 = 3;
@@ -45,7 +45,7 @@ fn main() -> std::io::Result<()> {
     for cz in 0..CHUNKS {
         for cx in 0..CHUNKS {
             let key = centre.offset(cx - CHUNKS / 2, cz - CHUNKS / 2);
-            let weights = ChunkWeights::build(&bare, plains, key, ChunkStage::Canonical)
+            let weights = ChunkWeights::build(&bare, plains, key, FeatureTier::Fine)
                 .expect("the plains have ground there");
             let colours = weights.colours(bare.catalogue());
             for j in 0..side {

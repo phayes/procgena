@@ -17,8 +17,8 @@
 //! - `--eye x y z` and `--target x y z`: where the camera starts and what it
 //!   looks at, with each `y` in metres above the ground there;
 //! - `--view <metres>`: the view distance (default 4000);
-//! - `--provisional-from <level>`: draw chunk levels from this one up
-//!   without roads, so they appear sooner;
+//! - `--rough-from <level>`: draw chunk levels from this one up at the
+//!   rough tier only, without roads;
 //! - `--levels`, `--borders`: start with chunk levels tinted, or chunk
 //!   borders drawn;
 //! - `--screenshot <file.png>`: save an image once every chunk is drawn,
@@ -67,7 +67,7 @@ struct Scene {
     world: Option<WorldTerrain>,
     eye: Vec3,
     target: Vec3,
-    provisional_from: Option<u8>,
+    rough_from: Option<u8>,
     headless: bool,
 }
 
@@ -162,8 +162,8 @@ fn main() {
             world: Some(world),
             eye,
             target,
-            provisional_from: value("--provisional-from")
-                .map(|v| v.parse().expect("--provisional-from needs a level")),
+            rough_from: value("--rough-from")
+                .map(|v| v.parse().expect("--rough-from needs a level")),
             headless,
         })
         .add_systems(Startup, setup)
@@ -180,7 +180,7 @@ fn setup(
 ) {
     let world = scene.world.take().expect("set up once");
     commands.spawn(TerrainStream {
-        provisional_from: scene.provisional_from,
+        rough_from: scene.rough_from,
         ..TerrainStream::world(world)
     });
 

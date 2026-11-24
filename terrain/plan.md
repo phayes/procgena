@@ -681,13 +681,23 @@ patches).
   chunk level `i`, its cull distance the view distance), split by distance
   with each level's hysteresis against the last selection, and balanced so
   neighbours across a side or a corner are at most one level apart.
-- **Canonical and provisional.** `ChunkStage::Provisional` is the ground
-  without roads: `WorldTerrain::provisional_terrain` caches the road-free
-  build, and the full terrain is that plus `with_roads` (bit-identical to
-  before). Chunks of different stages can disagree near roads, so each
-  chunk hangs a skirt (`procgena_terrain_bevy::skirt_depth`, 4 steps, at
-  least 8 m); a road cutting deeper than the skirt at a stage border can
-  still leave a gap. Labels (G4) will add per-vertex weights and parts to
+- **Feature tiers** (features_plan.md §9, "Feature tiers"). Chunks are
+  read at a `FeatureTier` (`Rough`, `Fine`); only fine is canonical. Each
+  `FeatureKind` declares its tiers (`tiers`, `first_tier`) and what it
+  reads (`reads`; a unit test checks none is drawn before what it reads):
+  rivers and ponds at every tier, roads fine only. `Terrain::with_tier`
+  plans each kind at its first tier; `WorldTerrain::terrain_tier` caches
+  every tier on its own and builds each from the one before (fine is
+  bit-identical to before). A different method per tier has no user yet,
+  so it isn't built; rough roads would be the first.
+- **Skirts between tiers.** Each terrain records how far each tier moved
+  the ground (`Terrain::tier_difference`): measured along every road
+  when roads are planned, on the centreline, both edges and 4 m beyond,
+  times 1.1 plus 1 m. `ChunkSource::tier_difference` gives it for an
+  area. In Bevy, wherever two drawn chunks of different tiers touch, both
+  get skirts at least that deep, kept per chunk across swaps. A test
+  checks every shared side a road crosses: the gap is never more than the
+  bound. Labels (G4) will add per-vertex weights and parts to
   `ChunkMesh`; the struct marks the place.
 - Water: each chunk's `WaterMesh` covers every triangle with water at a
   corner, with dry corners at the wet corners' mean level so it runs into

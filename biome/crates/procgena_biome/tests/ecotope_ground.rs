@@ -10,7 +10,7 @@ use procgena_terrain::ground::{
     ChunkWeights, GROUND_TEXELS, GroundError, GroundLayer, GroundPainter, GroundSource,
     GroundStack, MaterialCatalogue, MaterialId, OnGround,
 };
-use procgena_terrain::{ChunkKey, ChunkStage};
+use procgena_terrain::{ChunkKey, FeatureTier};
 
 fn key(key: &'static str) -> ChildKey {
     ChildKey::from_static(key)
@@ -69,7 +69,7 @@ fn litter_lies_under_pines_and_dirt_round_boulders() {
     let painter = ecotope.ground(&bare, &placement).unwrap();
     let catalogue = bare.catalogue();
     let at = |p: DVec2, material: &str| {
-        let site = OnGround(&grid).site(p, ChunkStage::Canonical);
+        let site = OnGround(&grid).site(p, FeatureTier::Fine);
         painter.paint(p, &site).weight(id(catalogue, material))
     };
 
@@ -137,7 +137,7 @@ fn chunks_of_an_ecotope_agree_along_their_edge_in_any_order() {
     let painter = ecotope.ground(&bare, &placement).unwrap();
     let source = OnGround(&grid);
     let (west, east) = (ChunkKey::new(-1, 0, 0), ChunkKey::new(0, 0, 0));
-    let build = |k| ChunkWeights::build(&painter, &source, k, ChunkStage::Canonical).unwrap();
+    let build = |k| ChunkWeights::build(&painter, &source, k, FeatureTier::Fine).unwrap();
     let (a, b) = (build(west), build(east));
     let (b_first, a_second) = (build(east), build(west));
     assert_eq!((&a, &b), (&a_second, &b_first));
@@ -155,7 +155,7 @@ fn chunks_of_an_ecotope_agree_along_their_edge_in_any_order() {
 
     // A single point matches the painter.
     let p = ChunkWeights::texel_point(east, 30, 40);
-    let site = source.site(p, ChunkStage::Canonical);
+    let site = source.site(p, FeatureTier::Fine);
     assert_eq!(
         ecotope.ground_at(p, &site, &bare, &placement).unwrap(),
         painter.paint(p, &site)
@@ -225,7 +225,7 @@ ecotope:
         &painter,
         &OnGround(&grid),
         ChunkKey::new(0, 0, 0),
-        ChunkStage::Canonical,
+        FeatureTier::Fine,
     )
     .unwrap();
     let catalogue = bare.catalogue();
