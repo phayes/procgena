@@ -709,6 +709,16 @@ go to the few copies near the camera.
   planning session talks the experiment through in detail with the user
   and the advisor, and writes `docs/decisions/IX-plan.md`. It settles at
   least:
+  - **How detail levels and impostors interact** (the user, 2026-11-24).
+    Lower mesh levels serve two different purposes that should not be
+    tied together: a simply lower-poly game (low-poly meshes used near the
+    camera, for speed or for the look), and distance drawing, which may
+    lean heavily on impostors. Both must be configurable per game and per
+    asset, so the plan designs a clear API that describes and sets them:
+    which mesh levels exist and when each is used near the camera,
+    where impostors take over for distance, and how the quality setting
+    moves each. It replaces or extends today's shared LOD type and
+    quality factors (R1), so the plan says what changes there.
   - **The question and the measures:** how close impostors can come
     (per asset kind and size) before they look wrong, and what that saves
     in frame time, draw calls, triangles, memory and bake time.
