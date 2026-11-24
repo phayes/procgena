@@ -372,6 +372,8 @@ struct ScatterGpu {
     row_threads: u32,
     /// Attached copies there can be, over all attached slots.
     attached_count: u32,
+    /// The most detail levels of any attached slot.
+    attached_levels: u32,
     layers: RenderLayers,
 }
 
@@ -503,7 +505,7 @@ fn build_scatter(
             attached_counts[row.slot as usize] += copies;
         }
     }
-    let mut attached_count = 0;
+    let (mut attached_count, mut attached_levels) = (0, 0);
     for (gpu_slot, (&attached, &count)) in gpu_slots
         .iter_mut()
         .zip(is_attached.iter().zip(&attached_counts))
@@ -512,6 +514,7 @@ fn build_scatter(
             gpu_slot.start = attached_count;
             gpu_slot.count = count;
             attached_count += count;
+            attached_levels = attached_levels.max(gpu_slot.level_count);
         }
     }
 
@@ -597,6 +600,7 @@ fn build_scatter(
         host_count,
         row_threads,
         attached_count,
+        attached_levels,
         layers: extracted.layers.clone(),
     };
     if copy_count == 0 || gpu.parts.is_empty() {
@@ -1151,7 +1155,7 @@ fn update_view(
         lists: gpu.list_count,
         entries: gpu.copy_count * gpu.levels,
         hosts: gpu.host_count,
-        attached_entries: gpu.attached_count * gpu.levels,
+        attached_entries: gpu.attached_count * gpu.attached_levels,
     };
     let fits = state.buffers.as_ref().is_some_and(|b| b.size.holds(&size));
     if !fits {
