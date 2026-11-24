@@ -875,8 +875,10 @@ integrated GPU and on a discrete GPU is still owed.
 - **Hard exclusion uses exact disc tests.** A lattice Scatter tests each
   candidate against the exact footprint discs of the kept copies of the
   Scatters above it, with integer maths, so nothing stands inside a trunk,
-  boulder or log on the CPU or the GPU. (Not yet tried in the spike; C2
-  builds and tests it.)
+  boulder or log on the CPU or the GPU. A candidate's own footprint discs
+  are tested against the discs above (`|a − b|² < (r_a + r_b)²`), before
+  spacing, so a dropped candidate never crowds out a neighbour. Built and
+  tested on the CPU in C2 (`scatter::Footprints`).
 - **Window B is the streaming build.** A chunk reuses its neighbours'
   finished copies for the masks and discs of the Scatters above. It
   recomputes only each Scatter's own `S + J` margin, so a Scatter's
@@ -1492,8 +1494,13 @@ it starts.
 - [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
   clustering and partial burial. Done in C1: patches in the density, and
   pebble clusters whose members are ordinary copies.
-- [ ] **Scatter masks out**: each Scatter reports the mask it leaves for the
+- [x] **Scatter masks out**: each Scatter reports the mask it leaves for the
   Scatters below it (trunk discs, canopy shade, stone and log footprints).
+  Done in C2 for tree, stone, deadwood and mushroom: `Scatter::footprints`
+  gives exact discs (a chain along a log), and `Scatter::mask` a 0.5 m
+  `MaskLayer` stamped from them, both without drawing. Canopy shade from
+  the tree Scatter's density field (`MaskSource::Density`) is still to do;
+  plant joins in R3.
 
 ### New levels
 
@@ -1543,17 +1550,21 @@ it starts.
 
 ### Extensibility
 
-- [ ] **`Scatter` trait**: area, ground, mask, seed and copy-address prefix
+- [x] **`Scatter` trait**: area, ground, mask, seed and copy-address prefix
   in; copies with stable `CopyAddress`es and a mask out; `resolve` for
-  one address. The built-in Scatters implement it too.
+  one address. The built-in Scatters implement it too. Done in C2
+  (`procgena_core::scatter::Scatter`, object-safe, with `ChunkCache` for
+  batched `resolve_all` and `scatter::conformance` checks for any
+  Scatter's tests) for tree, stone, deadwood and mushroom; plant joins in
+  R3. `DrawHandle` waits for a chunk-streaming renderer.
 - [ ] **`MeshScatter`**: places and draws any user mesh, with levels of
   detail, masks, promotion and queries.
 - [ ] **Hook traits per level**, with keys that feed the cache hash.
 - [ ] **World-stable ids**: the integer `CopyAddress` (region, Ecotope and
   Scatter key salts, `CellId`, index) from a world-anchored lattice, as
-  "Queries" describes. Today a grove's spot id is
-  its cell counted from the grove's own centre (`site_id` in
-  `procgena_tree`).
+  "Queries" describes. Done in C2 for tree, stone, deadwood and mushroom
+  (`procgena_core::CopyAddress`); plant's blades wait for World tile
+  cells (R3). Part paths (`PartStep`, `Address`) are still to do.
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
   serde.
 - [ ] **Core queries**: at a point, near a point, along a ray, and spot
@@ -1617,8 +1628,11 @@ it starts.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
   ids, `Ground`, `validate()`, hash, export, promotion, and the shared Bevy
   pattern (`XParams`, `XGenerating`, `XFinished`, `XPart`).
-- [ ] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
+- [x] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
   every Scatter offers each slot's `Specimen` plus its copy list (C2).
+  Done in C2: `Scatter::slots` names each slot's `SpecimenId` and mix
+  entry, and every `ScatterCopy` names its slot. `procgena_core` can't name
+  `Specimen`, so each asset builds a slot's specimen with its own API.
 - [ ] **One wind** for tree, plant and clumps on trees.
 - [x] **One preset and file pattern**: done in F3 (see rule 10). Left for
   later: `.biome.yml` files once `Biome` has serde (B1/W0), and presets
@@ -1641,8 +1655,9 @@ it starts.
   Scatters, and the Ecotope's warning when a dense Scatter sits above a
   long-range one.
 - [ ] **World-anchored lattices**: every Scatter's spots on a lattice fixed
-  to the World, each spot owned by one chunk. Groves fix theirs to the
-  grove's centre today, and plant's 16 m cells are local to their field.
+  to the World, each spot owned by one chunk. Done in C2 for tree, stone,
+  deadwood and mushroom (`scatter::Lattice`, `ChunkGrid`, `K_d`); plant's
+  16 m cells are still local to their field (R3).
 - [ ] **Region plans ahead of view**: plan regions one region beyond the
   view distance, and cache plans on disk, stage by stage, so a far region
   needs only its relief and seam stage to be drawn.
