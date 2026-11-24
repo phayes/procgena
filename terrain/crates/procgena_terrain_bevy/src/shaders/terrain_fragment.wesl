@@ -1,8 +1,9 @@
-// Colours and lights terrain chunks with Bevy's standard lighting: grass on
-// flat ground, rock on steep ground, snow up high. Fades the ground out at the
-// end of the view, and can tint chunk levels and draw chunk borders for
-// debugging. Used both when lighting directly (forward) and when storing
-// surfaces to light later (deferred).
+// Colours and lights ground with Bevy's standard lighting: each pixel mixes
+// up to eight materials' colours and roughness by the weights in two
+// textures, with patchy variation. Fades the ground out at the end of the
+// view, and can tint chunk levels and draw chunk borders for debugging. Used
+// both when lighting directly (forward) and when storing surfaces to light
+// later (deferred).
 
 import bevy_pbr::{
     render::{
@@ -28,11 +29,8 @@ import procgena_core_bevy::shaders::dither::{dither_discard, dither_level};
 
 /// Colouring settings; must match the Rust `TerrainSurface`.
 struct TerrainSurface {
-    grass: vec3<f32>,
-    rock: vec3<f32>,
-    snow: vec3<f32>,
-    rock_slope: vec2<f32>,
-    snow_height: vec2<f32>,
+    palette: array<vec4<f32>, 8>,
+    texels: vec2<f32>,
     variation: f32,
     fade: vec4<f32>,
     tint: vec4<f32>,
@@ -40,6 +38,10 @@ struct TerrainSurface {
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> surface: TerrainSurface;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var weights_low: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(102) var weights_low_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(103) var weights_high: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(104) var weights_high_sampler: sampler;
 
 /// A smooth value noise from 0 to 1, from world x and z.
 fn hash2(p: vec2<f32>) -> f32 {
@@ -67,24 +69,29 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     let position = in.world_position.xyz;
-    let normal = normalize(in.world_normal);
 
-    // How steep the ground is: the sine of its angle from flat.
-    let slope = sqrt(max(0.0, 1.0 - normal.y * normal.y));
+    // The weights here: the UVs run from the first texel's centre to the
+    // last's.
+    var uv = vec2<f32>(0.5);
+@if(VERTEX_UVS_A)
+    uv = in.uv;
+    let at = (uv * (surface.texels - 1.0) + 0.5) / surface.texels;
+    let low = textureSample(weights_low, weights_low_sampler, at);
+    let high = textureSample(weights_high, weights_high_sampler, at);
+    let total = max(dot(low, vec4<f32>(1.0)) + dot(high, vec4<f32>(1.0)), 1e-4);
+
+    // Mix the palette's colours and roughness by the weights.
+    var mixed = vec4<f32>(0.0);
+    for (var k = 0; k < 4; k++) {
+        mixed += surface.palette[k] * low[k];
+        mixed += surface.palette[k + 4] * high[k];
+    }
+    mixed /= total;
 
     // Patchy variation, at two scales, so large areas aren't one flat colour.
     let patches = noise2(position.xz / 23.0) * 0.6 + noise2(position.xz / 5.0) * 0.4;
     let vary = 1.0 + surface.variation * (patches - 0.5) * 2.0;
-
-    // Grass, turning to rock as the ground steepens, and to snow up high,
-    // where the ground is flat enough to hold it.
-    var colour = surface.grass * vary;
-    let edge = (patches - 0.5) * 0.1;
-    let rock = smoothstep(surface.rock_slope.x + edge, surface.rock_slope.y + edge, slope);
-    colour = mix(colour, surface.rock * vary, rock);
-    let snow_line = smoothstep(surface.snow_height.x, surface.snow_height.y, position.y + edge * 400.0);
-    let snow = snow_line * (1.0 - smoothstep(0.55, 0.8, slope));
-    colour = mix(colour, surface.snow, snow);
+    var colour = mixed.rgb * vary;
 
     // Debug: tint by chunk level, and darken a line along chunk borders.
     colour = mix(colour, surface.tint.rgb, surface.tint.w);
@@ -98,6 +105,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
 
     pbr_input.material.base_color = vec4<f32>(colour, pbr_input.material.base_color.a);
+    pbr_input.material.perceptual_roughness = mixed.a;
     pbr_input.material.base_color = alpha_discard(
         pbr_input.material.flags,
         pbr_input.material.alpha_cutoff,

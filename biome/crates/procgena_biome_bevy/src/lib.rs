@@ -61,7 +61,7 @@ use procgena_tree_bevy::TreeParams;
 mod ground;
 mod placing;
 
-pub use ground::{ground_mesh, rolling_hills};
+pub use ground::{EcotopeGroundPatch, GroundPatch, ground_mesh, rolling_hills};
 pub use placing::{
     EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, EcotopeSummary, LayerSummary,
 };

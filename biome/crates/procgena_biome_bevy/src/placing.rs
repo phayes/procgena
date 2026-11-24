@@ -9,15 +9,23 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_biome::{Ecotope, EcotopeError, EcotopePlacement};
 use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
 use procgena_core::{ChildKey, Ground};
+use procgena_terrain::ground::GroundWeights;
+use procgena_terrain_bevy::{TerrainExtension, TerrainMaterial, TerrainMaterialPlugin};
 
+use crate::ground::{EcotopeGroundPatch, GroundPatch, ground_mesh, patch_weights};
 use crate::spawn_layer;
 
 /// Places and draws [`EcotopeParams`] entities. Add it once, with the tree,
-/// stone, dead wood and mushroom plugins that draw the copies.
+/// stone, dead wood and mushroom plugins that draw the copies. It adds
+/// `procgena_terrain_bevy`'s [`TerrainMaterialPlugin`] for the ground, if
+/// it isn't added yet.
 pub struct EcotopePlugin;
 
 impl Plugin for EcotopePlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<TerrainMaterialPlugin>() {
+            app.add_plugins(TerrainMaterialPlugin);
+        }
         app.add_systems(Update, (start_placing, finish_placing).chain());
     }
 }
@@ -51,15 +59,26 @@ pub struct EcotopeParams {
     pub area: ScatterArea,
     /// How much of the area it covers, from 0 to 1, or `None` for all of it.
     pub coverage: Option<Arc<dyn Mask>>,
+    /// Also draw the ground under the Ecotope, with its ground layers, as
+    /// an [`EcotopeGroundPatch`] child; `None` draws only the copies. The
+    /// ground is painted after each placement, from its copies, and stays
+    /// as last drawn if it can't be painted.
+    pub patch: Option<GroundPatch>,
 }
 
 impl EcotopeParams {
-    /// Whether `other` asks for the same placement: an equal Ecotope and
-    /// seed, the same ground and coverage (`Arc`s), and an equal area.
+    /// Whether `other` asks for the same placement and drawing: an equal
+    /// Ecotope and seed, the same ground and coverage (`Arc`s), an equal
+    /// area and the same ground patch.
     fn same_as(&self, other: &EcotopeParams) -> bool {
         (Arc::ptr_eq(&self.ecotope, &other.ecotope) || self.ecotope == other.ecotope)
             && self.seed == other.seed
             && self.same_ground(other)
+            && match (&self.patch, &other.patch) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.same_as(b),
+                _ => false,
+            }
     }
 
     /// Whether `other` places over the same ground, area and coverage.
@@ -96,6 +115,9 @@ pub struct EcotopeSummary {
     pub layers: Vec<LayerSummary>,
     /// How long placing took, not counting generating the copies' assets.
     pub place_time: Duration,
+    /// How long painting the ground patch's layers took, if it was
+    /// painted.
+    pub ground_time: Option<Duration>,
 }
 
 impl EcotopeSummary {
@@ -119,11 +141,20 @@ pub struct LayerSummary {
     pub redrawn: bool,
 }
 
+/// What a placement task gives: the placement and how long it took, and
+/// the ground patch's weights and how long painting them took, if asked
+/// for and the placement succeeded.
+type Placed = (
+    Result<EcotopePlacement, EcotopeError>,
+    Duration,
+    Option<(Result<GroundWeights, String>, Duration)>,
+);
+
 /// The placement running for an entity, and what it was asked for.
 #[derive(Component)]
 struct Placing {
     params: EcotopeParams,
-    task: Task<(Result<EcotopePlacement, EcotopeError>, Duration)>,
+    task: Task<Placed>,
 }
 
 /// The last placement started for an entity.
@@ -137,6 +168,8 @@ struct Drawn {
     params: EcotopeParams,
     placement: EcotopePlacement,
     layers: Vec<(ChildKey, Entity)>,
+    /// The ground patch's entity, if one is drawn.
+    patch: Option<Entity>,
 }
 
 /// Starts placing every Ecotope whose params differ from the last placement
@@ -158,7 +191,19 @@ fn start_placing(
                 ..ScatterInput::new(&*input.ground, input.area, input.seed)
             };
             let result = input.ecotope.place(&scatter_input);
-            (result, started.elapsed())
+            let place_time = started.elapsed();
+
+            // Paint the ground patch from the copies just placed.
+            let ground = match (&result, &input.patch) {
+                (Ok(placement), Some(patch)) => {
+                    let started = Instant::now();
+                    let weights =
+                        patch_weights(&input.ecotope, placement, &*input.ground, input.area, patch);
+                    Some((weights, started.elapsed()))
+                }
+                _ => None,
+            };
+            (result, place_time, ground)
         });
         commands.entity(entity).insert((
             EcotopePlacing,
@@ -176,9 +221,12 @@ fn start_placing(
 fn finish_placing(
     mut commands: Commands,
     mut placing: Query<(Entity, &mut Placing, &EcotopeParams, Option<&Drawn>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<TerrainMaterial>>,
 ) {
     for (entity, mut p, current, drawn) in &mut placing {
-        let Some((result, place_time)) = block_on(poll_once(&mut p.task)) else {
+        let Some((result, place_time, ground)) = block_on(poll_once(&mut p.task)) else {
             continue;
         };
         let params = p.params.clone();
@@ -242,16 +290,56 @@ fn finish_placing(
                 }
             }
         }
+        // Draw the ground patch in its entity, made once and kept while a
+        // patch is asked for; a patch that couldn't be painted keeps its
+        // last drawing.
+        let mut patch = old.and_then(|old| old.patch);
+        let mut ground_time = None;
+        match (&params.patch, ground) {
+            (Some(settings), Some((Ok(weights), time))) => {
+                ground_time = Some(time);
+                let (min, max, _) = settings.rectangle(params.area);
+                let mesh = ground_mesh(&*params.ground, min, max, settings.cell);
+                let extension =
+                    TerrainExtension::new(&weights, settings.base.catalogue(), &mut images);
+                let material = TerrainMaterial {
+                    base: StandardMaterial {
+                        reflectance: 0.2,
+                        ..default()
+                    },
+                    extension,
+                };
+                let target = *patch.get_or_insert_with(|| {
+                    commands.spawn((EcotopeGroundPatch, ChildOf(entity))).id()
+                });
+                commands.entity(target).insert((
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(materials.add(material)),
+                ));
+            }
+            (Some(_), Some((Err(error), _))) => {
+                warn!("the Ecotope's ground can't be painted: {error}");
+            }
+            (None, _) => {
+                if let Some(old) = patch.take() {
+                    commands.entity(old).despawn();
+                }
+            }
+            (Some(_), None) => {}
+        }
+
         commands.entity(entity).insert(Drawn {
             params,
             placement,
             layers,
+            patch,
         });
         commands.trigger(EcotopeFinished {
             entity,
             result: Ok(EcotopeSummary {
                 layers: summaries,
                 place_time,
+                ground_time,
             }),
         });
     }
@@ -291,6 +379,7 @@ mod tests {
     use bevy::math::DVec2;
     use procgena_biome::{EcotopePreset, ScatterKind};
     use procgena_core::HeightGrid;
+    use procgena_terrain::ground::GroundStack;
 
     use super::*;
     use crate::EcotopeLayer;
@@ -300,14 +389,21 @@ mod tests {
     struct Finished(Vec<Result<EcotopeSummary, EcotopeError>>);
 
     /// An app drawing the pine forest floor over a small patch of hills,
-    /// and its Ecotope entity.
+    /// with its ground, and its Ecotope entity.
     fn app() -> (App, Entity) {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default(), EcotopePlugin))
-            .init_resource::<Finished>()
-            .add_observer(|finished: On<EcotopeFinished>, mut all: ResMut<Finished>| {
-                all.0.push(finished.result.clone());
-            });
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            EcotopePlugin,
+        ))
+        .init_asset::<Image>()
+        .init_asset::<StandardMaterial>()
+        .init_resource::<Finished>()
+        .add_observer(|finished: On<EcotopeFinished>, mut all: ResMut<Finished>| {
+            all.0.push(finished.result.clone());
+        });
         let ground: Arc<dyn Ground> = Arc::new(HeightGrid::from_fn(
             DVec2::splat(-12.0),
             DVec2::splat(12.0),
@@ -323,9 +419,26 @@ mod tests {
                 ground,
                 area: ScatterArea::new(DVec2::ZERO, Vec2::splat(20.0)),
                 coverage: None,
+                patch: Some(GroundPatch {
+                    base: Arc::new(GroundStack::bare(1, 1.0)),
+                    margin: 2.0,
+                    cell: 0.5,
+                }),
             })
             .id();
         (app, entity)
+    }
+
+    /// The Ecotope entity's ground patch children.
+    fn patches(app: &mut App, entity: Entity) -> Vec<Entity> {
+        let world = app.world_mut();
+        world
+            .get::<Children>(entity)
+            .map(|c| c.to_vec())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|child| world.get::<EcotopeGroundPatch>(*child).is_some())
+            .collect()
     }
 
     /// Runs `app` until `count` placements have finished, and returns the
@@ -414,5 +527,60 @@ mod tests {
         });
         assert!(finish(&mut app, 3).is_err());
         assert_eq!(layers(&mut app, entity), after);
+    }
+
+    #[test]
+    fn the_ground_patch_is_painted_with_the_ecotopes_layers() {
+        // The first placement paints the patch in one child.
+        let (mut app, entity) = app();
+        let first = finish(&mut app, 1).expect("the preset places");
+        assert!(first.ground_time.is_some());
+        let drawn = patches(&mut app, entity);
+        assert_eq!(drawn.len(), 1);
+        let material = app
+            .world()
+            .get::<MeshMaterial3d<TerrainMaterial>>(drawn[0])
+            .expect("the patch has a terrain material")
+            .clone();
+        assert!(app.world().get::<Mesh3d>(drawn[0]).is_some());
+        let catalogue = procgena_terrain::ground::MaterialCatalogue::standard();
+        let colour = |key: &str| {
+            let id = catalogue.id(key).unwrap();
+            Vec3::from(catalogue.get(id).1.colour)
+        };
+        let surface = app
+            .world()
+            .resource::<Assets<TerrainMaterial>>()
+            .get(&material)
+            .expect("the patch's material is added")
+            .extension
+            .surface;
+        // A texel on each vertex: 24 m at 0.5 m.
+        assert_eq!(surface.texels, Vec2::splat(49.0));
+        let palette = surface.palette;
+        for key in ["forest_soil", "needle_litter", "bare_dirt"] {
+            assert!(
+                palette.iter().any(|slot| slot.truncate() == colour(key)),
+                "{key} in the palette"
+            );
+        }
+
+        // An edit paints it again in the same entity.
+        edit(&mut app, entity, |ecotope| {
+            ecotope.ground.remove(&ChildKey::from_static("moss"));
+        });
+        let second = finish(&mut app, 2).expect("the edit places");
+        assert!(second.layers.iter().all(|layer| !layer.redrawn));
+        assert_eq!(patches(&mut app, entity), drawn);
+
+        // Without a patch, the ground is no longer drawn.
+        let world = app.world_mut();
+        let mut params = world.get::<EcotopeParams>(entity).unwrap().clone();
+        params.patch = None;
+        world.entity_mut(entity).insert(params);
+        let third = finish(&mut app, 3).expect("the same Ecotope places");
+        assert_eq!(third.ground_time, None);
+        app.update();
+        assert!(patches(&mut app, entity).is_empty());
     }
 }

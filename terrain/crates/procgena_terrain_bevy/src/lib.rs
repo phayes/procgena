@@ -13,7 +13,14 @@
 //! Chunks are read on Bevy's async compute threads, and the drawn chunks
 //! change all at once, when every chunk of the new set is ready. Each
 //! chunk is a child entity of its stream, with a [`TerrainChunk`]
-//! component and a [`TerrainMaterial`] coloured by slope and height.
+//! component and its own [`TerrainMaterial`], coloured by the stream's
+//! [`GroundPainter`]: bare terrain's look
+//! ([`GroundStack::bare`](procgena_terrain::ground::GroundStack::bare)) unless
+//! you give it another.
+//!
+//! [`TerrainMaterial`] can also draw ground weights over any other mesh,
+//! such as a patch under an Ecotope: add [`TerrainMaterialPlugin`] and see
+//! [`TerrainExtension::new`].
 //!
 //! Water is not drawn: each chunk with rivers or ponds gets a child entity
 //! with [`TerrainWater`] and a mesh of the water surface, and no material.
@@ -61,12 +68,15 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use glam::{DVec2, DVec3};
 use procgena_core::Lod;
 use procgena_core_bevy::{LodPlugin, LodQuality};
+use procgena_terrain::ground::{GroundPainter, GroundSource, GroundStack, GroundWeights};
 use procgena_terrain::{
     ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSelectionError,
     ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh, WorldTerrain, chunk_lod,
 };
 
-pub use material::{TerrainExtension, TerrainMaterial, TerrainSurface};
+pub use material::{DEFAULT_VARIATION, TerrainExtension, TerrainMaterial, TerrainSurface};
+
+use material::weight_images;
 pub use progress::RegionTracker;
 
 use stream::{Read, Stream};
@@ -83,7 +93,7 @@ pub const DEFAULT_VIEW_DISTANCE: f32 = 4000.0;
 #[derive(Debug, Clone)]
 pub struct TerrainPlugin {
     lod: Lod,
-    surface: TerrainSurface,
+    variation: f32,
     max_reads: usize,
 }
 
@@ -107,14 +117,15 @@ impl TerrainPlugin {
         ChunkSelection::around(&lod, 1.0, &[], None)?;
         Ok(Self {
             lod,
-            surface: TerrainSurface::default(),
+            variation: DEFAULT_VARIATION,
             max_reads: 4,
         })
     }
 
-    /// The plugin, colouring the ground with `surface`.
-    pub fn with_surface(mut self, surface: TerrainSurface) -> Self {
-        self.surface = surface;
+    /// The plugin, varying the ground's colours in patches by `variation`,
+    /// from 0 (none) to 1 (see [`TerrainSurface::variation`]).
+    pub fn with_variation(mut self, variation: f32) -> Self {
+        self.variation = variation;
         self
     }
 
@@ -133,21 +144,43 @@ impl TerrainPlugin {
 
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "shaders/terrain_fragment.wesl");
-        app.add_plugins((LodPlugin, MaterialPlugin::<TerrainMaterial>::default()))
+        if !app.is_plugin_added::<TerrainMaterialPlugin>() {
+            app.add_plugins(TerrainMaterialPlugin);
+        }
+        app.add_plugins(LodPlugin)
             .insert_resource(TerrainSettings {
                 lod: self.lod.clone(),
-                surface: self.surface,
+                variation: self.variation,
                 max_reads: self.max_reads,
             })
             .init_resource::<TerrainDebug>()
-            .add_systems(Startup, create_materials)
             .add_systems(
                 Update,
                 (reset_streams, stream_chunks, update_materials).chain(),
             );
     }
 }
+
+/// Draws [`TerrainMaterial`]s. [`TerrainPlugin`] adds it; add it yourself
+/// to draw the material without streaming terrain, and only if it isn't
+/// added yet.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TerrainMaterialPlugin;
+
+impl Plugin for TerrainMaterialPlugin {
+    fn build(&self, app: &mut App) {
+        embedded_asset!(app, "shaders/terrain_fragment.wesl");
+        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default());
+    }
+}
+
+/// Ground a [`TerrainStream`] can draw: where its chunks' heights and
+/// water come from ([`ChunkSource`]), and the sites its ground is painted
+/// from ([`GroundSource`]). Every type with both is one, such as a
+/// [`Terrain`](procgena_terrain::Terrain) or a [`WorldTerrain`].
+pub trait TerrainSource: ChunkSource + GroundSource + Send {}
+
+impl<T: ChunkSource + GroundSource + Send + ?Sized> TerrainSource for T {}
 
 /// The ground a terrain is drawn from, and how.
 ///
@@ -157,7 +190,10 @@ impl Plugin for TerrainPlugin {
 #[require(Transform, Visibility, TerrainProgress)]
 pub struct TerrainStream {
     /// Where the ground comes from.
-    pub source: Arc<dyn ChunkSource + Send>,
+    pub source: Arc<dyn TerrainSource>,
+    /// What the ground is made of where: each chunk is painted with it
+    /// when read, at the tier it is read at.
+    pub ground: Arc<dyn GroundPainter + Send>,
     /// Chunk levels at and above this one are drawn only at the
     /// [`Rough`](FeatureTier::Rough) tier, which a [`WorldTerrain`] builds
     /// without its costly features (today the roads), so far ground
@@ -176,10 +212,12 @@ pub struct TerrainStream {
 
 impl TerrainStream {
     /// A stream of `source`'s fine ground at every level, loaded coarse
-    /// first, counting chunks only.
-    pub fn new(source: Arc<dyn ChunkSource + Send>) -> Self {
+    /// first, counting chunks only, with bare terrain's look seeded 0 at a
+    /// vertical scale of 1.
+    pub fn new(source: Arc<dyn TerrainSource>) -> Self {
         Self {
             source,
+            ground: Arc::new(GroundStack::bare(0, 1.0)),
             rough_from: None,
             regions: None,
             coarse_first: true,
@@ -188,14 +226,16 @@ impl TerrainStream {
 
     /// A stream of `world`'s fine ground at every level, loaded
     /// coarse first, with its
-    /// region builds counted in [`TerrainProgress`]. This replaces any
-    /// progress hook `world` had; to keep your own as well, make a
-    /// [`RegionTracker`], call its hook from yours, and set
+    /// region builds counted in [`TerrainProgress`], and bare terrain's
+    /// look seeded with the world's seed at a vertical scale of 1. This
+    /// replaces any progress hook `world` had; to keep your own as well,
+    /// make a [`RegionTracker`], call its hook from yours, and set
     /// [`regions`](Self::regions) yourself.
     pub fn world(world: WorldTerrain) -> Self {
         let tracker = RegionTracker::default();
         let world = world.with_progress(tracker.hook());
         Self {
+            ground: Arc::new(GroundStack::bare(world.options().seed, 1.0)),
             source: Arc::new(world),
             rough_from: None,
             regions: Some(tracker),
@@ -275,16 +315,41 @@ pub struct TerrainDebug {
 #[derive(Resource)]
 struct TerrainSettings {
     lod: Lod,
-    surface: TerrainSurface,
+    variation: f32,
     max_reads: usize,
 }
 
-/// One material per chunk level.
-#[derive(Resource)]
-struct TerrainMaterials(Vec<Handle<TerrainMaterial>>);
+/// One chunk as read: its samples, and its ground ready to draw.
+pub(crate) struct ChunkRead {
+    pub(crate) samples: ChunkSamples,
+    /// The two weight images.
+    images: [Image; 2],
+    /// The palette and texel count; the drawing settings are filled in
+    /// when the chunk is drawn.
+    surface: TerrainSurface,
+}
 
-/// Reading one chunk's samples in the background.
-type ReadTask = Task<Result<ChunkSamples, ChunkError>>;
+impl ChunkRead {
+    /// Reads chunk `key` of `source` at `tier`, and paints its ground with
+    /// `painter`.
+    pub(crate) fn read(
+        source: &(impl TerrainSource + ?Sized),
+        painter: &(impl GroundPainter + ?Sized),
+        key: ChunkKey,
+        tier: FeatureTier,
+    ) -> Result<Self, ChunkError> {
+        let samples = ChunkSamples::sample(source, key, tier)?;
+        let weights = GroundWeights::chunk(painter, source, key, tier)?;
+        Ok(Self {
+            samples,
+            images: weight_images(&weights),
+            surface: TerrainSurface::new(&weights, painter.catalogue()),
+        })
+    }
+}
+
+/// Reading one chunk in the background.
+type ReadTask = Task<Result<ChunkRead, ChunkError>>;
 
 /// A stream's state: what is drawn, wanted and being read.
 #[derive(Component, Default)]
@@ -294,6 +359,9 @@ struct StreamState {
     tasks: Vec<(ChunkKey, u64, ReadTask)>,
     /// The entity drawing each chunk.
     entities: HashMap<ChunkKey, Entity>,
+    /// Each drawn chunk's material, with the read it was made from, so a
+    /// chunk drawn again from the same read keeps it.
+    materials: HashMap<ChunkKey, (Arc<ChunkRead>, Handle<TerrainMaterial>)>,
     /// Chunks that failed to read in this generation.
     failed: usize,
     /// Whether the chunk levels can't be chosen; logged once.
@@ -310,14 +378,22 @@ pub fn skirt_depth(key: ChunkKey) -> f32 {
     (4.0 * key.step() as f32).max(8.0)
 }
 
-/// A Bevy mesh of a chunk's ground.
+/// A Bevy mesh of a chunk's ground, with UVs running from 0 to 1 across
+/// the chunk along x and z, as [`TerrainMaterial`] reads its weights.
 pub fn chunk_mesh(chunk: &ChunkMesh) -> Mesh {
+    let size = ChunkKey::size_at(chunk.key.level) as f32;
+    let uvs: Vec<[f32; 2]> = chunk
+        .positions
+        .iter()
+        .map(|p| [p.x / size, p.z / size])
+        .collect();
     Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, chunk.positions.clone())
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, chunk.normals.clone())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(chunk.indices.clone()))
 }
 
@@ -332,27 +408,66 @@ pub fn water_mesh(water: &WaterMesh) -> Mesh {
     .with_inserted_indices(Indices::U32(water.indices.clone()))
 }
 
-/// Makes one material per chunk level.
-fn create_materials(
-    mut commands: Commands,
-    settings: Res<TerrainSettings>,
-    mut materials: ResMut<Assets<TerrainMaterial>>,
-) {
-    let handles = (0..settings.lod.levels.len())
-        .map(|_| {
-            materials.add(TerrainMaterial {
-                base: StandardMaterial {
-                    perceptual_roughness: 0.95,
-                    reflectance: 0.2,
-                    ..default()
-                },
-                extension: TerrainExtension {
-                    surface: settings.surface,
-                },
-            })
-        })
-        .collect();
-    commands.insert_resource(TerrainMaterials(handles));
+/// The drawing settings every chunk shares: the colour variation, the fade
+/// at the end of the view, and the debug tint and borders.
+struct ChunkLook {
+    variation: f32,
+    fade: Vec4,
+    debug: TerrainDebug,
+}
+
+impl ChunkLook {
+    fn new(settings: &TerrainSettings, quality: &LodQuality, debug: TerrainDebug) -> Self {
+        let ranges = settings.lod.ranges(quality.0.distance_scale());
+        let fade = ranges.last().map_or(Vec4::ZERO, |last| {
+            Vec4::new(0.0, 0.0, last.fade_out.start, last.fade_out.end)
+        });
+        Self {
+            variation: settings.variation,
+            fade,
+            debug,
+        }
+    }
+
+    /// Sets `surface`'s drawing settings for a chunk at `level`.
+    fn apply(&self, surface: &mut TerrainSurface, level: u8) {
+        surface.variation = self.variation;
+        surface.fade = self.fade;
+        surface.tint = if self.debug.levels {
+            material::level_tint(level).extend(0.55)
+        } else {
+            Vec4::ZERO
+        };
+        surface.border = if self.debug.borders {
+            ChunkKey::size_at(level) as f32
+        } else {
+            0.0
+        };
+    }
+}
+
+/// A chunk's material, drawing `read`'s ground at `level` with `look`.
+fn chunk_material(
+    read: &ChunkRead,
+    level: u8,
+    look: &ChunkLook,
+    images: &mut Assets<Image>,
+    materials: &mut Assets<TerrainMaterial>,
+) -> Handle<TerrainMaterial> {
+    let [low, high] = read.images.clone();
+    let mut surface = read.surface;
+    look.apply(&mut surface, level);
+    materials.add(TerrainMaterial {
+        base: StandardMaterial {
+            reflectance: 0.2,
+            ..default()
+        },
+        extension: TerrainExtension {
+            surface,
+            weights_low: images.add(low),
+            weights_high: images.add(high),
+        },
+    })
 }
 
 /// Gives new streams their state, and starts changed ones over.
@@ -382,7 +497,9 @@ fn stream_chunks(
     mut commands: Commands,
     settings: Res<TerrainSettings>,
     quality: Res<LodQuality>,
-    materials: Option<Res<TerrainMaterials>>,
+    debug: Res<TerrainDebug>,
+    mut materials: ResMut<Assets<TerrainMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     viewers: Query<&GlobalTransform, With<TerrainViewer>>,
     mut streams: Query<(
@@ -393,8 +510,8 @@ fn stream_chunks(
         &mut TerrainProgress,
     )>,
 ) {
-    let Some(materials) = materials else { return };
     let factor = quality.0.distance_scale();
+    let look = ChunkLook::new(&settings, &quality, *debug);
     for (entity, source, transform, mut state, mut progress) in &mut streams {
         let state = &mut *state;
 
@@ -446,7 +563,7 @@ fn stream_chunks(
         for (key, generation, result) in finished {
             let current = generation == state.stream.generation;
             let read: Read = match result {
-                Ok(samples) => Some(Arc::new(samples)),
+                Ok(read) => Some(Arc::new(read)),
                 // A failed upgrade keeps the ground already drawn.
                 Err(error) if current && state.stream.is_upgrade(key) => {
                     warn!("terrain {key} keeps its earlier tier: {error}");
@@ -487,27 +604,42 @@ fn stream_chunks(
         for (key, tier) in reads {
             state.stream.start(key);
             let ground = Arc::clone(&source.source);
+            let painter = Arc::clone(&source.ground);
             let task = AsyncComputeTaskPool::get()
-                .spawn(async move { ChunkSamples::sample(&*ground, key, tier) });
+                .spawn(async move { ChunkRead::read(&*ground, &*painter, key, tier) });
             state.tasks.push((key, state.stream.generation, task));
         }
 
         // Swap the drawn chunks once the whole new set is read; redraw
         // upgraded chunks one by one. `redraw` removes a chunk's entity and
         // draws its samples, if any.
-        let mut redraw = |state: &mut StreamState, key, transitions, read: Read| {
+        let mut redraw = |state: &mut StreamState, key: ChunkKey, transitions, read: Read| {
             if let Some(chunk) = state.entities.remove(&key) {
                 commands.entity(chunk).despawn();
             }
-            let Some(samples) = read else { return };
-            let level = usize::from(key.level).min(materials.0.len() - 1);
+            let Some(read) = read else {
+                state.materials.remove(&key);
+                return;
+            };
+            // Keep the material while the read is the same.
+            let material = match state.materials.get(&key) {
+                Some((drawn, material)) if Arc::ptr_eq(drawn, &read) => material.clone(),
+                _ => {
+                    let material =
+                        chunk_material(&read, key.level, &look, &mut images, &mut materials);
+                    state
+                        .materials
+                        .insert(key, (Arc::clone(&read), material.clone()));
+                    material
+                }
+            };
             let skirt = skirt_depth(key).max(state.skirts.get(&key).copied().unwrap_or(0.0));
             let chunk = spawn_chunk(
                 &mut commands,
                 &mut meshes,
-                &materials.0[level],
+                &material,
                 entity,
-                &samples.mesh(transitions, skirt),
+                &read.samples.mesh(transitions, skirt),
             );
             state.entities.insert(key, chunk);
         };
@@ -526,7 +658,7 @@ fn stream_chunks(
         }
         drawn_now.extend(state.stream.take_refreshed());
         for (key, transitions, read) in drawn_now {
-            let tier = read.as_ref().map(|s| s.tier());
+            let tier = read.as_ref().map(|r| r.samples.tier());
             let mut deepest = 0.0f32;
             for (other, other_transitions) in state.stream.touching(key) {
                 let (Some(tier), Some(other_tier)) = (tier, state.stream.tier_of(other)) else {
@@ -622,38 +754,26 @@ fn spawn_chunk(
     chunk
 }
 
-/// Keeps the materials' fade and debug drawing up to date.
+/// Keeps the chunks' materials' fade and debug drawing up to date when the
+/// quality or debug drawing changes. Chunks drawn later get them when
+/// their material is made.
 fn update_materials(
     settings: Res<TerrainSettings>,
     quality: Res<LodQuality>,
     debug: Res<TerrainDebug>,
-    handles: Option<Res<TerrainMaterials>>,
+    streams: Query<&StreamState>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
 ) {
-    let Some(handles) = handles else { return };
-    if !(quality.is_changed() || debug.is_changed() || handles.is_added()) {
+    if !(quality.is_changed() || debug.is_changed()) {
         return;
     }
-    let ranges = settings.lod.ranges(quality.0.distance_scale());
-    let fade = ranges.last().map_or(Vec4::ZERO, |last| {
-        Vec4::new(0.0, 0.0, last.fade_out.start, last.fade_out.end)
-    });
-    for (level, handle) in handles.0.iter().enumerate() {
-        let Some(mut material) = materials.get_mut(handle) else {
-            continue;
-        };
-        let surface = &mut material.extension.surface;
-        surface.fade = fade;
-        surface.tint = if debug.levels {
-            material::level_tint(level as u8).extend(0.55)
-        } else {
-            Vec4::ZERO
-        };
-        surface.border = if debug.borders {
-            ChunkKey::size_at(level as u8) as f32
-        } else {
-            0.0
-        };
+    let look = ChunkLook::new(&settings, &quality, *debug);
+    for state in &streams {
+        for (key, (_, handle)) in &state.materials {
+            if let Some(mut material) = materials.get_mut(handle) {
+                look.apply(&mut material.extension.surface, key.level);
+            }
+        }
     }
 }
 
@@ -668,7 +788,7 @@ mod tests {
     use super::*;
 
     /// One unbounded region of rolling hills.
-    fn hills() -> Arc<dyn ChunkSource + Send> {
+    fn hills() -> Arc<dyn TerrainSource> {
         let region = Region {
             id: RegionId(0),
             boundary: Boundary::Unbounded,
@@ -693,6 +813,7 @@ mod tests {
         ))
         .init_asset::<TerrainMaterial>()
         .init_asset::<StandardMaterial>()
+        .init_asset::<Image>()
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             16,
         )));
@@ -701,12 +822,11 @@ mod tests {
         // renderer.
         app.insert_resource(TerrainSettings {
             lod: plugin.lod.clone(),
-            surface: plugin.surface,
+            variation: plugin.variation,
             max_reads: plugin.max_reads,
         })
         .init_resource::<LodQuality>()
         .init_resource::<TerrainDebug>()
-        .add_systems(Startup, create_materials)
         .add_systems(
             Update,
             (reset_streams, stream_chunks, update_materials).chain(),
@@ -780,6 +900,27 @@ mod tests {
         assert!(keys.contains(&under), "the chunk under the viewer is drawn");
         let unique: std::collections::HashSet<_> = keys.iter().collect();
         assert_eq!(unique.len(), keys.len());
+
+        // Each drawn chunk has its own material and two weight images;
+        // those of chunks no longer drawn are freed.
+        for _ in 0..3 {
+            app.update();
+        }
+        let mut drawn = app
+            .world_mut()
+            .query::<(&TerrainChunk, &MeshMaterial3d<TerrainMaterial>)>();
+        let handles: std::collections::HashSet<AssetId<TerrainMaterial>> =
+            drawn.iter(app.world()).map(|(_, m)| m.id()).collect();
+        assert_eq!(handles.len(), progress.drawn);
+        let materials = app.world().resource::<Assets<TerrainMaterial>>();
+        assert_eq!(materials.len(), progress.drawn);
+        assert_eq!(
+            app.world().resource::<Assets<Image>>().len(),
+            2 * progress.drawn
+        );
+        for (_, material) in materials.iter() {
+            assert!(material.extension.surface.palette[0].w > 0.0, "a palette");
+        }
     }
 
     #[test]
