@@ -89,7 +89,7 @@ fn list_documents(
         commands.entity(*row).despawn();
     }
     let mut open: Vec<(Entity, &Document)> = documents.iter().collect();
-    open.sort_by_key(|(entity, _)| *entity);
+    open.sort_by_key(|(_, document)| document.opened);
     for (entity, document) in open {
         let text = outline_text(document, &kinds);
         let variant = ButtonVariant::selected(selection.document == Some(entity));

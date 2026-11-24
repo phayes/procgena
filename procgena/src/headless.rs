@@ -995,10 +995,25 @@ mod tests {
         studio.command("next-document").unwrap();
         assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), reseeded);
 
-        // Closing the aspen selects the oak.
+        // The Outline lists them in the order they were opened.
+        let oak = studio.find("Oak Medium · Trees").unwrap();
+        let aspen = studio.find("Aspen Small · Trees").unwrap();
+        assert!(oak.y < aspen.y, "{oak} then {aspen}");
+
+        // Closing the aspen selects the oak; closing the oak too leaves the
+        // view empty.
         studio.command("close-document").unwrap();
         assert_eq!(selected(&mut studio).key, "oak_medium");
         assert!(studio.find("Aspen Small · Trees").is_err());
+        studio.command("close-document").unwrap();
+        let world = studio.app_mut().world_mut();
+        assert_eq!(world.resource::<Selection>().document, None);
+        let trees = world
+            .query::<&procgena_tree_bevy::TreeParams>()
+            .iter(world)
+            .count();
+        assert_eq!(trees, 0, "the tree is gone from the view");
+        assert!(studio.find("Open a preset from the Library").is_ok());
     }
 
     #[test]

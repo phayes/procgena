@@ -92,7 +92,14 @@ pub struct Document {
     pub view: Option<OrbitCamera>,
     /// The detail levels the view shows for it.
     pub detail: DetailChoice,
+    /// Counts up as documents are opened: later documents have larger
+    /// numbers.
+    pub opened: u64,
 }
+
+/// How many documents have been opened.
+#[derive(Resource, Debug, Default)]
+struct OpenedCount(u64);
 
 /// What is selected: a document and, within it, a node and a part.
 ///
@@ -157,6 +164,7 @@ impl Plugin for DocumentsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Selection>()
             .init_resource::<Unsent>()
+            .init_resource::<OpenedCount>()
             .add_observer(open_document)
             .add_observer(close_document)
             .add_observer(send_edited)
@@ -171,6 +179,7 @@ fn open_document(
     documents: Query<(Entity, &Document)>,
     pages: Single<Entity, With<InspectorPages>>,
     mut selection: ResMut<Selection>,
+    mut opened: ResMut<OpenedCount>,
     mut commands: Commands,
 ) {
     let open_already = documents
@@ -220,8 +229,10 @@ fn open_document(
             editor,
             view: None,
             detail: DetailChoice::default(),
+            opened: opened.0,
         })
         .id();
+    opened.0 += 1;
     select(&mut selection, document);
 }
 
@@ -246,13 +257,11 @@ fn close_document(
     commands.entity(document.page).despawn();
     commands.entity(close.0).despawn();
     if selection.document == Some(close.0) {
-        // Documents are spawned in order, so the last other one is the
-        // one opened last.
         let next = documents
             .iter()
-            .map(|(entity, _)| entity)
-            .filter(|entity| *entity != close.0)
-            .max();
+            .filter(|(entity, _)| *entity != close.0)
+            .max_by_key(|(_, document)| document.opened)
+            .map(|(entity, _)| entity);
         *selection = Selection {
             document: next,
             ..default()
@@ -315,6 +324,7 @@ fn apply_selection(
         .and_then(|selected| documents.get(selected).ok())
     else {
         commands.insert_resource(Unsent(None));
+        viewer.write(ViewerCommand::Clear);
         return;
     };
     viewer.write(ViewerCommand::SetDetail(document.detail.detail()));

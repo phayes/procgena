@@ -27,6 +27,8 @@ pub enum ViewerCommand {
     /// [`Show::new`]. Showing another document replaces the subject and fits
     /// the camera to it; showing the same document again updates it.
     Show(Show),
+    /// Removes the shown subject, leaving the view empty.
+    Clear,
     /// Replaces the lighting, ground, wind, auto-rotation and preview area
     /// settings.
     SetEnvironment(EnvironmentSettings),

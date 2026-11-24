@@ -8,7 +8,7 @@
 //! [`ViewerEvent`] messages. The studio's layout shows how the pieces fit
 //! together.
 //!
-//! Each kind of subject is a [`Subject`] with a module of its own.
+//! Each kind of subject, such as [`TreeSubject`], has a module of its own.
 //!
 //! [`headless`] helps render without a window, for tests and headless runs.
 

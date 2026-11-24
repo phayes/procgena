@@ -434,6 +434,14 @@ fn apply_command(world: &mut World, state: &mut SceneState, command: ViewerComma
                 generation: state.generations,
             });
         }
+        ViewerCommand::Clear => {
+            if let Some(old) = state.shown.take() {
+                world.despawn(old.entity);
+                if let Some(pending) = old.pending {
+                    world.despawn(pending);
+                }
+            }
+        }
         ViewerCommand::SetEnvironment(settings) => {
             let old = *world.resource::<EnvironmentSettings>();
             world

@@ -113,14 +113,16 @@ impl Plugin for CommandsPlugin {
 /// Selects the document `step` places after the selected one in opening
 /// order, wrapping around.
 fn step_document(world: &mut World, step: isize) {
-    let mut open: Vec<Entity> = world
-        .query_filtered::<Entity, With<Document>>()
+    let mut open: Vec<(u64, Entity)> = world
+        .query::<(Entity, &Document)>()
         .iter(world)
+        .map(|(entity, document)| (document.opened, entity))
         .collect();
     if open.is_empty() {
         return;
     }
     open.sort();
+    let open: Vec<Entity> = open.into_iter().map(|(_, entity)| entity).collect();
     let selected = world.resource::<Selection>().document;
     let at = selected
         .and_then(|selected| open.iter().position(|open| *open == selected))

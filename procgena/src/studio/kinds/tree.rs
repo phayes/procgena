@@ -43,3 +43,74 @@ fn show(world: &mut World, editor: Entity, document: u64) -> Option<Show> {
     let options = world.get::<ParamPanel<TreeOptions>>(panel)?.value().clone();
     Some(Show::new::<TreeSubject>(document, options))
 }
+
+#[cfg(test)]
+mod tests {
+    use bevy::math::Vec2;
+
+    use super::*;
+    use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
+    use crate::scene::ViewerCommand;
+
+    /// The tree in the last tree `Show` among `commands`.
+    fn last_tree(commands: &[ViewerCommand]) -> Option<TreeOptions> {
+        commands.iter().rev().find_map(|command| match command {
+            ViewerCommand::Show(show) => show.settings::<TreeSubject>().cloned(),
+            _ => None,
+        })
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn tree_presets_and_seed_buttons_rebuild_the_tree() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        let sent = studio.record::<ViewerCommand>();
+
+        // Opening a preset from the Library shows and builds it.
+        studio.click("Aspen Small").unwrap();
+        let options: TreeOptions = studio.panel_value();
+        assert_eq!(options, TreePreset::aspen_small().tree);
+        assert!(studio.find(&options.default_seed.to_string()).is_ok());
+        assert_eq!(last_tree(&lock(&sent)), Some(options.clone()));
+
+        // Random Seed changes only the seed; Jiggle changes the shape too.
+        studio.click("Random Seed").unwrap();
+        let reseeded: TreeOptions = studio.panel_value();
+        assert_ne!(reseeded.default_seed, options.default_seed);
+        assert!(studio.find(&reseeded.default_seed.to_string()).is_ok());
+        assert_eq!(
+            TreeOptions {
+                default_seed: options.default_seed,
+                ..reseeded.clone()
+            },
+            options
+        );
+        studio.click("Jiggle").unwrap();
+        let jiggled: TreeOptions = studio.panel_value();
+        assert_ne!(
+            TreeOptions {
+                default_seed: reseeded.default_seed,
+                ..jiggled.clone()
+            },
+            reseeded
+        );
+
+        // The game default draws no finer than level 1 near the camera.
+        assert!(
+            studio.shows_text_starting("LOD 1 ·"),
+            "{:?}",
+            studio.texts()
+        );
+
+        // Dragging across the seed field scrubs the seed.
+        let field = studio.find(&jiggled.default_seed.to_string()).unwrap();
+        studio.drag(field, field + Vec2::new(120.0, 0.0));
+        let scrubbed: TreeOptions = studio.panel_value();
+        assert!(scrubbed.default_seed > jiggled.default_seed);
+        assert!(studio.find(&scrubbed.default_seed.to_string()).is_ok());
+        assert_eq!(
+            last_tree(&lock(&sent)).map(|tree| tree.default_seed),
+            Some(scrubbed.default_seed)
+        );
+    }
+}
