@@ -16,7 +16,8 @@ pub const GROUND_SEED_KIND: &str = "ecotope.child.ground";
 
 /// One Scatter influence, ready to read.
 struct Follow<'a> {
-    footprints: &'a Footprints,
+    /// `None` for a Scatter the placement lacks.
+    footprints: Option<&'a Footprints>,
     reach: Reach,
     falloff: Ramp,
     invert: bool,
@@ -45,14 +46,16 @@ impl Ecotope {
     /// layer's key (see [`GROUND_SEED_KIND`]). A layer that follows
     /// several Scatters takes the strongest influence at each point.
     ///
+    /// A Scatter that `placement` lacks, such as one removed from the
+    /// Ecotope, has no copies: a layer following only it is absent (or,
+    /// turned round with `invert`, everywhere).
+    ///
     /// The ground is drawing only: nothing is placed from it.
     ///
     /// # Errors
     ///
     /// [`EcotopeError::Ground`] if the layers are invalid or name a
-    /// material `base`'s catalogue lacks, and
-    /// [`EcotopeError::UnknownScatter`] if a layer follows a Scatter that
-    /// `placement` lacks.
+    /// material `base`'s catalogue lacks.
     pub fn ground<'a>(
         &self,
         base: &'a GroundStack,
@@ -62,28 +65,21 @@ impl Ecotope {
             .map_err(EcotopeError::Ground)?;
         let follows = overlay
             .layers()
-            .map(|(key, layer)| {
+            .map(|(_, layer)| {
                 layer
                     .under
                     .iter()
-                    .map(|influence| {
-                        let placed =
-                            placement.get(influence.scatter.as_str()).ok_or_else(|| {
-                                EcotopeError::UnknownScatter {
-                                    layer: key.clone(),
-                                    scatter: influence.scatter.clone(),
-                                }
-                            })?;
-                        Ok(Follow {
-                            footprints: placed.footprints(),
-                            reach: influence.reach,
-                            falloff: influence.falloff,
-                            invert: influence.invert,
-                        })
+                    .map(|influence| Follow {
+                        footprints: placement
+                            .get(influence.scatter.as_str())
+                            .map(|placed| placed.footprints()),
+                        reach: influence.reach,
+                        falloff: influence.falloff,
+                        invert: influence.invert,
                     })
-                    .collect::<Result<Vec<_>, EcotopeError>>()
+                    .collect()
             })
-            .collect::<Result<Vec<_>, EcotopeError>>()?;
+            .collect();
         Ok(EcotopeGround {
             base,
             overlay,
@@ -114,9 +110,9 @@ impl EcotopeGround<'_> {
         self.follows[i]
             .iter()
             .map(|follow| {
-                let v = follow
-                    .footprints
-                    .influence(p, follow.reach, &follow.falloff);
+                let v = follow.footprints.map_or(0.0, |footprints| {
+                    footprints.influence(p, follow.reach, &follow.falloff)
+                });
                 if follow.invert { 1.0 - v } else { v }
             })
             .fold(0.0, f32::max)

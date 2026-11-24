@@ -11,7 +11,7 @@ use glam::{DVec2, Vec2};
 use procgena_core::ChildKey;
 use procgena_terrain::ground::{
     ChunkWeights, Condition, GROUND_TEXELS, GroundError, GroundLayer, GroundMaterial, GroundMix,
-    GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack, HeightRule,
+    GroundNoise, GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack, HeightRule,
     MaterialCatalogue, MaterialId, OnGround, PALETTE_SIZE, Ramp,
 };
 use procgena_terrain::{ChunkKey, ChunkStage, RoadTags, Terrain};
@@ -181,6 +181,67 @@ fn neighbouring_chunks_agree_along_their_edge() {
                 let sum: u32 = a.texel(i, j).iter().map(|&w| u32::from(w)).sum();
                 assert_eq!(sum, 255);
             }
+        }
+    }
+}
+
+#[test]
+fn blended_edges_agree_when_the_palettes_differ() {
+    // Moss in noisy patches over grass everywhere, and bare dirt (the
+    // lowest id) only well inside the western chunk, on ground that rises
+    // gently eastwards.
+    let layers = BTreeMap::from([
+        (key("soil"), GroundLayer::new(key("grass"), 0)),
+        (
+            key("moss"),
+            GroundLayer::new(key("moss"), 300).with_noise(GroundNoise {
+                wavelength: 5.0,
+                contrast: 1.0,
+                threshold: 0.5,
+            }),
+        ),
+        (
+            key("dirt"),
+            GroundLayer::new(key("bare_dirt"), 200).when(Condition::Height(HeightRule::Absolute(
+                Ramp::fall(-0.3, -0.2),
+            ))),
+        ),
+    ]);
+    let catalogue = Arc::new(MaterialCatalogue::standard());
+    let stack = GroundStack::new(&layers, catalogue.clone(), "test.ground", 9, 1.0).unwrap();
+    let rising = |p: DVec2| p.x as f32 * 0.01;
+    let source = OnGround(&rising);
+    let build = |k| ChunkWeights::build(&stack, &source, k, ChunkStage::Canonical).unwrap();
+    let dirt = catalogue.id("bare_dirt").unwrap();
+
+    // Across an x edge: the west chunk has dirt, the east one doesn't.
+    let (west, east) = (
+        build(ChunkKey::new(-1, 0, 0)),
+        build(ChunkKey::new(0, 0, 0)),
+    );
+    assert!(west.palette().contains(&dirt) && !east.palette().contains(&dirt));
+    let mut blended = 0;
+    for j in 0..GROUND_TEXELS {
+        let moss = west.weight(GROUND_TEXELS - 1, j, catalogue.id("moss").unwrap());
+        blended += usize::from(moss > 0 && moss < 255);
+        for (id, _, _) in catalogue.iter() {
+            assert_eq!(
+                west.weight(GROUND_TEXELS - 1, j, id),
+                east.weight(0, j, id),
+                "texel {j}"
+            );
+        }
+    }
+    assert!(blended > 64, "{blended} blended edge texels");
+
+    // Across a z edge.
+    let south = build(ChunkKey::new(-1, -1, 0));
+    for i in 0..GROUND_TEXELS {
+        for (id, _, _) in catalogue.iter() {
+            assert_eq!(
+                south.weight(i, GROUND_TEXELS - 1, id),
+                west.weight(i, 0, id)
+            );
         }
     }
 }

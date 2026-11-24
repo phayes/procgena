@@ -372,8 +372,8 @@ on a branch from before the merge and read G6 from its branch.
   `standard()` holds `grass`, `cliff_rock`, `snow`, `gravel_road`,
   `riverbed`, `bare_dirt`, `forest_soil`, `needle_litter`, `moss` and
   `mud`. A `MaterialId` is a material's index in key order. Texture
-  fields, presets and `.ground_material.yml` files are not built yet
-  (GM2).
+  fields wait for GM2; material presets and `.ground_material.yml`
+  files are not built yet and no stage lists them.
 - `GroundLayer { material, order, opacity, when, noise, under }`. A
   `Ramp` is `{ rise: [a, b], fall: [c, d] }`, both optional smoothsteps,
   rather than four numbers. Conditions built: `slope` (the sine of the
@@ -423,9 +423,12 @@ dump `--example ground_dump`):
 - `Ecotope::ground(base, placement)` gives an `EcotopeGround` painter,
   seeded from the placement's new `seed()` with kind
   `ecotope.child.ground`; `Ecotope::ground_at` paints one point.
-  Validation checks orders, salts, layer settings and that followed
-  Scatters exist. Only placed copies shape the ground; the far form from
-  the density field, and coverage, are not built yet.
+  `validate` checks ground orders, salts and layer settings, but
+  `place` checks only the Scatters, so a broken ground layer never stops
+  placement. A layer following a Scatter the Ecotope lacks (one removed
+  in the studio, or by `null` in a file) is simply absent. Only placed
+  copies shape the ground; the far form from the density field, and
+  coverage, are not built yet.
 - The pine forest floor has `soil` (forest soil, 100), `moss` (320, noisy
   patches), `litter` (needle litter, 400, 3 m round pines) and `dirt`
   (bare dirt, 450, 0.6 m round boulders). A test checks that ground layers

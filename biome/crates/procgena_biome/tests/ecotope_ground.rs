@@ -102,16 +102,14 @@ fn litter_lies_under_pines_and_dirt_round_boulders() {
     let ScatterCopies::Stone(placed_stones) = stones.copies() else {
         panic!("boulders are stones");
     };
-    assert!(!placed_stones.instances().is_empty());
+    assert!(placed_stones.instances().len() > 5);
     for stone in placed_stones.instances() {
         let centre = DVec2::new(0.0, 32.0) + stone.position.xz().as_dvec2();
         let edge = centre + DVec2::new(f64::from(stone.radius), 0.0);
-        if pines.iter().all(|q| q.distance(edge) > 1.5) {
-            assert!(
-                at(edge, "bare_dirt") > 0.5,
-                "dirt beside the stone at {centre}"
-            );
-        }
+        assert!(
+            at(edge, "bare_dirt") > 0.5,
+            "dirt beside the stone at {centre}"
+        );
     }
 
     // The forest soil covers the grass everywhere.
@@ -208,18 +206,43 @@ ecotope:
 }
 
 #[test]
+fn removing_a_followed_scatter_removes_its_layer_but_never_blocks_placing() {
+    let text = "\
+base: pine_forest_floor
+ecotope:
+  scatters:
+    pines: null
+";
+    let read = EcotopePreset::from_yaml("mine", text).expect("the file reads");
+    let ecotope = &read.ecotope;
+    ecotope
+        .validate()
+        .expect("a layer may follow a missing Scatter");
+    let (placement, grid) = placed(ecotope);
+    let bare = GroundStack::bare(1, 1.0);
+    let painter = ecotope.ground(&bare, &placement).unwrap();
+    let weights = ChunkWeights::build(
+        &painter,
+        &OnGround(&grid),
+        ChunkKey::new(0, 0, 0),
+        ChunkStage::Canonical,
+    )
+    .unwrap();
+    let catalogue = bare.catalogue();
+    assert!(!weights.palette().contains(&id(catalogue, "needle_litter")));
+    assert!(weights.palette().contains(&id(catalogue, "bare_dirt")));
+
+    // A broken ground layer doesn't stop the Scatters placing either.
+    let broken = pine_floor().with_ground(key("mud"), GroundLayer::new(key("mud"), 400));
+    assert!(broken.validate().is_err());
+    let (a, _) = placed(&broken);
+    let (b, _) = placed(&pine_floor());
+    assert_eq!(a.layers().len(), b.layers().len());
+}
+
+#[test]
 fn bad_ground_layers_are_refused() {
     let base = pine_floor();
-
-    // Following a Scatter the Ecotope doesn't have.
-    let mut ecotope = base.clone();
-    let mut litter = ecotope.ground[&key("litter")].clone();
-    litter.under[0].scatter = key("oaks");
-    ecotope.ground.insert(key("litter"), litter);
-    assert!(matches!(
-        ecotope.validate(),
-        Err(EcotopeError::UnknownScatter { .. })
-    ));
 
     // Two layers at one order.
     let ecotope = base
