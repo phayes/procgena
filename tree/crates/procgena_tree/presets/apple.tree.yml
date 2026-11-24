@@ -1,0 +1,85 @@
+# A built-in TreePreset. Copy it, change what you like, and read it
+# with TreePreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Apple
+description: A short, spreading apple tree hung with ripe apples.
+group: Fruit and Blossom
+tree:
+  default_seed: 29258
+  bark:
+    type: Bark016
+    tint: 13154480
+    texture_scale:
+      x: 20.0
+      "y": 3.0
+  branch:
+    angle:
+      "1": 48.0
+      "2": 55.0
+      "3": 50.0
+    children:
+      "0": 4
+      "1": 6
+      "2": 6
+    force:
+      strength: 0.0
+    gnarliness:
+      "0": 0.06
+      "1": 0.22
+      "2": 0.25
+      "3": 0.2
+    length:
+      "0": 1.0
+      "1": 1.4
+      "2": 0.7
+      "3": 0.35
+    radius:
+      "1": 0.75
+      "2": 0.6
+      "3": 0.6
+    sections:
+      "0": 6
+      "1": 8
+      "2": 5
+      "3": 3
+    segments:
+      "0": 9
+      "1": 7
+    start:
+      "1": 0.6
+      "3": 0.1
+    taper:
+      "0": 0.45
+      "1": 0.6
+      "2": 0.6
+    twist:
+      "0": 0.1
+  leaves:
+    type: european_aspen
+    angle: 40.0
+    count: 7
+    start: 0.05
+    size: 0.17
+    size_variance: 0.4
+    tint: 12644464
+  fruit:
+    placement:
+      min_level: 2
+      tips: 0.5
+      count: 2
+      facing_jitter: 25.0
+      size: 0.05
+    cluster:
+      stalk_length: 0.0
+      stalk_color: 6113838
+    shape:
+      elongation: 0.9
+      top_dimple: 0.5
+      bottom_taper: 0.2
+      lobes: 5
+      lobe_depth: 0.06
+      stem_length: 0.25
+      color: 12597547
+      unripe_color: 9159498
+      blush_color: 16734780
+      blush_amount: 0.6

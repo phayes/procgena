@@ -309,8 +309,8 @@ fn show_host(
             commands.spawn(StoneParams::new(rock))
         }
         Host::Tree => {
-            let mut tree = TreePreset::OakSmall.options();
-            tree.seed = tree.seed.wrapping_add_unsigned(viewer.host_seed);
+            let mut tree = TreePreset::oak_small().tree.clone();
+            tree.default_seed = tree.default_seed.wrapping_add_unsigned(viewer.host_seed);
             commands.spawn(TreeParams::new(tree))
         }
         Host::Ground => {

@@ -2,12 +2,12 @@
 //! without a window, and reports frame times.
 //!
 //! ```sh
-//! cargo run -p procgena_tree_bevy --example grove_bench -- --size 120
-//! cargo run -p procgena_tree_bevy --example grove_bench -- --size 200 --csv grove.csv
+//! cargo run -p procgena_tree_bevy --example scatter_bench -- --size 120
+//! cargo run -p procgena_tree_bevy --example scatter_bench -- --size 200 --csv grove.csv
 //! ```
 //!
 //! - `--size <m>`: width and depth of the grove, in metres (default 120).
-//! - `--preset <key>`: the grove preset (default `oak_woodland`).
+//! - `--preset <key>`: the tree Scatter preset (default `oak_woodland`).
 //! - `--frames <n>`: frames to measure after the warm-up (default 600).
 //! - `--csv <file>`: also write every measured frame time to a CSV file.
 //! - `--screenshot <file.png>`: also save the last frame.
@@ -49,10 +49,10 @@ use bevy::time::Real;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_impostor::{ImpostorBakeCamera, ImpostorPlugin, ImpostorSettings};
-use procgena_tree::{GrovePreset, default_lod};
+use procgena_tree::{TreeScatterPreset, default_lod};
 use procgena_tree_bevy::{
-    TreeGroveAssets, TreeGroveFinished, TreeGroveInstances, TreeGroveParams, TreeGroveStats,
-    TreeImpostor, TreeParams, TreePlugin,
+    TreeImpostor, TreeParams, TreePlugin, TreeScatterAssets, TreeScatterFinished,
+    TreeScatterInstances, TreeScatterParams, TreeScatterStats,
 };
 
 /// Frames after the grove is ready before measuring starts: pipeline
@@ -67,7 +67,7 @@ const CIRCLE_FRAMES: f32 = 600.0;
 #[derive(Resource)]
 struct Bench {
     size: f32,
-    preset: GrovePreset,
+    preset: &'static TreeScatterPreset,
     frames: u32,
     csv: Option<String>,
     screenshot: Option<String>,
@@ -129,7 +129,7 @@ fn main() -> AppExit {
     // Read the command line.
     let mut bench = Bench {
         size: 120.0,
-        preset: GrovePreset::OakWoodland,
+        preset: TreeScatterPreset::oak_woodland(),
         frames: 600,
         csv: None,
         screenshot: None,
@@ -144,7 +144,8 @@ fn main() -> AppExit {
         match arg.as_str() {
             "--size" => bench.size = value().parse().expect("--size needs metres"),
             "--preset" => {
-                bench.preset = GrovePreset::from_key(&value()).expect("a grove preset key");
+                bench.preset =
+                    TreeScatterPreset::named(&value()).expect("a tree Scatter preset key");
             }
             "--frames" => bench.frames = value().parse().expect("--frames needs a count"),
             "--csv" => bench.csv = Some(value()),
@@ -247,8 +248,8 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(bench.size, bench.size))),
         MeshMaterial3d(materials.add(Color::srgb(0.32, 0.42, 0.22))),
     ));
-    commands.spawn(TreeGroveParams::new(
-        bench.preset.grove(),
+    commands.spawn(TreeScatterParams::preset(
+        bench.preset,
         Vec2::splat(bench.size),
     ));
 }
@@ -256,10 +257,10 @@ fn setup(
 /// Counts the grove's trees when it is ready, or exits if it failed. With
 /// `--entities`, hides the grove and spawns its trees as tree entities.
 fn grove_finished(
-    event: On<TreeGroveFinished>,
+    event: On<TreeScatterFinished>,
     mut commands: Commands,
     bench: Res<Bench>,
-    groves: Query<(&TreeGroveStats, &TreeGroveInstances, &TreeGroveAssets)>,
+    groves: Query<(&TreeScatterStats, &TreeScatterInstances, &TreeScatterAssets)>,
     mut run: ResMut<Run>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -308,9 +309,9 @@ fn record(
     time: Res<Time<Real>>,
     entities: Query<()>,
     groves: Query<(
-        &TreeGroveInstances,
-        &TreeGroveStats,
-        &TreeGroveAssets,
+        &TreeScatterInstances,
+        &TreeScatterStats,
+        &TreeScatterAssets,
         &GlobalTransform,
     )>,
     camera: Single<&GlobalTransform, (With<Camera3d>, Without<ImpostorBakeCamera>)>,
@@ -353,7 +354,7 @@ fn record(
     // Summarise and finish.
     let mut summary = format!(
         "{} on {} m: {trees} trees, {} entities, {} frames",
-        bench.preset.name(),
+        bench.preset.name,
         bench.size,
         entities.iter().count(),
         run.rows.len()

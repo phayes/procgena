@@ -44,6 +44,16 @@ Where things stand:
   meshes carry tangents. See "Textures" below.
 
 Open items carried forward:
+- **Presets are YAML; ez-tree JSON import dropped (F3, 2026-11-23).** Each
+  preset is a `.tree.yml` file read with `TreePreset::from_yaml` and written
+  with `TreePreset::to_yaml`; settings are snake case, and unknown settings
+  are errors. `TreeOptions::from_json` / `to_json`, `Tree::from_json`,
+  `TreeError` and the JS `ToInt32` seed conversion are gone, so ez-tree's own
+  JSON files no longer load. `TreeOptions::seed` is now `default_seed`, and
+  `TreePreset` is a struct in a catalogue (`TreePreset::oak_small()`,
+  `all()`, `named(key)`). Groves are now tree Scatters
+  (`TreeScatter`, `.tree_scatter.yml`). Notes below about JSON loading,
+  `from_json` and the preset enum are history.
 - **Shapes no longer match ez-tree (2026-11-23).** The tree now draws its random
   numbers from `procgena_core::Rng` (ARCHITECTURE rule 13, one generator), so a
   seed grows a different tree than in ez-tree. Settings, presets and growth rules
@@ -60,8 +70,8 @@ Open items carried forward:
   checks drop by up to 0.018 (Aspen Large L3, the maples' turned L2→3). Not built:
   as a fixed length it only helps large-leaf presets, so it should be a per-level
   setting if it is ever added.
-- **D9:** fractional seeds act like their truncated value. Accepted as documented;
-  revisit only if someone needs JS-identical fractional seeds.
+- **D9:** settled by F3: the seed is a whole `i32` in a `.tree.yml` file, and a
+  fractional seed is an error.
 - **f32 options vs f64 preset literals:** preset files contain values such as
   `0.6199999999999999` that f32 stores as `0.62`. The JSON-format test compares
   fractional values at f32 precision for this reason (D4).
@@ -132,24 +142,23 @@ Open items carried forward:
 ## Target public API (sketch)
 
 ```rust
-// options.rs — serde-compatible with ez-tree preset/export JSON   (implemented)
-pub struct TreeOptions { seed: i32 /*ToInt32 on JSON load*/, tree_type: TreeType, bark: BarkOptions,
+// options.rs — ez-tree's settings in snake case, serde with deny_unknown_fields   (implemented)
+pub struct TreeOptions { default_seed: i32, tree_type: TreeType, bark: BarkOptions,
                          branch: BranchOptions, leaves: LeafOptions, trellis: TrellisOptions }
 pub enum TreeType { Deciduous, Evergreen }       // "deciduous" | "evergreen"
 pub enum Billboard { Single, Double }            // "single" | "double"
-pub struct PerLevel<T>([T; 4]);                  // JSON: {"0":..,"1":..,"2":..,"3":..}
+pub struct PerLevel<T>([T; 4]);                  // files: {"0":..,"1":..,"2":..,"3":..}
 
 pub const MAX_LEVELS: u32 = 3;
 pub enum OptionsError { TooManyLevels { levels: u32 } }
+impl TreeOptions { pub fn validate(&self) -> Result<(), OptionsError>; }
 
-// presets.rs — the 16 JSON presets, embedded with include_str!   (implemented)
-pub enum TreePreset { AshSmall, ..., PineLarge, Trellis }
-impl TreePreset { pub const ALL: [TreePreset; 16]; pub fn name(self) -> &'static str;
-                  pub fn from_name(&str) -> Option<Self>; pub fn json(self) -> &'static str;
-                  pub fn options(self) -> TreeOptions; }
-impl TreeOptions { pub fn from_json(&str) -> Result<Self, serde_json::Error>;  // merges onto defaults, like JS copy()
-                   pub fn to_json(&self) -> String;
-                   pub fn validate(&self) -> Result<(), OptionsError>; }
+// presets.rs — the built-in presets, each an embedded `presets/<key>.tree.yml` file   (implemented, F3)
+pub struct TreePreset { key, name, description, group, tree: TreeOptions, stand: Option<TreeStand> }
+impl TreePreset { pub fn oak_small() -> &'static TreePreset; /* one per preset */
+                  pub fn all(); pub fn named(&str); pub fn groups(); pub fn ez_tree();
+                  pub fn from_yaml(key, &str) -> Result<TreePreset, PresetFileError>;
+                  pub fn to_yaml(&self, base: Option<&TreePreset>) -> String; }
 
 // rng.rs   (implemented)
 pub struct Rng;  impl Rng { pub fn new(seed: i32); pub fn next_u32(&mut self);
@@ -193,13 +202,11 @@ impl Skeleton { pub fn mesh(&self, opts: &TreeOptions, detail: &LodDetail) -> Tr
 // Immutable: fields are private, so options, skeleton and mesh always agree.
 pub struct Tree { options, skeleton, mesh /*full detail*/ }
 impl Tree { pub fn new(TreeOptions) -> Result<Tree, OptionsError>;   // JS generate()
-            pub fn from_preset(TreePreset) -> Tree;                  // JS loadPreset()
-            pub fn from_json(&str) -> Result<Tree, TreeError>;       // JS loadFromJson()
+            pub fn from_preset(&TreePreset) -> Result<Tree, OptionsError>; // JS loadPreset()
             pub fn options/skeleton/mesh(&self);
             pub fn mesh_with_detail(&self, &LodDetail) -> TreeMesh;  // JS createGeometry()
             pub fn lod_meshes(&self, &[LodLevel]) -> Vec<(LodLevel, TreeMesh)>; // JS generateLODs(), stable sort by distance
             pub fn vertex_count, triangle_count, into_parts; }
-pub enum TreeError { Json(serde_json::Error), Options(OptionsError) }
 
 // trellis.rs (implemented)
 impl TrellisOptions { pub fn wires(&self) -> Vec<TrellisWire> }  // JS Trellis.generate
@@ -288,13 +295,13 @@ test.
 | D2 | A `windFactor` buffer is declared and never filled. | Omitted. |
 | D3 | Per-level maps indexed past level 3 give `undefined`, which becomes NaN. | `levels > 3` returns an error. |
 | D4 | Euler round-trips after every rotation, f64 math, `Math.round` half-up. | Quaternions, f32, `f32::round`. Inputs are positive, so the rounding agrees. |
-| D5 | `options.copy` silently ignores unknown keys. | Same behaviour in `TreeOptions::from_json` (merge onto defaults, no `deny_unknown_fields`). Listed here only to record that it was a deliberate choice. |
+| D5 | `options.copy` silently ignores unknown keys. | Superseded by F3: a `.tree.yml` file with an unknown setting is an error (`deny_unknown_fields`). Until F3, `TreeOptions::from_json` ignored them like JS. |
 | D6 | The trellis nearest-point code is duplicated in `tree.js` and `trellis.js`. | One function. |
 | D7 | `bark.maps` and `leaves.map` hold THREE textures. | Omitted from `TreeOptions`; texture choice belongs to the engine crate. `bark.type` / `leaves.type` are kept as `kind` strings. |
 | D8 | Per-level maps only have the keys that are used: `angle` and `start` have `1..3`, `children` has `0..2`. | `PerLevel<T>([T; 4])` for every field; unused slots default to 0. JSON output therefore has all four keys; ez-tree ignores the extra ones on load. |
 | D10 | A child or leaf `start` outside 0..1 indexes past the section array and crashes with `undefined`. | The section index is clamped to the array, so the point extrapolates below the base or stays at the tip. `validate()` does not check `start`. |
 | D11 | `sections == 0` divides by zero. | `validate()` rejects it for levels 0..=`levels` (`OptionsError::ZeroSections`). |
-| D9 | A fractional seed in JS is added to the RNG constants *before* the int32 wrap, so `seed: 0.5` and `seed: 0` give different streams. | `seed` is `ToInt32`-converted once on load (Decision 3), so fractional seeds behave like their truncated value. Integer seeds, which is all the JS app produces, match exactly. |
+| D9 | A fractional seed in JS is added to the RNG constants *before* the int32 wrap, so `seed: 0.5` and `seed: 0` give different streams. | Superseded by F3: `default_seed` is a whole `i32`, and a fractional seed in a `.tree.yml` file is an error. Until F3, the JSON loader `ToInt32`-converted it (Decision 3). |
 | D12 | `Trellis.generate` counts wires as `floor(extent / spacing) + 1` in f64, so float rounding can drop the far-edge wire (0.3 / 0.1 gives 3 wires, not 4); zero spacing loops forever. | `TrellisOptions::wires` counts a ratio within 1e-4 below a whole number as that number, so whole multiples always get a far-edge wire (idiomatic over exact). Zero or non-finite counts give no wires. Rendering only; no fixture depends on it. |
 | D13 | Leaf wind moves only leaves; weight is `uv.y`; noise uses object-space position, so every copy of a tree sways in step. | Layered `wind_offset` (trunk bend, branch sway, leaf flutter) with a dedicated `flutter` attribute and an `anchor` input. Defaults add gentle trunk bend and branch sway; `WindParams::LEAVES_ONLY` keeps ez-tree's leaf-only motion. |
 
@@ -371,11 +378,11 @@ the user's CLAUDE.md.
 - **1c. `options` + `presets`.** ✅ Types, defaults matching `options.js`, `PerLevel`
   serde, JSON merge semantics, validation (D3) and `TreePreset`. Tests: every preset
   parses, defaults match the JS dump, and options survive a JSON round trip.
-  - Merge semantics live in `TreeOptions::from_json`: the input is read as a
-    `serde_json::Value`, merged onto `TreeOptions::default()` with the same rules as
-    JS `copy()`, then read with the derived `Deserialize`. The derived impls are
-    strict, so deserializing `TreeOptions` through serde directly (for example when
-    embedded in another type) needs complete options, as written by `to_json`.
+  - History: merge semantics lived in `TreeOptions::from_json`, merging onto
+    `TreeOptions::default()` like JS `copy()`. Since F3, `TreePreset::from_yaml`
+    merges a `.tree.yml` file onto its `base` preset (or the defaults) instead, and
+    the JSON loader is gone. Deserializing `TreeOptions` through serde directly
+    still needs complete options.
 
 ### Phase 2 — Skeleton growth ✅ Done
 All 24 skeleton fixtures match: structure exactly (branch, section, leaf and segment
@@ -640,7 +647,8 @@ Each format is an optional cargo feature, off by default (`export-obj`,
 ### `procgena_tree_bevy` ✅ Done (2026-11-20)
 Built for bevy 0.20.1 (`crates/procgena_tree_bevy`, Decision 19):
 - `ZeTreePlugin` + `ZeTree` component (`Options(Arc<TreeOptions>)` or
-  `Asset(Handle<TreeOptionsAsset>)` from `.tree.json`, hot-reloaded). Generation runs
+  `Asset(Handle<TreeOptionsAsset>)` from `.tree.json`, hot-reloaded; since F3,
+  `Asset(Handle<TreePresetAsset>)` from `.tree.yml`). Generation runs
   on `AsyncComputeTaskPool` (one skeleton, one mesh per LOD level); trees with the same
   options JSON share meshes and materials through a cache that is pruned when no tree
   uses an entry. Child entities carry a `TreePart { lod, kind }` marker.
@@ -703,11 +711,12 @@ Still deferred:
 2. **Fixture storage:** commit plain JSON in `crates/procgena_tree/tests/fixtures/`. Move to
    gzip only if the total grows past about 10 MB. That would need a new decision,
    because it adds `flate2`.
-3. **Seed type:** `seed: i32` in the API. The serde deserializer accepts any JSON number
-   (large, negative or fractional) and converts it the way JS `ToInt32` does, so pasted
-   JS presets behave identically.
+3. **Seed type:** `seed: i32` in the API. Superseded by F3: the field is now
+   `default_seed`, a whole `i32` in a `.tree.yml` file. (Originally the JSON
+   loader converted any number the way JS `ToInt32` does, so pasted JS presets
+   behaved identically; ez-tree JSON import was dropped with F3.)
 4. **serde:** `serde` and `serde_json` are **required dependencies**, not a feature.
-   The serde derives, `TreeOptions::from_json` / `to_json` and `TreePreset` are always
+   The serde derives, `TreePreset` and its `.tree.yml` reading and writing are always
    available, and there are no `cfg` gates in the code or tests. (Originally a
    default-on feature; dropped to remove the gating and a duplicated options struct.)
 5. **Output element type:** `Vec<[f32;3]>` and `Vec<[f32;2]>`, with `Vec<u32>` indices.

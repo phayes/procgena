@@ -1,0 +1,84 @@
+# A built-in TreePreset. Copy it, change what you like, and read it
+# with TreePreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Flowering Dogwood
+description: >-
+  A low-forking flowering dogwood in full bloom, covered in white, four-bracted
+  flowers that face the sky.
+group: Fruit and Blossom
+tree:
+  default_seed: 2718
+  bark:
+    type: japanese_sycamore
+    tint: 9078392
+  branch:
+    angle:
+      "1": 38.0
+      "2": 65.0
+      "3": 50.0
+    children:
+      "0": 4
+      "1": 6
+      "2": 7
+    force:
+      strength: 0.0003
+    flatten:
+      "2": 0.14
+      "3": 0.08
+    gnarliness:
+      "0": 0.05
+      "1": 0.12
+      "2": 0.18
+      "3": 0.2
+    length:
+      "0": 0.6
+      "1": 1.6
+      "2": 1.2
+      "3": 0.4
+    radius:
+      "0": 0.11
+      "2": 0.55
+      "3": 0.6
+    sections:
+      "0": 6
+      "1": 8
+      "2": 6
+      "3": 4
+    start:
+      "1": 0.7
+      "2": 0.25
+      "3": 0.2
+    taper:
+      "0": 0.4
+      "1": 0.6
+      "2": 0.6
+  leaves:
+    type: bare_twig_2
+    angle: 40.0
+    count: 0
+    start: 0.3
+    size: 0.2
+    size_variance: 0.3
+  flowers:
+    placement:
+      min_level: 3
+      tips: 1.0
+      count: 5
+      facing_jitter: 40.0
+      size: 0.105
+    cluster:
+      stalk_length: 0.0
+      stalk_radius: 0.003
+      stalk_color: 5927982
+    shape:
+      petal_count: 4
+      petal_width: 0.42
+      cup: 0.15
+      notch: 1.0
+      petal_segments: 2
+      center_size: 0.16
+      center_color: 13158496
+      petal_color: 16316656
+      base_color: 14740680
+      bud_color: 13162656
+      fade_color: 14207152

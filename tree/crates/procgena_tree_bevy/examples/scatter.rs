@@ -1,16 +1,16 @@
 //! Grows a grove of trees from a preset, on flat or hilly ground.
 //!
 //! ```sh
-//! cargo run -p procgena_tree_bevy --example grove
-//! cargo run -p procgena_tree_bevy --example grove -- --preset pine_stand --hills
+//! cargo run -p procgena_tree_bevy --example scatter
+//! cargo run -p procgena_tree_bevy --example scatter -- --preset pine_stand --hills
 //! ```
 //!
-//! - Left/Right: switch grove preset.
+//! - Left/Right: switch tree Scatter preset.
 //! - F: switch between flat ground and a hilly host mesh.
 //! - Up/Down: make the grove denser or sparser.
 //! - Hold the left mouse button to look around; WASD and Q/E to fly.
 //!
-//! `--preset <key>` starts from a grove preset key, such as `orchard`.
+//! `--preset <key>` starts from a tree Scatter preset key, such as `orchard`.
 //! `--hills` starts on the hilly ground. `--textures` loads the repository's
 //! bark and leaf textures (download them first with
 //! `uv run --project tools textures download tree`); without it, trees use
@@ -25,8 +25,8 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use procgena_specimen::{GeneratedSpecimen, Part, Specimen, SurfaceMesh, TagFilter, tags};
-use procgena_tree::GrovePreset;
-use procgena_tree_bevy::{TreeGroveFinished, TreeGroveParams, TreePlugin};
+use procgena_tree::TreeScatterPreset;
+use procgena_tree_bevy::{TreePlugin, TreeScatterFinished, TreeScatterParams};
 
 /// Width and depth of the grove, in metres.
 const GROVE_SIZE: f32 = 50.0;
@@ -73,8 +73,9 @@ fn main() -> AppExit {
     while i < args.len() {
         match args[i].as_str() {
             "--preset" => {
-                let preset = GrovePreset::from_key(&args[i + 1]).expect("a grove preset key");
-                viewer.preset = GrovePreset::ALL.iter().position(|p| *p == preset).unwrap();
+                viewer.preset = TreeScatterPreset::all()
+                    .position(|p| p.key == args[i + 1])
+                    .expect("a tree Scatter preset key");
                 i += 1;
             }
             "--hills" => viewer.hills = true,
@@ -178,12 +179,14 @@ fn spawn_grove(commands: &mut Commands, viewer: &Viewer, grounds: &Grounds) -> E
 }
 
 /// The grove the viewer's settings ask for.
-fn grove_params(viewer: &Viewer) -> TreeGroveParams {
-    let preset = GrovePreset::ALL[viewer.preset];
-    info!("grove: {}", preset.name());
-    let mut grove = preset.grove();
+fn grove_params(viewer: &Viewer) -> TreeScatterParams {
+    let preset = TreeScatterPreset::all()
+        .nth(viewer.preset)
+        .expect("a preset index");
+    info!("grove: {}", preset.name);
+    let mut grove = preset.tree_scatter.clone();
     grove.density_scale *= viewer.density_scale;
-    let params = TreeGroveParams::new(grove, Vec2::splat(GROVE_SIZE));
+    let params = TreeScatterParams::new(grove, Vec2::splat(GROVE_SIZE));
     if viewer.hills {
         params.on_host(TagFilter::any_of([tags::GROUND]), 0.5)
     } else {
@@ -221,7 +224,7 @@ fn controls(
     grounds: Res<Grounds>,
     mut grove: ResMut<GroveEntity>,
 ) {
-    let count = GrovePreset::ALL.len();
+    let count = TreeScatterPreset::all().count();
     let before = (viewer.preset, viewer.hills, viewer.density_scale);
     if keys.just_pressed(KeyCode::ArrowRight) {
         viewer.preset = (viewer.preset + 1) % count;
@@ -254,7 +257,7 @@ fn controls(
 
 /// Logs a grove that failed, and starts the screenshot countdown when the
 /// first grove is ready.
-fn grove_finished(event: On<TreeGroveFinished>, mut ready: ResMut<Ready>) {
+fn grove_finished(event: On<TreeScatterFinished>, mut ready: ResMut<Ready>) {
     if let Err(error) = &event.result {
         error!("grove failed: {error}");
     }

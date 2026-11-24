@@ -16,7 +16,7 @@ fn count(text: &str, prefix: &str) -> usize {
 
 #[test]
 fn obj_contains_every_vertex_and_triangle() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let mesh = tree.mesh();
     let files = to_obj(mesh, tree.options(), &ObjOptions::default());
     let obj = &files.obj;
@@ -53,7 +53,7 @@ fn obj_contains_every_vertex_and_triangle() {
 /// suffix.
 #[test]
 fn billboard_parts_keep_their_stored_shapes() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
     let obj = to_obj(&mesh, tree.options(), &ObjOptions::default()).obj;
 
@@ -92,7 +92,7 @@ fn billboard_parts_keep_their_stored_shapes() {
 
 #[test]
 fn per_level_grouping_names_each_level() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let options = ObjOptions {
         grouping: BranchGrouping::PerLevel,
         material_library: "oak.mtl",
@@ -113,7 +113,7 @@ fn per_level_grouping_names_each_level() {
 
 #[test]
 fn bark_texture_coordinates_include_the_texture_scale() {
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     options.bark.texture_scale.y = 4.0;
     let tree = Tree::new(options).unwrap();
     let files = to_obj(tree.mesh(), tree.options(), &ObjOptions::default());
@@ -137,7 +137,7 @@ fn bark_texture_coordinates_include_the_texture_scale() {
 
 #[test]
 fn mtl_lists_textures_from_the_path_function() {
-    let tree = Tree::from_preset(TreePreset::AshSmall);
+    let tree = Tree::from_preset(TreePreset::ash_small()).unwrap();
     let paths = |t: TextureRef<'_>| match t.map {
         TextureMap::BarkColor => Some(format!("{}_color.jpg", t.kind)),
         TextureMap::BarkNormal => Some(format!("{}_normal.jpg", t.kind)),
@@ -179,7 +179,7 @@ fn mtl_lists_textures_from_the_path_function() {
 /// Flat-shaded bark gets one outward normal per triangle; leaves keep vertex normals.
 #[test]
 fn flat_shaded_bark_gets_face_normals() {
-    let mut options = TreePreset::OakSmall.options();
+    let mut options = TreePreset::oak_small().tree.clone();
     options.bark.flat_shading = true;
     let tree = Tree::new(options).unwrap();
     // Open tubes, so every bark triangle is a side whose smooth normals point outward.
@@ -254,7 +254,7 @@ fn srgb(c: f32) -> f32 {
 /// sRGB colours stored on their vertices. Bark and leaf vertices carry no colours.
 #[test]
 fn fruit_and_flowers_carry_vertex_colours() {
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     for (placement, cluster) in [
         (&mut options.fruit.placement, &mut options.fruit.cluster),
         (&mut options.flowers.placement, &mut options.flowers.cluster),
@@ -313,7 +313,7 @@ fn fruit_and_flowers_carry_vertex_colours() {
 /// Checks that trees without fruit or flowers have no corresponding materials.
 #[test]
 fn trees_without_fruit_get_no_fruit_material() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let files = to_obj(tree.mesh(), tree.options(), &ObjOptions::default());
     assert!(!files.mtl.contains("fruit") && !files.mtl.contains("flowers"));
 }

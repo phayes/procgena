@@ -2,8 +2,8 @@
 //! gives nearby or selected trees colliders or behaviour.
 //!
 //! ```sh
-//! cargo run -p procgena_tree_bevy --example grove_promote -- --mode distance
-//! cargo run -p procgena_tree_bevy --example grove_promote -- --mode click
+//! cargo run -p procgena_tree_bevy --example scatter_promote -- --mode distance
+//! cargo run -p procgena_tree_bevy --example scatter_promote -- --mode click
 //! ```
 //!
 //! - `--mode distance` (default): trees within 15 m of the camera become
@@ -28,10 +28,10 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
 use procgena_impostor::ImpostorBakeCamera;
-use procgena_tree::GrovePreset;
+use procgena_tree::TreeScatterPreset;
 use procgena_tree_bevy::{
-    GroveTrees, PromotedTree, TreeGroveAssets, TreeGroveFinished, TreeGroveInstances,
-    TreeGroveParams, TreePlugin,
+    PromotedTree, TreePlugin, TreeScatterAssets, TreeScatterFinished, TreeScatterInstances,
+    TreeScatterParams, TreeScatterTrees,
 };
 
 /// Width and depth of the grove, in metres.
@@ -182,14 +182,14 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(GROVE_SIZE, GROVE_SIZE))),
         MeshMaterial3d(materials.add(Color::srgb(0.32, 0.42, 0.22))),
     ));
-    commands.spawn(TreeGroveParams::preset(
-        GrovePreset::OakWoodland,
+    commands.spawn(TreeScatterParams::preset(
+        TreeScatterPreset::oak_woodland(),
         Vec2::splat(GROVE_SIZE),
     ));
 }
 
 /// Starts the screenshot countdown when the grove is ready.
-fn grove_finished(event: On<TreeGroveFinished>, mut ready: ResMut<Ready>) {
+fn grove_finished(event: On<TreeScatterFinished>, mut ready: ResMut<Ready>) {
     if let Err(error) = &event.result {
         error!("grove failed: {error}");
     }
@@ -200,7 +200,7 @@ fn grove_finished(event: On<TreeGroveFinished>, mut ready: ResMut<Ready>) {
 /// away.
 fn promote_by_distance(
     mut commands: Commands,
-    trees: GroveTrees,
+    trees: TreeScatterTrees,
     camera: Single<&GlobalTransform, (With<Camera3d>, Without<ImpostorBakeCamera>)>,
     promoted: Query<(Entity, &PromotedTree, &GlobalTransform)>,
 ) {
@@ -234,7 +234,7 @@ fn promote_on_click(
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     camera: Single<(&Camera, &GlobalTransform)>,
-    trees: GroveTrees,
+    trees: TreeScatterTrees,
     promoted: Query<(Entity, &PromotedTree)>,
 ) {
     // A click from the mouse, or the scripted one once the grove is ready.
@@ -273,7 +273,7 @@ fn draw_promoted(
     mut gizmos: Gizmos,
     options: Res<Options>,
     promoted: Query<(&PromotedTree, &GlobalTransform), With<Collider>>,
-    groves: Query<(&TreeGroveInstances, &TreeGroveAssets)>,
+    groves: Query<(&TreeScatterInstances, &TreeScatterAssets)>,
 ) {
     for (promotion, transform) in &promoted {
         if !options.click_mode {

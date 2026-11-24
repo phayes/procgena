@@ -1,0 +1,88 @@
+# A built-in TreePreset. Copy it, change what you like, and read it
+# with TreePreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Big Leaf Maple Large
+description: >-
+  A tall, many-stemmed bigleaf maple with a broad crown of large autumn-coloured
+  leaves.
+group: Maple
+tree:
+  default_seed: 47425
+  bark:
+    tint: 13154480
+    texture_scale:
+      x: 27.0
+      "y": 1.1
+  branch:
+    stems: 5
+    angle:
+      "1": 48.0
+      "2": 55.0
+      "3": 50.0
+    children:
+      "0": 0
+      "1": 2
+      "2": 4
+    force:
+      strength: 0.0
+    gnarliness:
+      "0": 0.13
+      "1": 0.33999997
+      "2": 0.26
+      "3": 0.16999996
+    length:
+      "0": 1.62
+      "1": 1.91
+      "2": 1.46
+      "3": 0.99
+    radius:
+      "0": 0.198
+      "1": 0.75
+      "2": 0.6
+      "3": 0.67
+    sections:
+      "0": 6
+      "1": 8
+      "2": 5
+      "3": 3
+    segments:
+      "0": 9
+      "1": 7
+    start:
+      "1": 0.6
+      "3": 0.1
+    taper:
+      "0": 0.61
+      "1": 0.6
+      "2": 0.6
+    twist:
+      "0": 0.029999971
+  leaves:
+    type: maple
+    billboard: single
+    angle: 40.0
+    count: 4
+    start: 0.05
+    size: 0.9
+    size_variance: 0.19999999
+    tint: 14478540
+    flatten: 0.7
+  fruit:
+    placement:
+      min_level: 2
+      facing_jitter: 25.0
+      size: 0.05
+    cluster:
+      stalk_length: 0.0
+      stalk_color: 6113838
+    shape:
+      elongation: 0.9
+      top_dimple: 0.5
+      bottom_taper: 0.2
+      lobes: 5
+      lobe_depth: 0.06
+      stem_length: 0.25
+      color: 12597547
+      unripe_color: 9159498
+      blush_color: 16734780
+      blush_amount: 0.6

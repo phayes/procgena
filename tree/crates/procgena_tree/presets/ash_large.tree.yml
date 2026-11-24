@@ -1,0 +1,58 @@
+# A built-in TreePreset. Copy it, change what you like, and read it
+# with TreePreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Ash Large
+description: A tall, mature ash with a broad crown.
+group: Ash
+tree:
+  default_seed: 29919
+  bark:
+    tint: 13552830
+    texture_scale:
+      x: 5.0
+      "y": 5.0
+  branch:
+    angle:
+      "1": 39.0
+      "2": 39.0
+      "3": 51.0
+    children:
+      "0": 10
+      "1": 4
+      "2": 3
+    gnarliness:
+      "0": -0.05
+      "2": 0.16
+      "3": 0.05
+    length:
+      "0": 4.5
+      "1": 2.942
+      "2": 1.53
+      "3": 0.46
+    radius:
+      "0": 0.303
+      "1": 0.53
+      "2": 0.79
+      "3": 1.11
+    sections:
+      "1": 8
+      "2": 6
+      "3": 4
+    start:
+      "1": 0.32
+      "2": 0.34
+      "3": 0.0
+    taper:
+      "1": 0.62
+      "2": 0.76
+      "3": 0.0
+    twist:
+      "0": 0.09
+      "1": -0.07
+  leaves:
+    type: ash
+    angle: 30.0
+    count: 10
+    start: 0.01
+    size: 0.462
+    size_variance: 0.72

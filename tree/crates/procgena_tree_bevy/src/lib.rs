@@ -28,7 +28,7 @@
 //! }
 //!
 //! fn setup(mut commands: Commands) {
-//!     commands.spawn(TreeParams::preset(TreePreset::OakSmall));
+//!     commands.spawn(TreeParams::preset(TreePreset::oak_small()));
 //!     commands.spawn((
 //!         Camera3d::default(),
 //!         Transform::from_xyz(3.5, 2.5, 5.5)
@@ -88,8 +88,8 @@
 //!
 //! fn plant_trees(mut commands: Commands) {
 //!     for i in 0..5 {
-//!         let mut options = TreePreset::OakSmall.options();
-//!         options.seed = i;
+//!         let mut options = TreePreset::oak_small().tree.clone();
+//!         options.default_seed = i;
 //!         options.branch.length[0] = 12.0; // Trunk length.
 //!
 //!         commands.spawn((
@@ -106,17 +106,18 @@
 //!
 //! ## Plant a grove
 //!
-//! Spawn a `TreeGroveParams` to spread a mix of trees over the ground around an
-//! entity. Start from a grove preset, or build a `procgena_tree::TreeGrove` of your own:
+//! Spawn a `TreeScatterParams` to spread a mix of trees over the ground around an
+//! entity. Start from a `procgena_tree::TreeScatterPreset`, or build a
+//! `procgena_tree::TreeScatter` of your own:
 //!
 //! ```no_run
 //! use bevy::prelude::*;
-//! use procgena_tree::GrovePreset;
-//! use procgena_tree_bevy::TreeGroveParams;
+//! use procgena_tree::TreeScatterPreset;
+//! use procgena_tree_bevy::TreeScatterParams;
 //!
 //! fn plant_grove(mut commands: Commands) {
 //!     commands.spawn((
-//!         TreeGroveParams::preset(GrovePreset::OakWoodland, Vec2::new(60.0, 40.0)),
+//!         TreeScatterParams::preset(TreeScatterPreset::oak_woodland(), Vec2::new(60.0, 40.0)),
 //!         Transform::from_xyz(0.0, 0.0, -30.0),
 //!     ));
 //! }
@@ -125,20 +126,20 @@
 //! The grove draws all its trees itself, without an entity per tree, so one grove
 //! can hold thousands of trees. Trees of the same species and shape variant share
 //! meshes and materials, so even a large grove generates only a handful of meshes.
-//! `TreeGroveInstances` on the grove lists every tree.
+//! `TreeScatterInstances` on the grove lists every tree.
 //!
 //! Change the component to change the grove: only the trees that appear, disappear
 //! or change are affected, so lowering the density leaves the remaining trees exactly
-//! as they were. `TreeGroveGenerating` is present until every tree is ready, and
-//! `TreeGroveFinished` is triggered on the grove when it is.
+//! as they were. `TreeScatterGenerating` is present until every tree is ready, and
+//! `TreeScatterFinished` is triggered on the grove when it is.
 //!
 //! To give single trees an entity of their own, for a collider or to interact with
-//! them, spawn a `PromotedTree` naming the grove and the tree. `GroveTrees` finds
-//! trees near a point or under the mouse:
+//! them, spawn a `PromotedTree` naming the grove and the tree. `TreeScatterTrees`
+//! finds trees near a point or under the mouse:
 //!
 //! ```no_run
 //! use bevy::prelude::*;
-//! use procgena_tree_bevy::{GroveTrees, PromotedTree};
+//! use procgena_tree_bevy::{PromotedTree, TreeScatterTrees};
 //!
 //! /// A game's own component.
 //! #[derive(Component)]
@@ -146,7 +147,7 @@
 //!
 //! fn promote_nearby(
 //!     mut commands: Commands,
-//!     trees: GroveTrees,
+//!     trees: TreeScatterTrees,
 //!     player: Single<&GlobalTransform, With<Camera3d>>,
 //!     promoted: Query<&PromotedTree>,
 //! ) {
@@ -165,36 +166,37 @@
 //! ```no_run
 //! use bevy::prelude::*;
 //! use procgena_specimen::{TagFilter, tags};
-//! use procgena_tree::GrovePreset;
-//! use procgena_tree_bevy::TreeGroveParams;
+//! use procgena_tree::TreeScatterPreset;
+//! use procgena_tree_bevy::TreeScatterParams;
 //!
 //! fn plant_on(terrain: Entity, mut commands: Commands) {
 //!     commands.spawn((
-//!         TreeGroveParams::preset(GrovePreset::PineStand, Vec2::splat(50.0))
+//!         TreeScatterParams::preset(TreeScatterPreset::pine_stand(), Vec2::splat(50.0))
 //!             .on_host(TagFilter::any_of([tags::GROUND]), 0.5),
 //!         ChildOf(terrain),
 //!     ));
 //! }
 //! ```
 //!
-//! Groves also load from `.grove.json` files through `GroveSource::Asset`, and update
-//! when the file changes if Bevy is watching asset files. Try it with
-//! `cargo run -p procgena_tree_bevy --example grove`.
+//! Groves also load from `.tree_scatter.yml` files through
+//! `TreeScatterSource::Asset`, and update when the file changes if Bevy is watching
+//! asset files. Try it with `cargo run -p procgena_tree_bevy --example scatter`.
 //!
 //! Far away, trees are drawn as baked impostors; see `TreeImpostor`. To generate a
 //! grove's trees and bake their impostors before the grove appears, for example
-//! behind a loading screen, spawn a `PrepareGrove` first.
+//! behind a loading screen, spawn a `PrepareTreeScatter` first.
 //!
-//! ## Load settings from JSON
+//! ## Load a preset file
 //!
-//! Save full or partial ez-tree settings to `assets/trees/oak.tree.json`. Missing
-//! fields use defaults. For example:
+//! Save a tree preset to `assets/trees/oak.tree.yml`. It names a built-in preset as
+//! its `base` and gives only the settings that differ. For example:
 //!
-//! ```json
-//! {
-//!   "seed": 42,
-//!   "branch": { "length": { "0": 12.0 } }
-//! }
+//! ```yaml
+//! base: oak_small
+//! tree:
+//!   default_seed: 42
+//!   branch:
+//!     length: { "0": 12.0 }
 //! ```
 //!
 //! Load the file through Bevy's asset server in a startup system:
@@ -205,13 +207,13 @@
 //!
 //! fn load_tree(mut commands: Commands, asset_server: Res<AssetServer>) {
 //!     commands.spawn((
-//!         TreeParams::Asset(asset_server.load("trees/oak.tree.json")),
+//!         TreeParams::Asset(asset_server.load("trees/oak.tree.yml")),
 //!         Transform::from_xyz(20.0, 0.0, 0.0),
 //!     ));
 //! }
 //! ```
 //!
-//! The filename must end in `.tree.json`. The tree waits for the asset to load,
+//! The filename must end in `.tree.yml`. The tree waits for the asset to load,
 //! then generates in the background. It rebuilds when Bevy reports that the asset
 //! has changed; detecting live file edits requires Bevy asset watching to be enabled.
 //!
@@ -341,11 +343,11 @@
 
 #[cfg(feature = "gltf")]
 mod gltf;
-mod grove;
 mod impostor;
 mod material;
 mod material_key;
 mod mesh;
+mod scatter;
 mod spawn;
 mod wind;
 
@@ -355,12 +357,6 @@ use bevy::prelude::*;
 use bevy::shader::{Shader, load_shader_library};
 use procgena_tree::{TextureCompression, WIND_WESL};
 
-pub use grove::{
-    GroveGround, GroveHit, GroveLevelSize, GrovePart, GrovePreparing, GroveReady, GroveSource,
-    GroveTrees, GroveVariant, PlacedTree, PrepareGrove, PromotedTree, TreeGroveAsset,
-    TreeGroveAssets, TreeGroveBuildError, TreeGroveFinished, TreeGroveGenerating,
-    TreeGroveInstances, TreeGroveParams, TreeGroveStats, grove_variants,
-};
 pub use impostor::TreeImpostor;
 pub use material::{
     BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
@@ -371,9 +367,16 @@ pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
     ATTRIBUTE_WIND, bark_mesh, billboard_aabb, cluster_mesh, leaf_mesh,
 };
+pub use scatter::{
+    PlacedTree, PrepareTreeScatter, PromotedTree, TreeScatterAsset, TreeScatterAssets,
+    TreeScatterBuildError, TreeScatterFinished, TreeScatterGenerating, TreeScatterGround,
+    TreeScatterHit, TreeScatterInstances, TreeScatterLevelSize, TreeScatterParams, TreeScatterPart,
+    TreeScatterPreparing, TreeScatterReady, TreeScatterSource, TreeScatterStats, TreeScatterTrees,
+    TreeScatterVariant, tree_scatter_variants,
+};
 pub use spawn::{
-    BarkTexture, LeafTexture, TreeFinished, TreeGenerating, TreeLevel, TreeOptionsAsset,
-    TreeParams, TreePart, TreePartKind, default_tree_lod,
+    BarkTexture, LeafTexture, TreeFinished, TreeGenerating, TreeLevel, TreeParams, TreePart,
+    TreePartKind, TreePresetAsset, default_tree_lod,
 };
 pub use wind::Wind;
 
@@ -384,14 +387,14 @@ use procgena_impostor::ImpostorPlugin;
 #[cfg(feature = "gltf")]
 pub use gltf::add_tree_gltf_attributes;
 
-use grove::TreeGroveLoader;
-use spawn::{SpawnSettings, TreeCache, TreeOptionsLoader};
+use scatter::TreeScatterLoader;
+use spawn::{SpawnSettings, TreeCache, TreePresetLoader};
 
-/// Enables tree generation, rendering, wind, groves, and `.tree.json` and
-/// `.grove.json` loading.
+/// Enables tree generation, rendering, wind, groves, and `.tree.yml` and
+/// `.tree_scatter.yml` loading.
 ///
 /// Add after Bevy's default plugins, then spawn entities with [`TreeParams`]
-/// or [`TreeGroveParams`].
+/// or [`TreeScatterParams`].
 #[derive(Debug, Clone)]
 pub struct TreePlugin {
     /// Folder holding the `bark/` and `leaves/` texture folders, relative to Bevy's
@@ -481,12 +484,12 @@ impl Plugin for TreePlugin {
         app.add_plugins((
             LodPlugin,
             MaterialPlugin::<TreeMaterial>::default(),
-            grove::GroveRenderPlugin,
+            scatter::GroveRenderPlugin,
         ))
-        .init_asset::<TreeOptionsAsset>()
-        .register_asset_loader(TreeOptionsLoader)
-        .init_asset::<TreeGroveAsset>()
-        .register_asset_loader(TreeGroveLoader)
+        .init_asset::<TreePresetAsset>()
+        .register_asset_loader(TreePresetLoader)
+        .init_asset::<TreeScatterAsset>()
+        .register_asset_loader(TreeScatterLoader)
         .init_resource::<Wind>()
         .init_resource::<TreeCache>()
         .insert_resource(settings)
@@ -496,29 +499,29 @@ impl Plugin for TreePlugin {
             (
                 // Grove variants requested here are generated by the tree
                 // systems below in the same frame.
-                grove::remove_groves,
-                grove::finish_placing,
-                grove::start_groves,
-                grove::stop_preparing,
-                grove::start_preparing,
+                scatter::remove_groves,
+                scatter::finish_placing,
+                scatter::start_groves,
+                scatter::stop_preparing,
+                scatter::start_preparing,
                 // Promoted trees' parts are generated below in the
                 // same frame.
-                grove::sync_promoted_trees,
-                grove::demote_trees,
+                scatter::sync_promoted_trees,
+                scatter::demote_trees,
                 spawn::reload_modified_options,
                 spawn::reset_changed_trees,
                 spawn::start_generation,
                 spawn::finish_generation,
                 spawn::spawn_parts,
-                grove::refresh_grove_assets,
+                scatter::refresh_grove_assets,
                 spawn::prune_cache,
-                grove::finish_groves,
+                scatter::finish_groves,
                 wind::sync_wind,
             )
                 .chain(),
         )
         // Impostors become ready in an observer, any time before this.
-        .add_systems(Update, grove::track_preparing.after(spawn::prune_cache));
+        .add_systems(Update, scatter::track_preparing.after(spawn::prune_cache));
         if impostor.is_some() {
             app.add_systems(
                 Update,

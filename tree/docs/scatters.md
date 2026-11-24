@@ -1,53 +1,56 @@
-# Groves
+# Tree Scatters: groves and woodlands
 
-A grove is a mix of tree species spread over a stretch of ground: the tree
-counterpart of a plant field. Two types describe it:
+A tree Scatter is a mix of tree species spread over a stretch of ground, such
+as a grove or a woodland: the tree counterpart of a plant field. Two types
+describe it:
 
-- A **`GroveTree`** is one species. It holds the tree's shape (`TreeOptions`),
-  how many trees of it grow per hectare, the distance its trunks keep from
-  their neighbours, how much it gathers into stands, and how many shape
-  variants it is drawn from.
-- A **`TreeGrove`** is the whole mix: its species, a seed, a scale on every
+- A **`ScatterTree`** is one species. It holds the tree's shape
+  (`TreeOptions`), how many trees of it grow per hectare, the distance its
+  trunks keep from their neighbours, how much it gathers into stands, and how
+  many shape variants it is drawn from.
+- A **`TreeScatter`** is the whole mix: its species, a seed, a scale on every
   species' density, and how individual trees vary in size, lean and footing.
 
-A grove says nothing about where it grows. `GrovePlacement::new` in
+A Scatter says nothing about where it grows. `TreeScatterPlacement::new` in
 `procgena_tree` lays it out over a `ScatterInput`: the ground, an area (a World
 centre and a size), a seed and an optional mask that thins it. Positions come
-back in metres from the area's centre. The `TreeGroveParams` component in
+back in metres from the area's centre. The `TreeScatterParams` component in
 `procgena_tree_bevy` does the same for a Bevy entity, with the entity at the
-centre and the grove's own seed, and draws the trees.
+centre and the Scatter's own seed, and draws the trees.
 
 ## Start from a preset
 
 ```rust
 use glam::{DVec2, Vec2};
-use procgena_tree::{FlatGround, GrovePlacement, GrovePreset, ScatterArea, ScatterInput};
+use procgena_tree::{
+    FlatGround, ScatterArea, ScatterInput, TreeScatterPlacement, TreeScatterPreset,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let grove = GrovePreset::PineStand.grove();
+    let scatter = &TreeScatterPreset::pine_stand().tree_scatter;
     let area = ScatterArea::new(DVec2::ZERO, Vec2::new(60.0, 40.0));
-    let input = ScatterInput::new(&FlatGround, area, grove.seed);
-    let placement = GrovePlacement::new(&grove, &input)?;
+    let input = ScatterInput::new(&FlatGround, area, scatter.default_seed);
+    let placement = TreeScatterPlacement::new(scatter, &input)?;
     println!("{} trees", placement.instances().len());
     Ok(())
 }
 ```
 
-Each `GroveInstance` names its species (`tree`, an index into
-`TreeGrove::trees`), its shape variant, and a `transform` that sizes, leans,
+Each `TreeCopy` names its species (`tree`, an index into
+`TreeScatter::trees`), its shape variant, and a `transform` that sizes, leans,
 turns and stands the tree on the ground. Build each species' variant once
-with `GroveTree::variant` and draw it at every instance that uses it.
+with `ScatterTree::variant` and draw it at every copy that uses it.
 
 In Bevy, spawn the component instead:
 
 ```rust
 use bevy::prelude::*;
-use procgena_tree::GrovePreset;
-use procgena_tree_bevy::TreeGroveParams;
+use procgena_tree::TreeScatterPreset;
+use procgena_tree_bevy::TreeScatterParams;
 
 fn plant_grove(mut commands: Commands) {
     commands.spawn((
-        TreeGroveParams::preset(GrovePreset::PineStand, Vec2::new(60.0, 40.0)),
+        TreeScatterParams::preset(TreeScatterPreset::pine_stand(), Vec2::new(60.0, 40.0)),
         Transform::from_xyz(0.0, 0.0, -30.0),
     ));
 }
@@ -56,9 +59,9 @@ fn plant_grove(mut commands: Commands) {
 The grove draws its trees itself, without an entity per tree, so one grove
 can hold thousands of trees. Each tree switches detail level by its distance
 from the camera and sways in the wind, exactly like a single tree. The grove
-entity gets a `TreeGroveInstances` listing every tree (its species, shape
-variant, spot id and transform), a `TreeGroveAssets` with each variant's
-meshes and materials, and a `TreeGroveStats` with the tree count and sizes.
+entity gets a `TreeScatterInstances` listing every tree (its species, shape
+variant, spot id and transform), a `TreeScatterAssets` with each variant's
+meshes and materials, and a `TreeScatterStats` with the tree count and sizes.
 
 ## Give single trees an entity
 
@@ -68,7 +71,7 @@ naming the grove and the tree's spot id, with whatever the tree needs:
 
 ```rust
 use bevy::prelude::*;
-use procgena_tree_bevy::{GroveTrees, PromotedTree};
+use procgena_tree_bevy::{PromotedTree, TreeScatterTrees};
 
 #[derive(Component)]
 struct Collider;
@@ -76,7 +79,7 @@ struct Collider;
 /// Gives every tree within 10 m of the camera a collider.
 fn promote_nearby(
     mut commands: Commands,
-    trees: GroveTrees,
+    trees: TreeScatterTrees,
     camera: Single<&GlobalTransform, With<Camera3d>>,
     promoted: Query<&PromotedTree>,
 ) {
@@ -97,15 +100,15 @@ fn promote_nearby(
   removes the tree but keeps the entity and your components.
 - The entity follows the grove: if an edit leaves no tree on its spot, it is
   despawned; if the spot's tree changes, so does the entity's.
-- `GroveTrees::within` finds trees whose base is near a point, and
-  `GroveTrees::ray_cast` finds the tree a ray hits first, tested against the
-  triangles of its nearest detail level. Use it with
+- `TreeScatterTrees::within` finds trees whose base is near a point, and
+  `TreeScatterTrees::ray_cast` finds the tree a ray hits first, tested against
+  the triangles of its nearest detail level. Use it with
   `Camera::viewport_to_world` to pick trees with the mouse.
-- `GroveVariant::specimen` gives a variant's tree as a tagged `Specimen`, to
-  build colliders from.
+- `TreeScatterVariant::specimen` gives a variant's tree as a tagged
+  `Specimen`, to build colliders from.
 
-The `grove_promote` example shows both: `--mode distance` promotes the trees
-near the camera, and `--mode click` the tree you click.
+The `scatter_promote` example shows both: `--mode distance` promotes the
+trees near the camera, and `--mode click` the tree you click.
 
 ## Far trees as impostors
 
@@ -143,45 +146,49 @@ While impostors bake, the app has extra 3D cameras, marked
 
 ## Prepare a grove behind a loading screen
 
-`PrepareGrove` generates every tree a grove can use, and bakes their
-impostors, without placing any. `GrovePreparing` on its entity shows the
-progress, and `GroveReady` is triggered on it when everything is ready. A
-`TreeGroveParams` with the same grove then appears within a few frames.
+`PrepareTreeScatter` generates every tree a Scatter can use, and bakes their
+impostors, without placing any. `TreeScatterPreparing` on its entity shows
+the progress, and `TreeScatterReady` is triggered on it when everything is
+ready. A `TreeScatterParams` with the same Scatter then appears within a few
+frames.
 
 ```rust
 use bevy::prelude::*;
-use procgena_tree::GrovePreset;
-use procgena_tree_bevy::{GroveReady, PrepareGrove, TreeGroveFinished, TreeGroveParams};
+use procgena_tree::TreeScatterPreset;
+use procgena_tree_bevy::{
+    PrepareTreeScatter, TreeScatterFinished, TreeScatterParams, TreeScatterReady,
+};
 
 fn start_loading(mut commands: Commands) {
     commands
-        .spawn(PrepareGrove::preset(GrovePreset::PineStand))
-        .observe(|ready: On<GroveReady>, mut commands: Commands| {
+        .spawn(PrepareTreeScatter::preset(TreeScatterPreset::pine_stand()))
+        .observe(|ready: On<TreeScatterReady>, mut commands: Commands| {
             let preparer = ready.entity;
+            let stand = TreeScatterPreset::pine_stand();
             commands
-                .spawn(TreeGroveParams::preset(GrovePreset::PineStand, Vec2::splat(200.0)))
+                .spawn(TreeScatterParams::preset(stand, Vec2::splat(200.0)))
                 // The grove holds its own trees once it is built.
-                .observe(move |_: On<TreeGroveFinished>, mut commands: Commands| {
+                .observe(move |_: On<TreeScatterFinished>, mut commands: Commands| {
                     commands.entity(preparer).despawn();
                 });
         });
 }
 ```
 
-Keep the `PrepareGrove` entity until the grove has finished building, or its
-trees may be freed and generated again. `grove_variants` lists the trees of a
-grove, for loading code of your own. See
-`cargo run -p procgena_tree_bevy --example grove_loading`.
+Keep the `PrepareTreeScatter` entity until the grove has finished building,
+or its trees may be freed and generated again. `tree_scatter_variants` lists
+the trees of a Scatter, for loading code of your own. See
+`cargo run -p procgena_tree_bevy --example scatter_loading`.
 
 ## Mix species
 
-The species of a grove share it like this:
+The species of a Scatter share it like this:
 
-- **Densities add up.** The grove grows the sum of its species' densities,
+- **Densities add up.** The Scatter grows the sum of its species' densities,
   and each species' share is its density over that sum.
-- **`density_scale` on the grove** multiplies every species' density at once
-  and keeps the mix. `TreeGrove::with_density` sets it from a total in trees
-  per hectare.
+- **`density_scale` on the Scatter** multiplies every species' density at
+  once and keeps the mix. `TreeScatter::with_density` sets it from a total in
+  trees per hectare.
 - **`density_scale` on a species** changes only that species' density, and so
   its share.
 - **The last species fills the gaps.** Species are chosen in list order, and
@@ -193,36 +200,36 @@ The species of a grove share it like this:
   80 to 95% of the trees a density asks for.
 
 ```rust
-use procgena_tree::{GrovePreset, GroveTree, TreeGrove, TreePreset};
+use procgena_tree::{ScatterTree, TreePreset, TreeScatter, TreeScatterPreset};
 
 // Oaks with clumps of bushes and a few large ashes in stands.
-let grove = TreeGrove::new(vec![
-    GroveTree::new(TreePreset::Bush2).scaled(0.1).clustered(0.7),
-    GroveTree::new(TreePreset::AshLarge).scaled(0.2).clustered(0.4),
-    GroveTree::new(TreePreset::OakMedium).scaled(0.6),
+let scatter = TreeScatter::new(vec![
+    ScatterTree::new(TreePreset::bush_2()).scaled(0.1).clustered(0.7),
+    ScatterTree::new(TreePreset::ash_large()).scaled(0.2).clustered(0.4),
+    ScatterTree::new(TreePreset::oak_medium()).scaled(0.6),
 ])
 .with_density(250.0);
 
 // Or start from a preset and change one species.
-let mut pines = GrovePreset::PineStand.grove();
+let mut pines = TreeScatterPreset::pine_stand().tree_scatter.clone();
 pines.trees[0].clustering = 0.9;
 ```
 
-## Change a grove without moving its trees
+## Change a Scatter without moving its trees
 
-The same grove, size and ground always give the same trees. Edits keep as
+The same Scatter, size and ground always give the same trees. Edits keep as
 many of them as they can:
 
 - Lowering a density only removes trees, and raising it only adds them. The
   others stay exactly where they were, with the same species and shape.
 - Raising `patchiness` only removes trees, and lowering it only brings them
   back.
-- Changing the grove's `seed` moves every tree, but never changes a shape
-  variant's mesh.
+- Changing the Scatter's `default_seed` moves every tree, but never changes a
+  shape variant's mesh.
 - Changing `variation` changes only each tree's transform.
-- Each `GroveInstance` has an `id` naming the spot it stands on, so a renderer
-  can match trees between two placements and update only those that changed.
-  `TreeGroveParams` does this for you.
+- Each `TreeCopy` has an `id` naming the spot it stands on, so a renderer can
+  match trees between two placements and update only those that changed.
+  `TreeScatterParams` does this for you.
 
 ## Stand trees on uneven ground
 
@@ -232,100 +239,104 @@ generator's specimen with `Specimen::height_grid`. A height of NaN means there
 is no ground there.
 
 A tree is left out where the ground at its trunk is steeper than its species'
-`max_slope` (the grove's `variation.max_slope` when the species sets none), so
-shrubs can grow on slopes large trees can't. The ground is then sampled at the
-trunk and at eight points around it, one trunk radius away, and the tree is
-left out where any of that is missing. Each tree stands upright at the lowest
-of those samples, sunk by `variation.sink` so its roots never show on a slope.
-This is the shared `place()` with the tree's `ground_placement()`: upright,
-resting on the lowest ground.
+`max_slope` (the Scatter's `variation.max_slope` when the species sets none),
+so shrubs can grow on slopes large trees can't. The ground is then sampled at
+the trunk and at eight points around it, one trunk radius away, and the tree
+is left out where any of that is missing. Each tree stands upright at the
+lowest of those samples, sunk by `variation.sink` so its roots never show on a
+slope. This is the shared `place()` with the tree's `ground_placement()`:
+upright, resting on the lowest ground.
 
-The last argument thins the grove in places: a function from X and Z to a
-value from 0 (no trees) to 1 (the full density).
+The input's optional mask thins the Scatter in places: a function from X and
+Z to a value from 0 (no trees) to 1 (the full density).
 
 In Bevy, spawn the grove as a child of an entity with a `GeneratedSpecimen` and
-call `TreeGroveParams::on_host` with the tags of the parts to stand on.
+call `TreeScatterParams::on_host` with the tags of the parts to stand on.
 
-## Load and save `.grove.json` files
+## Load and save `.tree_scatter.yml` files
 
-`TreeGrove::to_json` writes a grove and `TreeGrove::from_json` reads it back.
-Every setting in a file is optional, and settings the format does not know
-are errors. Names are camelCase.
+`TreeScatterPreset::to_yaml` writes a Scatter preset and
+`TreeScatterPreset::from_yaml` reads it back. The file's name, without
+`.tree_scatter.yml`, is the preset's key. Every setting in a file is
+optional, and settings the format does not know are errors. Names are
+snake_case, as in the Rust types; the Scatter's settings go under
+`tree_scatter`.
 
-```json
-{
-  "base": "oak_woodland",
-  "seed": 12,
-  "densityScale": 0.8,
-  "variation": { "lean": 6 },
-  "trees": [
-    { "tree": "bush_2", "densityScale": 0.1, "clustering": 0.7, "variants": 2 },
-    { "tree": { "base": "oak_medium", "seed": 9 }, "densityScale": 0.6 },
-    { "tree": { "seed": 3, "branch": { "levels": 2 } }, "density": 300, "spacing": 1.5 }
-  ]
-}
+```yaml
+base: oak_woodland
+name: My Woods
+tree_scatter:
+  default_seed: 12
+  density_scale: 0.8
+  variation: { lean: 6 }
+  trees:
+    - { tree: bush_2, density_scale: 0.1, clustering: 0.7, variants: 2 }
+    - { tree: { base: oak_medium, default_seed: 9 }, density_scale: 0.6 }
+    - { tree: { default_seed: 3, branch: { levels: 2 } }, density: 300, spacing: 1.5 }
 ```
 
-- `base` names a grove preset that missing settings come from. Without one,
-  missing settings take the defaults in the tables below, and the grove has
-  no species.
+- `base` names a Scatter preset that missing settings come from. Without
+  one, missing settings take the defaults in the tables below, and the
+  Scatter has no species.
+- `name`, `description` and `group` are optional, and are shown in menus.
 - A `trees` list replaces the base's species.
-- A species' `tree` is either a tree preset key, or an object of tree
-  settings with ez-tree field names. The object may name a tree preset as
-  its own `base`.
-- A species' `density` and `spacing` default to its tree preset's. A tree
-  written out without a `base` has no preset to take them from, so it must
-  give both.
+- A species' `tree` is either a tree preset key, or a map of tree settings
+  as in a `.tree.yml` file's `tree` section. The map may name a tree preset
+  as its own `base`.
+- A species' `density`, `spacing` and `max_slope` default to its tree
+  preset's. A tree written out without a `base` has no preset to take them
+  from, so it must give `density` and `spacing`.
 
-In Bevy, load a file with `GroveSource::Asset(asset_server.load("woods.grove.json"))`.
-The filename must end in `.grove.json`.
+In Bevy, load a file with
+`TreeScatterSource::Asset(asset_server.load("woods.tree_scatter.yml"))`.
+The filename must end in `.tree_scatter.yml`.
 
 ## Reference
 
-### `TreeGrove`
+### `TreeScatter`
 
-| Setting | File name | Default | Meaning |
-| --- | --- | --- | --- |
-| `seed` | `seed` | 0 | Picks where trees stand, which species each is, and how it is turned and sized. Changing it moves every tree but keeps the shapes |
-| `trees` | `trees` | none | The species, at most 16 (`MAX_GROVE_TREES`) |
-| `density_scale` | `densityScale` | 1 | Multiplies every species' density, keeping the mix. 0 or more |
-| `patchiness` | `patchiness` | 0 | How much ground is left open as treeless glades, 0 to 1. Around 0.5 the woods hold separate glades; from about 0.7 the glades join up and the trees stand in islands. Glades are about 12 m across, larger where they join, and take trees away, so the grove grows fewer than its density asks for |
-| `variation` | `variation` | below | How individual trees differ |
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `default_seed` | 0 | The seed the Scatter is placed with on its own. Picks where trees stand, which species each is, and how it is turned and sized. Changing it moves every tree but keeps the shapes |
+| `trees` | none | The species, at most 16 (`MAX_SCATTER_TREES`) |
+| `density_scale` | 1 | Multiplies every species' density, keeping the mix. 0 or more |
+| `patchiness` | 0 | How much ground is left open as treeless glades, 0 to 1. Around 0.5 the woods hold separate glades; from about 0.7 the glades join up and the trees stand in islands. Glades are about 12 m across, larger where they join, and take trees away, so the Scatter grows fewer than its density asks for |
+| `variation` | below | How individual trees differ |
 
-### `GroveTree`
+### `ScatterTree`
 
-| Setting | File name | Default | Meaning |
-| --- | --- | --- | --- |
-| `tree` | `tree` | required | The tree's shape. Its seed is the seed of variant 0 |
-| `density` | `density` | the tree preset's | Trees per hectare that suit the species on its own. 0 or more |
-| `spacing` | `spacing` | the tree preset's | Smallest distance from this species' trunks to any neighbour's, in metres. Between two species the larger applies. 0 or more |
-| `density_scale` | `densityScale` | 1 | Multiplies `density` in this grove. 0 removes the species |
-| `clustering` | `clustering` | 0 | 0 mixes the species evenly among the others; 1 gathers it into stands several spacings across. Changes where it grows, not how much |
-| `variants` | `variants` | 4 | Shape variants the species is drawn from, 1 to 8 (`MAX_GROVE_VARIANTS`). Each costs a mesh |
-| `max_slope` | `maxSlope` | the tree preset's | Steepest ground this species grows on, in degrees, 0 to 90. `None` (`null` in a file) uses the grove's `variation.max_slope`. Shrub and sapling presets (Bush 1–3, Aspen Small, Pine Small, Spring Pussy Willow) allow 45°; other presets use the grove's |
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `tree` | required | The tree's shape. Every variant's seed is derived from its `default_seed` |
+| `density` | the tree preset's | Trees per hectare that suit the species on its own. 0 or more |
+| `spacing` | the tree preset's | Smallest distance from this species' trunks to any neighbour's, in metres. Between two species the larger applies. 0 or more |
+| `density_scale` | 1 | Multiplies `density` in this Scatter. 0 removes the species |
+| `clustering` | 0 | 0 mixes the species evenly among the others; 1 gathers it into stands several spacings across. Changes where it grows, not how much |
+| `variants` | 4 | Shape variants the species is drawn from, 1 to 8 (`MAX_SCATTER_VARIANTS`). Each costs a mesh |
+| `max_slope` | the tree preset's | Steepest ground this species grows on, in degrees, 0 to 90. `None` (`null` in a file) uses the Scatter's `variation.max_slope`. Shrub and sapling presets (Bush 1–3, Aspen Small, Pine Small, Spring Pussy Willow) allow 45°; other presets use the Scatter's |
 
-### `GroveVariation`
+### `TreeScatterVariation`
 
-| Setting | File name | Default | Meaning |
-| --- | --- | --- | --- |
-| `scale_jitter` | `scaleJitter` | 0.15 | How much tree sizes vary, 0 to 0.9. Most trees are scaled by `1 ± 0.5 × scale_jitter`, and a few grow into giants up to `1 + 3 × scale_jitter` times their normal size. At 0.9, about one tree in thirteen is more than twice its normal size |
-| `lean` | `lean` | 3 | Largest lean of a trunk from vertical, in degrees, in a random direction. 0 to 45 |
-| `max_slope` | `maxSlope` | 35 | Steepest ground a tree grows on, in degrees. 0 to 90; 90 allows any slope |
-| `sink` | `sink` | 0.1 | How far each tree is sunk below the lowest ground around its trunk, in metres. 0 or more |
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `scale_jitter` | 0.15 | How much tree sizes vary, 0 to 0.9. Most trees are scaled by `1 ± 0.5 × scale_jitter`, and a few grow into giants up to `1 + 3 × scale_jitter` times their normal size. At 0.9, about one tree in thirteen is more than twice its normal size |
+| `lean` | 3 | Largest lean of a trunk from vertical, in degrees, in a random direction. 0 to 45 |
+| `max_slope` | 35 | Steepest ground a tree grows on, in degrees. 0 to 90; 90 allows any slope |
+| `sink` | 0.1 | How far each tree is sunk below the lowest ground around its trunk, in metres. 0 or more |
 
 ### Limits
 
 | Limit | Value | What happens past it |
 | --- | --- | --- |
-| `MAX_GROVE_TREES` | 16 species | `GroveError::TooManyTrees` |
-| `MAX_GROVE_VARIANTS` | 8 variants per species | `GroveError::Options` |
-| `MAX_GROVE_INSTANCES` | 20,000 trees, before spacing | `GroveError::TooMany` |
-| `MAX_GROVE_SIZE` | 2048 m on a side | `GroveError::Options` |
+| `MAX_SCATTER_TREES` | 16 species | `TreeScatterError::TooManyTrees` |
+| `MAX_SCATTER_VARIANTS` | 8 variants per species | `TreeScatterError::Options` |
+| `MAX_SCATTER_COPIES` | 20,000 trees, before spacing | `TreeScatterError::TooMany` |
+| `MAX_SCATTER_SIZE` | 2048 m on a side | `TreeScatterError::Options` |
 
-A grove is never denser than 4 trees per m², because each 0.5 m square of
+A Scatter is never denser than 4 trees per m², because each 0.5 m square of
 ground holds at most one tree.
 
-### Grove presets
+### Tree Scatter presets
 
 | Preset | Key | Species, from first to the one that fills the gaps |
 | --- | --- | --- |
@@ -338,13 +349,13 @@ ground holds at most one tree.
 | Spring Blossom | `spring_blossom` | Spring Pussy Willow in clumps, Flowering Dogwood |
 | Winter Copse | `winter_copse` | Spring Pussy Willow in clumps, Winter Thicket |
 
-`GrovePreset::ALL` lists them, and each preset's file is in
-`crates/procgena_tree/groves/`.
+`TreeScatterPreset::all()` lists them, and each preset's file is in
+`crates/procgena_tree/scatters/`.
 
 ### Tree preset densities and spacings
 
-These are the `density` and `spacing` a species takes from its tree preset.
-The density is about one tree per crown area, so a species alone at
+These are the `density` and `spacing` a species takes from its tree preset's
+`stand`. The density is about one tree per crown area, so a species alone at
 `density_scale` 1 makes a closed canopy.
 
 | Tree preset | Key | Trees per hectare | Spacing (m) |
@@ -373,5 +384,5 @@ The density is about one tree per crown area, so a species alone at
 | Winter Thicket | `winter_thicket` | 1250 | 0.9 |
 | Cedar | `cedar` | 480 | 1.4 |
 
-The trellis has a density of 0, so it grows in a grove only when given a
+The trellis has a density of 0, so it grows in a Scatter only when given a
 density of its own.

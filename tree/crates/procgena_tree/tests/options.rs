@@ -1,46 +1,114 @@
-//! Check defaults, presets, JSON handling and option validation.
+//! Check defaults, presets, `.tree.yml` files and option validation.
+
+use std::path::Path;
 
 use glam::Vec3;
-use procgena_tree::{BarkUvMode, ClusterKind, Facing, OptionsError, Tree, TreeOptions, TreePreset};
+use procgena_tree::{
+    BarkUvMode, ClusterKind, Facing, OptionsError, PresetFileError, Tree, TreeOptions, TreePreset,
+    TreeScatterPreset,
+};
 use serde_json::Value;
 
-/// Checks that each preset returns the full contents of its embedded JSON file.
+/// Reads a file in the crate's folder.
+fn crate_file(path: &str) -> String {
+    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(path))
+        .unwrap_or_else(|error| panic!("{path}: {error}"))
+}
+
+/// The names of the files in a folder of the crate that end with `suffix`.
+fn files_ending(folder: &str, suffix: &str) -> Vec<String> {
+    let mut names: Vec<String> =
+        std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join(folder))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name.ends_with(suffix))
+            .collect();
+    names.sort();
+    names
+}
+
+/// Reads tree preset file text with the default key used by these tests.
+fn tree_yaml(text: &str) -> Result<TreeOptions, PresetFileError> {
+    TreePreset::from_yaml("test", text).map(|preset| preset.tree)
+}
+
+/// Each preset is its file in `presets/`, and writes and reads back equal.
 #[test]
-fn preset_json_is_the_embedded_file() {
-    for preset in TreePreset::ALL {
-        let stem = preset.name().to_lowercase().replace(' ', "_");
-        let file = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("presets/{stem}.json")),
+fn preset_files_match_the_catalogue() {
+    let mut expected: Vec<String> = TreePreset::all()
+        .map(|preset| format!("{}.tree.yml", preset.key))
+        .collect();
+    expected.sort();
+    assert_eq!(files_ending("presets", ".tree.yml"), expected);
+
+    let other = TreePreset::oak_medium();
+    for preset in TreePreset::all() {
+        let key = &preset.key;
+        let file = TreePreset::from_yaml(key, &crate_file(&format!("presets/{key}.tree.yml")))
+            .unwrap_or_else(|error| panic!("{key}: {error}"));
+        assert_eq!(file.key, preset.key);
+        assert_eq!(file.tree, preset.tree, "{key}");
+        assert_eq!(file.name, preset.name, "{key}");
+        assert_eq!(file.description, preset.description, "{key}");
+        assert_eq!(file.group, preset.group, "{key}");
+
+        for base in [None, Some(other)] {
+            let text = preset.to_yaml(base);
+            let read = TreePreset::from_yaml(key, &text)
+                .unwrap_or_else(|error| panic!("{key}: {error}\n{text}"));
+            assert_eq!(read.tree, preset.tree, "{key}\n{text}");
+            assert_eq!(read.name, preset.name, "{key}");
+            assert_eq!(read.description, preset.description, "{key}");
+            assert_eq!(read.group, preset.group, "{key}");
+        }
+    }
+}
+
+/// Each Scatter preset is its file in `scatters/`, and writes and reads back
+/// equal.
+#[test]
+fn scatter_preset_files_match_the_catalogue() {
+    let mut expected: Vec<String> = TreeScatterPreset::all()
+        .map(|preset| format!("{}.tree_scatter.yml", preset.key))
+        .collect();
+    expected.sort();
+    assert_eq!(files_ending("scatters", ".tree_scatter.yml"), expected);
+
+    let other = TreeScatterPreset::pine_stand();
+    for preset in TreeScatterPreset::all() {
+        let key = &preset.key;
+        let file = TreeScatterPreset::from_yaml(
+            key,
+            &crate_file(&format!("scatters/{key}.tree_scatter.yml")),
         )
-        .unwrap();
-        assert_eq!(preset.json(), file, "{stem}");
+        .unwrap_or_else(|error| panic!("{key}: {error}"));
+        assert_eq!(file, *preset, "{key}");
+
+        for base in [None, Some(other)] {
+            let text = preset.to_yaml(base);
+            let read = TreeScatterPreset::from_yaml(key, &text)
+                .unwrap_or_else(|error| panic!("{key}: {error}\n{text}"));
+            assert_eq!(read, *preset, "{key}\n{text}");
+        }
     }
 }
 
 #[test]
-fn presets_are_valid_and_round_trip() {
-    for preset in TreePreset::ALL {
-        let options = preset.options();
-        assert_eq!(options.validate(), Ok(()), "{}", preset.name());
-        assert_eq!(
-            TreeOptions::from_json(&options.to_json()).unwrap(),
-            options,
-            "{}",
-            preset.name()
-        );
-        assert_eq!(TreePreset::from_name(preset.name()), Some(preset));
+fn presets_are_valid_and_found_by_key() {
+    for preset in TreePreset::all() {
+        assert_eq!(preset.tree.validate(), Ok(()), "{}", preset.name);
+        assert_eq!(TreePreset::named(&preset.key), Some(preset));
     }
-    assert_eq!(TreePreset::from_name("Maple"), None);
+    assert_eq!(TreePreset::named("maple"), None);
 }
 
 #[test]
-fn partial_json_keeps_nested_defaults() {
-    let options = TreeOptions::from_json(
-        r#"{
-            "branch": { "angle": { "1": 10 }, "levels": 2 },
-            "trellis": { "position": { "z": 5 } },
-            "leaves": { "billboard": "single" }
-        }"#,
+fn partial_yaml_keeps_nested_defaults() {
+    let options = tree_yaml(
+        "tree:\n  \
+           branch: { angle: { \"1\": 10 }, levels: 2 }\n  \
+           trellis: { position: { z: 5 } }\n  \
+           leaves: { billboard: single }\n",
     )
     .unwrap();
 
@@ -53,72 +121,105 @@ fn partial_json_keeps_nested_defaults() {
 }
 
 #[test]
-fn bark_uv_mode_defaults_to_continuous_and_reads_from_json() {
+fn bark_uv_mode_defaults_to_continuous_and_reads_from_yaml() {
     assert_eq!(TreeOptions::default().bark.uv_mode, BarkUvMode::Continuous);
-    for preset in TreePreset::ALL {
-        assert_eq!(preset.options().bark.uv_mode, BarkUvMode::Continuous);
+    for preset in TreePreset::all() {
+        assert_eq!(preset.tree.bark.uv_mode, BarkUvMode::Continuous);
     }
-    let options = TreeOptions::from_json(r#"{ "bark": { "uvMode": "mirrored" } }"#).unwrap();
+    let options = tree_yaml("tree:\n  bark: { uv_mode: mirrored }\n").unwrap();
     assert_eq!(options.bark.uv_mode, BarkUvMode::Mirrored);
-    let json: Value = serde_json::from_str(&options.to_json()).unwrap();
-    assert_eq!(json["bark"]["uvMode"], "mirrored");
+    let value = serde_json::to_value(&options).unwrap();
+    assert_eq!(value["bark"]["uv_mode"], "mirrored");
 }
 
-/// Clusters default to no density, and `placement.density` reads from JSON.
+/// Clusters default to no density, and `placement.density` reads from a file.
 #[test]
-fn cluster_density_reads_from_json() {
+fn cluster_density_reads_from_yaml() {
     let defaults = TreeOptions::default();
     assert_eq!(defaults.fruit.placement.density, 0.0);
     assert_eq!(defaults.flowers.placement.density, 0.0);
 
-    let options =
-        TreeOptions::from_json(r#"{ "fruit": { "placement": { "density": 1.5 } } }"#).unwrap();
+    let options = tree_yaml("tree:\n  fruit: { placement: { density: 1.5 } }\n").unwrap();
     assert_eq!(options.fruit.placement.density, 1.5);
 
     // The pussy willow preset is leafless and places catkins by density.
-    let willow = TreePreset::SpringPussyWillow.options();
+    let willow = &TreePreset::spring_pussy_willow().tree;
     assert_eq!(willow.leaves.count, 0);
     assert!(willow.fruit.placement.density > 0.0);
 }
 
 #[test]
-fn unknown_fields_are_ignored() {
-    let options = TreeOptions::from_json(
-        r#"{ "seed": 4, "colour": 1, "branch": { "angle": { "7": 1 }, "extra": true } }"#,
-    )
-    .unwrap();
+fn unknown_settings_are_rejected() {
+    let options = tree_yaml("tree:\n  default_seed: 4\n").unwrap();
     let expected = TreeOptions {
-        seed: 4,
+        default_seed: 4,
         ..TreeOptions::default()
     };
     assert_eq!(options, expected);
+
+    for text in [
+        "tree:\n  colour: 1\n",
+        "tree:\n  branch: { extra: true }\n",
+        "tree:\n  branch: { angle: { \"7\": 1 } }\n",
+    ] {
+        assert!(
+            matches!(tree_yaml(text), Err(PresetFileError::Setting { .. })),
+            "{text}"
+        );
+    }
+    assert!(matches!(
+        tree_yaml("colour: 1\n"),
+        Err(PresetFileError::UnknownKey { .. })
+    ));
 }
 
 #[test]
 fn serde_deserialize_requires_complete_options() {
-    let options = TreePreset::OakMedium.options();
-    let complete: TreeOptions = serde_json::from_str(&options.to_json()).unwrap();
-    assert_eq!(complete, options);
+    let options = &TreePreset::oak_medium().tree;
+    let complete: TreeOptions =
+        serde_json::from_str(&serde_json::to_string(options).unwrap()).unwrap();
+    assert_eq!(&complete, options);
 
-    assert!(serde_json::from_str::<TreeOptions>(r#"{ "seed": 4 }"#).is_err());
+    assert!(serde_json::from_str::<TreeOptions>(r#"{ "default_seed": 4 }"#).is_err());
 }
 
 #[test]
 fn wrong_types_are_errors() {
-    assert!(TreeOptions::from_json(r#"{ "seed": "12" }"#).is_err());
-    assert!(TreeOptions::from_json(r#"{ "type": "palm" }"#).is_err());
-    assert!(TreeOptions::from_json(r#"{ "branch": { "levels": -1 } }"#).is_err());
-    assert!(TreeOptions::from_json("not json").is_err());
+    for text in [
+        "tree:\n  default_seed: \"12\"\n",
+        "tree:\n  type: palm\n",
+        "tree:\n  branch: { levels: -1 }\n",
+    ] {
+        assert!(
+            matches!(tree_yaml(text), Err(PresetFileError::Setting { .. })),
+            "{text}"
+        );
+    }
+    assert!(matches!(
+        tree_yaml("tree: {"),
+        Err(PresetFileError::Yaml { .. })
+    ));
+    assert!(matches!(
+        tree_yaml("not yaml settings"),
+        Err(PresetFileError::NotAMap { .. })
+    ));
 }
 
+/// The seed is a whole number in the range of an `i32`.
 #[test]
-fn seed_is_converted_like_javascript() {
-    let seed = |json: &str| TreeOptions::from_json(json).unwrap().seed;
-    assert_eq!(seed(r#"{ "seed": 26867 }"#), 26867);
-    assert_eq!(seed(r#"{ "seed": -5 }"#), -5);
-    assert_eq!(seed(r#"{ "seed": 3000000000 }"#), -1_294_967_296);
-    assert_eq!(seed(r#"{ "seed": 4294967301 }"#), 5);
-    assert_eq!(seed(r#"{ "seed": -2.7 }"#), -2);
+fn default_seed_is_a_whole_32_bit_number() {
+    let seed = |text: &str| tree_yaml(text).map(|options| options.default_seed);
+    assert_eq!(seed("tree:\n  default_seed: 26867\n"), Ok(26867));
+    assert_eq!(seed("tree:\n  default_seed: -5\n"), Ok(-5));
+    for text in [
+        "tree:\n  default_seed: 3000000000\n",
+        "tree:\n  default_seed: -2.7\n",
+    ] {
+        assert!(
+            matches!(seed(text), Err(PresetFileError::Setting { .. })),
+            "{text}"
+        );
+    }
 }
 
 #[test]
@@ -131,6 +232,12 @@ fn too_many_levels_is_rejected() {
     );
     options.branch.levels = 3;
     assert_eq!(options.validate(), Ok(()));
+
+    // A file with too many levels reports the same problem.
+    assert!(matches!(
+        tree_yaml("tree:\n  branch: { levels: 4 }\n"),
+        Err(PresetFileError::Invalid { .. })
+    ));
 }
 
 #[test]
@@ -171,12 +278,11 @@ fn zero_radius_is_rejected_only_for_levels_in_use() {
 }
 
 #[test]
-fn partial_fruit_and_flower_json_keeps_nested_defaults() {
-    let options = TreeOptions::from_json(
-        r#"{
-            "fruit": { "cluster": { "kind": "panicle", "items": 40 }, "maturity": 0.25 },
-            "flowers": { "placement": { "facing": "up", "count": 3 }, "shape": { "petalCount": 6 } }
-        }"#,
+fn partial_fruit_and_flower_yaml_keeps_nested_defaults() {
+    let options = tree_yaml(
+        "tree:\n  \
+           fruit: { cluster: { arrangement: panicle, items: 40 }, maturity: 0.25 }\n  \
+           flowers: { placement: { facing: up, count: 3 }, shape: { petal_count: 6 } }\n",
     )
     .unwrap();
 
@@ -192,7 +298,8 @@ fn partial_fruit_and_flower_json_keeps_nested_defaults() {
 
 #[test]
 fn fruit_and_flower_settings_round_trip() {
-    let mut options = TreePreset::OakMedium.options();
+    let mut preset = TreePreset::oak_medium().clone();
+    let options = &mut preset.tree;
     options.fruit.placement.count = 4;
     options.fruit.placement.facing = Facing::Outward;
     options.fruit.cluster.kind = ClusterKind::Umbel;
@@ -203,17 +310,19 @@ fn fruit_and_flower_settings_round_trip() {
     options.flowers.shape.fade_color = 0x123456;
     options.flowers.maturity = 0.9;
 
-    let json = options.to_json();
-    assert_eq!(TreeOptions::from_json(&json).unwrap(), options);
+    for base in [None, Some(TreePreset::oak_medium())] {
+        let text = preset.to_yaml(base);
+        assert_eq!(tree_yaml(&text).unwrap(), preset.tree, "{text}");
+    }
 
-    // Serialized settings should use the documented JSON names and enum values.
-    let value: Value = serde_json::from_str(&json).unwrap();
+    // Serialized settings should use the documented file names and enum values.
+    let value: Value = serde_json::to_value(&preset.tree).unwrap();
     assert_eq!(value["fruit"]["placement"]["facing"], "outward");
-    assert_eq!(value["fruit"]["cluster"]["kind"], "umbel");
+    assert_eq!(value["fruit"]["cluster"]["arrangement"], "umbel");
     assert_eq!(value["fruit"]["shape"]["calyx"], false);
-    assert_eq!(value["flowers"]["cluster"]["kind"], "catkin");
-    assert_eq!(value["flowers"]["shape"]["fadeColor"], 0x123456);
-    assert!(value["flowers"]["placement"]["sizeVariance"].is_number());
+    assert_eq!(value["flowers"]["cluster"]["arrangement"], "catkin");
+    assert_eq!(value["flowers"]["shape"]["fade_color"], 0x123456);
+    assert!(value["flowers"]["placement"]["size_variance"].is_number());
 }
 
 #[test]
@@ -242,7 +351,7 @@ fn leaf_flatten_must_be_between_0_and_1() {
         };
         assert_eq!(options.validate(), expected, "{flatten}");
     }
-    let options = TreeOptions::from_json(r#"{ "leaves": { "flatten": 0.75 } }"#).unwrap();
+    let options = tree_yaml("tree:\n  leaves: { flatten: 0.75 }\n").unwrap();
     assert_eq!(options.leaves.flatten, 0.75);
 }
 
@@ -276,15 +385,18 @@ fn out_of_range_fruit_and_flower_settings_are_rejected() {
     );
     check(
         |o| o.flowers.cluster.stalk_length = f32::INFINITY,
-        invalid("flowers.cluster.stalkLength", "a finite value of 0 or more"),
+        invalid(
+            "flowers.cluster.stalk_length",
+            "a finite value of 0 or more",
+        ),
     );
     check(
         |o| o.flowers.placement.size_variance = 1.5,
-        invalid("flowers.placement.sizeVariance", "between 0 and 1"),
+        invalid("flowers.placement.size_variance", "between 0 and 1"),
     );
     check(
         |o| o.fruit.cluster.side_stalks = 0,
-        invalid("fruit.cluster.sideStalks", "at least 1"),
+        invalid("fruit.cluster.side_stalks", "at least 1"),
     );
     check(
         |o| o.fruit.shape.segments = 2,
@@ -300,15 +412,15 @@ fn out_of_range_fruit_and_flower_settings_are_rejected() {
     );
     check(
         |o| o.fruit.shape.lobe_depth = 1.0,
-        invalid("fruit.shape.lobeDepth", "at least 0 and below 1"),
+        invalid("fruit.shape.lobe_depth", "at least 0 and below 1"),
     );
     check(
         |o| o.flowers.shape.petal_count = 0,
-        invalid("flowers.shape.petalCount", "at least 1"),
+        invalid("flowers.shape.petal_count", "at least 1"),
     );
     check(
         |o| o.flowers.shape.petal_segments = 0,
-        invalid("flowers.shape.petalSegments", "at least 1"),
+        invalid("flowers.shape.petal_segments", "at least 1"),
     );
     check(
         |o| o.flowers.shape.cup = 2.0,

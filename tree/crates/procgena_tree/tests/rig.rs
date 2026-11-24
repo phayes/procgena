@@ -76,10 +76,10 @@ fn check_rest_pose(rig: &Rig, mesh: &TreeMesh, skin: &MeshSkin) {
 
 #[test]
 fn every_preset_rigs_within_budget_and_holds_its_rest_pose() {
-    for preset in TreePreset::ALL {
-        let tree = Tree::from_preset(preset);
+    for preset in TreePreset::all() {
+        let tree = Tree::from_preset(preset).unwrap();
         let rig = tree.rig(&RigOptions::default()).unwrap();
-        let name = preset.name();
+        let name = &preset.name;
         // Every preset has enough branches to use the whole default limit.
         assert_eq!(rig.joint_count(), 64, "{name}");
         assert!(!rig.level_strides().is_empty(), "{name}");
@@ -112,7 +112,7 @@ fn every_preset_rigs_within_budget_and_holds_its_rest_pose() {
 
 #[test]
 fn simpler_meshes_share_the_rig() {
-    let tree = Tree::from_preset(TreePreset::OakLarge);
+    let tree = Tree::from_preset(TreePreset::oak_large()).unwrap();
     let rig = tree
         .rig(&RigOptions {
             max_joints: MAX_RIG_JOINTS,
@@ -158,7 +158,7 @@ fn simpler_meshes_share_the_rig() {
 
 #[test]
 fn joint_limit_and_stride_are_checked() {
-    let tree = Tree::from_preset(TreePreset::AshMedium);
+    let tree = Tree::from_preset(TreePreset::ash_medium()).unwrap();
     for max_joints in [0, MAX_RIG_JOINTS + 1] {
         let options = RigOptions {
             max_joints,
@@ -194,7 +194,7 @@ fn joint_limit_and_stride_are_checked() {
 
 #[test]
 fn leftover_joints_rig_the_largest_pine_limbs() {
-    let tree = Tree::from_preset(TreePreset::PineMedium);
+    let tree = Tree::from_preset(TreePreset::pine_medium()).unwrap();
     let rig = tree.rig(&RigOptions::default()).unwrap();
     let branches = &tree.skeleton().branches;
     let limbs: Vec<usize> = (0..branches.len())
@@ -238,7 +238,7 @@ fn leftover_joints_rig_the_largest_pine_limbs() {
 
 #[test]
 fn leaves_move_rigidly_with_their_branch() {
-    let tree = Tree::from_preset(TreePreset::AspenMedium);
+    let tree = Tree::from_preset(TreePreset::aspen_medium()).unwrap();
     let rig = tree.rig(&RigOptions::default()).unwrap();
     let skin = rig.skin(tree.mesh());
 
@@ -255,7 +255,7 @@ fn leaves_move_rigidly_with_their_branch() {
 
 #[test]
 fn rotating_a_joint_moves_what_grows_beyond_it() {
-    let tree = Tree::from_preset(TreePreset::OakMedium);
+    let tree = Tree::from_preset(TreePreset::oak_medium()).unwrap();
     let mesh = tree.mesh();
     let rig = tree.rig(&RigOptions::default()).unwrap();
     let skin = rig.skin(mesh);
@@ -299,7 +299,7 @@ fn rotating_a_joint_moves_what_grows_beyond_it() {
 /// its largest branches closer spacing, so the rig fills the limit.
 #[test]
 fn spare_joints_refine_the_largest_branches() {
-    let tree = Tree::from_preset(TreePreset::Bush2);
+    let tree = Tree::from_preset(TreePreset::bush_2()).unwrap();
     let rig = tree.rig(&RigOptions::default()).unwrap();
     let branches = &tree.skeleton().branches;
     assert_eq!(rig.joint_count(), 64);

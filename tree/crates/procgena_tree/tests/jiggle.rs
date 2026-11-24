@@ -28,19 +28,19 @@ fn assert_levels_near(before: &PerLevel<f32>, after: &PerLevel<f32>, amount: f32
 
 #[test]
 fn zero_amount_changes_only_the_seed() {
-    let original = TreePreset::OakMedium.options();
+    let original = TreePreset::oak_medium().tree.clone();
     let mut jiggled = original.clone();
     jiggled.jiggle(0.0, &mut Rng::new(1));
 
-    assert_ne!(jiggled.seed, original.seed);
-    jiggled.seed = original.seed;
+    assert_ne!(jiggled.default_seed, original.default_seed);
+    jiggled.default_seed = original.default_seed;
     assert_eq!(jiggled, original);
 }
 
 #[test]
 fn same_generator_state_gives_same_result() {
     let jiggle = |seed| {
-        let mut options = TreePreset::AshLarge.options();
+        let mut options = TreePreset::ash_large().tree.clone();
         options.jiggle(0.15, &mut Rng::new(seed));
         options
     };
@@ -52,8 +52,8 @@ fn same_generator_state_gives_same_result() {
 fn every_preset_stays_within_the_amount() {
     let amount = 0.2;
     let mut rng = Rng::new(42);
-    for preset in TreePreset::ALL {
-        let before = preset.options();
+    for preset in TreePreset::all() {
+        let before = preset.tree.clone();
         for _ in 0..25 {
             let mut after = before.clone();
             after.jiggle(amount, &mut rng);

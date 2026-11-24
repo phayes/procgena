@@ -29,7 +29,7 @@ use procgena_tree_bevy::{
 /// `<name>.glb` in the test’s output folder and returns that folder, reusing
 /// it if it already exists.
 fn export(name: &str, wind: bool) -> PathBuf {
-    let tree = Tree::from_preset(TreePreset::Apple);
+    let tree = Tree::from_preset(TreePreset::apple()).unwrap();
     let mesh = tree.mesh_with_detail(&LodDetail {
         billboard_fruit: true,
         ..default_lod().levels[3].detail

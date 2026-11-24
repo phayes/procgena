@@ -26,7 +26,7 @@ fn shell_mesh(part: &Part, shell: std::ops::Range<u32>) -> SurfaceMesh {
 
 #[test]
 fn levels_follow_the_lod_meshes() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let lods = tree.lod_meshes(&default_lod_levels());
     let specimen = tree.specimen(&lods);
     specimen.validate().unwrap();
@@ -36,7 +36,7 @@ fn levels_follow_the_lod_meshes() {
 
 #[test]
 fn bark_splits_into_closed_trunk_limb_and_branch_parts() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let lods = tree.lod_meshes(&default_lod_levels());
     let (_, mesh) = &lods[0];
     let parts = &tree.specimen(&lods).levels.remove(0).parts;
@@ -74,7 +74,7 @@ fn bark_splits_into_closed_trunk_limb_and_branch_parts() {
 
 #[test]
 fn leaves_are_open_cards() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let lods = tree.lod_meshes(&default_lod_levels());
     let specimen = tree.specimen(&lods);
     let leaves = find(&specimen.levels[0].parts, &[tags::LEAF, tags::CARD].into()).unwrap();
@@ -85,7 +85,7 @@ fn leaves_are_open_cards() {
 
 #[test]
 fn coarse_bark_is_open_and_ribbons_are_left_out() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let lods = tree.lod_meshes(&default_lod_levels());
     let specimen = tree.specimen(&lods);
 
@@ -103,5 +103,7 @@ fn coarse_bark_is_open_and_ribbons_are_left_out() {
 #[test]
 #[should_panic(expected = "at least one level")]
 fn a_specimen_needs_a_level() {
-    Tree::from_preset(TreePreset::OakSmall).specimen(&[]);
+    Tree::from_preset(TreePreset::oak_small())
+        .unwrap()
+        .specimen(&[]);
 }

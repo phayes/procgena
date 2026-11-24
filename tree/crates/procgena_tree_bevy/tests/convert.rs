@@ -31,7 +31,7 @@ fn float4(mesh: &Mesh, id: impl Into<bevy::mesh::MeshVertexAttributeId>) -> Vec<
 
 #[test]
 fn bark_mesh_keeps_vertices_and_flips_scaled_texture_coordinates() {
-    let mut options = TreePreset::OakSmall.options();
+    let mut options = TreePreset::oak_small().tree.clone();
     options.bark.uv_mode = BarkUvMode::Continuous;
     options.bark.texture_scale.y = 4.0;
     let tree = Tree::new(options).unwrap();
@@ -52,7 +52,7 @@ fn bark_mesh_keeps_vertices_and_flips_scaled_texture_coordinates() {
 
 #[test]
 fn flat_shaded_bark_has_one_normal_per_triangle() {
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     options.bark.flat_shading = true;
     options.bark.uv_mode = BarkUvMode::Continuous;
     let tree = Tree::new(options).unwrap();
@@ -78,7 +78,7 @@ fn flat_shaded_bark_has_one_normal_per_triangle() {
 
 #[test]
 fn cluster_mesh_keeps_vertex_colours_and_wind() {
-    let tree = Tree::from_preset(TreePreset::Apple);
+    let tree = Tree::from_preset(TreePreset::apple()).unwrap();
     let fruit = &tree.mesh().fruit;
     assert!(fruit.vertex_count() > 0);
     let mesh = cluster_mesh(fruit);
@@ -104,7 +104,7 @@ fn fruit_and_flower_materials_take_colour_from_vertices_and_show_both_sides() {
 
 #[test]
 fn leaf_mesh_puts_the_leaf_tip_at_the_top_of_the_image() {
-    let tree = Tree::from_preset(TreePreset::AspenSmall);
+    let tree = Tree::from_preset(TreePreset::aspen_small()).unwrap();
     let leaves = &tree.mesh().leaves;
     let mesh = leaf_mesh(leaves);
     assert_eq!(mesh.count_vertices(), leaves.vertex_count());
@@ -117,7 +117,7 @@ fn leaf_mesh_puts_the_leaf_tip_at_the_top_of_the_image() {
 
 #[test]
 fn leaf_material_uses_the_supplied_leaf_textures() {
-    let leaves = TreePreset::OakSmall.options().leaves;
+    let leaves = TreePreset::oak_small().tree.leaves.clone();
     let wind = WindParams::default();
 
     // Colour-only textures must leave the material without a normal map.
@@ -145,7 +145,7 @@ fn bark_normal_map_needs_continuous_texture_coordinates() {
         normal: Handle::default(),
         roughness: Handle::default(),
     };
-    let mut bark = TreePreset::OakSmall.options().bark;
+    let mut bark = TreePreset::oak_small().tree.bark.clone();
     let wind = WindParams::default();
 
     bark.uv_mode = BarkUvMode::Mirrored;
@@ -166,7 +166,7 @@ fn bark_normal_map_needs_continuous_texture_coordinates() {
 
 #[test]
 fn average_bark_material_tints_the_average_texture_colour() {
-    let mut bark = TreePreset::OakSmall.options().bark;
+    let mut bark = TreePreset::oak_small().tree.bark.clone();
     let wind = WindParams::default();
     let tint = BarkMaterial::new(&bark).base_color;
     let average = bark_average_color(&bark.kind).unwrap();
@@ -197,7 +197,7 @@ fn average_bark_material_tints_the_average_texture_colour() {
 
 #[test]
 fn leaves_draw_both_sides_and_cut_out_their_shape() {
-    let mut leaves = TreePreset::OakSmall.options().leaves;
+    let mut leaves = TreePreset::oak_small().tree.leaves.clone();
     leaves.alpha_test = 0.4;
 
     leaves.rounded_normals = false;
@@ -218,7 +218,7 @@ fn leaves_draw_both_sides_and_cut_out_their_shape() {
 /// bounds covering the sampled rotations.
 #[test]
 fn billboard_meshes_carry_their_turning_data() {
-    let mut options = TreePreset::Apple.options();
+    let mut options = TreePreset::apple().tree.clone();
     options.bark.flat_shading = true;
     let tree = Tree::new(options).unwrap();
     let mesh = tree.mesh_with_detail(&LodDetail {

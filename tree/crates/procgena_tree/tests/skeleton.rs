@@ -6,9 +6,8 @@ use procgena_tree::{OptionsError, PerLevel, Section, Skeleton, TreeOptions, Tree
 /// Returns labelled settings to grow: every preset, plus the defaults with each
 /// tree type, fewer branching levels, and several seeds.
 fn cases() -> Vec<(String, TreeOptions)> {
-    let mut cases: Vec<(String, TreeOptions)> = TreePreset::ALL
-        .iter()
-        .map(|p| (p.name().to_string(), p.options()))
+    let mut cases: Vec<(String, TreeOptions)> = TreePreset::all()
+        .map(|p| (p.name.to_string(), p.tree.clone()))
         .collect();
     for tree_type in [TreeType::Deciduous, TreeType::Evergreen] {
         for levels in 0..=3 {
@@ -18,7 +17,7 @@ fn cases() -> Vec<(String, TreeOptions)> {
                     ..TreeOptions::default()
                 };
                 options.branch.levels = levels;
-                options.seed = seed;
+                options.default_seed = seed;
                 cases.push((
                     format!("{tree_type:?} levels {levels} seed {seed}"),
                     options,
@@ -208,7 +207,7 @@ fn flatten_levels_off_only_its_own_level() {
 /// changing how many branches and leaves grow; half the amount goes partway.
 #[test]
 fn leaf_flatten_lays_leaves_level_and_face_up() {
-    let options = TreePreset::OakMedium.options();
+    let options = TreePreset::oak_medium().tree.clone();
     let base = Skeleton::generate(&options).unwrap();
     let with_flatten = |amount: f32| {
         let mut flat_options = options.clone();

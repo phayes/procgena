@@ -1,0 +1,53 @@
+# A built-in TreePreset. Copy it, change what you like, and read it
+# with TreePreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Ash Medium
+description: A medium ash with a rounded crown.
+group: Ash
+tree:
+  default_seed: 36330
+  bark:
+    tint: 13552830
+    texture_scale:
+      x: 5.0
+      "y": 5.0
+  branch:
+    angle:
+      "1": 48.0
+      "2": 75.0
+    children:
+      "1": 4
+      "2": 3
+    gnarliness:
+      "0": 0.03
+      "1": 0.25
+      "2": 0.2
+      "3": 0.09
+    length:
+      "0": 4.347
+      "1": 2.714
+      "2": 0.951
+      "3": 0.46
+    radius:
+      "0": 0.2
+      "1": 0.63
+      "2": 0.76
+    sections:
+      "1": 8
+      "2": 6
+      "3": 4
+    segments:
+      "0": 12
+    start:
+      "1": 0.23
+      "2": 0.33
+      "3": 0.0
+    twist:
+      "0": 0.09
+      "1": -0.07
+  leaves:
+    type: ash
+    angle: 55.0
+    count: 16
+    size: 0.267
+    size_variance: 0.72

@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::shape::{Aabb3d, RayCast3d};
 use procgena_specimen::{Specimen, TagFilter};
 
-use super::{PlacedTree, TreeGroveAssets, TreeGroveInstances};
+use super::{PlacedTree, TreeScatterAssets, TreeScatterInstances};
 use crate::spawn::TreeParams;
 
 /// Gives one tree of a grove an entity of its own: an ordinary tree with a
@@ -62,7 +62,7 @@ pub(crate) struct PromotedAs {
 pub(crate) fn sync_promoted_trees(
     mut commands: Commands,
     promoted: Query<(Entity, Ref<PromotedTree>, Option<&PromotedAs>)>,
-    groves: Query<(Ref<TreeGroveInstances>, Ref<TreeGroveAssets>)>,
+    groves: Query<(Ref<TreeScatterInstances>, Ref<TreeScatterAssets>)>,
 ) {
     for (entity, promotion, given) in &promoted {
         let Ok((instances, assets)) = groves.get(promotion.grove) else {
@@ -118,7 +118,7 @@ pub(crate) fn demote_trees(
 
 /// Where a ray hit a grove tree.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GroveHit {
+pub struct TreeScatterHit {
     /// The grove entity.
     pub grove: Entity,
     /// The tree's spot; see [`PlacedTree::id`].
@@ -137,22 +137,22 @@ pub struct GroveHit {
 /// isn't taken into account. Trees whose variant hasn't finished generating
 /// are skipped.
 #[derive(SystemParam)]
-pub struct GroveTrees<'w, 's> {
+pub struct TreeScatterTrees<'w, 's> {
     groves: Query<
         'w,
         's,
         (
             Entity,
-            &'static TreeGroveInstances,
-            &'static TreeGroveAssets,
+            &'static TreeScatterInstances,
+            &'static TreeScatterAssets,
             &'static GlobalTransform,
         ),
     >,
 }
 
-impl GroveTrees<'_, '_> {
+impl TreeScatterTrees<'_, '_> {
     /// The nearest grove tree `ray` hits, if any.
-    pub fn ray_cast(&self, ray: Ray3d) -> Option<GroveHit> {
+    pub fn ray_cast(&self, ray: Ray3d) -> Option<TreeScatterHit> {
         // Trees whose bounding box the ray meets, nearest box first.
         let mut candidates = Vec::new();
         for (grove, instances, assets, transform) in &self.groves {
@@ -170,7 +170,7 @@ impl GroveTrees<'_, '_> {
         candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
 
         // The nearest triangle hit; no farther box can hold a nearer one.
-        let mut nearest: Option<GroveHit> = None;
+        let mut nearest: Option<TreeScatterHit> = None;
         for (entry, grove, tree, assets, world_from_tree) in candidates {
             if nearest.is_some_and(|n| n.distance <= entry) {
                 break;
@@ -182,7 +182,7 @@ impl GroveTrees<'_, '_> {
                 continue;
             };
             if nearest.is_none_or(|n| distance < n.distance) {
-                nearest = Some(GroveHit {
+                nearest = Some(TreeScatterHit {
                     grove,
                     id: tree.id,
                     distance,
@@ -211,7 +211,7 @@ impl GroveTrees<'_, '_> {
 
 /// Each variant's bounds at its nearest detail level, in the tree's own
 /// coordinates, or `None` if it has none yet.
-fn variant_bounds(assets: &TreeGroveAssets) -> Vec<Option<Aabb3d>> {
+fn variant_bounds(assets: &TreeScatterAssets) -> Vec<Option<Aabb3d>> {
     assets
         .variants()
         .iter()

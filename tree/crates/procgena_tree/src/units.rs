@@ -75,26 +75,26 @@ mod tests {
     /// step with the options: a new length setting must be added here and
     /// to `scale_lengths`.
     const SCALED_KEYS: &[&str] = &[
-        "bark.textureScale.x",
+        "bark.texture_scale.x",
         "branch.force.strength",
         "branch.length.0",
         "branch.length.1",
         "branch.length.2",
         "branch.length.3",
         "branch.radius.0",
-        "flowers.cluster.axisLength",
-        "flowers.cluster.stalkLength",
-        "flowers.cluster.stalkRadius",
+        "flowers.cluster.axis_length",
+        "flowers.cluster.stalk_length",
+        "flowers.cluster.stalk_radius",
         "flowers.placement.density",
         "flowers.placement.size",
-        "fruit.cluster.axisLength",
-        "fruit.cluster.stalkLength",
-        "fruit.cluster.stalkRadius",
+        "fruit.cluster.axis_length",
+        "fruit.cluster.stalk_length",
+        "fruit.cluster.stalk_radius",
         "fruit.placement.density",
         "fruit.placement.size",
         "leaves.size",
-        "trellis.cylinderRadius",
-        "trellis.force.maxDistance",
+        "trellis.cylinder_radius",
+        "trellis.force.max_distance",
         "trellis.force.strength",
         "trellis.height",
         "trellis.position.x",
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn scaling_back_restores_the_options() {
-        let original = crate::TreePreset::ALL[0].options();
+        let original = crate::TreePreset::ash_small().tree.clone();
         let mut options = original.clone();
         options.scale_lengths(4.0);
         options.scale_lengths(0.25);

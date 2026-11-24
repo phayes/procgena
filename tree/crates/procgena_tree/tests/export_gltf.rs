@@ -27,7 +27,7 @@ fn read(glb: &[u8]) -> Gltf {
 /// must point toward the top of the image: the direction of decreasing glTF v.
 #[test]
 fn bark_bitangents_point_toward_the_top_of_the_image() {
-    let mut options = TreePreset::OakSmall.options();
+    let mut options = TreePreset::oak_small().tree.clone();
     options.bark.uv_mode = procgena_tree::BarkUvMode::Continuous;
     let tree = Tree::new(options).unwrap();
     let glb = to_glb(
@@ -74,7 +74,7 @@ fn mesh_names(gltf: &Gltf) -> Vec<String> {
 
 #[test]
 fn glb_holds_each_part_with_its_vertex_data() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let glb = to_glb(
         std::slice::from_ref(tree.mesh()),
         tree.options(),
@@ -146,7 +146,7 @@ fn glb_holds_each_part_with_its_vertex_data() {
 
 #[test]
 fn bark_texture_coordinates_include_the_texture_scale() {
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     options.bark.texture_scale.y = 4.0;
     let tree = Tree::new(options).unwrap();
     let glb = to_glb(
@@ -171,7 +171,7 @@ fn bark_texture_coordinates_include_the_texture_scale() {
 
 #[test]
 fn settings_are_stored_in_the_file() {
-    let tree = Tree::from_preset(TreePreset::PineSmall);
+    let tree = Tree::from_preset(TreePreset::pine_small()).unwrap();
     let glb = to_glb(
         std::slice::from_ref(tree.mesh()),
         tree.options(),
@@ -190,13 +190,13 @@ fn settings_are_stored_in_the_file() {
 
     let extras: serde_json::Value =
         serde_json::from_str(asset.extras.as_ref().unwrap().get()).unwrap();
-    let stored = TreeOptions::from_json(&extras["treeOptions"].to_string()).unwrap();
+    let stored: TreeOptions = serde_json::from_value(extras["treeOptions"].clone()).unwrap();
     assert_eq!(&stored, tree.options());
 }
 
 #[test]
 fn skin_matches_the_rig() {
-    let tree = Tree::from_preset(TreePreset::AspenSmall);
+    let tree = Tree::from_preset(TreePreset::aspen_small()).unwrap();
     let rig = tree.rig(&RigOptions::default()).unwrap();
     let options = GltfOptions {
         rig: Some(&rig),
@@ -273,7 +273,7 @@ fn skin_matches_the_rig() {
 
 #[test]
 fn levels_of_detail_get_suffixed_names() {
-    let tree = Tree::from_preset(TreePreset::AshMedium);
+    let tree = Tree::from_preset(TreePreset::ash_medium()).unwrap();
     let rig = tree.rig(&RigOptions::default()).unwrap();
     let meshes: Vec<_> = tree
         .lod_meshes(&default_lod_levels())
@@ -435,7 +435,7 @@ fn billboard_parts_carry_their_tags() {
 
 #[test]
 fn embedded_and_referenced_textures() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let mesh = std::slice::from_ref(tree.mesh());
     let embed = |t: TextureRef<'_>| {
         let format = if t.map == TextureMap::LeafColor {
@@ -528,7 +528,7 @@ fn embedded_and_referenced_textures() {
 /// no normal map, avoiding reversed lighting detail on every other branch section.
 #[test]
 fn mirrored_bark_omits_the_normal_map() {
-    let mut options = TreePreset::OakSmall.options();
+    let mut options = TreePreset::oak_small().tree.clone();
     options.bark.uv_mode = procgena_tree::BarkUvMode::Mirrored;
     let tree = Tree::new(options).unwrap();
     let uri = |t: TextureRef<'_>| Some(format!("textures/{:?}.png", t.map));
@@ -564,7 +564,7 @@ fn mirrored_bark_omits_the_normal_map() {
 /// texture and one tangent per leaf vertex to orient that lighting detail.
 #[test]
 fn leaf_normal_maps_and_tangents() {
-    let mut options = TreePreset::OakSmall.options();
+    let mut options = TreePreset::oak_small().tree.clone();
     options.leaves.kind = "white_oak".to_owned();
     let tree = Tree::new(options).unwrap();
     let uri = |t: TextureRef<'_>| Some(format!("{}:{:?}", t.kind, t.map));
@@ -603,7 +603,7 @@ fn leaf_normal_maps_and_tangents() {
 
 #[test]
 fn gltf_with_separate_binary_file() {
-    let tree = Tree::from_preset(TreePreset::Bush1);
+    let tree = Tree::from_preset(TreePreset::bush_1()).unwrap();
     let files = to_gltf(
         std::slice::from_ref(tree.mesh()),
         tree.options(),
@@ -642,7 +642,7 @@ fn no_meshes_is_an_error() {
 /// a normal for each triangle. Leaf normals and tangents must remain available.
 #[test]
 fn flat_shaded_bark_omits_normals_and_tangents() {
-    let mut options = TreePreset::OakSmall.options();
+    let mut options = TreePreset::oak_small().tree.clone();
     options.bark.flat_shading = true;
     options.bark.uv_mode = procgena_tree::BarkUvMode::Continuous;
     let tree = Tree::new(options).unwrap();
@@ -665,7 +665,7 @@ fn flat_shaded_bark_omits_normals_and_tangents() {
 
 /// Creates a small test tree with fruit, flowers and flat-shaded bark.
 fn fruiting_tree() -> Tree {
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     for (placement, cluster) in [
         (&mut options.fruit.placement, &mut options.fruit.cluster),
         (&mut options.flowers.placement, &mut options.flowers.cluster),
@@ -741,7 +741,7 @@ fn fruit_and_flowers_are_exported_with_their_colours() {
 /// Checks that unused fruit and flower materials are omitted.
 #[test]
 fn trees_without_fruit_get_no_fruit_material() {
-    let tree = Tree::from_preset(TreePreset::OakSmall);
+    let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let glb = to_glb(
         std::slice::from_ref(tree.mesh()),
         tree.options(),

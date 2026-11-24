@@ -219,7 +219,7 @@ fn default_details() -> [LodDetail; 4] {
 fn measure(
     levels: [LodDetail; 4],
     change: impl Fn(usize, &mut TreeMesh),
-) -> Vec<(TreePreset, Scores)> {
+) -> Vec<(&'static TreePreset, Scores)> {
     let directions: Vec<Vec3> = (0..DIRECTIONS)
         .map(|k| {
             let angle = std::f32::consts::TAU * k as f32 / DIRECTIONS as f32;
@@ -228,8 +228,8 @@ fn measure(
         .collect();
 
     let mut all = Vec::new();
-    for preset in TreePreset::ALL {
-        let options = preset.options();
+    for preset in TreePreset::all() {
+        let options = preset.tree.clone();
         let skeleton = Skeleton::generate(&options).unwrap();
         let meshes: Vec<TreeMesh> = levels
             .iter()
@@ -274,12 +274,12 @@ const PRESET_MINIMUM: f32 = 0.7;
 /// Prints every preset's scores and their average, and returns each check
 /// that fails: an average below its minimum, or a preset below
 /// [`PRESET_MINIMUM`].
-fn failures(presets: &[(TreePreset, Scores)]) -> Vec<String> {
+fn failures(presets: &[(&'static TreePreset, Scores)]) -> Vec<String> {
     let mut average = Scores::default();
     for (preset, scores) in presets {
         eprintln!(
             "{:<22} {}",
-            preset.name(),
+            preset.name,
             scores.checks().map(|(_, s, _)| format!("{s:.3}")).join(" ")
         );
         let mut scores = *scores;
@@ -298,7 +298,7 @@ fn failures(presets: &[(TreePreset, Scores)]) -> Vec<String> {
     for (preset, scores) in presets {
         for (name, score, _) in scores.checks() {
             if score < PRESET_MINIMUM {
-                let preset = preset.name();
+                let preset = &preset.name;
                 failed.push(format!(
                     "{preset} {name}: {score:.3} is below {PRESET_MINIMUM}"
                 ));

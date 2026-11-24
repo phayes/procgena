@@ -12,22 +12,19 @@ use procgena_tree::{
 
 #[test]
 fn equal_options_share_a_hash() {
-    for preset in TreePreset::ALL {
-        let a = preset.options();
-        let b = preset.options();
-        assert_eq!(a.options_hash(), b.options_hash(), "{}", preset.name());
-        assert_eq!(a.pool_id(), b.pool_id(), "{}", preset.name());
-        assert_eq!(a.cache_key(), b.cache_key(), "{}", preset.name());
+    for preset in TreePreset::all() {
+        let a = preset.tree.clone();
+        let b = preset.tree.clone();
+        assert_eq!(a.options_hash(), b.options_hash(), "{}", preset.name);
+        assert_eq!(a.pool_id(), b.pool_id(), "{}", preset.name);
+        assert_eq!(a.cache_key(), b.cache_key(), "{}", preset.name);
     }
 }
 
 #[test]
 fn presets_have_distinct_pools() {
-    let pools: HashSet<_> = TreePreset::ALL
-        .iter()
-        .map(|p| p.options().pool_id())
-        .collect();
-    assert_eq!(pools.len(), TreePreset::ALL.len());
+    let pools: HashSet<_> = TreePreset::all().map(|p| p.tree.pool_id()).collect();
+    assert_eq!(pools.len(), TreePreset::all().count());
 }
 
 #[test]
@@ -37,21 +34,18 @@ fn pools_are_tree_pools() {
 
 #[test]
 fn cache_key_matches_its_options() {
-    let tree = Tree::from_preset(TreePreset::AshSmall);
+    let tree = Tree::from_preset(TreePreset::ash_small()).unwrap();
     assert_eq!(tree.cache_key(), tree.options().cache_key());
 }
 
 #[test]
-fn json_round_trip_keeps_the_hash() {
-    for preset in TreePreset::ALL {
-        let options = preset.options();
-        let restored = TreeOptions::from_json(&options.to_json()).unwrap();
-        assert_eq!(
-            options.cache_key(),
-            restored.cache_key(),
-            "{}",
-            preset.name()
-        );
+fn yaml_round_trip_keeps_the_hash() {
+    for preset in TreePreset::all() {
+        let options = &preset.tree;
+        let restored = TreePreset::from_yaml(&preset.key, &preset.to_yaml(None))
+            .unwrap()
+            .tree;
+        assert_eq!(options.cache_key(), restored.cache_key(), "{}", preset.name);
     }
 }
 
@@ -108,13 +102,13 @@ fn every_kind_of_setting_changes_the_hash() {
 fn the_seed_changes_the_key_but_not_the_pool() {
     let a = TreeOptions::default();
     let mut b = a.clone();
-    b.seed += 1;
+    b.default_seed += 1;
     assert_eq!(a.options_hash(), b.options_hash());
     assert_eq!(a.pool_id(), b.pool_id());
     assert_ne!(a.cache_key(), b.cache_key());
     assert_ne!(
-        a.specimen_id(a.seed as u32, 0).seed(),
-        b.specimen_id(b.seed as u32, 0).seed()
+        a.specimen_id(a.default_seed as u32, 0).seed(),
+        b.specimen_id(b.default_seed as u32, 0).seed()
     );
 }
 
@@ -122,11 +116,11 @@ fn the_seed_changes_the_key_but_not_the_pool() {
 #[test]
 fn negative_seeds_have_their_own_key() {
     let a = TreeOptions {
-        seed: 5,
+        default_seed: 5,
         ..TreeOptions::default()
     };
     let mut b = a.clone();
-    b.seed = -5;
+    b.default_seed = -5;
     assert_ne!(a.cache_key(), b.cache_key());
     assert_ne!(a.cache_key().value(), b.cache_key().value());
 }

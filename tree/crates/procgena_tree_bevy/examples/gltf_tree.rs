@@ -77,7 +77,7 @@ fn main() {
 /// Saves an Apple tree at the lowest default detail level and returns its GLB path.
 /// Panics if exporting or writing the file fails.
 fn export_apple() -> PathBuf {
-    let tree = Tree::from_preset(TreePreset::Apple);
+    let tree = Tree::from_preset(TreePreset::apple()).expect("the Apple preset is valid");
     let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
     let bytes = to_glb(
         std::slice::from_ref(&mesh),

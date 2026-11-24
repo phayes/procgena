@@ -299,7 +299,8 @@ fn build(
     };
 
     // Preserve generation settings alongside the exporter name and version.
-    let extras = format!("{{\"treeOptions\":{}}}", options.to_json());
+    let options_json = serde_json::to_string(options).map_err(GltfError::Json)?;
+    let extras = format!("{{\"treeOptions\":{options_json}}}");
     b.root.asset = json::Asset {
         generator: Some(format!("procgena_tree {}", env!("CARGO_PKG_VERSION"))),
         extras: Some(RawValue::from_string(extras).map_err(GltfError::Json)?),

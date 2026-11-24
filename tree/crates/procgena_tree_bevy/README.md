@@ -28,7 +28,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(TreeParams::preset(TreePreset::OakSmall));
+    commands.spawn(TreeParams::preset(TreePreset::oak_small()));
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(3.5, 2.5, 5.5)
@@ -93,8 +93,8 @@ use procgena_tree_bevy::TreeParams;
 
 fn plant_trees(mut commands: Commands) {
     for i in 0..5 {
-        let mut options = TreePreset::OakSmall.options();
-        options.seed = i;
+        let mut options = TreePreset::oak_small().tree.clone();
+        options.default_seed = i;
         options.branch.length[0] = 12.0; // Trunk length.
 
         commands.spawn((
@@ -109,16 +109,17 @@ The same options and seed produce the same shape. Changing a tree's `TreeParams`
 component rebuilds its generated parts; removing the component removes those
 children. Moving the parent entity moves the whole tree.
 
-## Load settings from JSON
+## Load a preset file
 
-Save full or partial ez-tree settings to `assets/trees/oak.tree.json`. Missing
-fields use defaults. For example:
+Save a tree preset to `assets/trees/oak.tree.yml`. It names a built-in preset
+as its `base` and gives only the settings that differ. For example:
 
-```json
-{
-  "seed": 42,
-  "branch": { "length": { "0": 12.0 } }
-}
+```yaml
+base: oak_small
+tree:
+  default_seed: 42
+  branch:
+    length: { "0": 12.0 }
 ```
 
 Load the file through Bevy's asset server in a startup system:
@@ -129,30 +130,31 @@ use procgena_tree_bevy::TreeParams;
 
 fn load_tree(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
-        TreeParams::Asset(asset_server.load("trees/oak.tree.json")),
+        TreeParams::Asset(asset_server.load("trees/oak.tree.yml")),
         Transform::from_xyz(20.0, 0.0, 0.0),
     ));
 }
 ```
 
-The filename must end in `.tree.json`. The tree waits for the asset to load,
+The filename must end in `.tree.yml`; the name before that is the preset's
+key. A file with an invalid setting fails to load. The tree waits for the asset to load,
 then generates in the background. It rebuilds when Bevy reports that the asset
 has changed; detecting live file edits requires Bevy asset watching to be enabled.
 
 ## Plant a grove
 
-Spawn a `TreeGroveParams` to spread a mix of trees over the ground around an
-entity. Start from a grove preset, or build a `procgena_tree::TreeGrove` of
-your own:
+Spawn a `TreeScatterParams` to spread a mix of trees over the ground around an
+entity. Start from a `procgena_tree::TreeScatterPreset`, or build a
+`procgena_tree::TreeScatter` of your own:
 
 ```no_run
 use bevy::prelude::*;
-use procgena_tree::GrovePreset;
-use procgena_tree_bevy::TreeGroveParams;
+use procgena_tree::TreeScatterPreset;
+use procgena_tree_bevy::TreeScatterParams;
 
 fn plant_grove(mut commands: Commands) {
     commands.spawn((
-        TreeGroveParams::preset(GrovePreset::OakWoodland, Vec2::new(60.0, 40.0)),
+        TreeScatterParams::preset(TreeScatterPreset::oak_woodland(), Vec2::new(60.0, 40.0)),
         Transform::from_xyz(0.0, 0.0, -30.0),
     ));
 }
@@ -163,16 +165,16 @@ grove can hold thousands of trees (up to 20,000). Trees of the same species
 and shape variant share meshes and materials, so even a large grove generates
 only a handful of meshes. The grove entity gets:
 
-- `TreeGroveInstances`: every tree's species, shape variant, spot id and
+- `TreeScatterInstances`: every tree's species, shape variant, spot id and
   transform;
-- `TreeGroveAssets`: each variant's meshes, materials and tagged specimen;
-- `TreeGroveStats`: the tree count, and vertices and triangles per detail
+- `TreeScatterAssets`: each variant's meshes, materials and tagged specimen;
+- `TreeScatterStats`: the tree count, and vertices and triangles per detail
   level.
 
 Change the component to change the grove. Only the trees that appear,
 disappear or change are affected, so lowering the density leaves the
-remaining trees exactly as they were. The grove has a `TreeGroveGenerating`
-component until every tree is ready, and `TreeGroveFinished` is triggered on
+remaining trees exactly as they were. The grove has a `TreeScatterGenerating`
+component until every tree is ready, and `TreeScatterFinished` is triggered on
 it when the build ends, with an error if the grove could not be built.
 
 ### Promote single trees
@@ -186,13 +188,13 @@ commands.spawn((PromotedTree::new(grove, tree.id), MyCollider));
 
 The entity becomes an ordinary tree, drawn exactly like the grove's copy,
 which stops drawing it. Despawn the entity to give the tree back.
-`GroveTrees` finds trees near a point (`within`) or under a ray
-(`ray_cast`). The `grove_promote` example promotes the trees near the camera,
+`TreeScatterTrees` finds trees near a point (`within`) or under a ray
+(`ray_cast`). The `scatter_promote` example promotes the trees near the camera,
 or the tree you click:
 
 ```sh
-cargo run -p procgena_tree_bevy --example grove_promote -- --mode distance
-cargo run -p procgena_tree_bevy --example grove_promote -- --mode click
+cargo run -p procgena_tree_bevy --example scatter_promote -- --mode distance
+cargo run -p procgena_tree_bevy --example scatter_promote -- --mode click
 ```
 
 To stand the trees on terrain or another generated surface, spawn the grove as
@@ -202,12 +204,12 @@ as ground:
 ```no_run
 use bevy::prelude::*;
 use procgena_specimen::{TagFilter, tags};
-use procgena_tree::GrovePreset;
-use procgena_tree_bevy::TreeGroveParams;
+use procgena_tree::TreeScatterPreset;
+use procgena_tree_bevy::TreeScatterParams;
 
 fn plant_on(terrain: Entity, mut commands: Commands) {
     commands.spawn((
-        TreeGroveParams::preset(GrovePreset::PineStand, Vec2::splat(50.0))
+        TreeScatterParams::preset(TreeScatterPreset::pine_stand(), Vec2::splat(50.0))
             .on_host(TagFilter::any_of([tags::GROUND]), 0.5),
         ChildOf(terrain),
     ));
@@ -217,26 +219,29 @@ fn plant_on(terrain: Entity, mut commands: Commands) {
 The ground is sampled every 0.5 m here. Trees are left out where the host has
 no surface or the slope is too steep.
 
-Groves also load from files. Save a grove as `assets/groves/woods.grove.json`
-(see [the grove guide](../../docs/groves.md) for the format), and load it with
-`GroveSource::Asset`:
+Groves also load from files. Save a tree Scatter preset as
+`assets/scatters/woods.tree_scatter.yml` (see
+[the tree Scatter guide](../../docs/scatters.md) for the format), and load it
+with `TreeScatterSource::Asset`:
 
 ```no_run
 use bevy::prelude::*;
-use procgena_tree_bevy::{GroveGround, GroveSource, TreeGroveParams};
+use procgena_tree_bevy::{TreeScatterGround, TreeScatterParams, TreeScatterSource};
 
 fn load_grove(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn(TreeGroveParams {
-        grove: GroveSource::Asset(asset_server.load("groves/woods.grove.json")),
+    commands.spawn(TreeScatterParams {
+        tree_scatter: TreeScatterSource::Asset(
+            asset_server.load("scatters/woods.tree_scatter.yml"),
+        ),
         size: Vec2::splat(80.0),
-        ground: GroveGround::Flat,
+        ground: TreeScatterGround::Flat,
     });
 }
 ```
 
-The filename must end in `.grove.json`. A file with an invalid setting fails
-to load. The grove updates when the file changes if Bevy is watching asset
-files.
+The filename must end in `.tree_scatter.yml`. A file with an invalid setting
+fails to load. The grove updates when the file changes if Bevy is watching
+asset files.
 
 ## Control wind
 
@@ -334,13 +339,13 @@ See the top of `examples/viewer.rs` for all available options.
 To try groves, run:
 
 ```sh
-cargo run -p procgena_tree_bevy --example grove -- --textures
+cargo run -p procgena_tree_bevy --example scatter -- --textures
 ```
 
-Press Left/Right to switch grove presets, Up/Down to make the grove denser or
-sparser, and F to switch between flat ground and hills. Leave out `--textures`
-to use plain colours instead of the downloaded bark and leaf textures. See the
-top of `examples/grove.rs` for all options.
+Press Left/Right to switch tree Scatter presets, Up/Down to make the grove
+denser or sparser, and F to switch between flat ground and hills. Leave out
+`--textures` to use plain colours instead of the downloaded bark and leaf
+textures. See the top of `examples/scatter.rs` for all options.
 
 ## Build your own entities
 

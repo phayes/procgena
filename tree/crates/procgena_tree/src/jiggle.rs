@@ -33,7 +33,7 @@ impl TreeOptions {
             "jiggle amount must be between 0 and 1, got {amount}"
         );
         // Pick a seed to vary where branches and leaves grow.
-        self.seed = rng.next_u32() as i32;
+        self.default_seed = rng.next_u32() as i32;
 
         let mut scale = |value: f32| value * (1.0 + rng.range(-amount, amount));
 

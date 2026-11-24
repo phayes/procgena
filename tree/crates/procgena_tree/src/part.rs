@@ -246,7 +246,7 @@ mod tests {
     use crate::{LodDetail, Skeleton, TreeOptions, TreePreset};
 
     fn mesh() -> TreeMesh {
-        let options = TreePreset::OakMedium.options();
+        let options = TreePreset::oak_medium().tree.clone();
         Skeleton::generate(&options)
             .unwrap()
             .mesh(&options, &LodDetail::default())

@@ -14,19 +14,20 @@
 //! ```rust
 //! use procgena_tree::{Tree, TreePreset};
 //!
-//! let tree = Tree::from_preset(TreePreset::OakSmall);
+//! let tree = Tree::from_preset(TreePreset::oak_small())?;
 //! let mesh = tree.mesh();
 //!
 //! println!("{} triangles", tree.triangle_count());
 //! println!("{} bark vertices", mesh.branches.positions.len());
 //! println!("{} leaf vertices", mesh.leaves.positions.len());
+//! # Ok::<(), procgena_tree::OptionsError>(())
 //! ```
 //!
 //! `mesh.branches` and `mesh.leaves` contain positions, normals, texture coordinates,
 //! and triangle indices. Upload these buffers to your renderer and give each mesh
 //! its own material. Presets include ash, aspen, oak, pine, bushes, a tree trained
 //! along a trellis, and flowering and fruiting trees such as apple and flowering
-//! dogwood. `TreePreset::ALL` lists them all.
+//! dogwood. `TreePreset::all()` lists them all.
 //!
 //! ## Customize the shape
 //!
@@ -37,8 +38,8 @@
 //! use procgena_tree::{Tree, TreePreset};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut options = TreePreset::OakSmall.options();
-//!     options.seed = 42;
+//!     let mut options = TreePreset::oak_small().tree.clone();
+//!     options.default_seed = 42;
 //!     options.branch.length[0] = 1.2; // Trunk length, in metres.
 //!     options.leaves.size = 0.15;
 //!
@@ -53,33 +54,38 @@
 //! `Tree::new` checks branch depth and section counts; it does not validate every
 //! numeric setting, so use sensible dimensions and counts.
 //!
-//! ## Load and save JSON
+//! ## Load and save preset files
 //!
-//! Load full settings or a partial JSON object, using ez-tree's field names.
-//! Missing fields, including nested fields, use defaults. Lengths are in metres,
-//! so ez-tree's own files, which use a unit of about 10 cm, give trees 10 times
-//! too large. An ez-tree file grows a tree of the same kind, but not the same
-//! shape as in ez-tree, since the random numbers differ. JSON support is always
-//! enabled.
+//! A `.tree.yml` file names a built-in preset as its `base` and gives only the
+//! settings that differ, using ez-tree's settings in snake case. Lengths are in
+//! metres. Settings under the `tree` key merge into the base's, so nested
+//! settings may be partial; lists replace the base's list whole.
 //!
 //! ```rust
-//! use procgena_tree::Tree;
+//! use procgena_tree::{Tree, TreePreset};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let tree = Tree::from_json(r#"{
-//!         "seed": 42,
-//!         "branch": { "length": { "0": 1.2 } }
-//!     }"#)?;
+//!     let preset = TreePreset::from_yaml(
+//!         "tall_oak",
+//!         "base: oak_small\n\
+//!          name: Tall oak\n\
+//!          tree:\n  \
+//!            default_seed: 42\n  \
+//!            branch:\n    \
+//!              length: { \"0\": 1.2 }\n",
+//!     )?;
+//!     let tree = Tree::from_preset(&preset)?;
 //!
-//!     let json = tree.options().to_json();
-//!     let restored = Tree::from_json(&json)?;
-//!     assert_eq!(tree, restored);
+//!     // Write it back, as only what differs from the base.
+//!     let text = preset.to_yaml(Some(TreePreset::oak_small()));
+//!     assert_eq!(TreePreset::from_yaml("tall_oak", &text)?, preset);
+//!     assert_eq!(tree.options(), &preset.tree);
 //!     Ok(())
 //! }
 //! ```
 //!
-//! Use `TreeOptions::from_json` if you only need settings. Unlike this helper,
-//! deserializing `TreeOptions` directly with serde requires every field.
+//! The crate's `presets` folder holds every built-in preset as a file to copy
+//! from. Deserializing `TreeOptions` directly with serde requires every field.
 //!
 //! ## Create simpler meshes
 //!
@@ -89,7 +95,7 @@
 //! ```rust
 //! use procgena_tree::{Tree, TreePreset, default_lod};
 //!
-//! let tree = Tree::from_preset(TreePreset::AshSmall);
+//! let tree = Tree::from_preset(TreePreset::ash_small())?;
 //! for (level, mesh) in tree.lod_meshes(&default_lod().levels) {
 //!     println!(
 //!         "From distance {}: {} triangles",
@@ -97,6 +103,7 @@
 //!         mesh.triangle_count(),
 //!     );
 //! }
+//! # Ok::<(), procgena_tree::OptionsError>(())
 //! ```
 //!
 //! The four default levels use progressively simpler meshes at distances of 0, 10,
@@ -127,7 +134,7 @@
 //! use procgena_tree::export::gltf::{GltfOptions, to_glb};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let tree = Tree::from_preset(TreePreset::PineSmall);
+//!     let tree = Tree::from_preset(TreePreset::pine_small())?;
 //!     let bytes = to_glb(
 //!         std::slice::from_ref(tree.mesh()),
 //!         tree.options(),
@@ -194,62 +201,66 @@
 //! `BranchGrouping::parts` and `TreeMesh::part` let you extract separate tree parts.
 //! `TrellisOptions::wires` and `TrellisMaterial` describe the optional support wires.
 //!
-//! ## Plant a grove
+//! ## Scatter trees: groves and woodlands
 //!
-//! A [`TreeGrove`] mixes several species over a stretch of ground, like a plant
-//! field for trees. Each species is a [`GroveTree`] with its own density in trees
-//! per hectare, the spacing it keeps from its neighbours, and how much it gathers
-//! into stands. [`GrovePlacement::new`] lays the grove out over a [`ScatterInput`]
-//! (ground, area, seed and an optional mask) and returns one [`GroveInstance`] per
+//! A [`TreeScatter`] mixes several species over a stretch of ground. Each
+//! species is a [`ScatterTree`] with its own density in trees per hectare, the
+//! spacing it keeps from its neighbours, and how much it gathers into stands.
+//! [`TreeScatterPlacement::new`] lays the Scatter out over a [`ScatterInput`]
+//! (ground, area, seed and an optional mask) and returns one [`TreeCopy`] per
 //! tree:
 //!
 //! ```rust
 //! use glam::{DVec2, Vec2};
 //! use procgena_tree::{
-//!     FlatGround, GrovePlacement, GrovePreset, GroveTree, ScatterArea, ScatterInput, TreePreset,
+//!     FlatGround, ScatterArea, ScatterInput, ScatterTree, TreePreset, TreeScatterPlacement,
+//!     TreeScatterPreset,
 //! };
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Start from a preset and add a few clumps of bushes.
-//!     let mut grove = GrovePreset::OakWoodland.grove();
-//!     grove.trees.insert(0, GroveTree::new(TreePreset::Bush2).scaled(0.05).clustered(0.7));
+//!     let mut scatter = TreeScatterPreset::oak_woodland().tree_scatter.clone();
+//!     scatter.trees.insert(0, ScatterTree::new(TreePreset::bush_2()).scaled(0.05).clustered(0.7));
 //!
-//!     // A 40 m square around the World origin, placed with the grove's own seed.
+//!     // A 40 m square around the World origin, placed with the Scatter's own seed.
 //!     let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(40.0));
-//!     let input = ScatterInput::new(&FlatGround, area, grove.seed);
-//!     let placement = GrovePlacement::new(&grove, &input)?;
-//!     for instance in placement.instances() {
-//!         // Build each variant's mesh once and draw it at every instance.
-//!         let _options = grove.trees[instance.tree].variant(instance.variant);
-//!         let _transform = instance.transform;
+//!     let input = ScatterInput::new(&FlatGround, area, scatter.default_seed);
+//!     let placement = TreeScatterPlacement::new(&scatter, &input)?;
+//!     for copy in placement.instances() {
+//!         // Build each variant's mesh once and draw it at every copy.
+//!         let _options = scatter.trees[copy.tree].variant(copy.variant);
+//!         let _transform = copy.transform;
 //!     }
 //!     Ok(())
 //! }
 //! ```
 //!
-//! Each species is drawn from a few shape variants ([`GroveTree::variants`]), so a
-//! grove of hundreds of trees needs only a handful of meshes. Lowering the grove's
+//! Each species is drawn from a few shape variants ([`ScatterTree::variants`]), so
+//! a Scatter of hundreds of trees needs only a handful of meshes. Lowering its
 //! density only removes trees, and raising it only adds them; the others stay where
 //! they were. Ground is any [`Ground`]: [`FlatGround`], a closure taking a World
 //! position (`DVec2`), or a [`HeightGrid`] sampled from another generator's
 //! specimen.
 //!
-//! Groves are saved as `.grove.json` files with [`TreeGrove::to_json`] and read
-//! with [`TreeGrove::from_json`]. A file may name a [`GrovePreset`] as its `base`
-//! and list only what differs:
+//! Scatters are saved as `.tree_scatter.yml` files with
+//! [`TreeScatterPreset::to_yaml`] and read with [`TreeScatterPreset::from_yaml`].
+//! A file may name a [`TreeScatterPreset`] as its `base` and list only what
+//! differs. Its `trees` list replaces the base's whole:
 //!
 //! ```rust
-//! use procgena_tree::TreeGrove;
+//! use procgena_tree::TreeScatterPreset;
 //!
-//! let grove = TreeGrove::from_json(r#"{
-//!     "base": "pine_stand",
-//!     "densityScale": 0.5,
-//!     "trees": [
-//!         { "tree": "cedar", "densityScale": 0.2, "clustering": 0.5 },
-//!         { "tree": { "base": "pine_medium", "seed": 9 }, "densityScale": 0.6 }
-//!     ]
-//! }"#).unwrap();
-//! assert_eq!(grove.trees.len(), 2);
+//! let preset = TreeScatterPreset::from_yaml(
+//!     "pine_and_cedar",
+//!     "base: pine_stand\n\
+//!      tree_scatter:\n  \
+//!        density_scale: 0.5\n  \
+//!        trees:\n    \
+//!          - { tree: cedar, density_scale: 0.2, clustering: 0.5 }\n    \
+//!          - { tree: { base: pine_medium, default_seed: 9 }, density_scale: 0.6 }\n",
+//! )
+//! .unwrap();
+//! assert_eq!(preset.tree_scatter.trees.len(), 2);
 //! ```
 //!
 //! ## Bevy integration
@@ -264,7 +275,6 @@ mod cluster_mesh;
 mod content_hash;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
-mod grove;
 mod jiggle;
 mod material;
 mod mesh;
@@ -272,6 +282,7 @@ mod options;
 mod part;
 mod presets;
 mod rig;
+mod scatter;
 mod skeleton;
 mod specimen;
 mod tree;
@@ -281,11 +292,6 @@ mod wind;
 
 pub use cluster::{ClusterItem, ClusterStalk, SkeletonCluster};
 pub use content_hash::{TREE_KIND, TreeCacheKey};
-pub use grove::{
-    GroveError, GroveFileError, GroveInstance, GrovePlacement, GrovePreset, GroveTree,
-    GroveVariation, MAX_GROVE_INSTANCES, MAX_GROVE_SIZE, MAX_GROVE_TREES, MAX_GROVE_VARIANTS,
-    TreeGrove,
-};
 pub use material::{
     BARK_KINDS, BarkMap, BarkMaterial, FlowerMaterial, FruitMaterial, LEAF_KINDS, LeafMap,
     LeafMaterial, TextureCompression, TextureSize, TrellisMaterial, bark_average_color,
@@ -302,11 +308,17 @@ pub use options::{
     MAX_LEVELS, OptionsError, PerLevel, TreeOptions, TreeType, TrellisForce, TrellisOptions,
 };
 pub use part::{BranchGrouping, MeshPart, PartMesh};
-pub use presets::TreePreset;
+pub use presets::{TreePreset, TreeStand};
+pub use procgena_core::preset::PresetFileError;
 pub use procgena_core::scatter::{Mask, Placement, Rest, ScatterArea, ScatterInput};
 pub use procgena_core::{FlatGround, Ground, HeightGrid};
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
+pub use scatter::{
+    MAX_SCATTER_COPIES, MAX_SCATTER_SIZE, MAX_SCATTER_TREES, MAX_SCATTER_VARIANTS, ScatterTree,
+    TreeCopy, TreeScatter, TreeScatterError, TreeScatterPlacement, TreeScatterPreset,
+    TreeScatterVariation,
+};
 pub use skeleton::{Attachment, Section, Skeleton, SkeletonBranch, SkeletonLeaf};
-pub use tree::{Tree, TreeError};
+pub use tree::Tree;
 pub use trellis::{TrellisPull, TrellisWire};
 pub use wind::{WIND_WESL, WindParams};

@@ -14,10 +14,9 @@ use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
     BranchShape, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
-    TreeCacheKey, TreeError, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod,
+    TreeCacheKey, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod,
 };
 
-use crate::grove::PreparedTrees;
 use crate::impostor::{ImpostorShown, TreeImpostorAssets};
 use crate::material::{
     BarkTextures, LeafTextures, TreeMaterial, average_bark_material, bark_material,
@@ -25,6 +24,7 @@ use crate::material::{
 };
 use crate::material_key::{BarkKey, LeafKey, TrellisKey};
 use crate::mesh::{bark_mesh, billboard_aabb, cluster_mesh, leaf_mesh};
+use crate::scatter::PreparedTrees;
 use crate::wind::Wind;
 
 /// A generated tree positioned by this entity's transform.
@@ -42,10 +42,10 @@ use crate::wind::Wind;
 pub enum TreeParams {
     /// Generate from options supplied in memory. Use [`TreeParams::new`] to wrap owned options.
     Options(Arc<TreeOptions>),
-    /// Load options from an ez-tree JSON file with a `.tree.json` extension.
+    /// Load a preset from a `.tree.yml` file and build its options.
     /// The tree waits for the asset to load and rebuilds when Bevy reports it modified.
     /// Live file edits require Bevy asset watching to be enabled.
-    Asset(Handle<TreeOptionsAsset>),
+    Asset(Handle<TreePresetAsset>),
 }
 
 impl TreeParams {
@@ -54,18 +54,20 @@ impl TreeParams {
         Self::Options(Arc::new(options))
     }
 
-    /// Creates a tree component using the settings of a built-in preset.
-    pub fn preset(preset: TreePreset) -> Self {
-        Self::new(preset.options())
+    /// Creates a tree component using the settings of a preset.
+    pub fn preset(preset: &TreePreset) -> Self {
+        Self::new(preset.tree.clone())
     }
 }
 
-/// Tree settings loaded from an ez-tree `.tree.json` file for [`TreeParams::Asset`].
+/// A tree preset loaded from a `.tree.yml` file for [`TreeParams::Asset`].
 ///
-/// Omitted JSON fields use their defaults. The loader validates the settings
-/// before making the asset available.
+/// The file names a built-in preset as its `base` and gives only what
+/// differs; see [`TreePreset::from_yaml`]. Its key is the file name without
+/// `.tree.yml`. The loader checks the settings before making the asset
+/// available.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
-pub struct TreeOptionsAsset(pub TreeOptions);
+pub struct TreePresetAsset(pub TreePreset);
 
 /// Identifies a generated child entity that draws one part of a [`TreeParams`].
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,12 +96,12 @@ pub enum TreePartKind {
     Impostor,
 }
 
-/// Reads and validates ez-tree JSON files with the `.tree.json` extension.
+/// Reads and checks tree preset files with the `.tree.yml` extension.
 #[derive(Debug, Default, TypePath)]
-pub(crate) struct TreeOptionsLoader;
+pub(crate) struct TreePresetLoader;
 
-impl AssetLoader for TreeOptionsLoader {
-    type Asset = TreeOptionsAsset;
+impl AssetLoader for TreePresetLoader {
+    type Asset = TreePresetAsset;
     type Settings = ();
     type Error = BevyError;
 
@@ -107,18 +109,23 @@ impl AssetLoader for TreeOptionsLoader {
         &self,
         reader: &mut dyn Reader,
         _settings: &(),
-        _context: &mut LoadContext<'_>,
-    ) -> Result<TreeOptionsAsset, BevyError> {
+        context: &mut LoadContext<'_>,
+    ) -> Result<TreePresetAsset, BevyError> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let options =
-            TreeOptions::from_json(std::str::from_utf8(&bytes)?).map_err(TreeError::Json)?;
-        options.validate().map_err(TreeError::Options)?;
-        Ok(TreeOptionsAsset(options))
+        let file_name = context
+            .path()
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let key = file_name.strip_suffix(".tree.yml").unwrap_or(file_name);
+        let preset = TreePreset::from_yaml(key, std::str::from_utf8(&bytes)?)?;
+        Ok(TreePresetAsset(preset))
     }
 
     fn extensions(&self) -> &[&str] {
-        &["tree.json"]
+        &["tree.yml"]
     }
 }
 
@@ -252,7 +259,7 @@ pub(crate) struct HeldTreeKeys(pub(crate) Vec<TreeKey>);
 /// The plugin adds this whenever a tree is spawned or its [`TreeParams`] changes,
 /// and removes it once the tree's parts have been spawned or generation has
 /// failed. A [`TreeFinished`] event is triggered at the same moment. While a
-/// `.tree.json` asset has not loaded yet, the marker stays on.
+/// `.tree.yml` asset has not loaded yet, the marker stays on.
 #[derive(Component, Debug, Default)]
 pub struct TreeGenerating;
 
@@ -509,9 +516,9 @@ pub(crate) fn reset_changed_trees(
     }
 }
 
-/// Marks trees for rebuilding when Bevy reports a change to their options asset.
+/// Marks trees for rebuilding when Bevy reports a change to their preset asset.
 pub(crate) fn reload_modified_options(
-    mut events: MessageReader<AssetEvent<TreeOptionsAsset>>,
+    mut events: MessageReader<AssetEvent<TreePresetAsset>>,
     mut trees: Query<&mut TreeParams>,
 ) {
     for event in events.read() {
@@ -533,7 +540,7 @@ type AwaitingKey = (With<TreeGenerating>, Without<TreeKey>);
 pub(crate) fn start_generation(
     mut commands: Commands,
     waiting: Query<(Entity, &TreeParams), AwaitingKey>,
-    options_assets: Res<Assets<TreeOptionsAsset>>,
+    options_assets: Res<Assets<TreePresetAsset>>,
     settings: Res<SpawnSettings>,
     mut cache: ResMut<TreeCache>,
 ) {
@@ -541,7 +548,7 @@ pub(crate) fn start_generation(
         let options = match tree {
             TreeParams::Options(options) => options.clone(),
             TreeParams::Asset(handle) => match options_assets.get(handle) {
-                Some(asset) => Arc::new(asset.0.clone()),
+                Some(asset) => Arc::new(asset.0.tree.clone()),
                 None => continue,
             },
         };
@@ -920,7 +927,7 @@ mod tests {
             .init_asset::<Image>()
             .init_asset::<StandardMaterial>()
             .init_asset::<TreeMaterial>()
-            .init_asset::<TreeOptionsAsset>()
+            .init_asset::<TreePresetAsset>()
             .init_resource::<Wind>()
             .init_resource::<TreeCache>()
             .init_resource::<Finished>()
@@ -971,7 +978,7 @@ mod tests {
         let mut app = spawn_app();
         let tree = app
             .world_mut()
-            .spawn(TreeParams::preset(TreePreset::OakSmall))
+            .spawn(TreeParams::preset(TreePreset::oak_small()))
             .id();
 
         app.update();
@@ -995,8 +1002,8 @@ mod tests {
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(()), Ok(())]);
 
         // New options generate again.
-        let mut options = TreePreset::OakSmall.options();
-        options.seed += 1;
+        let mut options = TreePreset::oak_small().tree.clone();
+        options.default_seed += 1;
         *app.world_mut().get_mut::<TreeParams>(tree).unwrap() = TreeParams::new(options);
         app.update();
         assert!(app.world().entity(tree).contains::<TreeGenerating>());
@@ -1009,7 +1016,7 @@ mod tests {
         let mut app = spawn_app();
         let tree = app
             .world_mut()
-            .spawn(TreeParams::preset(TreePreset::OakSmall))
+            .spawn(TreeParams::preset(TreePreset::oak_small()))
             .id();
         app.update();
         assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
@@ -1017,15 +1024,15 @@ mod tests {
         // The specimen arrives with the parts and matches the configured level.
         update_until_finished(&mut app, tree);
         let expected = {
-            let tree = procgena_tree::Tree::from_preset(TreePreset::OakSmall);
+            let tree = procgena_tree::Tree::from_preset(TreePreset::oak_small()).unwrap();
             tree.specimen(&tree.lod_meshes(&[LodLevel::new(0.0, 0.0, LodDetail::default())]))
         };
         let specimen = app.world().get::<GeneratedSpecimen>(tree).unwrap();
         assert_eq!(*specimen.0, expected);
 
         // Changing the options removes the stale specimen until the rebuild ends.
-        let mut options = TreePreset::OakSmall.options();
-        options.seed += 1;
+        let mut options = TreePreset::oak_small().tree.clone();
+        options.default_seed += 1;
         *app.world_mut().get_mut::<TreeParams>(tree).unwrap() = TreeParams::new(options);
         app.update();
         assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
@@ -1045,7 +1052,7 @@ mod tests {
         let mut app = spawn_app_with(default_tree_lod());
         let tree = app
             .world_mut()
-            .spawn(TreeParams::preset(TreePreset::OakSmall))
+            .spawn(TreeParams::preset(TreePreset::oak_small()))
             .id();
         update_until_finished(&mut app, tree);
 
@@ -1077,7 +1084,7 @@ mod tests {
         let mut app = spawn_app_with(default_tree_lod());
         let tree = app
             .world_mut()
-            .spawn(TreeParams::preset(TreePreset::Apple))
+            .spawn(TreeParams::preset(TreePreset::apple()))
             .id();
         update_until_finished(&mut app, tree);
 
@@ -1129,7 +1136,7 @@ mod tests {
         let near_and_farthest = vec![leaf_image(&levels[0]), leaf_image(&levels[3])];
         let mut app = spawn_app_with(Lod::new(LOD_REFERENCE_SIZE, near_and_farthest));
         app.world_mut().resource_mut::<SpawnSettings>().texture_root = Some("textures".into());
-        let mut options = TreePreset::OakSmall.options();
+        let mut options = TreePreset::oak_small().tree.clone();
         options.leaves.kind = "white_oak".to_owned();
         assert!(procgena_tree::leaf_has_normal_map(&options.leaves.kind));
         let tree = app.world_mut().spawn(TreeParams::new(options)).id();
@@ -1178,13 +1185,13 @@ mod tests {
             update_until_finished(app, tree);
             tree
         };
-        let oak = TreePreset::OakSmall.options();
+        let oak = TreePreset::oak_small().tree.clone();
 
         // Changing the random seed varies tree shape while preserving the
         // shared bark and leaf materials.
         let first = spawn(&mut app, oak.clone());
         let reseeded = TreeOptions {
-            seed: oak.seed + 1,
+            default_seed: oak.default_seed + 1,
             ..oak.clone()
         };
         let second = spawn(&mut app, reseeded);
@@ -1222,9 +1229,57 @@ mod tests {
     }
 
     #[test]
+    fn preset_files_load_partial_options() {
+        // Write a partial settings file into a fresh asset folder.
+        let dir =
+            std::env::temp_dir().join(format!("procgena_tree_bevy_assets_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("tall.tree.yml"),
+            "base: oak_small\ntree:\n  default_seed: 9\n  branch:\n    levels: 2\n",
+        )
+        .unwrap();
+
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin {
+                file_path: dir.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<TreePresetAsset>()
+        .register_asset_loader(TreePresetLoader);
+        let handle = app
+            .world()
+            .resource::<AssetServer>()
+            .load::<TreePresetAsset>("tall.tree.yml");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !app
+            .world()
+            .resource::<Assets<TreePresetAsset>>()
+            .contains(&handle)
+        {
+            assert!(Instant::now() < deadline, "the preset file did not load");
+            std::thread::sleep(Duration::from_millis(1));
+            app.update();
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        // Omitted settings keep the base's.
+        let mut expected = TreePreset::oak_small().tree.clone();
+        expected.default_seed = 9;
+        expected.branch.levels = 2;
+        let assets = app.world().resource::<Assets<TreePresetAsset>>();
+        let preset = &assets.get(&handle).unwrap().0;
+        assert_eq!(preset.tree, expected);
+        assert_eq!(preset.key, "tall");
+    }
+
+    #[test]
     fn rejected_options_finish_with_their_error() {
         let mut app = spawn_app();
-        let mut options = TreePreset::OakSmall.options();
+        let mut options = TreePreset::oak_small().tree.clone();
         options.branch.sections[0] = 0;
         let tree = app.world_mut().spawn(TreeParams::new(options)).id();
 

@@ -3,11 +3,11 @@
 //! appears complete within a few frames.
 //!
 //! ```sh
-//! cargo run -p procgena_tree_bevy --example grove_loading
-//! cargo run -p procgena_tree_bevy --example grove_loading -- --cache target/impostors
+//! cargo run -p procgena_tree_bevy --example scatter_loading
+//! cargo run -p procgena_tree_bevy --example scatter_loading -- --cache target/impostors
 //! ```
 //!
-//! - `--preset <key>`: the grove preset (default `oak_woodland`).
+//! - `--preset <key>`: the tree Scatter preset (default `oak_woodland`).
 //! - `--size <m>`: width and depth of the grove, in metres (default 240).
 //! - `--cache <dir>`: keep baked impostors in this folder. Later runs read
 //!   them back instead of baking, so preparing is quicker.
@@ -27,9 +27,10 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_impostor::{ImpostorPlugin, ImpostorSettings};
-use procgena_tree::GrovePreset;
+use procgena_tree::TreeScatterPreset;
 use procgena_tree_bevy::{
-    GrovePreparing, GroveReady, PrepareGrove, TreeGroveFinished, TreeGroveParams, TreePlugin,
+    PrepareTreeScatter, TreePlugin, TreeScatterFinished, TreeScatterParams, TreeScatterPreparing,
+    TreeScatterReady,
 };
 
 /// Frames to wait after the grove is planted before the headless picture.
@@ -40,7 +41,7 @@ const PICTURE: UVec2 = UVec2::new(1280, 720);
 /// What the example does, from the command line.
 #[derive(Resource)]
 struct Options {
-    preset: GrovePreset,
+    preset: &'static TreeScatterPreset,
     size: f32,
     screenshot: Option<String>,
 }
@@ -66,7 +67,7 @@ struct Offscreen(Handle<Image>);
 fn main() -> AppExit {
     // Read the command line.
     let mut options = Options {
-        preset: GrovePreset::OakWoodland,
+        preset: TreeScatterPreset::oak_woodland(),
         size: 240.0,
         screenshot: None,
     };
@@ -77,7 +78,8 @@ fn main() -> AppExit {
         let mut value = || args.next().expect("a value after the option");
         match arg.as_str() {
             "--preset" => {
-                options.preset = GrovePreset::from_key(&value()).expect("a grove preset key");
+                options.preset =
+                    TreeScatterPreset::named(&value()).expect("a tree Scatter preset key");
             }
             "--size" => options.size = value().parse().expect("--size needs metres"),
             "--cache" => cache = Some(PathBuf::from(value())),
@@ -199,12 +201,12 @@ fn setup(
         UiTargetCamera(camera),
         LoadingText,
     ));
-    commands.spawn(PrepareGrove::preset(options.preset));
+    commands.spawn(PrepareTreeScatter::preset(options.preset));
 }
 
 /// Shows how far preparing has got.
 fn show_progress(
-    preparing: Query<&GrovePreparing, Changed<GrovePreparing>>,
+    preparing: Query<&TreeScatterPreparing, Changed<TreeScatterPreparing>>,
     mut text: Query<&mut Text, With<LoadingText>>,
 ) {
     for progress in &preparing {
@@ -221,7 +223,7 @@ fn show_progress(
 
 /// Plants the grove once its trees are ready, and hides the loading screen.
 fn plant(
-    _: On<GroveReady>,
+    _: On<TreeScatterReady>,
     mut commands: Commands,
     options: Res<Options>,
     mut progress: ResMut<Progress>,
@@ -233,7 +235,7 @@ fn plant(
         (now - progress.started).as_secs_f32()
     );
     progress.prepared = Some(now);
-    commands.spawn(TreeGroveParams::preset(
+    commands.spawn(TreeScatterParams::preset(
         options.preset,
         Vec2::splat(options.size),
     ));
@@ -245,10 +247,10 @@ fn plant(
 /// Reports how long planting took, and lets go of the prepared trees: the
 /// planted grove holds the ones it uses from now on.
 fn planted(
-    event: On<TreeGroveFinished>,
+    event: On<TreeScatterFinished>,
     mut commands: Commands,
     mut progress: ResMut<Progress>,
-    preparers: Query<Entity, With<PrepareGrove>>,
+    preparers: Query<Entity, With<PrepareTreeScatter>>,
 ) {
     if let Err(error) = &event.result {
         error!("grove failed: {error}");

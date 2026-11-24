@@ -1,10 +1,13 @@
-//! Groves: several tree species spread over a rectangle of ground.
+//! Tree Scatters, such as groves and woodlands: several tree species spread
+//! over a rectangle of ground.
 //!
-//! A [`TreeGrove`] says which trees grow (a list of [`GroveTree`]s, each with
+//! A [`TreeScatter`] says which trees grow (a list of [`ScatterTree`]s, each with
 //! its own density, spacing and clustering) and how the placed trees vary.
-//! [`GrovePlacement::new`] lays a grove out over a [`ScatterInput`] (ground,
-//! area, seed and an optional mask) and returns one [`GroveInstance`] per
+//! [`TreeScatterPlacement::new`] lays it out over a [`ScatterInput`] (ground,
+//! area, seed and an optional mask) and returns one [`TreeCopy`] per
 //! tree: which species and which of its shape variants to draw, and where.
+//! Ready-made Scatters are [`TreeScatterPreset`]s, and `.tree_scatter.yml`
+//! files load with [`TreeScatterPreset::from_yaml`].
 //!
 //! Each species is drawn from a few shape variants (the same settings with
 //! different seeds), so a renderer builds a handful of tree meshes and draws
@@ -18,21 +21,21 @@ use std::fmt;
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
 use procgena_core::scatter::{Footprint, Placement, Rest, ScatterInput, place, steeper_than};
+use serde::{Deserialize, Serialize};
 
 use crate::options::{OptionsError, TreeOptions};
-use crate::presets::TreePreset;
+use crate::presets::{TreePreset, TreeStand};
 
-pub use file::GroveFileError;
-pub use presets::GrovePreset;
+pub use presets::TreeScatterPreset;
 
 /// Most species one grove may hold.
-pub const MAX_GROVE_TREES: usize = 16;
+pub const MAX_SCATTER_TREES: usize = 16;
 /// Most shape variants one species may use.
-pub const MAX_GROVE_VARIANTS: u32 = 8;
+pub const MAX_SCATTER_VARIANTS: u32 = 8;
 /// Most trees one placement may ask for, before spacing removes any.
-pub const MAX_GROVE_INSTANCES: usize = 20_000;
+pub const MAX_SCATTER_COPIES: usize = 20_000;
 /// Longest side of the ground a grove may be placed on, in metres.
-pub const MAX_GROVE_SIZE: f32 = 2048.0;
+pub const MAX_SCATTER_SIZE: f32 = 2048.0;
 
 /// Shape variants a species uses unless told otherwise.
 const DEFAULT_VARIANTS: u32 = 4;
@@ -61,7 +64,7 @@ const MIN_FOOTPRINT: f32 = 0.25;
 impl TreeOptions {
     /// How a tree stands on uneven ground: upright, its trunk resting on the
     /// lowest ground around it, not sunk, on any bend. A grove sinks its
-    /// trees further by its [`sink`](GroveVariation::sink).
+    /// trees further by its [`sink`](TreeScatterVariation::sink).
     ///
     /// It moves copies, not shapes, so it is not part of the options hash.
     pub fn ground_placement(&self) -> Placement {
@@ -106,16 +109,24 @@ const SALT_PATCHES: u64 = 0x200;
 const SALT_CLUSTER: u64 = 0x400;
 const SALT_GLADES: u64 = 0x500;
 
-/// One species in a grove: what the tree looks like, and how many grow and
-/// how close together.
+/// One species in a [`TreeScatter`]: what the tree looks like, and how many
+/// grow and how close together.
 ///
-/// [`GroveTree::new`] starts from a [`TreePreset`] with a density and spacing
+/// [`ScatterTree::new`] starts from a [`TreePreset`] with a density and spacing
 /// that suit it. Every field is public, so a species can also be built or
 /// changed directly.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GroveTree {
+///
+/// In a file, `tree` is a [`TreePreset`] key such as `oak_small`, or a map of
+/// tree settings with an optional `base` tree preset key they are laid over.
+/// `density`, `spacing` and `max_slope` may be left out when the tree names a
+/// preset: they then come from its [`stand`](TreePreset::stand). A
+/// `max_slope` of `null` uses the Scatter's own limit. The other settings
+/// default as in [`ScatterTree::custom`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "file::ScatterTreeFile", into = "file::ScatterTreeFile")]
+pub struct ScatterTree {
     /// The tree's shape. Every variant, the first included, grows from a seed
-    /// derived from this [`seed`](TreeOptions::seed); see
+    /// derived from this [`default_seed`](TreeOptions::default_seed); see
     /// [`variant`](Self::variant).
     pub tree: TreeOptions,
     /// Trees per hectare (10,000 m²) that suit this species on its own, before
@@ -136,26 +147,29 @@ pub struct GroveTree {
     /// gaps the others leave.
     pub clustering: f32,
     /// How many shape variants to draw this species from, from 1 to
-    /// [`MAX_GROVE_VARIANTS`]. More variants look less repetitive but cost a
+    /// [`MAX_SCATTER_VARIANTS`]. More variants look less repetitive but cost a
     /// mesh each.
     pub variants: u32,
     /// Steepest ground this species grows on, in degrees from level, from 0
     /// to 90. `None` uses the grove's
-    /// [`max_slope`](GroveVariation::max_slope). Set it higher for shrubs and
+    /// [`max_slope`](TreeScatterVariation::max_slope). Set it higher for shrubs and
     /// saplings, which cling to slopes large trees can't.
     pub max_slope: Option<f32>,
 }
 
-impl GroveTree {
-    /// A species from a preset, at the preset's own grove density, spacing
-    /// and slope tolerance, evenly mixed, with 4 shape variants.
-    pub fn new(preset: TreePreset) -> Self {
-        let mut tree = Self::custom(
-            preset.options(),
-            preset.grove_density(),
-            preset.grove_spacing(),
-        );
-        tree.max_slope = preset.grove_max_slope();
+impl ScatterTree {
+    /// A species from a preset, at the density, spacing and slope tolerance
+    /// of the preset's [`stand`](TreePreset::stand), evenly mixed, with 4
+    /// shape variants. A preset without a stand gives a density and spacing
+    /// of 0: set them yourself.
+    pub fn new(preset: &TreePreset) -> Self {
+        let stand = preset.stand.unwrap_or(TreeStand {
+            density: 0.0,
+            spacing: 0.0,
+            max_slope: None,
+        });
+        let mut tree = Self::custom(preset.tree.clone(), stand.density, stand.spacing);
+        tree.max_slope = stand.max_slope;
         tree
     }
 
@@ -204,48 +218,52 @@ impl GroveTree {
     ///
     /// Every variant differs from [`tree`](Self::tree) only in its seed,
     /// variant 0 included: the seed of specimen `variant` of the tree's pool
-    /// ([`TreeOptions::specimen_id`]), with the tree's own seed standing in
-    /// for the World seed. Changing the grove's seed therefore moves trees
-    /// without changing their shapes.
+    /// ([`TreeOptions::specimen_id`]), with the tree's own
+    /// [`default_seed`](TreeOptions::default_seed) standing in for the World
+    /// seed. Changing the Scatter's seed therefore moves trees without
+    /// changing their shapes.
     pub fn variant(&self, variant: u32) -> TreeOptions {
         let mut options = self.tree.clone();
         // The seed's bits, read as unsigned, so negative seeds stay distinct.
-        let specimen = self.tree.specimen_id(self.tree.seed as u32, variant);
-        options.seed = specimen.seed() as i32;
+        let specimen = self
+            .tree
+            .specimen_id(self.tree.default_seed as u32, variant);
+        options.default_seed = specimen.seed() as i32;
         options
     }
 
-    fn validate(&self, index: usize) -> Result<(), GroveError> {
+    fn validate(&self, index: usize) -> Result<(), TreeScatterError> {
         let field = |name: &str| format!("trees[{index}].{name}");
         non_negative(self.density, &field("density"))?;
         non_negative(self.spacing, &field("spacing"))?;
-        non_negative(self.density_scale, &field("densityScale"))?;
+        non_negative(self.density_scale, &field("density_scale"))?;
         check(
             (0.0..=1.0).contains(&self.clustering),
             &field("clustering"),
             "between 0 and 1",
         )?;
         check(
-            (1..=MAX_GROVE_VARIANTS).contains(&self.variants),
+            (1..=MAX_SCATTER_VARIANTS).contains(&self.variants),
             &field("variants"),
             "between 1 and 8",
         )?;
         check(
             self.max_slope.is_none_or(|s| (0.0..=90.0).contains(&s)),
-            &field("maxSlope"),
+            &field("max_slope"),
             "between 0 and 90",
         )?;
         self.tree
             .validate()
-            .map_err(|error| GroveError::Tree { index, error })
+            .map_err(|error| TreeScatterError::Tree { index, error })
     }
 }
 
-/// How the trees of a grove differ from one another, beyond their species
-/// and shape variant. These settings move, turn and resize trees; they never
-/// change a tree's mesh.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GroveVariation {
+/// How the trees of a [`TreeScatter`] differ from one another, beyond their
+/// species and shape variant. These settings move, turn and resize trees;
+/// they never change a tree's mesh.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TreeScatterVariation {
     /// How much tree sizes vary, from 0 to 0.9. Most trees are scaled by a
     /// factor between `1 - 0.5 * scale_jitter` and `1 + 0.5 * scale_jitter`,
     /// and a few grow into giants up to `1 + 3 * scale_jitter` times their
@@ -256,7 +274,7 @@ pub struct GroveVariation {
     /// a random direction. From 0 to 45.
     pub lean: f32,
     /// Steepest ground a tree grows on, in degrees from level, unless its
-    /// species sets its own [`max_slope`](GroveTree::max_slope). From 0 to
+    /// species sets its own [`max_slope`](ScatterTree::max_slope). From 0 to
     /// 90; 90 allows any slope. The slope is measured across the trunk's
     /// footprint.
     pub max_slope: f32,
@@ -265,7 +283,7 @@ pub struct GroveVariation {
     pub sink: f32,
 }
 
-impl Default for GroveVariation {
+impl Default for TreeScatterVariation {
     fn default() -> Self {
         Self {
             scale_jitter: 0.15,
@@ -276,11 +294,11 @@ impl Default for GroveVariation {
     }
 }
 
-impl GroveVariation {
-    fn validate(&self) -> Result<(), GroveError> {
+impl TreeScatterVariation {
+    fn validate(&self) -> Result<(), TreeScatterError> {
         check(
             (0.0..=0.9).contains(&self.scale_jitter),
-            "variation.scaleJitter",
+            "variation.scale_jitter",
             "between 0 and 0.9",
         )?;
         check(
@@ -290,21 +308,21 @@ impl GroveVariation {
         )?;
         check(
             (0.0..=90.0).contains(&self.max_slope),
-            "variation.maxSlope",
+            "variation.max_slope",
             "between 0 and 90",
         )?;
         non_negative(self.sink, "variation.sink")
     }
 }
 
-/// A mix of tree species and how they spread over ground: the tree
-/// counterpart of a plant field.
+/// A mix of tree species and how they spread over ground, such as a grove
+/// or a woodland: the Scatter level for trees.
 ///
-/// A grove holds its species itself, and says nothing about where it grows:
+/// A Scatter holds its species itself, and says nothing about where it grows:
 /// pass a [`ScatterInput`] (ground, area, seed and an optional mask) to
-/// [`GrovePlacement::new`]. Start from a
-/// [`GrovePreset`] with [`TreeGrove::from_preset`], or list species with
-/// [`TreeGrove::new`].
+/// [`TreeScatterPlacement::new`]. Start from a [`TreeScatterPreset`]'s
+/// [`tree_scatter`](TreeScatterPreset::tree_scatter), or list species with
+/// [`TreeScatter::new`].
 ///
 /// How the species share the grove:
 ///
@@ -319,17 +337,18 @@ impl GroveVariation {
 /// - **Spacing thins the grove.** A tree too close to a neighbour is left
 ///   out, so a dense grove with wide spacing grows fewer trees than its
 ///   density asks for.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TreeGrove {
-    /// The seed to place this grove with when it is placed on its own: pass
-    /// it as the [`ScatterInput`]'s seed. Inside a larger scene the input's
-    /// seed comes from the scene instead. The placement seed picks where
-    /// trees stand, which species each one is and how it is turned and
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TreeScatter {
+    /// The seed to place this Scatter with when it is placed on its own:
+    /// pass it as the [`ScatterInput`]'s seed. Inside a larger scene the
+    /// input's seed comes from the scene instead. The placement seed picks
+    /// where trees stand, which species each one is and how it is turned and
     /// sized. Changing it moves every tree but keeps the shape variants the
     /// same.
-    pub seed: u32,
-    /// The species that grow here, at most [`MAX_GROVE_TREES`].
-    pub trees: Vec<GroveTree>,
+    pub default_seed: u32,
+    /// The species that grow here, at most [`MAX_SCATTER_TREES`].
+    pub trees: Vec<ScatterTree>,
     /// Multiplies every species' density, 1 by default, keeping the mix.
     /// Must be 0 or more.
     pub density_scale: f32,
@@ -340,32 +359,27 @@ pub struct TreeGrove {
     /// [`density`](Self::density) asks for. Raising it only removes trees.
     pub patchiness: f32,
     /// How individual trees differ.
-    pub variation: GroveVariation,
+    pub variation: TreeScatterVariation,
 }
 
-impl Default for TreeGrove {
-    /// The [`GrovePreset::OakWoodland`] grove.
+impl Default for TreeScatter {
+    /// A Scatter with no trees: [`TreeScatter::new`] with an empty list.
     fn default() -> Self {
-        GrovePreset::OakWoodland.grove()
+        Self::new(Vec::new())
     }
 }
 
-impl TreeGrove {
-    /// A grove of these species, with seed 0, density scale 1, no glades
-    /// and the default [`GroveVariation`].
-    pub fn new(trees: Vec<GroveTree>) -> Self {
+impl TreeScatter {
+    /// A Scatter of these species, with seed 0, density scale 1, no glades
+    /// and the default [`TreeScatterVariation`].
+    pub fn new(trees: Vec<ScatterTree>) -> Self {
         Self {
-            seed: 0,
+            default_seed: 0,
             trees,
             density_scale: 1.0,
             patchiness: 0.0,
-            variation: GroveVariation::default(),
+            variation: TreeScatterVariation::default(),
         }
-    }
-
-    /// A preset's grove. Same as [`GrovePreset::grove`].
-    pub fn from_preset(preset: GrovePreset) -> Self {
-        preset.grove()
     }
 
     /// Trees per hectare of all species together, including the grove's
@@ -386,7 +400,7 @@ impl TreeGrove {
     }
 
     /// The same grove with these species.
-    pub fn with_trees(mut self, trees: Vec<GroveTree>) -> Self {
+    pub fn with_trees(mut self, trees: Vec<ScatterTree>) -> Self {
         self.trees = trees;
         self
     }
@@ -395,14 +409,14 @@ impl TreeGrove {
     ///
     /// # Errors
     ///
-    /// Returns a [`GroveError`] naming the first problem found.
-    pub fn validate(&self) -> Result<(), GroveError> {
-        if self.trees.len() > MAX_GROVE_TREES {
-            return Err(GroveError::TooManyTrees {
+    /// Returns a [`TreeScatterError`] naming the first problem found.
+    pub fn validate(&self) -> Result<(), TreeScatterError> {
+        if self.trees.len() > MAX_SCATTER_TREES {
+            return Err(TreeScatterError::TooManyTrees {
                 count: self.trees.len(),
             });
         }
-        non_negative(self.density_scale, "densityScale")?;
+        non_negative(self.density_scale, "density_scale")?;
         check(
             (0.0..=1.0).contains(&self.patchiness),
             "patchiness",
@@ -416,29 +430,29 @@ impl TreeGrove {
     }
 
     fn unscaled_density(&self) -> f32 {
-        self.trees.iter().map(GroveTree::density).sum()
+        self.trees.iter().map(ScatterTree::density).sum()
     }
 }
 
 /// Why a grove could not be placed.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum GroveError {
+pub enum TreeScatterError {
     /// A grove setting, or the ground size, is out of range.
     Options(OptionsError),
     /// The tree settings of species `index` are invalid.
     Tree {
-        /// The species' position in [`TreeGrove::trees`].
+        /// The species' position in [`TreeScatter::trees`].
         index: usize,
         /// What is wrong with its settings.
         error: OptionsError,
     },
-    /// The grove lists more than [`MAX_GROVE_TREES`] species.
+    /// The grove lists more than [`MAX_SCATTER_TREES`] species.
     TooManyTrees {
         /// The number of species listed.
         count: usize,
     },
-    /// The density and size would place more than [`MAX_GROVE_INSTANCES`]
+    /// The density and size would place more than [`MAX_SCATTER_COPIES`]
     /// trees.
     TooMany {
         /// The number of trees the settings ask for.
@@ -446,26 +460,26 @@ pub enum GroveError {
     },
 }
 
-impl fmt::Display for GroveError {
+impl fmt::Display for TreeScatterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Options(error) => write!(f, "invalid grove settings: {error}"),
             Self::Tree { index, error } => write!(f, "invalid tree in trees[{index}]: {error}"),
             Self::TooManyTrees { count } => write!(
                 f,
-                "the grove lists {count} species, but at most {MAX_GROVE_TREES} are allowed"
+                "the grove lists {count} species, but at most {MAX_SCATTER_TREES} are allowed"
             ),
             Self::TooMany { count } => write!(
                 f,
-                "the grove asks for {count} trees, but at most {MAX_GROVE_INSTANCES} are allowed"
+                "the grove asks for {count} trees, but at most {MAX_SCATTER_COPIES} are allowed"
             ),
         }
     }
 }
 
-impl std::error::Error for GroveError {}
+impl std::error::Error for TreeScatterError {}
 
-impl From<OptionsError> for GroveError {
+impl From<OptionsError> for TreeScatterError {
     fn from(error: OptionsError) -> Self {
         Self::Options(error)
     }
@@ -473,11 +487,11 @@ impl From<OptionsError> for GroveError {
 
 /// One placed tree.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GroveInstance {
-    /// The tree's species: its position in [`TreeGrove::trees`].
+pub struct TreeCopy {
+    /// The tree's species: its position in [`TreeScatter::trees`].
     pub tree: usize,
     /// Which of the species' shape variants to draw; see
-    /// [`GroveTree::variant`].
+    /// [`ScatterTree::variant`].
     pub variant: u32,
     /// Names the spot the tree stands on. A tree at the same spot keeps its
     /// id when the grove changes, so a renderer can update trees in place
@@ -492,19 +506,19 @@ pub struct GroveInstance {
     pub transform: Affine3A,
 }
 
-/// Trees spread over a rectangle of ground by a [`TreeGrove`].
+/// Trees spread over a rectangle of ground by a [`TreeScatter`].
 ///
-/// Create one with [`GrovePlacement::new`], then draw each of
+/// Create one with [`TreeScatterPlacement::new`], then draw each of
 /// [`instances`](Self::instances) with the mesh of its species' variant.
 ///
 /// The same grove and input always give the same trees. Lowering the
-/// grove's [`density_scale`](TreeGrove::density_scale) only removes trees,
+/// grove's [`density_scale`](TreeScatter::density_scale) only removes trees,
 /// and raising it only adds them; the others stay exactly where they were.
 /// Changing the size keeps the trees away from the edges where they were; a
 /// tree near an old edge may make way for a new neighbour beyond it.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct GrovePlacement {
-    instances: Vec<GroveInstance>,
+pub struct TreeScatterPlacement {
+    instances: Vec<TreeCopy>,
 }
 
 /// A tree site that passed the density and ground checks, waiting for the
@@ -512,33 +526,33 @@ pub struct GrovePlacement {
 struct Site {
     rank: f32,
     spacing: f32,
-    instance: GroveInstance,
+    instance: TreeCopy,
 }
 
-impl GrovePlacement {
+impl TreeScatterPlacement {
     /// Places `grove` over `input`'s area, standing each tree on its ground.
     ///
     /// Positions are in metres from the area's centre. The input's mask thins
     /// the grove in places (`None` is full density everywhere), and its seed
-    /// sets where trees stand; the grove's own [`seed`](TreeGrove::seed) is
-    /// not used here. Trees are left out where the ground at the trunk is
-    /// steeper than their species' [`max_slope`](GroveTree::max_slope), or
-    /// the grove's [`max_slope`](GroveVariation::max_slope) when the species
+    /// sets where trees stand; the Scatter's own
+    /// [`default_seed`](TreeScatter::default_seed) is not used here. Trees are left out where the ground at the trunk is
+    /// steeper than their species' [`max_slope`](ScatterTree::max_slope), or
+    /// the grove's [`max_slope`](TreeScatterVariation::max_slope) when the species
     /// sets none, or where any ground around the trunk is missing (NaN).
     ///
     /// # Errors
     ///
-    /// Returns [`GroveError::Options`] if either side of the area is not
-    /// between 0 (exclusive) and [`MAX_GROVE_SIZE`], any [`GroveError`] from
-    /// [`TreeGrove::validate`], and [`GroveError::TooMany`] if the grove's
-    /// density over the area asks for more than [`MAX_GROVE_INSTANCES`]
+    /// Returns [`TreeScatterError::Options`] if either side of the area is not
+    /// between 0 (exclusive) and [`MAX_SCATTER_SIZE`], any [`TreeScatterError`] from
+    /// [`TreeScatter::validate`], and [`TreeScatterError::TooMany`] if the grove's
+    /// density over the area asks for more than [`MAX_SCATTER_COPIES`]
     /// trees.
-    pub fn new(grove: &TreeGrove, input: &ScatterInput) -> Result<Self, GroveError> {
+    pub fn new(grove: &TreeScatter, input: &ScatterInput) -> Result<Self, TreeScatterError> {
         // Check the settings and the number of trees asked for.
         let size = input.area.size.to_array();
         for side in size {
             check(
-                side > 0.0 && side <= MAX_GROVE_SIZE,
+                side > 0.0 && side <= MAX_SCATTER_SIZE,
                 "size",
                 "above 0 and at most 2048",
             )?;
@@ -551,8 +565,8 @@ impl GrovePlacement {
             .collect();
         let total: f32 = per_m2.iter().sum();
         let count = (total * size[0] * size[1]).ceil() as usize;
-        if count > MAX_GROVE_INSTANCES {
-            return Err(GroveError::TooMany { count });
+        if count > MAX_SCATTER_COPIES {
+            return Err(TreeScatterError::TooMany { count });
         }
         if total <= 0.0 {
             return Ok(Self::default());
@@ -618,7 +632,7 @@ impl GrovePlacement {
             .iter()
             .map(|tree| tree.spacing)
             .fold(0.0, f32::max);
-        let mut kept: Vec<GroveInstance> = Vec::new();
+        let mut kept: Vec<TreeCopy> = Vec::new();
         let mut spacings: Vec<f32> = Vec::new();
         let mut buckets: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
         for site in sites {
@@ -653,7 +667,7 @@ impl GrovePlacement {
 
     /// The placed trees, in no particular order, but the same order every
     /// time for the same inputs.
-    pub fn instances(&self) -> &[GroveInstance] {
+    pub fn instances(&self) -> &[TreeCopy] {
         &self.instances
     }
 }
@@ -663,7 +677,7 @@ impl GrovePlacement {
 /// patches by its clustering. `seed` is the placement seed the patches come
 /// from.
 fn pick_tree(
-    grove: &TreeGrove,
+    grove: &TreeScatter,
     seed: u32,
     per_m2: &[f32],
     total: f32,
@@ -703,14 +717,14 @@ fn pick_tree(
 /// where the ground at the trunk is too steep, or any ground around it is
 /// missing.
 fn stand(
-    grove: &TreeGrove,
+    grove: &TreeScatter,
     tree: usize,
     id: u64,
     h: u64,
     x: f32,
     z: f32,
     input: &ScatterInput,
-) -> Option<GroveInstance> {
+) -> Option<TreeCopy> {
     let species = &grove.trees[tree];
     let variation = &grove.variation;
 
@@ -754,7 +768,7 @@ fn stand(
     let lean = (draw(h, SALT_LEAN) * variation.lean).to_radians();
     let axis = Vec3::new(lean_direction.cos(), 0.0, lean_direction.sin());
     let rotation = Quat::from_axis_angle(axis, lean) * Quat::from_rotation_y(yaw);
-    Some(GroveInstance {
+    Some(TreeCopy {
         tree,
         variant,
         id,
@@ -786,7 +800,7 @@ fn tree_scale(u: f32, jitter: f32) -> f32 {
 /// each with its own value from 0 to 1; patches whose value falls below the
 /// open share for the grove's patchiness are glades. Raising the patchiness
 /// only turns more patches into glades.
-fn in_glade(grove: &TreeGrove, seed: u32, x: f32, z: f32) -> bool {
+fn in_glade(grove: &TreeScatter, seed: u32, x: f32, z: f32) -> bool {
     if grove.patchiness <= 0.0 {
         return false;
     }
@@ -841,11 +855,11 @@ fn patch_value(seed: u64, x: f32, z: f32) -> f32 {
 
 /// Succeeds when `ok` is true; otherwise names the grove setting `field` and
 /// what it must be.
-fn check(ok: bool, field: &str, requirement: &'static str) -> Result<(), GroveError> {
+fn check(ok: bool, field: &str, requirement: &'static str) -> Result<(), TreeScatterError> {
     if ok {
         Ok(())
     } else {
-        Err(GroveError::Options(OptionsError::InvalidSetting {
+        Err(TreeScatterError::Options(OptionsError::InvalidSetting {
             field: field.to_string(),
             requirement,
         }))
@@ -853,7 +867,7 @@ fn check(ok: bool, field: &str, requirement: &'static str) -> Result<(), GroveEr
 }
 
 /// Accepts zero and positive finite values.
-fn non_negative(value: f32, field: &str) -> Result<(), GroveError> {
+fn non_negative(value: f32, field: &str) -> Result<(), TreeScatterError> {
     check(
         (0.0..f32::INFINITY).contains(&value),
         field,
@@ -916,11 +930,11 @@ mod tests {
 
     /// The sizes of the connected areas of a 400 m square, sampled every 2 m,
     /// that are glade (when `open`) or wooded, largest first.
-    fn areas(grove: &TreeGrove, open: bool) -> Vec<usize> {
+    fn areas(grove: &TreeScatter, open: bool) -> Vec<usize> {
         const N: usize = 200;
         let at = |i: usize, j: usize| {
             let (x, z) = (i as f32 * 2.0 - 200.0, j as f32 * 2.0 - 200.0);
-            in_glade(grove, grove.seed, x, z) == open
+            in_glade(grove, grove.default_seed, x, z) == open
         };
         let mut seen = vec![false; N * N];
         let mut sizes = Vec::new();
@@ -956,7 +970,7 @@ mod tests {
 
     #[test]
     fn medium_patchiness_opens_separate_glades_and_high_joins_them() {
-        let mut grove = GrovePreset::OakWoodland.grove();
+        let mut grove = TreeScatterPreset::oak_woodland().tree_scatter.clone();
         let total = |sizes: &[usize]| sizes.iter().sum::<usize>() as f32;
 
         // No patchiness, no glades.

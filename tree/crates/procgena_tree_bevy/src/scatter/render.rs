@@ -72,7 +72,7 @@ use procgena_core::LodRange;
 use procgena_impostor::{INSTANCE_SIZE, ImpostorMaterial, ImpostorPipelineKey};
 
 use super::promote::{PromotedAs, PromotedTree};
-use super::{TreeGroveAssets, TreeGroveInstances};
+use super::{TreeScatterAssets, TreeScatterInstances};
 use crate::material::{TreeMaterial, WindKey};
 use crate::spawn::TreeGenerating;
 
@@ -138,8 +138,8 @@ impl Plugin for GroveRenderPlugin {
 /// A visible grove, copied from the main world this frame.
 struct ExtractedGrove {
     world_from_grove: Affine3A,
-    instances: TreeGroveInstances,
-    assets: TreeGroveAssets,
+    instances: TreeScatterInstances,
+    assets: TreeScatterAssets,
     /// Trees promoted to entities whose parts are drawn, which the grove
     /// leaves out, as positions in the grove's trees.
     promoted: HashSet<u32>,
@@ -160,8 +160,8 @@ pub(crate) fn extract_groves(
     groves: Extract<
         Query<(
             Entity,
-            &TreeGroveInstances,
-            &TreeGroveAssets,
+            &TreeScatterInstances,
+            &TreeScatterAssets,
             &GlobalTransform,
             &InheritedVisibility,
             Option<&RenderLayers>,
@@ -200,7 +200,7 @@ pub(crate) fn extract_groves(
 /// One mesh a grove draws: a variant's part at one detail level, or its
 /// impostor beyond them.
 struct GroveDraw {
-    /// The variant: its position in [`TreeGroveAssets::variants`].
+    /// The variant: its position in [`TreeScatterAssets::variants`].
     slot: u32,
     lod: u32,
     mesh: AssetId<Mesh>,
@@ -239,8 +239,8 @@ struct TreeBounds {
 /// What the render world keeps for one grove between frames.
 struct GroveGpu {
     /// The trees and transform the records were built for.
-    instances: TreeGroveInstances,
-    assets: TreeGroveAssets,
+    instances: TreeScatterInstances,
+    assets: TreeScatterAssets,
     world_from_grove: Affine3A,
     /// One mesh record per tree.
     records: StorageBuffer<Vec<MeshUniform>>,
@@ -468,14 +468,14 @@ fn largest_scale(transform: &Affine3A) -> f32 {
         .max(m.z_axis.length())
 }
 
-impl TreeGroveInstances {
+impl TreeScatterInstances {
     /// Whether both are the same placement, compared by identity.
     fn same(&self, other: &Self) -> bool {
         std::sync::Arc::ptr_eq(&self.trees, &other.trees)
     }
 }
 
-impl TreeGroveAssets {
+impl TreeScatterAssets {
     /// Whether both are the same list of variants, compared by identity.
     fn same(&self, other: &Self) -> bool {
         std::sync::Arc::ptr_eq(&self.variants, &other.variants)

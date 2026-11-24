@@ -4,7 +4,7 @@
 //!
 //! ```sh
 //! cargo run -p procgena_tree_bevy --example bake_impostors -- --out impostors
-//! cargo run -p procgena_tree_bevy --example bake_impostors -- --out impostors --grove pine_stand --tree oak_large
+//! cargo run -p procgena_tree_bevy --example bake_impostors -- --out impostors --scatter pine_stand --tree oak_large
 //! cargo run -p procgena_tree_bevy --example bake_impostors -- --out impostors --compress shipped
 //! ```
 //!
@@ -14,10 +14,11 @@
 //!   compressed (KTX2 files of BC7 texels with mip levels) into this
 //!   folder, with [`compress_impostors`]. Ship that folder instead: it is
 //!   smaller on the GPU and looks smoother far away. It may be `--out`.
-//! - `--grove <key>`: bake every tree of this grove preset. Repeat for more.
+//! - `--scatter <key>`: bake every tree of this tree Scatter preset. Repeat
+//!   for more.
 //! - `--tree <key>`: bake this tree preset. Repeat for more.
 //!
-//! Without `--grove` or `--tree`, every grove preset is baked. The trees are
+//! Without `--scatter` or `--tree`, every tree Scatter preset is baked. The trees are
 //! generated with [`TreePlugin`]'s default detail levels and the
 //! repository's textures; impostors baked with other settings are different
 //! impostors, so bake with the settings your game uses.
@@ -32,8 +33,8 @@ use bevy::prelude::*;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_impostor::{ImpostorPlugin, ImpostorSettings, ImpostorWrites, compress_impostors};
-use procgena_tree::{GrovePreset, GroveTree, TreeGrove, TreePreset};
-use procgena_tree_bevy::{GrovePreparing, GroveReady, PrepareGrove, TreePlugin};
+use procgena_tree::{ScatterTree, TreePreset, TreeScatter, TreeScatterPreset};
+use procgena_tree_bevy::{PrepareTreeScatter, TreePlugin, TreeScatterPreparing, TreeScatterReady};
 
 /// Seconds to wait for every impostor before giving up.
 const TIMEOUT: f32 = 1800.0;
@@ -53,25 +54,25 @@ fn main() -> AppExit {
     // Read the command line.
     let mut out: Option<PathBuf> = None;
     let mut compress: Option<PathBuf> = None;
-    let mut groves: Vec<TreeGrove> = Vec::new();
+    let mut groves: Vec<TreeScatter> = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().expect("a value after the option");
         match arg.as_str() {
             "--out" => out = Some(PathBuf::from(value())),
             "--compress" => compress = Some(PathBuf::from(value())),
-            "--grove" => {
+            "--scatter" => {
                 let key = value();
-                let preset = GrovePreset::from_key(&key)
-                    .unwrap_or_else(|| panic!("{key} is not a grove preset"));
-                groves.push(preset.grove());
+                let preset = TreeScatterPreset::named(&key)
+                    .unwrap_or_else(|| panic!("{key} is not a tree Scatter preset"));
+                groves.push(preset.tree_scatter.clone());
             }
             "--tree" => {
                 let key = value();
-                let preset = TreePreset::from_key(&key)
-                    .unwrap_or_else(|| panic!("{key} is not a tree preset"));
-                groves.push(TreeGrove::new(vec![
-                    GroveTree::new(preset).with_variants(1),
+                let preset =
+                    TreePreset::named(&key).unwrap_or_else(|| panic!("{key} is not a tree preset"));
+                groves.push(TreeScatter::new(vec![
+                    ScatterTree::new(preset).with_variants(1),
                 ]));
             }
             other => panic!("unknown argument {other}"),
@@ -79,9 +80,8 @@ fn main() -> AppExit {
     }
     let out = out.expect("--out <dir> names the folder to fill");
     if groves.is_empty() {
-        groves = GrovePreset::ALL
-            .iter()
-            .map(|preset| preset.grove())
+        groves = TreeScatterPreset::all()
+            .map(|preset| preset.tree_scatter.clone())
             .collect();
     }
 
@@ -120,18 +120,18 @@ fn main() -> AppExit {
     .add_observer(grove_ready)
     .add_systems(Update, (report, finish));
     for grove in groves {
-        app.world_mut().spawn(PrepareGrove::new(grove));
+        app.world_mut().spawn(PrepareTreeScatter::new(grove));
     }
     app.run()
 }
 
 /// Counts down the groves still being prepared.
-fn grove_ready(_: On<GroveReady>, mut remaining: ResMut<Remaining>) {
+fn grove_ready(_: On<TreeScatterReady>, mut remaining: ResMut<Remaining>) {
     remaining.groves = remaining.groves.saturating_sub(1);
 }
 
 /// Prints the progress of every grove as it changes.
-fn report(groves: Query<&GrovePreparing, Changed<GrovePreparing>>) {
+fn report(groves: Query<&TreeScatterPreparing, Changed<TreeScatterPreparing>>) {
     for progress in &groves {
         info!("{} of {} steps", progress.done, progress.total);
     }

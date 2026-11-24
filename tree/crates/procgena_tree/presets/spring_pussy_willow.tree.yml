@@ -1,0 +1,91 @@
+# A built-in TreePreset. Copy it, change what you like, and read it
+# with TreePreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Spring Pussy Willow
+description: "A many-stemmed pussy willow shrub in early spring: bare upright stems studded with fuzzy, upward-pointing catkins."
+group: Fruit and Blossom
+tree:
+  default_seed: 2603
+  bark:
+    type: bark_willow
+    tint: 14209168
+    texture_scale:
+      "y": 4.0
+  branch:
+    levels: 1
+    stems: 18
+    stem_angle: 26.0
+    angle:
+      "1": 25.0
+      "2": 0.0
+      "3": 0.0
+    children:
+      "0": 2
+      "1": 0
+      "2": 0
+    force:
+      strength: 0.0002
+    gnarliness:
+      "0": 0.04
+      "1": 0.06
+      "2": 0.0
+      "3": 0.0
+    length:
+      "0": 1.7
+      "1": 0.5
+      "2": 0.0
+      "3": 0.0
+    radius:
+      "0": 0.018
+      "1": 0.6
+      "2": 0.1
+      "3": 0.1
+    sections:
+      "0": 10
+      "1": 5
+      "2": 1
+      "3": 1
+    segments:
+      "0": 5
+      "1": 3
+      "2": 3
+    start:
+      "1": 0.5
+      "2": 0.0
+      "3": 0.0
+    taper:
+      "0": 0.75
+      "1": 0.8
+      "2": 0.0
+      "3": 0.0
+  leaves:
+    type: bare_twig_1
+    count: 0
+  fruit:
+    placement:
+      min_level: 0
+      density: 16.0
+      start: 0.15
+      facing: up
+      facing_jitter: 20.0
+      size: 0.015
+      size_variance: 0.3
+    cluster:
+      arrangement: panicle
+      items: 3
+      stalk_length: 0.0
+      stalk_radius: 0.002
+      stalk_color: 7031342
+    shape:
+      elongation: 2.0
+      bottom_taper: 0.35
+      segments: 8
+      rings: 5
+      stem_length: 0.0
+      stem_radius: 0.02
+      stem_curve: 0.0
+      calyx: false
+      color: 14468808
+      unripe_color: 7027246
+      blush_color: 14715552
+      blush_amount: 0.6

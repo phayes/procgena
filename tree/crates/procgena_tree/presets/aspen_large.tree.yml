@@ -1,0 +1,46 @@
+# A built-in TreePreset. Copy it, change what you like, and read it
+# with TreePreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Aspen Large
+description: A tall aspen with a narrow crown.
+group: Aspen
+tree:
+  default_seed: 30631
+  bark:
+    type: Bark002
+  branch:
+    levels: 2
+    angle:
+      "1": 47.0
+      "2": 63.0
+      "3": 7.0
+    children:
+      "0": 10
+      "1": 6
+      "2": 0
+    force:
+      strength: 0.00217391
+    gnarliness:
+      "0": 0.05
+      "1": -0.03
+      "2": 0.12
+    length:
+      "0": 6.96
+      "1": 1.856
+      "2": 1.119
+    radius:
+      "0": 0.111
+      "1": 0.58
+    start:
+      "1": 0.62
+      "2": 0.05
+      "3": 0.0
+    taper:
+      "1": 0.13
+  leaves:
+    type: aspen
+    angle: 36.0
+    count: 20
+    start: 0.1521739
+    size: 0.347826
+    tint: 16580390
