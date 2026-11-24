@@ -1354,6 +1354,8 @@ mod tests {
         // Loading the file again after it changed shows the change.
         let changed = text.replace("ecotope:\n", "ecotope:\n  default_seed: 5\n");
         std::fs::write(&path, changed).unwrap();
+        // Let the last message hide, so it covers no button.
+        studio.wait(Duration::from_secs(5));
         studio.answer_dialog(Some(path.clone()));
         studio.click("Load Preset…").unwrap();
         assert_eq!(edited(&mut studio).0.default_seed, 5);
@@ -1361,6 +1363,7 @@ mod tests {
 
         // A file that is not an Ecotope changes nothing.
         std::fs::write(dir.join("bad.ecotope.yml"), "not a preset").unwrap();
+        studio.wait(Duration::from_secs(5));
         studio.answer_dialog(Some(dir.join("bad.ecotope.yml")));
         studio.click("Load Preset…").unwrap();
         assert!(studio.shows_text_starting("Not Ecotope settings"));

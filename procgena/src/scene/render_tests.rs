@@ -57,6 +57,14 @@ fn edit<S: Subject>(settings: S::Settings) -> ViewerCommand {
     ViewerCommand::Show(Show::new::<S>(DOCUMENT, settings))
 }
 
+/// The Oak Woodland tree Scatter.
+fn woodland() -> procgena_tree::TreeScatter {
+    procgena_tree::TreeScatterPreset::named("oak_woodland")
+        .unwrap()
+        .tree_scatter
+        .clone()
+}
+
 /// The Oak Medium tree.
 fn oak() -> procgena_tree::TreeOptions {
     procgena_tree::TreePreset::oak_medium().tree.clone()
@@ -828,7 +836,7 @@ fn grove_progress(scene: &mut HeadlessScene) -> Vec<GroveProgress> {
 #[test]
 #[ignore = "needs a GPU"]
 fn grove_impostors_bake_without_the_scene_camera_touching_the_bake_cameras() {
-    let mut scene = show::<GroveSubject>(default());
+    let mut scene = show::<GroveSubject>(woodland());
 
     // Run frames until a bake has started.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
@@ -927,7 +935,7 @@ const FAR_GROVE_SIZE: f32 = 160.0;
 /// a larger view counts them more evenly.
 const FAR_VIEW: UVec2 = UVec2::new(1280, 720);
 
-/// A scene showing the default grove [`FAR_GROVE_SIZE`] across, with
+/// A scene showing the Oak Woodland grove [`FAR_GROVE_SIZE`] across, with
 /// impostors on or off, once its trees and impostors are ready.
 fn start_far_grove(impostors: bool) -> HeadlessScene {
     let environment = EnvironmentSettings {
@@ -939,7 +947,7 @@ fn start_far_grove(impostors: bool) -> HeadlessScene {
     } else {
         HeadlessScene::without_impostors(FAR_VIEW)
     };
-    let mut scene = show_in::<GroveSubject>(scene, environment, default());
+    let mut scene = show_in::<GroveSubject>(scene, environment, woodland());
     scene.settle();
     scene
 }

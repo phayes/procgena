@@ -478,11 +478,12 @@ mod tests {
         let dir = folder("stone");
         let mut studio = offline_studio();
         studio.click("Stones").unwrap();
+        studio.click("Boulder").unwrap();
         let saved: StoneOptions = studio.panel_value();
         studio.answer_dialog(Some(dir.join("rock.stone.yml")));
         studio.click("Save Preset…").unwrap();
         studio.click("Random Seed").unwrap();
-        studio.drag(Vec2::new(300.0, 400.0), Vec2::new(600.0, 300.0));
+        studio.drag(Vec2::new(500.0, 400.0), Vec2::new(800.0, 300.0));
 
         studio.answer_dialog(Some(dir.join("rock.stone.yml")));
         studio.click("Load Preset…").unwrap();
@@ -507,26 +508,27 @@ mod tests {
         let dir = folder("plants");
         let mut studio = offline_studio();
 
-        // A plant comes back as saved.
+        // A plant comes back as saved, loaded into another plant's document.
         studio.click("Plant").unwrap();
+        studio.click("Meadow grass").unwrap();
         let plant: PlantParams = studio.panel_value();
         studio.answer_dialog(Some(dir.join("grass.plant.yml")));
         studio.click("Save Preset…").unwrap();
-        studio.click("Meadow grass").unwrap();
         studio.click("Wheat").unwrap();
         assert_ne!(studio.panel_value::<PlantParams>(), plant);
         studio.answer_dialog(Some(dir.join("grass.plant.yml")));
         studio.click("Load Preset…").unwrap();
         assert_eq!(studio.panel_value::<PlantParams>(), plant);
 
-        // A Plant Scatter comes back with all its rows.
+        // A Plant Scatter comes back with all its rows, loaded into another
+        // Plant Scatter's document.
         studio.click("Plant Scatter").unwrap();
+        studio.click("Meadow").unwrap();
         studio.click("+ Add Plant").unwrap();
         let saved = field(&mut studio);
         assert_eq!(saved.plants.len(), 2);
         studio.answer_dialog(Some(dir.join("field.plant_scatter.yml")));
         studio.click("Save Preset…").unwrap();
-        studio.click("Meadow").unwrap();
         studio.click("Lawn").unwrap();
         assert_ne!(field(&mut studio), saved);
         studio.answer_dialog(Some(dir.join("field.plant_scatter.yml")));

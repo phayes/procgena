@@ -21,7 +21,7 @@
 //! | `click-at X Y` | Clicks at a point. |
 //! | `drag X1 Y1 X2 Y2` | Drags with the left button between two points. |
 //! | `scroll X Y LINES` | Turns the wheel at a point; positive scrolls up. |
-//! | `key KEY` | Presses a key: `Escape`, `Enter`, `Tab` or a letter, optionally after `ctrl+` or `cmd+`. |
+//! | `key KEY` | Presses a key: `Escape`, `Enter`, `Tab`, `Backspace` or a letter, optionally after `ctrl+` or `cmd+`. |
 //! | `type TEXT` | Types `TEXT` into the focused text field. Click the field first. |
 //! | `hover X Y` | Moves the mouse to a point without clicking, for example to show a tooltip. |
 //! | `select PATH` | Selects a document as `KIND/KEY[/NODE…][#PART]`, such as `ecotope/pine_forest_floor`, opening it if needed. |
@@ -46,6 +46,8 @@ use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput, NativeKey};
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::input::touch::TouchPhase;
+use bevy::input_focus::{AcquireFocus, FocusedInput, InputFocus};
+use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::{Location, PointerAction, PointerButton, PointerId, PointerInput};
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
@@ -145,7 +147,8 @@ impl HeadlessStudio {
             .insert_resource(TimeUpdateStrategy::ManualDuration(FRAME_TIME))
             .insert_resource(frames.clone())
             .add_systems(Startup, spawn_readback)
-            .add_systems(PostStartup, retarget_ui_camera);
+            .add_systems(PostStartup, retarget_ui_camera)
+            .add_observer(click_to_focus);
 
         // Finish the plugins; the renderer starts asynchronously.
         while app.plugins_state() == PluginsState::Adding {
@@ -377,7 +380,7 @@ impl HeadlessStudio {
                 Key::Character(character.to_string().into())
             };
             for state in [ButtonState::Pressed, ButtonState::Released] {
-                self.app.world_mut().write_message(KeyboardInput {
+                self.send_key(KeyboardInput {
                     key_code,
                     logical_key: logical_key.clone(),
                     state,
@@ -555,7 +558,7 @@ impl HeadlessStudio {
 
     /// Sends a key press or release and runs one frame.
     fn keyboard(&mut self, key_code: KeyCode, state: ButtonState) {
-        self.app.world_mut().write_message(KeyboardInput {
+        self.send_key(KeyboardInput {
             key_code,
             logical_key: logical_key(key_code),
             state,
@@ -564,6 +567,29 @@ impl HeadlessStudio {
             window: Entity::PLACEHOLDER,
         });
         self.update();
+    }
+
+    /// Sends `input` as the keyboard would, and to the focused UI element,
+    /// such as a text field. Without a window, Bevy delivers keys to no
+    /// element, so this does it in its place.
+    fn send_key(&mut self, input: KeyboardInput) {
+        let world = self.app.world_mut();
+        world.write_message(input.clone());
+        if let Some(focused) = world.resource::<InputFocus>().get() {
+            world.trigger(FocusedInput::new(focused, input, Entity::PLACEHOLDER));
+        }
+    }
+}
+
+/// Focuses the focusable element under a press, such as a text field, as
+/// Bevy does in a window. Without a window Bevy focuses nothing on a press.
+/// Pressing outside every focusable element keeps the focus where it was.
+fn click_to_focus(press: On<PointerPress>, mut commands: Commands) {
+    if press.entity == press.original_event_target() {
+        commands.trigger(AcquireFocus {
+            focused_entity: press.entity,
+            window: Entity::PLACEHOLDER,
+        });
     }
 }
 
@@ -636,6 +662,7 @@ fn logical_key(code: KeyCode) -> Key {
         KeyCode::Escape => Key::Escape,
         KeyCode::Enter => Key::Enter,
         KeyCode::Tab => Key::Tab,
+        KeyCode::Backspace => Key::Backspace,
         KeyCode::ControlLeft => Key::Control,
         KeyCode::SuperLeft => Key::Super,
         _ => key_letter(code)
@@ -700,6 +727,7 @@ fn parse_key(text: &str) -> Result<(Option<KeyCode>, KeyCode), String> {
         "Escape" => KeyCode::Escape,
         "Enter" => KeyCode::Enter,
         "Tab" => KeyCode::Tab,
+        "Backspace" => KeyCode::Backspace,
         _ => {
             let mut chars = name.chars();
             let (Some(letter), None) = (chars.next(), chars.next()) else {
@@ -990,18 +1018,45 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn typing_into_the_seed_field_sets_the_seed() {
+    fn typing_into_a_text_field_renames_a_scatter() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        let seed = studio
-            .panel_value::<procgena_tree::TreeOptions>()
-            .default_seed;
-        // Focusing the field selects its text, so typing replaces it.
-        studio.click(&seed.to_string()).unwrap();
-        studio.type_text("4321");
-        studio.key(None, KeyCode::Enter);
-        let typed = studio.panel_value::<procgena_tree::TreeOptions>();
-        assert_eq!(typed.default_seed, 4321);
-        assert!(studio.find("4321").is_ok());
+        studio.select("ecotope/pine_forest_floor").unwrap();
+        studio.click("+ Add Scatter").unwrap();
+
+        // Clicking the new Scatter's key field focuses it; select its text
+        // and type over it. The Scatter list shows the key too, so find the
+        // field itself.
+        let world = studio.app_mut().world_mut();
+        let mut fields = world.query::<(Entity, &EditableText)>();
+        let field = fields
+            .iter(world)
+            .find(|(_, text)| text.value() == "trees")
+            .map(|(entity, _)| entity)
+            .unwrap();
+        let at = studio.center_of(field).unwrap();
+        studio.click_at(at);
+        let command = if cfg!(target_os = "macos") {
+            KeyCode::SuperLeft
+        } else {
+            KeyCode::ControlLeft
+        };
+        let focus = studio.app_mut().world().resource::<InputFocus>().get();
+        assert_eq!(focus, Some(field), "the key field has focus");
+        studio.key(Some(command), KeyCode::KeyA);
+        studio.type_text("young_pines 2");
+        assert!(studio.find("young_pines 2").is_ok(), "{:?}", studio.texts());
+        studio.key(None, KeyCode::Backspace);
+        studio.key(None, KeyCode::Backspace);
+        studio.click("Rename").unwrap();
+        let world = studio.app_mut().world_mut();
+        let mut editors = world.query_filtered::<
+            &crate::ecotope::editor::EcotopeEditor,
+            Without<crate::studio::Dormant>,
+        >();
+        let ecotope = editors.single(world).unwrap().ecotope().clone();
+        let keys: Vec<String> = ecotope.scatters.keys().map(|key| key.to_string()).collect();
+        assert!(keys.iter().any(|key| key == "young_pines"), "{keys:?}");
+        assert!(!keys.iter().any(|key| key == "trees"), "{keys:?}");
     }
 
     #[test]
@@ -1096,11 +1151,12 @@ mod tests {
     #[test]
     #[ignore = "needs a GPU"]
     fn the_wheel_scrolls_settings_taller_than_the_window() {
-        // The Trees tab's settings are far taller than this window.
+        // A tree's settings are far taller than this window. The settings
+        // scroll under the Inspector's title, so follow one well below it.
         let mut studio = HeadlessStudio::new(UVec2::new(1440, 400));
-        let before = studio.find("Random Seed").unwrap();
+        let before = studio.find("Branches").unwrap();
         studio.scroll(Vec2::new(1250.0, 300.0), -3.0);
-        let after = studio.find("Random Seed").unwrap();
+        let after = studio.find("Branches").unwrap();
         assert!(after.y < before.y - 40.0, "{before} -> {after}");
     }
 
