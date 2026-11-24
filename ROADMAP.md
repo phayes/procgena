@@ -1083,7 +1083,7 @@ summary below is for ordering.
 |---|---|---|
 | **ST0** Studio shell | Kind registry replacing the per-kind enumerations, documents, the new layout, environment and detail on the view frame, headless `type`/`hover`/`select`/`command` | The Fruit and Flower tabs (I1b) merged; runs alone in `procgena/src/` (churn window) |
 | **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips | Core module, then per-crate workers beside ST0; studio half after ST0 |
-| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update keeping comments (`yamlpatch` + `yamlpath`), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
+| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update (whole-file rewrite, lossy for comments for now), namespaced keys (`builtin:` or the project/bundle id), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
 | **ST3** Library and Outline | Search, filters, shared selection, editing a referenced preset in context | ST1, ST2 |
 | **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
 | **ST5a** Picking by tags | CPU ray picks to parts, hover, highlight | ST3; R4 for Scatters other than trees |
@@ -1253,7 +1253,10 @@ where the details are.
     - *Decided by the user 2026-11-24:* Library, Outline, view frame and
       one Inspector replace the tabs; an outliner first, a diagram later;
       metadata in `<kind>.meta.yml` beside each crate's presets; a
-      project folder; updates keep comments (`yamlpatch` + `yamlpath`);
+      project folder; updates rewrite the whole file and lose comments for
+      now (keeping them is a long-term goal); namespaced keys
+      (`builtin` or the project/bundle id, bare when unambiguous;
+      `builtin` reserved);
       thumbnails cached, not committed; textures converted on import
       with `ctt` (BC7); one texture catalogue in `procgena_core`;
       viewing distance a requirement on IX; editing in context edits the
@@ -1261,7 +1264,8 @@ where the details are.
     - *Proposed, not decided:* the kind registry, document and selection
       model, the runtime preset registry and the `Preset` change, the
       capture service's home, and the "what is saved where" table.
-    - *Open:* key clashes between project and built-in presets, enum
+    - *Open:* whether a reference written in a built-in file always
+      means `builtin:` (see item 30), enum
       coverage in the metadata drift test, whether built-in thumbnails
       ship pre-rendered, where the capture module lives, Biome climate
       on the view frame, and the tree's Fruit chip.
@@ -1325,7 +1329,8 @@ where the details are.
       with its dependencies;
     - Open and Import are separate actions;
     - stored zip with a strict profile, named `.procgena`;
-    - qualify a key with its bundle only when a name is ambiguous;
+    - namespaced keys: `builtin:` or the project/bundle id, bare when
+      unambiguous, `builtin` reserved;
     - game loading, wasm, and the zip library are deferred to the build.
 
     The last three questions are also decided: Open unpacks into a new
@@ -1333,6 +1338,25 @@ where the details are.
     reader rejects compressed (Finder/Explorer) zips. Details:
     [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md),
     "Questions for the user".
+
+30. **What a name inside a built-in preset means (ST2).** A project saves
+    its own `pine_small`. The built-in `pine_forest_floor` Ecotope says
+    `tree: pine_small`, meaning the built-in tree. A project Ecotope based
+    on `pine_forest_floor` inherits that line. Today the bare name is then
+    ambiguous (built-in or project), and you can't add the prefix because
+    the line lives in the built-in file. **Recommendation:** a name
+    resolves first in the namespace of the file it was written in, so
+    names in built-in files always mean `builtin:`, and project files see
+    their own presets first. This needs the merge to remember which file
+    each line came from. The alternative is to keep it ambiguous and make
+    the user override the line in their own file.
+31. **Relief height for ground rules (G4a, for GM3).** A ground rule can
+    ask for height relative to the region's relief ("the top 20 % of this
+    region"). Nothing fills it yet. A per-region min/max scan is slow and
+    jumps at region borders. G4a suggests an analytic normalisation from
+    the terrain's own relief spreads, blended through the border fade. You
+    decide how it behaves at borders. Details:
+    [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
 
 ### Looks of work already built (wave 5)
 
