@@ -562,8 +562,11 @@ the reader rejects compressed zips.
 
    *Long-term follow-up (user, 2026-11-24):* possibly never unpack, and
    work entirely in the zip: read through the mount source, and rewrite
-   the archive on save. This is an optimisation for later, not planned
-   work.
+   the archive on save. A simpler middle step: unpack into a temporary
+   working folder the user doesn't pick or see, edit there with the
+   normal folder code, and pack back into the `.procgena` on Save. This
+   keeps one code path while the user deals only in the bundle file.
+   This is an optimisation for later, not planned work.
 
 2. **What should Import do by default on a conflict?** *Context:* a
    bundle's preset or texture has the same key as one in the project or a

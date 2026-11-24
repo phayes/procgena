@@ -1485,8 +1485,11 @@ cull distance (item 16).
 - `tree/tests/export_images.rs` needs `required-features`.
 - Long term, a possible optimisation: work on a `.procgena` bundle entirely
   inside the zip, with no unpacking to disk. Open would read through the
-  mount source, and saves would rewrite the archive. Today Open unpacks
-  into a folder (saved-file format, question 1). Details:
+  mount source, and saves would rewrite the archive. A simpler middle step
+  the user suggested: Open unpacks into a temporary folder the user never
+  sees, the studio works there as usual, and Save packs it back into the
+  `.procgena` file. Today Open unpacks into a folder the user picks
+  (saved-file format, question 1). Details:
   [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md).
 - One studio GPU test logs that plant's shared shader module isn't found
   (the test passes).
