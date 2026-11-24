@@ -566,7 +566,13 @@ the reader rejects compressed zips.
    working folder the user doesn't pick or see, edit there with the
    normal folder code, and pack back into the `.procgena` on Save. This
    keeps one code path while the user deals only in the bundle file.
-   This is an optimisation for later, not planned work.
+   The final goal is a copy-on-write layer over both. Reads fall through
+   to the zip's stored entries. An edit writes only that file into the
+   temporary folder, which shadows the zip. Save writes a new archive
+   from the changed files plus the untouched entries copied byte for
+   byte. Editing one preset in a large project then never unpacks or
+   copies the whole project. This is an optimisation for later, not
+   planned work.
 
 2. **What should Import do by default on a conflict?** *Context:* a
    bundle's preset or texture has the same key as one in the project or a

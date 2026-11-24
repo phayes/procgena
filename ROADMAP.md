@@ -1488,7 +1488,11 @@ cull distance (item 16).
   mount source, and saves would rewrite the archive. A simpler middle step
   the user suggested: Open unpacks into a temporary folder the user never
   sees, the studio works there as usual, and Save packs it back into the
-  `.procgena` file. Today Open unpacks into a folder the user picks
+  `.procgena` file. The final goal is a copy-on-write layer over both:
+  reads come from the zip, only edited files are written to the
+  temporary folder, and Save merges the two into a new archive. Editing
+  one small thing in a large project then never copies the whole
+  project. Today Open unpacks into a folder the user picks
   (saved-file format, question 1). Details:
   [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md).
 - One studio GPU test logs that plant's shared shader module isn't found
