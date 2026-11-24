@@ -31,8 +31,15 @@ fn scatter(options: &StoneScatterOptions, ground: &dyn Ground, side: f32) -> Sto
     StoneScatter::new(options, &input).unwrap()
 }
 
-fn by_cell(stones: &[StoneInstance]) -> HashMap<(usize, [i32; 2]), StoneInstance> {
-    stones.iter().map(|s| ((s.class, s.cell), *s)).collect()
+/// What names a stone: its class, cell and index within the cell.
+type Name = (usize, [i32; 2], u32);
+
+fn name(s: &StoneInstance) -> Name {
+    (s.class, s.cell, s.index)
+}
+
+fn by_cell(stones: &[StoneInstance]) -> HashMap<Name, StoneInstance> {
+    stones.iter().map(|s| (name(s), *s)).collect()
 }
 
 #[test]
@@ -81,6 +88,85 @@ fn stones_of_a_class_keep_their_spacing() {
     }
 }
 
+/// Pebbles in clusters of 2 to 5 within 0.4 m, spots 1.5 m apart.
+fn clustered() -> StoneScatterOptions {
+    let mut pebbles = StoneClass::new(StonePreset::Pebble.options(), 0.2, 1.5);
+    pebbles.variants = 2;
+    pebbles.members = [2, 5];
+    pebbles.cluster_radius = 0.4;
+    StoneScatterOptions {
+        seed: 0,
+        classes: vec![pebbles],
+    }
+}
+
+#[test]
+fn cluster_members_are_copies_numbered_within_their_cell() {
+    let o = clustered();
+    let stones = scatter(&o, &FlatGround, 30.0);
+    let mut cells: HashMap<[i32; 2], Vec<StoneInstance>> = HashMap::new();
+    for s in stones.instances() {
+        cells.entry(s.cell).or_default().push(*s);
+    }
+    assert!(cells.len() > 50, "{} clusters", cells.len());
+
+    // Names are unique, and no cell holds more than the most members.
+    assert_eq!(by_cell(stones.instances()).len(), stones.instances().len());
+    let mut several = 0;
+    for members in cells.values() {
+        assert!(members.len() <= 5);
+        assert!(members.iter().all(|s| s.index < 5));
+        several += usize::from(members.len() > 1);
+
+        // Members lie near each other and never overlap.
+        for (n, a) in members.iter().enumerate() {
+            for b in &members[n + 1..] {
+                let d = (a.position - b.position).with_y(0.0).length();
+                assert!(d <= 0.8 + 1e-4, "members {d} m apart");
+                assert!(d >= a.radius + b.radius - 1e-4, "members overlap");
+            }
+        }
+    }
+    assert!(
+        several * 2 > cells.len(),
+        "{several} of {} clusters",
+        cells.len()
+    );
+}
+
+#[test]
+fn a_member_on_missing_ground_is_dropped_and_the_rest_stay() {
+    let o = clustered();
+    let full = by_cell(scatter(&o, &FlatGround, 30.0).instances());
+    // No ground in a band along X = 0.
+    let gap = |p: DVec2| if p.x.abs() < 0.3 { f32::NAN } else { 0.0 };
+    let cut = scatter(&o, &gap, 30.0);
+    let kept = by_cell(cut.instances());
+    assert!(kept.len() < full.len());
+
+    // No stone stands in the gap, and every stone found on both grounds is
+    // the same: members don't move when a neighbour is dropped. (A stone
+    // crowded out on whole ground may appear once its neighbour is gone.)
+    for (key, stone) in &kept {
+        assert!(stone.position.x.abs() >= 0.3, "{key:?} in the gap");
+        if let Some(whole) = full.get(key) {
+            assert_eq!(whole, stone);
+        }
+    }
+
+    // Some clusters lose members to the gap while keeping others.
+    let mut split = 0;
+    for (key, stone) in &full {
+        let (class, cell, _) = *key;
+        let lost = !kept.contains_key(key);
+        let others_stay = kept
+            .keys()
+            .any(|&(c, other, _)| c == class && other == cell);
+        split += usize::from(lost && others_stay && stone.position.x.abs() < 1.0);
+    }
+    assert!(split > 0, "no cluster kept part of itself");
+}
+
 #[test]
 fn lowering_a_density_only_removes_stones() {
     let full = options();
@@ -90,7 +176,7 @@ fn lowering_a_density_only_removes_stones() {
     let few = scatter(&thin, &FlatGround, 30.0);
     assert!(few.instances().len() < many.len());
     for stone in few.instances() {
-        assert_eq!(many.get(&(stone.class, stone.cell)), Some(stone));
+        assert_eq!(many.get(&name(stone)), Some(stone));
     }
 }
 
@@ -115,11 +201,7 @@ fn patchiness_only_removes_stones_and_leaves_bare_ground() {
             pebbles(&few)
         );
         for stone in few.instances() {
-            assert_eq!(
-                many.get(&(stone.class, stone.cell)),
-                Some(stone),
-                "seed {seed}"
-            );
+            assert_eq!(many.get(&name(stone)), Some(stone), "seed {seed}");
         }
     }
 }
@@ -250,7 +332,7 @@ fn burial_sinks_stones_into_the_ground() {
     let buried = by_cell(scatter(&buried, &FlatGround, 12.0).instances());
     for stone in resting.instances() {
         assert!(stone.position.y.abs() < 1e-4);
-        let sunk = buried[&(stone.class, stone.cell)];
+        let sunk = buried[&name(stone)];
         assert!(sunk.position.y < -1e-4, "not sunk: {}", sunk.position.y);
     }
 }

@@ -40,6 +40,10 @@ const PATCH_EDGE: f32 = 0.05;
 /// Salts that keep the random draws of each purpose apart.
 const SALT_CLASS: u32 = 0x9e37_79b9;
 const SALT_PATCH: u32 = 0x6a09_e667;
+const SALT_MEMBER: u32 = 0xbb67_ae85;
+
+/// Most stones one cluster of a [`StoneClass`] can hold.
+pub const MAX_CLUSTER_MEMBERS: u32 = 16;
 
 /// One kind of stone in a [`StoneScatterOptions`], such as boulders or
 /// pebbles: its shapes, how many there are and how they lie.
@@ -54,15 +58,24 @@ pub struct StoneClass {
     /// How much each variant's stretch is randomly reduced on each axis,
     /// from 0 up to (not including) 1. See [`StoneOptions::variant`].
     pub stretch_jitter: f32,
-    /// Stones per square metre where the mask allows full density, before
-    /// slope, ground and spacing remove any. Must be 0 or more, and at most
-    /// 1 / [`spacing`](Self::spacing)².
+    /// Spots per square metre where the mask allows full density, before
+    /// slope, ground and spacing remove any. Each spot holds one stone, or
+    /// one cluster of [`members`](Self::members) stones. Must be 0 or more,
+    /// and at most 1 / [`spacing`](Self::spacing)².
     pub density: f32,
     /// Smallest distance in metres between the centres of two stones of
-    /// this class. Must be positive. Stones of different classes are kept
-    /// apart by their footprints instead, so they never overlap at the
-    /// ground.
+    /// this class from different spots. Must be positive. Stones of the
+    /// same cluster, and stones of different classes, are kept apart by
+    /// their footprints instead, so they never overlap at the ground.
     pub spacing: f32,
+    /// Fewest and most stones in each spot's cluster, from 1 up to
+    /// [`MAX_CLUSTER_MEMBERS`], the first no larger than the second.
+    /// `[1, 1]`, the default, places single stones.
+    pub members: [u32; 2],
+    /// How far in metres a cluster's stones may lie from its middle. 0 or
+    /// more; 0 puts every member at the spot itself, where only the first
+    /// fits.
+    pub cluster_radius: f32,
     /// Smallest and largest size factor applied to the stone's
     /// [`scale`](StoneOptions::scale), picked per stone. Both positive, the
     /// first no larger than the second.
@@ -89,10 +102,11 @@ pub struct StoneClass {
 }
 
 impl StoneClass {
-    /// A class of stones shaped like `stone`, at `density` stones per square
-    /// metre and at least `spacing` metres apart, with 8 variants, no stretch
-    /// jitter, sizes from 0.8 to 1.25, burial from 0.5 to 1, a slope limit of
-    /// 40 degrees, a bend allowance of 0.25 and no patches.
+    /// A class of single stones shaped like `stone`, at `density` stones per
+    /// square metre and at least `spacing` metres apart, with 8 variants, no
+    /// stretch jitter, sizes from 0.8 to 1.25, burial from 0.5 to 1, a slope
+    /// limit of 40 degrees, a bend allowance of 0.25, no clusters and no
+    /// patches.
     pub fn new(stone: StoneOptions, density: f32, spacing: f32) -> Self {
         Self {
             stone,
@@ -100,6 +114,8 @@ impl StoneClass {
             stretch_jitter: 0.0,
             density,
             spacing,
+            members: [1, 1],
+            cluster_radius: 0.0,
             size: [0.8, 1.25],
             burial: [0.5, 1.0],
             max_slope: 40.0,
@@ -147,6 +163,29 @@ impl StoneClass {
             self.density,
             self.density >= 0.0 && self.density * self.spacing * self.spacing <= 1.0,
             "at least 0 and at most 1 / spacing squared",
+        )?;
+        let [fewest, most] = self.members;
+        if !(1..=MAX_CLUSTER_MEMBERS).contains(&fewest) {
+            return Err(OptionsError::IntOutOfRange {
+                field: "class.members",
+                value: fewest,
+                min: 1,
+                max: MAX_CLUSTER_MEMBERS,
+            });
+        }
+        if !(fewest..=MAX_CLUSTER_MEMBERS).contains(&most) {
+            return Err(OptionsError::IntOutOfRange {
+                field: "class.members",
+                value: most,
+                min: fewest,
+                max: MAX_CLUSTER_MEMBERS,
+            });
+        }
+        float(
+            "class.cluster_radius",
+            self.cluster_radius,
+            self.cluster_radius >= 0.0,
+            "at least 0",
         )?;
         float("class.size", self.size[0], self.size[0] > 0.0, "positive")?;
         float(
@@ -208,8 +247,8 @@ pub struct StoneScatterOptions {
 }
 
 impl StoneScatterOptions {
-    /// A few large boulders, sparse rocks and many pebbles, gathered in
-    /// patches.
+    /// A few large boulders, sparse rocks and many pebbles in small clusters,
+    /// gathered in patches.
     pub fn boulder_field() -> Self {
         let mut boulders = StoneClass::new(StonePreset::Boulder.options(), 0.004, 6.0);
         boulders.variants = 6;
@@ -220,7 +259,9 @@ impl StoneScatterOptions {
         let mut rocks = StoneClass::new(StonePreset::RiverStone.options(), 0.03, 1.5);
         rocks.patchiness = 0.3;
         rocks.patch_size = 12.0;
-        let mut pebbles = StoneClass::new(StonePreset::Pebble.options(), 0.6, 0.3);
+        let mut pebbles = StoneClass::new(StonePreset::Pebble.options(), 0.25, 0.6);
+        pebbles.members = [1, 5];
+        pebbles.cluster_radius = 0.3;
         pebbles.size = [0.6, 1.6];
         pebbles.max_slope = 50.0;
         pebbles.patchiness = 0.5;
@@ -322,6 +363,9 @@ pub struct StoneInstance {
     /// The candidate cell it came from, within its class. The same input
     /// always gives the stone in this cell the same place and look.
     pub cell: [i32; 2],
+    /// Its number within its cell's cluster, from 0. Single stones are 0.
+    /// The class, cell and index together name the stone.
+    pub index: u32,
     /// Its size factor, already part of [`transform`](Self::transform).
     pub scale: f32,
     /// Where its origin stands, relative to the area's centre, in metres.
@@ -407,7 +451,7 @@ impl StoneScatter {
         let count: f64 = options
             .classes
             .iter()
-            .map(|c| f64::from(c.density) * area)
+            .map(|c| f64::from(c.density) * f64::from(c.members[1]) * area)
             .sum();
         if count > MAX_STONE_INSTANCES as f64 {
             return Err(StoneScatterError::TooMany {
@@ -453,6 +497,7 @@ impl StoneScatter {
                 a.rank
                     .total_cmp(&b.rank)
                     .then(a.instance.cell.cmp(&b.instance.cell))
+                    .then(a.instance.index.cmp(&b.instance.index))
             });
             let mut own = kept.empty_like();
             for candidate in found {
@@ -565,22 +610,20 @@ fn candidates_of(
     let chance = class.density * cell * cell;
     for i in x0..x1 {
         for j in z0..z1 {
-            // Draw everything about the spot from its cell.
+            // Draw the spot's place, rank and cluster from its cell.
             let a = pcg3d([i as u32, j as u32, salt]);
             let b = pcg3d(a);
-            let c = pcg3d(b);
-            let local = Vec2::new(
+            let centre = Vec2::new(
                 (i as f32 + unit_float(a[0])) * cell,
                 (j as f32 + unit_float(a[1])) * cell,
             );
-            if !input.area.contains(local) {
+            if !input.area.contains(centre) {
                 continue;
             }
 
             // Keep it with a chance that grows with the local density, so a
             // lower density keeps a subset of a higher one's stones.
-            let world = input.area.world(local);
-            let local_density = input.density(local);
+            let local_density = input.density(centre);
             if local_density <= 0.0 {
                 continue;
             }
@@ -589,55 +632,108 @@ fn candidates_of(
                 continue;
             }
 
-            // Check the slope at the spot, then rest the stone on the ground.
-            if steeper_than(&input.sample(local), class.max_slope) {
-                continue;
-            }
-            let variant =
-                ((unit_float(b[0]) * class.variants as f32) as u32).min(class.variants - 1);
-            let shape = &shapes[variant as usize];
-            let metres = variants[variant as usize].scale;
-            let scale = lerp_log(class.size, unit_float(b[1]));
-            let yaw = unit_float(b[2]) * std::f32::consts::TAU;
-            let burial = class.burial[0] + (class.burial[1] - class.burial[0]) * unit_float(c[0]);
-            let size = metres * scale;
-            let footing = Footing {
-                contacts: shape
-                    .footprint
-                    .iter()
-                    .map(|p| Vec3::new(p.x, 0.0, p.y) * size)
-                    .collect(),
-                extra: Vec::new(),
-                max_bend: class.max_bend * shape.radius * size,
-            };
-            let Some(settled) = settle(input.ground, world, yaw, &footing) else {
-                continue;
-            };
-
-            // Sink it by its share of the suggested burial.
-            let sink = burial * shape.embed_depth * size;
-            let position = Vec3::new(local.x, settled.height - sink, local.y);
-            found.push(Candidate {
-                rank,
-                radius: shape.radius * size,
-                in_patch: unit_float(c[1]) < patches(class, world, salt),
-                instance: StoneInstance {
+            // Place each member of the spot's cluster (one stone without
+            // clusters). The whole cluster shares one patch draw.
+            let spread = class.members[1] - class.members[0] + 1;
+            let count =
+                class.members[0] + ((unit_float(b[0]) * spread as f32) as u32).min(spread - 1);
+            let in_patch = unit_float(b[1]) < patches(class, input.area.world(centre), salt);
+            for index in 0..count {
+                let spot = Spot {
                     class: k,
-                    variant,
                     cell: [i, j],
-                    scale,
-                    position,
-                    radius: shape.radius * size,
-                    transform: Affine3A::from_scale_rotation_translation(
-                        Vec3::splat(scale),
-                        settled.rotation,
-                        position,
-                    ),
-                },
-            });
+                    index,
+                    centre,
+                    draws: pcg3d([a[0], a[1] ^ index.wrapping_mul(SALT_MEMBER), b[2]]),
+                };
+                if let Some(instance) = place_member(class, variants, shapes, input, &spot) {
+                    found.push(Candidate {
+                        rank,
+                        radius: instance.radius,
+                        in_patch,
+                        instance,
+                    });
+                }
+            }
         }
     }
     found
+}
+
+/// One member of a kept spot's cluster, waiting to be placed.
+struct Spot {
+    /// The stone's class.
+    class: usize,
+    /// The candidate cell the spot came from.
+    cell: [i32; 2],
+    /// The member's number within the cell.
+    index: u32,
+    /// The cluster's middle, relative to the area's centre.
+    centre: Vec2,
+    /// The member's own random draws.
+    draws: [u32; 3],
+}
+
+/// Places the member `spot` of a cluster of class `class`: offsets it from
+/// the cluster's middle, then checks the mask, the slope and the ground and
+/// rests it, sunk by its burial. Returns `None` where any check fails.
+fn place_member(
+    class: &StoneClass,
+    variants: &[StoneOptions],
+    shapes: &[VariantShape],
+    input: &ScatterInput<'_>,
+    spot: &Spot,
+) -> Option<StoneInstance> {
+    let b = spot.draws;
+    let c = pcg3d(b);
+    let d = pcg3d(c);
+
+    // Offset the member evenly over a disc around the cluster's middle.
+    let reach = class.cluster_radius * unit_float(d[0]).sqrt();
+    let local = spot.centre + Vec2::from_angle(unit_float(d[1]) * std::f32::consts::TAU) * reach;
+    if !input.area.contains(local) || input.density(local) <= 0.0 {
+        return None;
+    }
+
+    // Check the slope at the spot, then rest the stone on the ground.
+    if steeper_than(&input.sample(local), class.max_slope) {
+        return None;
+    }
+    let variant = ((unit_float(b[0]) * class.variants as f32) as u32).min(class.variants - 1);
+    let shape = &shapes[variant as usize];
+    let metres = variants[variant as usize].scale;
+    let scale = lerp_log(class.size, unit_float(b[1]));
+    let yaw = unit_float(b[2]) * std::f32::consts::TAU;
+    let burial = class.burial[0] + (class.burial[1] - class.burial[0]) * unit_float(c[0]);
+    let size = metres * scale;
+    let footing = Footing {
+        contacts: shape
+            .footprint
+            .iter()
+            .map(|p| Vec3::new(p.x, 0.0, p.y) * size)
+            .collect(),
+        extra: Vec::new(),
+        max_bend: class.max_bend * shape.radius * size,
+    };
+    let settled = settle(input.ground, input.area.world(local), yaw, &footing)?;
+
+    // Sink it by its share of the suggested burial.
+    let sink = burial * shape.embed_depth * size;
+    let position = Vec3::new(local.x, settled.height - sink, local.y);
+    Some(StoneInstance {
+        class: spot.class,
+        variant,
+        cell: spot.cell,
+        index: spot.index,
+        scale,
+        position,
+        radius: shape.radius * size,
+        transform: Affine3A::from_scale_rotation_translation(
+            Vec3::splat(scale),
+            settled.rotation,
+            position,
+        ),
+    })
 }
 
 /// Returns the share of class `class`'s density its patches allow at World
@@ -726,7 +822,8 @@ impl Kept {
     }
 
     /// Whether `candidate` is closer than `spacing` to a kept stone of its
-    /// own class, or its footprint overlaps any kept stone's.
+    /// own class from another cell, or its footprint overlaps any kept
+    /// stone's.
     fn crowds(&self, candidate: &Candidate, spacing: f32) -> bool {
         let p = candidate.instance.position.xz();
         let (bx, bz) = self.bucket(p);
@@ -737,7 +834,8 @@ impl Kept {
             .any(|&n| {
                 let other = &self.stones[n];
                 let mut apart = candidate.radius + other.radius;
-                if other.instance.class == candidate.instance.class {
+                let mine = &candidate.instance;
+                if other.instance.class == mine.class && other.instance.cell != mine.cell {
                     apart = apart.max(spacing);
                 }
                 p.distance_squared(other.instance.position.xz()) < apart * apart

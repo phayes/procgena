@@ -104,7 +104,8 @@ pub use presets::StonePreset;
 pub use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
 pub use procgena_core::{FlatGround, Ground, HeightGrid};
 pub use scatter::{
-    MAX_STONE_CANDIDATES, MAX_STONE_CLASSES, MAX_STONE_INSTANCES, MAX_STONE_VARIANTS, StoneClass,
-    StoneInstance, StoneScatter, StoneScatterError, StoneScatterOptions,
+    MAX_CLUSTER_MEMBERS, MAX_STONE_CANDIDATES, MAX_STONE_CLASSES, MAX_STONE_INSTANCES,
+    MAX_STONE_VARIANTS, StoneClass, StoneInstance, StoneScatter, StoneScatterError,
+    StoneScatterOptions,
 };
 pub use stone::{Stone, StoneError};

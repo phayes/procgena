@@ -243,7 +243,7 @@ time, and gives its mask over a chunk without drawing anything. See
 | `PlantScatter` | Built as `PlantField` ([plant/docs/fields.md](plant/docs/fields.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
 | `MushroomScatter` | Exists, but grows on tagged host meshes | Becomes a ground Scatter of `Mushroom`s (single, tuft or fairy ring). Growing on hosts moves to the later `MushroomGrowth` modifier. |
 | `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
-| `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of single stones over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. Pebble clusters wait for the group half of open question 3. |
+| `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of stones, single or in clusters, over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. |
 
 ### 3. Ecotope
 
@@ -1314,9 +1314,8 @@ it starts.
 - [ ] **`DeadwoodScatter`**: grow `StickScatter` to cover logs and stumps,
   and give it a slope limit.
 - [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
-  clustering and partial burial. Done in C1 for single stones: clustering
-  is patches in the density, not groups. Pebble clusters as groups wait
-  for open question 3.
+  clustering and partial burial. Done in C1: patches in the density, and
+  pebble clusters whose members are ordinary copies.
 - [ ] **Scatter masks out**: each Scatter reports the mask it leaves for the
   Scatters below it (trunk discs, canopy shade, stone and log footprints).
 
@@ -1467,14 +1466,19 @@ it starts.
    transform, but a fairy ring is metres across and a fallen log is long.
    On a slope their members or ends need ground heights. Does the asset get
    the `Ground` at build time, or does the Scatter settle its parts?
-   **Half decided 2026-11-23 (C1):** the asset never sees the `Ground`, so
-   its specimens stay shared. For rigid wide pieces (logs, stumps,
-   boulders), the Scatter settles them with `procgena_core::scatter::settle`
-   from the points where the piece touches flat ground. **Still open:**
-   groups of members (fairy rings, tufts, pebble clusters), which are
-   either members inside one copy or a part path under the group's address.
-   This is being decided with D3's Addresses (see
-   [docs/decisions/C1.md](docs/decisions/C1.md)).
+   **Decided 2026-11-23 (C1, with D3's Addresses):** the asset never sees
+   the `Ground`, so its specimens stay shared.
+   - **Rigid wide pieces** (logs, stumps, boulders): the Scatter settles
+     them with `procgena_core::scatter::settle`, from the points where the
+     piece touches flat ground.
+   - **A group the asset defines** (a fairy ring in `Mushroom`): one copy,
+     whose members are part steps in its address. The Scatter settles each
+     member, and drops a member that can't settle while the rest stays.
+   - **A group the Scatter defines** (pebble clusters in `StoneScatter`):
+     its members are ordinary copies, each with its own `index` within its
+     cell.
+
+   See [docs/decisions/C1.md](docs/decisions/C1.md).
 4. **Ids from list positions.** Under "Seeds", a Scatter's id is its place
    in its Ecotope's list. Inserting or reordering a Scatter (a user hook
    at priority 2, say) then reseeds every Scatter below it and breaks saved
