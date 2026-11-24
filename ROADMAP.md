@@ -381,7 +381,14 @@ goldens, which have no baseline on this machine).
   bit-identical heights. Shared border nodes were measured (at most about
   10% gain) and not built. Warped borders still cost about 2.7× straight
   ones, from their piece count; that is left for the performance sweep.
-  W4 is next.
+  **W4 is built (2026-11-24):** `WorldTerrain` builds a lattice world's
+  regions on demand from a `TerrainSource` closure, caching each region's
+  settings, plan (converged generator and offers) and terrain; its seams
+  pass on warped borders on flat, tilted and curved land, and its centre
+  region matches a `StitchedWorld` of the same polygons bit for bit. Not
+  done: the region size check, and the equal preset offsets, which wait
+  for the user (world_plan open question 5). W6 (image example and
+  drainage measurement) is next.
 
 #### G6: Terrain volume, mesher, Bevy crate and studio (Phases 6–10)
 

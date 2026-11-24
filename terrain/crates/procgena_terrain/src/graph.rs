@@ -303,7 +303,7 @@ impl RegionGraph {
 
     /// The lattice cell nearest `p`: the key of a region whose site is
     /// near `p`, though not always the region holding `p`.
-    fn cell_near(&self, p: DVec2) -> RegionKey {
+    pub(crate) fn cell_near(&self, p: DVec2) -> RegionKey {
         let size = self.options.size;
         let z = (p.y / (ROW * size)).round() as i32;
         let stagger = if z.rem_euclid(2) == 1 { 0.5 } else { 0.0 };
