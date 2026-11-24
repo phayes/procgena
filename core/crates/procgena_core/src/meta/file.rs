@@ -122,6 +122,10 @@ pub struct SettingMeta {
     /// The value a number takes when an edit makes it appear while it is
     /// zero or at the bottom of its range.
     pub revive: Option<Revive>,
+    /// For a number that may be left unset (`null`, such as a value that
+    /// otherwise follows another setting): the value it starts from when it
+    /// is set by hand. Tools show a switch to set or unset it.
+    pub optional: Option<f64>,
     /// Folded away in the Inspector by default.
     pub advanced: bool,
     /// In the file format but not in the Inspector, such as a value the
@@ -294,6 +298,8 @@ struct RawSetting {
     shown_if: Option<String>,
     #[serde(default)]
     revive: Option<RawRevive>,
+    #[serde(default)]
+    optional: Option<f64>,
     #[serde(default)]
     advanced: bool,
     #[serde(default)]
@@ -693,6 +699,7 @@ fn setting(raw: RawSetting, at: &str) -> Result<SettingMeta, MetaError> {
             .map(|text| condition(text, &format!("{at}.shown_if")))
             .transpose()?,
         revive,
+        optional: raw.optional,
         advanced: raw.advanced,
         hidden: raw.hidden,
     })

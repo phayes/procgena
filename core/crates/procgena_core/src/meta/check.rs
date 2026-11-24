@@ -294,18 +294,26 @@ fn setting_values(entry: &SettingMeta, lists: &ChoiceLists, current: &Value) -> 
             ],
         },
         ControlKind::Ref(_) => Vec::new(),
-        ControlKind::FromValue => match current {
-            Value::Bool(on) => vec![Value::Bool(!on)],
-            Value::Number(_) => entry
-                .range
-                .map(|[min, max]| {
-                    vec![
-                        entry.number_value(current, min),
-                        entry.number_value(current, max),
-                    ]
-                })
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        },
+        ControlKind::FromValue => {
+            let number = current.is_number() || (current.is_null() && entry.optional.is_some());
+            let mut values = match current {
+                Value::Bool(on) => vec![Value::Bool(!on)],
+                _ if number => entry
+                    .range
+                    .map(|[min, max]| {
+                        vec![
+                            entry.number_value(current, min),
+                            entry.number_value(current, max),
+                        ]
+                    })
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            // An optional number can also be unset.
+            if entry.optional.is_some() && !current.is_null() {
+                values.push(Value::Null);
+            }
+            values
+        }
     }
 }

@@ -39,7 +39,8 @@
 //!     scale: exponential
 //! ```
 //!
-//! An entry may also give `unit`, `part`, `advanced`, `hidden`, and one
+//! An entry may also give `unit`, `part`, `advanced`, `hidden`,
+//! `optional: <start>` for a number that may be unset (`null`), and one
 //! control override: `color: true`, `choices` (a list of `{value, label}`,
 //! or the name of a list the crate supplies through [`ChoiceLists`]), or
 //! `ref: <kind>` for a preset key of another kind. `revive` is a number or

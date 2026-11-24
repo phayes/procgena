@@ -238,6 +238,23 @@ fn listed_settings_stay_in_the_layout_while_absent_but_are_not_shown() {
     assert!(!meta.is_shown(&path("tint"), &value));
 }
 
+#[test]
+fn optional_numbers_vary_between_set_and_unset() {
+    let meta = KindMeta::parse(
+        "kind: x\nname: X\nsettings:\n  sag: { label: Sag, range: [0, 1], step: 0.1, optional: 0.2 }\n",
+    )
+    .unwrap();
+    let lists = ChoiceLists::new();
+    let (sag, _) = meta.setting(&path("sag")).unwrap();
+    assert_eq!(sag.optional, Some(0.2));
+    let set = variants(&meta, &lists, &path("sag"), &json!({ "sag": 0.5 }));
+    let values: Vec<Value> = set.iter().map(|v| v["sag"].clone()).collect();
+    assert_eq!(values, [json!(0.0), json!(1.0), Value::Null]);
+    let unset = variants(&meta, &lists, &path("sag"), &json!({ "sag": null }));
+    let values: Vec<Value> = unset.iter().map(|v| v["sag"].clone()).collect();
+    assert_eq!(values, [json!(0.0), json!(1.0)]);
+}
+
 const DECIDUOUS: &str = "  deciduous: { label: Deciduous, description: Drops its leaves. }";
 const LEVELS: &str = "  levels: { label: Levels, description: How many levels., range: [0, 2] }";
 
