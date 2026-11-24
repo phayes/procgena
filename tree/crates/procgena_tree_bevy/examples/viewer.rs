@@ -37,7 +37,9 @@
 //! after the trees finish generating; tree generation itself has no time limit.
 //! Add `--headless` with `--screenshot` to capture without opening a window.
 //! This keeps trees and leaves still so wind does not change their appearance
-//! between screenshots. Use `--lod <0–3>` to lock the
+//! between screenshots. `--cluster-cards <n>` draws fruit and flower clusters at
+//! detail levels 1 and 2 as cards showing `n` baked cluster variants, and `0`
+//! as geometry; pass it before `--lod`. Use `--lod <0–3>` to lock the
 //! viewer to one default detail level at all distances. For example, `--lod 3`
 //! lets you inspect the distant tree’s camera-facing shapes and shadows up close.
 //! Trees beyond 120 m are drawn as baked impostors; `--no-impostor` keeps the
@@ -202,6 +204,13 @@ fn main() -> AppExit {
                 let n = |k: usize| args[i + k].parse::<u32>().expect("a whole number");
                 size = UVec2::new(n(1), n(2));
                 i += 2;
+            }
+            "--cluster-cards" => {
+                let variants: u32 = args[i + 1].parse().expect("a number of card variants");
+                for level in lod.levels.iter_mut().skip(1).take(2) {
+                    level.detail.detail.cluster_cards = variants;
+                }
+                i += 1;
             }
             "--lod" => {
                 let index: usize = args[i + 1].parse().expect("a detail level number");
@@ -600,7 +609,13 @@ fn tree_textures_state(
             &base.occlusion_texture,
             &base.emissive_texture,
         ];
-        for texture in textures.into_iter().flatten() {
+        // Textures made in code, such as baked cluster card pictures, have
+        // no file to wait for.
+        for texture in textures
+            .into_iter()
+            .flatten()
+            .filter(|t| t.path().is_some())
+        {
             if asset_server.load_state(texture).is_failed() {
                 let path = texture.path().map(ToString::to_string).unwrap_or_default();
                 return Err(format!("texture {path} failed to load"));
