@@ -876,9 +876,11 @@ What the numbers say:
   million a frame here), each searching for its host and reading its
   state, even for trees the host step skipped.
 - **Proposed next steps**, in order of payoff:
-  1. Draw fewer catkins: most of the near frame's 266,000 are in the four
-     shadow views. Let only fruit level 0 cast shadows, and thin catkins
-     at the tree's middle levels (`cluster_stride` at level 2 as well as 3).
+  1. Draw fewer catkins. The near frame's 266,000 are counted over the
+     camera and its four shadow views together (the bench doesn't split
+     them yet), and fruit levels 0 and 1 cast shadows. Letting only level
+     0 cast shadows, and thinning catkins at the tree's middle levels
+     (`cluster_stride` at level 2 as well as 3), both cut it.
   2. Dispatch rows only for trees the host step keeps: `cull_hosts`
      appends each kept tree and its row range to a list, and `cull_rows`
      runs as an indirect dispatch over those rows. That removes the row
