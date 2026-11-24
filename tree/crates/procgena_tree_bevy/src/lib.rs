@@ -152,7 +152,7 @@
 //!     promoted: Query<&PromotedTree>,
 //! ) {
 //!     for (grove, tree) in trees.within(player.translation(), 10.0) {
-//!         let promotion = PromotedTree::new(grove, tree.id);
+//!         let promotion = PromotedTree::new(grove, tree.address);
 //!         if !promoted.iter().any(|p| *p == promotion) {
 //!             commands.spawn((promotion, Collider));
 //!         }

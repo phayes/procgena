@@ -12,7 +12,8 @@ use bevy::scene::Scene;
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_tree::{
-    MAX_SCATTER_TREES, ScatterTree, TreeOptions, TreePreset, TreeScatter, TreeScatterPreset,
+    ChildKey, MAX_SCATTER_TREES, ScatterTree, TreeOptions, TreePreset, TreeScatter,
+    TreeScatterPreset,
 };
 
 use super::{
@@ -430,13 +431,31 @@ fn add_tree(
     _: On<Activate>,
     editor: Single<&GroveEditor>,
     children: Query<&Children>,
+    shares: Query<&ParamPanel<ScatterTree>>,
     mut commands: Commands,
 ) {
     let count = children.get(editor.list).map_or(0, |rows| rows.len());
     if count >= MAX_SCATTER_TREES {
         return;
     }
-    let row = spawn_row(&mut commands, editor.list, added_tree());
+    // Species keys must differ, so a new row takes the first free `added_<n>`.
+    let taken: Vec<String> = shares
+        .iter()
+        .map(|share| share.value().key.as_str().to_owned())
+        .collect();
+    let key = (1..)
+        .map(|n| format!("added_{n}"))
+        .find(|key| !taken.contains(key))
+        .and_then(|key| ChildKey::new(key).ok())
+        .expect("a free key");
+    let row = spawn_row(
+        &mut commands,
+        editor.list,
+        ScatterTree {
+            key,
+            ..added_tree()
+        },
+    );
     commands
         .entity(editor.list)
         .insert_children(count.saturating_sub(1), &[row]);

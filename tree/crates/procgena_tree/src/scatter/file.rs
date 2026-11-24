@@ -1,5 +1,6 @@
 //! How a [`ScatterTree`] is written in a `.tree_scatter.yml` file.
 
+use procgena_core::ChildKey;
 use procgena_core::preset::{from_value, merge, to_value};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -13,6 +14,9 @@ use crate::presets::TreePreset;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ScatterTreeFile {
+    /// Missing: the named tree preset's key.
+    #[serde(default)]
+    key: Option<ChildKey>,
     tree: TreeRef,
     #[serde(default)]
     density: Option<f32>,
@@ -97,7 +101,19 @@ impl TryFrom<ScatterTreeFile> for ScatterTree {
             .spacing
             .or(stand.map(|stand| stand.spacing))
             .ok_or_else(|| missing("spacing"))?;
+
+        // The key is the preset's unless the entry sets one.
+        let key = match (file.key, preset) {
+            (Some(key), _) => key,
+            (None, Some(preset)) => {
+                ChildKey::new(preset.key.as_ref()).map_err(|e| e.to_string())?
+            }
+            (None, None) => {
+                return Err("the tree names no preset, so the entry must set key".to_owned());
+            }
+        };
         Ok(Self {
+            key,
             tree,
             density,
             spacing,
@@ -117,6 +133,7 @@ impl From<ScatterTree> for ScatterTreeFile {
     fn from(tree: ScatterTree) -> Self {
         let preset = TreePreset::all().find(|preset| preset.tree == tree.tree);
         Self {
+            key: Some(tree.key),
             tree: match preset {
                 Some(preset) => TreeRef::Key(preset.key.to_string()),
                 None => match to_value(&tree.tree) {

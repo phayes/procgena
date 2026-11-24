@@ -187,7 +187,7 @@ pub(crate) fn extract_groves(
     }
     for promotion in &promoted {
         if let Some(grove) = extracted.0.get_mut(&MainEntity::from(promotion.grove))
-            && let Some(index) = grove.instances.index_of(promotion.id)
+            && let Some(index) = grove.instances.index_of(&promotion.address)
         {
             grove.promoted.insert(index);
         }

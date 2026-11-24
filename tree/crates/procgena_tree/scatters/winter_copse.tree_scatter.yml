@@ -7,5 +7,5 @@ group: Seasonal
 tree_scatter:
   default_seed: 8
   trees:
-    - { tree: spring_pussy_willow, density_scale: 0.1, clustering: 0.5 }
-    - { tree: winter_thicket, density_scale: 0.8 }
+    - { key: willows, tree: spring_pussy_willow, density_scale: 0.1, clustering: 0.5 }
+    - { key: thicket, tree: winter_thicket, density_scale: 0.8 }

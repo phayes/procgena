@@ -16,11 +16,16 @@
 mod file;
 mod presets;
 
-use std::collections::HashMap;
 use std::fmt;
 
-use glam::{Affine3A, Quat, Vec2, Vec3};
-use procgena_core::scatter::{Footprint, Placement, Rest, ScatterInput, place, steeper_than};
+use glam::{Affine3A, DVec2, Quat, Vec3};
+use procgena_core::hash::{pcg2, seed_for};
+use procgena_core::scatter::lattice::{self, Fixed2};
+use procgena_core::scatter::{
+    DEFAULT_SPACING_ROUNDS, Disc, Footprint, Lattice, Placement, Rank, Reach, Rest, Scatter,
+    ScatterCopy, ScatterError, ScatterInput, ScatterSlot, Spaced, keep_spaced, place, steeper_than,
+};
+use procgena_core::{CellId, ChildKey, CopyAddress};
 use serde::{Deserialize, Serialize};
 
 use crate::options::{OptionsError, TreeOptions};
@@ -95,19 +100,30 @@ const GIANT_GROWTH: f32 = 2.5;
 /// size.
 const GIANT_RARITY: i32 = 8;
 
-// Fixed inputs that give each random choice its own sequence.
-const SALT_X: u64 = 0x1;
-const SALT_Z: u64 = 0x2;
-const SALT_RANK: u64 = 0x3;
-const SALT_VARIANT: u64 = 0x4;
-const SALT_YAW: u64 = 0x5;
-const SALT_LEAN_DIRECTION: u64 = 0x6;
-const SALT_LEAN: u64 = 0x7;
-const SALT_SCALE: u64 = 0x8;
-const SALT_SPECIES: u64 = 0x100;
-const SALT_PATCHES: u64 = 0x200;
-const SALT_CLUSTER: u64 = 0x400;
-const SALT_GLADES: u64 = 0x500;
+/// How far away, in metres, a tree Scatter is drawn. Trees have no cull
+/// distance of their own yet (their impostors draw on), so this is a fixed
+/// stand-in for the largest trees.
+const DRAW_RANGE: f32 = 2000.0;
+
+// Seed keys for the Scatter's random streams, named
+// `<crate>.<area>.<role>`. They are frozen: renaming one moves every tree.
+// Add a new key to `skeleton::KEYS` too.
+pub(crate) const LATTICE_SEED: &str = "tree.scatter.lattice";
+pub(crate) const PATCHES_SEED: &str = "tree.scatter.patches";
+pub(crate) const GLADES_SEED: &str = "tree.scatter.glades";
+
+// Salts that give each draw of one spot its own value. Species salts are
+// combined with the species' key.
+const SALT_X: u32 = 0x1;
+const SALT_Z: u32 = 0x2;
+const SALT_RANK: u32 = 0x3;
+const SALT_VARIANT: u32 = 0x4;
+const SALT_YAW: u32 = 0x5;
+const SALT_LEAN_DIRECTION: u32 = 0x6;
+const SALT_LEAN: u32 = 0x7;
+const SALT_SCALE: u32 = 0x8;
+const SALT_SPECIES: u32 = 0x100;
+const SALT_CLUSTER: u32 = 0x400;
 
 /// One species in a [`TreeScatter`]: what the tree looks like, and how many
 /// grow and how close together.
@@ -116,15 +132,22 @@ const SALT_GLADES: u64 = 0x500;
 /// that suit it. Every field is public, so a species can also be built or
 /// changed directly.
 ///
-/// In a file, `tree` is a [`TreePreset`] key such as `oak_small`, or a map of
-/// tree settings with an optional `base` tree preset key they are laid over.
-/// `density`, `spacing` and `max_slope` may be left out when the tree names a
-/// preset: they then come from its [`stand`](TreePreset::stand). A
-/// `max_slope` of `null` uses the Scatter's own limit. The other settings
-/// default as in [`ScatterTree::custom`].
+/// In a file, `key` names the species within its Scatter, and `tree` is a
+/// [`TreePreset`] key such as `oak_small`, or a map of tree settings with an
+/// optional `base` tree preset key they are laid over. `key` may be left out
+/// when the tree names a preset: it is then the preset's key. `density`,
+/// `spacing` and `max_slope` may be left out when the tree names a preset:
+/// they then come from its [`stand`](TreePreset::stand). A `max_slope` of
+/// `null` uses the Scatter's own limit. The other settings default as in
+/// [`ScatterTree::custom`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "file::ScatterTreeFile", into = "file::ScatterTreeFile")]
 pub struct ScatterTree {
+    /// Names the species within its Scatter. Each species' own random
+    /// choices (its stands, and which candidate spots it takes) come from
+    /// its key, not its place in the list. Keys must differ within a
+    /// Scatter; changing one moves the species' trees.
+    pub key: ChildKey,
     /// The tree's shape. Every variant, the first included, grows from a seed
     /// derived from this [`default_seed`](TreeOptions::default_seed); see
     /// [`variant`](Self::variant).
@@ -158,26 +181,34 @@ pub struct ScatterTree {
 }
 
 impl ScatterTree {
-    /// A species from a preset, at the density, spacing and slope tolerance
-    /// of the preset's [`stand`](TreePreset::stand), evenly mixed, with 4
-    /// shape variants. A preset without a stand gives a density and spacing
-    /// of 0: set them yourself.
+    /// A species from a preset, keyed by the preset's key, at the density,
+    /// spacing and slope tolerance of the preset's
+    /// [`stand`](TreePreset::stand), evenly mixed, with 4 shape variants. A
+    /// preset without a stand gives a density and spacing of 0: set them
+    /// yourself.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the preset's key is not a well-formed [`ChildKey`]; every
+    /// built-in preset's key is.
     pub fn new(preset: &TreePreset) -> Self {
         let stand = preset.stand.unwrap_or(TreeStand {
             density: 0.0,
             spacing: 0.0,
             max_slope: None,
         });
-        let mut tree = Self::custom(preset.tree.clone(), stand.density, stand.spacing);
+        let key = ChildKey::new(preset.key.as_ref()).expect("tree preset keys are child keys");
+        let mut tree = Self::custom(key, preset.tree.clone(), stand.density, stand.spacing);
         tree.max_slope = stand.max_slope;
         tree
     }
 
-    /// A species with your own tree settings, `density` in trees per hectare
-    /// and `spacing` in metres, evenly mixed, with 4 shape variants, on the
-    /// grove's slope limit.
-    pub fn custom(tree: TreeOptions, density: f32, spacing: f32) -> Self {
+    /// A species named `key`, with your own tree settings, `density` in trees
+    /// per hectare and `spacing` in metres, evenly mixed, with 4 shape
+    /// variants, on the Scatter's slope limit.
+    pub fn custom(key: ChildKey, tree: TreeOptions, density: f32, spacing: f32) -> Self {
         Self {
+            key,
             tree,
             density,
             spacing,
@@ -334,7 +365,7 @@ impl TreeScatterVariation {
 /// - **Order matters for clustering.** Species are chosen in list order, and
 ///   the last species with a density above 0 fills whatever the others
 ///   leave. Put the species that fills the gaps last.
-/// - **Spacing thins the grove.** A tree too close to a neighbour is left
+/// - **Spacing thins the scatter.** A tree too close to a neighbour is left
 ///   out, so a dense grove with wide spacing grows fewer trees than its
 ///   density asks for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -425,6 +456,15 @@ impl TreeScatter {
         self.variation.validate()?;
         for (index, tree) in self.trees.iter().enumerate() {
             tree.validate(index)?;
+            if let Some(first) = self.trees[..index]
+                .iter()
+                .position(|other| other.key.salt() == tree.key.salt())
+            {
+                return Err(TreeScatterError::KeyClash {
+                    first,
+                    second: index,
+                });
+            }
         }
         Ok(())
     }
@@ -458,20 +498,31 @@ pub enum TreeScatterError {
         /// The number of trees the settings ask for.
         count: usize,
     },
+    /// Two species have the same key, or keys that share a salt.
+    KeyClash {
+        /// The first species' position in [`TreeScatter::trees`].
+        first: usize,
+        /// The second species' position.
+        second: usize,
+    },
 }
 
 impl fmt::Display for TreeScatterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Options(error) => write!(f, "invalid grove settings: {error}"),
+            Self::Options(error) => write!(f, "invalid tree Scatter settings: {error}"),
             Self::Tree { index, error } => write!(f, "invalid tree in trees[{index}]: {error}"),
             Self::TooManyTrees { count } => write!(
                 f,
-                "the grove lists {count} species, but at most {MAX_SCATTER_TREES} are allowed"
+                "the Scatter lists {count} species, but at most {MAX_SCATTER_TREES} are allowed"
             ),
             Self::TooMany { count } => write!(
                 f,
-                "the grove asks for {count} trees, but at most {MAX_SCATTER_COPIES} are allowed"
+                "the Scatter asks for {count} trees, but at most {MAX_SCATTER_COPIES} are allowed"
+            ),
+            Self::KeyClash { first, second } => write!(
+                f,
+                "trees[{first}] and trees[{second}] have the same key, or keys with the same salt"
             ),
         }
     }
@@ -493,13 +544,17 @@ pub struct TreeCopy {
     /// Which of the species' shape variants to draw; see
     /// [`ScatterTree::variant`].
     pub variant: u32,
-    /// Names the spot the tree stands on. A tree at the same spot keeps its
-    /// id when the grove changes, so a renderer can update trees in place
+    /// Names the spot the tree stands on, anywhere in the World. A tree at
+    /// the same spot keeps its address when the Scatter changes or is
+    /// placed over another area, so a renderer can update trees in place
     /// instead of rebuilding them.
-    pub id: u64,
-    /// The foot of the trunk: X and Z, with the height it stands at in Y, in
-    /// metres.
+    pub address: CopyAddress,
+    /// The foot of the trunk: X and Z relative to the area's centre, with
+    /// the height it stands at in Y, in metres.
     pub position: Vec3,
+    /// The ground the trunk takes up, in World fixed point. Other Scatters
+    /// keep their copies out of it.
+    pub footprint: Disc,
     /// Moves the tree's meshes into place: sized, leaned, turned and stood on
     /// the ground. Apply it to every vertex of the variant's mesh, at any
     /// level of detail.
@@ -511,34 +566,50 @@ pub struct TreeCopy {
 /// Create one with [`TreeScatterPlacement::new`], then draw each of
 /// [`instances`](Self::instances) with the mesh of its species' variant.
 ///
-/// The same grove and input always give the same trees. Lowering the
-/// grove's [`density_scale`](TreeScatter::density_scale) only removes trees,
-/// and raising it only adds them; the others stay exactly where they were.
-/// Changing the size keeps the trees away from the edges where they were; a
-/// tree near an old edge may make way for a new neighbour beyond it.
+/// The same Scatter and input always give the same trees. Lowering the
+/// Scatter's [`density_scale`](TreeScatter::density_scale) only removes
+/// trees, and raising it only adds them; the others stay exactly where they
+/// were. Trees stand on a lattice fixed to the World, so an area holds the
+/// same trees, with the same addresses, as any larger area around it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TreeScatterPlacement {
     instances: Vec<TreeCopy>,
 }
 
-/// A tree site that passed the density and ground checks, waiting for the
-/// spacing check.
+/// A tree spot that passed the density, exclusion and ground checks,
+/// waiting for the spacing check.
 struct Site {
-    rank: f32,
-    spacing: f32,
+    position: Fixed2,
+    rank: Rank,
+    spacing: i64,
     instance: TreeCopy,
 }
 
+impl Spaced for Site {
+    fn position(&self) -> Fixed2 {
+        self.position
+    }
+
+    fn rank(&self) -> Rank {
+        self.rank
+    }
+}
+
 impl TreeScatterPlacement {
-    /// Places `grove` over `input`'s area, standing each tree on its ground.
+    /// Places `scatter` over `input`'s area, standing each tree on its
+    /// ground: the trees whose lattice cell's corner lies in the area, so a
+    /// tree may stand up to 0.5 m outside it.
     ///
     /// Positions are in metres from the area's centre. The input's mask thins
-    /// the grove in places (`None` is full density everywhere), and its seed
-    /// sets where trees stand; the Scatter's own
-    /// [`default_seed`](TreeScatter::default_seed) is not used here. Trees are left out where the ground at the trunk is
+    /// the Scatter in places (`None` is full density everywhere), its seed
+    /// sets where trees stand (the Scatter's own
+    /// [`default_seed`](TreeScatter::default_seed) is not used here), its
+    /// prefix starts every tree's address, and no trunk overlaps its
+    /// exclusions. Trees are left out where the ground at the trunk is
     /// steeper than their species' [`max_slope`](ScatterTree::max_slope), or
-    /// the grove's [`max_slope`](TreeScatterVariation::max_slope) when the species
-    /// sets none, or where any ground around the trunk is missing (NaN).
+    /// the Scatter's [`max_slope`](TreeScatterVariation::max_slope) when the
+    /// species sets none, or where any ground around the trunk is missing
+    /// (NaN).
     ///
     /// # Errors
     ///
@@ -547,7 +618,7 @@ impl TreeScatterPlacement {
     /// [`TreeScatter::validate`], and [`TreeScatterError::TooMany`] if the grove's
     /// density over the area asks for more than [`MAX_SCATTER_COPIES`]
     /// trees.
-    pub fn new(grove: &TreeScatter, input: &ScatterInput) -> Result<Self, TreeScatterError> {
+    pub fn new(scatter: &TreeScatter, input: &ScatterInput) -> Result<Self, TreeScatterError> {
         // Check the settings and the number of trees asked for.
         let size = input.area.size.to_array();
         for side in size {
@@ -557,11 +628,11 @@ impl TreeScatterPlacement {
                 "above 0 and at most 2048",
             )?;
         }
-        grove.validate()?;
-        let per_m2: Vec<f32> = grove
+        scatter.validate()?;
+        let per_m2: Vec<f32> = scatter
             .trees
             .iter()
-            .map(|tree| tree.density() * grove.density_scale / HECTARE)
+            .map(|tree| tree.density() * scatter.density_scale / HECTARE)
             .collect();
         let total: f32 = per_m2.iter().sum();
         let count = (total * size[0] * size[1]).ceil() as usize;
@@ -572,138 +643,200 @@ impl TreeScatterPlacement {
             return Ok(Self::default());
         }
 
-        // Visit every candidate site. Sites sit on a lattice fixed to the
-        // area's centre, so a site keeps its place, rank and id however the
-        // size or density changes.
-        let half = [size[0] * 0.5, size[1] * 0.5];
-        let cells = |h: f32| {
-            (
-                (-h / SITE_CELL).floor() as i32,
-                (h / SITE_CELL).ceil() as i32,
-            )
-        };
-        let (x0, x1) = cells(half[0]);
-        let (z0, z1) = cells(half[1]);
+        // Look at every candidate spot near enough to decide the area's own.
+        // Spots sit on a lattice fixed to the World, so a spot keeps its
+        // place, rank and address however the area or density changes.
+        let lattice = Lattice::new(SITE_CELL);
+        let reach = scatter.reach();
+        let own = input.area.bounds();
+        let seeds = Seeds::new(input.seed);
+        let chance = lattice::chance(f64::from(total) * f64::from(SITE_CELL * SITE_CELL));
         let mut sites = Vec::new();
-        for i in x0..x1 {
-            for j in z0..z1 {
-                let id = site_id(i, j);
-                let h = mix(u64::from(input.seed) ^ mix(id));
-                let x = (i as f32 + draw(h, SALT_X)) * SITE_CELL;
-                let z = (j as f32 + draw(h, SALT_Z)) * SITE_CELL;
-                if x.abs() > half[0] || z.abs() > half[1] {
-                    continue;
-                }
+        for cell in lattice.cells_in(reach.window(own)) {
+            let h = lattice.hash(seeds.lattice, cell);
+            let position = lattice.position(h, cell);
 
-                // Keep the site with a chance equal to the local density per
-                // site. Each site has a fixed rank, scaled up where the
-                // mask thins the grove, and is kept below a threshold that
-                // grows with density, so a lower density keeps a subset of a
-                // higher one's sites.
-                let local = input.density(Vec2::new(x, z));
-                if local <= 0.0 {
-                    continue;
-                }
-                let rank = draw(h, SALT_RANK) / local;
-                if rank >= total * SITE_CELL * SITE_CELL {
-                    continue;
-                }
-                let tree = pick_tree(grove, input.seed, &per_m2, total, h, x, z);
-                if let Some(instance) = stand(grove, tree, id, h, x, z, input) {
-                    sites.push(Site {
-                        rank,
-                        spacing: grove.trees[tree].spacing,
-                        instance,
-                    });
-                }
+            // Keep the spot below a threshold that grows with the local
+            // density, so a lower density keeps a subset of a higher one's
+            // spots.
+            let local = input.local_density(position);
+            let rank = lattice::rank(h);
+            if !lattice::dense_enough(rank, chance, local) {
+                continue;
             }
+            let world = position.to_world();
+            let tree = pick_tree(scatter, &seeds, &per_m2, total, h, world);
+            let Some(instance) = stand(scatter, tree, h, cell, position, input) else {
+                continue;
+            };
+            sites.push(Site {
+                position,
+                rank: Rank {
+                    tier: 0,
+                    rank,
+                    local,
+                    cell,
+                    index: 0,
+                },
+                spacing: lattice::to_fixed(f64::from(scatter.trees[tree].spacing)),
+                instance,
+            });
         }
 
-        // Keep trees in rank order, leaving out any too close to a tree
-        // already kept. Rank order means the sites a lower density keeps
-        // are visited first and decided the same way.
-        sites.sort_by(|a, b| {
-            a.rank
-                .total_cmp(&b.rank)
-                .then(a.instance.id.cmp(&b.instance.id))
+        // Space the trees out, keep the area's own, and clear the glades
+        // last, so a tree in a glade still keeps its neighbours at a
+        // distance and raising the patchiness only removes trees.
+        let keep = keep_spaced(&sites, reach.rounds, reach.spacing_fixed(), |a, b| {
+            let apart = i128::from(a.spacing.max(b.spacing));
+            a.position.distance_squared(b.position) < apart * apart
         });
-        let reach = grove
-            .trees
-            .iter()
-            .map(|tree| tree.spacing)
-            .fold(0.0, f32::max);
-        let mut kept: Vec<TreeCopy> = Vec::new();
-        let mut spacings: Vec<f32> = Vec::new();
-        let mut buckets: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
-        for site in sites {
-            let p = site.instance.position;
-            if reach > 0.0 {
-                let key = |v: f32| (v / reach).floor() as i32;
-                let (bx, bz) = (key(p.x), key(p.z));
-                let crowded = (bx - 1..=bx + 1)
-                    .flat_map(|cx| (bz - 1..=bz + 1).map(move |cz| (cx, cz)))
-                    .filter_map(|cell| buckets.get(&cell))
-                    .flatten()
-                    .any(|&k| {
-                        let q = kept[k].position;
-                        let apart = site.spacing.max(spacings[k]);
-                        (p.x - q.x).powi(2) + (p.z - q.z).powi(2) < apart * apart
-                    });
-                if crowded {
-                    continue;
-                }
-                buckets.entry((bx, bz)).or_default().push(kept.len());
-            }
-            kept.push(site.instance);
-            spacings.push(site.spacing);
-        }
-
-        // Clear the glades last, so a tree in a glade still keeps its
-        // neighbours at a distance and raising the patchiness only removes
-        // trees.
-        kept.retain(|tree| !in_glade(grove, input.seed, tree.position.x, tree.position.z));
-        Ok(Self { instances: kept })
+        let mut kept: Vec<Site> = sites
+            .into_iter()
+            .zip(keep)
+            .filter(|(site, keep)| {
+                *keep
+                    && own.contains(lattice.corner(site.rank.cell))
+                    && !in_glade(scatter, &seeds, site.position.to_world())
+            })
+            .map(|(site, _)| site)
+            .collect();
+        // List them in rank order, so a lower density keeps a prefix's order.
+        kept.sort_by_key(|site| site.rank);
+        Ok(Self {
+            instances: kept.into_iter().map(|site| site.instance).collect(),
+        })
     }
 
-    /// The placed trees, in no particular order, but the same order every
-    /// time for the same inputs.
+    /// The placed trees, from the lowest rank (the trees a lower density
+    /// keeps) to the highest, the same order every time for the same inputs.
     pub fn instances(&self) -> &[TreeCopy] {
         &self.instances
     }
 }
 
-/// Picks the species for the site at `x`, `z`, in list order: each species
-/// takes its share of what the species before it left, biased toward its own
-/// patches by its clustering. `seed` is the placement seed the patches come
-/// from.
+impl TreeScatter {
+    /// The position in [`Scatter::slots`] of species `tree`'s shape variant
+    /// `variant`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `tree` is out of range.
+    pub fn slot(&self, tree: usize, variant: u32) -> u32 {
+        self.trees[..tree].iter().map(|t| t.variants).sum::<u32>() + variant
+    }
+
+    /// The largest size factor any tree can be scaled by.
+    fn largest_scale(&self) -> f32 {
+        tree_scale(1.0, self.variation.scale_jitter)
+    }
+}
+
+/// A tree Scatter places its trees on a 0.5 m lattice fixed to the World.
+/// Its slots are each species' shape variants, in species order, seeded by
+/// each tree's own [`default_seed`](TreeOptions::default_seed) whatever the
+/// World seed (see [`ScatterTree::variant`]).
+impl Scatter for TreeScatter {
+    fn lattice(&self) -> Lattice {
+        Lattice::new(SITE_CELL)
+    }
+
+    fn reach(&self) -> Reach {
+        let spacing = self.trees.iter().map(|t| t.spacing).fold(0.0, f32::max);
+        let trunk = self
+            .trees
+            .iter()
+            .map(|t| t.tree.branch.radius[0])
+            .fold(0.0, f32::max);
+        Reach {
+            rounds: DEFAULT_SPACING_ROUNDS,
+            spacing,
+            displacement: SITE_CELL,
+            footprint: (trunk * self.largest_scale()).max(MIN_FOOTPRINT),
+        }
+    }
+
+    fn draw_range(&self) -> f32 {
+        DRAW_RANGE
+    }
+
+    fn slots(&self, _world_seed: u32) -> Vec<ScatterSlot> {
+        self.trees
+            .iter()
+            .enumerate()
+            .flat_map(|(entry, tree)| {
+                (0..tree.variants).map(move |v| ScatterSlot {
+                    entry: entry as u16,
+                    specimen: tree.tree.specimen_id(tree.tree.default_seed as u32, v),
+                })
+            })
+            .collect()
+    }
+
+    fn place(&self, input: &ScatterInput<'_>) -> Result<Vec<ScatterCopy>, ScatterError> {
+        let placed = TreeScatterPlacement::new(self, input)?;
+        Ok(placed
+            .instances
+            .iter()
+            .map(|tree| ScatterCopy {
+                address: tree.address,
+                slot: self.slot(tree.tree, tree.variant),
+                transform: tree.transform,
+                footprint: vec![tree.footprint],
+            })
+            .collect())
+    }
+}
+
+/// The seeds of a tree Scatter's random choices, from its placement seed.
+struct Seeds {
+    /// Candidate spots: where each stands, its rank and its own draws.
+    lattice: u32,
+    /// Each species' stands, salted by the species' key.
+    patches: u32,
+    /// The glades.
+    glades: u32,
+}
+
+impl Seeds {
+    fn new(seed: u32) -> Self {
+        Self {
+            lattice: seed_for(seed, LATTICE_SEED),
+            patches: seed_for(seed, PATCHES_SEED),
+            glades: seed_for(seed, GLADES_SEED),
+        }
+    }
+}
+
+/// Picks the species for the spot hashed to `h` at World position `world`,
+/// in list order: each species takes its share of what the species before
+/// it left, biased toward its own patches by its clustering. Each species'
+/// draws are salted by its key.
 fn pick_tree(
-    grove: &TreeScatter,
-    seed: u32,
+    scatter: &TreeScatter,
+    seeds: &Seeds,
     per_m2: &[f32],
     total: f32,
-    h: u64,
-    x: f32,
-    z: f32,
+    h: u32,
+    world: DVec2,
 ) -> usize {
     let mut left = total;
     let mut last = 0;
-    for (index, (tree, &d)) in grove.trees.iter().zip(per_m2).enumerate() {
+    for (index, (tree, &d)) in scatter.trees.iter().zip(per_m2).enumerate() {
         if d <= 0.0 {
             continue;
         }
         last = index;
         let chance = d / left;
         left -= d;
-        // A clustered species decides some sites by its patch value instead
+        // A clustered species decides some spots by its patch value instead
         // of an independent draw. Patch values are spread evenly from 0 to
         // 1, so either way the species keeps its share.
-        let salt = index as u64;
-        let u = if draw(h, SALT_CLUSTER + salt) < tree.clustering {
-            let patch = (tree.spacing * 6.0).max(4.0);
-            let seed = mix(u64::from(seed) ^ (SALT_PATCHES + salt));
-            patch_value(seed, x / patch, z / patch)
+        let salt = tree.key.salt();
+        let u = if lattice::unit(h, SALT_CLUSTER ^ salt) < tree.clustering {
+            let patch = f64::from((tree.spacing * 6.0).max(4.0));
+            patch_value(pcg2(seeds.patches, salt), world / patch)
         } else {
-            draw(h, SALT_SPECIES + salt)
+            lattice::unit(h, SALT_SPECIES ^ salt)
         };
         if u < chance {
             return index;
@@ -712,34 +845,41 @@ fn pick_tree(
     last
 }
 
-/// Stands species `tree` at `x`, `z` (from the area's centre): picks its
-/// variant, size, lean and turn, and sets it on the ground. Returns `None`
-/// where the ground at the trunk is too steep, or any ground around it is
-/// missing.
+/// Stands species `tree` on the spot of `cell`, hashed to `h`, at World
+/// position `at`: picks its variant, size, lean and turn, and sets it on the
+/// ground. Returns `None` where the trunk overlaps a footprint the input
+/// keeps clear, where the ground at the trunk is too steep, or where any
+/// ground around it is missing.
 fn stand(
-    grove: &TreeScatter,
+    scatter: &TreeScatter,
     tree: usize,
-    id: u64,
-    h: u64,
-    x: f32,
-    z: f32,
+    h: u32,
+    cell: CellId,
+    at: Fixed2,
     input: &ScatterInput,
 ) -> Option<TreeCopy> {
-    let species = &grove.trees[tree];
-    let variation = &grove.variation;
+    let species = &scatter.trees[tree];
+    let variation = &scatter.variation;
+    let world = at.to_world();
 
-    // Reject steep ground first, from one sample at the trunk.
+    // Keep the trunk off the footprints above it.
+    let scale = tree_scale(lattice::unit(h, SALT_SCALE), variation.scale_jitter);
+    let radius = (species.tree.branch.radius[0] * scale).max(MIN_FOOTPRINT);
+    let trunk = Disc::new(world, radius);
+    if input.excluded(&[trunk]) {
+        return None;
+    }
+
+    // Reject steep ground next, from one sample at the trunk.
     let max_slope = species.max_slope.unwrap_or(variation.max_slope);
-    let local = Vec2::new(x, z);
-    if steeper_than(&input.sample(local), max_slope) {
+    if steeper_than(&input.sample_at(at), max_slope) {
         return None;
     }
 
     // Stand the trunk on the lowest ground under it and eight points round
-    // its edge, sunk by the grove's sink.
-    let variant = (draw(h, SALT_VARIANT) * species.variants as f32) as u32;
-    let scale = tree_scale(draw(h, SALT_SCALE), variation.scale_jitter);
-    let radius = (species.tree.branch.radius[0] * scale).max(MIN_FOOTPRINT);
+    // its edge, sunk by the Scatter's sink.
+    let variant = ((lattice::unit(h, SALT_VARIANT) * species.variants as f32) as u32)
+        .min(species.variants - 1);
     let footprint = Footprint {
         contacts: FOOTING_DIRECTIONS
             .iter()
@@ -753,26 +893,22 @@ fn stand(
         ..species.tree.ground_placement()
     };
     // The yaw turns the tree below; the footing is the same at any turn.
-    let placed = place(
-        input.ground,
-        input.area.world(local),
-        0.0,
-        &footprint,
-        &placement,
-    )?;
+    let placed = place(input.ground, world, 0.0, &footprint, &placement)?;
 
     // Size, lean and turn the tree.
-    let position = Vec3::new(x, placed.height, z);
-    let yaw = draw(h, SALT_YAW) * std::f32::consts::TAU;
-    let lean_direction = draw(h, SALT_LEAN_DIRECTION) * std::f32::consts::TAU;
-    let lean = (draw(h, SALT_LEAN) * variation.lean).to_radians();
+    let local = at.relative_to(input.area.centre);
+    let position = Vec3::new(local.x, placed.height, local.y);
+    let yaw = lattice::unit(h, SALT_YAW) * std::f32::consts::TAU;
+    let lean_direction = lattice::unit(h, SALT_LEAN_DIRECTION) * std::f32::consts::TAU;
+    let lean = (lattice::unit(h, SALT_LEAN) * variation.lean).to_radians();
     let axis = Vec3::new(lean_direction.cos(), 0.0, lean_direction.sin());
     let rotation = Quat::from_axis_angle(axis, lean) * Quat::from_rotation_y(yaw);
     Some(TreeCopy {
         tree,
         variant,
-        id,
+        address: input.prefix.copy(cell, 0),
         position,
+        footprint: trunk,
         transform: Affine3A::from_scale_rotation_translation(
             Vec3::splat(scale),
             rotation,
@@ -793,64 +929,43 @@ fn tree_scale(u: f32, jitter: f32) -> f32 {
     1.0 + jitter * (BODY_SPREAD * v + GIANT_GROWTH * tail)
 }
 
-/// Whether `x`, `z` lies in one of `grove`'s glades, where no tree grows,
-/// for placement seed `seed`.
+/// Whether World position `world` lies in one of `scatter`'s glades, where no
+/// tree grows.
 ///
 /// The ground is split into patches about [`GLADE_CELL`] metres across,
 /// each with its own value from 0 to 1; patches whose value falls below the
-/// open share for the grove's patchiness are glades. Raising the patchiness
-/// only turns more patches into glades.
-fn in_glade(grove: &TreeScatter, seed: u32, x: f32, z: f32) -> bool {
-    if grove.patchiness <= 0.0 {
+/// open share for the Scatter's patchiness are glades. Raising the
+/// patchiness only turns more patches into glades.
+fn in_glade(scatter: &TreeScatter, seeds: &Seeds, world: DVec2) -> bool {
+    if scatter.patchiness <= 0.0 {
         return false;
     }
-    let seed = mix(u64::from(seed) ^ SALT_GLADES);
-    patch_value(seed, x / GLADE_CELL, z / GLADE_CELL) < grove.patchiness * MAX_OPEN
+    patch_value(seeds.glades, world / f64::from(GLADE_CELL)) < scatter.patchiness * MAX_OPEN
 }
 
-/// A site's lasting id, from its lattice cell.
-fn site_id(i: i32, j: i32) -> u64 {
-    (u64::from(i as u32) << 32) | u64::from(j as u32)
-}
-
-/// Scrambles the bits of `x` (the SplitMix64 finaliser).
-fn mix(mut x: u64) -> u64 {
-    x ^= x >> 30;
-    x = x.wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    x ^= x >> 27;
-    x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
-    x ^ (x >> 31)
-}
-
-/// A number from 0 (inclusive) to 1 (exclusive) for the choice `salt` of the
-/// site hashed to `h`.
-fn draw(h: u64, salt: u64) -> f32 {
-    (mix(h ^ mix(salt)) >> 40) as f32 / (1u64 << 24) as f32
-}
-
-/// The value, from 0 to 1, of the patch that `x`, `z` falls in. Patches are
-/// irregular areas about one unit across, and every point of a patch has the
-/// same value.
+/// The value, from 0 to 1, of the patch that `p` falls in, in units of the
+/// patch size from the World origin. Patches are irregular areas about one
+/// unit across, and every point of a patch has the same value.
 ///
 /// Each patch has its own random value, independent of its size, so over a
 /// large area the values are spread evenly from 0 to 1.
-fn patch_value(seed: u64, x: f32, z: f32) -> f32 {
+fn patch_value(seed: u32, p: DVec2) -> f32 {
     // Each unit cell holds one patch centre at a random spot; a point
     // belongs to the nearest centre.
-    let (i, j) = (x.floor() as i32, z.floor() as i32);
-    let mut nearest = (f32::MAX, 0);
+    let (i, j) = (p.x.floor() as i32, p.y.floor() as i32);
+    let mut nearest = (f64::MAX, 0);
     for ci in i - 1..=i + 1 {
         for cj in j - 1..=j + 1 {
-            let h = mix(seed ^ mix(site_id(ci, cj)));
-            let cx = ci as f32 + draw(h, SALT_X);
-            let cz = cj as f32 + draw(h, SALT_Z);
-            let d = (cx - x).powi(2) + (cz - z).powi(2);
+            let h = pcg2(seed, pcg2(ci as u32, cj as u32));
+            let cx = f64::from(ci) + f64::from(lattice::unit(h, SALT_X));
+            let cz = f64::from(cj) + f64::from(lattice::unit(h, SALT_Z));
+            let d = (cx - p.x).powi(2) + (cz - p.y).powi(2);
             if d < nearest.0 {
                 nearest = (d, h);
             }
         }
     }
-    draw(nearest.1, SALT_RANK)
+    lattice::unit(nearest.1, SALT_RANK)
 }
 
 /// Succeeds when `ok` is true; otherwise names the grove setting `field` and
@@ -880,26 +995,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn draws_cover_the_unit_interval() {
-        let draws: Vec<f32> = (0..1000).map(|i| draw(mix(i), SALT_RANK)).collect();
-        assert!(draws.iter().all(|d| (0.0..1.0).contains(d)));
-        let mean = draws.iter().sum::<f32>() / draws.len() as f32;
-        assert!((mean - 0.5).abs() < 0.05);
-    }
-
-    #[test]
     fn patch_values_are_even_and_shared_by_neighbours() {
         // Sample one point per patch-sized step: the values spread evenly.
         let values: Vec<f32> = (0..2000)
-            .map(|n| patch_value(7, (n % 50) as f32 * 1.7, (n / 50) as f32 * 1.7))
+            .map(|n| patch_value(7, DVec2::new((n % 50) as f64 * 1.7, (n / 50) as f64 * 1.7)))
             .collect();
         let below = values.iter().filter(|v| **v < 0.2).count() as f32;
         assert!((below / values.len() as f32 - 0.2).abs() < 0.04);
         // Close points almost always share a patch.
         let same = (0..1000)
             .filter(|n| {
-                let x = *n as f32 * 0.37;
-                patch_value(7, x, 0.5) == patch_value(7, x + 0.01, 0.5)
+                let x = *n as f64 * 0.37;
+                patch_value(7, DVec2::new(x, 0.5)) == patch_value(7, DVec2::new(x + 0.01, 0.5))
             })
             .count();
         assert!(same > 950);
@@ -930,11 +1037,12 @@ mod tests {
 
     /// The sizes of the connected areas of a 400 m square, sampled every 2 m,
     /// that are glade (when `open`) or wooded, largest first.
-    fn areas(grove: &TreeScatter, open: bool) -> Vec<usize> {
+    fn areas(scatter: &TreeScatter, open: bool) -> Vec<usize> {
         const N: usize = 200;
+        let seeds = Seeds::new(scatter.default_seed);
         let at = |i: usize, j: usize| {
-            let (x, z) = (i as f32 * 2.0 - 200.0, j as f32 * 2.0 - 200.0);
-            in_glade(grove, grove.default_seed, x, z) == open
+            let p = DVec2::new(i as f64 * 2.0 - 200.0, j as f64 * 2.0 - 200.0);
+            in_glade(scatter, &seeds, p) == open
         };
         let mut seen = vec![false; N * N];
         let mut sizes = Vec::new();
@@ -970,16 +1078,16 @@ mod tests {
 
     #[test]
     fn medium_patchiness_opens_separate_glades_and_high_joins_them() {
-        let mut grove = TreeScatterPreset::oak_woodland().tree_scatter.clone();
+        let mut scatter = TreeScatterPreset::oak_woodland().tree_scatter.clone();
         let total = |sizes: &[usize]| sizes.iter().sum::<usize>() as f32;
 
         // No patchiness, no glades.
-        assert!(areas(&grove, true).is_empty());
+        assert!(areas(&scatter, true).is_empty());
 
         // Medium: about a third of the ground is open, in many glades, and
         // the woods around them stay joined.
-        grove.patchiness = 0.5;
-        let (glades, woods) = (areas(&grove, true), areas(&grove, false));
+        scatter.patchiness = 0.5;
+        let (glades, woods) = (areas(&scatter, true), areas(&scatter, false));
         let open = total(&glades) / (total(&glades) + total(&woods));
         assert!((0.27..0.43).contains(&open), "{open} of the ground is open");
         assert!(glades.len() > 20, "{} glades", glades.len());
@@ -987,16 +1095,10 @@ mod tests {
         assert!(woods[0] as f32 / total(&woods) > 0.9);
 
         // High: the glades join into one, leaving islands of woods.
-        grove.patchiness = 1.0;
-        let (glades, woods) = (areas(&grove, true), areas(&grove, false));
+        scatter.patchiness = 1.0;
+        let (glades, woods) = (areas(&scatter, true), areas(&scatter, false));
         assert!(glades[0] as f32 / total(&glades) > 0.85);
         assert!(woods.len() > 10, "{} islands", woods.len());
         assert!(woods[0] as f32 / total(&woods) < 0.5);
-    }
-
-    #[test]
-    fn site_ids_differ_for_negative_cells() {
-        assert_ne!(site_id(-1, 0), site_id(0, -1));
-        assert_ne!(site_id(-1, -1), site_id(1, 1));
     }
 }

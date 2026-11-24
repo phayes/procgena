@@ -7,7 +7,7 @@ group: Woodland
 tree_scatter:
   default_seed: 1
   trees:
-    - { tree: bush_1, density_scale: 0.1, clustering: 0.6, variants: 3 }
-    - { tree: ash_medium, density_scale: 0.2, clustering: 0.4 }
-    - { tree: oak_large, density_scale: 0.3, variants: 3 }
-    - { tree: oak_medium, density_scale: 0.6 }
+    - { key: shrubs, tree: bush_1, density_scale: 0.1, clustering: 0.6, variants: 3 }
+    - { key: ashes, tree: ash_medium, density_scale: 0.2, clustering: 0.4 }
+    - { key: old_oaks, tree: oak_large, density_scale: 0.3, variants: 3 }
+    - { key: oaks, tree: oak_medium, density_scale: 0.6 }

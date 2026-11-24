@@ -8,4 +8,4 @@ tree_scatter:
   default_seed: 6
   variation: { scale_jitter: 0.08, lean: 1.0, max_slope: 20.0 }
   trees:
-    - { tree: apple, density: 150.0, spacing: 3.0 }
+    - { key: apples, tree: apple, density: 150.0, spacing: 3.0 }

@@ -7,6 +7,6 @@ group: Conifer
 tree_scatter:
   default_seed: 4
   trees:
-    - { tree: pine_small, density_scale: 0.3, clustering: 0.6 }
-    - { tree: pine_large, density_scale: 0.4 }
-    - { tree: pine_medium, density_scale: 0.6 }
+    - { key: young_pines, tree: pine_small, density_scale: 0.3, clustering: 0.6 }
+    - { key: old_pines, tree: pine_large, density_scale: 0.4 }
+    - { key: pines, tree: pine_medium, density_scale: 0.6 }
