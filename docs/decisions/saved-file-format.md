@@ -560,6 +560,11 @@ the reader rejects compressed zips.
    *Recommendation:* (a) now. (b) comes cheaply once the mount source
    exists.
 
+   *Long-term follow-up (user, 2026-11-24):* possibly never unpack, and
+   work entirely in the zip: read through the mount source, and rewrite
+   the archive on save. This is an optimisation for later, not planned
+   work.
+
 2. **What should Import do by default on a conflict?** *Context:* a
    bundle's preset or texture has the same key as one in the project or a
    built-in, with different content. *Options:*

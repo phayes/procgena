@@ -1483,6 +1483,11 @@ cull distance (item 16).
   `ObjectTags` to `SpecimenTags` in clump_bevy; a shared candidate-loop
   helper for Scatters (C2).
 - `tree/tests/export_images.rs` needs `required-features`.
+- Long term, a possible optimisation: work on a `.procgena` bundle entirely
+  inside the zip, with no unpacking to disk. Open would read through the
+  mount source, and saves would rewrite the archive. Today Open unpacks
+  into a folder (saved-file format, question 1). Details:
+  [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md).
 - One studio GPU test logs that plant's shared shader module isn't found
   (the test passes).
 - Two timing-sensitive tree Bevy spawn tests each failed once in about a
