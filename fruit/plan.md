@@ -889,6 +889,43 @@ What the numbers say:
   3. Only then, smaller entries (a row index into a storage buffer, 8
      bytes), which cuts the memory above by 8 times but saves little time.
 
+## As built (fruit step D2, 2026-11-24)
+
+- **The tree impostor's key names its fruit.** `default_slots` and the
+  fruit seed are left out of the tree's pool, so the tree's specimen id
+  alone didn't change with them. The key now hashes each cluster part's
+  specimen ids, which carry the fruit pool, the seed and `N`.
+- **The tree impostor already bakes its fruit.** It bakes the merged
+  fruit and flowers of its baked level, from the same slots, as B2 left
+  it. Baking each placed cluster instead would mean one bake entity per
+  cluster per view, so this was kept.
+- **Cluster impostors** (in `procgena_tree_bevy`, `fruit_impostor.rs`):
+  - Each cluster specimen bakes one impostor. The bake is from fruit
+    level 1 (`Simple`), 6 × 6 views of 32 px, `SPHERE` coverage, keyed by
+    the fruit `SpecimenId`, the part, the baked level and the crate's
+    version.
+  - It is the last level of the cluster slot: from 20 m for a 10 cm
+    cluster, scaled by the cluster's size like the other fruit levels,
+    without shadows (`default_fruit_impostor`,
+    `TreePlugin::fruit_impostor`).
+  - It is drawn as an attached copy with a tree-owned material,
+    `FruitImpostorMaterial`. That material has impostor bindings 100–103
+    and the tree's wind at 104. Its vertex shader composes the tree's
+    record with the row's place, turn and scale, and adds the branch's
+    sway at the cluster as one rigid offset (flutter 0), through D1's
+    `impostor_vertex`. Fragments are the impostor crate's own.
+  - It lives in the tree's Bevy crate, not `procgena_fruit_bevy`: the
+    wind is still the tree's, and fruit_bevy doesn't depend on
+    `procgena_impostor`. It moves when the wind moves to core (rule 9).
+- **Readiness.** A tree's cluster impostors are requested with its own
+  impostor, and the tree counts as having its impostor only when all of
+  them are baked. Single trees and groves then rebuild their cluster
+  slots with the impostor level, as they already did for the tree
+  impostor. So cluster impostors need tree impostors on.
+- **Not measured:** the per-view attached-entry memory. Entries are kept
+  per fruit level, so a fourth level adds about a third to the figures
+  above.
+
 ## Decisions
 
 The user answered on 2026-11-23:
