@@ -239,19 +239,18 @@ mod pool;
 mod spawn;
 
 use bevy::asset::embedded_asset;
-#[cfg(feature = "gpu")]
-use bevy::asset::load_embedded_asset;
 use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
 use bevy::shader::load_shader_library;
 use procgena_core_bevy::LodPlugin;
+use procgena_core_bevy::instanced::InstancedPlugin;
 use procgena_impostor::{ImpostorLevel, ImpostorPlugin};
 use procgena_stone::TextureCompression;
 
 pub use impostor::default_stone_impostor;
 pub use material::{
-    StoneMaterial, StoneMaterialKey, StoneTextures, TriplanarExtension, TriplanarSettings,
-    bake_copy, stone_material,
+    StoneMaterial, StoneTextures, TriplanarExtension, TriplanarKey, TriplanarSettings, bake_copy,
+    stone_material,
 };
 pub use mesh::stone_mesh;
 #[cfg(feature = "gpu")]
@@ -306,27 +305,31 @@ impl Plugin for StonePlugin {
             app.add_plugins(ImpostorPlugin::default());
         }
 
-        app.add_plugins((LodPlugin, MaterialPlugin::<StoneMaterial>::default()))
-            .init_asset::<StonePresetAsset>()
-            .register_asset_loader(StonePresetLoader)
-            .init_resource::<StoneCache>()
-            .insert_resource(SpawnSettings {
-                texture_root: self.texture_root.clone(),
-                texture_compression: self.texture_compression,
-                impostor: self.impostor,
-            })
-            .add_systems(
-                Update,
-                (
-                    spawn::reload_modified_options,
-                    spawn::reset_changed_stones,
-                    spawn::start_generation,
-                    spawn::finish_generation,
-                    spawn::spawn_parts,
-                    spawn::prune_cache,
-                )
-                    .chain(),
-            );
+        app.add_plugins((
+            LodPlugin,
+            InstancedPlugin,
+            MaterialPlugin::<StoneMaterial>::default(),
+        ))
+        .init_asset::<StonePresetAsset>()
+        .register_asset_loader(StonePresetLoader)
+        .init_resource::<StoneCache>()
+        .insert_resource(SpawnSettings {
+            texture_root: self.texture_root.clone(),
+            texture_compression: self.texture_compression,
+            impostor: self.impostor,
+        })
+        .add_systems(
+            Update,
+            (
+                spawn::reload_modified_options,
+                spawn::reset_changed_stones,
+                spawn::start_generation,
+                spawn::finish_generation,
+                spawn::spawn_parts,
+                spawn::prune_cache,
+            )
+                .chain(),
+        );
         if self.impostor.is_some() {
             app.add_systems(
                 Update,
@@ -337,22 +340,6 @@ impl Plugin for StonePlugin {
         }
 
         #[cfg(feature = "gpu")]
-        {
-            load_shader_library!(app, "shaders/pool_types.wesl");
-            load_shader_library!(app, "shaders/pool_draw.wesl");
-            load_shader_library!(app, "shaders/pool_bridge.wesl");
-            load_shader_library!(app, "shaders/pool_surface.wesl");
-            embedded_asset!(app, "shaders/pool.wesl");
-            embedded_asset!(app, "shaders/pool_prepass.wesl");
-            embedded_asset!(app, "shaders/pool_shadow.wesl");
-            embedded_asset!(app, "shaders/pool_cull.wesl");
-            let shaders = pool::PoolShaders {
-                main: load_embedded_asset!(app, "shaders/pool.wesl"),
-                prepass: load_embedded_asset!(app, "shaders/pool_prepass.wesl"),
-                shadow: load_embedded_asset!(app, "shaders/pool_shadow.wesl"),
-                cull: load_embedded_asset!(app, "shaders/pool_cull.wesl"),
-            };
-            app.add_plugins(pool::StonePoolPlugin { shaders });
-        }
+        app.add_plugins(pool::StonePoolPlugin);
     }
 }

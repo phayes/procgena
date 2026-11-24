@@ -52,12 +52,15 @@
 //! }
 //! ```
 //!
-//! Each piece is drawn by [`DeadwoodPart`] child entities, one or two per
-//! detail level. Bevy's `VisibilityRange` shows each level only within its
-//! distance band, blending between neighbouring levels. The bands come from
-//! [`DeadwoodPlugin::lod`], scaled by each piece's size, and the farthest
-//! level fades out at the cull distance. Thin twigs and branches become
-//! flat strips that [`DeadwoodMaterial`] keeps turned toward the camera.
+//! Each single piece is drawn by [`DeadwoodPart`] child entities, one or two
+//! per detail level. Bevy's `VisibilityRange` shows each level only within
+//! its distance band, blending between neighbouring levels. A scatter's
+//! sticks are drawn instead by the shared instanced renderer of
+//! `procgena_core_bevy`, which fades them the same way, with no entity per
+//! stick. The bands come from [`DeadwoodPlugin::lod`], scaled by each
+//! piece's size, and the farthest level fades out at the cull distance.
+//! Thin twigs and branches become flat strips that [`DeadwoodMaterial`]
+//! keeps turned toward the camera.
 //!
 //! To build your own entities, convert meshes with [`deadwood_mesh`] and
 //! [`ribbon_mesh`] and create materials with [`deadwood_material`]. Keep
@@ -71,13 +74,16 @@ use bevy::asset::embedded_asset;
 use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
 use bevy::shader::load_shader_library;
+use procgena_core_bevy::instanced::{InstancedMaterialPlugin, SpecimenCache};
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_deadwood::{DeadwoodLod, TextureCompression, TextureSize, default_lod, validate_lod};
 
 pub use material::{
-    BarkTextures, DeadwoodExtension, DeadwoodMaterial, DeadwoodSurface, EndTextures, LeafTextures,
-    deadwood_material, leaf_material,
+    BarkTextures, DeadwoodExtension, DeadwoodKey, DeadwoodMaterial, DeadwoodSurface, EndTextures,
+    LeafTextures, deadwood_material, leaf_material,
 };
+
+use material::DeadwoodMaterialKey;
 pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, deadwood_mesh, ribbon_aabb, ribbon_mesh,
 };
@@ -147,7 +153,12 @@ impl Plugin for DeadwoodPlugin {
         if let Err(error) = validate_lod(&self.lod) {
             panic!("DeadwoodPlugin::lod is invalid: {error}");
         }
-        app.add_plugins(MaterialPlugin::<DeadwoodMaterial>::default());
+        app.add_plugins((
+            MaterialPlugin::<DeadwoodMaterial>::default(),
+            InstancedMaterialPlugin::<DeadwoodMaterial, DeadwoodMaterialKey>::new(|key| {
+                key.extension.instanced = true;
+            }),
+        ));
         add_systems(app, self.lod.clone());
         app.world_mut().resource_mut::<SpawnSettings>().textures =
             self.texture_root.clone().map(|root| TextureSettings {
@@ -165,6 +176,7 @@ pub(crate) fn add_systems(app: &mut App, lod: DeadwoodLod) {
     app.init_asset::<DeadwoodPresetAsset>()
         .register_asset_loader(DeadwoodPresetLoader)
         .init_resource::<DeadwoodCache>()
+        .init_resource::<SpecimenCache>()
         .init_resource::<LodQuality>()
         .insert_resource(SpawnSettings {
             lod,

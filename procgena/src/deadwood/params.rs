@@ -49,7 +49,7 @@ const END_KINDS: [(&str, EndKind); 5] = [
             one_sided: 0.4,
         },
     ),
-    ("Natural Tip", EndKind::Taper),
+    ("Natural Tip", EndKind::Taper {}),
 ];
 
 /// The names of [`END_KINDS`], for the menu.
@@ -68,7 +68,7 @@ fn end_index(end: &EndKind) -> usize {
         EndKind::Chainsaw { .. } => 1,
         EndKind::Axe { .. } => 2,
         EndKind::Snapped { .. } => 3,
-        EndKind::Taper => 4,
+        EndKind::Taper {} => 4,
     }
 }
 

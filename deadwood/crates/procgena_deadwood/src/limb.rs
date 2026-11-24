@@ -155,13 +155,13 @@ impl End {
                 }
                 SNAP_BASE * jag * rough + one_sided * jag * x + spike
             }
-            EndKind::Taper => self.reach * (1.0 - rho * rho).max(0.0).sqrt(),
+            EndKind::Taper {} => self.reach * (1.0 - rho * rho).max(0.0).sqrt(),
         }
     }
 
     /// Whether this end shows cut or broken wood, rather than a bark tip.
     pub(crate) fn shows_wood(&self) -> bool {
-        !matches!(self.kind, EndKind::Taper)
+        !matches!(self.kind, EndKind::Taper {})
     }
 }
 
@@ -546,7 +546,7 @@ mod tests {
                 splinters: 12,
                 one_sided: 1.0,
             },
-            EndKind::Taper,
+            EndKind::Taper {},
         ];
         for kind in kinds {
             let end = End::new(kind, 0.2, 11, 0.0);
@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn peeled_bark_sinks_the_surface() {
-        let mut limb = straight(EndKind::Taper);
+        let mut limb = straight(EndKind::Taper {});
         let full = limb.outer_radius(0.5, 1.0);
         limb.bark.stripped = 1.0;
         let bare = limb.outer_radius(0.5, 1.0);

@@ -1,5 +1,7 @@
 //! Components that request mushrooms, and the systems that build them on
-//! background threads and spawn their detail levels as child entities.
+//! background threads and draw them: a mushroom or cluster as child
+//! entities, one or two per detail level and member, and a scatter through
+//! the shared instanced renderer.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -10,11 +12,15 @@ use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
 use bevy::light::NotShadowCaster;
+use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
 use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
-use procgena_core::{ContentHasher, Ground};
+use procgena_core::{ContentHasher, Ground, SpecimenId};
+use procgena_core_bevy::instanced::{
+    InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, PartMesh, SpecimenCache,
+};
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_mushroom::{
     BodyId, BodyShape, Mushroom, MushroomBody, MushroomInstance, MushroomLod, MushroomOptions,
@@ -127,8 +133,10 @@ impl fmt::Debug for MushroomGroundScatterParams {
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct MushroomPresetAsset(pub MushroomPreset);
 
-/// Marks a child entity that draws one detail level of one mushroom. The
-/// plugin spawns and removes these; don't add them yourself.
+/// Marks a child entity that draws one detail level of one mushroom of a
+/// single mushroom or cluster. The plugin spawns and removes these; don't
+/// add them yourself. Scatters draw their mushrooms through an
+/// [`InstancedScatter`] instead.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MushroomPart {
     /// Which mushroom: 0 for a single mushroom, or the member's or
@@ -347,6 +355,9 @@ struct Built {
     instances: Vec<MushroomInstance>,
     /// The combined specimen for a mushroom or cluster; `None` for scatters.
     specimen: Option<Specimen>,
+    /// For a scatter, each variant's specimen id and its piece (its body's
+    /// place among the specimen's bodies); empty for a mushroom or cluster.
+    pieces: Vec<(SpecimenId, u32)>,
 }
 
 /// Names one body. Every body is meshed at the plugin's detail levels,
@@ -362,6 +373,8 @@ struct BuiltVariant {
     options: MushroomOptions,
     /// One entry per detail level of [`SpawnSettings::lod`].
     levels: Vec<BuiltLevel>,
+    /// A sphere around every level's meshes, as a centre and radius.
+    bounds: (Vec3, f32),
 }
 
 /// One detail level's meshes.
@@ -429,7 +442,13 @@ pub(crate) fn remove_mushrooms(
     for entity in removed {
         despawn_parts(&mut commands, children.get(entity).ok(), &parts);
         if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(MushroomGenerating, Building, Attempted, GeneratedSpecimen)>();
+            entity.remove::<(
+                MushroomGenerating,
+                Building,
+                Attempted,
+                GeneratedSpecimen,
+                InstancedScatter,
+            )>();
         }
     }
 }
@@ -542,9 +561,12 @@ pub(crate) fn start_generation(
                 // on it.
                 if building.is_some() || attempted.is_some() {
                     despawn_parts(&mut commands, kids, &parts);
-                    commands
-                        .entity(entity)
-                        .remove::<(Building, Attempted, GeneratedSpecimen)>();
+                    commands.entity(entity).remove::<(
+                        Building,
+                        Attempted,
+                        GeneratedSpecimen,
+                        InstancedScatter,
+                    )>();
                 }
                 if !generating {
                     commands.entity(entity).insert(MushroomGenerating);
@@ -560,7 +582,12 @@ pub(crate) fn start_generation(
                 despawn_parts(&mut commands, kids, &parts);
                 commands
                     .entity(entity)
-                    .remove::<(Building, MushroomGenerating, GeneratedSpecimen)>()
+                    .remove::<(
+                        Building,
+                        MushroomGenerating,
+                        GeneratedSpecimen,
+                        InstancedScatter,
+                    )>()
                     .insert(Attempted(input));
                 commands.trigger(MushroomFinished {
                     entity,
@@ -602,6 +629,7 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
                 variants,
                 instances: mushroom.members().to_vec(),
                 specimen: Some(specimen),
+                pieces: Vec::new(),
             })
         }
         Input::Scatter {
@@ -627,10 +655,18 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
                 .iter()
                 .map(|b| build_variant(b, lod))
                 .collect::<Result<Vec<_>, _>>()?;
+            // The scatter grows slots 0, 1, … of the species' pool.
+            let slots = species.cluster.variants;
+            let pieces = built
+                .bodies()
+                .iter()
+                .map(|b| body_piece(b.id(), options.default_seed, slots))
+                .collect();
             Ok(Built {
                 variants,
                 instances: built.instances().to_vec(),
                 specimen: None,
+                pieces,
             })
         }
         Input::Ground(params) => {
@@ -646,13 +682,35 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
                 .iter()
                 .map(|b| build_variant(b, lod))
                 .collect::<Result<Vec<_>, _>>()?;
+            // The scatter grows slots 0, 1, … of the mushroom's pool, in the
+            // World of the input's seed.
+            let slots = params.scatter.specimens;
+            let pieces = built
+                .bodies()
+                .iter()
+                .map(|b| body_piece(b.id(), input.seed, slots))
+                .collect();
             Ok(Built {
                 variants,
                 instances: built.instances().to_vec(),
                 specimen: None,
+                pieces,
             })
         }
     }
+}
+
+/// The specimen a scattered body belongs to, and its piece (its place among
+/// the specimen's bodies): the body's pool in the World seeded with
+/// `world_seed`, at the slot below `slots` whose specimen seed grew it.
+///
+/// A body that no such slot grew (which a scatter never makes) gets slot
+/// `u32::MAX`, past any real slot.
+fn body_piece(body: BodyId, world_seed: u32, slots: u32) -> (SpecimenId, u32) {
+    let slot = (0..slots)
+        .find(|&slot| SpecimenId::new(world_seed, body.pool, slot).seed() == body.seed)
+        .unwrap_or(u32::MAX);
+    (SpecimenId::new(world_seed, body.pool, slot), body.index)
 }
 
 /// Meshes `body` at every level of `lod` and converts the meshes for Bevy.
@@ -664,7 +722,7 @@ fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant,
     for level in &mut lod.levels {
         level.detail.paint_warts = false;
     }
-    let levels = body
+    let levels: Vec<BuiltLevel> = body
         .lod_meshes(&lod)?
         .into_iter()
         .map(|(level, mesh)| BuiltLevel {
@@ -677,11 +735,47 @@ fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant,
             plain: level.detail.shape == BodyShape::Billboard,
         })
         .collect();
+    let bounds = sphere_around(levels.iter().flat_map(|level| {
+        let surfaces = level.surfaces.as_ref().and_then(mesh_box);
+        surfaces
+            .into_iter()
+            .chain(level.billboard.as_ref().map(|(_, aabb)| *aabb))
+    }));
     Ok(BuiltVariant {
         key: body.id(),
         options,
         levels,
+        bounds,
     })
+}
+
+/// The box around `mesh`'s positions, or `None` if it has none.
+fn mesh_box(mesh: &Mesh) -> Option<Aabb> {
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        return None;
+    };
+    let (min, max) = positions
+        .iter()
+        .map(|&p| Vec3::from(p))
+        .fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(min, max), p| {
+            (min.min(p), max.max(p))
+        });
+    (min.x <= max.x).then(|| Aabb::from_min_max(min, max))
+}
+
+/// A sphere around every box in `boxes`, as a centre and radius; a point at
+/// the origin if there are none.
+fn sphere_around(boxes: impl Iterator<Item = Aabb>) -> (Vec3, f32) {
+    let (min, max) = boxes.fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(min, max), aabb| {
+        (min.min(aabb.min().into()), max.max(aabb.max().into()))
+    });
+    if min.x > max.x {
+        return (Vec3::ZERO, 0.0);
+    }
+    let center = (min + max) / 2.0;
+    (center, (max - center).length())
 }
 
 /// Collects finished background builds: replaces each entity's parts with
@@ -693,6 +787,7 @@ pub(crate) fn finish_generation(
     mut building: Query<(Entity, &mut Building, Option<&Children>)>,
     parts: Query<(), With<MushroomPart>>,
     mut cache: ResMut<MushroomCache>,
+    mut specimens: ResMut<SpecimenCache>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<MushroomMaterial>>,
     asset_server: Res<AssetServer>,
@@ -722,15 +817,32 @@ pub(crate) fn finish_generation(
             }
         };
 
+        // A scatter draws through the shared instanced renderer.
+        let textures = (&*asset_server, settings.textures.as_ref());
+        if built.specimen.is_none() {
+            let mut uploads = (&mut *cache, &mut *meshes, &mut *materials, textures);
+            let scatter = scatter_draw(
+                built,
+                &settings.lod,
+                input.world_scale(),
+                &mut specimens,
+                &mut uploads,
+            );
+            commands.entity(entity).insert(scatter);
+            commands.trigger(MushroomFinished {
+                entity,
+                result: Ok(()),
+            });
+            continue;
+        }
+        commands.entity(entity).remove::<InstancedScatter>();
+
         // Add each variant to Bevy's assets, reusing identical variants that
         // other entities already added.
         let variants: Vec<Arc<VariantAssets>> = built
             .variants
             .into_iter()
-            .map(|v| {
-                let textures = (&*asset_server, settings.textures.as_ref());
-                upload(v, &mut cache, &mut meshes, &mut materials, textures)
-            })
+            .map(|v| upload(v, &mut cache, &mut meshes, &mut materials, textures))
             .collect();
 
         // Spawn one child per mushroom and level (two for a flat level), each
@@ -809,6 +921,99 @@ pub(crate) fn finish_generation(
     }
 }
 
+/// The asset server, and where to load textures from when they are wanted.
+type TextureSource<'a> = (&'a AssetServer, Option<&'a TextureSettings>);
+
+/// Builds the shared renderer's view of a built scatter: a slot per body,
+/// with its parts from `specimens` (uploading bodies that aren't cached yet
+/// with `uploads`), and a copy per mushroom. Each copy switches levels by
+/// its size in the world: the body's size times the copy's scale and
+/// `world_scale`, the parent's.
+fn scatter_draw(
+    built: Built,
+    lod: &MushroomLod,
+    world_scale: f32,
+    specimens: &mut SpecimenCache,
+    (cache, meshes, materials, textures): &mut (
+        &mut MushroomCache,
+        &mut Assets<Mesh>,
+        &mut Assets<MushroomMaterial>,
+        TextureSource,
+    ),
+) -> InstancedScatter {
+    let slot_lod = lod.clone().map_detail(|_| ());
+    let levels = slot_lod.levels.len() as u32;
+    let mut sizes = Vec::with_capacity(built.variants.len());
+    let slots: Vec<InstancedSlot> = built
+        .variants
+        .into_iter()
+        .zip(&built.pieces)
+        .map(|(variant, &(specimen, piece))| {
+            let bounds = variant.bounds;
+            sizes.push(variant.options.size);
+            let parts = specimens
+                .get_levels(specimen, piece, levels)
+                .unwrap_or_else(|| {
+                    let assets = upload(variant, cache, meshes, materials, *textures);
+                    let mut parts = Vec::new();
+                    for (level, assets) in assets.levels.iter().enumerate() {
+                        let level_parts = level_parts(level as u32, assets);
+                        specimens.insert(specimen, piece, level as u32, level_parts.clone());
+                        parts.extend(level_parts);
+                    }
+                    parts
+                });
+            InstancedSlot {
+                specimen,
+                piece,
+                lod: slot_lod.clone(),
+                parts,
+                bounds,
+            }
+        })
+        .collect();
+    let copies: Vec<InstancedCopy> = built
+        .instances
+        .iter()
+        .map(|instance| InstancedCopy {
+            slot: instance.variant,
+            transform: Transform {
+                translation: instance.translation,
+                rotation: instance.rotation,
+                scale: Vec3::splat(instance.scale),
+            }
+            .compute_affine(),
+            size: sizes[instance.variant as usize] * instance.scale * world_scale,
+            wind_phase: 0.0,
+        })
+        .collect();
+    InstancedScatter {
+        slots: slots.into(),
+        copies: copies.into(),
+    }
+}
+
+/// One level's parts for the shared renderer: its surfaces and its
+/// camera-facing shapes, whichever the level has.
+fn level_parts(level: u32, assets: &LevelAssets) -> Vec<InstancedPart> {
+    let surfaces = assets
+        .surfaces
+        .iter()
+        .map(|(mesh, material)| (mesh, material));
+    let billboard = assets
+        .billboard
+        .iter()
+        .map(|(mesh, material, _)| (mesh, material));
+    surfaces
+        .chain(billboard)
+        .map(|(mesh, material)| InstancedPart {
+            level,
+            mesh: PartMesh::Mesh(mesh.clone()),
+            material: material.clone().untyped(),
+        })
+        .collect()
+}
+
 /// Adds a variant's meshes and materials to Bevy's assets and returns their
 /// handles, or returns the cached handles for an identical variant.
 /// Materials are shared by every variant with the same material settings.
@@ -821,7 +1026,7 @@ fn upload(
     cache: &mut MushroomCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<MushroomMaterial>,
-    (asset_server, textures): (&AssetServer, Option<&TextureSettings>),
+    (asset_server, textures): TextureSource,
 ) -> Arc<VariantAssets> {
     if let Some(found) = cache.variants.get(&variant.key) {
         return found.clone();
@@ -898,17 +1103,45 @@ fn material_hash(o: &MushroomOptions) -> u64 {
 
 /// After parts are removed, forgets cached variants and materials that no
 /// remaining part draws, so Bevy can free them.
+#[expect(clippy::type_complexity, reason = "Bevy system parameters")]
 pub(crate) fn prune_cache(
     mut removed: RemovedComponents<MushroomPart>,
+    mut removed_scatters: RemovedComponents<InstancedScatter>,
+    replaced: Query<
+        (),
+        (
+            Changed<InstancedScatter>,
+            Or<(
+                With<MushroomScatterParams>,
+                With<MushroomGroundScatterParams>,
+            )>,
+        ),
+    >,
     parts: Query<&Mesh3d, With<MushroomPart>>,
+    scatters: Query<
+        &InstancedScatter,
+        Or<(
+            With<MushroomScatterParams>,
+            With<MushroomGroundScatterParams>,
+        )>,
+    >,
     mut cache: ResMut<MushroomCache>,
 ) {
-    if removed.read().count() == 0 {
+    let removed = removed.read().count() + removed_scatters.read().count();
+    if removed == 0 && replaced.is_empty() {
         return;
     }
-    // Keep variants that some part still draws, then the materials those
-    // variants use.
-    let drawn: HashSet<AssetId<Mesh>> = parts.iter().map(|m| m.0.id()).collect();
+    // Keep variants that some part or scatter still draws, then the
+    // materials those variants use.
+    let scattered = scatters
+        .iter()
+        .flat_map(|scatter| scatter.slots.iter())
+        .flat_map(|slot| slot.parts.iter())
+        .filter_map(|part| match &part.mesh {
+            PartMesh::Mesh(mesh) => Some(mesh.id()),
+            PartMesh::External(_) => None,
+        });
+    let drawn: HashSet<AssetId<Mesh>> = parts.iter().map(|m| m.0.id()).chain(scattered).collect();
     cache.variants.retain(|_, v| {
         v.levels.iter().any(|l| {
             l.surfaces
@@ -1166,20 +1399,50 @@ mod tests {
         let host = host(&mut app, Vec3::ONE);
         let entity = app.world_mut().spawn((scatter(), ChildOf(host))).id();
         run_until_finished(&mut app, entity);
-        assert!(!parts(&mut app, entity).is_empty());
+        assert!(!copies(&app, entity).is_empty());
+        assert!(parts(&mut app, entity).is_empty(), "no entity per mushroom");
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
+
+        // Every body is a slot with a real specimen id, cached by specimen,
+        // piece and level.
+        let drawn = app
+            .world()
+            .entity(entity)
+            .get::<InstancedScatter>()
+            .unwrap();
+        let cache = app.world().resource::<SpecimenCache>();
+        for slot in drawn.slots.iter() {
+            assert!(
+                slot.specimen.slot < u32::MAX,
+                "a body with no specimen slot"
+            );
+            let levels = slot.lod.levels.len() as u32;
+            assert_eq!(
+                cache.get_levels(slot.specimen, slot.piece, levels),
+                Some(slot.parts.clone())
+            );
+        }
 
         // Losing the host's specimen removes the mushrooms.
         app.world_mut()
             .entity_mut(host)
             .remove::<GeneratedSpecimen>();
         app.update();
-        assert!(parts(&mut app, entity).is_empty());
+        assert!(copies(&app, entity).is_empty());
         assert!(app.world().entity(entity).contains::<MushroomGenerating>());
     }
 
+    /// The copies `entity` draws through the shared renderer, if any.
+    fn copies(app: &App, entity: Entity) -> Vec<InstancedCopy> {
+        app.world()
+            .entity(entity)
+            .get::<InstancedScatter>()
+            .map(|scatter| scatter.copies.to_vec())
+            .unwrap_or_default()
+    }
+
     #[test]
-    fn a_ground_scatter_spawns_each_member_at_its_ground_height() {
+    fn a_ground_scatter_draws_each_member_at_its_ground_height() {
         let mut app = app();
         let ground: Arc<dyn Ground> =
             Arc::new(|p: bevy::math::DVec2| 0.3 * (p.x as f32 * 0.8).sin());
@@ -1197,19 +1460,14 @@ mod tests {
         run_until_finished(&mut app, entity);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
-        // Every part stands near the ground under it (sunk a little).
-        let mut query = app
-            .world_mut()
-            .query::<(&MushroomPart, &Transform, &ChildOf)>();
-        let mut count = 0;
-        for (_, transform, parent) in query.iter(app.world()) {
-            assert_eq!(parent.parent(), entity);
-            let t = transform.translation;
+        // Every copy stands near the ground under it (sunk a little).
+        let copies = copies(&app, entity);
+        assert!(!copies.is_empty());
+        for copy in &copies {
+            let t = Vec3::from(copy.transform.translation);
             let h = ground.height(bevy::math::DVec2::new(t.x.into(), t.z.into()));
-            assert!((t.y - h).abs() < 0.05, "part at {t} over ground {h}");
-            count += 1;
+            assert!((t.y - h).abs() < 0.05, "copy at {t} over ground {h}");
         }
-        assert!(count > 0);
 
         // The same ground and settings don't rebuild; a new ground does.
         app.update();

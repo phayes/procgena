@@ -5,10 +5,35 @@
 //! ground of its region, and rules for which Ecotopes grow on which kind of
 //! ground.
 //!
-//! This is an early version: Ecotopes don't exist yet, so every Biome is an
-//! empty Biome, bare land with no cover. Building one gives exactly the same
-//! land as building its Terrain on its own. [`BiomePreset`] lists a default
-//! empty Biome for every [`TerrainPreset`](procgena_terrain::TerrainPreset).
+//! This is an early version: Biomes don't hold Ecotopes yet, so every Biome
+//! is an empty Biome, bare land with no cover. Building one gives exactly
+//! the same land as building its Terrain on its own. [`BiomePreset`] lists a
+//! default empty Biome for every
+//! [`TerrainPreset`](procgena_terrain::TerrainPreset).
+//!
+//! # Ecotopes
+//!
+//! An [`Ecotope`] is one kind of ground cover, such as "pine forest floor":
+//! Scatters of trees, stones, dead wood and mushrooms, each under a key and
+//! a priority, laid over the same ground. It runs on any
+//! [`Ground`](procgena_core::Ground), on its own for now:
+//!
+//! ```
+//! use glam::{DVec2, Vec2};
+//! use procgena_biome::EcotopePreset;
+//! use procgena_core::FlatGround;
+//! use procgena_core::scatter::{ScatterArea, ScatterInput};
+//!
+//! let preset = EcotopePreset::pine_forest_floor();
+//! let ground = FlatGround;
+//! let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(20.0));
+//! let input = ScatterInput::new(&ground, area, preset.ecotope.default_seed);
+//! let placed = preset.ecotope.place(&input)?;
+//! for layer in placed.layers() {
+//!     println!("{}: {} copies", layer.key(), layer.copies().len());
+//! }
+//! # Ok::<(), procgena_biome::EcotopeError>(())
+//! ```
 //!
 //! ```
 //! use procgena_biome::BiomePreset;
@@ -35,7 +60,13 @@
 //! ```
 
 mod biome;
+mod ecotope;
 mod presets;
 
 pub use biome::{Biome, BiomeError, BiomeTerrain, EcotopeRule, terrain_seed};
+pub use ecotope::{
+    Ecotope, EcotopeError, EcotopePlacement, EcotopePreset, EcotopeScatter, FootprintMask,
+    Footprints, PlacedScatter, SCATTER_SEED_KIND, ScatterCopies, ScatterFailure, ScatterKind,
+    scatter_seed,
+};
 pub use presets::BiomePreset;

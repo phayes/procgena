@@ -3,19 +3,25 @@
 
 use std::f32::consts::TAU;
 
-use glam::{DVec2, IVec2, Quat, Vec2, Vec3};
-use procgena_core::hash::{pcg3d, seed_for};
-use procgena_core::scatter::{Footprint, ScatterInput, place, steeper_than};
-use procgena_core::{Rng, SpecimenId};
+use glam::{DVec2, Quat, Vec2, Vec3};
+use procgena_core::hash::seed_for;
+use procgena_core::scatter::lattice::{self, Fixed2};
+use procgena_core::scatter::{
+    DEFAULT_SPACING_ROUNDS, Disc, Footprint, Lattice, Rank, Reach, Scatter, ScatterCopy,
+    ScatterInput, ScatterSlot, Spaced, keep_spaced, place, steeper_than,
+};
+use procgena_core::{CellId, Quality, SpecimenId};
 
 use crate::cluster::MushroomInstance;
+use crate::detail::default_lod;
 use crate::mushroom::Mushroom;
 use crate::options::MushroomOptions;
-use crate::rng::{RngExt, SCATTER_SITES};
-use crate::scatter::{MAX_SITES, MushroomCopy, MushroomScatter, ScatterError, ScatterOptions};
+use crate::rng::SCATTER_SITES;
+use crate::scatter::{MushroomCopy, MushroomScatter, ScatterError, ScatterOptions};
 
-/// The most candidate spots a ground scatter's area may hold. Each lattice
-/// cell is one candidate; see [`MushroomScatter::new`].
+/// The most candidate spots a ground scatter's area may hold, counting the
+/// margin its spacing needs. Each lattice cell is one candidate; see
+/// [`MushroomScatter::new`].
 pub const MAX_CELLS: u64 = 16_000_000;
 
 /// Smallest lattice cell, in metres, when
@@ -25,22 +31,39 @@ const MIN_CELL: f32 = 0.1;
 /// Points sampled round each stem's base to find the ground under it.
 const BASE_RING: u32 = 6;
 
-/// One lattice cell's candidate spot and what it would grow.
-#[derive(Debug, Clone, Copy)]
+/// Salts that give each draw of one candidate its own value.
+const SALT_YAW: u32 = 0x9e37_79b9;
+const SALT_SCALE: u32 = 0x6a09_e667;
+const SALT_SLOT: u32 = 0xbb67_ae85;
+
+/// What a scatter on the ground places with: its settings and specimens.
+#[derive(Debug, Clone)]
+pub(crate) struct GroundSpecimens {
+    mushroom: MushroomOptions,
+    options: ScatterOptions,
+    /// One whole mushroom or cluster per slot.
+    specimens: Vec<Mushroom>,
+    /// Where each specimen's bodies start in the scatter's bodies.
+    first_body: Vec<u32>,
+}
+
+/// A copy that passed the density, slope and ground checks, waiting for the
+/// spacing check.
 struct Candidate {
-    /// The cell.
-    cell: IVec2,
-    /// The spot, relative to the area's centre.
-    at: Vec2,
-    /// Rank from 0 to 1: the spot is kept where the density allows more
-    /// than this, and gives way to lower-ranked neighbours.
-    rank: f32,
-    /// Turn about the vertical, in radians.
-    yaw: f32,
-    /// Size multiplier.
-    scale: f32,
-    /// Which specimen grows here.
-    slot: u32,
+    position: Fixed2,
+    rank: Rank,
+    copy: MushroomCopy,
+    instances: Vec<MushroomInstance>,
+}
+
+impl Spaced for Candidate {
+    fn position(&self) -> Fixed2 {
+        self.position
+    }
+
+    fn rank(&self) -> Rank {
+        self.rank
+    }
 }
 
 impl MushroomScatter {
@@ -58,33 +81,55 @@ impl MushroomScatter {
     /// [`ScatterOptions::placement`], or the species'
     /// [`ground_placement`](MushroomOptions::ground_placement) (upright,
     /// resting on the lowest ground under its stem). A member with no ground
-    /// under it, or ground bent more than the placement allows, is left out,
-    /// and the rest of the copy stays.
+    /// under it, ground bent more than the placement allows, or a base
+    /// overlapping a footprint the input keeps clear, is left out, and the
+    /// rest of the copy stays.
     ///
-    /// Spots come from a lattice of cells anchored at the area's centre, one
-    /// candidate per cell, [`min_spacing`](ScatterOptions::min_spacing)
-    /// wide (at least 0.1 m), so the density can't exceed one per cell. A
-    /// candidate is kept where the density and `input`'s mask allow it, then
-    /// only where the ground is no steeper than
-    /// [`max_slope`](ScatterOptions::max_slope), and it gives way to a
-    /// neighbour closer than `min_spacing`. At most [`MAX_SITES`] copies are
-    /// kept. Lowering the density or adding a mask only removes copies, and
-    /// growing the area keeps the copies already there.
+    /// Spots come from a lattice of cells fixed to the World, one candidate
+    /// per cell, [`min_spacing`](ScatterOptions::min_spacing) wide (at least
+    /// 0.1 m), so the density can't exceed one per cell. A candidate is kept
+    /// where the density and `input`'s mask allow it, then only where the
+    /// ground is no steeper than [`max_slope`](ScatterOptions::max_slope)
+    /// and at least one member stands, and copies closer than `min_spacing`
+    /// are thinned by rank. Lowering the density or adding a mask only
+    /// removes copies, and an area holds the same copies, with the same
+    /// addresses, as any larger area around it.
     ///
     /// Positions are relative to the area's centre: X and Z across, Y the
-    /// ground's height. [`ScatterOptions::grows_on`],
-    /// [`up`](ScatterOptions::up) and
+    /// ground's height. The area holds the copies whose cell's corner lies
+    /// inside it, so a copy may stand up to a cell outside it.
+    /// [`ScatterOptions::grows_on`], [`up`](ScatterOptions::up) and
     /// [`follow_surface`](ScatterOptions::follow_surface) are not used.
     ///
     /// # Errors
     ///
     /// Returns [`ScatterError::Options`] if a setting in `mushroom` or
     /// `options` is out of range, and [`ScatterError::TooLarge`] if the area
-    /// holds more than [`MAX_CELLS`] cells.
+    /// and its margin hold more than [`MAX_CELLS`] cells.
     pub fn new(
         mushroom: &MushroomOptions,
         options: &ScatterOptions,
         input: &ScatterInput<'_>,
+    ) -> Result<Self, ScatterError> {
+        let mut scatter = Self::prepare(mushroom, options, input.seed)?;
+        let (copies, instances) = scatter.copies_over(input)?;
+        scatter.copies = copies;
+        scatter.instances = instances;
+        Ok(scatter)
+    }
+
+    /// Builds the specimens of a ground scatter of `mushroom` in a World
+    /// seeded with `world_seed`, without placing any copies: place them as
+    /// a [`Scatter`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScatterError::Options`] if a setting in `mushroom` or
+    /// `options` is out of range.
+    pub fn prepare(
+        mushroom: &MushroomOptions,
+        options: &ScatterOptions,
+        world_seed: u32,
     ) -> Result<Self, ScatterError> {
         options.validate()?;
         mushroom.validate()?;
@@ -95,7 +140,7 @@ impl MushroomScatter {
         let specimens = (0..options.specimens)
             .map(|slot| {
                 Mushroom::new(MushroomOptions {
-                    default_seed: SpecimenId::new(input.seed, pool, slot).seed(),
+                    default_seed: SpecimenId::new(world_seed, pool, slot).seed(),
                     ..mushroom.clone()
                 })
             })
@@ -106,171 +151,251 @@ impl MushroomScatter {
             first_body.push(bodies.len() as u32);
             bodies.extend(specimen.bodies().iter().cloned());
         }
-
-        // The cells that cover the area, anchored at its centre.
-        let cell = options.min_spacing.max(MIN_CELL);
-        // Count them in floating point first, so a huge or non-finite area
-        // is refused rather than overflowing.
-        let half = input.area.size.as_dvec2() * 0.5;
-        let (lo, hi) = (
-            (-half / f64::from(cell)).floor(),
-            (half / f64::from(cell)).ceil(),
-        );
-        let span = (hi - lo).max(DVec2::ZERO);
-        let count = span.x * span.y;
-        if count.is_nan() || count > MAX_CELLS as f64 {
-            let cells = if count.is_finite() {
-                count as u64
-            } else {
-                u64::MAX
-            };
-            return Err(ScatterError::TooLarge { cells });
-        }
-        let (lo, hi) = (lo.as_ivec2(), hi.as_ivec2());
-
-        // Keep each candidate that the density, its neighbours and the slope
-        // allow, then the lowest-ranked ones up to the cap.
-        let sites = Sites {
-            options,
-            input,
-            cell,
-            seed: seed_for(input.seed, SCATTER_SITES),
-            specimens: options.specimens,
-        };
-        let mut kept = Vec::new();
-        for y in lo.y..hi.y {
-            for x in lo.x..hi.x {
-                if let Some(c) = sites.keep(IVec2::new(x, y)) {
-                    kept.push(c);
-                }
-            }
-        }
-        if kept.len() > MAX_SITES as usize {
-            kept.sort_by(|a, b| a.rank.total_cmp(&b.rank));
-            kept.truncate(MAX_SITES as usize);
-            kept.sort_by_key(|c| (c.cell.y, c.cell.x));
-        }
-
-        // Set every member of each copy on the ground.
-        let placement = options.placement_for(mushroom);
-        let mut instances = Vec::new();
-        let mut copies = Vec::new();
-        for c in kept {
-            let specimen = &specimens[c.slot as usize];
-            let turn = Quat::from_rotation_y(c.yaw);
-            let start = instances.len();
-            let mut members = Vec::new();
-            for (k, member) in specimen.members().iter().enumerate() {
-                let scale = member.scale * c.scale;
-                let offset = turn * (member.translation * c.scale);
-                let at = c.at + Vec2::new(offset.x, offset.z);
-                let body = &specimen.bodies()[member.variant as usize];
-                let footprint = base_footprint(body.base_radius() * scale);
-                let Some(placed) = place(
-                    input.ground,
-                    input.area.world(at),
-                    0.0,
-                    &footprint,
-                    &placement,
-                ) else {
-                    continue;
-                };
-                instances.push(MushroomInstance {
-                    variant: first_body[c.slot as usize] + member.variant,
-                    translation: Vec3::new(at.x, placed.height, at.y),
-                    rotation: turn * member.rotation,
-                    scale,
-                });
-                members.push(k as u32);
-            }
-            if members.is_empty() {
-                continue;
-            }
-            let height = input.sample(c.at).height;
-            copies.push(MushroomCopy {
-                slot: c.slot,
-                cell: c.cell,
-                translation: Vec3::new(c.at.x, height, c.at.y),
-                yaw: c.yaw,
-                scale: c.scale,
-                instances: start..instances.len(),
-                members,
-            });
-        }
         Ok(Self {
             bodies,
-            instances,
-            copies,
+            instances: Vec::new(),
+            copies: Vec::new(),
+            ground: Some(GroundSpecimens {
+                mushroom: mushroom.clone(),
+                options: options.clone(),
+                specimens,
+                first_body,
+            }),
         })
     }
-}
 
-/// What a ground scatter needs to decide each lattice cell.
-struct Sites<'a, 'b> {
-    /// The scatter's settings.
-    options: &'a ScatterOptions,
-    /// The ground, mask and area.
-    input: &'a ScatterInput<'b>,
-    /// Width of each cell, in metres.
-    cell: f32,
-    /// Seed of every cell's random draws.
-    seed: u32,
-    /// How many specimens to choose from.
-    specimens: u32,
-}
+    /// The copies of `input`'s area, and their members' instances, which
+    /// each copy's [`instances`](MushroomCopy::instances) range indexes.
+    fn copies_over(
+        &self,
+        input: &ScatterInput<'_>,
+    ) -> Result<(Vec<MushroomCopy>, Vec<MushroomInstance>), ScatterError> {
+        let ground = self.ground.as_ref().ok_or(ScatterError::HostOnly)?;
+        let options = &ground.options;
 
-impl Sites<'_, '_> {
-    /// Returns the candidate of `cell`, drawn from the cell alone.
-    fn candidate(&self, cell: IVec2) -> Candidate {
-        let h = pcg3d([cell.x as u32, cell.y as u32, self.seed]);
-        let mut rng = Rng::new(h[0]);
-        let rank = rng.next_f32();
-        let jitter = Vec2::new(rng.next_f32(), rng.next_f32());
-        Candidate {
-            cell,
-            at: (cell.as_vec2() + jitter) * self.cell,
-            rank,
-            yaw: rng.range(0.0, TAU),
-            scale: rng.range(self.options.scale_min, self.options.scale_max),
-            slot: rng.int(0, self.specimens - 1),
+        // Count the cells to look at first, so a huge or non-finite area is
+        // refused rather than overflowing.
+        if !input.area.size.is_finite() || !input.area.centre.is_finite() {
+            return Err(ScatterError::TooLarge { cells: u64::MAX });
         }
-    }
-
-    /// Returns true if the density and mask at `c` allow it.
-    fn dense_enough(&self, c: &Candidate) -> bool {
-        let allowed = self.options.density * self.cell * self.cell * self.input.density(c.at);
-        c.rank < allowed
-    }
-
-    /// Returns the candidate of `cell` if it is kept: in the area, dense
-    /// enough, not crowded by a lower-ranked neighbour, and on ground no
-    /// steeper than the limit.
-    fn keep(&self, cell: IVec2) -> Option<Candidate> {
-        let c = self.candidate(cell);
-        if !self.input.area.contains(c.at) || !self.dense_enough(&c) {
-            return None;
+        let lattice = self.lattice();
+        let reach = self.reach();
+        let own = input.area.bounds();
+        let window = reach.window(own);
+        let count = lattice.count_in(window);
+        if count > MAX_CELLS {
+            return Err(ScatterError::TooLarge { cells: count });
         }
 
-        // Give way to a closer, lower-ranked neighbour, whether or not it is
-        // kept itself, so neither a smaller density, a mask nor a smaller
-        // area can uncover a copy. Cells are at least `min_spacing` wide, so
-        // only the eight around can be that close.
-        let spacing = self.options.min_spacing;
-        if spacing > 0.0 {
-            for dy in -1..=1 {
-                for dx in -1..=1 {
-                    if dx == 0 && dy == 0 {
-                        continue;
-                    }
-                    let n = self.candidate(cell + IVec2::new(dx, dy));
-                    if n.rank < c.rank && n.at.distance(c.at) < spacing {
-                        return None;
-                    }
-                }
+        // Find every candidate near enough to decide the area's own.
+        let cell = f64::from(lattice.cell_metres());
+        let chance = lattice::chance(f64::from(options.density) * cell * cell);
+        let seed = seed_for(input.seed, SCATTER_SITES);
+        let mut found = Vec::new();
+        for cell in lattice.cells_in(window) {
+            let h = lattice.hash(seed, cell);
+            let at = lattice.position(h, cell);
+            let local = input.local_density(at);
+            let rank = lattice::rank(h);
+            if !lattice::dense_enough(rank, chance, local)
+                || steeper_than(&input.sample_at(at), options.max_slope)
+            {
+                continue;
+            }
+            if let Some((copy, instances)) = ground.grow(cell, h, at, input) {
+                found.push(Candidate {
+                    position: at,
+                    rank: Rank {
+                        tier: 0,
+                        rank,
+                        local,
+                        cell,
+                        index: 0,
+                    },
+                    copy,
+                    instances,
+                });
             }
         }
 
-        (!steeper_than(&self.input.sample(c.at), self.options.max_slope)).then_some(c)
+        // Thin copies closer than the spacing by rank, and keep the area's
+        // own, with their members' instances listed in order.
+        let spacing = reach.spacing_fixed();
+        let keep = keep_spaced(&found, reach.rounds, spacing, |a, b| {
+            a.position.distance_squared(b.position) < i128::from(spacing) * i128::from(spacing)
+        });
+        let mut copies = Vec::new();
+        let mut instances = Vec::new();
+        for (c, _) in found
+            .into_iter()
+            .zip(keep)
+            .filter(|(c, keep)| *keep && own.contains(lattice.corner(c.rank.cell)))
+        {
+            let mut copy = c.copy;
+            copy.instances = instances.len()..instances.len() + c.instances.len();
+            instances.extend(c.instances);
+            copies.push(copy);
+        }
+        Ok((copies, instances))
+    }
+}
+
+impl GroundSpecimens {
+    /// Grows the copy of `cell`, hashed to `h`, at World position `at`: picks
+    /// its specimen, turn and size, and sets each member on the ground.
+    /// Returns `None` where no member stands.
+    fn grow(
+        &self,
+        cell: CellId,
+        h: u32,
+        at: Fixed2,
+        input: &ScatterInput<'_>,
+    ) -> Option<(MushroomCopy, Vec<MushroomInstance>)> {
+        let options = &self.options;
+        let yaw = lattice::unit(h, SALT_YAW) * TAU;
+        let scale = options.scale_min
+            + (options.scale_max - options.scale_min) * lattice::unit(h, SALT_SCALE);
+        let slot = ((lattice::unit(h, SALT_SLOT) * options.specimens as f32) as u32)
+            .min(options.specimens - 1);
+        let specimen = &self.specimens[slot as usize];
+        let turn = Quat::from_rotation_y(yaw);
+        let placement = options.placement_for(&self.mushroom);
+        let world = at.to_world();
+        let local = at.relative_to(input.area.centre);
+
+        // Set every member on the ground, keeping it off the footprints above.
+        let mut instances = Vec::new();
+        let mut members = Vec::new();
+        let mut footprint = Vec::new();
+        for (k, member) in specimen.members().iter().enumerate() {
+            let member_scale = member.scale * scale;
+            let offset = turn * (member.translation * scale);
+            let spot = world + DVec2::new(f64::from(offset.x), f64::from(offset.z));
+            let body = &specimen.bodies()[member.variant as usize];
+            let radius = body.base_radius() * member_scale;
+            let disc = Disc::new(spot, radius);
+            if input.excluded(&[disc]) {
+                continue;
+            }
+            let Some(placed) = place(input.ground, spot, 0.0, &base_footprint(radius), &placement)
+            else {
+                continue;
+            };
+            let here = local + Vec2::new(offset.x, offset.z);
+            instances.push(MushroomInstance {
+                variant: self.first_body[slot as usize] + member.variant,
+                translation: Vec3::new(here.x, placed.height, here.y),
+                rotation: turn * member.rotation,
+                scale: member_scale,
+            });
+            members.push(k as u32);
+            footprint.push(disc);
+        }
+        if members.is_empty() {
+            return None;
+        }
+        let height = input.sample_at(at).height;
+        Some((
+            MushroomCopy {
+                slot,
+                address: input.prefix.copy(cell, 0),
+                translation: Vec3::new(local.x, height, local.y),
+                yaw,
+                scale,
+                instances: 0..0,
+                members,
+                footprint,
+            },
+            instances,
+        ))
+    }
+
+    /// How far from a copy's centre its members' bases reach, at its largest
+    /// size, in metres.
+    fn widest(&self) -> f32 {
+        let scale = self.options.scale_max;
+        self.specimens
+            .iter()
+            .flat_map(|specimen| {
+                specimen.members().iter().map(|m| {
+                    let body = &specimen.bodies()[m.variant as usize];
+                    (m.translation.with_y(0.0).length() + body.base_radius() * m.scale) * scale
+                })
+            })
+            .fold(0.0, f32::max)
+    }
+}
+
+/// A scatter on the ground places its copies on a lattice fixed to the
+/// World, one candidate per cell. Its slots are its specimens, from the
+/// World seed given to [`slots`](Scatter::slots); the specimens it draws are
+/// the ones it was built with (see [`MushroomScatter::prepare`]). A scatter
+/// grown on a host with [`MushroomScatter::on`] places nothing: its
+/// [`place`](Scatter::place) returns [`ScatterError::HostOnly`].
+impl Scatter for MushroomScatter {
+    fn lattice(&self) -> Lattice {
+        let spacing = self.ground.as_ref().map_or(0.0, |g| g.options.min_spacing);
+        Lattice::new(spacing.max(MIN_CELL))
+    }
+
+    fn reach(&self) -> Reach {
+        let cell = self.lattice().cell_metres();
+        let (spacing, footprint) = self
+            .ground
+            .as_ref()
+            .map_or((0.0, 0.0), |g| (g.options.min_spacing, g.widest()));
+        Reach {
+            rounds: DEFAULT_SPACING_ROUNDS,
+            spacing,
+            displacement: cell,
+            footprint,
+        }
+    }
+
+    fn draw_range(&self) -> f32 {
+        // The default detail levels' cull distance, for the largest copy.
+        let Some(ground) = &self.ground else {
+            return 0.0;
+        };
+        let lod = default_lod();
+        let size = ground.mushroom.size * ground.options.scale_max;
+        lod.cull_distance.unwrap_or(f32::INFINITY) * lod.factor(size, Quality::High)
+    }
+
+    fn slots(&self, world_seed: u32) -> Vec<ScatterSlot> {
+        let Some(ground) = &self.ground else {
+            return Vec::new();
+        };
+        let pool = ground.mushroom.pool();
+        (0..ground.options.specimens)
+            .map(|slot| ScatterSlot {
+                entry: 0,
+                specimen: SpecimenId::new(world_seed, pool, slot),
+            })
+            .collect()
+    }
+
+    fn place(
+        &self,
+        input: &ScatterInput<'_>,
+    ) -> Result<Vec<ScatterCopy>, procgena_core::scatter::ScatterError> {
+        let (copies, _) = self.copies_over(input)?;
+        Ok(copies
+            .into_iter()
+            .map(|copy| {
+                let rotation = Quat::from_rotation_y(copy.yaw);
+                ScatterCopy {
+                    address: copy.address,
+                    slot: copy.slot,
+                    transform: glam::Affine3A::from_scale_rotation_translation(
+                        Vec3::splat(copy.scale),
+                        rotation,
+                        copy.translation,
+                    ),
+                    footprint: copy.footprint,
+                }
+            })
+            .collect())
     }
 }
 

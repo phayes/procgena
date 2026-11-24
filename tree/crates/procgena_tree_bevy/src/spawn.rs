@@ -424,6 +424,9 @@ pub(crate) struct TreeCache {
     /// Each generated tree's impostor, once baked, from the shared
     /// [`Impostors`](procgena_impostor::Impostors) cache.
     impostors: HashMap<TreeKey, TreeImpostorAssets>,
+    /// The real specimen id of each tree a Scatter asked for through
+    /// [`TreeCache::request_specimen`].
+    specimens: HashMap<TreeKey, SpecimenId>,
 }
 
 impl TreeCache {
@@ -443,6 +446,29 @@ impl TreeCache {
             Entry::Pending(task, options.clone())
         });
         key
+    }
+
+    /// [`request`](Self::request) for a Scatter's tree whose real specimen
+    /// id is `specimen`, which its impostor is then keyed by.
+    pub(crate) fn request_specimen(
+        &mut self,
+        options: &Arc<TreeOptions>,
+        specimen: SpecimenId,
+        settings: &SpawnSettings,
+    ) -> TreeKey {
+        let key = self.request(options, settings);
+        self.specimens.insert(key, specimen);
+        key
+    }
+
+    /// The specimen id of the tree under `key`: the real one a Scatter gave
+    /// through [`request_specimen`](Self::request_specimen), or for a tree
+    /// built on its own, [`TreeKey::interim_specimen_id`].
+    pub(crate) fn specimen_id(&self, key: TreeKey) -> SpecimenId {
+        self.specimens
+            .get(&key)
+            .copied()
+            .unwrap_or_else(|| key.interim_specimen_id())
     }
 
     /// Generated trees whose impostor isn't ready yet.
@@ -851,11 +877,14 @@ pub(crate) fn prune_cache(
         .collect();
     cache.trees.retain(|key, _| used.contains(key));
 
-    // Drop the impostors of trees no longer cached. Bakes already started
-    // finish, and stay in the shared cache.
+    // Drop the impostors and specimen ids of trees no longer cached. Bakes
+    // already started finish, and stay in the shared cache.
     let cache = &mut *cache;
     cache
         .impostors
+        .retain(|key, _| cache.trees.contains_key(key));
+    cache
+        .specimens
         .retain(|key, _| cache.trees.contains_key(key));
 
     // Preserve materials referenced by the generated trees still in the cache.

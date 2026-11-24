@@ -501,13 +501,19 @@ impl StoneOptions {
     /// each axis to between 70% and 100%. Pass a `stretch_jitter` of at
     /// least 0 and below 1; this method does not check it.
     pub fn variant(&self, world_seed: u32, slot: u32, stretch_jitter: f32) -> StoneOptions {
-        let pool = PoolId::new(STONE_KIND, OptionsHash::of(&(self, stretch_jitter)));
         let mut options = self.clone();
-        options.default_seed = SpecimenId::new(world_seed, pool, slot).seed();
+        options.default_seed = self.variant_id(world_seed, slot, stretch_jitter).seed();
         for (axis, stretch) in options.stretch.iter_mut().enumerate() {
             *stretch *= 1.0 - stretch_jitter * unit_hash(options.default_seed, axis as u32);
         }
         options
+    }
+
+    /// The [`SpecimenId`] of shape `slot` in the set [`variant`](Self::variant)
+    /// draws from, in a World seeded with `world_seed`.
+    pub fn variant_id(&self, world_seed: u32, slot: u32, stretch_jitter: f32) -> SpecimenId {
+        let pool = PoolId::new(STONE_KIND, OptionsHash::of(&(self, stretch_jitter)));
+        SpecimenId::new(world_seed, pool, slot)
     }
 }
 

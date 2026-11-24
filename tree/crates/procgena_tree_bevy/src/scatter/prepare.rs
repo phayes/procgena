@@ -148,9 +148,14 @@ pub(crate) fn start_preparing(
         if prepared.is_some_and(|p| p.grove == *grove) {
             continue;
         }
-        let keys = tree_scatter_variants(grove)
+        let keys = grove
+            .trees
             .iter()
-            .map(|options| cache.request(options, &settings))
+            .flat_map(|species| (0..species.variants).map(move |v| (species, v)))
+            .map(|(species, v)| {
+                let options = Arc::new(species.variant(v));
+                cache.request_specimen(&options, species.specimen_id(v), &settings)
+            })
             .collect();
         commands.entity(entity).insert(PreparedTrees {
             keys,

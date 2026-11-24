@@ -2,14 +2,39 @@
 //! for standing copies on the ground.
 //!
 //! A Scatter spreads many copies of one kind of asset (trees, sticks,
-//! stones) over a stretch of ground. Every Scatter takes a [`ScatterInput`]:
-//! the [`Ground`], an optional [`Mask`], the [`ScatterArea`] and a seed.
-//! It checks candidates in the same order: the mask first, then
-//! [`steeper_than`] from one ground sample, and only then the copy's
-//! footprint, with [`place`] as its [`Placement`] says.
+//! stones) over a stretch of ground. Every Scatter implements [`Scatter`]
+//! and takes a [`ScatterInput`]: the [`Ground`], an optional [`Mask`], the
+//! [`ScatterArea`], a seed, the [`AddressPrefix`] its copies' addresses
+//! start with, and the [`Footprints`] of the Scatters above it.
+//!
+//! Every Scatter places in the same order, with the integer rules in
+//! [`lattice`]: candidates on a [`Lattice`] fixed to the World, kept by
+//! [`rank`](lattice::rank) below the local density; then dropped where
+//! their footprint overlaps one above them; then [`steeper_than`] from one
+//! ground sample, and the copy's footing with [`place`] as its
+//! [`Placement`] says; then spaced out with [`keep_spaced`]; then any
+//! patches of the Scatter's own. What a Scatter leaves for the Scatters
+//! below is its footprints, or a [`MaskLayer`] stamped from them.
+
+mod cache;
+pub mod conformance;
+mod footprint;
+pub mod lattice;
+mod mask;
+mod placing;
+
+pub use cache::ChunkCache;
+pub use footprint::{Disc, Footprints};
+pub use lattice::{
+    ChunkGrid, ChunkId, DEFAULT_SPACING_ROUNDS, Fixed2, FixedRect, Lattice, Rank, Spaced,
+    keep_spaced,
+};
+pub use mask::{FOOTPRINT_TEXEL_SHIFT, MaskLayer};
+pub use placing::{MaskSource, Reach, Scatter, ScatterCopy, ScatterError, ScatterSlot};
 
 use glam::{DVec2, Mat3, Quat, Vec2, Vec3};
 
+use crate::address::AddressPrefix;
 use crate::ground::{Ground, GroundSample};
 
 /// A rectangle of World ground to scatter over, around a centre.
@@ -45,6 +70,18 @@ impl ScatterArea {
         let half = self.size * 0.5;
         local.x.abs() <= half.x && local.y.abs() <= half.y
     }
+
+    /// The area in fixed point: from its low corner (included) up to its
+    /// high corner (left out), each rounded to the nearest 1/256 m. A
+    /// Scatter placed over the area places the copies whose lattice cell's
+    /// corner lies inside these bounds.
+    pub fn bounds(&self) -> FixedRect {
+        let half = self.size.as_dvec2() * 0.5;
+        FixedRect::new(
+            Fixed2::from_world(self.centre - half),
+            Fixed2::from_world(self.centre + half),
+        )
+    }
 }
 
 /// How much of a Scatter's density is allowed at each World position, from
@@ -69,7 +106,8 @@ impl<F: Fn(DVec2) -> f32 + Send + Sync> Mask for F {
 }
 
 /// What every Scatter gets from the level above it: where the ground is,
-/// where copies may stand, which stretch of ground to fill, and a seed.
+/// where copies may stand, which stretch of ground to fill, a seed, how its
+/// copies are addressed, and what it must keep clear of.
 ///
 /// The same input and options always give the same copies.
 #[derive(Clone, Copy)]
@@ -78,21 +116,32 @@ pub struct ScatterInput<'a> {
     pub ground: &'a dyn Ground,
     /// Thins the Scatter in places; `None` allows full density everywhere.
     pub mask: Option<&'a dyn Mask>,
-    /// The stretch of ground to fill.
+    /// The stretch of ground to fill: the Scatter places the copies whose
+    /// lattice cell's corner lies inside it (see [`ScatterArea::bounds`]).
     pub area: ScatterArea,
     /// Picks where copies stand and how each one varies. Different seeds
     /// give different copies over the same ground.
     pub seed: u32,
+    /// What every copy's address starts with: the region, Ecotope and
+    /// Scatter that placed it. [`AddressPrefix::ALONE`] for a Scatter built
+    /// on its own.
+    pub prefix: AddressPrefix,
+    /// Footprints no copy may overlap, such as the trunks and boulders of
+    /// the Scatters above this one. `None` keeps nothing clear.
+    pub exclude: Option<&'a Footprints>,
 }
 
 impl<'a> ScatterInput<'a> {
-    /// An input over `area` of `ground`, with no mask.
+    /// An input over `area` of `ground`, with no mask, no exclusions and the
+    /// address prefix of a Scatter built on its own.
     pub fn new(ground: &'a dyn Ground, area: ScatterArea, seed: u32) -> Self {
         Self {
             ground,
             mask: None,
             area,
             seed,
+            prefix: AddressPrefix::ALONE,
+            exclude: None,
         }
     }
 
@@ -103,6 +152,48 @@ impl<'a> ScatterInput<'a> {
             mask: Some(mask),
             ..self
         }
+    }
+
+    /// The same input, with copy addresses starting with `prefix`.
+    #[must_use]
+    pub fn with_prefix(self, prefix: AddressPrefix) -> Self {
+        Self { prefix, ..self }
+    }
+
+    /// The same input, keeping every copy off `footprints`.
+    #[must_use]
+    pub fn with_exclusion(self, footprints: &'a Footprints) -> Self {
+        Self {
+            exclude: Some(footprints),
+            ..self
+        }
+    }
+
+    /// The same input over another area.
+    #[must_use]
+    pub fn over(self, area: ScatterArea) -> Self {
+        Self { area, ..self }
+    }
+
+    /// The share of the density allowed at World position `p`, in 8 bits
+    /// (0 to 255): 255 everywhere without a mask, 0 where the mask gives
+    /// NaN. Scatters decide which candidates to keep from this value.
+    pub fn local_density(&self, p: Fixed2) -> u8 {
+        match self.mask {
+            None => 255,
+            Some(mask) => lattice::quantise(mask.density(p.to_world())),
+        }
+    }
+
+    /// Whether any of `footprint` overlaps the footprints this input keeps
+    /// clear.
+    pub fn excluded(&self, footprint: &[Disc]) -> bool {
+        self.exclude.is_some_and(|f| f.overlaps_any(footprint))
+    }
+
+    /// Returns the ground's height and slope at World position `p`.
+    pub fn sample_at(&self, p: Fixed2) -> GroundSample {
+        self.ground.sample(p.to_world())
     }
 
     /// Returns the share of the density allowed at `local` (relative to the

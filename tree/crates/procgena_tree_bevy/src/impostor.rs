@@ -59,10 +59,7 @@ pub(crate) fn request_impostors(
         if impostor.baked_level >= generated.level_count() {
             continue;
         }
-        // The one place a tree's specimen id is chosen. Groves should pass
-        // each variant's real SpecimenId here instead of the interim one.
-        let specimen = key.interim_specimen_id();
-        let impostor_key = tree_key(specimen, impostor, &settings);
+        let impostor_key = tree_key(cache.specimen_id(key), impostor, &settings);
         let ready = impostors
             .request(&mut commands, impostor_key, || {
                 tree_request(impostor_key, &generated, impostor, &mut materials)
@@ -309,5 +306,24 @@ mod tests {
                 (108.0..132.0, inf),
             ]
         );
+    }
+
+    /// A Scatter's trees are keyed by their real specimen ids; a tree built
+    /// on its own by its interim one.
+    #[test]
+    fn scatter_trees_key_their_impostors_by_their_real_specimens() {
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let settings = settings(&[(0.0, 0.0)], Some(default_tree_impostor()));
+        let species = procgena_tree::ScatterTree::new(&procgena_tree::TreePreset::oak_small());
+        let mut cache = TreeCache::default();
+
+        let options = std::sync::Arc::new(species.variant(2));
+        let real = species.specimen_id(2);
+        let grove = cache.request_specimen(&options, real, &settings);
+        assert_eq!(cache.specimen_id(grove), real);
+        assert_ne!(real, grove.interim_specimen_id());
+
+        let single = cache.request(&std::sync::Arc::new(species.tree.clone()), &settings);
+        assert_eq!(cache.specimen_id(single), single.interim_specimen_id());
     }
 }

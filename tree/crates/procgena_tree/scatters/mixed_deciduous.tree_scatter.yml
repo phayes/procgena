@@ -7,7 +7,7 @@ group: Woodland
 tree_scatter:
   default_seed: 3
   trees:
-    - { tree: big_leaf_maple_large, density_scale: 0.3, clustering: 0.3, variants: 3 }
-    - { tree: ash_large, density_scale: 0.3, clustering: 0.3, variants: 3 }
-    - { tree: aspen_medium, density_scale: 0.2, clustering: 0.6 }
-    - { tree: oak_medium, density_scale: 0.5 }
+    - { key: maples, tree: big_leaf_maple_large, density_scale: 0.3, clustering: 0.3, variants: 3 }
+    - { key: ashes, tree: ash_large, density_scale: 0.3, clustering: 0.3, variants: 3 }
+    - { key: aspens, tree: aspen_medium, density_scale: 0.2, clustering: 0.6 }
+    - { key: oaks, tree: oak_medium, density_scale: 0.5 }

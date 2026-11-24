@@ -5384,7 +5384,28 @@ name = "procgena_biome"
 version = "0.1.0"
 dependencies = [
  "glam 0.33.12",
+ "procgena_core",
+ "procgena_deadwood",
+ "procgena_mushroom",
+ "procgena_stone",
  "procgena_terrain",
+ "procgena_tree",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "procgena_biome_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "procgena_biome",
+ "procgena_core",
+ "procgena_deadwood_bevy",
+ "procgena_mushroom",
+ "procgena_mushroom_bevy",
+ "procgena_stone_bevy",
+ "procgena_tree_bevy",
 ]
 
 [[package]]

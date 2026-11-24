@@ -11,18 +11,19 @@ use std::sync::Arc;
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy::render::sync_world::SyncToRenderWorld;
 use bevy::transform::TransformSystems;
+use procgena_core::{OptionsHash, PoolId, SpecimenId};
+use procgena_core_bevy::instanced::{
+    ExternalMeshId, InstancedCopy, InstancedMaterialPlugin, InstancedPart, InstancedScatter,
+    InstancedSlot, PartMesh, SpecimenCache,
+};
 use procgena_stone::gpu::MAX_GPU_RESOLUTION;
-use procgena_stone::{OptionsError, StoneOptions};
+use procgena_stone::{OptionsError, STONE_KIND, StoneOptions};
 
-use crate::material::StoneTextures;
+use crate::material::{StoneMaterial, StoneMaterialKey, StoneTextures, stone_material};
 use crate::spawn::SpawnSettings;
 
-/// Most detail levels a pool can have; sizes the per-view level tables.
-pub(crate) const MAX_POOL_LEVELS: usize = procgena_stone::MAX_DETAIL_LEVELS as usize;
-
-pub(crate) use render::{PoolRenderPlugin, PoolShaders};
+use render::PoolRenderPlugin;
 
 /// A set of rock shapes generated on the GPU and shared by [`PooledStone`] entities.
 ///
@@ -176,7 +177,11 @@ pub struct PooledStone {
     pub variant: u32,
 }
 
-/// Every pool's settings, copied to the render world when they change.
+/// Conservative radius around a pool mesh's origin enclosing any generated
+/// rock, in the generated unit cube's units (before the pool's scale).
+pub(crate) const UNPLACED_RADIUS: f32 = 2.0 * 1.732_050_8;
+
+/// Every valid pool, copied to the render world when any changes.
 #[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct PoolDefinitions {
     /// Increased whenever any pool is added, changed or removed.
@@ -185,74 +190,66 @@ pub(crate) struct PoolDefinitions {
     pub pools: HashMap<AssetId<StonePool>, PoolDefinition>,
 }
 
-/// One valid pool and the textures it draws with.
+/// One valid pool and how the shared renderer draws it.
 #[derive(Debug, Clone)]
 pub(crate) struct PoolDefinition {
     /// The [`PoolDefinitions::version`] this pool last changed at.
     pub version: u64,
     /// The validated pool.
     pub pool: Arc<StonePool>,
-    /// The pool's texture set at its nearest level's size, or `None` when the
-    /// plugin has no texture folder.
-    pub textures: Option<StoneTextures>,
+    /// One slot per variant, whose parts are the pool's generated meshes
+    /// (see [`external_mesh_id`]).
+    pub slots: Arc<[InstancedSlot]>,
 }
 
-/// The transforms of every drawable [`PooledStone`], copied to the render world
-/// when they change.
-#[derive(Resource, Debug, Clone, Default)]
-pub(crate) struct PoolInstances {
-    /// Increased whenever any pooled rock is added, changed or removed.
-    pub version: u64,
-    /// Rocks by pool, sorted by variant.
-    pub pools: Arc<HashMap<AssetId<StonePool>, Vec<PoolInstance>>>,
+/// The id under which the render world lists mesh `mesh` (variant-major:
+/// `variant * levels + level`) of the pool defined at `version`.
+pub(crate) fn external_mesh_id(version: u64, mesh: u32) -> ExternalMeshId {
+    ExternalMeshId((version << 32) | u64::from(mesh))
 }
 
-/// One pooled rock: its variant and world transform.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct PoolInstance {
-    pub variant: u32,
-    pub world_from_local: Affine3A,
-}
+/// The entity drawing each pool's rocks.
+#[derive(Resource, Debug, Default)]
+struct PoolDrawers(HashMap<AssetId<StonePool>, Entity>);
 
-/// Marks the one entity that stands for all pooled rocks in Bevy's draw lists.
+/// Marks an entity that draws one pool's rocks through the shared renderer.
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct PoolDrawer;
 
-/// Registers the pool asset and copies pools and pooled rocks to the render world.
-pub(crate) struct StonePoolPlugin {
-    pub shaders: PoolShaders,
-}
+/// Registers the pool asset, draws pooled rocks through the shared
+/// renderer, and generates pools in the render world.
+pub(crate) struct StonePoolPlugin;
 
 impl Plugin for StonePoolPlugin {
     fn build(&self, app: &mut App) {
-        app.init_asset::<StonePool>()
-            .init_resource::<PoolDefinitions>()
-            .init_resource::<PoolInstances>()
-            .add_systems(Startup, spawn_drawer)
-            .add_systems(
-                PostUpdate,
-                (update_definitions, collect_instances)
-                    .chain()
-                    .after(TransformSystems::Propagate)
-                    .after(VisibilitySystems::VisibilityPropagate),
-            )
-            .add_plugins(PoolRenderPlugin {
-                shaders: self.shaders.clone(),
-            });
+        app.add_plugins(
+            InstancedMaterialPlugin::<StoneMaterial, StoneMaterialKey>::new(|key| {
+                key.extension.instanced = true
+            }),
+        )
+        .init_asset::<StonePool>()
+        .init_resource::<PoolDefinitions>()
+        .init_resource::<PoolDrawers>()
+        .add_systems(
+            PostUpdate,
+            (update_definitions, collect_instances)
+                .chain()
+                .after(TransformSystems::Propagate)
+                .after(VisibilitySystems::VisibilityPropagate),
+        )
+        .add_plugins(PoolRenderPlugin);
     }
 }
 
-fn spawn_drawer(mut commands: Commands) {
-    commands.spawn((PoolDrawer, SyncToRenderWorld::default()));
-}
-
-/// Records added, changed and removed pools, and requests their textures.
-/// Invalid pools are left out with a warning.
+/// Records added, changed and removed pools, with their materials and
+/// slots. Invalid pools are left out with a warning.
 fn update_definitions(
     mut events: MessageReader<AssetEvent<StonePool>>,
     assets: Res<Assets<StonePool>>,
     asset_server: Res<AssetServer>,
     settings: Res<SpawnSettings>,
+    mut materials: ResMut<Assets<StoneMaterial>>,
+    mut cache: ResMut<SpecimenCache>,
     mut definitions: ResMut<PoolDefinitions>,
 ) {
     for event in events.read() {
@@ -282,12 +279,14 @@ fn update_definitions(
                             settings.texture_compression,
                         )
                     });
+                    let material = materials.add(pool_material(&pool, textures.as_ref()));
+                    let slots = pool_slots(&pool, version, &material, &mut cache);
                     definitions.pools.insert(
                         id,
                         PoolDefinition {
                             version,
                             pool: Arc::new(pool),
-                            textures,
+                            slots,
                         },
                     );
                 }
@@ -313,29 +312,80 @@ type ChangedStones = (
     )>,
 );
 
-/// Rebuilds the list of pooled rocks when any of them is added, changed, hidden
-/// or removed, or when a pool's variant count changes.
+/// The material a pool's rocks are drawn with. Pooled rocks are drawn in the
+/// generated unit cube's units, so the texture repeat size is divided by
+/// the pool's scale.
+fn pool_material(pool: &StonePool, textures: Option<&StoneTextures>) -> StoneMaterial {
+    let mut material = pool.options.material.clone();
+    material.texture_size /= pool.options.scale;
+    stone_material(&material, textures)
+}
+
+/// One slot per variant of `pool`, defined at `version`, each drawing the
+/// variant's generated meshes with `material`. Caches each variant's parts
+/// by specimen and level.
+fn pool_slots(
+    pool: &StonePool,
+    version: u64,
+    material: &Handle<StoneMaterial>,
+    cache: &mut SpecimenCache,
+) -> Arc<[InstancedSlot]> {
+    let options = &pool.options;
+    let lod = options.mesh.detail.lod().map_detail(|_| ());
+    let levels = lod.levels.len() as u32;
+    let pool_id = PoolId::new(STONE_KIND, OptionsHash::of(&(options, pool.stretch_jitter)));
+    (0..pool.variants)
+        .map(|variant| {
+            let specimen = SpecimenId::new(pool.world_seed, pool_id, variant);
+            let parts: Vec<InstancedPart> = (0..levels)
+                .map(|level| InstancedPart {
+                    level,
+                    mesh: PartMesh::External(external_mesh_id(version, variant * levels + level)),
+                    material: material.clone().untyped(),
+                })
+                .collect();
+            for part in &parts {
+                cache.insert(specimen, 0, part.level, vec![part.clone()]);
+            }
+            InstancedSlot {
+                specimen,
+                piece: 0,
+                lod: lod.clone(),
+                parts,
+                bounds: (Vec3::ZERO, UNPLACED_RADIUS),
+            }
+        })
+        .collect()
+}
+
+/// Rebuilds each pool's copies when any pooled rock is added, changed,
+/// hidden or removed, or when a pool changes: one drawer entity per pool
+/// with rocks, holding an [`InstancedScatter`] of its visible rocks.
 fn collect_instances(
+    mut commands: Commands,
     stones: Query<(&PooledStone, &GlobalTransform, &InheritedVisibility)>,
     changed: Query<(), ChangedStones>,
     mut removed: RemovedComponents<PooledStone>,
     definitions: Res<PoolDefinitions>,
-    mut instances: ResMut<PoolInstances>,
+    mut drawers: ResMut<PoolDrawers>,
     mut warned: Local<bool>,
 ) {
     let removed = removed.read().count() > 0;
     if changed.is_empty() && !removed && !definitions.is_changed() {
         return;
     }
-    let mut pools: HashMap<AssetId<StonePool>, Vec<PoolInstance>> = HashMap::new();
+
+    // Each defined pool's visible rocks, in the generated unit cube's units.
+    let mut pools: HashMap<AssetId<StonePool>, Vec<InstancedCopy>> = HashMap::new();
     for (stone, transform, visibility) in &stones {
+        let id = stone.pool.id();
+        let Some(definition) = definitions.pools.get(&id) else {
+            continue;
+        };
         if !visibility.get() {
             continue;
         }
-        let id = stone.pool.id();
-        if let Some(definition) = definitions.pools.get(&id)
-            && stone.variant >= definition.pool.variants
-        {
+        if stone.variant >= definition.pool.variants {
             if !*warned {
                 *warned = true;
                 warn!(
@@ -345,16 +395,34 @@ fn collect_instances(
             }
             continue;
         }
-        pools.entry(id).or_default().push(PoolInstance {
-            variant: stone.variant,
-            world_from_local: transform.affine(),
+        let scale = definition.pool.options.scale;
+        pools.entry(id).or_default().push(InstancedCopy {
+            slot: stone.variant,
+            transform: transform.affine() * Affine3A::from_scale(Vec3::splat(scale)),
+            size: scale,
+            wind_phase: 0.0,
         });
     }
-    for list in pools.values_mut() {
-        list.sort_by_key(|instance| instance.variant);
+
+    // One drawer per pool with rocks; drawers of other pools go.
+    drawers.0.retain(|id, entity| {
+        let keep = pools.contains_key(id);
+        if !keep {
+            commands.entity(*entity).despawn();
+        }
+        keep
+    });
+    for (id, copies) in pools {
+        let slots = definitions.pools[&id].slots.clone();
+        let entity = *drawers
+            .0
+            .entry(id)
+            .or_insert_with(|| commands.spawn(PoolDrawer).id());
+        commands.entity(entity).insert(InstancedScatter {
+            slots,
+            copies: copies.into(),
+        });
     }
-    instances.version += 1;
-    instances.pools = Arc::new(pools);
 }
 
 #[cfg(test)]

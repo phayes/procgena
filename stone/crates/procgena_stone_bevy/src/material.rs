@@ -10,6 +10,9 @@ use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
+use procgena_core_bevy::instanced::{
+    INSTANCED_MESH_SHADER, INSTANCED_PREPASS_SHADER, instanced_vertex,
+};
 use procgena_impostor::BakeOutput;
 use procgena_stone::{MaterialOptions, TextureCompression, TextureMap, TextureSize, texture_path};
 
@@ -34,7 +37,7 @@ pub type StoneMaterial = ExtendedMaterial<StandardMaterial, TriplanarExtension>;
 /// Leave all three images as `None`, with `settings.textured` set to 0, to draw
 /// the base material alone. When `textured` is 1, supply all three images.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
-#[bind_group_data(StoneMaterialKey)]
+#[bind_group_data(TriplanarKey)]
 pub struct TriplanarExtension {
     /// Texture repeat size and whether to use the images.
     #[uniform(100)]
@@ -69,22 +72,6 @@ pub fn bake_copy(material: &StoneMaterial, output: BakeOutput) -> StoneMaterial 
     copy
 }
 
-/// The pipeline variant a [`StoneMaterial`] is drawn with. Bevy builds one
-/// pipeline per distinct key; you never need to create one.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct StoneMaterialKey {
-    /// What a bake copy draws instead of lit colour.
-    bake: BakeOutput,
-}
-
-impl From<&TriplanarExtension> for StoneMaterialKey {
-    fn from(extension: &TriplanarExtension) -> Self {
-        Self {
-            bake: extension.bake,
-        }
-    }
-}
-
 /// Texture settings for a [`TriplanarExtension`], in the layout the rock shaders use.
 #[derive(ShaderType, Reflect, Debug, Clone, Copy, PartialEq)]
 pub struct TriplanarSettings {
@@ -105,17 +92,47 @@ impl Default for TriplanarSettings {
     }
 }
 
+/// The pipeline variant a [`StoneMaterial`] is drawn with. Bevy builds one
+/// pipeline per distinct key; you never need to create one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TriplanarKey {
+    /// Whether the pipeline draws pooled rocks through the shared instanced
+    /// renderer, each naming its own mesh record through an extra per-copy
+    /// vertex input.
+    pub(crate) instanced: bool,
+    /// What a bake copy draws instead of lit colour.
+    pub(crate) bake: BakeOutput,
+}
+
+impl From<&TriplanarExtension> for TriplanarKey {
+    fn from(extension: &TriplanarExtension) -> Self {
+        // Materials are drawn as single rocks; the instanced renderer asks
+        // for its pipelines with `instanced` set.
+        Self {
+            instanced: false,
+            bake: extension.bake,
+        }
+    }
+}
+
+/// The pipeline key of a [`StoneMaterial`].
+#[cfg(feature = "gpu")]
+pub(crate) type StoneMaterialKey = bevy::render::combined_bind_group::CombinedBindGroupData<
+    bevy::pbr::StandardMaterialKey,
+    TriplanarKey,
+>;
+
 impl MaterialExtension for TriplanarExtension {
-    fn fragment_shader() -> ShaderRef {
-        STONE_SHADER.into()
+    fn vertex_shader() -> ShaderRef {
+        INSTANCED_MESH_SHADER.into()
     }
 
-    fn prepass_fragment_shader() -> ShaderRef {
-        STONE_PREPASS_SHADER.into()
+    fn prepass_vertex_shader() -> ShaderRef {
+        INSTANCED_PREPASS_SHADER.into()
     }
 
-    fn deferred_fragment_shader() -> ShaderRef {
-        STONE_SHADER.into()
+    fn deferred_vertex_shader() -> ShaderRef {
+        INSTANCED_PREPASS_SHADER.into()
     }
 
     fn specialize(
@@ -124,6 +141,10 @@ impl MaterialExtension for TriplanarExtension {
         _layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        if key.bind_group_data.instanced {
+            instanced_vertex(descriptor);
+        }
+
         // Bake copies keep the projected textures, and write the textured
         // base colour or normal in the forward pass instead of lit colour.
         let prepass = descriptor
@@ -139,6 +160,18 @@ impl MaterialExtension for TriplanarExtension {
             fragment.shader_defs.push(define.into());
         }
         Ok(())
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        STONE_SHADER.into()
+    }
+
+    fn prepass_fragment_shader() -> ShaderRef {
+        STONE_PREPASS_SHADER.into()
+    }
+
+    fn deferred_fragment_shader() -> ShaderRef {
+        STONE_SHADER.into()
     }
 }
 

@@ -167,7 +167,7 @@ impl ContentHash for EndKind {
                 h.write_u32(splinters);
                 h.write_f32(one_sided);
             }
-            EndKind::Taper => h.write_u32(4),
+            EndKind::Taper {} => h.write_u32(4),
         }
     }
 }
