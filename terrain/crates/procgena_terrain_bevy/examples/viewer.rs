@@ -63,7 +63,8 @@ struct Offscreen(Handle<Image>);
 /// The world and where the camera starts.
 #[derive(Resource)]
 struct Scene {
-    world: Arc<WorldTerrain>,
+    /// The world, until the terrain is spawned from it.
+    world: Option<WorldTerrain>,
     eye: Vec3,
     target: Vec3,
     provisional_from: Option<u8>,
@@ -112,7 +113,7 @@ fn main() {
         seed: value("--seed").map_or(1, |s| s.parse().expect("--seed needs a number")),
         ..WorldTerrainOptions::default()
     };
-    let world = Arc::new(WorldTerrain::new(options, Arc::new(source)).expect("a valid world"));
+    let world = WorldTerrain::new(options, Arc::new(source)).expect("a valid world");
 
     // The camera's eye and target, standing on the ground.
     let on_ground = |p: Vec3| {
@@ -158,7 +159,7 @@ fn main() {
         })
         .insert_resource(ScreenshotPath(value("--screenshot")))
         .insert_resource(Scene {
-            world,
+            world: Some(world),
             eye,
             target,
             provisional_from: value("--provisional-from")
@@ -175,11 +176,12 @@ fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    scene: Res<Scene>,
+    mut scene: ResMut<Scene>,
 ) {
+    let world = scene.world.take().expect("set up once");
     commands.spawn(TerrainStream {
-        source: scene.world.clone(),
         provisional_from: scene.provisional_from,
+        ..TerrainStream::world(world)
     });
 
     let mut camera = commands.spawn((

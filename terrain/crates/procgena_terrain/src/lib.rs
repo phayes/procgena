@@ -147,4 +147,7 @@ pub use terrain::{
     HeightField, HeightTile, RiverTrace, Terrain, TerrainError, TerrainGenerator, TerrainSample,
 };
 pub use warp::{BorderWarp, BorderWarpError, MIN_WARP_WAVELENGTH, warp_borders};
-pub use world::{DEFAULT_CACHE, TerrainSource, WorldError, WorldTerrain, WorldTerrainOptions};
+pub use world::{
+    DEFAULT_CACHE, ProgressHook, RegionProgress, RegionStage, TerrainSource, WorldError,
+    WorldTerrain, WorldTerrainOptions,
+};

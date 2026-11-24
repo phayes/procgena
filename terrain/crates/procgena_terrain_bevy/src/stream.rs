@@ -76,6 +76,14 @@ impl Stream {
         missing.into_iter().map(|(_, key)| key).collect()
     }
 
+    /// How many chunks of the target are read.
+    pub(crate) fn read_in_target(&self) -> usize {
+        self.target
+            .iter()
+            .filter(|(key, _)| self.samples.contains_key(key))
+            .count()
+    }
+
     /// How many chunks are being read.
     pub(crate) fn reading(&self) -> usize {
         self.reading.len()

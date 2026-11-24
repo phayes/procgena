@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 use glam::{DVec2, IVec2, Vec2};
 use procgena_core::{Ground, GroundSample};
@@ -170,7 +171,59 @@ pub struct WorldTerrain {
     /// Terrains without their roads.
     provisional: Cache<Terrain>,
     terrains: Cache<Terrain>,
+    /// Told when each region's stages start and finish.
+    progress: Option<ProgressHook>,
 }
+
+/// One stage of building a region, in the order a region goes through
+/// them. Their costs differ a lot: on the machines measured so far, roads
+/// take several times as long as the other two together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum RegionStage {
+    /// The region's own side of its borders: its relief, its rivers'
+    /// courses and its border offers. Every region next to a region being
+    /// built needs this stage too.
+    Plan,
+    /// The ground fitted to its borders, with rivers and ponds but no
+    /// roads: what [`WorldTerrain::provisional_terrain`] gives.
+    Ground,
+    /// Routing and cutting in the roads: what [`WorldTerrain::terrain`]
+    /// adds to the ground.
+    Roads,
+}
+
+/// A region stage starting or finishing, as told to a [`ProgressHook`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RegionProgress {
+    /// `region` started `stage`.
+    Started {
+        /// The region being built.
+        region: RegionId,
+        /// The stage it started.
+        stage: RegionStage,
+    },
+    /// `region` finished `stage`, which took `elapsed`.
+    Finished {
+        /// The region being built.
+        region: RegionId,
+        /// The stage it finished.
+        stage: RegionStage,
+        /// How long the stage took.
+        elapsed: Duration,
+        /// Whether the stage succeeded; `false` if the region can't be
+        /// built (see [`WorldTerrain::terrain`] for why).
+        built: bool,
+    },
+}
+
+/// Told about every region stage a [`WorldTerrain`] starts and finishes
+/// (see [`WorldTerrain::with_progress`]), for example to drive a loading
+/// screen.
+///
+/// It is called on whichever thread builds the region, often several at
+/// once, so it should return quickly. It must not ask the same world for
+/// terrain: that can wait on the build it is being told about, forever.
+pub type ProgressHook = Arc<dyn Fn(&RegionProgress) + Send + Sync>;
 
 impl fmt::Debug for WorldTerrain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -241,11 +294,19 @@ impl WorldTerrain {
             plans: Cache::new(cache.saturating_mul(4)),
             provisional: Cache::new(cache),
             terrains: Cache::new(cache),
+            progress: None,
             options,
             source,
             elevation,
             graph,
         })
+    }
+
+    /// This world, telling `hook` whenever a region stage starts or
+    /// finishes. Only stages built after this call are told.
+    pub fn with_progress(mut self, hook: ProgressHook) -> Self {
+        self.progress = Some(hook);
+        self
     }
 
     /// The settings.
@@ -315,7 +376,9 @@ impl WorldTerrain {
     /// As for [`terrain`](Self::terrain).
     pub fn provisional_terrain(&self, region: RegionId) -> Result<Arc<Terrain>, WorldError> {
         let key = RegionKey::from_id(region);
-        self.provisional.get(key, || self.build_provisional(key))
+        self.provisional.get(key, || {
+            self.reported(key, RegionStage::Ground, || self.build_provisional(key))
+        })
     }
 
     /// The ground height at `p` (x and z, metres): E plus the relief of
@@ -385,7 +448,33 @@ impl WorldTerrain {
 
     /// Region `key`'s plan, kept.
     fn plan(&self, key: RegionKey) -> Result<Arc<Plan>, WorldError> {
-        self.plans.get(key, || self.build_plan(key))
+        self.plans.get(key, || {
+            self.reported(key, RegionStage::Plan, || self.build_plan(key))
+        })
+    }
+
+    /// Runs `build`, region `key`'s `stage`, telling the progress hook
+    /// when it starts and finishes.
+    fn reported<T>(
+        &self,
+        key: RegionKey,
+        stage: RegionStage,
+        build: impl FnOnce() -> Result<T, WorldError>,
+    ) -> Result<T, WorldError> {
+        let Some(hook) = &self.progress else {
+            return build();
+        };
+        let region = key.id();
+        hook(&RegionProgress::Started { region, stage });
+        let started = Instant::now();
+        let result = build();
+        hook(&RegionProgress::Finished {
+            region,
+            stage,
+            elapsed: started.elapsed(),
+            built: result.is_ok(),
+        });
+        result
     }
 
     /// Converges region `key`'s generator towards every region along its
@@ -482,8 +571,10 @@ impl WorldTerrain {
     /// Region `key`'s terrain: its terrain without roads, with the roads
     /// added.
     fn build_terrain(&self, key: RegionKey) -> Result<Terrain, WorldError> {
-        let provisional = self.provisional.get(key, || self.build_provisional(key))?;
-        Ok(Terrain::clone(&provisional).with_roads())
+        let provisional = self.provisional_terrain(key.id())?;
+        self.reported(key, RegionStage::Roads, || {
+            Ok(Terrain::clone(&provisional).with_roads())
+        })
     }
 
     /// Agrees every corner and edge of region `key` with the regions

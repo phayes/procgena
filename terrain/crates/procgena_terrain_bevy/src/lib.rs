@@ -7,7 +7,7 @@
 //! - Add [`TerrainPlugin`].
 //! - Spawn a [`TerrainStream`] with the ground to draw: a
 //!   [`Terrain`](procgena_terrain::Terrain), or a
-//!   [`WorldTerrain`](procgena_terrain::WorldTerrain) of many regions.
+//!   [`WorldTerrain`] of many regions (see [`TerrainStream::world`]).
 //! - Put [`TerrainViewer`] on each camera the terrain is drawn for.
 //!
 //! Chunks are read on Bevy's async compute threads, and the drawn chunks
@@ -32,7 +32,7 @@
 //!         TerrainPreset::rolling_hills().terrain.clone()
 //!     };
 //!     let world = WorldTerrain::new(WorldTerrainOptions::default(), Arc::new(source)).unwrap();
-//!     commands.spawn(TerrainStream::new(Arc::new(world)));
+//!     commands.spawn(TerrainStream::world(world));
 //!     commands.spawn((
 //!         Camera3d::default(),
 //!         TerrainViewer,
@@ -47,6 +47,7 @@
 //! ```
 
 mod material;
+mod progress;
 mod stream;
 
 use std::collections::HashMap;
@@ -62,10 +63,11 @@ use procgena_core::Lod;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::{
     ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSelectionError,
-    ChunkSource, ChunkStage, Transitions, WaterMesh, chunk_lod,
+    ChunkSource, ChunkStage, RegionStage, Transitions, WaterMesh, WorldTerrain, chunk_lod,
 };
 
 pub use material::{TerrainExtension, TerrainMaterial, TerrainSurface};
+pub use progress::RegionTracker;
 
 use stream::{Read, Stream};
 
@@ -158,18 +160,38 @@ pub struct TerrainStream {
     pub source: Arc<dyn ChunkSource + Send>,
     /// Chunk levels at and above this one are drawn from
     /// [`Provisional`](ChunkStage::Provisional) ground, which a
-    /// [`WorldTerrain`](procgena_terrain::WorldTerrain) builds without
+    /// [`WorldTerrain`] builds without
     /// routing roads, so far ground appears sooner. `None` draws canonical
     /// ground everywhere.
     pub provisional_from: Option<u8>,
+    /// Counts the source's region builds, so [`TerrainProgress`] can
+    /// include them; `None` counts chunks only.
+    pub regions: Option<RegionTracker>,
 }
 
 impl TerrainStream {
-    /// A stream of `source`'s canonical ground at every level.
+    /// A stream of `source`'s canonical ground at every level, counting
+    /// chunks only.
     pub fn new(source: Arc<dyn ChunkSource + Send>) -> Self {
         Self {
             source,
             provisional_from: None,
+            regions: None,
+        }
+    }
+
+    /// A stream of `world`'s canonical ground at every level, with its
+    /// region builds counted in [`TerrainProgress`]. This replaces any
+    /// progress hook `world` had; to keep your own as well, make a
+    /// [`RegionTracker`], call its hook from yours, and set
+    /// [`regions`](Self::regions) yourself.
+    pub fn world(world: WorldTerrain) -> Self {
+        let tracker = RegionTracker::default();
+        let world = world.with_progress(tracker.hook());
+        Self {
+            source: Arc::new(world),
+            provisional_from: None,
+            regions: Some(tracker),
         }
     }
 
@@ -183,8 +205,17 @@ impl TerrainStream {
 }
 
 /// How far a [`TerrainStream`] has got. Updated every frame.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub struct TerrainProgress {
+    /// How much of the work wanted now is done, from 0 to 1, for a loading
+    /// bar: the region stages started in the current batch (with
+    /// [`TerrainStream::regions`]) and the chunks wanted, each weighted by
+    /// its usual cost. It can step back when the viewer moves on and more
+    /// work is wanted. 1 once settled.
+    pub fraction: f32,
+    /// The costliest region stage being built, if any: what a loading
+    /// screen can say the terrain is doing.
+    pub stage: Option<RegionStage>,
     /// Chunks drawn.
     pub drawn: usize,
     /// Chunks wanted around the viewers now.
@@ -459,12 +490,29 @@ fn stream_chunks(
             }
         }
 
+        // Region work from the hook, and chunk reads, by their usual cost.
+        let settled = state.stream.is_settled();
+        let regions = source
+            .regions
+            .as_ref()
+            .map(|r| r.counts())
+            .unwrap_or_default();
+        let wanted = state.stream.target.len() as f32 * progress::CHUNK_COST;
+        let read = state.stream.read_in_target() as f32 * progress::CHUNK_COST;
+        let total = regions.total + wanted;
+        let fraction = if settled || total == 0.0 {
+            1.0
+        } else {
+            ((regions.done + read) / total).clamp(0.0, 1.0)
+        };
         *progress = TerrainProgress {
+            fraction,
+            stage: regions.stage(),
             drawn: state.entities.len(),
             wanted: state.stream.target.len(),
             reading: state.stream.reading(),
             failed: state.failed,
-            settled: state.stream.is_settled(),
+            settled,
         };
     }
 }
@@ -627,6 +675,47 @@ mod tests {
         assert!(keys.contains(&under), "the chunk under the viewer is drawn");
         let unique: std::collections::HashSet<_> = keys.iter().collect();
         assert_eq!(unique.len(), keys.len());
+    }
+
+    #[test]
+    fn progress_counts_region_builds_until_the_terrain_settles() {
+        use procgena_terrain::{
+            Elevation, MIN_EDGE, RegionGraphOptions, WorldTerrain, WorldTerrainOptions,
+        };
+
+        let mut app = app();
+        let options = WorldTerrainOptions {
+            regions: RegionGraphOptions {
+                size: 2000.0,
+                min_edge: MIN_EDGE,
+                ..RegionGraphOptions::default()
+            },
+            ..WorldTerrainOptions::default()
+        };
+        let source = |_: RegionId, _: DVec2, _: &Elevation| TerrainPreset::plains().terrain.clone();
+        let world = WorldTerrain::new(options, Arc::new(source)).unwrap();
+        app.world_mut().spawn(TerrainStream::world(world));
+        app.world_mut()
+            .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)));
+
+        // While regions build, the stage is named and the fraction is
+        // below 1; once settled it is 1.
+        let mut seen: Vec<TerrainProgress> = Vec::new();
+        for _ in 0..20_000 {
+            app.update();
+            std::thread::sleep(Duration::from_millis(2));
+            let mut query = app.world_mut().query::<&TerrainProgress>();
+            let progress = *query.single(app.world()).unwrap();
+            seen.push(progress);
+            if progress.settled && progress.drawn > 0 {
+                break;
+            }
+        }
+        let last = seen.last().unwrap();
+        assert!(last.settled, "the terrain settles");
+        assert_eq!(last.fraction, 1.0);
+        assert!(seen.iter().any(|p| p.stage.is_some() && p.fraction < 1.0));
+        assert!(seen.iter().all(|p| (0.0..=1.0).contains(&p.fraction)));
     }
 
     #[test]
