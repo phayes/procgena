@@ -369,6 +369,12 @@ goldens, which have no baseline on this machine).
   some rework there.
 - **Done when:** a lattice world of many regions builds on demand from a
   closure source, and the seam suites pass on warped borders.
+- **Status (2026-11-24):** W1–W3 and W3b are built. W3b skips border pulls
+  that can't reach and uses a faster far integral, 10–17% quicker with
+  bit-identical heights. Shared border nodes were measured (at most about
+  10% gain) and not built. Warped borders still cost about 2.7× straight
+  ones, from their piece count; that is left for the performance sweep.
+  W4 is next.
 
 #### G6: Terrain volume, mesher, Bevy crate and studio (Phases 6–10)
 
