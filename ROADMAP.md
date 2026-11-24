@@ -684,8 +684,12 @@ confused with the B1 milestone or the D1 and D2 gates.
   key.
 - **Status (2026-11-24):** fruit step AC1 done (the crate, slots, part
   paths, export; cluster cards removed; see "As built" in
-  [fruit/plan.md](fruit/plan.md)). Fruit steps B1 → B2 and the two studio
-  tabs are in progress in one lane, fruit steps D1 → D2 in another.
+  [fruit/plan.md](fruit/plan.md)). Fruit steps B1 and B2 and the Fruit
+  and Flower tabs are done in the fruit lane: B2 extends the shared
+  renderer with attached copies (`InstancedAttached`) and draws grove and
+  single-tree clusters through it. Its coarse step runs on the GPU, which
+  awaits the coordinator's sign-off ("As built (fruit step B2)"). Fruit
+  steps D1 → D2 are in another lane.
 
 #### I2: Impostors prepared per Ecotope
 

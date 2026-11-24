@@ -241,7 +241,11 @@ step pinned to the `SpecimenId` it indexes, for example
 [ROADMAP.md](ROADMAP.md), fruit step AC1): the tree places clusters and
 picks each one's slot per tree specimen, and fruit specimens have their
 own mesh levels. The cluster cards built on 2026-11-24 are removed.
-Instanced drawing in Bevy and fruit impostors are still to do; see the
+Fruit steps B1 and B2 are built: tree groves and single trees draw their
+clusters as attached copies of the shared instanced renderer
+(`InstancedAttached`: one row table per host slot, a GPU step per host
+copy, then one per row), each cluster at its own fruit level. Fruit
+impostors are still to do; see the
 "Fruit as an attached asset" TODO and the "As built" notes in
 [fruit/plan.md](fruit/plan.md).
 
@@ -1707,7 +1711,9 @@ it starts.
   `InstancedMaterialPlugin` for any material with an `INSTANCED` vertex
   path, and external meshes for GPU-built specimens. Tree groves, stone
   pools, and deadwood and mushroom scatters draw through it; groves draw
-  their baked impostors as the last level. Left for later: tree's shaders
+  their baked impostors as the last level. Attached copies
+  (`InstancedAttached`, fruit step B2) draw rows of other slots on each
+  host copy, culled per row on the GPU. Left for later: tree's shaders
   still name the per-copy input `GROVE` and read it themselves rather than
   through `procgena_core_bevy::shaders::instanced`, and plant keeps its
   own GPU path (rule 6).
