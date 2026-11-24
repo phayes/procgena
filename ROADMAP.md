@@ -219,12 +219,12 @@ flowchart TD
     R4 --> X1
     B1 --> X1
 
+    G6 --> GM0
     GM0 --> GM1
-    G6 --> GM1
     GM1 --> GM2
-    GM0 --> GM3
+    GM1 --> GM3
     G4 --> GM3
-    GM1 --> GM4
+    GM3 --> GM4
     B1 --> GM4
     W1 --> GM4
     GM1 --> GM5
@@ -874,30 +874,33 @@ Planned with the user 2026-11-24 in
 the terrain crates hold the material catalogue and the bare-terrain look,
 each Biome a base ground, each Ecotope ground layers on top. A pure CPU
 evaluator fills a weight texture per terrain chunk. Each step below adds
-to the one before; only GM0 can start now.
+to the one before; only GM0 can start now. GM2 takes over G6's Phase 10
+textures (`terrain/textures.yml`), and GM1 replaces Phase 8's
+label-chosen material.
 
 #### GM0: Engine-free ground model
 
 - **Covers:** `procgena_terrain::ground` (material catalogue with
   colours, layers, conditions, compositing, `GroundPainter`, per-chunk
-  weights with an 8-material palette, the default bare-terrain stack) and
-  the Ecotope's `ground` layers in `procgena_biome`, with Scatter influence
-  from footprints, `Ecotope::ground_at` and `.ecotope.yml` support. Image
-  dumps.
-- **Needs:** nothing (C3a is built). It doesn't touch
-  `procgena_terrain_bevy`, which G6 owns.
+  weights on G6's `ChunkKey` with an 8-material palette, the default
+  bare-terrain stack with roads and riverbeds) and the Ecotope's `ground`
+  layers in `procgena_biome`, with Scatter influence from footprints,
+  `Ecotope::ground_at` and `.ecotope.yml` support. Image dumps.
+- **Needs:** G6's engine-free chunks (merged). It starts on the proposed
+  answers to "For the user" item 23 unless the user decides otherwise.
 - **Done when:** a top-down image of the pine forest floor shows litter
-  under pines and dirt round boulders, and tests show equal chunk edges
-  from both sides, build-order independence, file merge and `null`
-  removal, and the default stack matching G6's colours.
+  under pines and dirt round boulders, and tests show equal edges between
+  same-level chunks under the cap, build-order independence, file merge
+  and `null` removal, and the default stack matching G6's colours.
 
 #### GM1: Ground colours drawn
 
 - **Covers:** `procgena_terrain_bevy` draws any painter's chunk weights in
   colour, replacing `TerrainSurface`'s fixed rules; the Ecotope tab draws
-  its ground layers; the Terrain tab shows the default stack; the build
-  cost per chunk is measured.
-- **Needs:** GM0, G6 merged.
+  its ground layers (one weight texture over its patch, drawn with the
+  terrain material); the Terrain tab shows the default stack; the
+  level-ring seam is checked; the build cost per chunk is measured.
+- **Needs:** GM0 (G6 is merged).
 - **Done when:** headless screenshots of the terrain viewer and the
   Ecotope tab show ground colours, and the cost per chunk is recorded.
 
@@ -912,28 +915,31 @@ to the one before; only GM0 can start now.
   textures, memory matches the plan's arithmetic, and far ground samples
   no textures.
 
-#### GM3: Ground on measures and labels
+#### GM3: Ground on measures and labels, and the Biome base ground
 
 - **Covers:** water and road distance, height above water and curvature
-  conditions (G4a), then `Landform` and `Flags` conditions (G4b).
-- **Needs:** GM0, G4 (G4a first, G4b for labels).
-- **Done when:** mud follows river banks and gravel lines roads in an
-  image dump, and a cliff label picks cliff rock.
+  conditions (G4a), then `Landform` and `Flags` conditions (G4b). The
+  Biome's base ground on empty Biomes (B0).
+- **Needs:** GM1, G4 (G4a first, G4b for labels).
+- **Done when:** mud follows river banks and gravel lines roads on a
+  Terrain in an image dump, an empty Biome's base ground replaces the
+  default stack, and a cliff label picks cliff rock.
 
-#### GM4: Biome base ground and borders
+#### GM4: Ground over Ecotope coverage and borders
 
-- **Covers:** the Biome's base ground in its files, the painter over
-  Ecotope coverage, an interim crossfade at region borders, then the
-  Ecotope border agreement inside a Biome (B1) and across Biomes (W1).
-- **Needs:** GM1, B1, W1.
+- **Covers:** the painter over Ecotope coverage, an interim crossfade at
+  region borders, then the Ecotope border agreement inside a Biome (B1)
+  and across Biomes (W1).
+- **Needs:** GM3, B1, W1.
 - **Done when:** a Biome shows its roads and riverbeds under two Ecotopes,
   with no seam at Ecotope or Biome borders.
 
 #### GM5: Far grass and forest tints
 
-- **Covers:** far grass through plant's `plant_far_color` in the terrain
-  shader, and TODO "Far forest tint" (S1), as distance-gated tints in the
-  chunk textures.
+- **Covers:** far grass from plant's far colour (where that function
+  lives, so the terrain crate needn't depend on plant, is settled with the
+  plant-align lane), and TODO "Far forest tint" (S1), as distance-gated
+  tints in the chunk textures.
 - **Needs:** GM1, R3 (plant in an Ecotope), S1 (and density-field masks).
 - **Done when:** grass and forest keep their colour past the last blade
   and the last impostor, with no seam.
@@ -964,7 +970,7 @@ a cell run in order within the wave.
 | 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files. After its premise was corrected (2026-11-24) it no longer blocks W0, which starts on today's 4 km region size. |
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
-| 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1 (GM1 once G6 merges); G4a | GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. |
+| 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1 | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. |
 | 8 | W1; S1 (single Biome); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part) | |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; Later | |
 
@@ -1067,7 +1073,12 @@ where the details are.
         World's `vertical` (D5), rather than relative to the relief.
       - Textures at 1024 px by default and 2048 at High and Ultra, at
         most 24 resident (about 96 MB and 384 MB); waits on item 18.
-    - *Needed by:* GM0 (the first two), GM2 (the budget).
+    - *Needed by:* GM0 starts on the first two as proposed (the height
+      one touches the `Height` condition and the default snow layer), so
+      a different answer is cheap only before GM0; GM2 for the budget.
+    - *Also open:* the level-ring seam in the weight textures (GM1), and
+      where plant's far colour function lives (before GM5, with the
+      plant-align lane).
     - *Details:* [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),
       "Open questions".
 

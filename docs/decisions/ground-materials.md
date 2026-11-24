@@ -66,8 +66,9 @@ and labels", "Bevy design", Phases 5, 8 and 10),
 - **Far grass and far forest are two more distance-gated tints** in the
   same chunk textures: plant's far ground colour beyond the grass radius
   (after plant joins the Ecotope, R3), and the forest tint beyond the last
-  impostor (S1's TODO, already decided). The terrain shader calls plant's
-  `plant_far_color` rather than stacking a second material extension.
+  impostor (S1's TODO, already decided). Where plant's far colour
+  function lives, so the terrain crate needn't depend on plant, is open
+  with the plant-align lane.
 - **Scale (D5):** texture tiling, chunk texels, and distances to roads and
   water never scale. Heights in rules scale with the World's `vertical`
   (proposed, not decided). Noise patch sizes stay open with D5 question 5.
@@ -131,6 +132,8 @@ ramp = soft band: [in_start, in_full, out_full, out_end]
   cliff rock, beach), 900 and up weather (snow). So the Biome's road stays
   above an Ecotope's needles, while the Ecotope's moss covers the Biome's
   soil.
+- **Ties:** in a merged stack, a Biome layer and an Ecotope layer with the
+  same `order` put the Ecotope's layer on top (proposed).
 - **Compositing** is "over", bottom to top: each layer takes its weight
   `w` of what remains, `result = result × (1 − w) + material × w`, kept
   as per-material weights that sum to 1. The bottom layer of every stack
@@ -182,8 +185,13 @@ Reach = Metres(f32) | Footprint(f32)   // multiple of the copy's footprint radiu
 - **Ordering:** a chunk's ground weights are built after the Ecotope's
   placement for that chunk (plan, place, then draw), plus the largest
   influence reach as a margin.
-- **Edits:** influence reads copies after edits, so a felled tree's litter
-  goes with it. Ground layers in edits (a camp's packed earth on a stamp
+- **Query cost:** `ground_at` with copy influence must place the Scatters
+  around the point, so it is an expensive query in the sense of "Queries"
+  (cached per chunk like `resolve`). The cheap form, `ground_at` with
+  density-field influence, needs no placement, answers anywhere, and is
+  what a server with no camera uses by default.
+- **Edits** (proposed, not decided): influence reads copies after edits,
+  so a felled tree's litter goes with it. Ground layers in edits (a camp's packed earth on a stamp
   or reserve) are later work for X1.
 
 ### Who composes what
@@ -207,7 +215,16 @@ ground(p) = Σ c_i · over(B ∪ E_i)  +  (1 − Σ c_i) · over(B)
   noise, from each point's distance to the border.
 - **Bare terrain** (no Biome, or an empty Biome) uses the terrain's
   default stack: grass-coloured soil, rock on steep ground, snow up high,
-  as G6 colours today.
+  as G6 colours today, plus a road surface from `road_tags` and a riverbed
+  under the water level. Bare terrain has roads and rivers, so it should
+  look like it.
+- **Terrain features with meshes** (rock outcrops, later bridges) carry
+  their own material from the catalogue, named in the feature's options
+  (`cliff_rock` by default), and their footprint gives the ground under
+  and around them a "surface hint" (features plan, "Landform": surface
+  material hints) that a Biome base layer can read as a condition once
+  G4b exposes it. The outcrop mesh is drawn with the terrain material's
+  triplanar path at full weight of its one material.
 - The Biome implements an engine-free `GroundPainter` trait from
   `procgena_terrain::ground` (sites in, chunk weights out); the default
   stack is the terrain's own painter. So `procgena_terrain_bevy` draws any
@@ -224,19 +241,32 @@ ground(p) = Σ c_i · over(B ∪ E_i)  +  (1 − Σ c_i) · over(B)
   chunk). Hardware filtering works, since weights are dense. The shader
   samples the 8 weights and textures only those above a small threshold,
   at most the 4 strongest per pixel.
-- **Seams:** neighbouring chunks evaluate the same pure function at the
-  same edge points, so their edge texels are equal whatever each one's
-  palette is. Across a level ring the coarser chunk interpolates over two
-  of the finer chunk's texels; the finer chunk's edge row is snapped to that
-  interpolation when its side has a coarser neighbour (the transitions the
-  mesh already knows), as the mesh does with its vertices.
+- **Seams at one level:** neighbouring chunks of one level evaluate the
+  same pure function at the same edge points, so their edge texels are
+  equal whatever each one's palette is, as long as neither chunk hit the
+  8-material cap (below).
+- **Seams across a level ring: open, for GM1.** The coarser chunk
+  interpolates across two of the finer chunk's edge texels, so colours can
+  step slightly there. G6's `Transitions` are known to the coarser chunk
+  (which takes the finer chunk's vertices), not to the finer one, and
+  chunk samples don't depend on transitions; so the weight textures should
+  not either. Candidates: accept the step (level changes are already
+  dithered), or let the coarser chunk's shader read its finer
+  neighbour's edge. GM1 looks at it in screenshots.
 - **More than 8 materials in one chunk** (a triple junction of three
   Biomes, each with a base stack and an Ecotope): the evaluator keeps the
   8 with the most total weight over the chunk and gives each dropped
   material's weight to the kept material nearest in colour, deterministically,
-  and counts it in stats. The cap is sized for that worst case: 3 base
-  stacks of about 4 and 3 Ecotope stacks of about 3 rarely put more than 8
-  into one 64 m chunk.
+  and counts it in stats. Two neighbours can drop different materials, so
+  edges match only between chunks under the cap; `ground_at` itself is
+  never capped. The cap is sized for that worst case: 3 base stacks of
+  about 4 and 3 Ecotope stacks of about 3 rarely put more than 8 into one
+  64 m chunk.
+- **Limits:** weights are laid top-down, so on near-vertical cliffs a
+  texel covers a tall strip of face (triplanar projection hides the
+  stretching of the texture, not the coarseness of the weights), and
+  overhang undersides and caves get no weights of their own. Volume
+  patches (G6, Phase 6) need their own answer when they come.
 - **Far chunks** (levels at or beyond the texture distance, proposed:
   level 3, 512 m chunks): an RGBA8 premixed colour and roughness, plus
   the far tints below. No palette, so no cap.
@@ -276,10 +306,13 @@ ground(p) = Σ c_i · over(B ∪ E_i)  +  (1 − Σ c_i) · over(B)
   - Beyond the texture distance each material is its mean colour (taken
     from its smallest mip at load), and far chunks are premixed, so far
     ground costs no texture samples.
-- **Plant's far grass:** the terrain shader imports
-  `procgena_plant::shaders::far::plant_far_color` and feeds it the far
-  grass tint, instead of stacking `FarPlants` (both bind at 100). Plant's
-  own `FarPlantMaterial` stays for users without procgena's terrain.
+- **Plant's far grass: open, with the plant-align lane.** The terrain
+  material can't stack plant's `FarPlants` extension (both bind at 100),
+  and importing `procgena_plant`'s `plant_far_color` into
+  `procgena_terrain_bevy` would make the ground stack depend on the cover
+  stack. So either the function moves to `procgena_core_bevy`, or the
+  terrain material takes a shader hook that plant fills. Plant's own
+  `FarPlantMaterial` stays for users without procgena's terrain.
 - **Debug:** a view of each chunk's palette and a layer overlay, beside
   G6's level tints and chunk borders.
 
@@ -314,17 +347,18 @@ metres.
 
 | Stage | Covers | Needs | Done when |
 |-------|--------|-------|-----------|
-| **GM0** Engine-free model | `procgena_terrain::ground`: catalogue (colours), layers, conditions, compositing, site, `GroundPainter`, chunk weights (palette, cap, edge snapping), the default bare-terrain stack. `procgena_biome`: Ecotope `ground` map in `.ecotope.yml`, Scatter influence from footprints, `Ecotope::ground_at`. Image dumps. | Nothing (C3a is built). | A top-down image of the pine forest floor shows litter under pines and dirt round boulders; tests show chunk edges equal from both sides, results independent of build order, file merge and `null` removal, and the default stack matching G6's colours. |
-| **GM1** Colours drawn | `procgena_terrain_bevy` draws any painter's chunk weights in colour (replacing `TerrainSurface`'s fixed rules); the Ecotope tab draws its ground layers; the Terrain tab shows the default stack; evaluation cost measured. | GM0, G6 merged. | The terrain viewer and Ecotope tab show ground colours, headless screenshots recorded, and the build cost per chunk is in the report. |
+| **GM0** Engine-free model | `procgena_terrain::ground`: catalogue (colours), layers, conditions, compositing, site, `GroundPainter`, chunk weights on G6's `ChunkKey` (palette and cap), the default bare-terrain stack with roads and riverbeds. `procgena_biome`: Ecotope `ground` map in `.ecotope.yml`, Scatter influence from footprints, `Ecotope::ground_at`. Image dumps. | G6's engine-free chunks (merged into master 2026-11-24). Starts on the proposed answers to open questions 1 and 2 unless the user decides otherwise. | A top-down image of the pine forest floor shows litter under pines and dirt round boulders; tests show equal edges between same-level chunks under the cap, results independent of build order, file merge and `null` removal, and the default stack matching G6's colours. |
+| **GM1** Colours drawn | `procgena_terrain_bevy` draws any painter's chunk weights in colour (replacing `TerrainSurface`'s fixed rules); the Terrain tab shows the default stack; the Ecotope tab draws its ground layers on its `HeightGrid` or flat patch as one weight texture over the patch, built by `procgena_biome_bevy` from `Ecotope::ground_at` and drawn with `procgena_terrain_bevy`'s material (`procgena_biome_bevy` gains that dependency); the level-ring seam is looked at; evaluation cost measured. | GM0 (G6 is merged). | The terrain viewer and Ecotope tab show ground colours, headless screenshots recorded, and the build cost per chunk is in the report. |
 | **GM2** Textures | Shared texture loader in `procgena_core_bevy`, ground texture arrays, `terrain/textures.yml` as the catalogue's list, triplanar on steep ground, height blend, far colour, budgets and warnings. | GM1. | The pine forest floor and a cliff draw with real textures; memory matches the arithmetic; the far ground costs no texture samples. |
-| **GM3** Measures and labels | Water and road distance, height above water and curvature conditions (G4a); `Landform` and `Flags` conditions (G4b). | G4a, then G4b. | Mud follows river banks and gravel lines roads in an image dump; a cliff label picks cliff rock. |
-| **GM4** Biome base and borders | Biome base ground in `.biome.yml`; the painter over Ecotope coverage; the interim border crossfade, then the Ecotope border agreement (B1 inside a Biome, W1 across Biomes). | B1, then W1. | A Biome shows its road and riverbed under two Ecotopes, with no seam at an Ecotope or Biome border. |
-| **GM5** Far tints | Far grass via `plant_far_color` (once plant sits in an Ecotope); far forest tint (S1's TODO). | R3 (plant in the Ecotope), density-field masks, S1. | Grass and forest keep their colour past the last blade and the last impostor, with no seam. |
+| **GM3** Measures, labels and the Biome base | Water and road distance, height above water and curvature conditions (G4a); `Landform` and `Flags` conditions (G4b). The Biome's base ground on empty Biomes (B0), so a Biome's roads and banks differ from bare terrain's. | GM1, G4a, then G4b for labels. | Mud follows river banks and gravel lines roads on a Terrain in an image dump; an empty Biome's base ground replaces the default stack; a cliff label picks cliff rock. |
+| **GM4** Coverage and borders | The painter over Ecotope coverage; the interim border crossfade, then the Ecotope border agreement (B1 inside a Biome, W1 across Biomes). | GM3, B1, then W1. | A Biome shows its road and riverbed under two Ecotopes, with no seam at an Ecotope or Biome border. |
+| **GM5** Far tints | Far grass (once plant sits in an Ecotope; where `plant_far_color` lives is settled with the plant-align lane); far forest tint (S1's TODO). | R3 (plant in the Ecotope), density-field masks, S1. | Grass and forest keep their colour past the last blade and the last impostor, with no seam. |
 | **GM6** GPU evaluation | The rules in WGSL with CPU parity tests. | GM1's measurements calling for it. | Parity within one 8-bit step; chunk build time recorded. |
 
 GM0 can start now, in `procgena_terrain` (a new `ground` module) and
-`procgena_biome` (the Ecotope's ground), neither of which a running lane
-owns. It does not touch `procgena_terrain_bevy`, which G6 still owns.
+`procgena_biome` (the Ecotope's ground). It builds on G6's `ChunkKey`,
+which is on master since G6 merged (2026-11-24); this plan was written
+on a branch from before the merge and read G6 from its branch.
 
 ## Decisions
 
@@ -369,6 +403,11 @@ the first three yet; the question that asked them was interrupted.
    under a dense canopy)? Not needed for GM0; settle in GM4.
 7. **Texture distance and the 8-material cap.** Level 3 and 8 are
    starting points; GM1 and GM2 measure them on the triple-junction scene.
+8. **The level-ring seam** in the weight textures (see "Chunk weight
+   textures"): accept it or have the coarser chunk read its finer
+   neighbour's edge. GM1.
+9. **Where `plant_far_color` lives** (`procgena_core_bevy`, or a hook the
+   terrain material offers): with the plant-align lane, before GM5.
 
 ## What changes where
 
