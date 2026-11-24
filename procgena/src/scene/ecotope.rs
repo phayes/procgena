@@ -7,12 +7,13 @@ use bevy::math::DVec2;
 use bevy::prelude::*;
 use procgena_biome::{Ecotope, EcotopePreset};
 use procgena_biome_bevy::{
-    EcotopeFinished, EcotopeParams, EcotopePlacing, ground_mesh, rolling_hills,
+    EcotopeFinished, EcotopeGroundPatch, EcotopeParams, EcotopePlacing, GroundPatch, rolling_hills,
 };
 use procgena_core::scatter::ScatterArea;
 use procgena_core::{FlatGround, Ground, HeightGrid};
+use procgena_terrain::ground::GroundStack;
 
-use super::environment::{EnvironmentSettings, SOIL};
+use super::environment::EnvironmentSettings;
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::ViewerEvent;
 use super::subject::{Detail, SceneState, Subject};
@@ -76,19 +77,27 @@ impl Subject for EcotopeSubject {
 
     fn spawn(world: &mut World, settings: &EcotopeSettings) -> Entity {
         let ground = build_ground(settings);
-        world.spawn(params(settings, ground)).id()
+        world.spawn(params(settings, ground, base(settings))).id()
     }
 
     fn update(world: &mut World, shown: &mut Shown, old: &EcotopeSettings, new: &EcotopeSettings) {
         // Keep the ground while its choice and size stay the same, so an
-        // edit to the Ecotope alone redraws only the Scatters it changes.
-        let kept = world
-            .get::<EcotopeParams>(shown.entity)
+        // edit to the Ecotope alone redraws only the Scatters it changes,
+        // and its base look while its seed stays the same.
+        let current = world.get::<EcotopeParams>(shown.entity);
+        let ground = current
             .filter(|_| old.ground == new.ground && old.size == new.size)
-            .map(|params| params.ground.clone());
-        let ground = kept.unwrap_or_else(|| build_ground(new));
+            .map(|params| params.ground.clone())
+            .unwrap_or_else(|| build_ground(new));
+        let base = current
+            .and_then(|params| params.patch.as_ref())
+            .filter(|_| old.ecotope.default_seed == new.ecotope.default_seed)
+            .map(|patch| patch.base.clone())
+            .unwrap_or_else(|| base(new));
         shown.start_build(world);
-        world.entity_mut(shown.entity).insert(params(new, ground));
+        world
+            .entity_mut(shown.entity)
+            .insert(params(new, ground, base));
     }
 
     fn view(_: &World, settings: &EcotopeSettings) -> OrbitCamera {
@@ -110,24 +119,37 @@ impl Subject for EcotopeSubject {
     }
 }
 
-/// The component that places and draws the Ecotope `settings` on `ground`.
-fn params(settings: &EcotopeSettings, ground: Arc<dyn Ground>) -> EcotopeParams {
+/// The component that places and draws the Ecotope `settings` on `ground`,
+/// with its ground layers over `base`.
+fn params(
+    settings: &EcotopeSettings,
+    ground: Arc<dyn Ground>,
+    base: Arc<GroundStack>,
+) -> EcotopeParams {
     EcotopeParams {
         ecotope: Arc::new(settings.ecotope.clone()),
         seed: settings.ecotope.default_seed,
         ground,
         area: ScatterArea::new(DVec2::ZERO, Vec2::splat(settings.size)),
         coverage: None,
+        patch: Some(GroundPatch {
+            base,
+            margin: GROUND_MARGIN,
+            cell: GROUND_CELL,
+        }),
     }
+}
+
+/// The ground the Ecotope's layers lie over: bare terrain's look, seeded
+/// with the Ecotope's own seed.
+fn base(settings: &EcotopeSettings) -> Arc<GroundStack> {
+    Arc::new(GroundStack::bare(settings.ecotope.default_seed, 1.0))
 }
 
 /// Adds the Ecotope subject, the ground drawn under it, and its reports.
 pub(crate) fn plugin(app: &mut App) {
     app.add_subject::<EcotopeSubject>()
-        .add_systems(
-            Update,
-            ((draw_ground, show_ground).chain(), render_while_placing),
-        )
+        .add_systems(Update, (show_ground, render_while_placing))
         .add_observer(report_ecotope);
 }
 
@@ -153,69 +175,16 @@ fn ground_half(size: f32) -> f64 {
     f64::from(size.max(1.0)) * 0.5 + GROUND_MARGIN
 }
 
-/// Marks the ground mesh drawn under an Ecotope, with the ground it shows.
-#[derive(Component)]
-struct EcotopeGroundMesh(Arc<dyn Ground>);
-
-/// Gives each shown Ecotope a mesh of its ground, and rebuilds it when the
-/// ground changes.
-fn draw_ground(
-    mut commands: Commands,
-    ecotopes: Query<(Entity, &EcotopeParams, Option<&Children>), Changed<EcotopeParams>>,
-    drawn: Query<&EcotopeGroundMesh>,
-    environment: Res<EnvironmentSettings>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    for (entity, params, children) in &ecotopes {
-        // Keep the mesh while the ground is the same.
-        let old = children
-            .into_iter()
-            .flatten()
-            .find(|child| drawn.contains(**child));
-        if let Some(old) = old {
-            if drawn
-                .get(*old)
-                .is_ok_and(|mesh| Arc::ptr_eq(&mesh.0, &params.ground))
-            {
-                continue;
-            }
-            commands.entity(*old).despawn();
-        }
-
-        // A mesh of the ground under the patch and a margin around it.
-        let half = ground_half(params.area.size.max_element());
-        let centre = params.area.centre;
-        let mesh = ground_mesh(
-            &*params.ground,
-            centre - DVec2::splat(half),
-            centre + DVec2::splat(half),
-            GROUND_CELL,
-        );
-        commands.spawn((
-            EcotopeGroundMesh(params.ground.clone()),
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: SOIL,
-                perceptual_roughness: 1.0,
-                ..default()
-            })),
-            ground_visibility(&environment),
-            ChildOf(entity),
-        ));
-    }
-}
-
-/// Shows or hides the Ecotope's ground with the environment's Ground switch.
+/// Shows or hides the Ecotope's ground with the environment's Ground
+/// switch, as it is drawn and whenever the switch changes.
 fn show_ground(
     environment: Res<EnvironmentSettings>,
-    mut grounds: Query<&mut Visibility, With<EcotopeGroundMesh>>,
+    mut grounds: Query<(&mut Visibility, Ref<EcotopeGroundPatch>)>,
 ) {
-    if !environment.is_changed() {
-        return;
-    }
-    for mut visibility in &mut grounds {
-        visibility.set_if_neq(ground_visibility(&environment));
+    for (mut visibility, patch) in &mut grounds {
+        if environment.is_changed() || patch.is_added() {
+            visibility.set_if_neq(ground_visibility(&environment));
+        }
     }
 }
 

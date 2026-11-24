@@ -69,14 +69,19 @@ impl EcotopeStatus {
     }
 
     /// The overlay text, and whether it reports a failure: for example
-    /// `412 copies in 5 Scatters · placed in 85 ms · 2 redrawn`.
+    /// `412 copies in 5 Scatters · placed in 85 ms · ground in 40 ms · 2
+    /// redrawn`.
     pub fn line(&self) -> (String, bool) {
         match self {
             Self::Placing => ("Placing the Ecotope…".into(), false),
             Self::Placed(summary) => {
                 let redrawn = summary.layers.iter().filter(|l| l.redrawn).count();
+                let ground = summary
+                    .ground_time
+                    .map(|t| format!(" · ground in {} ms", t.as_millis()))
+                    .unwrap_or_default();
                 let line = format!(
-                    "{} copies in {} Scatters · placed in {} ms · {redrawn} redrawn",
+                    "{} copies in {} Scatters · placed in {} ms{ground} · {redrawn} redrawn",
                     summary.copies(),
                     summary.layers.len(),
                     summary.place_time.as_millis(),
