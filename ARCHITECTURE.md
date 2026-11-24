@@ -240,8 +240,8 @@ time, and gives its mask over a chunk without drawing anything. See
 
 | Scatter | Today | Notes |
 |---------|-------|-------|
-| `TreeScatter` | Built as `TreeGrove` ([tree/docs/groves.md](tree/docs/groves.md), [tree/PLAN-tree-grove.md](tree/PLAN-tree-grove.md)) | `GrovePlacement::new` already takes a `Ground` and an optional density function: the mask hook exists. |
-| `PlantScatter` | Built as `PlantField` ([plant/docs/fields.md](plant/docs/fields.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
+| `TreeScatter` | Built ([tree/docs/scatters.md](tree/docs/scatters.md), [tree/PLAN-tree-grove.md](tree/PLAN-tree-grove.md)) | `TreeScatterPlacement::new` takes a `ScatterInput`: ground, area, seed and mask. |
+| `PlantScatter` | Built ([plant/docs/scatters.md](plant/docs/scatters.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
 | `MushroomScatter` | A ground Scatter of `Mushroom`s (`new`, C1), and still grows on tagged host meshes (`on`) | Growing on hosts moves to the later `MushroomGrowth` modifier. |
 | `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
 | `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of stones, single or in clusters, over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. |
@@ -1014,8 +1014,8 @@ Queries come in two layers:
   - **Find spots that match a test**: "flat, in forest, 20 m from a road,
     at least 10 m across".
 - **Bevy queries** cover what is loaded and drawn: within a radius, ray
-  casts against meshes, and promotion. `GroveTrees::within` and
-  `GroveTrees::ray_cast` are today's examples.
+  casts against meshes, and promotion. `TreeScatterTrees::within` and
+  `TreeScatterTrees::ray_cast` are today's examples.
 
 Every copy a query returns carries a **stable address** that names where
 it came from. The same address is what edits, picking and promotion use
@@ -1114,7 +1114,7 @@ Assets and their Scatters:
 | Meshes shared | Yes, pruned by use | n/a | Yes | Yes | Yes | No |
 | Seed | Yes | None | Yes | Yes | Yes | Yes |
 | Variant seeding | Hash with salt | n/a | `seed + v` | `sub_seed` | Golden-ratio mix | n/a |
-| Scatter type | `TreeGrove` | `PlantField` | `StonePool` (drawing only) | `StickScatter` | `MushroomScatter`; clusters via `ClusterOptions` | `Placement::Scatter` on a host |
+| Scatter type | `TreeScatter` (was `TreeGrove`) | `PlantScatter` (was `PlantField`) | `StonePool` (drawing only) | `StickScatter` | `MushroomScatter`; clusters via `ClusterOptions` | `Placement::Scatter` on a host |
 | Placement | Lattice, rank thinning, edit-stable | GPU blue-noise tiles | None | Jittered grid | Random points on host triangles | Random points on host |
 | Ground | `Ground` or host mesh | Own `PlantGround` | Flat, own settle | `Ground` or host mesh | Host `Object` only | Host `Object` |
 | Mask in | Density function | Density image or function | None | Density function | None | Facing and exposure |
@@ -1124,16 +1124,16 @@ Assets and their Scatters:
 | Promotion, queries | Yes: within, ray cast | Density sample only | No | No | No | No |
 | Wind | Yes | Yes, own system | No | No | No | No (doesn't follow tree wind) |
 | Texturing | UV bark | Procedural, no textures | Triplanar, size per level | UV bark + end photos | Triplanar | Triplanar |
-| Presets | Enum + JSON files | Structs, groups, RON files | Enum | Enum | Enum | Enum, no serde |
-| Files | `.tree.json`, `.grove.json` (base + diff) | `.plant.ron`, `.field.ron` (base + diff) | `.stone.json` | `.deadwood.json` | `.mushroom.json` | None |
-| Scatter options serde | Yes | Private mirror | n/a | No | No | n/a |
+| Presets (since F3) | Catalogue struct | Catalogue struct | Catalogue struct | Catalogue struct | Catalogue struct | Catalogue struct |
+| Files (since F3) | `.tree.yml`, `.tree_scatter.yml` | `.plant.yml`, `.plant_scatter.yml` | `.stone.yml` | `.deadwood.yml` | `.mushroom.yml` | `.clump.yml` |
+| Scatter options serde (since F3) | Yes | Yes, through its file layer | Yes | Yes | Yes | n/a |
 | OBJ / glTF export | Yes | No | Yes | Yes | Yes | No |
 | Errors | `validate`, `Finished` event | Clamps and warns | `validate`, `Finished` event | `validate`, `Finished` event | `validate`, `Finished` event | `validate`, `Finished` event |
 | Runtime edits | Promotion | Brush, mow, regrow | No | No | No | No |
 | Interaction | User colliders on promoted trees | Trampling, rapier and avian bridges | No | No | No | No |
 | Quality tiers | No | `LOW`..`ULTRA` | `LOW`..`ULTRA` | No | No | No |
 | Test style | Silhouette IoU per level | CPU oracle, GPU tests, goldens, bench | CPU/GPU parity, bench | Headless, shader compile | Headless, silhouette | CPU/GPU parity |
-| Studio | Tree, Tree Grove tabs | Plant, Field tabs | Stone tab | Single piece and scatter views | Single mushroom only | Covers on tree, stone, dead wood |
+| Studio | Tree, Tree Scatter tabs | Plant, Plant Scatter tabs | Stone tab | Single piece and scatter views | Single mushroom only | Covers on tree, stone, dead wood |
 
 Each crate also has things worth spreading:
 
@@ -1232,7 +1232,7 @@ Each rule says what every asset does, and which crates have to change.
      merge their two renderers into the shared one. Plant keeps building in
      its shader, but its copies follow the same id and query contract.
 7. **Promotion and queries everywhere.** Every Scatter supports
-   `within`, ray casts and promotion, generalising `GroveTrees` and
+   `within`, ray casts and promotion, generalising `TreeScatterTrees` and
    `PromotedTree`.
    - Change: all but tree. Plant needs its CPU path first.
 8. **`procgena_specimen` everywhere.** Every asset returns a tagged
@@ -1252,12 +1252,21 @@ Each rule says what every asset does, and which crates have to change.
     like an asset preset. Every file is YAML, named
     `.<kind>.yml` (`.tree.yml`, `.stone.yml`, `.mushroom.yml` and so on), so
     people can comment their presets. Files hold a `base` preset plus only
-    what differs (grove and plant files already do). Serde on every public
-    options type, Scatter options included. `default_seed` in every
-    preset.
-    - Change: every crate. Today tree, stone, deadwood, mushroom and clump
-      use preset enums, and tree, stone, deadwood and mushroom use JSON
-      files while plant uses RON.
+    what differs. Serde on every public options type, Scatter options
+    included. `default_seed` in every preset.
+    - The shared code is `procgena_core::preset`: the `Preset` trait, the
+      `catalogue!` macro that declares a crate's presets, and reading and
+      writing files. A file is the preset written out: optional `base`,
+      `name`, `description` and `group`, then the options under the kind's
+      key (`tree:`, `tree_scatter:`). Its settings merge into the base's:
+      groups key by key, lists and plain values replaced whole, and a group
+      whose `kind` changes replaced whole (`kind` is kept for that; a plain
+      setting named `kind` is written under another name). Unknown and
+      wrongly typed settings are errors that name their path.
+    - Done in F3 (2026-11-23) for tree, the tree Scatter, plant, the plant
+      Scatter, stone, deadwood, mushroom, clump and terrain. Biome presets
+      have the shape but no files yet: `Biome` has no serde until B1/W0.
+      Stone, stick and mushroom Scatters have serde but no presets yet.
 11. **Export everywhere.** Every asset and every Scatter exports OBJ and
     glTF from its CPU path.
     - Change: plant and clump; Scatters as a whole.
@@ -1337,8 +1346,11 @@ the move into the new crates rather than on its own.
   `procgena_core` and `procgena_core_bevy` (see "Where shared code lives").
 - ~~**Slot choice.**~~ Decided 2026-11-23 (D3): rendezvous hashing, with
   `N` ≤ 256 per pool and no excluded slots (see "Specimen budget").
-- **Scatter file kind.** What the `.<kind>.yml` files of `TreeScatter`
-  and the other Scatters are called, now that `.grove.json` goes away.
+- ~~**Scatter file kind.**~~ Decided 2026-11-23: a Scatter's files are
+  named `.<asset>_scatter.yml`, matching its type: `.tree_scatter.yml`,
+  `.plant_scatter.yml`, `.stick_scatter.yml`, `.mushroom_scatter.yml` and
+  so on. Built in F3 for the tree and plant Scatters, the two that have
+  presets.
 
 ## Naming
 
@@ -1384,23 +1396,19 @@ it starts.
 
 ### Renames and alignment
 
-- [ ] **Rename `TreeGrove` → `TreeScatter`** in `procgena_tree` and
-  `procgena_tree_bevy`: `GroveTree`, `GrovePreset`, `GrovePlacement`,
-  `GroveInstance`, `GroveError`, `TreeGroveParams`, `TreeGroveInstances`,
-  `TreeGroveAssets`, `TreeGroveStats`, `GroveTrees`, `PromotedTree`, the
-  `.grove.json` format, `tree/docs/groves.md`, the examples, and the
-  studio's Tree Grove tab. Wait until the grove work in progress is
-  committed.
-- [ ] **Rename deadwood's `Placement`** (F3): `procgena_deadwood::Placement`,
-  where a piece came to rest on flat ground, has the same name as
-  `procgena_core::scatter::Placement`, how a Scatter puts copies on uneven
-  ground. Deadwood imports core's as `GroundPlacement` to tell them apart.
-  Give deadwood's a name of its own (for example `RestingPose`), with
-  `Piece::placement`, `DeadwoodPlacement` in `procgena_deadwood_bevy` and
-  the studio's uses.
-- [ ] **Rename `PlantField` → `PlantScatter`** in `procgena_plant`:
-  `FieldPlant`, `FieldPreset`, the `.field.ron` loader, `procgena_plant_web`,
-  and the studio's field tab.
+- [x] **Rename `TreeGrove` → `TreeScatter`** in `procgena_tree` and
+  `procgena_tree_bevy`. Done in F3: `ScatterTree`, `TreeScatterPreset`,
+  `TreeScatterPlacement`, `TreeCopy`, `TreeScatterError`,
+  `TreeScatterVariation`, the Bevy `TreeScatter*` types and
+  `TreeScatterTrees`; `.tree_scatter.yml` files; `tree/docs/scatters.md`;
+  the examples and the studio's tab. `PromotedTree` keeps its name: it
+  names a tree. Private helpers and prose still say "grove" in places.
+- [x] **Rename deadwood's `Placement`**. Done in F3: `RestingPose`,
+  `Piece::pose` and `DeadwoodPose` in `procgena_deadwood_bevy`; deadwood
+  uses core's `Placement` under its own name.
+- [x] **Rename `PlantField` → `PlantScatter`** in `procgena_plant`. Done in
+  F3: `ScatterPlant`, `PlantScatterPreset`, `.plant_scatter.yml` files,
+  `procgena_plant_web` and the studio's tab.
 - [ ] **The same inputs for every Scatter.** Ground, mask, area and seed
   are passed the same way in every Scatter crate. Today trees take
   `&dyn Ground` and `Option<&dyn Fn>`, plants take a density image or a
@@ -1497,7 +1505,7 @@ it starts.
 - [ ] **Core queries**: at a point, near a point, along a ray, and spot
   search, at every level.
 - [ ] **Bevy queries and promotion** for every Scatter, generalising
-  `GroveTrees` and `PromotedTree`.
+  `TreeScatterTrees` and `PromotedTree`.
 
 ### Asset alignment
 
@@ -1558,12 +1566,10 @@ it starts.
 - [ ] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
   every Scatter offers each slot's `Specimen` plus its copy list (C2).
 - [ ] **One wind** for tree, plant and clumps on trees.
-- [ ] **One preset and file pattern**: preset structs and catalogues in
-  plant's style, replacing the enums (`TreePreset`, `GrovePreset`,
-  `StonePreset`, `DeadwoodPreset`, `MushroomPreset`, `ClumpPreset`); YAML
-  files (`.<kind>.yml`) with a
-  `base` preset plus differences, replacing JSON and RON; serde on Scatter
-  options. Pick the YAML crate first.
+- [x] **One preset and file pattern**: done in F3 (see rule 10). Left for
+  later: `.biome.yml` files once `Biome` has serde (B1/W0), and presets
+  and files for the stone, stick and mushroom Scatters, which have serde
+  but no presets yet.
 - [ ] **Export** for plant, clump and every Scatter.
 - [ ] **Shared plumbing**: one texture loader with `TextureSize` and
   `TextureCompression`, texture size per detail level, and shared test
@@ -1590,13 +1596,12 @@ it starts.
   coverage for beyond the last impostor.
 - [ ] **Seeds from outside**: one shared seed-hashing function (parent seed
   plus child id), and every preset's and options struct's `seed` renamed to
-  `default_seed`, used only when the item is built on its own. Today each
-  asset's options own their seed (for example `TreeGrove::seed`, and the
-  terrain's `TerrainOptions::seed`). Plant has no seed at all and gains one.
-  The core half is done (F2): `hash::{salt, derive_seed, seed_for}`,
-  `ChildKey` and `child_seed` in `procgena_core`. Still to do:
-  `region_seed`, the terrain switching to core's functions, and the
-  `default_seed` renames (F3).
+  `default_seed`, used only when the item is built on its own. The core
+  half is done (F2): `hash::{salt, derive_seed, seed_for}`, `ChildKey` and
+  `child_seed` in `procgena_core`. The `default_seed` renames are done
+  (F3), on every asset, Scatter and Terrain options type; plant gained a
+  `default_seed` that nothing reads yet (R3 wires it in). Still to do:
+  `region_seed`, and the terrain switching to core's functions.
 - [ ] **Studio**: a tab per new level (Ecotope, Biome, World), each built on
   the tabs of the level below. Terrain keeps a tab of its own.
 
