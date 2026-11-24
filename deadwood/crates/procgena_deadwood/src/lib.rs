@@ -53,6 +53,7 @@
 
 mod build;
 mod colour;
+mod content_hash;
 mod curve;
 mod decay;
 mod detail;
@@ -66,6 +67,7 @@ mod piece;
 mod presets;
 mod rng;
 mod scatter;
+mod seed_keys;
 mod settle;
 mod specimen;
 mod texture;
