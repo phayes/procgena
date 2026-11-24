@@ -6,6 +6,8 @@
 //! draws to one use never changes another. Keys are frozen: renaming one
 //! changes every piece built with it.
 
+/// The generator kind of every deadwood pool (see [`crate::DEADWOOD_KIND`]).
+pub(crate) const GENERATOR_KIND: &str = "deadwood.generator.kind";
 /// The main stem's curve, radii and end kinds.
 pub(crate) const STEM_SHAPE: &str = "deadwood.stem.shape";
 /// The main stem's surface noise and splinters.
@@ -44,6 +46,7 @@ pub(crate) const SCATTER_CELL: &str = "deadwood.scatter.cell";
 /// Every key above, for the uniqueness test.
 #[cfg(test)]
 pub(crate) const KEYS: &[&str] = &[
+    GENERATOR_KIND,
     STEM_SHAPE,
     STEM_SURFACE,
     END_BASE,

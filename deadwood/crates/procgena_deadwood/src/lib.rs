@@ -73,6 +73,7 @@ mod specimen;
 mod texture;
 
 pub use colour::{linear_from_hex, srgb_to_linear};
+pub use content_hash::DEADWOOD_KIND;
 pub use detail::{DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, LodLevel};
 pub use limb::SizeClass;
 pub use mesh::{BillboardVertex, DeadwoodMesh, MeshBuffers, PartRange, Ribbons, Zone};

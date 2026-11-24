@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
-use procgena_core::Rng;
 use procgena_core::hash::{derive_seed, seed_for};
+use procgena_core::{Rng, SpecimenId};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
 
 use crate::detail::DeadwoodLod;
@@ -225,11 +225,15 @@ impl StickScatter {
         }
 
         // Build the variants, each resting on flat ground in its own space.
-        let mut rng = stream(options.seed, SCATTER_VARIANT);
+        // Variant `v` is the specimen in slot `v` of the variant pool, so
+        // its seed, and the size and decay drawn from it, depend only on the
+        // scatter's seed, the pool and the slot.
+        let pool = options.variant_pool();
         let mut variants = Vec::with_capacity(options.variants as usize);
         for v in 0..options.variants {
             let mut o = options.piece.clone();
-            o.seed = derive_seed(options.seed, v);
+            o.seed = SpecimenId::new(options.seed, pool, v).seed();
+            let mut rng = stream(o.seed, SCATTER_VARIANT);
             o.decay = rng.range(options.decay[0], options.decay[1]);
             let (lo, hi) = (options.diameter[0].ln(), options.diameter[1].ln());
             o.diameter = rng.range(lo, hi).exp();

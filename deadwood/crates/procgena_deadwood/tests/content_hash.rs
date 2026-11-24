@@ -2,7 +2,10 @@
 //! shapes the piece, and unchanged by the seed and the mesh detail.
 
 use procgena_core::{OptionsHash, content_hash};
-use procgena_deadwood::{DeadwoodDetail, DeadwoodOptions, DeadwoodPreset, EndKind, PieceKind};
+use procgena_deadwood::{
+    DEADWOOD_KIND, DeadwoodDetail, DeadwoodOptions, DeadwoodPreset, EndKind, PieceKind,
+    ScatterOptions,
+};
 
 /// Hashes of the default options and of every preset, in
 /// [`DeadwoodPreset::ALL`] order. They must never change by accident:
@@ -36,6 +39,51 @@ fn hashes_match_reference_values() {
             .map(|p| (p.name(), content_hash(&p.options()))),
     );
     assert_eq!(actual, GOLDEN);
+}
+
+#[test]
+fn variant_pools_match_reference_values() {
+    let actual = [
+        ScatterOptions::kindling().variant_pool(),
+        ScatterOptions::twig_litter().variant_pool(),
+    ];
+    for pool in actual {
+        assert_eq!(pool.kind, DEADWOOD_KIND);
+    }
+    assert_eq!(
+        actual.map(|p| p.options),
+        [
+            OptionsHash(0xd7fac998cde86ecc),
+            OptionsHash(0xe43c5e410401e425)
+        ]
+    );
+}
+
+#[test]
+fn the_variant_pool_leaves_out_what_only_places_copies() {
+    let o = ScatterOptions::kindling();
+    let placed = ScatterOptions {
+        seed: o.seed + 1,
+        size: [o.size[0] * 2.0, o.size[1]],
+        density: o.density * 2.0,
+        min_spacing: o.min_spacing + 0.1,
+        variants: o.variants + 1,
+        ..o.clone()
+    };
+    assert_eq!(o.variant_pool(), placed.variant_pool());
+    let mut grown = o.clone();
+    grown.diameter[1] *= 1.5;
+    assert_ne!(o.variant_pool(), grown.variant_pool());
+    let mut piece = o.clone();
+    piece.piece.taper *= 0.9;
+    assert_ne!(o.variant_pool(), piece.variant_pool());
+}
+
+#[test]
+fn a_piece_pool_is_its_options_hash() {
+    let o = DeadwoodOptions::default();
+    assert_eq!(o.pool_id().kind, DEADWOOD_KIND);
+    assert_eq!(o.pool_id().options, OptionsHash::of(&o));
 }
 
 #[test]

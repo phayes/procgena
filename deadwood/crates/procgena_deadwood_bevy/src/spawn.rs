@@ -14,6 +14,7 @@ use bevy::math::DVec2;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
+use procgena_core::{ContentHash, ContentHasher, PoolId};
 use procgena_deadwood::{
     DeadwoodError, DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, FlatGround, Ground,
     HeightGrid, LodLevel, OptionsError, Piece, Placement, ScatterError, ScatterOptions,
@@ -340,11 +341,22 @@ struct Built {
     single: Option<(Specimen, Placement)>,
 }
 
+/// Names one built piece at one set of detail levels. Variants with the
+/// same key share uploaded meshes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct VariantKey {
+    /// The pool of the piece's options.
+    pool: PoolId,
+    /// The seed the piece was shaped from.
+    seed: u32,
+    /// The hash of the piece's scaled detail levels (see [`lod_hash`]).
+    lod: u64,
+}
+
 /// One variant's meshes, one per detail level.
 struct BuiltVariant {
-    /// The options and detail levels as JSON. Variants with the same key
-    /// share uploaded meshes.
-    key: String,
+    /// Which piece and detail levels these meshes are.
+    key: VariantKey,
     /// The variant's options.
     options: DeadwoodOptions,
     /// Detail levels scaled for the variant's size.
@@ -387,10 +399,10 @@ struct LevelAssets {
 #[derive(Resource, Default)]
 pub(crate) struct DeadwoodCache {
     /// Variants by [`BuiltVariant::key`].
-    variants: HashMap<String, Arc<VariantAssets>>,
-    /// Materials by the options that affect them (as JSON) and whether they
-    /// are for strips.
-    materials: HashMap<(String, bool), Handle<DeadwoodMaterial>>,
+    variants: HashMap<VariantKey, Arc<VariantAssets>>,
+    /// Materials by the hash of the options that affect them (see
+    /// [`material_hash`]) and whether they are for strips.
+    materials: HashMap<(u64, bool), Handle<DeadwoodMaterial>>,
     /// Bark texture images by set name, kept for reuse.
     bark_textures: HashMap<String, BarkTextures>,
     /// End-grain texture images by set name, kept for reuse.
@@ -705,11 +717,11 @@ fn build_variant(
             leaves: mesh.leaves.as_ref().map(deadwood_mesh),
         })
         .collect();
-    let key = format!(
-        "{}{}",
-        options.to_json(),
-        serde_json::to_string(&lod).unwrap_or_default()
-    );
+    let key = VariantKey {
+        pool: options.pool_id(),
+        seed: options.seed,
+        lod: lod_hash(&lod),
+    };
     Ok((
         BuiltVariant {
             key,
@@ -894,12 +906,11 @@ fn upload(
 
     // Everything `deadwood_material` reads from the options.
     let o = &variant.options;
-    let material_json =
-        serde_json::to_string(&(&o.material, o.decay, o.diameter, o.seed)).unwrap_or_default();
+    let material_key = material_hash(o);
     let mut material = |ribbon: bool| {
         cache
             .materials
-            .entry((material_json.clone(), ribbon))
+            .entry((material_key, ribbon))
             .or_insert_with(|| {
                 materials.add(deadwood_material(o, bark.as_ref(), end.as_ref(), ribbon))
             })
@@ -938,6 +949,40 @@ fn upload(
     });
     cache.variants.insert(variant.key, assets.clone());
     assets
+}
+
+/// Returns a hash of every setting of `lod`: each level's distance,
+/// hysteresis and detail, then the cull distance.
+fn lod_hash(lod: &DeadwoodLod) -> u64 {
+    let DeadwoodLod {
+        levels,
+        cull_distance,
+    } = lod;
+    let mut h = ContentHasher::new();
+    h.write_usize(levels.len());
+    for LodLevel {
+        distance,
+        hysteresis,
+        detail,
+    } in levels
+    {
+        h.write_f32(*distance);
+        h.write_f32(*hysteresis);
+        detail.content_hash(&mut h);
+    }
+    h.write_f32(*cull_distance);
+    h.finish()
+}
+
+/// Returns a hash of everything [`deadwood_material`] reads from `o`: the
+/// material settings, decay, diameter and seed.
+fn material_hash(o: &DeadwoodOptions) -> u64 {
+    let mut h = ContentHasher::new();
+    o.material.content_hash(&mut h);
+    h.write_f32(o.decay);
+    h.write_f32(o.diameter);
+    h.write_u32(o.seed);
+    h.finish()
 }
 
 /// Returns the distance band to show each level of `lod` in. Neighbouring

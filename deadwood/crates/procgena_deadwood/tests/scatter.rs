@@ -132,3 +132,33 @@ fn baked_specimen_is_valid() {
         / part.mesh.positions.len() as f32;
     assert!(centre.y > -0.1);
 }
+
+#[test]
+fn more_variants_keep_the_existing_ones() {
+    // Variant `v` is slot `v` of the variant pool, and the number of
+    // variants is not part of the pool, so raising it only adds variants.
+    let few = ScatterOptions {
+        variants: 3,
+        ..small()
+    };
+    let more = ScatterOptions {
+        variants: 5,
+        ..small()
+    };
+    let a = StickScatter::new(&few, &FlatGround, None).unwrap();
+    let b = StickScatter::new(&more, &FlatGround, None).unwrap();
+    assert_eq!(a.variants(), &b.variants()[..3]);
+}
+
+#[test]
+fn each_scatter_seed_grows_its_own_variants() {
+    let a = StickScatter::new(&small(), &FlatGround, None).unwrap();
+    let other = ScatterOptions {
+        seed: small().seed + 1,
+        ..small()
+    };
+    let b = StickScatter::new(&other, &FlatGround, None).unwrap();
+    for (va, vb) in a.variants().iter().zip(b.variants()) {
+        assert_ne!(va, vb);
+    }
+}

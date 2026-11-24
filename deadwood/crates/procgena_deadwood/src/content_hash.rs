@@ -4,13 +4,58 @@
 //! `Self` in full, so adding a field fails to compile until the field is
 //! hashed or deliberately left out.
 
-use procgena_core::{ContentHash, ContentHasher};
+use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, PoolId};
 
 use crate::detail::DeadwoodDetail;
 use crate::options::{
     BarkOptions, BranchingOptions, DeadwoodOptions, EndKind, EndsOptions, HollowOptions,
     LeafOptions, MaterialOptions, PieceKind, RootOptions, SettleOptions, ShapeOptions, StubOptions,
 };
+use crate::scatter::ScatterOptions;
+use crate::seed_keys::GENERATOR_KIND;
+
+/// The generator kind of every pool of dead wood, standalone pieces and
+/// scatter variants alike. It keeps deadwood pools apart from other
+/// generators' pools.
+pub const DEADWOOD_KIND: GeneratorKind = GeneratorKind::from_key(GENERATOR_KIND);
+
+impl DeadwoodOptions {
+    /// The pool of pieces built from these options: every seed gives one
+    /// specimen of it. With the seed, it names one built piece, so caches of
+    /// pieces can be keyed by `(pool_id(), seed)` and the detail drawn.
+    pub fn pool_id(&self) -> PoolId {
+        PoolId::new(DEADWOOD_KIND, OptionsHash::of(self))
+    }
+}
+
+impl ScatterOptions {
+    /// The pool a [`crate::StickScatter`]'s variants come from: the hash of
+    /// [`piece`](Self::piece) and the decay, diameter and length ranges.
+    /// Variant `v` is the specimen in slot `v` of this pool.
+    ///
+    /// The seed, area, density, spacing and number of variants are left
+    /// out: they choose which specimens are drawn and where, not what the
+    /// specimens are. So adding variants keeps the existing ones.
+    pub fn variant_pool(&self) -> PoolId {
+        let Self {
+            seed: _,
+            size: _,
+            density: _,
+            min_spacing: _,
+            variants: _,
+            decay,
+            diameter,
+            length,
+            piece,
+        } = self;
+        let mut h = ContentHasher::new();
+        piece.content_hash(&mut h);
+        decay.content_hash(&mut h);
+        diameter.content_hash(&mut h);
+        length.content_hash(&mut h);
+        PoolId::new(DEADWOOD_KIND, OptionsHash(h.finish()))
+    }
+}
 
 /// Writes every setting that shapes or colours the piece. Leaves out
 /// [`DeadwoodOptions::seed`], which picks a specimen within the pool these
