@@ -180,10 +180,10 @@ fn pinned_regions_keep_their_biome() {
     let options = |seed, rules| WorldOptions {
         seed,
         biomes: rules,
-        pins: vec![BiomePin {
-            region: RegionKey(IVec2::new(1, -1)).id().0,
-            biome: "mountains".to_owned(),
-        }],
+        pins: vec![BiomePin::region(
+            RegionKey(IVec2::new(1, -1)).id(),
+            "mountains",
+        )],
         ..WorldOptions::default()
     };
     let pinned = RegionKey(IVec2::new(1, -1)).id();
@@ -216,6 +216,32 @@ fn pinned_regions_keep_their_biome() {
 }
 
 #[test]
+fn a_pin_at_a_point_stays_at_its_place() {
+    // Whatever the region size and seed, the region holding the point is
+    // the pinned one, and only that region.
+    let p = DVec2::new(5100.0, -3300.0);
+    for (size, seed) in [(4000.0, 0), (6000.0, 0), (4000.0, 8)] {
+        let world = World::new(WorldOptions {
+            seed,
+            regions: procgena_terrain::RegionGraphOptions {
+                size,
+                ..WorldOptions::default().regions
+            },
+            biomes: all_plains(),
+            pins: vec![BiomePin::at(p, "mountains")],
+            ..WorldOptions::default()
+        })
+        .expect("valid World");
+        let pinned = world.region_at(p);
+        let biome = world.biome(pinned);
+        assert_eq!(biome.preset.key, "mountains", "size {size}, seed {seed}");
+        assert!(biome.pinned);
+        let other = neighbour(&world, pinned);
+        assert_eq!(world.biome(other).preset.key, "plains");
+    }
+}
+
+#[test]
 fn seeds_are_stable() {
     // Reference values from `procgena_core::region_seed`'s own test, which
     // were worked out outside the crate.
@@ -239,10 +265,7 @@ fn seeds_are_stable() {
             vertical: 1.5,
         },
         biomes: all_plains(),
-        pins: vec![BiomePin {
-            region: region.0,
-            biome: "mountains".to_owned(),
-        }],
+        pins: vec![BiomePin::region(region, "mountains")],
         ..WorldOptions::default()
     })
     .expect("valid World");
@@ -299,10 +322,7 @@ fn one_terrain_preset_gives_each_region_its_own_land() {
             WorldOptions {
                 seed: 5,
                 biomes: all_plains(),
-                pins: vec![BiomePin {
-                    region: region.0,
-                    biome: pin.to_owned(),
-                }],
+                pins: vec![BiomePin::region(region, pin)],
                 ..WorldOptions::default()
             },
             biomes.clone(),
@@ -345,21 +365,24 @@ fn one_terrain_preset_gives_each_region_its_own_land() {
 
 #[test]
 fn scale_stretches_e_and_the_fields() {
-    // A tilt and a bump besides the layers, with a slope limit steep
-    // enough for every scale below.
+    // A tilt besides the layers, with a slope limit steep enough for every
+    // scale below.
     let elevation = ElevationOptions {
         max_slope: 0.3,
         tilt: DVec2::new(0.004, -0.002),
-        bumps: vec![procgena_terrain::HeightBump {
-            centre: DVec2::new(3000.0, -2000.0),
-            radius: 5000.0,
-            height: 60.0,
-        }],
         ..ElevationOptions::default()
     };
-    let at = |horizontal, vertical| {
+    let bump = procgena_terrain::HeightBump {
+        centre: DVec2::new(3000.0, -2000.0),
+        radius: 5000.0,
+        height: 60.0,
+    };
+    let with_bumps = |horizontal, vertical, bumps: Vec<procgena_terrain::HeightBump>| {
         World::new(WorldOptions {
-            elevation: elevation.clone(),
+            elevation: ElevationOptions {
+                bumps,
+                ..elevation.clone()
+            },
             scale: WorldScale {
                 horizontal,
                 vertical,
@@ -368,6 +391,7 @@ fn scale_stretches_e_and_the_fields() {
         })
         .expect("valid World")
     };
+    let at = |horizontal, vertical| with_bumps(horizontal, vertical, Vec::new());
     let one = at(1.0, 1.0);
     let scaled = at(2.0, 3.0);
     for i in 0..50 {
@@ -385,6 +409,14 @@ fn scale_stretches_e_and_the_fields() {
             b.elevation
         );
     }
+
+    // A bump is placed by hand in real metres: at any scale it adds its
+    // full height at its centre, and nothing beyond its radius.
+    let bumped = with_bumps(2.0, 3.0, vec![bump]);
+    let rise = |p: DVec2| bumped.fields(p).elevation - scaled.fields(p).elevation;
+    assert!((rise(bump.centre) - bump.height).abs() < 1e-3);
+    let outside = bump.centre + DVec2::new(bump.radius + 1.0, 0.0);
+    assert_eq!(rise(outside), 0.0);
 
     // The rules' elevation bounds follow the vertical scale, so a World
     // made only taller picks the same Biomes.
@@ -416,10 +448,25 @@ fn world_files_round_trip() {
     let mut preset = WorldPreset::large().clone();
     preset.key = Cow::Borrowed("mine");
     preset.world.seed = 77;
-    preset.world.pins.push(BiomePin {
-        region: region.0,
-        biome: "mountains".to_owned(),
-    });
+    preset
+        .world
+        .pins
+        .push(BiomePin::region(region, "mountains"));
+    preset
+        .world
+        .pins
+        .push(BiomePin::at(DVec2::new(-1234.5, 678.0), "rolling_hills"));
+    // A bump and a tilt, which are written as `[x, z]`.
+    preset.world.elevation.tilt = DVec2::new(0.001, -0.002);
+    preset
+        .world
+        .elevation
+        .bumps
+        .push(procgena_terrain::HeightBump {
+            centre: DVec2::new(-500.0, 2500.0),
+            radius: 4000.0,
+            height: 40.0,
+        });
     preset.world.biomes.rules[0].moisture = FieldRange {
         min: Some(-0.5),
         max: Some(0.75),
@@ -469,17 +516,41 @@ fn bad_settings_are_refused() {
         }),
         WorldError::UnknownBiome("Plains".to_owned())
     );
-    let pin = BiomePin {
-        region: 4,
-        biome: "plains".to_owned(),
-    };
+    // Two pins on one region, one by id and one by a point inside it.
+    let region = RegionKey(IVec2::ZERO).id();
+    let site = World::new(WorldOptions::default())
+        .expect("valid World")
+        .terrain()
+        .site(region);
     assert_eq!(
         refused(WorldOptions {
-            pins: vec![pin.clone(), pin],
+            pins: vec![
+                BiomePin::region(region, "plains"),
+                BiomePin::at(site, "mountains"),
+            ],
             ..WorldOptions::default()
         }),
-        WorldError::Options(WorldOptionsError::DuplicatePin(4))
+        WorldError::DuplicatePin(region)
     );
+    // A pin must give a point or an id, not both or neither.
+    let both = BiomePin {
+        region: Some(4),
+        ..BiomePin::at(DVec2::ZERO, "plains")
+    };
+    let neither = BiomePin {
+        at: None,
+        region: None,
+        biome: "plains".to_owned(),
+    };
+    for pin in [both, neither] {
+        assert_eq!(
+            refused(WorldOptions {
+                pins: vec![BiomePin::region(region, "plains"), pin],
+                ..WorldOptions::default()
+            }),
+            WorldError::Options(WorldOptionsError::Pin(1))
+        );
+    }
     let mut rules = BiomeRules::default();
     rules.rules[1].elevation = FieldRange {
         min: Some(10.0),

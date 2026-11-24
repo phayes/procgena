@@ -568,7 +568,8 @@ From D5 (decided by the user 2026-11-24; see
   ids for designer polygons (lattice worlds only so far).** New crate
   `procgena_world` (`world/crates/procgena_world`): `WorldOptions` (seed,
   scale pair, region graph, E, convergence, ruggedness and moisture
-  fields, ordered Biome rules with a fallback, pins by region id) in F3's
+  fields, ordered Biome rules with a fallback, pins by a point or a
+  region id) in F3's
   preset pattern, with one `WorldPreset` per D5 scale class
   (`.world.yml`); `World` picks each region's Biome (pin, else the first
   matching rule at the region's site, else the fallback; neighbours may
@@ -577,7 +578,8 @@ From D5 (decided by the user 2026-11-24; see
   and Terrain seed (`"terrain.region.local"`,
   `procgena_terrain::region_local_seed`), and hands `WorldTerrain` a source
   reading the Biome. `terrain_seed` is gone; `Biome::terrain_options` sets
-  the World seed. The scale pair stretches E (layers, tilt, bumps) and the
+  the World seed. The scale pair stretches E's layers and tilt (hand-placed bumps and pins
+  stay in real metres, decided by the user 2026-11-24) and the
   selector fields, and the rules' elevation bounds follow `vertical`;
   Terrain presets, region size and border warp are not scaled (G7). Image
   example `--example large_world`; see world_plan.md, "W0 as built", for

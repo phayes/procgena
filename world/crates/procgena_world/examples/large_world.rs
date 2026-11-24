@@ -167,13 +167,7 @@ fn main() -> std::io::Result<()> {
         .world
         .clone();
     options.seed = args.seed;
-    let middle = World::new(options.clone())
-        .expect("valid World")
-        .region_at(DVec2::ZERO);
-    options.pins.push(BiomePin {
-        region: middle.0,
-        biome: "mountains".to_owned(),
-    });
+    options.pins.push(BiomePin::at(DVec2::ZERO, "mountains"));
     let world = World::new(options).expect("valid World");
     let scale = world.options().scale;
     println!(
