@@ -7,24 +7,97 @@
 //! ```
 //!
 //! `--orbit <degrees>` turns the camera round the pair, and `--height <m>`
-//! raises it. `--headless` renders without a window and needs `--screenshot`,
-//! which saves one picture once the impostor is ready and exits.
+//! raises it (a negative height looks from below). `--coverage <degrees>`
+//! bakes views only down to that viewer elevation; the default covers every
+//! direction. `--hang` hangs the object upside down, moved a little
+//! sideways, and draws its impostor that way through a material of the
+//! example's own, which composes its transform and offset in its vertex
+//! shader as the crate's "Drawing impostors with your own transform"
+//! describes. `--headless` renders without a window and needs
+//! `--screenshot`, which saves one picture once the impostor is ready and
+//! exits.
 
 use std::time::Duration;
 
 use bevy::app::ScheduleRunnerPlugin;
+use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::camera::RenderTarget;
+use bevy::camera::visibility::NoAutoAabb;
+use bevy::material::OpaqueRendererMethod;
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
+use bevy::render::render_resource::{AsBindGroup, ShaderType, TextureFormat};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::shader::{Shader, ShaderRef};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core::{GeneratorKind, OptionsHash, PoolId, SpecimenId};
 use procgena_impostor::{
-    BakeOutput, BakePart, BakeSettings, BakedImpostor, ImpostorKey, ImpostorMaterial,
-    ImpostorPlugin, ImpostorQuad, ImpostorReady, ImpostorRequest, ImpostorSettings, ImpostorWrites,
+    BakeOutput, BakePart, BakeSettings, BakedImpostor, IMPOSTOR_PREPASS_SHADER, IMPOSTOR_SHADER,
+    Impostor, ImpostorKey, ImpostorMaterial, ImpostorPlugin, ImpostorQuad, ImpostorReady,
+    ImpostorRequest, ImpostorSettings, ImpostorUniform, ImpostorWrites, ViewCoverage,
     bake_standard,
 };
+
+/// The `--hang` material's vertex shader.
+const HUNG_SHADER: Handle<Shader> = uuid_handle!("6f1d2c0e-8a4b-4e57-9c3d-2b7a1e5f9d40");
+/// The `--hang` material's prepass vertex shader.
+const HUNG_PREPASS_SHADER: Handle<Shader> = uuid_handle!("0c9e4a71-3d2f-4b8e-a615-7f2d9b3c8e12");
+
+/// An impostor drawn with a transform of its own on top of its entity's,
+/// plus a world offset: a stand-in for an attached object, such as fruit,
+/// placed by its host.
+type HungImpostorMaterial = ExtendedMaterial<StandardMaterial, HungImpostor>;
+
+/// The impostor's own bindings, at the numbers the impostor shaders read,
+/// then where it hangs.
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+struct HungImpostor {
+    #[uniform(100)]
+    params: ImpostorUniform,
+    #[texture(101)]
+    #[sampler(102)]
+    albedo: Handle<Image>,
+    #[texture(103)]
+    normal: Handle<Image>,
+    #[uniform(104)]
+    hang: Hang,
+}
+
+/// Where a hung impostor hangs within its entity, and how far it is moved.
+#[derive(ShaderType, Reflect, Debug, Clone)]
+struct Hang {
+    entity_from_object: Mat4,
+    object_from_entity: Mat4,
+    world_offset: Vec4,
+}
+
+impl MaterialExtension for HungImpostor {
+    fn vertex_shader() -> ShaderRef {
+        HUNG_SHADER.into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        IMPOSTOR_SHADER.into()
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        HUNG_PREPASS_SHADER.into()
+    }
+
+    fn prepass_fragment_shader() -> ShaderRef {
+        IMPOSTOR_PREPASS_SHADER.into()
+    }
+}
+
+/// Where `--hang` hangs the object within its entity: upside down from 4 m
+/// up.
+fn hung_transform() -> Transform {
+    Transform::from_xyz(0.0, 4.0, 0.0).with_rotation(Quat::from_rotation_z(std::f32::consts::PI))
+}
+
+/// How far `--hang` moves the object sideways, in world units.
+const HANG_OFFSET: Vec3 = Vec3::new(0.0, 0.0, 0.6);
 
 /// Frames to wait after the impostor is ready before the picture.
 const SETTLE_FRAMES: u32 = 20;
@@ -36,6 +109,8 @@ struct Options {
     orbit: f32,
     height: f32,
     cache: Option<std::path::PathBuf>,
+    coverage: ViewCoverage,
+    hang: bool,
 }
 
 /// The image the camera draws into when headless.
@@ -53,6 +128,8 @@ fn main() -> AppExit {
         orbit: 30.0,
         height: 3.0,
         cache: None,
+        coverage: ViewCoverage::SPHERE,
+        hang: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -63,6 +140,11 @@ fn main() -> AppExit {
             "--orbit" => options.orbit = value().parse().expect("--orbit needs degrees"),
             "--height" => options.height = value().parse().expect("--height needs metres"),
             "--cache" => options.cache = Some(value().into()),
+            "--coverage" => {
+                let degrees = value().parse().expect("--coverage needs degrees");
+                options.coverage = ViewCoverage::from_lowest_elevation(degrees);
+            }
+            "--hang" => options.hang = true,
             other => panic!("unknown argument {other}"),
         }
     }
@@ -91,13 +173,21 @@ fn main() -> AppExit {
             cache_dir: options.cache.clone(),
             ..default()
         },
-    })
-    .insert_resource(options)
-    .init_resource::<Shown>()
-    .add_systems(Startup, setup)
-    .add_observer(show_impostor)
-    .add_systems(Update, screenshot)
-    .run()
+    });
+    load_internal_asset!(app, HUNG_SHADER, "hung_impostor.wesl", Shader::from_wesl);
+    load_internal_asset!(
+        app,
+        HUNG_PREPASS_SHADER,
+        "hung_impostor_prepass.wesl",
+        Shader::from_wesl
+    );
+    app.add_plugins(MaterialPlugin::<HungImpostorMaterial>::default())
+        .insert_resource(options)
+        .init_resource::<Shown>()
+        .add_systems(Startup, setup)
+        .add_observer(show_impostor)
+        .add_systems(Update, screenshot)
+        .run()
 }
 
 fn setup(
@@ -136,10 +226,14 @@ fn setup(
         ),
     ];
 
-    // The object itself, on the left.
-    let object = commands
-        .spawn((Transform::from_xyz(-1.5, 0.0, 0.0), Visibility::default()))
-        .id();
+    // The object itself, on the left; with `--hang`, hung as its impostor
+    // will be.
+    let mut placement = Transform::from_xyz(-1.5, 0.0, 0.0);
+    if options.hang {
+        placement = placement * hung_transform();
+        placement.translation += HANG_OFFSET;
+    }
+    let object = commands.spawn((placement, Visibility::default())).id();
     for (mesh, material) in &parts {
         commands.spawn((
             Mesh3d(mesh.clone()),
@@ -167,7 +261,11 @@ fn setup(
     );
     let specimen = SpecimenId::new(0, pool, 0);
     commands.spawn(ImpostorRequest {
-        key: ImpostorKey::specimen(specimen, BakeSettings::default(), &[]),
+        key: ImpostorKey::specimen(
+            specimen,
+            BakeSettings::default().with_coverage(options.coverage),
+            &[],
+        ),
         parts: bake_parts,
         wait_for: Vec::new(),
     });
@@ -203,25 +301,73 @@ fn setup(
     }
 }
 
-/// Draws the impostor on the right once it is baked.
+/// Draws the impostor on the right once it is baked: with the crate's own
+/// material, or hung with the example's.
+#[expect(clippy::too_many_arguments, reason = "one Bevy observer")]
 fn show_impostor(
     event: On<ImpostorReady>,
     mut commands: Commands,
+    options: Res<Options>,
     baked: Query<&BakedImpostor>,
     quad: Res<ImpostorQuad>,
     mut materials: ResMut<Assets<ImpostorMaterial>>,
+    mut hung_materials: ResMut<Assets<HungImpostorMaterial>>,
     mut shown: ResMut<Shown>,
 ) {
     let Ok(BakedImpostor(impostor)) = baked.get(event.entity) else {
         return;
     };
     info!("impostor {} ready", event.key);
-    let material = materials.add(impostor.material());
-    commands.spawn((
-        impostor.bundle(&quad, material),
-        Transform::from_xyz(1.5, 0.0, 0.0),
-    ));
+    let placement = Transform::from_xyz(1.5, 0.0, 0.0);
+    if options.hang {
+        let material = hung_materials.add(hung_material(impostor));
+        // The quad is placed by the shader, so bounds that reach the hung
+        // object keep it from being culled.
+        let bounds =
+            bevy::camera::primitives::Aabb::from_min_max(Vec3::splat(-5.0), Vec3::splat(5.0));
+        commands.spawn((
+            Mesh3d(quad.0.clone()),
+            MeshMaterial3d(material),
+            bounds,
+            NoAutoAabb,
+            placement,
+        ));
+    } else {
+        let material = materials.add(impostor.material());
+        commands.spawn((impostor.bundle(&quad, material), placement));
+    }
     shown.0 = Some(0);
+}
+
+/// A material drawing `impostor` hung as [`hung_transform`] and
+/// [`HANG_OFFSET`] place it.
+fn hung_material(impostor: &Impostor) -> HungImpostorMaterial {
+    let hung = hung_transform().to_matrix();
+    ExtendedMaterial {
+        base: StandardMaterial {
+            alpha_mode: AlphaMode::Mask(0.5),
+            perceptual_roughness: 0.9,
+            double_sided: true,
+            cull_mode: None,
+            opaque_render_method: OpaqueRendererMethod::Forward,
+            ..default()
+        },
+        extension: HungImpostor {
+            params: ImpostorUniform {
+                center: impostor.center,
+                radius: impostor.radius,
+                frames: impostor.frames,
+                lowest_elevation: impostor.coverage.lowest_elevation_deg(),
+            },
+            albedo: impostor.albedo.clone(),
+            normal: impostor.normal.clone(),
+            hang: Hang {
+                entity_from_object: hung,
+                object_from_entity: hung.inverse(),
+                world_offset: HANG_OFFSET.extend(0.0),
+            },
+        },
+    }
 }
 
 /// With `--screenshot`, saves one picture a little after the impostor
