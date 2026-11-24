@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn stem_options_accept_only_stem_sets() {
-        let mut options = crate::MushroomPreset::Porcini.options();
+        let mut options = crate::MushroomPreset::porcini().mushroom.clone();
         options.material.stem_texture = Some("brown_net".into());
         assert!(options.validate().is_ok());
         options.material.stem_texture = Some("mushroom_top_001".into());
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn options_accept_only_listed_sets() {
-        let mut options = crate::MushroomPreset::FlyAgaric.options();
+        let mut options = crate::MushroomPreset::fly_agaric().mushroom.clone();
         assert!(options.validate().is_ok());
         options.material.cap_texture = Some("no_such_set".into());
         assert!(matches!(

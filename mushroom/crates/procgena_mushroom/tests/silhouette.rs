@@ -108,8 +108,8 @@ fn overlap(a: &[bool], b: &[bool]) -> f32 {
 #[test]
 fn coarse_levels_keep_the_outline() {
     let mut failures = Vec::new();
-    for preset in MushroomPreset::ALL {
-        let mushroom = procgena_mushroom::Mushroom::from_preset(preset);
+    for preset in MushroomPreset::all() {
+        let mushroom = procgena_mushroom::Mushroom::from_preset(preset).unwrap();
         let full = mushroom.mesh_with_detail(&MushroomDetail::FULL).unwrap();
         for view in &VIEWS {
             // Frame the full mesh with a small margin.
@@ -128,8 +128,7 @@ fn coarse_levels_keep_the_outline() {
                 if score < required {
                     failures.push(format!(
                         "{} {name} from the {}: {score:.3} < {required}",
-                        preset.name(),
-                        view.name
+                        preset.name, view.name
                     ));
                 }
             }
@@ -151,8 +150,8 @@ fn the_billboard_level_keeps_the_outline_from_the_side() {
     const REQUIRED: f32 = 0.4;
     let side = &VIEWS[0];
     let mut failures = Vec::new();
-    for preset in MushroomPreset::ALL {
-        let mushroom = procgena_mushroom::Mushroom::from_preset(preset);
+    for preset in MushroomPreset::all() {
+        let mushroom = procgena_mushroom::Mushroom::from_preset(preset).unwrap();
         let full = mushroom.mesh_with_detail(&MushroomDetail::FULL).unwrap();
         let full_tris = triangles(&full, side);
         let (min, max) = full_tris
@@ -169,7 +168,7 @@ fn the_billboard_level_keeps_the_outline_from_the_side() {
             .unwrap();
         let score = overlap(&reference, &mask(&triangles(&billboard, side), min, max));
         if score < REQUIRED {
-            failures.push(format!("{}: {score:.3} < {REQUIRED}", preset.name()));
+            failures.push(format!("{}: {score:.3} < {REQUIRED}", preset.name));
         }
     }
     assert!(

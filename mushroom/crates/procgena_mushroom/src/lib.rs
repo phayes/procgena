@@ -19,13 +19,33 @@
 //! use procgena_core::Quality;
 //! use procgena_mushroom::{Mushroom, MushroomPreset, default_lod};
 //!
-//! let mushroom = Mushroom::from_preset(MushroomPreset::Porcini);
+//! let mushroom = Mushroom::from_preset(MushroomPreset::porcini()).unwrap();
 //! let lod = default_lod();
 //! let factor = lod.factor(mushroom.options().size, Quality::High);
 //! for (level, mesh) in mushroom.lod_meshes(&lod).unwrap() {
 //!     let from = level.distance * factor;
 //!     println!("from {from} m: {} triangles", mesh.triangle_count());
 //! }
+//! ```
+//!
+//! A preset can also come from a `.mushroom.yml` file, which names a
+//! built-in preset as its `base` and gives only the settings it changes.
+//! Colours start with `#`, so quote them in the file:
+//!
+//! ```
+//! use procgena_mushroom::{Mushroom, MushroomPreset};
+//!
+//! let preset = MushroomPreset::from_yaml(
+//!     "pale_porcini",
+//!     "base: porcini\n\
+//!      mushroom:\n  \
+//!        default_seed: 7\n  \
+//!        material:\n    \
+//!          cap_centre: \"#c09060\"\n",
+//! )?;
+//! let mushroom = Mushroom::from_preset(&preset)?;
+//! assert_eq!(mushroom.options().size, MushroomPreset::porcini().mushroom.size);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! A mushroom can also be a group: with [`ClusterOptions::stems`] above 1,
@@ -76,13 +96,14 @@ pub use ground::MAX_CELLS;
 pub use mesh::{
     BillboardMesh, BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, Zone,
 };
-pub use mushroom::{BodyId, Mushroom, MushroomBody, MushroomError};
+pub use mushroom::{BodyId, Mushroom, MushroomBody};
 pub use options::{
     AnnulusOptions, BulbOptions, CapOptions, MAX_GILL_LINES, MAX_LOBES, MAX_SEGMENTS, MAX_WARTS,
     MaterialOptions, MushroomOptions, OptionsError, Pattern, StemOptions, UndersideOptions,
     WartOptions,
 };
 pub use presets::MushroomPreset;
+pub use procgena_core::preset::PresetFileError;
 pub use profile::CapFamily;
 pub use scatter::{
     MAX_SITES, MAX_SPECIMENS, MushroomCopy, MushroomScatter, ScatterError, ScatterOptions,

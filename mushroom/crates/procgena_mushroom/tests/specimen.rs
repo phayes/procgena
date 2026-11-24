@@ -11,7 +11,7 @@ use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 #[test]
 fn specimen_has_one_level_per_lod_level_with_tags() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
+    let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
     let lod = default_lod();
     let factor = lod.factor(mushroom.options().size, Quality::High);
     let specimen = mushroom.specimen(&lod).unwrap();
@@ -34,8 +34,8 @@ fn specimen_has_one_level_per_lod_level_with_tags() {
 }
 
 /// Returns `base` grown as a cluster of `stems` with `layout`.
-fn cluster(base: MushroomPreset, stems: u32, layout: ClusterLayout) -> Mushroom {
-    let mut options = base.options();
+fn cluster(base: &MushroomPreset, stems: u32, layout: ClusterLayout) -> Mushroom {
+    let mut options = base.mushroom.clone();
     options.cluster = ClusterOptions {
         stems,
         layout,
@@ -57,7 +57,7 @@ fn min_base_gap(members: &[MushroomInstance]) -> f32 {
 
 #[test]
 fn one_stem_is_exactly_the_mushroom_its_options_describe() {
-    let mut options = MushroomPreset::Porcini.options();
+    let mut options = MushroomPreset::porcini().mushroom.clone();
     options.cluster.layout = ClusterLayout::FairyRing;
     let mushroom = Mushroom::new(options.clone()).unwrap();
     assert_eq!(mushroom.bodies().len(), 1);
@@ -87,7 +87,7 @@ fn clusters_spread_their_members() {
         ClusterLayout::Line,
         ClusterLayout::FairyRing,
     ] {
-        let mushroom = cluster(MushroomPreset::Button, 5, layout);
+        let mushroom = cluster(MushroomPreset::button(), 5, layout);
         let members = mushroom.members();
         assert!(members.len() >= 3, "{layout:?}: {}", members.len());
         assert!(
@@ -122,7 +122,7 @@ fn clusters_spread_their_members() {
 
 #[test]
 fn bodies_are_never_more_than_stems() {
-    let mushroom = cluster(MushroomPreset::Button, 2, ClusterLayout::Tuft);
+    let mushroom = cluster(MushroomPreset::button(), 2, ClusterLayout::Tuft);
     assert!(mushroom.bodies().len() <= 2);
     for body in mushroom.bodies() {
         assert_eq!(body.options().cluster.stems, 1);
@@ -131,7 +131,7 @@ fn bodies_are_never_more_than_stems() {
 
 #[test]
 fn fairy_rings_stand_on_a_wide_circle() {
-    let mut options = MushroomPreset::Button.options();
+    let mut options = MushroomPreset::button().mushroom.clone();
     options.cluster.stems = 24;
     options.cluster.layout = ClusterLayout::FairyRing;
     options.cluster.fairy_ring.radius = 20.0;
@@ -154,7 +154,7 @@ fn fairy_rings_stand_on_a_wide_circle() {
 
 #[test]
 fn swept_clusters_fan_outward() {
-    let mut options = MushroomPreset::Enoki.options();
+    let mut options = MushroomPreset::enoki().mushroom.clone();
     options.cluster = ClusterOptions {
         stems: 8,
         lean: 0.0,
@@ -189,10 +189,10 @@ fn swept_clusters_fan_outward() {
 #[test]
 fn cluster_caps_do_not_overlap() {
     for (preset, layout) in [
-        (MushroomPreset::Button, ClusterLayout::Tuft),
-        (MushroomPreset::Porcini, ClusterLayout::Line),
-        (MushroomPreset::Enoki, ClusterLayout::Tuft),
-        (MushroomPreset::FairyRing, ClusterLayout::FairyRing),
+        (MushroomPreset::button(), ClusterLayout::Tuft),
+        (MushroomPreset::porcini(), ClusterLayout::Line),
+        (MushroomPreset::enoki(), ClusterLayout::Tuft),
+        (MushroomPreset::fairy_ring(), ClusterLayout::FairyRing),
     ] {
         let mushroom = cluster(preset, 8, layout);
 
@@ -212,7 +212,7 @@ fn cluster_caps_do_not_overlap() {
         for (i, (a, ra)) in caps.iter().enumerate() {
             for (b, rb) in &caps[i + 1..] {
                 let gap = a.distance(*b) - (ra + rb);
-                assert!(gap >= -1e-5, "{} caps overlap by {} m", preset.name(), -gap);
+                assert!(gap >= -1e-5, "{} caps overlap by {} m", preset.name, -gap);
             }
         }
     }
@@ -220,8 +220,8 @@ fn cluster_caps_do_not_overlap() {
 
 #[test]
 fn clusters_are_repeatable() {
-    let a = Mushroom::from_preset(MushroomPreset::Enoki);
-    let b = Mushroom::from_preset(MushroomPreset::Enoki);
+    let a = Mushroom::from_preset(MushroomPreset::enoki()).unwrap();
+    let b = Mushroom::from_preset(MushroomPreset::enoki()).unwrap();
     assert_eq!(a.members(), b.members());
 }
 
@@ -237,7 +237,7 @@ fn scatter_places_mushrooms_on_the_ground() {
         ..ScatterOptions::default()
     };
     let scatter =
-        MushroomScatter::on(&ground(), &MushroomPreset::Porcini.options(), &options).unwrap();
+        MushroomScatter::on(&ground(), &MushroomPreset::porcini().mushroom, &options).unwrap();
     assert!(scatter.instances().len() > 10);
     for m in scatter.instances() {
         // Near the patch, just below its surface, growing mostly up.
@@ -266,7 +266,7 @@ fn scattered_clusters_drop_their_members_onto_the_surface() {
         p[1] = p[2] * 0.2;
     }
     let host = Specimen::single(vec![Part::new([tags::GROUND], tilted)]);
-    let mut mushroom = MushroomPreset::FairyRing.options();
+    let mut mushroom = MushroomPreset::fairy_ring().mushroom.clone();
     mushroom.cluster.fairy_ring.radius = 10.0;
     let options = ScatterOptions {
         density: 0.3,
@@ -291,7 +291,7 @@ fn scattered_clusters_drop_their_members_onto_the_surface() {
 
 #[test]
 fn scatter_respects_the_tag_filter_and_slope() {
-    let mushroom = MushroomPreset::Button.options();
+    let mushroom = MushroomPreset::button().mushroom.clone();
     let rock_only = ScatterOptions {
         grows_on: TagFilter::any_of([tags::ROCK]),
         ..ScatterOptions::default()

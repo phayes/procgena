@@ -17,8 +17,8 @@ use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
 use procgena_core::{ContentHasher, Ground};
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_mushroom::{
-    BodyId, BodyShape, Mushroom, MushroomBody, MushroomError, MushroomInstance, MushroomLod,
-    MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError, ScatterOptions,
+    BodyId, BodyShape, Mushroom, MushroomBody, MushroomInstance, MushroomLod, MushroomOptions,
+    MushroomPreset, MushroomScatter, OptionsError, ScatterError, ScatterOptions,
     TextureCompression, TexturePart, TextureSize,
 };
 use procgena_specimen::{GeneratedSpecimen, Specimen};
@@ -44,10 +44,10 @@ use crate::mesh::{billboard_aabb, billboard_mesh, mushroom_mesh};
 pub enum MushroomParams {
     /// Options held in memory. [`MushroomParams::new`] wraps them for you.
     Options(Arc<MushroomOptions>),
-    /// Options loaded from a `.mushroom.json` file. The mushroom waits for
+    /// A preset loaded from a `.mushroom.yml` file. The mushroom waits for
     /// the file to load, and rebuilds when the file changes if Bevy is
     /// watching asset files.
-    Asset(Handle<MushroomOptionsAsset>),
+    Asset(Handle<MushroomPresetAsset>),
 }
 
 impl MushroomParams {
@@ -56,9 +56,9 @@ impl MushroomParams {
         Self::Options(Arc::new(options))
     }
 
-    /// Asks for a mushroom made from a preset.
-    pub fn preset(preset: MushroomPreset) -> Self {
-        Self::new(preset.options())
+    /// Asks for a mushroom made from a preset's options.
+    pub fn preset(preset: &MushroomPreset) -> Self {
+        Self::new(preset.mushroom.clone())
     }
 }
 
@@ -88,8 +88,8 @@ pub struct MushroomScatterParams {
 ///
 /// Put the entity at the area's centre, at height 0 and without rotation
 /// or scale: parts are placed relative to it, across from the centre and
-/// up to the ground's own heights. [`ScatterOptions::seed`] seeds the
-/// scatter, as its input seed. It rebuilds when the settings, the area or
+/// up to the ground's own heights. [`ScatterOptions::default_seed`] seeds
+/// the scatter, as its input seed. It rebuilds when the settings, the area or
 /// the ground or mask (compared as shared copies) change.
 #[derive(Component, Clone)]
 #[require(Transform, Visibility)]
@@ -117,13 +117,15 @@ impl fmt::Debug for MushroomGroundScatterParams {
     }
 }
 
-/// Mushroom options loaded from a `.mushroom.json` file.
+/// A mushroom preset loaded from a `.mushroom.yml` file for
+/// [`MushroomParams::Asset`].
 ///
-/// The file may leave settings out to use their defaults; see
-/// [`MushroomOptions::from_json`]. Files with out-of-range settings fail to
-/// load.
+/// The file names a built-in preset as its `base` and gives only what
+/// differs; see [`MushroomPreset::from_yaml`]. Its key is the file name
+/// without `.mushroom.yml`. Files with unknown or out-of-range settings
+/// fail to load.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
-pub struct MushroomOptionsAsset(pub MushroomOptions);
+pub struct MushroomPresetAsset(pub MushroomPreset);
 
 /// Marks a child entity that draws one detail level of one mushroom. The
 /// plugin spawns and removes these; don't add them yourself.
@@ -192,13 +194,13 @@ impl From<OptionsError> for MushroomBuildError {
     }
 }
 
-/// Loads `.mushroom.json` files, rejecting malformed JSON and out-of-range
-/// settings.
+/// Loads `.mushroom.yml` preset files, rejecting text that isn't a preset
+/// file and unknown or out-of-range settings.
 #[derive(Debug, Default, TypePath)]
-pub(crate) struct MushroomOptionsLoader;
+pub(crate) struct MushroomPresetLoader;
 
-impl AssetLoader for MushroomOptionsLoader {
-    type Asset = MushroomOptionsAsset;
+impl AssetLoader for MushroomPresetLoader {
+    type Asset = MushroomPresetAsset;
     type Settings = ();
     type Error = BevyError;
 
@@ -206,18 +208,23 @@ impl AssetLoader for MushroomOptionsLoader {
         &self,
         reader: &mut dyn Reader,
         _settings: &(),
-        _context: &mut LoadContext<'_>,
-    ) -> Result<MushroomOptionsAsset, BevyError> {
+        context: &mut LoadContext<'_>,
+    ) -> Result<MushroomPresetAsset, BevyError> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let options = MushroomOptions::from_json(std::str::from_utf8(&bytes)?)
-            .map_err(MushroomError::Json)?;
-        options.validate().map_err(MushroomError::Options)?;
-        Ok(MushroomOptionsAsset(options))
+        let file_name = context
+            .path()
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let key = file_name.strip_suffix(".mushroom.yml").unwrap_or(file_name);
+        let preset = MushroomPreset::from_yaml(key, std::str::from_utf8(&bytes)?)?;
+        Ok(MushroomPresetAsset(preset))
     }
 
     fn extensions(&self) -> &[&str] {
-        &["mushroom.json"]
+        &["mushroom.yml"]
     }
 }
 
@@ -467,7 +474,7 @@ pub(crate) fn start_generation(
     )>,
     hosts: Query<&GeneratedSpecimen>,
     transforms: TransformHelper,
-    assets: Res<Assets<MushroomOptionsAsset>>,
+    assets: Res<Assets<MushroomPresetAsset>>,
     parts: Query<(), With<MushroomPart>>,
     settings: Res<SpawnSettings>,
 ) {
@@ -476,7 +483,9 @@ pub(crate) fn start_generation(
     for (entity, params) in &singles {
         let options = match params {
             MushroomParams::Options(o) => Some(o.clone()),
-            MushroomParams::Asset(handle) => assets.get(handle).map(|a| Arc::new(a.0.clone())),
+            MushroomParams::Asset(handle) => {
+                assets.get(handle).map(|a| Arc::new(a.0.mushroom.clone()))
+            }
         };
         wanted.push((
             entity,
@@ -625,7 +634,8 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             })
         }
         Input::Ground(params) => {
-            let mut input = ScatterInput::new(&*params.ground, params.area, params.scatter.seed);
+            let mut input =
+                ScatterInput::new(&*params.ground, params.area, params.scatter.default_seed);
             if let Some(mask) = &params.mask {
                 input = input.with_mask(&**mask);
             }
@@ -940,8 +950,13 @@ mod tests {
 
     /// An app running only the build systems, without rendering.
     fn app() -> App {
+        app_with(AssetPlugin::default())
+    }
+
+    /// An app running only the build systems, reading assets with `assets`.
+    fn app_with(assets: AssetPlugin) -> App {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        app.add_plugins((MinimalPlugins, assets))
             .init_asset::<Mesh>()
             .init_asset::<Image>()
             .init_asset::<MushroomMaterial>()
@@ -984,7 +999,7 @@ mod tests {
         let mut app = app();
         let entity = app
             .world_mut()
-            .spawn(MushroomParams::preset(MushroomPreset::FlyAgaric))
+            .spawn(MushroomParams::preset(MushroomPreset::fly_agaric()))
             .id();
         run_until_finished(&mut app, entity);
 
@@ -1021,11 +1036,11 @@ mod tests {
         let mut app = app();
         let a = app
             .world_mut()
-            .spawn(MushroomParams::preset(MushroomPreset::Button))
+            .spawn(MushroomParams::preset(MushroomPreset::button()))
             .id();
         let b = app
             .world_mut()
-            .spawn(MushroomParams::preset(MushroomPreset::Button))
+            .spawn(MushroomParams::preset(MushroomPreset::button()))
             .id();
         run_until_finished(&mut app, a);
         run_until_finished(&mut app, b);
@@ -1042,12 +1057,53 @@ mod tests {
         assert_eq!(meshes(&mut app, a), meshes(&mut app, b));
 
         // New options rebuild.
-        let mut options = MushroomPreset::Button.options();
-        options.seed = 9;
+        let mut options = MushroomPreset::button().mushroom.clone();
+        options.default_seed = 9;
         *app.world_mut().get_mut::<MushroomParams>(a).unwrap() = MushroomParams::new(options);
         run_until_finished(&mut app, a);
         assert_ne!(meshes(&mut app, a), meshes(&mut app, b));
         assert_eq!(app.world().resource::<Finished>().0.len(), 3);
+    }
+
+    #[test]
+    fn preset_files_load_on_their_base() {
+        // Write a preset file into a fresh asset folder.
+        let dir = std::env::temp_dir().join(format!(
+            "procgena_mushroom_bevy_assets_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("pale.mushroom.yml"),
+            "base: button\nmushroom:\n  default_seed: 9\n  material:\n    cap_centre: \"#c09060\"\n",
+        )
+        .unwrap();
+
+        let mut app = app_with(AssetPlugin {
+            file_path: dir.to_string_lossy().into_owned(),
+            ..default()
+        });
+        let handle = app
+            .world()
+            .resource::<AssetServer>()
+            .load::<MushroomPresetAsset>("pale.mushroom.yml");
+        let entity = app
+            .world_mut()
+            .spawn(MushroomParams::Asset(handle.clone()))
+            .id();
+        run_until_finished(&mut app, entity);
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        // Settings the file leaves out keep the base preset's values.
+        let mut expected = MushroomPreset::button().mushroom.clone();
+        expected.default_seed = 9;
+        expected.material.cap_centre = "#c09060".into();
+        let assets = app.world().resource::<Assets<MushroomPresetAsset>>();
+        let preset = &assets.get(&handle).unwrap().0;
+        assert_eq!(preset.mushroom, expected);
+        assert_eq!(preset.key, "pale");
+        assert!(!parts(&mut app, entity).is_empty());
+        assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
     }
 
     #[test]
@@ -1069,7 +1125,7 @@ mod tests {
     #[test]
     fn a_cluster_spawns_every_member() {
         let mut app = app();
-        let mut options = MushroomPreset::Button.options();
+        let mut options = MushroomPreset::button().mushroom.clone();
         options.cluster.stems = 4;
         let entity = app.world_mut().spawn(MushroomParams::new(options)).id();
         run_until_finished(&mut app, entity);
@@ -1092,7 +1148,7 @@ mod tests {
 
     fn scatter() -> MushroomScatterParams {
         MushroomScatterParams {
-            mushroom: Arc::new(MushroomPreset::Porcini.options()),
+            mushroom: Arc::new(MushroomPreset::porcini().mushroom.clone()),
             scatter: ScatterOptions {
                 density: 20.0,
                 ..ScatterOptions::default()
@@ -1128,7 +1184,7 @@ mod tests {
         let ground: Arc<dyn Ground> =
             Arc::new(|p: bevy::math::DVec2| 0.3 * (p.x as f32 * 0.8).sin());
         let params = MushroomGroundScatterParams {
-            mushroom: Arc::new(MushroomPreset::Button.options()),
+            mushroom: Arc::new(MushroomPreset::button().mushroom.clone()),
             scatter: ScatterOptions {
                 density: 2.0,
                 ..ScatterOptions::default()
@@ -1204,7 +1260,7 @@ mod tests {
     #[test]
     fn levels_hand_over_and_fade_out_at_the_cull_distance() {
         let mut app = app();
-        let options = MushroomPreset::Porcini.options();
+        let options = MushroomPreset::porcini().mushroom.clone();
         let entity = app
             .world_mut()
             .spawn(MushroomParams::new(options.clone()))
@@ -1235,7 +1291,7 @@ mod tests {
     fn the_quality_setting_scales_every_band() {
         let mut app = app();
         app.insert_resource(LodQuality(Quality::Low));
-        let options = MushroomPreset::Porcini.options();
+        let options = MushroomPreset::porcini().mushroom.clone();
         let entity = app
             .world_mut()
             .spawn(MushroomParams::new(options.clone()))

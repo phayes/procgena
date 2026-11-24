@@ -13,7 +13,7 @@ export-obj = []
 export-gltf = ["dep:gltf-json"]
 
 [dependencies]
-glam = { workspace = true }
+glam = { workspace = true, features = ["serde"] }
 procgena_core = { path = "../../../core/crates/procgena_core" }
 procgena_specimen = { path = "../../../specimen/crates/procgena_specimen" }
 gltf-json = { version = "1.4.1", optional = true, features = ["names", "extras"] }

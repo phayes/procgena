@@ -5,7 +5,7 @@ use procgena_mushroom::export::{gltf, obj};
 use procgena_mushroom::{Mushroom, MushroomMesh, MushroomPreset, default_lod};
 
 fn meshes() -> (Mushroom, Vec<MushroomMesh>) {
-    let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
+    let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
     let lod = default_lod();
     let meshes = mushroom
         .lod_meshes(&lod)
@@ -56,7 +56,7 @@ fn glb_loads_with_every_level_and_the_options() {
 
 #[test]
 fn gltf_needs_meshes() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::Button);
+    let mushroom = Mushroom::from_preset(MushroomPreset::button()).unwrap();
     assert!(matches!(
         gltf::to_gltf(&[], mushroom.options(), "m.bin"),
         Err(gltf::GltfError::NoMeshes)

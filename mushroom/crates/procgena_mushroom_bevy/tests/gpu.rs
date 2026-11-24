@@ -74,16 +74,16 @@ fn spawn_scene(app: &mut App) {
     // An 8 cm mushroom switches at 1.5 m, 4 m, 10 m and 18 m: one per
     // level. The fly agaric adds an annulus and warts; the porcini a cap
     // pattern and no gills.
-    let near = |preset: MushroomPreset| MushroomOptions {
+    let near = |preset: &MushroomPreset| MushroomOptions {
         size: 0.08,
-        ..preset.options()
+        ..preset.mushroom.clone()
     };
     for (z, options) in [
-        (0.0, near(MushroomPreset::FlyAgaric)),
-        (-2.5, near(MushroomPreset::Porcini)),
-        (-6.0, near(MushroomPreset::FlyAgaric)),
-        (-15.0, near(MushroomPreset::Porcini)),
-        (-25.0, near(MushroomPreset::FlyAgaric)),
+        (0.0, near(MushroomPreset::fly_agaric())),
+        (-2.5, near(MushroomPreset::porcini())),
+        (-6.0, near(MushroomPreset::fly_agaric())),
+        (-15.0, near(MushroomPreset::porcini())),
+        (-25.0, near(MushroomPreset::fly_agaric())),
     ] {
         app.world_mut().spawn((
             procgena_mushroom_bevy::MushroomParams::new(options),

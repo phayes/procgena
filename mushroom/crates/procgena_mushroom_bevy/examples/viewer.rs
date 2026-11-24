@@ -16,7 +16,7 @@
 //! everything at the cheapest detail (one camera-facing triangle each for
 //! stem and cap),
 //! `--closeup` to start next to the enoki cluster instead of the preset row,
-//! `--preset <name>` (such as `porcini` or `fly_agaric`) to start next to one
+//! `--preset <key>` (such as `porcini` or `fly_agaric`) to start next to one
 //! preset, and `--orbit <degrees>` to start the camera turned around what it
 //! looks at. With `--screenshot`, add `--headless` to render a 1280 × 720
 //! image without opening a window.
@@ -68,8 +68,8 @@ struct CameraStart {
     /// True to look at the enoki cluster rather than the preset row, from
     /// `--closeup`.
     closeup: bool,
-    /// Index in [`MushroomPreset::ALL`] of one preset to look at closely,
-    /// from `--preset <name>`.
+    /// Index in [`MushroomPreset::all`] of one preset to look at closely,
+    /// from `--preset <key>`.
     preset: Option<usize>,
     /// True to draw into an image instead of a window, from `--headless`.
     headless: bool,
@@ -80,7 +80,7 @@ const ROW_SPACING: f32 = 0.2;
 
 /// Returns the row position of preset number `i`.
 fn row_x(i: usize) -> f32 {
-    (i as f32 - (MushroomPreset::ALL.len() as f32 - 1.0) * 0.5) * ROW_SPACING
+    (i as f32 - (MushroomPreset::all().count() as f32 - 1.0) * 0.5) * ROW_SPACING
 }
 
 fn main() {
@@ -91,13 +91,11 @@ fn main() {
             .and_then(|i| args.get(i + 1).cloned())
     };
     let orbit = value("--orbit").and_then(|v| v.parse().ok()).unwrap_or(0.0);
-    // `--preset porcini` matches the preset named "Porcini"; spaces in names
-    // are written as underscores, as in `fly_agaric`.
-    let preset = value("--preset").map(|name| {
-        MushroomPreset::ALL
-            .iter()
-            .position(|p| p.name().to_lowercase().replace(' ', "_") == name)
-            .unwrap_or_else(|| panic!("no preset named {name:?}"))
+    // `--preset fly_agaric` picks the preset with that key.
+    let preset = value("--preset").map(|key| {
+        MushroomPreset::all()
+            .position(|p| p.key == key)
+            .unwrap_or_else(|| panic!("no preset with key {key:?}"))
     });
 
     // `--flat` and `--billboard` use only that one detail, drawn out to
@@ -247,8 +245,8 @@ fn setup(
     ));
 
     // Every preset in a row, each as a single mushroom.
-    for (i, preset) in MushroomPreset::ALL.into_iter().enumerate() {
-        let mut options = preset.options();
+    for (i, preset) in MushroomPreset::all().enumerate() {
+        let mut options = preset.mushroom.clone();
         options.cluster.stems = 1;
         commands.spawn((
             MushroomParams::new(options),
@@ -259,10 +257,10 @@ fn setup(
     // The enoki preset's cluster, whose long stalks sweep outward from a
     // tight base, and a tuft of buttons.
     commands.spawn((
-        MushroomParams::preset(MushroomPreset::Enoki),
+        MushroomParams::preset(MushroomPreset::enoki()),
         Transform::from_translation(ENOKI_CLUSTER),
     ));
-    let mut buttons = MushroomPreset::Button.options();
+    let mut buttons = MushroomPreset::button().mushroom.clone();
     buttons.cluster.stems = 5;
     commands.spawn((
         MushroomParams::new(buttons),
@@ -291,7 +289,7 @@ fn setup(
     ));
     commands.spawn((
         MushroomGroundScatterParams {
-            mushroom: Arc::new(MushroomPreset::Porcini.options()),
+            mushroom: Arc::new(MushroomPreset::porcini().mushroom.clone()),
             scatter: ScatterOptions {
                 density: 6.0,
                 ..ScatterOptions::default()
@@ -306,9 +304,9 @@ fn setup(
     // members follow the ground.
     commands.spawn((
         MushroomGroundScatterParams {
-            mushroom: Arc::new(MushroomPreset::FairyRing.options()),
+            mushroom: Arc::new(MushroomPreset::fairy_ring().mushroom.clone()),
             scatter: ScatterOptions {
-                seed: 4,
+                default_seed: 4,
                 density: 0.06,
                 min_spacing: 2.0,
                 scale_min: 0.9,

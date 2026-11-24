@@ -1,8 +1,6 @@
 //! The [`Mushroom`] type: a checked set of options, ready to be meshed, and
 //! the single mushrooms ([`MushroomBody`]) it is made of.
 
-use std::fmt;
-
 use glam::{Affine3A, Vec3};
 use procgena_core::PoolId;
 
@@ -35,7 +33,7 @@ use crate::shape::Shape;
 /// ```
 /// use procgena_mushroom::{Mushroom, MushroomDetail, MushroomPreset};
 ///
-/// let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
+/// let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
 /// let close = mushroom.mesh();
 /// let far = mushroom.mesh_with_detail(&MushroomDetail::FLAT).unwrap();
 /// assert!(far.triangle_count() < close.triangle_count());
@@ -70,51 +68,23 @@ pub struct BodyId {
     /// [`MushroomOptions::pool`].
     pub pool: PoolId,
     /// The seed the whole mushroom or cluster was grown with: the options'
-    /// [`seed`](MushroomOptions::seed) for a [`Mushroom`], or a specimen
-    /// seed in a scatter.
+    /// [`default_seed`](MushroomOptions::default_seed) for a [`Mushroom`],
+    /// or a specimen seed in a scatter.
     pub seed: u32,
     /// The body's index among the bodies grown with that seed.
     pub index: u32,
 }
 
-/// Why a [`Mushroom`] could not be created from JSON.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum MushroomError {
-    /// The JSON is malformed or has a value of the wrong type.
-    Json(serde_json::Error),
-    /// A setting is out of range.
-    Options(OptionsError),
-}
-
-impl fmt::Display for MushroomError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MushroomError::Json(e) => write!(f, "invalid mushroom JSON: {e}"),
-            MushroomError::Options(e) => write!(f, "invalid mushroom options: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for MushroomError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            MushroomError::Json(e) => Some(e),
-            MushroomError::Options(e) => Some(e),
-        }
-    }
-}
-
 impl Mushroom {
     /// Creates a mushroom, or a cluster, from `options`, after checking
-    /// them. Its shape comes from [`MushroomOptions::seed`].
+    /// them. Its shape comes from [`MushroomOptions::default_seed`].
     ///
     /// # Errors
     ///
     /// Returns the first setting that is out of range.
     pub fn new(options: MushroomOptions) -> Result<Self, OptionsError> {
         options.validate()?;
-        let seed = options.seed;
+        let seed = options.default_seed;
 
         // A single mushroom is exactly what the options describe; a
         // cluster's members are variations of it.
@@ -140,22 +110,16 @@ impl Mushroom {
         })
     }
 
-    /// Creates a mushroom from a preset. Presets are always valid, so this
-    /// can't fail.
-    pub fn from_preset(preset: MushroomPreset) -> Self {
-        Self::new(preset.options()).expect("presets are valid")
-    }
-
-    /// Creates a mushroom from JSON options, which may leave settings out to
-    /// use their defaults; see [`MushroomOptions::from_json`].
+    /// Creates a mushroom, or a cluster, from a preset's settings. To adjust
+    /// settings first, clone [`MushroomPreset::mushroom`], edit it, and pass
+    /// it to [`Self::new`] instead.
     ///
     /// # Errors
     ///
-    /// Returns [`MushroomError::Json`] if the JSON can't be read, and
-    /// [`MushroomError::Options`] if a setting is out of range.
-    pub fn from_json(json: &str) -> Result<Self, MushroomError> {
-        let options = MushroomOptions::from_json(json).map_err(MushroomError::Json)?;
-        Self::new(options).map_err(MushroomError::Options)
+    /// Returns the first setting that is out of range. Built-in presets
+    /// always pass; a preset read from a file was checked when it was read.
+    pub fn from_preset(preset: &MushroomPreset) -> Result<Self, OptionsError> {
+        Self::new(preset.mushroom.clone())
     }
 
     /// Returns the options this mushroom was made from.
@@ -254,7 +218,7 @@ impl Mushroom {
 impl MushroomBody {
     /// Works out the shape of a single mushroom made from `options`, after
     /// checking them, named `id`. The cluster settings are not used, and
-    /// `options.seed` must already be the body's own seed.
+    /// `options.default_seed` must already be the body's own seed.
     pub(crate) fn new(options: MushroomOptions, id: BodyId) -> Result<Self, OptionsError> {
         options.validate()?;
         let shape = Shape::new(&options);
@@ -271,7 +235,7 @@ impl MushroomBody {
             index: 0,
         };
         let options = MushroomOptions {
-            seed,
+            default_seed: seed,
             cluster: ClusterOptions::default(),
             ..options.clone()
         };

@@ -58,11 +58,11 @@ fn turned(billboard: &BillboardMesh, view: Vec3) -> Vec<Vec3> {
 
 #[test]
 fn every_preset_meshes_cleanly_at_every_detail() {
-    for preset in MushroomPreset::ALL {
-        let mushroom = Mushroom::from_preset(preset);
+    for preset in MushroomPreset::all() {
+        let mushroom = Mushroom::from_preset(preset).unwrap();
         for detail in details() {
             let mesh = mushroom.mesh_with_detail(&detail).unwrap();
-            let name = format!("{} {:?}", preset.name(), detail.shape);
+            let name = format!("{} {:?}", preset.name, detail.shape);
             assert!(mesh.triangle_count() > 0, "{name}");
             check_buffers(&mesh.surfaces, &name);
             if let Some(billboard) = &mesh.billboard {
@@ -76,11 +76,8 @@ fn every_preset_meshes_cleanly_at_every_detail() {
 #[test]
 fn solid_parts_are_closed_and_face_outward() {
     let solid = [MushroomDetail::FULL, MushroomDetail::HIGH];
-    for (preset, detail) in MushroomPreset::ALL
-        .into_iter()
-        .flat_map(|p| solid.map(|d| (p, d)))
-    {
-        let mushroom = Mushroom::from_preset(preset);
+    for (preset, detail) in MushroomPreset::all().flat_map(|p| solid.map(|d| (p, d))) {
+        let mushroom = Mushroom::from_preset(preset).unwrap();
         let mesh = mushroom.mesh_with_detail(&detail).unwrap();
         assert!(!mesh.double_sided);
         for (range, part) in mesh.parts.iter().zip(mesh.specimen_parts()) {
@@ -89,7 +86,7 @@ fn solid_parts_are_closed_and_face_outward() {
                 surface.is_closed(),
                 range.closed,
                 "{} {:?}",
-                preset.name(),
+                preset.name,
                 range.kind
             );
             if range.closed {
@@ -100,7 +97,7 @@ fn solid_parts_are_closed_and_face_outward() {
                     assert!(
                         volume > 0.0,
                         "{} {:?} volume {volume}",
-                        preset.name(),
+                        preset.name,
                         range.kind
                     );
                 }
@@ -110,19 +107,19 @@ fn solid_parts_are_closed_and_face_outward() {
         // The stem is closed exactly when its bottom is.
         let cap = mesh.part(PartKind::Cap).unwrap();
         assert!(cap.closed);
-        let closed_bottom = preset.options().bulb.closed;
+        let closed_bottom = preset.mushroom.bulb.closed;
         assert_eq!(
             mesh.part(PartKind::Stem).unwrap().closed,
             closed_bottom,
             "{}",
-            preset.name()
+            preset.name
         );
     }
 }
 
 #[test]
 fn shell_and_flat_levels_are_open_and_double_sided() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
+    let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
     for detail in [
         MushroomDetail::MEDIUM,
         MushroomDetail::LOW,
@@ -139,7 +136,7 @@ fn shell_and_flat_levels_are_open_and_double_sided() {
 
 #[test]
 fn flat_and_billboard_levels_turn_toward_the_camera() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::Porcini);
+    let mushroom = Mushroom::from_preset(MushroomPreset::porcini()).unwrap();
     for detail in details() {
         let mesh = mushroom.mesh_with_detail(&detail).unwrap();
         let turns = matches!(detail.shape, BodyShape::Flat | BodyShape::Billboard);
@@ -161,7 +158,7 @@ fn flat_and_billboard_levels_turn_toward_the_camera() {
 
 #[test]
 fn the_billboard_level_is_one_triangle_each_for_stem_and_cap() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
+    let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
     let mesh = mushroom
         .mesh_with_detail(&MushroomDetail::BILLBOARD)
         .unwrap();
@@ -202,7 +199,7 @@ fn the_billboard_level_is_one_triangle_each_for_stem_and_cap() {
 
 #[test]
 fn turned_shapes_face_the_viewer() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::LibertyCap);
+    let mushroom = Mushroom::from_preset(MushroomPreset::liberty_cap()).unwrap();
     for detail in [MushroomDetail::FLAT, MushroomDetail::BILLBOARD] {
         let mesh = mushroom.mesh_with_detail(&detail).unwrap();
         let billboard = mesh.billboard.unwrap();
@@ -223,8 +220,8 @@ fn turned_shapes_face_the_viewer() {
 
 #[test]
 fn triangle_counts_fall_along_the_default_ladder() {
-    for preset in MushroomPreset::ALL {
-        let mushroom = Mushroom::from_preset(preset);
+    for preset in MushroomPreset::all() {
+        let mushroom = Mushroom::from_preset(preset).unwrap();
         let lod = default_lod();
         let counts: Vec<usize> = mushroom
             .lod_meshes(&lod)
@@ -235,26 +232,30 @@ fn triangle_counts_fall_along_the_default_ladder() {
         assert!(
             counts.windows(2).all(|w| w[1] < w[0]),
             "{}: {counts:?}",
-            preset.name()
+            preset.name
         );
         // The last level is two triangles per member.
         assert_eq!(
             *counts.last().unwrap(),
             2 * mushroom.members().len(),
             "{}: {counts:?}",
-            preset.name()
+            preset.name
         );
     }
 }
 
 #[test]
 fn meshing_is_repeatable_and_depends_on_the_seed() {
-    let a = Mushroom::from_preset(MushroomPreset::FlyAgaric).mesh();
-    let b = Mushroom::from_preset(MushroomPreset::FlyAgaric).mesh();
+    let a = Mushroom::from_preset(MushroomPreset::fly_agaric())
+        .unwrap()
+        .mesh();
+    let b = Mushroom::from_preset(MushroomPreset::fly_agaric())
+        .unwrap()
+        .mesh();
     assert_eq!(a, b);
 
-    let mut options = MushroomPreset::FlyAgaric.options();
-    options.seed += 1;
+    let mut options = MushroomPreset::fly_agaric().mushroom.clone();
+    options.default_seed += 1;
     let c = Mushroom::new(options).unwrap().mesh();
     assert_ne!(a.surfaces.positions, c.surfaces.positions);
 }
@@ -265,7 +266,7 @@ fn detail_levels_share_the_silhouette() {
     // overall shape doesn't jump when levels switch. The billboard level
     // is flat until it is turned, so its resting box can't be compared;
     // the silhouette tests check it from the side instead.
-    let mushroom = Mushroom::from_preset(MushroomPreset::Parasol);
+    let mushroom = Mushroom::from_preset(MushroomPreset::parasol()).unwrap();
     let bounds = |detail: &MushroomDetail| {
         let mesh = mushroom.mesh_with_detail(detail).unwrap();
         let mut points: Vec<Vec3> = mesh.surfaces.positions.iter().map(|&p| p.into()).collect();
@@ -378,7 +379,7 @@ fn an_open_stem_ends_at_the_ground_with_fewer_triangles() {
 
 #[test]
 fn painted_warts_tint_the_cap_only_when_asked() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
+    let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
     let painted = mushroom.mesh_with_detail(&MushroomDetail::FULL).unwrap();
     let plain = mushroom
         .mesh_with_detail(&MushroomDetail {
@@ -392,7 +393,7 @@ fn painted_warts_tint_the_cap_only_when_asked() {
 
 #[test]
 fn invalid_detail_is_rejected() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::Button);
+    let mushroom = Mushroom::from_preset(MushroomPreset::button()).unwrap();
     let detail = MushroomDetail {
         cap_sides: 2,
         ..MushroomDetail::FULL

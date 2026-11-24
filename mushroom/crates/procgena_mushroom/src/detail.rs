@@ -66,6 +66,7 @@ pub enum BodyShape {
 /// triangles. Start from one of the named levels, such as
 /// [`FULL`](Self::FULL).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MushroomDetail {
     /// How the surfaces are built.
     pub shape: BodyShape,
