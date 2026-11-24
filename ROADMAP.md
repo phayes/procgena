@@ -564,6 +564,23 @@ From D5 (decided by the user 2026-11-24; see
 - **Done when:** a World of empty Biomes builds the same land whatever order
   its regions are asked for, pinned regions keep their Biome, and the
   image example shows Biomes following E and the selector fields.
+- **Status (2026-11-24): done, at scale 1 on 4 km regions.** New crate
+  `procgena_world` (`world/crates/procgena_world`): `WorldOptions` (seed,
+  scale pair, region graph, E, convergence, ruggedness and moisture
+  fields, ordered Biome rules with a fallback, pins by region id) in F3's
+  preset pattern, with one `WorldPreset` per D5 scale class
+  (`.world.yml`); `World` picks each region's Biome (pin, else the first
+  matching rule at the region's site, else the fallback; neighbours may
+  share a type), gives each region its own Biome seed
+  (`region_seed(W, "biome.region.local", id)`, `procgena_biome::biome_seed`)
+  and Terrain seed (`"terrain.region.local"`,
+  `procgena_terrain::region_local_seed`), and hands `WorldTerrain` a source
+  reading the Biome. `terrain_seed` is gone; `Biome::terrain_options` sets
+  the World seed. The scale pair stretches E (layers, tilt, bumps) and the
+  selector fields, and the rules' elevation bounds follow `vertical`;
+  Terrain presets, region size and border warp are not scaled (G7). Image
+  example `--example large_world`; see world_plan.md, "W0 as built", for
+  what it shows and what is left.
 
 ### Cover track
 

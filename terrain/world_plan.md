@@ -330,8 +330,8 @@ impl HeightField for WorldTerrain { … }
 | W3 | Border segment index in `Terrain`; border warp (subdivided, noise-displaced edges); no-crossing check. **Exit test:** the existing border, crack and feature suites pass on warped fixtures | W2 |
 | W3b | Cheaper border pulls: an exact skip for points beyond the fades and a faster integral; shared nodes measured and not built (see "W3b as built") | W3 |
 | W4 ✅ | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source (built; see "W4 as built"). The deferred W1 item, equal preset offsets, was not done: it waits for the user (see open question 5) | W1, W3b |
-| W5 | Moved to the World crate: selector fields, Biome rules and pins, with empty Biomes (milestones B0 and W0 in ROADMAP.md) | — |
-| W6 | Image example of a large world; drainage measurement. Built on W4 with a closure source; redone through the World once W0 exists | W4 |
+| W5 ✅ | Moved to the World crate: selector fields, Biome rules and pins, with empty Biomes (milestones B0 and W0 in ROADMAP.md). Built in `procgena_world` (see "W0 as built") | — |
+| W6 | Image example of a large world; drainage measurement. The image example is built through the World (W0's `--example large_world`); the drainage measurement is not | W4 |
 
 ### W1 as built (2026-11-23)
 
@@ -631,6 +631,92 @@ the faster integral).
   steps repeat `StitchedWorld`'s in `world.rs`; `StitchedWorld` could be
   rebuilt on the same stage functions.
 
+### W0 as built: the World chooses Biomes (2026-11-24)
+
+Phase W5 was built as roadmap milestone W0, in the new World crate
+`procgena_world` (`world/crates/procgena_world`), not in this crate.
+
+- **What it does:** `World::new(WorldOptions)` makes a `WorldTerrain`
+  whose source reads each region's Biome. A region's Biome is its pin, or
+  else the first of the ordered rules whose bounds on E, ruggedness and
+  moisture at the region's site all hold, or else the fallback.
+  Neighbours may share a type. `World::with_biomes` takes Biomes besides
+  the built-in presets. Ruggedness and moisture are fBm fields (values
+  about 95 % in −1 to 1, sampled with the new public `NoiseLayer::sample`)
+  seeded by `"world.field.ruggedness"` and `"world.field.moisture"`.
+- **Seeds (D3):** the Biome's seed is `region_seed(W,
+  "biome.region.local", id)` (`procgena_biome::biome_seed`), the
+  Terrain's local seed `region_seed(W, "terrain.region.local", id)`
+  (`procgena_terrain::region_local_seed`). Nothing in the Terrain uses
+  its local seed yet (the valley wobble is the candidate, D3).
+  `terrain_seed` is gone: `Biome::terrain_options` sets the World seed.
+- **Settings in files:** `WorldOptions` are serde, and `WorldPreset` has
+  one `.world.yml` preset per D5 scale class. For that,
+  `ElevationOptions`, `HeightBump`, `RegionGraphOptions`, `BorderWarp`
+  and `Convergence` gained serde in this crate (`DVec2` written as
+  `[x, z]`); `WorldTerrainOptions` still has none.
+- **Scale (D5):** the pair stretches E (layer heights × vertical,
+  wavelengths × horizontal, tilt × vertical ÷ horizontal, bump centres
+  and radii × horizontal and heights × vertical; `max_slope` kept and
+  checked on the stretched field) and the selector wavelengths. The rules'
+  elevation bounds are written at scale 1 and multiplied by vertical.
+  Terrain presets, region size and the border warp are not scaled; that
+  waits for G7's derived lengths. The small class uses 2 km regions (the
+  1950 m floor) instead of D5's 0.5–1.5 km, and the real-life class's
+  continents wavelength (1500 km) is above `MAX_WAVELENGTH`, which E
+  doesn't check.
+- **Tests** (`procgena_world/tests/world.rs`): Biomes follow E (a tilt,
+  mountains above sea level) and the selector fields; neighbours may share
+  a type but not a seed; pins hold across seeds and rules, and a pinned
+  region's land is built from its pinned Biome's Terrain; seeds match
+  reference values and move only with the World seed and the region; the
+  same heights bit for bit with the regions built in another order on two
+  threads; two regions on one Terrain preset get the same settings and
+  different land, and switching a region to another Biome on the same
+  Terrain keeps its land bit for bit; the scale stretches E and the
+  fields, and a World made only taller picks the same Biomes; every class
+  preset builds; files round-trip (a pin with an id above `i64::MAX`
+  included); bad settings are refused.
+- **Image example** (`--example large_world -- <dir>`): see "W0 image
+  example" below.
+- **Not done:** designer polygons with stable ids (open question 4), the
+  region size check, scaling Terrain presets (G7), the drainage half of
+  W6, and Biomes from files (Biomes have no serde yet).
+
+### W0 image example (2026-11-24)
+
+`cargo run -p procgena_world --example large_world -- <dir>`, medium class
+(scale 1, the default 4 km regions), seed 0, the region at the origin
+pinned to mountains. Evidence for D4 (region size); the images are not
+committed.
+
+- **96 km square (maps, no land built, 1–2 s):** 730 regions. E runs from
+  −405 m to 353 m: sea to the north-east, high land to the south-west.
+  Plains 546, rolling hills 152, mountains 32 regions; 75 % of neighbour
+  pairs share a type. Mountains sit only on the high south-west land, as a
+  range of about 20 regions; rolling hills form patches of 1–6 regions
+  where ruggedness is high, plus most other high land; dry high land
+  (moisture below −0.2) is plains, so moisture shows as plains patches
+  inside the high country. Sea below E = 0 is plains, since there is no
+  ocean Biome.
+- **Land at the origin (12 km, 18 regions, 23 s to build in the dev
+  profile, no roads):** the pinned mountains stand alone in plains and
+  fade to foothills near their borders.
+- **Land in the south-west (20 km around (−34, 26) km, about 40
+  regions):** the mountain range continues across borders between
+  mountain regions with no visible seam (shared World noise), so many
+  same-type regions read as one range. Where mountains meet plains or
+  hills, the mountain region's edge stands as a raised rim above its
+  neighbours: the unequal preset base offsets (open question 5, ROADMAP
+  item 11), which this World mixes everywhere.
+- **What it says about region size (D4):** at 4 km, regions are small
+  next to the Biome areas the fields make (hill patches of 4–25 km, the
+  range about 20 km), so Biome areas come out as clusters of regions with
+  ragged polygonal outlines, and same-type borders vanish in the land.
+  Single isolated regions (a pin, a lone hills region) look like blocks a
+  region wide. Smaller regions would follow the fields more finely; larger
+  ones would make Biome areas blockier. Nothing here argues against 4 km.
+
 ## Open questions
 
 1. ~~**Biome choice:** field first with overrides, or biomes first?~~
@@ -643,8 +729,11 @@ the faster integral).
    region's feature plan takes. Planning stays per region, with macro
    cells only if step 2's benchmarks call for them (decided 2026-11-23;
    see [features_plan_review.md](features_plan_review.md), "Decisions").
-3. **Moisture:** include it now as a Biome selector (deserts, wetlands)
-   or later? It is now the World crate's question.
+3. ~~**Moisture:** include it now as a Biome selector (deserts, wetlands)
+   or later?~~ Included in W0 (2026-11-24) as a World selector field
+   beside ruggedness. With only bare-land Biomes it decides little (the
+   default rules put dry high land on plains, and keep very wet lowland
+   off rolling hills); wet and dry Biomes come with Ecotopes.
 4. **Bounded worlds:** besides infinite lattice worlds, should
    `WorldTerrain` take a designer's polygon map directly (as
    `StitchedWorld` does), or keep that in `StitchedWorld`?
