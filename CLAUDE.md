@@ -61,7 +61,7 @@ cargo test -p <package> --doc
 | `stone/` | `procgena_stone_bevy`| Feature `gpu`                                                             |
 | `tree/`  | `procgena_tree`      | Features `export-obj`, `export-gltf`. One file per area in `tests/`.     |
 | `tree/`  | `procgena_tree_bevy` | Feature `gltf`                                                            |
-| `biome/` | `procgena_biome`     | Engine-free. Empty Biomes for now (one Terrain, no Ecotopes); tests in `tests/empty_biomes.rs`. |
+| `biome/` | `procgena_biome`     | Engine-free. Biomes and Ecotopes share this crate. Empty Biomes for now (one Terrain, no Ecotopes); tests in `tests/empty_biomes.rs`. |
 | `clump/` | `procgena_clump`     |                                                                           |
 | `clump/` | `procgena_clump_bevy`| Headless lifecycle tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders; download textures first with `uv run --project tools textures download clump`. |
 | `deadwood/` | `procgena_deadwood` | Features `export-obj`, `export-gltf`. One file per area in `tests/`. `--example export` writes every preset as GLB/OBJ to `target/procgena_deadwood_export/`. |

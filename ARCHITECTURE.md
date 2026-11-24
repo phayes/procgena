@@ -350,8 +350,10 @@ always built through the same path, with or without cover.
 
 **Status.** Started: `procgena_biome` has empty Biomes (one Terrain by
 preset or inline, an Ecotope rule list that is always empty) and a
-default empty Biome preset per Terrain preset. Ecotope rules, border
-noise and the border negotiation are still to come.
+default empty Biome preset per Terrain preset. The Ecotope lives in the
+same crate, and an early, Terrain-unaware version of it comes next (roadmap
+C3a). Ecotope rules, border noise and the border negotiation are still to
+come.
 
 #### 4.2 Terrain
 
@@ -1415,8 +1417,10 @@ the move into the new crates rather than on its own.
   `Level`, `Part`, `SurfaceMesh`, `Surface`, `Tag`, `TagSet` and
   `TagFilter` keep their names: they describe pieces of a specimen, not the
   specimen itself.
-- **New levels get their own crate** in the same layout as the assets:
-  the Biome is `procgena_biome` in `biome/crates/procgena_biome`.
+- **New levels get a crate** in the same layout as the assets. The Biome
+  and the Ecotope share one: `procgena_biome` in
+  `biome/crates/procgena_biome`, with a `procgena_biome_bevy` beside it for
+  drawing (decided by the user, 2026-11-24). The World gets its own.
 - **The doc's word "specimen"** also replaces the earlier "shape" for one
   generated variant: specimen id, specimen budget.
 - **The level is called Scatter**, and each kind is `<Asset>Scatter`.
@@ -1498,9 +1502,13 @@ it starts.
   [docs/decisions/D2.md](docs/decisions/D2.md)), and the GPU spike passed on
   one GPU. Still to do: a timing run on a low-end integrated GPU and on a
   discrete GPU.
-- [ ] **Ecotope crate**: Scatters by frozen key with a `priority` on one
+- [ ] **Ecotope** (in `procgena_biome`, Bevy part in
+  `procgena_biome_bevy`): Scatters by frozen key with a `priority` on one
   World-wide scale and its documented bands, mask chaining, presets, and
-  a Bevy part that draws one Ecotope over a patch of ground.
+  a Bevy part that draws one Ecotope over a patch of ground. An early
+  version comes before the `Scatter` trait (roadmap C3a): it runs on any
+  `Ground`, knows nothing of Terrain, and calls today's Scatters through
+  their `ScatterInput`.
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
   conforming, for Ecotopes meeting inside a Biome and across Biome
   borders, including one merged priority order (a sort by `priority`,

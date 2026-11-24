@@ -31,7 +31,9 @@ asks.
 - **The spine** is: land the work in flight → shared crates with `Ground`
   slope → aligned Scatters → GPU-mask research → `Scatter` trait, masks
   out and world-anchored ids → **Ecotope** → **Biome** → **World** →
-  streaming.
+  streaming. An early Ecotope (C3a) runs ahead of the `Scatter` trait,
+  so Scatters can be combined and looked at long before the spine reaches
+  the full Ecotope (moved forward by the user, 2026-11-24).
 - **The terrain is the likely long pole.** Terrain Phases 3 to 10 are all
   unbuilt, and the Biome needs labels (Phase 5) while streaming needs the
   mesher and Bevy crate (Phases 7 and 8). Phases 3 and 4 don't need
@@ -121,6 +123,7 @@ flowchart TD
 
     C1["C1 Aligned Scatter inputs, new Scatters"]
     C2["C2 Scatter trait, masks out, world ids"]
+    C3a["C3a Early Ecotope, in procgena_biome"]
     C3["C3 Ecotope"]
 
     R1["R1 Shared LOD, dither, quality"]
@@ -158,6 +161,10 @@ flowchart TD
     F2 --> C2
     D2 --> C2
     D3 --> C2
+    C1 --> C3a
+    F3 --> C3a
+    B0 --> C3a
+    C3a --> C3
     C2 --> C3
     F3 --> C3
     D2 --> D3
@@ -462,16 +469,36 @@ goldens, which have no baseline on this machine).
   ids whatever order its chunks are built in, and reports its mask over a
   chunk without drawing.
 
+#### C3a: Early Ecotope (moved forward, 2026-11-24)
+
+- **Covers:** a first, unfinished Ecotope in `procgena_biome`, which the
+  Biome and the Ecotope share (with `procgena_biome_bevy` for drawing).
+  Scatters by frozen key with a `priority`, a preset in the new file
+  pattern, and a Bevy view that draws one Ecotope over a patch of ground.
+  It knows nothing of Terrain: it runs on any `Ground` (`FlatGround`,
+  `HeightGrid`), and calls today's Scatters (tree, stone, deadwood,
+  mushroom; plant through its density hook) through their `ScatterInput`,
+  one small adapter per Scatter inside the Ecotope code.
+- **Not yet:** the `Scatter` trait, masks out and exact exclusion (C2),
+  world-anchored chunked placement, Terrain labels and Ecotope rules (B1).
+  Lower-priority Scatters avoid higher ones only as far as today's masks
+  in allow it. The adapters are thrown away when C2 lands.
+- **Needs:** C1, F3, B0 (the crate). Not C2, not the terrain.
+- **Done when:** a "pine forest floor" Ecotope preset loads from a
+  `.ecotope.yml` file and draws trees, boulders, logs and mushrooms on a
+  `HeightGrid` in a viewer or studio tab, with each Scatter keyed and
+  seeded from the Ecotope's seed.
+
 #### C3: Ecotope
 
-- **Covers:** TODO "Ecotope crate": Scatters by frozen key with a
-  `priority` on one World-wide scale (D3) and its documented bands, mask
-  chaining, presets, and a Bevy part drawing one Ecotope over a patch of
-  ground; a studio Ecotope tab. Open question 2 (overlap) is decided here.
+- **Covers:** the full Ecotope, grown from C3a in `procgena_biome`: the
+  adapters replaced by the `Scatter` trait, `priority` on one World-wide
+  scale (D3) with its documented bands, mask chaining with exact
+  exclusion, and a studio Ecotope tab. Open question 2 (overlap) is decided here.
   The Ecotope warning about a dense Scatter above a long-range one (TODO
   "Per-Scatter ranges") lands here too.
-- **Needs:** C2, F3 (its presets and files use the new pattern). Not the
-  terrain: it runs on a `HeightGrid` or `FlatGround`.
+- **Needs:** C3a, C2. Not the terrain: it runs on a `HeightGrid` or
+  `FlatGround`.
 - **Plant can join late.** Plants sit at the bottom of most Ecotopes and
   already take a density function, so a first Ecotope can draw grass
   through that hook. Plant implements the trait once R3 gives it a seed,
@@ -651,7 +678,7 @@ a cell run in order within the wave.
 | 2 | F1 alone | Churn window 1. |
 | 3 | F2 (one worker per crate); G1 → G3; G2; G5; B0; C1 (one worker per crate); R1; D3 | D3's slot choice uses D2's GPU spike. G5 can run beside G1, but both edit `procgena_terrain`, so give them separate files or run them one after the other. |
 | 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files, and must land before W0 in wave 5. |
-| 5 | C2; G4; W0; R2; R3; I1 | |
+| 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4 | |
 | 7 | B1; I2; X1 (Scatter part) | |
 | 8 | W1; S1 (single Biome) | |
