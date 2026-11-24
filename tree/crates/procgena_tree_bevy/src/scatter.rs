@@ -269,6 +269,12 @@ impl TreeScatterVariant {
         self.generated.is_some()
     }
 
+    /// How tall the variant's tree is before it is scaled, in metres, once
+    /// generated: the top of its nearest level's bark and leaves.
+    pub(crate) fn height(&self) -> Option<f32> {
+        self.generated.as_ref().map(|g| g.height())
+    }
+
     /// The variant's tree as a tagged specimen, in the tree's own coordinates,
     /// once generated. Use it to build colliders.
     pub fn specimen(&self) -> Option<&Arc<Specimen>> {

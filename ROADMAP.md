@@ -1322,7 +1322,9 @@ where the details are.
       edges).
     - *Wind:* trees sway by world position **plus a small per-tree offset**
       from the copy's wind phase, keeping travelling gusts with some
-      individuality. To build (see "Decided, to build" below).
+      individuality. **Built (2026-11-24):** each tree is shifted by up to
+      0.15 of a sway cycle (`WIND_PHASE_SPREAD` in `tree_wind.wesl`);
+      promoted trees and single trees' fruit keep their grove copy's phase.
 11. **One base elevation for the terrain presets (W4).** Plains, rolling
     hills and mountains sit 20, 50 and 120 m above the World's elevation
     field E. Unequal offsets bring back a step of up to 100 m at every
@@ -1379,7 +1381,9 @@ where the details are.
       tier for now.
     - ~~*Far form names:*~~ **add both** (the user, 2026-11-24): a
       `FarForm` variant for mushroom's "flat cap plus ribbon" and one for
-      plant's "far ground material". To build.
+      plant's "far ground material". **Built (2026-11-24):**
+      `FarForm::FlatCapRibbon` and `FarForm::GroundMaterial`. Nothing uses
+      them yet: mushroom's FLAT level is still a `Mesh` level.
     - *Still open:* in files, every detail level must spell out `form` and
       `casts_shadows`. Default them to `Mesh` and `true`? Files would get
       shorter and only unusual levels say anything; the cost is that a
@@ -1390,15 +1394,18 @@ where the details are.
     the copy's size). Today every tree counts as 10 m tall, so a 4 m
     dogwood keeps full detail as far out as a 30 m pine. This moves tree
     level distances (visible). It also replaces C2's fixed 2000 m tree
-    draw range with one from the tree's cull distance. To build.
+    draw range with one from the tree's cull distance. **Built
+    (2026-11-24):** each tree's size is its height as built (the top of
+    its nearest level) times its scale. Trees gained a cull distance,
+    `LOD_CULL_DISTANCE`, 1500 m for a 10 m tree (a placeholder for the
+    user to confirm), and a tree Scatter's draw range is that distance for
+    its tallest possible tree (`TreeOptions::height_bound` times the
+    largest scale). The preset trees are 1.3 to 10 m tall, so every one
+    now switches detail sooner than before.
 
 #### Decided, to build
 
-One worker after the fruit crate lane merges (it edits the tree shaders
-and tree_bevy at the same time): tree wind as world position plus a small
-per-tree offset (item 10); the two new `FarForm` names (item 15); tree
-detail distances scaled by actual height, with the draw range from the
-cull distance (item 16).
+Done (2026-11-24): items 10, 15 and 16 above.
 17. **Releasing plant and core.** `procgena_plant` is marked
     `publish = false` because it now depends on `procgena_core`, which is
     not on crates.io. Before the next plant release: publish

@@ -10,8 +10,9 @@ use bevy::shape::{Aabb3d, RayCast3d};
 use procgena_specimen::{Specimen, TagFilter};
 use procgena_tree::CopyAddress;
 
+use super::draw::wind_phase;
 use super::{PlacedTree, TreeScatterAssets, TreeScatterInstances};
-use crate::spawn::TreeParams;
+use crate::spawn::{TreeParams, TreeWindPhase};
 
 /// Gives one tree of a grove an entity of its own: an ordinary tree with a
 /// [`TreeParams`], standing exactly where the grove drew it.
@@ -56,6 +57,7 @@ impl PromotedTree {
 pub(crate) struct PromotedAs {
     options: Arc<procgena_tree::TreeOptions>,
     transform: Transform,
+    wind_phase: TreeWindPhase,
 }
 
 /// Gives each new or changed [`PromotedTree`] its tree, and keeps every
@@ -92,15 +94,29 @@ pub(crate) fn sync_promoted_trees(
         let wanted = PromotedAs {
             options: assets.of(tree).options().clone(),
             transform: tree.transform,
+            wind_phase: TreeWindPhase(wind_phase(&promotion.address)),
         };
         if given == Some(&wanted) {
             continue;
         }
+
+        // The parts carry the tree's detail distances, scaled by its size,
+        // and its wind phase, so they are rebuilt when either changes.
         let mut entity = commands.entity(entity);
-        if given.is_none_or(|g| g.options != wanted.options) {
+        let rebuild = given.is_none_or(|g| {
+            g.options != wanted.options
+                || g.transform.scale != wanted.transform.scale
+                || g.wind_phase != wanted.wind_phase
+        });
+        if rebuild {
             entity.insert(TreeParams::Options(wanted.options.clone()));
         }
-        entity.insert((wanted.transform, ChildOf(promotion.grove), wanted));
+        entity.insert((
+            wanted.transform,
+            wanted.wind_phase,
+            ChildOf(promotion.grove),
+            wanted,
+        ));
     }
 }
 
@@ -112,7 +128,9 @@ pub(crate) fn demote_trees(
 ) {
     for entity in removed.read() {
         if given.contains(entity) {
-            commands.entity(entity).remove::<(TreeParams, PromotedAs)>();
+            commands
+                .entity(entity)
+                .remove::<(TreeParams, PromotedAs, TreeWindPhase)>();
         }
     }
 }

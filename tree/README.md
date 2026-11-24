@@ -112,7 +112,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The four default levels use progressively simpler meshes at distances of 0, 10,
-25 and 50 metres. To choose your own mesh detail, pass a `LodDetail` to
+25 and 50 metres for a tree 10 metres tall; a renderer scales these by each
+tree's height, so a 5 m tree switches at 5, 12.5 and 25 metres. Nothing is
+drawn beyond 1.5 km, scaled the same way. To choose your own mesh detail, pass a `LodDetail` to
 `Tree::mesh_with_detail`.
 
 Only LOD0 and LOD1 are meant for gameplay. Their trunk and branches are closed,

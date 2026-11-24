@@ -242,7 +242,10 @@
 //! ## Choose mesh detail
 //!
 //! The plugin generates four mesh detail levels. Bevy fades to simpler meshes at
-//! camera distances of 10, 25 and 50 metres. With a texture folder configured,
+//! camera distances of 10, 25 and 50 metres for a 10 m tree, and at
+//! distances in proportion for other heights: 5, 12.5 and 25 metres for a 5 m
+//! tree. Trees stop being drawn at 1.5 km for a 10 m tree, again in
+//! proportion. With a texture folder configured,
 //! the nearest level uses 1k bark textures and the next two use 512 textures.
 //! At the farthest level (LOD3), thin branches are omitted and the remaining branches
 //! use flat strips. With textures configured, those strips use a single colour
@@ -417,17 +420,20 @@ pub struct TreePlugin {
     pub texture_compression: TextureCompression,
     /// The mesh and far-form levels, nearest first: each one's mesh detail,
     /// switching distance in metres, and bark and leaf appearance. Defaults
-    /// to [`default_tree_lod`]. Every tree uses the distances as written, scaled
-    /// for the [`LodQuality`](procgena_core_bevy::LodQuality) in use when it is
-    /// generated: trees are not yet
-    /// scaled by their own size. Supply one level to disable distance
-    /// switching, or no levels to produce no tree meshes.
+    /// to [`default_tree_lod`]. The distances, and the cull distance where
+    /// trees stop being drawn, are written for a tree the levels'
+    /// `reference_size` metres tall. Each tree scales them by its own height
+    /// times its `Transform`'s largest scale, and by the
+    /// [`LodQuality`](procgena_core_bevy::LodQuality) in use when its parts
+    /// are spawned. Supply one level and no cull distance to disable
+    /// distance switching, or no levels to produce no tree meshes.
     ///
     /// The levels must pass [`Lod::validate`], or adding the plugin panics.
     pub lod: Lod<TreeLevel>,
     /// Draws trees far away as baked impostors, as the last level after
-    /// [`lod`](Self::lod)'s. Defaults to [`default_tree_impostor`]. `None`
-    /// draws the farthest mesh level at every distance beyond.
+    /// [`lod`](Self::lod)'s, scaled by each tree's size as they are.
+    /// Defaults to [`default_tree_impostor`]. `None` draws the farthest mesh
+    /// level out to the cull distance.
     pub impostor: Option<ImpostorLevel>,
 }
 

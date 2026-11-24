@@ -7,6 +7,7 @@ use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
+use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_core::{Lod, LodLevel, LodRange, Quality, SpecimenId};
@@ -222,26 +223,32 @@ impl SpawnSettings {
         lod
     }
 
-    /// Each mesh level's fade bands at `quality`, nearest first, as drawn
-    /// before the tree's impostor is baked: the farthest level is drawn at
-    /// every distance beyond.
-    pub(crate) fn mesh_ranges(&self, quality: Quality) -> Vec<LodRange> {
-        self.lod.ranges(self.factor(quality))
+    /// Each mesh level's fade bands at `quality` for a tree `size` metres
+    /// tall, nearest first, as drawn before the tree's impostor is baked:
+    /// the farthest level is drawn out to the cull distance.
+    pub(crate) fn mesh_ranges(&self, quality: Quality, size: f32) -> Vec<LodRange> {
+        self.lod.ranges(self.lod.factor(size, quality))
     }
 
-    /// Each level's fade bands at `quality` once the impostor is baked: the
-    /// mesh levels, then the impostor. `None` without an impostor.
-    pub(crate) fn impostor_ranges(&self, quality: Quality) -> Option<Vec<LodRange>> {
+    /// Each level's fade bands at `quality` for a tree `size` metres tall
+    /// once the impostor is baked: the mesh levels, then the impostor.
+    /// `None` without an impostor.
+    pub(crate) fn impostor_ranges(&self, quality: Quality, size: f32) -> Option<Vec<LodRange>> {
         self.impostor?;
-        Some(self.draw_lod().ranges(self.factor(quality)))
-    }
-
-    /// The factor every distance is multiplied by. Trees are not sized yet:
-    /// each one counts as the levels' reference size.
-    fn factor(&self, quality: Quality) -> f32 {
-        self.lod.factor(self.lod.reference_size, quality)
+        Some(self.draw_lod().ranges(self.lod.factor(size, quality)))
     }
 }
+
+/// The size a tree's detail distances are scaled by: its height as built,
+/// `height`, times the largest scale of `transform`.
+pub(crate) fn tree_size(height: f32, transform: &Transform) -> f32 {
+    height * transform.scale.abs().max_element()
+}
+
+/// The wind phase, from 0 to 1, of a tree drawn on its own, so that it sways
+/// as its copy in a grove would. Trees without it sway with phase 0.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct TreeWindPhase(pub(crate) f32);
 
 /// The tree's [`TreeOptions::cache_key`], used to find shared generation
 /// results. Entities with the same key reuse one [`Generated`] entry.
@@ -340,11 +347,8 @@ struct LevelAssets {
 pub(crate) struct Generated {
     /// Detail levels, nearest first.
     levels: Vec<LevelAssets>,
-    /// Each level's fade bands until the impostor is baked, one per level.
-    ranges: Vec<LodRange>,
-    /// Each level's fade bands, then the impostor's, once the impostor is
-    /// baked. `None` when trees have no impostor.
-    impostor_ranges: Option<Vec<LodRange>>,
+    /// How tall the tree is, in metres, from its nearest level's parts.
+    height: f32,
     /// The tree's fruit and flower cluster specimens and tables.
     pub(crate) clusters: Vec<TreeClusters>,
     /// The impostor's baked level's fruit and flowers, merged, with their
@@ -404,11 +408,24 @@ impl Generated {
         self.levels.len()
     }
 
-    /// Each level's fade bands, then the impostor's, as drawn once the
-    /// impostor is baked; `None` when trees have no impostor.
-    pub(crate) fn impostor_ranges(&self) -> Option<&[LodRange]> {
-        self.impostor_ranges.as_deref()
+    /// How tall the tree is before it is scaled, in metres: the top of its
+    /// nearest level's bark and leaves above its base. A tree with no bark or
+    /// leaves counts as the levels' reference size.
+    pub(crate) fn height(&self) -> f32 {
+        self.height
     }
+}
+
+/// The top of `level`'s bark and leaves above the tree's base, or `fallback`
+/// when it has neither.
+fn level_height(level: Option<&LevelAssets>, fallback: f32) -> f32 {
+    let top = level
+        .into_iter()
+        .flat_map(|level| [&level.bark, &level.leaves])
+        .flatten()
+        .map(|part| part.extent.max().y)
+        .fold(f32::NEG_INFINITY, f32::max);
+    if top > 0.0 { top } else { fallback }
 }
 
 enum Entry {
@@ -669,13 +686,10 @@ fn generate(
 }
 
 /// Collects completed tasks and registers shared meshes and materials.
-/// Invalid options are logged and cached as a failed result. Each tree's
-/// fade bands use the [`LodQuality`] in use when it finishes.
-#[expect(clippy::too_many_arguments, reason = "one Bevy system")]
+/// Invalid options are logged and cached as a failed result.
 pub(crate) fn finish_generation(
     mut cache: ResMut<TreeCache>,
     settings: Res<SpawnSettings>,
-    quality: Res<LodQuality>,
     wind: Res<Wind>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -820,10 +834,10 @@ pub(crate) fn finish_generation(
             .map(|(part, mesh)| (meshes.add(mesh), material(part)))
             .collect();
         let clusters = add_meshes(clusters, &mut meshes, material);
+        let height = level_height(level_assets.first(), settings.lod.reference_size);
         let generated = Generated {
             levels: level_assets,
-            ranges: settings.mesh_ranges(quality.0),
-            impostor_ranges: settings.impostor_ranges(quality.0),
+            height,
             clusters,
             baked_clusters,
             trellis,
@@ -849,21 +863,34 @@ fn wire_transform(wire: &TrellisWire) -> Transform {
     }
 }
 
-/// Adds child entities once a waiting tree's assets are ready.
+/// Adds child entities once a waiting tree's assets are ready, with fade
+/// bands for the tree's size and the [`LodQuality`] in use then.
 /// Stops waiting after a failed generation attempt. Either way, triggers [`TreeFinished`].
+#[expect(clippy::type_complexity, reason = "Bevy system parameters")]
 pub(crate) fn spawn_parts(
     mut commands: Commands,
-    waiting: Query<(Entity, &TreeKey), With<TreeGenerating>>,
+    waiting: Query<
+        (Entity, &TreeKey, Option<&Transform>, Option<&TreeWindPhase>),
+        With<TreeGenerating>,
+    >,
     cache: Res<TreeCache>,
     settings: Res<SpawnSettings>,
+    quality: Res<LodQuality>,
 ) {
-    for (entity, key) in &waiting {
+    for (entity, key, transform, phase) in &waiting {
         let result = match cache.trees.get(key) {
             Some(Entry::Ready(generated)) => {
                 // Drawn without the impostor until `show_impostors` adds it.
                 let specimen = cache.specimen_id(*key);
-                spawn_tree_parts(&mut commands, entity, generated);
-                spawn_clusters(&mut commands, entity, generated, specimen, &settings, false);
+                let copy = SingleTree::new(generated, transform, phase);
+                let ranges = settings.mesh_ranges(quality.0, copy.size);
+                spawn_tree_parts(&mut commands, entity, generated, &ranges, copy);
+                let clusters = SingleTreeClusters {
+                    specimen,
+                    impostor: false,
+                    copy,
+                };
+                spawn_clusters(&mut commands, entity, generated, &settings, clusters);
                 commands
                     .entity(entity)
                     .insert(GeneratedSpecimen(generated.specimen.clone()));
@@ -880,24 +907,62 @@ pub(crate) fn spawn_parts(
 /// How much a single tree's bounding sphere is enlarged to cover wind sway.
 const SWAY_ALLOWANCE: f32 = 1.15;
 
+/// How a tree drawn on its own is drawn as a copy: the size its detail
+/// distances scale with, and its wind phase.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SingleTree {
+    /// The tree's height as built times its `Transform`'s largest scale.
+    pub(crate) size: f32,
+    /// From 0 to 1; see [`TreeWindPhase`].
+    pub(crate) wind_phase: f32,
+}
+
+impl SingleTree {
+    /// The tree `generated`, placed with `transform` (unscaled without one)
+    /// and swaying with `phase` (0 without one).
+    pub(crate) fn new(
+        generated: &Generated,
+        transform: Option<&Transform>,
+        phase: Option<&TreeWindPhase>,
+    ) -> Self {
+        Self {
+            size: tree_size(
+                generated.height(),
+                transform.unwrap_or(&Transform::IDENTITY),
+            ),
+            wind_phase: phase.map_or(0.0, |p| p.0),
+        }
+    }
+}
+
+/// What a single tree's fruit and flower clusters are drawn with.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SingleTreeClusters {
+    /// The tree's specimen id.
+    pub(crate) specimen: SpecimenId,
+    /// Whether the tree's levels end in its baked impostor, so clusters stop
+    /// where it fades in.
+    pub(crate) impostor: bool,
+    /// The tree as a copy.
+    pub(crate) copy: SingleTree,
+}
+
 /// Spawns the child that draws `tree`'s fruit and flower clusters, if it
-/// grows any. `specimen` is the tree's specimen id. With `impostor`, the
-/// tree's levels end in its baked impostor, so clusters stop where it
-/// fades in.
+/// grows any.
 pub(crate) fn spawn_clusters(
     commands: &mut Commands,
     tree: Entity,
     generated: &Generated,
-    specimen: SpecimenId,
     settings: &SpawnSettings,
-    impostor: bool,
+    clusters: SingleTreeClusters,
 ) {
     let Some((scatter, attached)) = single_tree_clusters(
         &generated.clusters,
-        specimen,
+        clusters.specimen,
         &settings.lod.levels,
-        tree_lod(settings, impostor),
+        tree_lod(settings, clusters.impostor),
         generated.bounds(SWAY_ALLOWANCE),
+        clusters.copy,
     ) else {
         return;
     };
@@ -922,15 +987,26 @@ pub(crate) fn tree_lod(settings: &SpawnSettings, impostor: bool) -> Lod {
     }
 }
 
-fn spawn_tree_parts(commands: &mut Commands, tree: Entity, generated: &Generated) {
+/// Spawns `tree`'s bark, leaf and trellis parts, each mesh level drawn over
+/// its fade bands in `ranges`, swaying as `copy`.
+fn spawn_tree_parts(
+    commands: &mut Commands,
+    tree: Entity,
+    generated: &Generated,
+    ranges: &[LodRange],
+    copy: SingleTree,
+) {
     for (lod, kind, mesh, material) in generated.parts() {
+        // The tree shaders read the wind phase from the mesh tag, as the
+        // shared renderer writes it for a grove's copies.
         let mut part = commands.spawn((
             TreePart { lod, kind },
             Mesh3d(mesh.mesh.clone()),
             MeshMaterial3d(material.clone()),
+            MeshTag::with_type::<TreeWindPhase>(copy.wind_phase.to_bits()),
             ChildOf(tree),
         ));
-        if let Some(range) = part_range(&generated.ranges[lod]) {
+        if let Some(range) = part_range(&ranges[lod]) {
             part.insert(range);
         }
         // Use rotation-aware bounds so Bevy does not hide a billboard whose
@@ -1480,7 +1556,7 @@ mod tests {
         };
         let default = settings(default_tree_lod());
         let ranges: Vec<VisibilityRange> = default
-            .mesh_ranges(Quality::High)
+            .mesh_ranges(Quality::High, 10.0)
             .iter()
             .map(|r| part_range(r).unwrap())
             .collect();
@@ -1491,17 +1567,24 @@ mod tests {
         assert_eq!(ranges[2].start_margin, 23.75..26.25);
         assert_eq!(ranges[2].end_margin, 47.5..52.5);
         assert_eq!(ranges[3].start_margin, 47.5..52.5);
-        assert_eq!(ranges[3].end_margin.start, f32::INFINITY);
+        assert_eq!(ranges[3].end_margin, 1425.0..1575.0);
 
         // A lower quality setting switches every level sooner.
-        let low = default.mesh_ranges(Quality::Low);
+        let low = default.mesh_ranges(Quality::Low, 10.0);
         let fade_in = &low[1].fade_in;
         assert!((fade_in.start - 3.8).abs() < 1e-5 && (fade_in.end - 4.2).abs() < 1e-5);
 
-        // A lone detail level must remain visible at every camera distance.
+        // So does a shorter tree.
+        let short = default.mesh_ranges(Quality::High, 4.0);
+        let fade_in = &short[1].fade_in;
+        assert!((fade_in.start - 3.8).abs() < 1e-5 && (fade_in.end - 4.2).abs() < 1e-5);
+
+        // A lone detail level with no cull distance must remain visible at
+        // every camera distance.
         let mut one = default_tree_lod();
         one.levels.truncate(1);
-        let single = settings(one).mesh_ranges(Quality::High);
+        one.cull_distance = None;
+        let single = settings(one).mesh_ranges(Quality::High, 10.0);
         assert!(part_range(&single[0]).is_none());
     }
 

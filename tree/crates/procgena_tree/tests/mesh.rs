@@ -3,13 +3,37 @@
 use glam::{Quat, Vec3};
 use procgena_core::{FarForm, LevelForm, LodLevel};
 use procgena_tree::{
-    BarkUvMode, Billboard, BillboardMode, BranchShape, LOD_REFERENCE_SIZE, LodDetail, MeshBuffers,
-    Section, Skeleton, TreeMesh, TreeOptions, TreePreset, default_lod,
+    BarkUvMode, Billboard, BillboardMode, BranchShape, LOD_CULL_DISTANCE, LOD_REFERENCE_SIZE,
+    LodDetail, MeshBuffers, Section, Skeleton, TreeMesh, TreeOptions, TreePreset, default_lod,
 };
 
 /// The four levels of [`default_lod`], nearest first.
 fn default_lod_levels() -> [LodLevel<LodDetail>; 4] {
     default_lod().levels.try_into().unwrap()
+}
+
+/// No preset's nearest-level branches or leaves reach above its
+/// [`TreeOptions::height_bound`].
+#[test]
+fn presets_stay_below_their_height_bound() {
+    for preset in TreePreset::all() {
+        let bound = preset.tree.height_bound();
+        let mesh = procgena_tree::Tree::new(preset.tree.clone()).unwrap();
+        let mesh = mesh.mesh();
+        let top = mesh
+            .branches
+            .positions
+            .iter()
+            .chain(&mesh.leaves.positions)
+            .map(|p| p[1])
+            .fold(0.0_f32, f32::max);
+        assert!(top > 0.0, "{}: no geometry", preset.key);
+        assert!(
+            top <= bound,
+            "{}: {top} m above its bound {bound} m",
+            preset.key
+        );
+    }
 }
 
 /// Checks the default switching distances and branch and leaf settings.
@@ -19,7 +43,7 @@ fn default_lod_levels_have_the_documented_settings() {
     let lod = default_lod();
     lod.validate().unwrap();
     assert_eq!(lod.reference_size, LOD_REFERENCE_SIZE);
-    assert_eq!(lod.cull_distance, None);
+    assert_eq!(lod.cull_distance, Some(LOD_CULL_DISTANCE));
     let levels = default_lod_levels();
     assert_eq!(levels.map(|l| l.distance), [0.0, 10.0, 25.0, 50.0]);
     assert_eq!(levels.map(|l| l.hysteresis), [0.0, 0.05, 0.05, 0.05]);

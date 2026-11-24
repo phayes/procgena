@@ -5,6 +5,7 @@
 use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
 use procgena_core::SpecimenId;
+use procgena_core_bevy::LodQuality;
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial,
     ImpostorQuad, ImpostorRequest, Impostors, ViewCoverage,
@@ -12,11 +13,12 @@ use procgena_impostor::{
 
 use crate::material::{TreeMaterial, bake_copy};
 use crate::spawn::{
-    CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreePart,
-    TreePartKind, part_range, spawn_clusters,
+    CacheState, Generated, SingleTree, SingleTreeClusters, SpawnSettings, TreeCache,
+    TreeGenerating, TreeKey, TreePart, TreePartKind, TreeWindPhase, part_range, spawn_clusters,
 };
 
-/// The impostor trees use unless told otherwise: from 120 m, crossfading
+/// The impostor trees use unless told otherwise: from 120 m for a tree of
+/// the levels' reference height (60 m for one half as tall), crossfading
 /// over 10% on each side, baked from level 1 as 10 × 10 views of 128
 /// pixels covering viewers from straight above down to 45° below level.
 /// That covers looking up a hillside of up to about 40° at a tree; from
@@ -159,10 +161,17 @@ fn tree_request(
 pub(crate) fn show_impostors(
     mut commands: Commands,
     settings: Res<SpawnSettings>,
+    quality: Res<LodQuality>,
     cache: Res<TreeCache>,
     quad: Res<ImpostorQuad>,
     trees: Query<
-        (Entity, &TreeKey, Option<&Children>),
+        (
+            Entity,
+            &TreeKey,
+            Option<&Children>,
+            Option<&Transform>,
+            Option<&TreeWindPhase>,
+        ),
         (Without<TreeGenerating>, Without<ImpostorShown>),
     >,
     parts: Query<&TreePart>,
@@ -170,13 +179,14 @@ pub(crate) fn show_impostors(
     if settings.impostor.is_none() {
         return;
     }
-    for (tree, key, children) in &trees {
+    for (tree, key, children, transform, phase) in &trees {
         let (CacheState::Ready(generated), Some(assets)) =
             (cache.state(*key), cache.impostor(*key))
         else {
             continue;
         };
-        let Some(ranges) = generated.impostor_ranges() else {
+        let copy = SingleTree::new(generated, transform, phase);
+        let Some(ranges) = settings.impostor_ranges(quality.0, copy.size) else {
             continue;
         };
 
@@ -197,8 +207,12 @@ pub(crate) fn show_impostors(
                 }
             }
         }
-        let specimen = cache.specimen_id(*key);
-        spawn_clusters(&mut commands, tree, generated, specimen, &settings, true);
+        let clusters = SingleTreeClusters {
+            specimen: cache.specimen_id(*key),
+            impostor: true,
+            copy,
+        };
+        spawn_clusters(&mut commands, tree, generated, &settings, clusters);
         let lod = generated.level_count();
         let mut impostor = commands.spawn((
             TreePart {
@@ -243,9 +257,11 @@ mod tests {
         }
     }
 
-    /// Each level's fade-in and fade-out bands.
+    /// Each level's fade-in and fade-out bands for a tree of the levels'
+    /// reference size.
     fn bands(settings: &SpawnSettings) -> Vec<(Range<f32>, Range<f32>)> {
-        let ranges = settings.impostor_ranges(Quality::High).unwrap();
+        let size = settings.lod.reference_size;
+        let ranges = settings.impostor_ranges(Quality::High, size).unwrap();
         ranges
             .into_iter()
             .map(|r| (r.fade_in, r.fade_out))
@@ -278,16 +294,17 @@ mod tests {
                 (90.0..110.0, f32::INFINITY..f32::INFINITY),
             ]
         );
-        assert!(one.mesh_ranges(Quality::High)[0].is_always());
+        assert!(one.mesh_ranges(Quality::High, 10.0)[0].is_always());
         assert!(
             settings(&[(0.0, 0.0)], None)
-                .impostor_ranges(Quality::High)
+                .impostor_ranges(Quality::High, 10.0)
                 .is_none()
         );
     }
 
-    /// The default levels and impostor keep the bands trees had before
-    /// they moved onto the shared levels of detail.
+    /// The default levels and impostor keep, for a tree of the reference
+    /// height, the bands trees had before they moved onto the shared levels
+    /// of detail, and end at the cull distance.
     #[test]
     fn default_levels_keep_their_bands() {
         let settings = SpawnSettings {
@@ -297,19 +314,20 @@ mod tests {
             impostor: Some(default_tree_impostor()),
         };
         settings.draw_lod().validate().unwrap();
-        let inf = f32::INFINITY..f32::INFINITY;
-        let before: Vec<_> = settings
-            .mesh_ranges(Quality::High)
-            .into_iter()
-            .map(|r| (r.fade_in, r.fade_out))
-            .collect();
+        let mesh_bands = |size| -> Vec<_> {
+            settings
+                .mesh_ranges(Quality::High, size)
+                .into_iter()
+                .map(|r| (r.fade_in, r.fade_out))
+                .collect()
+        };
         assert_eq!(
-            before,
+            mesh_bands(10.0),
             vec![
                 (0.0..0.0, 9.5..10.5),
                 (9.5..10.5, 23.75..26.25),
                 (23.75..26.25, 47.5..52.5),
-                (47.5..52.5, inf.clone()),
+                (47.5..52.5, 1425.0..1575.0),
             ]
         );
         assert_eq!(
@@ -319,7 +337,18 @@ mod tests {
                 (9.5..10.5, 23.75..26.25),
                 (23.75..26.25, 47.5..52.5),
                 (47.5..52.5, 108.0..132.0),
-                (108.0..132.0, inf),
+                (108.0..132.0, 1350.0..1650.0),
+            ]
+        );
+
+        // A tree half the reference height switches at half the distances.
+        assert_eq!(
+            mesh_bands(5.0),
+            vec![
+                (0.0..0.0, 4.75..5.25),
+                (4.75..5.25, 11.875..13.125),
+                (11.875..13.125, 23.75..26.25),
+                (23.75..26.25, 712.5..787.5),
             ]
         );
     }

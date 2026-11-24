@@ -1265,8 +1265,8 @@ Assets and their Scatters:
 | CPU mesh | Yes | No (CPU copy is test-only) | Yes | Yes | Yes | Yes |
 | GPU build | No | Yes, everything | Yes (`gpu` feature) | No | No | Yes, but Bevy doesn't use it |
 | `procgena_mesh` Object | Yes | No | Yes | Yes | Yes, own local tags | Yes, reads and writes |
-| Detail levels | 4, fixed metres | 3, per blade on GPU | Up to 8, by resolution | 4 + cull | 4 + cull | None |
-| LOD scaled by size | No | No | Yes | Yes, also radii | Yes, per copy | No |
+| Detail levels | 4 + impostor + cull | 3, per blade on GPU | Up to 8, by resolution | 4 + cull | 4 + cull | None |
+| LOD scaled by size | Yes, by height, per copy | No | Yes | Yes, also radii | Yes, per copy | No |
 | Far form | Billboard leaves | Far ground material | None | Strips | Flat cap + ribbon | None |
 | Transition | Crossfade; grove dither | GPU dither | Crossfade; pool GPU dither | Crossfade | Crossfade | None |
 | Cache key | Stable hash (`tree_id`) | None | Options JSON | Options JSON | Options JSON | None |

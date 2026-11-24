@@ -302,7 +302,8 @@ pub use material::{
 };
 pub use mesh::{
     BillboardCull, BillboardMode, BillboardVertex, BranchShape, BranchSpan, ClusterSpan,
-    LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh, default_lod,
+    LOD_CULL_DISTANCE, LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh,
+    default_lod,
 };
 pub use options::{
     BarkOptions, BarkUvMode, Billboard, BranchOptions, GrowthForce, LeafOptions, MAX_LEVELS,

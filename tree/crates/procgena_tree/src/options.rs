@@ -440,6 +440,25 @@ impl fmt::Display for OptionsError {
 impl std::error::Error for OptionsError {}
 
 impl TreeOptions {
+    /// The most a tree grown from these options can reach above its base, in
+    /// metres, before it is scaled: the branch lengths from the trunk to the
+    /// deepest level laid end to end, plus the largest leaf.
+    ///
+    /// Use it where the tree's size is needed before the tree is generated,
+    /// such as for how far away it is drawn. Real trees are shorter, often
+    /// much shorter when branches spread sideways or droop. The bound leaves
+    /// out leaves enlarged by far detail levels, fruit and flowers, and the
+    /// trellis.
+    pub fn height_bound(&self) -> f32 {
+        let levels = (self.branch.levels.min(MAX_LEVELS) + 1) as usize;
+        let branches: f32 = self.branch.length.0[..levels]
+            .iter()
+            .map(|l| l.max(0.0))
+            .sum();
+        let leaf = self.leaves.size.max(0.0) * (1.0 + self.leaves.size_variance.abs());
+        branches + leaf
+    }
+
     /// Checks supported ranges for branches, stems, leaf flattening, fruit and flowers.
     ///
     /// Every level from the trunk through `branch.levels` must have at least
