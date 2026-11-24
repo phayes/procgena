@@ -15,7 +15,7 @@ use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use procgena_core::LodLevel;
-use procgena_deadwood::{DeadwoodLod, DeadwoodOptions, PieceKind, ScatterOptions};
+use procgena_deadwood::{DeadwoodOptions, PieceKind, ScatterOptions, default_lod, size_factor};
 use procgena_deadwood_bevy::{
     DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
     DeadwoodScatterParams, ScatterGround,
@@ -296,10 +296,9 @@ const DEADWOOD_NEAREST: f32 = 0.15;
 /// Returns the starting view for dead wood mode: over a scatter's whole
 /// square of ground, or for a piece, [`piece_view`].
 fn deadwood_view(settings: &DeadwoodSettings) -> OrbitCamera {
-    let Some(scatter) = scatter_options(settings.view) else {
+    let Some((_, size)) = scatter_options(settings.view) else {
         return piece_view(&settings.piece);
     };
-    let size = scatter.size[0].max(scatter.size[1]);
     OrbitCamera {
         focus: Vec3::ZERO,
         yaw: 0.6,
@@ -312,12 +311,13 @@ fn deadwood_view(settings: &DeadwoodSettings) -> OrbitCamera {
     }
 }
 
-/// The scatter that `view` shows, or `None` for a single piece.
-fn scatter_options(view: DeadwoodView) -> Option<ScatterOptions> {
+/// The scatter that `view` shows and the width of its square of ground in
+/// metres, or `None` for a single piece.
+fn scatter_options(view: DeadwoodView) -> Option<(ScatterOptions, f32)> {
     match view {
         DeadwoodView::Piece => None,
-        DeadwoodView::Kindling => Some(ScatterOptions::kindling()),
-        DeadwoodView::TwigLitter => Some(ScatterOptions::twig_litter()),
+        DeadwoodView::Kindling => Some((ScatterOptions::kindling(), 6.0)),
+        DeadwoodView::TwigLitter => Some((ScatterOptions::twig_litter(), 4.0)),
     }
 }
 
@@ -337,7 +337,8 @@ fn piece_view(options: &DeadwoodOptions) -> OrbitCamera {
         (options.diameter, options.diameter)
     };
     let extent = options.length.max(width);
-    let cull = DeadwoodLod::for_options(options).cull_distance;
+    let lod = default_lod();
+    let cull = lod.cull_distance.expect("the default levels cull") * size_factor(&lod, options);
     OrbitCamera {
         focus: Vec3::new(0.0, 0.5 * height, 0.0),
         yaw: 0.6,
@@ -455,8 +456,9 @@ fn grass_field(state: &SceneState, size: f32) -> PlantField {
 fn spawn_deadwood(commands: &mut Commands, settings: &DeadwoodSettings) -> Entity {
     match scatter_options(settings.view) {
         None => commands.spawn(DeadwoodParams::new(settings.piece.clone())),
-        Some(scatter) => commands.spawn(DeadwoodScatterParams {
+        Some((scatter, size)) => commands.spawn(DeadwoodScatterParams {
             scatter,
+            size: Vec2::splat(size),
             ground: ScatterGround::Flat,
         }),
     }

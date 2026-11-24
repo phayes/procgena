@@ -8,6 +8,7 @@
 
 use std::fmt;
 
+use procgena_core::LodError;
 use serde::{Deserialize, Serialize};
 
 use crate::colour::parse_hex;
@@ -691,6 +692,9 @@ pub enum OptionsError {
         /// The name given.
         value: String,
     },
+    /// The levels of a [`crate::DeadwoodLod`] break one of the shared
+    /// level-of-detail rules, such as distances that don't increase.
+    Lod(LodError),
 }
 
 impl fmt::Display for OptionsError {
@@ -741,11 +745,19 @@ impl fmt::Display for OptionsError {
                 "leaves.texture is {value:?}, but must be one of the names in \
                  LEAF_TEXTURE_SETS"
             ),
+            OptionsError::Lod(e) => write!(f, "invalid levels of detail: {e}"),
         }
     }
 }
 
-impl std::error::Error for OptionsError {}
+impl std::error::Error for OptionsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            OptionsError::Lod(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl DeadwoodOptions {
     /// Checks every setting, including [`detail`](Self::detail), and reports

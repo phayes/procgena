@@ -42,8 +42,9 @@ pub(crate) use render::{PoolRenderPlugin, PoolShaders};
 /// vertex and index data, so 64 variants reserve about 170 MB.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct StonePool {
-    /// Settings shared by every variant. Variant `v` uses seed
-    /// `options.seed + v`. [`MeshOptions::detail`](procgena_stone::MeshOptions::detail)
+    /// Settings shared by every variant; their own seed is not used. See
+    /// [`variant_options`](Self::variant_options) for each variant's.
+    /// [`MeshOptions::detail`](procgena_stone::MeshOptions::detail)
     /// sets the detail levels, as for a [`StoneParams`](crate::StoneParams); their
     /// resolutions must not exceed [`MAX_GPU_RESOLUTION`], and every level uses
     /// the nearest level's texture size. The material's colour, roughness,
@@ -57,12 +58,20 @@ pub struct StonePool {
     /// For example, 0.3 shrinks each axis to between 70% and 100% of its
     /// stretch, chosen per variant and axis.
     pub stretch_jitter: f32,
+    /// The seed of the World the pool's rocks grow in. Pools with equal
+    /// settings and World seeds draw the same shapes, and so does a
+    /// [`StoneScatter`](procgena_stone::StoneScatter) whose input has this
+    /// seed. For a pool used on its own, outside any World, use the options'
+    /// seed (as [`new`](Self::new) does).
+    pub world_seed: u32,
 }
 
 impl StonePool {
-    /// Creates a pool of `variants` shapes from `options`, with no stretch jitter.
+    /// Creates a pool of `variants` shapes from `options`, with no stretch
+    /// jitter, used on its own: its World seed is `options.seed`.
     pub fn new(options: StoneOptions, variants: u32) -> Self {
         Self {
+            world_seed: options.seed,
             options,
             variants,
             stretch_jitter: 0.0,
@@ -81,12 +90,8 @@ impl StonePool {
     /// with nearly equally stable resting sides settles onto a different side
     /// on the GPU than on the CPU.
     pub fn variant_options(&self, variant: u32) -> StoneOptions {
-        let mut options = self.options.clone();
-        options.seed = self.options.seed.wrapping_add(variant);
-        for (axis, stretch) in options.stretch.iter_mut().enumerate() {
-            *stretch *= 1.0 - self.stretch_jitter * unit_hash(options.seed, axis as u32);
-        }
-        options
+        self.options
+            .variant(self.world_seed, variant, self.stretch_jitter)
     }
 
     /// Checks that the pool can be generated.
@@ -105,18 +110,6 @@ impl StonePool {
         }
         Ok(())
     }
-}
-
-/// Returns a value in `[0, 1)` that depends only on `seed` and `axis`.
-fn unit_hash(seed: u32, axis: u32) -> f32 {
-    // Mix the inputs with the "lowbias32" integer hash.
-    let mut x = seed ^ axis.wrapping_mul(0x9e37_79b9);
-    x ^= x >> 16;
-    x = x.wrapping_mul(0x7feb_352d);
-    x ^= x >> 15;
-    x = x.wrapping_mul(0x846c_a68b);
-    x ^= x >> 16;
-    (x >> 8) as f32 / (1u32 << 24) as f32
 }
 
 /// Why a [`StonePool`] cannot be generated.
@@ -373,9 +366,11 @@ mod tests {
         let mut pool = StonePool::new(StoneOptions::default(), 8);
         pool.stretch_jitter = 0.3;
         let base = StoneOptions::default();
+        let mut seeds = std::collections::HashSet::new();
         for v in 0..8 {
             let options = pool.variant_options(v);
-            assert_eq!(options.seed, base.seed + v);
+            assert!(seeds.insert(options.seed), "variant {v} repeats a seed");
+            assert_eq!(options, base.variant(base.seed, v, 0.3));
             for (stretch, original) in options.stretch.iter().zip(base.stretch) {
                 assert!(*stretch <= original && *stretch > original * 0.7 - 1e-6);
             }

@@ -4,11 +4,12 @@
 
 use glam::DVec2;
 
+use crate::border::{Pull, SegmentIndex};
 use crate::options::RoadGrades;
 use crate::region::{EdgeId, Region, RegionId, Segment, segments};
 use crate::relief::Relief;
 use crate::seam::smootherstep;
-use crate::terrain::{ON_EDGE, SHEPARD_POWER, SOFT_DISTANCE_POWER};
+use crate::terrain::{BORDER_REACH, ON_EDGE};
 
 /// The default [`relief_target`] exponent: each side of an edge changes its
 /// relief in proportion to its own relief amplitude.
@@ -191,6 +192,11 @@ pub fn blend_weights(amplitudes: &[f32], meeting: f32) -> Vec<f32> {
 /// all along the edge.
 const CORNER_RAMP: f64 = 500.0;
 
+/// How far apart along an edge the fade reads its targets near a point, in
+/// metres: well under the [`CORNER_RAMP`] and the amplitude ramps they
+/// change over.
+const FADE_STEP: f64 = 64.0;
+
 /// The most the blend shares of a [`BorderTarget`] may add up to more or
 /// less than 1.
 const SHARE_TOLERANCE: f32 = 1e-4;
@@ -312,6 +318,31 @@ impl EdgeTarget {
     /// The blend share of each of `regions` (from
     /// [`blend_regions`](Self::blend_regions)) at `along` metres from the
     /// start of an edge `length` metres long.
+    /// The sum, in the order of `regions`, of each region's share (as
+    /// [`blend_at`](Self::blend_at) gives it) times `value(region)`, without
+    /// collecting the shares.
+    fn blend_sum(
+        &self,
+        regions: &[RegionId],
+        along: f64,
+        length: f64,
+        value: impl Fn(RegionId) -> f64,
+    ) -> f64 {
+        regions
+            .iter()
+            .map(|&region| {
+                let values = self.parts().map(|t| {
+                    t.blend
+                        .iter()
+                        .find(|(r, _)| *r == region)
+                        .map_or(0.0, |(_, s)| *s)
+                });
+                along_edge(values, along, length, |_| CORNER_RAMP) * value(region)
+            })
+            .sum()
+    }
+
+    #[cfg(test)]
     fn blend_at(&self, regions: &[RegionId], along: f64, length: f64) -> Vec<f64> {
         regions
             .iter()
@@ -431,6 +462,9 @@ pub(crate) struct Fade {
     width: f64,
     /// How far the border blend reaches, in metres. At least `width`.
     blend_width: f64,
+    /// Which edge segments can pull on each part of the plane, out to the
+    /// blend's reach.
+    index: SegmentIndex,
 }
 
 impl Fade {
@@ -493,6 +527,11 @@ impl Fade {
             });
         }
         let blend_width = width.max(mean_change / BLEND_RATE);
+        // One index for both fades: the blend reaches at least as far.
+        let index = SegmentIndex::new(
+            edges.iter().map(|e| e.segments.as_slice()),
+            BORDER_REACH * blend_width,
+        );
         (!edges.is_empty()).then_some(Self {
             edges,
             own,
@@ -500,6 +539,7 @@ impl Fade {
             share,
             width,
             blend_width,
+            index,
         })
     }
 
@@ -530,53 +570,38 @@ impl Fade {
         own: [f64; N],
         value: impl Fn(&FadeEdge, f64) -> [f64; N],
     ) -> Option<[f64; N]> {
-        // Mix every segment's changes, weighted by inverse distance, and find
-        // the (soft) distance to the faded edges.
-        let mut sum = [0.0f64; N];
-        let mut total = 0.0f64;
-        let mut closeness = 0.0f64;
-        for edge in &self.edges {
-            for segment in &edge.segments {
-                let projection = segment.project(p);
-                let values = value(edge, projection.along);
-                if projection.distance < ON_EDGE {
-                    return Some(values);
-                }
-                let w = projection.distance.powi(-SHEPARD_POWER);
-                for ((s, v), o) in sum.iter_mut().zip(values).zip(own) {
-                    *s += (v - o) * w;
-                }
-                total += w;
-                closeness += (projection.distance / width).powi(-SOFT_DISTANCE_POWER);
+        // Mix what every faded edge within reach asks for, each pulling
+        // along its whole length, and find the (soft) distance to them.
+        // First the distance alone, which is cheap; the values only within
+        // the fade.
+        let reach = BORDER_REACH * width;
+        let mut pull = Pull::<N>::default();
+        let near = self.index.near(p);
+        for &(e, k) in near {
+            let (edge, segment) = (&self.edges[e], &self.edges[e].segments[k]);
+            let projection = segment.project(p);
+            if projection.distance < ON_EDGE {
+                return Some(value(edge, projection.along));
             }
+            pull.add_distance(segment, p, reach);
         }
-        // In fade-width units, so the powers stay in range at any scale.
-        let distance = width * closeness.powf(-1.0 / f64::from(SOFT_DISTANCE_POWER));
+        let distance = pull.distance(reach);
         if distance >= width {
             return None;
         }
+        for &(e, k) in near {
+            let (edge, segment) = (&self.edges[e], &self.edges[e].segments[k]);
+            pull.add_targets(segment, p, reach, FADE_STEP, &|along, _| value(edge, along));
+        }
+        let mixed = pull.mixed()?;
 
         // From the edges' values to `own` across the fade width.
         let fade = 1.0 - smootherstep(distance / width);
         let mut out = own;
-        for (o, s) in out.iter_mut().zip(sum) {
-            *o += s / total * fade;
+        for (o, m) in out.iter_mut().zip(mixed) {
+            *o += (m - *o) * fade;
         }
         Some(out)
-    }
-
-    /// Returns true if `p` is within `width` metres of the faded edges, by
-    /// the same soft distance [`blend`](Self::blend) uses.
-    fn within(&self, p: DVec2, width: f64) -> bool {
-        let mut closeness = 0.0f64;
-        for segment in self.edges.iter().flat_map(|e| &e.segments) {
-            let distance = segment.project(p).distance;
-            if distance < ON_EDGE {
-                return true;
-            }
-            closeness += (distance / width).powi(-SOFT_DISTANCE_POWER);
-        }
-        width * closeness.powf(-1.0 / f64::from(SOFT_DISTANCE_POWER)) < width
     }
 
     /// The layer scales at `p`, or `None` where the fade doesn't reach and
@@ -597,10 +622,7 @@ impl Fade {
     /// region's own relief times its share. Both terrains on the edge
     /// compute the same sum, so they agree exactly there.
     pub(crate) fn blended(&self, p: DVec2, own: f64) -> Option<f64> {
-        // Beyond the blend, without evaluating any neighbour.
-        if !self.within(p, self.blend_width) {
-            return None;
-        }
+        // Each region's height once, and only within the blend.
         let height_of = |region: RegionId| {
             if region == self.own.region {
                 return own;
@@ -612,26 +634,28 @@ impl Fade {
                 .expect("every region with a blend share is known");
             f64::from(relief.own_relief(p))
         };
-        // Each region's height once, not once per segment.
-        let mut heights: Vec<(RegionId, f64)> = Vec::new();
-        for edge in &self.edges {
-            for &region in &edge.regions {
-                if !heights.iter().any(|(r, _)| *r == region) {
-                    heights.push((region, height_of(region)));
+        let heights = std::cell::OnceCell::new();
+        let heights = || {
+            heights.get_or_init(|| {
+                let mut heights: Vec<(RegionId, f64)> = Vec::new();
+                for edge in &self.edges {
+                    for &region in &edge.regions {
+                        if !heights.iter().any(|(r, _)| *r == region) {
+                            heights.push((region, height_of(region)));
+                        }
+                    }
                 }
-            }
-        }
+                heights
+            })
+        };
         let [h] = self.blend(p, self.blend_width, [own], |edge, along| {
-            let shares = edge.target.blend_at(&edge.regions, along, edge.length);
+            let heights = heights();
             let sum = edge
-                .regions
-                .iter()
-                .zip(shares)
-                .map(|(region, share)| {
-                    let (_, h) = heights.iter().find(|(r, _)| r == region).expect("height");
-                    share * h
-                })
-                .sum();
+                .target
+                .blend_sum(&edge.regions, along, edge.length, |region| {
+                    let (_, h) = heights.iter().find(|(r, _)| *r == region).expect("height");
+                    *h
+                });
             [sum]
         })?;
         Some(h)

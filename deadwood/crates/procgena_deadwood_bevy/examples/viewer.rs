@@ -13,7 +13,8 @@
 //!
 //! - `--preset <name>`: show only one preset, such as `hollow_log`, with
 //!   the camera framed on it;
-//! - `--scatter <kindling|twig_litter>`: show only that stick scatter;
+//! - `--scatter <kindling|twig_litter|fallen_logs>`: show only that
+//!   scatter;
 //! - `--closeup`: start close to what the camera looks at;
 //! - `--distance <metres>`: start this far from what the camera looks at;
 //! - `--orbit <degrees>`: start the camera turned around what it looks at;
@@ -39,7 +40,8 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_deadwood::{
-    DeadwoodDetail, DeadwoodLod, DeadwoodPreset, LodLevel, PieceKind, ScatterOptions,
+    DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, DeadwoodPreset, LodLevel, PieceKind,
+    ScatterOptions, default_lod,
 };
 use procgena_deadwood_bevy::{
     DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPlugin, DeadwoodScatterParams,
@@ -71,8 +73,9 @@ struct Scene {
     preset: Option<DeadwoodPreset>,
     /// Angle around the target in degrees, from `--orbit`.
     orbit: f32,
-    /// The one scatter to show, from `--scatter`, or `None`.
-    scatter: Option<ScatterOptions>,
+    /// The one scatter to show, from `--scatter`, and the width of its
+    /// square of ground in metres, or `None`.
+    scatter: Option<(ScatterOptions, f32)>,
     /// True to start close to the target, from `--closeup`.
     closeup: bool,
     /// Camera distance from the target, from `--distance`, replacing the
@@ -99,16 +102,13 @@ fn main() {
 
     // `--flat` uses only the cheapest detail, drawn out to 200 m.
     let lod = if has("--flat") {
-        DeadwoodLod {
-            levels: vec![LodLevel {
-                distance: 0.0,
-                hysteresis: 0.1,
-                detail: DeadwoodDetail::LOW,
-            }],
-            cull_distance: 200.0,
-        }
+        DeadwoodLod::new(
+            DEFAULT_LOD_SIZE,
+            vec![LodLevel::new(0.0, 0.1, DeadwoodDetail::LOW)],
+        )
+        .with_cull(200.0)
     } else {
-        DeadwoodLod::default()
+        default_lod()
     };
 
     // Read bark and end-grain images from the repository's dead wood
@@ -162,8 +162,9 @@ fn main() {
             preset,
             orbit: value("--orbit").and_then(|v| v.parse().ok()).unwrap_or(0.0),
             scatter: value("--scatter").map(|name| match name.as_str() {
-                "kindling" => ScatterOptions::kindling(),
-                "twig_litter" => ScatterOptions::twig_litter(),
+                "kindling" => (ScatterOptions::kindling(), 6.0),
+                "twig_litter" => (ScatterOptions::twig_litter(), 4.0),
+                "fallen_logs" => (ScatterOptions::fallen_logs(), 20.0),
                 _ => panic!("no scatter called {name:?}"),
             }),
             closeup: has("--closeup"),
@@ -230,13 +231,14 @@ fn setup(
     // logs, branches and stumps.
     // Each layout gives the point to look at, the direction from it to the
     // camera, and the camera's distance.
-    let (target, direction, distance) = if let Some(scatter) = &scene.scatter {
+    let (target, direction, distance) = if let Some((scatter, size)) = &scene.scatter {
         // One scatter around the origin.
         commands.spawn(DeadwoodScatterParams {
             scatter: scatter.clone(),
+            size: Vec2::splat(*size),
             ground: ScatterGround::Flat,
         });
-        let distance = if scene.closeup { 1.0 } else { scatter.size[0] };
+        let distance = if scene.closeup { 1.0 } else { *size };
         (Vec3::ZERO, Vec3::new(0.0, 0.45, 1.0), distance)
     } else if let Some(preset) = scene.preset {
         commands.spawn(DeadwoodParams::preset(preset));
@@ -288,6 +290,7 @@ fn setup(
         commands.spawn((
             DeadwoodScatterParams {
                 scatter: ScatterOptions::kindling(),
+                size: Vec2::splat(6.0),
                 ground: ScatterGround::Flat,
             },
             Transform::from_xyz(-3.0, 0.0, -11.0),
@@ -295,6 +298,7 @@ fn setup(
         commands.spawn((
             DeadwoodScatterParams {
                 scatter: ScatterOptions::twig_litter(),
+                size: Vec2::splat(4.0),
                 ground: ScatterGround::Flat,
             },
             Transform::from_xyz(3.0, 0.0, -11.0),

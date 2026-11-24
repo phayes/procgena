@@ -70,6 +70,7 @@
 //! cargo run -p procgena_stone --example export --features export-obj,export-gltf
 //! ```
 
+mod content;
 mod detail;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
@@ -84,10 +85,12 @@ mod options;
 mod parallel;
 mod placement;
 mod presets;
+mod scatter;
 pub mod shaders;
 mod stone;
 
-pub use detail::{DetailLevel, StoneDetail};
+pub use content::STONE_KIND;
+pub use detail::{DetailLevel, LOD_REFERENCE_SIZE, StoneDetail, StoneLevel};
 pub use field::{CarveSet, CarveSphere, StoneField};
 pub use material::{
     ImageMap, TEXTURE_SETS, TextureCompression, TextureMap, TextureSize, image_path, texture_path,
@@ -100,4 +103,13 @@ pub use options::{
 };
 pub use placement::StonePlacement;
 pub use presets::StonePreset;
+pub use procgena_core::scatter::{Mask, Placement, Rest, ScatterArea, ScatterInput};
+pub use procgena_core::{
+    ContentHash, FlatGround, Ground, HeightGrid, OptionsHash, PoolId, SpecimenId, content_hash,
+};
+pub use scatter::{
+    MAX_CLUSTER_MEMBERS, MAX_STONE_CANDIDATES, MAX_STONE_CLASSES, MAX_STONE_INSTANCES,
+    MAX_STONE_VARIANTS, StoneClass, StoneInstance, StoneScatter, StoneScatterError,
+    StoneScatterOptions,
+};
 pub use stone::{Stone, StoneError};

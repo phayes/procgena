@@ -7,9 +7,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+procgena_core = { path = "../../../core/crates/procgena_core" }
+procgena_core_bevy = { path = "../../../core/crates/procgena_core_bevy" }
 procgena_deadwood = { path = "../procgena_deadwood" }
 procgena_specimen = { path = "../../../specimen/crates/procgena_specimen", features = ["bevy"] }
-serde_json = { workspace = true }
 bevy = { version = "0.20.1", default-features = false, features = [
     "std",
     "async_executor",

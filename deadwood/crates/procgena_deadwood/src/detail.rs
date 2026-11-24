@@ -5,14 +5,16 @@
 //! [`DeadwoodDetail`] says how detailed one mesh is, and [`DeadwoodLod`]
 //! says which detail to draw at which camera distance.
 
+use procgena_core::{FarForm, LevelForm, Lod, Quality};
 use serde::{Deserialize, Serialize};
 
 use crate::options::{
-    DeadwoodOptions, MAX_SEGMENTS, OptionsError, int_range, non_negative, positive, within,
+    DeadwoodOptions, MAX_SEGMENTS, OptionsError, int_range, non_negative, within,
 };
 
-/// Size, in metres, that [`DeadwoodLod::default`]'s distances are written
-/// for. [`DeadwoodLod::for_options`] scales them by a piece's own size.
+/// Size, in metres, that [`default_lod`]'s distances are written for: its
+/// [`reference_size`](Lod::reference_size). Pieces are measured with
+/// [`lod_size`].
 pub const DEFAULT_LOD_SIZE: f32 = 0.45;
 
 /// How detailed one mesh of a piece is.
@@ -138,121 +140,88 @@ impl Default for DeadwoodDetail {
     }
 }
 
-/// One level of detail: the detail to draw from a camera distance onward.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct LodLevel {
-    /// Camera distance in metres where this level starts. The first level
-    /// starts at 0.
-    pub distance: f32,
-    /// Fraction of `distance`, from 0 through 1, by which a renderer should
-    /// overlap this level with the one before, so that a camera hovering at
-    /// the boundary doesn't make the mesh flicker between them.
-    pub hysteresis: f32,
-    /// The mesh detail at this level.
-    pub detail: DeadwoodDetail,
-}
-
-/// Which detail to draw at which camera distance, and where to stop drawing.
+/// Which detail to draw at which camera distance, and where to stop
+/// drawing: the shared [`Lod`] type with a [`DeadwoodDetail`] per level.
 ///
-/// Pass it to [`crate::Piece::lod_meshes`] to build one mesh per level.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DeadwoodLod {
-    /// Levels in order of increasing distance; the first starts at 0.
-    pub levels: Vec<LodLevel>,
-    /// Camera distance in metres beyond which the piece is not drawn.
-    pub cull_distance: f32,
-}
+/// Its distances are written for a piece [`reference_size`](Lod::reference_size)
+/// metres across, as measured by [`lod_size`]. Pass it to
+/// [`crate::Piece::lod_meshes`] to build one mesh per level, and scale its
+/// distances for each piece with [`Lod::factor`] and [`Lod::ranges`].
+pub type DeadwoodLod = Lod<DeadwoodDetail>;
 
-impl Default for DeadwoodLod {
-    /// Levels for a log about [`DEFAULT_LOD_SIZE`] across.
-    fn default() -> Self {
-        let level = |distance, detail| LodLevel {
-            distance,
-            hysteresis: 0.1,
-            detail,
-        };
-        Self {
-            levels: vec![
-                level(0.0, DeadwoodDetail::FULL),
-                level(8.0, DeadwoodDetail::HIGH),
-                level(25.0, DeadwoodDetail::LOW),
-                level(45.0, DeadwoodDetail::STRIP),
-            ],
-            cull_distance: 90.0,
-        }
-    }
-}
+/// One level of a [`DeadwoodLod`].
+pub type LodLevel = procgena_core::LodLevel<DeadwoodDetail>;
 
-impl DeadwoodLod {
-    /// Returns the default levels with distances scaled to suit a piece
-    /// made from `options`: further for large logs, nearer for sticks.
-    ///
-    /// The piece's size is its diameter, or 15% of its length if that is
-    /// larger, since long thin pieces stay visible further away.
-    pub fn for_options(options: &DeadwoodOptions) -> Self {
-        Self::default().sized_for(options)
-    }
-
-    /// Returns these levels, written for a piece [`DEFAULT_LOD_SIZE`]
-    /// across, scaled to suit a piece made from `options` (see
-    /// [`scaled`](Self::scaled)). The piece's size is measured as in
-    /// [`for_options`](Self::for_options).
-    pub fn sized_for(self, options: &DeadwoodOptions) -> Self {
-        self.scaled(lod_size(options) / DEFAULT_LOD_SIZE)
-    }
-
-    /// Returns these levels with every distance, and each level's
-    /// [`min_radius`](DeadwoodDetail::min_radius) and
-    /// [`ribbon_radius`](DeadwoodDetail::ribbon_radius), multiplied by
-    /// `factor`. A piece twice as large then switches level twice as far
-    /// away, and drops or flattens stems twice as thick, so each level
-    /// looks the same on screen whatever the piece's size.
-    pub fn scaled(mut self, factor: f32) -> Self {
-        for level in &mut self.levels {
-            level.distance *= factor;
-            level.detail.min_radius *= factor;
-            level.detail.ribbon_radius *= factor;
-        }
-        self.cull_distance *= factor;
-        self
-    }
-
-    /// Checks the levels and returns the first problem found.
-    ///
-    /// # Errors
-    ///
-    /// Returns an [`OptionsError`] if there are no levels, the first level
-    /// doesn't start at 0, a level's distance is less than the one before,
-    /// a hysteresis is outside 0 through 1, or a level's detail is invalid.
-    /// Also returns one if the cull distance is not positive, or is less
-    /// than the last level's distance.
-    pub fn validate(&self) -> Result<(), OptionsError> {
-        let Some(first) = self.levels.first() else {
-            return Err(OptionsError::IntOutOfRange {
-                field: "lod.levels",
-                value: 0,
-                min: 1,
-                max: u32::MAX,
-            });
-        };
-        within("lod.levels[0].distance", first.distance, 0.0, 0.0)?;
-        let mut previous = 0.0;
-        for level in &self.levels {
-            within("lod.levels.distance", level.distance, previous, f32::MAX)?;
-            within("lod.levels.hysteresis", level.hysteresis, 0.0, 1.0)?;
-            level.detail.validate()?;
-            previous = level.distance;
-        }
-        positive("lod.cull_distance", self.cull_distance)?;
-        within("lod.cull_distance", self.cull_distance, previous, f32::MAX)
-    }
+/// The standard levels, for a piece [`DEFAULT_LOD_SIZE`] across: full detail
+/// up close, then [`HIGH`](DeadwoodDetail::HIGH) from 8 m,
+/// [`LOW`](DeadwoodDetail::LOW) from 25 m and camera-facing strips
+/// ([`FarForm::Strips`], casting no shadows) from 45 m, with nothing drawn
+/// past 90 m.
+pub fn default_lod() -> DeadwoodLod {
+    let level = |distance, detail| LodLevel::new(distance, 0.1, detail);
+    Lod::new(
+        DEFAULT_LOD_SIZE,
+        vec![
+            level(0.0, DeadwoodDetail::FULL),
+            level(8.0, DeadwoodDetail::HIGH),
+            level(25.0, DeadwoodDetail::LOW),
+            level(45.0, DeadwoodDetail::STRIP)
+                .with_form(LevelForm::Far(FarForm::Strips))
+                .without_shadows(),
+        ],
+    )
+    .with_cull(90.0)
 }
 
 /// Returns a piece's size for choosing LOD distances: its diameter, or 15%
 /// of its length if that is larger, since long thin pieces stay visible
-/// further away.
-fn lod_size(options: &DeadwoodOptions) -> f32 {
+/// further away. Pass it to [`Lod::factor`].
+pub fn lod_size(options: &DeadwoodOptions) -> f32 {
     options.diameter.max(0.15 * options.length)
+}
+
+/// Returns the factor by which `lod`'s distances grow for a piece made from
+/// `options`, at [`Quality::High`]: its [`lod_size`] over `lod`'s
+/// reference size. [`crate::Piece::lod_meshes`] scales stem radii by it;
+/// multiply in [`Quality::distance_scale`] for another quality.
+pub fn size_factor(lod: &DeadwoodLod, options: &DeadwoodOptions) -> f32 {
+    lod.factor(lod_size(options), Quality::High)
+}
+
+/// Checks `lod` against the shared level-of-detail rules (see
+/// [`Lod::validate`]) and checks each level's detail.
+///
+/// # Errors
+///
+/// Returns [`OptionsError::Lod`] if the levels break a shared rule, or the
+/// first invalid setting of a level's detail.
+pub fn validate_lod(lod: &DeadwoodLod) -> Result<(), OptionsError> {
+    lod.validate().map_err(OptionsError::Lod)?;
+    lod.levels
+        .iter()
+        .try_for_each(|level| level.detail.validate())
+}
+
+/// Returns `lod`'s levels scaled for a piece made from `options`, as drawn
+/// at [`Quality::High`]: each distance, and each detail's
+/// [`min_radius`](DeadwoodDetail::min_radius) and
+/// [`ribbon_radius`](DeadwoodDetail::ribbon_radius), multiplied by the
+/// piece's size factor. A piece twice as large then drops or flattens
+/// stems twice as thick, so each level looks the same on screen whatever
+/// the piece's size. The quality setting never changes these radii, so it
+/// never changes the meshes.
+pub(crate) fn sized_levels(lod: &DeadwoodLod, options: &DeadwoodOptions) -> Vec<LodLevel> {
+    let factor = size_factor(lod, options);
+    lod.levels
+        .iter()
+        .map(|level| {
+            let mut level = *level;
+            level.distance *= factor;
+            level.detail.min_radius *= factor;
+            level.detail.ribbon_radius *= factor;
+            level
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -260,28 +229,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_lod_is_valid_and_scales() {
-        let lod = DeadwoodLod::default();
-        lod.validate().unwrap();
-        let half = lod.clone().scaled(0.5);
-        assert_eq!(half.levels[1].distance, lod.levels[1].distance * 0.5);
-        assert_eq!(half.cull_distance, lod.cull_distance * 0.5);
+    fn default_lod_is_valid_and_scales_with_size() {
+        let lod = default_lod();
+        validate_lod(&lod).unwrap();
+        let o = DeadwoodOptions {
+            diameter: DEFAULT_LOD_SIZE * 0.5,
+            length: 1.0,
+            ..DeadwoodOptions::default()
+        };
+        let half = sized_levels(&lod, &o);
+        assert_eq!(half[1].distance, lod.levels[1].distance * 0.5);
         // Stem thresholds scale with the distances.
-        let (low, half_low) = (lod.levels[2].detail, half.levels[2].detail);
+        let (low, half_low) = (lod.levels[2].detail, half[2].detail);
         assert_eq!(half_low.min_radius, low.min_radius * 0.5);
         assert_eq!(half_low.ribbon_radius, low.ribbon_radius * 0.5);
-        half.validate().unwrap();
     }
 
     #[test]
-    fn default_lod_ends_with_strips() {
-        let lod = DeadwoodLod::default();
+    fn default_lod_ends_with_shadowless_strips() {
+        let lod = default_lod();
         let last = lod.levels.last().unwrap();
         assert!(last.detail.strip_all);
+        assert_eq!(last.form, LevelForm::Far(FarForm::Strips));
+        assert!(!last.casts_shadows);
         assert!(
             lod.levels[..lod.levels.len() - 1]
                 .iter()
-                .all(|l| !l.detail.strip_all)
+                .all(|l| !l.detail.strip_all && l.form == LevelForm::Mesh && l.casts_shadows)
         );
     }
 

@@ -9,9 +9,10 @@
 use std::fs;
 use std::path::Path;
 
-use glam::DVec2;
+use glam::{DVec2, Vec2};
+use procgena_core::scatter::{ScatterArea, ScatterInput};
 use procgena_deadwood::export::{gltf, obj};
-use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, Piece, ScatterOptions, StickScatter};
+use procgena_deadwood::{DeadwoodPreset, Piece, ScatterOptions, StickScatter, default_lod};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
@@ -21,9 +22,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Every preset, one object per level of detail.
     for preset in DeadwoodPreset::ALL {
         let piece = Piece::from_preset(preset);
-        let lod = DeadwoodLod::for_options(piece.options());
         let meshes: Vec<_> = piece
-            .lod_meshes(&lod)?
+            .lod_meshes(&default_lod())?
             .into_iter()
             .map(|(_, m)| m)
             .collect();
@@ -51,7 +51,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (x, z) = (p.x as f32, p.y as f32);
         0.15 * (x * 0.8).sin() + 0.1 * (z * 1.1).cos()
     };
-    let scatter = StickScatter::new(&ScatterOptions::kindling(), &ground, None)?;
+    let kindling = ScatterOptions::kindling();
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(6.0));
+    let scatter = StickScatter::new(&kindling, &ScatterInput::new(&ground, area, kindling.seed))?;
     let mut meshes = Vec::new();
     for instance in scatter.instances() {
         let mut mesh = scatter.variants()[instance.variant as usize].mesh();

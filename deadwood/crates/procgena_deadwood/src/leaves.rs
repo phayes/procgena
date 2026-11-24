@@ -7,16 +7,15 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use glam::{Mat3, Quat, Vec3};
+use procgena_core::hash::{derive_seed, seed_for, unit_float};
 
 use crate::colour::{linear_from_hex, rgba};
 use crate::limb::Limb;
 use crate::mesh::MeshBuffers;
 use crate::options::{DeadwoodOptions, LeafOptions};
-use crate::rng::{Rng, pcg3d, unit_float};
+use crate::rng::{RngExt, stream};
+use crate::seed_keys::{LEAF_KEEP, LEAF_SPRAYS};
 
-/// Random stream for leaf sprays. Kept apart from the stem streams in
-/// `build`, so turning leaves on never changes the wood.
-const STREAM_LEAVES: u32 = 5;
 /// Spots tried per spray before giving up on it.
 const MAX_TRIES: u32 = 12;
 /// How far a card's base sinks into the surface, as a fraction of its
@@ -51,7 +50,9 @@ pub(crate) fn place(o: &DeadwoodOptions, main: &Limb, span: (f32, f32), burial: 
     let (u0, u1) = span;
     let count = (l.per_metre * (u1 - u0) * main.length()).round() as u32;
     let floor = burial + CLEARANCE * o.diameter;
-    let mut rng = Rng::new(o.seed, STREAM_LEAVES);
+    // Leaves draw from their own stream, apart from the stem streams in
+    // `build`, so turning leaves on never changes the wood.
+    let mut rng = stream(o.seed, LEAF_SPRAYS);
     let mut cards = Vec::new();
 
     for spray in 0..count {
@@ -175,9 +176,9 @@ fn flatten(orientation: Quat, amount: f32) -> Quat {
 
 /// Returns true if `spray` is among the share `share` (0 to 1) of sprays a
 /// detail level keeps. A spray kept at one share is kept at every larger
-/// share.
-fn keeps(seed: u32, spray: u32, share: f32) -> bool {
-    unit_float(pcg3d([seed, spray, 0x1eaf])[0]) < share
+/// share. `keep_seed` is the piece's seed for [`LEAF_KEEP`].
+fn keeps(keep_seed: u32, spray: u32, share: f32) -> bool {
+    unit_float(derive_seed(keep_seed, spray)) < share
 }
 
 /// Meshes the cards of the sprays kept at `share`, coloured by
@@ -200,7 +201,8 @@ pub(crate) fn mesh_cards(
         &[0.0]
     };
     let mut out = MeshBuffers::default();
-    for card in cards.iter().filter(|c| keeps(seed, c.spray, share)) {
+    let keep_seed = seed_for(seed, LEAF_KEEP);
+    for card in cards.iter().filter(|c| keeps(keep_seed, c.spray, share)) {
         for &turn in turns {
             let rotation = card.orientation * Quat::from_rotation_y(turn);
             let half = card.size / 2.0;

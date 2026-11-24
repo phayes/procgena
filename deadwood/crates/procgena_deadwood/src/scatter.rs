@@ -1,7 +1,6 @@
-//! Sticks and twigs scattered over a rectangle of ground, like a
-//! `procgena_plant` field. The ground is flat by default, or any shape you
-//! describe with [`Ground`]. An optional density function thins the sticks
-//! out in places.
+//! Sticks, twigs and logs scattered over a rectangle of ground. Like every
+//! procgena Scatter, it takes a [`ScatterInput`]: the ground, an optional
+//! mask that thins the sticks out in places, the area and a seed.
 //!
 //! The result is a few distinct stick meshes ([`StickScatter::variants`])
 //! and a list of placed copies ([`StickScatter::instances`]). A renderer can
@@ -11,14 +10,20 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
+use glam::{Affine3A, Mat3, Vec2, Vec3};
+use procgena_core::hash::{derive_seed, seed_for};
+use procgena_core::scatter::{
+    Footprint, Placement as GroundPlacement, Rest, ScatterInput, place, steeper_than,
+};
+use procgena_core::{Rng, SpecimenId};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
 
 use crate::detail::DeadwoodLod;
 use crate::options::{DeadwoodOptions, OptionsError, PieceKind, int_range, positive, within};
 use crate::piece::Piece;
 use crate::presets::DeadwoodPreset;
-use crate::rng::{Rng, sub_seed};
+use crate::rng::stream;
+use crate::seed_keys::{SCATTER_CELL, SCATTER_VARIANT};
 use crate::settle::surface_points;
 
 /// Largest number of sticks one scatter may place.
@@ -35,12 +40,13 @@ pub use procgena_core::{FlatGround, Ground, HeightGrid};
 /// Settings for a [`StickScatter`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScatterOptions {
-    /// Number that picks the variants and positions. The same seed and
-    /// settings always give the same scatter.
+    /// The seed to pass in [`ScatterInput::seed`] when this scatter is
+    /// built on its own, such as in a viewer. [`StickScatter::new`] uses the
+    /// input's seed, not this one.
     pub seed: u32,
-    /// Width (X) and depth (Z) of the rectangle, in metres, centred on the
-    /// origin. Both must be positive.
-    pub size: [f32; 2],
+    /// The steepest ground, in degrees from 0 through 90, that a stick is
+    /// placed on. 90 places sticks on any measured slope.
+    pub max_slope: f32,
     /// Sticks per square metre where the density function is 1, before
     /// [`min_spacing`](Self::min_spacing) removes any. Must be positive.
     pub density: f32,
@@ -59,9 +65,10 @@ pub struct ScatterOptions {
     /// smallest first.
     pub length: [f32; 2],
     /// Settings every variant starts from, before its own seed, decay,
-    /// diameter and length are chosen. Usually a [`PieceKind::Branch`]; a
-    /// [`PieceKind::Stump`] is made into a branch. Where a variant turns out
-    /// too short for its ends, those ends become flat saw cuts.
+    /// diameter and length are chosen. Its kind decides how copies are put
+    /// on the ground (see [`PieceKind::placement`]): logs and branches lie
+    /// along it, stumps stand upright. Where a variant turns out too short
+    /// for its ends, those ends become flat saw cuts.
     pub piece: DeadwoodOptions,
 }
 
@@ -72,7 +79,7 @@ impl ScatterOptions {
     pub fn kindling() -> Self {
         Self {
             seed: 1,
-            size: [6.0, 6.0],
+            max_slope: 35.0,
             density: 1.5,
             min_spacing: 0.3,
             variants: 6,
@@ -88,7 +95,7 @@ impl ScatterOptions {
     pub fn twig_litter() -> Self {
         Self {
             seed: 2,
-            size: [4.0, 4.0],
+            max_slope: 45.0,
             density: 8.0,
             min_spacing: 0.08,
             variants: 8,
@@ -99,6 +106,22 @@ impl ScatterOptions {
         }
     }
 
+    /// Fallen logs: a few wind-thrown trunks 20 to 50 cm thick and 2 to 6 m
+    /// long, kept to gentle slopes.
+    pub fn fallen_logs() -> Self {
+        Self {
+            seed: 3,
+            max_slope: 25.0,
+            density: 0.04,
+            min_spacing: 3.0,
+            variants: 4,
+            decay: [1.0, 4.0],
+            diameter: [0.2, 0.5],
+            length: [2.0, 6.0],
+            piece: DeadwoodPreset::WindthrowLog.options(),
+        }
+    }
+
     /// Checks the settings, except [`piece`](Self::piece). The variants made
     /// from `piece` are checked when [`StickScatter::new`] builds them.
     ///
@@ -106,8 +129,7 @@ impl ScatterOptions {
     ///
     /// Returns an [`OptionsError`] naming the first invalid setting.
     pub fn validate(&self) -> Result<(), OptionsError> {
-        positive("scatter.size", self.size[0])?;
-        positive("scatter.size", self.size[1])?;
+        within("scatter.max_slope", self.max_slope, 0.0, 90.0)?;
         positive("scatter.density", self.density)?;
         within("scatter.min_spacing", self.min_spacing, 0.0, f32::MAX)?;
         int_range("scatter.variants", self.variants, 1, MAX_VARIANTS)?;
@@ -164,8 +186,8 @@ impl From<OptionsError> for ScatterError {
 pub struct Instance {
     /// Index into [`StickScatter::variants`].
     pub variant: u32,
-    /// Where the middle of the stick is, in X and Z, with the ground height
-    /// at that point in Y, in metres.
+    /// Where the middle of the stick is, in X and Z relative to the area's
+    /// centre, with the ground height at that point in Y, in metres.
     pub position: Vec3,
     /// Moves the variant's meshes into place: turned, tilted to the
     /// ground's slope, and resting on it. Apply it to every vertex of the
@@ -183,74 +205,72 @@ pub struct StickScatter {
     instances: Vec<Instance>,
 }
 
-/// Where a variant touches the ground, and which way it lies.
-struct Footprint {
-    /// The middle of the variant in X and Z, at `y = 0`.
+/// How one variant is put on the ground.
+struct Fit {
+    /// The middle of the variant in X and Z, at `y = 0`. Copies are placed
+    /// around this point.
     centre: Vec3,
-    /// Surface points near the ground, measured from `centre`.
-    contacts: Vec<Vec3>,
-    /// The main stem's direction in X and Z, as a unit vector.
-    axis: Vec3,
-    /// How far either side of the middle to sample the ground's
-    /// cross-slope, in metres.
-    width: f32,
+    /// Where the variant touches the ground, measured from `centre`.
+    footprint: Footprint,
+    /// How the variant follows the ground, from its kind.
+    placement: GroundPlacement,
 }
 
 impl StickScatter {
-    /// Scatters sticks over `ground`, thinned by `density`.
+    /// Scatters sticks over `input`'s area of ground, thinned by its mask
+    /// and seeded by its seed.
     ///
-    /// `density` returns from 0 (no sticks) to 1 (the full
-    /// [`ScatterOptions::density`]); `None` is full everywhere. Both
-    /// `ground` and `density` take X and Z in metres. Sticks are left out
-    /// where any part of them has no ground under it.
+    /// Sticks are left out where the ground is steeper than
+    /// [`ScatterOptions::max_slope`], and where any part of them has no
+    /// ground under it. Positions in the result are relative to the area's
+    /// centre.
     ///
     /// # Errors
     ///
-    /// Returns [`ScatterError::Options`] if a setting or a variant is
-    /// invalid, and [`ScatterError::TooMany`] if the settings ask for more
-    /// than [`MAX_INSTANCES`] sticks.
-    pub fn new(
-        options: &ScatterOptions,
-        ground: &dyn Ground,
-        density: Option<&dyn Fn(f32, f32) -> f32>,
-    ) -> Result<Self, ScatterError> {
+    /// Returns [`ScatterError::Options`] if a setting, the area's size or a
+    /// variant is invalid, and [`ScatterError::TooMany`] if the settings ask
+    /// for more than [`MAX_INSTANCES`] sticks.
+    pub fn new(options: &ScatterOptions, input: &ScatterInput<'_>) -> Result<Self, ScatterError> {
         options.validate()?;
-        let area = options.size[0] * options.size[1];
-        let count = (area * options.density).ceil() as usize;
+        let size = input.area.size;
+        positive("area.size", size.x)?;
+        positive("area.size", size.y)?;
+        let count = (size.x * size.y * options.density).ceil() as usize;
         if count > MAX_INSTANCES {
             return Err(ScatterError::TooMany { count });
         }
 
         // Build the variants, each resting on flat ground in its own space.
-        let mut rng = Rng::new(options.seed, 1);
+        // Variant `v` is the specimen in slot `v` of the variant pool, so
+        // its seed, and the size and decay drawn from it, depend only on the
+        // input's seed, the pool and the slot.
+        let pool = options.variant_pool();
         let mut variants = Vec::with_capacity(options.variants as usize);
         for v in 0..options.variants {
             let mut o = options.piece.clone();
-            o.seed = sub_seed(options.seed, v);
+            o.seed = SpecimenId::new(input.seed, pool, v).seed();
+            let mut rng = stream(o.seed, SCATTER_VARIANT);
             o.decay = rng.range(options.decay[0], options.decay[1]);
             let (lo, hi) = (options.diameter[0].ln(), options.diameter[1].ln());
             o.diameter = rng.range(lo, hi).exp();
             o.length = rng.range(options.length[0], options.length[1]);
-            if o.kind == PieceKind::Stump {
-                o.kind = PieceKind::Branch;
-            }
             variants.push(Piece::new(o)?);
         }
-        let footprints: Vec<Footprint> = variants.iter().map(footprint).collect();
+        let fits: Vec<Fit> = variants.iter().map(fit).collect();
 
-        // One candidate per cell of a jittered grid, thinned by density and
-        // spacing.
+        // One candidate per cell of a jittered grid starting at the area's
+        // corner, so changing the area's size moves every candidate. Each
+        // passes the mask, then the slope limit, then spacing, then must fit
+        // the ground.
         let cell = 1.0 / options.density.sqrt();
-        let half = Vec2::from(options.size) * 0.5;
-        let (columns, rows) = (
-            (options.size[0] / cell).ceil() as u32,
-            (options.size[1] / cell).ceil() as u32,
-        );
+        let half = size * 0.5;
+        let (columns, rows) = ((size.x / cell).ceil() as u32, (size.y / cell).ceil() as u32);
         let mut spacing = SpacingGrid::new(options.min_spacing);
         let mut instances = Vec::new();
+        let cell_seed = seed_for(input.seed, SCATTER_CELL);
         for r in 0..rows {
             for c in 0..columns {
-                let mut rng = Rng::new(options.seed, 1000 + r * columns + c);
+                let mut rng = Rng::new(derive_seed(cell_seed, r * columns + c));
                 let site = Vec2::new(
                     -half.x + (c as f32 + rng.next_f32()) * cell,
                     -half.y + (r as f32 + rng.next_f32()) * cell,
@@ -263,17 +283,19 @@ impl StickScatter {
                 if site.x > half.x || site.y > half.y {
                     continue;
                 }
-                let d = density.map_or(1.0, |f| f(site.x, site.y));
-                if keep >= d || !spacing.accepts(site) {
+                if keep >= input.density(site) {
+                    continue;
+                }
+                let sample = input.sample(site);
+                if steeper_than(&sample, options.max_slope) || !spacing.accepts(site) {
                     continue;
                 }
                 let variant = variant.min(options.variants - 1);
-                let Some(transform) = place(&footprints[variant as usize], site, yaw, ground)
-                else {
+                let Some(transform) = put_down(&fits[variant as usize], site, yaw, input) else {
                     continue;
                 };
                 spacing.insert(site);
-                let position = Vec3::new(site.x, ground.height(site.as_dvec2()), site.y);
+                let position = Vec3::new(site.x, sample.height, site.y);
                 instances.push(Instance {
                     variant,
                     position,
@@ -305,7 +327,7 @@ impl StickScatter {
     ///
     /// # Errors
     ///
-    /// Returns the first problem with `lod`; see [`DeadwoodLod::validate`].
+    /// Returns the first problem with `lod`; see [`crate::validate_lod`].
     ///
     /// # Panics
     ///
@@ -338,8 +360,31 @@ impl StickScatter {
     }
 }
 
-/// Measures where `piece` touches the ground and which way it lies.
-fn footprint(piece: &Piece) -> Footprint {
+impl PieceKind {
+    /// How copies of a piece of this kind are put on uneven ground by a
+    /// [`StickScatter`]: logs and branches lie along the ground's slope,
+    /// resting on the plane fitted under them; stumps stay upright, sunk
+    /// until the lowest ground around their base meets it.
+    pub fn placement(self) -> GroundPlacement {
+        match self {
+            PieceKind::Log | PieceKind::Branch => GroundPlacement {
+                conform: 1.0,
+                rest: Rest::Plane,
+                ..GroundPlacement::default()
+            },
+            PieceKind::Stump => GroundPlacement {
+                conform: 0.0,
+                rest: Rest::Lowest,
+                ..GroundPlacement::default()
+            },
+        }
+    }
+}
+
+/// Measures where `piece` touches flat ground and how it follows uneven
+/// ground.
+fn fit(piece: &Piece) -> Fit {
+    let o = piece.options();
     let points = surface_points(piece.limbs(), |_| true);
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for p in &points {
@@ -347,73 +392,62 @@ fn footprint(piece: &Piece) -> Footprint {
         hi = hi.max(*p);
     }
     let centre = Vec3::new((lo.x + hi.x) * 0.5, 0.0, (lo.z + hi.z) * 0.5);
-    let near = 0.25 * piece.options().diameter + 1e-3;
-    let low: Vec<Vec3> = points
-        .iter()
-        .filter(|p| p.y <= near)
-        .map(|&p| p - centre)
-        .collect();
+
+    // Contacts: for a lying piece, the surface near the ground; for a stump,
+    // whose base and roots reach below the ground, the ring where its
+    // surface crosses the ground, flattened onto `y = 0`.
+    let near = 0.25 * o.diameter + 1e-3;
+    let stump = o.kind == PieceKind::Stump;
+    let low: Vec<Vec3> = if stump {
+        points
+            .iter()
+            .filter(|p| p.y.abs() <= near)
+            .map(|p| Vec3::new(p.x, 0.0, p.z) - centre)
+            .collect()
+    } else {
+        points
+            .iter()
+            .filter(|p| p.y <= near)
+            .map(|&p| p - centre)
+            .collect()
+    };
     let stride = low.len().div_ceil(MAX_CONTACTS).max(1);
     let contacts: Vec<Vec3> = low.into_iter().step_by(stride).collect();
 
-    // The main stem's direction in X and Z.
-    let main = &piece.limbs()[0].curve;
-    let (a, b) = (main.at(0.0).position, main.at(1.0).position);
-    let axis = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or(Vec3::X);
-    Footprint {
+    // A lying piece also samples the ground either side of its middle,
+    // across its main stem, so a straight stick still finds the cross-slope.
+    let width = o.diameter.max(0.1 * o.length);
+    let extra = if stump {
+        Vec::new()
+    } else {
+        let main = &piece.limbs()[0].curve;
+        let (a, b) = (main.at(0.0).position, main.at(1.0).position);
+        let axis = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or(Vec3::X);
+        let side = axis.cross(Vec3::Y) * width;
+        vec![Vec2::new(side.x, side.z), -Vec2::new(side.x, side.z)]
+    };
+    Fit {
         centre,
-        contacts,
-        axis,
-        width: piece.options().diameter.max(0.1 * piece.options().length),
+        footprint: Footprint {
+            contacts,
+            extra,
+            size: width,
+        },
+        placement: o.kind.placement(),
     }
 }
 
-/// Returns the transform that puts footprint `f` at `site`, turned by
-/// `yaw`, tilted to the ground and resting on it, or `None` where there is
-/// no ground under it.
-fn place(f: &Footprint, site: Vec2, yaw: f32, ground: &dyn Ground) -> Option<Affine3A> {
-    let turn = Quat::from_rotation_y(yaw);
-    // The scatter's own frame is the World frame, so its points widen as is.
-    let height = |p: Vec3| ground.height(Vec2::new(site.x + p.x, site.y + p.z).as_dvec2());
-
-    // Fit a plane h = a·x + b·z + c to the ground under the contacts and two
-    // points beside the middle, so a straight stick still finds the
-    // cross-slope.
-    let side = turn * f.axis.cross(Vec3::Y) * f.width;
-    let mut samples: Vec<Vec3> = f.contacts.iter().map(|&p| turn * p).collect();
-    samples.extend([side, -side]);
-    let mut m = Mat3::ZERO;
-    let mut rhs = Vec3::ZERO;
-    for p in &samples {
-        let h = height(*p);
-        if !h.is_finite() {
-            return None;
-        }
-        let row = Vec3::new(p.x, p.z, 1.0);
-        m += Mat3::from_cols(row * row.x, row * row.y, row * row.z);
-        rhs += row * h;
-    }
-    m += Mat3::from_diagonal(Vec3::new(1e-6, 1e-6, 0.0));
-    let [a, b, _] = (m.inverse() * rhs).to_array();
-    let normal = Vec3::new(-a, 1.0, -b).normalize();
-    let rotation = Quat::from_rotation_arc(Vec3::Y, normal) * turn;
-
-    // Rest on the ground: lift until no contact point is below it.
-    let mut lift = f32::NEG_INFINITY;
-    for &c in &f.contacts {
-        let p = rotation * c;
-        let h = height(p);
-        if !h.is_finite() {
-            return None;
-        }
-        lift = lift.max(h - p.y);
-    }
-    if !lift.is_finite() {
-        lift = height(Vec3::ZERO);
-    }
+/// Returns the transform that puts `fit`'s variant at `site` (relative to
+/// the area's centre), turned by `yaw`, on `input`'s ground, or `None`
+/// where there is no ground under it.
+fn put_down(fit: &Fit, site: Vec2, yaw: f32, input: &ScatterInput<'_>) -> Option<Affine3A> {
+    let at = input.area.world(site);
+    let placed = place(input.ground, at, yaw, &fit.footprint, &fit.placement)?;
     Some(
-        Affine3A::from_rotation_translation(rotation, Vec3::new(site.x, lift, site.y))
-            * Affine3A::from_translation(-f.centre),
+        Affine3A::from_rotation_translation(
+            placed.rotation,
+            Vec3::new(site.x, placed.height, site.y),
+        ) * Affine3A::from_translation(-fit.centre),
     )
 }
 

@@ -46,7 +46,8 @@ use bevy::asset::embedded_asset;
 use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
 use bevy::shader::load_shader_library;
-use procgena_deadwood::{DeadwoodLod, TextureCompression, TextureSize};
+use procgena_core_bevy::{LodPlugin, LodQuality};
+use procgena_deadwood::{DeadwoodLod, TextureCompression, TextureSize, default_lod, validate_lod};
 
 pub use material::{
     BarkTextures, DeadwoodExtension, DeadwoodMaterial, DeadwoodSurface, EndTextures, LeafTextures,
@@ -63,19 +64,20 @@ pub use spawn::{
 use spawn::{DeadwoodCache, DeadwoodOptionsLoader, SpawnSettings, TextureSettings};
 
 /// Adds dead wood building and drawing, and loading of `.deadwood.json`
-/// files, to a Bevy app.
+/// files, to a Bevy app. It also adds the shared [`LodPlugin`], whose
+/// [`LodQuality`] resource scales every piece's switch distances.
 ///
 /// # Panics
 ///
 /// Adding the plugin panics if [`lod`](Self::lod) is invalid; see
-/// [`DeadwoodLod::validate`].
+/// [`validate_lod`].
 #[derive(Debug, Clone)]
 pub struct DeadwoodPlugin {
-    /// Detail levels for a piece 45 cm across
-    /// ([`DEFAULT_LOD_SIZE`](procgena_deadwood::DEFAULT_LOD_SIZE)). Each
-    /// piece multiplies the distances by its size relative to that; see
-    /// [`DeadwoodLod::sized_for`]. Every piece uses these levels;
-    /// [`DeadwoodOptions::detail`] is not used by the plugin.
+    /// Detail levels for a piece [`reference_size`](DeadwoodLod) across,
+    /// 45 cm by default. Each piece multiplies the distances by its size
+    /// relative to that (see [`procgena_deadwood::lod_size`]) and by the
+    /// [`LodQuality`] in use when it is spawned. Every piece uses these
+    /// levels; [`DeadwoodOptions::detail`] is not used by the plugin.
     ///
     /// [`DeadwoodOptions::detail`]: procgena_deadwood::DeadwoodOptions::detail
     pub lod: DeadwoodLod,
@@ -101,7 +103,7 @@ pub struct DeadwoodPlugin {
 impl Default for DeadwoodPlugin {
     fn default() -> Self {
         Self {
-            lod: DeadwoodLod::default(),
+            lod: default_lod(),
             texture_root: Some("procgena_deadwood/textures".to_owned()),
             texture_size: TextureSize::Size1k,
             texture_compression: TextureCompression::Bc7,
@@ -111,12 +113,13 @@ impl Default for DeadwoodPlugin {
 
 impl Plugin for DeadwoodPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(LodPlugin);
         load_shader_library!(app, "shaders/deadwood_billboard.wesl");
         embedded_asset!(app, "shaders/deadwood_vertex.wesl");
         embedded_asset!(app, "shaders/deadwood_prepass.wesl");
         embedded_asset!(app, "shaders/deadwood_fragment.wesl");
 
-        if let Err(error) = self.lod.validate() {
+        if let Err(error) = validate_lod(&self.lod) {
             panic!("DeadwoodPlugin::lod is invalid: {error}");
         }
         app.add_plugins(MaterialPlugin::<DeadwoodMaterial>::default());
@@ -137,6 +140,7 @@ pub(crate) fn add_systems(app: &mut App, lod: DeadwoodLod) {
     app.init_asset::<DeadwoodOptionsAsset>()
         .register_asset_loader(DeadwoodOptionsLoader)
         .init_resource::<DeadwoodCache>()
+        .init_resource::<LodQuality>()
         .insert_resource(SpawnSettings {
             lod,
             textures: None,

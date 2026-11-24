@@ -3,7 +3,8 @@
 // Group 0 is Bevy's prepass view, group 1 is empty and group 2 holds the pool.
 
 import package::shaders::pool_bridge::{view_clip_from_world, view_mip_bias, prepass_normal};
-import package::shaders::pool_draw::{pool_vertex, dither_discard};
+import package::shaders::pool_draw::pool_vertex;
+import procgena_core_bevy::shaders::dither::dither_discard;
 
 @if(NORMAL_PREPASS_OR_DEFERRED_PREPASS)
 import package::shaders::pool_surface::pool_surface;

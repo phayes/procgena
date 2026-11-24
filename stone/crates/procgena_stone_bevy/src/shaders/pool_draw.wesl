@@ -71,28 +71,3 @@ fn pool_vertex(position: vec3<f32>, normal: vec3<f32>, visible: vec2<u32>) -> Po
     out.dither = bitcast<i32>(visible.y);
     return out;
 }
-
-/// Bevy's 4×4 ordered-dither thresholds, one byte each.
-const DITHER_THRESHOLD_MAP: vec4<u32> = vec4<u32>(
-    0x0a020800u,
-    0x060e040cu,
-    0x09010b03u,
-    0x050d070fu,
-);
-
-/// Discards the fragments a fading rock hides at this pixel, as Bevy's
-/// visibility-range dithering does, so two detail levels fading over the same
-/// band cover each pixel exactly once.
-fn dither_discard(frag_coord: vec4<f32>, dither: i32) {
-    if dither == 0 {
-        return;
-    }
-    if dither <= -16 || dither >= 16 {
-        discard;
-    }
-    let coords = vec2<u32>(floor(frag_coord.xy)) % 4u;
-    let threshold = i32((DITHER_THRESHOLD_MAP[coords.y] >> (coords.x * 8u)) & 0xffu);
-    if (dither >= 0 && dither + threshold >= 16) || (dither < 0 && 1 + dither + threshold <= 0) {
-        discard;
-    }
-}
