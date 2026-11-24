@@ -1072,7 +1072,9 @@ for lookup and programmatic use, not for reading:
   cell (0 on a one-per-cell lattice, the tile point for grass). Together
   the cell and index are each Scatter's sparse index of its children: no
   table is stored. The type is `Copy`, hashable and ordered, and its field
-  order is the lookup order.
+  order is the lookup order. These types live in `procgena_core`, which
+  owns `RegionId` (a `u64`, the same layout as the terrain crate's); the
+  terrain crate is to re-export core's instead of defining its own.
 - **A part path** can follow: up to four flat steps `(kind, index)` into
   the specimen's structure, such as `fruit 17 / item 2`. A step indexes
   the skeleton, not the mesh, so it names the same part at every level of

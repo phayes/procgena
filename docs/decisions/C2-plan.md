@@ -108,6 +108,39 @@ D3 and C1. Plant is out (R3).
   the canopy-shade influence mask (`MaskSource::Density` exists for plant
   and later shade).
 
+## As built (2026-11-24)
+
+What landed, where it differs from the first plan or needs the user's eye:
+
+- **Stone uses one lattice for every class.** The cell is the narrowest
+  class spacing, narrowed so every class fits one spot per cell. Each cell's
+  spot goes to the first class, in list order, whose own rank (salted by
+  the class's key) its density keeps. So lowering a class's density only
+  removes stones of that class, and later classes may fill the gaps.
+  Earlier classes still win spacing (`K_d` tier = class). Before, each
+  class had its own lattice, cells as wide as its spacing; that can't be
+  named by D3's address (one cell plus an index).
+- **Mix entries are keyed.** `ScatterTree` and `StoneClass` have a
+  `key: ChildKey`; their own random choices are salted by it. The 8
+  built-in `.tree_scatter.yml` files now give explicit keys (`maples`,
+  `old_oaks`, ...). In a file, an entry whose tree names a preset may leave
+  `key` out and takes the preset's key; an inline tree with no `base` must
+  give one. `ScatterTree::new(preset)` takes the preset's key;
+  `ScatterTree::custom` and `StoneClass::new` take a key. Duplicate keys
+  (or keys sharing a salt) are errors (`KeyClash`).
+- **Mushroom copies are thinned by `K_5` after their members are set on
+  the ground** (the contract's order: footing before spacing). A copy with
+  no member on ground no longer crowds its neighbours out.
+- **A mask that varies locally can swap which of two crowded neighbours
+  stands** (D2 decision 2: ranks compare as rank / local density). An even
+  mask, or a lower density, still only removes copies.
+- **Placed lists are in rank order for trees**, so a lower density keeps
+  a prefix's order (the Bevy grove relies on it to keep variant slots).
+- **Not built:** canopy shade as a density mask, part paths, `DrawHandle`,
+  the quantised slope byte, a per-Scatter `d` option in files, a GPU path,
+  a Bevy streaming loader. Draw ranges for tree (2000 m) and stone
+  (1000 m) are fixed stand-ins until those assets have cull distances.
+
 ## Steps (one commit each)
 
 1. **Core types**: `address`, `scatter::lattice` (hash, fixed point,
