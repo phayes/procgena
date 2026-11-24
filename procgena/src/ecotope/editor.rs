@@ -20,6 +20,7 @@ use procgena_deadwood::{
 use procgena_mushroom::{
     MushroomOptions, MushroomPreset, ScatterOptions as MushroomScatterOptions,
 };
+use procgena_plant_bevy::PlantScatterOptions;
 use procgena_stone::{StoneClass, StoneOptions, StonePreset};
 
 use super::{
@@ -124,6 +125,8 @@ enum Part {
     MushroomScatter,
     /// A mushroom Scatter's species.
     Species,
+    /// A plant Scatter's settings.
+    Plants,
 }
 
 /// A value a settings panel edits, and how it is stored in a Scatter.
@@ -191,6 +194,14 @@ impl Stored for MushroomScatterOptions {
     }
 }
 
+impl Stored for PlantScatterOptions {
+    fn store(self, _: Part, scatter: &mut EcotopeScatter) {
+        if let ScatterKind::Plant(options) = &mut scatter.scatter {
+            *options = self;
+        }
+    }
+}
+
 impl Stored for MushroomOptions {
     fn store(self, _: Part, scatter: &mut EcotopeScatter) {
         if let ScatterKind::Mushroom { mushroom, .. } = &mut scatter.scatter {
@@ -217,8 +228,8 @@ struct EcotopeSeed;
 struct KeyField(Option<String>);
 
 /// Makes Ecotope editors work. Needs the param panel plugins, and the
-/// tree Scatter, stone, dead wood and mushroom editor plugins, which
-/// register the panels it embeds.
+/// tree Scatter, stone, dead wood, mushroom and Plant Scatter editor
+/// plugins, which register the panels it embeds.
 pub struct EcotopeEditorPlugin;
 
 impl Plugin for EcotopeEditorPlugin {
@@ -579,6 +590,16 @@ fn spawn_detail(commands: &mut Commands, editor: &EcotopeEditor) -> Option<Entit
                 crate::mushrooms::params::sections(),
                 Part::Species,
                 false,
+            );
+        }
+        ScatterKind::Plant(options) => {
+            bound_panel(
+                commands,
+                detail,
+                options.clone(),
+                params::plant_sections(),
+                Part::Plants,
+                true,
             );
         }
     }
@@ -1185,7 +1206,7 @@ mod tests {
         // The opened Ecotope is sent and placed, with one row per Scatter.
         assert_eq!(last_sent(&lock(&sent)), start);
         let line = placed_line(&mut studio);
-        assert!(line.contains("in 5 Scatters"), "{line}");
+        assert!(line.contains("in 6 Scatters"), "{line}");
         for key in start.scatters.keys() {
             assert!(
                 studio.texts().iter().any(|t| t.text == key.as_str()),
@@ -1262,7 +1283,7 @@ mod tests {
         let at = studio.center_of(remove).unwrap();
         studio.click_at(at);
         assert_eq!(last_sent(&lock(&sent)), start);
-        assert!(placed_line(&mut studio).contains("in 5 Scatters"));
+        assert!(placed_line(&mut studio).contains("in 6 Scatters"));
     }
 
     #[test]
@@ -1276,9 +1297,9 @@ mod tests {
         edit(&mut studio, |editor| {
             editor.view.ground = EcotopeGround::Flat
         });
-        assert!(placed_line_ending(&mut studio, "5 redrawn").ends_with("5 redrawn"));
+        assert!(placed_line_ending(&mut studio, "6 redrawn").ends_with("6 redrawn"));
 
-        // Thinning the lowest Scatter redraws it alone.
+        // Thinning the fly agarics redraws them and the undergrowth below.
         edit(&mut studio, |editor| {
             let scatter = editor
                 .ecotope
@@ -1290,8 +1311,54 @@ mod tests {
             };
             scatter.density *= 0.5;
         });
+        let line = placed_line_ending(&mut studio, "2 redrawn");
+        assert!(line.ends_with("2 redrawn"), "{line}");
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_plant_scatter_is_added_edited_and_removed() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        open_start(&mut studio);
+        placed_line(&mut studio);
+
+        // A new plant Scatter is placed and drawn as grass.
+        let mut added = None;
+        edit(&mut studio, |editor| {
+            added = Some(super::super::add_scatter(&mut editor.ecotope, 4));
+        });
+        let added = added.unwrap();
+        assert_eq!(added.as_str(), "plants");
+        let line = placed_line_ending(&mut studio, "1 redrawn");
+        assert!(line.contains("in 7 Scatters"), "{line}");
+        let fields = |studio: &mut HeadlessStudio| {
+            let world = studio.app_mut().world_mut();
+            world
+                .query::<&procgena_plant_bevy::PlantScatter>()
+                .iter(world)
+                .count()
+        };
+        assert_eq!(fields(&mut studio), 2, "the undergrowth and the new plants");
+
+        // Thinning it redraws it alone: nothing lies below it.
+        edit(&mut studio, |editor| {
+            let ScatterKind::Plant(options) =
+                &mut editor.ecotope.scatters.get_mut(&added).unwrap().scatter
+            else {
+                panic!("a plant Scatter");
+            };
+            options.density_scale *= 0.5;
+        });
         let line = placed_line_ending(&mut studio, "1 redrawn");
         assert!(line.ends_with("1 redrawn"), "{line}");
+
+        // Removing it leaves the Ecotope as it was.
+        edit(&mut studio, |editor| {
+            editor.ecotope.scatters.remove(&added);
+        });
+        let line = placed_line(&mut studio);
+        assert!(line.contains("in 6 Scatters"), "{line}");
+        assert_eq!(fields(&mut studio), 1, "the undergrowth alone");
     }
 
     /// Applies `change` to the selected editor as an edit would.

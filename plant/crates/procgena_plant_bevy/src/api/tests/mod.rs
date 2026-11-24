@@ -81,7 +81,7 @@ fn an_empty_spread_means_one_disc_at_the_origin() {
 
 /// What a field's generated image holds, texel by texel, as the field
 /// systems read it.
-fn texels_of(images: &Assets<Image>, handle: &Handle<Image>) -> (bevy::math::UVec2, Vec<Vec2>) {
+fn texels_of(images: &Assets<Image>, handle: &Handle<Image>) -> (UVec2, Vec<Vec2>) {
     let image = images.get(handle).expect("the image was added");
     let size = image.size();
     let values = (0..size.y)
@@ -118,7 +118,7 @@ fn a_ground_from_a_function_is_its_heights_at_each_cell_centre() {
     };
     assert_eq!(*height_scale, 1.0, "the heights are metres");
     let (size, texels) = texels_of(&images, image);
-    assert_eq!(size, bevy::math::UVec2::new(4, 2), "one texel per metre");
+    assert_eq!(size, UVec2::new(4, 2), "one texel per metre");
     // Cell centres are at x = -1.5, -0.5, 0.5, 1.5 and z = -0.5, 0.5, the
     // first row at −Z.
     let heights: Vec<f32> = texels.iter().map(|texel| texel.x).collect();
@@ -143,7 +143,7 @@ fn a_density_from_a_function_is_a_mask_at_full_height() {
     });
     let mask = field.density_map.as_ref().expect("a mask");
     let (size, texels) = texels_of(&images, mask);
-    assert_eq!(size, bevy::math::UVec2::splat(2));
+    assert_eq!(size, UVec2::splat(2));
     let densities: Vec<f32> = texels.iter().map(|texel| texel.x).collect();
     assert_eq!(
         densities,
@@ -151,6 +151,34 @@ fn a_density_from_a_function_is_a_mask_at_full_height() {
         "NaN is 0, 7 is 1"
     );
     assert!(texels.iter().all(|texel| texel.y == 1.0), "full height");
+}
+
+#[test]
+fn a_bake_gives_the_field_its_size_heights_and_density() {
+    let mut images = Assets::<Image>::default();
+    let bake = PlantBake {
+        texels: [2, 1],
+        size: Vec2::new(3.0, 1.0),
+        heights: vec![f32::NAN, 2.5],
+        density: vec![0.0, 0.5],
+    };
+    let field = PlantScatter::default().with_bake(&mut images, &bake);
+    assert_eq!(field.size, Vec2::new(3.0, 1.0));
+    let PlantGround::Heightmap {
+        image,
+        height_scale,
+    } = &field.ground
+    else {
+        panic!("a heightmap ground, not {:?}", field.ground);
+    };
+    assert_eq!(*height_scale, 1.0, "the heights are metres");
+    let (size, texels) = texels_of(&images, image);
+    assert_eq!(size, UVec2::new(2, 1));
+    let heights: Vec<f32> = texels.iter().map(|texel| texel.x).collect();
+    assert_eq!(heights, [crate::ground::HOLE, 2.5], "no height is a hole");
+    let (_, texels) = texels_of(&images, field.density_map.as_ref().expect("a mask"));
+    let densities: Vec<f32> = texels.iter().map(|texel| texel.x).collect();
+    assert_eq!(densities, [0.0, 128.0 / 255.0]);
 }
 
 #[test]
@@ -162,5 +190,5 @@ fn the_cells_never_exceed_4096_per_side() {
     }
     .with_density_from_fn(&mut images, 0.5, |_| 1.0);
     let mask = images.get(field.density_map.as_ref().unwrap()).unwrap();
-    assert_eq!(mask.size(), bevy::math::UVec2::new(4096, 2));
+    assert_eq!(mask.size(), UVec2::new(4096, 2));
 }

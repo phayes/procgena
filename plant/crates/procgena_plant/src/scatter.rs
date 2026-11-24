@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use bevy_reflect::{Reflect, std_traits::ReflectDefault};
 use serde::{Deserialize, Serialize};
 
-use crate::files::PlantFileError;
+use crate::files::PlantSettingsError;
 use crate::look::{GroundTint, MAX_PLANTS, PlantVariation, ScatterPlant};
 use crate::presets::PlantScatterPreset;
 
@@ -39,8 +39,8 @@ pub struct PlantScatterOptions {
     /// The seed used when this Scatter is built on its own, rather than
     /// inside a larger level that gives it a seed.
     ///
-    /// Not used yet: plants are placed from their position alone, so
-    /// changing it changes nothing that is drawn.
+    /// Different seeds grow the same density with the plants in different
+    /// places.
     pub default_seed: u32,
     /// Scales wind movement for every plant: 0 is still, 0.3 is sheltered,
     /// and values above 1 give stronger movement. Negative values act as 0.
@@ -71,6 +71,11 @@ pub struct PlantScatterOptions {
     /// like the rest of the scene. Forward rendering only: a deferred view
     /// shades every Scatter physically.
     pub toon_bands: u32,
+    /// The steepest ground plants grow on, in degrees from level, from 0 to
+    /// 90; 90 allows any slope. It takes effect where the Scatter is placed
+    /// over a ground that knows its slope, such as in an Ecotope (see
+    /// [`bake`](Self::bake)); a Bevy field on its own heightmap ignores it.
+    pub max_slope: f32,
 }
 
 impl Default for PlantScatterOptions {
@@ -150,10 +155,10 @@ impl PlantScatterOptions {
     ///
     /// # Errors
     ///
-    /// Returns [`PlantFileError::Invalid`] naming the first value out of
-    /// range, or a Scatter with more than [`MAX_PLANTS`] plants or none with
-    /// a density above 0.
-    pub fn validate(&self) -> Result<(), PlantFileError> {
+    /// Returns a [`PlantSettingsError`] naming the first value out of range,
+    /// or a Scatter with more than [`MAX_PLANTS`] plants or none with a
+    /// density above 0.
+    pub fn validate(&self) -> Result<(), PlantSettingsError> {
         crate::files::validate_scatter(self)
     }
 

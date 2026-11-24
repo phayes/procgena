@@ -41,13 +41,16 @@ use super::Ecotope;
 /// Scatters are listed by key, and a file gives only what differs from its
 /// `base`. A Scatter set to `null` is removed. Write a file with
 /// [`EcotopePreset::to_file`]. A new Scatter gives its `priority` and `kind` (`tree`, `stone`,
-/// `deadwood` or `mushroom`), an optional `clearance`, and the settings of
+/// `deadwood`, `mushroom` or `plant`), an optional `clearance`, and the settings of
 /// its kind that differ from the kind's defaults. A tree Scatter's settings
 /// are a [`TreeScatter`](procgena_tree::TreeScatter)'s, a stone Scatter's a
 /// [`StoneScatterOptions`](procgena_stone::StoneScatterOptions)'s, a dead
 /// wood Scatter's a [`procgena_deadwood::ScatterOptions`]' (defaults: fallen
 /// logs), and a mushroom Scatter's a [`procgena_mushroom::ScatterOptions`]'
-/// plus its `mushroom`. Each stone class gives what differs from
+/// plus its `mushroom`. A plant Scatter's settings are a
+/// [`PlantScatterOptions`](procgena_plant::PlantScatterOptions)', laid over
+/// the `meadow` plant Scatter preset or over the one its `base` names. Each
+/// stone class gives what differs from
 /// [`StoneClass::new`](procgena_stone::StoneClass::new) with default stone
 /// settings, a density of 0.01 and a spacing of 2.
 ///
@@ -135,8 +138,8 @@ procgena_core::catalogue! {
     "Forest" {
         pine_forest_floor {
             name: "Pine forest floor",
-            description: "Pines of three sizes over boulders, mossy fallen logs, porcini and a \
-                few fly agarics.",
+            description: "Pines of three sizes over boulders, mossy fallen logs, porcini, a few \
+                fly agarics and an undergrowth of moss, ferns and leaf litter.",
         } => ecotope_file!(pine_forest_floor);
     }
 }

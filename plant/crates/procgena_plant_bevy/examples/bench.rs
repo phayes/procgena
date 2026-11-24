@@ -606,6 +606,7 @@ fn setup(
         },
         options: bench_field(&bench),
         density_map: None,
+        seed: None,
     });
 }
 

@@ -6,6 +6,7 @@
 use procgena_biome::EcotopeScatter;
 use procgena_deadwood::{MAX_DECAY, MAX_VARIANTS, ScatterOptions as DeadwoodScatterOptions};
 use procgena_mushroom::{MAX_SPECIMENS, ScatterOptions as MushroomScatterOptions};
+use procgena_plant_bevy::PlantScatterOptions;
 use procgena_stone::{MAX_CLUSTER_MEMBERS, MAX_STONE_VARIANTS, StoneClass};
 
 use super::EcotopeView;
@@ -244,6 +245,23 @@ pub fn deadwood_sections() -> Vec<Section<DeadwoodScatterOptions>> {
 
 /// Where and how densely a mushroom Scatter grows. Its species is edited
 /// separately.
+/// A plant Scatter's settings: the Plant Scatter tab's, and the steepest
+/// ground its plants grow on.
+pub fn plant_sections() -> Vec<Section<PlantScatterOptions>> {
+    let mut sections = crate::field::params::sections();
+    sections.push(Section {
+        title: "Placement",
+        groups: vec![Group::plain(vec![number!(
+            PlantScatterOptions,
+            "max_slope",
+            "Max Slope",
+            (0.0, 90.0, 0.5),
+            |o| o.max_slope
+        )])],
+    });
+    sections
+}
+
 pub fn mushroom_sections() -> Vec<Section<MushroomScatterOptions>> {
     vec![Section {
         title: "Placement",

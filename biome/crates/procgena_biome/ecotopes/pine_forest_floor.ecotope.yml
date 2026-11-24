@@ -2,7 +2,7 @@
 # EcotopePreset::from_yaml, or name it as the `base` of your own file and
 # give only what differs.
 name: Pine forest floor
-description: Pines of three sizes over boulders, mossy fallen logs, porcini and a few fly agarics.
+description: Pines of three sizes over boulders, mossy fallen logs, porcini, a few fly agarics and an undergrowth of moss, ferns and leaf litter.
 group: Forest
 ecotope:
   default_seed: 11
@@ -71,6 +71,11 @@ ecotope:
       scale_min: 0.8
       scale_max: 1.2
       specimens: 2
+    undergrowth:
+      priority: 150
+      kind: plant
+      base: forest_floor
+      max_slope: 40.0
   ground:
     soil:
       material: forest_soil

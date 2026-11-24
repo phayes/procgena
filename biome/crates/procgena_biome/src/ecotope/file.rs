@@ -6,7 +6,10 @@
 //! that kind's defaults; a Scatter set to `null` is removed. Assets inside
 //! it (a stone class's `stone`, dead wood's `piece`, a mushroom Scatter's
 //! `mushroom`) name a built-in preset by key, or give settings laid over
-//! one (`{ base: <key>, ... }`) or over the asset's defaults.
+//! one (`{ base: <key>, ... }`) or over the asset's defaults. A plant
+//! Scatter's settings are those of a `.plant_scatter.yml` file's
+//! `plant_scatter:`, laid over the `meadow` preset, or over the plant
+//! Scatter preset its `base` names; its plants name plant presets by key.
 //!
 //! Ground layers are a map from key to settings in the same way: a file
 //! changes, adds or (with `null`) removes one layer without restating the
@@ -23,6 +26,7 @@ use procgena_deadwood::{DeadwoodPreset, ScatterOptions as DeadwoodScatterOptions
 use procgena_mushroom::{
     MushroomOptions, MushroomPreset, ScatterOptions as MushroomScatterOptions,
 };
+use procgena_plant::{PlantScatterOptions, PlantScatterPreset};
 use procgena_stone::{StoneClass, StoneOptions, StonePreset, StoneScatterOptions};
 use procgena_terrain::ground::GroundLayer;
 use procgena_tree::{TreeScatter, TreeScatterPreset};
@@ -128,7 +132,7 @@ fn from_file(value: Value) -> Result<EcotopeScatter, String> {
         Some(Value::String(kind)) => kind,
         _ => {
             return Err(
-                "a Scatter must name its kind: tree, stone, deadwood or mushroom".to_owned(),
+                "a Scatter must name its kind: tree, stone, deadwood, mushroom or plant".to_owned(),
             );
         }
     };
@@ -178,9 +182,27 @@ fn from_file(value: Value) -> Result<EcotopeScatter, String> {
                 scatter: fill(&MushroomScatterOptions::default(), map)?,
             }
         }
+        "plant" => {
+            let base = match map.remove("base") {
+                Some(Value::String(key)) => PlantScatterPreset::named(&key)
+                    .ok_or_else(|| {
+                        let keys: Vec<&str> = PlantScatterPreset::all().map(|p| &*p.key).collect();
+                        format!(
+                            "base: unknown plant Scatter preset {key:?}; valid keys are {}",
+                            keys.join(", ")
+                        )
+                    })?
+                    .plant_scatter
+                    .clone(),
+                Some(_) => return Err("base must be a plant Scatter preset key".to_owned()),
+                None => PlantScatterOptions::default(),
+            };
+            ScatterKind::Plant(fill(&base, map)?)
+        }
         other => {
             return Err(format!(
-                "unknown kind {other:?}; a Scatter's kind is tree, stone, deadwood or mushroom"
+                "unknown kind {other:?}; a Scatter's kind is tree, stone, deadwood, mushroom \
+                 or plant"
             ));
         }
     };
@@ -277,6 +299,9 @@ fn to_file(scatter: &EcotopeScatter, short: bool) -> Value {
                 to_value(scatter),
                 to_value(&MushroomScatterOptions::default()),
             )
+        }
+        ScatterKind::Plant(options) => {
+            (to_value(options), to_value(&PlantScatterOptions::default()))
         }
     };
     let written = if short {

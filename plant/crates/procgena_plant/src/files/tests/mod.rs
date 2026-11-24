@@ -216,6 +216,7 @@ fn odd_scatter() -> PlantScatterOptions {
         wind_scale: 0.42,
         density_scale: 1.2,
         toon_bands: 3,
+        max_slope: 33.0,
         ground_tint: GroundTint {
             color: Srgb::new(0.9, 0.8, 0.7),
             amount: 0.31,

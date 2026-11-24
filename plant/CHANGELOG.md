@@ -5,6 +5,30 @@ break the API; each breaking change below says what to write instead.
 
 ## Unreleased
 
+### Plants in Ecotopes: a seed, a slope limit and a bake
+
+Plant Scatters can now grow in a procgena Ecotope (see
+[`alignment_plan.md`](alignment_plan.md), stage P2). Nothing drawn changes for
+a field with seed 0, which every preset has.
+
+- `PlantScatterOptions::bake(&input, cell_size)` samples a Scatter's ground and
+  density over a `procgena_core` `ScatterInput` into a `PlantBake`: heights,
+  holes, the input's mask, the slope limit, and every texel a footprint in
+  `input.exclude` touches cleared. `PlantScatter::with_bake` turns one into a
+  field's heightmap and density map.
+- `PlantScatterOptions::max_slope`: the steepest ground plants grow on, in
+  degrees, 90 (no limit) by default. Files may set `max_slope`.
+- `PlantScatter::seed: Option<u32>`, and `default_seed` is no longer ignored:
+  a field's blades move with its seed. Seed 0 keeps them where they were.
+
+**Breaking, and what to write instead**
+
+| Before | Now |
+|--------|-----|
+| A struct literal of `PlantScatter` | Add `seed: None`, or end it with `..default()` |
+| A struct literal of `PlantScatterOptions` | Add `max_slope: 90.0`, or end it with `..PlantScatterOptions::default()` |
+| `PlantParams::validate`, `PlantScatterOptions::validate` returning `PlantFileError` | They return a `PlantSettingsError`, which converts into `PlantFileError::Invalid` |
+
 ### Two crates: `procgena_plant` and `procgena_plant_bevy`
 
 Plant is now an engine-free crate, `procgena_plant`, with the plant and

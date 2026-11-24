@@ -60,6 +60,13 @@ fn copies(layer: &PlacedScatter) -> Vec<[f32; 6]> {
             .iter()
             .map(|c| row(c.translation, c.rotation * Vec3::X * c.scale))
             .collect(),
+        // Plants are placed where they are drawn: compare their bake.
+        ScatterCopies::Plant(bake) => bake
+            .heights
+            .iter()
+            .zip(&bake.density)
+            .map(|(&height, &density)| [height, density, 0.0, 0.0, 0.0, 0.0])
+            .collect(),
     }
 }
 
@@ -89,18 +96,26 @@ fn every_built_in_preset_is_valid_and_reads_back_from_its_file() {
 }
 
 #[test]
-fn the_pine_floor_holds_trees_boulders_logs_and_mushrooms() {
+fn the_pine_floor_holds_trees_boulders_logs_mushrooms_and_plants() {
     let ecotope = pine_floor();
     let kinds: Vec<&str> = ecotope
         .order()
         .iter()
         .map(|(_, scatter)| scatter.scatter.name())
         .collect();
-    assert_eq!(kinds, ["tree", "stone", "deadwood", "mushroom", "mushroom"]);
+    assert_eq!(
+        kinds,
+        ["tree", "stone", "deadwood", "mushroom", "mushroom", "plant"]
+    );
 
+    // Every Scatter places something: copies, or plants to draw.
     let placed = place(&ecotope, ecotope.default_seed);
     for layer in placed.layers() {
-        assert!(!layer.copies().is_empty(), "{} placed nothing", layer.key());
+        let placed_something = match layer.copies() {
+            ScatterCopies::Plant(bake) => bake.density.iter().any(|&d| d > 0.0),
+            copies => !copies.is_empty(),
+        };
+        assert!(placed_something, "{} placed nothing", layer.key());
     }
 }
 
@@ -384,6 +399,46 @@ fn lower_scatters_keep_their_centres_out_of_higher_footprints() {
                 .blocks(world(tree.position))
         );
     }
+}
+
+#[test]
+fn the_undergrowth_grows_on_the_ground_and_nowhere_a_scatter_above_stands() {
+    let ecotope = pine_floor();
+    let placed = place(&ecotope, ecotope.default_seed);
+    let layer = placed
+        .get("undergrowth")
+        .expect("the pine floor has undergrowth");
+    let ScatterCopies::Plant(bake) = layer.copies() else {
+        panic!("the undergrowth is plants");
+    };
+    assert_eq!(layer.copies().len(), 0, "plants are placed where drawn");
+    assert!(layer.footprints().is_empty(), "plants leave no footprints");
+    assert_eq!(bake.size, Vec2::splat(SIDE));
+    assert_eq!(bake.texels, [48, 48], "half-metre texels");
+
+    // Every texel stands on the ground, and none whose centre is inside a
+    // footprint above grows anything.
+    let ground = ground();
+    let mask = placed.mask_above("undergrowth").unwrap();
+    let (mut blocked, mut grown) = (0, 0);
+    for z in 0..bake.texels[1] {
+        for x in 0..bake.texels[0] {
+            let i = (z * bake.texels[0] + x) as usize;
+            let p = area().world(bake.texel_centre(x, z));
+            assert!((bake.heights[i] - procgena_core::Ground::height(&ground, p)).abs() < 1e-4);
+            if mask.blocks(p) {
+                blocked += 1;
+                assert_eq!(bake.density[i], 0.0, "texel {x}, {z} is under a footprint");
+            } else if bake.density[i] > 0.0 {
+                grown += 1;
+            }
+        }
+    }
+    assert!(
+        blocked > 0,
+        "the pines, boulders and logs cover some texels"
+    );
+    assert!(grown > bake.density.len() / 2, "most of the floor grows");
 }
 
 #[test]

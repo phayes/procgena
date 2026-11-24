@@ -167,6 +167,8 @@ pub(crate) struct FieldSlot {
 #[derive(Debug, Clone, PartialEq)]
 struct EntryKey {
     look: FieldLook,
+    /// The seed the field is placed with.
+    seed: u32,
     size: Vec2,
     corner: Vec3,
     axis: Vec2,
@@ -660,6 +662,7 @@ impl Plan<'_> {
         let input = self.input;
         EntryKey {
             look: FieldLook::of(input.field, self.plants),
+            seed: placement_seed(input.field),
             size: input.placement.size,
             corner: input.placement.corner,
             axis: input.placement.axis,
@@ -1262,9 +1265,11 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
         min_corner: corner.extend(0.0),
         extent: Vec4::new(size.x, size.y, height_scale, layout.tile_size),
         // The seed comes from where the field is, not from its entity, so
-        // the same field looks the same however the scene was spawned.
+        // the same field looks the same however the scene was spawned. The
+        // field's own seed is mixed in, and leaves the corner's seed as it
+        // is at 0.
         placement: UVec4::new(
-            shader_model::hash2(corner.x.to_bits(), corner.z.to_bits()),
+            shader_model::hash2(corner.x.to_bits(), corner.z.to_bits()) ^ placement_seed(field),
             layout.tiles_per_side,
             mask_offset,
             height_offset,
@@ -1397,6 +1402,11 @@ fn field_chunks(plan: &Plan, heights: Option<&[f32]>, out: &mut Vec<ChunkGpu>) {
             });
         }
     }
+}
+
+/// The seed `field` is placed with: its own, or else its options' default.
+fn placement_seed(field: &PlantScatter) -> u32 {
+    field.seed.unwrap_or(field.options.default_seed)
 }
 
 /// An sRGB setting colour in linear light, with alpha 1, as the shaders read it.

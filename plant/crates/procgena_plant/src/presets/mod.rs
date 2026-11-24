@@ -273,6 +273,7 @@ const SCATTER_BASE: PlantScatterOptions = PlantScatterOptions {
         amount: 0.25,
     },
     toon_bands: 0,
+    max_slope: 90.0,
 };
 
 #[cfg(test)]

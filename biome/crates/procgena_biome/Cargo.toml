@@ -11,6 +11,7 @@ glam = { workspace = true }
 procgena_core = { path = "../../../core/crates/procgena_core" }
 procgena_deadwood = { path = "../../../deadwood/crates/procgena_deadwood" }
 procgena_mushroom = { path = "../../../mushroom/crates/procgena_mushroom" }
+procgena_plant = { path = "../../../plant/crates/procgena_plant" }
 procgena_stone = { path = "../../../stone/crates/procgena_stone" }
 procgena_terrain = { path = "../../../terrain/crates/procgena_terrain" }
 procgena_tree = { path = "../../../tree/crates/procgena_tree" }

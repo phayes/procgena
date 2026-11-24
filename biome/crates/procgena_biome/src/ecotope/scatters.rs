@@ -3,6 +3,7 @@
 //! footprints.
 
 use std::fmt;
+use std::sync::Arc;
 
 use glam::{Affine3A, Vec2, Vec3, Vec3Swizzles};
 use procgena_core::scatter::ScatterInput;
@@ -14,10 +15,15 @@ use procgena_mushroom::{
     MushroomOptions, MushroomScatter, ScatterError as MushroomScatterError,
     ScatterOptions as MushroomScatterOptions,
 };
+use procgena_plant::{PlantBake, PlantScatterOptions, PlantSettingsError};
 use procgena_stone::{StoneScatter, StoneScatterError, StoneScatterOptions};
 use procgena_tree::{TreeScatter, TreeScatterError, TreeScatterPlacement};
 
-use super::footprints::{Footprints, Shape};
+use super::footprints::{FootprintMask, Footprints, Shape};
+
+/// The width of a plant Scatter's baked texels, in metres: the width of the
+/// footprint masks every Scatter leaves.
+pub const PLANT_CELL: f32 = 0.5;
 
 /// What one Scatter in an Ecotope spreads, with its settings.
 ///
@@ -39,17 +45,21 @@ pub enum ScatterKind {
         /// Where and how densely it grows.
         scatter: MushroomScatterOptions,
     },
+    /// Grass and other small plants, placed where they are drawn; see
+    /// [`PlantScatterOptions::bake`].
+    Plant(PlantScatterOptions),
 }
 
 impl ScatterKind {
     /// The kind's name as a preset file writes it: `tree`, `stone`,
-    /// `deadwood` or `mushroom`.
+    /// `deadwood`, `mushroom` or `plant`.
     pub fn name(&self) -> &'static str {
         match self {
             Self::Tree(_) => "tree",
             Self::Stone(_) => "stone",
             Self::Deadwood(_) => "deadwood",
             Self::Mushroom { .. } => "mushroom",
+            Self::Plant(_) => "plant",
         }
     }
 
@@ -66,14 +76,19 @@ impl ScatterKind {
                 .validate()
                 .and_then(|()| mushroom.validate())
                 .map_err(|error| ScatterFailure::Mushroom(error.into())),
+            Self::Plant(options) => options.validate().map_err(ScatterFailure::Plant),
         }
     }
 
     /// Places the Scatter over `input`, and measures where its copies stand,
     /// each widened by `clearance` metres.
+    /// `above` is the footprints of the Scatters above: `input`'s mask
+    /// already keeps out of them, point by point, and a plant Scatter also
+    /// clears every texel they touch.
     pub(crate) fn place(
         &self,
         input: &ScatterInput<'_>,
+        above: &FootprintMask,
         clearance: f32,
     ) -> Result<(ScatterCopies, Footprints), ScatterFailure> {
         let mut footprints = Footprints::new(input.area.centre);
@@ -128,6 +143,16 @@ impl ScatterKind {
                     });
                 }
                 ScatterCopies::Mushroom(placed)
+            }
+            Self::Plant(options) => {
+                // Plants are placed where they are drawn, from this bake,
+                // and leave no footprints.
+                let exclude = above.discs();
+                let input = ScatterInput {
+                    exclude: Some(&exclude),
+                    ..*input
+                };
+                ScatterCopies::Plant(Arc::new(options.bake(&input, PLANT_CELL)))
             }
         };
         Ok((copies, footprints))
@@ -216,17 +241,22 @@ pub enum ScatterCopies {
     Deadwood(StickScatter),
     /// Placed mushrooms, each whole copy and each member.
     Mushroom(MushroomScatter),
+    /// A plant Scatter's ground and density over the area. Its plants are
+    /// placed where they are drawn, so it holds no copies.
+    Plant(Arc<PlantBake>),
 }
 
 impl ScatterCopies {
     /// The number of copies placed. A cluster of mushrooms, such as a fairy
-    /// ring, counts as one copy.
+    /// ring, counts as one copy, and a plant Scatter counts none: its
+    /// plants are placed where they are drawn.
     pub fn len(&self) -> usize {
         match self {
             Self::Tree(placed) => placed.instances().len(),
             Self::Stone(placed) => placed.instances().len(),
             Self::Deadwood(placed) => placed.instances().len(),
             Self::Mushroom(placed) => placed.copies().len(),
+            Self::Plant(_) => 0,
         }
     }
 
@@ -248,6 +278,8 @@ pub enum ScatterFailure {
     Deadwood(DeadwoodScatterError),
     /// From a mushroom Scatter.
     Mushroom(MushroomScatterError),
+    /// From a plant Scatter's settings.
+    Plant(PlantSettingsError),
 }
 
 impl fmt::Display for ScatterFailure {
@@ -257,6 +289,7 @@ impl fmt::Display for ScatterFailure {
             Self::Stone(error) => error.fmt(f),
             Self::Deadwood(error) => error.fmt(f),
             Self::Mushroom(error) => error.fmt(f),
+            Self::Plant(error) => error.fmt(f),
         }
     }
 }
@@ -268,6 +301,7 @@ impl std::error::Error for ScatterFailure {
             Self::Stone(error) => Some(error),
             Self::Deadwood(error) => Some(error),
             Self::Mushroom(error) => Some(error),
+            Self::Plant(error) => Some(error),
         }
     }
 }

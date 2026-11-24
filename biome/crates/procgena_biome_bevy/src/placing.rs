@@ -379,9 +379,10 @@ mod tests {
         assert!(first.copies() > 0);
         assert!(!app.world().entity(entity).contains::<EcotopePlacing>());
         let before = layers(&mut app, entity);
-        assert_eq!(before.len(), 5);
+        assert_eq!(before.len(), 6);
 
-        // Thinning the lowest Scatter redraws it alone.
+        // Thinning the fly agarics redraws them and the undergrowth below,
+        // which keeps out of their footprints, and nothing above.
         edit(&mut app, entity, |ecotope| {
             let key = ChildKey::from_static("fly_agarics");
             let scatter = ecotope.scatters.get_mut(&key).unwrap();
@@ -397,22 +398,41 @@ mod tests {
             .filter(|layer| layer.redrawn)
             .map(|layer| layer.key.as_str())
             .collect();
-        assert_eq!(redrawn, ["fly_agarics"]);
+        assert_eq!(redrawn, ["fly_agarics", "undergrowth"]);
         let after = layers(&mut app, entity);
         for ((key, old), (_, new)) in before.iter().zip(&after) {
-            assert_eq!(old == new, key != "fly_agarics", "{key}");
+            assert_eq!(old == new, !redrawn.contains(&key.as_str()), "{key}");
         }
         assert!(
             app.world().get_entity(before[1].1).is_err(),
             "old layer removed"
         );
 
+        // Thinning the lowest Scatter, the undergrowth, redraws it alone.
+        edit(&mut app, entity, |ecotope| {
+            let key = ChildKey::from_static("undergrowth");
+            let ScatterKind::Plant(options) = &mut ecotope.scatters.get_mut(&key).unwrap().scatter
+            else {
+                panic!("the undergrowth is plants");
+            };
+            options.density_scale *= 0.5;
+        });
+        let third = finish(&mut app, 3).expect("the edit places");
+        let redrawn: Vec<&str> = third
+            .layers
+            .iter()
+            .filter(|layer| layer.redrawn)
+            .map(|layer| layer.key.as_str())
+            .collect();
+        assert_eq!(redrawn, ["undergrowth"]);
+        let after = layers(&mut app, entity);
+
         // An Ecotope that can't be placed keeps the last drawing.
         edit(&mut app, entity, |ecotope| {
             let key = ChildKey::from_static("logs");
             ecotope.scatters.get_mut(&key).unwrap().clearance = -1.0;
         });
-        assert!(finish(&mut app, 3).is_err());
+        assert!(finish(&mut app, 4).is_err());
         assert_eq!(layers(&mut app, entity), after);
     }
 }

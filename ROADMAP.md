@@ -649,9 +649,12 @@ From D5 (decided by the user 2026-11-24; see
 - **Status (2026-11-24):** built. `Ecotope`, `EcotopePreset`
   (`pine_forest_floor.ecotope.yml`) and `Ecotope::place` in
   `procgena_biome`; adapters in `src/ecotope/scatters.rs`;
-  `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. Plant
-  is left out: it is a Bevy crate placed on the GPU, with no `Ground` and
-  no seed, so it joins in C3 after R3. The viewer draws without textures.
+  `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. The
+  viewer draws without textures. Plants joined in plant's P2
+  (2026-11-24, [plant/alignment_plan.md](plant/alignment_plan.md)): a
+  `plant` kind whose adapter bakes the ground and density at 0.5 m, with
+  the footprints above cleared as exact discs, drawn as one `PlantScatter`
+  per layer; the pine forest floor grows an undergrowth.
 - **Studio tab (wave 6, 2026-11-24):** built. The studio's Ecotope tab
   lists the built-in Ecotopes and loaded `.ecotope.yml` files, edits the
   seed and each Scatter by key (priority,
