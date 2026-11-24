@@ -47,7 +47,7 @@ asks.
   gate.
 - **Decisions are gates.** Four gates (crate names, YAML crate and
   coordinates; GPU masks and chunk reach; stable keys and slot choice;
-  one region per Biome) block specific milestones (see "Decision gates"). Each sits just before
+  region size and shape) block specific milestones (see "Decision gates"). Each sits just before
   the first work it blocks, not all up front.
 - **Two churn windows.** The crate rename and the preset and file rewrite
   each touch every crate and rebuild most of the workspace. Each runs once,
@@ -109,7 +109,7 @@ flowchart TD
     D1{{"D1 Crate names, YAML crate, coordinates (OQ 8)"}}
     D2{{"D2 GPU masks and placement (OQ 1), chunk reach (OQ 6)"}}
     D3{{"D3 Stable keys (OQ 4, 5), slot choice"}}
-    D4{{"D4 One region per Biome"}}
+    D4{{"D4 Region size and shape"}}
 
     F1["F1 Shared crates, specimen rename, Ground slope"]
     F2["F2 Content hash, SpecimenId, seed hashing"]
@@ -228,8 +228,8 @@ blocks. Until then, nothing that depends on it starts.
 |------|---------|--------|-------|
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
-| D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided one region per Biome, which opened D4. |
-| D4 | **One region per Biome**: how the region graph and the Biome choice make each region one Biome's whole area, so neighbouring regions never share a Biome, while every `RegionId` stays stable and computable from the World's options and seed alone, in any build order. Region size and shape (world_plan open question 2) move here | W0 (Biome choice per region, region seeds) | Opened by the user in D3, 2026-11-23. **G5 is not gated:** it keeps building W2–W4 on today's lattice graph, at the risk that D4 asks for rework there (the graph's construction, W3's warp, W4's region cache). Region size also sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). |
+| D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
+| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks and on W0's image example. Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -400,9 +400,9 @@ goldens, which have no baseline on this machine).
   measurement, with a closure source). TODO "WorldTerrain". W5 moved to
   W0.
 - **Needs:** M0. W1 needs only Phase 2.5, which is built, so G5 doesn't
-  wait for G1. G5 does not wait for D4 (one region per Biome), but D4 may
-  change the region graph that W2 built and W3 and W4 build on, so expect
-  some rework there.
+  wait for G1. G5 does not wait for D4 (region size and shape). D4 may
+  change the region graph's size options, but not the graph's
+  construction, W3's warp or W4's region cache.
 - **Done when:** a lattice world of many regions builds on demand from a
   closure source, and the seam suites pass on warped borders.
 - **Status (2026-11-24):** W1–W3 and W3b are built. W3b skips border pulls
@@ -457,7 +457,9 @@ goldens, which have no baseline on this machine).
   image example, redone through the World. A studio World tab once G6 can
   draw the land.
 - **Needs:** B0, G5, F2 (seed hashing), D3 (open question 5: Terrain and
-  Biome ids), D4 (one region per Biome). D3 adds: `region_seed` with
+  Biome ids). D4 (region size and shape) sets only the final region size;
+  W0 starts on today's 4 km default and chooses each region's Biome type
+  freely, so neighbours may share a type. D3 adds: `region_seed` with
   `"terrain.region.local"` and `"biome.region.local"`, `terrain_seed`
   removed, `Biome::terrain_options` passing the World seed, stable ids for
   designer polygons, and gully cells and seam detail kept fixed.
@@ -823,7 +825,7 @@ a cell run in order within the wave.
 | 1 | M0; D1 research; D2 research | M0 is commits and review. D1 and D2 are reading and spikes, and touch no shared files. |
 | 2 | F1 alone | Churn window 1. |
 | 3 | F2 (one worker per crate); G1 → G3; G2; G5; B0; C1 (one worker per crate); R1; D3 | D3's slot choice uses D2's GPU spike. G5 can run beside G1, but both edit `procgena_terrain`, so give them separate files or run them one after the other. |
-| 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files, and must land before W0 in wave 5. |
+| 4 | F3 alone; D4 research | Churn window 2, before C2 reworks the grove types. D4 is design work that touches no shared files. After its premise was corrected (2026-11-24) it no longer blocks W0, which starts on today's 4 km region size. |
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
 | 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2 | The first B1 is the Biome milestone; the fruit steps are I1b's. |
@@ -861,30 +863,27 @@ where the details are.
 
 ### Blocking a milestone
 
-5. **One region per Biome (D4, blocks W0).**
-   - *What:* D3 decided that a region is one Biome's whole area, so two
-     neighbouring regions never share a Biome. Today's region graph cuts
-     the World into cells of about 4 km and nothing stops neighbours
-     choosing the same Biome. D4 decides how that is prevented while
-     every `RegionId` stays computable from the World's options and seed,
-     in any build order.
-   - *Options:* **A** keep one cell per region and make each cell's Biome
-     differ from all its neighbours' (no change to the graph, the warp or
-     `WorldTerrain`); **B1** cluster cells around coarse sites into larger
-     regions (shapes ignore the Biome choice); **B2** cluster cells by
-     their first-choice Biome inside fixed blocks (shapes follow the
-     selector fields); **C** merge same-Biome cells without limit, which
-     only works for bounded or designer-drawn worlds.
-   - *Recommendation:* build W0 on A with a ranked, priority-ordered Biome
-     choice, judge W0's image example, and move to B1 or B2 if forced
-     variety at cell scale looks wrong. Keep C for designer maps.
-   - *Also needed before W0 can be built:* D4.md's seven sub-questions,
-     above all fallback Biomes (a region has about six neighbours but W0
-     has only three empty Biomes) or exempting Biomes with no cover, such
-     as ocean. Region size waits on the quiet-machine benchmark rerun
-     (item 14).
+5. **Region size and shape (D4, no longer blocks W0).**
+   - *Premise corrected 2026-11-24:* D3 was first recorded as "two
+     neighbouring regions never share a Biome". The user clarified that
+     neighbours never share a Biome *instance* (each region has its own,
+     seeded per region) but may share a Biome *type* (preset). Two
+     neighbouring "pine forest" regions differ in seed, and the Ecotope
+     border protocol blends them like any other border. The forced
+     differ-from-neighbours choice, fallback Biomes and options A, B1, B2
+     and C in D4.md are superseded.
+   - *What is still open:* how large regions are, and whether they are
+     even or a multi-scale mix (world_plan.md open question 2). Today's
+     graph uses cells of about 4 km. Region size sets how long a region's
+     plan takes (and so the plan-ahead ring and its memory), the share of
+     land in border blend zones, and how large one Biome patch can be.
+   - *What W0 needs:* only a region size. W0 chooses each region's Biome
+     type freely from the selector fields and pins, on today's region
+     graph, and can start on the 4 km default.
+   - *Waits on:* the quiet-machine rerun of the G3 step 2 cold benchmarks
+     (item 14) and W0's image example.
    - *Details:* [docs/decisions/D4.md](docs/decisions/D4.md), "Bottom
-     line" and "Open questions for the user".
+     line" and "Region size".
 6. ~~**Fruit cluster cards versus the fruit crate.**~~ Decided by the user
    2026-11-24. The cluster cards (built in wave 5 under I1b's earlier
    scope, set by `LodDetail::cluster_cards`, off by default) are removed

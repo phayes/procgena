@@ -340,10 +340,14 @@ placed on the GPU with no `Ground`.
 ### 4. Biome and Terrain
 
 Biome and Terrain live at the same level. Each region of the World has
-exactly one Biome, and each Biome exactly one Terrain. A region is one
-Biome's whole area: its outline is where the Biome changes, and two
-neighbouring regions never share a Biome (decided by the user in D3; how
-the region graph achieves this is decision gate D4). Terrain is still its
+exactly one Biome, and each Biome exactly one Terrain. Each region has
+its own Biome instance, seeded per region, so a Biome instance never
+spans regions and neighbouring regions never share one. Neighbouring
+regions may use the same Biome type (preset): two "pine forest" regions
+side by side differ in seed, and the Ecotope border protocol blends their
+cover across the border like any other region border. Nothing forces
+neighbours to choose different types (decided by the user in D3,
+corrected 2026-11-24). Region size and shape are decision gate D4. Terrain is still its
 own type: it is edited on its own (in its own studio tab), and one Terrain
 preset can be reused by many Biome presets ("alpine forest" and "alpine
 meadow" on the same mountains).
@@ -395,7 +399,11 @@ side it came from. Because priorities share one World-wide scale, the
 merge is a sort by `priority`. A tie between the two sides is broken by
 the Scatters' address prefixes (region, Ecotope key, Scatter key; see
 "Queries"), which never depends on which side made the offer, so both
-sides build the same blend.
+sides build the same blend. When two neighbouring regions use the same
+Biome type, every Scatter has an equal priority on both sides, so which
+side wins at each spot along the border falls to that tie-break by
+region. Such a border is a bit random; the user accepts that
+(2026-11-24).
 
 **Empty Biomes.** A Biome with a Terrain and no Ecotope rules is valid,
 and every Terrain preset has a default empty Biome. A World of bare land
@@ -473,10 +481,11 @@ The World holds the Biomes; it does not hold Terrains directly.
 - The region graph's options: region size, jitter and border warp, or a
   designer's polygons. The terrain crate computes the graph from them (see
   "5.1 WorldTerrain"), because the land needs it before anything grows.
-  Each region is one Biome's whole area, so neighbouring regions never
-  share a Biome. How the graph and the Biome choice achieve that, while
-  keeping each `RegionId` stable and computable from the World's options
-  and seed alone, is decision gate D4.
+  Each region gets its own Biome instance, seeded per region, so
+  neighbouring regions never share an instance, though they may share a
+  Biome type (D3, corrected 2026-11-24). Each `RegionId` stays stable and
+  computable from the World's options and seed alone. Region size and
+  shape are decision gate D4.
 - Which Biome fills each region, chosen field first: rules match the
   world elevation E and the World's own selector fields (ruggedness,
   moisture) at each region, and a user can pin a region's Biome. A pin
@@ -1624,10 +1633,12 @@ it starts.
   The Terrain seed is the World seed for now, passed through
   `terrain_seed`. D3 settled the final derivation: the Terrain keeps the
   World seed for its noise, and `terrain_seed` goes away (W0).
-- [ ] **One region per Biome** (decision gate D4): a region graph whose
-  regions are whole Biome areas, so neighbouring regions never share a
-  Biome, with stable region ids computable from the World's options and
-  seed alone.
+- [ ] **Region size and shape** (decision gate D4): the region graph's
+  size and shape (even regions or a multi-scale mix), after the G3 step 2
+  cold benchmarks and W0's image example. Each region already has its own
+  Biome instance and a stable id computable from the World's options and
+  seed alone; neighbours may share a Biome type (D3, corrected
+  2026-11-24).
 - [ ] **World crate**: region graph options, Biome choice per region
   (fields, rules, pins), seed derivation for every level below, specimen
   budgets per pool, and running the two-step Biome border negotiation.
