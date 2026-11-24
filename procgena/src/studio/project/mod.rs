@@ -63,6 +63,26 @@ pub struct Manifest {
     pub id: String,
     /// The project's display name.
     pub name: String,
+    /// The author's version of the project, in any form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// What the project holds, in a sentence or two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The licence its presets are shared under, as an SPDX id such as
+    /// `CC0-1.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub licence: Option<String>,
+    /// Who made it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<String>,
+    /// The procgena version that last exported it as a bundle, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made_with: Option<String>,
+    /// The presets an exported bundle was made from, such as
+    /// `biome/alpine`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<String>,
 }
 
 /// Why a project could not be opened or a preset could not be saved.
@@ -189,6 +209,12 @@ impl Project {
             format: FORMAT,
             id: id.to_owned(),
             name: name.to_owned(),
+            version: None,
+            description: None,
+            licence: None,
+            authors: Vec::new(),
+            made_with: None,
+            roots: Vec::new(),
         };
         let presets = root.join("presets");
         std::fs::create_dir_all(&presets).map_err(io(&presets))?;

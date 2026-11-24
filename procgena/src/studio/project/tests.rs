@@ -67,6 +67,61 @@ fn an_unknown_format_is_refused() {
 }
 
 #[test]
+fn a_bundle_manifest_opens_as_a_project() {
+    // The manifest saved-file-format.md gives a bundle.
+    let root = folder("bundle");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join(MANIFEST),
+        "format: 1\nid: alpine_pack\nname: Alpine pack\nversion: 0.3.0\n\
+         description: Pines and edelweiss.\nlicence: CC0-1.0\nauthors: [Jo Example]\n\
+         made_with: 0.1.0\nroots: [biome/alpine]\n",
+    )
+    .unwrap();
+    let project = Project::open(&root).unwrap();
+    let manifest = project.manifest();
+    assert_eq!(manifest.licence.as_deref(), Some("CC0-1.0"));
+    assert_eq!(manifest.authors, ["Jo Example"]);
+    assert_eq!(manifest.roots, ["biome/alpine"]);
+    assert_eq!(
+        project.registry().namespace(Layer::Project),
+        Some("alpine_pack")
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_shared_key_makes_a_built_in_base_s_bare_references_ambiguous() {
+    // Today's behaviour, pinned while the coordinator decides it: a
+    // project tree named pine_small makes the bare `tree: pine_small` that
+    // a project Ecotope inherits from the built-in pine forest floor
+    // ambiguous, though the reference was written in a built-in file.
+    let root = folder("inherited");
+    let mut project = Project::create(&root, "my_forest", "My forest").unwrap();
+    let forest = edited(&project, "ecotope", "pine_forest_floor", |_| {});
+    project.save_new("ecotope", "my_floor", &forest).unwrap();
+    assert!(
+        project
+            .registry()
+            .resolve::<EcotopePreset>("my_floor")
+            .is_ok()
+    );
+
+    let pine = edited(&project, "tree", "pine_small", |_| {});
+    let pine = Document {
+        base: Some("builtin:pine_small".to_owned()),
+        ..pine
+    };
+    project.save_new("tree", "pine_small", &pine).unwrap();
+    let error = project
+        .registry()
+        .resolve::<EcotopePreset>("my_floor")
+        .unwrap_err();
+    assert!(error.to_string().contains("builtin:pine_small"), "{error}");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn a_project_can_t_be_named_builtin() {
     // Not when it is made...
     let root = folder("builtin");
