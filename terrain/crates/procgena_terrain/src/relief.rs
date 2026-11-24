@@ -1,6 +1,6 @@
 //! The terrain's own height, before it is bent to meet its neighbours.
 
-use glam::{DVec2, Vec2};
+use glam::DVec2;
 
 use crate::calibration::{MASK_OCTAVES, RIDGED_OCTAVES, erosion_damping, mask_threshold};
 use crate::converge::{Fade, LayerSpreads};
@@ -14,9 +14,6 @@ const MASK_RIM: f32 = 0.6;
 
 /// How much larger mountain ranges are than their ridge wavelength.
 const RANGE_SCALE: f64 = 4.0;
-
-/// Step for the central-difference gradient, in metres.
-const GRADIENT_STEP: f64 = 0.5;
 
 /// Gain between ridge octaves: the gain the ridged statistics were measured
 /// with.
@@ -344,20 +341,6 @@ impl Relief {
     /// The gradient of [`own_relief`](Self::own_relief) at `p`.
     pub(crate) fn own_relief_slope(&self, p: DVec2) -> DVec2 {
         self.layers(p).iter().map(|(_, g)| *g).sum()
-    }
-
-    /// Rate of height change along x and z at `p`: E's own gradient plus
-    /// the relief's, by central differences. The relief's heights are
-    /// small beside E's, so they keep more precision in the differences.
-    pub(crate) fn gradient(&self, p: DVec2) -> Vec2 {
-        let h = |q: DVec2| self.height_above_elevation(q);
-        let dx = h(p + DVec2::X * GRADIENT_STEP) - h(p - DVec2::X * GRADIENT_STEP);
-        let dz = h(p + DVec2::Y * GRADIENT_STEP) - h(p - DVec2::Y * GRADIENT_STEP);
-        let relief = Vec2::new(dx, dz) / (2.0 * GRADIENT_STEP as f32);
-        if self.elevation.is_flat() {
-            return relief;
-        }
-        relief + self.elevation.gradient(p).as_vec2()
     }
 }
 
