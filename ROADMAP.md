@@ -435,6 +435,24 @@ goldens, which have no baseline on this machine).
   [terrain/features_plan_review.md](terrain/features_plan_review.md),
   "Decisions".
 
+#### G7: Scale-aware terrain lengths
+
+From D5 (decided by the user 2026-11-24; see
+[docs/decisions/D5.md](docs/decisions/D5.md)).
+
+- **Covers:** every landscape length in the terrain crate that is fixed in
+  metres today (fades, margins, ramps, clearances, the region-size floor)
+  derived instead from the World's scale pair and the local size; noise
+  octaves scaled with their wavelength; the border, seam and feature
+  suites re-run at the small and large scale classes. Object sizes, road
+  and river widths, chunks, LOD and masks never scale.
+- **Needs:** D5. Runs before or with W0.
+- **Churn:** it changes terrain results everywhere, so it runs in a wave
+  where no other terrain work is in flight.
+- **Done when:** the seam and feature suites pass at the small, medium
+  and large classes, and the region floor follows from scale (about
+  1.4 km with today's fixed widths; see D5's "floor tension").
+
 ### Bare worlds
 
 #### B0: Empty Biomes
