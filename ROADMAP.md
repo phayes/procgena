@@ -1491,6 +1491,13 @@ Done (2026-11-24): items 10, 15 and 16 above.
   `ObjectTags` to `SpecimenTags` in clump_bevy; a shared candidate-loop
   helper for Scatters (C2).
 - `tree/tests/export_images.rs` needs `required-features`.
+- Long term: keep comments and layout when the studio updates a preset
+  file. Decided by the user on 2026-11-24: for now, writing a preset is
+  lossy for comments (a full rewrite through serde). The ST2 spike
+  compared `yamlpatch` + `yamlpath` (about 11 new crates, including C
+  builds through tree-sitter), `yaml-edit` (reported to misplace
+  comments), and our own patcher on `granit-parser` (no new crates).
+  The table is in `procgena/studio_plan.md`.
 - Long term, a possible optimisation: work on a `.procgena` bundle entirely
   inside the zip, with no unpacking to disk. Open would read through the
   mount source, and saves would rewrite the archive. A simpler middle step
