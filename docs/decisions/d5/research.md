@@ -117,7 +117,7 @@ Fandom wikis (valheim.fandom.com) returned HTTP 402 to automated fetching, so Va
 | Hill vs mountain | Hills commonly < 300–600 m; Soviet def: hill relative height ≤ 200 m | https://en.wikipedia.org/wiki/Hill | V |
 | Glacial U-valley example | Yosemite Valley 12 km long, ~1.6 km wide, 910–1,070 m deep | https://en.wikipedia.org/wiki/Yosemite_Valley | V |
 | Valley widths generally | V-valleys: tens to hundreds of m at floor; large glacial troughs 1–10 km | — | U |
-| 1st-order stream width | Most abundant headwater width 32 ± 7 cm | https://lamb.caltech.edu/documents/19688/s41467-018-02991-w.pdf (Allen et al. 2018, Nat. Commun.) | A |
+| 1st-order stream width | Most abundant headwater width 32 ± 7 cm | https://lamb.caltech.edu/documents/19688/s41467-018-02991-w.pdf (Allen et al. 2018, Nature Communications) | A |
 | Stream-order zones | Headwaters orders 1–3, mid-reaches 4–6, large rivers > 6 (River Continuum Concept) | https://en.wikipedia.org/wiki/River_Continuum_Concept | A |
 | Order 4–6 widths | ~5–50 m typical; order 7+ ~ 50 m to hundreds of m | — (no table found; see Leopold & Maddock 1953, USGS PP 252; Downing et al. 2012, Inland Waters 2:229) | U |
 | Global river area by order | Orders 5–9 make up most river *area*; 1st order dominates *length* | https://scholars.unh.edu/nh_epscor/231 (Downing et al. 2012) | A |
