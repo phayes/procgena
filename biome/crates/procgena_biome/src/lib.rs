@@ -69,4 +69,5 @@ pub use ecotope::{
     Footprints, PlacedScatter, SCATTER_SEED_KIND, ScatterCopies, ScatterFailure, ScatterKind,
     scatter_seed,
 };
+pub use ecotope::{EcotopeGround, GROUND_SEED_KIND};
 pub use presets::BiomePreset;

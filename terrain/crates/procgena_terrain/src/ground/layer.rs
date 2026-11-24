@@ -392,9 +392,11 @@ impl GroundLayer {
         weight
     }
 
-    /// Whether every setting is usable (apart from the material key, which
-    /// only a catalogue can check).
-    pub(super) fn is_valid(&self) -> bool {
+    /// Whether every setting is usable: opacity from 0 to 1, bands running
+    /// from low to high, noise wavelengths more than 0 and reaches 0 or
+    /// more.
+    /// Whether the material exists only a catalogue can say.
+    pub fn is_valid(&self) -> bool {
         (0.0..=1.0).contains(&self.opacity)
             && self.when.iter().all(Condition::is_valid)
             && self.noise.as_ref().is_none_or(GroundNoise::is_valid)

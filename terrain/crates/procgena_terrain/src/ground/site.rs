@@ -132,10 +132,10 @@ impl GroundSource for WorldTerrain {
 
 /// Any [`Ground`] as a [`GroundSource`]: plain ground with no water and no
 /// roads (see [`GroundSite::from_ground`]), the same at every stage.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct OnGround<G>(pub G);
+#[derive(Clone, Copy)]
+pub struct OnGround<'a>(pub &'a dyn Ground);
 
-impl<G: Ground> GroundSource for OnGround<G> {
+impl GroundSource for OnGround<'_> {
     fn site(&self, p: DVec2, _: ChunkStage) -> GroundSite {
         GroundSite::from_ground(self.0.sample(p))
     }

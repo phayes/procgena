@@ -130,7 +130,7 @@ fn roads_and_riverbeds_show_on_a_terrain() {
     assert!(mix.weight(catalogue.id("riverbed").unwrap()) > 0.99);
 
     // Plain ground has neither.
-    let site = OnGround(procgena_core::FlatGround).site(on_road, ChunkStage::Canonical);
+    let site = OnGround(&procgena_core::FlatGround).site(on_road, ChunkStage::Canonical);
     assert_eq!(
         bare.paint(on_road, &site)
             .weight(catalogue.id("grass").unwrap()),
@@ -232,7 +232,7 @@ fn a_chunk_keeps_its_eight_heaviest_materials() {
     let painter = Stripes(catalogue);
     let weights = ChunkWeights::build(
         &painter,
-        &OnGround(procgena_core::FlatGround),
+        &OnGround(&procgena_core::FlatGround),
         ChunkKey::new(0, 0, 1),
         ChunkStage::Canonical,
     )

@@ -126,7 +126,7 @@ impl fmt::Display for GroundError {
             Self::Layer { key } => write!(
                 f,
                 "ground layer {key}: opacity must be from 0 to 1, bands must run from low to \
-                 high, and noise wavelengths and reaches must be more than 0"
+                 high, noise wavelengths must be more than 0 and reaches 0 or more"
             ),
             Self::UnknownMaterial { key, material } => {
                 write!(
