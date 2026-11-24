@@ -14,7 +14,7 @@ use super::protocol::{
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
-use procgena_deadwood::{DeadwoodLod, DeadwoodOptions, PieceKind, ScatterOptions};
+use procgena_deadwood::{DeadwoodOptions, PieceKind, ScatterOptions, default_lod, size_factor};
 use procgena_deadwood_bevy::{
     DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
     DeadwoodScatterParams, ScatterGround,
@@ -336,7 +336,8 @@ fn piece_view(options: &DeadwoodOptions) -> OrbitCamera {
         (options.diameter, options.diameter)
     };
     let extent = options.length.max(width);
-    let cull = DeadwoodLod::for_options(options).cull_distance;
+    let lod = default_lod();
+    let cull = lod.cull_distance.expect("the default levels cull") * size_factor(&lod, options);
     OrbitCamera {
         focus: Vec3::new(0.0, 0.5 * height, 0.0),
         yaw: 0.6,

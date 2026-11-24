@@ -2,8 +2,8 @@
 
 use glam::Vec3;
 use procgena_deadwood::{
-    DeadwoodDetail, DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, EndKind,
-    EndsOptions, HollowOptions, MeshBuffers, Piece, PieceKind,
+    DeadwoodDetail, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, EndKind, EndsOptions,
+    HollowOptions, MeshBuffers, Piece, PieceKind, default_lod,
 };
 use procgena_specimen::Surface;
 
@@ -228,9 +228,8 @@ fn same_options_give_the_same_mesh() {
 fn coarser_levels_have_fewer_triangles() {
     for preset in DeadwoodPreset::ALL {
         let piece = Piece::from_preset(preset);
-        let lod = DeadwoodLod::for_options(piece.options());
         let counts: Vec<usize> = piece
-            .lod_meshes(&lod)
+            .lod_meshes(&default_lod())
             .unwrap()
             .iter()
             .map(|(_, m)| m.triangle_count())

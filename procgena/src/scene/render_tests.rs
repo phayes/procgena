@@ -428,7 +428,7 @@ fn deadwood_event(scene: &mut HeadlessScene) -> ViewerEvent {
 #[test]
 #[ignore = "needs a GPU"]
 fn idle_deadwood_mode_draws_the_textured_log() {
-    use procgena_deadwood::{DeadwoodLod, DeadwoodPreset};
+    use procgena_deadwood::{DeadwoodPreset, default_lod};
 
     let log = |piece| Arc::new(super::DeadwoodSettings { piece, ..default() });
     let start = SceneStart {
@@ -444,7 +444,7 @@ fn idle_deadwood_mode_draws_the_textured_log() {
     let ViewerEvent::DeadwoodBuilt(Ok(stats)) = deadwood_event(&mut scene) else {
         panic!("the log was not built");
     };
-    assert_eq!(stats.levels.len(), DeadwoodLod::default().levels.len());
+    assert_eq!(stats.levels.len(), default_lod().levels.len());
     let textured = scene.settled_frame();
 
     // The same log without textures looks different.

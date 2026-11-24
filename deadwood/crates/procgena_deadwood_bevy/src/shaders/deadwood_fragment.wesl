@@ -25,7 +25,7 @@ import bevy_pbr::render::{
 };
 
 @if(VISIBILITY_RANGE_DITHER)
-import bevy_pbr::render::pbr_functions::visibility_range_dither;
+import procgena_core_bevy::shaders::dither::dither_discard;
 
 /// Surface detail settings; must match the Rust `DeadwoodSurface`.
 struct DeadwoodSurface {
@@ -149,7 +149,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // While two detail levels blend, each skips a pattern of pixels so the
     // other shows through.
 @if(VISIBILITY_RANGE_DITHER)
-    visibility_range_dither(in.position, in.visibility_range_dither);
+    dither_discard(in.position, in.visibility_range_dither);
 
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     var colour = pbr_input.material.base_color.rgb;

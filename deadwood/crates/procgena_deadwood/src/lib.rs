@@ -15,11 +15,10 @@
 //! effects of decay also have their own setting that overrides it.
 //!
 //! ```
-//! use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, Piece};
+//! use procgena_deadwood::{DeadwoodPreset, Piece, default_lod};
 //!
 //! let log = Piece::from_preset(DeadwoodPreset::WindthrowLog);
-//! let lod = DeadwoodLod::for_options(log.options());
-//! for (level, mesh) in log.lod_meshes(&lod).unwrap() {
+//! for (level, mesh) in log.lod_meshes(&default_lod()).unwrap() {
 //!     println!("from {} m: {} triangles", level.distance, mesh.triangle_count());
 //! }
 //! ```
@@ -29,7 +28,9 @@
 //!
 //! Distant objects don't need fine detail, so renderers swap in simpler
 //! meshes as the camera moves away; each of those is a "level of detail"
-//! (LOD). [`DeadwoodLod`] says which detail to use at which distance.
+//! (LOD). [`DeadwoodLod`], the shared [`procgena_core::Lod`] type, says
+//! which detail to use at which distance; [`default_lod`] gives the
+//! standard levels.
 //!
 //! Pieces rest on flat ground at `y = 0`, with Y up. Logs and branches turn
 //! onto a stable resting side, as if dropped; see [`Placement`]. Stumps
@@ -74,7 +75,10 @@ mod texture;
 
 pub use colour::{linear_from_hex, srgb_to_linear};
 pub use content_hash::DEADWOOD_KIND;
-pub use detail::{DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, LodLevel};
+pub use detail::{
+    DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, LodLevel, default_lod, lod_size, size_factor,
+    validate_lod,
+};
 pub use limb::SizeClass;
 pub use mesh::{BillboardVertex, DeadwoodMesh, MeshBuffers, PartRange, Ribbons, Zone};
 pub use options::{

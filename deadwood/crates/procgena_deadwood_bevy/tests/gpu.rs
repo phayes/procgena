@@ -21,7 +21,8 @@ use bevy::render::render_resource::{CachedPipelineState, PipelineCache, TextureF
 use bevy::tasks::tick_global_task_pools_on_main_thread;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, ScatterOptions};
+use procgena_core::Quality;
+use procgena_deadwood::{DeadwoodPreset, ScatterOptions, default_lod, lod_size};
 use procgena_deadwood_bevy::{
     DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPartKind, DeadwoodPlugin,
     DeadwoodScatterParams, ScatterGround,
@@ -98,9 +99,10 @@ fn spawn_scene(app: &mut App) {
     // A dead branch has bark, a sawn and a snapped end, and side twigs that
     // become strips; one copy per level, midway through it.
     let options = DeadwoodPreset::DeadBranch.options();
-    let lod = DeadwoodLod::default().sized_for(&options);
-    let mut starts: Vec<f32> = lod.levels.iter().map(|l| l.distance).collect();
-    starts.push(lod.cull_distance);
+    let lod = default_lod();
+    let factor = lod.factor(lod_size(&options), Quality::High);
+    let mut starts: Vec<f32> = lod.levels.iter().map(|l| l.distance * factor).collect();
+    starts.push(lod.cull_distance.expect("the default levels cull") * factor);
     for pair in starts.windows(2) {
         let z = -(pair[0] + pair[1]) * 0.5;
         app.world_mut().spawn((

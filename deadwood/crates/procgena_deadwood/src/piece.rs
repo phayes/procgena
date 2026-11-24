@@ -5,7 +5,7 @@ use std::fmt;
 use crate::build::{build, visible_span};
 use crate::colour::Palette;
 use crate::decay::Decay;
-use crate::detail::{DeadwoodDetail, DeadwoodLod, LodLevel};
+use crate::detail::{DeadwoodDetail, DeadwoodLod, LodLevel, sized_levels, validate_lod};
 use crate::leaves::{Card, mesh_cards, place};
 use crate::limb::Limb;
 use crate::mesh::{DeadwoodMesh, Shade, build_mesh};
@@ -156,11 +156,18 @@ impl Piece {
     }
 
     /// Builds one mesh per level of `lod`, from nearest to furthest, each
-    /// paired with its level.
+    /// paired with its level scaled for this piece's size.
+    ///
+    /// `lod` is written for a piece [`reference_size`](crate::DeadwoodLod)
+    /// across, such as [`crate::default_lod`]. Each returned level's
+    /// distance and stem radii are multiplied by this piece's size factor
+    /// at [`Quality::High`](procgena_core::Quality::High), so a larger
+    /// piece keeps thicker stems at each level. The quality setting only
+    /// changes when levels are drawn, never the meshes.
     ///
     /// # Errors
     ///
-    /// Returns the first problem with `lod`; see [`DeadwoodLod::validate`].
+    /// Returns the first problem with `lod`; see [`crate::validate_lod`].
     ///
     /// # Panics
     ///
@@ -169,11 +176,10 @@ impl Piece {
         &self,
         lod: &DeadwoodLod,
     ) -> Result<Vec<(LodLevel, DeadwoodMesh)>, OptionsError> {
-        lod.validate()?;
-        Ok(lod
-            .levels
-            .iter()
-            .map(|level| (*level, self.mesh_with_detail(&level.detail)))
+        validate_lod(lod)?;
+        Ok(sized_levels(lod, &self.options)
+            .into_iter()
+            .map(|level| (level, self.mesh_with_detail(&level.detail)))
             .collect())
     }
 

@@ -14,11 +14,12 @@ use bevy::math::DVec2;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
-use procgena_core::{ContentHash, ContentHasher, PoolId};
+use procgena_core::{ContentHash, ContentHasher, FarForm, LevelForm, PoolId, Quality};
+use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_deadwood::{
     DeadwoodError, DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, FlatGround, Ground,
     HeightGrid, LodLevel, OptionsError, Piece, Placement, ScatterError, ScatterOptions,
-    StickScatter, TextureCompression, TextureSize, specimen_from_meshes,
+    StickScatter, TextureCompression, TextureSize, lod_size, specimen_from_meshes,
 };
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 
@@ -245,9 +246,8 @@ impl AssetLoader for DeadwoodOptionsLoader {
 /// The plugin's settings, for the build systems.
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct SpawnSettings {
-    /// Detail levels for a piece of
-    /// [`DEFAULT_LOD_SIZE`](procgena_deadwood::DEFAULT_LOD_SIZE); each
-    /// build scales them to the piece's size.
+    /// Detail levels for a piece [`reference_size`](DeadwoodLod) across;
+    /// each piece scales them to its own size.
     pub lod: DeadwoodLod,
     /// Where to load bark and end-grain textures from, or `None` for vertex
     /// colours and drawn rings only.
@@ -359,7 +359,7 @@ struct BuiltVariant {
     key: VariantKey,
     /// The variant's options.
     options: DeadwoodOptions,
-    /// Detail levels scaled for the variant's size.
+    /// Detail levels for a piece of the reference size.
     lod: DeadwoodLod,
     /// One entry per detail level.
     levels: Vec<BuiltLevel>,
@@ -377,8 +377,11 @@ struct BuiltLevel {
 
 /// One variant's meshes and materials, after adding them to Bevy's assets.
 struct VariantAssets {
-    /// Detail levels scaled for the variant's size.
+    /// Detail levels for a piece of the reference size.
     lod: DeadwoodLod,
+    /// The variant's size, from [`lod_size`], which scales `lod`'s
+    /// distances.
+    size: f32,
     /// One entry per detail level.
     levels: Vec<LevelAssets>,
 }
@@ -695,7 +698,7 @@ fn scatter_sticks(
     })
 }
 
-/// Meshes `piece` at every level of `lod` (scaled for its size) and
+/// Meshes `piece` at every level of `lod` (see [`Piece::lod_meshes`]) and
 /// converts the meshes for Bevy. Also returns the core meshes, for building
 /// the piece's specimen.
 fn build_variant(
@@ -703,8 +706,7 @@ fn build_variant(
     lod: &DeadwoodLod,
 ) -> Result<(BuiltVariant, Vec<(LodLevel, DeadwoodMesh)>), OptionsError> {
     let options = piece.options().clone();
-    let lod = lod.clone().sized_for(&options);
-    let meshes = piece.lod_meshes(&lod)?;
+    let meshes = piece.lod_meshes(lod)?;
     let levels = meshes
         .iter()
         .map(|(_, mesh)| BuiltLevel {
@@ -720,13 +722,13 @@ fn build_variant(
     let key = VariantKey {
         pool: options.pool_id(),
         seed: options.seed,
-        lod: lod_hash(&lod),
+        lod: lod_hash(lod),
     };
     Ok((
         BuiltVariant {
             key,
             options,
-            lod,
+            lod: lod.clone(),
             levels,
         },
         meshes,
@@ -748,6 +750,7 @@ pub(crate) fn finish_generation(
     mut standard: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     settings: Res<SpawnSettings>,
+    quality: Res<LodQuality>,
 ) {
     for (entity, mut b, kids) in &mut building {
         let Some(result) = block_on(poll_once(&mut b.task)) else {
@@ -786,14 +789,16 @@ pub(crate) fn finish_generation(
 
         // Spawn one child per piece, level and kind of part (round stems,
         // strips, leaf cards), each shown only within its own distance
-        // band.
-        for (i, (variant, transform)) in built.instances.iter().enumerate() {
-            let variant = &variants[*variant as usize];
-            let ranges = visibility_ranges(&variant.lod);
+        // band, scaled by the variant's size and the quality setting.
+        let ranges: Vec<Vec<VisibilityRange>> = variants
+            .iter()
+            .map(|v| variant_ranges(&v.lod, v.size, quality.0))
+            .collect();
+        for (i, (v, transform)) in built.instances.iter().enumerate() {
+            let variant = &variants[*v as usize];
+            let ranges = &ranges[*v as usize];
             for (lod, (level, range)) in variant.levels.iter().zip(ranges).enumerate() {
-                // Strips-only levels are too far away for their shadows to
-                // be worth drawing.
-                let shadows = !variant.lod.levels[lod].detail.strip_all;
+                let shadows = variant.lod.levels[lod].casts_shadows;
                 if let Some((mesh, material)) = &level.surfaces {
                     let mut part = commands.spawn((
                         DeadwoodPart {
@@ -944,6 +949,7 @@ fn upload(
         })
         .collect();
     let assets = Arc::new(VariantAssets {
+        size: lod_size(&variant.options),
         lod: variant.lod,
         levels,
     });
@@ -951,27 +957,51 @@ fn upload(
     assets
 }
 
-/// Returns a hash of every setting of `lod`: each level's distance,
-/// hysteresis and detail, then the cull distance.
+/// Returns a hash of every setting of `lod`: its reference size, each
+/// level's distance, hysteresis, form, shadows and detail, then the cull
+/// distance.
 fn lod_hash(lod: &DeadwoodLod) -> u64 {
     let DeadwoodLod {
+        reference_size,
         levels,
         cull_distance,
     } = lod;
     let mut h = ContentHasher::new();
+    h.write_f32(*reference_size);
     h.write_usize(levels.len());
     for LodLevel {
         distance,
         hysteresis,
+        form,
+        casts_shadows,
         detail,
     } in levels
     {
         h.write_f32(*distance);
         h.write_f32(*hysteresis);
+        h.write_u32(form_number(*form));
+        h.write_bool(*casts_shadows);
         detail.content_hash(&mut h);
     }
-    h.write_f32(*cull_distance);
+    cull_distance.content_hash(&mut h);
     h.finish()
+}
+
+/// Numbers each level form for [`lod_hash`].
+///
+/// # Panics
+///
+/// Panics on a far form this crate doesn't know yet, so that a new form
+/// can't silently share a number with another.
+fn form_number(form: LevelForm) -> u32 {
+    match form {
+        LevelForm::Mesh => 0,
+        LevelForm::Far(FarForm::Strips) => 1,
+        LevelForm::Far(FarForm::BillboardLeaves) => 2,
+        LevelForm::Far(FarForm::Card) => 3,
+        LevelForm::Far(other) => panic!("no hash number for far form {other:?}"),
+        LevelForm::Impostor => 4,
+    }
 }
 
 /// Returns a hash of everything [`deadwood_material`] reads from `o`: the
@@ -985,31 +1015,12 @@ fn material_hash(o: &DeadwoodOptions) -> u64 {
     h.finish()
 }
 
-/// Returns the distance band to show each level of `lod` in. Neighbouring
-/// levels blend over `distance × hysteresis` either side of each switch,
-/// and the last level fades out around the cull distance.
-pub(crate) fn visibility_ranges(lod: &DeadwoodLod) -> Vec<VisibilityRange> {
-    let margin = |distance: f32, hysteresis: f32| {
-        let half = distance * hysteresis;
-        (distance - half).max(0.0)..distance + half
-    };
-    let last_hysteresis = lod.levels.last().map_or(0.0, |l| l.hysteresis);
-    (0..lod.levels.len())
-        .map(|i| {
-            let level = &lod.levels[i];
-            VisibilityRange {
-                start_margin: if i == 0 {
-                    0.0..0.0
-                } else {
-                    margin(level.distance, level.hysteresis)
-                },
-                end_margin: match lod.levels.get(i + 1) {
-                    Some(next) => margin(next.distance, next.hysteresis),
-                    None => margin(lod.cull_distance, last_hysteresis),
-                },
-                use_aabb: false,
-            }
-        })
+/// Returns the distance band to show each level of `lod` in, for a piece
+/// `size` metres across (see [`lod_size`]) drawn at `quality`.
+fn variant_ranges(lod: &DeadwoodLod, size: f32, quality: Quality) -> Vec<VisibilityRange> {
+    lod.ranges(lod.factor(size, quality))
+        .iter()
+        .map(visibility_range)
         .collect()
 }
 
@@ -1063,6 +1074,7 @@ pub(crate) fn prune_cache(
 mod tests {
     use std::time::{Duration, Instant};
 
+    use procgena_deadwood::default_lod;
     use procgena_specimen::{Part, SurfaceMesh, tags};
 
     use super::*;
@@ -1085,7 +1097,7 @@ mod tests {
                     finished.0.push(event.result.clone());
                 },
             );
-        crate::add_systems(&mut app, DeadwoodLod::default());
+        crate::add_systems(&mut app, default_lod());
         app
     }
 
@@ -1431,19 +1443,22 @@ mod tests {
 
     #[test]
     fn levels_hand_over_and_fade_out_at_the_cull_distance() {
-        let lod = DeadwoodLod::default();
-        let ranges = visibility_ranges(&lod);
+        let lod = default_lod();
+        let cull = lod.cull_distance.unwrap();
+        // A piece twice the reference size, drawn at low quality.
+        let size = 2.0 * lod.reference_size;
+        let scale = 2.0 * Quality::Low.distance_scale();
+        let ranges = variant_ranges(&lod, size, Quality::Low);
         assert_eq!(ranges.len(), lod.levels.len());
         assert_eq!(ranges[0].start_margin, 0.0..0.0);
         for pair in ranges.windows(2) {
             assert_eq!(pair[0].end_margin, pair[1].start_margin);
         }
         assert!(
-            ranges
-                .last()
-                .unwrap()
-                .end_margin
-                .contains(&lod.cull_distance)
+            ranges[1]
+                .start_margin
+                .contains(&(lod.levels[1].distance * scale))
         );
+        assert!(ranges.last().unwrap().end_margin.contains(&(cull * scale)));
     }
 }

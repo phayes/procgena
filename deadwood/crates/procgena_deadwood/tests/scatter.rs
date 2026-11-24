@@ -1,7 +1,7 @@
 //! Stick scatter over flat and shaped ground.
 
 use glam::{DVec2, Vec2, Vec3};
-use procgena_deadwood::{DeadwoodLod, FlatGround, ScatterError, ScatterOptions, StickScatter};
+use procgena_deadwood::{FlatGround, ScatterError, ScatterOptions, StickScatter, default_lod};
 use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 /// Kindling over a small 3 m square, to keep the tests quick.
@@ -119,7 +119,7 @@ fn too_many_sticks_is_an_error() {
 #[test]
 fn baked_specimen_is_valid() {
     let s = StickScatter::new(&small(), &FlatGround, None).unwrap();
-    let specimen = s.specimen(&DeadwoodLod::default()).unwrap();
+    let specimen = s.specimen(&default_lod()).unwrap();
     specimen.validate().unwrap();
     let part = &specimen.levels[0].parts[0];
     assert!(part.closed);

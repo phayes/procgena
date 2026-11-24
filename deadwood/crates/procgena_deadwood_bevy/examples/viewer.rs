@@ -39,7 +39,8 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_deadwood::{
-    DeadwoodDetail, DeadwoodLod, DeadwoodPreset, LodLevel, PieceKind, ScatterOptions,
+    DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, DeadwoodPreset, LodLevel, PieceKind,
+    ScatterOptions, default_lod,
 };
 use procgena_deadwood_bevy::{
     DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPlugin, DeadwoodScatterParams,
@@ -99,16 +100,13 @@ fn main() {
 
     // `--flat` uses only the cheapest detail, drawn out to 200 m.
     let lod = if has("--flat") {
-        DeadwoodLod {
-            levels: vec![LodLevel {
-                distance: 0.0,
-                hysteresis: 0.1,
-                detail: DeadwoodDetail::LOW,
-            }],
-            cull_distance: 200.0,
-        }
+        DeadwoodLod::new(
+            DEFAULT_LOD_SIZE,
+            vec![LodLevel::new(0.0, 0.1, DeadwoodDetail::LOW)],
+        )
+        .with_cull(200.0)
     } else {
-        DeadwoodLod::default()
+        default_lod()
     };
 
     // Read bark and end-grain images from the repository's dead wood

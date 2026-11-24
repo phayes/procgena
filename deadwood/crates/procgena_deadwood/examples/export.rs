@@ -11,7 +11,7 @@ use std::path::Path;
 
 use glam::DVec2;
 use procgena_deadwood::export::{gltf, obj};
-use procgena_deadwood::{DeadwoodLod, DeadwoodPreset, Piece, ScatterOptions, StickScatter};
+use procgena_deadwood::{DeadwoodPreset, Piece, ScatterOptions, StickScatter, default_lod};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
@@ -21,9 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Every preset, one object per level of detail.
     for preset in DeadwoodPreset::ALL {
         let piece = Piece::from_preset(preset);
-        let lod = DeadwoodLod::for_options(piece.options());
         let meshes: Vec<_> = piece
-            .lod_meshes(&lod)?
+            .lod_meshes(&default_lod())?
             .into_iter()
             .map(|(_, m)| m)
             .collect();

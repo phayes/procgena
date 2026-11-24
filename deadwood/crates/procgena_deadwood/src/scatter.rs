@@ -313,7 +313,7 @@ impl StickScatter {
     ///
     /// # Errors
     ///
-    /// Returns the first problem with `lod`; see [`DeadwoodLod::validate`].
+    /// Returns the first problem with `lod`; see [`crate::validate_lod`].
     ///
     /// # Panics
     ///
