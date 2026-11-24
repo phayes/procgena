@@ -113,7 +113,7 @@ fn every_end_kind_closes_solid_and_hollow() {
             splinters: 10,
             one_sided: 0.8,
         },
-        EndKind::Taper,
+        EndKind::Taper {},
     ];
     for (k, &tip) in kinds.iter().enumerate() {
         for hollow in [

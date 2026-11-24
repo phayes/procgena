@@ -102,7 +102,7 @@ fn every_part_of_the_options_changes_the_hash() {
         ("diameter", |o| o.diameter += 0.01),
         ("taper", |o| o.taper *= 0.9),
         ("shape", |o| o.shape.ovality = Some(0.2)),
-        ("ends", |o| o.ends.tip = EndKind::Taper),
+        ("ends", |o| o.ends.tip = EndKind::Taper {}),
         ("stubs", |o| o.stubs.keep = Some(0.5)),
         ("branching", |o| o.branching.twigs += 1),
         ("bark", |o| o.bark.cracks += 0.1),
@@ -136,7 +136,7 @@ fn neighbouring_end_kinds_hash_apart() {
             splinters: 0,
             one_sided: 0.0,
         },
-        EndKind::Taper,
+        EndKind::Taper {},
     ];
     let hashes: Vec<u64> = kinds.iter().map(content_hash).collect();
     for (i, a) in hashes.iter().enumerate() {

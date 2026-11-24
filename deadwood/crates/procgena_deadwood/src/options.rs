@@ -230,8 +230,9 @@ pub enum EndKind {
         #[serde(default = "default_one_sided")]
         one_sided: f32,
     },
-    /// A natural, rounded tip covered in bark, as at the end of a twig.
-    Taper,
+    /// A natural, rounded tip covered in bark, as at the end of a twig. It
+    /// has no settings, and a file that gives it any is refused.
+    Taper {},
 }
 
 /// Short broken-off branches sticking out of the main stem.
@@ -959,7 +960,7 @@ impl EndKind {
                 int_range(names.splinters, splinters, 0, MAX_SPLINTERS)?;
                 within(names.one_sided, one_sided, 0.0, 1.0)
             }
-            EndKind::Taper => Ok(()),
+            EndKind::Taper {} => Ok(()),
         }
     }
 
@@ -984,7 +985,7 @@ impl EndKind {
                 one_sided,
                 ..
             } => jaggedness * diameter * (SNAP_BASE + SNAP_SPIKE + one_sided),
-            EndKind::Taper => radius,
+            EndKind::Taper {} => radius,
         }
     }
 
@@ -1147,6 +1148,11 @@ mod tests {
         // The same kind as the base's end keeps the base end's values.
         let o = read("deadwood:\n  ends:\n    base: { kind: saw }\n").unwrap();
         assert_eq!(o.ends.base, EndKind::Saw { tilt: 6.0 });
+        // A taper has no settings, and is written as its kind alone.
+        let o = read("deadwood:\n  ends:\n    tip: { kind: taper }\n").unwrap();
+        assert_eq!(o.ends.tip, EndKind::Taper {});
+        let text = serde_json::to_string(&o.ends.tip).unwrap();
+        assert_eq!(text, r#"{"kind":"taper"}"#);
     }
 
     #[test]
@@ -1174,6 +1180,7 @@ mod tests {
             "deadwood:\n  seed: 7\n",
             "deadwood:\n  bark:\n    note: 1\n",
             "deadwood:\n  ends:\n    tip: { kind: saw, bogus: 1 }\n",
+            "deadwood:\n  ends:\n    tip: { kind: taper, bogus: 1 }\n",
             "deadwood:\n  detail:\n    bogus: 1\n",
             "tags: [a]\n",
         ] {
@@ -1227,7 +1234,7 @@ mod tests {
                 ..
             })
         ));
-        o.ends.tip = EndKind::Taper;
+        o.ends.tip = EndKind::Taper {};
         o.ends.base = EndKind::Saw { tilt: 50.0 };
         assert!(matches!(
             o.validate(),
