@@ -100,8 +100,22 @@ pub mod tags {
 /// The tags of one part, kept sorted and without repeats.
 ///
 /// Two sets with the same tags are equal whatever order the tags were added in.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+/// In a file, a set is a list of tags in any order, repeats allowed.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(from = "Vec<Tag>", into = "Vec<Tag>")]
 pub struct TagSet(Vec<Tag>);
+
+impl From<Vec<Tag>> for TagSet {
+    fn from(tags: Vec<Tag>) -> Self {
+        tags.into_iter().collect()
+    }
+}
+
+impl From<TagSet> for Vec<Tag> {
+    fn from(set: TagSet) -> Self {
+        set.0
+    }
+}
 
 impl TagSet {
     /// Creates an empty set.
