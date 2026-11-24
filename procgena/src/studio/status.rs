@@ -343,6 +343,7 @@ fn terrain_line(progress: Option<TerrainProgress>) -> (String, bool) {
             Some(RegionStage::Plan) => "planning regions",
             Some(RegionStage::Ground) => "shaping ground",
             Some(RegionStage::Roads) => "routing roads",
+            None if progress.refining > 0 => "adding roads to near ground",
             None => "reading chunks",
         };
         let percent = (progress.fraction * 100.0).floor();
@@ -425,6 +426,7 @@ mod tests {
             fraction: 0.427,
             stage: Some(RegionStage::Roads),
             drawn: 0,
+            refining: 0,
             wanted: 1200,
             reading: 4,
             failed: 0,
@@ -438,6 +440,14 @@ mod tests {
         assert_eq!(
             terrain_line(Some(progress)),
             ("Building terrain… 42% · reading chunks".into(), false)
+        );
+        progress.refining = 30;
+        assert_eq!(
+            terrain_line(Some(progress)),
+            (
+                "Building terrain… 42% · adding roads to near ground".into(),
+                false
+            )
         );
         progress = TerrainProgress {
             drawn: 1200,
