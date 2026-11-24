@@ -308,7 +308,7 @@ fn setup(
         MushroomGroundScatterParams {
             mushroom: Arc::new(MushroomPreset::FairyRing.options()),
             scatter: ScatterOptions {
-                seed: 3,
+                seed: 4,
                 density: 0.06,
                 min_spacing: 2.0,
                 scale_min: 0.9,

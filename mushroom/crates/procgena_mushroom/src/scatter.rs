@@ -22,23 +22,25 @@ use crate::specimen::specimen_from_meshes;
 /// high the density.
 pub const MAX_SITES: u32 = 20_000;
 
-/// Settings for [`MushroomScatter::on`].
+/// Settings for [`MushroomScatter::on`] and [`MushroomScatter::new`].
 ///
-/// Lengths are in the host specimen's units, which are metres for procgena
-/// generators.
+/// Lengths are in metres; for [`on`](MushroomScatter::on), in the host
+/// specimen's units. Each field says if only one of the two uses it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScatterOptions {
     /// Number that picks the growing spots, sizes, turns, which variant
     /// grows at each spot and how each spot's cluster is laid out. It also
     /// stands in for the World seed of the variants' specimen ids, so it
     /// picks their shapes too. The same seed, settings and host always give
-    /// the same scatter.
+    /// the same scatter. Used by [`MushroomScatter::on`];
+    /// [`MushroomScatter::new`] uses its input's seed instead.
     pub seed: u32,
     /// Which parts of the host mushrooms grow on, chosen by their tags, such
-    /// as ground or rock; see [`procgena_specimen::tags`].
+    /// as ground or rock; see [`procgena_specimen::tags`]. Only used by
+    /// [`MushroomScatter::on`].
     pub grows_on: TagFilter,
     /// Which way is up, in the host specimen's coordinates. Any length other
-    /// than zero.
+    /// than zero. Only used by [`MushroomScatter::on`].
     pub up: Vec3,
     /// Growing spots per square metre of suitable surface. Must be zero or
     /// positive. Fewer may fit because of
@@ -61,6 +63,8 @@ pub struct ScatterOptions {
     pub scale_max: f32,
     /// How much mushrooms tilt with a sloping surface instead of growing
     /// straight up, from 0 (straight up) through 1 (square to the surface).
+    /// Only used by [`MushroomScatter::on`]; a ground scatter keeps
+    /// mushrooms upright.
     pub follow_surface: f32,
     /// How deep each stem base sits in the surface, as a multiple of its
     /// radius, from 0 through 2. A little depth hides gaps on uneven ground.

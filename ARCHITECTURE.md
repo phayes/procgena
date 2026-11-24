@@ -175,11 +175,12 @@ for each copy, a transform. An asset does not know where it stands.
 **Mushrooms.** A `Mushroom` asset is a whole growth: how many stems, and
 how they cluster, including fairy-ring layouts. A single mushroom, a tuft
 and a fairy ring are all one `Mushroom`. `MushroomScatter` then places
-`Mushroom`s on the ground like any other Scatter. Today
-`procgena_mushroom` sets clusters apart with `ClusterOptions`,
-`ClusterLayout` and `FairyRingOptions` (fairy rings already exist), and
-its `MushroomScatter` grows on tagged host meshes; both change to fit
-this.
+`Mushroom`s on the ground like any other Scatter. Since C1,
+`procgena_mushroom` describes the growth with `ClusterOptions`,
+`ClusterLayout` and `FairyRingOptions`, and `MushroomScatter::new` places
+whole `Mushroom`s over a `ScatterInput`, setting each member on the ground.
+`MushroomScatter::on` still grows on tagged host meshes until
+`MushroomGrowth` replaces it.
 
 #### 1.1 Modifiers
 
@@ -241,7 +242,7 @@ time, and gives its mask over a chunk without drawing anything. See
 |---------|-------|-------|
 | `TreeScatter` | Built as `TreeGrove` ([tree/docs/groves.md](tree/docs/groves.md), [tree/PLAN-tree-grove.md](tree/PLAN-tree-grove.md)) | `GrovePlacement::new` already takes a `Ground` and an optional density function: the mask hook exists. |
 | `PlantScatter` | Built as `PlantField` ([plant/docs/fields.md](plant/docs/fields.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
-| `MushroomScatter` | Exists, but grows on tagged host meshes | Becomes a ground Scatter of `Mushroom`s (single, tuft or fairy ring). Growing on hosts moves to the later `MushroomGrowth` modifier. |
+| `MushroomScatter` | A ground Scatter of `Mushroom`s (`new`, C1), and still grows on tagged host meshes (`on`) | Growing on hosts moves to the later `MushroomGrowth` modifier. |
 | `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
 | `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of single stones over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. Pebble clusters wait for the group half of open question 3. |
 

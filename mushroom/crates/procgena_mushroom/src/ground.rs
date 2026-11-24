@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use glam::{IVec2, Quat, Vec2, Vec3};
+use glam::{DVec2, IVec2, Quat, Vec2, Vec3};
 use procgena_core::hash::{pcg3d, seed_for};
 use procgena_core::scatter::{Footprint, Placement, Rest, ScatterInput, place, steeper_than};
 use procgena_core::{Rng, SpecimenId};
@@ -105,14 +105,24 @@ impl MushroomScatter {
 
         // The cells that cover the area, anchored at its centre.
         let cell = options.min_spacing.max(MIN_CELL);
-        let half = input.area.size * 0.5;
-        let lo = (-half / cell).floor().as_ivec2();
-        let hi = (half / cell).ceil().as_ivec2();
-        let span = (hi - lo).max(IVec2::ZERO).as_u64vec2();
-        let cells = span.x * span.y;
-        if cells > MAX_CELLS {
+        // Count them in floating point first, so a huge or non-finite area
+        // is refused rather than overflowing.
+        let half = input.area.size.as_dvec2() * 0.5;
+        let (lo, hi) = (
+            (-half / f64::from(cell)).floor(),
+            (half / f64::from(cell)).ceil(),
+        );
+        let span = (hi - lo).max(DVec2::ZERO);
+        let count = span.x * span.y;
+        if count.is_nan() || count > MAX_CELLS as f64 {
+            let cells = if count.is_finite() {
+                count as u64
+            } else {
+                u64::MAX
+            };
             return Err(ScatterError::TooLarge { cells });
         }
+        let (lo, hi) = (lo.as_ivec2(), hi.as_ivec2());
 
         // Keep each candidate that the density, its neighbours and the slope
         // allow, then the lowest-ranked ones up to the cap.
@@ -227,24 +237,25 @@ impl Sites<'_, '_> {
         }
     }
 
-    /// Returns true if the density and mask at `c` allow it, wherever it is.
+    /// Returns true if the density and mask at `c` allow it.
     fn dense_enough(&self, c: &Candidate) -> bool {
         let allowed = self.options.density * self.cell * self.cell * self.input.density(c.at);
         c.rank < allowed
     }
 
     /// Returns the candidate of `cell` if it is kept: in the area, dense
-    /// enough, not crowded by a lower-ranked neighbour that is also dense
-    /// enough, and on ground no steeper than the limit.
+    /// enough, not crowded by a lower-ranked neighbour, and on ground no
+    /// steeper than the limit.
     fn keep(&self, cell: IVec2) -> Option<Candidate> {
         let c = self.candidate(cell);
         if !self.input.area.contains(c.at) || !self.dense_enough(&c) {
             return None;
         }
 
-        // Give way to a closer, lower-ranked neighbour, even one outside the
-        // area, so growing the area never removes a copy. Cells are at least
-        // `min_spacing` wide, so only the eight around can be that close.
+        // Give way to a closer, lower-ranked neighbour, whether or not it is
+        // kept itself, so neither a smaller density, a mask nor a smaller
+        // area can uncover a copy. Cells are at least `min_spacing` wide, so
+        // only the eight around can be that close.
         let spacing = self.options.min_spacing;
         if spacing > 0.0 {
             for dy in -1..=1 {
@@ -253,7 +264,7 @@ impl Sites<'_, '_> {
                         continue;
                     }
                     let n = self.candidate(cell + IVec2::new(dx, dy));
-                    if n.rank < c.rank && n.at.distance(c.at) < spacing && self.dense_enough(&n) {
+                    if n.rank < c.rank && n.at.distance(c.at) < spacing {
                         return None;
                     }
                 }

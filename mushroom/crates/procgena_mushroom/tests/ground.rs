@@ -108,6 +108,41 @@ fn less_density_or_a_mask_only_removes_copies() {
 }
 
 #[test]
+fn a_patchy_mask_only_removes_copies_even_when_crowded() {
+    // Dense enough that neighbours often crowd each other, under a mask
+    // that changes from cell to cell.
+    let crowded = ScatterOptions {
+        density: 20.0,
+        ..options()
+    };
+    let mask = |p: DVec2| (0.5 + 0.5 * (7.0 * p.x).sin() * (5.0 * p.y).cos()) as f32;
+    let porcini = MushroomPreset::Porcini.options();
+    for seed in [1, 2, 3, 4, 5] {
+        let full = scatter(&porcini, &crowded, &rolling, DVec2::ZERO, 8.0, seed);
+        let full_cells = by_cell(&full);
+        let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(8.0));
+        let input = ScatterInput::new(&rolling, area, seed).with_mask(&mask);
+        let masked = MushroomScatter::new(&porcini, &crowded, &input).unwrap();
+        assert!(masked.copies().len() < full.copies().len());
+        for c in masked.copies() {
+            assert_same_copy(c, full_cells.get(&c.cell));
+        }
+    }
+}
+
+#[test]
+fn a_non_finite_area_is_refused() {
+    let input = ScatterInput::new(
+        &FlatGround,
+        ScatterArea::new(DVec2::ZERO, Vec2::new(f32::INFINITY, 1.0)),
+        1,
+    );
+    let err =
+        MushroomScatter::new(&MushroomPreset::Porcini.options(), &options(), &input).unwrap_err();
+    assert!(matches!(err, ScatterError::TooLarge { .. }));
+}
+
+#[test]
 fn steep_ground_is_left_bare() {
     // Flat for x < 0, a slope of about 63° for x > 0, steeper than the
     // default 50° limit.
