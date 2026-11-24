@@ -7,10 +7,10 @@ use glam::{DVec2, Vec2};
 use procgena_core::{Ground, GroundSample};
 
 use crate::border::{Pull, SegmentIndex, pull_gradients, surely_beyond};
-use crate::carve::{Carved, FeatureLine, Features, PointOfInterest, Pond, RoadTags};
+use crate::carve::{Carved, FeatureKind, FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
-use crate::feature::{FeatureId, TerrainFeature};
+use crate::feature::{FeatureId, FeatureTier, TerrainFeature};
 use crate::hash::{SEAM_DETAIL, salt};
 use crate::noise::{Octaves, fbm, fbm_gradient};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
@@ -76,6 +76,11 @@ pub struct Terrain {
     roads: Option<Arc<plan::Roads>>,
     /// Both stages, ready to carve the ground.
     features: Features,
+    /// How far the features are planned.
+    tier: FeatureTier,
+    /// For each tier, in [`FeatureTier::ALL`] order, how far the features
+    /// it adds move the ground (see [`Terrain::tier_difference`]).
+    differences: [f32; FeatureTier::ALL.len()],
 }
 
 /// One shared edge: the agreed profile and this terrain's own smoothed
@@ -420,7 +425,8 @@ impl TerrainGenerator {
     }
 
     /// Binds the generator to `region`, bending it to meet `agreements`,
-    /// and plans its rivers, ponds and roads.
+    /// and plans every feature: its rivers, ponds and roads (the
+    /// [`Fine`](FeatureTier::Fine) tier).
     ///
     /// There must be exactly one agreement for every edge of the region that
     /// has a neighbour. Edges without a neighbour are left as they are.
@@ -430,14 +436,17 @@ impl TerrainGenerator {
         agreements: &[EdgeAgreement],
     ) -> Result<Terrain, TerrainError> {
         let trace = self.trace_rivers(&region);
-        Ok(self.build_traced(region, agreements, &trace)?.with_roads())
+        Ok(self
+            .build_traced(region, agreements, &trace)?
+            .with_tier(FeatureTier::Fine))
     }
 
     /// [`build`](Self::build) from the river trace `trace` (see
-    /// [`trace_rivers`](Self::trace_rivers)), without planning roads: the
-    /// terrain has its rivers and ponds, its road crossings' pieces aren't
-    /// carved, and [`Terrain::with_roads`] adds them all later. Routing
-    /// roads is the slowest stage, so a distant view can skip it.
+    /// [`trace_rivers`](Self::trace_rivers)), planning only the features of
+    /// the roughest tier (see [`FeatureTier`]); [`Terrain::with_tier`] adds
+    /// the rest later. Today that leaves out the roads, whose crossings'
+    /// pieces aren't carved either: routing roads is the slowest stage, so
+    /// a distant view can skip it.
     ///
     /// # Errors
     ///
@@ -521,6 +530,8 @@ impl TerrainGenerator {
             hydrology: Arc::default(),
             roads: None,
             features: Features::default(),
+            tier: FeatureTier::ALL[0],
+            differences: [0.0; FeatureTier::ALL.len()],
         };
 
         // Rivers and ponds, planned on the bent terrain.
@@ -533,7 +544,9 @@ impl TerrainGenerator {
         );
         terrain.hydrology = Arc::new(hydrology);
         terrain.features = terrain.gather();
-        Ok(terrain)
+
+        // Any other feature drawn at the roughest tier.
+        Ok(terrain.with_tier(FeatureTier::ALL[0]))
     }
 }
 
@@ -554,30 +567,56 @@ impl RiverTrace {
 }
 
 impl Terrain {
-    /// This terrain with its roads planned and carved in, as
-    /// [`TerrainGenerator::build`] gives it. A terrain that has them
-    /// already is returned as it is.
-    pub fn with_roads(mut self) -> Self {
-        if self.roads.is_some() {
-            return self;
+    /// This terrain with every feature drawn at `tier` or before planned
+    /// and carved in. At [`Fine`](FeatureTier::Fine) it is the terrain
+    /// [`TerrainGenerator::build`] gives. Features already planned are
+    /// kept as they are, so asking for an earlier tier than the terrain
+    /// has changes nothing.
+    pub fn with_tier(mut self, tier: FeatureTier) -> Self {
+        // Rivers and ponds are planned when the terrain is built; roads at
+        // the first tier they are drawn at.
+        if self.roads.is_none() && tier >= FeatureKind::Road.first_tier() {
+            let before = self.clone();
+            let roads = plan::roads(
+                &self.generator.options,
+                &self.generator.relief,
+                &self.region,
+                &self.paired(),
+                &self.hydrology.rivers,
+                &|p| self.base_height(p),
+            );
+            self.roads = Some(Arc::new(roads));
+            self.features = self.gather();
+
+            // How far the roads moved the ground.
+            let index = FeatureKind::Road.first_tier().position();
+            self.differences[index] =
+                self.differences[index].max(moved(&before, &self, self.roads()));
         }
-        let roads = plan::roads(
-            &self.generator.options,
-            &self.generator.relief,
-            &self.region,
-            &self.paired(),
-            &self.hydrology.rivers,
-            &|p| self.base_height(p),
-        );
-        self.roads = Some(Arc::new(roads));
-        self.features = self.gather();
+        self.tier = self.tier.max(tier);
         self
     }
 
-    /// Whether the terrain's roads are planned (see
-    /// [`with_roads`](Self::with_roads)).
-    pub fn has_roads(&self) -> bool {
-        self.roads.is_some()
+    /// How far this terrain's features are planned (see
+    /// [`with_tier`](Self::with_tier)). Only a terrain at
+    /// [`Fine`](FeatureTier::Fine) is the real ground.
+    pub fn tier(&self) -> FeatureTier {
+        self.tier
+    }
+
+    /// The most, in metres, this terrain's ground differs from the same
+    /// terrain at tier `from`: how far the features of the later tiers
+    /// move the ground, measured along each of them when they are
+    /// planned, with a margin. 0 if `from` is this terrain's tier or later.
+    /// It sizes the skirts that hide gaps between chunks drawn at
+    /// different tiers.
+    pub fn tier_difference(&self, from: FeatureTier) -> f32 {
+        FeatureTier::ALL
+            .iter()
+            .zip(self.differences)
+            .filter(|&(&t, _)| t > from && t <= self.tier)
+            .map(|(_, d)| d)
+            .fold(0.0, f32::max)
     }
 
     /// The agreements, each with its edge's index in the region.
@@ -947,6 +986,36 @@ impl Targets {
     }
 }
 
+/// The most the ground of `after` differs from that of `before` along
+/// `lines`, with a margin for the ground between the points measured: on
+/// each point, at both edges and a few metres beyond them.
+fn moved(before: &Terrain, after: &Terrain, lines: &[FeatureLine]) -> f32 {
+    // Measured points miss the ground between them; this much more covers
+    // that.
+    const MARGIN: f32 = 1.0;
+    const SCALE: f32 = 1.1;
+    let mut most = 0.0f32;
+    for line in lines {
+        for (i, &p) in line.points.iter().enumerate() {
+            let next = line
+                .points
+                .get(i + 1)
+                .or(i.checked_sub(1).map(|j| &line.points[j]));
+            let across = next.map_or(DVec2::X, |&q| (q - p).perp().normalize_or(DVec2::X));
+            let half = 0.5 * f64::from(line.widths[i]);
+            for offset in [0.0, half, -half, half + 4.0, -half - 4.0] {
+                let at = p + across * offset;
+                most = most.max((after.height(at) - before.height(at)).abs());
+            }
+        }
+    }
+    if most > 0.0 {
+        most * SCALE + MARGIN
+    } else {
+        0.0
+    }
+}
+
 /// Everything a [`Terrain`] says about one point (see [`Terrain::query`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TerrainSample {
@@ -1226,12 +1295,12 @@ mod tests {
     }
 
     #[test]
-    fn roads_come_as_a_stage_of_their_own_and_ids_stay() {
+    fn roads_come_at_the_fine_tier_and_ids_stay() {
         let world = hills_into_plains();
         let t = &world.terrains()[0];
-        assert!(t.has_roads() && !t.roads().is_empty());
+        assert!(t.tier() == FeatureTier::Fine && !t.roads().is_empty());
 
-        // The same terrain built from its trace without roads: the same
+        // The same terrain built from its trace at the rough tier: the same
         // rivers and ponds, with the same ids, and no roads.
         let generator = t.generator().clone();
         let region = t.region().clone();
@@ -1249,7 +1318,9 @@ mod tests {
         let bare = generator
             .build_traced(region, &mine, &trace)
             .expect("builds");
-        assert!(!bare.has_roads() && bare.roads().is_empty());
+        assert!(bare.tier() == FeatureTier::Rough && bare.roads().is_empty());
+        // Asking for an earlier tier changes nothing.
+        assert!(t.clone().with_tier(FeatureTier::Rough).tier() == FeatureTier::Fine);
         assert_eq!(bare.rivers(), t.rivers());
         assert_eq!(bare.ponds(), t.ponds());
         let ids = |t: &Terrain, kind| {
@@ -1262,8 +1333,8 @@ mod tests {
             assert_eq!(ids(&bare, kind), ids(t, kind));
         }
 
-        // Adding the roads gives the terrain as built at once.
-        let full = bare.with_roads();
+        // The fine tier adds the roads, giving the terrain as built at once.
+        let full = bare.with_tier(FeatureTier::Fine);
         assert_eq!(full.roads(), t.roads());
         for p in points().step_by(97) {
             assert_eq!(full.height(p).to_bits(), t.height(p).to_bits());

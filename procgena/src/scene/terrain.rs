@@ -19,9 +19,9 @@ use super::viewport::ViewportActivity;
 /// How far terrain is drawn, in metres.
 pub(crate) const VIEW_DISTANCE: f32 = 3000.0;
 
-/// Chunk levels from this one up are drawn without roads, so far ground
-/// appears before the roads are routed.
-const PROVISIONAL_FROM: u8 = 3;
+/// Chunk levels from this one up are drawn at the rough tier only, without
+/// roads, so far ground appears before the roads are routed.
+const ROUGH_FROM: u8 = 3;
 
 /// What terrain mode shows.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -90,7 +90,7 @@ pub(crate) fn replace(commands: &mut Commands, entity: Entity, settings: &Terrai
 /// The stream drawing `world`.
 fn stream(world: WorldTerrain) -> TerrainStream {
     TerrainStream {
-        provisional_from: Some(PROVISIONAL_FROM),
+        rough_from: Some(ROUGH_FROM),
         ..TerrainStream::world(world)
     }
 }

@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::scene::Scene;
 use procgena_plant::MAX_PLANTS;
 use procgena_plant::prelude::PlantSettings;
-use procgena_terrain::RegionStage;
+use procgena_terrain::{FeatureTier, RegionStage};
 use procgena_terrain_bevy::TerrainProgress;
 
 use super::ActiveTab;
@@ -348,8 +348,8 @@ fn terrain_line(progress: Option<TerrainProgress>) -> (String, bool) {
     } else {
         let doing = match progress.stage {
             Some(RegionStage::Plan) => "planning regions",
-            Some(RegionStage::Ground) => "shaping ground",
-            Some(RegionStage::Roads) => "routing roads",
+            Some(RegionStage::Tier(FeatureTier::Rough)) => "shaping ground",
+            Some(RegionStage::Tier(FeatureTier::Fine)) => "adding roads",
             None if progress.refining > 0 => "adding roads to near ground",
             None => "reading chunks",
         };
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(terrain_line(None), ("Building terrain…".into(), false));
         let mut progress = TerrainProgress {
             fraction: 0.427,
-            stage: Some(RegionStage::Roads),
+            stage: Some(RegionStage::Tier(FeatureTier::Fine)),
             drawn: 0,
             refining: 0,
             wanted: 1200,
@@ -441,7 +441,7 @@ mod tests {
         };
         assert_eq!(
             terrain_line(Some(progress)),
-            ("Building terrain… 42% · routing roads".into(), false)
+            ("Building terrain… 42% · adding roads".into(), false)
         );
         progress.stage = None;
         assert_eq!(

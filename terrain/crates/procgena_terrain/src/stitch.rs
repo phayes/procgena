@@ -13,6 +13,7 @@ use crate::converge::{
     BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
 };
 use crate::elevation::Elevation;
+use crate::feature::FeatureTier;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{Boundary, CornerId, Region, RegionCorner, RegionEdge, RegionError, RegionId};
 use crate::seam::{CornerAgreement, EdgeAgreement, SeamError, negotiate, negotiate_corner};
@@ -199,7 +200,7 @@ impl StitchedWorld {
             let id = region.id;
             generator
                 .build_traced(region, &mine, &trace)
-                .map(Terrain::with_roads)
+                .map(|t| t.with_tier(FeatureTier::Fine))
                 .map_err(|e| StitchError::Terrain(id, e))
         };
         let pairs: Vec<((TerrainGenerator, Region), RiverTrace)> =

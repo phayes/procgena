@@ -26,7 +26,7 @@
 //! ```
 //! use glam::DVec3;
 //! use procgena_terrain::{
-//!     Boundary, ChunkSamples, ChunkSelection, ChunkStage, Region, RegionId, TerrainGenerator,
+//!     Boundary, ChunkSamples, ChunkSelection, FeatureTier, Region, RegionId, TerrainGenerator,
 //!     TerrainPreset, chunk_lod,
 //! };
 //!
@@ -40,7 +40,7 @@
 //! let chosen = ChunkSelection::around(&lod, 1.0, &[DVec3::new(0.0, 2.0, 0.0)], None)?;
 //! let (key, transitions) = chosen.iter().next().unwrap();
 //!
-//! let samples = ChunkSamples::sample(&terrain, key, ChunkStage::Canonical)?;
+//! let samples = ChunkSamples::sample(&terrain, key, FeatureTier::Fine)?;
 //! let mesh = samples.mesh(transitions, 0.0);
 //! assert!(!mesh.indices.is_empty());
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -52,7 +52,7 @@ use std::fmt;
 use glam::{DVec2, DVec3, Vec3};
 use procgena_core::{Lod, LodLevel};
 
-use crate::{Terrain, WorldTerrain};
+use crate::{FeatureTier, Terrain, WorldTerrain};
 
 /// Width in metres of a chunk at level 0. Each level up doubles it.
 pub const CHUNK_SIZE: f64 = 64.0;
@@ -318,20 +318,6 @@ impl Transitions {
     }
 }
 
-/// How complete the ground a chunk was built from is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum ChunkStage {
-    /// The terrain with every planning stage, roads included: the same
-    /// ground placement and queries read.
-    #[default]
-    Canonical,
-    /// The terrain without its roads, which are the slowest stage to plan.
-    /// Good enough to draw far away while the roads are routed; never for
-    /// placement or queries. It matches the canonical ground everywhere
-    /// except near roads and their border crossings.
-    Provisional,
-}
-
 /// The ground at one point, as a chunk reads it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfacePoint {
@@ -344,17 +330,25 @@ pub struct SurfacePoint {
 
 /// Something chunks can be built from: a terrain, or a world of them.
 pub trait ChunkSource: Sync {
-    /// The ground at world position `p` (x and z, metres), at `stage` or
-    /// as near to it as the source has (see [`stage`](Self::stage)).
-    fn surface(&self, p: DVec2, stage: ChunkStage) -> SurfacePoint;
+    /// The ground at world position `p` (x and z, metres), with its
+    /// features planned to `tier`, or as near to it as the source has (see
+    /// [`tier`](Self::tier)).
+    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint;
 
-    /// The stage [`surface`](Self::surface) gives when asked for `stage`.
-    fn stage(&self, stage: ChunkStage) -> ChunkStage;
+    /// The tier [`surface`](Self::surface) gives when asked for `tier`.
+    fn tier(&self, tier: FeatureTier) -> FeatureTier;
+
+    /// The most, in metres, the ground between `min` and `max` (x and z)
+    /// at the fine tier differs from the same ground at tier `from` (see
+    /// [`Terrain::tier_difference`]). It sizes the skirts between chunks of
+    /// different tiers. Builds nothing: ground that isn't built yet counts
+    /// as not moving, so ask after reading the area at the fine tier.
+    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32;
 }
 
 impl ChunkSource for Terrain {
-    /// The terrain's own ground, whatever stage is asked for.
-    fn surface(&self, p: DVec2, _: ChunkStage) -> SurfacePoint {
+    /// The terrain's own ground, whatever tier is asked for.
+    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
         let sample = self.query(p, false);
         SurfacePoint {
             height: sample.height,
@@ -362,31 +356,25 @@ impl ChunkSource for Terrain {
         }
     }
 
-    /// [`Canonical`](ChunkStage::Canonical) once the terrain has its roads
-    /// (see [`Terrain::with_roads`]), otherwise
-    /// [`Provisional`](ChunkStage::Provisional).
-    fn stage(&self, _: ChunkStage) -> ChunkStage {
-        if self.has_roads() {
-            ChunkStage::Canonical
-        } else {
-            ChunkStage::Provisional
-        }
+    /// The terrain's own tier (see [`Terrain::tier`]), whatever is asked
+    /// for.
+    fn tier(&self, _: FeatureTier) -> FeatureTier {
+        Terrain::tier(self)
+    }
+
+    /// The terrain's own [`Terrain::tier_difference`], anywhere.
+    fn tier_difference(&self, _: DVec2, _: DVec2, from: FeatureTier) -> f32 {
+        Terrain::tier_difference(self, from)
     }
 }
 
 impl ChunkSource for WorldTerrain {
-    /// The ground of the region holding `p`: its full terrain, or for
-    /// [`Provisional`](ChunkStage::Provisional) its terrain without roads
-    /// (see [`WorldTerrain::provisional_terrain`]). NaN heights where the
-    /// region can't be built.
-    fn surface(&self, p: DVec2, stage: ChunkStage) -> SurfacePoint {
-        let region = self.region_at(p);
-        let terrain = match stage {
-            ChunkStage::Canonical => self.terrain(region),
-            ChunkStage::Provisional => self.provisional_terrain(region),
-        };
-        match terrain {
-            Ok(terrain) => terrain.surface(p, stage),
+    /// The ground of the region holding `p` at `tier` (see
+    /// [`WorldTerrain::terrain_tier`]). NaN heights where the region can't
+    /// be built.
+    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+        match self.terrain_tier(self.region_at(p), tier) {
+            Ok(terrain) => terrain.surface(p, tier),
             Err(_) => SurfacePoint {
                 height: f32::NAN,
                 water: None,
@@ -394,9 +382,26 @@ impl ChunkSource for WorldTerrain {
         }
     }
 
-    /// Always the stage asked for.
-    fn stage(&self, stage: ChunkStage) -> ChunkStage {
-        stage
+    /// Always the tier asked for.
+    fn tier(&self, tier: FeatureTier) -> FeatureTier {
+        tier
+    }
+
+    /// The largest [`Terrain::tier_difference`] of the fine terrains kept
+    /// for the regions holding a 5 × 5 grid of points over the area.
+    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
+        let mut regions = std::collections::BTreeSet::new();
+        for j in 0..5 {
+            for i in 0..5 {
+                let t = DVec2::new(f64::from(i), f64::from(j)) / 4.0;
+                regions.insert(self.region_at(min + (max - min) * t));
+            }
+        }
+        regions
+            .into_iter()
+            .filter_map(|region| self.kept_terrain(region, FeatureTier::Fine))
+            .map(|terrain| terrain.tier_difference(from))
+            .fold(0.0, f32::max)
     }
 }
 
@@ -427,7 +432,7 @@ impl std::error::Error for ChunkError {}
 #[derive(Debug, Clone)]
 pub struct ChunkSamples {
     key: ChunkKey,
-    stage: ChunkStage,
+    tier: FeatureTier,
     /// The vertex lattice with a one-sample ring around it: `(N + 3)²`
     /// samples, row by row along x, starting one step outside the smallest
     /// corner.
@@ -441,7 +446,8 @@ pub struct ChunkSamples {
 }
 
 impl ChunkSamples {
-    /// Reads the ground of chunk `key` from `source` at `stage`.
+    /// Reads the ground of chunk `key` from `source`, with its features
+    /// planned to `tier`.
     ///
     /// # Errors
     ///
@@ -450,11 +456,11 @@ impl ChunkSamples {
     pub fn sample(
         source: &(impl ChunkSource + ?Sized),
         key: ChunkKey,
-        stage: ChunkStage,
+        tier: FeatureTier,
     ) -> Result<Self, ChunkError> {
         let surface = |u: i64, v: i64| {
             let p = key.half_point(u, v);
-            let point = source.surface(p, stage);
+            let point = source.surface(p, tier);
             if point.height.is_finite() {
                 Ok(point)
             } else {
@@ -491,7 +497,7 @@ impl ChunkSamples {
 
         Ok(Self {
             key,
-            stage: source.stage(stage),
+            tier: source.tier(tier),
             grid,
             sides,
         })
@@ -502,9 +508,9 @@ impl ChunkSamples {
         self.key
     }
 
-    /// The stage of the ground the samples were read from.
-    pub fn stage(&self) -> ChunkStage {
-        self.stage
+    /// The tier of the ground the samples were read from.
+    pub fn tier(&self) -> FeatureTier {
+        self.tier
     }
 
     /// The ground at vertex `(i, j)` of the chunk, each from 0 to
@@ -546,8 +552,8 @@ impl ChunkSamples {
     /// `skirt` metres down from every side (0 for none).
     ///
     /// A skirt hides small gaps where a neighbouring chunk was built from
-    /// other ground, such as a provisional chunk beside a canonical one.
-    /// Chunks of the same stage, at the same level or one level apart,
+    /// other ground, such as a chunk of an earlier tier beside a fine one.
+    /// Chunks of the same tier, at the same level or one level apart,
     /// join without gaps when each is meshed with its own transitions.
     ///
     /// A chunk at level 0 has no finer neighbours, so its transitions are
@@ -563,7 +569,7 @@ impl ChunkSamples {
         let mut mesh = ChunkMesh {
             key: self.key,
             transitions,
-            stage: self.stage,
+            tier: self.tier,
             origin: self.key.min_corner(),
             positions: Vec::new(),
             normals: Vec::new(),
@@ -889,8 +895,8 @@ pub struct ChunkMesh {
     pub key: ChunkKey,
     /// The finer neighbours it was meshed to join.
     pub transitions: Transitions,
-    /// The stage of the ground it was built from.
-    pub stage: ChunkStage,
+    /// The tier of the ground it was built from.
+    pub tier: FeatureTier,
     /// World x and z of the chunk's smallest corner.
     pub origin: DVec2,
     /// Vertex positions.

@@ -327,6 +327,15 @@ Today's road-free stage is the two-tier case: rivers and ponds at every
 tier, roads fine only. Two tiers are enough to start; more let far views
 drop detail step by step.
 
+**Built (2026-11-24):** `FeatureTier` (`Rough`, `Fine`), each
+`FeatureKind`'s `tiers` and `reads` with the order check as a test,
+`Terrain::with_tier` and `tier_difference`, `WorldTerrain::terrain_tier`
+caching each tier, and skirts sized from the measured difference. A
+fine-only feature's bound is measured once it is planned (roads can cut
+as deep as they need, so nothing bounds them up front); chunks beside a
+finer chunk are redrawn with deeper skirts when it lands. Not built: a
+different method per tier, which waits for its first user (rough roads).
+
 ## 10. Queries, annotations and interaction
 
 Extend the planned Landform/Flags/Measures approach rather than introduce a separate classification system. To avoid confusion between the existing annotation enum Landform and the general-purpose feature family, use a disambiguated Rust name such as LandformFeature or LandformPlan.

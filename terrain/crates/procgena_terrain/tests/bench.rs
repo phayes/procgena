@@ -145,7 +145,7 @@ fn cold_region_planning() {
             hydrology.push(ms(started.elapsed()));
 
             let started = Instant::now();
-            let full = bare.with_roads();
+            let full = bare.with_tier(procgena_terrain::FeatureTier::Fine);
             roads.push(ms(started.elapsed()));
 
             let corner = points_in(&full, 1)[0];
@@ -274,7 +274,7 @@ fn warm_tiles() {
 #[ignore]
 fn chunks() {
     use procgena_terrain::{
-        ChunkKey, ChunkSamples, ChunkStage, Elevation, RegionId, TerrainPreset, Transitions,
+        ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, TerrainPreset, Transitions,
         WorldTerrain, WorldTerrainOptions,
     };
     use std::sync::Arc;
@@ -292,7 +292,7 @@ fn chunks() {
                 for p in points_in(terrain, 3) {
                     let key = ChunkKey::containing(p, level);
                     let started = Instant::now();
-                    let samples = ChunkSamples::sample(terrain, key, ChunkStage::Canonical)
+                    let samples = ChunkSamples::sample(terrain, key, FeatureTier::Fine)
                         .expect("ground everywhere");
                     read.push(ms(started.elapsed()));
                     let started = Instant::now();
@@ -321,9 +321,9 @@ fn chunks() {
     // Cold: the first chunk of a fresh world, which builds the regions it
     // touches and their neighbours' plans.
     for (stage, level) in [
-        (ChunkStage::Canonical, 0),
-        (ChunkStage::Provisional, 0),
-        (ChunkStage::Provisional, 5),
+        (FeatureTier::Fine, 0),
+        (FeatureTier::Rough, 0),
+        (FeatureTier::Rough, 5),
     ] {
         let mut cold = Vec::new();
         for seed in 1..=4 {

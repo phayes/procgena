@@ -63,7 +63,7 @@ use procgena_core::Lod;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::{
     ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSelectionError,
-    ChunkSource, ChunkStage, RegionStage, Transitions, WaterMesh, WorldTerrain, chunk_lod,
+    ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh, WorldTerrain, chunk_lod,
 };
 
 pub use material::{TerrainExtension, TerrainMaterial, TerrainSurface};
@@ -158,37 +158,35 @@ impl Plugin for TerrainPlugin {
 pub struct TerrainStream {
     /// Where the ground comes from.
     pub source: Arc<dyn ChunkSource + Send>,
-    /// Chunk levels at and above this one are drawn from
-    /// [`Provisional`](ChunkStage::Provisional) ground, which a
-    /// [`WorldTerrain`] builds without
-    /// routing roads, so far ground appears sooner. `None` draws canonical
-    /// ground everywhere.
-    pub provisional_from: Option<u8>,
+    /// Chunk levels at and above this one are drawn only at the
+    /// [`Rough`](FeatureTier::Rough) tier, which a [`WorldTerrain`] builds
+    /// without its costly features (today the roads), so far ground
+    /// appears sooner. `None` draws the fine tier everywhere.
+    pub rough_from: Option<u8>,
     /// Counts the source's region builds, so [`TerrainProgress`] can
     /// include them; `None` counts chunks only.
     pub regions: Option<RegionTracker>,
-    /// Draw every chunk from provisional ground first, which a
-    /// [`WorldTerrain`] builds without routing roads, then read the chunks
-    /// below [`provisional_from`](Self::provisional_from) again from
-    /// canonical ground in the background and redraw each when ready. The
-    /// view appears much sooner; near chunks briefly lack their roads.
-    /// `false` waits for each chunk's own stage before drawing anything.
+    /// Draw every chunk at the roughest tier first, then read each chunk
+    /// that wants a later tier (see [`tier`](Self::tier)) again in the
+    /// background and redraw it when ready. The view appears much sooner;
+    /// near chunks briefly lack their fine features. `false` waits for each
+    /// chunk's own tier before drawing anything.
     pub coarse_first: bool,
 }
 
 impl TerrainStream {
-    /// A stream of `source`'s canonical ground at every level, loaded
-    /// coarse first, counting chunks only.
+    /// A stream of `source`'s fine ground at every level, loaded coarse
+    /// first, counting chunks only.
     pub fn new(source: Arc<dyn ChunkSource + Send>) -> Self {
         Self {
             source,
-            provisional_from: None,
+            rough_from: None,
             regions: None,
             coarse_first: true,
         }
     }
 
-    /// A stream of `world`'s canonical ground at every level, loaded
+    /// A stream of `world`'s fine ground at every level, loaded
     /// coarse first, with its
     /// region builds counted in [`TerrainProgress`]. This replaces any
     /// progress hook `world` had; to keep your own as well, make a
@@ -199,17 +197,17 @@ impl TerrainStream {
         let world = world.with_progress(tracker.hook());
         Self {
             source: Arc::new(world),
-            provisional_from: None,
+            rough_from: None,
             regions: Some(tracker),
             coarse_first: true,
         }
     }
 
-    /// The stage chunks at `level` are read at.
-    pub fn stage(&self, level: u8) -> ChunkStage {
-        match self.provisional_from {
-            Some(from) if level >= from => ChunkStage::Provisional,
-            _ => ChunkStage::Canonical,
+    /// The tier chunks at `level` end up drawn at.
+    pub fn tier(&self, level: u8) -> FeatureTier {
+        match self.rough_from {
+            Some(from) if level >= from => FeatureTier::Rough,
+            _ => FeatureTier::Fine,
         }
     }
 }
@@ -228,8 +226,8 @@ pub struct TerrainProgress {
     pub stage: Option<RegionStage>,
     /// Chunks drawn.
     pub drawn: usize,
-    /// Drawn chunks still from provisional ground, waiting to be read
-    /// again from canonical ground (see [`TerrainStream::coarse_first`]).
+    /// Drawn chunks still at an earlier tier than they want, waiting to be
+    /// read again (see [`TerrainStream::coarse_first`]).
     pub refining: usize,
     /// Chunks wanted around the viewers now.
     pub wanted: usize,
@@ -255,8 +253,8 @@ pub struct TerrainChunk {
     pub key: ChunkKey,
     /// The finer chunks it is meshed to join.
     pub transitions: Transitions,
-    /// The stage of the ground it was read from.
-    pub stage: ChunkStage,
+    /// The tier of the ground it was read from.
+    pub tier: FeatureTier,
 }
 
 /// Marks the water surface of one chunk, on a child entity of its
@@ -300,11 +298,14 @@ struct StreamState {
     failed: usize,
     /// Whether the chunk levels can't be chosen; logged once.
     broken: bool,
+    /// Skirts deeper than [`skirt_depth`], for chunks beside a chunk of
+    /// another tier: how far that chunk's tier moved the ground.
+    skirts: HashMap<ChunkKey, f32>,
 }
 
 /// The skirt hanging from each side of a chunk, in metres: deep enough to
-/// hide where a provisional chunk meets a canonical one, or rounding
-/// where chunks meet.
+/// hide small gaps where chunks of different tiers meet, or rounding where
+/// chunks meet.
 pub fn skirt_depth(key: ChunkKey) -> f32 {
     (4.0 * key.step() as f32).max(8.0)
 }
@@ -368,6 +369,7 @@ fn reset_streams(
                 state.stream.reset();
                 state.tasks.clear();
                 state.failed = 0;
+                state.skirts.clear();
             }
             Some(_) => {}
         }
@@ -442,10 +444,16 @@ fn stream_chunks(
                 None => true,
             });
         for (key, generation, result) in finished {
+            let current = generation == state.stream.generation;
             let read: Read = match result {
                 Ok(samples) => Some(Arc::new(samples)),
+                // A failed upgrade keeps the ground already drawn.
+                Err(error) if current && state.stream.is_upgrade(key) => {
+                    warn!("terrain {key} keeps its earlier tier: {error}");
+                    None
+                }
                 Err(error) => {
-                    if generation == state.stream.generation {
+                    if current {
                         warn!("terrain {key} left out: {error}");
                         state.failed += 1;
                     }
@@ -455,37 +463,32 @@ fn stream_chunks(
             state.stream.finish(key, generation, read);
         }
 
-        // Start reading the nearest missing chunks: from provisional ground
+        // Start reading the nearest missing chunks: at the roughest tier
         // first when the stream loads coarse first. Only when none is
-        // missing, read drawn provisional chunks again from canonical
-        // ground with the reads left over.
+        // missing, read drawn chunks again at the tier they want with the
+        // reads left over.
         let mut free = settings.max_reads.saturating_sub(state.stream.reading());
         let missing = state.stream.missing(&flat);
-        let wants_canonical = |key: ChunkKey| source.stage(key.level) == ChunkStage::Canonical;
-        let upgrades = state.stream.upgrades(&flat, wants_canonical);
-        let mut reads: Vec<(ChunkKey, ChunkStage)> = Vec::new();
+        let wanted = |key: ChunkKey| source.tier(key.level);
+        let upgrades = state.stream.upgrades(&flat, wanted);
+        let mut reads: Vec<(ChunkKey, FeatureTier)> = Vec::new();
         for &key in missing.iter().take(free) {
-            let stage = if source.coarse_first {
-                ChunkStage::Provisional
+            let tier = if source.coarse_first {
+                FeatureTier::ALL[0]
             } else {
-                source.stage(key.level)
+                wanted(key)
             };
-            reads.push((key, stage));
+            reads.push((key, tier));
         }
         free -= reads.len();
         if missing.is_empty() {
-            reads.extend(
-                upgrades
-                    .iter()
-                    .take(free)
-                    .map(|&k| (k, ChunkStage::Canonical)),
-            );
+            reads.extend(upgrades.iter().take(free).map(|&k| (k, wanted(k))));
         }
-        for (key, stage) in reads {
+        for (key, tier) in reads {
             state.stream.start(key);
             let ground = Arc::clone(&source.source);
             let task = AsyncComputeTaskPool::get()
-                .spawn(async move { ChunkSamples::sample(&*ground, key, stage) });
+                .spawn(async move { ChunkSamples::sample(&*ground, key, tier) });
             state.tasks.push((key, state.stream.generation, task));
         }
 
@@ -498,30 +501,67 @@ fn stream_chunks(
             }
             let Some(samples) = read else { return };
             let level = usize::from(key.level).min(materials.0.len() - 1);
+            let skirt = skirt_depth(key).max(state.skirts.get(&key).copied().unwrap_or(0.0));
             let chunk = spawn_chunk(
                 &mut commands,
                 &mut meshes,
                 &materials.0[level],
                 entity,
-                &samples.mesh(transitions, skirt_depth(key)),
+                &samples.mesh(transitions, skirt),
             );
             state.entities.insert(key, chunk);
         };
+        // Every chunk drawn now, whether new to the view or read again at a
+        // later tier. Chunks touching at different tiers can stand apart
+        // by up to how far the later tier moved the ground: deepen both
+        // chunks' skirts to cover it, redrawing touching chunks whose
+        // skirts grow.
+        let mut drawn_now: Vec<(ChunkKey, Transitions, Read)> = Vec::new();
         if let Some(swap) = state.stream.swap() {
             for key in swap.remove {
+                state.skirts.remove(&key);
                 redraw(state, key, Transitions::NONE, None);
             }
-            for (key, transitions, read) in swap.add {
-                redraw(state, key, transitions, read);
-            }
+            drawn_now.extend(swap.add);
         }
-        for (key, transitions, read) in state.stream.take_refreshed() {
+        drawn_now.extend(state.stream.take_refreshed());
+        for (key, transitions, read) in drawn_now {
+            let tier = read.as_ref().map(|s| s.tier());
+            let mut deepest = 0.0f32;
+            for (other, other_transitions) in state.stream.touching(key) {
+                let (Some(tier), Some(other_tier)) = (tier, state.stream.tier_of(other)) else {
+                    continue;
+                };
+                if tier == other_tier {
+                    continue;
+                }
+                // The ground of the later-tier chunk, against the earlier
+                // tier.
+                let later = if tier > other_tier { key } else { other };
+                let moved = source.source.tier_difference(
+                    later.min_corner(),
+                    later.max_corner(),
+                    tier.min(other_tier),
+                );
+                if moved == 0.0 {
+                    continue;
+                }
+                deepest = deepest.max(moved);
+                let skirt = state.skirts.entry(other).or_default();
+                if moved > *skirt {
+                    *skirt = moved;
+                    let other_read = state.stream.read_of(other);
+                    redraw(state, other, other_transitions, other_read);
+                }
+            }
+            let skirt = state.skirts.entry(key).or_default();
+            *skirt = skirt.max(deepest);
             redraw(state, key, transitions, read);
         }
 
         // Region work from the hook, and chunk reads, by their usual cost;
-        // chunks waiting for canonical ground count as not read.
-        let refining = state.stream.upgrades(&flat, wants_canonical).len();
+        // chunks waiting for a later tier count as not read.
+        let refining = state.stream.upgrades(&flat, wanted).len();
         let settled = state.stream.is_settled() && refining == 0;
         let regions = source
             .regions
@@ -563,7 +603,7 @@ fn spawn_chunk(
             TerrainChunk {
                 key: mesh.key,
                 transitions: mesh.transitions,
-                stage: mesh.stage,
+                tier: mesh.tier,
             },
             Mesh3d(meshes.add(chunk_mesh(mesh))),
             MeshMaterial3d(material.clone()),
@@ -782,15 +822,14 @@ mod tests {
         assert_eq!(last.refining, 0);
         assert!(seen.iter().any(|p| p.stage.is_some() && p.fraction < 1.0));
 
-        // Coarse first: chunks were drawn from provisional ground while
-        // the canonical ground was still being built, and all end
-        // canonical.
+        // Coarse first: chunks were drawn rough while the fine tier was
+        // still being built, and all end fine.
         assert!(seen.iter().any(|p| p.drawn > 0 && p.refining > 0));
         let mut chunks = app.world_mut().query::<&TerrainChunk>();
         assert!(
             chunks
                 .iter(app.world())
-                .all(|c| c.stage == ChunkStage::Canonical)
+                .all(|c| c.tier == FeatureTier::Fine)
         );
         assert!(seen.iter().all(|p| (0.0..=1.0).contains(&p.fraction)));
     }

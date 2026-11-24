@@ -504,8 +504,10 @@ goldens, which have no baseline on this machine).
   [terrain/features_plan_review.md](terrain/features_plan_review.md),
   "Decisions".
 - **Status (2026-11-24): heightfield part built.** Chunk meshes on the
-  shared grid with crack-free level transitions, a road-free provisional
-  stage for far chunks, water surfaces (`procgena_terrain`, `src/chunk.rs`;
+  shared grid with crack-free level transitions, feature tiers (rough and
+  fine; far chunks and a coarse first load use the rough tier, with
+  skirts sized by how far each tier moves the ground), loading progress
+  through a hook, water surfaces (`procgena_terrain`, `src/chunk.rs`;
   plan.md "Chunks and meshing", "As built"); `procgena_terrain_bevy`
   streams them around the camera with a slope- and height-coloured
   material, a cull-distance dither and a chunk-level debug overlay, with a
