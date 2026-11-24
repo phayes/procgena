@@ -48,7 +48,7 @@ impl Mushroom {
     ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`validate_lod`].
+    /// Returns an error if `lod` is invalid; see [`crate::validate_lod`].
     pub fn specimen(&self, lod: &MushroomLod) -> Result<Specimen, OptionsError> {
         let factor = lod.factor(self.options().size, Quality::High);
         Ok(specimen_from_meshes(&self.lod_meshes(lod)?, factor))

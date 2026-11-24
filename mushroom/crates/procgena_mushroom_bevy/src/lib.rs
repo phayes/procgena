@@ -32,7 +32,7 @@
 //! detail level. Bevy's `VisibilityRange` shows each level only within its
 //! distance band, blending between neighbouring levels. The bands come from
 //! [`MushroomPlugin::lod`], scaled by each mushroom's size and by the
-//! [`LodQuality`](procgena_core_bevy::LodQuality) setting when the mushroom
+//! [`LodQuality`] setting when the mushroom
 //! is built, and the farthest level fades out at the cull distance. At the
 //! two farthest default levels, the stem, and then the cap too, are flat
 //! shapes that [`MushroomMaterial`] keeps turned toward the camera; levels
