@@ -1320,10 +1320,16 @@ where the details are.
 29. **Saved-file format (preset bundles).** The proposal is a zipped
     project folder with every entry stored uncompressed, named
     `.procgena`, and mounted in Bevy as `procgena://<bundle>/<path>`.
-    It has 11 open questions, each with options and a recommendation:
-    save versus export, how games load bundles, key clashes, an entry
-    list, flattening built-in bases, thumbnails, JSON, texture encodings,
-    wasm, the zip library, and the extension. Details:
+    **Decided by the user (2026-11-24):**
+    - the folder is the working form, and export writes a chosen subset
+      with its dependencies;
+    - Open and Import are separate actions;
+    - stored zip with a strict profile, named `.procgena`;
+    - qualify a key with its bundle only when a name is ambiguous;
+    - game loading, wasm, and the zip library are deferred to the build.
+
+    Three small questions remain: does Open unpack, Import's default on
+    a conflict, and whether Finder/Explorer zips are accepted. Details:
     [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md),
     "Questions for the user".
 
