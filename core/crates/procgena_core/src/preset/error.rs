@@ -56,14 +56,33 @@ pub enum PresetFileError {
         /// Every key a reference of this kind may name.
         known: Vec<String>,
     },
-    /// A project preset and a built-in preset share this key, so it names
-    /// neither until the project preset is renamed; see
-    /// [`Problem::KeyClash`](super::Problem::KeyClash).
-    KeyClash {
-        /// The kind of both presets.
+    /// A bare key names presets in more than one layer of a
+    /// [`Registry`](super::Registry), such as a project preset with a
+    /// built-in preset's key. Write one of `choices` instead.
+    Ambiguous {
+        /// The kind of preset looked for.
         kind: String,
-        /// The key they share.
+        /// The key as written.
         key: String,
+        /// The references that name each preset, such as
+        /// `builtin:pine_small` and `my_forest:pine_small`.
+        choices: Vec<String>,
+    },
+    /// A reference is not a key, nor a namespace and a key, or names a
+    /// namespace no layer has; see [`Reference`](super::Reference).
+    BadReference {
+        /// The reference as written.
+        text: String,
+        /// What is wrong with it.
+        message: String,
+    },
+    /// A project or bundle namespace can't be used, such as `builtin`,
+    /// which is reserved for the built-in presets.
+    BadNamespace {
+        /// The namespace given.
+        namespace: String,
+        /// What is wrong with it.
+        message: String,
     },
     /// A chain of `base` presets leads back to a preset already in it.
     BaseCycle {
@@ -102,10 +121,15 @@ impl fmt::Display for PresetFileError {
                 "unknown {kind} preset {key:?}; valid keys are {}",
                 known.join(", ")
             ),
-            Self::KeyClash { kind, key } => write!(
+            Self::Ambiguous { kind, key, choices } => write!(
                 f,
-                "the project's {kind} preset {key:?} has a built-in preset's key; rename it"
+                "{key:?} names more than one {kind} preset; write {}",
+                choices.join(" or ")
             ),
+            Self::BadReference { text, message } => write!(f, "{text:?}: {message}"),
+            Self::BadNamespace { namespace, message } => {
+                write!(f, "namespace {namespace:?}: {message}")
+            }
             Self::BaseCycle { kind, keys } => write!(
                 f,
                 "the {kind} presets' bases form a loop: {}",

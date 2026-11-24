@@ -3,7 +3,7 @@
 
 use procgena_biome::{EcotopePreset, ScatterKind};
 use procgena_core::ChildKey;
-use procgena_core::preset::{PresetFileError, Registry};
+use procgena_core::preset::{Layer, PresetFileError, Registry};
 use procgena_deadwood::DeadwoodPreset;
 use procgena_mushroom::MushroomPreset;
 use procgena_stone::StonePreset;
@@ -95,7 +95,7 @@ fn a_project_ecotope_uses_project_assets() {
     assert_eq!(forest.ecotope.scatters.len(), base.ecotope.scatters.len());
 
     // "Used by" finds the Ecotope from each asset.
-    let uses = registry.used_by("tree", "taller_pine");
+    let uses = registry.used_by("tree", Layer::Project, "taller_pine");
     let paths: Vec<_> = uses
         .iter()
         .map(|used| (used.key.as_str(), used.path.as_deref()))
@@ -104,7 +104,7 @@ fn a_project_ecotope_uses_project_assets() {
         paths,
         [("dark_forest", Some("scatters.pines.trees.0.tree"))]
     );
-    let uses = registry.used_by("stone", "my_boulder");
+    let uses = registry.used_by("stone", Layer::Project, "my_boulder");
     assert_eq!(
         uses[0].path.as_deref(),
         Some("scatters.boulders.classes.0.stone")

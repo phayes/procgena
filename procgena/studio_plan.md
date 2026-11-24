@@ -60,10 +60,12 @@ the "Studio track".
   again through serde as `base` plus differences, in a stable key order,
   so diffs stay small. Hand-written comments and layout are lost on
   Update. Keeping them is a long-term goal (see decision 5).
-- **One key names one preset** (user decision, 2026-11-24): the registry
-  refuses a project preset with a key another layer already has, and
-  the studio offers a free key instead. There is no `builtin:` or
-  `project:` syntax.
+- **Namespaced keys** (user decision, 2026-11-24): every layer has a
+  namespace, `builtin` for the built-in presets and the project's id
+  from its `procgena.yml` (later a bundle's id), as in
+  `builtin:pine_small` or `my_forest:pine_small`. A bare key works while
+  only one layer has it; a key in two layers is a problem, fixed by
+  writing the namespace. `builtin` is reserved.
 - **Editing in context edits the referenced preset** (decided). Click a
   pine in an Ecotope and you edit the pine preset, with its "used by"
   list in view. A built-in pine offers "Save as new", then offers to
@@ -310,8 +312,9 @@ pub struct Edit { pub path: SettingPath, pub old: Value, pub new: Value }
   settings that differ from the base (`preset::diff`) in a stable order.
   Comments and layout in an updated file are lost (decision 5).
   References to other presets are written as keys, as the document holds
-  them. A key taken by any layer is refused; the studio proposes a free
-  one, such as `pine_small_2`.
+  them. A key another project preset has is refused. A built-in
+  preset's key is allowed, though it makes bare references to it
+  ambiguous, so the dialog proposes a free key such as `pine_small_2`.
 - **Several documents open at once,** for editing in context: opening a
   pine from an Ecotope opens the pine's document as well, and the Outline
   shows it under the Ecotope. Saving one never saves another.
@@ -452,7 +455,7 @@ rules, the worker asks before using a script to draft it.
 
 ```
 my_project/
-  procgena.yml                  # project name, format version
+  procgena.yml                  # format: 1, id (the namespace), name
   presets/
     tree/        tall_pine.tree.yml
     tree_scatter/ pine_belt.tree_scatter.yml
@@ -502,11 +505,20 @@ my_project/
 - **Used by.** `used_by(kind, key)` lists presets that use a preset as
   their `base` or refer to it, with the setting's path. ST1's metadata
   `ref` fields can replace the per-kind slot lists later.
-- **One key, one preset** (user decision, 2026-11-24). Adding a project
-  preset with a built-in preset's key is refused. A clash that appears
-  when a newer procgena adds a built-in with a project preset's key is
-  reported by `problems()`, and the key resolves to neither preset until
-  the project preset is renamed, so nothing silently changes meaning.
+- **Namespaced keys** (user decision, 2026-11-24). A reference is a bare
+  key or `namespace:key`, read by one function (`Reference::parse`). The
+  namespaces are `builtin` and the project's `id` from `procgena.yml`
+  (`Registry::set_namespace`); later each bundle's id. A bare key in more
+  than one layer is an `Ambiguous` error naming the qualified choices,
+  and `problems()` lists every shared key, including one a newer
+  procgena's built-ins introduce, so nothing silently changes meaning.
+  Writing the namespace fixes it; the rename dialog is a convenience.
+  The namespace is never part of a preset's key, so it never reaches
+  child keys or seeds. `builtin`, and any id that isn't a valid key, is
+  refused when `procgena.yml` is read or a project is made. Two loaded
+  layers can't share a namespace: today the only case is a project named
+  `builtin`; when bundles are mounted, a bundle whose id is already
+  loaded is refused with a problem and not loaded.
 
 ## Outline and selection
 
@@ -1077,11 +1089,11 @@ or host interface is planned for it, and ST0–ST9 are unchanged.
 
 ## Open questions
 
-1. **Key clashes.** *Decided by the user, 2026-11-24:* disallowed. One
-   key names one preset of a kind in every layer, with no namespaced
-   keys. Save as new, rename and Import propose a free key in a rename
-   dialog. A clash left by an upgrade is a problem whose fix is the same
-   dialog, and the key resolves to nothing until it is renamed.
+1. **Key clashes.** *Decided by the user, 2026-11-24:* namespaced keys.
+   The namespaces are `builtin` (reserved) and the project's or bundle's
+   id, as in `builtin:pine_small` or `my_forest:pine_small`. Bare keys
+   work when only one layer has them; a shared key is a problem fixed by
+   writing the namespace, and the rename dialog is a convenience.
 2. **Metadata language.** Descriptions are English only for now. If the
    studio is ever translated, the metadata files are where the strings
    live; no i18n work is planned.

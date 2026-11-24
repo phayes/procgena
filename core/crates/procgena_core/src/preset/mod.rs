@@ -58,8 +58,10 @@
 //! project's own preset files, from a folder laid out as
 //! `presets/<kind>/<key>.<kind>.yml`. A project file's `base` may name
 //! another project preset, and its settings may refer to project presets
-//! by key, such as a Scatter's trees. Each key names one preset of a kind:
-//! a project preset can't take a built-in preset's key.
+//! by key, such as a Scatter's trees. A bare key works while one layer has
+//! it; when a project preset shares a built-in preset's key, references
+//! write a namespace too: `builtin:pine_small`, or the project's own, such
+//! as `my_forest:pine_small`.
 
 mod catalogue;
 mod document;
@@ -73,8 +75,8 @@ pub use error::PresetFileError;
 pub use file::{Preset, PresetMeta, groups, read, write};
 pub use merge::{diff, from_value, merge, to_value, to_yaml};
 pub use registry::{
-    Entry, Layer, PresetRef, Problem, ProjectPreset, ReferenceSlot, References, Registry, Use,
-    expand_slot, preset_path, slot_reference,
+    BUILTIN, Entry, Layer, PresetRef, Problem, ProjectPreset, Reference, ReferenceSlot, References,
+    Registry, Use, check_namespace, expand_slot, preset_path, slot_reference,
 };
 
 #[cfg(test)]

@@ -68,13 +68,13 @@ fn a_project_scatter_uses_a_project_tree_and_its_root_s_stand() {
     assert_eq!(species.density_scale, 0.5);
 
     // "Used by" finds the Scatter and the tree written over it.
-    let uses = registry.used_by("tree", "taller_pine");
+    let uses = registry.used_by("tree", Layer::Project, "taller_pine");
     assert_eq!(uses.len(), 1);
     assert_eq!(
         (uses[0].kind, uses[0].path.as_deref()),
         ("tree_scatter", Some("trees.0.tree"))
     );
-    let uses = registry.used_by("tree", "tall_pine");
+    let uses = registry.used_by("tree", Layer::Project, "tall_pine");
     assert_eq!(
         (uses[0].kind, uses[0].key.as_str()),
         ("tree", "taller_pine")
@@ -85,13 +85,61 @@ fn a_project_scatter_uses_a_project_tree_and_its_root_s_stand() {
 fn built_in_scatters_use_built_in_trees() {
     let registry = registry();
     let users: Vec<String> = registry
-        .used_by("tree", "pine_medium")
+        .used_by("tree", Layer::BuiltIn, "pine_medium")
         .into_iter()
         .map(|used| format!("{}/{}", used.kind, used.key))
         .collect();
     assert!(
         users.contains(&"tree_scatter/pine_stand".to_owned()),
         "{users:?}"
+    );
+}
+
+#[test]
+fn a_species_key_never_includes_the_namespace() {
+    // The project has its own pine_medium beside the built-in one.
+    let mut registry = registry();
+    registry.set_namespace("my_forest").unwrap();
+    registry
+        .add(
+            "tree",
+            "pine_medium",
+            "base: builtin:pine_medium\ntree:\n  default_seed: 5\n",
+            None,
+        )
+        .unwrap();
+    registry
+        .add(
+            "tree_scatter",
+            "mixed",
+            "tree_scatter:\n  trees:\n    \
+               - { tree: my_forest:pine_medium }\n    \
+               - { key: old, tree: builtin:pine_medium }\n",
+            None,
+        )
+        .unwrap();
+
+    let mixed = registry.resolve::<TreeScatterPreset>("mixed").unwrap();
+    let [mine, old] = &mixed.tree_scatter.trees[..] else {
+        panic!("two species");
+    };
+    assert_eq!(mine.key.as_str(), "pine_medium");
+    assert_eq!(mine.tree.default_seed, 5);
+    assert_eq!(old.tree, TreePreset::pine_medium().tree);
+
+    // The bare key is ambiguous inside a Scatter too.
+    registry
+        .add(
+            "tree_scatter",
+            "bare",
+            "tree_scatter:\n  trees:\n    - { tree: pine_medium }\n",
+            None,
+        )
+        .unwrap();
+    let error = registry.resolve::<TreeScatterPreset>("bare").unwrap_err();
+    assert!(
+        error.to_string().contains("my_forest:pine_medium"),
+        "{error}"
     );
 }
 

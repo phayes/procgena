@@ -206,80 +206,96 @@ fn an_unknown_base_lists_every_layer_s_keys() {
 }
 
 #[test]
-fn a_project_preset_can_t_take_a_built_in_key() {
+fn a_key_in_two_layers_is_named_with_its_namespace() {
     let mut registry = registry();
-    let error = registry
-        .add("rock", "boulder", "rock:\n  size: 7.0\n", None)
-        .unwrap_err();
-    assert_eq!(
-        error,
-        Problem::KeyClash {
-            kind: "rock",
-            key: "boulder".to_owned()
-        }
-    );
-    assert!(registry.project().is_empty());
-    let boulder = registry.resolve::<RockPreset>("boulder").unwrap();
-    assert_eq!(boulder.rock.size, 2.5);
-}
+    registry.set_namespace("quarry").unwrap();
+    registry
+        .add(
+            "rock",
+            "boulder",
+            "base: builtin:boulder\nrock:\n  size: 7.0\n",
+            None,
+        )
+        .unwrap();
 
-#[test]
-fn a_clash_from_a_newer_built_in_is_reported_and_resolves_to_neither() {
-    // A project saved its own boulder before the built-in one existed.
-    let presets = temp_folder("clash");
-    std::fs::create_dir_all(presets.join("rock")).unwrap();
-    std::fs::write(
-        preset_path(&presets, "rock", "boulder"),
-        "rock:\n  size: 7.0\n",
-    )
-    .unwrap();
-    let mut registry = registry();
-    registry.load_folder(&presets).unwrap();
-
-    // It loads, is reported, and its key names nothing until it is renamed.
-    assert_eq!(registry.project().len(), 1);
-    assert_eq!(
-        registry.problems(),
-        vec![Problem::KeyClash {
-            kind: "rock",
-            key: "boulder".to_owned()
-        }]
-    );
+    // The bare key is ambiguous, and the shared key is listed.
     let error = registry.resolve::<RockPreset>("boulder").unwrap_err();
     assert_eq!(
         error,
-        PresetFileError::KeyClash {
+        PresetFileError::Ambiguous {
             kind: "rock".to_owned(),
             key: "boulder".to_owned(),
+            choices: vec!["quarry:boulder".to_owned(), "builtin:boulder".to_owned()],
         }
     );
+    assert_eq!(
+        registry.problems(),
+        vec![Problem::SharedKey {
+            kind: "rock",
+            key: "boulder".to_owned(),
+            choices: vec!["quarry:boulder".to_owned(), "builtin:boulder".to_owned()],
+        }]
+    );
 
-    // Other keys' messages leave the clashing key out.
+    // Each layer is reached by its namespace; the key never includes it.
+    let mine = registry.resolve::<RockPreset>("quarry:boulder").unwrap();
+    assert_eq!((mine.rock.size, mine.key.as_ref()), (7.0, "boulder"));
+    assert_eq!(mine.weight, 900.0);
+    let builtin = registry.resolve::<RockPreset>("builtin:boulder").unwrap();
+    assert_eq!(builtin.rock.size, 2.5);
+
+    // A namespace no layer has, and a key a namespace lacks, are errors.
+    let error = registry.resolve::<RockPreset>("other:boulder").unwrap_err();
+    assert!(error.to_string().contains("quarry, builtin"), "{error}");
+    assert!(matches!(
+        registry.resolve::<RockPreset>("quarry:pebble"),
+        Err(PresetFileError::UnknownPreset { .. })
+    ));
+
+    // Unknown keys list shared keys with their namespaces.
     let error = registry.resolve::<RockPreset>("gravel").unwrap_err();
     let PresetFileError::UnknownPreset { known, .. } = error else {
         panic!("expected an unknown preset, got {error:?}");
     };
-    assert_eq!(known, ["pebble"]);
+    assert_eq!(known, ["quarry:boulder", "builtin:boulder", "pebble"]);
+}
 
-    // Renaming it ends the clash.
-    let mut renamed = registry.remove("rock", "boulder").unwrap();
-    renamed.key = "my_boulder".to_owned();
-    renamed.path = None;
-    registry.add_preset(renamed).unwrap();
-    assert!(registry.problems().is_empty());
-    assert_eq!(
-        registry.resolve::<RockPreset>("boulder").unwrap().rock.size,
-        2.5
+#[test]
+fn builtin_is_not_a_project_namespace() {
+    let mut registry = registry();
+    for bad in [BUILTIN, "My Project", ""] {
+        let error = registry.set_namespace(bad).unwrap_err();
+        assert!(
+            matches!(error, PresetFileError::BadNamespace { .. }),
+            "{bad}"
+        );
+    }
+    assert!(
+        check_namespace(BUILTIN)
+            .unwrap_err()
+            .to_string()
+            .contains("reserved")
     );
-    assert_eq!(
-        registry
-            .resolve::<RockPreset>("my_boulder")
-            .unwrap()
-            .rock
-            .size,
-        7.0
-    );
-    std::fs::remove_dir_all(&presets).unwrap();
+    assert_eq!(registry.namespace(Layer::Project), None);
+    assert_eq!(registry.namespace(Layer::BuiltIn), Some(BUILTIN));
+}
+
+#[test]
+fn references_parse_with_at_most_one_namespace() {
+    let reference = Reference::parse("builtin:boulder").unwrap();
+    assert_eq!(reference.namespace, Some(BUILTIN));
+    assert_eq!(reference.key, "boulder");
+    assert_eq!(reference.to_string(), "builtin:boulder");
+    assert_eq!(Reference::parse("boulder").unwrap().namespace, None);
+    for bad in ["a:b:c", ":boulder", "builtin:", ""] {
+        assert!(
+            matches!(
+                Reference::parse(bad),
+                Err(PresetFileError::BadReference { .. })
+            ),
+            "{bad}"
+        );
+    }
 }
 
 #[test]
@@ -347,14 +363,20 @@ fn used_by_lists_bases_and_references() {
     registry
         .add("rock", "taller", "base: tall\n", None)
         .unwrap();
+    registry.set_namespace("quarry").unwrap();
     registry
-        .add("pile", "heap", "pile:\n  rocks: [pebble, tall]\n", None)
+        .add(
+            "pile",
+            "heap",
+            "pile:\n  rocks: [pebble, quarry:tall]\n",
+            None,
+        )
         .unwrap();
     registry
         .add("pile", "bigger_heap", "base: heap\n", None)
         .unwrap();
 
-    let uses = registry.used_by("rock", "tall");
+    let uses = registry.used_by("rock", Layer::Project, "tall");
     let found: Vec<(&str, &str, Option<&str>)> = uses
         .iter()
         .map(|used| (used.kind, used.key.as_str(), used.path.as_deref()))
@@ -368,12 +390,16 @@ fn used_by_lists_bases_and_references() {
         ]
     );
     let pebble: Vec<String> = registry
-        .used_by("rock", "pebble")
+        .used_by("rock", Layer::BuiltIn, "pebble")
         .into_iter()
         .map(|used| used.key)
         .collect();
     assert_eq!(pebble, ["heap", "bigger_heap"]);
-    assert!(registry.used_by("rock", "nope").is_empty());
+    assert!(
+        registry
+            .used_by("rock", Layer::Project, "pebble")
+            .is_empty()
+    );
 }
 
 #[test]

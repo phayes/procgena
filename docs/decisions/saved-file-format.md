@@ -37,16 +37,18 @@ question numbers.
 2. **Games keep today's loading; bundles are for the studio only for
    now** (Q2 deferred). The `procgena://` mount source and the `#label`
    loader are later options, not in the build plan.
-3. **Key clashes are not allowed** (user decision, 2026-11-24, replacing
-   "qualify only when ambiguous", Q3 a). One key names one preset of a
-   kind across every layer (project, built-in, later bundles), so
-   references stay bare keys and there is no `builtin:`, `project:` or
-   `bundle:` syntax. The registry refuses to add or save a clashing key;
-   Save as new, rename and Import offer a free key in a rename dialog. A
-   clash that appears when a newer procgena adds a built-in with a
-   project preset's key is reported when the project loads, with the
-   rename dialog as its fix, and the key resolves to neither preset until
-   then.
+3. **Namespaced keys, written only when needed** (user decision,
+   2026-11-24, refining Q3 a). Every layer has a namespace: `builtin` for
+   the built-in presets, and the project's or bundle's own `id` from its
+   `procgena.yml`, as in `builtin:pine_small`, `foo:pine_small` or
+   `alpine_pack:pine_small`. There is no generic `project:` or `bundle:`
+   prefix. A bare key works when only one layer has it; a key in two or
+   more layers is a problem, fixed by writing the namespace. The rename
+   dialog is a convenience, not a requirement. The namespace is never part
+   of a preset's key, so it never reaches child keys or seeds. `builtin`
+   is reserved: a project or bundle whose id is `builtin` is refused when
+   its `procgena.yml` is read or the project is made. Two loaded layers
+   with the same id: the second is refused with a problem and not loaded.
 4. **No entry list in the manifest** (Q4 a).
 5. **Export has a checkbox to flatten built-in bases,** off by default:
    files keep `base` (Q5 c).
@@ -371,8 +373,9 @@ which only the deferred mount source would give. That is question 1.
      used. Presets are compared as settings trees after parsing, so
      comments and layout don't count. Textures are compared by `blake3`.
    - **Same key, different content, or a built-in's key:** a conflict.
-     Under decision 3, the registry refuses a second preset with the key,
-     so a built-in's key can only be renamed. Each conflict offers:
+     Under decision 3 the key may stay shared, with references written as
+     `<bundle id>:<key>`, but renaming keeps bare references working.
+     Each conflict offers:
      - **Rename.** The default name is `<key>_<bundle id>`, which can be
        edited. Like every preset key, the new name must be a valid child
        key: `[a-z][a-z0-9_]*`, at most 32 bytes (`procgena_core::seed`).
@@ -519,7 +522,7 @@ don't run beside them.
 |---|---|---|---|
 | **PB1: container and crate** | `procgena_bundle`: choose the zip code (decision 11); the profile writer and the strict reader; path rules and limits; `procgena.yml`; `unpack`. A spike first on `serde_saphyr`'s alias limits. Fuzz the reader. | Question 3; a dependency, if one is chosen, through the coordinator | Tests write a folder and read it back from the file and from the folder with equal results, with every data offset a multiple of 64. They reject the hostile corpus with the right messages: traversal, symlink, duplicate, gap, overlap, mismatched headers, DEFLATE, zip64, data descriptor, comment, wrong `format`. The interop test opens a written bundle with `unzip -t`, Python's `zipfile`, Archive Utility and Explorer. |
 | **PB2: Export** | The closure walk, the export dialog, the manifest from the project's `procgena.yml`, flattening, thumbnails | PB1; ST2 (registry, "used by"); ST1's `ref` metadata; ST8's export panel for the dialog | A headless script exports a project Ecotope and gets a bundle holding exactly its project presets, with no built-ins. Biome roots wait for `.biome.yml` files (B1/W0). |
-| **PB3: Open and Import** | Open by unpacking; Import with the plan, conflicts, renames in the rename dialog (files rewritten whole), and seed-keeping `key` lines | PB1; ST2 (registry, rename dialog); ST3 (Library) | A headless script imports a bundle whose tree clashes with a project tree. Import renames it, and the imported Scatter places the same copies as in the bundle. |
+| **PB3: Open and Import** | Open by unpacking; Import with the plan, conflicts (rename, or keep the key and write namespaced references), renames with files rewritten whole, and seed-keeping `key` lines | PB1; ST2 (registry, namespaces, rename dialog); ST3 (Library) | A headless script imports a bundle whose tree clashes with a project tree. Import renames it, and the imported Scatter places the same copies as in the bundle. |
 | **PB4: textures** | Texture ids in the closure; the bundle's `textures.yml` merged on Import and Open; KTX2 sizes on Export | PB2, PB3; ST6 (catalogue, `ctt`) | A bundle's bark draws in another project at 128 px with no other size present |
 | **Later** | Mount source or `#label` loader for games; HTTP range reading; wasm; bundles that require other bundles (keys stay unique across them, decision 3); models in `MeshScatter`; a `procgena bundle pack` command | Decisions 2 and 9 revisited; `MeshScatter` | — |
 
