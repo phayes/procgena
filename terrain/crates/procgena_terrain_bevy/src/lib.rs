@@ -788,6 +788,18 @@ mod tests {
 
     use super::*;
 
+    /// Streaming tests share Bevy's async and rayon pools, so they run one
+    /// at a time to keep within their frame budgets.
+    static STREAMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Holds [`STREAMING`] for the rest of a streaming test, even after
+    /// another streaming test panicked.
+    fn streaming() -> std::sync::MutexGuard<'static, ()> {
+        STREAMING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// One unbounded region of rolling hills.
     fn hills() -> Arc<dyn TerrainSource> {
         let region = Region {
@@ -865,6 +877,7 @@ mod tests {
 
     #[test]
     fn chunks_stream_in_around_the_viewer_and_follow_it() {
+        let _streaming = streaming();
         let mut app = app();
         let stream = app.world_mut().spawn(TerrainStream::new(hills())).id();
         let camera = app
@@ -930,6 +943,7 @@ mod tests {
             Elevation, MIN_EDGE, RegionGraphOptions, WorldTerrain, WorldTerrainOptions,
         };
 
+        let _streaming = streaming();
         let mut app = app();
         let options = WorldTerrainOptions {
             regions: RegionGraphOptions {
@@ -978,6 +992,7 @@ mod tests {
 
     #[test]
     fn a_changed_stream_replaces_its_chunks() {
+        let _streaming = streaming();
         let mut app = app();
         let stream = app.world_mut().spawn(TerrainStream::new(hills())).id();
         app.world_mut()
