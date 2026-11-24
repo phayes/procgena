@@ -1332,10 +1332,11 @@ mod tests {
 
         // Selecting a Scatter shows its settings.
         studio.click("logs").unwrap();
-        assert!(studio.find("+ Add Class").is_err());
-        assert!(studio.find("Piece").is_ok());
+        assert!(studio.find("Class boulders").is_err());
+        assert!(studio.find("Mossy log").is_ok());
         studio.click("boulders").unwrap();
-        assert!(studio.find("+ Add Class").is_ok());
+        assert!(studio.find("Class boulders").is_ok());
+        assert!(studio.find("Mossy log").is_err());
 
         // Adding a Scatter sends it and selects it.
         studio.click("+ Add Scatter").unwrap();
@@ -1343,10 +1344,14 @@ mod tests {
         assert_eq!(added.scatters.len(), start.scatters.len() + 1);
         assert!(added.scatters.contains_key(&key("trees")));
         assert_eq!(added, edited(&mut studio).0);
-        assert!(
-            studio.find("+ Add Tree").is_ok(),
-            "the tree Scatter editor shows"
-        );
+        // The tree Scatter editor shows one row per species, with its
+        // trees per hectare.
+        let rows = studio
+            .texts()
+            .into_iter()
+            .filter(|shown| shown.text.ends_with("/ha"))
+            .count();
+        assert!(rows > 0, "the tree Scatter editor shows");
 
         // Renaming it keeps its settings under the new key.
         let world = studio.app_mut().world_mut();
