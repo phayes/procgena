@@ -5,6 +5,9 @@ version = "0.20.6"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"
+# Not publishable while it depends on procgena_core, which isn't on
+# crates.io. Decide how to release both before the next plant release.
+publish = false
 readme = "README.md"
 keywords = ["bevy", "grass", "foliage", "gamedev", "rendering"]
 categories = ["game-development", "rendering"]
