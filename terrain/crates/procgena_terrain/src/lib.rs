@@ -92,6 +92,7 @@ mod elevation;
 mod feature;
 mod graph;
 mod grid;
+pub mod ground;
 mod gully;
 mod hash;
 mod noise;
