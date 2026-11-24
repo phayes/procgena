@@ -1,6 +1,7 @@
 //! Cold and warm benchmarks: how long each planning stage of a region
-//! takes, and how long sampling a built terrain takes, per point and per
-//! tile. Ignored; run in release and read the printed tables:
+//! takes, how long sampling a built terrain takes, per point and per tile,
+//! and how long a chunk mesh takes to read and mesh, warm and cold.
+//! Ignored; run in release and read the printed tables:
 //!
 //! `cargo test -p procgena_terrain --release --test bench -- --ignored --nocapture --test-threads 1`
 
@@ -265,6 +266,83 @@ fn warm_tiles() {
         eprintln!(
             "  step {step} m, heights only            {}",
             quantiles(&mut heights)
+        );
+    }
+}
+
+#[test]
+#[ignore]
+fn chunks() {
+    use procgena_terrain::{
+        ChunkKey, ChunkSamples, ChunkStage, Elevation, RegionId, TerrainPreset, Transitions,
+        WorldTerrain, WorldTerrainOptions,
+    };
+    use std::sync::Arc;
+
+    eprintln!(
+        "Chunks of 64 × 64 cells, per chunk, in ms (rayon threads); load {}:",
+        load()
+    );
+
+    // Warm: reading and meshing chunks of built terrains.
+    for level in [0, 3, 6] {
+        let (mut read, mut plain, mut split) = (Vec::new(), Vec::new(), Vec::new());
+        for (_, world) in worlds() {
+            for terrain in world.terrains() {
+                for p in points_in(terrain, 3) {
+                    let key = ChunkKey::containing(p, level);
+                    let started = Instant::now();
+                    let samples = ChunkSamples::sample(terrain, key, ChunkStage::Canonical)
+                        .expect("ground everywhere");
+                    read.push(ms(started.elapsed()));
+                    let started = Instant::now();
+                    std::hint::black_box(samples.mesh(Transitions::NONE, 8.0));
+                    plain.push(ms(started.elapsed()));
+                    let started = Instant::now();
+                    std::hint::black_box(samples.mesh(Transitions::ALL, 8.0));
+                    split.push(ms(started.elapsed()));
+                }
+            }
+        }
+        eprintln!(
+            "  warm, level {level}, read          {}",
+            quantiles(&mut read)
+        );
+        eprintln!(
+            "  warm, level {level}, mesh          {}",
+            quantiles(&mut plain)
+        );
+        eprintln!(
+            "  warm, level {level}, mesh, split   {}",
+            quantiles(&mut split)
+        );
+    }
+
+    // Cold: the first chunk of a fresh world, which builds the regions it
+    // touches and their neighbours' plans.
+    for (stage, level) in [
+        (ChunkStage::Canonical, 0),
+        (ChunkStage::Provisional, 0),
+        (ChunkStage::Provisional, 5),
+    ] {
+        let mut cold = Vec::new();
+        for seed in 1..=4 {
+            let source = |_: RegionId, _: DVec2, _: &Elevation| {
+                TerrainPreset::rolling_hills().terrain.clone()
+            };
+            let options = WorldTerrainOptions {
+                seed,
+                ..WorldTerrainOptions::default()
+            };
+            let world = WorldTerrain::new(options, Arc::new(source)).unwrap();
+            let key = ChunkKey::containing(DVec2::new(300.0, -200.0), level);
+            let started = Instant::now();
+            std::hint::black_box(ChunkSamples::sample(&world, key, stage).unwrap());
+            cold.push(ms(started.elapsed()));
+        }
+        eprintln!(
+            "  cold, {stage:?}, level {level}   {}",
+            quantiles(&mut cold)
         );
     }
 }

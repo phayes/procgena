@@ -657,6 +657,45 @@ pub struct HeightTile { pub height: Vec<f32>, pub water: Vec<f32>, pub landform:
 - **Grids for plant and heightmap users.** `tile(key)` returns the 2D grids
   without building a mesh.
 
+**As built (G6, 2026-11-24): heightfield chunks** (`src/chunk.rs`), following
+the 2026-11-23 decision (heightfield by default; no marching cubes or
+Transvoxel yet, so the band and the licence question wait for volume
+patches).
+
+- `ChunkKey { x, z, level }`: 64 m · 2^level, `CHUNK_CELLS` = 64 cells a
+  side, vertices on the world lattice from integers, so chunks that share
+  a point read the same height bit for bit.
+- `ChunkSamples::sample(source, key, stage)` reads the chunk once: the
+  vertex lattice, a one-sample ring for normals, and three half-step rows
+  along every side. `ChunkSamples::mesh(transitions, skirt)` meshes it for
+  any `Transitions` without reading again.
+- `Transitions` holds four side bits and four corner bits for a finer
+  neighbour. As planned, the **coarser** chunk owns the transition: along
+  such a side it adds the finer chunk's half-step vertices and fans its
+  edge cells to them, so there are no T-junctions. Normals are lattice
+  differences; along a transition side, and at a corner any finer chunk
+  touches, they are taken at the finer step, so both sides shade a shared
+  vertex alike.
+- `ChunkSelection::around(lod, factor, viewers, previous)` is the
+  restricted quadtree: levels from a `procgena_core::Lod` (level `i` is
+  chunk level `i`, its cull distance the view distance), split by distance
+  with each level's hysteresis against the last selection, and balanced so
+  neighbours across a side or a corner are at most one level apart.
+- **Canonical and provisional.** `ChunkStage::Provisional` is the ground
+  without roads: `WorldTerrain::provisional_terrain` caches the road-free
+  build, and the full terrain is that plus `with_roads` (bit-identical to
+  before). Chunks of different stages can disagree near roads, so each
+  chunk hangs a skirt (`procgena_terrain_bevy::skirt_depth`, 4 steps, at
+  least 8 m); a road cutting deeper than the skirt at a stage border can
+  still leave a gap. Labels (G4) will add per-vertex weights and parts to
+  `ChunkMesh`; the struct marks the place.
+- Water: each chunk's `WaterMesh` covers every triangle with water at a
+  corner, with dry corners at the wet corners' mean level so it runs into
+  the banks.
+- Not built: the vertical band, volume patches, exports (Phase 9),
+  geometric-error LOD (distance only), and `tile(key)` beyond
+  `HeightTile`.
+
 ### Exports
 
 `export-obj` and `export-gltf` features (house pattern). A chunk or a
