@@ -797,10 +797,12 @@ give fruit a GPU pass of its own. How the plan maps onto it:
   the one it switches to mid-band, as in shadow maps, so rows appear and
   vanish there without fading.
 - **The coarse step runs on the GPU, not on the CPU** (a change from
-  "Fruit's own LOD chain", awaiting the coordinator's sign-off). R2 has a
-  per-view CPU pass (`prepare_views`), but it works per Scatter, not per
-  copy; a per-tree CPU check would add a CPU loop over every tree for
-  every view, plus an upload. Instead `cull_hosts` runs once per tree
+  "Fruit's own LOD chain", approved by the coordinator on 2026-11-24). R2
+  has a per-view CPU pass (`prepare_views`), but it works per Scatter, not
+  per copy, and the per-copy cull already runs on the GPU. A per-tree CPU
+  check would add a CPU loop over every tree for every view each frame,
+  plus an upload of its results; on the GPU the host step costs about
+  0.05 ms for 1,000 trees over five views (see "Measured"). Instead `cull_hosts` runs once per tree
   copy per view and writes a per-view state: skip (out of view, or
   beyond every row's reach), whole at one fruit level (the tree's
   distance ± its row radius, over the smallest and largest row size,
@@ -844,6 +846,45 @@ give fruit a GPU pass of its own. How the plan maps onto it:
   entries (a row index read from a storage buffer), lists sized per level
   from what can be in range, or one shared entry buffer per Scatter
   instead of per view.
+
+### Measured (fruit step B2, 2026-11-24)
+
+`cargo run -p procgena_tree_bevy --release --example fruit_bench -- --trees
+1450`: 1,007 Spring Pussy Willows (4 variants, 1,178 catkin rows each) on
+190 m × 190 m, with the default tree levels and impostor, one sun with its
+default four shadow cascades (five views), 1280 × 720, no textures, on an
+Apple M1 Max. Cull times come from `InstancedTimings` (timestamps at
+compute pass boundaries), drawn counts from `read_instance_counts`, frame
+times are medians over 120 frames with the CPU waiting for the GPU. With
+`--no-fruit`, the same grove without catkins.
+
+| Camera | Frame, fruit | Frame, no fruit | Cull GPU, fruit (copies / hosts / rows / args) | Attached copies drawn | Written per frame |
+|---|---|---|---|---|---|
+| Near (inside, 1.7 m up) | 40.6 ms | 8.1 ms | 0.06 / 0.04 / 1.07 / 0.02 ms | 266,241 | 17.1 MB |
+| Middle (25 m up, 30 m out) | 18.7 ms | 8.7 ms | 0.07 / 0.06 / 1.28 / 0.02 ms | 99,822 | 6.4 MB |
+| Far (80 m up, 250 m out) | 9.1 ms | 7.0 ms | 0.08 / 0.06 / 1.54 / 0.03 ms | 0 | 0.01 MB |
+
+What the numbers say:
+
+- **Drawing the catkins dominates, not culling them.** Fruit adds about
+  32 ms to the near frame and 10 ms to the middle one, while the whole
+  cull, both attached steps included, takes 1.2 to 1.7 ms.
+- **Writing the 64-byte entries does not dominate the cull either.** The
+  row step takes about the same time at the far camera, where it writes
+  nothing, as at the near one, where it writes 17 MB. Its cost is the
+  threads themselves: one per row of every tree in every view (about 5.9
+  million a frame here), each searching for its host and reading its
+  state, even for trees the host step skipped.
+- **Proposed next steps**, in order of payoff:
+  1. Draw fewer catkins: most of the near frame's 266,000 are in the four
+     shadow views. Let only fruit level 0 cast shadows, and thin catkins
+     at the tree's middle levels (`cluster_stride` at level 2 as well as 3).
+  2. Dispatch rows only for trees the host step keeps: `cull_hosts`
+     appends each kept tree and its row range to a list, and `cull_rows`
+     runs as an indirect dispatch over those rows. That removes the row
+     step's cost for skipped trees (all of the far camera's 1.5 ms).
+  3. Only then, smaller entries (a row index into a storage buffer, 8
+     bytes), which cuts the memory above by 8 times but saves little time.
 
 ## Decisions
 
