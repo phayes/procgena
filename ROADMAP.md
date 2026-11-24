@@ -992,8 +992,17 @@ summary below is for ordering.
   level forcing honoured by every renderer, with a read-back of the level
   drawn (see the plan's "Viewing distance"). It can be pulled forward on
   its own for ST7b.
-- **GM2 and ST6 share one texture catalogue;** whichever starts first
+- **GM2 and ST6 share one texture catalogue** in `procgena_core`
+  (decided 2026-11-24); the ground material catalogue stays in the
+  terrain crates and names texture ids from it. Whichever starts first
   lands the type.
+- **Tabs promised elsewhere become kinds.** The studio tabs named under
+  C3, B1, W1 and I1b (Fruit and Flower) are, after ST0, kinds in the
+  studio's registry, opened from the Library; their milestones add a
+  kind, not a tab.
+- **A churn window inside ST2, if needed:** moving `Preset` and the
+  `catalogue!` macro from `&'static` presets to owned ones rebuilds the
+  workspace and runs alone.
 - **In parallel:** after ST0, each milestone adds its own folder under
   `procgena/src/studio/`, so up to three lanes run at once; the plan's
   "Running them in parallel" gives the waves.
@@ -1132,6 +1141,26 @@ where the details are.
       plant-align lane).
     - *Details:* [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),
       "Open questions".
+24. **Studio revamp: what is still open.**
+    - *Decided by the user 2026-11-24:* Library, Outline, view frame and
+      one Inspector replace the tabs; an outliner first, a diagram later;
+      metadata in `<kind>.meta.yml` beside each crate's presets; a
+      project folder; updates keep comments (`yamlpatch` + `yamlpath`);
+      thumbnails cached, not committed; textures converted on import
+      with `ctt` (BC7); one texture catalogue in `procgena_core`;
+      viewing distance a requirement on IX; editing in context edits the
+      referenced preset; which extras come early.
+    - *Proposed, not decided:* the kind registry, document and selection
+      model, the runtime preset registry and the `Preset` change, the
+      capture service's home, and the "what is saved where" table.
+    - *Open:* key clashes between project and built-in presets, enum
+      coverage in the metadata drift test, whether built-in thumbnails
+      ship pre-rendered, where the capture module lives, Biome climate
+      on the view frame, and the tree's Fruit chip.
+    - *Needed by:* ST0 for the registry and layout, ST2 for key clashes,
+      ST4 for thumbnails and capture.
+    - *Details:* [procgena/studio_plan.md](procgena/studio_plan.md),
+      "Proposed, not decided" and "Open questions".
 
 ### Looks of work already built (wave 5)
 

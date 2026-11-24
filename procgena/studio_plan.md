@@ -2,8 +2,8 @@
 
 Status: **planned with the user on 2026-11-24.** The choices under
 "Decisions" are the user's. Everything marked "proposed" is a
-recommendation still open (see "Open questions"). No code was changed or
-run.
+recommendation the user has not decided; each is listed under "Open
+questions" or "Proposed, not decided". No code was changed or run.
 
 Written from ARCHITECTURE.md (the hierarchy, "Attached assets", rule 2
 "One LOD model", rule 10 "One preset and file pattern", the impostor
@@ -45,9 +45,9 @@ the "Studio track".
   cap, …) and simple "shown if" conditions. A test in each generator
   crate keeps it in step with the options types: every serde field has
   an entry, every entry names a field. The Inspector, tooltips, search
-  and part filtering are generated from it; today's ~250 hand-written
-  studio specs (`procgena/src/*/params.rs`) are migrated into it and
-  deleted.
+  and part filtering are generated from it; today's hand-written studio
+  specs (about 390 settings in `procgena/src/*/params.rs` and
+  `environment.rs`) are migrated into it and deleted.
 - **User presets live in a project folder** (decided): `presets/<kind>/`,
   `textures/`, and an ignored `.cache/` for thumbnails and bakes, all
   git-friendly. A runtime **preset registry** in `procgena_core::preset`
@@ -56,8 +56,10 @@ the "Studio track".
   refer to them by key. Built-in presets only offer "Save as new"; user
   presets offer "Update" too.
 - **"Update" keeps hand-written comments** (decided): saving patches the
-  changed values in place with `yamlpatch` + `yamlpath` (MIT, 1.x),
-  falling back to a rewrite only for new files.
+  changed settings in place with `yamlpatch` + `yamlpath` (MIT, 1.x),
+  inserting and removing keys as well as replacing values; new files are
+  written whole. A spike at the start of ST2 confirms the crate can do
+  this.
 - **Editing in context edits the referenced preset** (decided). Click a
   pine in an Ecotope and you edit the pine preset, with its "used by"
   list in view. A built-in pine offers "Save as new", then offers to
@@ -75,12 +77,14 @@ the "Studio track".
   normal outputs); preset thumbnails, turntables and screenshots are
   others. Thumbnails are cached by content hash and never committed
   (decided).
-- **One texture catalogue** (proposed, with GM2): an engine-free
-  `TextureCatalogue` in `procgena_core` replaces the compile-time kind
-  lists (`BARK_KINDS`, `LEAF_KINDS`, …). Every crate's `textures.yml`,
-  the terrain's ground textures and the project's own `textures.yml` are
-  its sources. GM2's ground materials name texture ids from it, so there
-  is one texture library, not two. Importing converts images to BC7 KTX2
+- **One texture catalogue** (decided, shared with GM2): an engine-free
+  `TextureCatalogue` in `procgena_core` lists every texture set. Every
+  crate's `textures.yml`, the terrain's ground textures and the
+  project's own `textures.yml` are its sources. The ground *material*
+  catalogue stays in the terrain crates as ground-materials.md decided,
+  and names texture ids from it, so there is one texture library, not
+  two. Replacing the compile-time kind lists (`BARK_KINDS`, …) with it is
+  proposed. Importing converts images to BC7 KTX2
   with mipmaps and Zstandard right away, in Rust, with `ctt` (decided);
   UASTC copies for shipping stay with the Python tool.
 - **Viewing distance is split from LOD and lives on the view frame**
@@ -133,18 +137,27 @@ Made by the user on 2026-11-24 in this planning session.
    default project in the user's Documents folder on first run. User
    presets can be the base of other user presets.
 5. **Updating a preset keeps comments,** with `yamlpatch` + `yamlpath`
-   (MIT, v1.33, about 460k and 770k downloads, maintained by the zizmor
-   project; a third-party comparison found them the only option that
-   round-tripped files exactly). Chosen over `yaml-edit` (reported to
-   misplace comments), `noyalib` (0.0.x) and our own line patcher.
+   (MIT, v1.33, about 460k and 770k downloads on crates.io on
+   2026-11-24). Chosen over `yaml-edit` (reported to misplace comments),
+   `noyalib` (0.0.x) and our own line patcher. The crates' abilities,
+   their origin (the zizmor project) and a third-party comparison that
+   found them round-tripping files exactly come from search results, not
+   from reading their code: **ST2 starts with a spike** that replaces a
+   value, inserts a missing nested key (most updates do, since files
+   hold only differences from their base) and removes one (reset to
+   base) in a commented preset file. If it fails, the fallback is
+   `yaml-edit`, then our own patcher; the worker asks the user before
+   switching.
 6. **Thumbnails are cached, not committed.** Keyed by content hash under
-   the project's `.cache/`. Built-in presets' pictures ship pre-rendered
-   with the studio.
+   the project's `.cache/`. (Whether built-in presets' thumbnails ship
+   pre-rendered is open question 4.)
 7. **Textures convert on import,** with `ctt` (MIT/Apache/Zlib, v0.6.1,
    about 100k downloads): BC7 KTX2 with mipmaps and Zstandard. UASTC
    copies are made by the Python tool when publishing. Chosen over adding
    `basisu_c_sys` (a C++ build) and over `intel_tex_2` + `ktx2` (our own
-   mip and container code).
+   mip and container code). Its abilities also come from search results:
+   **ST6 starts with a spike** converting one bark set and loading it in
+   Bevy; if it fails, the fallback is `intel_tex_2` + `ktx2`.
 8. **Viewing distance is a requirement on IX.** This plan states what the
    studio needs; IX's plan designs the per-view override in the shared LOD
    runtime.
@@ -154,6 +167,25 @@ Made by the user on 2026-11-24 in this planning session.
    compare and the seed browser come later.
 10. **Editing in context edits the referenced preset.** No inline
     overrides inside Scatter or Ecotope files.
+11. **One texture catalogue in `procgena_core`.** It lists every texture
+    set (every crate's, the terrain's ground textures, the project's).
+    The ground material catalogue stays in the terrain crates, as
+    ground-materials.md decided, and names texture ids from it.
+
+### Proposed, not decided
+
+- The kind registry, the document and edit model, and the `Selection`
+  shape (the user agreed the layout; these are how it is built).
+- The metadata file's exact shape and its "shown if" language.
+- The runtime preset registry in `procgena_core::preset`, and changing
+  `Preset::from_parts`, `read` and the `catalogue!` macro from
+  `&'static` presets to a `PresetRef` (see "Staging" for its cost).
+- The capture service in `procgena_core_bevy`, with the impostor bake on
+  top (open question 5).
+- Replacing the compile-time texture kind lists with catalogue lookups.
+- The "what is saved where" table: environment, preview area, detail
+  and quality as view-frame settings kept in session state.
+- Picking through tags first and part paths later.
 
 ## The window
 
@@ -243,11 +275,14 @@ pub struct Edit { pub path: SettingPath, pub old: Value, pub new: Value }
   gives the set of changed paths; the Inspector marks them, and reset
   writes the base's value back as an ordinary edit.
 - **Save.** A built-in preset offers only "Save as new". A project preset
-  offers "Update" (patch changed paths in place with `yamlpatch`, keeping
-  comments and layout) and "Save as new" (write a new file over the same
-  base with today's `preset::write`). When a patch can't be expressed
-  (a list replaced whole changes shape, a group's `kind` changed), the
-  update rewrites only that subtree, still keeping the rest of the file.
+  offers "Update" and "Save as new" (write a new file over the same base
+  with today's `preset::write`). Update compares the file's differences
+  from its base before and after (`preset::diff`) and patches the file
+  in place with `yamlpatch`: replace a changed value, insert a newly
+  differing key under its group, remove a key that now matches the base.
+  Comments and layout outside the touched keys are kept. A list or a
+  group whose `kind` changed is replaced as one subtree, since the file
+  format replaces those whole anyway.
 - **Several documents open at once,** for editing in context: opening a
   pine from an Ecotope opens the pine's document as well, and the Outline
   shows it under the Ecotope. Saving one never saves another.
@@ -294,11 +329,11 @@ embedded with `include_str!` like the presets. Proposed shape:
 # tree.meta.yml
 kind: tree
 name: Tree
-description: One tree: trunk, branches, leaves, and optional fruit and flowers.
+description: "One tree: trunk, branches, leaves, and optional fruit and flowers."
 parts:
-  trunk:   { name: Trunk,    description: The main stem.,         tags: [trunk] }
-  branch:  { name: Branches, description: Every branch level.,     tags: [branch] }
-  bark:    { name: Bark,     description: The bark texture and tint on trunk and branches. }
+  trunk:   { name: Trunk,    description: "The main stem.",     tags: [trunk] }
+  branch:  { name: Branches, description: "Every branch level.", tags: [limb, branch] }
+  bark:    { name: Bark,     description: "The bark texture and tint on trunk and branches." }
   leaf:    { name: Leaves,   tags: [leaf] }
   fruit:   { name: Fruit,    tags: [fruit],  attached: fruit }     # an attached asset
   flower:  { name: Flowers,  tags: [flower], attached: flower }
@@ -338,9 +373,9 @@ settings:
 - **"Shown if" conditions** are a tiny language over other settings:
   `path`, `!path`, `path == value`, `path in [a, b]`, `path > n`, joined
   with `&&` and `||`, with `{index}` for the list or level index. It
-  replaces the 120-odd `shown_if` closures in today's specs (counted
-  2026-11-24: tree 65, deadwood 23, plant 21, mushroom 9, plant Scatter
-  4). Anything it can't say belongs in a custom Inspector section.
+  replaces the 86 `shown_if` closures in today's specs (counted
+  2026-11-24, plus a few dozen `revive` values, which become data).
+  Anything it can't say belongs in a custom Inspector section.
 - **Parts** name what a setting targets, give the picking map (`tags`),
   and mark attached assets (`attached: fruit`), so the Outline can show a
   tree's fruit as a link to the fruit preset.
@@ -474,9 +509,13 @@ pub struct Selection {
 - **ST5a, by tags (needs only ST3).** A click casts a ray on the CPU:
   - for a single asset, against its CPU specimen's parts (each
     `procgena_specimen::Part` carries tags such as `bark`, `trunk`,
-    `leaf`, `fruit`, `flower`), and the metadata's part `tags` map the hit
-    part to a part id. Branch levels come from the tree's per-level parts
-    (`MeshPart::BranchLevel`).
+    `limb`, `branch`, `leaf`, `fruit`, `flower`, `cap`, `stem`), and the
+    metadata's part `tags` map the hit part to a part id.
+  - **Branch levels need tree-specific work:** the tree's `Specimen`
+    tags its bark by role (trunk, limb, branch), not by level, while its
+    settings are per level. The tree's picking adapter casts against
+    `TreeMesh::part(MeshPart::BranchLevel(n))` instead, so a hit names the
+    level and the Inspector opens that level's settings.
   - for a Scatter or Ecotope, first against copy bounds
     (`TreeScatterTrees::ray_cast` today; R4 gives every Scatter
     `within` and ray casts), then into that copy's specimen as above.
@@ -531,7 +570,10 @@ runtime), which the impostor bake then uses.
 
 The move touches `procgena_impostor` (bake on top of capture), which the
 fruit D2 and IX lanes also touch, so ST4's crate half is scheduled with
-them (see "Stages").
+them (see "Stages"). `procgena_impostor` depends only on `procgena_core`
+today and `procgena_core_bevy` does not depend on it (checked
+2026-11-24), so the impostor crate gaining a dependency on
+`procgena_core_bevy` makes no cycle.
 
 ## The texture library
 
@@ -542,7 +584,8 @@ kinds are compile-time arrays in Rust (`BARK_KINDS`, `LEAF_KINDS`, and
 the like). GM2 plans a ground texture list (`terrain/textures.yml`) and a
 shared loader.
 
-**Proposed: one catalogue, with GM2.**
+**One catalogue, shared with GM2** (decided; the details below are
+proposed).
 
 - **`procgena_core::texture::TextureCatalogue`** (engine-free): entries
   with an id, a category (`bark`, `leaf`, `rock`, `ground`, `snow`,
@@ -554,10 +597,11 @@ shared loader.
   the const arrays to a catalogue lookup, reported by `validate` with the
   catalogue passed in, and by the Problems panel.
 - **GM2 owns the loader** (`procgena_core_bevy`, rule 13) and the ground
-  arrays; ground materials name texture ids in the catalogue. The studio
-  owns the import and the library view. The two meet at the catalogue
-  type, which ST6 or GM2 lands first, whichever starts first; the other
-  builds on it.
+  arrays; the terrain crates keep the ground material catalogue (decided
+  in ground-materials.md), whose materials name texture ids in this
+  catalogue (decided here). The studio owns the import and the library
+  view. The two meet at the catalogue type, which ST6 or GM2 lands
+  first, whichever starts first; the other builds on it.
 - **Import** (ST6): choose the maps (colour, normal, roughness or
   packed AO/roughness/height; a folder is matched by file-name
   suggestions), a category, an id and the licence (required, as the repo
@@ -718,9 +762,13 @@ own folders.
   flower, Ecotope, Terrain); the Inspector built from metadata, with part
   chips, tooltips and "shown if"; today's `procgena/src/*/params.rs` specs
   deleted, keeping custom sections where needed.
-- **Needs:** the core module first; then one worker per crate (each only
-  in its own crate, so they run beside ST0); the studio switch-over after
-  ST0.
+- **Needs:** the core module first; then one worker per crate, each only
+  adding a `meta.yml` and one test file in its own crate, so they run
+  beside ST0. They still share crates with other lanes: the tree and
+  fruit workers wait until fruit AC1 has left `tree/` and `fruit/`, the
+  plant workers coordinate with the plant-align lane (R3), and the
+  Ecotope worker with GM0 and B1 in `procgena_biome`. The studio
+  switch-over runs after ST0.
 - **Done when:** every crate's drift test passes; a headless script
   selects the tree's Leaves chip and finds only leaf settings, hovers one
   and shows its description; no hand-written spec remains.
@@ -732,14 +780,25 @@ own folders.
   project folder, `procgena.yml`, the default project; Save as new and
   Update with `yamlpatch` + `yamlpath`; undo and redo, unsaved state,
   differs from base and reset; outside-edit reload; autosave; "used by".
-- **Needs:** ST0 for the studio half. The registry and resolvers in
-  `procgena_core`, `procgena_tree` and `procgena_biome` can start beside
-  ST0 and ST1; the new dependency goes through the coordinator first
-  (root `Cargo.toml`, `Cargo.lock`, `deny.toml`).
+- **Needs:** ST0 for the studio half. The core half has two parts with
+  different costs:
+  - **Additive** (beside ST0 and ST1): the registry type, resolvers
+    passed to the tree Scatter, Ecotope and Biome file readers, and
+    user bases read through a new function next to today's `read`.
+  - **Workspace-wide** (a short churn window of its own): changing
+    `Preset::from_parts`, `read` and the `catalogue!` macro from
+    `&'static` presets to `PresetRef` touches every generator crate and
+    rebuilds the workspace. It runs alone, batched with any other change
+    to `procgena_core::preset` waiting at the time, and is skipped if the
+    additive form proves enough.
+  - The new dependency goes through the coordinator first (root
+    `Cargo.toml`, `Cargo.lock`, `deny.toml`).
 - **Done when:** a headless script saves a built-in pine as
   `tall_pine`, makes `taller_pine` over it, puts it in a project
-  Ecotope, updates `tall_pine` and finds a comment in its file kept,
-  undoes and redoes, and reopens the project to the same result.
+  Ecotope, updates `tall_pine` three ways (a changed value, a newly
+  differing nested setting, a setting reset to its base) and finds its
+  hand-written comments kept each time, undoes and redoes, and reopens
+  the project to the same result.
 
 ### ST3: Library, Outline and selection
 
@@ -828,7 +887,8 @@ not new tabs).
 
 | Wave | Run together | Notes |
 |---|---|---|
-| a | ST0; `procgena_core::meta` → per-crate `meta.yml` workers; ST2's registry in `procgena_core`, then tree Scatter and Ecotope resolvers | ST0 alone in `procgena/src/`. Meta workers each stay in their crate. The registry worker touches `core/preset` and the two file readers. |
+| a | ST0; `procgena_core::meta` → per-crate `meta.yml` workers; ST2's additive registry in `procgena_core`, then the tree Scatter, Ecotope and Biome resolvers | ST0 alone in `procgena/src/`. Meta workers each stay in their crate, and wait for or agree with the lanes named in ST1 (fruit AC1 in `tree/`, R3 in `plant/`, GM0 and B1 in `procgena_biome`). The registry worker touches `core/preset` and the file readers, so it is not beside other writers of `scatter/file.rs` or `ecotope/file.rs`. |
+| a′ | ST2's workspace-wide `Preset` change, if needed | Alone: it rebuilds the workspace. |
 | b | ST1 studio switch-over; ST2 studio half; ST4 crate half | ST1 owns `studio/inspector/`, ST2 `studio/documents/` and `studio/project/`. ST4 is in `procgena_core_bevy` and `procgena_impostor` (with the fruit D2 and IX lanes' agreement). |
 | c | ST3; ST7a; ST8 (without turntable) | `studio/library/` and `studio/outline/`; `studio/problems/` and `view_frame/`; `studio/commands/`. All three register through ST0's registry and read `Selection`. |
 | d | ST4 studio half; ST5a; ST6 | ST6's crate changes run as one worker. |
