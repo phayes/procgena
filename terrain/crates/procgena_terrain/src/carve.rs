@@ -1,9 +1,10 @@
 //! Cutting rivers, ponds and roads into the ground.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use glam::DVec2;
 
+use crate::feature::{FeatureId, FeatureIndex, FeatureShape, Part, TerrainFeature, feature_keys};
 use crate::gully;
 use crate::ports::BANK_REACH;
 use crate::seam::{smootherstep, smootherstep_slope};
@@ -41,9 +42,6 @@ const BLUFF_SLOPE: f64 = 1.0;
 /// cliff: 65° (tan 65°).
 const CLIFF_SLOPE: f64 = 2.144_506_920_509_559_5;
 
-/// Size of the spatial index's cells, in metres.
-const INDEX_CELL: f64 = 64.0;
-
 /// How softly river and pond cuts meet the ground, in metres of height. The
 /// cut edge is rounded instead of creased, so the ground's slope stays
 /// continuous.
@@ -66,14 +64,17 @@ fn smooth_max(a: f64, b: f64, k: f64) -> f64 {
     -smooth_min(-a, -b, k)
 }
 
-/// What a [`FeatureLine`] is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// What a terrain feature is (see [`FeatureId`](crate::FeatureId)). A
+/// [`FeatureLine`] is a river or a road.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FeatureKind {
     /// A river. Its levels are the water surface, falling (or level) from
     /// the first point to the last.
     River,
     /// A road. Its levels are the road surface.
     Road,
+    /// A pond where a river ends (see [`Pond`]).
+    Pond,
 }
 
 /// A river or road as a line of points, each with a level.
@@ -189,14 +190,6 @@ pub struct PointOfInterest {
     pub level: f32,
 }
 
-/// One entry in the spatial index.
-#[derive(Debug, Clone, Copy)]
-enum Item {
-    River { line: u32, segment: u32 },
-    Pond(u32),
-    Road { line: u32, segment: u32 },
-}
-
 /// All features of one terrain, ready to carve the ground at any point.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Features {
@@ -210,7 +203,10 @@ pub(crate) struct Features {
     road_banks: Vec<Vec<f32>>,
     /// Places left for the caller to fill; they don't change the ground.
     pub points_of_interest: Vec<PointOfInterest>,
-    index: HashMap<(i64, i64), Vec<Item>>,
+    /// Each feature's box outside which it changes nothing, and its place
+    /// in its kind's list.
+    bounds: BTreeMap<FeatureId, ([DVec2; 2], u32)>,
+    index: FeatureIndex,
 }
 
 /// The ground after carving, the water surface if there is water, and what
@@ -635,63 +631,138 @@ impl Features {
             matches(&road_banks, &roads),
             "one bank steepness per road point"
         );
-        let mut features = Self {
+        let parts = Self::parts(&rivers, &river_valleys, &ponds, &roads);
+        let mut bounds: BTreeMap<FeatureId, ([DVec2; 2], u32)> = BTreeMap::new();
+        for (part, [lo, hi]) in &parts {
+            let (b, _) = bounds.entry(part.id).or_insert(([*lo, *hi], part.index));
+            *b = [b[0].min(*lo), b[1].max(*hi)];
+        }
+        Self {
             rivers,
             river_valleys,
             ponds,
             roads,
             road_banks,
             points_of_interest,
-            index: HashMap::new(),
+            bounds,
+            index: FeatureIndex::new(parts),
+        }
+    }
+
+    /// Every piece of every feature, with the box outside which it changes
+    /// nothing: rivers' segments (out to their valleys' reach), ponds, then
+    /// roads' segments (out to their banks' reach), each in order.
+    fn parts(
+        rivers: &[FeatureLine],
+        river_valleys: &[Vec<ValleyShape>],
+        ponds: &[Pond],
+        roads: &[FeatureLine],
+    ) -> Vec<(Part, [DVec2; 2])> {
+        let mut parts = Vec::new();
+        let line_starts = |lines: &[FeatureLine]| -> Vec<[DVec2; 2]> {
+            lines
+                .iter()
+                .map(|l| [l.points[0], *l.points.get(1).unwrap_or(&l.points[0])])
+                .collect()
         };
-        let mut entries = Vec::new();
-        for (line, river) in features.rivers.iter().enumerate() {
-            let valleys = &features.river_valleys[line];
+        let pond_starts: Vec<[DVec2; 2]> = ponds.iter().map(|p| [p.centre; 2]).collect();
+        let keys = [
+            feature_keys(FeatureKind::River, &line_starts(rivers)),
+            feature_keys(FeatureKind::Pond, &pond_starts),
+            feature_keys(FeatureKind::Road, &line_starts(roads)),
+        ];
+        let id = |kind, index: usize| {
+            let k = match kind {
+                FeatureKind::River => 0,
+                FeatureKind::Pond => 1,
+                FeatureKind::Road => 2,
+            };
+            (
+                FeatureId {
+                    kind,
+                    key: keys[k][index],
+                },
+                index as u32,
+            )
+        };
+        for (line, river) in rivers.iter().enumerate() {
+            let valleys = &river_valleys[line];
             for segment in 0..river.points.len().saturating_sub(1) {
                 let valley = valleys[segment].extent().max(valleys[segment + 1].extent());
                 let reach = half_width(river, segment) + valley;
                 let (a, b) = (river.points[segment], river.points[segment + 1]);
-                entries.push((
-                    a.min(b) - reach,
-                    a.max(b) + reach,
-                    Item::River {
-                        line: line as u32,
-                        segment: segment as u32,
-                    },
-                ));
+                let (id, index) = id(FeatureKind::River, line);
+                let part = Part {
+                    id,
+                    index,
+                    segment: segment as u32,
+                };
+                parts.push((part, [a.min(b) - reach, a.max(b) + reach]));
             }
         }
-        for (i, pond) in features.ponds.iter().enumerate() {
+        for (i, pond) in ponds.iter().enumerate() {
             let reach = DVec2::splat(pond.radius + BANK_REACH);
-            entries.push((
-                pond.centre - reach,
-                pond.centre + reach,
-                Item::Pond(i as u32),
-            ));
+            let (id, index) = id(FeatureKind::Pond, i);
+            let part = Part {
+                id,
+                index,
+                segment: 0,
+            };
+            parts.push((part, [pond.centre - reach, pond.centre + reach]));
         }
-        for (line, road) in features.roads.iter().enumerate() {
+        for (line, road) in roads.iter().enumerate() {
             for segment in 0..road.points.len().saturating_sub(1) {
                 let reach = half_width(road, segment) + BANK_REACH;
                 let (a, b) = (road.points[segment], road.points[segment + 1]);
-                entries.push((
-                    a.min(b) - reach,
-                    a.max(b) + reach,
-                    Item::Road {
-                        line: line as u32,
-                        segment: segment as u32,
-                    },
-                ));
+                let (id, index) = id(FeatureKind::Road, line);
+                let part = Part {
+                    id,
+                    index,
+                    segment: segment as u32,
+                };
+                parts.push((part, [a.min(b) - reach, a.max(b) + reach]));
             }
         }
-        for (lo, hi, item) in entries {
-            let (lo, hi) = ((lo / INDEX_CELL).floor(), (hi / INDEX_CELL).floor());
-            for z in lo.y as i64..=hi.y as i64 {
-                for x in lo.x as i64..=hi.x as i64 {
-                    features.index.entry((x, z)).or_default().push(item);
-                }
-            }
+        parts
+    }
+
+    /// Every feature, in id order, with its bounds. Features without a
+    /// piece (a line of one point) are left out: they change nothing.
+    pub(crate) fn all(&self) -> impl Iterator<Item = TerrainFeature<'_>> + '_ {
+        self.bounds
+            .iter()
+            .map(|(&id, &(bounds, index))| TerrainFeature {
+                id,
+                shape: self.shape(id.kind, index),
+                bounds,
+            })
+    }
+
+    /// The feature `id`, or `None` if there is no such feature or it has no
+    /// piece.
+    pub(crate) fn get(&self, id: FeatureId) -> Option<TerrainFeature<'_>> {
+        let &(bounds, index) = self.bounds.get(&id)?;
+        Some(TerrainFeature {
+            id,
+            shape: self.shape(id.kind, index),
+            bounds,
+        })
+    }
+
+    /// The shape of the feature of `kind` at `index` in its list.
+    fn shape(&self, kind: FeatureKind, index: u32) -> FeatureShape<'_> {
+        let i = index as usize;
+        match kind {
+            FeatureKind::River => FeatureShape::Line(&self.rivers[i]),
+            FeatureKind::Road => FeatureShape::Line(&self.roads[i]),
+            FeatureKind::Pond => FeatureShape::Pond(&self.ponds[i]),
         }
-        features
+    }
+
+    /// The features that may change something in the box from `lo` to
+    /// `hi`: those with a piece whose box meets it, in id order.
+    pub(crate) fn within(&self, lo: DVec2, hi: DVec2) -> Vec<FeatureId> {
+        self.index.near(lo, hi).into_iter().collect()
     }
 
     /// Segment `segment` of road `line` seen from `p`: the distance to it,
@@ -727,6 +798,7 @@ impl Features {
 
     /// Carves ground of height `h` at `p`: rivers and ponds cut it down,
     /// then roads cut or fill it to their level.
+    #[cfg(test)]
     pub(crate) fn apply(&self, p: DVec2, h: f32) -> Carved {
         self.carve(p, h, None).0
     }
@@ -735,29 +807,44 @@ impl Features {
     /// `slope`, the gradient of the uncarved ground at `p`, is given;
     /// otherwise the gradient returned is zero.
     pub(crate) fn carve(&self, p: DVec2, h: f32, slope: Option<DVec2>) -> (Carved, DVec2) {
-        let key = (
-            (p.x / INDEX_CELL).floor() as i64,
-            (p.y / INDEX_CELL).floor() as i64,
-        );
+        self.carve_parts(p, h, slope, self.index.at(p))
+    }
+
+    /// Every piece of every feature, in the order the index lists them.
+    #[cfg(test)]
+    pub(crate) fn all_parts(&self) -> Vec<Part> {
+        Self::parts(&self.rivers, &self.river_valleys, &self.ponds, &self.roads)
+            .into_iter()
+            .map(|(part, _)| part)
+            .collect()
+    }
+
+    /// [`carve`](Self::carve) with only the feature pieces `parts`, in
+    /// that order. Pieces that can't reach `p` change nothing.
+    pub(crate) fn carve_parts(
+        &self,
+        p: DVec2,
+        h: f32,
+        slope: Option<DVec2>,
+        parts: &[Part],
+    ) -> (Carved, DVec2) {
         let h_slope = slope.unwrap_or_default();
-        let Some(items) = self.index.get(&key) else {
+        if parts.is_empty() {
             let carved = Carved {
                 height: h,
                 water: None,
                 tags: RoadTags::NONE,
             };
             return (carved, h_slope);
-        };
+        }
         let track = slope.is_some();
 
         // Roads near here: gullies keep away from them, then they hold the
         // ground to their level.
-        let road_items: Vec<(u32, u32)> = items
+        let road_items: Vec<(u32, u32)> = parts
             .iter()
-            .filter_map(|item| match *item {
-                Item::Road { line, segment } => Some((line, segment)),
-                _ => None,
-            })
+            .filter(|part| part.id.kind == FeatureKind::Road)
+            .map(|part| (part.index, part.segment))
             .collect();
         let roads: Vec<(f64, f64, f64, f64)> = road_items
             .iter()
@@ -801,12 +888,14 @@ impl Features {
             level: DVec2::ZERO,
             shape: [DVec2::ZERO; 3],
         };
-        for item in items {
-            // Each item's inputs to its valley, with their gradients when
+        for part in parts {
+            // Each piece's inputs to its valley, with their gradients when
             // tracked, and for a gullied river the way to it and how that
             // way turns.
-            let (d, half_width, level, depth, shape, flow, slopes, flow_slope) = match *item {
-                Item::River { line, segment } => {
+            let (line, segment) = (part.index, part.segment);
+            let (d, half_width, level, depth, shape, flow, slopes, flow_slope) = match part.id.kind
+            {
+                FeatureKind::River => {
                     let (river, valleys) = (
                         &self.rivers[line as usize],
                         &self.river_valleys[line as usize],
@@ -874,8 +963,8 @@ impl Features {
                         flow_slope,
                     )
                 }
-                Item::Pond(i) => {
-                    let pond = &self.ponds[i as usize];
+                FeatureKind::Pond => {
+                    let pond = &self.ponds[line as usize];
                     let shape = (0.0, RIVER_BANK, BANK_REACH);
                     let d = p.distance(pond.centre);
                     let mut slopes = no_slopes();
@@ -894,7 +983,7 @@ impl Features {
                         flow_slope,
                     )
                 }
-                Item::Road { .. } => continue,
+                FeatureKind::Road => continue,
             };
             if let Some((profile, pull)) = valley(d, half_width, level, depth, shape) {
                 let above = smooth_max(f64::from(h) - profile, 0.0, RIVER_BLEND);

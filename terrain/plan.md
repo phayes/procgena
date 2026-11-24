@@ -1274,8 +1274,10 @@ answers whether each idea earns its place, and how:
   work lists below, and stop for review with the user.
 
 **Spike results so far (2026-11-23).** From `src/spike_erosion.rs`
-(test-only, ignored; delete after review): one-region 4 km worlds,
-seeds 1 to 6.
+(test-only, ignored; deleted in G1, 2026-11-24, once its drainage and
+cut-depth measurements moved to `src/drainage.rs`; the other spike probes
+named below went with it, their results recorded here): one-region 4 km
+worlds, seeds 1 to 6.
 
 - **River cut below the natural ground today** (all river points):
 
@@ -1809,8 +1811,10 @@ What that asks of this crate, and where it stands:
   that binds a Terrain to its Ecotopes.
 - [x] **Slope as part of the ground** (G2, built 2026-11-24).
   `Terrain` implements `procgena_core::Ground` with a gradient
-  (`Terrain::sample`), and `HeightTile` carries a gradient grid filled in
-  the same pass. Labels' `Measures::slope` will use the same gradient.
+  (`Terrain::sample`), and `HeightTile::sample_with_gradients` fills a
+  gradient grid in the same pass (opt-in since G3 step 2: it costs 3–5
+  times the heights). Labels' `Measures::slope` will use the same
+  gradient.
   - Analytic: relief (fBm through the noise's gradient; eroded hills
     through its second derivatives; ridged mountains, which take one
     side's slope on a sharp crest), the fade's scaling and blend, E, the
@@ -1820,8 +1824,11 @@ What that asks of this crate, and where it stands:
     and the fade's pulls, 0.5 m either side in f64 (`pull_gradients`). The
     pulls' closed forms move with the point in ways not worth deriving.
   - Heights are bit-identical to before. The border offers still read the
-    old central-difference `Relief::gradient`; switching them moves every
-    agreed profile, so it waits for G3 step 1.
+    old central-difference `Relief::gradient`, which averages across the
+    ridges' sharp crests where a point slope jumps (from 1.97 to −1.0 across
+    one measured crest). Switching them would move every agreed profile
+    and could unsettle the re-picked test seeds, so it is left as a
+    question for the user rather than done in G3 step 1.
   - Precision: mountain heights carry up to about 5e-3 m of f32 rounding,
     so tests compare the slope with differences over 4 m spans
     (`tests/ground.rs`, `relief::tests::slopes_match_the_heights`).
@@ -1877,10 +1884,94 @@ start of G3, before Phase 3's landforms and before Phase 4:
    results may change where the new structure makes that simpler (the
    repo is early); any test whose expected values move is reported and
    re-checked for its intent, never loosened.
+   **Built 2026-11-24 (`src/feature.rs`), results unchanged** (heights,
+   gradients and every feature bit-identical on five test worlds; no test
+   moved). `FeatureId` (kind and key; the key became stable in step 2),
+   `TerrainFeature` with its `FeatureShape` and bounds,
+   `Terrain::features`, `feature` and `features_within`, and one
+   `FeatureIndex` of feature pieces with their effect boxes, which
+   carving reads. Rivers, ponds and roads keep their own lists, so
+   `rivers()`, `ponds()` and `roads()` still return slices, and step 2
+   can cache hydrology and roads as separate plans. Carving keeps its two
+   stages (rivers and ponds lower, then roads hold), since gullies need
+   the nearest road first. Tests `the_index_gives_what_every_feature_gives`
+   and `no_feature_changes_anything_outside_its_bounds`.
 2. Planning is split into stages that are cached on their own, with
    stable feature ids, one batched sample path, and cold and warm
    benchmarks, so a far view needs relief and seam offers but not inland
    road routing.
+   **Built 2026-11-24, results unchanged** (the same bit-for-bit dump).
+   - **Stages:** `TerrainGenerator::trace_rivers` gives a `RiverTrace`
+     (cheap to clone) that `offers_traced` and `build_traced` share, so
+     a region is traced once (`StitchedWorld` now does). `build_traced`
+     plans rivers and ponds but not roads; `Terrain::with_roads` adds them
+     without redoing anything (`has_roads` says which). `build` is all
+     three. Inside, `plan::hydrology` and `plan::roads` are separate.
+   - **Stable ids:** `FeatureId` is the kind and a hash of where the
+     feature starts (its first two points, or a pond's centre), so ids
+     don't change when roads are added or other features come and go.
+   - **One sample path:** `Terrain::query(p, gradient)` gives height,
+     water, road tags and optionally the gradient from one bend and one
+     carve; `height`, `water_level`, `road_tags` and `sample` all go
+     through it, and the border's pull at `p` is computed once for height
+     and gradient. `HeightTile::sample` is heights only again;
+     `sample_with_gradients` adds the gradient grid.
+   - Labels (`annotate`, G4) will join `query`.
+   - Tests: `roads_come_as_a_stage_of_their_own_and_ids_stay`,
+     `one_query_gives_what_each_accessor_gives`.
+
+   **Benchmarks (2026-11-24): provisional.** Measured on a shared machine
+   while other lanes built (load average 8 to 10 over 1 minute, 30 to 45
+   over 15 minutes); to be rerun on a quiet machine. Rerun with:
+
+   ```bash
+   cargo test -p procgena_terrain --release --test bench -- --ignored --nocapture --test-threads 1
+   ```
+
+   It prints the load average beside each table. Worlds: two terrains and
+   the triple junction, straight and warped, and hills into plains (12
+   regions of a few km², plains, hills and mountains).
+
+   **Cold ÷ warm** (survives load better than raw times): each stage's
+   median over the median time of a 64 × 64 tile of heights at 1 m on one
+   thread on the same terrains, in the same run (30 ms here). River trace
+   1.6, offers 0.8, bend and hydrology 1.4, roads 12.4; **a whole region
+   plan 16.5 tiles, 4.0 without roads.**
+
+   | Cold, per region (load ~8) | p50 | p95 | max |
+   |---|---|---|---|
+   | River trace | 48 ms | 210 ms | 304 ms |
+   | Offers (from the trace) | 23 ms | 56 ms | 94 ms |
+   | Bend and hydrology | 42 ms | 165 ms | 238 ms |
+   | Roads | 378 ms | 1597 ms | 2289 ms |
+   | Whole plan | 501 ms | 2028 ms | 2925 ms |
+   | Without roads | 123 ms | 431 ms | 637 ms |
+   | Whole world ÷ regions (negotiation, threads) | 334 ms | 1065 ms | — |
+
+   | Warm, per call (load ~8) | p50 | p95 | p99 |
+   |---|---|---|---|
+   | `height` | 1.5 µs | 23 µs | 38 µs |
+   | `query` without gradient | 1.3 µs | 20 µs | 34 µs |
+   | `sample` (with gradient) | 5.3 µs | 139 µs | 208 µs |
+   | `height` within 200 m of a border | 6.1 µs | 32 µs | 44 µs |
+   | `sample` within 200 m of a border | 29 µs | 162 µs | 234 µs |
+
+   | Warm tile, 64 × 64, rayon (load ~8) | p50 | p95 |
+   |---|---|---|
+   | 1 m step, heights | 3.7 ms | 16 ms |
+   | 1 m step, with gradients | 14 ms | 111 ms |
+   | 8 m step, heights | 3.5 ms | 20 ms |
+   | 8 m step, with gradients | 18 ms | 132 ms |
+
+   - **Roads are most of a cold region plan** (p95 1.6 s, mountain
+     routing). A far view built with `build_traced` (trace, offers,
+     hydrology) needs about 0.1 s at p50 and 0.4 s at p95. Whether that
+     calls for macro cells (Conflict 4) is the user's call; nothing here
+     needs them for the hydrology.
+   - **The gradient costs 3–5 times the height**, near borders and in
+     the fade from the pull differences (5 pulls for the bend and 5 for
+     each fade blend) and the relief layers worked out again. The pull's
+     own closed-form derivative would cut most of it; not done.
 
 The review's mapping table shows where the proposal's later steps fall in
 Phases 3 to 7. The user settled its four open points on 2026-11-23 (see

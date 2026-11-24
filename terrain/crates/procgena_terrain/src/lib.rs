@@ -84,6 +84,7 @@ mod converge;
 #[cfg(test)]
 mod drainage;
 mod elevation;
+mod feature;
 mod graph;
 mod grid;
 mod gully;
@@ -108,6 +109,7 @@ pub use converge::{
     blend_weights, relief_meeting_is_valid, relief_target,
 };
 pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
+pub use feature::{FeatureId, FeatureShape, TerrainFeature};
 pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };
@@ -130,5 +132,7 @@ pub use seam::{
     negotiate, negotiate_corner, sample_count,
 };
 pub use stitch::{RegionSpec, StitchError, StitchedWorld};
-pub use terrain::{HeightField, HeightTile, Terrain, TerrainError, TerrainGenerator};
+pub use terrain::{
+    HeightField, HeightTile, RiverTrace, Terrain, TerrainError, TerrainGenerator, TerrainSample,
+};
 pub use warp::{BorderWarp, BorderWarpError, MIN_WARP_WAVELENGTH, warp_borders};

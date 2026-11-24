@@ -153,13 +153,17 @@ fn a_grove_on_a_terrain_matches_its_slope() {
 fn tiles_carry_the_terrains_own_gradient() {
     let world = two_terrains(DVec2::ZERO, DEFAULT);
     let terrain = &world.terrains()[1];
-    let tile = HeightTile::sample(terrain, I64Vec2::new(40, -20), UVec2::new(16, 12), 8.0);
+    let (origin, size) = (I64Vec2::new(40, -20), UVec2::new(16, 12));
+    let tile = HeightTile::sample_with_gradients(terrain, origin, size, 8.0);
+    let plain = HeightTile::sample(terrain, origin, size, 8.0);
+    assert_eq!(plain.heights, tile.heights);
+    assert_eq!(plain.gradients, None);
     for j in 0..tile.size.y {
         for i in 0..tile.size.x {
             let p = DVec2::new(f64::from(40 + i as i32), f64::from(-20 + j as i32)) * 8.0;
             let sample = terrain.sample(p);
             assert_eq!(tile.get(i, j), sample.height);
-            assert_eq!(tile.gradient(i, j), sample.gradient);
+            assert_eq!(tile.gradient(i, j), Some(sample.gradient));
         }
     }
 }

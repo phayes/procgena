@@ -16,7 +16,7 @@ use crate::elevation::Elevation;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{Boundary, CornerId, Region, RegionCorner, RegionEdge, RegionError, RegionId};
 use crate::seam::{CornerAgreement, EdgeAgreement, SeamError, negotiate, negotiate_corner};
-use crate::terrain::{HeightField, Terrain, TerrainError, TerrainGenerator};
+use crate::terrain::{HeightField, RiverTrace, Terrain, TerrainError, TerrainGenerator};
 
 /// One region of a [`StitchedWorld`]: its polygon and terrain settings.
 #[derive(Debug, Clone)]
@@ -177,13 +177,20 @@ impl StitchedWorld {
             specs.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
         let generators = converge(&regions, generators, &index, convergence)?;
 
-        // Offers and agreements.
+        // Offers and agreements, from each region's river trace, kept for
+        // the build.
+        let traces: Vec<RiverTrace> = regions
+            .iter()
+            .zip(&generators)
+            .map(|(region, generator)| generator.trace_rivers(region))
+            .collect();
         let corners = negotiate_corners(&regions, &generators, &index)?;
-        let agreements = negotiate_edges(&regions, &generators, &index, &corners, elevation)?;
+        let agreements =
+            negotiate_edges(&regions, &generators, &traces, &index, &corners, elevation)?;
 
         // Build each terrain with the agreements for its edges, on several
         // threads with the `rayon` feature (the results are the same).
-        let build = |(generator, region): (TerrainGenerator, Region)| {
+        let build = |((generator, region), trace): ((TerrainGenerator, Region), RiverTrace)| {
             let mine: Vec<_> = region
                 .edges
                 .iter()
@@ -191,10 +198,12 @@ impl StitchedWorld {
                 .collect();
             let id = region.id;
             generator
-                .build(region, &mine)
+                .build_traced(region, &mine, &trace)
+                .map(Terrain::with_roads)
                 .map_err(|e| StitchError::Terrain(id, e))
         };
-        let pairs: Vec<(TerrainGenerator, Region)> = generators.into_iter().zip(regions).collect();
+        let pairs: Vec<((TerrainGenerator, Region), RiverTrace)> =
+            generators.into_iter().zip(regions).zip(traces).collect();
         #[cfg(feature = "rayon")]
         let terrains = {
             use rayon::prelude::*;
@@ -425,6 +434,7 @@ fn negotiate_corners(
 fn negotiate_edges(
     regions: &[Region],
     generators: &[TerrainGenerator],
+    traces: &[RiverTrace],
     index: &BTreeMap<RegionId, usize>,
     corners: &HashMap<crate::region::CornerId, CornerAgreement>,
     elevation: &Elevation,
@@ -433,9 +443,10 @@ fn negotiate_edges(
     let offers: Vec<HashMap<_, _>> = regions
         .iter()
         .zip(generators)
-        .map(|(region, generator)| {
+        .zip(traces)
+        .map(|((region, generator), trace)| {
             generator
-                .offers(region)
+                .offers_traced(region, trace)
                 .into_iter()
                 .map(|o| (o.edge, o))
                 .collect()

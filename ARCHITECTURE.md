@@ -402,8 +402,11 @@ any point, and the same as grids per tile.
 
 **Status.** In progress: `procgena_terrain`. One generator fills one region,
 which can be bounded or infinite. Today it gives `height`, `water_level`,
-`road_tags`, slope (`Terrain` is a `Ground`) and `HeightTile` with heights
-and gradients. The planned `annotate` labels are not exposed yet.
+`road_tags`, slope (`Terrain` is a `Ground`), all of these at once
+(`query`), `HeightTile` with heights and optionally gradients, and its
+rivers, roads and ponds as features with stable ids and bounds. Roads
+are a planning stage of their own, so a distant view can skip them. The
+planned `annotate` labels are not exposed yet.
 
 ### 5. World
 
@@ -505,8 +508,8 @@ roads).
 The terrain knows its slope better than anyone sampling it:
 
 - **Relief** has an analytic gradient from its noise's own derivatives
-  (G2; the border offers still read a central-difference one until G3
-  step 1).
+  (G2). The border offers still read a central-difference one, which
+  averages across sharp ridge crests; whether to switch them is open.
 - **Bending to the borders** and **carving rivers and roads** are smooth
   blends of known shapes, so their gradients follow by the chain rule. Where
   that is not worth the work, the terrain can take central differences

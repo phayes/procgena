@@ -367,6 +367,13 @@ goldens, which have no baseline on this machine).
   macro cells added only if step 2's benchmarks call for them (decided
   2026-11-23, see
   [terrain/features_plan_review.md](terrain/features_plan_review.md)).
+- **Status (2026-11-24):** steps 1 and 2 are built, with results
+  unchanged: one feature type and index, stable ids, a river trace shared
+  by offers and build, roads as a stage of their own
+  (`Terrain::with_roads`), one sample path (`Terrain::query`), and cold
+  and warm benchmarks (plan.md, "Terrain features"). Roads are most of a
+  cold region plan (p95 1.6 s); without them p95 is about 0.4 s. Phase
+  3's landforms and Phase 4 are next.
 
 #### G4: Terrain labels (Phase 5)
 
