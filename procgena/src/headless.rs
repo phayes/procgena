@@ -22,6 +22,10 @@
 //! | `drag X1 Y1 X2 Y2` | Drags with the left button between two points. |
 //! | `scroll X Y LINES` | Turns the wheel at a point; positive scrolls up. |
 //! | `key KEY` | Presses a key: `Escape`, `Enter`, `Tab` or a letter, optionally after `ctrl+` or `cmd+`. |
+//! | `type TEXT` | Types `TEXT` into the focused text field. Click the field first. |
+//! | `hover X Y` | Moves the mouse to a point without clicking, for example to show a tooltip. |
+//! | `select PATH` | Selects a document as `KIND/KEY[/NODE…][#PART]`, such as `ecotope/pine_forest_floor`, opening it if needed. |
+//! | `command NAME` | Runs a studio command, such as `reset-camera` or `close-document`. |
 //! | `wait SECONDS` | Lets time pass, drawing all the while, for example for a message to hide itself. |
 //! | `choose PATH` | Answers the next file dialog with `PATH`. Give it before the click that opens the dialog. |
 //! | `cancel-dialog` | Cancels the next file dialog. Dialogs with no answer given are cancelled too. |
@@ -241,16 +245,49 @@ impl HeadlessStudio {
         shown_center(node, transform, visible, clip)
     }
 
-    /// The value of the only settings panel editing a `T`.
+    /// The value of the only settings panel editing a `T` that is on
+    /// screen: the selected document's, since other documents' panels are
+    /// hidden.
     ///
     /// # Panics
     ///
-    /// Panics unless exactly one such panel exists.
+    /// Panics unless exactly one such panel is on screen.
     #[cfg(test)]
     pub fn panel_value<T: Clone + Send + Sync + 'static>(&mut self) -> T {
         let world = self.app.world_mut();
-        let mut panels = world.query::<&crate::params::ParamPanel<T>>();
-        panels.single(world).unwrap().value().clone()
+        let mut panels = world.query::<(&crate::params::ParamPanel<T>, &InheritedVisibility)>();
+        let shown: Vec<T> = panels
+            .iter(world)
+            .filter(|(_, visible)| visible.get())
+            .map(|(panel, _)| panel.value().clone())
+            .collect();
+        let [value] = <[T; 1]>::try_from(shown)
+            .unwrap_or_else(|shown| panic!("{} panels on screen edit this type", shown.len()));
+        value
+    }
+
+    /// Selects `path`, opening its document if needed; see
+    /// [`select_path`](crate::studio::commands::select_path).
+    ///
+    /// # Errors
+    ///
+    /// Fails as `select_path` does.
+    pub fn select(&mut self, path: &str) -> Result<(), String> {
+        crate::studio::commands::select_path(self.app.world_mut(), path)?;
+        self.settle();
+        Ok(())
+    }
+
+    /// Runs the studio command named `name`; see
+    /// [`run_command`](crate::studio::commands::run_command).
+    ///
+    /// # Errors
+    ///
+    /// Fails if there is no such command.
+    pub fn command(&mut self, name: &str) -> Result<(), String> {
+        crate::studio::commands::run_command(self.app.world_mut(), name)?;
+        self.settle();
+        Ok(())
     }
 
     /// Whether a visible text starts with `start`, as toasts with details do.
@@ -325,6 +362,40 @@ impl HeadlessStudio {
         for &code in keys.iter().rev() {
             self.keyboard(code, ButtonState::Released);
         }
+        self.settle();
+    }
+
+    /// Types `text` into the focused text field, one character at a time,
+    /// as a keyboard would. Click the field first to focus it. Characters
+    /// typed with nothing focused are ignored.
+    pub fn type_text(&mut self, text: &str) {
+        for character in text.chars() {
+            let key_code = typed_key_code(character);
+            let logical_key = if character == ' ' {
+                Key::Space
+            } else {
+                Key::Character(character.to_string().into())
+            };
+            for state in [ButtonState::Pressed, ButtonState::Released] {
+                self.app.world_mut().write_message(KeyboardInput {
+                    key_code,
+                    logical_key: logical_key.clone(),
+                    state,
+                    // Only the press produces text.
+                    text: (state == ButtonState::Pressed).then(|| character.to_string().into()),
+                    repeat: false,
+                    window: Entity::PLACEHOLDER,
+                });
+                self.update();
+            }
+        }
+        self.settle();
+    }
+
+    /// Moves the mouse to `at` without pressing anything, for example to
+    /// show a tooltip.
+    pub fn hover(&mut self, at: Vec2) {
+        self.move_to(at);
         self.settle();
     }
 
@@ -573,6 +644,33 @@ fn logical_key(code: KeyCode) -> Key {
     }
 }
 
+/// The physical key that types `character` on a US layout, or
+/// [`KeyCode::Unidentified`] for characters without one of their own.
+fn typed_key_code(character: char) -> KeyCode {
+    use bevy::input::keyboard::NativeKeyCode;
+    const DIGITS: [KeyCode; 10] = [
+        KeyCode::Digit0,
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+    match character {
+        'a'..='z' | 'A'..='Z' => LETTERS[(character.to_ascii_uppercase() as u8 - b'A') as usize],
+        '0'..='9' => DIGITS[(character as u8 - b'0') as usize],
+        ' ' => KeyCode::Space,
+        '.' => KeyCode::Period,
+        '-' => KeyCode::Minus,
+        '_' => KeyCode::Minus,
+        _ => KeyCode::Unidentified(NativeKeyCode::Unidentified),
+    }
+}
+
 /// The letter a letter key types, in upper case.
 fn key_letter(code: KeyCode) -> Option<char> {
     let index = LETTERS.iter().position(|&letter| letter == code)?;
@@ -701,6 +799,13 @@ fn run_line(studio: &mut HeadlessStudio, line: &str) -> Result<(), String> {
             let (modifier, key) = parse_key(args)?;
             studio.key(modifier, key);
         }
+        "type" => studio.type_text(args),
+        "select" => studio.select(args)?,
+        "command" => studio.command(args)?,
+        "hover" => {
+            let [x, y] = numbers(args)?;
+            studio.hover(Vec2::new(x, y));
+        }
         "wait" => {
             let [seconds] = numbers(args)?;
             studio.wait(Duration::from_secs_f32(seconds.max(0.0)));
@@ -743,7 +848,7 @@ mod tests {
     //! Run them with `cargo test -p procgena -- --ignored`.
 
     use super::*;
-    use crate::studio::{ActiveTab, StudioTab};
+    use crate::studio::documents::{Document, Selection};
     use crate::ui::toast::{ShowToast, ToastKind};
 
     #[test]
@@ -773,8 +878,9 @@ mod tests {
             let [r, g, b, _] = color.to_srgba().to_u8_array();
             g > r.saturating_add(10) && g > b.saturating_add(10)
         };
-        // Foliage covers part of the 3D view.
-        let view_pixels = (0..1000)
+        // Foliage covers part of the 3D view, between the Library and the
+        // Inspector.
+        let view_pixels = (260..1076)
             .step_by(4)
             .flat_map(|x| (0..900).step_by(4).map(move |y| (x, y)));
         let leaves = view_pixels.filter(|&(x, y)| leafy(x, y)).count();
@@ -816,16 +922,14 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn clicking_a_tab_shows_its_page_and_subject() {
+    fn opening_a_preset_from_the_library_shows_its_editor_and_subject() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        assert!(studio.find("Level of Detail").is_ok());
+        assert!(studio.find("Detail").is_ok());
         studio.click("Stones").unwrap();
-        assert_eq!(
-            studio.app_mut().world().resource::<ActiveTab>().0,
-            StudioTab::Stones
-        );
-        // The tree's detail picker is gone and the overlay describes the rock.
-        assert!(studio.find("Level of Detail").is_err());
+        studio.click("Boulder").unwrap();
+        assert_eq!(selected(&mut studio).kind, "stone");
+        // The tree's detail control is gone and the overlay describes the rock.
+        assert!(studio.find("Detail").is_err());
         let texts = studio.texts();
         assert!(
             texts
@@ -833,6 +937,71 @@ mod tests {
                 .any(|t| t.text.contains("vertices") && !t.text.starts_with("LOD")),
             "no rock size in {texts:?}"
         );
+    }
+
+    /// The selected document.
+    fn selected(studio: &mut HeadlessStudio) -> Document {
+        let world = studio.app_mut().world();
+        let document = world.resource::<Selection>().document.unwrap();
+        world.get::<Document>(document).unwrap().clone()
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn two_trees_keep_their_own_settings_and_closing_one_selects_the_other() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        let oak = studio.panel_value::<procgena_tree::TreeOptions>();
+
+        // A second tree opens beside the first, with its own settings.
+        studio.click("Aspen Small").unwrap();
+        let aspen = studio.panel_value::<procgena_tree::TreeOptions>();
+        assert_eq!(aspen, procgena_tree::TreePreset::aspen_small().tree);
+        studio.click("Random Seed").unwrap();
+        let reseeded = studio.panel_value::<procgena_tree::TreeOptions>();
+        assert_ne!(reseeded.default_seed, aspen.default_seed);
+
+        // The first tree is as it was; opening its preset again selects it.
+        studio.click("Oak Medium").unwrap();
+        assert_eq!(selected(&mut studio).key, "oak_medium");
+        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), oak);
+        studio.command("next-document").unwrap();
+        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), reseeded);
+
+        // Closing the aspen selects the oak.
+        studio.command("close-document").unwrap();
+        assert_eq!(selected(&mut studio).key, "oak_medium");
+        assert!(studio.find("Aspen Small · Trees").is_err());
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn scripts_select_documents_and_run_commands() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        studio.select("ecotope/pine_forest_floor#ground").unwrap();
+        assert_eq!(selected(&mut studio).kind, "ecotope");
+        let selection = studio.app_mut().world().resource::<Selection>().clone();
+        assert_eq!(selection.part.as_deref(), Some("ground"));
+        assert!(studio.select("ecotope/no_such_preset").is_err());
+        assert!(studio.select("tree").is_err());
+        assert!(studio.command("no-such-command").is_err());
+        studio.select("tree/oak_medium").unwrap();
+        assert_eq!(selected(&mut studio).kind, "tree");
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn typing_into_the_seed_field_sets_the_seed() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        let seed = studio
+            .panel_value::<procgena_tree::TreeOptions>()
+            .default_seed;
+        // Focusing the field selects its text, so typing replaces it.
+        studio.click(&seed.to_string()).unwrap();
+        studio.type_text("4321");
+        studio.key(None, KeyCode::Enter);
+        let typed = studio.panel_value::<procgena_tree::TreeOptions>();
+        assert_eq!(typed.default_seed, 4321);
+        assert!(studio.find("4321").is_ok());
     }
 
     #[test]
@@ -865,15 +1034,22 @@ mod tests {
         };
 
         // Turn the tree's camera, visit the rock, and come back to the same view.
-        studio.drag(Vec2::new(300.0, 400.0), Vec2::new(500.0, 350.0));
+        studio.drag(Vec2::new(500.0, 400.0), Vec2::new(700.0, 350.0));
         let tree_view = camera(&mut studio);
         studio.click("Stones").unwrap();
+        studio.click("Boulder").unwrap();
         assert_ne!(camera(&mut studio), tree_view);
-        studio.click("Trees").unwrap();
+        studio.click("Oak Medium · Trees").unwrap();
         assert_eq!(camera(&mut studio), tree_view);
 
-        // Picking a detail level shows that level's size in the overlay.
-        studio.click("Auto (by distance)").unwrap();
+        // The game default draws no finer than level 1; picking a level
+        // shows that level's size in the overlay.
+        assert!(
+            studio.shows_text_starting("LOD 1 ·"),
+            "{:?}",
+            studio.texts()
+        );
+        studio.click("Game default").unwrap();
         studio.click("2 · Low").unwrap();
         assert!(
             studio.shows_text_starting("LOD 2 ·"),
@@ -882,11 +1058,12 @@ mod tests {
         );
 
         // Wind animates every frame. With it off, an idle studio asks for no
-        // more frames, so the window sleeps.
+        // more frames, so the window sleeps. The switch sits right of its
+        // label in the Environment settings over the view.
         assert!(continuous(&mut studio), "wind starts on");
         studio.click("Environment").unwrap();
         let wind = studio.find("Wind").unwrap();
-        studio.click_at(Vec2::new(1240.0, wind.y));
+        studio.click_at(Vec2::new(wind.x + 130.0, wind.y));
         assert!(!continuous(&mut studio));
         assert!(!studio.update());
     }

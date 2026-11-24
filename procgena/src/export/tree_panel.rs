@@ -20,6 +20,7 @@ use super::{
     write_files,
 };
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, choice, spawn_param_panel, toggle};
+use crate::studio::Dormant;
 use crate::tree::editor::{TreeEditor, load_tree};
 
 /// Makes the tree's save, load and export controls work.
@@ -83,20 +84,35 @@ pub fn spawn_tree_export(commands: &mut Commands, parent: Entity) {
 fn snapshot(
     editor: &TreeEditor,
     panels: &Query<&ParamPanel<TreeOptions>>,
-    settings: &Query<&ParamPanel<ModelSettings>>,
+    settings: &ModelPanels,
 ) -> Option<(TreeOptions, String, ModelSettings)> {
     let options = panels.get(editor.panel()).ok()?.value().clone();
-    let settings = *settings.single().ok()?.value();
+    let settings = *settings
+        .iter()
+        .find(|(_, visible)| visible.get())?
+        .0
+        .value();
     Some((options, editor.file_stem(), settings))
 }
+
+/// The export settings panels, one per open tree, with whether each is on
+/// screen: only the selected tree's is.
+type ModelPanels<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ParamPanel<ModelSettings>,
+        &'static InheritedVisibility,
+    ),
+>;
 
 /// Saves the tree settings as a `.tree.yml` preset file based on the chosen
 /// preset.
 fn save_tree_preset(
     _: On<Activate>,
-    editor: Single<&TreeEditor>,
+    editor: Single<&TreeEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<TreeOptions>>,
-    settings: Query<&ParamPanel<ModelSettings>>,
+    settings: ModelPanels,
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {
@@ -121,9 +137,9 @@ fn load_tree_preset(_: On<Activate>, mut files: FileOps) {
 /// Exports the tree as a GLB model.
 fn export_tree_glb(
     _: On<Activate>,
-    editor: Single<&TreeEditor>,
+    editor: Single<&TreeEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<TreeOptions>>,
-    settings: Query<&ParamPanel<ModelSettings>>,
+    settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,
 ) {
@@ -138,9 +154,9 @@ fn export_tree_glb(
 /// Exports the tree as an OBJ model with its material and textures.
 fn export_tree_obj(
     _: On<Activate>,
-    editor: Single<&TreeEditor>,
+    editor: Single<&TreeEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<TreeOptions>>,
-    settings: Query<&ParamPanel<ModelSettings>>,
+    settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,
 ) {

@@ -1,5 +1,5 @@
-//! The Plant Scatter tab's controls: preset, one row per plant, and the
-//! Scatter's shared appearance.
+//! A Plant Scatter document's editor: one row per plant, and the Scatter's
+//! shared appearance.
 
 use bevy::ecs::system::SystemParam;
 use bevy::feathers::constants::icons;
@@ -8,7 +8,6 @@ use bevy::feathers::controls::{
 };
 use bevy::feathers::display::{caption, icon, label_small};
 use bevy::prelude::*;
-use bevy::scene::Scene;
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_plant::MAX_PLANTS;
@@ -23,16 +22,18 @@ use super::{
 use crate::export::{Done, FileOps};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
 use crate::plant::read_plant;
-use crate::ui::{SelectOptions, labelled_row};
+use crate::studio::Dormant;
+use crate::ui::SelectOptions;
 
-/// Triggered after the field changes. Read it with [`FieldReader::field`].
+/// Triggered after the selected Plant Scatter changes. Read it with
+/// [`FieldReader::field`].
 #[derive(Event, Debug)]
 pub struct FieldEdited;
 
-/// The Plant Scatter editor's state. There is one, on the Plant Scatter tab.
+/// A Plant Scatter editor's state, one per open Plant Scatter.
 #[derive(Component)]
 pub struct FieldEditor {
-    /// The preset last chosen, which saved files name as their base.
+    /// The preset edited, which saved files name as their base.
     preset: &'static PlantScatterPreset,
     /// The panel holding the field's shared settings.
     panel: Entity,
@@ -75,7 +76,7 @@ enum RowPart {
 #[derive(Component, Default, Clone)]
 struct AddPlant;
 
-/// Makes the field editor work. Needs the param panel plugins and
+/// Makes Plant Scatter editors work. Needs the param panel plugins and
 /// [`crate::plant::editor::PlantEditorPlugin`], which edits plants.
 pub struct FieldEditorPlugin;
 
@@ -92,10 +93,11 @@ impl Plugin for FieldEditorPlugin {
     }
 }
 
-/// Reads the edited field.
+/// Reads the fields Plant Scatter editors hold.
 #[derive(SystemParam)]
 pub struct FieldReader<'w, 's> {
     editors: Query<'w, 's, &'static FieldEditor>,
+    selected: Query<'w, 's, Entity, (With<FieldEditor>, Without<Dormant>)>,
     children: Query<'w, 's, &'static Children>,
     rows: Query<'w, 's, &'static PlantRow>,
     shares: Query<'w, 's, &'static ParamPanel<ScatterPlant>>,
@@ -103,10 +105,18 @@ pub struct FieldReader<'w, 's> {
 }
 
 impl FieldReader<'_, '_> {
-    /// The edited field: its plants, in row order, with its shared settings.
-    /// `None` before the editor is spawned.
+    /// The selected Plant Scatter's field: its plants, in row order, with
+    /// its shared settings. `None` unless exactly one Plant Scatter editor
+    /// is selected and ready.
     pub fn field(&self) -> Option<PlantScatter> {
-        let editor = self.editors.single().ok()?;
+        self.field_of(self.selected.single().ok()?)
+    }
+
+    /// The field the Plant Scatter editor `editor` holds: its plants, in row
+    /// order, with its shared settings. `None` if `editor` is not a Plant
+    /// Scatter editor or is not ready yet.
+    pub fn field_of(&self, editor: Entity) -> Option<PlantScatter> {
+        let editor = self.editors.get(editor).ok()?;
         let field = self.fields.get(editor.panel).ok()?;
         let plants: Vec<ScatterPlant> = self
             .children
@@ -123,10 +133,11 @@ impl FieldReader<'_, '_> {
         })
     }
 
-    /// The Plant Scatter preset last chosen, which saved files name as their
-    /// base. `None` before the editor is spawned.
+    /// The selected Plant Scatter's preset, which saved files name as their
+    /// base. `None` unless exactly one Plant Scatter editor is selected.
     pub fn preset(&self) -> Option<&'static PlantScatterPreset> {
-        Some(self.editors.single().ok()?.preset)
+        let editor = self.selected.single().ok()?;
+        Some(self.editors.get(editor).ok()?.preset)
     }
 }
 
@@ -148,29 +159,24 @@ pub fn start_field() -> PlantScatter {
     start_preset().plant_scatter.clone()
 }
 
-/// Spawns the field editor, showing [`START_PRESET`], as the last child of `parent`.
-pub fn spawn_field_editor(commands: &mut Commands, parent: Entity) {
-    let field = start_field();
-    let names: Vec<String> = PlantScatterPreset::all()
-        .map(|p| p.name.to_string())
-        .collect();
-    let selected = PlantScatterPreset::all().position(|p| p.key == START_PRESET);
-    let preset: Box<dyn Scene> = Box::new(bsn! {
-        @FeathersSelect { @options: list_rows_from_strings(names, selected) }
-        Node { flex_grow: 1.0 }
-        on(choose_field_preset)
-    });
+/// Spawns a Plant Scatter editor for the built-in preset `key` as the last
+/// child of `parent`, and returns the editor's entity.
+///
+/// # Panics
+///
+/// Panics if `key` names no built-in Plant Scatter preset.
+pub fn spawn_field_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
+    let preset = PlantScatterPreset::named(key).expect("the Plant Scatter preset is built in");
+    let field = preset.plant_scatter.clone();
 
-    // Preset, the plant rows, and the Add Plant button, above the panel.
+    // The plant rows and the Add Plant button, above the panel.
     let editor = commands
-        .spawn_scene(bsn! {
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                flex_shrink: 0.0,
-                row_gap: px(8),
-            }
-            Children [ @labelled_row("Preset", preset) ]
+        .spawn(Node {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            flex_shrink: 0.0,
+            row_gap: px(8),
+            ..default()
         })
         .insert(ChildOf(parent))
         .id();
@@ -206,7 +212,7 @@ pub fn spawn_field_editor(commands: &mut Commands, parent: Entity) {
             commands.trigger(FieldEdited);
         });
     commands.entity(editor).insert(FieldEditor {
-        preset: start_preset(),
+        preset,
         panel,
         list,
     });
@@ -224,6 +230,7 @@ pub fn spawn_field_editor(commands: &mut Commands, parent: Entity) {
             ]
         })
         .insert(ChildOf(editor));
+    editor
 }
 
 /// Spawns a row showing `entry` as the last child of `list` and returns it.
@@ -307,37 +314,12 @@ fn row_of(
         .find(|ancestor| rows.contains(*ancestor))
 }
 
-/// Replaces every row and the shared settings with the chosen Plant Scatter
-/// preset's.
-fn choose_field_preset(
-    change: On<ValueChange<Entity>>,
-    options: Query<&OptionIndex>,
-    mut editor: Single<&mut FieldEditor>,
-    children: Query<&Children>,
-    mut fields: Query<&mut ParamPanel<PlantScatter>>,
-    mut commands: Commands,
-) {
-    if let Some(preset) = options
-        .get(change.value)
-        .ok()
-        .and_then(|index| PlantScatterPreset::all().nth(index.0))
-    {
-        editor.preset = preset;
-        show_field(
-            &preset.plant_scatter,
-            &editor,
-            &children,
-            &mut fields,
-            &mut commands,
-        );
-    }
-}
-
-/// Shows a loaded field in the editor, replacing every row. The preset picker
-/// keeps its choice. Run it with `World::run_system_cached_with`.
+/// Shows a loaded field in the selected Plant Scatter's editor, replacing
+/// every row. The preset, and so the suggested file name, stays as it was.
+/// Run it with `World::run_system_cached_with`.
 pub fn load_field(
     In(field): In<PlantScatter>,
-    editor: Single<&FieldEditor>,
+    editor: Single<&FieldEditor, Without<Dormant>>,
     children: Query<&Children>,
     mut fields: Query<&mut ParamPanel<PlantScatter>>,
     mut commands: Commands,
@@ -366,8 +348,8 @@ fn show_field(
     commands.trigger(FieldEdited);
 }
 
-/// Saves the Plant Scatter as a `.plant_scatter.yml` preset file based on the
-/// chosen preset.
+/// Saves the selected Plant Scatter as a `.plant_scatter.yml` preset file
+/// based on its preset.
 fn save_field(_: On<Activate>, reader: FieldReader, mut files: FileOps) {
     let (Some(field), Some(base)) = (reader.field(), reader.preset()) else {
         return;
@@ -377,7 +359,8 @@ fn save_field(_: On<Activate>, reader: FieldReader, mut files: FileOps) {
     });
 }
 
-/// Loads a `.plant_scatter.yml` preset file into the editor.
+/// Loads a `.plant_scatter.yml` preset file into the selected Plant
+/// Scatter's editor.
 fn load_field_file(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let field = read_field(text)?;
@@ -434,7 +417,7 @@ fn set_row_plant(
 /// Adds [`ADDED_PLANT`] before the last row, unless the field has [`MAX_PLANTS`].
 fn add_plant(
     _: On<Activate>,
-    editor: Single<&FieldEditor>,
+    editor: Single<&FieldEditor, Without<Dormant>>,
     children: Query<&Children>,
     mut commands: Commands,
 ) {
@@ -454,7 +437,7 @@ fn remove_row(
     activate: On<Activate>,
     parents: Query<&ChildOf>,
     rows: Query<&mut PlantRow>,
-    editor: Single<&FieldEditor>,
+    editor: Single<&FieldEditor, Without<Dormant>>,
     children: Query<&Children>,
     mut commands: Commands,
 ) {
@@ -526,8 +509,8 @@ fn choose_plant_preset(
     }
 }
 
-/// Recomputes each row's share of the field, and hides clustering on the
-/// row that fills the gaps.
+/// Recomputes each row's share of its field, and hides clustering on the
+/// row that fills the gaps, in every Plant Scatter editor.
 fn refresh_rows(
     editors: Query<&FieldEditor>,
     children: Query<&Children>,
@@ -535,77 +518,67 @@ fn refresh_rows(
     mut rows: Query<&mut PlantRow>,
     mut shares: Query<&mut ParamPanel<ScatterPlant>>,
 ) {
-    let Ok(editor) = editors.single() else {
-        return;
-    };
-    let field_scale = fields
-        .get(editor.panel)
-        .map_or(1.0, |field| field.value().density_scale);
-    let entities: Vec<Entity> = children
-        .get(editor.list)
-        .into_iter()
-        .flatten()
-        .copied()
-        .filter(|entity| rows.contains(*entity))
-        .collect();
-    let densities: Vec<f32> = entities
-        .iter()
-        .map(|entity| {
-            rows.get(*entity)
-                .ok()
-                .and_then(|row| shares.get(row.share).ok())
-                .map_or(0.0, |share| share.value().density())
-        })
-        .collect();
+    for editor in &editors {
+        // The editor's rows, in order, with their densities.
+        let field_scale = fields
+            .get(editor.panel)
+            .map_or(1.0, |field| field.value().density_scale);
+        let entities: Vec<Entity> = children
+            .get(editor.list)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|entity| rows.contains(*entity))
+            .collect();
+        let densities: Vec<f32> = entities
+            .iter()
+            .map(|entity| {
+                rows.get(*entity)
+                    .ok()
+                    .and_then(|row| shares.get(row.share).ok())
+                    .map_or(0.0, |share| share.value().density())
+            })
+            .collect();
 
-    // Hide clustering on the row that fills the gaps, touching panels only on change.
-    for (entity, status) in entities.iter().zip(row_statuses(&densities, field_scale)) {
-        let Ok(mut row) = rows.get_mut(*entity) else {
-            continue;
-        };
-        if row.takes_rest == status.takes_rest {
-            continue;
-        }
-        row.takes_rest = status.takes_rest;
-        if let Ok(mut share) = shares.get_mut(row.share) {
-            let hidden: &[&'static str] = if status.takes_rest {
-                &["clustering"]
-            } else {
-                &[]
+        // Hide clustering on the row that fills the gaps, touching panels only on change.
+        for (entity, status) in entities.iter().zip(row_statuses(&densities, field_scale)) {
+            let Ok(mut row) = rows.get_mut(*entity) else {
+                continue;
             };
-            share.set_hidden_keys(hidden.iter().copied());
+            if row.takes_rest == status.takes_rest {
+                continue;
+            }
+            row.takes_rest = status.takes_rest;
+            if let Ok(mut share) = shares.get_mut(row.share) {
+                let hidden: &[&'static str] = if status.takes_rest {
+                    &["clustering"]
+                } else {
+                    &[]
+                };
+                share.set_hidden_keys(hidden.iter().copied());
+            }
         }
     }
 }
 
-/// Shows each row's preset, density and share, and which buttons can be used.
+/// Shows each row's preset, density and share, and which buttons can be
+/// used, in every Plant Scatter editor.
 #[allow(clippy::too_many_arguments)]
 fn show_row_parts(
     reader: FieldReader,
-    editors: Query<&FieldEditor>,
+    editors: Query<(Entity, &FieldEditor)>,
     children: Query<&Children>,
     rows: Query<&PlantRow>,
     shares: Query<&ParamPanel<ScatterPlant>>,
-    parts: Query<(Entity, &RowPart)>,
+    parts: Query<&RowPart>,
     parents: Query<&ChildOf>,
-    adders: Query<Entity, With<AddPlant>>,
+    adders: Query<(), With<AddPlant>>,
     mut texts: Query<&mut Text>,
     mut variants: Query<&mut ButtonVariant>,
     disabled: Query<Has<InteractionDisabled>>,
     selects: SelectOptions,
     mut commands: Commands,
 ) {
-    let (Some(field), Ok(editor)) = (reader.field(), editors.single()) else {
-        return;
-    };
-    let row_entities: Vec<Entity> = children
-        .get(editor.list)
-        .into_iter()
-        .flatten()
-        .copied()
-        .collect();
-    let densities: Vec<f32> = field.plants.iter().map(ScatterPlant::density).collect();
-    let statuses = row_statuses(&densities, field.density_scale);
     let set_disabled = |commands: &mut Commands, entity: Entity, off: bool| {
         if disabled.get(entity).is_ok_and(|was| was != off) {
             if off {
@@ -616,49 +589,69 @@ fn show_row_parts(
         }
     };
 
-    for adder in &adders {
-        set_disabled(&mut commands, adder, row_entities.len() >= MAX_PLANTS);
-    }
+    for (editor_entity, editor) in &editors {
+        // The editor's rows, and each one's status.
+        let Some(field) = reader.field_of(editor_entity) else {
+            continue;
+        };
+        let row_entities: Vec<Entity> = children
+            .get(editor.list)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+        let densities: Vec<f32> = field.plants.iter().map(ScatterPlant::density).collect();
+        let statuses = row_statuses(&densities, field.density_scale);
 
-    for (entity, part) in &parts {
-        // Find the row this part belongs to, and its status.
-        let Some(at) = parents
-            .iter_ancestors(entity)
-            .find_map(|ancestor| row_entities.iter().position(|row| *row == ancestor))
-        else {
-            continue;
-        };
-        let (Ok(row), Some(status)) = (rows.get(row_entities[at]), statuses.get(at)) else {
-            continue;
-        };
-        let Ok(entry) = shares.get(row.share).map(|share| *share.value()) else {
-            continue;
-        };
-        let custom = choice_of(&entry.plant) == PlantPreset::all().count();
+        for entity in children.iter_descendants(editor_entity) {
+            // The editor's Add Plant button.
+            if adders.contains(entity) {
+                set_disabled(&mut commands, entity, row_entities.len() >= MAX_PLANTS);
+                continue;
+            }
+            let Ok(part) = parts.get(entity) else {
+                continue;
+            };
 
-        match part {
-            RowPart::Preset => selects.select(&mut commands, entity, choice_of(&entry.plant)),
-            RowPart::PerM2 | RowPart::Share => {
-                let shown = match part {
-                    RowPart::PerM2 => per_m2_text(status.per_m2),
-                    _ => format!("{:.0}%", status.share * 100.0),
-                };
-                let text = children
-                    .iter_descendants(entity)
-                    .chain([entity])
-                    .find(|e| texts.contains(*e));
-                if let Some(mut text) = text.and_then(|e| texts.get_mut(e).ok()) {
-                    text.set_if_neq(Text(shown));
+            // Find the row this part belongs to, and its status.
+            let Some(at) = parents
+                .iter_ancestors(entity)
+                .find_map(|ancestor| row_entities.iter().position(|row| *row == ancestor))
+            else {
+                continue;
+            };
+            let (Ok(row), Some(status)) = (rows.get(row_entities[at]), statuses.get(at)) else {
+                continue;
+            };
+            let Ok(entry) = shares.get(row.share).map(|share| *share.value()) else {
+                continue;
+            };
+            let custom = choice_of(&entry.plant) == PlantPreset::all().count();
+
+            match part {
+                RowPart::Preset => selects.select(&mut commands, entity, choice_of(&entry.plant)),
+                RowPart::PerM2 | RowPart::Share => {
+                    let shown = match part {
+                        RowPart::PerM2 => per_m2_text(status.per_m2),
+                        _ => format!("{:.0}%", status.share * 100.0),
+                    };
+                    let text = children
+                        .iter_descendants(entity)
+                        .chain([entity])
+                        .find(|e| texts.contains(*e));
+                    if let Some(mut text) = text.and_then(|e| texts.get_mut(e).ok()) {
+                        text.set_if_neq(Text(shown));
+                    }
                 }
-            }
-            RowPart::Edit => {
-                // A custom plant's settings are always open.
-                set_disabled(&mut commands, entity, custom);
-                if let Ok(mut variant) = variants.get_mut(entity) {
-                    variant.set_if_neq(ButtonVariant::selected(row.customising || custom));
+                RowPart::Edit => {
+                    // A custom plant's settings are always open.
+                    set_disabled(&mut commands, entity, custom);
+                    if let Ok(mut variant) = variants.get_mut(entity) {
+                        variant.set_if_neq(ButtonVariant::selected(row.customising || custom));
+                    }
                 }
+                RowPart::Remove => set_disabled(&mut commands, entity, !status.removable),
             }
-            RowPart::Remove => set_disabled(&mut commands, entity, !status.removable),
         }
     }
 }
@@ -783,6 +776,7 @@ mod tests {
     fn plant_rows_can_be_added_customised_and_removed() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
         studio.click("Plant Scatter").unwrap();
+        studio.click("Meadow").unwrap();
         assert_eq!(buttons(&mut studio, RowPart::Remove).len(), 1);
         assert!(
             buttons(&mut studio, RowPart::Remove)[0].1,

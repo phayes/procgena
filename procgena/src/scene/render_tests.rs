@@ -11,29 +11,55 @@ use procgena_impostor::ImpostorBakeCamera;
 use procgena_tree_bevy::{TreeScatterAssets, TreeScatterParams};
 
 use super::headless_scene::{Frame, HeadlessScene};
-use super::protocol::ClumpBuildError;
-use super::subject::IMPOSTOR_DISTANCE;
+use super::tree::IMPOSTOR_DISTANCE;
 use super::{
-    ClumpSettings, ClumpSubject, EnvironmentSettings, FieldSettings, GroveProgress, OrbitCamera,
-    PointerButton, SceneMode, SceneStart, ViewerCommand, ViewerEvent, ViewportActivity,
-    ViewportCamera, ViewportInput,
+    ClumpBuildError, ClumpHost, ClumpSettings, ClumpSubject, DeadwoodSubject, Detail,
+    EnvironmentSettings, FieldSettings, GroveProgress, GroveSubject, MushroomSubject, OrbitCamera,
+    PlantsSubject, PointerButton, Show, StoneSubject, Subject, TreeSubject, ViewerCommand,
+    ViewerEvent, ViewportActivity, ViewportCamera, ViewportInput,
 };
 
 const SIZE: UVec2 = UVec2::new(480, 270);
 
-/// Starts the scene in `mode` with wind off.
-fn start(mode: SceneMode) -> HeadlessScene {
-    HeadlessScene::new(
-        SceneStart {
-            mode,
-            environment: EnvironmentSettings {
-                wind: false,
-                ..default()
-            },
-            ..default()
-        },
-        SIZE,
-    )
+/// The document most tests show; showing it again with new settings edits
+/// the subject in place.
+const DOCUMENT: u64 = 1;
+
+/// The default environment with wind off.
+fn still_air() -> EnvironmentSettings {
+    EnvironmentSettings {
+        wind: false,
+        ..default()
+    }
+}
+
+/// A scene with wind off, showing subject `S` built from `settings` as
+/// [`DOCUMENT`].
+fn show<S: Subject>(settings: S::Settings) -> HeadlessScene {
+    show_in::<S>(HeadlessScene::new(SIZE), still_air(), settings)
+}
+
+/// `scene` with `environment`, showing subject `S` built from `settings` as
+/// [`DOCUMENT`]. Both apply on the scene's next update.
+fn show_in<S: Subject>(
+    mut scene: HeadlessScene,
+    environment: EnvironmentSettings,
+    settings: S::Settings,
+) -> HeadlessScene {
+    scene.send(ViewerCommand::SetEnvironment(environment));
+    scene.send(edit::<S>(settings));
+    scene
+}
+
+/// The command that shows [`DOCUMENT`] as subject `S` built from `settings`:
+/// an edit of the shown subject when it already shows that document.
+fn edit<S: Subject>(settings: S::Settings) -> ViewerCommand {
+    ViewerCommand::Show(Show::new::<S>(DOCUMENT, settings))
+}
+
+/// The Oak Medium tree.
+fn oak() -> procgena_tree::TreeOptions {
+    procgena_tree::TreePreset::oak_medium().tree.clone()
 }
 
 /// The fraction of pixels in rows `rows` for which `test(r, g, b)` holds.
@@ -59,8 +85,8 @@ fn fraction(
 
 #[test]
 #[ignore = "needs a GPU"]
-fn idle_tree_mode_draws_the_tree() {
-    let mut scene = start(SceneMode::Tree);
+fn idle_scene_draws_the_tree() {
+    let mut scene = show::<TreeSubject>(oak());
     let frame = scene.settled_frame();
 
     // The tree was built and reported, with every detail level.
@@ -93,8 +119,8 @@ fn idle_tree_mode_draws_the_tree() {
 #[ignore = "needs a GPU"]
 fn every_chosen_detail_level_draws_the_tree() {
     for lod in 0..super::lod_levels().len() {
-        let mut scene = start(SceneMode::Tree);
-        scene.send(ViewerCommand::SetLod(Some(lod)));
+        let mut scene = show::<TreeSubject>(oak());
+        scene.send(ViewerCommand::SetDetail(Detail::Level(lod)));
         let coverage = sky_coverage(&scene.settled_frame());
         assert!(
             coverage > 0.03,
@@ -117,14 +143,14 @@ fn every_chosen_detail_level_draws_the_tree() {
 #[test]
 #[ignore = "needs a GPU"]
 fn choosing_the_shown_tree_level_keeps_the_tree() {
-    let mut scene = start(SceneMode::Tree);
+    let mut scene = show::<TreeSubject>(oak());
     assert!(matches!(
         tree_event(&mut scene),
         ViewerEvent::TreeBuilt(Ok(_))
     ));
     scene.settle();
-    for choice in [Some(0), None] {
-        scene.send(ViewerCommand::SetLod(choice));
+    for choice in [Detail::Level(0), Detail::default()] {
+        scene.send(ViewerCommand::SetDetail(choice));
         let coverage = sky_coverage(&scene.settled_frame());
         assert!(
             coverage > 0.03,
@@ -152,19 +178,19 @@ fn tree_event(scene: &mut HeadlessScene) -> ViewerEvent {
     scene.next_event(|event| matches!(event, ViewerEvent::TreeBuilt(_)))
 }
 
-/// Settles the scene in tree mode showing detail level `lod` (or switching by
-/// distance), then sends `options`. Asserts that every frame until the scene
-/// settles again shows a tree, and returns the event reported for `options`.
-fn change_tree(options: procgena_tree::TreeOptions, lod: Option<usize>) -> ViewerEvent {
-    let mut scene = start(SceneMode::Tree);
-    scene.send(ViewerCommand::SetLod(lod));
+/// Settles the scene showing the Oak Medium tree at `detail`, then edits the
+/// tree to `options`. Asserts that every frame until the scene settles again
+/// shows a tree, and returns the event reported for `options`.
+fn change_tree(options: procgena_tree::TreeOptions, detail: Detail) -> ViewerEvent {
+    let mut scene = show::<TreeSubject>(oak());
+    scene.send(ViewerCommand::SetDetail(detail));
     scene.settle();
     assert!(matches!(
         tree_event(&mut scene),
         ViewerEvent::TreeBuilt(Ok(_))
     ));
 
-    scene.send(ViewerCommand::SetTree(Arc::new(options)));
+    scene.send(edit::<TreeSubject>(options));
 
     // Every frame until the scene settles shows a tree.
     let frames = scene.settle();
@@ -183,7 +209,7 @@ fn change_tree(options: procgena_tree::TreeOptions, lod: Option<usize>) -> Viewe
 
 /// Options for a differently shaped tree that is not cached yet.
 fn new_tree() -> procgena_tree::TreeOptions {
-    let mut options = procgena_tree::TreePreset::oak_medium().tree.clone();
+    let mut options = oak();
     options.default_seed += 1;
     options
 }
@@ -191,7 +217,7 @@ fn new_tree() -> procgena_tree::TreeOptions {
 #[test]
 #[ignore = "needs a GPU"]
 fn changing_the_tree_never_shows_an_empty_frame() {
-    let built = change_tree(new_tree(), None);
+    let built = change_tree(new_tree(), Detail::default());
     assert!(matches!(built, ViewerEvent::TreeBuilt(Ok(_))), "{built:?}");
 }
 
@@ -199,23 +225,23 @@ fn changing_the_tree_never_shows_an_empty_frame() {
 #[ignore = "needs a GPU"]
 fn changing_the_tree_at_a_chosen_detail_level_never_shows_an_empty_frame() {
     // The default camera distance selects level 0, so choose another.
-    let built = change_tree(new_tree(), Some(2));
+    let built = change_tree(new_tree(), Detail::Level(2));
     assert!(matches!(built, ViewerEvent::TreeBuilt(Ok(_))), "{built:?}");
 }
 
 #[test]
 #[ignore = "needs a GPU"]
 fn rejected_tree_options_keep_the_shown_tree() {
-    let mut options = procgena_tree::TreePreset::oak_medium().tree.clone();
+    let mut options = oak();
     options.branch.sections[0] = 0;
-    let built = change_tree(options, None);
+    let built = change_tree(options, Detail::default());
     assert!(matches!(built, ViewerEvent::TreeBuilt(Err(_))), "{built:?}");
 }
 
 #[test]
 #[ignore = "needs a GPU"]
-fn idle_plants_mode_draws_the_grass() {
-    let mut scene = start(SceneMode::Plants);
+fn idle_scene_draws_the_grass() {
+    let mut scene = show::<PlantsSubject>(FieldSettings::default());
     let frame = scene.settled_frame();
 
     // The lower half is mostly green blades.
@@ -230,9 +256,10 @@ fn idle_plants_mode_draws_the_grass() {
 }
 
 /// Estimates grass coverage by counting green pixels in the lower half of the image.
-/// Sends `command` to the plants view and waits for the updated image before measuring.
+/// Sends `command` to a scene showing the default field and waits for the
+/// updated image before measuring.
 fn grass_after(command: ViewerCommand) -> f32 {
-    let mut scene = start(SceneMode::Plants);
+    let mut scene = show::<PlantsSubject>(FieldSettings::default());
     scene.settle();
     scene.send(command);
     let frame = scene.settled_frame();
@@ -257,7 +284,7 @@ fn changed_plant_colours_are_drawn() {
     field.variation.dead_share = 0.0;
     field.variation.dry_tips = 0.0;
 
-    let grass = grass_after(ViewerCommand::SetField(Arc::new(settings)));
+    let grass = grass_after(edit::<PlantsSubject>(settings));
     assert!(
         grass < 0.05,
         "{:.1}% of the ground is still green",
@@ -297,8 +324,8 @@ fn stone_event(scene: &mut HeadlessScene) -> ViewerEvent {
 /// Checks that the rock remains visible once the scene stops requesting frames.
 #[test]
 #[ignore = "needs a GPU"]
-fn idle_stone_mode_draws_the_rock() {
-    let mut scene = start(SceneMode::Stone);
+fn idle_scene_draws_the_rock() {
+    let mut scene = show::<StoneSubject>(default());
     let ViewerEvent::StoneBuilt(Ok(stats)) = stone_event(&mut scene) else {
         panic!("the default rock was rejected");
     };
@@ -311,16 +338,18 @@ fn idle_stone_mode_draws_the_rock() {
     assert!(rock > 0.05, "only {:.1}% of the view is rock", rock * 100.0);
 }
 
-/// Switches between a tree and a rock as procgena's tabs do, within one running
-/// scene: each mode draws its subject, and the tree's camera view is kept
-/// while the rock is shown.
+/// Switches between a tree document and a rock document within one running
+/// scene, as procgena's documents do: each document draws its subject, the
+/// camera fits the rock when it is shown, and a view saved from the tree is
+/// restored with [`ViewerCommand::SetCamera`] on switching back.
 #[test]
 #[ignore = "needs a GPU"]
-fn switched_modes_draw_their_subject_and_keep_the_camera_view() {
-    let mut scene = start(SceneMode::Tree);
+fn switched_documents_draw_their_subject_and_restore_a_saved_camera_view() {
+    const ROCK: u64 = DOCUMENT + 1;
+    let mut scene = show::<TreeSubject>(oak());
     let mut tree_view = None;
     for _ in 0..2 {
-        // The tree is drawn, from the view it was left with.
+        // The tree is drawn, from the view saved for it.
         let coverage = sky_coverage(&scene.settled_frame());
         assert!(coverage > 0.03, "only {:.1}% tree", coverage * 100.0);
         let shown = scene.camera_view();
@@ -328,7 +357,7 @@ fn switched_modes_draw_their_subject_and_keep_the_camera_view() {
             assert_eq!(shown, view);
         }
 
-        // Turn the camera, then switch away and keep the view it ended with.
+        // Turn the camera, and save the view it ended with.
         scene.input(ViewportInput::Drag {
             button: PointerButton::Left,
             delta: Vec2::new(60.0, 0.0),
@@ -339,16 +368,22 @@ fn switched_modes_draw_their_subject_and_keep_the_camera_view() {
         assert_ne!(turned, shown);
         tree_view = Some(turned);
 
-        // The rock is drawn.
-        scene.send(ViewerCommand::SetMode(SceneMode::Stone));
+        // The rock is drawn, with the camera fitted to it.
+        scene.send(ViewerCommand::Show(Show::new::<StoneSubject>(
+            ROCK,
+            default(),
+        )));
         assert!(matches!(
             stone_event(&mut scene),
             ViewerEvent::StoneBuilt(Ok(_))
         ));
         let rock = rock_share(&scene.settled_frame());
         assert!(rock > 0.05, "only {:.1}% of the view is rock", rock * 100.0);
+        assert_ne!(scene.camera_view(), turned);
 
-        scene.send(ViewerCommand::SetMode(SceneMode::Tree));
+        // Switch back to the tree, restoring its saved view.
+        scene.send(edit::<TreeSubject>(oak()));
+        scene.send(ViewerCommand::SetCamera(turned));
     }
 }
 
@@ -356,7 +391,7 @@ fn switched_modes_draw_their_subject_and_keep_the_camera_view() {
 #[test]
 #[ignore = "needs a GPU"]
 fn rejected_stone_options_keep_the_shown_rock() {
-    let mut scene = start(SceneMode::Stone);
+    let mut scene = show::<StoneSubject>(default());
     assert!(matches!(
         stone_event(&mut scene),
         ViewerEvent::StoneBuilt(Ok(_))
@@ -367,7 +402,7 @@ fn rejected_stone_options_keep_the_shown_rock() {
         scale: -1.0,
         ..default()
     };
-    scene.send(ViewerCommand::SetStone(Arc::new(options)));
+    scene.send(edit::<StoneSubject>(options));
     let built = stone_event(&mut scene);
     assert!(
         matches!(built, ViewerEvent::StoneBuilt(Err(_))),
@@ -390,29 +425,16 @@ fn mushroom_event(scene: &mut HeadlessScene) -> ViewerEvent {
     scene.next_event(|event| matches!(event, ViewerEvent::MushroomBuilt(_)))
 }
 
-/// What a scene in mushroom mode showing `preset`, with wind off, starts with.
-fn mushroom_start(preset: &procgena_mushroom::MushroomPreset) -> SceneStart {
-    SceneStart {
-        mode: SceneMode::Mushroom,
-        mushroom: Arc::new(preset.mushroom.clone()),
-        environment: EnvironmentSettings {
-            wind: false,
-            ..default()
-        },
-        ..default()
-    }
-}
-
-/// Starts mushroom mode showing `preset`, with wind off.
+/// A scene showing the mushroom `preset`, with wind off.
 fn start_mushroom(preset: &procgena_mushroom::MushroomPreset) -> HeadlessScene {
-    HeadlessScene::new(mushroom_start(preset), SIZE)
+    show::<MushroomSubject>(preset.mushroom.clone())
 }
 
 /// Checks that a textured mushroom is drawn, texture included, once the
 /// scene goes idle, with every detail level built.
 #[test]
 #[ignore = "needs a GPU"]
-fn idle_mushroom_mode_draws_the_textured_mushroom() {
+fn idle_scene_draws_the_textured_mushroom() {
     let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::fly_agaric());
     assert_fly_agaric_is_textured(&mut scene);
 }
@@ -422,25 +444,15 @@ fn deadwood_event(scene: &mut HeadlessScene) -> ViewerEvent {
     scene.next_event(|event| matches!(event, ViewerEvent::DeadwoodBuilt(_)))
 }
 
-/// Checks that dead wood mode builds every detail level of a log and draws
-/// its bark and end-grain textures, and that a chosen detail level is
-/// reported.
+/// Checks that a shown log builds every detail level and draws its bark and
+/// end-grain textures, and that a chosen detail level is reported.
 #[test]
 #[ignore = "needs a GPU"]
-fn idle_deadwood_mode_draws_the_textured_log() {
+fn idle_scene_draws_the_textured_log() {
     use procgena_deadwood::{DeadwoodPreset, default_lod};
 
-    let log = |piece| Arc::new(super::DeadwoodSettings { piece, ..default() });
-    let start = SceneStart {
-        mode: SceneMode::Deadwood,
-        deadwood: log(DeadwoodPreset::fresh_cut_log().deadwood.clone()),
-        environment: EnvironmentSettings {
-            wind: false,
-            ..default()
-        },
-        ..default()
-    };
-    let mut scene = HeadlessScene::new(start, SIZE);
+    let log = |piece| super::DeadwoodSettings { piece, ..default() };
+    let mut scene = show::<DeadwoodSubject>(log(DeadwoodPreset::fresh_cut_log().deadwood.clone()));
     let ViewerEvent::DeadwoodBuilt(Ok(stats)) = deadwood_event(&mut scene) else {
         panic!("the log was not built");
     };
@@ -451,7 +463,7 @@ fn idle_deadwood_mode_draws_the_textured_log() {
     let mut plain = DeadwoodPreset::fresh_cut_log().deadwood.clone();
     plain.material.bark_texture = None;
     plain.material.end_texture = None;
-    scene.send(ViewerCommand::SetDeadwood(log(plain)));
+    scene.send(edit::<DeadwoodSubject>(log(plain)));
     assert!(matches!(
         deadwood_event(&mut scene),
         ViewerEvent::DeadwoodBuilt(Ok(_))
@@ -469,7 +481,7 @@ fn idle_deadwood_mode_draws_the_textured_log() {
     );
 
     // Choosing the strips-only level shows and reports it.
-    scene.send(ViewerCommand::SetDeadwoodLod(Some(3)));
+    scene.send(ViewerCommand::SetDetail(Detail::Level(3)));
     let shown = scene.next_event(|event| matches!(event, ViewerEvent::DeadwoodLodShown(_)));
     assert!(
         matches!(shown, ViewerEvent::DeadwoodLodShown(Some(3))),
@@ -477,11 +489,11 @@ fn idle_deadwood_mode_draws_the_textured_log() {
     );
 }
 
-/// Checks that moss chosen as cover grows on dead wood mode's log, and
-/// that both scatter views build.
+/// Checks that moss chosen as cover grows on a shown log, and that both
+/// scatter views build.
 #[test]
 #[ignore = "needs a GPU"]
-fn deadwood_mode_grows_moss_and_shows_scatters() {
+fn deadwood_grows_moss_and_shows_scatters() {
     use procgena_clump::ClumpPreset;
     use procgena_deadwood::DeadwoodPreset;
 
@@ -491,16 +503,7 @@ fn deadwood_mode_grows_moss_and_shows_scatters() {
         piece: DeadwoodPreset::windthrow_log().deadwood.clone(),
         ..default()
     };
-    let start = SceneStart {
-        mode: SceneMode::Deadwood,
-        deadwood: Arc::new(bare.clone()),
-        environment: EnvironmentSettings {
-            wind: false,
-            ..default()
-        },
-        ..default()
-    };
-    let mut scene = HeadlessScene::new(start, SIZE);
+    let mut scene = show::<DeadwoodSubject>(bare.clone());
     assert!(matches!(
         deadwood_event(&mut scene),
         ViewerEvent::DeadwoodBuilt(Ok(_))
@@ -514,10 +517,10 @@ fn deadwood_mode_grows_moss_and_shows_scatters() {
         })
     };
     let before = moss(&scene.settled_frame());
-    scene.send(ViewerCommand::SetDeadwood(Arc::new(DeadwoodSettings {
+    scene.send(edit::<DeadwoodSubject>(DeadwoodSettings {
         cover: Some(ClumpPreset::moss_cushions()),
         ..bare.clone()
-    })));
+    }));
     // The moss grows in the background with no build event, so keep
     // drawing until it shows or a while has passed.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -532,10 +535,10 @@ fn deadwood_mode_grows_moss_and_shows_scatters() {
 
     // Each scatter builds in place of the log.
     for view in [DeadwoodView::Kindling, DeadwoodView::TwigLitter] {
-        scene.send(ViewerCommand::SetDeadwood(Arc::new(DeadwoodSettings {
+        scene.send(edit::<DeadwoodSubject>(DeadwoodSettings {
             view,
             ..bare.clone()
-        })));
+        }));
         let built = deadwood_event(&mut scene);
         assert!(
             matches!(built, ViewerEvent::DeadwoodBuilt(Ok(_))),
@@ -557,7 +560,7 @@ fn missing_textures_are_downloaded_and_drawn() {
     let (assets, cache) = (root.join("assets"), root.join("cache"));
 
     // The rock as drawn from the workspace's textures.
-    let mut local = start(SceneMode::Stone);
+    let mut local = show::<StoneSubject>(default());
     assert!(matches!(
         stone_event(&mut local),
         ViewerEvent::StoneBuilt(Ok(_))
@@ -565,17 +568,10 @@ fn missing_textures_are_downloaded_and_drawn() {
     let expected = local.settled_frame();
 
     // The same rock, starting with no textures at all.
-    let empty = SceneStart {
-        mode: SceneMode::Stone,
-        environment: EnvironmentSettings {
-            wind: false,
-            ..default()
-        },
-        ..default()
-    };
-    let mut downloaded = HeadlessScene::with_sources(empty, SIZE, |app| {
+    let empty = HeadlessScene::with_sources(SIZE, |app| {
         super::assets::add_asset_sources_in(app, &assets, &cache);
     });
+    let mut downloaded = show_in::<StoneSubject>(empty, still_air(), default());
     assert!(matches!(
         stone_event(&mut downloaded),
         ViewerEvent::StoneBuilt(Ok(_))
@@ -619,7 +615,7 @@ fn assert_fly_agaric_is_textured(scene: &mut HeadlessScene) {
     // The same mushroom without its texture looks different on the cap.
     let mut plain = MushroomPreset::fly_agaric().mushroom.clone();
     plain.material.cap_texture = None;
-    scene.send(ViewerCommand::SetMushroom(Arc::new(plain)));
+    scene.send(edit::<MushroomSubject>(plain));
     assert!(matches!(
         mushroom_event(scene),
         ViewerEvent::MushroomBuilt(Ok(_))
@@ -672,7 +668,7 @@ fn every_chosen_mushroom_level_is_drawn_and_reported() {
     let levels = procgena_mushroom::default_lod().levels.len();
     let mut frames = Vec::new();
     for lod in 0..levels {
-        scene.send(ViewerCommand::SetMushroomLod(Some(lod)));
+        scene.send(ViewerCommand::SetDetail(Detail::Level(lod)));
         let frame = scene.settled_frame();
         let red = red_share(&frame);
         assert!(
@@ -693,7 +689,7 @@ fn every_chosen_mushroom_level_is_drawn_and_reported() {
 
     // Switching by distance again shows full detail, as the starting view
     // is close enough for it.
-    scene.send(ViewerCommand::SetMushroomLod(None));
+    scene.send(ViewerCommand::SetDetail(Detail::default()));
     let auto = scene.settled_frame();
     assert_eq!(mushroom_levels_shown(&mut scene).last(), Some(&Some(0)));
     assert!(changed_share(&full, &auto) < 0.002);
@@ -717,7 +713,7 @@ fn rejected_mushroom_options_keep_the_shown_mushroom() {
             .mushroom
             .clone()
     };
-    scene.send(ViewerCommand::SetMushroom(Arc::new(options)));
+    scene.send(edit::<MushroomSubject>(options));
     let built = mushroom_event(&mut scene);
     assert!(
         matches!(built, ViewerEvent::MushroomBuilt(Err(_))),
@@ -745,8 +741,8 @@ fn clump_event(scene: &mut HeadlessScene) -> ViewerEvent {
 /// Grows a white snow cap on the default rock, then on a tree.
 #[test]
 #[ignore = "needs a GPU"]
-fn clump_mode_grows_a_clump_on_a_rock_and_on_a_tree() {
-    let mut scene = start(SceneMode::Clump);
+fn a_clump_grows_on_a_rock_and_on_a_tree() {
+    let mut scene = show::<ClumpSubject>(ClumpSettings::default());
     let ViewerEvent::ClumpBuilt(Ok(stats)) = clump_event(&mut scene) else {
         panic!("the default clump was rejected");
     };
@@ -754,16 +750,14 @@ fn clump_mode_grows_a_clump_on_a_rock_and_on_a_tree() {
     let snow = snow_share(&scene.settled_frame());
     assert!(snow > 0.01, "only {:.2}% of the view is snow", snow * 100.0);
 
-    // A tree subject is built, then grows its own clump.
+    // A tree host is built, then grows its own clump.
     let mut settings = ClumpSettings {
-        subject: ClumpSubject::Tree(Arc::new(
-            procgena_tree::TreePreset::oak_medium().tree.clone(),
-        )),
+        subject: ClumpHost::Tree(Arc::new(oak())),
         ..default()
     };
     settings.clump.mesh.edge_length = 0.1;
     settings.clump.mask.exposure_rays = 16;
-    scene.send(ViewerCommand::SetClump(Arc::new(settings)));
+    scene.send(edit::<ClumpSubject>(settings));
     scene.send(ViewerCommand::ResetCamera);
     let ViewerEvent::ClumpBuilt(Ok(stats)) = clump_event(&mut scene) else {
         panic!("the tree's clump was rejected");
@@ -776,7 +770,7 @@ fn clump_mode_grows_a_clump_on_a_rock_and_on_a_tree() {
 #[test]
 #[ignore = "needs a GPU"]
 fn only_the_latest_clump_settings_are_shown() {
-    let mut scene = start(SceneMode::Clump);
+    let mut scene = show::<ClumpSubject>(ClumpSettings::default());
     assert!(matches!(
         clump_event(&mut scene),
         ViewerEvent::ClumpBuilt(Ok(_))
@@ -786,7 +780,7 @@ fn only_the_latest_clump_settings_are_shown() {
     let mut settings = ClumpSettings::default();
     for seed in [1, 2] {
         settings.clump.default_seed = seed;
-        scene.send(ViewerCommand::SetClump(Arc::new(settings.clone())));
+        scene.send(edit::<ClumpSubject>(settings.clone()));
         scene.update();
     }
     scene.settle();
@@ -802,7 +796,7 @@ fn only_the_latest_clump_settings_are_shown() {
 
     // Out-of-range settings are reported.
     settings.clump.shape.thickness = 0.0;
-    scene.send(ViewerCommand::SetClump(Arc::new(settings)));
+    scene.send(edit::<ClumpSubject>(settings));
     assert!(matches!(
         clump_event(&mut scene),
         ViewerEvent::ClumpBuilt(Err(ClumpBuildError::Clump(_)))
@@ -834,7 +828,7 @@ fn grove_progress(scene: &mut HeadlessScene) -> Vec<GroveProgress> {
 #[test]
 #[ignore = "needs a GPU"]
 fn grove_impostors_bake_without_the_scene_camera_touching_the_bake_cameras() {
-    let mut scene = start(SceneMode::Grove);
+    let mut scene = show::<GroveSubject>(default());
 
     // Run frames until a bake has started.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
@@ -933,23 +927,19 @@ const FAR_GROVE_SIZE: f32 = 160.0;
 /// a larger view counts them more evenly.
 const FAR_VIEW: UVec2 = UVec2::new(1280, 720);
 
-/// Grove mode showing a grove [`FAR_GROVE_SIZE`] across, with impostors on
-/// or off, once its trees and impostors are ready.
+/// A scene showing the default grove [`FAR_GROVE_SIZE`] across, with
+/// impostors on or off, once its trees and impostors are ready.
 fn start_far_grove(impostors: bool) -> HeadlessScene {
-    let start = SceneStart {
-        mode: SceneMode::Grove,
-        environment: EnvironmentSettings {
-            wind: false,
-            grove_size: FAR_GROVE_SIZE,
-            ..default()
-        },
-        ..default()
+    let environment = EnvironmentSettings {
+        grove_size: FAR_GROVE_SIZE,
+        ..still_air()
     };
-    let mut scene = if impostors {
-        HeadlessScene::new(start, FAR_VIEW)
+    let scene = if impostors {
+        HeadlessScene::new(FAR_VIEW)
     } else {
-        HeadlessScene::without_impostors(start, FAR_VIEW)
+        HeadlessScene::without_impostors(FAR_VIEW)
     };
+    let mut scene = show_in::<GroveSubject>(scene, environment, default());
     scene.settle();
     scene
 }

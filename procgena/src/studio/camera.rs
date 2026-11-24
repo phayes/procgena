@@ -1,12 +1,11 @@
-//! Camera controls over the top-right corner of the 3D view: Auto Rotate,
-//! its speed, and Reset Camera.
+//! Camera controls on the view frame's bar: Auto Rotate, its speed, and
+//! Reset Camera.
 //!
 //! The rotation settings are part of the shared [`EnvironmentSettings`], so
 //! these controls edit the Environment panel's value and send it on.
 
 use bevy::feathers::controls::{FeathersButton, FeathersCheckbox, FeathersSlider};
 use bevy::feathers::display::caption;
-use bevy::picking::events::PointerDrag;
 use bevy::prelude::*;
 use bevy::scene::Scene;
 use bevy::ui::Checked;
@@ -14,9 +13,6 @@ use bevy::ui_widgets::{Activate, SliderPrecision, SliderStep, SliderValue, Value
 
 use crate::params::ParamPanel;
 use crate::scene::{EnvironmentSettings, ViewerCommand};
-
-/// Background behind the controls, matching the status overlay.
-const OVERLAY_BG: Color = Color::srgba(0.1, 0.1, 0.12, 0.7);
 
 /// Fastest auto-rotation offered, in degrees per second.
 const MAX_ROTATE_SPEED: f32 = 90.0;
@@ -29,25 +25,17 @@ struct AutoRotateBox;
 #[derive(Component, Default, Clone)]
 struct RotateSpeedSlider;
 
-/// The camera controls, for the top-right corner of the 3D view. Drags that
-/// start on them do not move the camera.
-pub fn camera_overlay() -> impl Scene {
+/// The camera controls, for the view frame's bar.
+pub fn camera_controls() -> impl Scene {
     let start = EnvironmentSettings::default();
     let speed = start.rotate_speed;
     bsn! {
         Node {
-            position_type: PositionType::Absolute,
-            top: px(8),
-            right: px(8),
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
             align_items: AlignItems::Center,
             column_gap: px(8),
-            padding: UiRect::axes(px(8), px(4)),
-            border_radius: BorderRadius::all(px(4)),
         }
-        BackgroundColor(OVERLAY_BG)
-        on(|mut drag: On<PointerDrag>| drag.propagate(false))
         Children [
             @FeathersCheckbox { @caption: bsn! { @caption("Auto Rotate") } }
             AutoRotateBox
@@ -102,9 +90,9 @@ fn set_rotate_speed(
 }
 
 /// Keeps the camera controls in step with the Environment panel's settings.
-pub struct CameraOverlayPlugin;
+pub struct CameraControlsPlugin;
 
-impl Plugin for CameraOverlayPlugin {
+impl Plugin for CameraControlsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PostUpdate, show_camera_settings);
     }

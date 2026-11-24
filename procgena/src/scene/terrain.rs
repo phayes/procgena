@@ -1,5 +1,5 @@
-//! Terrain mode: a world of terrain streamed around the orbit camera, every
-//! region built from the same settings.
+//! Terrain subject: a world of terrain streamed around the orbit camera,
+//! every region built from the same settings.
 
 use std::sync::Arc;
 
@@ -10,11 +10,11 @@ use procgena_terrain::{
 };
 use procgena_terrain_bevy::{TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream};
 
-use super::environment::Ground;
 use super::orbit::{OrbitCamera, OrbitLimits};
-use super::protocol::{SceneMode, ViewerEvent};
-use super::subject::SceneState;
+use super::protocol::ViewerEvent;
+use super::subject::{SceneState, Subject};
 use super::viewport::ViewportActivity;
+use super::{AddSubject, Shown};
 
 /// How far terrain is drawn, in metres.
 pub(crate) const VIEW_DISTANCE: f32 = 3000.0;
@@ -64,27 +64,56 @@ pub(crate) fn world(settings: &TerrainSettings) -> Result<WorldTerrain, WorldErr
     WorldTerrain::new(world, Arc::new(source))
 }
 
-/// Spawns the terrain for `settings`, or an empty entity if the world's
-/// settings are refused.
-pub(crate) fn spawn(commands: &mut Commands, settings: &TerrainSettings) -> Entity {
-    match world(settings) {
-        Ok(world) => commands.spawn(stream(world)).id(),
-        Err(error) => {
-            error!("terrain refused: {error}");
-            commands.spawn_empty().id()
+/// An endless world of terrain, streamed around the camera, from
+/// [`TerrainSettings`].
+///
+/// Changed terrain settings build a new world, whose chunks replace the old
+/// ones once ready; changed debug drawing alone applies at once.
+/// [`ViewerEvent::TerrainProgress`] reports how far it has got. The terrain
+/// is its own ground.
+pub struct TerrainSubject;
+
+impl Subject for TerrainSubject {
+    type Settings = TerrainSettings;
+    const NAME: &'static str = "terrain";
+    const OWN_GROUND: bool = true;
+
+    /// Spawns the terrain for `settings`, or an empty entity if the world's
+    /// settings are refused.
+    fn spawn(world: &mut World, settings: &TerrainSettings) -> Entity {
+        match self::world(settings) {
+            Ok(terrain) => world.spawn(stream(terrain)).id(),
+            Err(error) => {
+                error!("terrain refused: {error}");
+                world.spawn_empty().id()
+            }
         }
+    }
+
+    /// Replaces the ground with `new`'s. The old chunks stay until the new
+    /// ones are ready.
+    fn update(world: &mut World, shown: &mut Shown, old: &TerrainSettings, new: &TerrainSettings) {
+        if old.terrain == new.terrain {
+            return;
+        }
+        shown.start_build(world);
+        match self::world(new) {
+            Ok(terrain) => {
+                world.entity_mut(shown.entity).insert(stream(terrain));
+            }
+            Err(error) => error!("terrain refused: {error}"),
+        }
+    }
+
+    fn view(_: &World, settings: &TerrainSettings) -> OrbitCamera {
+        view(settings)
     }
 }
 
-/// Replaces the ground `entity` draws with `settings`. Its chunks stay until
-/// the new ones are ready.
-pub(crate) fn replace(commands: &mut Commands, entity: Entity, settings: &TerrainSettings) {
-    match world(settings) {
-        Ok(world) => {
-            commands.entity(entity).insert(stream(world));
-        }
-        Err(error) => error!("terrain refused: {error}"),
-    }
+/// Adds the terrain subject, its debug drawing and its progress reports.
+pub(crate) fn add_subject(app: &mut App) {
+    app.add_subject::<TerrainSubject>()
+        .add_systems(Update, (apply_show, report_progress));
 }
 
 /// The stream drawing `world`.
@@ -115,9 +144,13 @@ pub(crate) fn view(settings: &TerrainSettings) -> OrbitCamera {
     }
 }
 
-/// Sets the terrain's debug drawing from what terrain mode shows.
-pub(crate) fn apply_show(state: Res<SceneState>, mut debug: ResMut<TerrainDebug>) {
-    let show = state.terrain().show;
+/// Sets the terrain's debug drawing from the shown terrain's settings, and
+/// turns it off when no terrain is shown.
+fn apply_show(state: Res<SceneState>, mut debug: ResMut<TerrainDebug>) {
+    let show = state
+        .get::<TerrainSubject>()
+        .map(|(_, settings)| settings.show)
+        .unwrap_or_default();
     let wanted = TerrainDebug {
         levels: show.levels,
         borders: show.borders,
@@ -127,48 +160,28 @@ pub(crate) fn apply_show(state: Res<SceneState>, mut debug: ResMut<TerrainDebug>
     }
 }
 
-/// Hides the ground plane in terrain mode, which has ground of its own, and
-/// shows it again as the settings say on leaving.
-pub(crate) fn hide_ground(
-    state: Res<SceneState>,
-    settings: Res<super::EnvironmentSettings>,
-    mut was_terrain: Local<bool>,
-    mut ground: Query<&mut Visibility, With<Ground>>,
-) {
-    let terrain = state.mode() == SceneMode::Terrain;
-    if std::mem::replace(&mut *was_terrain, terrain) == terrain && !settings.is_changed() {
-        return;
-    }
-    for mut visibility in &mut ground {
-        *visibility = if settings.show_ground && !terrain {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-    }
-}
-
-/// Reports how far the terrain has got whenever that changes, and asks for
-/// frames until every chunk is drawn.
-pub(crate) fn report_progress(
+/// Reports how far the shown terrain has got whenever that changes, and
+/// when terrain is first shown, and asks for frames until every chunk is
+/// drawn.
+fn report_progress(
     state: Res<SceneState>,
     streams: Query<&TerrainProgress>,
-    mut reported: Local<Option<TerrainProgress>>,
+    mut reported: Local<Option<(u64, TerrainProgress)>>,
     mut events: MessageWriter<ViewerEvent>,
     mut activity: ResMut<ViewportActivity>,
 ) {
-    if state.mode() != SceneMode::Terrain {
-        *reported = None;
+    let Some((shown, _)) = state.get::<TerrainSubject>() else {
         return;
-    }
-    let Ok(progress) = streams.get(state.subject()) else {
+    };
+    let Ok(progress) = streams.get(shown.entity) else {
         return;
     };
     if !progress.settled {
         activity.request_frames(ViewportActivity::SETTLE_FRAMES);
     }
-    if *reported != Some(*progress) {
-        *reported = Some(*progress);
+    let now = (state.generation(), *progress);
+    if *reported != Some(now) {
+        *reported = Some(now);
         events.write(ViewerEvent::TerrainProgress(*progress));
     }
 }

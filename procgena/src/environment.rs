@@ -1,41 +1,34 @@
-//! The Environment settings, shared by every tab.
+//! The Environment settings on the view frame, shared by every document.
 
-use crate::scene::{EnvironmentSettings, SceneMode};
+use crate::scene::EnvironmentSettings;
 
 use crate::params::{Group, Section, number, toggle};
 
-/// Key for Field Size, which controls the preview area on both plant tabs.
-const FIELD_SIZE: &str = "fieldSize";
+/// Key for Field Size, which sizes the preview area of plants.
+pub const FIELD_SIZE: &str = "fieldSize";
 
-/// Key for Scatter Size, which controls the ground the Tree Scatter tab's
-/// trees grow on.
-const GROVE_SIZE: &str = "groveSize";
+/// Key for Scatter Size, which sizes the ground a tree Scatter grows on.
+pub const GROVE_SIZE: &str = "groveSize";
 
 /// Key for the Wind switch.
-const WIND: &str = "wind";
+pub const WIND: &str = "wind";
 
-/// Lists shared environment controls that do not apply to the selected tab.
-/// Field Size shows only on the plant tabs and Scatter Size only on the Tree
-/// Scatter tab, since each sizes only that tab's preview. Wind is hidden on
-/// Clumps and on the Fruit and Flower tabs, which show still air.
-pub fn hidden_keys(mode: SceneMode) -> &'static [&'static str] {
-    match mode {
-        SceneMode::Plants => &[GROVE_SIZE],
-        SceneMode::Grove => &[FIELD_SIZE],
-        SceneMode::Tree
-        | SceneMode::Stone
-        | SceneMode::Mushroom
-        | SceneMode::Deadwood
-        | SceneMode::Ecotope => &[FIELD_SIZE, GROVE_SIZE],
-        SceneMode::Terrain => &[FIELD_SIZE, GROVE_SIZE],
-        // The clump would not sway with its tree, so clump mode has no wind;
-        // nor does a cluster on its own.
-        SceneMode::Clump | SceneMode::Fruit => &[FIELD_SIZE, GROVE_SIZE, WIND],
-    }
-}
+/// The settings hidden for a single object or a patch that sizes itself:
+/// both preview area sizes.
+pub const SINGLE_OBJECT: &[&str] = &[FIELD_SIZE, GROVE_SIZE];
 
-/// The Environment section. The camera's rotation settings are edited over
-/// the 3D view instead.
+/// The settings hidden for a subject shown in still air, such as a clump,
+/// which would not sway with its tree, or a fruit cluster on its own.
+pub const STILL_AIR: &[&str] = &[FIELD_SIZE, GROVE_SIZE, WIND];
+
+/// The settings hidden for plants: the tree Scatter's size.
+pub const PLANTS: &[&str] = &[GROVE_SIZE];
+
+/// The settings hidden for a tree Scatter: the plant field's size.
+pub const TREE_SCATTER: &[&str] = &[FIELD_SIZE];
+
+/// The Environment section. The camera's rotation settings are edited on
+/// the view frame's camera controls instead.
 pub fn sections() -> Vec<Section<EnvironmentSettings>> {
     vec![Section {
         title: "Environment",
@@ -54,7 +47,7 @@ pub fn sections() -> Vec<Section<EnvironmentSettings>> {
                 (5.0, 85.0, 1.0),
                 |e| e.sun_elevation
             ),
-            toggle!(EnvironmentSettings, "wind", "Wind", |e| e.wind),
+            toggle!(EnvironmentSettings, WIND, "Wind", |e| e.wind),
             toggle!(EnvironmentSettings, "showGround", "Ground", |e| e
                 .show_ground),
             number!(
@@ -82,37 +75,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hidden_keys_name_settings_and_each_size_shows_only_on_its_tab() {
+    fn hidden_keys_name_settings() {
         let keys: Vec<String> = sections()
             .into_iter()
             .flat_map(|section| section.groups)
             .flat_map(|group| group.params)
             .map(|param| param.key)
             .collect();
-        let modes = [
-            SceneMode::Tree,
-            SceneMode::Plants,
-            SceneMode::Stone,
-            SceneMode::Clump,
-            SceneMode::Mushroom,
-            SceneMode::Grove,
-            SceneMode::Deadwood,
-            SceneMode::Ecotope,
-            SceneMode::Terrain,
-        ];
-        for mode in modes {
-            for hidden in hidden_keys(mode) {
-                assert!(
-                    keys.iter().any(|key| key == hidden),
-                    "{hidden} is not a setting"
-                );
-            }
-            let field_size_hidden = hidden_keys(mode).contains(&FIELD_SIZE);
-            assert_eq!(field_size_hidden, mode != SceneMode::Plants, "{mode:?}");
-            let grove_size_hidden = hidden_keys(mode).contains(&GROVE_SIZE);
-            assert_eq!(grove_size_hidden, mode != SceneMode::Grove, "{mode:?}");
-            let wind_hidden = hidden_keys(mode).contains(&WIND);
-            assert_eq!(wind_hidden, mode == SceneMode::Clump, "{mode:?}");
+        for hidden in [SINGLE_OBJECT, STILL_AIR, PLANTS, TREE_SCATTER].concat() {
+            assert!(
+                keys.iter().any(|key| key == hidden),
+                "{hidden} is not a setting"
+            );
         }
     }
 }

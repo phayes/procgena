@@ -1,7 +1,6 @@
-//! Ground, sun, sky and wind shared by every scene mode.
+//! Ground, sun, sky and wind shared by every subject.
 
-use super::protocol::SceneMode;
-use super::subject::SceneState;
+use super::subject::SubjectLook;
 use super::viewport::ViewportActivity;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
@@ -37,11 +36,11 @@ pub struct EnvironmentSettings {
     /// Whether trees and plants move in the wind.
     pub wind: bool,
     /// Side length of the square plant field, in metres, for
-    /// [`SceneMode::Plants`]. For example, 40 makes a
+    /// [`PlantsSubject`](super::PlantsSubject). For example, 40 makes a
     /// 40-by-40-metre field. Must be greater than zero.
     pub field_size: f32,
     /// Side length of the square of ground the tree Scatter grows on, in
-    /// metres, for [`SceneMode::Grove`]. Must be above zero and at most
+    /// metres, for [`GroveSubject`](super::GroveSubject). Must be above zero and at most
     /// [`MAX_SCATTER_SIZE`](procgena_tree::MAX_SCATTER_SIZE).
     pub grove_size: f32,
 }
@@ -118,28 +117,22 @@ pub(crate) fn sky_fog() -> DistanceFog {
 
 /// Applies changed settings to the sun, ground, wind and render activity.
 ///
-/// Wind is off in clump mode whatever the settings say, since the clump
-/// would not sway with its tree. The flat ground plane is hidden in Ecotope
-/// mode, which draws its own ground.
-#[allow(clippy::too_many_arguments)]
+/// Wind is off while the shown subject asks for still air, and the flat
+/// ground plane is hidden while it draws its own ground.
 pub(crate) fn apply_environment(
     settings: Res<EnvironmentSettings>,
-    state: Option<Res<SceneState>>,
-    mut was_mode: Local<Option<SceneMode>>,
+    look: Res<SubjectLook>,
     mut sun: Query<&mut Transform, With<Sun>>,
     mut ground: Query<&mut Visibility, With<Ground>>,
     mut tree_wind: ResMut<Wind>,
     mut grass_wind: ResMut<PlantWind>,
     mut activity: ResMut<ViewportActivity>,
 ) {
-    let mode = state.map(|state| state.mode());
-    let mode_changed = std::mem::replace(&mut *was_mode, mode) != mode;
-    if !settings.is_changed() && !mode_changed {
+    if !settings.is_changed() && !look.is_changed() {
         return;
     }
-    let clump_mode = mode == Some(SceneMode::Clump);
-    let plane_shown = settings.show_ground && mode != Some(SceneMode::Ecotope);
-    let wind = settings.wind && !clump_mode;
+    let plane_shown = settings.show_ground && !look.own_ground;
+    let wind = settings.wind && !look.still_air;
 
     // Sun direction: the light shines from its position toward the origin.
     let elevation = settings.sun_elevation.clamp(0.0, 90.0).to_radians();

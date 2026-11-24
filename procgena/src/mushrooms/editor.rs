@@ -1,9 +1,6 @@
-//! The Mushrooms tab's controls: preset, seed, and every mushroom setting.
+//! A mushroom document's editor: seed, and every mushroom setting.
 
-use bevy::feathers::controls::{
-    FeathersButton, FeathersNumberInput, FeathersSelect, HardLimit, NumberInputValue, OptionIndex,
-    list_rows_from_strings,
-};
+use bevy::feathers::controls::{FeathersButton, FeathersNumberInput, HardLimit, NumberInputValue};
 use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::scene::Scene;
@@ -11,23 +8,24 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_mushroom::{MushroomOptions, MushroomPreset};
 
-use super::{START_PRESET, params};
+use super::params;
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
+use crate::studio::Dormant;
 use crate::ui::{LABEL_WIDTH, labelled_row};
 
-/// Triggered after the mushroom settings change. Read them from the panel
-/// named by [`MushroomEditor::panel`].
+/// Triggered after the selected mushroom's settings change. Read them from
+/// the panel named by [`MushroomEditor::panel`].
 #[derive(Event, Debug)]
 pub struct MushroomEdited {
     /// Whether the camera should reset to fit the new mushroom, as after
-    /// choosing a preset or loading settings.
+    /// loading settings.
     pub reframe: bool,
 }
 
-/// The mushroom editor's state. There is one, on the Mushrooms tab.
+/// A mushroom editor's state, one per open mushroom.
 #[derive(Component)]
 pub struct MushroomEditor {
-    /// The preset last chosen.
+    /// The preset edited.
     preset: &'static MushroomPreset,
     /// The panel holding the edited options.
     panel: Entity,
@@ -36,13 +34,13 @@ pub struct MushroomEditor {
 }
 
 impl MushroomEditor {
-    /// Suggests a file name without an extension from the chosen preset: its
-    /// key, such as `fly_agaric`.
+    /// Suggests a file name without an extension from the preset: its key,
+    /// such as `fly_agaric`.
     pub fn file_stem(&self) -> String {
         self.preset.key.to_string()
     }
 
-    /// The preset last chosen, which saved files name as their base.
+    /// The preset edited, which saved files name as their base.
     pub fn preset(&self) -> &'static MushroomPreset {
         self.preset
     }
@@ -57,7 +55,7 @@ impl MushroomEditor {
 #[derive(Component, Default, Clone)]
 struct MushroomSeed;
 
-/// Makes the mushroom editor work. Needs the param panel plugins.
+/// Makes mushroom editors work. Needs the param panel plugins.
 pub struct MushroomEditorPlugin;
 
 impl Plugin for MushroomEditorPlugin {
@@ -67,21 +65,18 @@ impl Plugin for MushroomEditorPlugin {
     }
 }
 
-/// Spawns the mushroom editor, showing [`START_PRESET`], as the last child of
-/// `parent`.
-pub fn spawn_mushroom_editor(commands: &mut Commands, parent: Entity) {
-    let names: Vec<String> = MushroomPreset::all().map(|p| p.name.to_string()).collect();
-    let selected = MushroomPreset::all().position(|p| p.key == START_PRESET);
-    let start = MushroomPreset::named(START_PRESET).expect("the start preset is built in");
-    let options = start.mushroom.clone();
+/// Spawns a mushroom editor for the built-in preset `key` as the last child
+/// of `parent`, and returns the editor's entity.
+///
+/// # Panics
+///
+/// Panics if `key` names no built-in mushroom preset.
+pub fn spawn_mushroom_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
+    let preset = MushroomPreset::named(key).expect("the mushroom preset is built in");
+    let options = preset.mushroom.clone();
     let seed = i64::from(options.default_seed);
 
-    // Preset, seed, and the seed button, above the panel.
-    let preset: Box<dyn Scene> = Box::new(bsn! {
-        @FeathersSelect { @options: list_rows_from_strings(names, selected) }
-        Node { flex_grow: 1.0 }
-        on(choose_preset)
-    });
+    // Seed, and the seed button, above the panel.
     let seed_field: Box<dyn Scene> = Box::new(bsn! {
         @FeathersNumberInput
         Node { flex_grow: 1.0 }
@@ -99,8 +94,6 @@ pub fn spawn_mushroom_editor(commands: &mut Commands, parent: Entity) {
                 row_gap: px(8),
             }
             Children [
-                @labelled_row("Preset", preset)
-                --
                 @labelled_row("Seed", seed_field)
                 --
                 Node {
@@ -126,18 +119,20 @@ pub fn spawn_mushroom_editor(commands: &mut Commands, parent: Entity) {
             commands.trigger(MushroomEdited { reframe: false });
         });
     commands.entity(editor).insert(MushroomEditor {
-        preset: start,
+        preset,
         panel,
         rng: Rng::new(std::process::id()),
     });
+    editor
 }
 
-/// Shows loaded mushroom settings in the editor, rebuilds the mushroom and
-/// fits the camera to it. The chosen preset, and so the suggested file name,
-/// stays as it was. Run it with `World::run_system_cached_with`.
+/// Shows loaded mushroom settings in the selected mushroom's editor,
+/// rebuilds the mushroom and fits the camera to it. The preset, and so the
+/// suggested file name, stays as it was. Run it with
+/// `World::run_system_cached_with`.
 pub fn load_mushroom(
     In(options): In<MushroomOptions>,
-    editor: Single<&MushroomEditor>,
+    editor: Single<&MushroomEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<MushroomOptions>>,
     mut commands: Commands,
 ) {
@@ -158,35 +153,10 @@ fn replace(
     }
 }
 
-/// Starts over from the chosen preset, and fits the camera to it.
-fn choose_preset(
-    change: On<ValueChange<Entity>>,
-    rows: Query<&OptionIndex>,
-    mut editor: Single<&mut MushroomEditor>,
-    mut panels: Query<&mut ParamPanel<MushroomOptions>>,
-    mut commands: Commands,
-) {
-    let Some(preset) = rows
-        .get(change.value)
-        .ok()
-        .and_then(|index| MushroomPreset::all().nth(index.0))
-    else {
-        return;
-    };
-    editor.preset = preset;
-    replace(
-        preset.mushroom.clone(),
-        true,
-        &editor,
-        &mut panels,
-        &mut commands,
-    );
-}
-
 /// Uses a typed seed.
 fn type_seed(
     change: On<ValueChange<i64>>,
-    editor: Single<&MushroomEditor>,
+    editor: Single<&MushroomEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<MushroomOptions>>,
     mut commands: Commands,
 ) {
@@ -205,7 +175,7 @@ fn type_seed(
 /// Picks a random seed.
 fn random_seed(
     _: On<Activate>,
-    mut editor: Single<&mut MushroomEditor>,
+    mut editor: Single<&mut MushroomEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<MushroomOptions>>,
     mut commands: Commands,
 ) {
@@ -217,20 +187,23 @@ fn random_seed(
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
-/// Shows the options' seed in the seed field whenever it changes.
+/// Shows each mushroom's seed in its own seed field whenever it changes.
 fn show_seed(
-    editor: Single<&MushroomEditor>,
+    editors: Query<(Entity, &MushroomEditor)>,
     panels: Query<&ParamPanel<MushroomOptions>, Changed<ParamPanel<MushroomOptions>>>,
-    fields: Query<(Entity, &NumberInputValue), With<MushroomSeed>>,
+    children: Query<&Children>,
+    fields: Query<&NumberInputValue, With<MushroomSeed>>,
     mut commands: Commands,
 ) {
-    let Ok(panel) = panels.get(editor.panel) else {
-        return;
-    };
-    let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
-    for (field, shown) in &fields {
-        if *shown != seed {
-            commands.entity(field).insert(seed);
+    for (entity, editor) in &editors {
+        let Ok(panel) = panels.get(editor.panel) else {
+            continue;
+        };
+        let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
+        for field in children.iter_descendants(entity) {
+            if fields.get(field).is_ok_and(|shown| *shown != seed) {
+                commands.entity(field).insert(seed);
+            }
         }
     }
 }

@@ -2,9 +2,10 @@
 //! mushrooms, each under a key with a priority, and see it on a patch of
 //! ground.
 //!
-//! The Ecotope tab starts from an Ecotope preset. Its list shows one row per
-//! Scatter, highest priority first; the selected Scatter's settings show
-//! below the list. Loaded `.ecotope.yml` files join the preset list.
+//! An Ecotope document starts from an Ecotope preset. Its list shows one row
+//! per Scatter, highest priority first; the selected Scatter's settings show
+//! below the list. Loading a `.ecotope.yml` file shows its Ecotope in the
+//! selected document.
 
 pub mod editor;
 pub mod params;
@@ -20,7 +21,7 @@ use procgena_tree::TreeScatterPreset;
 
 use crate::scene::{EcotopeGround, EcotopeSettings};
 
-/// The key of the Ecotope preset shown when the app starts.
+/// The key of the Ecotope preset opened first.
 pub const START_PRESET: &str = "pine_forest_floor";
 
 /// The kinds of Scatter, as the Kind picker lists them.
@@ -87,7 +88,8 @@ impl EcotopeStatus {
     }
 }
 
-/// The Ecotope preset shown when the studio opens.
+/// The Ecotope preset [`START_PRESET`] names.
+#[cfg(test)]
 pub fn start_preset() -> &'static EcotopePreset {
     EcotopePreset::named(START_PRESET).expect("the start preset is built in")
 }
@@ -99,11 +101,6 @@ pub fn settings(ecotope: &Ecotope, view: EcotopeView) -> EcotopeSettings {
         ground: view.ground,
         size: view.size,
     }
-}
-
-/// What the scene shows when the studio opens.
-pub fn start_settings() -> EcotopeSettings {
-    settings(&start_preset().ecotope, EcotopeView::default())
 }
 
 /// The index in [`KINDS`] of `kind`.

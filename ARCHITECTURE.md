@@ -1877,7 +1877,10 @@ it starts.
   and shown in its Outline beside the levels below, instead of a tab per
   level (decided by the user 2026-11-24; see
   [procgena/studio_plan.md](procgena/studio_plan.md), milestones ST0–ST9
-  in ROADMAP.md).
+  in ROADMAP.md). ST0 built the registry (`procgena/src/studio/kinds/`),
+  documents, and the Library and Outline as plain lists, with every
+  asset, Scatter, Ecotope and Terrain as a kind; Biome and World register
+  as kinds when B1 and W1 bring their types.
 
 ### Later
 

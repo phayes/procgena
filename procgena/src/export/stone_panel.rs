@@ -21,6 +21,7 @@ use super::{
 };
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
 use crate::stones::editor::{StoneEditor, load_stone};
+use crate::studio::Dormant;
 
 /// Makes the rock's save, load and export controls work.
 pub struct StoneExportPlugin;
@@ -89,20 +90,35 @@ pub fn spawn_stone_export(commands: &mut Commands, parent: Entity) {
 fn snapshot(
     editor: &StoneEditor,
     panels: &Query<&ParamPanel<StoneOptions>>,
-    settings: &Query<&ParamPanel<StoneModelSettings>>,
+    settings: &ModelPanels,
 ) -> Option<(StoneOptions, String, StoneModelSettings)> {
     let options = panels.get(editor.panel()).ok()?.value().clone();
-    let settings = *settings.single().ok()?.value();
+    let settings = *settings
+        .iter()
+        .find(|(_, visible)| visible.get())?
+        .0
+        .value();
     Some((options, editor.file_stem(), settings))
 }
+
+/// The export settings panels, one per open rock, with whether each is on
+/// screen: only the selected rock's is.
+type ModelPanels<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ParamPanel<StoneModelSettings>,
+        &'static InheritedVisibility,
+    ),
+>;
 
 /// Saves the rock settings as a `.stone.yml` preset file based on the chosen
 /// preset.
 fn save_stone_preset(
     _: On<Activate>,
-    editor: Single<&StoneEditor>,
+    editor: Single<&StoneEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<StoneOptions>>,
-    settings: Query<&ParamPanel<StoneModelSettings>>,
+    settings: ModelPanels,
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {
@@ -127,9 +143,9 @@ fn load_stone_preset(_: On<Activate>, mut files: FileOps) {
 /// Exports the rock as a GLB model.
 fn export_stone_glb(
     _: On<Activate>,
-    editor: Single<&StoneEditor>,
+    editor: Single<&StoneEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<StoneOptions>>,
-    settings: Query<&ParamPanel<StoneModelSettings>>,
+    settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,
 ) {
@@ -144,9 +160,9 @@ fn export_stone_glb(
 /// Exports the rock as an OBJ model with its material and textures.
 fn export_stone_obj(
     _: On<Activate>,
-    editor: Single<&StoneEditor>,
+    editor: Single<&StoneEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<StoneOptions>>,
-    settings: Query<&ParamPanel<StoneModelSettings>>,
+    settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,
 ) {

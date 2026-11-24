@@ -59,7 +59,7 @@ fn add_studio(app: &mut App) {
     app.add_plugins((
         FeathersPlugins,
         ui::UiPlugin,
-        ScenePlugin::new(studio::scene_start()),
+        ScenePlugin::default(),
         PanelWidgetsPlugin,
         ParamPanelPlugin::<EnvironmentSettings>::default(),
         studio::StudioPlugin,

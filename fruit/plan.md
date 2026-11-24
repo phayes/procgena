@@ -88,7 +88,7 @@ All of it lives in `procgena_tree`:
 | Materials: `FruitMaterial`, `FlowerMaterial`, `fruit_material`, `flower_material`, `TreePartKind::{Fruit, Flowers}` | tree core and Bevy | Move to fruit Bevy |
 | Export: `MeshPart::{Fruit, Flowers}` | `src/export/` | See "Today's tree work" |
 | Tests: `tests/clusters.rs`, `tests/cluster_mesh.rs`, the fruit checks in `tests/silhouette.rs` | | Split: shape tests move, placement and outline stay |
-| Studio: fruit and flower panels | `procgena/src/tree/params.rs`, `export/tree.rs` | Tree panel picks a fruit preset; fruit gets its own tab later |
+| Studio: fruit and flower panels | `procgena/src/tree/params.rs`, `export/tree.rs` | Tree panel picks a fruit preset; fruit and flowers are kinds of their own in the studio (ST0) |
 
 Three tree presets grow clusters (checked in `presets/*.json`):
 
