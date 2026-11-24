@@ -8,14 +8,16 @@ use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use procgena_core::{LodRange, PoolId, Quality, content_hash};
+use procgena_core::{LodRange, PoolId, Quality, SpecimenId, content_hash};
 use procgena_core_bevy::{LodQuality, visibility_range};
+use procgena_impostor::ImpostorLevel;
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_stone::{
     DetailLevel, OptionsError, Stone, StoneDetail, StoneOptions, StonePreset, TextureCompression,
     TextureSize,
 };
 
+use crate::impostor::{StoneImpostorAssets, StoneImpostorShown, impostor_ranges};
 use crate::material::{StoneMaterial, StoneTextures, stone_material};
 use crate::mesh::stone_mesh;
 
@@ -78,7 +80,9 @@ pub struct StoneEmbedDepth(pub f32);
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StonePart {
     /// Index into the rock's [`MeshOptions::detail`](procgena_stone::MeshOptions::detail)
-    /// levels, starting at 0 for the nearest.
+    /// levels, starting at 0 for the nearest. A rock's impostor, once
+    /// shown (see [`StonePlugin::impostor`](crate::StonePlugin::impostor)),
+    /// is one more part, numbered one past the last level.
     pub lod: usize,
 }
 
@@ -115,11 +119,13 @@ impl AssetLoader for StonePresetLoader {
     }
 }
 
-/// Texture location and format copied from the plugin configuration.
+/// Texture location and format, and the impostor, copied from the plugin
+/// configuration.
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct SpawnSettings {
     pub texture_root: Option<String>,
     pub texture_compression: TextureCompression,
+    pub impostor: Option<ImpostorLevel>,
 }
 
 /// Names a rock's generated meshes: its pool and seed (which fix its shape
@@ -133,6 +139,18 @@ pub(crate) struct StoneKey {
 }
 
 impl StoneKey {
+    /// The rock as a specimen: slot 0 of its pool, with its own seed
+    /// standing in for the World seed, as for every asset built on its own.
+    /// Pooled variants carry their specimen's seed, so each has its own id.
+    pub(crate) fn specimen_id(&self) -> SpecimenId {
+        SpecimenId::new(self.seed, self.pool, 0)
+    }
+
+    /// The hash of the rock's detail levels.
+    pub(crate) fn detail(&self) -> u64 {
+        self.detail
+    }
+
     /// The key of a rock built from `options`.
     fn of(options: &StoneOptions) -> Self {
         Self {
@@ -185,18 +203,21 @@ struct GeneratedMeshes {
 type TaskOutput = Result<GeneratedMeshes, OptionsError>;
 
 /// Mesh, material and camera-distance range for one detail level.
-struct LevelAssets {
+pub(crate) struct LevelAssets {
     /// Camera-distance limits; `None` means the sole detail level has no distance limit.
     range: Option<VisibilityRange>,
     /// Absent when this level has no triangles.
-    mesh: Option<Handle<Mesh>>,
+    pub(crate) mesh: Option<Handle<Mesh>>,
     /// Material for this level's texture size, shared by levels with the same size.
-    material: Handle<StoneMaterial>,
+    pub(crate) material: Handle<StoneMaterial>,
 }
 
 /// Meshes and materials reused by rocks with identical options, nearest level first.
-struct Generated {
-    levels: Vec<LevelAssets>,
+pub(crate) struct Generated {
+    pub(crate) levels: Vec<LevelAssets>,
+    /// Each level's fade bands, then the impostor's, as drawn once the
+    /// rock's impostor is baked; `None` when the rock has no impostor.
+    pub(crate) impostor_ranges: Option<Vec<LodRange>>,
     /// Suggested burial depth including option scale, before entity transform scaling.
     embed_depth: f32,
     /// The rock as a tagged specimen, shared by every rock with these options.
@@ -217,6 +238,41 @@ pub(crate) struct StoneCache {
     stones: HashMap<StoneKey, Entry>,
     textures: HashMap<(String, TextureSize), StoneTextures>,
     materials: HashMap<MaterialKey, Handle<StoneMaterial>>,
+    /// Each generated rock's impostor, once baked, from the shared
+    /// [`Impostors`](procgena_impostor::Impostors) cache.
+    impostors: HashMap<StoneKey, StoneImpostorAssets>,
+}
+
+impl StoneCache {
+    /// Generated rocks that draw an impostor that isn't ready yet.
+    pub(crate) fn ready_without_impostor(&self) -> Vec<(StoneKey, Arc<Generated>)> {
+        self.stones
+            .iter()
+            .filter(|(key, _)| !self.impostors.contains_key(key))
+            .filter_map(|(key, entry)| match entry {
+                Entry::Ready(generated) if generated.impostor_ranges.is_some() => {
+                    Some((key.clone(), generated.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Keeps the baked impostor of `key`.
+    pub(crate) fn impostor_ready(&mut self, key: StoneKey, assets: StoneImpostorAssets) {
+        self.impostors.insert(key, assets);
+    }
+
+    /// The rock generated for `key` and its impostor, once both are ready.
+    pub(crate) fn with_impostor(
+        &self,
+        key: &StoneKey,
+    ) -> Option<(&Generated, &StoneImpostorAssets)> {
+        match (self.stones.get(key), self.impostors.get(key)) {
+            (Some(Entry::Ready(generated)), Some(impostor)) => Some((generated, impostor)),
+            _ => None,
+        }
+    }
 }
 
 /// Identifies matching rock surface settings so rocks with different shapes
@@ -271,7 +327,12 @@ pub(crate) fn reset_changed_stones(
         despawn_parts(&mut commands, kids);
         commands
             .entity(entity)
-            .remove::<(StoneKey, StoneEmbedDepth, GeneratedSpecimen)>()
+            .remove::<(
+                StoneKey,
+                StoneEmbedDepth,
+                GeneratedSpecimen,
+                StoneImpostorShown,
+            )>()
             .insert(StoneGenerating);
     }
     for entity in removed.read() {
@@ -282,6 +343,7 @@ pub(crate) fn reset_changed_stones(
                 StoneGenerating,
                 StoneEmbedDepth,
                 GeneratedSpecimen,
+                StoneImpostorShown,
             )>();
         }
     }
@@ -413,8 +475,12 @@ pub(crate) fn finish_generation(
                 material: material.clone(),
             });
         }
+        let impostor_ranges = settings.impostor.and_then(|impostor| {
+            impostor_ranges(&options.mesh.detail, options.scale, quality.0, impostor)
+        });
         *entry = Entry::Ready(Arc::new(Generated {
             levels: level_assets,
+            impostor_ranges,
             embed_depth,
             specimen,
         }));
@@ -430,7 +496,7 @@ pub(crate) fn level_ranges(detail: &StoneDetail, scale: f32, quality: Quality) -
 
 /// Bevy's visibility range for a level drawn over `range`, or `None` for a
 /// level drawn at every distance.
-fn bevy_range(range: &LodRange) -> Option<VisibilityRange> {
+pub(crate) fn bevy_range(range: &LodRange) -> Option<VisibilityRange> {
     (!range.is_always()).then(|| visibility_range(range))
 }
 
@@ -487,6 +553,7 @@ pub(crate) fn prune_cache(
     }
     let used: HashSet<&StoneKey> = keys.iter().collect();
     cache.stones.retain(|key, _| used.contains(key));
+    cache.impostors.retain(|key, _| used.contains(key));
 
     // Preserve materials referenced by the generated rocks still in the cache.
     let drawn: HashSet<AssetId<StoneMaterial>> = cache
@@ -546,6 +613,7 @@ mod tests {
             .insert_resource(SpawnSettings {
                 texture_root: None,
                 texture_compression: TextureCompression::Bc7,
+                impostor: None,
             })
             .add_systems(
                 Update,

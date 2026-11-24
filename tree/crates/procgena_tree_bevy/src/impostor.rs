@@ -4,20 +4,20 @@
 
 use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
-use procgena_core::{LevelForm, LodLevel};
 use procgena_impostor::{
-    BakeOutput, BakePart, BakedImpostor, Impostor, ImpostorKey, ImpostorMaterial, ImpostorQuad,
-    ImpostorReady, ImpostorRequest,
+    BakeOutput, BakePart, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial, ImpostorQuad,
+    ImpostorRequest, Impostors,
 };
 
 use crate::material::{TreeMaterial, bake_copy};
 use crate::spawn::{
-    CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreeLevel, TreePart,
+    CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreePart,
     TreePartKind, part_range,
 };
 
-/// Draws trees far away as impostors: one quad showing a baked view of the
-/// tree, beyond its farthest mesh level. Set on
+/// The impostor trees use unless told otherwise: from 120 m, crossfading
+/// over 10% on each side, baked from level 1 with the default
+/// [`BakeSettings`](procgena_impostor::BakeSettings). Set it on
 /// [`TreePlugin::impostor`](crate::TreePlugin::impostor).
 ///
 /// Each distinct tree is baked once, in the background, the first time it
@@ -25,39 +25,8 @@ use crate::spawn::{
 /// distance beyond. To keep bakes between runs, or ship them, add
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`TreePlugin`](crate::TreePlugin).
-///
-/// Impostors don't sway in the wind, so keep `distance` well beyond where
-/// sway is noticeable.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TreeImpostor {
-    /// Camera distance where the impostor takes over from the farthest mesh
-    /// level, in metres.
-    pub distance: f32,
-    /// Width of the crossfade with the farthest mesh level, as a fraction
-    /// of `distance` on each side.
-    pub hysteresis: f32,
-    /// The mesh level the impostor is baked from, counting from 0 for the
-    /// nearest. It should be a level with real geometry, not camera-facing
-    /// cards.
-    pub baked_level: usize,
-}
-
-impl Default for TreeImpostor {
-    fn default() -> Self {
-        Self {
-            distance: 120.0,
-            hysteresis: 0.1,
-            baked_level: 1,
-        }
-    }
-}
-
-impl TreeImpostor {
-    /// The impostor as the last level of a tree's levels of detail, after
-    /// the mesh levels. It has no mesh settings of its own.
-    pub(crate) fn level(&self) -> LodLevel<Option<TreeLevel>> {
-        LodLevel::new(self.distance, self.hysteresis, None).with_form(LevelForm::Impostor)
-    }
+pub fn default_tree_impostor() -> ImpostorLevel {
+    ImpostorLevel::new(120.0, 0.1, 1)
 }
 
 /// A tree's impostor, once baked, with the quad and material that draw it.
@@ -68,18 +37,17 @@ pub(crate) struct TreeImpostorAssets {
     pub(crate) material: Handle<ImpostorMaterial>,
 }
 
-/// On an impostor request spawned for a generated tree.
-#[derive(Component, Debug, Clone, Copy)]
-pub(crate) struct ImpostorFor(pub(crate) TreeKey);
-
 /// On a tree entity once its impostor part is spawned.
 #[derive(Component, Debug, Default)]
 pub(crate) struct ImpostorShown;
 
-/// Asks for the impostor of every newly generated tree.
+/// Asks the shared impostor cache for the impostor of every generated tree
+/// that has none yet, and keeps each one once it is baked.
 pub(crate) fn request_impostors(
     mut commands: Commands,
     settings: Res<SpawnSettings>,
+    quad: Res<ImpostorQuad>,
+    mut impostors: ResMut<Impostors>,
     mut cache: ResMut<TreeCache>,
     mut materials: ResMut<Assets<TreeMaterial>>,
 ) {
@@ -90,20 +58,51 @@ pub(crate) fn request_impostors(
         if impostor.baked_level >= generated.level_count() {
             continue;
         }
-        let request = tree_request(key, &generated, impostor, &settings, &mut materials);
-        let entity = commands.spawn((request, ImpostorFor(key))).id();
-        cache.impostor_requested(key, entity);
+        let impostor_key = tree_key(key, impostor, &settings);
+        let ready = impostors
+            .request(&mut commands, impostor_key, || {
+                tree_request(impostor_key, &generated, impostor, &mut materials)
+            })
+            .cloned();
+        let (Some(ready), Some(material)) = (ready, impostors.material(impostor_key)) else {
+            continue;
+        };
+        let assets = TreeImpostorAssets {
+            impostor: ready,
+            quad: quad.0.clone(),
+            material: material.clone(),
+        };
+        cache.impostor_ready(key, assets);
     }
 }
 
-/// The impostor request for the tree `generated` under `key`: its baked
-/// level's parts with still, unlit copies of their materials, waiting for
-/// those materials' textures.
+/// The impostor key of the tree under `key`: its specimen, baked with
+/// `impostor`'s settings from its baked level's detail and textures, and
+/// this crate's version.
+fn tree_key(key: TreeKey, impostor: ImpostorLevel, settings: &SpawnSettings) -> ImpostorKey {
+    let level = format!("{:?}", settings.lod.levels.get(impostor.baked_level));
+    let textures = format!(
+        "{:?} {:?}",
+        settings.texture_root, settings.texture_compression
+    );
+    ImpostorKey::specimen(
+        key.specimen_id(),
+        impostor.bake,
+        &[
+            level.as_bytes(),
+            textures.as_bytes(),
+            env!("CARGO_PKG_VERSION").as_bytes(),
+        ],
+    )
+}
+
+/// The impostor request for the tree `generated` under impostor key `key`:
+/// its baked level's parts with still, unlit copies of their materials,
+/// waiting for those materials' textures.
 fn tree_request(
-    key: TreeKey,
+    key: ImpostorKey,
     generated: &Generated,
-    impostor: TreeImpostor,
-    settings: &SpawnSettings,
+    impostor: ImpostorLevel,
     materials: &mut Assets<TreeMaterial>,
 ) -> ImpostorRequest {
     let mut parts = Vec::new();
@@ -132,51 +131,11 @@ fn tree_request(
         parts.push(BakePart::new(mesh.mesh.clone(), albedo, normal));
     }
 
-    // Everything that changes the picture: the tree, the baked level's
-    // detail and textures, and this crate's version.
-    let level = format!("{:?}", settings.lod.levels.get(impostor.baked_level));
-    let textures = format!(
-        "{:?} {:?}",
-        settings.texture_root, settings.texture_compression
-    );
     ImpostorRequest {
-        key: ImpostorKey::new(
-            "procgena_tree",
-            key.value(),
-            &[
-                level.as_bytes(),
-                textures.as_bytes(),
-                env!("CARGO_PKG_VERSION").as_bytes(),
-            ],
-        ),
+        key,
         parts,
         wait_for,
     }
-}
-
-/// Keeps each tree's impostor when its bake is ready.
-pub(crate) fn keep_impostor(
-    event: On<ImpostorReady>,
-    requests: Query<(&ImpostorFor, &BakedImpostor)>,
-    settings: Res<SpawnSettings>,
-    quad: Res<ImpostorQuad>,
-    mut cache: ResMut<TreeCache>,
-    mut materials: ResMut<Assets<ImpostorMaterial>>,
-) {
-    let (Ok((ImpostorFor(key), BakedImpostor(impostor))), Some(_)) =
-        (requests.get(event.entity), settings.impostor)
-    else {
-        return;
-    };
-    let material = materials.add(impostor.material());
-    cache.impostor_ready(
-        *key,
-        TreeImpostorAssets {
-            impostor: impostor.clone(),
-            quad: quad.0.clone(),
-            material,
-        },
-    );
 }
 
 /// Gives every finished tree whose impostor is ready an impostor part, and
@@ -241,7 +200,7 @@ mod tests {
 
     use std::ops::Range;
 
-    use procgena_core::{Lod, Quality};
+    use procgena_core::{Lod, LodLevel, Quality};
     use procgena_tree::TextureCompression;
 
     use crate::default_tree_lod;
@@ -249,7 +208,7 @@ mod tests {
     /// Spawn settings with `levels` (distance and hysteresis of each mesh
     /// level, all with the default nearest level's materials) and
     /// `impostor`.
-    fn settings(levels: &[(f32, f32)], impostor: Option<TreeImpostor>) -> SpawnSettings {
+    fn settings(levels: &[(f32, f32)], impostor: Option<ImpostorLevel>) -> SpawnSettings {
         let near = default_tree_lod().levels[0].detail;
         let levels = levels
             .iter()
@@ -274,11 +233,7 @@ mod tests {
 
     #[test]
     fn the_impostor_takes_over_where_the_farthest_level_ends() {
-        let impostor = TreeImpostor {
-            distance: 100.0,
-            hysteresis: 0.1,
-            baked_level: 0,
-        };
+        let impostor = ImpostorLevel::new(100.0, 0.1, 0);
 
         // The farthest level keeps its start and ends over the impostor's
         // band; the impostor starts over the same band and never ends.
@@ -318,7 +273,7 @@ mod tests {
             texture_root: None,
             texture_compression: TextureCompression::Bc7,
             lod: default_tree_lod(),
-            impostor: Some(TreeImpostor::default()),
+            impostor: Some(default_tree_impostor()),
         };
         settings.draw_lod().validate().unwrap();
         let inf = f32::INFINITY..f32::INFINITY;

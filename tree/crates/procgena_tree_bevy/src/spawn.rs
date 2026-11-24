@@ -9,8 +9,9 @@ use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use procgena_core::{Lod, LodLevel, LodRange, Quality};
+use procgena_core::{Lod, LodLevel, LodRange, Quality, SpecimenId};
 use procgena_core_bevy::{LodQuality, visibility_range};
+use procgena_impostor::ImpostorLevel;
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
     BranchShape, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
@@ -92,7 +93,8 @@ pub enum TreePartKind {
     /// A single support wire for a trellis.
     Trellis,
     /// The tree's impostor: one quad showing a baked view of the tree,
-    /// drawn beyond every mesh level; see [`TreeImpostor`](crate::TreeImpostor).
+    /// drawn beyond every mesh level; see
+    /// [`TreePlugin::impostor`](crate::TreePlugin::impostor).
     Impostor,
 }
 
@@ -201,7 +203,7 @@ pub(crate) struct SpawnSettings {
     pub texture_compression: TextureCompression,
     /// The mesh and far-form levels, without the impostor.
     pub lod: Lod<TreeLevel>,
-    pub impostor: Option<crate::TreeImpostor>,
+    pub impostor: Option<ImpostorLevel>,
 }
 
 impl SpawnSettings {
@@ -210,7 +212,7 @@ impl SpawnSettings {
     pub(crate) fn draw_lod(&self) -> Lod<Option<TreeLevel>> {
         let mut lod = self.lod.clone().map_detail(Some);
         if let Some(impostor) = self.impostor {
-            lod.levels.push(impostor.level());
+            lod.levels.push(impostor.level(None));
         }
         lod
     }
@@ -242,9 +244,11 @@ impl SpawnSettings {
 pub(crate) struct TreeKey(TreeCacheKey);
 
 impl TreeKey {
-    /// The key as a number, the same on every run and platform.
-    pub(crate) fn value(self) -> u64 {
-        self.0.value()
+    /// The tree as a specimen: slot 0 of its pool, with its own seed
+    /// standing in for the World seed, as for every asset built on its own.
+    /// Grove variants carry their specimen's seed, so each has its own id.
+    pub(crate) fn specimen_id(self) -> SpecimenId {
+        SpecimenId::new(self.0.seed as u32, self.0.pool, 0)
     }
 }
 
@@ -413,15 +417,9 @@ pub(crate) struct TreeCache {
     fruit_material: Option<Handle<TreeMaterial>>,
     /// Shared flower appearance, retained even when no trees use it.
     flower_material: Option<Handle<TreeMaterial>>,
-    /// Each generated tree's impostor: requested (with the request's
-    /// entity), or ready.
-    impostors: HashMap<TreeKey, ImpostorState>,
-}
-
-/// Where a generated tree's impostor stands.
-enum ImpostorState {
-    Requested(Entity),
-    Ready(TreeImpostorAssets),
+    /// Each generated tree's impostor, once baked, from the shared
+    /// [`Impostors`](procgena_impostor::Impostors) cache.
+    impostors: HashMap<TreeKey, TreeImpostorAssets>,
 }
 
 impl TreeCache {
@@ -443,7 +441,7 @@ impl TreeCache {
         key
     }
 
-    /// Generated trees whose impostor hasn't been requested yet.
+    /// Generated trees whose impostor isn't ready yet.
     pub(crate) fn ready_without_impostor(&self) -> Vec<(TreeKey, Arc<Generated>)> {
         self.trees
             .iter()
@@ -455,24 +453,16 @@ impl TreeCache {
             .collect()
     }
 
-    /// Notes that the impostor of `key` was requested on `entity`.
-    pub(crate) fn impostor_requested(&mut self, key: TreeKey, entity: Entity) {
-        self.impostors.insert(key, ImpostorState::Requested(entity));
-    }
-
     /// Keeps the baked impostor of `key`, if the tree is still cached.
     pub(crate) fn impostor_ready(&mut self, key: TreeKey, assets: TreeImpostorAssets) {
         if self.trees.contains_key(&key) {
-            self.impostors.insert(key, ImpostorState::Ready(assets));
+            self.impostors.insert(key, assets);
         }
     }
 
     /// The impostor of `key`, once baked.
     pub(crate) fn impostor(&self, key: TreeKey) -> Option<&TreeImpostorAssets> {
-        match self.impostors.get(&key) {
-            Some(ImpostorState::Ready(assets)) => Some(assets),
-            _ => None,
-        }
+        self.impostors.get(&key)
     }
 
     /// How the tree with `key` stands.
@@ -835,7 +825,6 @@ fn spawn_tree_parts(commands: &mut Commands, tree: Entity, generated: &Generated
 /// cached for reuse.
 #[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 pub(crate) fn prune_cache(
-    mut commands: Commands,
     mut removed: RemovedComponents<TreeKey>,
     mut removed_held: RemovedComponents<HeldTreeKeys>,
     mut removed_prepared: RemovedComponents<PreparedTrees>,
@@ -858,15 +847,12 @@ pub(crate) fn prune_cache(
         .collect();
     cache.trees.retain(|key, _| used.contains(key));
 
-    // Drop the impostors of trees no longer cached, and their requests.
+    // Drop the impostors of trees no longer cached. Bakes already started
+    // finish, and stay in the shared cache.
     let cache = &mut *cache;
-    cache.impostors.retain(|key, state| {
-        let keep = cache.trees.contains_key(key);
-        if let (false, ImpostorState::Requested(entity)) = (keep, state) {
-            commands.entity(*entity).try_despawn();
-        }
-        keep
-    });
+    cache
+        .impostors
+        .retain(|key, _| cache.trees.contains_key(key));
 
     // Preserve materials referenced by the generated trees still in the cache.
     let mut drawn = HashSet::new();

@@ -1,50 +1,147 @@
 //! Names for impostors that stay the same from run to run, so baked
-//! impostors can be found again.
+//! impostors can be found again, and the settings each one is baked with.
 
 use std::fmt;
 
-/// Identifies one impostor: what was baked, and everything that changes how
-/// it looks. Two requests with the same key share one bake.
+use procgena_core::{ContentHash, ContentHasher, PoolId, SpecimenId};
+
+/// How one impostor is baked: how many views its atlas holds, and how many
+/// pixels each view has.
 ///
-/// Build it with [`ImpostorKey::new`] from the kind of asset (such as
-/// `"tree"`), the asset's own stable id, and every other setting that
-/// changes the picture (texture choices, detail level, generator version).
-/// The key is the same on every run and platform, so it can name files.
+/// More views switch less visibly as the camera moves round; more pixels
+/// keep detail closer to the camera. Both make the atlas larger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BakeSettings {
+    /// Views along each side of the atlas; the atlas holds `frames²` views.
+    /// At least 1.
+    pub frames: u32,
+    /// Pixels along each side of one view. At least 1.
+    pub frame_size: u32,
+}
+
+impl BakeSettings {
+    /// Settings with `frames` views along each side, each `frame_size`
+    /// pixels square.
+    pub const fn new(frames: u32, frame_size: u32) -> Self {
+        Self { frames, frame_size }
+    }
+
+    /// Pixels along each side of the whole atlas.
+    pub const fn atlas_size(&self) -> u32 {
+        self.frames * self.frame_size
+    }
+}
+
+/// 8 × 8 views of 128 pixels: a 1024-pixel atlas.
+impl Default for BakeSettings {
+    fn default() -> Self {
+        Self::new(8, 128)
+    }
+}
+
+/// Writes the view count, then the view size.
+impl ContentHash for BakeSettings {
+    fn content_hash(&self, hasher: &mut ContentHasher) {
+        let Self { frames, frame_size } = self;
+        hasher.write_u32(*frames);
+        hasher.write_u32(*frame_size);
+    }
+}
+
+/// Identifies one impostor: what was baked, how it was baked, and
+/// everything else that changes how it looks. Two requests with the same
+/// key share one bake.
+///
+/// Build it with [`ImpostorKey::specimen`] for a whole specimen, or with
+/// [`ImpostorKey::pool_part`] for a part shared by every specimen of a
+/// pool. The key is the same on every run and platform, so it can name
+/// files.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ImpostorKey(u64);
+pub struct ImpostorKey {
+    hash: u64,
+    bake: BakeSettings,
+}
 
 impl ImpostorKey {
-    /// A key for asset `id` of kind `kind`, also depending on `extra`. The
-    /// impostor crate's own bake version is mixed in, so impostors baked by
-    /// an older bake are never reused.
-    pub fn new(kind: &str, id: u64, extra: &[&[u8]]) -> Self {
-        let mut hash = Fnv::default();
-        hash.write(&BAKE_VERSION.to_le_bytes());
-        hash.write(kind.as_bytes());
-        hash.write(&[0xff]);
-        hash.write(&id.to_le_bytes());
+    /// The key of specimen `specimen`'s impostor, baked with `bake`.
+    ///
+    /// `extra` holds every other setting that changes the picture, such as
+    /// the detail level baked, texture choices and the generator's version.
+    /// The impostor crate's own bake version is mixed in, so impostors baked
+    /// by an older bake are never reused.
+    pub fn specimen(specimen: SpecimenId, bake: BakeSettings, extra: &[&[u8]]) -> Self {
+        Self::build(0, |hasher| hasher.write(&specimen), bake, extra)
+    }
+
+    /// The key of a part named `part`, such as `"fruit_cluster"`, that
+    /// every specimen of `pool` shares, baked with `bake`. `extra` is as for
+    /// [`specimen`](Self::specimen).
+    pub fn pool_part(pool: PoolId, part: &str, bake: BakeSettings, extra: &[&[u8]]) -> Self {
+        Self::build(
+            1,
+            |hasher| {
+                hasher.write(&pool);
+                hasher.write_str(part);
+            },
+            bake,
+            extra,
+        )
+    }
+
+    /// Hashes the bake version, what is baked (after its `subject` tag), the
+    /// bake settings and every `extra` part.
+    fn build(
+        subject: u32,
+        write_subject: impl FnOnce(&mut ContentHasher),
+        bake: BakeSettings,
+        extra: &[&[u8]],
+    ) -> Self {
+        let mut hasher = ContentHasher::new();
+        hasher.write_u32(BAKE_VERSION);
+        hasher.write_u32(subject);
+        write_subject(&mut hasher);
+        hasher.write(&bake);
+        hasher.write_usize(extra.len());
         for part in extra {
-            hash.write(&(part.len() as u64).to_le_bytes());
-            hash.write(part);
+            hasher.write_bytes(part);
         }
-        Self(hash.0)
+        Self {
+            hash: hasher.finish(),
+            bake,
+        }
     }
 
     /// The key as a number, the same on every run.
     pub fn value(self) -> u64 {
-        self.0
+        self.hash
+    }
+
+    /// The settings the impostor is baked with.
+    pub fn bake(self) -> BakeSettings {
+        self.bake
+    }
+
+    /// A key for tests: slot `slot` of a test pool, with default bake
+    /// settings.
+    #[cfg(test)]
+    pub(crate) fn test(slot: u32) -> Self {
+        let pool = PoolId::new(
+            procgena_core::GeneratorKind::from_key("impostor.test.kind"),
+            procgena_core::OptionsHash(0),
+        );
+        Self::specimen(SpecimenId::new(0, pool, slot), BakeSettings::default(), &[])
     }
 }
 
 impl fmt::Debug for ImpostorKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ImpostorKey({:016x})", self.0)
+        write!(f, "ImpostorKey({:016x})", self.hash)
     }
 }
 
 impl fmt::Display for ImpostorKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:016x}", self.0)
+        write!(f, "{:016x}", self.hash)
     }
 }
 
@@ -53,59 +150,71 @@ impl fmt::Display for ImpostorKey {
 ///
 /// - 2: bake cameras no longer see grove trees (version 1 bakes made next
 ///   to a grove could show its trees in some views).
-const BAKE_VERSION: u32 = 2;
-
-/// 64-bit FNV-1a: small, and the same everywhere.
-struct Fnv(u64);
-
-impl Default for Fnv {
-    fn default() -> Self {
-        Self(0xcbf2_9ce4_8422_2325)
-    }
-}
-
-impl Fnv {
-    fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.0 ^= u64::from(*byte);
-            self.0 = self.0.wrapping_mul(0x0100_0000_01b3);
-        }
-    }
-}
+/// - 3: keys name a specimen or a pool's part, and carry their bake
+///   settings.
+const BAKE_VERSION: u32 = 3;
 
 #[cfg(test)]
 mod tests {
+    use procgena_core::{GeneratorKind, OptionsHash};
+
     use super::*;
+
+    const TREE: GeneratorKind = GeneratorKind::from_key("tree.generator.kind");
+    const STONE: GeneratorKind = GeneratorKind::from_key("stone.generator.kind");
+
+    fn id(kind: GeneratorKind, options: u64, slot: u32) -> SpecimenId {
+        SpecimenId::new(7, PoolId::new(kind, OptionsHash(options)), slot)
+    }
 
     #[test]
     fn every_ingredient_changes_the_key() {
-        let base = ImpostorKey::new("tree", 7, &[b"level 1", b"bc7"]);
-        assert_eq!(base, ImpostorKey::new("tree", 7, &[b"level 1", b"bc7"]));
-        assert_ne!(base, ImpostorKey::new("stone", 7, &[b"level 1", b"bc7"]));
-        assert_ne!(base, ImpostorKey::new("tree", 8, &[b"level 1", b"bc7"]));
-        assert_ne!(base, ImpostorKey::new("tree", 7, &[b"level 2", b"bc7"]));
-        assert_ne!(base, ImpostorKey::new("tree", 7, &[b"level 1"]));
+        let bake = BakeSettings::default();
+        let key = |specimen, bake, extra: &[&[u8]]| ImpostorKey::specimen(specimen, bake, extra);
+        let base = key(id(TREE, 1, 0), bake, &[b"level 1", b"bc7"]);
+        assert_eq!(base, key(id(TREE, 1, 0), bake, &[b"level 1", b"bc7"]));
+        assert_ne!(base, key(id(STONE, 1, 0), bake, &[b"level 1", b"bc7"]));
+        assert_ne!(base, key(id(TREE, 2, 0), bake, &[b"level 1", b"bc7"]));
+        assert_ne!(base, key(id(TREE, 1, 1), bake, &[b"level 1", b"bc7"]));
+        assert_ne!(base, key(id(TREE, 1, 0), bake, &[b"level 2", b"bc7"]));
+        assert_ne!(base, key(id(TREE, 1, 0), bake, &[b"level 1"]));
+        let small = BakeSettings::new(4, 64);
+        assert_ne!(base, key(id(TREE, 1, 0), small, &[b"level 1", b"bc7"]));
+        assert_eq!(
+            key(id(TREE, 1, 0), small, &[]).bake(),
+            small,
+            "the key carries its bake settings"
+        );
+
         // Splitting the same bytes differently is a different key.
         assert_ne!(
-            ImpostorKey::new("tree", 7, &[b"ab", b"c"]),
-            ImpostorKey::new("tree", 7, &[b"a", b"bc"])
+            key(id(TREE, 1, 0), bake, &[b"ab", b"c"]),
+            key(id(TREE, 1, 0), bake, &[b"a", b"bc"])
         );
+
+        // A pool's part never shares a key with a specimen, nor with the
+        // pool's other parts.
+        let pool = PoolId::new(TREE, OptionsHash(1));
+        let fruit = ImpostorKey::pool_part(pool, "fruit", bake, &[]);
+        assert_eq!(fruit, ImpostorKey::pool_part(pool, "fruit", bake, &[]));
+        assert_ne!(fruit, ImpostorKey::pool_part(pool, "flower", bake, &[]));
+        assert_ne!(fruit, key(id(TREE, 1, 0), bake, &[]));
     }
 
     #[test]
     fn keys_are_the_same_on_every_run() {
         // A fixed value: if this changes, every saved impostor is orphaned,
         // so raise BAKE_VERSION on purpose instead.
-        assert_eq!(
-            ImpostorKey::new("tree", 1, &[]).to_string(),
-            format!("{}", ImpostorKey::new("tree", 1, &[]))
-        );
-        assert_eq!(ImpostorKey::new("", 0, &[]).value(), {
-            let mut h = Fnv::default();
-            h.write(&BAKE_VERSION.to_le_bytes());
-            h.write(&[0xff]);
-            h.write(&0u64.to_le_bytes());
-            h.0
+        let key = ImpostorKey::specimen(id(TREE, 1, 0), BakeSettings::default(), &[]);
+        assert_eq!(key.to_string(), format!("{:016x}", key.value()));
+        assert_eq!(key.value(), {
+            let mut h = ContentHasher::new();
+            h.write_u32(BAKE_VERSION);
+            h.write_u32(0);
+            h.write(&id(TREE, 1, 0));
+            h.write(&BakeSettings::default());
+            h.write_usize(0);
+            h.finish()
         });
     }
 }

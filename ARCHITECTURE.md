@@ -1605,7 +1605,18 @@ it starts.
   renderer; deadwood and mushroom move onto it.
 - [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`
   keyed by `SpecimenId` for any asset, not only trees, and baking ahead
-  per Ecotope instead of per grove.
+  per Ecotope instead of per grove. The first half is done (I1): an
+  `ImpostorKey` is a `SpecimenId` (or a pool's part) plus per-bake
+  `BakeSettings`; `Impostors::request` bakes each key once and keeps it
+  with a shared material; `ImpostorLevel` places the impostor as the last
+  `LevelForm::Impostor` level. Tree and stone use it. Deadwood and
+  mushroom have no impostor: their far forms are already 2 to 22
+  triangles and are culled by 132 m and 40 m (at reference size), so an
+  impostor would save nothing. Assets built on their own, and grove and
+  pool variants today, key their impostor by `SpecimenId(seed, pool, 0)`
+  with their own build seed; passing the real slot id is I2's. Still to
+  do: baking ahead per Ecotope (I2), and impostors in the shared renderer
+  (R2).
 - [ ] **Cluster impostor cards for tree fruit and flowers** at levels 1 and
   2 (rule 2): a standalone cluster mesher in cluster-local coordinates, a
   per-pool bake with per-bake view count and size (global today), a

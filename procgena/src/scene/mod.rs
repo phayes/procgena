@@ -29,12 +29,12 @@ use bevy::prelude::*;
 use procgena_clump_bevy::ClumpPlugin;
 use procgena_core::Lod;
 use procgena_deadwood_bevy::DeadwoodPlugin;
-use procgena_impostor::{ImpostorPlugin, ImpostorSettings};
+use procgena_impostor::{ImpostorLevel, ImpostorPlugin, ImpostorSettings};
 use procgena_mushroom_bevy::MushroomPlugin;
 use procgena_plant::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
 use procgena_tree::{LOD_REFERENCE_SIZE, TextureCompression};
-use procgena_tree_bevy::{TreeImpostor, TreePlugin};
+use procgena_tree_bevy::{TreePlugin, default_tree_impostor};
 
 pub use assets::{
     CLUMP_TEXTURE_ROOT, DEADWOOD_TEXTURE_ROOT, MUSHROOM_TEXTURE_ROOT, STONE_TEXTURE_ROOT,
@@ -135,15 +135,17 @@ impl Plugin for ScenePlugin {
                 texture_compression: TextureCompression::Bc7,
                 // The scene reports which of these levels is on screen.
                 lod: Lod::new(LOD_REFERENCE_SIZE, subject::lod_levels()),
-                impostor: self.impostors.then(|| TreeImpostor {
+                impostor: self.impostors.then(|| ImpostorLevel {
                     distance: subject::IMPOSTOR_DISTANCE,
-                    ..default()
+                    ..default_tree_impostor()
                 }),
             },
             PlantPlugins,
             StonePlugin {
                 texture_root: Some(STONE_TEXTURE_ROOT.to_owned()),
                 texture_compression: procgena_stone::TextureCompression::Bc7,
+                // The studio's rock tab draws one close rock.
+                impostor: None,
             },
             ClumpPlugin {
                 texture_root: self.clump_textures.then(|| CLUMP_TEXTURE_ROOT.to_owned()),

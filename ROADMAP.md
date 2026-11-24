@@ -568,6 +568,14 @@ that has one (rule 2).
 - **Done when:** a tree and a boulder share one bake path and cache keyed
   by `SpecimenId`, and fade from mesh to far form to impostor in the same
   way.
+- **Status (2026-11-24):** built for the entity path. `ImpostorKey` comes
+  from a `SpecimenId` plus `BakeSettings` (view count and size per bake);
+  `Impostors::request` is the one bake path and cache, with a shared
+  material per key; `ImpostorLevel` is the shared impostor level, used by
+  `TreePlugin::impostor` and the new `StonePlugin::impostor` (80 m for a
+  2.5 m rock, scaled by size and quality). Stone's bake keeps its
+  projected textures. Deadwood and mushroom gain none (see the TODO). Not
+  built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`).
 
 #### I1b: Cluster impostor cards for tree fruit and flowers
 

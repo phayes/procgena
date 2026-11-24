@@ -182,7 +182,7 @@
 //! `TreeScatterSource::Asset`, and update when the file changes if Bevy is watching
 //! asset files. Try it with `cargo run -p procgena_tree_bevy --example scatter`.
 //!
-//! Far away, trees are drawn as baked impostors; see `TreeImpostor`. To generate a
+//! Far away, trees are drawn as baked impostors; see `default_tree_impostor`. To generate a
 //! grove's trees and bake their impostors before the grove appears, for example
 //! behind a loading screen, spawn a `PrepareTreeScatter` first.
 //!
@@ -357,7 +357,7 @@ use bevy::prelude::*;
 use bevy::shader::{Shader, load_shader_library};
 use procgena_tree::{TextureCompression, WIND_WESL};
 
-pub use impostor::TreeImpostor;
+pub use impostor::default_tree_impostor;
 pub use material::{
     BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
     average_bark_material, bake_copy, bark_material, flower_material, fruit_material,
@@ -382,7 +382,7 @@ pub use wind::Wind;
 
 use procgena_core::Lod;
 use procgena_core_bevy::LodPlugin;
-use procgena_impostor::ImpostorPlugin;
+use procgena_impostor::{ImpostorLevel, ImpostorPlugin};
 
 #[cfg(feature = "gltf")]
 pub use gltf::add_tree_gltf_attributes;
@@ -416,9 +416,9 @@ pub struct TreePlugin {
     /// The levels must pass [`Lod::validate`], or adding the plugin panics.
     pub lod: Lod<TreeLevel>,
     /// Draws trees far away as baked impostors, as the last level after
-    /// [`lod`](Self::lod)'s; see [`TreeImpostor`]. `None` draws the farthest
-    /// mesh level at every distance beyond.
-    pub impostor: Option<TreeImpostor>,
+    /// [`lod`](Self::lod)'s. Defaults to [`default_tree_impostor`]. `None`
+    /// draws the farthest mesh level at every distance beyond.
+    pub impostor: Option<ImpostorLevel>,
 }
 
 impl Default for TreePlugin {
@@ -427,7 +427,7 @@ impl Default for TreePlugin {
             texture_root: Some("procgena_tree/textures".to_owned()),
             texture_compression: TextureCompression::Bc7,
             lod: default_tree_lod(),
-            impostor: Some(TreeImpostor::default()),
+            impostor: Some(default_tree_impostor()),
         }
     }
 }
@@ -493,7 +493,6 @@ impl Plugin for TreePlugin {
         .init_resource::<Wind>()
         .init_resource::<TreeCache>()
         .insert_resource(settings)
-        .add_observer(impostor::keep_impostor)
         .add_systems(
             Update,
             (
@@ -520,14 +519,15 @@ impl Plugin for TreePlugin {
             )
                 .chain(),
         )
-        // Impostors become ready in an observer, any time before this.
         .add_systems(Update, scatter::track_preparing.after(spawn::prune_cache));
+        // Impostors that became ready are kept before groves count them.
         if impostor.is_some() {
             app.add_systems(
                 Update,
                 (impostor::request_impostors, impostor::show_impostors)
                     .chain()
-                    .after(spawn::prune_cache),
+                    .after(spawn::prune_cache)
+                    .before(scatter::track_preparing),
             );
         }
         #[cfg(feature = "gltf")]

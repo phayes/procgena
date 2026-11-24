@@ -1,10 +1,16 @@
 //! Create rock materials that project textures onto rocks without texture coordinates.
 
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, Face, ShaderType};
+use bevy::render::render_resource::{
+    AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+};
 use bevy::shader::ShaderRef;
+use procgena_impostor::BakeOutput;
 use procgena_stone::{MaterialOptions, TextureCompression, TextureMap, TextureSize, texture_path};
 
 /// Fragment shader for rocks in the main pass and in deferred rendering.
@@ -28,6 +34,7 @@ pub type StoneMaterial = ExtendedMaterial<StandardMaterial, TriplanarExtension>;
 /// Leave all three images as `None`, with `settings.textured` set to 0, to draw
 /// the base material alone. When `textured` is 1, supply all three images.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+#[bind_group_data(StoneMaterialKey)]
 pub struct TriplanarExtension {
     /// Texture repeat size and whether to use the images.
     #[uniform(100)]
@@ -47,6 +54,35 @@ pub struct TriplanarExtension {
     #[texture(105)]
     #[sampler(106)]
     pub orh: Option<Handle<Image>>,
+    /// What a bake copy of the material draws instead of lit colour; see
+    /// [`bake_copy`]. Ordinary materials draw lit colour.
+    #[reflect(ignore)]
+    pub(crate) bake: BakeOutput,
+}
+
+/// A copy of `material` for an impostor bake, drawing `output` (the
+/// textured base colour, or the textured normal) instead of lit colour. See
+/// [`procgena_impostor`] for how bakes use it.
+pub fn bake_copy(material: &StoneMaterial, output: BakeOutput) -> StoneMaterial {
+    let mut copy = material.clone();
+    copy.extension.bake = output;
+    copy
+}
+
+/// The pipeline variant a [`StoneMaterial`] is drawn with. Bevy builds one
+/// pipeline per distinct key; you never need to create one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct StoneMaterialKey {
+    /// What a bake copy draws instead of lit colour.
+    bake: BakeOutput,
+}
+
+impl From<&TriplanarExtension> for StoneMaterialKey {
+    fn from(extension: &TriplanarExtension) -> Self {
+        Self {
+            bake: extension.bake,
+        }
+    }
 }
 
 /// Texture settings for a [`TriplanarExtension`], in the layout the rock shaders use.
@@ -80,6 +116,29 @@ impl MaterialExtension for TriplanarExtension {
 
     fn deferred_fragment_shader() -> ShaderRef {
         STONE_SHADER.into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        // Bake copies keep the projected textures, and write the textured
+        // base colour or normal in the forward pass instead of lit colour.
+        let prepass = descriptor
+            .vertex
+            .shader_defs
+            .contains(&"PREPASS_PIPELINE".into());
+        let define = match key.bind_group_data.bake {
+            BakeOutput::None => None,
+            BakeOutput::Albedo => Some("BAKE_ALBEDO"),
+            BakeOutput::Normal => Some("BAKE_NORMAL"),
+        };
+        if let (Some(define), false, Some(fragment)) = (define, prepass, &mut descriptor.fragment) {
+            fragment.shader_defs.push(define.into());
+        }
+        Ok(())
     }
 }
 
@@ -166,6 +225,7 @@ pub fn stone_material(
         color: textures.map(|t| t.color.clone()),
         normal: textures.map(|t| t.normal.clone()),
         orh: textures.map(|t| t.orh.clone()),
+        bake: BakeOutput::None,
     };
     StoneMaterial { base, extension }
 }

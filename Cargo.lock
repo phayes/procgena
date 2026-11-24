@@ -5468,6 +5468,7 @@ dependencies = [
  "bevy",
  "image",
  "intel_tex_2",
+ "procgena_core",
 ]
 
 [[package]]
@@ -5556,6 +5557,7 @@ dependencies = [
  "image",
  "procgena_core",
  "procgena_core_bevy",
+ "procgena_impostor",
  "procgena_specimen",
  "procgena_stone",
  "procgena_stone_bevy",

@@ -8,6 +8,13 @@
 //! [`BakedImpostor`] and [`ImpostorReady`] is triggered on it. Draw it with
 //! [`Impostor::bundle`] and [`Impostor::material`].
 //!
+//! Each impostor is named by an [`ImpostorKey`]: the
+//! [`SpecimenId`](procgena_core::SpecimenId) of what is baked, plus its
+//! [`BakeSettings`]. An asset that draws its specimens with an impostor as
+//! their farthest level asks for them through [`Impostors::request`], which
+//! bakes each key once and keeps it with a shared material, and places the
+//! impostor among its levels of detail with an [`ImpostorLevel`].
+//!
 //! Bake materials draw base colour or normals instead of lit colour.
 //! [`bake_standard`] makes them from a [`StandardMaterial`]; a generator
 //! with its own material extension calls [`use_bake_shader`] from its
@@ -25,6 +32,7 @@ mod cache;
 mod key;
 mod ktx2;
 mod layout;
+mod level;
 mod material;
 mod mips;
 
@@ -45,22 +53,19 @@ pub use bake::{
     ImpostorRequest, Impostors,
 };
 pub use batch::{ImpostorBatch, ImpostorBatchFinished, ImpostorBatchProgress};
-pub use key::ImpostorKey;
+pub use key::{BakeSettings, ImpostorKey};
 pub use layout::{view_basis, view_cell, view_direction};
+pub use level::ImpostorLevel;
 pub use material::{
     BAKE_SHADER, BakeExtension, BakeKey, BakeOutput, BakeStandardMaterial, INSTANCE_LOCATION,
     INSTANCE_SIZE, ImpostorExtension, ImpostorMaterial, ImpostorPipelineKey, ImpostorUniform,
     bake_standard, instance_buffer_layout, use_bake_shader,
 };
 
-/// How impostors are baked.
+/// How impostors are baked and stored. Each impostor's view count and size
+/// come from its key's [`BakeSettings`].
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct ImpostorSettings {
-    /// Views along each side of the atlas; the atlas holds `frames²` views.
-    /// More views switch less visibly as the camera moves round.
-    pub frames: u32,
-    /// Pixels along each side of one view.
-    pub frame_size: u32,
     /// Most bakes in progress at once.
     pub concurrent_bakes: usize,
     /// Frames a bake keeps drawing once every part's pipeline is built and
@@ -79,8 +84,6 @@ pub struct ImpostorSettings {
 impl Default for ImpostorSettings {
     fn default() -> Self {
         Self {
-            frames: 8,
-            frame_size: 128,
             concurrent_bakes: 2,
             settle_frames: 3,
             cache_dir: None,
@@ -173,6 +176,7 @@ mod tests {
             .init_asset::<Image>()
             .init_asset::<StandardMaterial>()
             .init_asset::<BakeStandardMaterial>()
+            .init_asset::<ImpostorMaterial>()
             .insert_resource(ImpostorSettings {
                 settle_frames: 3,
                 ..default()
@@ -193,8 +197,13 @@ mod tests {
         app
     }
 
-    /// A request for a unit cube's impostor under key `id`.
-    fn request(app: &mut App, id: u64) -> ImpostorRequest {
+    /// A request for a unit cube's impostor under test key `id`.
+    fn request(app: &mut App, id: u32) -> ImpostorRequest {
+        cube_request(app, ImpostorKey::test(id))
+    }
+
+    /// A request for a unit cube's impostor under `key`.
+    fn cube_request(app: &mut App, key: ImpostorKey) -> ImpostorRequest {
         let world = app.world_mut();
         let mesh = world.resource_mut::<Assets<Mesh>>().add(Cuboid::default());
         let mut materials = world.resource_mut::<Assets<BakeStandardMaterial>>();
@@ -205,7 +214,7 @@ mod tests {
             materials.add(bake_standard(&base, BakeOutput::Normal)),
         );
         ImpostorRequest {
-            key: ImpostorKey::new("test", id, &[]),
+            key,
             parts: vec![part],
             wait_for: Vec::new(),
         }
@@ -244,6 +253,74 @@ mod tests {
         app.update();
         assert_eq!(cameras(&mut app), 0);
         assert_eq!(app.world().get::<BakedImpostor>(second).unwrap().0, baked);
+    }
+
+    /// Asks for `key` through [`Impostors::request`], as an asset does each
+    /// frame, and returns whether it is ready and how often `make` ran.
+    fn ask(app: &mut App, key: ImpostorKey, made: &mut usize) -> bool {
+        let request = cube_request(app, key);
+        let world = app.world_mut();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let ready = world.resource_scope(|world, mut impostors: Mut<Impostors>| {
+            let mut commands = Commands::new(&mut queue, world);
+            impostors
+                .request(&mut commands, key, || {
+                    *made += 1;
+                    request
+                })
+                .is_some()
+        });
+        queue.apply(world);
+        ready
+    }
+
+    #[test]
+    fn assets_asking_for_one_key_share_one_bake_and_material() {
+        let mut app = app();
+        // A tree and a rock: two kinds of specimen, two bake sizes.
+        let pool = |kind| {
+            procgena_core::PoolId::new(
+                procgena_core::GeneratorKind::from_key(kind),
+                procgena_core::OptionsHash(5),
+            )
+        };
+        let tree = ImpostorKey::specimen(
+            procgena_core::SpecimenId::new(1, pool("tree.generator.kind"), 0),
+            BakeSettings::default(),
+            &[],
+        );
+        let rock = ImpostorKey::specimen(
+            procgena_core::SpecimenId::new(1, pool("stone.generator.kind"), 0),
+            BakeSettings::new(4, 64),
+            &[],
+        );
+
+        // Every asset asks every frame; each key is requested once.
+        let (mut tree_made, mut rock_made) = (0, 0);
+        let mut frames = 0;
+        while !(ask(&mut app, tree, &mut tree_made) && ask(&mut app, rock, &mut rock_made)) {
+            app.update();
+            frames += 1;
+            assert!(frames < 20, "the impostors never arrived");
+        }
+        assert_eq!((tree_made, rock_made), (1, 1));
+
+        // Each is baked with its own settings, and has one shared material.
+        let impostors = app.world().resource::<Impostors>();
+        assert_eq!(impostors.get(tree).unwrap().frames, 8);
+        assert_eq!(impostors.get(rock).unwrap().frames, 4);
+        assert_ne!(impostors.material(tree), impostors.material(rock));
+        let ready: Vec<_> = app.world().resource::<Seen>().ready.clone();
+        assert_eq!(ready.len(), 2);
+
+        // The plugin's own request entities are gone once answered.
+        app.update();
+        let left = app
+            .world_mut()
+            .query_filtered::<(), With<ImpostorRequest>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(left, 0);
     }
 
     #[test]

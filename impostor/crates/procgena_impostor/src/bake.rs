@@ -166,14 +166,74 @@ pub struct ImpostorReady {
     pub key: ImpostorKey,
 }
 
-/// Every impostor baked so far, by key.
+/// Every impostor baked or read from disk so far, by key, each with a
+/// shared material that draws it.
+///
+/// Assets ask for their impostors through [`Impostors::request`], which
+/// bakes each key once however many assets ask for it.
 #[derive(Resource, Default, Debug)]
-pub struct Impostors(pub(crate) HashMap<ImpostorKey, Impostor>);
+pub struct Impostors {
+    kept: HashMap<ImpostorKey, KeptImpostor>,
+    /// Keys asked for through [`Impostors::request`].
+    requested: HashSet<ImpostorKey>,
+}
+
+/// An impostor in [`Impostors`], with its shared material.
+#[derive(Debug)]
+struct KeptImpostor {
+    impostor: Impostor,
+    material: Handle<ImpostorMaterial>,
+}
+
+/// On request entities spawned by [`Impostors::request`], which are
+/// despawned once answered.
+#[derive(Component)]
+pub(crate) struct SharedRequest;
 
 impl Impostors {
     /// The impostor baked for `key`, if any.
     pub fn get(&self, key: ImpostorKey) -> Option<&Impostor> {
-        self.0.get(&key)
+        self.kept.get(&key).map(|kept| &kept.impostor)
+    }
+
+    /// The untinted material ([`Impostor::material`]) drawing the impostor
+    /// baked for `key`, shared by everything that draws it; `None` until
+    /// it is baked.
+    pub fn material(&self, key: ImpostorKey) -> Option<&Handle<ImpostorMaterial>> {
+        self.kept.get(&key).map(|kept| &kept.material)
+    }
+
+    /// The impostor for `key` once it is baked. Until then, starts its bake
+    /// the first time `key` is asked for, with the request `make` returns,
+    /// and returns `None`; `make` isn't called again for that key, so call
+    /// this every frame until the impostor arrives.
+    ///
+    /// `make` must return a request for `key`. Its entity is the plugin's
+    /// own: [`ImpostorReady`] is triggered on it when the bake is done, and
+    /// it is then despawned.
+    pub fn request(
+        &mut self,
+        commands: &mut Commands,
+        key: ImpostorKey,
+        make: impl FnOnce() -> ImpostorRequest,
+    ) -> Option<&Impostor> {
+        if !self.kept.contains_key(&key) && self.requested.insert(key) {
+            let request = make();
+            debug_assert_eq!(request.key, key, "the request is for another key");
+            commands.spawn((request, SharedRequest));
+        }
+        self.get(key)
+    }
+
+    /// Keeps `impostor` under `key`, with a new shared material.
+    pub(crate) fn keep(
+        &mut self,
+        key: ImpostorKey,
+        impostor: Impostor,
+        materials: &mut Assets<ImpostorMaterial>,
+    ) {
+        let material = materials.add(impostor.material());
+        self.kept.insert(key, KeptImpostor { impostor, material });
     }
 }
 
@@ -291,7 +351,7 @@ pub(crate) struct ActiveBakes {
 pub(crate) fn start_bakes(
     mut commands: Commands,
     settings: Res<ImpostorSettings>,
-    requests: Query<(Entity, &ImpostorRequest), Without<BakedImpostor>>,
+    requests: Query<(Entity, &ImpostorRequest, Has<SharedRequest>), Without<BakedImpostor>>,
     impostors: Res<Impostors>,
     mut active: ResMut<ActiveBakes>,
     mut reads: ResMut<DiskReads>,
@@ -302,8 +362,9 @@ pub(crate) fn start_bakes(
     writes: Res<ImpostorWrites>,
 ) {
     let bc7 = cache::supports_bc7(formats.as_deref());
-    for (entity, request) in &requests {
-        // Already baked or read from disk: answer at once.
+    for (entity, request, shared) in &requests {
+        // Already baked or read from disk: answer at once. The plugin's own
+        // requests have no one left to tell.
         if let Some(impostor) = impostors.get(request.key) {
             commands
                 .entity(entity)
@@ -312,6 +373,9 @@ pub(crate) fn start_bakes(
                 entity,
                 key: request.key,
             });
+            if shared {
+                commands.entity(entity).despawn();
+            }
             continue;
         }
 
@@ -351,15 +415,8 @@ pub(crate) fn start_bakes(
             continue;
         };
 
-        let (impostor, entities, cameras) = spawn_bake(
-            &mut commands,
-            &settings,
-            request,
-            slot,
-            center,
-            radius,
-            &mut images,
-        );
+        let (impostor, entities, cameras) =
+            spawn_bake(&mut commands, request, slot, center, radius, &mut images);
         active.bakes.push(ActiveBake {
             request: entity,
             key: request.key,
@@ -375,7 +432,8 @@ pub(crate) fn start_bakes(
 /// Ends bakes that have drawn for long enough: removes their copies and
 /// cameras. On a GPU, the atlases are then read back to be finished (mip
 /// levels, files), and the requests are answered once that is done;
-/// otherwise the impostor is kept and the request answered at once.
+/// otherwise the impostor is kept at once, and [`start_bakes`] answers the
+/// requests.
 pub(crate) fn finish_bakes(
     mut commands: Commands,
     settings: Res<ImpostorSettings>,
@@ -383,6 +441,7 @@ pub(crate) fn finish_bakes(
     mut active: ResMut<ActiveBakes>,
     mut impostors: ResMut<Impostors>,
     mut writes: ResMut<ImpostorWrites>,
+    mut materials: ResMut<Assets<ImpostorMaterial>>,
 ) {
     // Count only frames drawn with every pipeline built.
     for bake in &mut active.bakes {
@@ -403,18 +462,11 @@ pub(crate) fn finish_bakes(
         // Read the atlases back for their mip levels and files; only a
         // GPU has anything to read back.
         if readiness.renders() {
-            let size = settings.frames * settings.frame_size;
+            let size = bake.key.bake().atlas_size();
             cache::save(&mut commands, &mut writes, bake.key, &bake.impostor, size);
             continue;
         }
-        impostors.0.insert(bake.key, bake.impostor.clone());
-        if let Ok(mut request) = commands.get_entity(bake.request) {
-            request.insert(BakedImpostor(bake.impostor));
-            commands.trigger(ImpostorReady {
-                entity: bake.request,
-                key: bake.key,
-            });
-        }
+        impostors.keep(bake.key, bake.impostor, &mut materials);
     }
 }
 
@@ -457,14 +509,14 @@ const BAKE_LAYERS: usize = 24;
 /// normal cameras.
 fn spawn_bake(
     commands: &mut Commands,
-    settings: &ImpostorSettings,
     request: &ImpostorRequest,
     slot: usize,
     center: Vec3,
     radius: f32,
     images: &mut Assets<Image>,
 ) -> (Impostor, Vec<Entity>, [Entity; 2]) {
-    let frames = settings.frames;
+    let bake = request.key.bake();
+    let frames = bake.frames;
     let cell = 2.0 * radius;
     let side = frames as f32 * cell;
     let views: Vec<Transform> = (0..frames * frames)
@@ -482,7 +534,7 @@ fn spawn_bake(
         })
         .collect();
 
-    let atlas_size = frames * settings.frame_size;
+    let atlas_size = bake.atlas_size();
     let mut entities = Vec::new();
     let mut cameras = Vec::new();
     let mut atlases = Vec::new();

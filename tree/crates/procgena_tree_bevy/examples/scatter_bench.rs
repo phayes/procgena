@@ -48,11 +48,11 @@ use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::time::Real;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_impostor::{ImpostorBakeCamera, ImpostorPlugin, ImpostorSettings};
+use procgena_impostor::{ImpostorBakeCamera, ImpostorLevel, ImpostorPlugin, ImpostorSettings};
 use procgena_tree::{TreeScatterPreset, default_lod};
 use procgena_tree_bevy::{
-    TreeImpostor, TreeParams, TreePlugin, TreeScatterAssets, TreeScatterFinished,
-    TreeScatterInstances, TreeScatterParams, TreeScatterStats,
+    TreeParams, TreePlugin, TreeScatterAssets, TreeScatterFinished, TreeScatterInstances,
+    TreeScatterParams, TreeScatterStats, default_tree_impostor,
 };
 
 /// Frames after the grove is ready before measuring starts: pipeline
@@ -73,7 +73,7 @@ struct Bench {
     screenshot: Option<String>,
     entities: bool,
     /// Where far trees switch to impostors, or `None` without them.
-    impostor: Option<TreeImpostor>,
+    impostor: Option<ImpostorLevel>,
 }
 
 /// The image the camera draws into.
@@ -134,7 +134,7 @@ fn main() -> AppExit {
         csv: None,
         screenshot: None,
         entities: false,
-        impostor: Some(TreeImpostor::default()),
+        impostor: Some(default_tree_impostor()),
     };
     let mut textures = false;
     let mut cache = None;

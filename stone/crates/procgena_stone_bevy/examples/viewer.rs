@@ -35,7 +35,7 @@
 //! `--eye x y z` and `--target x y z`. Use `--resolution <width> <height>` to set
 //! the window or screenshot size in pixels (default: 1280 × 720).
 //! Use `--screenshot <file.png>` to save a PNG image and exit. The viewer waits
-//! for CPU rocks and textures to load, then allows a few more frames before
+//! for CPU rocks, their impostors and textures to load, then allows a few more frames before
 //! capturing the image. Pool and scatter rocks get an additional six-second wait for the
 //! graphics processor (GPU) to generate their shapes; completion is not checked.
 //! The run reports an error if a texture fails to load, saving fails, or the
@@ -58,6 +58,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
+use procgena_impostor::{BakedImpostor, ImpostorRequest};
 use procgena_stone::{
     Ground, HeightGrid, Mesher, ScatterArea, ScatterInput, StoneOptions, StoneScatter,
     StoneScatterOptions, TEXTURE_SETS,
@@ -613,6 +614,7 @@ fn screenshot(
     materials: Res<Assets<StoneMaterial>>,
     parts: Query<(), With<StonePart>>,
     generating: Query<(), With<StoneGenerating>>,
+    baking: Query<(), (With<ImpostorRequest>, Without<BakedImpostor>)>,
     pooled: Query<(), With<PooledStone>>,
     mut exit: MessageWriter<AppExit>,
     mut idle_since: Local<Option<f32>>,
@@ -649,7 +651,8 @@ fn screenshot(
     let rocks = if viewer.pool || viewer.scatter {
         !pooled.is_empty()
     } else {
-        !parts.is_empty() && generating.is_empty()
+        // CPU rocks also wait for their impostors to bake.
+        !parts.is_empty() && generating.is_empty() && baking.is_empty()
     };
     if !(textures && rocks) {
         *ready_since = None;

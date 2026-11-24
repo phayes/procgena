@@ -28,6 +28,7 @@ use crate::ImpostorSettings;
 use crate::bake::{Impostor, Impostors};
 use crate::key::ImpostorKey;
 use crate::ktx2::encode_bc7;
+use crate::material::ImpostorMaterial;
 use crate::mips::{MipChains, mip_chains};
 
 /// An impostor as stored: its layout, bounds and full-size atlas pixels
@@ -363,6 +364,7 @@ pub(crate) fn finish_reads(
     mut reads: ResMut<DiskReads>,
     mut impostors: ResMut<Impostors>,
     mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<ImpostorMaterial>>,
 ) {
     let reads = &mut *reads;
     let mut finished = Vec::new();
@@ -384,7 +386,7 @@ pub(crate) fn finish_reads(
             center: loaded.center,
             radius: loaded.radius,
         };
-        impostors.0.insert(key, impostor);
+        impostors.keep(key, impostor, &mut materials);
     }
 }
 
@@ -502,6 +504,7 @@ pub(crate) fn finish_writes(
     mut writes: ResMut<ImpostorWrites>,
     mut impostors: ResMut<Impostors>,
     mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<ImpostorMaterial>>,
 ) {
     writes
         .finishing
@@ -520,7 +523,7 @@ pub(crate) fn finish_writes(
                     center: stored.center,
                     radius: stored.radius,
                 };
-                impostors.0.insert(*key, impostor);
+                impostors.keep(*key, impostor, &mut materials);
                 false
             }
         });
@@ -576,7 +579,7 @@ mod tests {
     #[test]
     fn impostors_round_trip_through_their_files() {
         let dir = folder("round_trip");
-        let key = ImpostorKey::new("test", 1, &[]);
+        let key = ImpostorKey::test(1);
         assert_eq!(read(&dir, key), None, "nothing is stored yet");
         let impostor = stored(8, 7);
         write(&dir, key, &impostor).unwrap();
@@ -592,7 +595,7 @@ mod tests {
     #[test]
     fn damaged_or_foreign_files_are_ignored() {
         let dir = folder("damaged");
-        let key = ImpostorKey::new("test", 2, &[]);
+        let key = ImpostorKey::test(2);
         write(&dir, key, &stored(4, 1)).unwrap();
 
         // A layout from another format version.
@@ -603,7 +606,7 @@ mod tests {
 
         // An atlas of the wrong size.
         write(&dir, key, &stored(4, 1)).unwrap();
-        let other = ImpostorKey::new("test", 3, &[]);
+        let other = ImpostorKey::test(3);
         write(&dir, other, &stored(8, 1)).unwrap();
         fs::copy(
             path(&dir, &other.to_string(), "albedo.png"),
@@ -617,7 +620,7 @@ mod tests {
     #[test]
     fn loaded_pngs_gain_mip_levels() {
         let dir = folder("png_mips");
-        let key = ImpostorKey::new("test", 4, &[]);
+        let key = ImpostorKey::test(4);
         // Views of 32 pixels: levels of 32, 16 and 8 pixels a view.
         write(&dir, key, &stored(64, 3)).unwrap();
         for bc7 in [false, true] {
@@ -646,7 +649,7 @@ mod tests {
     fn compressed_impostors_are_preferred_where_the_gpu_supports_them() {
         let cache = folder("compress_from");
         let shipped = folder("compress_to");
-        let key = ImpostorKey::new("test", 5, &[]);
+        let key = ImpostorKey::test(5);
         write(&cache, key, &stored(64, 3)).unwrap();
         fs::write(cache.join("notes.md"), "not an impostor").unwrap();
         assert_eq!(compress_impostors(&cache, &shipped).unwrap(), 1);
@@ -677,7 +680,7 @@ mod tests {
         assert!(load(&shipped, key, false).is_none());
 
         // Atlases that aren't whole blocks can't be compressed.
-        let odd = ImpostorKey::new("test", 6, &[]);
+        let odd = ImpostorKey::test(6);
         write(&cache, odd, &stored(6, 3)).unwrap();
         assert!(compress_impostors(&cache, &shipped).is_err());
         fs::remove_dir_all(&cache).unwrap();
