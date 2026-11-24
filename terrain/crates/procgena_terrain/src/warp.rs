@@ -30,7 +30,7 @@ pub const MIN_WARP_WAVELENGTH: f64 = 4.0 * FEATURE_CLEARANCE;
 const MAX_WARP_SLOPE: f64 = 1.0;
 
 /// How many straight pieces a warped side has per wavelength.
-const POINTS_PER_WAVELENGTH: f64 = 16.0;
+const POINTS_PER_WAVELENGTH: f64 = 8.0;
 
 /// The largest value [`gradient_noise`] takes, for unit gradients in 2D:
 /// dividing by it scales the noise into −1 to 1.
@@ -299,7 +299,7 @@ pub(crate) fn warp_side(
         fold(mix64(corner_id(start).0, corner_id(end).0)),
     );
 
-    // Points every few tens of metres, moved along the normal.
+    // Points every eighth of a wavelength, moved along the normal.
     let pieces = (length / warp.wavelength * POINTS_PER_WAVELENGTH)
         .ceil()
         .max(1.0) as usize;
@@ -610,7 +610,8 @@ mod tests {
             .iter()
             .filter(|p| east.iter().any(|q| bits(q) == bits(p)))
             .collect();
-        assert!(shared.len() > 50, "{} shared points", shared.len());
+        // About 3.7 km of shared border, a point every 100 m.
+        assert!(shared.len() > 30, "{} shared points", shared.len());
         // The world's edge stays straight: the west region's outer corners
         // are still next to each other.
         let at = |p: (f64, f64)| {
