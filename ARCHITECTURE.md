@@ -304,7 +304,10 @@ ground.
   with a rule over slope, height, water and road distance, labels, noise
   and its own Scatters (litter under trees), laid over its Biome's base
   ground and weighted by its coverage. Planned (milestones GM0–GM6) in
-  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
+  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md);
+  GM0 built the engine-free model (`procgena_terrain::ground`) and the
+  Ecotope's `ground` map, painted from its placed copies (coverage not
+  yet).
 
 **What it gets from above.** Its area, as a coverage function from 0 to 1
 that the Biome works out from Terrain labels and border noise. Also the

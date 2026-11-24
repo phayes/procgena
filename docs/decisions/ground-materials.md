@@ -1,9 +1,9 @@
 # Ground materials: Ecotope-owned, driven by terrain measures and labels
 
-Status: **planned with the user on 2026-11-24.** The choices under
-"Decisions" are the user's. Anything still marked "proposed, not
-decided" is a recommendation waiting for the user (see "Open questions").
-No code was changed or run.
+Status: **planned with the user on 2026-11-24; GM0 built the same day**
+(see "As built"). The choices under "Decisions" are the user's. Anything
+still marked "proposed, not decided" is a recommendation waiting for the
+user (see "Open questions").
 
 Written from ARCHITECTURE.md ("3. Ecotope", "4. Biome and Terrain",
 "Loading by chunk", "Masks and placement", "Seeds", "Extensibility",
@@ -362,6 +362,74 @@ GM0 can start now, in `procgena_terrain` (a new `ground` module) and
 `procgena_biome` (the Ecotope's ground). It builds on G6's `ChunkKey`,
 which is on master since G6 merged (2026-11-24); this plan was written
 on a branch from before the merge and read G6 from its branch.
+
+## As built: GM0 (2026-11-24)
+
+**Terrain crate** (`procgena_terrain::ground`, tests in
+`tests/ground_layers.rs`, image dump `--example ground_dump`):
+
+- `MaterialCatalogue` maps keys to `GroundMaterial { colour, roughness }`;
+  `standard()` holds `grass`, `cliff_rock`, `snow`, `gravel_road`,
+  `riverbed`, `bare_dirt`, `forest_soil`, `needle_litter`, `moss` and
+  `mud`. A `MaterialId` is a material's index in key order. Texture
+  fields, presets and `.ground_material.yml` files are not built yet
+  (GM2).
+- `GroundLayer { material, order, opacity, when, noise, under }`. A
+  `Ramp` is `{ rise: [a, b], fall: [c, d] }`, both optional smoothsteps,
+  rather than four numbers. Conditions built: `slope` (the sine of the
+  angle, as G6's shader), `height` as the decided enum
+  (`absolute`, divided by the World's `vertical` before the band, or
+  `relief`, 0 to 1), `height_above_water` and `road_tags`. Noise is
+  two octaves of the terrain's gradient noise with `wavelength`,
+  `contrast` and `threshold`.
+- `GroundSite { height, slope, relief_height, water, road_tags }`.
+  **Changed from the plan:** "a missing measure counts as 1" would paint
+  riverbed and road over every plain `Ground`, so a site over a plain
+  `Ground` says "no water, no roads" (measured, none), and only truly
+  unknown measures (today the relief height, which no source fills yet)
+  count as 1. `GroundSource` reads sites from a `Terrain`, a
+  `WorldTerrain` or any `Ground` (`OnGround`).
+- `GroundStack` is a complete stack (its lowest layer must be opaque;
+  no Scatter influences); `GroundOverlay` holds layers laid in among a
+  stack's, Ecotope on top at equal orders, and layers below the stack's
+  lowest are hidden. Compositing is "over" into a `GroundMix` of weights
+  adding to 1. Duplicate orders, shared salts and unknown materials are
+  errors.
+- `GroundStack::bare(seed, vertical)` is the bare-terrain look:
+  `soil`/grass 0, `riverbed` 610 (under water), `road_banks`/bare dirt 620
+  (cut and embankment tags), `rock`/cliff rock 650, `road`/gravel 680,
+  `snow` 900. Without water and roads it equals G6's colours to 1e-5 (the
+  shader's patchy variation stays in the shader). Seed kind
+  `terrain.child.ground`.
+- `GroundPainter` (`catalogue`, `paint(p, site)`) and
+  `ChunkWeights::build(painter, source, key, stage)`: 129 × 129 texels on
+  the chunk's half-step lattice, a palette of up to 8 material ids, and
+  weights in 255ths adding to 255 (largest remainder, ties to the lower
+  id). Over the cap, the heaviest 8 stay and each dropped material goes
+  to the nearest kept colour; `dropped()` counts them.
+
+**Ecotope** (`procgena_biome`, tests in `tests/ecotope_ground.rs`, image
+dump `--example ground_dump`):
+
+- `Ecotope::ground` is a keyed map of `GroundLayer`s in `.ecotope.yml`:
+  exact differences over a `base`, `null` removes a layer, and new layers
+  are written without their default settings.
+- `Footprints::influence(p, reach, falloff)`: `Reach::Metres(m)` reaches
+  `m` beyond the footprint's edge, `Reach::Footprint(k)` to `k` times its
+  radius; the falloff ramp reads 0 at the footprint's middle and 1 at the
+  reach's edge. Footprints include the Scatter's clearance. Several
+  influences on one layer take the strongest. Trees expose only their
+  trunk, so the pine litter uses `metres: 3.0`, not a canopy multiple.
+- `Ecotope::ground(base, placement)` gives an `EcotopeGround` painter,
+  seeded from the placement's new `seed()` with kind
+  `ecotope.child.ground`; `Ecotope::ground_at` paints one point.
+  Validation checks orders, salts, layer settings and that followed
+  Scatters exist. Only placed copies shape the ground; the far form from
+  the density field, and coverage, are not built yet.
+- The pine forest floor has `soil` (forest soil, 100), `moss` (320, noisy
+  patches), `litter` (needle litter, 400, 3 m round pines) and `dirt`
+  (bare dirt, 450, 0.6 m round boulders). A test checks that ground layers
+  leave placement unchanged.
 
 ## Decisions
 

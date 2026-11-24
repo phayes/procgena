@@ -958,6 +958,12 @@ label-chosen material.
   under pines and dirt round boulders, and tests show equal edges between
   same-level chunks under the cap, build-order independence, file merge
   and `null` removal, and the default stack matching G6's colours.
+- **Status (2026-11-24): done.** `procgena_terrain::ground` and the
+  Ecotope's `ground` map are built, with image dumps
+  (`--example ground_dump` in both crates) and the tests the done-when
+  names. Not yet: material presets and `.ground_material.yml` files, far
+  (density-field) Scatter influence, coverage, and the relief height
+  (no source fills it yet). See "As built" in the plan.
 
 #### GM1: Ground colours drawn
 
