@@ -14,6 +14,7 @@ use bevy::math::DVec2;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
+use procgena_core::scatter::{ScatterArea, ScatterInput};
 use procgena_core::{ContentHash, ContentHasher, FarForm, LevelForm, PoolId, Quality};
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_deadwood::{
@@ -72,14 +73,18 @@ impl DeadwoodParams {
 ///
 /// The sticks are a few variants, each drawn many times. Every stick and
 /// detail level is its own [`DeadwoodPart`] entity, so a scatter costs one
-/// to three entities per stick: keep
-/// [`ScatterOptions::size`] and [`ScatterOptions::density`] modest (the
-/// presets place 50 to 130 sticks).
+/// to three entities per stick: keep [`size`](Self::size) and
+/// [`ScatterOptions::density`] modest (the stick presets place 50 to 130
+/// sticks over 6 m by 6 m). The scatter is seeded with
+/// [`ScatterOptions::seed`].
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub struct DeadwoodScatterParams {
-    /// How many sticks, of what sizes and decay, over how much ground.
+    /// How many sticks, of what sizes and decay.
     pub scatter: ScatterOptions,
+    /// Width (X) and depth (Z) of the rectangle to cover, in metres. Both
+    /// must be positive.
+    pub size: Vec2,
     /// The ground the sticks lie on.
     pub ground: ScatterGround,
 }
@@ -275,12 +280,13 @@ pub(crate) struct TextureSettings {
 enum Input {
     /// One piece.
     Single(Arc<DeadwoodOptions>),
-    /// A stick scatter on flat ground.
-    FlatScatter(ScatterOptions),
+    /// A stick scatter on flat ground, and the size of its area.
+    FlatScatter(ScatterOptions, Vec2),
     /// A stick scatter over a host's specimen, with the host's (uniform)
     /// world scale.
     HostScatter {
         scatter: ScatterOptions,
+        size: Vec2,
         filter: TagFilter,
         cell: f32,
         host: Arc<Specimen>,
@@ -294,10 +300,11 @@ impl PartialEq for Input {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Input::Single(a), Input::Single(b)) => a == b,
-            (Input::FlatScatter(a), Input::FlatScatter(b)) => a == b,
+            (Input::FlatScatter(a, x), Input::FlatScatter(b, y)) => a == b && x == y,
             (
                 Input::HostScatter {
                     scatter: a,
+                    size: x,
                     filter: f,
                     cell: c,
                     host: h,
@@ -305,12 +312,13 @@ impl PartialEq for Input {
                 },
                 Input::HostScatter {
                     scatter: b,
+                    size: y,
                     filter: g,
                     cell: d,
                     host: i,
                     scale: t,
                 },
-            ) => a == b && f == g && c == d && Arc::ptr_eq(h, i) && s == t,
+            ) => a == b && x == y && f == g && c == d && Arc::ptr_eq(h, i) && s == t,
             _ => false,
         }
     }
@@ -503,7 +511,7 @@ pub(crate) fn start_generation(
     for (entity, params, parent) in &scatters {
         let (filter, cell) = match &params.ground {
             ScatterGround::Flat => {
-                let input = Input::FlatScatter(params.scatter.clone());
+                let input = Input::FlatScatter(params.scatter.clone(), params.size);
                 wanted.push((entity, Wanted::Build(input)));
                 continue;
             }
@@ -526,6 +534,7 @@ pub(crate) fn start_generation(
         let (scale, _, _) = transform.to_scale_rotation_translation();
         let input = Input::HostScatter {
             scatter: params.scatter.clone(),
+            size: params.size,
             filter: filter.clone(),
             cell,
             host: specimen.0.clone(),
@@ -644,9 +653,10 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
                 single: Some((specimen, *piece.placement())),
             })
         }
-        Input::FlatScatter(scatter) => scatter_sticks(scatter, &FlatGround, 1.0, lod),
+        Input::FlatScatter(scatter, size) => scatter_sticks(scatter, *size, &FlatGround, 1.0, lod),
         Input::HostScatter {
             scatter,
+            size,
             filter,
             cell,
             host,
@@ -662,21 +672,25 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
                 grid,
                 scale: *scale,
             };
-            scatter_sticks(scatter, &ground, *scale, lod)
+            scatter_sticks(scatter, *size, &ground, *scale, lod)
         }
     }
 }
 
-/// Scatters sticks over `ground` (in world metres) and builds every
-/// variant. Each stick's transform is divided by `scale`, the parent's
-/// world scale, so it comes out in world metres.
+/// Scatters sticks over a `size` rectangle of `ground` (in world metres)
+/// centred on the entity, seeded by the scatter's own seed, and builds
+/// every variant. Each stick's transform is divided by `scale`, the
+/// parent's world scale, so it comes out in world metres.
 fn scatter_sticks(
     scatter: &ScatterOptions,
+    size: Vec2,
     ground: &dyn Ground,
     scale: f32,
     lod: &DeadwoodLod,
 ) -> Result<Built, DeadwoodBuildError> {
-    let built = StickScatter::new(scatter, ground, None).map_err(DeadwoodBuildError::Scatter)?;
+    let area = ScatterArea::new(DVec2::ZERO, size);
+    let input = ScatterInput::new(ground, area, scatter.seed);
+    let built = StickScatter::new(scatter, &input).map_err(DeadwoodBuildError::Scatter)?;
     let variants = built
         .variants()
         .iter()
@@ -1332,14 +1346,19 @@ mod tests {
             .world_mut()
             .spawn(DeadwoodScatterParams {
                 scatter: scatter.clone(),
+                size: Vec2::splat(6.0),
                 ground: ScatterGround::Flat,
             })
             .id();
         run_until_finished(&mut app, entity);
-        let expected = StickScatter::new(&scatter, &FlatGround, None)
-            .unwrap()
-            .instances()
-            .len();
+        let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(6.0));
+        let expected = StickScatter::new(
+            &scatter,
+            &ScatterInput::new(&FlatGround, area, scatter.seed),
+        )
+        .unwrap()
+        .instances()
+        .len();
         let sticks: HashSet<usize> = parts(&mut app, entity).iter().map(|p| p.instance).collect();
         assert_eq!(sticks.len(), expected);
         assert!(!app.world().entity(entity).contains::<GeneratedSpecimen>());
@@ -1360,10 +1379,10 @@ mod tests {
     fn host_scatter(filter: TagFilter) -> DeadwoodScatterParams {
         DeadwoodScatterParams {
             scatter: ScatterOptions {
-                size: [2.0, 2.0],
                 density: 6.0,
                 ..ScatterOptions::kindling()
             },
+            size: Vec2::splat(2.0),
             ground: ScatterGround::Host { filter, cell: 0.1 },
         }
     }

@@ -64,7 +64,7 @@ fn the_variant_pool_leaves_out_what_only_places_copies() {
     let o = ScatterOptions::kindling();
     let placed = ScatterOptions {
         seed: o.seed + 1,
-        size: [o.size[0] * 2.0, o.size[1]],
+        max_slope: o.max_slope + 10.0,
         density: o.density * 2.0,
         min_spacing: o.min_spacing + 0.1,
         variants: o.variants + 1,

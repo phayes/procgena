@@ -1,22 +1,32 @@
 //! Stick scatter over flat and shaped ground.
 
 use glam::{DVec2, Vec2, Vec3};
-use procgena_deadwood::{FlatGround, ScatterError, ScatterOptions, StickScatter, default_lod};
+use procgena_core::scatter::{ScatterArea, ScatterInput};
+use procgena_deadwood::{
+    FlatGround, Ground, ScatterError, ScatterOptions, StickScatter, default_lod,
+};
 use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
-/// Kindling over a small 3 m square, to keep the tests quick.
+/// Kindling, to scatter over [`small_area`].
 fn small() -> ScatterOptions {
-    ScatterOptions {
-        size: [3.0, 3.0],
-        ..ScatterOptions::kindling()
-    }
+    ScatterOptions::kindling()
+}
+
+/// A 3 m square around the World origin, to keep the tests quick.
+fn small_area() -> ScatterArea {
+    ScatterArea::new(DVec2::ZERO, Vec2::splat(3.0))
+}
+
+/// Scatters `o` over `ground` in [`small_area`], with `o`'s own seed.
+fn scatter(o: &ScatterOptions, ground: &dyn Ground) -> StickScatter {
+    StickScatter::new(o, &ScatterInput::new(ground, small_area(), o.seed)).unwrap()
 }
 
 #[test]
 fn scatter_is_repeatable_spaced_and_in_bounds() {
     let o = small();
-    let a = StickScatter::new(&o, &FlatGround, None).unwrap();
-    let b = StickScatter::new(&o, &FlatGround, None).unwrap();
+    let a = scatter(&o, &FlatGround);
+    let b = scatter(&o, &FlatGround);
     assert_eq!(a, b);
     assert!(!a.instances().is_empty());
     assert_eq!(a.variants().len(), o.variants as usize);
@@ -39,11 +49,12 @@ fn scatter_is_repeatable_spaced_and_in_bounds() {
 }
 
 #[test]
-fn density_thins_the_scatter() {
+fn the_mask_thins_the_scatter() {
     let o = small();
-    let full = StickScatter::new(&o, &FlatGround, None).unwrap();
-    let half_bare = |x: f32, _z: f32| if x < 0.0 { 0.0 } else { 1.0 };
-    let thinned = StickScatter::new(&o, &FlatGround, Some(&half_bare)).unwrap();
+    let full = scatter(&o, &FlatGround);
+    let half_bare = |p: DVec2| if p.x < 0.0 { 0.0 } else { 1.0 };
+    let input = ScatterInput::new(&FlatGround, small_area(), o.seed).with_mask(&half_bare);
+    let thinned = StickScatter::new(&o, &input).unwrap();
     assert!(thinned.instances().len() < full.instances().len());
     for i in thinned.instances() {
         assert!(i.position.x >= 0.0, "{}", i.position);
@@ -54,7 +65,8 @@ fn density_thins_the_scatter() {
 fn sticks_follow_a_slope() {
     let o = small();
     let slope = |p: DVec2| 0.3 * p.x as f32;
-    let s = StickScatter::new(&o, &slope, None).unwrap();
+    let s = scatter(&o, &slope);
+    assert!(!s.instances().is_empty());
     for i in s.instances() {
         let p = i.position;
         let up = i.transform.matrix3 * glam::Vec3A::Y;
@@ -71,10 +83,42 @@ fn sticks_follow_a_slope() {
 }
 
 #[test]
+fn ground_steeper_than_the_limit_is_left_bare() {
+    // 0.3 rises about 17°, 1.0 rises 45°: kindling allows up to 35°.
+    let gentle = |p: DVec2| 0.3 * p.x as f32;
+    let steep = |p: DVec2| p.x as f32;
+    let o = small();
+    assert!(!scatter(&o, &gentle).instances().is_empty());
+    assert!(scatter(&o, &steep).instances().is_empty());
+    // With no limit, the steep ground is covered too.
+    let unlimited = ScatterOptions {
+        max_slope: 90.0,
+        ..small()
+    };
+    assert!(!scatter(&unlimited, &steep).instances().is_empty());
+}
+
+#[test]
+fn an_area_away_from_the_origin_reads_the_ground_there() {
+    // A step at x = 1000: the area around (1000.5, 0) has ground only on
+    // its high side, and positions stay relative to the area's centre.
+    let o = small();
+    let step = |p: DVec2| if p.x < 1000.0 { f32::NAN } else { 2.0 };
+    let area = ScatterArea::new(DVec2::new(1000.5, 0.0), Vec2::splat(3.0));
+    let s = StickScatter::new(&o, &ScatterInput::new(&step, area, o.seed)).unwrap();
+    assert!(!s.instances().is_empty());
+    for i in s.instances() {
+        assert!(i.position.x >= -0.5, "{}", i.position);
+        assert!(i.position.x <= 1.5 + 1e-4, "{}", i.position);
+        assert_eq!(i.position.y, 2.0);
+    }
+}
+
+#[test]
 fn no_ground_drops_sticks() {
     let o = small();
     let hole = |p: DVec2| if p.x < 0.0 { f32::NAN } else { 0.0 };
-    let s = StickScatter::new(&o, &hole, None).unwrap();
+    let s = scatter(&o, &hole);
     for i in s.instances() {
         assert!(i.position.x >= 0.0);
     }
@@ -97,28 +141,49 @@ fn height_grid_from_a_specimen_follows_its_top() {
     let grid = specimen
         .height_grid(0, &TagFilter::any_of([tags::GROUND]), 0.1)
         .unwrap();
-    use procgena_deadwood::Ground;
     assert!((grid.height(DVec2::new(1.0, 0.5)) - 0.2).abs() < 1e-3);
-    let s = StickScatter::new(&small(), &grid, None).unwrap();
+    let s = scatter(&small(), &grid);
     assert!(!s.instances().is_empty());
 }
 
 #[test]
 fn too_many_sticks_is_an_error() {
     let o = ScatterOptions {
-        size: [1000.0, 1000.0],
         density: 10.0,
         ..ScatterOptions::twig_litter()
     };
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(1000.0));
     assert!(matches!(
-        StickScatter::new(&o, &FlatGround, None),
+        StickScatter::new(&o, &ScatterInput::new(&FlatGround, area, o.seed)),
         Err(ScatterError::TooMany { .. })
     ));
 }
 
 #[test]
+fn an_empty_area_is_an_error() {
+    let o = small();
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::new(3.0, 0.0));
+    assert!(matches!(
+        StickScatter::new(&o, &ScatterInput::new(&FlatGround, area, o.seed)),
+        Err(ScatterError::Options(_))
+    ));
+}
+
+#[test]
+fn fallen_logs_are_logs() {
+    let o = ScatterOptions::fallen_logs();
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(20.0));
+    let s = StickScatter::new(&o, &ScatterInput::new(&FlatGround, area, o.seed)).unwrap();
+    assert!(!s.instances().is_empty());
+    for v in s.variants() {
+        assert_eq!(v.options().kind, procgena_deadwood::PieceKind::Log);
+        assert!(v.options().diameter >= 0.2 && v.options().diameter <= 0.5);
+    }
+}
+
+#[test]
 fn baked_specimen_is_valid() {
-    let s = StickScatter::new(&small(), &FlatGround, None).unwrap();
+    let s = scatter(&small(), &FlatGround);
     let specimen = s.specimen(&default_lod()).unwrap();
     specimen.validate().unwrap();
     let part = &specimen.levels[0].parts[0];
@@ -145,20 +210,32 @@ fn more_variants_keep_the_existing_ones() {
         variants: 5,
         ..small()
     };
-    let a = StickScatter::new(&few, &FlatGround, None).unwrap();
-    let b = StickScatter::new(&more, &FlatGround, None).unwrap();
+    let a = scatter(&few, &FlatGround);
+    let b = scatter(&more, &FlatGround);
     assert_eq!(a.variants(), &b.variants()[..3]);
 }
 
 #[test]
-fn each_scatter_seed_grows_its_own_variants() {
-    let a = StickScatter::new(&small(), &FlatGround, None).unwrap();
-    let other = ScatterOptions {
-        seed: small().seed + 1,
-        ..small()
-    };
-    let b = StickScatter::new(&other, &FlatGround, None).unwrap();
+fn each_input_seed_grows_its_own_variants() {
+    let o = small();
+    let a = scatter(&o, &FlatGround);
+    let input = ScatterInput::new(&FlatGround, small_area(), o.seed + 1);
+    let b = StickScatter::new(&o, &input).unwrap();
     for (va, vb) in a.variants().iter().zip(b.variants()) {
         assert_ne!(va, vb);
     }
+}
+
+#[test]
+fn the_input_seed_wins_over_the_options_seed() {
+    let o = small();
+    let other = ScatterOptions {
+        seed: o.seed + 7,
+        ..small()
+    };
+    let input = ScatterInput::new(&FlatGround, small_area(), o.seed);
+    assert_eq!(
+        StickScatter::new(&o, &input).unwrap(),
+        StickScatter::new(&other, &input).unwrap()
+    );
 }

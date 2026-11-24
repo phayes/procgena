@@ -117,10 +117,8 @@ fn spawn_scene(app: &mut App) {
         Transform::from_xyz(1.0, 0.0, -1.0),
     ));
     app.world_mut().spawn(DeadwoodScatterParams {
-        scatter: ScatterOptions {
-            size: [3.0, 3.0],
-            ..ScatterOptions::kindling()
-        },
+        scatter: ScatterOptions::kindling(),
+        size: Vec2::splat(3.0),
         ground: ScatterGround::Flat,
     });
 }

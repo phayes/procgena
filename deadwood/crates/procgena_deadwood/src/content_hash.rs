@@ -33,13 +33,13 @@ impl ScatterOptions {
     /// [`piece`](Self::piece) and the decay, diameter and length ranges.
     /// Variant `v` is the specimen in slot `v` of this pool.
     ///
-    /// The seed, area, density, spacing and number of variants are left
-    /// out: they choose which specimens are drawn and where, not what the
-    /// specimens are. So adding variants keeps the existing ones.
+    /// The seed, slope limit, density, spacing and number of variants are
+    /// left out: they choose which specimens are drawn and where, not what
+    /// the specimens are. So adding variants keeps the existing ones.
     pub fn variant_pool(&self) -> PoolId {
         let Self {
             seed: _,
-            size: _,
+            max_slope: _,
             density: _,
             min_spacing: _,
             variants: _,
