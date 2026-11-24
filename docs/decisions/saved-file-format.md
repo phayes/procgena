@@ -1,10 +1,8 @@
 # Saved-file format: preset bundles
 
-Status: **mostly decided.** The user decided the first round's questions
-and the container on 2026-11-24 (see "Decisions"). The zip library is
-chosen when PB1 is built. Three smaller choices remain under "Questions
-for the user". Anything still marked "proposed" waits for the user. No
-code was changed or run.
+Status: **decided.** The user decided every question and the container on
+2026-11-24 (see "Decisions" and "Questions for the user"). The zip library
+is chosen when PB1 is built. No code was changed or run.
 
 Written from ARCHITECTURE.md ("Seeds", rule 10 "One preset and file
 pattern", "Bringing your own assets"),
