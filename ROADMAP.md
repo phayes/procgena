@@ -1344,8 +1344,9 @@ where the details are.
     `tree: pine_small`, meaning the built-in tree. A project Ecotope based
     on `pine_forest_floor` inherits that line. Today the bare name is then
     ambiguous (built-in or project), and you can't add the prefix because
-    the line lives in the built-in file. **Recommendation:** a name
-    resolves first in the namespace of the file it was written in, so
+    the line lives in the built-in file. **Decided by the user
+    (2026-11-24):** a name resolves first in the namespace of the file it
+    was written in, so
     names in built-in files always mean `builtin:`, and project files see
     their own presets first. This needs the merge to remember which file
     each line came from. The alternative is to keep it ambiguous and make
