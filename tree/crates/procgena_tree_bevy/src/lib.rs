@@ -247,8 +247,7 @@
 //! At the farthest level (LOD3), thin branches are omitted and the remaining branches
 //! use flat strips. With textures configured, those strips use a single colour
 //! approximating the bark texture, and fewer, larger leaf cards show clumps of leaves.
-//! Fruit above the size threshold become flat hexagons without stalks. These flat
-//! shapes, called billboards, turn toward the camera to help preserve the tree’s
+//! These flat shapes, called billboards, turn toward the camera to help preserve the tree’s
 //! outline as the view changes. For shadow rendering, they turn toward the light.
 //! To see shadows at this distance, extend the directional light’s shadow cascades
 //! far enough to cover the trees.

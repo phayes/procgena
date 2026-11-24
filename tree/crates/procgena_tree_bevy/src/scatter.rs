@@ -967,7 +967,7 @@ mod tests {
     use procgena_core::CellId;
     use procgena_core::{Lod, LodLevel};
     use procgena_core_bevy::LodQuality;
-    use procgena_core_bevy::instanced::{InstancedScatter, SpecimenCache};
+    use procgena_core_bevy::instanced::{InstancedAttached, InstancedScatter, SpecimenCache};
     use procgena_specimen::{Part, SurfaceMesh, tags};
     use procgena_tree::{
         AddressPrefix, LOD_REFERENCE_SIZE, LodDetail, ScatterTree, TextureCompression, TextureSize,
@@ -1608,6 +1608,54 @@ mod tests {
         update_until_finished(app, grove);
         let drawn = trees(app, grove);
         (grove, drawn)
+    }
+
+    /// Checks that a grove draws its fruit as attached rows: one table per
+    /// variant, whose rows name slots after the variants' own, and fruit
+    /// specimens shared by variants with the same fruit settings, drawn once.
+    #[test]
+    fn grove_fruit_is_drawn_as_rows_on_its_variants() {
+        let mut app = grove_app();
+        let scatter = TreeScatter::new(vec![
+            ScatterTree::new(TreePreset::apple())
+                .with_variants(2)
+                .scaled(0.3),
+        ]);
+        let grove = app
+            .world_mut()
+            .spawn(TreeScatterParams::new(scatter, SIZE))
+            .id();
+        update_until_finished(&mut app, grove);
+
+        let world = app.world();
+        let drawn = world.get::<InstancedScatter>(grove).unwrap();
+        let rows = world.get::<InstancedAttached>(grove).unwrap();
+        let variants = world
+            .get::<TreeScatterAssets>(grove)
+            .unwrap()
+            .variants()
+            .len();
+        assert_eq!(variants, 2);
+        assert_eq!(rows.tables.len(), variants, "one table per variant");
+
+        // Both variants grow apples from the same fruit settings, so they
+        // share one slot per fruit specimen.
+        let fruit_slots = TreePreset::apple()
+            .tree
+            .fruit
+            .as_ref()
+            .unwrap()
+            .default_slots as usize;
+        assert_eq!(drawn.slots.len(), variants + fruit_slots);
+        for table in rows.tables.iter() {
+            assert!(!table.is_empty(), "every variant bears fruit");
+            assert!(table.iter().all(|row| {
+                (variants..drawn.slots.len()).contains(&(row.slot as usize)) && row.host_levels == 1
+            }));
+        }
+        for slot in &drawn.slots[variants..] {
+            assert!(!slot.parts.is_empty(), "fruit slots have meshes");
+        }
     }
 
     #[test]
