@@ -63,5 +63,8 @@ dirs = "6"
 # Runs texture downloads on their own threads, as Bevy's web asset reader does.
 blocking = "1.7"
 serde_json = { workspace = true }
+# The project file, procgena.yml.
+serde = { workspace = true }
+serde-saphyr = { workspace = true }
 # Native file dialogs.
 rfd = "0.18"
