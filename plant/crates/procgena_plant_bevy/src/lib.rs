@@ -88,9 +88,10 @@ pub use files::{
 pub use physics::{PlantColliderBounds, PlantColliderSystems, PlantInteractorFromCollider};
 /// The engine-free settings, presets and files, from `procgena_plant`.
 pub use procgena_plant::{
-    GroundTint, MAX_BRANCHES, MAX_PLANTS, MAX_STEMS_PER_PLANT, PlantAccent, PlantArrangement,
-    PlantBranches, PlantFileError, PlantParams, PlantPreset, PlantScatterOptions,
-    PlantScatterPreset, PlantSegment, PlantVariation, PresetFileError, ScatterPlant, Srgb,
+    GroundTint, MAX_BAKE_TEXELS, MAX_BRANCHES, MAX_PLANTS, MAX_STEMS_PER_PLANT, PlantAccent,
+    PlantArrangement, PlantBake, PlantBranches, PlantFileError, PlantParams, PlantPreset,
+    PlantScatterOptions, PlantScatterPreset, PlantSegment, PlantSettingsError, PlantVariation,
+    PresetFileError, ScatterPlant, Srgb,
 };
 pub use render::platform::PlantSupport;
 pub use settings::{PlantMeshSize, PlantQuality, PlantSettings, PlantShadows};

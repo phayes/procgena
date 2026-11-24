@@ -1685,3 +1685,27 @@ fn heights_draw_the_same_in_either_order() {
     let drawn = |plant: &PlantParams| look_entry(&entry, &field, plant, Vec4::ZERO);
     assert_eq!(drawn(&swapped), drawn(&plant));
 }
+
+#[test]
+fn a_seed_moves_the_blades_and_seed_0_keeps_where_they_were() {
+    let mut app = app();
+    let field = spawn_field(&mut app, ());
+    settle(&mut app);
+    let seed_of = |app: &App| tables_now(app).fields[0].placement.x;
+    let corner = tables_now(&app).fields[0].min_corner;
+    let by_position = shader_model::hash2(corner.x.to_bits(), corner.z.to_bits());
+    assert_eq!(seed_of(&app), by_position, "seed 0 is the corner's seed");
+
+    // The field's own seed is mixed in.
+    edit_field(&mut app, field, |field| field.seed = Some(5));
+    app.update();
+    assert_eq!(seed_of(&app), by_position ^ 5);
+
+    // Without one, the options' default seed is used.
+    edit_field(&mut app, field, |field| {
+        field.seed = None;
+        field.options.default_seed = 7;
+    });
+    app.update();
+    assert_eq!(seed_of(&app), by_position ^ 7);
+}

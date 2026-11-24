@@ -49,6 +49,7 @@ use procgena_core::scatter::ScatterArea;
 use procgena_core::{Ground, HeightGrid};
 use procgena_deadwood_bevy::{DeadwoodGenerating, DeadwoodPart, DeadwoodPlugin};
 use procgena_mushroom_bevy::{MushroomGenerating, MushroomPart, MushroomPlugin};
+use procgena_plant_bevy::PlantPlugins;
 use procgena_stone_bevy::{StoneGenerating, StonePart, StonePlugin};
 use procgena_tree_bevy::{TreeGenerating, TreePart, TreePlugin};
 
@@ -178,6 +179,7 @@ fn main() {
             texture_root: root("mushroom"),
             ..default()
         },
+        PlantPlugins,
         EcotopePlugin,
     ))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
@@ -213,7 +215,7 @@ fn plain_colours(ecotope: &mut Ecotope) {
                     class.stone.material.color = [0.12, 0.115, 0.1];
                 }
             }
-            ScatterKind::Deadwood(_) | ScatterKind::Mushroom { .. } => {}
+            ScatterKind::Deadwood(_) | ScatterKind::Mushroom { .. } | ScatterKind::Plant(_) => {}
         }
     }
 }

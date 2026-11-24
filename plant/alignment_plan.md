@@ -175,6 +175,25 @@ blades of the whole.
 
 ### P2: plants in the early Ecotope
 
+- **Status (2026-11-24):** built.
+  - In `procgena_plant`: `PlantScatterOptions::max_slope` (90 by default),
+    the `bake` into a `PlantBake`, and `PlantSettingsError`, which
+    `validate()` now returns.
+  - In `procgena_plant_bevy`: `PlantScatter::seed` and `with_bake`. The
+    field seed is `corner hash ^ seed`; the 48 golden captures are
+    byte-identical to P1's.
+  - In `procgena_biome`: `ScatterKind::Plant` (file kind `plant`, with an
+    optional `base` plant Scatter preset). The Ecotope's footprints above
+    become exact discs, a capsule as a chain of widened discs. The pine
+    forest floor grows an `undergrowth`.
+  - In `procgena_biome_bevy`: one `PlantScatter` per plant layer, from
+    the bake.
+  - The studio's Ecotope tab adds plant Scatters, with the Plant Scatter
+    tab's controls and a Max Slope.
+  - Not done here: a picker for the plant Scatter preset in the Ecotope
+    tab, and listing plant presets in the preset registry's reference
+    slots, since plant doesn't implement `procgena_core::preset::Preset`.
+
 - **Covers:**
   - In `procgena_plant`:
     - `max_slope` on `PlantScatterOptions` (none by default, so presets

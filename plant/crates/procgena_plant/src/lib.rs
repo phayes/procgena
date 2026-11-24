@@ -22,12 +22,14 @@
 //! GPU. Turn on the `reflect` feature for Bevy's `Reflect` on every
 //! settings type, so scenes and inspectors can read and edit them.
 
+mod bake;
 mod files;
 mod look;
 mod presets;
 mod scatter;
 
-pub use files::PlantFileError;
+pub use bake::{MAX_BAKE_TEXELS, PlantBake};
+pub use files::{PlantFileError, PlantSettingsError};
 pub use look::{
     GroundTint, MAX_BRANCHES, MAX_PLANTS, MAX_STEMS_PER_PLANT, PlantAccent, PlantArrangement,
     PlantBranches, PlantParams, PlantSegment, PlantVariation, ScatterPlant, Srgb,

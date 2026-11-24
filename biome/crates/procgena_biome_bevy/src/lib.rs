@@ -5,9 +5,9 @@
 //! Place the Ecotope first with
 //! [`Ecotope::place`](procgena_biome::Ecotope::place), then call
 //! [`spawn_ecotope`] with the same ground, area and coverage. Trees, stones,
-//! dead wood and mushrooms are drawn by `procgena_tree_bevy`,
-//! `procgena_stone_bevy`, `procgena_deadwood_bevy` and
-//! `procgena_mushroom_bevy`, so add their plugins to the app:
+//! dead wood, mushrooms and plants are drawn by `procgena_tree_bevy`,
+//! `procgena_stone_bevy`, `procgena_deadwood_bevy`, `procgena_mushroom_bevy`
+//! and `procgena_plant_bevy`, so add their plugins to the app:
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -19,6 +19,7 @@
 //! use procgena_core::{FlatGround, Ground};
 //! use procgena_deadwood_bevy::DeadwoodPlugin;
 //! use procgena_mushroom_bevy::MushroomPlugin;
+//! use procgena_plant_bevy::PlantPlugins;
 //! use procgena_stone_bevy::StonePlugin;
 //! use procgena_tree_bevy::TreePlugin;
 //!
@@ -38,6 +39,7 @@
 //!         StonePlugin { texture_root: None, ..default() },
 //!         DeadwoodPlugin { texture_root: None, ..default() },
 //!         MushroomPlugin { texture_root: None, ..default() },
+//!         PlantPlugins,
 //!     ))
 //!     .add_systems(Startup, setup)
 //!     .run();
@@ -55,6 +57,7 @@ use procgena_core::Ground;
 use procgena_core::scatter::{Mask, ScatterArea};
 use procgena_deadwood_bevy::DeadwoodParams;
 use procgena_mushroom_bevy::MushroomGroundScatterParams;
+use procgena_plant_bevy::PlantScatter;
 use procgena_stone_bevy::StoneParams;
 use procgena_tree_bevy::TreeParams;
 
@@ -194,6 +197,29 @@ fn spawn_layer(
                 ChildOf(holder),
             ));
         }
+        (ScatterKind::Plant(options), ScatterCopies::Plant(bake)) => {
+            // Plants are placed where they are drawn, over the ground and
+            // density the Ecotope baked, with the Scatter's seed.
+            let field = commands.spawn((Transform::IDENTITY, ChildOf(holder))).id();
+            let (options, bake, seed) = (options.clone(), bake.clone(), layer.seed());
+            let key = layer.key().to_string();
+            commands.queue(move |world: &mut World| {
+                let Some(mut images) = world.get_resource_mut::<Assets<Image>>() else {
+                    warn!(
+                        "procgena_biome_bevy: plant Scatter {key} is not drawn: the app has no \
+                         image assets; add PlantPlugins"
+                    );
+                    return;
+                };
+                let scatter = PlantScatter {
+                    seed: Some(seed),
+                    ..PlantScatter::with_options(Vec2::ZERO, options).with_bake(&mut images, &bake)
+                };
+                if let Ok(mut entity) = world.get_entity_mut(field) {
+                    entity.insert(scatter);
+                }
+            });
+        }
         (kind, _) => panic!(
             "Scatter {} placed as another kind than its {} settings",
             layer.key(),
@@ -246,7 +272,8 @@ mod tests {
 
         // Spawn it in a headless app.
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
         let (e, p) = (ecotope.clone(), placed.clone());
         let root = app
             .world_mut()
@@ -285,6 +312,15 @@ mod tests {
                     count(|w, e| w.get::<DeadwoodParams>(e).is_some()),
                     layer.copies().len()
                 ),
+                ScatterCopies::Plant(bake) => {
+                    // One field over the area, from the bake, with the
+                    // Scatter's seed.
+                    assert_eq!(count(|w, e| w.get::<PlantScatter>(e).is_some()), 1);
+                    let field = world.get::<PlantScatter>(children[0]).unwrap();
+                    assert_eq!(field.size, bake.size);
+                    assert_eq!(field.seed, Some(layer.seed()));
+                    assert!(field.density_map.is_some());
+                }
                 ScatterCopies::Mushroom(_) => {
                     assert_eq!(
                         count(|w, e| w.get::<MushroomGroundScatterParams>(e).is_some()),

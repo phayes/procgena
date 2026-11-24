@@ -347,8 +347,10 @@ dead wood, widened by a per-Scatter `clearance`), and every lower Scatter's
 mask is 0 inside them, checked only at each candidate's centre. The
 calls into each Scatter are one adapter per kind in
 `procgena_biome/src/ecotope/scatters.rs`, to be replaced by the `Scatter`
-trait in C3. Plant is not in it yet: `procgena_plant` is a Bevy crate
-placed on the GPU with no `Ground`. `procgena_biome_bevy`'s
+trait in C3. A plant Scatter (plant's P2) is placed where it is drawn:
+its adapter bakes the ground and density over the area at 0.5 m, clears
+every texel a footprint above touches, and leaves no footprints of its
+own. `procgena_biome_bevy`'s
 `EcotopeParams` places an Ecotope in the background and, after an edit,
 draws again only the Scatters whose settings, seed or footprints above
 them changed. The studio's Ecotope tab edits an Ecotope over flat or

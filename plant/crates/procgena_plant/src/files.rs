@@ -94,9 +94,8 @@ impl PlantParams {
     ///
     /// # Errors
     ///
-    /// Returns [`PlantFileError::Invalid`] naming the first value out of
-    /// range.
-    pub fn validate(&self) -> Result<(), PlantFileError> {
+    /// Returns a [`PlantSettingsError`] naming the first value out of range.
+    pub fn validate(&self) -> Result<(), PlantSettingsError> {
         validate_plant(self)
     }
 
@@ -581,6 +580,7 @@ settings_file! {
         wind_scale: f32,
         density_scale: f32,
         toon_bands: u32,
+        max_slope: f32,
     }
     extra {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -730,10 +730,10 @@ impl PlantScatterFile {
 
 /// Checks a Scatter's plants, each entry's scale and clustering, and the
 /// Scatter-wide settings.
-pub(crate) fn validate_scatter(scatter: &PlantScatterOptions) -> Result<(), PlantFileError> {
+pub(crate) fn validate_scatter(scatter: &PlantScatterOptions) -> Result<(), PlantSettingsError> {
     // Check the plants and how each one is mixed in.
     if scatter.plants.len() > MAX_PLANTS {
-        return Err(PlantFileError::Invalid("a Scatter grows at most 16 plants"));
+        return Err(PlantSettingsError("a Scatter grows at most 16 plants"));
     }
     for entry in scatter.plants.iter() {
         validate_entry(entry.density_scale, entry.clustering)?;
@@ -742,28 +742,31 @@ pub(crate) fn validate_scatter(scatter: &PlantScatterOptions) -> Result<(), Plan
 
     // Check the Scatter-wide settings.
     if !scatter.plants.iter().any(|entry| entry.density() > 0.0) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "a Scatter needs a plant with a density above 0",
         ));
     }
     if scatter.density_scale < 0.0 || !scatter.density_scale.is_finite() {
-        return Err(PlantFileError::Invalid("density_scale must be at least 0"));
+        return Err(PlantSettingsError("density_scale must be at least 0"));
     }
     if scatter.wind_scale < 0.0 || scatter.wind_scale.is_nan() {
-        return Err(PlantFileError::Invalid("wind_scale must be at least 0"));
+        return Err(PlantSettingsError("wind_scale must be at least 0"));
+    }
+    if !(0.0..=90.0).contains(&scatter.max_slope) {
+        return Err(PlantSettingsError("max_slope must be from 0 to 90"));
     }
     validate_variation(&scatter.variation)
 }
 
 /// Checks one Scatter entry's density scale and clustering.
-fn validate_entry(density_scale: f32, clustering: f32) -> Result<(), PlantFileError> {
+fn validate_entry(density_scale: f32, clustering: f32) -> Result<(), PlantSettingsError> {
     if density_scale < 0.0 || !density_scale.is_finite() {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "a plant's density_scale must be at least 0",
         ));
     }
     if !(0.0..=1.0).contains(&clustering) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "a plant's clustering must be from 0 to 1",
         ));
     }
@@ -1049,34 +1052,32 @@ impl TryFrom<PlantScatterFile> for PlantScatterOptions {
 /// Checks supported plant dimensions, stem counts and shape settings.
 /// Accepts height limits in either order and keeps valid settings for hidden
 /// branches or heads so they can be used again when enabled.
-fn validate_plant(plant: &PlantParams) -> Result<(), PlantFileError> {
+fn validate_plant(plant: &PlantParams) -> Result<(), PlantSettingsError> {
     if plant.density < 0.0 || !plant.density.is_finite() {
-        return Err(PlantFileError::Invalid("density must be at least 0"));
+        return Err(PlantSettingsError("density must be at least 0"));
     }
     let (shortest, tallest) = plant.height_range();
     if !(shortest >= 0.0 && tallest > 0.0) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "height must be two lengths of at least 0, one of them above 0",
         ));
     }
     if plant.width.is_nan() || plant.width <= 0.0 {
-        return Err(PlantFileError::Invalid("width must be above 0"));
+        return Err(PlantSettingsError("width must be above 0"));
     }
     if !(0.0..0.9).contains(&plant.head_length) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "head_length must be at least 0 and below 0.9",
         ));
     }
     if !(1..=MAX_STEMS_PER_PLANT).contains(&plant.stems_per_plant) {
-        return Err(PlantFileError::Invalid(
-            "stems_per_plant must be from 1 to 8",
-        ));
+        return Err(PlantSettingsError("stems_per_plant must be from 1 to 8"));
     }
     if !(0.0..=1.0).contains(&plant.tufts) {
-        return Err(PlantFileError::Invalid("tufts must be from 0 to 1"));
+        return Err(PlantSettingsError("tufts must be from 0 to 1"));
     }
     if plant.tuft_size <= 0.0 || plant.tuft_size.is_nan() {
-        return Err(PlantFileError::Invalid("tuft_size must be above 0"));
+        return Err(PlantSettingsError("tuft_size must be above 0"));
     }
     validate_segment(&plant.segment)?;
     for level in &plant.levels {
@@ -1086,23 +1087,21 @@ fn validate_plant(plant: &PlantParams) -> Result<(), PlantFileError> {
 }
 
 /// Checks an accent's share, and, as for a plant, its size, head and shape.
-fn validate_accent(accent: &PlantAccent) -> Result<(), PlantFileError> {
+fn validate_accent(accent: &PlantAccent) -> Result<(), PlantSettingsError> {
     if !(0.0..=1.0).contains(&accent.share) {
-        return Err(PlantFileError::Invalid(
-            "an accent's share must be from 0 to 1",
-        ));
+        return Err(PlantSettingsError("an accent's share must be from 0 to 1"));
     }
     let (shortest, tallest) = (accent.height.min_element(), accent.height.max_element());
     if !(shortest >= 0.0 && tallest > 0.0) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "an accent's height must be two lengths of at least 0, one of them above 0",
         ));
     }
     if accent.width.is_nan() || accent.width <= 0.0 {
-        return Err(PlantFileError::Invalid("an accent's width must be above 0"));
+        return Err(PlantSettingsError("an accent's width must be above 0"));
     }
     if !(0.0..0.9).contains(&accent.head_length) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "an accent's head_length must be at least 0 and below 0.9",
         ));
     }
@@ -1110,22 +1109,22 @@ fn validate_accent(accent: &PlantAccent) -> Result<(), PlantFileError> {
 }
 
 /// Checks the segment profile range for main stems and both branch levels.
-fn validate_segment(segment: &PlantSegment) -> Result<(), PlantFileError> {
+fn validate_segment(segment: &PlantSegment) -> Result<(), PlantSettingsError> {
     if !(0.0..=1.0).contains(&segment.profile) {
-        return Err(PlantFileError::Invalid("profile must be from 0 to 1"));
+        return Err(PlantSettingsError("profile must be from 0 to 1"));
     }
     Ok(())
 }
 
 /// Checks branch counts, attachment positions, dimensions and segment settings.
-fn validate_branches(branches: &PlantBranches) -> Result<(), PlantFileError> {
+fn validate_branches(branches: &PlantBranches) -> Result<(), PlantSettingsError> {
     if branches.count > MAX_BRANCHES {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "a level of branches has a count of at most 32",
         ));
     }
     if !(0.0..1.0).contains(&branches.attachment_start) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "attachment_start must be at least 0 and below 1",
         ));
     }
@@ -1133,12 +1132,12 @@ fn validate_branches(branches: &PlantBranches) -> Result<(), PlantFileError> {
         .iter()
         .all(|value| (0.0..=1.0).contains(value))
     {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "length_envelope, angle and spread must be from 0 to 1",
         ));
     }
     if !(branches.length >= 0.0 && branches.width >= 0.0) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "a level's length and width must be at least 0",
         ));
     }
@@ -1146,9 +1145,9 @@ fn validate_branches(branches: &PlantBranches) -> Result<(), PlantFileError> {
 }
 
 /// Checks that the variation's patch sizes are above 0.
-fn validate_variation(variation: &PlantVariation) -> Result<(), PlantFileError> {
+fn validate_variation(variation: &PlantVariation) -> Result<(), PlantSettingsError> {
     if !(variation.patch_size > 0.0 && variation.bare_patch_size > 0.0) {
-        return Err(PlantFileError::Invalid(
+        return Err(PlantSettingsError(
             "patch_size and bare_patch_size must be above 0",
         ));
     }
@@ -1177,6 +1176,29 @@ pub enum PlantFileError {
     UnknownPlant(String),
     /// A value is out of range.
     Invalid(&'static str),
+}
+
+/// A plant or Scatter setting out of range, from
+/// [`PlantParams::validate`] or
+/// [`PlantScatterOptions::validate`](crate::PlantScatterOptions::validate).
+///
+/// It says which setting and what range it must be in, such as
+/// "tufts must be from 0 to 1".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlantSettingsError(pub &'static str);
+
+impl fmt::Display for PlantSettingsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid plant settings: {}", self.0)
+    }
+}
+
+impl std::error::Error for PlantSettingsError {}
+
+impl From<PlantSettingsError> for PlantFileError {
+    fn from(error: PlantSettingsError) -> Self {
+        Self::Invalid(error.0)
+    }
 }
 
 impl From<PresetFileError> for PlantFileError {

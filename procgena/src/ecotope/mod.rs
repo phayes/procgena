@@ -16,6 +16,7 @@ use procgena_core::ChildKey;
 use procgena_core::preset::{FILE_GROUP, Preset, PresetMeta, read as read_preset_file};
 use procgena_deadwood::ScatterOptions as DeadwoodScatterOptions;
 use procgena_mushroom::{MushroomPreset, ScatterOptions as MushroomScatterOptions};
+use procgena_plant_bevy::PlantScatterPreset;
 use procgena_stone::{StoneClass, StonePreset, StoneScatterOptions};
 use procgena_tree::TreeScatterPreset;
 
@@ -25,7 +26,7 @@ use crate::scene::{EcotopeGround, EcotopeSettings};
 pub const START_PRESET: &str = "pine_forest_floor";
 
 /// The kinds of Scatter, as the Kind picker lists them.
-pub const KINDS: [&str; 4] = ["Tree", "Stone", "Dead Wood", "Mushroom"];
+pub const KINDS: [&str; 5] = ["Tree", "Stone", "Dead Wood", "Mushroom", "Plant"];
 
 /// How the Ecotope is shown: the ground under it and the patch it covers.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -110,12 +111,13 @@ pub fn kind_index(kind: &ScatterKind) -> usize {
         ScatterKind::Stone(_) => 1,
         ScatterKind::Deadwood(_) => 2,
         ScatterKind::Mushroom { .. } => 3,
+        ScatterKind::Plant(_) => 4,
     }
 }
 
 /// A new Scatter of kind `kind`, an index in [`KINDS`]: a pine stand,
-/// river stones, fallen logs or porcini. Indices past the end give
-/// mushrooms.
+/// river stones, fallen logs, porcini or a forest floor of moss, ferns and
+/// leaf litter. Indices past the end give mushrooms.
 pub fn new_scatter(kind: usize) -> ScatterKind {
     match kind {
         0 => ScatterKind::Tree(TreeScatterPreset::pine_stand().tree_scatter.clone()),
@@ -124,6 +126,7 @@ pub fn new_scatter(kind: usize) -> ScatterKind {
             classes: vec![new_stone_class(ChildKey::from_static("stones"))],
         }),
         2 => ScatterKind::Deadwood(DeadwoodScatterOptions::fallen_logs()),
+        4 => ScatterKind::Plant(PlantScatterPreset::FOREST_FLOOR.plant_scatter.clone()),
         _ => ScatterKind::Mushroom {
             mushroom: MushroomPreset::porcini().mushroom.clone(),
             scatter: MushroomScatterOptions {
@@ -142,13 +145,14 @@ pub fn new_stone_class(key: ChildKey) -> StoneClass {
 }
 
 /// The usual priority of a new Scatter of kind `kind`, an index in
-/// [`KINDS`]: 900 for trees, 850 for stones, 800 for dead wood and 200 for
-/// mushrooms.
+/// [`KINDS`]: 900 for trees, 850 for stones, 800 for dead wood, 200 for
+/// mushrooms and 150 for plants.
 fn usual_priority(kind: usize) -> u32 {
     match kind {
         0 => 900,
         1 => 850,
         2 => 800,
+        4 => 150,
         _ => 200,
     }
 }
@@ -190,7 +194,7 @@ pub fn free_key(ecotope: &Ecotope, stem: &str) -> ChildKey {
 /// key named after the kind and at a free priority near the kind's usual
 /// one. Returns its key.
 pub fn add_scatter(ecotope: &mut Ecotope, kind: usize) -> ChildKey {
-    let stems = ["trees", "stones", "deadwood", "mushrooms"];
+    let stems = ["trees", "stones", "deadwood", "mushrooms", "plants"];
     let key = free_key(ecotope, stems[kind.min(stems.len() - 1)]);
     let priority = free_priority(ecotope, usual_priority(kind));
     ecotope.scatters.insert(

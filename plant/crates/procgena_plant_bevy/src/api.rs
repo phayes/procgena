@@ -11,7 +11,7 @@ use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::system::{Local, Query, Res};
 use bevy::image::Image;
 use bevy::log::warn;
-use bevy::math::{Vec2, Vec3};
+use bevy::math::{UVec2, Vec2, Vec3};
 use bevy::mesh::Mesh;
 
 use bevy::platform::collections::HashSet;
@@ -19,7 +19,9 @@ use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::Transform;
 
-use crate::{PlantScatterOptions, PlantScatterPreset, PlantSettings, PlantShadows, ScatterPlant};
+use crate::{
+    PlantBake, PlantScatterOptions, PlantScatterPreset, PlantSettings, PlantShadows, ScatterPlant,
+};
 
 /// One area of grass.
 ///
@@ -78,6 +80,11 @@ pub struct PlantScatter {
     /// [`MAX_PLANTS`](crate::MAX_PLANTS) plants are drawn; the rest are left
     /// out and counted in [`TableStats`](crate::TableStats).
     pub options: PlantScatterOptions,
+    /// The seed the field is placed with, such as the one an Ecotope gives
+    /// its Scatter. `None` uses the options'
+    /// [`default_seed`](PlantScatterOptions::default_seed). Different seeds
+    /// grow the same density with the blades in different places.
+    pub seed: Option<u32>,
 }
 
 impl Default for PlantScatter {
@@ -89,6 +96,7 @@ impl Default for PlantScatter {
             ground: PlantGround::Flat,
             density_map: None,
             options: PlantScatterOptions::default(),
+            seed: None,
         }
     }
 }
@@ -242,6 +250,39 @@ impl PlantScatter {
         let densities = crate::ground::sample(self.size, texels, density);
         Self {
             density_map: Some(images.add(crate::packed::density_image(&densities, texels))),
+            ..self
+        }
+    }
+
+    /// This field over a [`PlantBake`]'s area, with its ground and density.
+    ///
+    /// The field takes the bake's size, a heightmap of its heights (in
+    /// metres above the field's own height) and a density map of its
+    /// densities, both added to `images`. Put the field's transform at the
+    /// centre of the area the bake was made over. Where the bake has no
+    /// height, nothing grows.
+    #[must_use]
+    pub fn with_bake(self, images: &mut Assets<Image>, bake: &PlantBake) -> Self {
+        let texels = UVec2::from_array(bake.texels);
+        let heights: Vec<f32> = bake
+            .heights
+            .iter()
+            .map(|&h| {
+                if h.is_finite() {
+                    h
+                } else {
+                    crate::ground::HOLE
+                }
+            })
+            .collect();
+        Self {
+            size: bake.size,
+            ground: PlantGround::Heightmap {
+                image: images.add(crate::ground::heights_image(&heights, texels)),
+                // The heights are metres already.
+                height_scale: 1.0,
+            },
+            density_map: Some(images.add(crate::packed::density_image(&bake.density, texels))),
             ..self
         }
     }
