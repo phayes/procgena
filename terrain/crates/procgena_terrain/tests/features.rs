@@ -256,8 +256,8 @@ fn neighbouring_mountain_rivers_both_cross_and_join_below() {
     // the plains, and neither ends in a pond: each joins a river there.
     let world = common::two_regions(
         DVec2::ZERO,
-        common::preset(procgena_terrain::TerrainPreset::Plains, 217),
-        common::preset(procgena_terrain::TerrainPreset::Mountains, 217),
+        common::preset(procgena_terrain::TerrainPreset::plains(), 217),
+        common::preset(procgena_terrain::TerrainPreset::mountains(), 217),
         common::DEFAULT.convergence(),
         &procgena_terrain::Elevation::flat(),
     );

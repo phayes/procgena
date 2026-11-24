@@ -1,5 +1,6 @@
 //! The Biome type, its Terrain and its Ecotope rules.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use procgena_terrain::{
@@ -26,10 +27,12 @@ pub struct Biome {
 /// The Terrain of a [`Biome`]: a Terrain preset, or settings given inline.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BiomeTerrain {
-    /// A named Terrain preset. Many Biomes can share one.
-    Preset(TerrainPreset),
-    /// Terrain settings given in full. Their `seed` is ignored: the Biome
-    /// replaces it with the seed from [`terrain_seed`].
+    /// The key of a built-in Terrain preset, such as `"rolling_hills"` (see
+    /// [`TerrainPreset::named`]). Many Biomes can share one. An unknown key
+    /// is an error when the Terrain is resolved.
+    Preset(Cow<'static, str>),
+    /// Terrain settings given in full. Their `default_seed` is ignored: the
+    /// Biome replaces it with the seed from [`terrain_seed`].
     Inline(TerrainOptions),
 }
 
@@ -44,6 +47,9 @@ pub enum EcotopeRule {}
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum BiomeError {
+    /// [`BiomeTerrain::Preset`] names no built-in Terrain preset. Holds the
+    /// unknown key.
+    UnknownTerrainPreset(String),
     /// The Terrain's settings are invalid.
     Options(OptionsError),
     /// The Terrain could not be bound to its region, for example because a
@@ -54,6 +60,7 @@ pub enum BiomeError {
 impl fmt::Display for BiomeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnknownTerrainPreset(key) => write!(f, "no terrain preset is named {key:?}"),
             Self::Options(e) => write!(f, "invalid terrain settings: {e}"),
             Self::Terrain(e) => write!(f, "terrain could not be built: {e}"),
         }
@@ -63,6 +70,7 @@ impl fmt::Display for BiomeError {
 impl std::error::Error for BiomeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::UnknownTerrainPreset(_) => None,
             Self::Options(e) => Some(e),
             Self::Terrain(e) => Some(e),
         }
@@ -110,16 +118,24 @@ impl Biome {
     /// The settings of this Biome's Terrain in a World with seed
     /// `world_seed`.
     ///
-    /// The seed in the result comes from [`terrain_seed`], also for inline
-    /// settings. The settings are not checked; [`build`](Self::build) checks
-    /// them.
-    pub fn terrain_options(&self, world_seed: u32) -> TerrainOptions {
+    /// The `default_seed` in the result comes from [`terrain_seed`], also for
+    /// inline settings. The settings are not checked; [`build`](Self::build)
+    /// checks them.
+    ///
+    /// # Errors
+    ///
+    /// [`BiomeError::UnknownTerrainPreset`] if the Biome names a Terrain
+    /// preset that doesn't exist.
+    pub fn terrain_options(&self, world_seed: u32) -> Result<TerrainOptions, BiomeError> {
         let mut options = match &self.terrain {
-            BiomeTerrain::Preset(preset) => preset.options(),
+            BiomeTerrain::Preset(key) => TerrainPreset::named(key)
+                .ok_or_else(|| BiomeError::UnknownTerrainPreset(key.to_string()))?
+                .terrain
+                .clone(),
             BiomeTerrain::Inline(options) => options.clone(),
         };
-        options.seed = terrain_seed(world_seed);
-        options
+        options.default_seed = terrain_seed(world_seed);
+        Ok(options)
     }
 
     /// Builds this Biome's land on `region`, bent to meet `agreements`, in a
@@ -132,15 +148,17 @@ impl Biome {
     ///
     /// # Errors
     ///
-    /// [`BiomeError::Options`] if the Terrain's settings are invalid, and
-    /// [`BiomeError::Terrain`] if the agreements don't fit `region`.
+    /// [`BiomeError::UnknownTerrainPreset`] if the Biome names a Terrain
+    /// preset that doesn't exist, [`BiomeError::Options`] if the Terrain's
+    /// settings are invalid, and [`BiomeError::Terrain`] if the agreements
+    /// don't fit `region`.
     pub fn build(
         &self,
         world_seed: u32,
         region: Region,
         agreements: &[EdgeAgreement],
     ) -> Result<Terrain, BiomeError> {
-        let generator = TerrainGenerator::new(self.terrain_options(world_seed))?;
+        let generator = TerrainGenerator::new(self.terrain_options(world_seed)?)?;
         Ok(generator.build(region, agreements)?)
     }
 }

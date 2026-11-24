@@ -248,10 +248,10 @@ pub const WITH_LAND: [Config; 14] = {
     out
 };
 
-/// Settings for `preset` with `seed`.
-pub fn preset(preset: TerrainPreset, seed: u32) -> TerrainOptions {
-    let mut options = preset.options();
-    options.seed = seed;
+/// Settings for `preset` with `seed` as their default seed.
+pub fn preset(preset: &TerrainPreset, seed: u32) -> TerrainOptions {
+    let mut options = preset.terrain.clone();
+    options.default_seed = seed;
     options
 }
 
@@ -268,8 +268,8 @@ fn shifted(points: &[(f64, f64)], offset: DVec2) -> Vec<DVec2> {
 pub fn two_terrains(offset: DVec2, config: Config) -> StitchedWorld {
     two_regions_warped(
         offset,
-        preset(TerrainPreset::Plains, config.seed(1, 1)),
-        preset(TerrainPreset::Mountains, config.seed(1, 2)),
+        preset(TerrainPreset::plains(), config.seed(1, 1)),
+        preset(TerrainPreset::mountains(), config.seed(1, 2)),
         config.convergence(),
         &config.elevation(),
         config.warp,
@@ -354,8 +354,8 @@ pub const JOIN_SEEDS: [u32; 2] = [56, 65];
 pub fn hills_into_plains(seed: u32, config: Config) -> StitchedWorld {
     two_regions_warped(
         DVec2::ZERO,
-        preset(TerrainPreset::Plains, config.seed(seed, seed + 100)),
-        preset(TerrainPreset::RollingHills, seed),
+        preset(TerrainPreset::plains(), config.seed(seed, seed + 100)),
+        preset(TerrainPreset::rolling_hills(), seed),
         config.convergence(),
         &config.elevation(),
         config.warp,
@@ -379,9 +379,9 @@ pub const JUNCTION: (f64, f64) = (100.0, -50.0);
 pub fn triple_junction(config: Config) -> StitchedWorld {
     three_regions_warped(
         [
-            preset(TerrainPreset::Plains, config.seed(3, 3)),
-            preset(TerrainPreset::Mountains, config.seed(3, 4)),
-            preset(TerrainPreset::RollingHills, config.seed(3, 5)),
+            preset(TerrainPreset::plains(), config.seed(3, 3)),
+            preset(TerrainPreset::mountains(), config.seed(3, 4)),
+            preset(TerrainPreset::rolling_hills(), config.seed(3, 5)),
         ],
         config.convergence(),
         &config.elevation(),

@@ -15,9 +15,9 @@ use crate::{Convergence, FeatureLine, Terrain, TerrainPreset};
 const CONCAVITY: f64 = 0.45;
 
 /// A world of one region, 4 km square, with `preset` and `seed`.
-fn one_region(preset: TerrainPreset, seed: u32) -> StitchedWorld {
-    let mut options = preset.options();
-    options.seed = seed;
+fn one_region(preset: &TerrainPreset, seed: u32) -> StitchedWorld {
+    let mut options = preset.terrain.clone();
+    options.default_seed = seed;
     StitchedWorld::build(
         vec![RegionSpec {
             id: RegionId(1),
@@ -111,8 +111,8 @@ fn concavity(points: &[DVec2], levels: &[f64]) -> f64 {
 #[ignore]
 fn spike_stream_power_profiles() {
     for (name, preset) in [
-        ("rolling hills", TerrainPreset::RollingHills),
-        ("mountains", TerrainPreset::Mountains),
+        ("rolling hills", TerrainPreset::rolling_hills()),
+        ("mountains", TerrainPreset::mountains()),
     ] {
         for seed in [1, 2, 3] {
             let world = one_region(preset, seed);
@@ -195,9 +195,9 @@ fn spike_river_cut_depths() {
     // How deep rivers cut below the natural ground today, over all their
     // points: where valleys would matter.
     for (name, preset) in [
-        ("plains", TerrainPreset::Plains),
-        ("rolling hills", TerrainPreset::RollingHills),
-        ("mountains", TerrainPreset::Mountains),
+        ("plains", TerrainPreset::plains()),
+        ("rolling hills", TerrainPreset::rolling_hills()),
+        ("mountains", TerrainPreset::mountains()),
     ] {
         let mut cuts: Vec<f64> = Vec::new();
         for seed in 1..=6 {
@@ -246,7 +246,7 @@ fn spike_what_makes_deep_cuts() {
     let mut deep_slopes: Vec<f64> = Vec::new();
     let mut all_slopes: Vec<f64> = Vec::new();
     for seed in 1..=6 {
-        let world = one_region(TerrainPreset::Mountains, seed);
+        let world = one_region(TerrainPreset::mountains(), seed);
         let t = &world.terrains()[0];
         for river in t.rivers() {
             let along = crate::road::distance_along(&river.points);
@@ -318,7 +318,7 @@ fn spike_capped_cut_profiles() {
     // freeboard − c). Where it sits above the ground the dip floods (a lake
     // along the river; real lakes would also spread sideways). How many
     // lakes, how long and how deep?
-    let options = TerrainPreset::Mountains.options();
+    let options = &TerrainPreset::mountains().terrain;
     let b = &options.base;
     eprintln!(
         "mountains breach: {:.1} m (4 + 0.03 × ({} + {}))",
@@ -329,7 +329,7 @@ fn spike_capped_cut_profiles() {
     // Per river: ground and distance along.
     let mut rivers: Vec<(Vec<f64>, Vec<f64>)> = Vec::new();
     for seed in 1..=6 {
-        let world = one_region(TerrainPreset::Mountains, seed);
+        let world = one_region(TerrainPreset::mountains(), seed);
         let t = &world.terrains()[0];
         for river in t.rivers() {
             let ground = river

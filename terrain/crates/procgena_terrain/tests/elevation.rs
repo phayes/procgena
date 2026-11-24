@@ -75,8 +75,8 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
     let world = two_terrains(DVec2::ZERO, DEFAULT);
     let region = world.terrains()[0].region().clone();
     let (plains, mountains) = (
-        preset(TerrainPreset::Plains, 1),
-        preset(TerrainPreset::Mountains, 1),
+        preset(TerrainPreset::plains(), 1),
+        preset(TerrainPreset::mountains(), 1),
     );
     let target = BorderTarget {
         amplitude: 30.0,
@@ -117,7 +117,7 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
 /// Settings with no relief, no rivers or roads and no border
 /// irregularities: ground that is E alone.
 fn bare() -> procgena_terrain::TerrainOptions {
-    let mut options = preset(TerrainPreset::Plains, 1);
+    let mut options = preset(TerrainPreset::plains(), 1);
     options.edges.roughness = 0.0;
     let base = &mut options.base;
     base.elevation = 0.0;

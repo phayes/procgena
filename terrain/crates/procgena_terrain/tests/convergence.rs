@@ -46,8 +46,8 @@ const BLENDS: [f32; 3] = [0.0, DEFAULT_RELIEF_BLEND, 1.0];
 fn plains_and_mountains(meeting: f32, blend: f32) -> StitchedWorld {
     two_regions(
         DVec2::ZERO,
-        preset(TerrainPreset::Plains, 1),
-        preset(TerrainPreset::Mountains, 1),
+        preset(TerrainPreset::plains(), 1),
+        preset(TerrainPreset::mountains(), 1),
         Convergence { meeting, blend },
         &Elevation::flat(),
     )
@@ -61,7 +61,7 @@ fn scaling(meeting: f32) -> StitchedWorld {
 #[test]
 fn alike_neighbours_already_match_at_their_border() {
     for blend in BLENDS {
-        for p in TerrainPreset::ALL {
+        for p in TerrainPreset::all() {
             let convergence = Convergence {
                 blend,
                 ..DEFAULT.convergence()
@@ -79,12 +79,7 @@ fn alike_neighbours_already_match_at_their_border() {
                     west.generator().natural_height(q),
                     east.generator().natural_height(q),
                 );
-                assert_eq!(
-                    a,
-                    b,
-                    "{}, blend {blend}: own heights differ at {q}",
-                    p.name()
-                );
+                assert_eq!(a, b, "{}, blend {blend}: own heights differ at {q}", p.name);
             }
         }
     }
@@ -171,7 +166,7 @@ fn the_rougher_side_flattens_towards_its_border() {
 #[test]
 fn stated_relief_amplitude_matches_the_ground() {
     // Over 10 seeds per preset, so a bias can't hide behind one seed.
-    for p in TerrainPreset::ALL {
+    for p in TerrainPreset::all() {
         for seed in 0..10 {
             let generator = TerrainGenerator::new(preset(p, seed)).expect("valid preset");
             let heights: Vec<f64> = (0..40_000)
@@ -188,7 +183,7 @@ fn stated_relief_amplitude_matches_the_ground() {
             assert!(
                 (stated / measured - 1.0).abs() < 0.15,
                 "{}, seed {seed}: stated {stated} m, measured {measured} m",
-                p.name()
+                p.name
             );
         }
     }
@@ -200,7 +195,7 @@ fn bad_relief_meetings_are_refused() {
         let specs = vec![procgena_terrain::RegionSpec {
             id: procgena_terrain::RegionId(1),
             polygon: vec![DVec2::ZERO, DVec2::X * 100.0, DVec2::ONE * 100.0],
-            options: preset(TerrainPreset::Plains, 1),
+            options: preset(TerrainPreset::plains(), 1),
         }];
         let convergence = Convergence {
             meeting,
@@ -219,7 +214,7 @@ fn bad_relief_blends_are_refused() {
         let specs = vec![procgena_terrain::RegionSpec {
             id: procgena_terrain::RegionId(1),
             polygon: vec![DVec2::ZERO, DVec2::X * 100.0, DVec2::ONE * 100.0],
-            options: preset(TerrainPreset::Plains, 1),
+            options: preset(TerrainPreset::plains(), 1),
         }];
         let convergence = Convergence {
             blend,

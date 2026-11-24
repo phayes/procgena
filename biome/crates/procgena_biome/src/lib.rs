@@ -15,7 +15,7 @@
 //! use procgena_terrain::{Boundary, HeightField, Region, RegionId};
 //! use glam::DVec2;
 //!
-//! let preset = BiomePreset::named("ROLLING_HILLS").expect("built-in preset");
+//! let preset = BiomePreset::named("rolling_hills").expect("built-in preset");
 //!
 //! // A square region with no neighbours.
 //! let region = Region {

@@ -161,8 +161,8 @@ fn border(offset: DVec2) -> Vec<DVec2> {
 #[test]
 fn every_preset_pair_joins_continuously() {
     for config in WITH_LAND {
-        for (i, west) in TerrainPreset::ALL.into_iter().enumerate() {
-            for (j, east) in TerrainPreset::ALL.into_iter().enumerate() {
+        for (i, west) in TerrainPreset::all().enumerate() {
+            for (j, east) in TerrainPreset::all().enumerate() {
                 let world = two_regions(
                     DVec2::ZERO,
                     preset(west, config.seed(1, i as u32 + 1)),
@@ -173,7 +173,7 @@ fn every_preset_pair_joins_continuously() {
                 assert_continuous(
                     &world,
                     &border(DVec2::ZERO),
-                    &format!("{} | {}, {config:?}", west.name(), east.name()),
+                    &format!("{} | {}, {config:?}", west.name, east.name),
                 );
             }
         }
@@ -247,8 +247,8 @@ fn assert_no_cracks(world: &StitchedWorld, area: (DVec2, DVec2), vertices: &[DVe
 fn warped_borders_join_continuously() {
     // Every preset pair on flat land, and the fixtures on every land.
     let flat = WARPED[0];
-    for (i, west) in TerrainPreset::ALL.into_iter().enumerate() {
-        for (j, east) in TerrainPreset::ALL.into_iter().enumerate() {
+    for (i, west) in TerrainPreset::all().enumerate() {
+        for (j, east) in TerrainPreset::all().enumerate() {
             let world = two_regions_warped(
                 DVec2::ZERO,
                 preset(west, flat.seed(1, i as u32 + 1)),
@@ -263,7 +263,7 @@ fn warped_borders_join_continuously() {
                     &border,
                     4,
                     Step::Long,
-                    &format!("warped {} | {}", west.name(), east.name()),
+                    &format!("warped {} | {}", west.name, east.name),
                 );
             }
         }
@@ -359,10 +359,10 @@ fn four_regions_meet_at_one_corner() {
     for config in WITH_LAND {
         let world = four_regions(
             [
-                preset(TerrainPreset::Plains, config.seed(5, 1)),
-                preset(TerrainPreset::Mountains, config.seed(5, 2)),
-                preset(TerrainPreset::RollingHills, config.seed(5, 3)),
-                preset(TerrainPreset::Plains, config.seed(5, 4)),
+                preset(TerrainPreset::plains(), config.seed(5, 1)),
+                preset(TerrainPreset::mountains(), config.seed(5, 2)),
+                preset(TerrainPreset::rolling_hills(), config.seed(5, 3)),
+                preset(TerrainPreset::plains(), config.seed(5, 4)),
             ],
             config.convergence(),
             &config.elevation(),

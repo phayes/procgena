@@ -168,8 +168,8 @@ fn river_crossings_on_a_slope() {
             .filter(|&s| {
                 let world = common::two_regions(
                     DVec2::ZERO,
-                    common::preset(TerrainPreset::Plains, s),
-                    common::preset(TerrainPreset::RollingHills, s),
+                    common::preset(TerrainPreset::plains(), s),
+                    common::preset(TerrainPreset::rolling_hills(), s),
                     DEFAULT.convergence(),
                     &elevation,
                 );
@@ -352,8 +352,8 @@ fn scene_dump() {
             "Mountain road close-up, seed 62 (blend 1)",
             common::two_regions(
                 DVec2::ZERO,
-                common::preset(TerrainPreset::Plains, 62),
-                common::preset(TerrainPreset::Mountains, 62),
+                common::preset(TerrainPreset::plains(), 62),
+                common::preset(TerrainPreset::mountains(), 62),
                 blend_1.convergence(),
                 &Elevation::flat(),
             ),
@@ -495,7 +495,7 @@ fn scene_dump() {
                 format!(
                     "{{\"id\":{},\"seed\":{},\"polygon\":[{}]}}",
                     t.region().id.0,
-                    t.generator().options().seed,
+                    t.generator().options().default_seed,
                     pts.join(",")
                 )
             })
