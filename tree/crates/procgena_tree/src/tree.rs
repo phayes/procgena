@@ -143,4 +143,3 @@ impl Tree {
         (self.options, self.skeleton, self.mesh)
     }
 }
-

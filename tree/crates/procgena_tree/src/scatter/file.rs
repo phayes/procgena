@@ -47,7 +47,9 @@ fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Option<f
 /// The built-in tree preset with `key`, or an error listing the valid keys.
 fn tree_preset(key: &str) -> Result<&'static TreePreset, String> {
     TreePreset::named(key).ok_or_else(|| {
-        let keys: Vec<_> = TreePreset::all().map(|preset| preset.key.as_ref()).collect();
+        let keys: Vec<_> = TreePreset::all()
+            .map(|preset| preset.key.as_ref())
+            .collect();
         format!(
             "unknown tree preset {key:?}; valid keys are {}",
             keys.join(", ")

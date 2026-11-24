@@ -958,7 +958,11 @@ impl Checker {
         self.non_negative(cluster.axis_length, "cluster.axis_length")?;
         self.unit(cluster.droop, "cluster.droop")?;
         self.unit(cluster.taper, "cluster.taper")?;
-        self.check(cluster.side_stalks >= 1, "cluster.side_stalks", "at least 1")?;
+        self.check(
+            cluster.side_stalks >= 1,
+            "cluster.side_stalks",
+            "at least 1",
+        )?;
         self.non_negative(cluster.side_length, "cluster.side_length")?;
         self.non_negative(cluster.stalk_length, "cluster.stalk_length")?;
         self.non_negative(cluster.stalk_radius, "cluster.stalk_radius")
