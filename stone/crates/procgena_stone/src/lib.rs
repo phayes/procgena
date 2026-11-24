@@ -103,7 +103,7 @@ pub use options::{
 };
 pub use placement::StonePlacement;
 pub use presets::StonePreset;
-pub use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
+pub use procgena_core::scatter::{Mask, Placement, Rest, ScatterArea, ScatterInput};
 pub use procgena_core::{
     ContentHash, FlatGround, Ground, HeightGrid, OptionsHash, PoolId, SpecimenId, content_hash,
 };

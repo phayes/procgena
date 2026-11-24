@@ -6,6 +6,7 @@
 
 use std::fmt;
 
+use procgena_core::scatter::{Placement, Rest};
 use procgena_core::{LodError, OptionsHash, PoolId, SpecimenId};
 use serde::{Deserialize, Serialize};
 
@@ -456,6 +457,26 @@ fn unit_interval(field: &'static str, value: f32) -> Result<(), OptionsError> {
 }
 
 impl StoneOptions {
+    /// How a rock with these settings stands on uneven ground, when
+    /// scattered:
+    /// - a rock that [settles](PlacementOptions::settle) onto a resting side
+    ///   tilts halfway to the slope, like a boulder that has rolled to rest;
+    /// - a rock that keeps its generated orientation, such as a standing
+    ///   stone, stays upright.
+    ///
+    /// Either way it rests on the lowest ground under it, so it never
+    /// floats, is not sunk any further, and is left out where the ground
+    /// under it bends by more than a tenth of its size. Its suggested burial
+    /// is applied separately.
+    pub fn ground_placement(&self) -> Placement {
+        Placement {
+            conform: if self.placement.settle { 0.5 } else { 0.0 },
+            rest: Rest::Lowest,
+            embed: 0.0,
+            max_bend: Some(0.1),
+        }
+    }
+
     /// Returns the settings of shape `slot` in a set of related rocks built
     /// from these settings, in a World seeded with `world_seed`.
     ///

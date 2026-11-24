@@ -6,7 +6,7 @@ use std::fmt;
 
 use glam::{Affine3A, DVec2, Vec2, Vec3, Vec3Swizzles};
 use procgena_core::hash::{pcg3d, unit_float};
-use procgena_core::scatter::{Footing, ScatterInput, settle, steeper_than};
+use procgena_core::scatter::{Footprint, Placement, ScatterInput, place, steeper_than};
 
 use crate::field::StoneField;
 use crate::options::{OptionsError, StoneOptions};
@@ -82,17 +82,19 @@ pub struct StoneClass {
     /// [`scale`](StoneOptions::scale), picked per stone. Both positive, the
     /// first no larger than the second.
     pub size: [f32; 2],
+    /// How the class's stones stand on the ground: how far they tilt to the
+    /// slope, what they rest on, how deep they sink and how much bend under
+    /// them is too much. `None`, the default, uses each shape's own
+    /// [`StoneOptions::ground_placement`].
+    pub placement: Option<Placement>,
     /// Smallest and largest share of each stone's suggested burial depth
-    /// (see [`StonePlacement::embed_depth`]) it is sunk by, picked per stone,
-    /// from 0 (resting on the ground) to 1 (fully as suggested).
+    /// (see [`StonePlacement::embed_depth`]) it sinks by, picked per stone,
+    /// from 0 to 1, on top of the placement's own
+    /// [`embed`](Placement::embed).
     pub burial: [f32; 2],
     /// Steepest ground, in degrees, a stone of this class lies on, from 0 to
     /// 90. 90 means no limit.
     pub max_slope: f32,
-    /// How far the ground under a stone may bend away from the plane the
-    /// stone rests on, as a share of the stone's footprint radius. Over a
-    /// sharper dip or ridge the stone is left out. Must be 0 or more.
-    pub max_bend: f32,
     /// How much of the ground is left bare between patches of this class,
     /// from 0 (stones spread evenly, the default) up to (not including) 1.
     /// Raising it only removes stones of this class, though stones of later
@@ -106,8 +108,8 @@ pub struct StoneClass {
 impl StoneClass {
     /// A class of single stones shaped like `stone`, at `density` stones per
     /// square metre and at least `spacing` metres apart, with 8 variants, no
-    /// stretch jitter, sizes from 0.8 to 1.25, burial from 0.5 to 1, a slope
-    /// limit of 40 degrees, a bend allowance of 0.25, no clusters and no
+    /// stretch jitter, sizes from 0.8 to 1.25, each shape's own placement,
+    /// burial from 0.5 to 1, a slope limit of 40 degrees, no clusters and no
     /// patches.
     pub fn new(stone: StoneOptions, density: f32, spacing: f32) -> Self {
         Self {
@@ -119,9 +121,9 @@ impl StoneClass {
             members: [1, 1],
             cluster_radius: 0.0,
             size: [0.8, 1.25],
+            placement: None,
             burial: [0.5, 1.0],
             max_slope: 40.0,
-            max_bend: 0.25,
             patchiness: 0.0,
             patch_size: 8.0,
         }
@@ -215,12 +217,23 @@ impl StoneClass {
             (0.0..=90.0).contains(&self.max_slope),
             "between 0 and 90",
         )?;
-        float(
-            "class.max_bend",
-            self.max_bend,
-            self.max_bend >= 0.0,
-            "at least 0",
-        )?;
+        if let Some(placement) = &self.placement {
+            float(
+                "class.placement.conform",
+                placement.conform,
+                (0.0..=1.0).contains(&placement.conform),
+                "between 0 and 1",
+            )?;
+            float(
+                "class.placement.embed",
+                placement.embed,
+                placement.embed >= 0.0,
+                "at least 0",
+            )?;
+            if let Some(bend) = placement.max_bend {
+                float("class.placement.max_bend", bend, bend >= 0.0, "at least 0")?;
+            }
+        }
         float(
             "class.patchiness",
             self.patchiness,
@@ -423,11 +436,11 @@ impl StoneScatter {
     /// centre. A spot is kept with a chance of its class's density times the
     /// input's mask; then it is left out where the ground is steeper than
     /// [`max_slope`](StoneClass::max_slope), where any part of the stone has
-    /// no ground under it, or where the ground bends more than
-    /// [`max_bend`](StoneClass::max_bend) allows. Stones too close to a
+    /// no ground under it, or where the ground bends more than its
+    /// [`placement`](StoneClass::placement) allows. Stones too close to a
     /// stone of an earlier class, or of their own class, are left out next,
     /// and last those between the class's patches. Each stone that is left
-    /// rests tilted to the slope, sunk by its burial.
+    /// stands as its placement says, sunk further by its burial.
     ///
     /// Lowering a class's density only removes stones of that class; the
     /// others keep their places, though stones of later classes may fill the
@@ -713,20 +726,30 @@ fn place_member(
     let yaw = unit_float(b[2]) * std::f32::consts::TAU;
     let burial = class.burial[0] + (class.burial[1] - class.burial[0]) * unit_float(c[0]);
     let size = metres * scale;
-    let footing = Footing {
+    let footprint = Footprint {
         contacts: shape
             .footprint
             .iter()
             .map(|p| Vec3::new(p.x, 0.0, p.y) * size)
             .collect(),
         extra: Vec::new(),
-        max_bend: class.max_bend * shape.radius * size,
+        size,
     };
-    let settled = settle(input.ground, input.area.world(local), yaw, &footing)?;
 
-    // Sink it by its share of the suggested burial.
-    let sink = burial * shape.embed_depth * size;
-    let position = Vec3::new(local.x, settled.height - sink, local.y);
+    // Put it down as its placement says, sunk further by its share of the
+    // suggested burial. The burial depth is in units of the stone's size.
+    let mut placement = class
+        .placement
+        .unwrap_or_else(|| variants[variant as usize].ground_placement());
+    placement.embed += burial * shape.embed_depth;
+    let placed = place(
+        input.ground,
+        input.area.world(local),
+        yaw,
+        &footprint,
+        &placement,
+    )?;
+    let position = Vec3::new(local.x, placed.height, local.y);
     Some(StoneInstance {
         class: spot.class,
         variant,
@@ -737,7 +760,7 @@ fn place_member(
         radius: shape.radius * size,
         transform: Affine3A::from_scale_rotation_translation(
             Vec3::splat(scale),
-            settled.rotation,
+            placed.rotation,
             position,
         ),
     })

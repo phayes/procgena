@@ -1468,9 +1468,16 @@ it starts.
    the `Ground` at build time, or does the Scatter settle its parts?
    **Decided 2026-11-23 (C1, with D3's Addresses):** the asset never sees
    the `Ground`, so its specimens stay shared.
-   - **Rigid wide pieces** (logs, stumps, boulders): the Scatter settles
-     them with `procgena_core::scatter::settle`, from the points where the
-     piece touches flat ground.
+   - **Placement is declarative.** Each asset declares a `Placement` (in
+     `procgena_core::scatter`): `conform` (0 keeps the piece upright, 1
+     lies it along the ground, values in between tilt it partway),
+     `rest` (`Lowest` so nothing floats, or `Plane`), `embed` (how deep
+     it sinks, as a share of its size) and `max_bend` (how much the ground
+     may bend under it). A Scatter may override it per class or species.
+     One executor, `procgena_core::scatter::place`, puts every piece down
+     from the points where it touches flat ground. Placement is not part
+     of any options hash or specimen id. Typical values: logs conform 1,
+     stumps, trees and mushrooms 0, boulders partway.
    - **A group the asset defines** (a fairy ring in `Mushroom`): one copy,
      whose members are part steps in its address. The Scatter settles each
      member, and drops a member that can't settle while the rest stays.

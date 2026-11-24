@@ -36,10 +36,13 @@ fn the_seed_and_detail_levels_are_not_part_of_the_pool() {
     assert_eq!(base.pool_id().kind, STONE_KIND);
 }
 
+/// A setting's name, and an edit that changes it.
+type Change = (&'static str, fn(&mut StoneOptions));
+
 #[test]
 fn every_shape_and_look_setting_changes_the_pool() {
     let base = StoneOptions::default();
-    let changes: Vec<(&str, fn(&mut StoneOptions))> = vec![
+    let changes: Vec<Change> = vec![
         ("scale", |o| o.scale *= 2.0),
         ("stretch", |o| o.stretch[1] *= 0.5),
         ("placement.settle", |o| {

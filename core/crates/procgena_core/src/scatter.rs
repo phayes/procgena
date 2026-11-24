@@ -6,7 +6,7 @@
 //! the [`Ground`], an optional [`Mask`], the [`ScatterArea`] and a seed.
 //! It checks candidates in the same order: the mask first, then
 //! [`steeper_than`] from one ground sample, and only then the copy's
-//! footprint, for example with [`settle`].
+//! footprint, with [`place`] as its [`Placement`] says.
 
 use glam::{DVec2, Mat3, Quat, Vec2, Vec3};
 
@@ -139,123 +139,6 @@ pub fn steeper_than(s: &GroundSample, max_degrees: f32) -> bool {
     }
     let limit = max_degrees.to_radians().tan();
     rise > limit * limit
-}
-
-/// Where a rigid piece touches flat ground, so [`settle`] can rest it on
-/// uneven ground.
-///
-/// Points are in the piece's own space, with Y up and the flat ground at
-/// `y = 0`, measured from the point that should stand over the spot being
-/// settled.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Footing {
-    /// Points on the piece's underside that touch, or nearly touch, flat
-    /// ground. The piece is lifted until none of them is below the ground.
-    pub contacts: Vec<Vec3>,
-    /// More points (X and Z) where the ground is sampled to find its tilt,
-    /// without resting on them, such as points either side of a thin
-    /// stick so it still finds the slope across it.
-    pub extra: Vec<Vec2>,
-    /// How far, in metres, the ground under any contact, extra point or the
-    /// origin may lie from the tilted plane the piece rests on. Over a dip
-    /// or a ridge sharper than this the spot is rejected. Use
-    /// `f32::INFINITY` to never reject.
-    pub max_bend: f32,
-}
-
-/// A rigid piece rested on the ground by [`settle`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Settled {
-    /// Turns the piece from its own space to lie on the ground: the
-    /// requested yaw, then a tilt to the ground's slope.
-    pub rotation: Quat,
-    /// The height in metres at which to put the piece's origin, after
-    /// [`rotation`](Self::rotation), so no contact is below the ground.
-    pub height: f32,
-    /// The upward unit normal of the plane the piece rests on.
-    pub normal: Vec3,
-}
-
-/// Rests a rigid piece with `footing`, turned by `yaw` radians about Y, on
-/// `ground` at World position `at`.
-///
-/// The piece is tilted to the plane that best fits the ground under its
-/// contacts and extra points, then lifted until no contact is below the
-/// ground. Put the piece's origin at `at` and [`Settled::height`], and turn
-/// it by [`Settled::rotation`].
-///
-/// The ground is also sampled under the piece's origin. Returns `None`
-/// where the ground under any contact, extra point or the origin is missing
-/// (NaN), or lies further than [`Footing::max_bend`] from the fitted plane.
-/// A piece with no contacts rests its origin on the ground. Check the slope
-/// with [`steeper_than`] first: it is cheaper than settling.
-pub fn settle(ground: &dyn Ground, at: DVec2, yaw: f32, footing: &Footing) -> Option<Settled> {
-    let turn = Quat::from_rotation_y(yaw);
-    let height = |p: Vec3| ground.height(at + DVec2::new(f64::from(p.x), f64::from(p.z)));
-
-    // Sample the ground under the turned contacts and extra points.
-    let mut samples: Vec<(Vec3, f32)> = Vec::new();
-    let turned = footing.contacts.iter().map(|&c| turn * c).chain(
-        footing
-            .extra
-            .iter()
-            .map(|e| turn * Vec3::new(e.x, 0.0, e.y)),
-    );
-    for p in turned.chain(std::iter::once(Vec3::ZERO)) {
-        let h = height(p);
-        if !h.is_finite() {
-            return None;
-        }
-        samples.push((p, h));
-    }
-
-    // Fit a plane h = a·x + b·z + c by least squares to the contacts and
-    // extra points; the origin joins the fit only when there are none. The
-    // tiny diagonal term keeps a single point or a straight line of points
-    // solvable, as a level plane across it.
-    let fitted = if samples.len() > 1 {
-        &samples[..samples.len() - 1]
-    } else {
-        &samples[..]
-    };
-    let mut m = Mat3::ZERO;
-    let mut rhs = Vec3::ZERO;
-    for &(p, h) in fitted {
-        let row = Vec3::new(p.x, p.z, 1.0);
-        m += Mat3::from_cols(row * row.x, row * row.y, row * row.z);
-        rhs += row * h;
-    }
-    m += Mat3::from_diagonal(Vec3::new(1e-6, 1e-6, 0.0));
-    let [a, b, c] = (m.inverse() * rhs).to_array();
-    let normal = Vec3::new(-a, 1.0, -b).normalize();
-
-    // Reject ground that bends too far from the plane under the piece.
-    let bent = samples
-        .iter()
-        .any(|&(p, h)| (h - (a * p.x + b * p.z + c)).abs() > footing.max_bend);
-    if bent {
-        return None;
-    }
-
-    // Tilt, then lift until no contact is below the ground.
-    let rotation = Quat::from_rotation_arc(Vec3::Y, normal) * turn;
-    let mut lift = f32::NEG_INFINITY;
-    for &contact in &footing.contacts {
-        let p = rotation * contact;
-        let h = height(p);
-        if !h.is_finite() {
-            return None;
-        }
-        lift = lift.max(h - p.y);
-    }
-    if !lift.is_finite() {
-        lift = samples[samples.len() - 1].1;
-    }
-    Some(Settled {
-        rotation,
-        height: lift,
-        normal,
-    })
 }
 
 /// How a piece stands on uneven ground: how far it tilts, what it rests on,
@@ -530,88 +413,6 @@ mod tests {
         assert!(steeper_than(&unknown, 30.0));
     }
 
-    /// A box 2 m long along X and 1 m wide, resting on its four corners.
-    fn plank(max_bend: f32) -> Footing {
-        Footing {
-            contacts: vec![
-                Vec3::new(-1.0, 0.0, -0.5),
-                Vec3::new(1.0, 0.0, -0.5),
-                Vec3::new(-1.0, 0.0, 0.5),
-                Vec3::new(1.0, 0.0, 0.5),
-            ],
-            extra: Vec::new(),
-            max_bend,
-        }
-    }
-
-    #[test]
-    fn a_piece_on_flat_ground_stays_level() {
-        let s = settle(&FlatGround, DVec2::new(1.0e6, 3.0), 0.7, &plank(0.01)).unwrap();
-        assert!((s.normal - Vec3::Y).length() < 1e-5);
-        assert!(s.height.abs() < 1e-5);
-        assert!((s.rotation * Vec3::X - Quat::from_rotation_y(0.7) * Vec3::X).length() < 1e-5);
-    }
-
-    #[test]
-    fn a_piece_tilts_to_a_slope_and_rests_on_it() {
-        let ramp = |p: DVec2| (0.3 * p.x - 0.1 * p.y) as f32;
-        let at = DVec2::new(4.0, -2.0);
-        let s = settle(&ramp, at, 1.1, &plank(0.01)).unwrap();
-        let expected = Vec3::new(-0.3, 1.0, 0.1).normalize();
-        assert!((s.normal - expected).length() < 1e-4);
-
-        // Every contact sits on the ramp, none below it.
-        for c in plank(0.0).contacts {
-            let p = s.rotation * c + Vec3::new(0.0, s.height, 0.0);
-            let ground = ramp(at + DVec2::new(f64::from(p.x), f64::from(p.z)));
-            assert!((p.y - ground).abs() < 1e-3, "{} vs {ground}", p.y);
-        }
-    }
-
-    #[test]
-    fn a_piece_over_a_gully_is_rejected_unless_bending_is_allowed() {
-        // A V-shaped gully along Z, 0.5 m deep at its middle.
-        let gully = |p: DVec2| (p.x.abs() * 0.5) as f32;
-        assert!(settle(&gully, DVec2::ZERO, 0.0, &plank(0.05)).is_none());
-        let s = settle(&gully, DVec2::ZERO, 0.0, &plank(f32::INFINITY)).unwrap();
-        // It bridges the gully, resting on the high sides.
-        assert!((s.height - 0.5).abs() < 1e-3);
-    }
-
-    #[test]
-    fn only_the_contacts_and_extra_points_set_the_tilt() {
-        // A piece whose contacts lie 1 m and 2 m to one side of its origin,
-        // on curved ground. The plane through the two contacts rises 3 m
-        // per metre; the ground under the origin must not pull it.
-        let side = Footing {
-            contacts: vec![Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)],
-            extra: Vec::new(),
-            max_bend: f32::INFINITY,
-        };
-        let curve = |p: DVec2| (p.x * p.x) as f32;
-        let s = settle(&curve, DVec2::ZERO, 0.0, &side).unwrap();
-        assert!((s.normal - Vec3::new(-3.0, 1.0, 0.0).normalize()).length() < 1e-3);
-    }
-
-    #[test]
-    fn missing_ground_under_a_piece_rejects_it() {
-        let edge = |p: DVec2| if p.x > 0.5 { f32::NAN } else { 0.0 };
-        assert!(settle(&edge, DVec2::ZERO, 0.0, &plank(1.0)).is_none());
-    }
-
-    #[test]
-    fn extra_points_find_the_slope_across_a_thin_piece() {
-        // A stick along X on ground that rises along Z.
-        let stick = Footing {
-            contacts: vec![Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)],
-            extra: vec![Vec2::new(0.0, -0.2), Vec2::new(0.0, 0.2)],
-            max_bend: 0.01,
-        };
-        let ramp = |p: DVec2| (0.5 * p.y) as f32;
-        let s = settle(&ramp, DVec2::ZERO, 0.0, &stick).unwrap();
-        assert!((s.normal - Vec3::new(0.0, 1.0, -0.5).normalize()).length() < 1e-3);
-    }
-
     /// A ramp rising 0.5 m per metre along X: about 26.6 degrees.
     fn ramp(p: DVec2) -> f32 {
         (0.5 * p.x) as f32
@@ -620,10 +421,66 @@ mod tests {
     /// A box 2 m long along X and 1 m wide, on its four corners, 2 m in size.
     fn slab() -> Footprint {
         Footprint {
-            contacts: plank(0.0).contacts,
+            contacts: vec![
+                Vec3::new(-1.0, 0.0, -0.5),
+                Vec3::new(1.0, 0.0, -0.5),
+                Vec3::new(-1.0, 0.0, 0.5),
+                Vec3::new(1.0, 0.0, 0.5),
+            ],
             extra: Vec::new(),
             size: 2.0,
         }
+    }
+
+    #[test]
+    fn a_piece_on_flat_ground_stays_level_and_keeps_its_yaw() {
+        let lying = placement(1.0, Rest::Plane);
+        let p = place(&FlatGround, DVec2::new(1.0e6, 3.0), 0.7, &slab(), &lying).unwrap();
+        assert!((p.normal - Vec3::Y).length() < 1e-5);
+        assert!(p.height.abs() < 1e-5);
+        assert!((p.rotation * Vec3::X - Quat::from_rotation_y(0.7) * Vec3::X).length() < 1e-5);
+    }
+
+    #[test]
+    fn only_the_contacts_and_extra_points_set_the_tilt() {
+        // A piece whose contacts lie 1 m and 2 m to one side of its origin,
+        // on curved ground. The plane through the two contacts rises 3 m
+        // per metre; the ground under the origin must not pull it.
+        let side = Footprint {
+            contacts: vec![Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)],
+            extra: Vec::new(),
+            size: 2.0,
+        };
+        let curve = |p: DVec2| (p.x * p.x) as f32;
+        let p = place(
+            &curve,
+            DVec2::ZERO,
+            0.0,
+            &side,
+            &placement(1.0, Rest::Plane),
+        )
+        .unwrap();
+        assert!((p.normal - Vec3::new(-3.0, 1.0, 0.0).normalize()).length() < 1e-3);
+    }
+
+    #[test]
+    fn extra_points_find_the_slope_across_a_thin_piece() {
+        // A stick along X on ground that rises along Z.
+        let stick = Footprint {
+            contacts: vec![Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)],
+            extra: vec![Vec2::new(0.0, -0.2), Vec2::new(0.0, 0.2)],
+            size: 2.0,
+        };
+        let ramp = |p: DVec2| (0.5 * p.y) as f32;
+        let p = place(
+            &ramp,
+            DVec2::ZERO,
+            0.0,
+            &stick,
+            &placement(1.0, Rest::Plane),
+        )
+        .unwrap();
+        assert!((p.normal - Vec3::new(0.0, 1.0, -0.5).normalize()).length() < 1e-3);
     }
 
     fn placement(conform: f32, rest: Rest) -> Placement {

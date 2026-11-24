@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use glam::{DVec2, Vec2, Vec3};
-use procgena_core::scatter::{ScatterArea, ScatterInput};
+use procgena_core::scatter::{Placement, Rest, ScatterArea, ScatterInput};
 use procgena_core::{FlatGround, Ground, HeightGrid};
 use procgena_stone::{
     OptionsError, StoneClass, StoneInstance, StonePreset, StoneScatter, StoneScatterError,
@@ -290,12 +290,17 @@ fn steep_ground_beyond_the_limit_has_no_stones() {
 }
 
 #[test]
-fn stones_tilt_to_the_slope_and_rest_on_it() {
+fn a_class_placed_flat_on_the_plane_tilts_to_the_slope_and_rests_on_it() {
     // A gentle ramp rising 0.3 m per metre along X.
     let ramp = |p: DVec2| (0.3 * p.x) as f32;
     let mut o = options();
     for class in &mut o.classes {
         class.burial = [0.0, 0.0];
+        class.placement = Some(Placement {
+            conform: 1.0,
+            rest: Rest::Plane,
+            ..Placement::default()
+        });
     }
     let stones = scatter(&o, &ramp, 20.0);
     assert!(!stones.instances().is_empty());
@@ -315,6 +320,48 @@ fn stones_tilt_to_the_slope_and_rest_on_it() {
             "{} above {ground}",
             s.position.y
         );
+    }
+}
+
+#[test]
+fn settled_stones_tilt_halfway_by_default_and_never_float() {
+    let ramp = |p: DVec2| (0.3 * p.x) as f32;
+    let mut o = options();
+    for class in &mut o.classes {
+        class.burial = [0.0, 0.0];
+        assert_eq!(class.placement, None);
+        assert!(class.stone.placement.settle);
+    }
+    let stones = scatter(&o, &ramp, 20.0);
+    assert!(!stones.instances().is_empty());
+    let half = 0.5 * 0.3f32.atan();
+    for s in stones.instances() {
+        let up = s.transform.transform_vector3(Vec3::Y).normalize();
+        assert!((up.angle_between(Vec3::Y) - half).abs() < 1e-3, "up {up}");
+        assert!(up.x < 0.0, "leans downhill: {up}");
+        // Resting on the lowest ground under it, its origin is at or below
+        // the ground beneath it.
+        let ground = ramp(DVec2::new(f64::from(s.position.x), f64::from(s.position.z)));
+        assert!(
+            s.position.y <= ground + 1e-3,
+            "{} above {ground}",
+            s.position.y
+        );
+    }
+}
+
+#[test]
+fn a_standing_stone_stays_upright() {
+    let ramp = |p: DVec2| (0.3 * p.x) as f32;
+    let mut o = options();
+    for class in &mut o.classes {
+        class.stone.placement.settle = false;
+    }
+    let stones = scatter(&o, &ramp, 20.0);
+    assert!(!stones.instances().is_empty());
+    for s in stones.instances() {
+        let up = s.transform.transform_vector3(Vec3::Y).normalize();
+        assert!(up.angle_between(Vec3::Y) < 1e-3, "up {up}");
     }
 }
 
