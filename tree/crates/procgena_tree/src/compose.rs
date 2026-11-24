@@ -75,7 +75,7 @@ pub(crate) fn compose_clusters(
         // The cluster's own level, from its size where it is drawn.
         let fruit = &slots[cluster.slot as usize];
         let scale = cluster.scale * detail.cluster_scale;
-        let factor = lod.factor(fruit.size() * scale, Quality::High);
+        let factor = fruit.lod_factor(&lod, scale, Quality::High);
         let Some(level) = lod.level_at(detail.fruit_distance, factor) else {
             continue;
         };

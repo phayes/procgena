@@ -682,8 +682,10 @@ confused with the B1 milestone or the D1 and D2 gates.
   their own tab, a Fruit tab and a Flower tab, with their own presets and
   viewer, and the tree panels pick a fruit preset and a flower preset by
   key.
-- **Status (2026-11-24):** started: fruit steps AC1 → B1 → B2 and the two
-  studio tabs in one lane, fruit steps D1 → D2 in another.
+- **Status (2026-11-24):** fruit step AC1 done (the crate, slots, part
+  paths, export; cluster cards removed; see "As built" in
+  [fruit/plan.md](fruit/plan.md)). Fruit steps B1 → B2 and the two studio
+  tabs are in progress in one lane, fruit steps D1 → D2 in another.
 
 #### I2: Impostors prepared per Ecotope
 

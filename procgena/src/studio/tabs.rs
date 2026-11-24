@@ -20,13 +20,17 @@ pub enum StudioTab {
     Clumps,
     /// A single mushroom.
     Mushrooms,
+    /// A single fruit cluster, such as an apple.
+    Fruit,
+    /// A single flower cluster, such as a dogwood bloom.
+    Flowers,
     /// A single fallen log, branch or stump.
     Deadwood,
 }
 
 impl StudioTab {
     /// Every tab, left to right.
-    pub const ALL: [StudioTab; 8] = [
+    pub const ALL: [StudioTab; 10] = [
         StudioTab::Trees,
         StudioTab::TreeScatter,
         StudioTab::Plant,
@@ -34,6 +38,8 @@ impl StudioTab {
         StudioTab::Stones,
         StudioTab::Clumps,
         StudioTab::Mushrooms,
+        StudioTab::Fruit,
+        StudioTab::Flowers,
         StudioTab::Deadwood,
     ];
 
@@ -47,6 +53,8 @@ impl StudioTab {
             Self::Stones => "Stones",
             Self::Clumps => "Clumps",
             Self::Mushrooms => "Mushrooms",
+            Self::Fruit => "Fruit",
+            Self::Flowers => "Flowers",
             Self::Deadwood => "Dead Wood",
         }
     }
@@ -61,6 +69,7 @@ impl StudioTab {
             Self::Stones => SceneMode::Stone,
             Self::Clumps => SceneMode::Clump,
             Self::Mushrooms => SceneMode::Mushroom,
+            Self::Fruit | Self::Flowers => SceneMode::Fruit,
             Self::Deadwood => SceneMode::Deadwood,
         }
     }

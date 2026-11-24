@@ -17,7 +17,7 @@ const WIND: &str = "wind";
 /// Lists shared environment controls that do not apply to the selected tab.
 /// Field Size shows only on the plant tabs and Scatter Size only on the Tree
 /// Scatter tab, since each sizes only that tab's preview. Wind is hidden on
-/// Clumps, which always shows still air.
+/// Clumps and on the Fruit and Flower tabs, which show still air.
 pub fn hidden_keys(mode: SceneMode) -> &'static [&'static str] {
     match mode {
         SceneMode::Plants => &[GROVE_SIZE],
@@ -25,8 +25,9 @@ pub fn hidden_keys(mode: SceneMode) -> &'static [&'static str] {
         SceneMode::Tree | SceneMode::Stone | SceneMode::Mushroom | SceneMode::Deadwood => {
             &[FIELD_SIZE, GROVE_SIZE]
         }
-        // The clump would not sway with its tree, so clump mode has no wind.
-        SceneMode::Clump => &[FIELD_SIZE, GROVE_SIZE, WIND],
+        // The clump would not sway with its tree, so clump mode has no wind;
+        // nor does a cluster on its own.
+        SceneMode::Clump | SceneMode::Fruit => &[FIELD_SIZE, GROVE_SIZE, WIND],
     }
 }
 

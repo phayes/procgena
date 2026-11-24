@@ -107,6 +107,7 @@ pub fn scene_start() -> SceneStart {
         stone: Arc::new(crate::stones::start_options()),
         clump: Arc::new(crate::clump::start_settings()),
         mushroom: Arc::new(crate::mushrooms::start_options()),
+        fruit: Arc::new(crate::fruit::start_options(true)),
         grove: Arc::new(crate::grove::editor::start_grove()),
         deadwood: Arc::new(crate::deadwood::start_settings()),
         environment: EnvironmentSettings::default(),

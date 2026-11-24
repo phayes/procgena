@@ -5365,6 +5365,8 @@ dependencies = [
  "procgena_core",
  "procgena_deadwood",
  "procgena_deadwood_bevy",
+ "procgena_fruit",
+ "procgena_fruit_bevy",
  "procgena_impostor",
  "procgena_mushroom",
  "procgena_mushroom_bevy",
@@ -5493,6 +5495,16 @@ dependencies = [
  "procgena_specimen",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "procgena_fruit_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "procgena_core",
+ "procgena_core_bevy",
+ "procgena_fruit",
 ]
 
 [[package]]

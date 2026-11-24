@@ -237,12 +237,13 @@ step pinned to the `SpecimenId` it indexes, for example
 `… / fruit 17 / item 2` (see "Queries: reading the result" and
 [D3](docs/decisions/D3.md) section 7b).
 
-**Status.** Planned: `procgena_fruit` (milestone I1b in
-[ROADMAP.md](ROADMAP.md)). Today the tree still builds its own fruit and
-flower clusters. Cluster cards for them (baked views per cluster variant,
-drawn at levels 1 and 2) were built on 2026-11-24, before this
-decision was applied, and are off by default; see the "Fruit as an
-attached asset" TODO.
+**Status.** `procgena_fruit` is built (milestone I1b in
+[ROADMAP.md](ROADMAP.md), fruit step AC1): the tree places clusters and
+picks each one's slot per tree specimen, and fruit specimens have their
+own mesh levels. The cluster cards built on 2026-11-24 are removed.
+Instanced drawing in Bevy and fruit impostors are still to do; see the
+"Fruit as an attached asset" TODO and the "As built" notes in
+[fruit/plan.md](fruit/plan.md).
 
 ### 2. Scatter
 
@@ -1649,7 +1650,9 @@ it starts.
   Scatter key salts, `CellId`, index) from a world-anchored lattice, as
   "Queries" describes. Done in C2 for tree, stone, deadwood and mushroom
   (`procgena_core::CopyAddress`); plant's blades wait for World tile
-  cells (R3). Part paths (`PartStep`, `Address`) are still to do.
+  cells (R3). Part paths (`PartStep`, `Address`) are built in
+  `procgena_core`; the tree and fruit resolve their own steps
+  (`Skeleton::part`, `Fruit::part`). A World-level `resolve` is still to do.
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
   serde.
 - [ ] **Core queries**: at a point, near a point, along a ray, and spot
@@ -1736,13 +1739,9 @@ it starts.
   per-tree-specimen slots, fruit LOD levels and impostors, cluster-table
   instancing in the grove with a two-step detail check. Needs F1, F2 and
   D3 for its first step, then R1 and I1. Milestone I1b.
-  - Built before this decision was applied: cluster impostor cards, the
-    plan this one supersedes, were built on 2026-11-24. With
-    `LodDetail::cluster_cards` set, each kept cluster at levels 1 and 2
-    draws as one card showing one of that many seeded cluster variants,
-    baked per pool part. They are off by default in `default_lod`.
-    The user decided on 2026-11-24 to remove them in the fruit crate's
-    first step.
+  - Done in fruit step AC1 (2026-11-24): the crate, `AttachedFruit`,
+    per-tree-specimen slots, part paths, export, and the removal of the
+    superseded cluster cards. The rest is still to do.
 - [ ] **Impostor bake options**: per-bake view count and frame size,
   view coverage declared per preset as a lowest viewer elevation (−90° by
   default, −45° for trees, in the bake key), with the octahedral layout

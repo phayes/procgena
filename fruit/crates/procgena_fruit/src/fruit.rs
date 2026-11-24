@@ -85,6 +85,14 @@ impl Fruit {
         2.0 * self.radius()
     }
 
+    /// The factor that scales `lod`'s distances for a copy of this cluster
+    /// drawn at `scale` times its size, at `quality`. Pass it to
+    /// [`Lod::level_at`](procgena_core::Lod::level_at) or
+    /// [`Lod::ranges`](procgena_core::Lod::ranges).
+    pub fn lod_factor(&self, lod: &FruitLod, scale: f32, quality: procgena_core::Quality) -> f32 {
+        lod.factor(self.size() * scale, quality)
+    }
+
     /// The cluster's mesh at `detail`, in the cluster frame.
     pub fn mesh(&self, detail: &ClusterDetail) -> FruitMesh {
         mesh_cluster(&self.skeleton, &self.options, detail)

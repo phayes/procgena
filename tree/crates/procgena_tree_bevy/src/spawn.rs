@@ -9,11 +9,9 @@ use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use procgena_core::{Lod, LodLevel, LodRange, PoolId, Quality, SpecimenId};
+use procgena_core::{Lod, LodLevel, LodRange, Quality, SpecimenId};
 use procgena_core_bevy::{LodQuality, visibility_range};
-use procgena_impostor::{
-    BakeOutput, BakePart, ImpostorKey, ImpostorLevel, ImpostorRequest, Impostors,
-};
+use procgena_impostor::ImpostorLevel;
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
     BranchShape, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,

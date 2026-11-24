@@ -741,6 +741,41 @@ on purpose.
   by a test that compares slot meshes.
 - **Part paths resolve to the same frame at every detail level.**
 
+## As built (fruit step AC1, 2026-11-24)
+
+Where the build differs from the plan above, or settles what it left open.
+The coordinator approved each of these.
+
+- **`Facing` lives in `FruitOptions` only** (the move map kept it in the
+  tree). The cluster is shaped for its facing (droop and the frame), so
+  there is one source of truth and no mismatch to validate. The tree's
+  `ClusterPlacement` keeps `facing_jitter`, and adds `scale` and
+  `scale_variance` for the per-copy size.
+- **Fruit `SpecimenId`s use the fruit options' own `default_seed` as the
+  World seed**, outside a World. Every tree variant in a grove with the same
+  fruit settings then shares one fruit pool, instead of one pool per tree
+  variant. A World will pass its own seed.
+- **The pool budget `N` is `AttachedFruit::default_slots`**, outside the
+  tree's options hash like `default_seed`, but inside its `TreeCacheKey`
+  (together with the fruit's seed), because both change which specimens
+  the tree shows.
+- **Slot keys** are `derive_seed(seed_for(tree.default_seed,
+  "tree.fruit.slots"), i)` (flowers: `"tree.flowers.slots"`): fixed per
+  tree specimen, since a Scatter variant's `default_seed` is its
+  `SpecimenId`'s seed. Slots use `procgena_core::choose_slot`
+  (rendezvous). Part paths use `procgena_core::{PartStep, Address}`, with
+  kinds `tree.part.fruit`, `tree.part.flower`, `fruit.part.stalk` and
+  `fruit.part.item`.
+- **`TreeMesh::{fruit, flowers}` stay**, as the CPU composition: each kept
+  cluster's specimen mesh at its own fruit level for
+  `LodDetail::fruit_distance`, moved into place. Export, specimens, the
+  outline test and (until fruit step B2) the Bevy crate use them.
+- **Tree files name a fruit preset by key** (`fruit: { fruit: apple, … }`),
+  or give settings over a `base` fruit preset. The studio's tree panels
+  pick a preset by key.
+- **Tree glTF export writes fruit merged per level**, as OBJ does; one mesh
+  per fruit slot with glTF instancing is not built yet.
+
 ## Decisions
 
 The user answered on 2026-11-23:

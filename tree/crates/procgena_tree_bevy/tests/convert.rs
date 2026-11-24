@@ -5,8 +5,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::encase::UniformBuffer;
 use bevy::render::render_resource::{Face, ShaderType};
 use procgena_tree::{
-    BarkMaterial, BarkUvMode, LodDetail, Tree, TreePreset, WindParams, bark_average_color,
-    default_lod,
+    BarkMaterial, BarkUvMode, Tree, TreePreset, WindParams, bark_average_color, default_lod,
 };
 use procgena_tree_bevy::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
@@ -213,25 +212,21 @@ fn leaves_draw_both_sides_and_cut_out_their_shape() {
     assert!(!rounded.base.double_sided);
 }
 
-/// Checks that LOD3 meshes, with camera-facing fruit turned on, retain both
-/// rotation attributes without normals, ignore bark flat shading, and provide
-/// bounds covering the sampled rotations.
+/// Checks that LOD3 bark and leaf meshes retain both rotation attributes
+/// without normals, ignore bark flat shading, and provide bounds covering
+/// the sampled rotations.
 #[test]
 fn billboard_meshes_carry_their_turning_data() {
     let mut options = TreePreset::apple().tree.clone();
     options.bark.flat_shading = true;
     let tree = Tree::new(options).unwrap();
-    let mesh = tree.mesh_with_detail(&LodDetail {
-        billboard_fruit: true,
-        ..default_lod().levels[3].detail
-    });
+    let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
     let converted = [
         (
             &mesh.branches,
             bark_mesh(&mesh.branches, &tree.options().bark),
         ),
         (&mesh.leaves, leaf_mesh(&mesh.leaves)),
-        (&mesh.fruit, cluster_mesh(&mesh.fruit)),
     ];
     for (buffers, bevy_mesh) in &converted {
         assert!(!buffers.billboard.is_empty());

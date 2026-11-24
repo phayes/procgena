@@ -46,6 +46,8 @@ procgena_stone = { path = "../stone/crates/procgena_stone", features = ["export-
 procgena_stone_bevy = { path = "../stone/crates/procgena_stone_bevy" }
 procgena_clump = { path = "../clump/crates/procgena_clump" }
 procgena_clump_bevy = { path = "../clump/crates/procgena_clump_bevy" }
+procgena_fruit = { path = "../fruit/crates/procgena_fruit", features = ["export-obj", "export-gltf"] }
+procgena_fruit_bevy = { path = "../fruit/crates/procgena_fruit_bevy" }
 procgena_mushroom = { path = "../mushroom/crates/procgena_mushroom", features = ["export-obj", "export-gltf"] }
 procgena_mushroom_bevy = { path = "../mushroom/crates/procgena_mushroom_bevy" }
 procgena_deadwood = { path = "../deadwood/crates/procgena_deadwood", features = ["export-obj", "export-gltf"] }
