@@ -1,12 +1,11 @@
-//! Each pool's GPU resources: its generated shapes, its rocks' transforms, its
-//! material and the bind group every pooled-rock draw uses.
+//! Each pool's generated shapes, listed for the shared instanced renderer.
 //!
 //! A pool's shapes are generated with `procgena_stone`'s GPU generator on Bevy's own
 //! device. Every mesh reserves room in advance; when a mesh needs more, the
 //! generator draws nothing for it and reports the room it needs, which this
 //! module reads back without blocking and uses to generate the pool again.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -14,56 +13,18 @@ use std::sync::{Arc, Mutex};
 use bevy::asset::AssetId;
 use bevy::ecs::prelude::*;
 use bevy::log::warn;
-use bevy::math::Vec4;
-use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{
-    BindGroup, BindGroupEntries, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
-    MapMode, PipelineCache, ShaderType, StorageBuffer, UniformBuffer,
+    Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, IndexFormat, MapMode,
 };
 use bevy::render::renderer::{RenderDevice, RenderQueue};
-use bevy::render::texture::{FallbackImage, GpuImage};
+use procgena_core_bevy::instanced::{ExternalMesh, ExternalMeshId, ExternalMeshes};
 use procgena_stone::gpu::{
     GPU_DRAW_ARGS_SIZE, GPU_STATUS_SIZE, GPU_VERTEX_SIZE, GpuError, GpuStoneGenerator,
     GpuStoneRequest, GpuStoneStatus,
 };
 
-use super::{ExtractedPools, PoolLayouts};
-use crate::pool::{PoolDefinition, PoolInstance, StonePool};
-use crate::spawn::level_ranges;
-use procgena_core::{LodRange, Quality};
-
-/// One pooled rock as the shaders read it. Mirrors `PoolInstance` in `pool_types.wesl`.
-#[derive(Debug, Clone, Copy, ShaderType)]
-pub(crate) struct GpuInstance {
-    rows: [Vec4; 3],
-    variant: u32,
-}
-
-impl From<&PoolInstance> for GpuInstance {
-    fn from(instance: &PoolInstance) -> Self {
-        let m = instance.world_from_local.matrix3;
-        let t = instance.world_from_local.translation;
-        Self {
-            rows: [
-                Vec4::new(m.x_axis.x, m.y_axis.x, m.z_axis.x, t.x),
-                Vec4::new(m.x_axis.y, m.y_axis.y, m.z_axis.y, t.y),
-                Vec4::new(m.x_axis.z, m.y_axis.z, m.z_axis.z, t.z),
-            ],
-            variant: instance.variant,
-        }
-    }
-}
-
-/// A pool's surface. Mirrors `PoolMaterial` in `pool_draw.wesl`.
-#[derive(Debug, Clone, Copy, Default, ShaderType)]
-pub(crate) struct PoolMaterialUniform {
-    base_color: Vec4,
-    perceptual_roughness: f32,
-    metallic: f32,
-    scale: f32,
-    texture_size: f32,
-    textured: u32,
-}
+use super::{ExtractedPools, PoolMeshLayout};
+use crate::pool::{PoolDefinition, StonePool, external_mesh_id};
 
 /// Where the status read-back is: waiting for the GPU, or holding the bytes.
 const READBACK_MAPPING: u8 = 0;
@@ -72,21 +33,17 @@ const READBACK_READY: u8 = 1;
 /// Times a pool is generated again with more room before it gives up.
 const MAX_ATTEMPTS: u32 = 4;
 
-/// Conservative unscaled radius enclosing any placed rock before its GPU
-/// result is available. Keeps visibility checks from hiding rocks prematurely.
-const UNPLACED_RADIUS: f32 = 2.0 * 1.732_050_8;
-
 /// Every pool's GPU resources, and the generator they share.
 #[derive(Resource, Default)]
 pub(crate) struct RenderPools {
     /// Created when the first pool needs generating.
     generator: Option<GpuStoneGenerator>,
     pub pools: HashMap<AssetId<StonePool>, RenderPool>,
-    /// The [`crate::pool::PoolInstances::version`] last uploaded.
-    instance_version: Option<u64>,
+    /// The external meshes listed last frame, to take out again.
+    listed: HashSet<ExternalMeshId>,
 }
 
-/// One pool's generated shapes, rocks, material and bind group.
+/// One pool's generated shapes.
 pub(crate) struct RenderPool {
     /// The [`PoolDefinition::version`] these resources were made for.
     version: u64,
@@ -100,27 +57,6 @@ pub(crate) struct RenderPool {
     /// Generation failed for good; the pool draws nothing.
     failed: bool,
     readback: Option<StatusReadback>,
-    pub lod_count: u32,
-    pub variant_count: u32,
-    /// Camera-distance limits of each detail level, packed by
-    /// `LodRange::to_vec4` (`x..y` fade in, `z..w` fade out), in metres, at
-    /// [`quality`](Self::quality).
-    pub lod_ranges: Vec<Vec4>,
-    /// The quality setting `lod_ranges` were worked out for.
-    quality: Quality,
-    /// Radius enclosing every variant about its origin, including the pool's
-    /// option scale but excluding each entity's transform scale.
-    pub radius: f32,
-    /// The rocks, sorted by variant; `None` when the pool has no rocks.
-    pub instances: Option<StorageBuffer<Vec<GpuInstance>>>,
-    /// Index in `instances` of each variant's first rock.
-    pub variant_start: StorageBuffer<Vec<u32>>,
-    /// Number of rocks of each variant.
-    pub variant_counts: Vec<u32>,
-    pub instance_count: u32,
-    material: UniformBuffer<PoolMaterialUniform>,
-    /// Group 2 of every pooled-rock draw.
-    pub draw_group: Option<BindGroup>,
 }
 
 /// Some of a pool's meshes, generated together into shared buffers.
@@ -145,7 +81,6 @@ impl RenderPool {
     fn new(definition: &PoolDefinition) -> Self {
         let pool = &definition.pool;
         let levels = pool.options.mesh.detail.levels();
-        let lod_count = levels.len() as u32;
         let requests = (0..pool.variants)
             .flat_map(|variant| {
                 let options = pool.variant_options(variant);
@@ -154,8 +89,6 @@ impl RenderPool {
                     .map(move |level| GpuStoneRequest::new(options.clone(), level.resolution))
             })
             .collect();
-        let scale = pool.options.scale;
-        let quality = Quality::default();
         Self {
             version: definition.version,
             definition: definition.clone(),
@@ -165,23 +98,12 @@ impl RenderPool {
             attempts: 0,
             failed: false,
             readback: None,
-            lod_count,
-            variant_count: pool.variants,
-            lod_ranges: packed_ranges(pool, quality),
-            quality,
-            radius: scale * UNPLACED_RADIUS,
-            instances: None,
-            variant_start: StorageBuffer::from(vec![0; pool.variants as usize]),
-            variant_counts: vec![0; pool.variants as usize],
-            instance_count: 0,
-            material: UniformBuffer::default(),
-            draw_group: None,
         }
     }
 
     /// Number of meshes: one per variant and detail level.
     pub fn mesh_count(&self) -> u32 {
-        self.variant_count * self.lod_count
+        self.requests.len() as u32
     }
 
     /// Times the pool has been generated.
@@ -201,6 +123,12 @@ impl RenderPool {
     #[cfg(test)]
     pub fn seed(&self) -> u32 {
         self.definition.pool.options.default_seed
+    }
+
+    /// The [`PoolDefinition::version`] these resources were made for.
+    #[cfg(test)]
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     /// Generates the pool again with room for only a few vertices and indices
@@ -235,7 +163,7 @@ impl RenderPool {
         let limit = limits
             .max_storage_buffer_binding_size
             .min(limits.max_buffer_size);
-        let lods = self.lod_count as usize;
+        let lods = self.definition_levels();
         for variants in plan_batches(&self.requests, lods, limit) {
             let first_mesh = variants.start * lods;
             let requests = &self.requests[first_mesh..variants.end * lods];
@@ -293,6 +221,11 @@ impl RenderPool {
         self.readback = Some(StatusReadback { state, bytes });
     }
 
+    /// Number of detail levels per variant.
+    fn definition_levels(&self) -> usize {
+        self.definition.pool.options.mesh.detail.levels().len()
+    }
+
     /// Stops drawing the pool after an error that more room cannot fix.
     fn fail(&mut self, error: &GpuError) {
         warn!("procgena_stone_bevy: a stone pool cannot be generated and is not drawn: {error}");
@@ -300,9 +233,9 @@ impl RenderPool {
         self.batches.clear();
     }
 
-    /// Processes available GPU status without waiting. Updates the enclosing
-    /// radius used for visibility checks and schedules generation with more
-    /// capacity after overflow, unless the retry limit has been reached.
+    /// Processes available GPU status without waiting, and schedules
+    /// generation with more capacity after overflow, unless the retry limit
+    /// has been reached.
     fn check_readback(&mut self) {
         let Some(readback) = &self.readback else {
             return;
@@ -317,13 +250,6 @@ impl RenderPool {
             return;
         }
         let statuses = GpuStoneStatus::decode(&bytes);
-        let largest = statuses
-            .iter()
-            .map(|status| status.bounding_radius)
-            .fold(0.0, f32::max);
-        if largest > 0.0 {
-            self.radius = self.definition.pool.options.scale * largest;
-        }
         let mut overflowed = false;
         for (request, status) in self.requests.iter_mut().zip(&statuses) {
             if !status.fits() {
@@ -342,37 +268,6 @@ impl RenderPool {
             return;
         }
         self.needs_generation = true;
-    }
-
-    /// Uploads this pool's rocks, grouped by variant.
-    fn upload_instances(
-        &mut self,
-        rocks: &[PoolInstance],
-        device: &RenderDevice,
-        queue: &RenderQueue,
-    ) {
-        let mut counts = vec![0u32; self.variant_count as usize];
-        for rock in rocks {
-            counts[rock.variant as usize] += 1;
-        }
-        let starts: Vec<u32> = counts
-            .iter()
-            .scan(0, |start, &count| {
-                let this = *start;
-                *start += count;
-                Some(this)
-            })
-            .collect();
-        self.variant_start.set(starts);
-        self.variant_start.write_buffer(device, queue);
-        self.variant_counts = counts;
-        self.instance_count = rocks.len() as u32;
-        self.instances = (!rocks.is_empty()).then(|| {
-            let mut buffer =
-                StorageBuffer::from(rocks.iter().map(GpuInstance::from).collect::<Vec<_>>());
-            buffer.write_buffer(device, queue);
-            buffer
-        });
     }
 }
 
@@ -410,48 +305,32 @@ fn plan_batches(requests: &[GpuStoneRequest], lods: usize, limit: u64) -> Vec<Ra
     batches
 }
 
-/// Each of `pool`'s detail levels' fade bands at `quality`, packed for the
-/// culling shader.
-fn packed_ranges(pool: &StonePool, quality: Quality) -> Vec<Vec4> {
-    level_ranges(&pool.options.mesh.detail, pool.options.scale, quality)
-        .iter()
-        .map(LodRange::to_vec4)
-        .collect()
-}
-
 /// Creates, regenerates and removes pools as their definitions change, reads
-/// back generation status, and uploads changed rocks.
+/// back generation status, and lists every generated mesh for the shared
+/// renderer.
 pub(crate) fn prepare_pools(
     mut render_pools: ResMut<RenderPools>,
     extracted: Res<ExtractedPools>,
+    layout: Option<Res<PoolMeshLayout>>,
+    mut external: ResMut<ExternalMeshes>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
     let RenderPools {
         generator,
         pools,
-        instance_version,
+        listed,
     } = &mut *render_pools;
 
     // Follow the main world's pools.
     let definitions = &extracted.definitions.pools;
     pools.retain(|id, _| definitions.contains_key(id));
-    let mut new_pools = false;
     for (id, definition) in definitions {
         let current = pools
             .get(id)
             .is_some_and(|pool| pool.version == definition.version);
         if !current {
             pools.insert(*id, RenderPool::new(definition));
-            new_pools = true;
-        }
-    }
-
-    // Follow the quality setting.
-    for pool in pools.values_mut() {
-        if pool.quality != extracted.quality {
-            pool.quality = extracted.quality;
-            pool.lod_ranges = packed_ranges(&pool.definition.pool, pool.quality);
         }
     }
 
@@ -465,82 +344,32 @@ pub(crate) fn prepare_pools(
         }
     }
 
-    // Upload rocks when they or the pools changed.
-    let version = extracted.instances.version;
-    if new_pools || *instance_version != Some(version) {
-        *instance_version = Some(version);
-        for (id, pool) in pools.iter_mut() {
-            let rocks = extracted
-                .instances
-                .pools
-                .get(id)
-                .map_or(&[][..], Vec::as_slice);
-            pool.upload_instances(rocks, &device, &queue);
+    // List every generated mesh, in place of last frame's.
+    for id in listed.drain() {
+        external.0.remove(&id);
+    }
+    let Some(layout) = layout else {
+        return;
+    };
+    for pool in pools.values() {
+        for batch in &pool.batches {
+            for mesh in 0..batch.mesh_count {
+                let id = external_mesh_id(pool.version, batch.first_mesh + mesh);
+                external.0.insert(
+                    id,
+                    ExternalMesh {
+                        vertices: batch.vertices.clone(),
+                        indices: batch.indices.clone(),
+                        index_format: IndexFormat::Uint32,
+                        args: batch.draw_args.clone(),
+                        args_offset: u64::from(mesh) * GPU_DRAW_ARGS_SIZE,
+                        layout: layout.0.clone(),
+                    },
+                );
+                listed.insert(id);
+            }
         }
     }
-}
-
-/// Writes each pool's material and builds the bind group its draws use. A
-/// textured pool draws without textures until all three images have loaded.
-pub(crate) fn prepare_pool_bind_groups(
-    mut render_pools: ResMut<RenderPools>,
-    images: Res<RenderAssets<GpuImage>>,
-    fallback: Res<FallbackImage>,
-    layouts: Res<PoolLayouts>,
-    pipeline_cache: Res<PipelineCache>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-) {
-    for pool in render_pools.pools.values_mut() {
-        let Some(instances) = pool.instances.as_ref().and_then(StorageBuffer::binding) else {
-            pool.draw_group = None;
-            continue;
-        };
-
-        // Use the textures once all three are on the GPU.
-        let textures = pool.definition.textures.as_ref().and_then(|t| {
-            Some([
-                images.get(&t.color)?,
-                images.get(&t.normal)?,
-                images.get(&t.orh)?,
-            ])
-        });
-        let options = &pool.definition.pool.options;
-        let [r, g, b] = options.material.color;
-        pool.material.set(PoolMaterialUniform {
-            base_color: Vec4::new(r, g, b, 1.0),
-            perceptual_roughness: options.material.roughness,
-            metallic: options.material.metallic,
-            scale: options.scale,
-            texture_size: options.material.texture_size,
-            textured: u32::from(textures.is_some()),
-        });
-        pool.material.write_buffer(&device, &queue);
-        let Some(material) = pool.material.binding() else {
-            pool.draw_group = None;
-            continue;
-        };
-        let [color, normal, orh] = textures.unwrap_or([&fallback.d2; 3]);
-        pool.draw_group = Some(device.create_bind_group(
-            "procgena_stone_pool_draw",
-            &pipeline_cache.get_bind_group_layout(&layouts.draw),
-            &BindGroupEntries::sequential((
-                instances,
-                material,
-                &color.texture_view,
-                &color.sampler,
-                &normal.texture_view,
-                &normal.sampler,
-                &orh.texture_view,
-                &orh.sampler,
-            )),
-        ));
-    }
-}
-
-/// Byte offset of mesh `mesh`'s draw in a view's draw arguments.
-pub(crate) fn draw_args_offset(mesh: u32) -> u64 {
-    u64::from(mesh) * GPU_DRAW_ARGS_SIZE
 }
 
 #[cfg(test)]

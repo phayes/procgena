@@ -212,7 +212,7 @@ fn shrink(end: EndKind, t: f32) -> EndKind {
             splinters,
             one_sided: one_sided * t,
         },
-        EndKind::Taper => EndKind::Taper,
+        EndKind::Taper {} => EndKind::Taper {},
     }
 }
 
@@ -427,7 +427,7 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
                         one_sided: 0.6,
                     }
                 } else {
-                    EndKind::Taper
+                    EndKind::Taper {}
                 };
                 sprouted += 1;
                 let limb = sprout(
@@ -490,7 +490,7 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
                     sink: 0.5,
                     curl,
                     droop: 0.0,
-                    tip: EndKind::Taper,
+                    tip: EndKind::Taper {},
                     seed: derive_seed(surface, sprouted),
                 },
             );
@@ -556,7 +556,7 @@ fn add_roots(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
                     0.0,
                 ),
                 End::new(
-                    EndKind::Taper,
+                    EndKind::Taper {},
                     (radius * 0.25).max(MIN_RADIUS),
                     seed_for(seed, END_TIP),
                     0.0,
@@ -627,21 +627,39 @@ mod tests {
         let flat = EndKind::Saw { tilt: 0.0 };
         // The longer end, the tip, goes flat; the axe cut, opened as wide as
         // it goes, then fits.
-        let fitted = fit_ends(EndKind::Axe { angle: 40.0 }, EndKind::Taper, 0.1, 0.1, 0.1);
+        let fitted = fit_ends(
+            EndKind::Axe { angle: 40.0 },
+            EndKind::Taper {},
+            0.1,
+            0.1,
+            0.1,
+        );
         assert_eq!(fitted, (EndKind::Axe { angle: 150.0 }, flat));
         // On a stem too short for even that, both go flat.
-        let fitted = fit_ends(EndKind::Axe { angle: 40.0 }, EndKind::Taper, 0.1, 0.1, 0.02);
+        let fitted = fit_ends(
+            EndKind::Axe { angle: 40.0 },
+            EndKind::Taper {},
+            0.1,
+            0.1,
+            0.02,
+        );
         assert_eq!(fitted, (flat, flat));
         // A natural tip too long for the stem goes flat on its own.
-        let fitted = fit_ends(flat, EndKind::Taper, 0.1, 0.1, 0.2);
+        let fitted = fit_ends(flat, EndKind::Taper {}, 0.1, 0.1, 0.2);
         assert_eq!(fitted, (flat, flat));
         // A thin natural tip fits once a blunter axe cut makes room.
-        let fitted = fit_ends(EndKind::Axe { angle: 40.0 }, EndKind::Taper, 0.1, 0.02, 0.2);
+        let fitted = fit_ends(
+            EndKind::Axe { angle: 40.0 },
+            EndKind::Taper {},
+            0.1,
+            0.02,
+            0.2,
+        );
         assert!(
             matches!(fitted.0, EndKind::Axe { angle } if angle > 40.0),
             "{fitted:?}"
         );
-        assert_eq!(fitted.1, EndKind::Taper);
+        assert_eq!(fitted.1, EndKind::Taper {});
     }
 
     #[test]
@@ -658,7 +676,7 @@ mod tests {
                 splinters: 24,
                 one_sided: 1.0,
             },
-            EndKind::Taper,
+            EndKind::Taper {},
         ];
         for preset in DeadwoodPreset::all() {
             for base in shapes {

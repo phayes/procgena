@@ -1,7 +1,7 @@
 //! Stick scatter over flat and shaped ground.
 
 use glam::{DVec2, Vec2, Vec3};
-use procgena_core::scatter::{ScatterArea, ScatterInput};
+use procgena_core::scatter::{Scatter, ScatterArea, ScatterInput};
 use procgena_deadwood::{
     FlatGround, Ground, ScatterError, ScatterOptions, StickScatter, default_lod,
 };
@@ -40,8 +40,11 @@ fn scatter_is_repeatable_spaced_and_in_bounds() {
             Vec2::new(i.position.x, i.position.z)
         })
         .collect();
+    // The area holds the sticks whose lattice cell's corner it holds, so a
+    // stick may stand up to one cell past its edge.
+    let reach = 1.5 + a.lattice().cell_metres() + 1e-4;
     for (k, s) in sites.iter().enumerate() {
-        assert!(s.x.abs() <= 1.5 + 1e-4 && s.y.abs() <= 1.5 + 1e-4, "{s}");
+        assert!(s.x.abs() <= reach && s.y.abs() <= reach, "{s}");
         for t in &sites[k + 1..] {
             assert!(s.distance(*t) >= o.min_spacing - 1e-4);
         }
@@ -109,7 +112,11 @@ fn an_area_away_from_the_origin_reads_the_ground_there() {
     assert!(!s.instances().is_empty());
     for i in s.instances() {
         assert!(i.position.x >= -0.5, "{}", i.position);
-        assert!(i.position.x <= 1.5 + 1e-4, "{}", i.position);
+        assert!(
+            i.position.x <= 1.5 + s.lattice().cell_metres() + 1e-4,
+            "{}",
+            i.position
+        );
         assert_eq!(i.position.y, 2.0);
     }
 }
@@ -234,10 +241,12 @@ fn the_input_seed_wins_over_the_options_seed() {
         ..small()
     };
     let input = ScatterInput::new(&FlatGround, small_area(), o.default_seed);
-    assert_eq!(
+    let (a, b) = (
         StickScatter::new(&o, &input).unwrap(),
-        StickScatter::new(&other, &input).unwrap()
+        StickScatter::new(&other, &input).unwrap(),
     );
+    assert_eq!(a.variants(), b.variants());
+    assert_eq!(a.instances(), b.instances());
 }
 
 /// A few stumps over a 6 m square of `ground`, allowed on any slope.

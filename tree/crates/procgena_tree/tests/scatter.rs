@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use glam::{DVec2, Vec2, Vec3};
 use procgena_tree::{
-    FlatGround, Ground, MAX_SCATTER_TREES, Mask, PresetFileError, ScatterArea, ScatterInput,
-    ScatterTree, Tree, TreeCopy, TreePreset, TreeScatter, TreeScatterError, TreeScatterPlacement,
-    TreeScatterPreset,
+    ChildKey, CopyAddress, FlatGround, Ground, MAX_SCATTER_TREES, Mask, PresetFileError,
+    ScatterArea, ScatterInput, ScatterTree, Tree, TreeCopy, TreePreset, TreeScatter,
+    TreeScatterError, TreeScatterPlacement, TreeScatterPreset,
 };
 
 /// Places `scatter` with its own seed over a `size` rectangle centred on the
@@ -30,8 +30,12 @@ fn place(scatter: &TreeScatter, size: f32) -> Vec<TreeCopy> {
         .to_vec()
 }
 
-fn by_id(instances: &[TreeCopy]) -> HashMap<u64, TreeCopy> {
-    instances.iter().map(|i| (i.id, *i)).collect()
+fn by_id(instances: &[TreeCopy]) -> HashMap<CopyAddress, TreeCopy> {
+    instances.iter().map(|i| (i.address, *i)).collect()
+}
+
+fn key(key: &str) -> ChildKey {
+    ChildKey::new(key).unwrap()
 }
 
 /// The Scatter of a built-in Scatter preset.
@@ -50,8 +54,14 @@ fn stand(preset: &TreePreset) -> procgena_tree::TreeStand {
 /// density alone.
 fn even_pair() -> TreeScatter {
     TreeScatter::new(vec![
-        ScatterTree::custom(TreePreset::oak_small().tree.clone(), 300.0, 0.0).with_variants(2),
-        ScatterTree::custom(TreePreset::pine_small().tree.clone(), 300.0, 0.0),
+        ScatterTree::custom(key("oak"), TreePreset::oak_small().tree.clone(), 300.0, 0.0)
+            .with_variants(2),
+        ScatterTree::custom(
+            key("pine"),
+            TreePreset::pine_small().tree.clone(),
+            300.0,
+            0.0,
+        ),
     ])
 }
 
@@ -78,7 +88,7 @@ fn lowering_density_under_a_density_function_only_removes_trees() {
     assert!(!sparse.is_empty() && sparse.len() < full.len());
     for tree in &sparse {
         assert_eq!(
-            full.get(&tree.id),
+            full.get(&tree.address),
             Some(tree),
             "a kept tree moved or changed"
         );
@@ -94,7 +104,7 @@ fn lowering_density_only_removes_trees() {
     assert!(!sparse.is_empty());
     for tree in &sparse {
         assert_eq!(
-            full.get(&tree.id),
+            full.get(&tree.address),
             Some(tree),
             "a kept tree moved or changed"
         );
@@ -114,7 +124,7 @@ fn raising_patchiness_only_removes_trees() {
         );
         for tree in &trees {
             assert_eq!(
-                previous.get(&tree.id),
+                previous.get(&tree.address),
                 Some(tree),
                 "a kept tree moved or changed"
             );
@@ -129,13 +139,10 @@ fn growing_the_size_keeps_the_trees_already_there() {
     let scatter = preset_scatter(TreeScatterPreset::oak_woodland());
     let small = place(&scatter, 30.0);
     let large = by_id(&place(&scatter, 60.0));
-    // Trees well inside the smaller square have no new neighbours that
-    // could crowd them out.
-    for tree in small
-        .iter()
-        .filter(|t| t.position.x.abs() < 9.0 && t.position.z.abs() < 9.0)
-    {
-        assert_eq!(large.get(&tree.id), Some(tree));
+    // Every tree of the smaller square, up to its edges, is in the larger.
+    assert!(!small.is_empty());
+    for tree in &small {
+        assert_eq!(large.get(&tree.address), Some(tree));
     }
 }
 
@@ -217,9 +224,19 @@ fn clustering_keeps_a_small_species_share() {
     // A species at 15% of the mix keeps about that share however clustered.
     for clustering in [0.0, 0.6, 1.0] {
         let scatter = TreeScatter::new(vec![
-            ScatterTree::custom(TreePreset::ash_medium().tree.clone(), 150.0, 0.0)
-                .clustered(clustering),
-            ScatterTree::custom(TreePreset::oak_medium().tree.clone(), 850.0, 0.0),
+            ScatterTree::custom(
+                key("ash"),
+                TreePreset::ash_medium().tree.clone(),
+                150.0,
+                0.0,
+            )
+            .clustered(clustering),
+            ScatterTree::custom(
+                key("oak"),
+                TreePreset::oak_medium().tree.clone(),
+                850.0,
+                0.0,
+            ),
         ]);
         let trees = place(&scatter, 60.0);
         let ash = trees.iter().filter(|t| t.tree == 0).count() as f32;
@@ -337,36 +354,42 @@ fn a_mask_thins_the_scatter() {
     assert!(placement.instances().iter().all(|t| t.position.x > 0.0));
 }
 
-/// An area away from the origin places the same trees, relative to its
-/// centre, as one at the origin, and asks the ground and the mask at World
-/// positions.
+/// Trees stand on a lattice fixed to the World: an area anywhere gives each
+/// World spot the same tree and address as any other area holding it, with
+/// positions relative to its own centre, and asks the ground and the mask at
+/// World positions.
 #[test]
-fn trees_are_placed_relative_to_the_area_centre() {
+fn the_same_world_spot_gives_the_same_tree_from_any_area() {
     let scatter = even_pair();
-    let centre = DVec2::new(1000.0, -500.0);
-    let at_origin = place(&scatter, 40.0);
+    let centre = DVec2::new(1000.25, -500.0);
 
     // Level ground 2 m up that exists only far from the origin, so trees
     // stand only if it is asked at World positions, and a mask keeping the
-    // area's east half.
+    // east half of the World around the centre.
     let ground = |p: DVec2| if p.x > 500.0 { 2.0 } else { f32::NAN };
     let east = |p: DVec2| if p.x > centre.x { 1.0 } else { 0.0 };
-    let area = ScatterArea::new(centre, Vec2::splat(40.0));
-    let input = ScatterInput::new(&ground, area, scatter.default_seed).with_mask(&east);
-    let moved = TreeScatterPlacement::new(&scatter, &input).unwrap();
-
-    // The same sites, east half only, standing on the raised ground.
-    let expected: Vec<_> = at_origin
-        .iter()
-        .filter(|t| t.position.x > 0.0)
-        .map(|t| t.id)
-        .collect();
-    let ids: Vec<_> = moved.instances().iter().map(|t| t.id).collect();
-    assert!(!ids.is_empty());
-    assert_eq!(ids, expected);
-    for tree in moved.instances() {
-        assert!(tree.position.x > 0.0);
-        assert!((tree.position.y - (2.0 - scatter.variation.sink)).abs() < 1e-5);
+    let at = |centre: DVec2, size: f32| {
+        let area = ScatterArea::new(centre, Vec2::splat(size));
+        let input = ScatterInput::new(&ground, area, scatter.default_seed).with_mask(&east);
+        TreeScatterPlacement::new(&scatter, &input)
+            .unwrap()
+            .instances()
+            .iter()
+            .map(|t| {
+                let p = centre + DVec2::new(f64::from(t.position.x), f64::from(t.position.z));
+                (t.address, (p, t.position.y, t.tree, t.variant))
+            })
+            .collect::<HashMap<_, _>>()
+    };
+    let small = at(centre, 40.0);
+    let shifted = at(centre + DVec2::new(13.7, -6.1), 80.0);
+    assert!(!small.is_empty());
+    for (address, (p, y, tree, variant)) in &small {
+        assert!(p.x > centre.x, "a tree west of the mask's edge");
+        assert!((y - (2.0 - scatter.variation.sink)).abs() < 1e-5);
+        let (q, _, other_tree, other_variant) = shifted[address];
+        assert!(p.distance(q) < 1e-4, "{p} vs {q}");
+        assert_eq!((tree, variant), (&other_tree, &other_variant));
     }
 }
 
@@ -417,6 +440,16 @@ fn bad_settings_and_too_many_trees_are_errors() {
     assert!(matches!(
         scatter.validate(),
         Err(TreeScatterError::TooManyTrees { .. })
+    ));
+
+    let mut twins = even_pair();
+    twins.trees[1].key = twins.trees[0].key.clone();
+    assert!(matches!(
+        twins.validate(),
+        Err(TreeScatterError::KeyClash {
+            first: 0,
+            second: 1
+        })
     ));
 
     assert!(matches!(
@@ -544,6 +577,9 @@ fn scatter_files_list_only_what_differs() {
     assert_eq!(scatter.variation.lean, 10.0);
     assert_eq!(scatter.variation.sink, base.variation.sink);
     assert_eq!(scatter.trees[0].tree.default_seed, 5);
+    // An entry without a key takes its tree preset's.
+    assert_eq!(scatter.trees[0].key.as_str(), "cedar");
+    assert_eq!(scatter.trees[1].key.as_str(), "pine_medium");
     assert_eq!(scatter.trees[0].density, stand(TreePreset::cedar()).density);
     assert_eq!(scatter.trees[0].clustering, 0.5);
     assert_eq!(scatter.trees[1].density, 123.0);
@@ -585,6 +621,12 @@ fn bad_scatter_files_say_what_is_wrong() {
         matches!(&bad_tree, PresetFileError::Setting { path, .. } if path == "tree_scatter.trees[1].tree"),
         "{bad_tree:?}"
     );
+
+    let keyless =
+        read("tree_scatter:\n  trees: [{ tree: { default_seed: 1 }, density: 5, spacing: 1 }]\n");
+    assert!(keyless.to_string().contains("must set key"), "{keyless}");
+    let bad_key = read("tree_scatter:\n  trees: [{ key: Oaks, tree: oak_small }]\n");
+    assert!(bad_key.to_string().contains("lower-case"), "{bad_key}");
 
     assert!(matches!(
         read("tree_scatter:\n  sed: 3\n"),

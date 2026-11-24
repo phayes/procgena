@@ -218,7 +218,7 @@ fn promote_by_distance(
 
     // Promote trees within the inner distance that aren't promoted yet.
     for (grove, tree) in trees.within(eye, PROMOTE_WITHIN) {
-        let promotion = PromotedTree::new(grove, tree.id);
+        let promotion = PromotedTree::new(grove, tree.address);
         if !kept.contains(&promotion) {
             commands.spawn((promotion, Collider));
         }
@@ -257,8 +257,8 @@ fn promote_on_click(
     let Some(hit) = trees.ray_cast(ray) else {
         return;
     };
-    info!("clicked tree {} at {:.1} m", hit.id, hit.distance);
-    let promotion = PromotedTree::new(hit.grove, hit.id);
+    info!("clicked tree {:?} at {:.1} m", hit.address, hit.distance);
+    let promotion = PromotedTree::new(hit.grove, hit.address);
     match promoted.iter().find(|(_, p)| **p == promotion) {
         Some((entity, _)) => commands.entity(entity).despawn(),
         None => {
@@ -288,7 +288,7 @@ fn draw_promoted(
         let Ok((instances, assets)) = groves.get(promotion.grove) else {
             continue;
         };
-        let Some(tree) = instances.get(promotion.id) else {
+        let Some(tree) = instances.get(&promotion.address) else {
             continue;
         };
         let parts = assets.of(tree).parts().filter(|p| p.lod == 0);

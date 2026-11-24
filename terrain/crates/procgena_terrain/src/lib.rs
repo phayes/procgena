@@ -43,7 +43,9 @@
 //!    resulting [`Terrain`] bends itself near its borders to meet the
 //!    agreements exactly, so heights and slopes match across every border.
 //!
-//! [`StitchedWorld`] does all four steps for regions given as polygons:
+//! [`WorldTerrain`] does all four steps for an endless world of regions,
+//! building each region's terrain when it is first asked for.
+//! [`StitchedWorld`] does them for regions given as polygons:
 //!
 //! ```
 //! use glam::DVec2;
@@ -102,6 +104,7 @@ mod seam;
 mod stitch;
 mod terrain;
 mod warp;
+mod world;
 
 pub use carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, RoadTags};
 pub use converge::{
@@ -136,3 +139,4 @@ pub use terrain::{
     HeightField, HeightTile, RiverTrace, Terrain, TerrainError, TerrainGenerator, TerrainSample,
 };
 pub use warp::{BorderWarp, BorderWarpError, MIN_WARP_WAVELENGTH, warp_borders};
+pub use world::{DEFAULT_CACHE, TerrainSource, WorldError, WorldTerrain, WorldTerrainOptions};

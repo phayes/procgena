@@ -6,10 +6,7 @@ use glam::DVec2;
 
 use crate::hash::mix64;
 
-/// Identifies a region. The world generator chooses these; they must be
-/// unique within a world.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RegionId(pub u64);
+pub use procgena_core::RegionId;
 
 /// Identifies a border edge. Both regions on an edge compute the same id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

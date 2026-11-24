@@ -60,14 +60,14 @@ The grove draws its trees itself, without an entity per tree, so one grove
 can hold thousands of trees. Each tree switches detail level by its distance
 from the camera and sways in the wind, exactly like a single tree. The grove
 entity gets a `TreeScatterInstances` listing every tree (its species, shape
-variant, spot id and transform), a `TreeScatterAssets` with each variant's
+variant, spot address and transform), a `TreeScatterAssets` with each variant's
 meshes and materials, and a `TreeScatterStats` with the tree count and sizes.
 
 ## Give single trees an entity
 
 A game often needs a few trees as entities: those near the player get
 colliders, or the one under the mouse gets selected. Spawn a `PromotedTree`
-naming the grove and the tree's spot id, with whatever the tree needs:
+naming the grove and the address of the tree's spot, with whatever the tree needs:
 
 ```rust
 use bevy::prelude::*;
@@ -84,7 +84,7 @@ fn promote_nearby(
     promoted: Query<&PromotedTree>,
 ) {
     for (grove, tree) in trees.within(camera.translation(), 10.0) {
-        let promotion = PromotedTree::new(grove, tree.id);
+        let promotion = PromotedTree::new(grove, tree.address);
         if !promoted.iter().any(|p| *p == promotion) {
             commands.spawn((promotion, Collider));
         }
@@ -227,9 +227,12 @@ many of them as they can:
 - Changing the Scatter's `default_seed` moves every tree, but never changes a
   shape variant's mesh.
 - Changing `variation` changes only each tree's transform.
-- Each `TreeCopy` has an `id` naming the spot it stands on, so a renderer can
-  match trees between two placements and update only those that changed.
-  `TreeScatterParams` does this for you.
+- Trees stand on a 0.5 m lattice fixed to the World, so any area gives the
+  same trees as a larger area around it, and the same as the chunks it splits
+  into, built in any order.
+- Each `TreeCopy` has an `address` naming the spot it stands on anywhere in
+  the World, so a renderer can match trees between two placements and update
+  only those that changed. `TreeScatterParams` does this for you.
 
 ## Stand trees on uneven ground
 
@@ -272,7 +275,7 @@ tree_scatter:
   trees:
     - { tree: bush_2, density_scale: 0.1, clustering: 0.7, variants: 2 }
     - { tree: { base: oak_medium, default_seed: 9 }, density_scale: 0.6 }
-    - { tree: { default_seed: 3, branch: { levels: 2 } }, density: 300, spacing: 1.5 }
+    - { key: saplings, tree: { default_seed: 3, branch: { levels: 2 } }, density: 300, spacing: 1.5 }
 ```
 
 - `base` names a Scatter preset that missing settings come from. Without
@@ -280,6 +283,11 @@ tree_scatter:
   Scatter has no species.
 - `name`, `description` and `group` are optional, and are shown in menus.
 - A `trees` list replaces the base's species.
+- A species' `key` names it within the Scatter: lower-case letters, digits
+  and `_`, starting with a letter. Each species' own random choices come
+  from its key, so reordering the list keeps them. Keys must differ. An
+  entry whose tree names a preset may leave the key out, and then takes the
+  preset's key; a tree written out without a `base` must give one.
 - A species' `tree` is either a tree preset key, or a map of tree settings
   as in a `.tree.yml` file's `tree` section. The map may name a tree preset
   as its own `base`.

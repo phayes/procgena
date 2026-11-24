@@ -280,7 +280,22 @@ for ground cover. Two Scatters of one Ecotope with the same priority are a
 validation error. A differences file adds a Scatter with its key and
 number, without restating the others.
 
-**Status.** New.
+**Status.** Early version built (roadmap C3a): `Ecotope` in
+`procgena_biome`, drawn by `procgena_biome_bevy`. It holds tree, stone,
+dead wood and mushroom Scatters by `ChildKey` in a map, so a `.ecotope.yml`
+differences file adds or changes one Scatter without restating the
+others. Each Scatter is seeded with `child_seed(ecotope seed,
+"ecotope.child.scatter", key)`, the kind key D3 named (it keeps that name
+although the Ecotope lives in `procgena_biome`, not a `procgena_ecotope`
+crate). Duplicate priorities and keys that share a salt are validation
+errors. Masks chain as far as today's mask-in inputs allow: each Scatter
+leaves footprints (a disc for trees, stones and mushrooms, a capsule for
+dead wood, widened by a per-Scatter `clearance`), and every lower Scatter's
+mask is 0 inside them, checked only at each candidate's centre. The
+calls into each Scatter are one adapter per kind in
+`procgena_biome/src/ecotope/scatters.rs`, to be replaced by the `Scatter`
+trait in C3. Plant is not in it yet: `procgena_plant` is a Bevy crate
+placed on the GPU with no `Ground`.
 
 ### 4. Biome and Terrain
 
@@ -351,9 +366,9 @@ always built through the same path, with or without cover.
 **Status.** Started: `procgena_biome` has empty Biomes (one Terrain by
 preset or inline, an Ecotope rule list that is always empty) and a
 default empty Biome preset per Terrain preset. The Ecotope lives in the
-same crate, and an early, Terrain-unaware version of it comes next (roadmap
-C3a). Ecotope rules, border noise and the border negotiation are still to
-come.
+same crate; an early, Terrain-unaware version of it is built (roadmap
+C3a), but Biomes don't hold Ecotopes yet. Ecotope rules, border noise and
+the border negotiation are still to come.
 
 #### 4.2 Terrain
 
@@ -459,9 +474,10 @@ Terrains, nothing else. Its own tests hand it a closure as the source;
 whole worlds of bare land are built through the World with empty Biomes
 (see "4.1 Biome").
 
-**Status.** The protocol is built inside `procgena_terrain`, with a
-reference "stitcher" for tests and examples. WorldTerrain is that stitcher
-grown into a real level.
+**Status.** Built inside `procgena_terrain` as `WorldTerrain` (phase W4):
+an endless lattice world whose regions are built on demand from a terrain
+source, with each region's settings, plan and terrain cached. The
+reference "stitcher" (`StitchedWorld`) stays as a test fixture.
 
 ## Interfaces between levels
 
@@ -879,8 +895,10 @@ integrated GPU and on a discrete GPU is still owed.
 - **Hard exclusion uses exact disc tests.** A lattice Scatter tests each
   candidate against the exact footprint discs of the kept copies of the
   Scatters above it, with integer maths, so nothing stands inside a trunk,
-  boulder or log on the CPU or the GPU. (Not yet tried in the spike; C2
-  builds and tests it.)
+  boulder or log on the CPU or the GPU. A candidate's own footprint discs
+  are tested against the discs above (`|a − b|² < (r_a + r_b)²`), before
+  spacing, so a dropped candidate never crowds out a neighbour. Built and
+  tested on the CPU in C2 (`scatter::Footprints`).
 - **Window B is the streaming build.** A chunk reuses its neighbours'
   finished copies for the masks and discs of the Scatters above. It
   recomputes only each Scatter's own `S + J` margin, so a Scatter's
@@ -1074,7 +1092,9 @@ for lookup and programmatic use, not for reading:
   cell (0 on a one-per-cell lattice, the tile point for grass). Together
   the cell and index are each Scatter's sparse index of its children: no
   table is stored. The type is `Copy`, hashable and ordered, and its field
-  order is the lookup order.
+  order is the lookup order. These types live in `procgena_core`, which
+  owns `RegionId` (a `u64`, the same layout as the terrain crate's); the
+  terrain crate is to re-export core's instead of defining its own.
 - **A part path** can follow: up to four flat steps `(kind, index)` into
   the specimen's structure, such as `fruit 17 / item 2`. A step indexes
   the skeleton, not the mesh, so it names the same part at every level of
@@ -1498,8 +1518,13 @@ it starts.
 - [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
   clustering and partial burial. Done in C1: patches in the density, and
   pebble clusters whose members are ordinary copies.
-- [ ] **Scatter masks out**: each Scatter reports the mask it leaves for the
+- [x] **Scatter masks out**: each Scatter reports the mask it leaves for the
   Scatters below it (trunk discs, canopy shade, stone and log footprints).
+  Done in C2 for tree, stone, deadwood and mushroom: `Scatter::footprints`
+  gives exact discs (a chain along a log), and `Scatter::mask` a 0.5 m
+  `MaskLayer` stamped from them, both without drawing. Canopy shade from
+  the tree Scatter's density field (`MaskSource::Density`) is still to do;
+  plant joins in R3.
 
 ### New levels
 
@@ -1514,7 +1539,10 @@ it starts.
   a Bevy part that draws one Ecotope over a patch of ground. An early
   version comes before the `Scatter` trait (roadmap C3a): it runs on any
   `Ground`, knows nothing of Terrain, and calls today's Scatters through
-  their `ScatterInput`.
+  their `ScatterInput`. The early version is built (keys, priorities,
+  seeds, presets, centre-only mask chaining, the Bevy view); still to do
+  are the `Scatter` trait in place of its adapters, the documented
+  priority bands, exact exclusion, plant, and a studio tab (C3).
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
   conforming, for Ecotopes meeting inside a Biome and across Biome
   borders, including one merged priority order (a sort by `priority`,
@@ -1549,17 +1577,21 @@ it starts.
 
 ### Extensibility
 
-- [ ] **`Scatter` trait**: area, ground, mask, seed and copy-address prefix
+- [x] **`Scatter` trait**: area, ground, mask, seed and copy-address prefix
   in; copies with stable `CopyAddress`es and a mask out; `resolve` for
-  one address. The built-in Scatters implement it too.
+  one address. The built-in Scatters implement it too. Done in C2
+  (`procgena_core::scatter::Scatter`, object-safe, with `ChunkCache` for
+  batched `resolve_all` and `scatter::conformance` checks for any
+  Scatter's tests) for tree, stone, deadwood and mushroom; plant joins in
+  R3. `DrawHandle` waits for a chunk-streaming renderer.
 - [ ] **`MeshScatter`**: places and draws any user mesh, with levels of
   detail, masks, promotion and queries.
 - [ ] **Hook traits per level**, with keys that feed the cache hash.
 - [ ] **World-stable ids**: the integer `CopyAddress` (region, Ecotope and
   Scatter key salts, `CellId`, index) from a world-anchored lattice, as
-  "Queries" describes. Today a grove's spot id is
-  its cell counted from the grove's own centre (`site_id` in
-  `procgena_tree`).
+  "Queries" describes. Done in C2 for tree, stone, deadwood and mushroom
+  (`procgena_core::CopyAddress`); plant's blades wait for World tile
+  cells (R3). Part paths (`PartStep`, `Address`) are still to do.
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
   serde.
 - [ ] **Core queries**: at a point, near a point, along a ray, and spot
@@ -1608,7 +1640,13 @@ it starts.
   `#[non_exhaustive]`. Every asset's cache key can then hash its levels the
   same way.
 - [ ] **Shared instanced renderer**, from stone's pool and tree's grove
-  renderer; deadwood and mushroom move onto it.
+  renderer; deadwood and mushroom move onto it. The renderer is built (R2):
+  `procgena_core_bevy::instanced`, with `InstancedScatter` (slots and
+  copies), `SpecimenCache` keyed by `SpecimenId`, piece and detail level,
+  `InstancedMaterialPlugin` for any material with an `INSTANCED` vertex
+  path, and external meshes for GPU-built specimens. Stone, deadwood and
+  mushroom scatters draw through it. Still to do: tree (its grove renderer
+  in `tree_bevy/src/scatter/render.rs`), with impostors as its last level.
 - [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`
   keyed by `SpecimenId` for any asset, not only trees, and baking ahead
   per Ecotope instead of per grove.
@@ -1623,9 +1661,15 @@ it starts.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
   ids, `Ground`, `validate()`, hash, export, promotion, and the shared Bevy
   pattern (`XParams`, `XGenerating`, `XFinished`, `XPart`).
-- [ ] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
+- [x] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
   every Scatter offers each slot's `Specimen` plus its copy list (C2).
-- [ ] **One wind** for tree, plant and clumps on trees.
+  Done in C2: `Scatter::slots` names each slot's `SpecimenId` and mix
+  entry, and every `ScatterCopy` names its slot. `procgena_core` can't name
+  `Specimen`, so each asset builds a slot's specimen with its own API.
+- [ ] **One wind** for tree, plant and clumps on trees. The shared
+  renderer carries a wind phase per copy (R2), which vertex shaders read
+  with `copy_wind_phase` from `procgena_core_bevy::shaders::instanced`; no
+  asset sways with it yet.
 - [x] **One preset and file pattern**: done in F3 (see rule 10). Left for
   later: `.biome.yml` files once `Biome` has serde (B1/W0), and presets
   and files for the stone, stick and mushroom Scatters, which have serde
@@ -1647,8 +1691,9 @@ it starts.
   Scatters, and the Ecotope's warning when a dense Scatter sits above a
   long-range one.
 - [ ] **World-anchored lattices**: every Scatter's spots on a lattice fixed
-  to the World, each spot owned by one chunk. Groves fix theirs to the
-  grove's centre today, and plant's 16 m cells are local to their field.
+  to the World, each spot owned by one chunk. Done in C2 for tree, stone,
+  deadwood and mushroom (`scatter::Lattice`, `ChunkGrid`, `K_d`); plant's
+  16 m cells are still local to their field (R3).
 - [ ] **Region plans ahead of view**: plan regions one region beyond the
   view distance, and cache plans on disk, stage by stage, so a far region
   needs only its relief and seam stage to be drawn.

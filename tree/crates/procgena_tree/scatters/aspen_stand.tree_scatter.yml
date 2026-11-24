@@ -7,6 +7,6 @@ group: Woodland
 tree_scatter:
   default_seed: 2
   trees:
-    - { tree: aspen_small, density_scale: 0.3, clustering: 0.5 }
-    - { tree: aspen_large, density_scale: 0.4 }
-    - { tree: aspen_medium, density_scale: 0.6 }
+    - { key: young_aspens, tree: aspen_small, density_scale: 0.3, clustering: 0.5 }
+    - { key: old_aspens, tree: aspen_large, density_scale: 0.4 }
+    - { key: aspens, tree: aspen_medium, density_scale: 0.6 }

@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
 
-use glam::{Affine3A, IVec2, Quat, Vec2, Vec3};
+use glam::{Affine3A, Quat, Vec2, Vec3};
 use procgena_core::hash::{derive_seed, seed_for};
-use procgena_core::scatter::Placement;
-use procgena_core::{Quality, Rng, SpecimenId};
+use procgena_core::scatter::{Disc, Placement};
+use procgena_core::{CopyAddress, Quality, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 use serde::{Deserialize, Serialize};
 
@@ -20,8 +20,8 @@ use crate::options::{MushroomOptions, OptionsError, int_range, non_negative, pos
 use crate::rng::{RngExt, SCATTER_CLUSTER, SCATTER_SITES};
 use crate::specimen::specimen_from_meshes;
 
-/// The most growing spots a scatter makes, however large the surface or
-/// high the density.
+/// The most growing spots a scatter on a host ([`MushroomScatter::on`])
+/// makes, however large the surface or high the density.
 pub const MAX_SITES: u32 = 20_000;
 
 /// Settings for [`MushroomScatter::on`] and [`MushroomScatter::new`].
@@ -50,8 +50,8 @@ pub struct ScatterOptions {
     pub up: Vec3,
     /// Growing spots per square metre of suitable surface. Must be zero or
     /// positive. Fewer may fit because of
-    /// [`min_spacing`](Self::min_spacing), and there are never more than
-    /// [`MAX_SITES`].
+    /// [`min_spacing`](Self::min_spacing), and a scatter on a host never
+    /// makes more than [`MAX_SITES`].
     pub density: f32,
     /// Steepest surface mushrooms grow on, in degrees from level, from 0
     /// (flat only) through 180 (anywhere, even overhangs).
@@ -173,6 +173,9 @@ pub enum ScatterError {
         /// How many candidate spots the area holds.
         cells: u64,
     },
+    /// The scatter was grown on a host with [`MushroomScatter::on`], so it
+    /// can't be placed on the ground.
+    HostOnly,
 }
 
 impl fmt::Display for ScatterError {
@@ -187,6 +190,10 @@ impl fmt::Display for ScatterError {
                 f,
                 "the scatter area holds {cells} candidate spots, more than {}",
                 crate::MAX_CELLS
+            ),
+            ScatterError::HostOnly => write!(
+                f,
+                "the scatter grows on a host specimen and can't be placed on the ground"
             ),
         }
     }
@@ -209,11 +216,19 @@ impl From<OptionsError> for ScatterError {
 /// coordinates. A renderer can mesh each body once and draw every instance
 /// from it, which is far cheaper than one big mesh. Use
 /// [`specimen`](Self::specimen) if you do need a single mesh.
+///
+/// A scatter on the ground ([`MushroomScatter::new`] or
+/// [`MushroomScatter::prepare`]) is also a
+/// [`Scatter`](procgena_core::scatter::Scatter), placing any other area with
+/// the same specimens.
 #[derive(Debug, Clone)]
 pub struct MushroomScatter {
     pub(crate) bodies: Vec<MushroomBody>,
     pub(crate) instances: Vec<MushroomInstance>,
     pub(crate) copies: Vec<MushroomCopy>,
+    /// What a scatter on the ground places with; `None` for one grown on a
+    /// host with [`MushroomScatter::on`].
+    pub(crate) ground: Option<crate::ground::GroundSpecimens>,
 }
 
 /// One copy in a ground scatter ([`MushroomScatter::new`]): one whole
@@ -224,9 +239,10 @@ pub struct MushroomCopy {
     /// Which of the scatter's specimens this copy is, from 0 up to
     /// [`ScatterOptions::specimens`].
     pub slot: u32,
-    /// The lattice cell the copy grew from. Equal cells in two scatters with
-    /// the same input seed are the same copy.
-    pub cell: IVec2,
+    /// Names the copy anywhere in the World: the lattice cell it grew from.
+    /// The same input gives the copy at this address the same place and look
+    /// from any area that holds its cell.
+    pub address: CopyAddress,
     /// Where the copy's centre stands, relative to the area's centre: X and
     /// Z across, Y the ground height there.
     pub translation: Vec3,
@@ -241,6 +257,9 @@ pub struct MushroomCopy {
     /// couldn't be set on the ground is missing, and the others keep their
     /// indices.
     pub members: Vec<u32>,
+    /// The ground the copy's members take up, one disc per member, in World
+    /// fixed point. Other Scatters keep their copies out of it.
+    pub footprint: Vec<Disc>,
 }
 
 impl MushroomScatter {
@@ -317,6 +336,7 @@ impl MushroomScatter {
                 bodies,
                 instances,
                 copies: Vec::new(),
+                ground: None,
             });
         }
         // Clusters drop their members onto the gentle faces.
@@ -418,6 +438,7 @@ impl MushroomScatter {
             bodies,
             instances,
             copies: Vec::new(),
+            ground: None,
         })
     }
 

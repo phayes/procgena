@@ -60,9 +60,12 @@
 //! file to load, and rebuilds when it changes if Bevy is watching asset
 //! files.
 //!
-//! Each mushroom is drawn by [`MushroomPart`] child entities, one or two per
-//! detail level. Bevy's `VisibilityRange` shows each level only within its
-//! distance band, blending between neighbouring levels. The bands come from
+//! Each single mushroom or cluster is drawn by [`MushroomPart`] child
+//! entities, one or two per detail level and member. Bevy's
+//! `VisibilityRange` shows each level only within its distance band,
+//! blending between neighbouring levels. A scatter's mushrooms are drawn
+//! instead by the shared instanced renderer of `procgena_core_bevy`, which
+//! fades them the same way, with no entity per mushroom. The bands come from
 //! [`MushroomPlugin::lod`], scaled by each mushroom's size and by the
 //! [`LodQuality`] setting when the mushroom
 //! is built, and the farthest level fades out at the cull distance. At the
@@ -87,13 +90,16 @@ use bevy::asset::embedded_asset;
 use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
 use bevy::shader::load_shader_library;
+use procgena_core_bevy::instanced::{InstancedMaterialPlugin, SpecimenCache};
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_mushroom::{MushroomLod, TextureCompression, TextureSize, default_lod, validate_lod};
 
 pub use material::{
-    MushroomExtension, MushroomMaterial, MushroomSurface, TextureSet, billboard_material,
-    mushroom_material,
+    MushroomExtension, MushroomKey, MushroomMaterial, MushroomSurface, TextureSet,
+    billboard_material, mushroom_material,
 };
+
+use material::MushroomMaterialKey;
 pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, billboard_aabb, billboard_mesh,
     mushroom_mesh,
@@ -166,7 +172,13 @@ impl Plugin for MushroomPlugin {
         if let Err(error) = validate_lod(&self.lod) {
             panic!("MushroomPlugin::lod is invalid: {error}");
         }
-        app.add_plugins((LodPlugin, MaterialPlugin::<MushroomMaterial>::default()));
+        app.add_plugins((
+            LodPlugin,
+            MaterialPlugin::<MushroomMaterial>::default(),
+            InstancedMaterialPlugin::<MushroomMaterial, MushroomMaterialKey>::new(|key| {
+                key.extension.instanced = true;
+            }),
+        ));
         add_systems(app, self.lod.clone());
         app.world_mut().resource_mut::<SpawnSettings>().textures =
             self.texture_root.clone().map(|root| TextureSettings {
@@ -184,6 +196,7 @@ pub(crate) fn add_systems(app: &mut App, lod: MushroomLod) {
     app.init_asset::<MushroomPresetAsset>()
         .register_asset_loader(MushroomPresetLoader)
         .init_resource::<MushroomCache>()
+        .init_resource::<SpecimenCache>()
         .init_resource::<LodQuality>()
         .insert_resource(SpawnSettings {
             lod,

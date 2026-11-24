@@ -7,17 +7,20 @@
 //! build each mesh once and draw it many times, which is much cheaper than
 //! a separate mesh per stick. This is often called instancing.
 
-use std::collections::HashMap;
 use std::fmt;
 
-use glam::{Affine3A, Mat3, Vec2, Vec3};
-use procgena_core::hash::{derive_seed, seed_for};
-use procgena_core::scatter::{Footprint, Placement, Rest, ScatterInput, place, steeper_than};
-use procgena_core::{Rng, SpecimenId};
+use glam::{Affine3A, DVec2, Mat3, Quat, Vec2, Vec3};
+use procgena_core::hash::seed_for;
+use procgena_core::scatter::lattice::{self, Fixed2};
+use procgena_core::scatter::{
+    DEFAULT_SPACING_ROUNDS, Disc, Footprint, Lattice, Placement, Rank, Reach, Rest, Scatter,
+    ScatterCopy, ScatterInput, ScatterSlot, Spaced, keep_spaced, place, steeper_than,
+};
+use procgena_core::{CellId, CopyAddress, Quality, SpecimenId};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
 use serde::{Deserialize, Serialize};
 
-use crate::detail::DeadwoodLod;
+use crate::detail::{DeadwoodLod, default_lod};
 use crate::options::{DeadwoodOptions, OptionsError, PieceKind, int_range, positive, within};
 use crate::piece::Piece;
 use crate::presets::DeadwoodPreset;
@@ -31,6 +34,12 @@ pub const MAX_INSTANCES: usize = 200_000;
 pub const MAX_VARIANTS: u32 = 32;
 /// Most contact points kept per variant for fitting it to the ground.
 const MAX_CONTACTS: usize = 48;
+/// Smallest footprint disc radius, in metres, for the thinnest twigs.
+const MIN_FOOTPRINT: f32 = 0.005;
+
+/// Salts that give each draw of one candidate its own value.
+const SALT_VARIANT: u32 = 0x9e37_79b9;
+const SALT_YAW: u32 = 0x6a09_e667;
 
 /// The ground shapes sticks lie on. They live in `procgena_core`, shared
 /// with the other generators that scatter over ground.
@@ -182,10 +191,14 @@ impl From<OptionsError> for ScatterError {
 }
 
 /// One placed copy of a variant.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Instance {
     /// Index into [`StickScatter::variants`].
     pub variant: u32,
+    /// Names the copy anywhere in the World: the lattice cell its spot came
+    /// from. The same input gives the copy at this address the same place
+    /// and look from any area that holds its cell.
+    pub address: CopyAddress,
     /// Where the middle of the stick is, in X and Z relative to the area's
     /// centre, with the ground height at that point in Y, in metres.
     pub position: Vec3,
@@ -193,19 +206,32 @@ pub struct Instance {
     /// ground's slope, and resting on it. Apply it to every vertex of the
     /// variant's mesh, at any level of detail.
     pub transform: Affine3A,
+    /// The ground the piece takes up, in World fixed point: a chain of discs
+    /// along a lying piece's main stem, or one disc for a stump. Other
+    /// Scatters keep their copies out of it.
+    pub footprint: Vec<Disc>,
 }
 
-/// Sticks and twigs scattered over ground.
+/// Sticks, logs or stumps scattered over ground: the variants for one World
+/// seed, and the copies of one area.
 ///
 /// Create one with [`StickScatter::new`], then draw each of
-/// [`instances`](Self::instances) using the mesh of its variant.
+/// [`instances`](Self::instances) using the mesh of its variant. It is also
+/// a [`Scatter`], placing any other area with the same variants.
+///
+/// Copies stand on a lattice fixed to the World, one candidate per cell, so
+/// an area holds the same copies, with the same addresses, as any larger
+/// area around it, and as the chunks it splits into, built in any order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StickScatter {
+    options: ScatterOptions,
     variants: Vec<Piece>,
+    fits: Vec<Fit>,
     instances: Vec<Instance>,
 }
 
 /// How one variant is put on the ground.
+#[derive(Debug, Clone, PartialEq)]
 struct Fit {
     /// The middle of the variant in X and Z, at `y = 0`. Copies are placed
     /// around this point.
@@ -214,41 +240,75 @@ struct Fit {
     footprint: Footprint,
     /// How the variant follows the ground, from its kind.
     placement: Placement,
+    /// The discs of ground it takes up when unturned, measured from
+    /// `centre`: offsets in X and Z, and radii, in metres.
+    outline: Vec<(Vec2, f32)>,
+}
+
+/// A copy that passed the density, exclusion, slope and ground checks,
+/// waiting for the spacing check.
+struct Candidate {
+    position: Fixed2,
+    rank: Rank,
+    instance: Instance,
+}
+
+impl Spaced for Candidate {
+    fn position(&self) -> Fixed2 {
+        self.position
+    }
+
+    fn rank(&self) -> Rank {
+        self.rank
+    }
 }
 
 impl StickScatter {
-    /// Scatters sticks over `input`'s area of ground, thinned by its mask
-    /// and seeded by its seed.
+    /// Builds the variants with `input`'s seed as the World seed, then
+    /// scatters copies over `input`'s area of ground, thinned by its mask.
     ///
-    /// Sticks are left out where the ground is steeper than
-    /// [`ScatterOptions::max_slope`], and where any part of them has no
-    /// ground under it. Positions in the result are relative to the area's
-    /// centre.
+    /// Each lattice cell holds one candidate. It is kept while its rank is
+    /// below the density times the mask; then it is left out where it would
+    /// overlap a footprint the input keeps clear, where the ground is
+    /// steeper than [`ScatterOptions::max_slope`], or where any part of it
+    /// has no ground under it; then copies closer than
+    /// [`ScatterOptions::min_spacing`] are thinned by rank. Lowering the
+    /// density or the mask only removes copies. Positions in the result are
+    /// relative to the area's centre, and the area holds the copies whose
+    /// cell's corner lies inside it, so a copy may stand up to a cell outside
+    /// it.
     ///
     /// # Errors
     ///
     /// Returns [`ScatterError::Options`] if a setting, the area's size or a
     /// variant is invalid, and [`ScatterError::TooMany`] if the settings ask
-    /// for more than [`MAX_INSTANCES`] sticks.
+    /// for more than [`MAX_INSTANCES`] copies.
     pub fn new(options: &ScatterOptions, input: &ScatterInput<'_>) -> Result<Self, ScatterError> {
+        let mut scatter = Self::prepare(options, input.seed)?;
+        scatter.instances = scatter.sticks(input)?;
+        Ok(scatter)
+    }
+
+    /// Builds the variants of `options` in a World seeded with
+    /// `world_seed`, without placing any copies: place them with
+    /// [`sticks`](Self::sticks) or as a [`Scatter`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScatterError::Options`] if a setting or a variant is
+    /// invalid.
+    pub fn prepare(options: &ScatterOptions, world_seed: u32) -> Result<Self, ScatterError> {
         options.validate()?;
-        let size = input.area.size;
-        positive("area.size", size.x)?;
-        positive("area.size", size.y)?;
-        let count = (size.x * size.y * options.density).ceil() as usize;
-        if count > MAX_INSTANCES {
-            return Err(ScatterError::TooMany { count });
-        }
 
         // Build the variants, each resting on flat ground in its own space.
         // Variant `v` is the specimen in slot `v` of the variant pool, so
         // its seed, and the size and decay drawn from it, depend only on the
-        // input's seed, the pool and the slot.
+        // World seed, the pool and the slot.
         let pool = options.variant_pool();
         let mut variants = Vec::with_capacity(options.variants as usize);
         for v in 0..options.variants {
             let mut o = options.piece.clone();
-            o.default_seed = SpecimenId::new(input.seed, pool, v).seed();
+            o.default_seed = SpecimenId::new(world_seed, pool, v).seed();
             let mut rng = stream(o.default_seed, SCATTER_VARIANT);
             o.decay = rng.range(options.decay[0], options.decay[1]);
             let (lo, hi) = (options.diameter[0].ln(), options.diameter[1].ln());
@@ -257,55 +317,126 @@ impl StickScatter {
             variants.push(Piece::new(o)?);
         }
         let fits: Vec<Fit> = variants.iter().map(fit).collect();
-
-        // One candidate per cell of a jittered grid starting at the area's
-        // corner, so changing the area's size moves every candidate. Each
-        // passes the mask, then the slope limit, then spacing, then must fit
-        // the ground.
-        let cell = 1.0 / options.density.sqrt();
-        let half = size * 0.5;
-        let (columns, rows) = ((size.x / cell).ceil() as u32, (size.y / cell).ceil() as u32);
-        let mut spacing = SpacingGrid::new(options.min_spacing);
-        let mut instances = Vec::new();
-        let cell_seed = seed_for(input.seed, SCATTER_CELL);
-        for r in 0..rows {
-            for c in 0..columns {
-                let mut rng = Rng::new(derive_seed(cell_seed, r * columns + c));
-                let site = Vec2::new(
-                    -half.x + (c as f32 + rng.next_f32()) * cell,
-                    -half.y + (r as f32 + rng.next_f32()) * cell,
-                );
-                let (keep, variant, yaw) = (
-                    rng.next_f32(),
-                    (rng.next_f32() * options.variants as f32) as u32,
-                    rng.range(0.0, std::f32::consts::TAU),
-                );
-                if site.x > half.x || site.y > half.y {
-                    continue;
-                }
-                if keep >= input.density(site) {
-                    continue;
-                }
-                let sample = input.sample(site);
-                if steeper_than(&sample, options.max_slope) || !spacing.accepts(site) {
-                    continue;
-                }
-                let variant = variant.min(options.variants - 1);
-                let Some(transform) = put_down(&fits[variant as usize], site, yaw, input) else {
-                    continue;
-                };
-                spacing.insert(site);
-                let position = Vec3::new(site.x, sample.height, site.y);
-                instances.push(Instance {
-                    variant,
-                    position,
-                    transform,
-                });
-            }
-        }
         Ok(Self {
+            options: options.clone(),
             variants,
-            instances,
+            fits,
+            instances: Vec::new(),
+        })
+    }
+
+    /// Places copies over `input`'s area with this Scatter's variants, as
+    /// [`new`](Self::new) describes. The input's seed sets where copies lie,
+    /// not their shapes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScatterError::Options`] if the area's size is not positive,
+    /// and [`ScatterError::TooMany`] if the settings ask for more than
+    /// [`MAX_INSTANCES`] copies.
+    pub fn sticks(&self, input: &ScatterInput<'_>) -> Result<Vec<Instance>, ScatterError> {
+        let options = &self.options;
+        let size = input.area.size;
+        positive("area.size", size.x)?;
+        positive("area.size", size.y)?;
+        let count = (size.x * size.y * options.density).ceil() as usize;
+        if count > MAX_INSTANCES {
+            return Err(ScatterError::TooMany { count });
+        }
+
+        // Look at every candidate near enough to decide the area's own.
+        let lattice = self.lattice();
+        let reach = self.reach();
+        let own = input.area.bounds();
+        let cell = f64::from(lattice.cell_metres());
+        let chance = lattice::chance(f64::from(options.density) * cell * cell);
+        let seed = seed_for(input.seed, SCATTER_CELL);
+        let mut found = Vec::new();
+        for cell in lattice.cells_in(reach.window(own)) {
+            let h = lattice.hash(seed, cell);
+            let at = lattice.position(h, cell);
+            let local = input.local_density(at);
+            let rank = lattice::rank(h);
+            if !lattice::dense_enough(rank, chance, local) {
+                continue;
+            }
+            let variant = ((lattice::unit(h, SALT_VARIANT) * options.variants as f32) as u32)
+                .min(options.variants - 1);
+            let yaw = lattice::unit(h, SALT_YAW) * std::f32::consts::TAU;
+            let Some(instance) = self.put_down(variant, cell, at, yaw, input) else {
+                continue;
+            };
+            found.push(Candidate {
+                position: at,
+                rank: Rank {
+                    tier: 0,
+                    rank,
+                    local,
+                    cell,
+                    index: 0,
+                },
+                instance,
+            });
+        }
+
+        // Thin copies closer than the spacing by rank, and keep the area's
+        // own.
+        let spacing = reach.spacing_fixed();
+        let keep = keep_spaced(&found, reach.rounds, spacing, |a, b| {
+            a.position.distance_squared(b.position) < i128::from(spacing) * i128::from(spacing)
+        });
+        Ok(found
+            .into_iter()
+            .zip(keep)
+            .filter(|(c, keep)| *keep && own.contains(lattice.corner(c.rank.cell)))
+            .map(|(c, _)| c.instance)
+            .collect())
+    }
+
+    /// Puts variant `variant`, turned by `yaw`, at World position `at` on
+    /// `input`'s ground, or `None` where it overlaps a footprint the input
+    /// keeps clear, the ground is too steep, or there is no ground under it.
+    fn put_down(
+        &self,
+        variant: u32,
+        cell: CellId,
+        at: Fixed2,
+        yaw: f32,
+        input: &ScatterInput<'_>,
+    ) -> Option<Instance> {
+        let fit = &self.fits[variant as usize];
+        let world = at.to_world();
+
+        // Keep the piece off the footprints above it, then check the slope.
+        let turn = Quat::from_rotation_y(yaw);
+        let footprint: Vec<Disc> = fit
+            .outline
+            .iter()
+            .map(|&(offset, radius)| {
+                let o = turn * Vec3::new(offset.x, 0.0, offset.y);
+                Disc::new(world + DVec2::new(f64::from(o.x), f64::from(o.z)), radius)
+            })
+            .collect();
+        if input.excluded(&footprint) {
+            return None;
+        }
+        let sample = input.sample_at(at);
+        if steeper_than(&sample, self.options.max_slope) {
+            return None;
+        }
+
+        // Rest it on the ground as its kind says.
+        let placed = place(input.ground, world, yaw, &fit.footprint, &fit.placement)?;
+        let local = at.relative_to(input.area.centre);
+        Some(Instance {
+            variant,
+            address: input.prefix.copy(cell, 0),
+            position: Vec3::new(local.x, sample.height, local.y),
+            transform: Affine3A::from_rotation_translation(
+                placed.rotation,
+                Vec3::new(local.x, placed.height, local.y),
+            ) * Affine3A::from_translation(-fit.centre),
+            footprint,
         })
     }
 
@@ -316,7 +447,7 @@ impl StickScatter {
         &self.variants
     }
 
-    /// The placed copies.
+    /// The copies placed by [`new`](Self::new).
     pub fn instances(&self) -> &[Instance] {
         &self.instances
     }
@@ -417,14 +548,30 @@ fn fit(piece: &Piece) -> Fit {
     // A lying piece also samples the ground either side of its middle,
     // across its main stem, so a straight stick still finds the cross-slope.
     let width = o.diameter.max(0.1 * o.length);
+    let main = &piece.limbs()[0].curve;
+    let (a, b) = (main.at(0.0).position, main.at(1.0).position);
     let extra = if stump {
         Vec::new()
     } else {
-        let main = &piece.limbs()[0].curve;
-        let (a, b) = (main.at(0.0).position, main.at(1.0).position);
         let axis = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or(Vec3::X);
         let side = axis.cross(Vec3::Y) * width;
         vec![Vec2::new(side.x, side.z), -Vec2::new(side.x, side.z)]
+    };
+
+    // The ground it takes up: one disc for a stump, and a chain of discs
+    // along a lying piece's main stem, close enough to leave no gaps.
+    let radius = (0.5 * o.diameter).max(MIN_FOOTPRINT);
+    let outline = if stump {
+        vec![(Vec2::ZERO, radius)]
+    } else {
+        let (a, b) = (
+            Vec2::new(a.x - centre.x, a.z - centre.z),
+            Vec2::new(b.x - centre.x, b.z - centre.z),
+        );
+        let steps = (a.distance(b) / radius).ceil().max(1.0) as u32;
+        (0..=steps)
+            .map(|i| (a.lerp(b, i as f32 / steps as f32), radius))
+            .collect()
     };
     Fit {
         centre,
@@ -434,74 +581,74 @@ fn fit(piece: &Piece) -> Fit {
             size: width,
         },
         placement: o.kind.placement(),
+        outline,
     }
 }
 
-/// Returns the transform that puts `fit`'s variant at `site` (relative to
-/// the area's centre), turned by `yaw`, on `input`'s ground, or `None`
-/// where there is no ground under it.
-fn put_down(fit: &Fit, site: Vec2, yaw: f32, input: &ScatterInput<'_>) -> Option<Affine3A> {
-    let at = input.area.world(site);
-    let placed = place(input.ground, at, yaw, &fit.footprint, &fit.placement)?;
-    Some(
-        Affine3A::from_rotation_translation(
-            placed.rotation,
-            Vec3::new(site.x, placed.height, site.y),
-        ) * Affine3A::from_translation(-fit.centre),
-    )
-}
+/// A deadwood Scatter places its copies on a lattice fixed to the World,
+/// one candidate per cell. Its slots are its variants, from the World seed
+/// given to [`slots`](Scatter::slots); the variants it draws are the ones
+/// it was built with (see [`StickScatter::prepare`]).
+impl Scatter for StickScatter {
+    fn lattice(&self) -> Lattice {
+        // Cells as wide as the spacing, narrowed until one holds at most one
+        // copy at full density.
+        let density = self.options.density;
+        let fill = 1.0 / density.sqrt();
+        let spacing = self.options.min_spacing;
+        let cell = if spacing > 0.0 {
+            spacing.min(fill)
+        } else {
+            fill
+        };
+        Lattice::new(cell)
+    }
 
-/// Accepted sites, sorted into square buckets one spacing wide, so a
-/// spacing check only looks at nearby buckets.
-struct SpacingGrid {
-    /// Smallest allowed distance between sites; zero or less disables the
-    /// check.
-    spacing: f32,
-    /// Accepted sites, keyed by bucket.
-    cells: HashMap<(i32, i32), Vec<Vec2>>,
-}
-
-impl SpacingGrid {
-    /// Starts an empty grid for sites at least `spacing` apart.
-    fn new(spacing: f32) -> Self {
-        Self {
-            spacing,
-            cells: HashMap::new(),
+    fn reach(&self) -> Reach {
+        let footprint = self
+            .fits
+            .iter()
+            .flat_map(|fit| fit.outline.iter().map(|(o, r)| o.length() + r))
+            .fold(0.0, f32::max);
+        Reach {
+            rounds: DEFAULT_SPACING_ROUNDS,
+            spacing: self.options.min_spacing,
+            displacement: self.lattice().cell_metres(),
+            footprint,
         }
     }
 
-    /// Returns the bucket that holds `p`.
-    fn key(&self, p: Vec2) -> (i32, i32) {
-        (
-            (p.x / self.spacing).floor() as i32,
-            (p.y / self.spacing).floor() as i32,
-        )
+    fn draw_range(&self) -> f32 {
+        // The default detail levels' cull distance, for the longest piece.
+        let lod = default_lod();
+        let longest = self.options.length[1].max(self.options.diameter[1]);
+        lod.cull_distance.unwrap_or(f32::INFINITY) * lod.factor(longest, Quality::High)
     }
 
-    /// Whether `p` is at least the spacing from every accepted site.
-    fn accepts(&self, p: Vec2) -> bool {
-        if self.spacing <= 0.0 {
-            return true;
-        }
-        let (cx, cy) = self.key(p);
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                if let Some(sites) = self.cells.get(&(cx + dx, cy + dy))
-                    && sites.iter().any(|s| s.distance(p) < self.spacing)
-                {
-                    return false;
-                }
-            }
-        }
-        true
+    fn slots(&self, world_seed: u32) -> Vec<ScatterSlot> {
+        let pool = self.options.variant_pool();
+        (0..self.options.variants)
+            .map(|v| ScatterSlot {
+                entry: 0,
+                specimen: SpecimenId::new(world_seed, pool, v),
+            })
+            .collect()
     }
 
-    /// Records `p` as an accepted site.
-    fn insert(&mut self, p: Vec2) {
-        if self.spacing > 0.0 {
-            let key = self.key(p);
-            self.cells.entry(key).or_default().push(p);
-        }
+    fn place(
+        &self,
+        input: &ScatterInput<'_>,
+    ) -> Result<Vec<ScatterCopy>, procgena_core::scatter::ScatterError> {
+        Ok(self
+            .sticks(input)?
+            .into_iter()
+            .map(|stick| ScatterCopy {
+                address: stick.address,
+                slot: stick.variant,
+                transform: stick.transform,
+                footprint: stick.footprint,
+            })
+            .collect())
     }
 }
 

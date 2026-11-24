@@ -329,7 +329,7 @@ impl HeightField for WorldTerrain { … }
 | W2 | Region graph: staggered jittered lattice, Voronoi polygons, short-edge collapse, corner incidence, owner lookup; purity, tiling and window-size tests | — (in parallel with W1) |
 | W3 | Border segment index in `Terrain`; border warp (subdivided, noise-displaced edges); no-crossing check. **Exit test:** the existing border, crack and feature suites pass on warped fixtures | W2 |
 | W3b | Cheaper border pulls: an exact skip for points beyond the fades and a faster integral; shared nodes measured and not built (see "W3b as built") | W3 |
-| W4 | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source | W1, W3b |
+| W4 ✅ | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source (built; see "W4 as built"). The deferred W1 item, equal preset offsets, was not done: it waits for the user (see open question 5) | W1, W3b |
 | W5 | Moved to the World crate: selector fields, Biome rules and pins, with empty Biomes (milestones B0 and W0 in ROADMAP.md) | — |
 | W6 | Image example of a large world; drainage measurement. Built on W4 with a closure source; redone through the World once W0 exists | W4 |
 
@@ -563,6 +563,74 @@ the faster integral).
   stay continuous at bends). These wait for the performance sweep unless
   the user decides otherwise.
 
+### W4 as built (2026-11-24)
+
+- **Public types** (`src/world.rs`): `WorldTerrain`, `WorldTerrainOptions
+  { seed, elevation, regions, convergence, cache }`, `TerrainSource`
+  (any `Fn(RegionId, DVec2, &Elevation) -> TerrainOptions + Send + Sync`
+  closure is one), `WorldError` and `DEFAULT_CACHE` (64). `WorldTerrain`
+  has `new`, `options`, `elevation`, `graph`, `site`, `region_at`,
+  `region`, `terrain`, `terrain_at`, `height` and `water_level`, and
+  implements `HeightField` and `procgena_core::Ground` (the owner's
+  height). Since G2 merged (2026-11-24), both traits' `sample` and
+  `Ground::gradient` come from the owning terrain's analytic
+  `Terrain::sample` (test `the_slope_is_the_owners_own`); NaN where the
+  owner can't be built.
+- **Deviations from the sketch above:** the surface keys on `RegionId`
+  (see W2); the seed is `u32`, as for the graph and E; `convergence`
+  (meeting and blend) replaces `relief_meeting`; the source is given the
+  region's id, its site and E, not a `RegionKey`; `region` returns
+  `Arc<Region>`; `terrain` returns `Result<Arc<Terrain>, WorldError>`, and
+  `height` is NaN (and `water_level` `None`) where the region can't be
+  built. The source's `default_seed` is replaced by the world seed.
+- **Stages, each cached per region** (bounded, least recently used;
+  dropped entries rebuild identically): the region from the graph; the
+  source's settings (a generator standing on E, and its relief amplitude);
+  the **plan** (the generator converged towards every region on its edges
+  and corners, and its edge offers, rivers traced); the built `Terrain`.
+  Building a terrain reads the plans of the region and every region
+  touching its corners, and those read the settings one ring further out,
+  so no neighbour is ever fully built. Corners and edges are negotiated
+  by each region for itself from the cached plans; both sides get
+  identical bits, since negotiation doesn't depend on which side asks.
+  Each cache holds a per-key once-lock, so several threads asking for one
+  stage build it once; the map lock is never held while building. The
+  plan stage is where the staged feature plans (features_plan_review,
+  step 2) will split: relief and offers first, then rivers, roads and
+  local features.
+- **Owner lookup:** the 25 nearest lattice cells, nearest site first,
+  tested against their cached warped outlines; a point no outline holds
+  (right on a border) goes to the region whose border is nearest. It
+  depends only on the point, so tiles stay bit-identical.
+  `RegionGraph::region_at` would rebuild the neighbourhood on every call.
+- **Tests** (`tests/world.rs`, default 4 km graph with the default warp,
+  presets picked by a hash of the region id): every shared edge round the
+  centre region joins in height (1 mm) and slope (0.05, long step) on
+  flat, tilted and curved land; every corner meets at one height with no
+  step on a 0.5 m ring, and so does a merged corner of four or more
+  regions, two of which share no edge (so a build reads a plan that is
+  not an edge neighbour's); the world's water level is the owner's along
+  its rivers; no cracks along three 6 km lines; a 121 × 121
+  tile is bit-identical cold and with the regions built first in reverse
+  order on four threads; a dropped terrain rebuilds bit-identically; each
+  region's options are its source's; the owner agrees with the graph's
+  `region_at`; and the centre terrain is **bit-identical to a
+  `StitchedWorld` of the same polygons two rings out**. Bad settings are
+  refused, and a region with invalid source settings (and its neighbour)
+  gets the error, NaN heights and no water. Checked by breaking: owner by
+  nearest site alone fails the owner test; negotiating against the
+  neighbour's unconverged offers fails the border test (a 2 m step) and
+  the stitched comparison. The file takes about 10 minutes in the dev
+  profile.
+- **Not done:** the region size check ("Region size" above): no
+  criterion exists yet, so too-small regions are not refused. Edge
+  agreements are worked out once by each side, not cached; the caches take
+  a mutex on every lookup, so heavy multi-threaded sampling may contend;
+  the cost per region was not measured separately. `ElevationOptions` and
+  `WorldTerrainOptions` have no serde support. The converge and negotiate
+  steps repeat `StitchedWorld`'s in `world.rs`; `StitchedWorld` could be
+  rebuilt on the same stage functions.
+
 ## Open questions
 
 1. ~~**Biome choice:** field first with overrides, or biomes first?~~
@@ -580,3 +648,12 @@ the faster integral).
 4. **Bounded worlds:** besides infinite lattice worlds, should
    `WorldTerrain` take a designer's polygon map directly (as
    `StitchedWorld` does), or keep that in `StitchedWorld`?
+5. **Equal preset offsets** (deferred from W1, left for the user in W4):
+   which common `base.elevation` should the presets share? Today plains,
+   rolling hills and mountains sit 20, 50 and 120 m above E. **20 m**
+   leaves plains unchanged and lowers hills by 30 m and mountains by
+   100 m; **50 m** raises plains by 30 m and lowers mountains by 70 m;
+   **0** puts plains' mean at E (sea level on flat land) and lowers every
+   preset. Each changes how the hills and mountains worlds look, and moves
+   the border gap probe and the river crossing counts, which would be
+   re-recorded. Recommended: 20 m, the smallest visible change.

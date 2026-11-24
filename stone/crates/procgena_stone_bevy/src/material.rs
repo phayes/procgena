@@ -1,10 +1,18 @@
 //! Create rock materials that project textures onto rocks without texture coordinates.
 
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, Face, ShaderType};
+use bevy::render::render_resource::{
+    AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+};
 use bevy::shader::ShaderRef;
+use procgena_core_bevy::instanced::{
+    INSTANCED_MESH_SHADER, INSTANCED_PREPASS_SHADER, instanced_vertex,
+};
 use procgena_stone::{MaterialOptions, TextureCompression, TextureMap, TextureSize, texture_path};
 
 /// Fragment shader for rocks in the main pass and in deferred rendering.
@@ -28,6 +36,7 @@ pub type StoneMaterial = ExtendedMaterial<StandardMaterial, TriplanarExtension>;
 /// Leave all three images as `None`, with `settings.textured` set to 0, to draw
 /// the base material alone. When `textured` is 1, supply all three images.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+#[bind_group_data(TriplanarKey)]
 pub struct TriplanarExtension {
     /// Texture repeat size and whether to use the images.
     #[uniform(100)]
@@ -69,7 +78,56 @@ impl Default for TriplanarSettings {
     }
 }
 
+/// The pipeline variant a [`StoneMaterial`] is drawn with. Bevy builds one
+/// pipeline per distinct key; you never need to create one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TriplanarKey {
+    /// Whether the pipeline draws pooled rocks through the shared instanced
+    /// renderer, each naming its own mesh record through an extra per-copy
+    /// vertex input.
+    pub(crate) instanced: bool,
+}
+
+impl From<&TriplanarExtension> for TriplanarKey {
+    fn from(_: &TriplanarExtension) -> Self {
+        // Materials are drawn as single rocks; the instanced renderer asks
+        // for its pipelines with `instanced` set.
+        Self { instanced: false }
+    }
+}
+
+/// The pipeline key of a [`StoneMaterial`].
+#[cfg(feature = "gpu")]
+pub(crate) type StoneMaterialKey = bevy::render::combined_bind_group::CombinedBindGroupData<
+    bevy::pbr::StandardMaterialKey,
+    TriplanarKey,
+>;
+
 impl MaterialExtension for TriplanarExtension {
+    fn vertex_shader() -> ShaderRef {
+        INSTANCED_MESH_SHADER.into()
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        INSTANCED_PREPASS_SHADER.into()
+    }
+
+    fn deferred_vertex_shader() -> ShaderRef {
+        INSTANCED_PREPASS_SHADER.into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        if key.bind_group_data.instanced {
+            instanced_vertex(descriptor);
+        }
+        Ok(())
+    }
+
     fn fragment_shader() -> ShaderRef {
         STONE_SHADER.into()
     }

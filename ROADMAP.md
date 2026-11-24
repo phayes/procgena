@@ -222,7 +222,7 @@ blocks. Until then, nothing that depends on it starts.
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided one region per Biome, which opened D4. |
-| D4 | **One region per Biome**: how the region graph and the Biome choice make each region one Biome's whole area, so neighbouring regions never share a Biome, while every `RegionId` stays stable and computable from the World's options and seed alone, in any build order. Region size and shape (world_plan open question 2) move here | W0 (Biome choice per region, region seeds) | Opened by the user in D3, 2026-11-23. **G5 is not gated:** it keeps building W2–W4 on today's lattice graph, at the risk that D4 asks for rework there (the graph's construction, W3's warp, W4's region cache). Region size also sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). B1 is not blocked: it works inside one Biome. |
+| D4 | **One region per Biome**: how the region graph and the Biome choice make each region one Biome's whole area, so neighbouring regions never share a Biome, while every `RegionId` stays stable and computable from the World's options and seed alone, in any build order. Region size and shape (world_plan open question 2) move here | W0 (Biome choice per region, region seeds) | Opened by the user in D3, 2026-11-23. **G5 is not gated:** it keeps building W2–W4 on today's lattice graph, at the risk that D4 asks for rework there (the graph's construction, W3's warp, W4's region cache). Region size also sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -403,7 +403,14 @@ goldens, which have no baseline on this machine).
   bit-identical heights. Shared border nodes were measured (at most about
   10% gain) and not built. Warped borders still cost about 2.7× straight
   ones, from their piece count; that is left for the performance sweep.
-  W4 is next.
+  **W4 is built (2026-11-24):** `WorldTerrain` builds a lattice world's
+  regions on demand from a `TerrainSource` closure, caching each region's
+  settings, plan (converged generator and offers) and terrain; its seams
+  pass on warped borders on flat, tilted and curved land, and its centre
+  region matches a `StitchedWorld` of the same polygons bit for bit. Not
+  done: the region size check, and the equal preset offsets, which wait
+  for the user (world_plan open question 5). W6 (image example and
+  drainage measurement) is next.
 
 #### G6: Terrain volume, mesher, Bevy crate and studio (Phases 6–10)
 
@@ -490,6 +497,10 @@ goldens, which have no baseline on this machine).
   chunk at a time on a World lattice, gives the same copies with the same
   ids whatever order its chunks are built in, and reports its mask over a
   chunk without drawing.
+- **Status (2026-11-24):** built for tree, stone, deadwood and mushroom
+  ([docs/decisions/C2-plan.md](docs/decisions/C2-plan.md)); plant joins in
+  R3. Left: canopy shade as a density mask, part paths, `DrawHandle`, the
+  quantised slope byte and a per-Scatter `d` option, and a GPU path.
 
 #### C3a: Early Ecotope (moved forward, 2026-11-24)
 
@@ -506,6 +517,12 @@ goldens, which have no baseline on this machine).
   Lower-priority Scatters avoid higher ones only as far as today's masks
   in allow it. The adapters are thrown away when C2 lands.
 - **Needs:** C1, F3, B0 (the crate). Not C2, not the terrain.
+- **Status (2026-11-24):** built. `Ecotope`, `EcotopePreset`
+  (`pine_forest_floor.ecotope.yml`) and `Ecotope::place` in
+  `procgena_biome`; adapters in `src/ecotope/scatters.rs`;
+  `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. Plant
+  is left out: it is a Bevy crate placed on the GPU, with no `Ground` and
+  no seed, so it joins in C3 after R3. The viewer draws without textures.
 - **Done when:** a "pine forest floor" Ecotope preset loads from a
   `.ecotope.yml` file and draws trees, boulders, logs and mushrooms on a
   `HeightGrid` in a viewer or studio tab, with each Scatter keyed and
@@ -552,6 +569,16 @@ milestones.
 - **Needs:** R1, F2.
 - **Done when:** tree, stone, deadwood and mushroom scatters draw through one
   renderer, with dither in every pass and shadow culling.
+- **Status (2026-11-24):** the renderer and specimen cache are built in
+  `procgena_core_bevy::instanced`: GPU culling per camera and shadow view
+  into per-part indirect draws, each part drawn with its own material's
+  pipelines, dither in the main, prepass and deferred passes, one level per
+  copy in shadow maps (switching mid-band, only levels that cast shadows),
+  and a wind phase per copy. Stone's pool, deadwood's stick scatters and
+  mushroom's scatters draw through it; single pieces stay entities. Tree is
+  left: its move needs `tree_bevy/src/scatter.rs` (C2's this wave), so it
+  follows C2's merge. Impostors join as a last level once tree moves (the
+  impostor material already reads the same per-copy input).
 
 #### R3: CPU and GPU building, plant alignment
 
