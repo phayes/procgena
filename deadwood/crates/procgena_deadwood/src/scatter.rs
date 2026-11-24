@@ -258,9 +258,10 @@ impl StickScatter {
         }
         let fits: Vec<Fit> = variants.iter().map(fit).collect();
 
-        // One candidate per cell of a jittered grid anchored to the area's
-        // centre. Each passes the mask, then the slope limit, then spacing,
-        // then must fit the ground.
+        // One candidate per cell of a jittered grid starting at the area's
+        // corner, so changing the area's size moves every candidate. Each
+        // passes the mask, then the slope limit, then spacing, then must fit
+        // the ground.
         let cell = 1.0 / options.density.sqrt();
         let half = size * 0.5;
         let (columns, rows) = ((size.x / cell).ceil() as u32, (size.y / cell).ceil() as u32);
