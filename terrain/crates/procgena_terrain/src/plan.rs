@@ -4,8 +4,8 @@
 use glam::DVec2;
 
 use crate::carve::{
-    FeatureKind, FeatureLine, Features, PoiKind, PointOfInterest, Pond, ROAD_BANK, ValleyShape,
-    chaikin, valley_reach,
+    FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, ROAD_BANK, ValleyShape, chaikin,
+    valley_reach,
 };
 use crate::grid::Grid;
 use crate::hash::hash2;
@@ -361,19 +361,41 @@ fn join(tributary: &mut FeatureLine, trunk: &mut FeatureLine) {
     }
 }
 
-/// Builds the region's rivers, ponds and roads after negotiation.
+/// A region's rivers and ponds, planned after negotiation: the second
+/// planning stage, before roads.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Hydrology {
+    pub rivers: Vec<FeatureLine>,
+    /// For each river, its valley's shape at each point.
+    pub valleys: Vec<Vec<ValleyShape>>,
+    pub ponds: Vec<Pond>,
+}
+
+/// A region's roads and the end of their network, planned after its
+/// rivers: the third planning stage.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Roads {
+    pub roads: Vec<FeatureLine>,
+    /// For each road, how steeply its banks start at each point.
+    pub banks: Vec<Vec<f32>>,
+    pub points_of_interest: Vec<PointOfInterest>,
+}
+
+/// Plans the region's rivers and ponds after negotiation, from its own
+/// rivers `own` (see [`own_rivers`]; `None` for a region without a
+/// polygon, which gets none).
 ///
 /// `agreements` pairs each shared edge's index in the region with its
 /// agreement. `base` is the terrain's bent height before any carving.
-pub(crate) fn features(
+pub(crate) fn hydrology(
     options: &TerrainOptions,
-    relief: &Relief,
     region: &Region,
+    own: Option<&OwnRivers>,
     agreements: &[(usize, &EdgeAgreement)],
     base: &dyn Fn(DVec2) -> f32,
-) -> Features {
-    let Some(own) = own_rivers(options, relief, region) else {
-        return Features::default();
+) -> Hydrology {
+    let Some(own) = own else {
+        return Hydrology::default();
     };
     let bent = own.grid.with_heights(base);
     let r = &options.features.rivers;
@@ -513,8 +535,8 @@ pub(crate) fn features(
         ));
     }
 
-    // Rivers flowing in from neighbours, and every crossing's straight piece.
-    let mut road_starts = Vec::new();
+    // Rivers flowing in from neighbours, and every river crossing's
+    // straight piece.
     for &(index, agreement) in agreements {
         let edge = &region.edges[index];
         let side = side_of(region, edge);
@@ -572,15 +594,7 @@ pub(crate) fn features(
                         traced.push(inbound);
                     }
                 }
-                PortKind::Road => {
-                    let (point, level) = piece_end(edge, port, side);
-                    road_starts.push(RoadStart {
-                        point,
-                        level,
-                        width: port.width,
-                        min_width: options.features.roads.min_width.min(port.width),
-                    });
-                }
+                PortKind::Road => {}
             }
         }
     }
@@ -596,16 +610,67 @@ pub(crate) fn features(
         join(tributary, trunk);
     }
 
-    // Roads: the crossing pieces, then routes linking them, planned on
-    // their own, finer grid.
+    // Valleys: each river's own and inbound stretches open into a valley as
+    // wide as their cut needs, never reaching the border; crossing pieces
+    // keep the narrowest, so both sides carve the same ground there.
+    let valleys: Vec<Vec<ValleyShape>> = rivers
+        .iter()
+        .zip(&is_piece)
+        .map(|(river, &piece)| {
+            if piece {
+                vec![ValleyShape::even(BANK_REACH); river.points.len()]
+            } else {
+                valley_shapes(river, region, base)
+            }
+        })
+        .collect();
+    Hydrology {
+        rivers,
+        valleys,
+        ponds,
+    }
+}
+
+/// Plans the region's roads after its rivers `rivers`: routes from the
+/// agreed road crossings to each other and to the network's end, then the
+/// crossing pieces. A region without a polygon gets none.
+///
+/// `agreements` pairs each shared edge's index in the region with its
+/// agreement. `base` is the terrain's bent height before any carving.
+pub(crate) fn roads(
+    options: &TerrainOptions,
+    relief: &Relief,
+    region: &Region,
+    agreements: &[(usize, &EdgeAgreement)],
+    rivers: &[FeatureLine],
+    base: &dyn Fn(DVec2) -> f32,
+) -> Roads {
     let Boundary::Polygon(polygon) = &region.boundary else {
-        unreachable!("a region without a polygon has no own rivers");
+        return Roads::default();
     };
+
+    // Where the roads start: the region's end of each road crossing.
+    let mut road_starts = Vec::new();
+    for &(index, agreement) in agreements {
+        let edge = &region.edges[index];
+        let side = side_of(region, edge);
+        for port in agreement.ports.iter().filter(|p| p.kind == PortKind::Road) {
+            let (point, level) = piece_end(edge, port, side);
+            road_starts.push(RoadStart {
+                point,
+                level,
+                width: port.width,
+                min_width: options.features.roads.min_width.min(port.width),
+            });
+        }
+    }
+
+    // Routes linking them, planned on their own, finer grid.
     let road_grid = Grid::with_cell(polygon, base, ROAD_CELL);
     let Routes { mut roads, end } = route(
         &road_grid,
         &road_starts,
-        &rivers,
+        rivers,
         &|p| relief.road_grades(p),
         base,
     );
@@ -635,28 +700,11 @@ pub(crate) fn features(
             });
         }
     }
-    // Valleys: each river's own and inbound stretches open into a valley as
-    // wide as their cut needs, never reaching the border; crossing pieces
-    // keep the narrowest, so both sides carve the same ground there.
-    let river_valleys: Vec<Vec<ValleyShape>> = rivers
-        .iter()
-        .zip(&is_piece)
-        .map(|(river, &piece)| {
-            if piece {
-                vec![ValleyShape::even(BANK_REACH); river.points.len()]
-            } else {
-                valley_shapes(river, region, base)
-            }
-        })
-        .collect();
-    Features::new(
-        rivers,
-        river_valleys,
-        ponds,
+    Roads {
         roads,
-        road_banks,
+        banks: road_banks,
         points_of_interest,
-    )
+    }
 }
 
 /// A smooth wobble between −1 and 1 along a line, `t` in wavelengths:

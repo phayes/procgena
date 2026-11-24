@@ -102,6 +102,34 @@ fn blend_corners([ga, gb, gc, gd]: [Vec2; 4], f: Vec2) -> NoiseSample {
     NoiseSample { value, gradient }
 }
 
+/// The second derivatives of [`gradient_noise`] at `p`, in the noise's own
+/// input units: `[∂²/∂x², ∂²/∂x∂y, ∂²/∂y²]`.
+pub(crate) fn noise_hessian(p: DVec2, seed: u32) -> [f32; 3] {
+    let floor = p.floor();
+    let cell = floor.as_i64vec2();
+    let f = (p - floor).as_vec2();
+    let [ga, gb, gc, gd] = [
+        lattice_gradient(cell, seed),
+        lattice_gradient(cell + I64Vec2::new(1, 0), seed),
+        lattice_gradient(cell + I64Vec2::new(0, 1), seed),
+        lattice_gradient(cell + I64Vec2::new(1, 1), seed),
+    ];
+    let va = ga.dot(f);
+    let vb = gb.dot(f - Vec2::new(1.0, 0.0));
+    let vc = gc.dot(f - Vec2::new(0.0, 1.0));
+    let vd = gd.dot(f - Vec2::new(1.0, 1.0));
+    let k = va - vb - vc + vd;
+    let gk = ga - gb - gc + gd;
+
+    // The fade, its slope and its curvature per axis.
+    let (u, du) = fade(f);
+    let ddu = 60.0 * f * (f * (2.0 * f - 3.0) + 1.0);
+    let xx = 2.0 * du.x * (gb.x - ga.x + u.y * gk.x) + ddu.x * (vb - va + u.y * k);
+    let yy = 2.0 * du.y * (gc.y - ga.y + u.x * gk.y) + ddu.y * (vc - va + u.x * k);
+    let xy = du.y * (gc.x - ga.x + u.x * gk.x) + du.x * (gb.y - ga.y + u.y * gk.y + du.y * k);
+    [xx, xy, yy]
+}
+
 /// The rotation applied to octave `i`, which hides lattice alignment.
 ///
 /// The angles follow Game-Heightmap-Generator (MIT): `0.37 + 0.7231·i`
@@ -175,6 +203,85 @@ pub(crate) fn fbm_gradient(p: DVec2, seed: u32, octaves: Octaves) -> (f32, DVec2
     }
     let norm = NOISE_STD * octaves.rms_amplitude();
     (sum / norm, gradient / f64::from(norm))
+}
+
+/// The gradient of [`fbm`] with `erosion`, per unit of `p`.
+pub(crate) fn fbm_slope(p: DVec2, seed: u32, octaves: Octaves, erosion: f32) -> DVec2 {
+    if erosion == 0.0 {
+        return fbm_gradient(p, seed, octaves).1;
+    }
+    let erosion = f64::from(erosion);
+    // `slope` is the sum of the octaves' own gradients so far, as `fbm`
+    // takes it; `bend` is its derivative by `p`, a 2 × 2 matrix stored as
+    // its columns (how `slope` changes along x, and along z).
+    let mut slope = DVec2::ZERO;
+    let mut bend = [DVec2::ZERO; 2];
+    let mut gradient = DVec2::ZERO;
+    let mut amplitude = 1.0_f64;
+    let mut frequency = 1.0;
+    for i in 0..octaves.count {
+        let rotation = octave_rotation(i);
+        let q = rotation.rotate(p) * frequency;
+        let seed = derive_seed(seed, i);
+        let n = gradient_noise(q, seed);
+        let [xx, xy, yy] = noise_hessian(q, seed).map(f64::from);
+        let g = n.gradient.as_dvec2();
+
+        // This octave's gradient and its Hessian, both by `p`: the octave
+        // input is `frequency · R · p`, so the Hessian is `f² Rᵀ H R`.
+        let (c, s) = (rotation.x, rotation.y);
+        let back = |v: DVec2| DVec2::new(c * v.x + s * v.y, -s * v.x + c * v.y);
+        let along_p = back(g) * frequency;
+        let h = |v: DVec2| DVec2::new(xx * v.x + xy * v.y, xy * v.x + yy * v.y);
+        // The octave's own gradient `g` changes with `p` by `f · H R`.
+        let column = |axis: DVec2| h(rotation.rotate(axis)) * frequency;
+        slope += g * amplitude;
+        bend[0] += column(DVec2::X) * amplitude;
+        bend[1] += column(DVec2::Y) * amplitude;
+
+        // d/dp of `a · n / (1 + e |slope|²)`.
+        let damp = 1.0 + erosion * slope.length_squared();
+        let d_squared = 2.0 * DVec2::new(slope.dot(bend[0]), slope.dot(bend[1]));
+        let value = f64::from(n.value);
+        gradient += (along_p / damp - d_squared * (value * erosion / (damp * damp))) * amplitude;
+        amplitude *= f64::from(octaves.gain);
+        frequency *= LACUNARITY;
+    }
+    gradient / f64::from(NOISE_STD * octaves.rms_amplitude())
+}
+
+/// The gradient of [`ridged`], per unit of `p`. Where an octave's crest is
+/// exactly sharp, it takes one side's slope.
+pub(crate) fn ridged_slope(p: DVec2, seed: u32, octaves: Octaves) -> DVec2 {
+    let mut gradient = DVec2::ZERO;
+    let mut weight = 1.0_f64;
+    let mut weight_slope = DVec2::ZERO;
+    let mut amplitude = 1.0_f64;
+    let mut total = 0.0;
+    let mut frequency = 1.0;
+    for i in 0..octaves.count {
+        let rotation = octave_rotation(i);
+        let q = rotation.rotate(p) * frequency;
+        let n = gradient_noise(q, derive_seed(seed, i));
+        let back = DVec2::new(rotation.x, -rotation.y).rotate(n.gradient.as_dvec2()) * frequency;
+
+        // `r = crest²`, with `crest = max(1 − √2 |n|, 0)`.
+        let scaled = f64::from(n.value) * std::f64::consts::SQRT_2;
+        let crest = 1.0 - scaled.abs();
+        let (r, r_slope) = if crest > 0.0 {
+            let crest_slope = -back * (std::f64::consts::SQRT_2 * scaled.signum());
+            (crest * crest, crest_slope * (2.0 * crest))
+        } else {
+            (0.0, DVec2::ZERO)
+        };
+        gradient += (r_slope * weight + weight_slope * r) * amplitude;
+        total += amplitude;
+        weight = 0.55 + 0.45 * r;
+        weight_slope = r_slope * 0.45;
+        amplitude *= f64::from(octaves.gain);
+        frequency *= LACUNARITY;
+    }
+    gradient / (total * f64::from(RIDGED_STD))
 }
 
 /// The largest gradient [`fbm`] without erosion can have, per unit of its
@@ -271,6 +378,97 @@ mod tests {
         assert!(steepest <= bound, "{steepest} over {bound}");
         // The bound isn't wildly loose either.
         assert!(steepest > 0.2 * bound, "{steepest} against {bound}");
+    }
+
+    /// Checks that `slope` integrates to the change in `f`: along short
+    /// lines through many points, in x and in z, Simpson's rule over the
+    /// slope gives the difference of `f`'s ends. The f32 values are too
+    /// coarse for differences a fraction of a lattice cell apart, so the
+    /// lines are long enough that `f`'s rounding hardly counts. Lines that
+    /// `creased` says cross a crease are skipped, but at most a third.
+    fn assert_slope_matches(
+        label: &str,
+        f: impl Fn(DVec2) -> f32,
+        slope: impl Fn(DVec2) -> DVec2,
+        creased: impl Fn(DVec2, DVec2) -> bool,
+    ) {
+        const HALF: f64 = 0.01;
+        const STEPS: i32 = 32;
+        let (mut misses, mut skipped) = (0, 0);
+        let total = 2_000;
+        for i in 0..total {
+            let p = DVec2::new(f64::from(i) * 0.731 - 400.0, f64::from(i) * 0.377 + 3.0);
+            for axis in [DVec2::X, DVec2::Y] {
+                if creased(p - axis * HALF, p + axis * HALF) {
+                    skipped += 1;
+                    continue;
+                }
+                let change = f64::from(f(p + axis * HALF) - f(p - axis * HALF));
+                let h = 2.0 * HALF / f64::from(STEPS);
+                let integral: f64 = (0..=STEPS)
+                    .map(|k| {
+                        let weight = match k {
+                            0 | STEPS => 1.0,
+                            k if k % 2 == 1 => 4.0,
+                            _ => 2.0,
+                        };
+                        let at = p + axis * (-HALF + f64::from(k) * h);
+                        weight * slope(at).dot(axis)
+                    })
+                    .sum::<f64>()
+                    * h
+                    / 3.0;
+                let scale = 2.0 * HALF * (1.0 + slope(p).length());
+                if (change - integral).abs() > 2e-3 * scale {
+                    misses += 1;
+                }
+            }
+        }
+        assert!(misses * 100 < total, "{label}: {misses} lines missed");
+        assert!(skipped * 3 < 2 * total, "{label}: {skipped} lines skipped");
+    }
+
+    #[test]
+    fn eroded_fbm_and_ridged_slopes_match_differences() {
+        let octaves = Octaves {
+            count: 6,
+            gain: 0.5,
+        };
+        for erosion in [0.0, 0.5, 4.0] {
+            assert_slope_matches(
+                &format!("fbm with erosion {erosion}"),
+                |p| fbm(p, 3, octaves, erosion),
+                |p| fbm_slope(p, 3, octaves, erosion),
+                |_, _| false,
+            );
+        }
+        // Ridged noise has a sharp crest wherever an octave's noise is
+        // zero; skip lines where one changes sign. Fewer octaves leave
+        // enough lines without one.
+        let octaves = Octaves {
+            count: 3,
+            ..octaves
+        };
+        let octave_signs = |p: DVec2| {
+            (0..octaves.count).map(move |i| {
+                let q = octave_rotation(i).rotate(p) * LACUNARITY.powi(i as i32);
+                gradient_noise(q, derive_seed(5, i)).value > 0.0
+            })
+        };
+        assert_slope_matches(
+            "ridged",
+            |p| ridged(p, 5, octaves),
+            |p| ridged_slope(p, 5, octaves),
+            |a, b| {
+                (1..=32).any(|k| {
+                    let (s, t) = (
+                        a.lerp(b, f64::from(k - 1) / 32.0),
+                        a.lerp(b, f64::from(k) / 32.0),
+                    );
+                    octave_signs(s).zip(octave_signs(t)).any(|(s, t)| s != t)
+                })
+            },
+        );
     }
 
     #[test]

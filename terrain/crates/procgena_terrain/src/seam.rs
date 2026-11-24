@@ -241,6 +241,14 @@ pub(crate) fn smootherstep(t: f64) -> f64 {
     t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 }
 
+/// The slope of [`smootherstep`] at `t`: zero outside 0 to 1.
+pub(crate) fn smootherstep_slope(t: f64) -> f64 {
+    if t <= 0.0 || t >= 1.0 {
+        return 0.0;
+    }
+    30.0 * t * t * (1.0 - t) * (1.0 - t)
+}
+
 /// Agrees on the height profile along a shared edge, from the two
 /// neighbours' offers and the agreements at the edge's two corners.
 ///

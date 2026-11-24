@@ -572,10 +572,10 @@ the faster integral).
   has `new`, `options`, `elevation`, `graph`, `site`, `region_at`,
   `region`, `terrain`, `terrain_at`, `height` and `water_level`, and
   implements `HeightField` and `procgena_core::Ground` (the owner's
-  height, with Ground's default slope by central differences). Once G2's
-  analytic `Terrain::sample` and `gradient` are merged, `WorldTerrain`
-  should give inherent `sample` and `gradient` from the owning terrain and
-  use them for both traits.
+  height). Since G2 merged (2026-11-24), both traits' `sample` and
+  `Ground::gradient` come from the owning terrain's analytic
+  `Terrain::sample` (test `the_slope_is_the_owners_own`); NaN where the
+  owner can't be built.
 - **Deviations from the sketch above:** the surface keys on `RegionId`
   (see W2); the seed is `u32`, as for the graph and E; `convergence`
   (meeting and blend) replaces `relief_meeting`; the source is given the

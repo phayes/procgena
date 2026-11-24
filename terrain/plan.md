@@ -1274,8 +1274,10 @@ answers whether each idea earns its place, and how:
   work lists below, and stop for review with the user.
 
 **Spike results so far (2026-11-23).** From `src/spike_erosion.rs`
-(test-only, ignored; delete after review): one-region 4 km worlds,
-seeds 1 to 6.
+(test-only, ignored; deleted in G1, 2026-11-24, once its drainage and
+cut-depth measurements moved to `src/drainage.rs`; the other spike probes
+named below went with it, their results recorded here): one-region 4 km
+worlds, seeds 1 to 6.
 
 - **River cut below the natural ground today** (all river points):
 
@@ -1689,6 +1691,59 @@ fast Terrain Generation*; the Salève model, ESurf 2021).
   part of the agreement), and how this fits the world generator's
   drainage tilt (`world_plan.md`).
 
+**As built in G1 (2026-11-24): measured, not wired in.** Any profile that
+never rises and never floats sits at or below today's running minimum, so
+stream-power levels can only deepen cuts, which the user decided to leave
+until lakes, and the approved look keeps levels and widths unchanged. So
+G1 builds the tools and measures, and changes no height (the bit-for-bit
+dump of five test worlds is unchanged).
+
+- [x] Drainage area per cell on a region's 25 m grid (steepest-descent
+  accumulation) and carried along each river, never falling, with each
+  tributary's area added to its trunk below the join (`src/drainage.rs`,
+  test-only for now; tests
+  `a_tilted_plane_drains_downhill_and_keeps_every_square_metre`,
+  `areas_never_fall_along_a_river_and_add_up_at_a_join`).
+- [x] The steady-state profile through a river's ends
+  (`steady_profile`, concavity 0.45), as a measurement
+  (`steady_profiles_are_concave_and_meet_their_ends`).
+- [ ] River levels from it: **for the user.** See the exit measurements:
+  in mountains it would cut up to 176 m deeper than today. It needs the
+  ground to conform to the river (Génevaux), or lakes (G3), or the world
+  level's elevation field.
+- [ ] Options for U, K, m and n: not added, since nothing reads them yet.
+- [ ] Smoother mountain river profiles: the same question as river levels
+  (today's lower thirds are dead level, see below); left with it.
+- [ ] Sizing rivers (width, depth) and picking river types from drainage
+  area: changes the approved look, so it waits for a review. Costs about
+  20 ms per region.
+
+**Phase 2.8 exit measurements (2026-11-24).** One-region 4 km worlds,
+seeds 1 to 6 per preset, `drainage::tests::measure_phase_2_8_exit`. The
+machine was heavily loaded (load average about 60), so timings are upper
+bounds.
+
+| Preset | River points | Cut median | 90% | 99% | Max | Over 10 m | Over 20 m |
+|---|---|---|---|---|---|---|---|
+| Plains | 12 365 | 1.4 m | 3.6 m | 4.8 m | 5.1 m | 0% | 0% |
+| Rolling hills | 856 | 1.5 m | 4.7 m | 6.4 m | 7.1 m | 0% | 0% |
+| Mountains | 7 763 | 6.4 m | 27.3 m | 31.7 m | 54.4 m | 41% | 19% |
+
+- **Extra cut if levels followed the steady profile** (kept under today's
+  levels): plains median 0, 90% 1.6 m, max 5.1 m; rolling hills median
+  1.4 m, 90% 6.0 m, max 12.4 m; mountains median 0, 90% 27.9 m, 99%
+  115 m, max 176 m.
+- **Concavity of the longest river** (upper-third slope over lower-third
+  slope), today / steady: plains 1.7/2.3, 6.5/2.3, 1.3/1.7, 6.5/2.0,
+  8.5/2.4, 3693/1.7; rolling hills 3.6/5.9, 4.6/7.4, 8.1/7.8, 3.0/3.1;
+  mountains 114/3.2, 4.2·10⁵/3.1, 1.4·10⁶/5.7, 15.6/3.2, 5.9·10⁵/3.7,
+  42/2.3. Mountain rivers' lower thirds are dead level today (the running
+  minimum after a breach); hills are already about as concave as stream
+  power would make them.
+- **Drainage area cost:** 14–37 ms per region (cells and carrying along
+  rivers).
+- Valleys: built before G1 (see "Step 2" above); their measurements stand.
+
 ### Re-recorded after the string-key seed salts (2026-11-23)
 
 Seed salts became named string keys (`hash::KEYS`, FNV-1a), and the
@@ -1754,12 +1809,32 @@ What that asks of this crate, and where it stands:
   Phase 2.7).
 - [x] **"Two terrains", not "two biomes".** A Biome is the level above
   that binds a Terrain to its Ecotopes.
-- [ ] **Slope as part of the ground.** `Terrain` implements
-  `procgena_mesh::Ground` with a gradient: analytic through relief (it
-  already has `relief.gradient`), border bending and carving, or
-  central differences where that isn't worth it; `HeightTile` gains a
-  gradient grid filled in the same pass. Labels' `Measures::slope` uses
-  the same gradient.
+- [x] **Slope as part of the ground** (G2, built 2026-11-24).
+  `Terrain` implements `procgena_core::Ground` with a gradient
+  (`Terrain::sample`), and `HeightTile::sample_with_gradients` fills a
+  gradient grid in the same pass (opt-in since G3 step 2: it costs 3–5
+  times the heights). Labels' `Measures::slope` will use the same
+  gradient.
+  - Analytic: relief (fBm through the noise's gradient; eroded hills
+    through its second derivatives; ridged mountains, which take one
+    side's slope on a sharp crest), the fade's scaling and blend, E, the
+    shared border detail, and all carving (valley profile and pull,
+    gullies, road cuts and fills, the smooth minimum and maximum).
+  - By differences: the soft distance and mixed targets of the border's
+    and the fade's pulls, 0.5 m either side in f64 (`pull_gradients`). The
+    pulls' closed forms move with the point in ways not worth deriving.
+  - Heights are bit-identical to before. The border offers still read the
+    old central-difference `Relief::gradient`, which averages across the
+    ridges' sharp crests where a point slope jumps (from 1.97 to −1.0 across
+    one measured crest). Switching them would move every agreed profile
+    and could unsettle the re-picked test seeds, so it is left as a
+    question for the user rather than done in G3 step 1.
+  - Precision: mountain heights carry up to about 5e-3 m of f32 rounding,
+    so tests compare the slope with differences over 4 m spans
+    (`tests/ground.rs`, `relief::tests::slopes_match_the_heights`).
+  - Cost: a sample near a border costs several pull evaluations (5 for the
+    bend, 5 for each fade blend); G3 step 2's batched path is the place to
+    make that cheaper.
 - [ ] **Labels for Biome rules.** `annotate` gives the primary `Landform`,
   `Flags` (WET, SNOW, ROAD …) and `Measures` (slope, height above water,
   distance to water or road). Today's `RoadTags` (road, cut, embankment,
@@ -1786,7 +1861,7 @@ What that asks of this crate, and where it stands:
 | 2.5 ✅ | **Shared world noise and relief convergence** (built 2026-11-22; exit results recorded under "Relief convergence (Phase 2.5)") (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
 | 2.6 ✅ | **Relief blending** (built 2026-11-22, review pending) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
 | 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest; cut and fill measured across the road; roads narrow through deep cuts (`min_width`); sped up with an A* search and parallel region builds. Still to do: hub placement (deferred); a GPU implementation is a later follow-up. | 2.6 |
-| 2.8 | **River valleys and erosion** (built in part 2026-11-23, review pending; see "River valleys and erosion (Phase 2.8, built in part)" above). Built: valleys that keep the ground's relief, varied shapes, gullies, rivers stepping down at crossings, rivers from one side crossing closer together. Deep cuts measured: they come from rivers breaching hollow rims, and wait for lakes (Phase 4). Planned: valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
+| 2.8 ✅ | **River valleys and erosion** (built 2026-11-23 and 2026-11-24 (G1); exit measurements recorded under "As built in G1"). Built: valleys from the distance to the river that keep the ground's relief, wider for deeper cuts, shaped by river type (from slope); gullies; rivers stepping down at crossings; rivers from one side crossing closer together; drainage area per region and along rivers, and the steady-state stream-power profile, as measurements. Deep cuts come from rivers breaching hollow rims, and wait for lakes (Phase 4). For the user: whether river levels, widths and types should follow drainage area (stream-power levels would cut up to 176 m deeper in mountains). | 2.7 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
 | 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |
@@ -1809,10 +1884,94 @@ start of G3, before Phase 3's landforms and before Phase 4:
    results may change where the new structure makes that simpler (the
    repo is early); any test whose expected values move is reported and
    re-checked for its intent, never loosened.
+   **Built 2026-11-24 (`src/feature.rs`), results unchanged** (heights,
+   gradients and every feature bit-identical on five test worlds; no test
+   moved). `FeatureId` (kind and key; the key became stable in step 2),
+   `TerrainFeature` with its `FeatureShape` and bounds,
+   `Terrain::features`, `feature` and `features_within`, and one
+   `FeatureIndex` of feature pieces with their effect boxes, which
+   carving reads. Rivers, ponds and roads keep their own lists, so
+   `rivers()`, `ponds()` and `roads()` still return slices, and step 2
+   can cache hydrology and roads as separate plans. Carving keeps its two
+   stages (rivers and ponds lower, then roads hold), since gullies need
+   the nearest road first. Tests `the_index_gives_what_every_feature_gives`
+   and `no_feature_changes_anything_outside_its_bounds`.
 2. Planning is split into stages that are cached on their own, with
    stable feature ids, one batched sample path, and cold and warm
    benchmarks, so a far view needs relief and seam offers but not inland
    road routing.
+   **Built 2026-11-24, results unchanged** (the same bit-for-bit dump).
+   - **Stages:** `TerrainGenerator::trace_rivers` gives a `RiverTrace`
+     (cheap to clone) that `offers_traced` and `build_traced` share, so
+     a region is traced once (`StitchedWorld` now does). `build_traced`
+     plans rivers and ponds but not roads; `Terrain::with_roads` adds them
+     without redoing anything (`has_roads` says which). `build` is all
+     three. Inside, `plan::hydrology` and `plan::roads` are separate.
+   - **Stable ids:** `FeatureId` is the kind and a hash of where the
+     feature starts (its first two points, or a pond's centre), so ids
+     don't change when roads are added or other features come and go.
+   - **One sample path:** `Terrain::query(p, gradient)` gives height,
+     water, road tags and optionally the gradient from one bend and one
+     carve; `height`, `water_level`, `road_tags` and `sample` all go
+     through it, and the border's pull at `p` is computed once for height
+     and gradient. `HeightTile::sample` is heights only again;
+     `sample_with_gradients` adds the gradient grid.
+   - Labels (`annotate`, G4) will join `query`.
+   - Tests: `roads_come_as_a_stage_of_their_own_and_ids_stay`,
+     `one_query_gives_what_each_accessor_gives`.
+
+   **Benchmarks (2026-11-24): provisional.** Measured on a shared machine
+   while other lanes built (load average 8 to 10 over 1 minute, 30 to 45
+   over 15 minutes); to be rerun on a quiet machine. Rerun with:
+
+   ```bash
+   cargo test -p procgena_terrain --release --test bench -- --ignored --nocapture --test-threads 1
+   ```
+
+   It prints the load average beside each table. Worlds: two terrains and
+   the triple junction, straight and warped, and hills into plains (12
+   regions of a few km², plains, hills and mountains).
+
+   **Cold ÷ warm** (survives load better than raw times): each stage's
+   median over the median time of a 64 × 64 tile of heights at 1 m on one
+   thread on the same terrains, in the same run (30 ms here). River trace
+   1.6, offers 0.8, bend and hydrology 1.4, roads 12.4; **a whole region
+   plan 16.5 tiles, 4.0 without roads.**
+
+   | Cold, per region (load ~8) | p50 | p95 | max |
+   |---|---|---|---|
+   | River trace | 48 ms | 210 ms | 304 ms |
+   | Offers (from the trace) | 23 ms | 56 ms | 94 ms |
+   | Bend and hydrology | 42 ms | 165 ms | 238 ms |
+   | Roads | 378 ms | 1597 ms | 2289 ms |
+   | Whole plan | 501 ms | 2028 ms | 2925 ms |
+   | Without roads | 123 ms | 431 ms | 637 ms |
+   | Whole world ÷ regions (negotiation, threads) | 334 ms | 1065 ms | — |
+
+   | Warm, per call (load ~8) | p50 | p95 | p99 |
+   |---|---|---|---|
+   | `height` | 1.5 µs | 23 µs | 38 µs |
+   | `query` without gradient | 1.3 µs | 20 µs | 34 µs |
+   | `sample` (with gradient) | 5.3 µs | 139 µs | 208 µs |
+   | `height` within 200 m of a border | 6.1 µs | 32 µs | 44 µs |
+   | `sample` within 200 m of a border | 29 µs | 162 µs | 234 µs |
+
+   | Warm tile, 64 × 64, rayon (load ~8) | p50 | p95 |
+   |---|---|---|
+   | 1 m step, heights | 3.7 ms | 16 ms |
+   | 1 m step, with gradients | 14 ms | 111 ms |
+   | 8 m step, heights | 3.5 ms | 20 ms |
+   | 8 m step, with gradients | 18 ms | 132 ms |
+
+   - **Roads are most of a cold region plan** (p95 1.6 s, mountain
+     routing). A far view built with `build_traced` (trace, offers,
+     hydrology) needs about 0.1 s at p50 and 0.4 s at p95. Whether that
+     calls for macro cells (Conflict 4) is the user's call; nothing here
+     needs them for the hydrology.
+   - **The gradient costs 3–5 times the height**, near borders and in
+     the fade from the pull differences (5 pulls for the bend and 5 for
+     each fade blend) and the relief layers worked out again. The pull's
+     own closed-form derivative would cut most of it; not done.
 
 The review's mapping table shows where the proposal's later steps fall in
 Phases 3 to 7. The user settled its four open points on 2026-11-23 (see

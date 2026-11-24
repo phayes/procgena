@@ -6,7 +6,7 @@ use crate::calibration::{MASK_OCTAVES, RIDGED_OCTAVES, erosion_damping, mask_thr
 use crate::converge::{Fade, LayerSpreads};
 use crate::elevation::Elevation;
 use crate::hash::{RELIEF_HILLS, RELIEF_MOUNTAIN_MASK, RELIEF_RIDGES, RELIEF_SWELLS, seed_for};
-use crate::noise::{Octaves, fbm, ridged};
+use crate::noise::{Octaves, fbm, fbm_gradient, fbm_slope, ridged, ridged_slope};
 use crate::options::{BaseOptions, NoiseLayer, RoadGrades, TerrainOptions};
 
 /// Width of the soft rim of the mountain mask, in fBm standard deviations.
@@ -233,6 +233,119 @@ impl Relief {
         h
     }
 
+    /// Each layer's height at `p` at full scale, in metres, with its
+    /// gradient: swells, hills, then mountains (see [`LayerSpreads`]).
+    fn layers(&self, p: DVec2) -> [(f64, DVec2); 3] {
+        let b = &self.base;
+        let rolling = |layer: &NoiseLayer, seed: u32, erosion: f32| {
+            if layer.height == 0.0 {
+                return (0.0, DVec2::ZERO);
+            }
+            let octaves = Octaves {
+                count: layer.octaves,
+                gain: layer.roughness,
+            };
+            let wavelength = f64::from(layer.wavelength);
+            let q = p / wavelength;
+            let scale = 0.5 * f64::from(layer.height);
+            (
+                scale * f64::from(fbm(q, seed, octaves, erosion)),
+                fbm_slope(q, seed, octaves, erosion) * (scale / wavelength),
+            )
+        };
+        let swells = rolling(&b.swells, self.swell_seed, 0.0);
+        let hills = rolling(&b.hills, self.hill_seed, b.erosion);
+
+        // Mountains: ridges inside a range mask, `height · mask · crest`.
+        let m = &b.mountains;
+        let mut mountains = (0.0, DVec2::ZERO);
+        if m.height > 0.0 && m.coverage > 0.0 {
+            let wavelength = f64::from(m.wavelength);
+            let range_wavelength = wavelength * RANGE_SCALE;
+            let (range, range_slope) =
+                fbm_gradient(p / range_wavelength, self.mask_seed, MASK_OCTAVES);
+            let u = f64::from((range - self.mask_threshold) / MASK_RIM);
+            if u > 0.0 {
+                let u_slope = range_slope / (f64::from(MASK_RIM) * range_wavelength);
+                let fall = (-2.0 * u * u).exp();
+                let (mask, mask_slope) = (1.0 - fall, u_slope * (4.0 * u * fall));
+                let octaves = Octaves {
+                    count: m.octaves,
+                    gain: RIDGE_GAIN,
+                };
+                let q = p / wavelength;
+                let crest = 0.5 + 0.25 * f64::from(ridged(q, self.ridge_seed, octaves));
+                if crest > 0.0 {
+                    let crest_slope =
+                        ridged_slope(q, self.ridge_seed, octaves) * (0.25 / wavelength);
+                    let height = f64::from(m.height);
+                    mountains = (
+                        height * mask * crest,
+                        (mask_slope * crest + crest_slope * mask) * height,
+                    );
+                }
+            }
+        }
+        [swells, hills, mountains]
+    }
+
+    /// Rate of height change along x and z at `p`, as rise over run, worked
+    /// out from the noise's own slopes rather than from nearby heights.
+    /// Within the fade, the parts that come from the edges' pull are taken
+    /// by differences (see [`Fade::scales_gradient`]).
+    pub(crate) fn slope(&self, p: DVec2) -> DVec2 {
+        self.relief_slope(p) + self.elevation.gradient(p)
+    }
+
+    /// [`slope`](Self::slope) without E's.
+    fn relief_slope(&self, p: DVec2) -> DVec2 {
+        let layers = self.layers(p);
+        let own_slope = layers.iter().map(|(_, g)| *g).sum::<DVec2>();
+        let Some(fade) = &self.fade else {
+            return own_slope;
+        };
+
+        // The scaled layers: the scales change near the edges too.
+        let scaled_slope = || match fade.scales_gradient(p) {
+            None => own_slope,
+            Some((scales, scale_slopes)) => (0..3)
+                .map(|k| layers[k].1 * scales[k] + scale_slopes[k] * layers[k].0)
+                .sum(),
+        };
+        let share = fade.share();
+        if share == 0.0 {
+            return scaled_slope();
+        }
+
+        // The border blend, alone or mixed with the scaled layers, making
+        // the same choices as `height_above_elevation`.
+        let own = self.own_relief(p);
+        let scaled = || {
+            let [swells, hills, mountains] = fade.scales(p).unwrap_or([1.0; 3]);
+            self.scaled_height(p, swells, hills, mountains)
+        };
+        let Some((blended, blended_slope)) = fade.blended_gradient(p, f64::from(own), own_slope)
+        else {
+            return if scaled() == own {
+                own_slope
+            } else {
+                scaled_slope() * (1.0 - share) + own_slope * share
+            };
+        };
+        if share == 1.0 {
+            return blended_slope;
+        }
+        if scaled() == blended as f32 {
+            return scaled_slope();
+        }
+        scaled_slope() * (1.0 - share) + blended_slope * share
+    }
+
+    /// The gradient of [`own_relief`](Self::own_relief) at `p`.
+    pub(crate) fn own_relief_slope(&self, p: DVec2) -> DVec2 {
+        self.layers(p).iter().map(|(_, g)| *g).sum()
+    }
+
     /// Rate of height change along x and z at `p`: E's own gradient plus
     /// the relief's, by central differences. The relief's heights are
     /// small beside E's, so they keep more precision in the differences.
@@ -252,6 +365,71 @@ impl Relief {
 mod tests {
     use super::*;
     use crate::presets::TerrainPreset;
+
+    /// Checks `relief`'s slope against central differences of its heights
+    /// 2 m either side of a grid of points, in x and in z: each difference
+    /// must match the slope averaged over the same span (Simpson's rule).
+    /// Mountain heights carry up to about 5e-3 m of f32 rounding, too much
+    /// for shorter spans, and it sets the tolerance. Spans across a sharp
+    /// crest, where the slope jumps between neighbouring samples, are
+    /// skipped: mountain ridges have them every few metres, so up to a
+    /// quarter of the spans.
+    fn assert_slope_matches(relief: &Relief, label: &str) {
+        const HALF: f64 = 2.0;
+        const STEPS: i32 = 128;
+        let (mut skipped, mut total) = (0, 0);
+        for i in 0..1600 {
+            let p = DVec2::new(
+                f64::from(i % 40) * 97.3 - 1900.0,
+                f64::from(i / 40) * 83.1 - 1700.0,
+            );
+            for axis in [DVec2::X, DVec2::Y] {
+                total += 1;
+                let slopes: Vec<f64> = (0..=STEPS)
+                    .map(|k| {
+                        let at = p + axis * HALF * (2.0 * f64::from(k) / f64::from(STEPS) - 1.0);
+                        relief.slope(at).dot(axis)
+                    })
+                    .collect();
+                if slopes.windows(2).any(|w| (w[1] - w[0]).abs() > 0.05) {
+                    skipped += 1;
+                    continue;
+                }
+                let mean = slopes
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &s)| match k as i32 {
+                        0 | STEPS => s,
+                        k if k % 2 == 1 => 4.0 * s,
+                        _ => 2.0 * s,
+                    })
+                    .sum::<f64>()
+                    / (3.0 * f64::from(STEPS));
+                let difference = (f64::from(relief.height(p + axis * HALF))
+                    - f64::from(relief.height(p - axis * HALF)))
+                    / (2.0 * HALF);
+                assert!(
+                    (difference - mean).abs() < 4e-3 + 2e-3 * mean.abs(),
+                    "{label} at {p} along {axis}: mean slope {mean} against {difference}"
+                );
+            }
+        }
+        assert!(
+            skipped * 4 <= total,
+            "{label}: {skipped} of {total} skipped"
+        );
+    }
+
+    #[test]
+    fn slopes_match_the_heights() {
+        for preset in [
+            TerrainPreset::plains(),
+            TerrainPreset::rolling_hills(),
+            TerrainPreset::mountains(),
+        ] {
+            assert_slope_matches(&Relief::new(&preset.terrain), &preset.name);
+        }
+    }
 
     #[test]
     fn relief_repeats_and_follows_seed() {

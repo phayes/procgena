@@ -1,15 +1,18 @@
 //! Terrain generators, and terrains bound to a region.
 
 use std::fmt;
+use std::sync::Arc;
 
-use glam::DVec2;
+use glam::{DVec2, Vec2};
+use procgena_core::{Ground, GroundSample};
 
-use crate::border::{Pull, SegmentIndex, surely_beyond};
-use crate::carve::{FeatureLine, Features, PointOfInterest, Pond, RoadTags};
+use crate::border::{Pull, SegmentIndex, pull_gradients, surely_beyond};
+use crate::carve::{Carved, FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
+use crate::feature::{FeatureId, TerrainFeature};
 use crate::hash::{SEAM_DETAIL, salt};
-use crate::noise::{Octaves, fbm};
+use crate::noise::{Octaves, fbm, fbm_gradient};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
 use crate::ports::{INNER_DEPTHS, Side, inner_depth, slope_reach};
@@ -19,7 +22,7 @@ use crate::region::{
 use crate::relief::Relief;
 use crate::seam::{
     CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
-    relative_to, sample_count, smooth, smootherstep,
+    relative_to, sample_count, smooth, smootherstep, smootherstep_slope,
 };
 
 /// Distances below this (metres) count as on the edge.
@@ -65,6 +68,13 @@ pub struct Terrain {
     /// Which seam segments can pull on each part of the plane.
     index: SegmentIndex,
     margin: f64,
+    /// Each shared edge's index in the region, with its agreement.
+    agreements: Vec<(usize, EdgeAgreement)>,
+    /// The rivers and ponds: the planning stage after the river trace.
+    hydrology: Arc<plan::Hydrology>,
+    /// The roads, once planned: the last stage.
+    roads: Option<Arc<plan::Roads>>,
+    /// Both stages, ready to carve the ground.
     features: Features,
 }
 
@@ -99,6 +109,8 @@ pub enum TerrainError {
     NeighbourOptions(RegionId, OptionsError),
     /// The blend share is outside 0 to 1, or NaN.
     InvalidBlend(f32),
+    /// The river trace given is of another region, this one.
+    TraceMismatch(RegionId),
     /// An agreement has the wrong number of samples for its edge.
     SampleCount {
         /// The edge.
@@ -129,6 +141,9 @@ impl fmt::Display for TerrainError {
             }
             Self::NeighbourOptions(id, e) => write!(f, "neighbour region {}: {e}", id.0),
             Self::InvalidBlend(b) => write!(f, "blend share {b} is outside 0 to 1"),
+            Self::TraceMismatch(id) => {
+                write!(f, "the river trace is of region {}, not this one", id.0)
+            }
             Self::SampleCount {
                 edge,
                 expected,
@@ -276,14 +291,38 @@ impl TerrainGenerator {
         Ok(self)
     }
 
+    /// Traces `region`'s own rivers over this terrain's unbent relief: the
+    /// first planning stage, which both [`offers_traced`](Self::offers_traced)
+    /// and [`build_traced`](Self::build_traced) read. Keep it to make the
+    /// offers and build the terrain without tracing twice. Set the edge
+    /// targets and elevation first, as for the offers.
+    pub fn trace_rivers(&self, region: &Region) -> RiverTrace {
+        RiverTrace {
+            region: region.id,
+            own: plan::own_rivers(&self.options, &self.relief, region).map(Arc::new),
+        }
+    }
+
     /// Makes this terrain's offers for every shared edge of `region`, in the
     /// order of `region.edges`.
     ///
     /// The offers depend only on this generator and the region, never on
     /// other offers or agreements. They include the region's own rivers
-    /// that reach each edge, so this traces the region's rivers once.
+    /// that reach each edge, so this traces the region's rivers once (see
+    /// [`trace_rivers`](Self::trace_rivers) to keep the trace).
     pub fn offers(&self, region: &Region) -> Vec<EdgeOffer> {
-        let own = plan::own_rivers(&self.options, &self.relief, region);
+        self.offers_traced(region, &self.trace_rivers(region))
+    }
+
+    /// [`offers`](Self::offers), from `trace`, which must be this
+    /// generator's trace of `region` (see [`trace_rivers`](Self::trace_rivers)).
+    ///
+    /// # Panics
+    ///
+    /// If `trace` is of another region.
+    pub fn offers_traced(&self, region: &Region, trace: &RiverTrace) -> Vec<EdgeOffer> {
+        assert_eq!(trace.region, region.id, "the trace is of this region");
+        let own = trace.own.as_deref();
         let edges = &self.options.edges;
         region
             .edges
@@ -293,15 +332,8 @@ impl TerrainGenerator {
             .map(|(i, edge)| {
                 let natural = self.natural_samples(edge);
                 let step = edge.length() / (natural.len() - 1) as f64;
-                let (rivers, roads) = plan::wishes(
-                    &self.options,
-                    &self.relief,
-                    region,
-                    own.as_ref(),
-                    i,
-                    &natural,
-                    step,
-                );
+                let (rivers, roads) =
+                    plan::wishes(&self.options, &self.relief, region, own, i, &natural, step);
                 let side = plan::side_of(region, edge);
                 EdgeOffer {
                     edge: edge.id,
@@ -387,7 +419,8 @@ impl TerrainGenerator {
         }
     }
 
-    /// Binds the generator to `region`, bending it to meet `agreements`.
+    /// Binds the generator to `region`, bending it to meet `agreements`,
+    /// and plans its rivers, ponds and roads.
     ///
     /// There must be exactly one agreement for every edge of the region that
     /// has a neighbour. Edges without a neighbour are left as they are.
@@ -396,6 +429,30 @@ impl TerrainGenerator {
         region: Region,
         agreements: &[EdgeAgreement],
     ) -> Result<Terrain, TerrainError> {
+        let trace = self.trace_rivers(&region);
+        Ok(self.build_traced(region, agreements, &trace)?.with_roads())
+    }
+
+    /// [`build`](Self::build) from the river trace `trace` (see
+    /// [`trace_rivers`](Self::trace_rivers)), without planning roads: the
+    /// terrain has its rivers and ponds, its road crossings' pieces aren't
+    /// carved, and [`Terrain::with_roads`] adds them all later. Routing
+    /// roads is the slowest stage, so a distant view can skip it.
+    ///
+    /// # Errors
+    ///
+    /// As for [`build`](Self::build), and
+    /// [`TerrainError::TraceMismatch`] if `trace` is of another region.
+    pub fn build_traced(
+        self,
+        region: Region,
+        agreements: &[EdgeAgreement],
+        trace: &RiverTrace,
+    ) -> Result<Terrain, TerrainError> {
+        if trace.region != region.id {
+            return Err(TerrainError::TraceMismatch(trace.region));
+        }
+
         // Every agreement must belong to a shared edge.
         for agreement in agreements {
             let shared = region
@@ -447,7 +504,7 @@ impl TerrainGenerator {
                 agreed: Profile::new(edge, &agreed),
                 own: Profile::new(edge, &own),
             });
-            paired.push((index, agreement));
+            paired.push((index, agreement.clone()));
         }
         let margin = f64::from(self.options.edges.margin);
         let index = SegmentIndex::new(
@@ -460,23 +517,88 @@ impl TerrainGenerator {
             seams,
             index,
             margin,
+            agreements: paired,
+            hydrology: Arc::default(),
+            roads: None,
             features: Features::default(),
         };
 
-        // Rivers and roads, planned on the bent terrain.
-        let features = plan::features(
+        // Rivers and ponds, planned on the bent terrain.
+        let hydrology = plan::hydrology(
             &terrain.generator.options,
-            &terrain.generator.relief,
             &terrain.region,
-            &paired,
+            trace.own.as_deref(),
+            &terrain.paired(),
             &|p| terrain.base_height(p),
         );
-        terrain.features = features;
+        terrain.hydrology = Arc::new(hydrology);
+        terrain.features = terrain.gather();
         Ok(terrain)
     }
 }
 
+/// A region's own rivers, traced over its terrain's unbent relief: the first
+/// planning stage, shared by the offers and the build (see
+/// [`TerrainGenerator::trace_rivers`]). Cheap to clone.
+#[derive(Debug, Clone)]
+pub struct RiverTrace {
+    region: RegionId,
+    own: Option<Arc<plan::OwnRivers>>,
+}
+
+impl RiverTrace {
+    /// The region traced.
+    pub fn region(&self) -> RegionId {
+        self.region
+    }
+}
+
 impl Terrain {
+    /// This terrain with its roads planned and carved in, as
+    /// [`TerrainGenerator::build`] gives it. A terrain that has them
+    /// already is returned as it is.
+    pub fn with_roads(mut self) -> Self {
+        if self.roads.is_some() {
+            return self;
+        }
+        let roads = plan::roads(
+            &self.generator.options,
+            &self.generator.relief,
+            &self.region,
+            &self.paired(),
+            &self.hydrology.rivers,
+            &|p| self.base_height(p),
+        );
+        self.roads = Some(Arc::new(roads));
+        self.features = self.gather();
+        self
+    }
+
+    /// Whether the terrain's roads are planned (see
+    /// [`with_roads`](Self::with_roads)).
+    pub fn has_roads(&self) -> bool {
+        self.roads.is_some()
+    }
+
+    /// The agreements, each with its edge's index in the region.
+    fn paired(&self) -> Vec<(usize, &EdgeAgreement)> {
+        self.agreements.iter().map(|(i, a)| (*i, a)).collect()
+    }
+
+    /// Every planned feature, ready to carve.
+    fn gather(&self) -> Features {
+        let h = &*self.hydrology;
+        let roads = self.roads.as_deref().cloned().unwrap_or_default();
+        Features::new(
+            h.rivers.clone(),
+            h.valleys.clone(),
+            h.ponds.clone(),
+            roads.roads,
+            roads.banks,
+            roads.points_of_interest,
+        )
+    }
+
     /// The terrain's region.
     pub fn region(&self) -> &Region {
         &self.region
@@ -495,23 +617,20 @@ impl Terrain {
     /// The result is defined for any `p`, but is meaningful only inside the
     /// region.
     pub fn height(&self, p: DVec2) -> f32 {
-        let base = self.base_height(p);
-        self.features.apply(p, base).height
+        self.point(p, false).0.height
     }
 
     /// The water surface height at `p` (metres) if a river or pond covers
     /// it, otherwise `None`.
     pub fn water_level(&self, p: DVec2) -> Option<f32> {
-        let base = self.base_height(p);
-        self.features.apply(p, base).water
+        self.point(p, false).0.water
     }
 
     /// What the roads made of the ground at `p`: the road surface, a
     /// cutting or an embankment, and how steep the bank is (see
     /// [`RoadTags`]). Empty where no road changed the ground.
     pub fn road_tags(&self, p: DVec2) -> RoadTags {
-        let base = self.base_height(p);
-        self.features.apply(p, base).tags
+        self.point(p, false).0.tags
     }
 
     /// The terrain's rivers. Each runs downstream from its first point,
@@ -531,6 +650,28 @@ impl Terrain {
         &self.features.roads
     }
 
+    /// Every river, road and pond of the terrain, each with its id and its
+    /// bounds, in id order: rivers, roads, then ponds, each kind in the
+    /// order of its keys. A line of a single point changes nothing and is
+    /// left out.
+    pub fn features(&self) -> impl Iterator<Item = TerrainFeature<'_>> + '_ {
+        self.features.all()
+    }
+
+    /// The feature `id`, or `None` if the terrain has no such feature (see
+    /// [`features`](Self::features)).
+    pub fn feature(&self, id: FeatureId) -> Option<TerrainFeature<'_>> {
+        self.features.get(id)
+    }
+
+    /// The ids of the features that may change the ground, water or road
+    /// tags inside the box between corners `min` and `max` (x and z,
+    /// metres), in id order. Each feature's own bounds meet the box, but a
+    /// bent feature's bounds can meet a box it doesn't reach.
+    pub fn features_within(&self, min: DVec2, max: DVec2) -> Vec<FeatureId> {
+        self.features.within(min, max)
+    }
+
     /// Places in the terrain left for the caller to fill, such as the end
     /// of the region's road network. The terrain leaves the ground there
     /// as it is.
@@ -546,9 +687,22 @@ impl Terrain {
 
     /// The bent height before rivers and roads are cut in.
     fn base_height(&self, p: DVec2) -> f32 {
-        let own = f64::from(self.generator.relief.height(p));
+        self.base(p, false).0
+    }
+
+    /// The bent height before rivers and roads are cut in, and with
+    /// `slope` its gradient (else zero): analytic through the terrain's own
+    /// relief, E and the shared detail, with the border's pull (its soft
+    /// distance and mixed targets) taken by differences (see
+    /// [`pull_gradients`]).
+    fn base(&self, p: DVec2, slope: bool) -> (f32, DVec2) {
+        let relief = &self.generator.relief;
+        let own = f64::from(relief.height(p));
+        let own_slope = || {
+            if slope { relief.slope(p) } else { DVec2::ZERO }
+        };
         if self.seams.is_empty() {
-            return own as f32;
+            return (own as f32, own_slope());
         }
 
         // Mix what every border edge within reach asks for, each pulling
@@ -565,7 +719,7 @@ impl Terrain {
             .iter()
             .map(|&(e, k)| &self.seams[e].agreed.segments()[k]);
         if surely_beyond(segments, p, reach, self.margin) {
-            return own as f32;
+            return (own as f32, own_slope());
         }
         for &(e, k) in near {
             let seam = &self.seams[e];
@@ -599,9 +753,17 @@ impl Terrain {
             targets.raised(f64::from(elevation.height(p)))
         };
         let border = match (on_edge, pull.mixed()) {
-            (Some(targets), _) => return on_e(targets).seam(p) as f32,
-            (None, None) => return own as f32,
-            (None, Some(_)) if distance >= self.margin => return own as f32,
+            (Some(targets), _) => {
+                let targets = on_e(targets);
+                let slope = if slope {
+                    self.bend_slopes(p, targets.detail).0
+                } else {
+                    DVec2::ZERO
+                };
+                return (targets.seam(p) as f32, slope);
+            }
+            (None, None) => return (own as f32, own_slope()),
+            (None, Some(_)) if distance >= self.margin => return (own as f32, own_slope()),
             (None, Some([agreed, own, detail])) => on_e(Targets {
                 agreed,
                 own,
@@ -611,13 +773,131 @@ impl Terrain {
 
         // Across the margin: shift by how far the agreement is from this
         // terrain's own profile, which keeps the terrain's detail.
-        let broad =
-            own + (border.agreed - border.own) * (1.0 - smootherstep(distance / self.margin));
+        let t = distance / self.margin;
+        let broad = own + (border.agreed - border.own) * (1.0 - smootherstep(t));
 
         // Next to the border: give way to the agreed profile and shared detail.
         let band = DETAIL_BAND.min(self.margin);
         let seam = border.seam(p);
-        (seam + (broad - seam) * smootherstep(distance / band)) as f32
+        let u = distance / band;
+        let height = (seam + (broad - seam) * smootherstep(u)) as f32;
+        if !slope {
+            return (height, DVec2::ZERO);
+        }
+
+        // The same, differentiated.
+        let (seam_slope, [distance_slope, agreed_slope, own_target_slope]) =
+            self.bend_slopes(p, border.detail);
+        let broad_slope = own_slope() + (agreed_slope - own_target_slope) * (1.0 - smootherstep(t))
+            - distance_slope * ((border.agreed - border.own) * smootherstep_slope(t) / self.margin);
+        let slope = seam_slope * (1.0 - smootherstep(u))
+            + broad_slope * smootherstep(u)
+            + distance_slope * ((broad - seam) * smootherstep_slope(u) / band);
+        (height, slope)
+    }
+
+    /// At `p` near the border: the gradient of the seam height (the agreed
+    /// height plus E plus the shared detail, whose height is `detail`
+    /// there), and the gradients of the soft distance to the border and of
+    /// the agreed and own targets, these three from differences of the
+    /// border's pull (see [`pull_gradients`]).
+    fn bend_slopes(&self, p: DVec2, detail: f64) -> (DVec2, [DVec2; 3]) {
+        let (distance_slope, [agreed_slope, own_target_slope, detail_slope]) =
+            pull_gradients(p, |q| self.bend_at(q));
+        let (noise, noise_slope) = fbm_gradient(p / DETAIL_WAVELENGTH, DETAIL_SEED, DETAIL_OCTAVES);
+        let (noise, noise_slope) = (f64::from(noise), noise_slope / DETAIL_WAVELENGTH);
+        let elevation = self.generator.relief.elevation();
+        let e_slope = if elevation.is_flat() {
+            DVec2::ZERO
+        } else {
+            elevation.gradient(p)
+        };
+        let seam_slope =
+            agreed_slope + e_slope + (detail_slope * noise + noise_slope * detail) * 0.5;
+        (seam_slope, [distance_slope, agreed_slope, own_target_slope])
+    }
+
+    /// The soft distance from `p` to the border and the border's targets
+    /// (agreed height, own height and detail, as heights above E) mixed by
+    /// their pull, or `None` where no edge is within reach. Unlike
+    /// [`base_height`](Self::base_height) it always mixes the targets.
+    fn bend_at(&self, p: DVec2) -> Option<(f64, [f64; 3])> {
+        let reach = BORDER_REACH * self.margin;
+        let near = self.index.near(p);
+        let mut pull = Pull::<3>::default();
+        for &(e, k) in near {
+            pull.add_distance(&self.seams[e].agreed.segments()[k], p, reach);
+        }
+        for &(e, k) in near {
+            let seam = &self.seams[e];
+            let target = |along: f64, across: f64| {
+                let carry = slope_reach(across);
+                let at = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * carry;
+                let (agreed, own) = (seam.agreed.sample(along), seam.own.sample(along));
+                [at(agreed), at(own), f64::from(agreed.detail)]
+            };
+            pull.add_targets(&seam.agreed.segments()[k], p, reach, EDGE_STEP, &target);
+        }
+        let distance = pull.distance(reach);
+        let mixed = pull.mixed()?;
+        distance.is_finite().then_some((distance, mixed))
+    }
+
+    /// Everything the terrain says about `p` in one pass: the carved
+    /// ground, its water and road tags, and with `slope` its gradient
+    /// (else zero).
+    fn point(&self, p: DVec2, slope: bool) -> (Carved, DVec2) {
+        let (base, base_slope) = self.base(p, slope);
+        self.features.carve(p, base, slope.then_some(base_slope))
+    }
+
+    /// Everything the terrain says about `p` (x and z, metres) at once:
+    /// the ground's height, its water and road tags, the same as
+    /// [`height`](Self::height), [`water_level`](Self::water_level) and
+    /// [`road_tags`](Self::road_tags) give, and with `gradient` how much
+    /// the ground rises per metre along x and z, as
+    /// [`sample`](Self::sample) gives it. Cheaper than asking for each in
+    /// turn; the gradient costs the most, near borders several times the
+    /// height.
+    pub fn query(&self, p: DVec2, gradient: bool) -> TerrainSample {
+        let (carved, slope) = self.point(p, gradient);
+        TerrainSample {
+            height: carved.height,
+            gradient: gradient.then(|| slope.as_vec2()),
+            water: carved.water,
+            tags: carved.tags,
+        }
+    }
+
+    /// The ground's height at `p` with its gradient, the same as
+    /// [`height`](Self::height) gives, and how much it rises per metre
+    /// along x and z.
+    pub fn sample(&self, p: DVec2) -> GroundSample {
+        let (carved, slope) = self.point(p, true);
+        GroundSample {
+            height: carved.height,
+            gradient: slope.as_vec2(),
+        }
+    }
+
+    /// How much the ground rises per metre along x and z at `p`, as
+    /// [`sample`](Self::sample) gives it.
+    pub fn gradient(&self, p: DVec2) -> Vec2 {
+        self.sample(p).gradient
+    }
+}
+
+impl Ground for Terrain {
+    fn height(&self, p: DVec2) -> f32 {
+        Terrain::height(self, p)
+    }
+
+    fn gradient(&self, p: DVec2) -> Vec2 {
+        Terrain::gradient(self, p)
+    }
+
+    fn sample(&self, p: DVec2) -> GroundSample {
+        Terrain::sample(self, p)
     }
 }
 
@@ -667,16 +947,48 @@ impl Targets {
     }
 }
 
+/// Everything a [`Terrain`] says about one point (see [`Terrain::query`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TerrainSample {
+    /// Ground height in metres, with rivers, ponds and roads cut in.
+    pub height: f32,
+    /// How much the ground rises per metre along x and z, if asked for.
+    pub gradient: Option<Vec2>,
+    /// The water surface height in metres, if a river or pond covers the
+    /// point.
+    pub water: Option<f32>,
+    /// What the roads made of the ground there (see [`RoadTags`]).
+    pub tags: RoadTags,
+}
+
 /// Anything with a ground height at every world position.
 pub trait HeightField: Sync {
     /// Ground height at world position `p` (x and z, metres). NaN where
     /// there is no ground.
     fn height(&self, p: DVec2) -> f32;
+
+    /// The height at `p` with how much it rises per metre along x and z.
+    /// The default takes central differences of [`height`](Self::height)
+    /// [`GRADIENT_STEP`](procgena_core::GRADIENT_STEP) metres either side.
+    fn sample(&self, p: DVec2) -> GroundSample {
+        let step = procgena_core::GRADIENT_STEP;
+        let slope = |axis: DVec2| {
+            (self.height(p + axis * step) - self.height(p - axis * step)) / (2.0 * step) as f32
+        };
+        GroundSample {
+            height: self.height(p),
+            gradient: Vec2::new(slope(DVec2::X), slope(DVec2::Y)),
+        }
+    }
 }
 
 impl HeightField for Terrain {
     fn height(&self, p: DVec2) -> f32 {
         Terrain::height(self, p)
+    }
+
+    fn sample(&self, p: DVec2) -> GroundSample {
+        Terrain::sample(self, p)
     }
 }
 
@@ -684,9 +996,17 @@ impl HeightField for TerrainGenerator {
     fn height(&self, p: DVec2) -> f32 {
         self.natural_height(p)
     }
+
+    fn sample(&self, p: DVec2) -> GroundSample {
+        GroundSample {
+            height: self.natural_height(p),
+            gradient: self.relief.slope(p).as_vec2(),
+        }
+    }
 }
 
-/// A grid of heights on the world lattice.
+/// A grid of heights, and if asked for the ground's gradient at each, on
+/// the world lattice.
 ///
 /// Sample `(i, j)` is at world position `((origin.x + i)·step, (origin.y +
 /// j)·step)`. Positions are computed from integers, so two tiles with the
@@ -701,40 +1021,275 @@ pub struct HeightTile {
     pub size: glam::UVec2,
     /// Heights in metres, row by row (x fastest).
     pub heights: Vec<f32>,
+    /// How much the ground rises per metre along x and z at each sample,
+    /// in the same order as `heights`, for a tile made by
+    /// [`sample_with_gradients`](Self::sample_with_gradients); otherwise
+    /// `None`. Each is the field's own gradient at that point (see
+    /// [`HeightField::sample`]), not a difference of neighbouring samples.
+    pub gradients: Option<Vec<Vec2>>,
 }
 
 impl HeightTile {
-    /// Samples `field` on a `size` grid of lattice points starting at
-    /// `origin`, `step` metres apart. `step` must be positive.
+    /// Samples the heights of `field` on a `size` grid of lattice points
+    /// starting at `origin`, `step` metres apart. `step` must be positive.
     pub fn sample(
         field: &impl HeightField,
         origin: glam::I64Vec2,
         size: glam::UVec2,
         step: f64,
     ) -> Self {
-        let row = |j: u32| -> Vec<f32> {
+        Self::fill(field, origin, size, step, false)
+    }
+
+    /// [`sample`](Self::sample), with the gradient at every sample too.
+    /// For a [`Terrain`] this costs several times as much as the heights
+    /// alone.
+    pub fn sample_with_gradients(
+        field: &impl HeightField,
+        origin: glam::I64Vec2,
+        size: glam::UVec2,
+        step: f64,
+    ) -> Self {
+        Self::fill(field, origin, size, step, true)
+    }
+
+    /// Samples `field`, with gradients if `gradients`.
+    fn fill(
+        field: &impl HeightField,
+        origin: glam::I64Vec2,
+        size: glam::UVec2,
+        step: f64,
+        gradients: bool,
+    ) -> Self {
+        let row = |j: u32| -> Vec<GroundSample> {
             let z = (origin.y + i64::from(j)) as f64 * step;
             (0..size.x)
-                .map(|i| field.height(DVec2::new((origin.x + i64::from(i)) as f64 * step, z)))
+                .map(|i| {
+                    let p = DVec2::new((origin.x + i64::from(i)) as f64 * step, z);
+                    if gradients {
+                        field.sample(p)
+                    } else {
+                        GroundSample {
+                            height: field.height(p),
+                            gradient: Vec2::ZERO,
+                        }
+                    }
+                })
                 .collect()
         };
         #[cfg(feature = "rayon")]
-        let rows: Vec<Vec<f32>> = {
+        let rows: Vec<Vec<GroundSample>> = {
             use rayon::prelude::*;
             (0..size.y).into_par_iter().map(row).collect()
         };
         #[cfg(not(feature = "rayon"))]
-        let rows: Vec<Vec<f32>> = (0..size.y).map(row).collect();
+        let rows: Vec<Vec<GroundSample>> = (0..size.y).map(row).collect();
+        let samples = rows.concat();
         Self {
             origin,
             step,
             size,
-            heights: rows.concat(),
+            heights: samples.iter().map(|s| s.height).collect(),
+            gradients: gradients.then(|| samples.iter().map(|s| s.gradient).collect()),
         }
     }
 
     /// The height at sample `(i, j)`.
     pub fn get(&self, i: u32, j: u32) -> f32 {
         self.heights[(j * self.size.x + i) as usize]
+    }
+
+    /// The gradient at sample `(i, j)`: how much the ground rises per metre
+    /// along x and z; `None` for a tile without gradients.
+    pub fn gradient(&self, i: u32, j: u32) -> Option<Vec2> {
+        let gradients = self.gradients.as_ref()?;
+        Some(gradients[(j * self.size.x + i) as usize])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::carve::FeatureKind;
+    use crate::feature::FeatureShape;
+    use crate::{Convergence, Elevation, RegionSpec, StitchedWorld, TerrainPreset};
+
+    /// Plains in the west and rolling hills in the east (hill seed 102),
+    /// split by a bent border: the plains get rivers, a pond and roads.
+    fn hills_into_plains() -> StitchedWorld {
+        let points = |v: &[(f64, f64)]| v.iter().map(|&(x, z)| DVec2::new(x, z)).collect();
+        let options = |preset: &TerrainPreset, seed| {
+            let mut o = preset.terrain.clone();
+            o.default_seed = seed;
+            o
+        };
+        StitchedWorld::build(
+            vec![
+                RegionSpec {
+                    id: RegionId(1),
+                    polygon: points(&[
+                        (-2000.0, -1500.0),
+                        (0.0, -1500.0),
+                        (150.0, -700.0),
+                        (-200.0, 0.0),
+                        (100.0, 800.0),
+                        (0.0, 1500.0),
+                        (-2000.0, 1500.0),
+                    ]),
+                    options: options(TerrainPreset::plains(), 102),
+                },
+                RegionSpec {
+                    id: RegionId(2),
+                    polygon: points(&[
+                        (0.0, -1500.0),
+                        (2000.0, -1500.0),
+                        (2000.0, 1500.0),
+                        (0.0, 1500.0),
+                        (100.0, 800.0),
+                        (-200.0, 0.0),
+                        (150.0, -700.0),
+                    ]),
+                    options: options(TerrainPreset::rolling_hills(), 102),
+                },
+            ],
+            &Convergence::default(),
+            &Elevation::flat(),
+        )
+        .expect("the world builds")
+    }
+
+    /// Points every 9.7 m by 11.3 m over the terrain's region and a little
+    /// beyond.
+    fn points() -> impl Iterator<Item = DVec2> {
+        (0..440).flat_map(|i| {
+            (0..280).map(move |j| {
+                DVec2::new(-2100.0 + 9.7 * f64::from(i), -1580.0 + 11.3 * f64::from(j))
+            })
+        })
+    }
+
+    #[test]
+    fn the_index_gives_what_every_feature_gives() {
+        let world = hills_into_plains();
+        let t = &world.terrains()[0];
+        for kind in [FeatureKind::River, FeatureKind::Road, FeatureKind::Pond] {
+            assert!(t.features().any(|f| f.id.kind == kind), "a {kind:?}");
+        }
+        let all = t.features.all_parts();
+        for p in points() {
+            let h = t.base_height(p);
+            let (indexed, slope) = t.features.carve(p, h, Some(DVec2::new(0.1, 0.2)));
+            let (every, every_slope) =
+                t.features
+                    .carve_parts(p, h, Some(DVec2::new(0.1, 0.2)), &all);
+            assert_eq!(
+                indexed.height.to_bits(),
+                every.height.to_bits(),
+                "height at {p}"
+            );
+            assert_eq!(indexed.water, every.water, "water at {p}");
+            assert_eq!(indexed.tags, every.tags, "tags at {p}");
+            assert_eq!(slope, every_slope, "slope at {p}");
+        }
+    }
+
+    #[test]
+    fn no_feature_changes_anything_outside_its_bounds() {
+        let world = hills_into_plains();
+        let t = &world.terrains()[0];
+        let all = t.features.all_parts();
+        for feature in t.features() {
+            let parts: Vec<_> = all.iter().copied().filter(|p| p.id == feature.id).collect();
+            let [lo, hi] = feature.bounds;
+            for p in points().filter(|p| p.x < lo.x || p.y < lo.y || p.x > hi.x || p.y > hi.y) {
+                let h = t.base_height(p);
+                let (carved, slope) = t.features.carve_parts(p, h, Some(DVec2::X), &parts);
+                assert_eq!(carved.height, h, "{:?} at {p}", feature.id);
+                assert_eq!(carved.water, None);
+                assert!(carved.tags.is_empty());
+                assert_eq!(slope, DVec2::X);
+            }
+            // Boxes around its points find it; boxes off its bounds don't.
+            let start = match feature.shape {
+                FeatureShape::Line(line) => line.points[0],
+                FeatureShape::Pond(pond) => pond.centre,
+            };
+            let around = [start - DVec2::ONE, start + DVec2::ONE];
+            assert!(
+                t.features_within(around[0], around[1])
+                    .contains(&feature.id)
+            );
+            let off = [hi + DVec2::ONE, hi + DVec2::splat(50.0)];
+            assert!(!t.features_within(off[0], off[1]).contains(&feature.id));
+            assert_eq!(t.feature(feature.id), Some(feature));
+        }
+    }
+
+    #[test]
+    fn roads_come_as_a_stage_of_their_own_and_ids_stay() {
+        let world = hills_into_plains();
+        let t = &world.terrains()[0];
+        assert!(t.has_roads() && !t.roads().is_empty());
+
+        // The same terrain built from its trace without roads: the same
+        // rivers and ponds, with the same ids, and no roads.
+        let generator = t.generator().clone();
+        let region = t.region().clone();
+        let mine: Vec<EdgeAgreement> = world
+            .agreements()
+            .iter()
+            .filter(|a| region.edges.iter().any(|e| e.id == a.edge))
+            .cloned()
+            .collect();
+        let trace = generator.trace_rivers(&region);
+        assert_eq!(
+            generator.offers(&region),
+            generator.offers_traced(&region, &trace)
+        );
+        let bare = generator
+            .build_traced(region, &mine, &trace)
+            .expect("builds");
+        assert!(!bare.has_roads() && bare.roads().is_empty());
+        assert_eq!(bare.rivers(), t.rivers());
+        assert_eq!(bare.ponds(), t.ponds());
+        let ids = |t: &Terrain, kind| {
+            t.features()
+                .filter(|f| f.id.kind == kind)
+                .map(|f| f.id)
+                .collect::<Vec<_>>()
+        };
+        for kind in [FeatureKind::River, FeatureKind::Pond] {
+            assert_eq!(ids(&bare, kind), ids(t, kind));
+        }
+
+        // Adding the roads gives the terrain as built at once.
+        let full = bare.with_roads();
+        assert_eq!(full.roads(), t.roads());
+        for p in points().step_by(97) {
+            assert_eq!(full.height(p).to_bits(), t.height(p).to_bits());
+        }
+        // Ids are unique.
+        let mut all: Vec<FeatureId> = t.features().map(|f| f.id).collect();
+        let count = all.len();
+        all.dedup();
+        assert_eq!(all.len(), count);
+    }
+
+    #[test]
+    fn one_query_gives_what_each_accessor_gives() {
+        let world = hills_into_plains();
+        let t = &world.terrains()[0];
+        for p in points().step_by(41) {
+            let plain = t.query(p, false);
+            let full = t.query(p, true);
+            let sample = t.sample(p);
+            assert_eq!(plain.height.to_bits(), t.height(p).to_bits());
+            assert_eq!(plain.water, t.water_level(p));
+            assert_eq!(plain.tags, t.road_tags(p));
+            assert_eq!(plain.gradient, None);
+            assert_eq!(full.height, plain.height);
+            assert_eq!(full.gradient, Some(sample.gradient));
+            assert_eq!(sample.height, plain.height);
+        }
     }
 }

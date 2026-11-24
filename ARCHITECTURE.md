@@ -417,8 +417,11 @@ any point, and the same as grids per tile.
 
 **Status.** In progress: `procgena_terrain`. One generator fills one region,
 which can be bounded or infinite. Today it gives `height`, `water_level`,
-`road_tags` and `HeightTile` (heights only). Slope and the planned
-`annotate` labels are not exposed yet.
+`road_tags`, slope (`Terrain` is a `Ground`), all of these at once
+(`query`), `HeightTile` with heights and optionally gradients, and its
+rivers, roads and ponds as features with stable ids and bounds. Roads
+are a planning stage of their own, so a distant view can skip them. The
+planned `annotate` labels are not exposed yet.
 
 ### 5. World
 
@@ -484,7 +487,7 @@ reference "stitcher" (`StitchedWorld`) stays as a test fixture.
 | Biome → Terrain | Terrain options (preset or inline) and seed; far tint from Ecotope coverage | New |
 | World → WorldTerrain | Region graph options; a terrain source giving each region's Terrain from its Biome | Region types in the terrain plan; the source is new |
 | WorldTerrain → Terrain | `Region` and its `EdgeAgreement`s and `CornerAgreement`s | Yes, in `procgena_terrain` |
-| Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height` and height tiles; slope and `annotate` are new |
+| Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height`, slope (`Ground`) and tiles of both; `annotate` is new |
 | Biome → Ecotope | Coverage function from 0 to 1, ground, seed | New |
 | Ecotope → Scatter | `Ground` (height and slope), density function, area, seed, copy-address prefix (region and key salts) | `ScatterInput` in `procgena_core::scatter` (see [C1](docs/decisions/C1.md)) without the address prefix; stone and mushroom (`MushroomScatter::new`) take it, and tree and deadwood are moving to it |
 | Scatter → Scatter below | Mask: density function from 0 to 1 | New |
@@ -520,8 +523,9 @@ roads).
 
 The terrain knows its slope better than anyone sampling it:
 
-- **Relief** already has an analytic gradient (`relief.gradient`, used for
-  the border offers).
+- **Relief** has an analytic gradient from its noise's own derivatives
+  (G2). The border offers still read a central-difference one, which
+  averages across sharp ridge crests; whether to switch them is open.
 - **Bending to the borders** and **carving rivers and roads** are smooth
   blends of known shapes, so their gradients follow by the chain rule. Where
   that is not worth the work, the terrain can take central differences
@@ -1493,9 +1497,11 @@ it starts.
   from central differences of `height`. Done in F1 for `FlatGround`,
   `HeightGrid` and closures; `Terrain` implementing it is G2, and Scatters
   using it is C1.
-- [ ] **Terrain slope**: an analytic gradient through relief, border bending
+- [x] **Terrain slope**: an analytic gradient through relief, border bending
   and carving in `procgena_terrain`, `Ground` implemented for `Terrain`, and
-  a gradient grid in `HeightTile`.
+  a gradient grid in `HeightTile`. Built in G2 (2026-11-24): the border's
+  and the fade's pulls (their soft distance and mixed targets) are taken
+  by differences 0.5 m apart in f64; everything else is analytic.
 - [ ] **Terrain labels**: expose `annotate(x, z)` with `Landform`, `Flags`
   and `Measures` (slope from the same gradient), which the Biome's Ecotope
   rules need.

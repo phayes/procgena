@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use glam::{DVec2, IVec2};
-use procgena_core::Ground;
+use glam::{DVec2, IVec2, Vec2};
+use procgena_core::{Ground, GroundSample};
 
 use crate::converge::{
     BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
@@ -515,13 +515,37 @@ impl HeightField for WorldTerrain {
     fn height(&self, p: DVec2) -> f32 {
         WorldTerrain::height(self, p)
     }
+
+    /// See [`Ground::sample`] for [`WorldTerrain`].
+    fn sample(&self, p: DVec2) -> GroundSample {
+        Ground::sample(self, p)
+    }
 }
 
 impl Ground for WorldTerrain {
-    /// See [`WorldTerrain::height`]. The slope is NaN where a nearby
-    /// region's terrain can't be built.
+    /// See [`WorldTerrain::height`].
     fn height(&self, p: DVec2) -> f32 {
         WorldTerrain::height(self, p)
+    }
+
+    /// The slope of the region holding `p`, from its terrain's own
+    /// gradient (see [`Terrain::sample`]). NaN where that region's terrain
+    /// can't be built.
+    fn gradient(&self, p: DVec2) -> Vec2 {
+        Ground::sample(self, p).gradient
+    }
+
+    /// The height and slope of the region holding `p` (see
+    /// [`Terrain::sample`]). Both NaN where that region's terrain can't be
+    /// built.
+    fn sample(&self, p: DVec2) -> GroundSample {
+        self.terrain_at(p).map_or(
+            GroundSample {
+                height: f32::NAN,
+                gradient: Vec2::NAN,
+            },
+            |t| t.sample(p),
+        )
     }
 }
 
