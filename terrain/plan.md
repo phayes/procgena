@@ -21,7 +21,8 @@ and joins seamlessly with any other terrain generator on its border.
   - Meshes come from the SDF, so overhangs and caves appear in the mesh.
 
   **Please confirm this reading.** Everything below depends on it.
-  **Open: see [features_plan_review.md](features_plan_review.md) §C1.**
+  **Open: see [features_plan_review.md](features_plan_review.md),
+  Conflict 1.**
   The features proposal suggests a heightfield mesh by default, with
   volume meshing only in bounded patches for caves and overhangs.
 - **Terrain features.** Rivers, roads, ponds, and later cliffs, caves,
@@ -1802,8 +1803,8 @@ Phases 3 and 6 can run in parallel after phase 1, with one agent each. They
 touch separate modules.
 
 **Terrain features** ([features_plan.md](features_plan.md), reviewed in
-[features_plan_review.md](features_plan_review.md)) add two steps before
-Phase 4:
+[features_plan_review.md](features_plan_review.md)) add two steps at the
+start of G3, before Phase 3's landforms and before Phase 4:
 
 1. Rivers, roads and ponds become one feature type with one index, with
    every feature test result unchanged.
@@ -1815,10 +1816,16 @@ Phase 4:
 The review's mapping table shows where the proposal's later steps fall in
 Phases 3 to 7. Four points there wait for the user and change these rows:
 
-- the mesher of Phases 6 and 7 (§C1);
-- rock outcrops in Phase 6 (§C2);
-- lakes in Phase 4 (§C3);
-- macro cells in Phase 4 (§C4).
+- the mesher of Phases 6 and 7 (Conflict 1);
+- rock outcrops in Phase 6 (Conflict 2);
+- lakes in Phase 4 (Conflict 3);
+- macro cells in Phase 4 (Conflict 4).
+
+Step 2's one sample path is where Phase 5's `annotate` and the gradient
+for `Ground` (roadmap G2) belong; the review's "Milestone order" gives the
+order. Bridges keep their Phase 4 water fix (the road stops cutting or
+filling over water); only the deck mesh moves to the proposal's step 5.
+The worlds signed off on 2026-11-23 stay identical through steps 1 and 2.
 
 ## Non-goals for v1
 
@@ -1833,7 +1840,7 @@ Phases 3 to 7. Four points there wait for the user and change these rows:
 
 1. **Volumetric reading.** Is the "SDF with a heightfield base, plus a
    pure top-surface heightmap API" reading right? Open: see
-   [features_plan_review.md](features_plan_review.md) §C1, which also
+   [features_plan_review.md](features_plan_review.md), Conflict 1, which also
    bears on question 5.
 2. ~~**Sea level.**~~ **Answered 2026-11-22:** oceans are not this crate's
    concern. Sea level is the zero of `WorldTerrain`'s elevation field E,
@@ -1852,7 +1859,7 @@ Phases 3 to 7. Four points there wait for the user and change these rows:
    terrain; procgena_stone scatter is out of scope (this plan is just
    terrain). Open again: the features proposal suggests rock meshes laid
    into the ground; see [features_plan_review.md](features_plan_review.md)
-   §C2.
+   Conflict 2.
 7. **Edge not yet known.** When a neighbour region appears later, chunks
    within the margin rebuild. Is that acceptable for the world generator,
    or must the region graph be known before generation?

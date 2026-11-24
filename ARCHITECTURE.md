@@ -381,14 +381,14 @@ is in [terrain/features_plan_review.md](terrain/features_plan_review.md).
   terrain's own height and labels. Drawing may use coarser meshes, but
   never becomes what anything else reads.
 - **Reaching the cover.** A feature reaches Ecotopes and Scatters through
-  terrain labels, and through height or occupancy where a rock mesh
-  stands. How a feature's footprint takes part in Scatter exclusion is
-  open: see the review, §G1 and §G3.
+  the terrain's height and labels, including where a rock mesh stands.
+  How a feature's footprint takes part in the exact exclusion tests of
+  "Masks and placement" is open: see the review, Gaps 1 and 3.
 
 Open for the user: whether terrain is meshed as a heightfield by default
 with volume only where a feature needs it, or as one volume everywhere
-(review §C1), and whether rock outcrops are meshes or part of that volume
-(review §C2).
+(review, Conflict 1), and whether rock outcrops are meshes or part of
+that volume (review, Conflict 2).
 
 **What it gets from above.**
 
@@ -1506,9 +1506,10 @@ it starts.
   with unchanged results, then staged and separately cached planning with
   benchmarks, then cliffs and landforms (see
   [terrain/features_plan_review.md](terrain/features_plan_review.md) for
-  the steps and the four open points). Feature seeds follow "Seeds":
-  32-bit, from frozen keys, and on World cells where they can be, so D4
-  can't move them.
+  the steps and the open points). Feature seeds follow "Seeds": 32-bit,
+  from code seed keys for built-in families and frozen data keys for
+  children named in data. Proposed, not decided: local features sit on
+  World cells wherever they can, so D4 can't move them.
 - [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
   default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
   The Terrain seed is the World seed for now, passed through

@@ -546,7 +546,7 @@ and feature suites on warped worlds as the check.
    multi-scale lattice: large regions with occasional small ones)?
    This moved to decision gate D4. Region size also sets how long a
    region's feature plan takes while planning stays per region; see
-   [features_plan_review.md](features_plan_review.md) §C4.
+   [features_plan_review.md](features_plan_review.md), Conflict 4.
 3. **Moisture:** include it now as a Biome selector (deserts, wetlands)
    or later? It is now the World crate's question.
 4. **Bounded worlds:** besides infinite lattice worlds, should

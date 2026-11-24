@@ -2,7 +2,7 @@
 
 Status: proposed for review, 2026-11-23. This document supplements [the architecture](../ARCHITECTURE.md), [the terrain plan](plan.md) and [the world terrain plan](world_plan.md). It proposes changes to those plans, not claims that the changes have already been implemented.
 
-Reviewed 2026-11-24 in [features_plan_review.md](features_plan_review.md). That review holds what has been adopted into the other plans, how the migration steps map onto the terrain phases and roadmap milestones, and the four points (meshing, rock outcrops, lakes, macro cells) that wait for the user.
+Reviewed 2026-11-24 in [features_plan_review.md](features_plan_review.md). That review holds what has been adopted into the other plans, how the migration steps map onto the terrain phases and roadmap milestones, and the points that wait for the user (meshing, rock outcrops, lakes, macro cells, and later border features and performance budgets).
 
 ## Bottom line
 

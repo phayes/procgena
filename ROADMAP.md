@@ -338,10 +338,12 @@ goldens, which have no baseline on this machine).
   suites pass with them.
 - **Terrain features:** steps 1 and 2 of
   [terrain/features_plan.md](terrain/features_plan.md) (one feature type,
-  staged planning, benchmarks) come first in G3. Lakes and macro cells
-  here wait on the user's answers in
-  [terrain/features_plan_review.md](terrain/features_plan_review.md) §C3
-  and §C4.
+  staged planning, one sample path, benchmarks) come first in G3, before
+  Phase 3's landforms and Phase 4. Step 2's sample path is where G2's
+  gradient and G4's labels live; see the review's "Milestone order" for
+  which goes first. Lakes and macro cells here wait on the user's answers
+  in [terrain/features_plan_review.md](terrain/features_plan_review.md),
+  Conflicts 3 and 4.
 
 #### G4: Terrain labels (Phase 5)
 
@@ -379,8 +381,8 @@ goldens, which have no baseline on this machine).
 - **Open:** whether Phases 6 and 7 mesh one volume everywhere or a
   heightfield with local volume, and whether rock outcrops are meshes.
   This reshapes G6. See
-  [terrain/features_plan_review.md](terrain/features_plan_review.md) §C1
-  and §C2.
+  [terrain/features_plan_review.md](terrain/features_plan_review.md),
+  Conflicts 1 and 2.
 
 ### Bare worlds
 
