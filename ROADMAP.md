@@ -1397,8 +1397,9 @@ where the details are.
     draw range with one from the tree's cull distance. **Built
     (2026-11-24):** each tree's size is its height as built (the top of
     its nearest level) times its scale. Trees gained a cull distance,
-    `LOD_CULL_DISTANCE`, 1500 m for a 10 m tree (a placeholder for the
-    user to confirm), and a tree Scatter's draw range is that distance for
+    `LOD_CULL_DISTANCE`, 1500 m for a 10 m tree (accepted by the user
+    with the before/after shots and the 0.15-cycle wind spread,
+    2026-11-24), and a tree Scatter's draw range is that distance for
     its tallest possible tree (`TreeOptions::height_bound` times the
     largest scale). The preset trees are 1.3 to 10 m tall, so every one
     now switches detail sooner than before.
