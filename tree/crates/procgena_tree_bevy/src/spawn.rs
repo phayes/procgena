@@ -12,7 +12,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
     BranchShape, LodLevel, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
-    TreeError, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod_levels,
+    TreeCacheKey, TreeError, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod_levels,
 };
 
 use crate::grove::PreparedTrees;
@@ -192,15 +192,15 @@ pub(crate) struct SpawnSettings {
     pub impostor: Option<crate::TreeImpostor>,
 }
 
-/// The tree's [`TreeOptions::tree_id`], used to find shared generation results.
-/// Entities with the same key reuse one [`Generated`] entry.
+/// The tree's [`TreeOptions::cache_key`], used to find shared generation
+/// results. Entities with the same key reuse one [`Generated`] entry.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct TreeKey(u64);
+pub(crate) struct TreeKey(TreeCacheKey);
 
 impl TreeKey {
-    /// The key as a number, the same on every run of the same version.
+    /// The key as a number, the same on every run and platform.
     pub(crate) fn value(self) -> u64 {
-        self.0
+        self.0.value()
     }
 }
 
@@ -379,7 +379,7 @@ impl TreeCache {
         options: &Arc<TreeOptions>,
         settings: &SpawnSettings,
     ) -> TreeKey {
-        let key = TreeKey(options.tree_id());
+        let key = TreeKey(options.cache_key());
         self.trees.entry(key).or_insert_with(|| {
             let levels = settings.lod_levels.clone();
             let task_options = options.clone();

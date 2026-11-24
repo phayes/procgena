@@ -5521,7 +5521,6 @@ dependencies = [
  "procgena_specimen",
  "serde",
  "serde_json",
- "twox-hash",
  "wesl",
 ]
 

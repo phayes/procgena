@@ -1639,7 +1639,7 @@ mod tests {
         let grove = small_grove();
         let variants = grove_variants(&grove);
         assert_eq!(variants.len(), 4);
-        let ids: HashSet<u64> = variants.iter().map(|v| v.tree_id()).collect();
+        let ids: HashSet<_> = variants.iter().map(|v| v.cache_key()).collect();
         assert_eq!(ids.len(), 4, "variants differ");
         assert_eq!(*variants[1], grove.trees[0].variant(1));
         assert_eq!(*variants[2], grove.trees[1].variant(0));

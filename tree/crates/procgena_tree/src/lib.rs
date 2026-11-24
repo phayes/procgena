@@ -250,6 +250,7 @@
 
 mod cluster;
 mod cluster_mesh;
+mod content_hash;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
 mod grove;
@@ -264,12 +265,12 @@ mod rng;
 mod skeleton;
 mod specimen;
 mod tree;
-mod tree_id;
 mod trellis;
 mod units;
 mod wind;
 
 pub use cluster::{ClusterItem, ClusterStalk, SkeletonCluster};
+pub use content_hash::{TREE_KIND, TreeCacheKey};
 pub use grove::{
     GroveError, GroveFileError, GroveInstance, GrovePlacement, GrovePreset, GroveTree,
     GroveVariation, MAX_GROVE_INSTANCES, MAX_GROVE_SIZE, MAX_GROVE_TREES, MAX_GROVE_VARIANTS,
