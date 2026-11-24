@@ -602,7 +602,15 @@ mod tests {
             DVec2::new(100.0, 800.0),
             DVec2::new(0.0, 1500.0),
         ]);
-        let graph = crate::graph::RegionGraph::new(Default::default(), 7).unwrap();
+        // Unwarped, so the cell's sides are straight lines to measure from.
+        let options = crate::graph::RegionGraphOptions {
+            warp: crate::warp::BorderWarp {
+                amplitude: 0.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let graph = crate::graph::RegionGraph::new(options, 7).unwrap();
         let region = graph.region(crate::graph::RegionKey(glam::IVec2::ZERO));
         let crate::region::Boundary::Polygon(mut cell) = region.boundary.clone() else {
             unreachable!()
