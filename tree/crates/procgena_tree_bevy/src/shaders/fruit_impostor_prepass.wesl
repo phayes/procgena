@@ -1,14 +1,15 @@
 // The prepass twin of `fruit_impostor.wesl`: depth, normals and shadows of
 // a cluster's impostor attached to a tree.
 
-import bevy_pbr::{
-    prepass::io::{Vertex, VertexOutput, decompress_vertex},
-    render::mesh_view_bindings::globals,
-};
+import bevy_pbr::prepass::io::{Vertex, VertexOutput, decompress_vertex};
+import bevy_render::globals::Globals;
 import procgena_core_bevy::shaders::instanced::{copy_record, copy_dither};
 import procgena_impostor::shaders::common::impostor;
 import procgena_impostor::shaders::vertex_prepass::impostor_prepass_vertex;
 import package::shaders::fruit_impostor_place::{Attached, ClusterPlace, place_cluster};
+
+/// The prepass view's time, as the tree's own prepass shader binds it.
+@group(0) @binding(1) var<uniform> globals: Globals;
 
 @vertex
 fn vertex(in: Vertex, copy: Attached) -> VertexOutput {

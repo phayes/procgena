@@ -47,13 +47,15 @@
 //! farthest mesh level instead. Fruit and flower clusters are drawn as
 //! impostors from 20 m for a 10 cm cluster (see `default_fruit_impostor`);
 //! `--fruit-impostor <m>` sets that distance, and `--no-fruit-impostor`
-//! keeps their farthest level instead.
+//! keeps their farthest level instead. `--prepass` gives the camera depth
+//! and normal prepasses.
 
 use std::time::Duration;
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
+use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::render::render_resource::TextureFormat;
@@ -139,6 +141,7 @@ fn main() -> AppExit {
     let mut target = Vec3::new(0.0, 2.8, 0.0);
     let mut slope = 0.0;
     let mut fov = None;
+    let mut prepass = false;
     let mut fruit_impostor = Some(default_fruit_impostor());
     let mut lod = default_tree_lod();
 
@@ -221,6 +224,7 @@ fn main() -> AppExit {
                 slope = args[i + 1].parse::<f32>().expect("a slope in degrees");
                 i += 1;
             }
+            "--prepass" => prepass = true,
             "--fov" => {
                 fov = Some(
                     args[i + 1]
@@ -303,6 +307,7 @@ fn main() -> AppExit {
         size,
         slope,
         fov,
+        prepass,
     })
     .add_systems(Startup, setup)
     .add_systems(Update, (controls, show_trees, screenshot))
@@ -319,6 +324,8 @@ struct Camera3dSetup {
     slope: f32,
     /// Vertical field of view in degrees; `None` keeps Bevy's default.
     fov: Option<f32>,
+    /// Whether the camera draws depth and normal prepasses.
+    prepass: bool,
 }
 
 fn setup(
@@ -338,6 +345,9 @@ fn setup(
             ..default()
         },
     ));
+    if camera.prepass {
+        camera_entity.insert((DepthPrepass, NormalPrepass));
+    }
     if let Some(fov) = camera.fov {
         camera_entity.insert(Projection::Perspective(PerspectiveProjection {
             fov: fov.to_radians(),

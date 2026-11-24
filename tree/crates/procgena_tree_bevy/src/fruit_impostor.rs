@@ -20,6 +20,7 @@ use procgena_impostor::{
     ImpostorKey, ImpostorLevel, ImpostorRequest, ImpostorUniform,
 };
 use procgena_tree::ClusterPart;
+use procgena_tree::procgena_fruit::default_lod as fruit_lod;
 
 use crate::clusters::TreeClusters;
 use crate::material::{TreeMaterial, WindUniform, bake_copy};
@@ -148,9 +149,9 @@ pub(crate) fn fruit_impostor_material(
 }
 
 /// The impostor key of cluster specimen `specimen`, one of a tree's
-/// `part` clusters, baked with `impostor`'s settings and this crate's
-/// version. The cluster's look on trees comes from the part's material, so
-/// the part is in the key.
+/// `part` clusters, baked with `impostor`'s settings from its baked fruit
+/// level's detail, and this crate's version. The cluster's look on trees
+/// comes from the part's material, so the part is in the key.
 pub(crate) fn fruit_key(
     specimen: SpecimenId,
     part: ClusterPart,
@@ -160,13 +161,13 @@ pub(crate) fn fruit_key(
         ClusterPart::Fruit => "fruit",
         ClusterPart::Flowers => "flowers",
     };
-    let level = (impostor.baked_level as u64).to_le_bytes();
+    let level = format!("{:?}", fruit_lod().levels.get(impostor.baked_level));
     ImpostorKey::specimen(
         specimen,
         impostor.bake,
         &[
             part.as_bytes(),
-            &level,
+            level.as_bytes(),
             env!("CARGO_PKG_VERSION").as_bytes(),
         ],
     )
