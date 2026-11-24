@@ -113,7 +113,7 @@ pub use carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, RoadTa
 pub use chunk::{
     CHUNK_CELLS, CHUNK_SIZE, ChunkCorner, ChunkError, ChunkKey, ChunkMesh, ChunkSamples,
     ChunkSelection, ChunkSelectionError, ChunkSide, ChunkSource, ChunkStage, MAX_CHUNK_LEVEL,
-    SurfacePoint, Transitions, WaterMesh, default_chunk_lod,
+    SurfacePoint, Transitions, WaterMesh, chunk_lod,
 };
 pub use converge::{
     BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,

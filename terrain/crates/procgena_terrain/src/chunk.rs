@@ -27,7 +27,7 @@
 //! use glam::DVec3;
 //! use procgena_terrain::{
 //!     Boundary, ChunkSamples, ChunkSelection, ChunkStage, Region, RegionId, TerrainGenerator,
-//!     TerrainPreset, default_chunk_lod,
+//!     TerrainPreset, chunk_lod,
 //! };
 //!
 //! // One unbounded region of rolling hills.
@@ -36,7 +36,7 @@
 //!     .build(region, &[])?;
 //!
 //! // The chunks to draw for a viewer standing 2 m above the ground.
-//! let lod = default_chunk_lod().with_cull(6000.0);
+//! let lod = chunk_lod(600.0);
 //! let chosen = ChunkSelection::around(&lod, 1.0, &[DVec3::new(0.0, 2.0, 0.0)], None)?;
 //! let (key, transitions) = chosen.iter().next().unwrap();
 //!
@@ -917,17 +917,26 @@ pub struct WaterMesh {
     pub indices: Vec<u32>,
 }
 
-/// The chunk levels the terrain's streaming uses by default: level 0 out
-/// to 128 m, and each level after that out to twice as far, up to level 6
-/// (4 km chunks), with no cull distance. Add one with
-/// [`Lod::with_cull`]; [`ChunkSelection::around`] needs it.
+/// The terrain's usual chunk levels, drawn out to `view_distance` metres:
+/// level 0 out to 128 m, and each level after that out to twice as far, up
+/// to level 6 (4 km chunks). Levels that would start too close to the view
+/// distance to be seen are left out, so any positive view distance gives
+/// levels [`ChunkSelection::around`] accepts.
 ///
 /// Level `i` of the `Lod` is chunk level `i`: its distance is where that
-/// chunk level starts.
-pub fn default_chunk_lod() -> Lod {
-    let mut levels = vec![LodLevel::new(0.0, 0.1, ())];
-    levels.extend((1..=6).map(|level| LodLevel::new(64.0 * f32::powi(2.0, level), 0.1, ())));
-    Lod::new(CHUNK_SIZE as f32, levels)
+/// chunk level starts, and its cull distance is `view_distance`.
+pub fn chunk_lod(view_distance: f32) -> Lod {
+    const HYSTERESIS: f32 = 0.1;
+    let mut levels = vec![LodLevel::new(0.0, HYSTERESIS, ())];
+    levels.extend(
+        (1..=6)
+            .map(|level| LodLevel::new(64.0 * f32::powi(2.0, level), HYSTERESIS, ()))
+            // A level must finish fading in before the ground fades out.
+            .take_while(|level| {
+                level.distance * (1.0 + HYSTERESIS) <= view_distance * (1.0 - HYSTERESIS)
+            }),
+    );
+    Lod::new(CHUNK_SIZE as f32, levels).with_cull(view_distance)
 }
 
 /// Why chunks could not be chosen.
@@ -973,7 +982,7 @@ pub struct ChunkSelection {
 
 impl ChunkSelection {
     /// The chunks to draw around `viewers`, with chunk levels from `lod`
-    /// (see [`default_chunk_lod`]) scaled by `factor`.
+    /// (see [`chunk_lod`]) scaled by `factor`.
     ///
     /// Level `i` of `lod` is chunk level `i`, and nothing is drawn past its
     /// cull distance. A chunk is split into finer ones while its nearest

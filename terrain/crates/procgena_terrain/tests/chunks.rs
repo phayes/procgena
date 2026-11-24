@@ -12,7 +12,7 @@ use procgena_core::{Lod, LodLevel};
 use procgena_terrain::{
     CHUNK_CELLS, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide, ChunkSource,
     ChunkStage, EdgeAgreement, Elevation, RegionGraphOptions, RegionId, Terrain, TerrainPreset,
-    Transitions, WorldTerrain, WorldTerrainOptions, default_chunk_lod,
+    Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
@@ -255,13 +255,30 @@ fn hysteresis_keeps_chunks_while_the_viewer_wavers() {
 }
 
 #[test]
-fn the_default_levels_need_a_cull_distance() {
+fn the_usual_levels_fit_any_view_distance() {
     let viewer = [DVec3::ZERO];
-    assert!(ChunkSelection::around(&default_chunk_lod(), 1.0, &viewer, None).is_err());
-    let lod = default_chunk_lod().with_cull(6000.0);
-    let selection = ChunkSelection::around(&lod, 1.0, &viewer, None).unwrap();
-    assert!(!selection.is_empty());
-    assert!(ChunkSelection::around(&lod, 0.0, &viewer, None).is_err());
+    // Every view distance gives levels that can choose chunks, with only
+    // the levels that start inside it.
+    for (view, levels) in [
+        (50.0, 1),
+        (150.0, 1),
+        (160.0, 2),
+        (3000.0, 6),
+        (4000.0, 6),
+        (6000.0, 7),
+    ] {
+        let lod = chunk_lod(view);
+        assert_eq!(lod.levels.len(), levels, "view distance {view} m");
+        assert_eq!(lod.cull_distance, Some(view));
+        let selection = ChunkSelection::around(&lod, 1.0, &viewer, None).unwrap();
+        assert!(!selection.is_empty());
+    }
+    // Levels without a cull distance, or a factor that isn't positive, are
+    // refused.
+    let mut endless = chunk_lod(6000.0);
+    endless.cull_distance = None;
+    assert!(ChunkSelection::around(&endless, 1.0, &viewer, None).is_err());
+    assert!(ChunkSelection::around(&chunk_lod(6000.0), 0.0, &viewer, None).is_err());
 }
 
 #[test]

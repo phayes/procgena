@@ -61,8 +61,8 @@ use glam::{DVec2, DVec3};
 use procgena_core::Lod;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::{
-    ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSource, ChunkStage,
-    Transitions, WaterMesh, default_chunk_lod,
+    ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSelectionError,
+    ChunkSource, ChunkStage, Transitions, WaterMesh, chunk_lod,
 };
 
 pub use material::{TerrainExtension, TerrainMaterial, TerrainSurface};
@@ -76,43 +76,67 @@ pub const DEFAULT_VIEW_DISTANCE: f32 = 4000.0;
 /// shared [`LodPlugin`], whose [`LodQuality`] scales every chunk level's
 /// distance and the view distance.
 ///
-/// # Panics
-///
-/// Adding the plugin panics if [`lod`](Self::lod) can't choose chunks (see
-/// [`ChunkSelection::around`]).
+/// Make one with [`new`](Self::new), which checks the chunk levels, or use
+/// the default: [`chunk_lod`] drawn out to [`DEFAULT_VIEW_DISTANCE`].
 #[derive(Debug, Clone)]
 pub struct TerrainPlugin {
-    /// The chunk levels: level `i` of the `Lod` is chunk level `i`, and
-    /// its cull distance is the view distance. Defaults to
-    /// [`default_chunk_lod`] drawn out to [`DEFAULT_VIEW_DISTANCE`].
-    pub lod: Lod,
-    /// How the ground is coloured.
-    pub surface: TerrainSurface,
-    /// How many chunks each stream reads at once.
-    pub max_reads: usize,
+    lod: Lod,
+    surface: TerrainSurface,
+    max_reads: usize,
 }
 
 impl Default for TerrainPlugin {
     fn default() -> Self {
-        Self {
-            lod: default_chunk_lod().with_cull(DEFAULT_VIEW_DISTANCE),
+        Self::new(chunk_lod(DEFAULT_VIEW_DISTANCE)).expect("the usual chunk levels are valid")
+    }
+}
+
+impl TerrainPlugin {
+    /// The plugin drawing chunk levels `lod`: level `i` of the `Lod` is
+    /// chunk level `i`, and its cull distance is the view distance.
+    /// [`chunk_lod`] gives the usual levels for any view distance.
+    ///
+    /// # Errors
+    ///
+    /// If `lod` can't choose chunks, for example because it has no cull
+    /// distance or its last level starts too close to it (see
+    /// [`ChunkSelection::around`]).
+    pub fn new(lod: Lod) -> Result<Self, ChunkSelectionError> {
+        ChunkSelection::around(&lod, 1.0, &[], None)?;
+        Ok(Self {
+            lod,
             surface: TerrainSurface::default(),
             max_reads: 4,
-        }
+        })
+    }
+
+    /// The plugin, colouring the ground with `surface`.
+    pub fn with_surface(mut self, surface: TerrainSurface) -> Self {
+        self.surface = surface;
+        self
+    }
+
+    /// The plugin, reading at most `max_reads` chunks at once per stream
+    /// (at least one).
+    pub fn with_max_reads(mut self, max_reads: usize) -> Self {
+        self.max_reads = max_reads.max(1);
+        self
+    }
+
+    /// The chunk levels.
+    pub fn lod(&self) -> &Lod {
+        &self.lod
     }
 }
 
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
-        if let Err(error) = ChunkSelection::around(&self.lod, 1.0, &[], None) {
-            panic!("TerrainPlugin::lod can't choose chunks: {error}");
-        }
         embedded_asset!(app, "shaders/terrain_fragment.wesl");
         app.add_plugins((LodPlugin, MaterialPlugin::<TerrainMaterial>::default()))
             .insert_resource(TerrainSettings {
                 lod: self.lod.clone(),
                 surface: self.surface,
-                max_reads: self.max_reads.max(1),
+                max_reads: self.max_reads,
             })
             .init_resource::<TerrainDebug>()
             .add_systems(Startup, create_materials)
@@ -519,18 +543,7 @@ mod tests {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             16,
         )));
-        let plugin = TerrainPlugin {
-            lod: Lod::new(
-                64.0,
-                vec![
-                    procgena_core::LodLevel::new(0.0, 0.1, ()),
-                    procgena_core::LodLevel::new(96.0, 0.1, ()),
-                    procgena_core::LodLevel::new(192.0, 0.1, ()),
-                ],
-            )
-            .with_cull(300.0),
-            ..TerrainPlugin::default()
-        };
+        let plugin = TerrainPlugin::new(chunk_lod(300.0)).unwrap();
         // Only the streaming, not the material plugin, which needs a
         // renderer.
         app.insert_resource(TerrainSettings {
@@ -560,6 +573,20 @@ mod tests {
             }
         }
         panic!("the terrain did not settle in {frames} frames");
+    }
+
+    #[test]
+    fn invalid_levels_are_refused_when_the_plugin_is_made() {
+        let lod = TerrainPlugin::default().lod().clone();
+        assert_eq!(lod.cull_distance, Some(DEFAULT_VIEW_DISTANCE));
+        // A view distance inside the last level's switching band.
+        let mut short = chunk_lod(6000.0);
+        short.cull_distance = Some(4000.0);
+        assert!(TerrainPlugin::new(short).is_err());
+        let mut endless = chunk_lod(6000.0);
+        endless.cull_distance = None;
+        assert!(TerrainPlugin::new(endless).is_err());
+        assert!(TerrainPlugin::new(chunk_lod(4000.0)).is_ok());
     }
 
     #[test]

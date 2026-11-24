@@ -39,7 +39,7 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
 use procgena_terrain::{
-    Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions, default_chunk_lod,
+    Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions, chunk_lod,
 };
 use procgena_terrain_bevy::{
     TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream, TerrainViewer, TerrainWater,
@@ -127,10 +127,7 @@ fn main() {
     let target = on_ground(vector("--target").unwrap_or(Vec3::new(900.0, 0.0, -300.0)));
 
     let view: f32 = value("--view").map_or(4000.0, |v| v.parse().expect("--view needs a number"));
-    let plugin = TerrainPlugin {
-        lod: default_chunk_lod().with_cull(view),
-        ..TerrainPlugin::default()
-    };
+    let plugin = TerrainPlugin::new(chunk_lod(view)).expect("--view needs a positive distance");
 
     // With `--headless`, run without a window on a fixed 60 Hz loop.
     let headless = has("--headless");
