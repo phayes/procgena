@@ -129,6 +129,7 @@ macro_rules! ecotope_file {
 procgena_core::catalogue! {
     EcotopePreset {
         ecotope: Ecotope,
+        references: super::file::REFERENCES,
         check: |ecotope| ecotope.validate().map_err(|error| error.to_string()),
     }
     "Forest" {

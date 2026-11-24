@@ -59,6 +59,7 @@ macro_rules! scatter_file {
 procgena_core::catalogue! {
     TreeScatterPreset {
         tree_scatter: TreeScatter,
+        references: super::file::REFERENCES,
         check: |scatter| scatter.validate().map_err(|error| error.to_string()),
     }
     "Woodland" {

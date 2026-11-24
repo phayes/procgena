@@ -1,7 +1,10 @@
 //! How a [`ScatterTree`] is written in a `.tree_scatter.yml` file.
 
 use procgena_core::ChildKey;
-use procgena_core::preset::{from_value, merge, to_value};
+use procgena_core::preset::{
+    PresetFileError, ReferenceSlot, References, Registry, expand_slot, from_value, merge,
+    slot_reference, to_value,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
@@ -125,6 +128,72 @@ impl TryFrom<ScatterTreeFile> for ScatterTree {
                 .unwrap_or_else(|| stand.and_then(|stand| stand.max_slope)),
         })
     }
+}
+
+/// How a tree Scatter's settings refer to tree presets: each species'
+/// `tree`. Also used for the tree Scatters inside an Ecotope.
+pub(crate) const REFERENCES: References = References {
+    slots: tree_slots,
+    expand: expand_trees,
+};
+
+/// The tree preset references in a tree Scatter's settings, at
+/// `trees.<i>.tree`.
+fn tree_slots(settings: &Value) -> Vec<ReferenceSlot> {
+    let Some(Value::Array(trees)) = settings.get("trees") else {
+        return Vec::new();
+    };
+    trees
+        .iter()
+        .enumerate()
+        .filter_map(|(i, species)| {
+            Some(ReferenceSlot {
+                path: format!("trees.{i}.tree"),
+                kind: "tree",
+                reference: slot_reference(species.get("tree")?)?.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Replaces each species' tree reference with the tree's settings, and
+/// writes out what the species took from the preset when it left it out:
+/// its key, and its density, spacing and steepest slope from the preset's
+/// stand. The species then reads the same as with the reference.
+fn expand_trees(settings: &mut Value, registry: &Registry) -> Result<(), PresetFileError> {
+    let Some(Value::Array(trees)) = settings.get_mut("trees") else {
+        return Ok(());
+    };
+    for (i, species) in trees.iter_mut().enumerate() {
+        let Value::Object(species) = species else {
+            continue;
+        };
+        let Some(slot) = species.get_mut("tree") else {
+            continue;
+        };
+
+        // The tree's settings in place of its reference.
+        let Some(preset) = expand_slot::<TreePreset>(slot, registry)
+            .map_err(|error| error.at(&format!("trees.{i}.tree")))?
+        else {
+            continue;
+        };
+
+        // What the species takes from the preset.
+        let mut default = |field: &str, value: Value| {
+            species.entry(field).or_insert(value);
+        };
+        default("key", Value::String(preset.key.to_string()));
+        if let Some(stand) = preset.stand {
+            default("density", Value::from(stand.density));
+            default("spacing", Value::from(stand.spacing));
+            default(
+                "max_slope",
+                stand.max_slope.map_or(Value::Null, Value::from),
+            );
+        }
+    }
+    Ok(())
 }
 
 impl From<ScatterTree> for ScatterTreeFile {

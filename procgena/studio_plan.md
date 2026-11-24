@@ -37,8 +37,8 @@ the "Studio track".
   base, and options. Every edit is `(path, old, new)` at a dotted serde
   path such as `branch.length.0`, the same paths that today's studio
   specs use and that `preset::diff` and `merge` write. Undo and redo,
-  unsaved state, "differs from base", "reset to base", save, the
-  comment-keeping update and "used by" are all built on it.
+  unsaved state, "differs from base", "reset to base", save, update
+  and "used by" are all built on it.
 - **Metadata is YAML beside each crate's presets** (decided):
   `<kind>.meta.yml` gives each setting its label, description, unit,
   range, step, scale, the **part** it targets (branch, leaf, fruit,
@@ -55,11 +55,17 @@ the "Studio track".
   can be the `base` of other user presets, and Scatters and Ecotopes can
   refer to them by key. Built-in presets only offer "Save as new"; user
   presets offer "Update" too.
-- **"Update" keeps hand-written comments** (decided): saving patches the
-  changed settings in place with `yamlpatch` + `yamlpath` (MIT, 1.x),
-  inserting and removing keys as well as replacing values; new files are
-  written whole. A spike at the start of ST2 confirms the crate can do
-  this.
+- **Saving rewrites the whole file, for now** (user decision,
+  2026-11-24, replacing "Update keeps comments"): Update writes the file
+  again through serde as `base` plus differences, in a stable key order,
+  so diffs stay small. Hand-written comments and layout are lost on
+  Update. Keeping them is a long-term goal (see decision 5).
+- **Namespaced keys** (user decision, 2026-11-24): every layer has a
+  namespace, `builtin` for the built-in presets and the project's id
+  from its `procgena.yml` (later a bundle's id), as in
+  `builtin:pine_small` or `my_forest:pine_small`. A bare key works while
+  only one layer has it; a key in two layers is a problem, fixed by
+  writing the namespace. `builtin` is reserved.
 - **Editing in context edits the referenced preset** (decided). Click a
   pine in an Ecotope and you edit the pine preset, with its "used by"
   list in view. A built-in pine offers "Save as new", then offers to
@@ -136,18 +142,27 @@ Made by the user on 2026-11-24 in this planning session.
    `textures/` with its `textures.yml`, and an ignored `.cache/`. A
    default project in the user's Documents folder on first run. User
    presets can be the base of other user presets.
-5. **Updating a preset keeps comments,** with `yamlpatch` + `yamlpath`
-   (MIT, v1.33, about 460k and 770k downloads on crates.io on
-   2026-11-24). Chosen over `yaml-edit` (reported to misplace comments),
-   `noyalib` (0.0.x) and our own line patcher. The crates' abilities,
-   their origin (the zizmor project) and a third-party comparison that
-   found them round-tripping files exactly come from search results, not
-   from reading their code: **ST2 starts with a spike** that replaces a
-   value, inserts a missing nested key (most updates do, since files
-   hold only differences from their base) and removes one (reset to
-   base) in a commented preset file. If it fails, the fallback is
-   `yaml-edit`, then our own patcher; the worker asks the user before
-   switching.
+5. **Saving a preset rewrites its file; keeping comments is a long-term
+   goal** (user decision, 2026-11-24, replacing the earlier choice of
+   `yamlpatch` + `yamlpath`). Update writes the whole file through serde,
+   deterministically: `base`, `name`, `description`, `group`, then only
+   the settings that differ from the base, in the options' declared
+   order. Comments and hand layout are lost, and the studio and the docs
+   say so. No dependency and no patcher are added now. The ST2 spike's
+   findings, kept as input for the later goal:
+
+   | | `yamlpatch` + `yamlpath` | `yaml-edit` | Own patcher on `granit-parser` |
+   |---|---|---|---|
+   | Version, licence | 1.33.1, MIT | 0.3.6, Apache-2.0 | 2.2.0, MIT or Apache-2.0 |
+   | Downloads (all / recent) | 463k / 211k and 774k / 292k | 371k / 305k | 19.5M / 16.9M |
+   | Already in the tree | No | No | Yes, through `serde-saphyr` 2.2 |
+   | New crates in `Cargo.lock` | About 11, including `tree-sitter`, `tree-sitter-yaml`, `yaml_serde` and `libyaml-rs` | About 4, through `rowan` | None |
+   | Build | Two C builds through `cc`; two more YAML parsers | Pure Rust | Pure Rust |
+   | Wasm | Needs a C toolchain for `wasm32-unknown-unknown` (unverified) | Likely fine | Fine |
+   | Notes | zizmor project, active; abilities from search results only | Reported to misplace comments | 300–400 lines of our own; block-style maps only; spans not yet tried in a scratch build |
+
+   Figures from crates.io on 2026-11-24. Whoever takes up the goal runs
+   the replace / insert nested key / remove spike first.
 6. **Thumbnails are cached, not committed.** Keyed by content hash under
    the project's `.cache/`. (Whether built-in presets' thumbnails ship
    pre-rendered is open question 4.)
@@ -197,9 +212,6 @@ Made by the user on 2026-11-24 in this planning session.
   registry, documents as identity and `Selection { document, node, part }`
   are built as ST0 (see "ST0 as built").
 - The metadata file's exact shape and its "shown if" language.
-- The runtime preset registry in `procgena_core::preset`, and changing
-  `Preset::from_parts`, `read` and the `catalogue!` macro from
-  `&'static` presets to a `PresetRef` (see "Staging" for its cost).
 - The capture service in `procgena_core_bevy`, with the impostor bake on
   top (open question 5).
 - Replacing the compile-time texture kind lists with catalogue lookups.
@@ -278,7 +290,7 @@ pub struct Edit { pub path: SettingPath, pub old: Value, pub new: Value }
   studio specs use today (`bark.texture_scale.x`, `branch.length.0`),
   plus `[i]` for list items and the child key for keyed maps
   (`scatters.pines.density_scale`). The metadata, the drift test, file
-  diffs, comment-keeping updates, undo and reset all use it.
+  diffs, updates, undo and reset all use it.
 - **Typed options come from the value.** After each edit the document
   rebuilds its kind's options with `from_value` and sends them to the
   scene. Options are small (a tree's is a few hundred values), so this
@@ -295,14 +307,14 @@ pub struct Edit { pub path: SettingPath, pub old: Value, pub new: Value }
   gives the set of changed paths; the Inspector marks them, and reset
   writes the base's value back as an ordinary edit.
 - **Save.** A built-in preset offers only "Save as new". A project preset
-  offers "Update" and "Save as new" (write a new file over the same base
-  with today's `preset::write`). Update compares the file's differences
-  from its base before and after (`preset::diff`) and patches the file
-  in place with `yamlpatch`: replace a changed value, insert a newly
-  differing key under its group, remove a key that now matches the base.
-  Comments and layout outside the touched keys are kept. A list or a
-  group whose `kind` changed is replaced as one subtree, since the file
-  format replaces those whole anyway.
+  offers "Update" and "Save as new" (write a new file over the same base).
+  Both write the whole file: its `base` and name parts, then the
+  settings that differ from the base (`preset::diff`) in a stable order.
+  Comments and layout in an updated file are lost (decision 5).
+  References to other presets are written as keys, as the document holds
+  them. A key another project preset has is refused. A built-in
+  preset's key is allowed, though it makes bare references to it
+  ambiguous, so the dialog proposes a free key such as `pine_small_2`.
 - **Several documents open at once,** for editing in context: opening a
   pine from an Ecotope opens the pine's document as well, and the Outline
   shows it under the Ecotope. Saving one never saves another.
@@ -443,7 +455,7 @@ rules, the worker asks before using a script to draft it.
 
 ```
 my_project/
-  procgena.yml                  # project name, format version
+  procgena.yml                  # format: 1, id (the namespace), name
   presets/
     tree/        tall_pine.tree.yml
     tree_scatter/ pine_belt.tree_scatter.yml
@@ -468,28 +480,45 @@ my_project/
 
 ### The registry
 
-`procgena_core::preset` gains a runtime registry (proposed, ST2):
+`procgena_core::preset::Registry` (built in ST2, additive):
 
 - **Layers:** the built-in catalogue (today's `&'static` presets) and
-  one project. Lookup by key goes project first, then built-in.
-- **Owned presets.** Project presets are owned (`Arc<P>`); built-in ones
-  stay `&'static`. Code that holds `&'static XPreset` today (every studio
-  editor, `Preset::from_parts`' `base: Option<&'static Self>`, `read`'s
-  built-in-only `base`) moves to a `PresetRef` that can be either.
+  one project. `Registry::register::<P>()` adds a kind;
+  `load_folder(presets)` reads `presets/<kind>/<key>.<kind>.yml`,
+  reporting and skipping misplaced files, unknown kind folders, bad keys
+  and unreadable files.
+- **Owned presets.** `resolve::<P>(key)` returns a `PresetRef<P>`:
+  `&'static` for a built-in, `Arc<P>` for a project preset. `Preset`,
+  `from_parts`, `read` and `catalogue!` keep `&'static`: a project
+  preset's inherited fields (such as a tree's stand) come from the
+  built-in preset at the root of its `base` chain, since files can't set
+  them. The workspace-wide move to `PresetRef` (stage a′) is not needed.
 - **User bases.** A file's `base` may name a project preset; the chain is
-  resolved in dependency order, and a cycle is an error naming the files.
-- **References resolve through the registry.** Scatter and Ecotope files
-  refer to asset presets by key (`tree: pine_small` in
-  `pine_forest_floor.ecotope.yml`); today they call `TreePreset::named`
-  (`procgena_tree/src/scatter/file.rs`, `procgena_biome/src/ecotope/file.rs`,
-  `procgena_biome/src/biome.rs` for the Terrain). They take a resolver
-  instead, so a project Ecotope can use a project tree. Built-in presets
-  may refer only to built-in presets.
-- **Used by.** The registry indexes references (from the metadata's `ref`
-  fields), so "used by" answers for any preset, and renaming a key offers
-  to update every reference.
-- **Key clashes** between a project preset and a built-in one are a
-  problem shown in the Problems panel (proposed; see "Open questions").
+  laid from its root, and a loop is an error naming the chain.
+- **References resolve through the registry.** A kind whose settings
+  name other presets by key gives a `References` (`Preset::references`,
+  `references:` in `catalogue!`): where its references are, and how to
+  replace them with the settings they name before reading. The tree
+  Scatter and the Ecotope have them; the Biome's Terrain waits for
+  `.biome.yml` files (B1, W0). Built-in presets refer only to built-in
+  presets. Reading without a registry is unchanged.
+- **Used by.** `used_by(kind, key)` lists presets that use a preset as
+  their `base` or refer to it, with the setting's path. ST1's metadata
+  `ref` fields can replace the per-kind slot lists later.
+- **Namespaced keys** (user decision, 2026-11-24). A reference is a bare
+  key or `namespace:key`, read by one function (`Reference::parse`). The
+  namespaces are `builtin` and the project's `id` from `procgena.yml`
+  (`Registry::set_namespace`); later each bundle's id. A bare key in more
+  than one layer is an `Ambiguous` error naming the qualified choices,
+  and `problems()` lists every shared key, including one a newer
+  procgena's built-ins introduce, so nothing silently changes meaning.
+  Writing the namespace fixes it; the rename dialog is a convenience.
+  The namespace is never part of a preset's key, so it never reaches
+  child keys or seeds. `builtin`, and any id that isn't a valid key, is
+  refused when `procgena.yml` is read or a project is made. Two loaded
+  layers can't share a namespace: today the only case is a project named
+  `builtin`; when bundles are mounted, a bundle whose id is already
+  loaded is refused with a problem and not loaded.
 
 ## Outline and selection
 
@@ -871,7 +900,7 @@ own folders.
 - **Covers:** the runtime registry with owned presets, user bases and
   resolvers for references (tree Scatter, Ecotope and Biome files); the
   project folder, `procgena.yml`, the default project; Save as new and
-  Update with `yamlpatch` + `yamlpath`; undo and redo, unsaved state,
+  Update, both writing whole files (decision 5); undo and redo, unsaved state,
   differs from base and reset; outside-edit reload; autosave; "used by".
 - **Needs:** ST0 for the studio half. The core half has two parts with
   different costs:
@@ -883,14 +912,13 @@ own folders.
     `&'static` presets to `PresetRef` touches every generator crate and
     rebuilds the workspace. It runs alone, batched with any other change
     to `procgena_core::preset` waiting at the time, and is skipped if the
-    additive form proves enough.
-  - The new dependency goes through the coordinator first (root
-    `Cargo.toml`, `Cargo.lock`, `deny.toml`).
+    additive form proves enough. **Skipped:** the additive form was
+    enough (2026-11-24).
 - **Done when:** a headless script saves a built-in pine as
   `tall_pine`, makes `taller_pine` over it, puts it in a project
   Ecotope, updates `tall_pine` three ways (a changed value, a newly
-  differing nested setting, a setting reset to its base) and finds its
-  hand-written comments kept each time, undoes and redoes, and reopens
+  differing nested setting, a setting reset to its base) and finds each
+  written as `base` plus differences, undoes and redoes, and reopens
   the project to the same result.
 
 ### ST3: Library, Outline and selection
@@ -1061,10 +1089,11 @@ or host interface is planned for it, and ST0–ST9 are unchanged.
 
 ## Open questions
 
-1. **Key clashes.** A project preset with the same key as a built-in one:
-   an error (proposed), a warning with the project winning, or namespaced
-   keys (`project:tall_pine`)? Built-in catalogues grow over time, so a
-   clash can appear after an upgrade.
+1. **Key clashes.** *Decided by the user, 2026-11-24:* namespaced keys.
+   The namespaces are `builtin` (reserved) and the project's or bundle's
+   id, as in `builtin:pine_small` or `my_forest:pine_small`. Bare keys
+   work when only one layer has them; a shared key is a problem fixed by
+   writing the namespace, and the rename dialog is a convenience.
 2. **Metadata language.** Descriptions are English only for now. If the
    studio is ever translated, the metadata files are where the strings
    live; no i18n work is planned.

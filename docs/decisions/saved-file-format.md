@@ -38,10 +38,18 @@ question numbers.
 2. **Games keep today's loading; bundles are for the studio only for
    now** (Q2 deferred). The `procgena://` mount source and the `#label`
    loader are later options, not in the build plan.
-3. **Key clashes: qualify only when ambiguous** (Q3 a). With bundles not
-   mounted beside a project, this now governs clashes between project
-   presets and built-ins (studio_plan.md open question 1), and Import
-   conflicts.
+3. **Namespaced keys, written only when needed** (user decision,
+   2026-11-24, refining Q3 a). Every layer has a namespace: `builtin` for
+   the built-in presets, and the project's or bundle's own `id` from its
+   `procgena.yml`, as in `builtin:pine_small`, `foo:pine_small` or
+   `alpine_pack:pine_small`. There is no generic `project:` or `bundle:`
+   prefix. A bare key works when only one layer has it; a key in two or
+   more layers is a problem, fixed by writing the namespace. The rename
+   dialog is a convenience, not a requirement. The namespace is never part
+   of a preset's key, so it never reaches child keys or seeds. `builtin`
+   is reserved: a project or bundle whose id is `builtin` is refused when
+   its `procgena.yml` is read or the project is made. Two loaded layers
+   with the same id: the second is refused with a problem and not loaded.
 4. **No entry list in the manifest** (Q4 a).
 5. **Export has a checkbox to flatten built-in bases,** off by default:
    files keep `base` (Q5 c).
@@ -366,10 +374,9 @@ which only the deferred mount source would give. That is question 1.
      used. Presets are compared as settings trees after parsing, so
      comments and layout don't count. Textures are compared by `blake3`.
    - **Same key, different content, or a built-in's key:** a conflict.
-     Under decision 3, a project preset with a built-in's key is a
-     problem to qualify, so Import avoids creating one. The qualifier's
-     syntax is ST2's to fix along with studio_plan.md's open question 1;
-     `builtin:<key>` is proposed. Each conflict offers:
+     Under decision 3 the key may stay shared, with references written as
+     `<bundle id>:<key>`, but renaming keeps bare references working.
+     Each conflict offers:
      - **Rename.** The default name is `<key>_<bundle id>`, which can be
        edited. Like every preset key, the new name must be a valid child
        key: `[a-z][a-z0-9_]*`, at most 32 bytes (`procgena_core::seed`).
@@ -380,17 +387,18 @@ which only the deferred mount source would give. That is question 1.
        first.
 3. **Rewrite references to renamed items** inside the imported files:
    `base:`, preset keys in Scatter, Ecotope and Biome files, and texture
-   ids. Edits go through `yamlpatch`, as ST2's Update does, so the
-   bundle's comments survive.
+   ids. Until comment-keeping edits exist (a long-term goal, user
+   decision 2026-11-24 in studio_plan.md decision 5), a rewritten file is
+   written whole like ST2's Update, and its comments are lost.
 4. **Keep seeds.** A tree Scatter species with no `key` takes its tree
    preset's key as its child key, and the child key salts its seed
    (`procgena_tree/src/scatter/file.rs`, `scatter.rs`; ARCHITECTURE.md
    "Seeds"). When Import renames that tree, it writes `key: <old key>`
    into the species entry, so the Scatter places exactly as it did in the
    bundle.
-   - **A new kind of edit.** Writing `key:` into an item of a list isn't
-     covered by ST2's `yamlpatch` spike (replace, insert a nested key,
-     remove), so PB3 starts with a spike of its own.
+   - **A new kind of edit.** Writing `key:` into an item of a list is
+     one more case for the comment-keeping goal to cover, beside replace,
+     insert a nested key and remove.
    - **Only the tree Scatter needs this.** Every `ChildKey::new` call site
      was checked; the others build keys from map keys, fixed stems or
      numbered names:
@@ -515,9 +523,9 @@ don't run beside them.
 |---|---|---|---|
 | **PB1: container and crate** | `procgena_bundle`: choose the zip code (decision 11); the profile writer and the strict reader; path rules and limits; `procgena.yml`; `unpack`. A spike first on `serde_saphyr`'s alias limits. Fuzz the reader. | Question 3; a dependency, if one is chosen, through the coordinator | Tests write a folder and read it back from the file and from the folder with equal results, with every data offset a multiple of 64. They reject the hostile corpus with the right messages: traversal, symlink, duplicate, gap, overlap, mismatched headers, DEFLATE, zip64, data descriptor, comment, wrong `format`. The interop test opens a written bundle with `unzip -t`, Python's `zipfile`, Archive Utility and Explorer. |
 | **PB2: Export** | The closure walk, the export dialog, the manifest from the project's `procgena.yml`, flattening, thumbnails | PB1; ST2 (registry, "used by"); ST1's `ref` metadata; ST8's export panel for the dialog | A headless script exports a project Ecotope and gets a bundle holding exactly its project presets, with no built-ins. Biome roots wait for `.biome.yml` files (B1/W0). |
-| **PB3: Open and Import** | Open by unpacking; Import with the plan, conflicts, renames through `yamlpatch`, and seed-keeping `key` lines | PB1; ST2 (registry, Update's `yamlpatch`); ST3 (Library) | A headless script imports a bundle whose tree clashes with a project tree. Import renames it, the imported Scatter places the same copies as in the bundle, and the comments survive. |
+| **PB3: Open and Import** | Open by unpacking; Import with the plan, conflicts (rename, or keep the key and write namespaced references), renames with files rewritten whole, and seed-keeping `key` lines | PB1; ST2 (registry, namespaces, rename dialog); ST3 (Library) | A headless script imports a bundle whose tree clashes with a project tree. Import renames it, and the imported Scatter places the same copies as in the bundle. |
 | **PB4: textures** | Texture ids in the closure; the bundle's `textures.yml` merged on Import and Open; KTX2 sizes on Export | PB2, PB3; ST6 (catalogue, `ctt`) | A bundle's bark draws in another project at 128 px with no other size present |
-| **Later** | Mount source or `#label` loader for games; HTTP range reading; wasm; bundles that require other bundles, with `bundle:key` references; models in `MeshScatter`; a `procgena bundle pack` command | Decisions 2 and 9 revisited; `MeshScatter` | — |
+| **Later** | Mount source or `#label` loader for games; HTTP range reading; wasm; bundles that require other bundles (keys stay unique across them, decision 3); models in `MeshScatter`; a `procgena bundle pack` command | Decisions 2 and 9 revisited; `MeshScatter` | — |
 
 ## Effects on other documents
 

@@ -1419,7 +1419,7 @@ Each rule says what every asset does, and which crates have to change.
     level uses the same shape, so a Scatter, Ecotope or Biome preset reads
     like an asset preset. Every file is YAML, named
     `.<kind>.yml` (`.tree.yml`, `.stone.yml`, `.mushroom.yml` and so on), so
-    people can comment their presets. Files hold a `base` preset plus only
+    people can read and hand-edit their presets. Files hold a `base` preset plus only
     what differs. Serde on every public options type, Scatter options
     included. `default_seed` in every preset.
     - The shared code is `procgena_core::preset`: the `Preset` trait, the
@@ -1435,6 +1435,26 @@ Each rule says what every asset does, and which crates have to change.
       Scatter, stone, deadwood, mushroom, clump and terrain. Biome presets
       have the shape but no files yet: `Biome` has no serde until B1/W0.
       Stone, stick and mushroom Scatters have serde but no presets yet.
+    - **Writing is lossy for now** (user decision, 2026-11-24): saving
+      rewrites the whole file as `base` plus differences, in a stable
+      order, so hand-written comments and layout in an updated file are
+      lost. Keeping them is a long-term goal (`procgena/studio_plan.md`,
+      decision 5).
+    - **The registry** (`procgena_core::preset::Registry`, ST2): the
+      built-in catalogues of every registered kind, with a project's
+      files (`presets/<kind>/<key>.<kind>.yml`) over them. A project
+      preset may name another as its `base` (a loop is an error), and a
+      kind whose settings name other presets by key (tree Scatter,
+      Ecotope) gives a `References` through `catalogue!`'s `references:`,
+      so those references resolve through the registry. Built-in presets
+      refer only to built-in presets. The registry answers "used by".
+    - **Namespaced keys** (user decision, 2026-11-24): every layer has a
+      namespace, `builtin` (reserved) for the built-in presets and the
+      project's or bundle's `id` from its `procgena.yml`. References are
+      bare keys while only one layer has the key, and `namespace:key`
+      (`builtin:pine_small`, `my_forest:pine_small`) otherwise; a shared
+      key is reported as a problem. The namespace is never part of a
+      preset's key, so it never reaches child keys or seeds.
 11. **Export everywhere.** Every asset and every Scatter exports OBJ and
     glTF from its CPU path.
     - Change: plant and clump; Scatters as a whole.
