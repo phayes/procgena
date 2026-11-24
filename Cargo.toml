@@ -22,7 +22,8 @@ members = [
     "tree/crates/procgena_tree",
     "tree/crates/procgena_tree_bevy",
     "world/crates/procgena_world",
-    "plant",
+    "plant/crates/procgena_plant",
+    "plant/crates/procgena_plant_bevy",
     "plant/web",
     "procgena",
 ]

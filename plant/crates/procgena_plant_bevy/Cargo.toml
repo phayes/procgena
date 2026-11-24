@@ -1,0 +1,151 @@
+[package]
+name = "procgena_plant_bevy"
+description = "Grass and foliage for Bevy 3D games: lush fields that sway in the wind and bend where players walk."
+version = "0.20.6"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
+# Not publishable while it depends on procgena_core, which isn't on
+# crates.io. Decide how to release both before the next plant release.
+publish = false
+readme = "../../README.md"
+keywords = ["bevy", "grass", "foliage", "gamedev", "rendering"]
+categories = ["game-development", "rendering"]
+# What a crates.io package leaves out: the golden images (the machine-specific
+# ones are no use to anyone else).
+exclude = ["/tests/golden/"]
+
+# Any Bevy 0.20.x (patch releases do not break the render internals this crate
+# touches; a game that wants exactly 0.20.0 pins it in its own Cargo.toml and
+# Cargo picks that for both). The feature list is a strict
+# subset of DEMO ARPG GAME's, so adding this crate never changes how Bevy is compiled
+# for the game (a Bevy feature change costs DEMO ARPG GAME a full Bevy rebuild).
+[dependencies]
+bevy = { version = "0.20", default-features = false, features = [
+  "std",
+  "bevy_asset",
+  "bevy_log",
+  "bevy_render",
+  "bevy_core_pipeline",
+  "bevy_pbr",
+] }
+# Already in Bevy's dependency tree; used only through its safe API
+# (`cast_slice`), so the crate stays `forbid(unsafe_code)`.
+bytemuck = "1"
+# The engine-free settings, presets and files, with Bevy's `Reflect` on
+# them so scenes and inspectors can edit grass.
+procgena_plant = { path = "../procgena_plant", features = ["reflect"] }
+# `PresetFileError`, re-exported for `PlantFileError::File`.
+procgena_core = { path = "../../../core/crates/procgena_core" }
+# Optional physics bridges. `default-features = false` is deliberate: the
+# engines' defaults turn on `bevy_gizmos`, `bevy_picking` and other Bevy
+# features, and adding this crate must never change how Bevy is compiled for
+# the game. Each must be the version the game uses: with another, Cargo
+# builds two copies and the bridge cannot see the game's colliders, so a
+# bump here is a breaking change for procgena_plant.
+bevy_rapier3d = { version = "0.37", optional = true, default-features = false, features = [
+  "dim3",
+] }
+# `parry-f32` is Avian's collider type; `3d` is its 3D build.
+avian3d = { version = "0.8", optional = true, default-features = false, features = [
+  "3d",
+  "parry-f32",
+] }
+
+[features]
+# `PlantDebugPlugin`: gizmos for fields, chunks, interactors and trample
+# windows. It needs `bevy_gizmos`, which a game using `DefaultPlugins` has
+# already, so it is off by default: adding this crate must never change how
+# Bevy is compiled.
+debug = ["bevy/bevy_gizmos"]
+# `PlantInteractorFromCollider` for `bevy_rapier3d` colliders. 3D only;
+# grass is 3D.
+rapier = ["dep:bevy_rapier3d"]
+# `PlantInteractorFromCollider` for `avian3d` colliders. Both can be on.
+avian = ["dep:avian3d"]
+
+[dev-dependencies]
+# The crate's own tests cover the debug plugin too.
+procgena_plant_bevy = { path = ".", features = ["debug"] }
+# The reflection tests write components as text and read them back, the way
+# a scene file does.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bevy = { version = "0.20", default-features = false, features = [
+  "3d",
+  "tonemapping_luts",
+  "free_camera",
+  # The showcase example writes each preset's name on the screen.
+  "ui",
+  "default_font",
+] }
+# The golden-image check reads and writes PNGs; the version Bevy uses.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# The examples reload `.plant_scatter.yml` files when they are saved. Bevy's file
+# watcher is a `compile_error!` on wasm, so it is native only.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+bevy = { version = "0.20", default-features = false, features = ["file_watcher"] }
+# Property tests: invariants across hundreds of random inputs per run. Native
+# only: proptest's `rand` needs getrandom's `wasm_js` on wasm, and its `fork`
+# feature pulls in wait-timeout, which has no wasm32 build.
+proptest = "1"
+
+# In the browser the examples render through WebGPU; `webgpu` overrides the
+# `webgl2` that `3d` turns on, and the crate does not support WebGL2.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+bevy = { version = "0.20", default-features = false, features = ["webgpu"] }
+# The examples read their flags from the page's query string. Already in
+# Bevy's tree on wasm (winit and bevy_app use it).
+web-sys = { version = "0.3", features = ["Window", "Location"] }
+
+[[example]]
+name = "rapier"
+path = "examples/rapier.rs"
+required-features = ["rapier"]
+
+[[example]]
+name = "rapier_minimal"
+path = "examples/rapier_minimal.rs"
+required-features = ["rapier"]
+
+[[example]]
+name = "avian"
+path = "examples/avian.rs"
+required-features = ["avian"]
+
+[[example]]
+name = "avian_minimal"
+path = "examples/avian_minimal.rs"
+required-features = ["avian"]
+
+# docs.rs documents the optional debug and physics integrations too.
+[package.metadata.docs.rs]
+features = ["debug", "rapier", "avian"]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+missing_docs = "warn"
+
+# DEMO ARPG GAME's workspace lint table, so the crate can be read and reviewed with
+# the same rules as the game that uses it.
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Graphics math: bounded f32/integer conversions and exact float comparisons
+# are intentional, and the CPU mirror must match the shaders bit for bit.
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+float_cmp = "allow"
+
+# Bevy systems receive resources, commands and queries by value.
+needless_pass_by_value = "allow"
+# Settings and plant looks are naturally boolean-heavy.
+struct_excessive_bools = "allow"

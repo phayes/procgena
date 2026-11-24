@@ -9,7 +9,7 @@ use std::fmt::Write as _;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use bevy::prelude::*;
-use procgena_plant::prelude::*;
+use procgena_plant_bevy::prelude::*;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::tune::{self, TuneEdit, Tuning};
@@ -140,7 +140,7 @@ pub fn remove_plant(index: usize) {
 /// readable error on failure; successful imports are applied on the next frame.
 #[wasm_bindgen]
 pub fn import_scatter(yaml: &str) -> String {
-    match PlantScatter::from_yaml(yaml) {
+    match PlantScatterOptions::from_yaml(yaml) {
         Ok(scatter) => {
             shared().edits.push(TuneEdit::Scatter(Box::new(scatter)));
             String::new()

@@ -3,8 +3,8 @@
 use bevy::feathers::display::label_small;
 use bevy::prelude::*;
 use bevy::scene::Scene;
-use procgena_plant::MAX_PLANTS;
-use procgena_plant::prelude::PlantSettings;
+use procgena_plant_bevy::MAX_PLANTS;
+use procgena_plant_bevy::prelude::PlantSettings;
 use procgena_terrain::{FeatureTier, RegionStage};
 use procgena_terrain_bevy::TerrainProgress;
 
@@ -260,7 +260,7 @@ pub fn plants_line(state: &BuildState) -> (String, bool) {
     let (mut plants, mut vertices, mut triangles) = (0.0, 0.0, 0.0);
     let mut per_plant = None;
     for entry in field.plants.iter().take(MAX_PLANTS) {
-        let Some(size) = entry.plant.mesh_size(level, &shown.settings) else {
+        let Some(size) = shown.settings.mesh_size(&entry.plant, level) else {
             return ("Cannot draw this plant: too many branches".into(), true);
         };
         per_plant.get_or_insert(size);
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn the_plant_lines_show_one_plant_and_the_field_estimate() {
-        use procgena_plant::prelude::{PlantParams, PlantScatter, ScatterPlant};
+        use procgena_plant_bevy::prelude::{PlantParams, PlantScatterOptions, ScatterPlant};
 
         // A 10 m field of 2 unbranched blades per m², drawn at mid detail.
         let settings = PlantSettings::default();
@@ -633,11 +633,11 @@ mod tests {
             levels: [Default::default(), Default::default()],
             ..PlantParams::default()
         };
-        let size = blade.mesh_size(1, &settings).unwrap();
-        let field = PlantScatter {
+        let size = settings.mesh_size(&blade, 1).unwrap();
+        let field = PlantScatterOptions {
             plants: vec![ScatterPlant::new(blade)].into(),
             density_scale: 1.0,
-            ..PlantScatter::default()
+            ..PlantScatterOptions::default()
         };
         let state = BuildState {
             plants: PlantsShown {

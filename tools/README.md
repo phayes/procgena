@@ -92,7 +92,7 @@ opening comment explains its options.
 
 | Script | What it does |
 |--------|--------------|
-| `python tools/plant/lint.py` | Runs clippy with warnings as errors for each of procgena_plant's feature sets and for the web demo. |
+| `python tools/plant/lint.py` | Runs clippy with warnings as errors for each feature set of procgena_plant and procgena_plant_bevy, and for the web demo. |
 | `python tools/plant/bench_ab.py` | Paired A/B benchmark runs of the `bench` example. |
 | `python tools/plant/bench_240.py` | The 240 Hz frame-time gate, on a machine listed in `tools/plant/reference-machines.json`. |
 | `python tools/plant/web_demo.py` | Builds, serves and smoke-tests the hosted web demo (`plant/web/`). |

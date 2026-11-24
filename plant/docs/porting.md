@@ -1,12 +1,13 @@
 # Porting to a new Bevy
 
-Every place procgena_plant touches Bevy's renderer, and how to port it. A Bevy
-minor release changes render internals nearly every time; the rest of the
-crate (fields, styles, editing, trampling, wind, the physics bridges) uses
-Bevy's ECS, assets and maths, which change far less. The list is short on
-purpose: render code outside these files is a bug in the layering, and the
-files here hide Bevy's details from the rest
-([Production cleanup](proposals/prod-cleanup.md) has why).
+Every place procgena_plant_bevy touches Bevy's renderer, and how to port it.
+The paths below are in `plant/crates/procgena_plant_bevy/`; the engine-free
+`procgena_plant` uses no Bevy, apart from `bevy_reflect` behind its
+`reflect` feature. A Bevy minor release changes render internals nearly
+every time; the rest of the crate (fields, editing, trampling, wind, the
+physics bridges) uses Bevy's ECS, assets and maths, which change far less.
+The list is short on purpose: render code outside these files is a bug in
+the layering, and the files here hide Bevy's details from the rest.
 
 ## The touch points
 

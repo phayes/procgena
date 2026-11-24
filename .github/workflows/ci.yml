@@ -13,11 +13,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# These jobs check procgena_plant only: cargo run from its folder picks that
-# package. Artifact paths are relative to the repository root.
+# These jobs check the plant crates only: cargo run from the Bevy crate's
+# folder picks procgena_plant_bevy, and `-p procgena_plant` names the
+# engine-free crate. Artifact paths are relative to the repository root.
 defaults:
   run:
-    working-directory: plant
+    working-directory: plant/crates/procgena_plant_bevy
 
 jobs:
   check:
@@ -39,17 +40,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
-      - run: cargo fmt --check
+      - run: cargo fmt --check -p procgena_plant -p procgena_plant_bevy
       # Clippy, warnings as errors, per feature set: see tools/plant/lint.py.
-      - run: python ../tools/plant/lint.py
+      - run: python ../../../tools/plant/lint.py
+      - run: cargo test -p procgena_plant
+      # The engine-free crate must build without Bevy's reflection too.
+      - run: cargo check -p procgena_plant --no-default-features
       - run: cargo test
       - run: cargo test --features rapier
       - run: cargo test --features avian
       # The bench's budget/percentile tests live in the example, which the
       # plain `cargo test` does not run.
       - run: cargo test --example bench
-      - run: python -m py_compile ../tools/plant/bench_240.py
-      - run: cargo doc --no-deps --all-features
+      - run: python -m py_compile ../../../tools/plant/bench_240.py
+      - run: cargo doc --no-deps --all-features -p procgena_plant -p procgena_plant_bevy
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -84,7 +88,7 @@ jobs:
       - run: cargo check --target wasm32-unknown-unknown --lib --examples
       # The demo's calls from the page exist only on wasm.
       - run: cargo clippy -p procgena_plant_web --target wasm32-unknown-unknown -- -D warnings
-      - run: python -m py_compile ../tools/plant/web_demo.py
+      - run: python -m py_compile ../../../tools/plant/web_demo.py
 
   msrv:
     runs-on: ubuntu-latest
@@ -143,7 +147,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
-          path: plant/coverage/
+          path: plant/crates/procgena_plant_bevy/coverage/
 
   # Every preset rendered headless by a software rasterizer, which draws the
   # same on every machine, and compared with tests/golden/<renderer>/. The
@@ -184,7 +188,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: golden-${{ matrix.os }}
-          path: plant/target/golden/
+          path: plant/crates/procgena_plant_bevy/target/golden/
 
   # Re-bless the Linux goldens on the same pinned runner and driver as the
   # check. Run this from the Actions tab (Run workflow, tick bless_goldens),
@@ -211,4 +215,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: golden-bless-llvmpipe
-          path: plant/tests/golden/llvmpipe-*/
+          path: plant/crates/procgena_plant_bevy/tests/golden/llvmpipe-*/

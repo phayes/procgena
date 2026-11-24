@@ -1,7 +1,7 @@
 //! Plants: one plant, from a `.plant.yml` preset, shown alone in a field.
 
 use bevy::prelude::*;
-use procgena_plant::prelude::{PlantParams, PlantPreset, PlantScatter, ScatterPlant};
+use procgena_plant_bevy::prelude::{PlantParams, PlantPreset, PlantScatterOptions, ScatterPlant};
 
 use super::{Kind, RegisterKind, entries};
 use crate::params::ParamPanel;
@@ -43,7 +43,7 @@ fn show(world: &mut World, editor: Entity, document: u64) -> Option<Show> {
 
 /// `field` with `plant` as its only plant, at the plant's natural plants per
 /// square metre, keeping the field's other shared settings.
-fn plant_alone(mut field: PlantScatter, plant: PlantParams) -> FieldSettings {
+fn plant_alone(mut field: PlantScatterOptions, plant: PlantParams) -> FieldSettings {
     field.plants = vec![ScatterPlant::new(plant)].into();
     field.density_scale = 1.0;
     FieldSettings { field }
@@ -51,14 +51,14 @@ fn plant_alone(mut field: PlantScatter, plant: PlantParams) -> FieldSettings {
 
 #[cfg(test)]
 mod tests {
-    use procgena_plant::prelude::PlantScatterPreset;
+    use procgena_plant_bevy::prelude::PlantScatterPreset;
 
     use super::*;
     use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
     use crate::scene::ViewerCommand;
 
     /// The field in the last `Show` of plants among `commands`.
-    fn last_field(commands: &[ViewerCommand]) -> PlantScatter {
+    fn last_field(commands: &[ViewerCommand]) -> PlantScatterOptions {
         commands
             .iter()
             .rev()

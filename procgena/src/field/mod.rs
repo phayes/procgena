@@ -12,8 +12,8 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use procgena_core::preset::FILE_GROUP;
-use procgena_plant::prelude::{
-    PlantParams, PlantPreset, PlantScatter, PlantScatterPreset, ScatterPlant,
+use procgena_plant_bevy::prelude::{
+    PlantParams, PlantPreset, PlantScatterOptions, PlantScatterPreset, ScatterPlant,
 };
 
 use crate::export::{Done, file_key, shown_name, write_file};
@@ -69,8 +69,8 @@ pub fn row_statuses(densities: &[f32], field_scale: f32) -> Vec<RowStatus> {
 /// preset file. The result has size 0, flat ground and no density map.
 /// Returns a readable error if the text is not a Plant Scatter file or a
 /// setting is out of range.
-pub fn read_field(text: &str) -> Result<PlantScatter, String> {
-    PlantScatter::from_yaml(text).map_err(|error| format!("Not a Plant Scatter: {error}"))
+pub fn read_field(text: &str) -> Result<PlantScatterOptions, String> {
+    PlantScatterOptions::from_yaml(text).map_err(|error| format!("Not a Plant Scatter: {error}"))
 }
 
 /// Writes `field`'s plants and look to `path` as a `.plant_scatter.yml`
@@ -78,7 +78,7 @@ pub fn read_field(text: &str) -> Result<PlantScatter, String> {
 /// that differ from it. Size, ground and density map are not written. The
 /// file's name is its key, as [`file_key`] reads it.
 pub fn save_field_preset(
-    field: PlantScatter,
+    field: PlantScatterOptions,
     base: &PlantScatterPreset,
     path: &Path,
 ) -> Result<Done, String> {

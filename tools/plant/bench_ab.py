@@ -33,9 +33,10 @@ import sys
 import time
 
 # The Cargo workspace (procgena), which owns Cargo.lock and target/, and the
-# procgena_plant package in it. This script lives in <workspace>/tools/plant/.
+# procgena_plant_bevy package in it, whose examples this runs. This script
+# lives in <workspace>/tools/plant/.
 WORKSPACE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ROOT = os.path.join(WORKSPACE, "plant")
+ROOT = os.path.join(WORKSPACE, "plant", "crates", "procgena_plant_bevy")
 CARGO_TARGET = os.path.join(WORKSPACE, "target")
 EXE = ".exe" if os.name == "nt" else ""
 BENCH = os.path.join(CARGO_TARGET, "debug", "examples", "bench" + EXE)

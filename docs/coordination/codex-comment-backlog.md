@@ -399,8 +399,9 @@ The sub-agents' lists, file level:
   `biome/crates/procgena_biome/src/{biome,presets}.rs`
 - tree_bevy: `tree/crates/procgena_tree_bevy/src/{lib,spawn,scatter}.rs`,
   `src/scatter/*.rs`; its examples
-- plant: `plant/src/{files,api,look,lib}.rs`; `plant/src/presets/mod.rs`;
-  its examples; `plant/web`; `plant/Cargo.toml`
+- plant: `plant/crates/procgena_plant/src/{files,look,lib}.rs` and
+  `src/presets/mod.rs`; `plant/crates/procgena_plant_bevy/src/{api,lib}.rs`
+  and its examples; `plant/web`; both crates' `Cargo.toml`
 - studio: the tree, grove, plant and field tabs
   (`procgena/src/{tree,grove,plant,field}/`); `procgena/src/studio/`;
   `procgena/src/scene/`; `procgena/src/environment.rs`

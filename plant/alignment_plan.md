@@ -110,6 +110,17 @@ blades of the whole.
 
 ### P1: split into `procgena_plant` and `procgena_plant_bevy`
 
+- **Status (2026-11-24):** built.
+  - `PlantScatter` holds `options: PlantScatterOptions`, and colours are
+    `procgena_plant::Srgb` (a newtype, so inspectors and the web panel
+    still see a colour).
+  - Preset assets are the wrappers `PlantPresetAsset` and
+    `PlantScatterPresetAsset`, and `PlantSettings::mesh_size` replaces
+    `PlantParams::mesh_size`.
+  - The studio's Plant Scatter documents hold `PlantScatterOptions`.
+  - The 48 golden captures are byte-identical to the pre-split ones on the
+    same machine.
+
 - **Covers:** ARCHITECTURE "Plant alignment": the core/Bevy split, data
   half only.
   - The engine-free `procgena_plant` (`plant/crates/procgena_plant`, glam,

@@ -18,7 +18,7 @@ use bevy::reflect::enums::{DynamicEnum, DynamicVariant, VariantInfo};
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::reflect::tuple::DynamicTuple;
 use bevy::reflect::{ReflectMut, ReflectPath, ReflectRef, TypeInfo, TypeRegistry};
-use procgena_plant::prelude::*;
+use procgena_plant_bevy::prelude::*;
 
 use crate::{Meadow, QUALITIES};
 
@@ -84,7 +84,7 @@ pub(crate) enum TuneEdit {
     /// The field's plant at this index taken out.
     RemovePlant(usize),
     /// A Scatter read from a `.plant_scatter.yml` file.
-    Scatter(Box<PlantScatter>),
+    Scatter(Box<PlantScatterOptions>),
     /// The meadow's grass back as it grew, undoing the brush.
     RestoreField,
 }
@@ -167,8 +167,8 @@ pub(crate) fn apply_tuning(world: &mut World) {
             TuneEdit::RemovePlant(at) => {
                 outside = true;
                 edit_field(world, |field| {
-                    if at < field.plants.len() {
-                        field.plants.to_mut().remove(at);
+                    if at < field.options.plants.len() {
+                        field.options.plants.to_mut().remove(at);
                     }
                 })
             }
@@ -176,12 +176,7 @@ pub(crate) fn apply_tuning(world: &mut World) {
                 outside = true;
                 edit_field(world, |field| {
                     // Apply the file's appearance while preserving the preview's placement.
-                    *field = PlantScatter {
-                        size: field.size,
-                        ground: field.ground.clone(),
-                        density_map: field.density_map.clone(),
-                        ..*new
-                    };
+                    field.options = *new;
                 })
             }
             TuneEdit::RestoreField => {
@@ -240,7 +235,7 @@ fn write_tunables(world: &World, json: &mut String) {
             && let Some(scatter) = value.try_downcast_ref::<PlantScatter>()
         {
             json.push_str(",\"yaml\":");
-            write_string(&scatter.to_yaml(), json);
+            write_string(&scatter.options.to_yaml(), json);
         }
         json.push('}');
     }
@@ -249,16 +244,16 @@ fn write_tunables(world: &World, json: &mut String) {
 
 /// Applies an edit to the meadow's field component.
 /// Adds the plant preset named `key` to the meadow's field, before its last
-/// plant, unless the field already grows [`procgena_plant::MAX_PLANTS`].
+/// plant, unless the field already grows [`procgena_plant_bevy::MAX_PLANTS`].
 fn add_plant(world: &mut World, key: &str) -> Result<(), String> {
     let preset = PlantPreset::named(key).ok_or_else(|| format!("no plant {key}"))?;
     edit_field(world, |field| {
         // More plants would push the background plant out of the ones drawn.
-        if field.plants.len() >= procgena_plant::MAX_PLANTS {
+        if field.options.plants.len() >= procgena_plant_bevy::MAX_PLANTS {
             return;
         }
         // Keep the background plant last so it continues to fill the gaps.
-        let plants = field.plants.to_mut();
+        let plants = field.options.plants.to_mut();
         let at = plants.len().saturating_sub(1);
         plants.insert(
             at,
@@ -283,7 +278,7 @@ fn far_follows_field(world: &mut World) {
     let (field, ground) = (meadow.field, meadow.ground.clone());
     let Some(color) = world
         .get::<PlantScatter>(field)
-        .map(|field| FarPlants::new(field).color)
+        .map(|field| FarPlants::new(&field.options).color)
     else {
         return;
     };
@@ -350,12 +345,13 @@ fn base(world: &World, name: &str) -> (Option<Box<dyn PartialReflect>>, String) 
             let (tier, settings) = QUALITIES[meadow.quality];
             (Some(Box::new(settings)), format!("PlantSettings::{tier}"))
         }
-        // The preset's own Scatter, so the meadow's size reads as a change.
-        // The preset's constant is its key in upper case.
+        // The preset's own Scatter at size 0, so the meadow's size reads as
+        // a change. The preset's constant is its key in upper case.
         "scatter" => (
-            crate::preset(meadow.preset).map(|preset| Box::new(preset.plant_scatter.clone()) as _),
+            crate::preset(meadow.preset)
+                .map(|preset| Box::new(PlantScatter::from_preset(preset, Vec2::ZERO)) as _),
             format!(
-                "PlantScatterPreset::{}.plant_scatter",
+                "PlantScatter::from_preset(&PlantScatterPreset::{}, Vec2::ZERO)",
                 meadow.preset.to_ascii_uppercase()
             ),
         ),
@@ -450,6 +446,11 @@ fn set_value(
         *color = Srgba::hex(text).map_err(|e| e.to_string())?.into();
         return Ok(());
     }
+    if let Some(color) = value.try_downcast_mut::<Srgb>() {
+        let c = Srgba::hex(text).map_err(|e| e.to_string())?;
+        *color = Srgb::new(c.red, c.green, c.blue);
+        return Ok(());
+    }
     if let Some(number) = value.try_downcast_mut::<f32>() {
         *number = parse(text)?;
         return Ok(());
@@ -531,6 +532,14 @@ pub(crate) fn write_node(value: &dyn PartialReflect, json: &mut String) {
             json,
             "{{\"t\":\"color\",\"v\":\"{}\"}}",
             color.to_srgba().to_hex()
+        );
+        return;
+    }
+    if let Some(color) = value.try_downcast_ref::<Srgb>() {
+        let _ = write!(
+            json,
+            "{{\"t\":\"color\",\"v\":\"{}\"}}",
+            Srgba::from_f32_array_no_alpha(color.0).to_hex()
         );
         return;
     }
@@ -773,6 +782,16 @@ fn write_rust(value: &dyn PartialReflect, depth: usize, rust: &mut String) {
             round(c.red),
             round(c.green),
             round(c.blue)
+        );
+        return;
+    }
+    if let Some(Srgb([red, green, blue])) = value.try_downcast_ref::<Srgb>() {
+        let _ = write!(
+            rust,
+            "Srgb::new({}, {}, {})",
+            round(*red),
+            round(*green),
+            round(*blue)
         );
         return;
     }

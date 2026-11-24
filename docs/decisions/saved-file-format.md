@@ -10,13 +10,13 @@ pattern", "Bringing your own assets", "Edits"),
 project folder", "Documents and the edit model", "The texture library",
 "Stages", open question 1), [ground-materials](ground-materials.md)
 (texture sizes, level 1 as the default), `procgena_core::preset`,
-`plant/src/files.rs`, `procgena_tree/src/scatter/file.rs`,
+`plant/crates/procgena_plant/src/files.rs`, `procgena_tree/src/scatter/file.rs`,
 `procgena_biome/src/ecotope/file.rs`, `tree/textures.yml`, the
 `bevy_asset` 0.20.1 source, `Cargo.lock`, crates.io (2026-11-24), and the
 prior art listed under "Prior art".
 
 One correction to the brief: plant no longer has `.plant.ron` or
-`.field.ron` files. `plant/src/files.rs` reads `.plant.yml` and
+`.field.ron` files. `plant/crates/procgena_plant/src/files.rs` reads `.plant.yml` and
 `.plant_scatter.yml` through `procgena_core::preset`, like every other
 kind.
 

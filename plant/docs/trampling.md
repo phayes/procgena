@@ -141,10 +141,10 @@ Both features bring their engine in with `default-features = false`, so they
 do not turn on `bevy_gizmos`, `bevy_picking` or other Bevy features, and both
 can be on at once. They are 3D only; grass is 3D.
 
-The [`avian`](../examples/avian.rs) and [`rapier`](../examples/rapier.rs)
+The [`avian`](../crates/procgena_plant_bevy/examples/avian.rs) and [`rapier`](../crates/procgena_plant_bevy/examples/rapier.rs)
 examples show a character, a vehicle, a scaled crate and a thrown log;
-[`avian_minimal`](../examples/avian_minimal.rs) and
-[`rapier_minimal`](../examples/rapier_minimal.rs) are the shortest setup.
+[`avian_minimal`](../crates/procgena_plant_bevy/examples/avian_minimal.rs) and
+[`rapier_minimal`](../crates/procgena_plant_bevy/examples/rapier_minimal.rs) are the shortest setup.
 
 ### Another engine, or none
 
