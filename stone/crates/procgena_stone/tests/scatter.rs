@@ -4,17 +4,31 @@ use std::collections::HashMap;
 
 use glam::{DVec2, Vec2, Vec3};
 use procgena_core::scatter::{Placement, Rest, ScatterArea, ScatterInput};
-use procgena_core::{FlatGround, Ground, HeightGrid};
+use procgena_core::{CellId, ChildKey, CopyAddress, FlatGround, Ground, HeightGrid};
 use procgena_stone::{
     OptionsError, StoneClass, StoneInstance, StonePreset, StoneScatter, StoneScatterError,
     StoneScatterOptions,
 };
 
+fn key(key: &str) -> ChildKey {
+    ChildKey::new(key).unwrap()
+}
+
 /// Rocks and pebbles, two shapes each, evenly spread.
 fn options() -> StoneScatterOptions {
-    let mut rocks = StoneClass::new(StonePreset::river_stone().stone.clone(), 0.1, 1.5);
+    let mut rocks = StoneClass::new(
+        key("rocks"),
+        StonePreset::river_stone().stone.clone(),
+        0.1,
+        1.5,
+    );
     rocks.variants = 2;
-    let mut pebbles = StoneClass::new(StonePreset::pebble().stone.clone(), 1.0, 0.3);
+    let mut pebbles = StoneClass::new(
+        key("pebbles"),
+        StonePreset::pebble().stone.clone(),
+        1.0,
+        0.3,
+    );
     pebbles.variants = 2;
     StoneScatterOptions {
         default_seed: 0,
@@ -31,14 +45,13 @@ fn scatter(options: &StoneScatterOptions, ground: &dyn Ground, side: f32) -> Sto
     StoneScatter::new(options, &input).unwrap()
 }
 
-/// What names a stone: its class, cell and index within the cell.
-type Name = (usize, [i32; 2], u32);
-
-fn name(s: &StoneInstance) -> Name {
-    (s.class, s.cell, s.index)
+/// What names a stone: its address, holding its spot's cell and its index
+/// within the cell.
+fn name(s: &StoneInstance) -> CopyAddress {
+    s.address
 }
 
-fn by_cell(stones: &[StoneInstance]) -> HashMap<Name, StoneInstance> {
+fn by_cell(stones: &[StoneInstance]) -> HashMap<CopyAddress, StoneInstance> {
     stones.iter().map(|s| (name(s), *s)).collect()
 }
 
@@ -90,7 +103,12 @@ fn stones_of_a_class_keep_their_spacing() {
 
 /// Pebbles in clusters of 2 to 5 within 0.4 m, spots 1.5 m apart.
 fn clustered() -> StoneScatterOptions {
-    let mut pebbles = StoneClass::new(StonePreset::pebble().stone.clone(), 0.2, 1.5);
+    let mut pebbles = StoneClass::new(
+        key("pebbles"),
+        StonePreset::pebble().stone.clone(),
+        0.2,
+        1.5,
+    );
     pebbles.variants = 2;
     pebbles.members = [2, 5];
     pebbles.cluster_radius = 0.4;
@@ -104,9 +122,9 @@ fn clustered() -> StoneScatterOptions {
 fn cluster_members_are_copies_numbered_within_their_cell() {
     let o = clustered();
     let stones = scatter(&o, &FlatGround, 30.0);
-    let mut cells: HashMap<[i32; 2], Vec<StoneInstance>> = HashMap::new();
+    let mut cells: HashMap<CellId, Vec<StoneInstance>> = HashMap::new();
     for s in stones.instances() {
-        cells.entry(s.cell).or_default().push(*s);
+        cells.entry(s.address.cell).or_default().push(*s);
     }
     assert!(cells.len() > 50, "{} clusters", cells.len());
 
@@ -115,7 +133,7 @@ fn cluster_members_are_copies_numbered_within_their_cell() {
     let mut several = 0;
     for members in cells.values() {
         assert!(members.len() <= 5);
-        assert!(members.iter().all(|s| s.index < 5));
+        assert!(members.iter().all(|s| s.address.index < 5));
         several += usize::from(members.len() > 1);
 
         // Members lie near each other and never overlap.
@@ -123,7 +141,9 @@ fn cluster_members_are_copies_numbered_within_their_cell() {
             for b in &members[n + 1..] {
                 let d = (a.position - b.position).with_y(0.0).length();
                 assert!(d <= 0.8 + 1e-4, "members {d} m apart");
-                assert!(d >= a.radius + b.radius - 1e-4, "members overlap");
+                // Footprints are whole 1/256 m, and are what stones keep apart.
+                assert!(!a.footprint.overlaps(&b.footprint), "members overlap");
+                assert!(d >= a.radius + b.radius - 2.0 / 256.0, "members overlap");
             }
         }
     }
@@ -157,11 +177,8 @@ fn a_member_on_missing_ground_is_dropped_and_the_rest_stay() {
     // Some clusters lose members to the gap while keeping others.
     let mut split = 0;
     for (key, stone) in &full {
-        let (class, cell, _) = *key;
         let lost = !kept.contains_key(key);
-        let others_stay = kept
-            .keys()
-            .any(|&(c, other, _)| c == class && other == cell);
+        let others_stay = kept.keys().any(|other| other.cell == key.cell);
         split += usize::from(lost && others_stay && stone.position.x.abs() < 1.0);
     }
     assert!(split > 0, "no cluster kept part of itself");
@@ -218,7 +235,8 @@ fn stones_of_different_classes_never_overlap_at_the_ground() {
                 continue;
             }
             let d = (a.position - b.position).with_y(0.0).length();
-            assert!(d >= a.radius + b.radius - 1e-4, "{d} m apart");
+            assert!(!a.footprint.overlaps(&b.footprint), "{d} m apart");
+            assert!(d >= a.radius + b.radius - 2.0 / 256.0, "{d} m apart");
             close_calls += usize::from(d < 2.0 * (a.radius + b.radius));
         }
     }
@@ -265,13 +283,36 @@ fn the_mask_is_read_at_world_positions() {
     assert!(stones.instances().iter().all(|s| s.position.x >= 0.0));
 }
 
+/// Stones lie on a lattice fixed to the World: any area holding a spot
+/// gives it the same stone and address, with positions relative to its own
+/// centre.
 #[test]
-fn even_stones_on_flat_ground_look_the_same_anywhere() {
+fn the_same_world_spot_gives_the_same_stone_from_any_area() {
     let o = options();
-    let near = scatter(&o, &FlatGround, 16.0);
-    let input = ScatterInput::new(&FlatGround, area(DVec2::new(1.0e6, 3.0e5), 16.0), 7);
-    let far = StoneScatter::new(&o, &input).unwrap();
-    assert_eq!(near, far);
+    let centre = DVec2::new(1.0e5, -3.0e4);
+    let at = |centre: DVec2, side: f32| {
+        let input = ScatterInput::new(&FlatGround, area(centre, side), 7);
+        StoneScatter::new(&o, &input)
+            .unwrap()
+            .instances()
+            .iter()
+            .map(|s| {
+                let p = centre + DVec2::new(f64::from(s.position.x), f64::from(s.position.z));
+                (s.address, (p, s.class, s.variant, s.scale))
+            })
+            .collect::<HashMap<_, _>>()
+    };
+    let small = at(centre, 16.0);
+    let large = at(centre + DVec2::new(3.3, -2.1), 30.0);
+    assert!(small.len() > 50);
+    for (address, (p, class, variant, scale)) in &small {
+        let (q, other_class, other_variant, other_scale) = large[address];
+        assert!(p.distance(q) < 1e-3, "{p} vs {q}");
+        assert_eq!(
+            (*class, *variant, *scale),
+            (other_class, other_variant, other_scale)
+        );
+    }
 }
 
 #[test]
@@ -439,6 +480,16 @@ fn bad_settings_are_named() {
     assert_eq!(
         StoneScatter::new(&o, &input),
         Err(StoneScatterError::TooManyClasses { count: 9 })
+    );
+
+    let mut o = options();
+    o.classes[1].key = o.classes[0].key.clone();
+    assert_eq!(
+        StoneScatter::new(&o, &input),
+        Err(StoneScatterError::KeyClash {
+            first: 0,
+            second: 1
+        })
     );
 }
 

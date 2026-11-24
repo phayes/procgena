@@ -8,6 +8,7 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 use bevy::shape::{Aabb3d, RayCast3d};
 use procgena_specimen::{Specimen, TagFilter};
+use procgena_tree::CopyAddress;
 
 use super::{PlacedTree, TreeScatterAssets, TreeScatterInstances};
 use crate::spawn::TreeParams;
@@ -18,7 +19,7 @@ use crate::spawn::TreeParams;
 /// Spawn it with whatever the tree needs, such as a collider:
 ///
 /// ```ignore
-/// commands.spawn((PromotedTree::new(grove, id), MyCollider));
+/// commands.spawn((PromotedTree::new(grove, address), MyCollider));
 /// ```
 ///
 /// The plugin then makes the entity a child of the grove and adds the
@@ -33,20 +34,20 @@ use crate::spawn::TreeParams;
 ///
 /// The entity follows the grove: if an edit leaves no tree on the spot, the
 /// entity is despawned; if the spot's tree changes, so do its
-/// [`TreeParams`] and `Transform`. An `id` the grove doesn't have is logged
-/// and the component is removed.
+/// [`TreeParams`] and `Transform`. An address the grove doesn't have is
+/// logged and the component is removed.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PromotedTree {
     /// The grove entity.
     pub grove: Entity,
-    /// The spot the tree stands on; see [`PlacedTree::id`].
-    pub id: u64,
+    /// The spot the tree stands on; see [`PlacedTree::address`].
+    pub address: CopyAddress,
 }
 
 impl PromotedTree {
-    /// Promotes the tree on spot `id` of `grove`.
-    pub fn new(grove: Entity, id: u64) -> Self {
-        Self { grove, id }
+    /// Promotes the tree on the spot at `address` of `grove`.
+    pub fn new(grove: Entity, address: CopyAddress) -> Self {
+        Self { grove, address }
     }
 }
 
@@ -76,13 +77,13 @@ pub(crate) fn sync_promoted_trees(
 
         // The spot has no tree: a new promotion is wrong; an old one lost
         // its tree to an edit.
-        let Some(tree) = instances.get(promotion.id) else {
+        let Some(tree) = instances.get(&promotion.address) else {
             if given.is_some() {
                 commands.entity(entity).despawn();
             } else {
                 warn!(
-                    "procgena_tree_bevy: grove {} has no tree on spot {}",
-                    promotion.grove, promotion.id
+                    "procgena_tree_bevy: Scatter {} has no tree on spot {:?}",
+                    promotion.grove, promotion.address
                 );
                 commands.entity(entity).remove::<PromotedTree>();
             }
@@ -121,8 +122,8 @@ pub(crate) fn demote_trees(
 pub struct TreeScatterHit {
     /// The grove entity.
     pub grove: Entity,
-    /// The tree's spot; see [`PlacedTree::id`].
-    pub id: u64,
+    /// The tree's spot; see [`PlacedTree::address`].
+    pub address: CopyAddress,
     /// Distance along the ray, in world units.
     pub distance: f32,
     /// The hit point in the world.
@@ -184,7 +185,7 @@ impl TreeScatterTrees<'_, '_> {
             if nearest.is_none_or(|n| distance < n.distance) {
                 nearest = Some(TreeScatterHit {
                     grove,
-                    id: tree.id,
+                    address: tree.address,
                     distance,
                     point,
                 });

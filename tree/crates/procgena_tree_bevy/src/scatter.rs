@@ -25,8 +25,8 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 use procgena_tree::{
-    FlatGround, Ground, HeightGrid, ScatterArea, ScatterInput, TreeCopy, TreeOptions, TreeScatter,
-    TreeScatterError, TreeScatterPlacement, TreeScatterPreset,
+    CopyAddress, FlatGround, Ground, HeightGrid, ScatterArea, ScatterInput, TreeCopy, TreeOptions,
+    TreeScatter, TreeScatterError, TreeScatterPlacement, TreeScatterPreset,
 };
 
 use crate::impostor::TreeImpostorAssets;
@@ -146,9 +146,9 @@ pub struct PlacedTree {
     pub tree: usize,
     /// Which of the species' shape variants it is.
     pub variant: u32,
-    /// The spot it stands on; see [`TreeCopy::id`]. A spot keeps its id
-    /// through edits that leave a tree on it.
-    pub id: u64,
+    /// The spot it stands on; see [`TreeCopy::address`]. A spot keeps its
+    /// address through edits that leave a tree on it.
+    pub address: CopyAddress,
     /// Where the tree stands, and how it is sized, leaned and turned, relative
     /// to the grove entity.
     pub transform: Transform,
@@ -167,19 +167,19 @@ pub struct PlacedTree {
 #[derive(Component, Debug, Clone)]
 pub struct TreeScatterInstances {
     trees: Arc<[PlacedTree]>,
-    by_id: Arc<HashMap<u64, u32>>,
+    by_address: Arc<HashMap<CopyAddress, u32>>,
 }
 
 impl TreeScatterInstances {
     fn new(trees: Vec<PlacedTree>) -> Self {
-        let by_id = trees
+        let by_address = trees
             .iter()
             .enumerate()
-            .map(|(index, tree)| (tree.id, index as u32))
+            .map(|(index, tree)| (tree.address, index as u32))
             .collect();
         Self {
             trees: trees.into(),
-            by_id: Arc::new(by_id),
+            by_address: Arc::new(by_address),
         }
     }
 
@@ -188,14 +188,16 @@ impl TreeScatterInstances {
         &self.trees
     }
 
-    /// The tree standing on spot `id`, if any.
-    pub fn get(&self, id: u64) -> Option<&PlacedTree> {
-        self.index_of(id).map(|index| &self.trees[index as usize])
+    /// The tree standing on the spot at `address`, if any.
+    pub fn get(&self, address: &CopyAddress) -> Option<&PlacedTree> {
+        self.index_of(address)
+            .map(|index| &self.trees[index as usize])
     }
 
-    /// The position of the tree on spot `id` in [`trees`](Self::trees).
-    pub(crate) fn index_of(&self, id: u64) -> Option<u32> {
-        self.by_id.get(&id).copied()
+    /// The position of the tree on the spot at `address` in
+    /// [`trees`](Self::trees).
+    pub(crate) fn index_of(&self, address: &CopyAddress) -> Option<u32> {
+        self.by_address.get(address).copied()
     }
 }
 
@@ -826,7 +828,7 @@ pub(crate) fn finish_placing(
                 PlacedTree {
                     tree: instance.tree,
                     variant: instance.variant,
-                    id: instance.id,
+                    address: instance.address,
                     transform: Transform::from_matrix(
                         Mat4::from_scale(Vec3::splat(shrink)) * Mat4::from(instance.transform),
                     ),
@@ -953,11 +955,13 @@ mod tests {
     use std::collections::HashSet;
     use std::time::{Duration, Instant};
 
+    use procgena_core::CellId;
     use procgena_core::{Lod, LodLevel};
     use procgena_core_bevy::LodQuality;
     use procgena_specimen::{Part, SurfaceMesh, tags};
     use procgena_tree::{
-        LOD_REFERENCE_SIZE, LodDetail, ScatterTree, TextureCompression, TextureSize, TreePreset,
+        AddressPrefix, LOD_REFERENCE_SIZE, LodDetail, ScatterTree, TextureCompression, TextureSize,
+        TreePreset,
     };
 
     use super::*;
@@ -1062,15 +1066,32 @@ mod tests {
     }
 
     /// A placed tree and the generated variant it is drawn from, compared by
-    /// identity.
-    #[derive(Debug, Clone, PartialEq)]
+    /// identity. It holds the variant, so its address can't be reused by a
+    /// later one while the test still compares against it.
+    #[derive(Clone)]
     struct Drawn {
         tree: PlacedTree,
         generated: Option<*const Generated>,
+        _held: Option<Arc<Generated>>,
+    }
+
+    impl PartialEq for Drawn {
+        fn eq(&self, other: &Self) -> bool {
+            self.tree == other.tree && self.generated == other.generated
+        }
+    }
+
+    impl fmt::Debug for Drawn {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("Drawn")
+                .field("tree", &self.tree)
+                .field("generated", &self.generated)
+                .finish()
+        }
     }
 
     /// The grove's trees by the spot they stand on.
-    fn trees(app: &App, grove: Entity) -> HashMap<u64, Drawn> {
+    fn trees(app: &App, grove: Entity) -> HashMap<CopyAddress, Drawn> {
         let entity = app.world().entity(grove);
         let (Some(instances), Some(assets)) = (
             entity.get::<TreeScatterInstances>(),
@@ -1082,12 +1103,13 @@ mod tests {
             .trees()
             .iter()
             .map(|tree| {
-                let generated = assets.of(tree).generated.as_ref().map(Arc::as_ptr);
+                let held = assets.of(tree).generated.clone();
                 let drawn = Drawn {
                     tree: tree.clone(),
-                    generated,
+                    generated: held.as_ref().map(Arc::as_ptr),
+                    _held: held,
                 };
-                (tree.id, drawn)
+                (tree.address, drawn)
             })
             .collect()
     }
@@ -1260,14 +1282,14 @@ mod tests {
             .spawn(TreeScatterParams::new(sparse(40.0), wide))
             .id();
         update_until_finished(&mut app, entity);
-        let first: HashSet<u64> = trees(&app, entity).into_keys().collect();
+        let first: HashSet<CopyAddress> = trees(&app, entity).into_keys().collect();
 
         // Drag the density down a little every frame, as a slider would.
         let mut changed = false;
         for step in 1..=40 {
             set_grove(&mut app, entity, sparse(40.0 - step as f32 * 0.5));
             app.update();
-            let now: HashSet<u64> = trees(&app, entity).into_keys().collect();
+            let now: HashSet<CopyAddress> = trees(&app, entity).into_keys().collect();
             changed |= now != first;
         }
         assert!(
@@ -1566,7 +1588,7 @@ mod tests {
     }
 
     /// A finished small grove and its trees.
-    fn finished_grove(app: &mut App) -> (Entity, HashMap<u64, Drawn>) {
+    fn finished_grove(app: &mut App) -> (Entity, HashMap<CopyAddress, Drawn>) {
         let grove = app
             .world_mut()
             .spawn(TreeScatterParams::new(small_grove(), SIZE))
@@ -1583,7 +1605,7 @@ mod tests {
         let tree = drawn.values().next().unwrap().tree.clone();
         let promoted = app
             .world_mut()
-            .spawn((PromotedTree::new(grove, tree.id), Collider))
+            .spawn((PromotedTree::new(grove, tree.address), Collider))
             .id();
         app.update();
 
@@ -1612,7 +1634,10 @@ mod tests {
     fn promoting_a_spot_without_a_tree_is_reported_and_keeps_the_entity() {
         let mut app = grove_app();
         let (grove, drawn) = finished_grove(&mut app);
-        let missing = (0..).find(|id| !drawn.contains_key(id)).unwrap();
+        let missing = (0..)
+            .map(|x| AddressPrefix::ALONE.copy(CellId::new(x, 0), 0))
+            .find(|address| !drawn.contains_key(address))
+            .unwrap();
         let promoted = app
             .world_mut()
             .spawn((PromotedTree::new(grove, missing), Collider))
@@ -1628,12 +1653,11 @@ mod tests {
         let mut app = grove_app();
         let (grove, before) = finished_grove(&mut app);
 
-        // Promote every tree of the bushes.
-        let promoted: Vec<(u64, Entity)> = before
+        // Promote every tree.
+        let promoted: Vec<(CopyAddress, Entity)> = before
             .values()
-            .filter(|d| d.tree.tree == 0)
             .map(|d| {
-                let id = d.tree.id;
+                let id = d.tree.address;
                 (id, app.world_mut().spawn(PromotedTree::new(grove, id)).id())
             })
             .collect();
@@ -1654,9 +1678,10 @@ mod tests {
         );
         assert!(kept.iter().all(|(_, e)| app.world().get_entity(*e).is_ok()));
 
-        // A new shape for the bushes reaches the promoted ones.
+        // A new shape for a species with promoted trees left reaches them.
+        let species = after[&kept[0].0].tree.tree;
         let mut reshaped = sparse;
-        reshaped.trees[0].tree.default_seed += 1;
+        reshaped.trees[species].tree.default_seed += 1;
         set_grove(&mut app, grove, reshaped);
         update_until_finished(&mut app, grove);
         app.update();
@@ -1667,7 +1692,7 @@ mod tests {
             .unwrap()
             .clone();
         for (id, entity) in kept {
-            let options = assets.of(instances.get(id).unwrap()).options();
+            let options = assets.of(instances.get(&id).unwrap()).options();
             let params = app.world().get::<TreeParams>(entity);
             assert!(matches!(params, Some(TreeParams::Options(o)) if o == options));
             assert!(has_parts(&app, entity));
@@ -1689,7 +1714,8 @@ mod tests {
                 let above = base + Vec3::Y * 100.0;
                 let down = trees.ray_cast(Ray3d::new(above, Dir3::NEG_Y));
                 let up = trees.ray_cast(Ray3d::new(above, Dir3::Y));
-                let near: Vec<u64> = trees.within(base, 3.0).map(|(_, t)| t.id).collect();
+                let near: Vec<CopyAddress> =
+                    trees.within(base, 3.0).map(|(_, t)| t.address).collect();
                 (down, up, near)
             })
             .unwrap();
@@ -1704,12 +1730,12 @@ mod tests {
         assert!(up.is_none());
 
         // The trees within 3 m of the tree's base, the tree included.
-        let expected: HashSet<u64> = drawn
+        let expected: HashSet<CopyAddress> = drawn
             .values()
             .filter(|d| d.tree.transform.translation.distance(base) <= 3.0)
-            .map(|d| d.tree.id)
+            .map(|d| d.tree.address)
             .collect();
-        assert!(expected.contains(&target.id));
+        assert!(expected.contains(&target.address));
         assert_eq!(near.into_iter().collect::<HashSet<_>>(), expected);
     }
 

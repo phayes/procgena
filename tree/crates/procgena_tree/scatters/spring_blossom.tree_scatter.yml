@@ -7,5 +7,5 @@ group: Seasonal
 tree_scatter:
   default_seed: 7
   trees:
-    - { tree: spring_pussy_willow, density_scale: 0.05, clustering: 0.5 }
-    - { tree: flowering_dogwood, density_scale: 0.8 }
+    - { key: willows, tree: spring_pussy_willow, density_scale: 0.05, clustering: 0.5 }
+    - { key: dogwoods, tree: flowering_dogwood, density_scale: 0.8 }

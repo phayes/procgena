@@ -235,7 +235,7 @@ fn fallen_limb() -> DeadwoodOptions {
         length: 2.5,
         diameter: 0.12,
         taper: 0.3,
-        ends: ends(snapped(0.4, 4, 0.5), EndKind::Taper),
+        ends: ends(snapped(0.4, 4, 0.5), EndKind::Taper {}),
         stubs: no_stubs(),
         branching: BranchingOptions {
             levels: 2,
@@ -275,7 +275,7 @@ fn stick() -> DeadwoodOptions {
         length: 0.7,
         diameter: 0.025,
         taper: 0.5,
-        ends: ends(snapped(0.35, 2, 0.4), EndKind::Taper),
+        ends: ends(snapped(0.35, 2, 0.4), EndKind::Taper {}),
         stubs: no_stubs(),
         branching: BranchingOptions {
             levels: 0,
@@ -295,7 +295,7 @@ fn twig() -> DeadwoodOptions {
         length: 0.3,
         diameter: 0.008,
         taper: 0.4,
-        ends: ends(snapped(0.3, 1, 0.4), EndKind::Taper),
+        ends: ends(snapped(0.3, 1, 0.4), EndKind::Taper {}),
         stubs: no_stubs(),
         branching: BranchingOptions {
             levels: 0,

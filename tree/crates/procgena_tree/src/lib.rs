@@ -310,8 +310,10 @@ pub use options::{
 pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::{TreePreset, TreeStand};
 pub use procgena_core::preset::PresetFileError;
-pub use procgena_core::scatter::{Mask, Placement, Rest, ScatterArea, ScatterInput};
-pub use procgena_core::{FlatGround, Ground, HeightGrid};
+pub use procgena_core::scatter::{
+    Footprints, Mask, Placement, Rest, Scatter, ScatterArea, ScatterInput,
+};
+pub use procgena_core::{AddressPrefix, ChildKey, CopyAddress, FlatGround, Ground, HeightGrid};
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
 pub use scatter::{
     MAX_SCATTER_COPIES, MAX_SCATTER_SIZE, MAX_SCATTER_TREES, MAX_SCATTER_VARIANTS, ScatterTree,

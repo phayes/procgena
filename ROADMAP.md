@@ -468,6 +468,10 @@ goldens, which have no baseline on this machine).
   chunk at a time on a World lattice, gives the same copies with the same
   ids whatever order its chunks are built in, and reports its mask over a
   chunk without drawing.
+- **Status (2026-11-24):** built for tree, stone, deadwood and mushroom
+  ([docs/decisions/C2-plan.md](docs/decisions/C2-plan.md)); plant joins in
+  R3. Left: canopy shade as a density mask, part paths, `DrawHandle`, the
+  quantised slope byte and a per-Scatter `d` option, and a GPU path.
 
 #### C3a: Early Ecotope (moved forward, 2026-11-24)
 

@@ -33,6 +33,9 @@ pub(crate) const KEYS: &[&str] = &[
     FLOWER_SEED,
     STEM_SEED,
     "tree.generator.kind",
+    crate::scatter::LATTICE_SEED,
+    crate::scatter::PATCHES_SEED,
+    crate::scatter::GLADES_SEED,
 ];
 
 /// A random stream for the role named by seed key `key`, for a tree grown

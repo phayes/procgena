@@ -69,6 +69,21 @@ impl fmt::Display for ChildKey {
     }
 }
 
+/// A key is written as its string.
+impl serde::Serialize for ChildKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+/// A key is read from a string, and a malformed one is an error.
+impl<'de> serde::Deserialize<'de> for ChildKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let key = String::deserialize(deserializer)?;
+        Self::new(key).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Why a string is not a well-formed [`ChildKey`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyError {
@@ -215,6 +230,15 @@ mod tests {
     fn from_static_works_in_const_items() {
         const PINES: ChildKey = ChildKey::from_static("pines");
         assert_eq!(PINES.as_str(), "pines");
+    }
+
+    #[test]
+    fn keys_read_and_write_as_strings() {
+        let key: ChildKey = serde_json::from_str("\"pines\"").unwrap();
+        assert_eq!(key.as_str(), "pines");
+        assert_eq!(serde_json::to_string(&key).unwrap(), "\"pines\"");
+        let error = serde_json::from_str::<ChildKey>("\"Pines\"").unwrap_err();
+        assert!(error.to_string().contains("lower-case letter"), "{error}");
     }
 
     #[test]
