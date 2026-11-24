@@ -1707,10 +1707,13 @@ dump of five test worlds is unchanged).
 - [x] The steady-state profile through a river's ends
   (`steady_profile`, concavity 0.45), as a measurement
   (`steady_profiles_are_concave_and_meet_their_ends`).
-- [ ] River levels from it: **for the user.** See the exit measurements:
-  in mountains it would cut up to 176 m deeper than today. It needs the
-  ground to conform to the river (Génevaux), or lakes (G3), or the world
-  level's elevation field.
+- [ ] River levels from it: **waiting (the user, 2026-11-24).** See the
+  exit measurements: in mountains it would cut up to 176 m deeper than
+  today. It needs the ground to conform to the river (Génevaux), or lakes
+  (G3), or the world level's elevation field. The user's constraint for
+  any version: keep it analytic and fast. Drainage and erosion easily
+  grow into simulation (iterated flow, repeated erosion passes, global
+  solves); this must stay closed-form or bounded per-region work.
 - [ ] Options for U, K, m and n: not added, since nothing reads them yet.
 - [ ] Smoother mountain river profiles: the same question as river levels
   (today's lower thirds are dead level, see below); left with it.

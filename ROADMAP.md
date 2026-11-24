@@ -903,9 +903,13 @@ where the details are.
     would set river levels, widths and types from how much water flows
     along them, which is more natural, but it only ever deepens cuts: up
     to 176 m deeper in mountains. The user decided earlier to leave deep
-    cuts until lakes exist (Phase 4), so nothing changed. Wire it in now,
-    wait for lakes, or never? Details: [terrain/plan.md](terrain/plan.md),
-    "As built in G1".
+    cuts until lakes exist (Phase 4), so nothing changed. **Waiting, by the
+    user's choice (2026-11-24).** The user's guiding concern: terrain stays
+    analytic and fast. Drainage and erosion can easily grow into
+    simulation (iterated flow, erosion passes, global solves), and any
+    version of this must stay closed-form or per-region bounded work, not
+    a simulation. Details: [terrain/plan.md](terrain/plan.md), "As built
+    in G1".
 13. **Exact slope in border negotiation.** Neighbouring regions agree on
     their shared border from each side's slope. G2 added an exact slope,
     but the border offers still use the old estimate from nearby heights,
