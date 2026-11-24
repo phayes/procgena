@@ -2,8 +2,10 @@
 //!
 //! Scatters are a map from key to settings, so a file built on a `base`
 //! changes, adds or replaces one Scatter without restating the others. Each
-//! Scatter names its `kind`, and gives only the settings that differ from
-//! that kind's defaults. Assets inside it (a stone class's `stone`, dead
+//! Scatter names its `kind`, and needs to give only the settings that
+//! differ from that kind's defaults; written files give every setting of a
+//! Scatter they write, so differences over a `base` stay exact. Assets
+//! inside it (a stone class's `stone`, dead
 //! wood's `piece`, a mushroom Scatter's `mushroom`) name a built-in preset
 //! by key, or give settings laid over one (`{ base: <key>, ... }`) or over
 //! the asset's defaults.
@@ -185,8 +187,9 @@ fn from_file(value: Value) -> Result<EcotopeScatter, String> {
     })
 }
 
-/// Writes one Scatter as its file settings, leaving out what equals its
-/// kind's defaults.
+/// Writes one Scatter as its file settings, every setting of its kind
+/// included, so a file written over a `base` also records a setting set
+/// back to its kind's default.
 fn to_file(scatter: &EcotopeScatter) -> Value {
     let mut map = Map::new();
     map.insert("priority".to_owned(), Value::from(scatter.priority));
@@ -196,23 +199,18 @@ fn to_file(scatter: &EcotopeScatter) -> Value {
         Value::String(scatter.scatter.name().to_owned()),
     );
 
-    // The kind's own settings, and the defaults they are compared with.
-    let (settings, base) = match &scatter.scatter {
-        ScatterKind::Tree(options) => (to_value(options), to_value(&TreeScatter::default())),
-        ScatterKind::Stone(options) => (stone_file(options), stone_file(&stone_default())),
-        ScatterKind::Deadwood(options) => {
-            (deadwood_file(options), deadwood_file(&deadwood_default()))
-        }
+    // The kind's own settings.
+    let settings = match &scatter.scatter {
+        ScatterKind::Tree(options) => to_value(options),
+        ScatterKind::Stone(options) => stone_file(options),
+        ScatterKind::Deadwood(options) => deadwood_file(options),
         ScatterKind::Mushroom { mushroom, scatter } => {
             map.insert("mushroom".to_owned(), reference::<MushroomPreset>(mushroom));
-            (
-                to_value(scatter),
-                to_value(&MushroomScatterOptions::default()),
-            )
+            to_value(scatter)
         }
     };
-    if let Some(Value::Object(changed)) = diff(&base, &settings) {
-        map.extend(changed);
+    if let Value::Object(settings) = settings {
+        map.extend(settings);
     }
     Value::Object(map)
 }

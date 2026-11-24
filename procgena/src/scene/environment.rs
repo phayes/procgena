@@ -12,7 +12,7 @@ use procgena_tree_bevy::Wind;
 /// Sky colour, also used for the distance fog.
 const SKY: Color = Color::srgb(0.58, 0.725, 0.973);
 /// Ground colour: earth with a little green.
-const SOIL: Color = Color::srgb(0.36, 0.32, 0.2);
+pub(crate) const SOIL: Color = Color::srgb(0.36, 0.32, 0.2);
 /// Width and depth of the ground plane, in world units.
 const GROUND_SIZE: f32 = 600.0;
 /// Shadows are drawn out to this distance from the camera, in world units.
@@ -119,23 +119,26 @@ pub(crate) fn sky_fog() -> DistanceFog {
 /// Applies changed settings to the sun, ground, wind and render activity.
 ///
 /// Wind is off in clump mode whatever the settings say, since the clump
-/// would not sway with its tree.
+/// would not sway with its tree. The flat ground plane is hidden in Ecotope
+/// mode, which draws its own ground.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_environment(
     settings: Res<EnvironmentSettings>,
     state: Option<Res<SceneState>>,
-    mut was_clump_mode: Local<bool>,
+    mut was_mode: Local<Option<SceneMode>>,
     mut sun: Query<&mut Transform, With<Sun>>,
     mut ground: Query<&mut Visibility, With<Ground>>,
     mut tree_wind: ResMut<Wind>,
     mut grass_wind: ResMut<PlantWind>,
     mut activity: ResMut<ViewportActivity>,
 ) {
-    let clump_mode = state.is_some_and(|state| state.mode() == SceneMode::Clump);
-    let mode_changed = std::mem::replace(&mut *was_clump_mode, clump_mode) != clump_mode;
+    let mode = state.map(|state| state.mode());
+    let mode_changed = std::mem::replace(&mut *was_mode, mode) != mode;
     if !settings.is_changed() && !mode_changed {
         return;
     }
+    let clump_mode = mode == Some(SceneMode::Clump);
+    let plane_shown = settings.show_ground && mode != Some(SceneMode::Ecotope);
     let wind = settings.wind && !clump_mode;
 
     // Sun direction: the light shines from its position toward the origin.
@@ -152,7 +155,7 @@ pub(crate) fn apply_environment(
 
     // Ground.
     for mut visibility in &mut ground {
-        *visibility = if settings.show_ground {
+        *visibility = if plane_shown {
             Visibility::Inherited
         } else {
             Visibility::Hidden

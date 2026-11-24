@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::prelude::*;
+use procgena_biome::{Ecotope, EcotopeError, EcotopePreset};
+use procgena_biome_bevy::EcotopeSummary;
 use procgena_clump::{ClumpOptions, ClumpPreset};
 use procgena_deadwood::DeadwoodOptions;
 use procgena_deadwood_bevy::DeadwoodBuildError;
@@ -39,6 +41,8 @@ pub struct SceneStart {
     pub grove: Arc<TreeScatter>,
     /// Dead wood settings, as for [`ViewerCommand::SetDeadwood`].
     pub deadwood: Arc<DeadwoodSettings>,
+    /// The Ecotope and its ground, as for [`ViewerCommand::SetEcotope`].
+    pub ecotope: Arc<EcotopeSettings>,
     /// Lighting, ground, wind and auto-rotation, as for [`ViewerCommand::SetEnvironment`].
     pub environment: EnvironmentSettings,
     /// The tree detail level to show, as for [`ViewerCommand::SetLod`].
@@ -59,6 +63,7 @@ impl Default for SceneStart {
             mushroom: Arc::default(),
             grove: Arc::default(),
             deadwood: Arc::default(),
+            ecotope: Arc::default(),
             environment: EnvironmentSettings::default(),
             lod: None,
             plant_lod: None,
@@ -86,6 +91,9 @@ pub enum SceneMode {
     /// A single log, branch or stump generated from the current dead wood
     /// settings.
     Deadwood,
+    /// An Ecotope's Scatters over a square of ground; see
+    /// [`ViewerCommand::SetEcotope`].
+    Ecotope,
 }
 
 /// A change requested by the host application.
@@ -142,6 +150,12 @@ pub enum ViewerCommand {
     /// settings until dead wood mode is shown. The scene uses its own detail
     /// levels, scaled to the piece's size, and ignores `piece.detail`.
     SetDeadwood(Arc<DeadwoodSettings>),
+    /// Sets the Ecotope and the ground it is shown on. In Ecotope mode, the
+    /// Ecotope is placed again in the background and only the Scatters the
+    /// change can move are drawn again; a [`ViewerEvent::EcotopeBuilt`]
+    /// follows. If it can't be placed, the last drawing stays. In other
+    /// modes, saves the settings until Ecotope mode is shown.
+    SetEcotope(Arc<EcotopeSettings>),
     /// Replaces the lighting, ground, wind and auto-rotation settings.
     SetEnvironment(EnvironmentSettings),
     /// Shows only the tree's detail level `n` (0 is the most detailed; see
@@ -212,6 +226,40 @@ pub enum DeadwoodView {
     /// [`ScatterOptions::twig_litter`](procgena_deadwood::ScatterOptions::twig_litter):
     /// thin twigs on flat ground.
     TwigLitter,
+}
+
+/// What Ecotope mode shows: an Ecotope over a square of ground.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EcotopeSettings {
+    /// The Ecotope, placed with its own
+    /// [`default_seed`](Ecotope::default_seed).
+    pub ecotope: Ecotope,
+    /// The ground it grows on.
+    pub ground: EcotopeGround,
+    /// Side of the square patch it covers, in metres, centred on the
+    /// origin. The ground reaches a few metres beyond it.
+    pub size: f32,
+}
+
+impl Default for EcotopeSettings {
+    /// The pine forest floor over 40 metres of rolling hills.
+    fn default() -> Self {
+        Self {
+            ecotope: EcotopePreset::pine_forest_floor().ecotope.clone(),
+            ground: EcotopeGround::default(),
+            size: 40.0,
+        }
+    }
+}
+
+/// The ground an Ecotope is shown on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum EcotopeGround {
+    /// Level ground at height 0.
+    Flat,
+    /// Long swells about 2 metres high with a shallower ripple across them.
+    #[default]
+    RollingHills,
 }
 
 /// What the clump mode shows: a subject, and the clump grown on it.
@@ -314,6 +362,10 @@ pub enum ViewerEvent {
     /// means the camera is too far away for any level to be drawn. Also
     /// sent when dead wood mode is shown.
     DeadwoodLodShown(Option<usize>),
+    /// Reports each placement of the Ecotope in Ecotope mode: how many
+    /// copies each Scatter has and which were drawn again, or why it could
+    /// not be placed. The copies' meshes may still be generating.
+    EcotopeBuilt(Result<EcotopeSummary, EcotopeError>),
 }
 
 /// Mesh counts and elapsed build time for a generated tree or rock.

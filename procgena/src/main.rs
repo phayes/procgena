@@ -6,6 +6,7 @@
 mod clump;
 mod deadwood;
 mod download;
+mod ecotope;
 mod environment;
 mod export;
 mod field;

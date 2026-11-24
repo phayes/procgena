@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::ecotope::EcotopeStatus;
 use crate::scene::{
     BuildStats, EnvironmentSettings, FieldSettings, GroveProgress, SceneMode, TextureDownloads,
     ViewerCommand, ViewerEvent,
@@ -73,6 +74,8 @@ pub struct BuildState {
     pub deadwood_lod_shown: usize,
     /// Whether the camera is too far from the dead wood piece to draw it.
     pub deadwood_too_far: bool,
+    /// Where placing the Ecotope stands.
+    pub ecotope: EcotopeStatus,
     /// What the plant tabs show, as last sent to the scene.
     pub plants: PlantsShown,
     /// How many texture files are downloading.
@@ -152,6 +155,9 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
             }
             ViewerEvent::DeadwoodBuilt(result) => {
                 state.deadwood = BuildStatus::from_result(result);
+            }
+            ViewerEvent::EcotopeBuilt(result) => {
+                state.ecotope = EcotopeStatus::from_result(result);
             }
             ViewerEvent::DeadwoodLodShown(level) => {
                 state.deadwood_too_far = level.is_none();
@@ -274,6 +280,7 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
         StudioTab::Clumps => (&state.clump, "clump", None),
         StudioTab::Mushrooms => (&state.mushroom, "mushroom", Some(state.mushroom_lod_shown)),
         StudioTab::Deadwood => (&state.deadwood, "dead wood", Some(state.deadwood_lod_shown)),
+        StudioTab::Ecotope => return state.ecotope.line(),
         StudioTab::Trees | StudioTab::Plant | StudioTab::PlantScatter => {
             (&state.tree, "tree", Some(state.lod_shown))
         }
@@ -416,9 +423,17 @@ mod tests {
             deadwood: BuildStatus::Building,
             deadwood_lod_shown: 0,
             deadwood_too_far: false,
+            ecotope: EcotopeStatus::Failed("Scatters a and b share priority 5".into()),
             plants: PlantsShown::default(),
             downloading: 0,
         };
+        assert_eq!(
+            status_line(&state, StudioTab::Ecotope),
+            (
+                "Cannot place this Ecotope: Scatters a and b share priority 5".into(),
+                true
+            )
+        );
         assert_eq!(
             status_line(&state, StudioTab::Trees),
             (

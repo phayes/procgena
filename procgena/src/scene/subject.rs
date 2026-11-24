@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::ecotope::EcotopeState;
 use super::environment::{EnvironmentSettings, sky_fog};
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{
@@ -14,6 +15,7 @@ use super::protocol::{
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
+use procgena_biome_bevy::EcotopePlacing;
 use procgena_core::LodLevel;
 use procgena_deadwood::{DeadwoodOptions, PieceKind, ScatterOptions, default_lod, size_factor};
 use procgena_deadwood_bevy::{
@@ -100,6 +102,10 @@ pub(crate) struct SceneState {
     deadwood: Arc<DeadwoodSettings>,
     /// Camera view restored when returning to dead wood mode.
     deadwood_view: OrbitCamera,
+    /// The Ecotope and its ground, retained while another mode is shown.
+    ecotope: EcotopeState,
+    /// Camera view restored when returning to Ecotope mode.
+    ecotope_view: OrbitCamera,
     /// The tree detail level last reported with [`ViewerEvent::LodShown`].
     lod_reported: Option<usize>,
     /// The mushroom detail level last reported with
@@ -143,6 +149,7 @@ type Generating = Or<(
     With<MushroomGenerating>,
     With<TreeScatterGenerating>,
     With<DeadwoodGenerating>,
+    With<EcotopePlacing>,
 )>;
 
 /// Matches requests for impostors that are not baked yet.
@@ -194,6 +201,8 @@ struct ViewSubjects<'a> {
     /// Width of the grove's square of ground, in metres.
     grove_size: f32,
     deadwood: &'a DeadwoodSettings,
+    /// Width of the Ecotope's square of ground, in metres.
+    ecotope_size: f32,
 }
 
 /// Returns the starting camera view for a mode. In stone, mushroom and grove
@@ -213,6 +222,17 @@ fn default_view(mode: SceneMode, subjects: &ViewSubjects) -> OrbitCamera {
         },
         SceneMode::Mushroom => mushroom_view(subjects.mushroom),
         SceneMode::Deadwood => deadwood_view(subjects.deadwood),
+        // Look down over the patch from beyond its corner.
+        SceneMode::Ecotope => OrbitCamera {
+            focus: Vec3::new(0.0, 1.0, 0.0),
+            yaw: 0.6,
+            pitch: 0.5,
+            distance: 1.1 * subjects.ecotope_size.max(5.0),
+            limits: OrbitLimits {
+                distance: (1.0, (3.0 * subjects.ecotope_size).max(60.0)),
+                pitch: (-0.05, 1.5),
+            },
+        },
         // Look down over the whole square of ground from beyond its corner.
         SceneMode::Grove => OrbitCamera {
             focus: Vec3::new(0.0, 3.0, 0.0),
@@ -364,6 +384,7 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         mushroom: &start.mushroom,
         grove_size: start.environment.grove_size,
         deadwood: &start.deadwood,
+        ecotope_size: start.ecotope.size,
     };
     let view_for = |mode| default_view(mode, &subjects);
     let state = SceneState {
@@ -380,6 +401,8 @@ pub(crate) fn setup_scene(mut commands: Commands, start: Res<Start>) {
         mushroom_view: view_for(SceneMode::Mushroom),
         grove_view: view_for(SceneMode::Grove),
         deadwood_view: view_for(SceneMode::Deadwood),
+        ecotope: EcotopeState::new(start.ecotope.clone()),
+        ecotope_view: view_for(SceneMode::Ecotope),
         stone: start.stone.clone(),
         clump: start.clump.clone(),
         mushroom: start.mushroom.clone(),
@@ -432,6 +455,7 @@ fn spawn_subject(
             .spawn(MushroomParams::Options(state.mushroom.clone()))
             .id(),
         SceneMode::Deadwood => spawn_deadwood(commands, &state.deadwood),
+        SceneMode::Ecotope => commands.spawn(state.ecotope.params()).id(),
         SceneMode::Clump => match &state.clump.subject {
             ClumpSubject::Tree(options) => commands.spawn(TreeParams::Options(options.clone())),
             ClumpSubject::Stone(options) => commands.spawn(StoneParams::Options(options.clone())),
@@ -579,6 +603,16 @@ pub(crate) fn apply_commands(
                         .insert(grove_params(grove, environment.grove_size));
                 }
             }
+            ViewerCommand::SetEcotope(settings) => {
+                // Keep the Ecotope in every mode; the shown one updates in place.
+                state.ecotope.set(settings.clone());
+                if state.mode == SceneMode::Ecotope {
+                    state.requested = Instant::now();
+                    commands
+                        .entity(state.subject)
+                        .insert(state.ecotope.params());
+                }
+            }
             ViewerCommand::SetClump(settings) => {
                 let old = std::mem::replace(&mut state.clump, settings.clone());
 
@@ -662,6 +696,7 @@ pub(crate) fn apply_commands(
                         mushroom: &state.mushroom,
                         grove_size: environment.grove_size,
                         deadwood: &state.deadwood,
+                        ecotope_size: state.ecotope.settings().size,
                     };
                     *orbit = default_view(state.mode, &subjects);
                 }
@@ -695,6 +730,7 @@ fn view_slot(state: &mut SceneState, mode: SceneMode) -> &mut OrbitCamera {
         SceneMode::Mushroom => &mut state.mushroom_view,
         SceneMode::Grove => &mut state.grove_view,
         SceneMode::Deadwood => &mut state.deadwood_view,
+        SceneMode::Ecotope => &mut state.ecotope_view,
     }
 }
 
@@ -799,7 +835,7 @@ pub(crate) fn apply_lod(
 ) {
     let choice = match state.map(|state| state.mode) {
         Some(SceneMode::Clump) => Some(0),
-        Some(SceneMode::Grove) => None,
+        Some(SceneMode::Grove | SceneMode::Ecotope) => None,
         _ => choice.0,
     };
     for (entity, part, visibility, range, saved) in &mut parts {
@@ -821,22 +857,17 @@ type MushroomLodPart<'a> = (
 );
 
 /// Shows only the chosen detail level's mushroom parts, or restores
-/// switching by camera distance.
+/// switching by camera distance. Ecotope mode always switches by distance.
 pub(crate) fn apply_mushroom_lod(
     mut commands: Commands,
     choice: Res<MushroomLodChoice>,
+    state: Option<Res<SceneState>>,
     mut parts: Query<MushroomLodPart>,
 ) {
+    let choice = by_distance_in_ecotope(choice.0, state.as_deref());
     for (entity, part, visibility, range, saved) in &mut parts {
         let ranges = (range, saved);
-        show_level(
-            &mut commands,
-            entity,
-            part.lod,
-            choice.0,
-            visibility,
-            ranges,
-        );
+        show_level(&mut commands, entity, part.lod, choice, visibility, ranges);
     }
 }
 
@@ -851,22 +882,26 @@ type DeadwoodLodPart<'a> = (
 );
 
 /// Shows only the chosen detail level's dead wood parts, or restores
-/// switching by camera distance.
+/// switching by camera distance. Ecotope mode always switches by distance.
 pub(crate) fn apply_deadwood_lod(
     mut commands: Commands,
     choice: Res<DeadwoodLodChoice>,
+    state: Option<Res<SceneState>>,
     mut parts: Query<DeadwoodLodPart>,
 ) {
+    let choice = by_distance_in_ecotope(choice.0, state.as_deref());
     for (entity, part, visibility, range, saved) in &mut parts {
         let ranges = (range, saved);
-        show_level(
-            &mut commands,
-            entity,
-            part.lod,
-            choice.0,
-            visibility,
-            ranges,
-        );
+        show_level(&mut commands, entity, part.lod, choice, visibility, ranges);
+    }
+}
+
+/// The detail level `choice` asks for, or `None` (switch by distance) in
+/// Ecotope mode, where each copy shows the level that suits it.
+fn by_distance_in_ecotope(choice: Option<usize>, state: Option<&SceneState>) -> Option<usize> {
+    match state.map(SceneState::mode) {
+        Some(SceneMode::Ecotope) => None,
+        _ => choice,
     }
 }
 

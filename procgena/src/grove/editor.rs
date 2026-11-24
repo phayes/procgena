@@ -1,6 +1,8 @@
 //! The Tree Scatter tab's controls: preset, one row per species, and the
 //! Scatter's shared settings.
 
+use std::collections::HashMap;
+
 use bevy::ecs::system::SystemParam;
 use bevy::feathers::constants::icons;
 use bevy::feathers::controls::{
@@ -24,16 +26,19 @@ use crate::export::{Done, FileOps, read_preset, save_preset};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
 use crate::ui::{SelectOptions, labelled_row};
 
-/// Triggered after the tree Scatter changes. Read it with
-/// [`GroveReader::grove`].
+/// Triggered after any tree Scatter editor's Scatter changes. Read the
+/// Tree Scatter tab's with [`GroveReader::grove`], and another editor's
+/// with [`GroveReader::grove_of`].
 #[derive(Event, Debug)]
 pub struct GroveEdited;
 
-/// The tree Scatter editor's state. There is one, on the Tree Scatter tab.
+/// A tree Scatter editor's state: the one on the Tree Scatter tab, or one
+/// spawned elsewhere with [`spawn_tree_scatter_editor`].
 #[derive(Component)]
 pub struct GroveEditor {
-    /// The preset last chosen, which saved files name as their base.
-    preset: &'static TreeScatterPreset,
+    /// The preset last chosen, which saved files name as their base, on the
+    /// Tree Scatter tab's editor; `None` on other editors.
+    preset: Option<&'static TreeScatterPreset>,
     /// The panel holding the Scatter's shared settings. Its Scatter has no
     /// species; they come from the rows.
     panel: Entity,
@@ -93,10 +98,10 @@ impl Plugin for GroveEditorPlugin {
     }
 }
 
-/// Reads the edited tree Scatter.
+/// Reads the edited tree Scatters.
 #[derive(SystemParam)]
 pub struct GroveReader<'w, 's> {
-    editors: Query<'w, 's, &'static GroveEditor>,
+    editors: Query<'w, 's, (Entity, &'static GroveEditor)>,
     children: Query<'w, 's, &'static Children>,
     rows: Query<'w, 's, &'static SpeciesRow>,
     shares: Query<'w, 's, &'static ParamPanel<ScatterTree>>,
@@ -104,10 +109,24 @@ pub struct GroveReader<'w, 's> {
 }
 
 impl GroveReader<'_, '_> {
-    /// The edited tree Scatter: its species, in row order, with its shared
-    /// settings. `None` before the editor is spawned.
+    /// The Tree Scatter tab's editor entity, and its state.
+    fn tab(&self) -> Option<(Entity, &GroveEditor)> {
+        self.editors
+            .iter()
+            .find(|(_, editor)| editor.preset.is_some())
+    }
+
+    /// The tree Scatter edited on the Tree Scatter tab: its species, in row
+    /// order, with its shared settings. `None` before the editor is spawned.
     pub fn grove(&self) -> Option<TreeScatter> {
-        let editor = self.editors.single().ok()?;
+        self.grove_of(self.tab()?.0)
+    }
+
+    /// The tree Scatter edited by the editor `entity`, as returned by
+    /// [`spawn_tree_scatter_editor`]. `None` if `entity` is not a tree
+    /// Scatter editor.
+    pub fn grove_of(&self, entity: Entity) -> Option<TreeScatter> {
+        let (_, editor) = self.editors.get(entity).ok()?;
         let panel = self.groves.get(editor.panel).ok()?;
         let trees: Vec<ScatterTree> = self
             .children
@@ -124,8 +143,19 @@ impl GroveReader<'_, '_> {
     /// The tree Scatter preset last chosen, which saved files name as their
     /// base. `None` before the editor is spawned.
     pub fn preset(&self) -> Option<&'static TreeScatterPreset> {
-        Some(self.editors.single().ok()?.preset)
+        self.tab()?.1.preset
     }
+}
+
+/// The tree Scatter editor that `entity` is part of.
+fn editor_of(
+    entity: Entity,
+    parents: &Query<&ChildOf>,
+    editors: &Query<&mut GroveEditor>,
+) -> Option<Entity> {
+    parents
+        .iter_ancestors(entity)
+        .find(|ancestor| editors.contains(*ancestor))
 }
 
 /// The tree Scatter preset shown when the studio opens.
@@ -165,6 +195,61 @@ pub fn spawn_grove_editor(commands: &mut Commands, parent: Entity) {
         })
         .insert(ChildOf(parent))
         .id();
+    let (panel, list) = spawn_body(commands, editor, start);
+    commands.entity(editor).insert(GroveEditor {
+        preset: Some(start_preset()),
+        panel,
+        list,
+    });
+
+    // Saving and loading, below the settings.
+    commands
+        .spawn_scene(bsn! {
+            Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
+            Children [
+                @FeathersButton { @caption: bsn! { @caption("Save Preset…") } }
+                on(save_grove)
+                --
+                @FeathersButton { @caption: bsn! { @caption("Load Preset…") } }
+                on(load_grove_file)
+            ]
+        })
+        .insert(ChildOf(editor));
+}
+
+/// Spawns an editor of `grove`'s species rows and shared settings, without
+/// a preset picker or file buttons, as the last child of `parent`, and
+/// returns it. Each edit triggers [`GroveEdited`]; read the Scatter with
+/// [`GroveReader::grove_of`] and the returned entity.
+pub fn spawn_tree_scatter_editor(
+    commands: &mut Commands,
+    parent: Entity,
+    grove: TreeScatter,
+) -> Entity {
+    let editor = commands
+        .spawn(Node {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            flex_shrink: 0.0,
+            row_gap: px(8),
+            ..default()
+        })
+        .insert(ChildOf(parent))
+        .id();
+    let (panel, list) = spawn_body(commands, editor, grove);
+    commands.entity(editor).insert(GroveEditor {
+        preset: None,
+        panel,
+        list,
+    });
+    editor
+}
+
+/// Spawns `grove`'s species rows, the Add Tree button and the shared
+/// settings panel as the last children of `editor`. Returns the panel and
+/// the node holding the rows.
+fn spawn_body(commands: &mut Commands, editor: Entity, grove: TreeScatter) -> (Entity, Entity) {
+    // The species rows, and the Add Tree button, above the panel.
     let list = commands
         .spawn(Node {
             display: Display::Flex,
@@ -185,38 +270,20 @@ pub fn spawn_grove_editor(commands: &mut Commands, parent: Entity) {
             ]
         })
         .insert(ChildOf(editor));
-    for tree in &start.trees {
+    for tree in &grove.trees {
         spawn_row(commands, list, tree.clone());
     }
 
     // The Scatter's shared settings, with Scatter open. Its species live in
     // the rows.
-    let shared = start.with_trees(Vec::new());
+    let shared = grove.with_trees(Vec::new());
     let panel = spawn_param_panel(commands, editor, shared, params::sections(), &[0]);
     commands
         .entity(panel)
         .observe(|_: On<ParamsChanged>, mut commands: Commands| {
             commands.trigger(GroveEdited);
         });
-    commands.entity(editor).insert(GroveEditor {
-        preset: start_preset(),
-        panel,
-        list,
-    });
-
-    // Saving and loading, below the settings.
-    commands
-        .spawn_scene(bsn! {
-            Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
-            Children [
-                @FeathersButton { @caption: bsn! { @caption("Save Preset…") } }
-                on(save_grove)
-                --
-                @FeathersButton { @caption: bsn! { @caption("Load Preset…") } }
-                on(load_grove_file)
-            ]
-        })
-        .insert(ChildOf(editor));
+    (panel, list)
 }
 
 /// Spawns a row showing `tree` as the last child of `list` and returns it.
@@ -305,17 +372,23 @@ fn row_of(
 fn choose_grove_preset(
     change: On<ValueChange<Entity>>,
     options: Query<&OptionIndex>,
-    mut editor: Single<&mut GroveEditor>,
+    parents: Query<&ChildOf>,
+    mut editors: Query<&mut GroveEditor>,
     children: Query<&Children>,
     mut groves: Query<&mut ParamPanel<TreeScatter>>,
     mut commands: Commands,
 ) {
+    let Some(mut editor) = editor_of(change.source, &parents, &editors)
+        .and_then(|entity| editors.get_mut(entity).ok())
+    else {
+        return;
+    };
     if let Some(preset) = options
         .get(change.value)
         .ok()
         .and_then(|index| TreeScatterPreset::all().nth(index.0))
     {
-        editor.preset = preset;
+        editor.preset = Some(preset);
         show_grove(
             preset.tree_scatter.clone(),
             &editor,
@@ -326,16 +399,19 @@ fn choose_grove_preset(
     }
 }
 
-/// Shows a loaded tree Scatter in the editor, replacing every row. The
-/// preset picker keeps its choice. Run it with `World::run_system_cached_with`.
+/// Shows a loaded tree Scatter in the Tree Scatter tab's editor, replacing
+/// every row. The preset picker keeps its choice. Run it with
+/// `World::run_system_cached_with`.
 pub fn load_grove(
     In(grove): In<TreeScatter>,
-    editor: Single<&GroveEditor>,
+    editors: Query<&GroveEditor>,
     children: Query<&Children>,
     mut groves: Query<&mut ParamPanel<TreeScatter>>,
     mut commands: Commands,
 ) {
-    show_grove(grove, &editor, &children, &mut groves, &mut commands);
+    if let Some(editor) = editors.iter().find(|editor| editor.preset.is_some()) {
+        show_grove(grove, editor, &children, &mut groves, &mut commands);
+    }
 }
 
 /// Replaces every row and the shared settings with `grove`'s, and triggers
@@ -428,19 +504,34 @@ fn set_row_tree(
 /// Adds [`added_tree`] before the last row, unless the Scatter has
 /// [`MAX_SCATTER_TREES`] species.
 fn add_tree(
-    _: On<Activate>,
-    editor: Single<&GroveEditor>,
+    activate: On<Activate>,
+    parents: Query<&ChildOf>,
+    editors: Query<&mut GroveEditor>,
     children: Query<&Children>,
+    rows: Query<&SpeciesRow>,
     shares: Query<&ParamPanel<ScatterTree>>,
     mut commands: Commands,
 ) {
-    let count = children.get(editor.list).map_or(0, |rows| rows.len());
+    let Some(editor) = editor_of(activate.event_target(), &parents, &editors)
+        .and_then(|entity| editors.get(entity).ok())
+    else {
+        return;
+    };
+    let row_entities: Vec<Entity> = children
+        .get(editor.list)
+        .into_iter()
+        .flatten()
+        .copied()
+        .collect();
+    let count = row_entities.len();
     if count >= MAX_SCATTER_TREES {
         return;
     }
     // Species keys must differ, so a new row takes the first free `added_<n>`.
-    let taken: Vec<String> = shares
+    let taken: Vec<String> = row_entities
         .iter()
+        .filter_map(|row| rows.get(*row).ok())
+        .filter_map(|row| shares.get(row.share).ok())
         .map(|share| share.value().key.as_str().to_owned())
         .collect();
     let key = (1..)
@@ -467,10 +558,15 @@ fn remove_row(
     activate: On<Activate>,
     parents: Query<&ChildOf>,
     rows: Query<&mut SpeciesRow>,
-    editor: Single<&GroveEditor>,
+    editors: Query<&mut GroveEditor>,
     children: Query<&Children>,
     mut commands: Commands,
 ) {
+    let Some(editor) = editor_of(activate.event_target(), &parents, &editors)
+        .and_then(|entity| editors.get(entity).ok())
+    else {
+        return;
+    };
     let count = children.get(editor.list).map_or(0, |rows| rows.len());
     if count <= 1 {
         return;
@@ -543,16 +639,25 @@ fn choose_tree_preset(
     }
 }
 
-/// Hides clustering on the row that fills the gaps.
+/// Hides clustering on the row that fills the gaps, in every editor.
 fn refresh_rows(
     editors: Query<&GroveEditor>,
     children: Query<&Children>,
     mut rows: Query<&mut SpeciesRow>,
     mut shares: Query<&mut ParamPanel<ScatterTree>>,
 ) {
-    let Ok(editor) = editors.single() else {
-        return;
-    };
+    for editor in &editors {
+        refresh_editor_rows(editor, &children, &mut rows, &mut shares);
+    }
+}
+
+/// Hides clustering on `editor`'s row that fills the gaps.
+fn refresh_editor_rows(
+    editor: &GroveEditor,
+    children: &Query<&Children>,
+    rows: &mut Query<&mut SpeciesRow>,
+    shares: &mut Query<&mut ParamPanel<ScatterTree>>,
+) {
     let entities: Vec<Entity> = children
         .get(editor.list)
         .into_iter()
@@ -597,11 +702,11 @@ struct StatusCache {
 }
 
 /// Shows each row's preset, placed density and share, and which buttons can
-/// be used.
+/// be used, in every editor.
 #[allow(clippy::too_many_arguments)]
 fn show_row_parts(
     reader: GroveReader,
-    editors: Query<&GroveEditor>,
+    editors: Query<(Entity, &GroveEditor)>,
     children: Query<&Children>,
     rows: Query<&SpeciesRow>,
     shares: Query<&ParamPanel<ScatterTree>>,
@@ -612,13 +717,52 @@ fn show_row_parts(
     mut variants: Query<&mut ButtonVariant>,
     disabled: Query<Has<InteractionDisabled>>,
     selects: SelectOptions,
-    mut cache: Local<StatusCache>,
+    mut caches: Local<HashMap<Entity, StatusCache>>,
     mut commands: Commands,
 ) {
-    let (Some(grove), Ok(editor)) = (reader.grove(), editors.single()) else {
-        return;
-    };
+    caches.retain(|entity, _| editors.contains(*entity));
+    for (entity, editor) in &editors {
+        let Some(grove) = reader.grove_of(entity) else {
+            continue;
+        };
+        let in_editor = |part: Entity| parents.iter_ancestors(part).any(|a| a == entity);
+        show_editor_row_parts(
+            editor,
+            grove,
+            caches.entry(entity).or_default(),
+            &children,
+            &rows,
+            &shares,
+            parts.iter().filter(|(part, _)| in_editor(*part)),
+            &parents,
+            adders.iter().filter(|adder| in_editor(*adder)),
+            &mut texts,
+            &mut variants,
+            &disabled,
+            &selects,
+            &mut commands,
+        );
+    }
+}
 
+/// Shows the row parts of `editor`, which edits `grove`.
+#[allow(clippy::too_many_arguments)]
+fn show_editor_row_parts<'a>(
+    editor: &GroveEditor,
+    grove: TreeScatter,
+    cache: &mut StatusCache,
+    children: &Query<&Children>,
+    rows: &Query<&SpeciesRow>,
+    shares: &Query<&ParamPanel<ScatterTree>>,
+    parts: impl Iterator<Item = (Entity, &'a RowPart)>,
+    parents: &Query<&ChildOf>,
+    adders: impl Iterator<Item = Entity>,
+    texts: &mut Query<&mut Text>,
+    variants: &mut Query<&mut ButtonVariant>,
+    disabled: &Query<Has<InteractionDisabled>>,
+    selects: &SelectOptions,
+    commands: &mut Commands,
+) {
     // Place the Scatter again only when it changed.
     if cache.grove.as_ref() != Some(&grove) {
         cache.statuses = row_statuses(&grove);
@@ -641,15 +785,11 @@ fn show_row_parts(
         }
     };
 
-    for adder in &adders {
-        set_disabled(
-            &mut commands,
-            adder,
-            row_entities.len() >= MAX_SCATTER_TREES,
-        );
+    for adder in adders {
+        set_disabled(commands, adder, row_entities.len() >= MAX_SCATTER_TREES);
     }
 
-    for (entity, part) in &parts {
+    for (entity, part) in parts {
         // Find the row this part belongs to, and its status.
         let Some(at) = parents
             .iter_ancestors(entity)
@@ -666,7 +806,7 @@ fn show_row_parts(
         let custom = choice == custom_choice();
 
         match part {
-            RowPart::Preset => selects.select(&mut commands, entity, choice),
+            RowPart::Preset => selects.select(commands, entity, choice),
             RowPart::PerHa | RowPart::Share => {
                 let shown = match part {
                     RowPart::PerHa => per_ha_text(status.per_ha),
@@ -682,12 +822,12 @@ fn show_row_parts(
             }
             RowPart::Edit => {
                 // A custom tree's settings are always open.
-                set_disabled(&mut commands, entity, custom);
+                set_disabled(commands, entity, custom);
                 if let Ok(mut variant) = variants.get_mut(entity) {
                     variant.set_if_neq(ButtonVariant::selected(row.customising || custom));
                 }
             }
-            RowPart::Remove => set_disabled(&mut commands, entity, !status.removable),
+            RowPart::Remove => set_disabled(commands, entity, !status.removable),
         }
     }
 }

@@ -530,6 +530,14 @@ goldens, which have no baseline on this machine).
   `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. Plant
   is left out: it is a Bevy crate placed on the GPU, with no `Ground` and
   no seed, so it joins in C3 after R3. The viewer draws without textures.
+- **Studio tab (wave 6, 2026-11-24):** built. The studio's Ecotope tab
+  lists the built-in Ecotopes and loaded `.ecotope.yml` files (re-read when
+  they change on disk), edits the seed and each Scatter by key (priority,
+  clearance, kind, and the kind's settings with the asset tabs' controls;
+  add, remove, rename), saves and loads, and draws over flat or rolling
+  ground. `procgena_biome_bevy`'s `EcotopeParams` places in the background
+  and redraws only the Scatters an edit can move. C3's studio tab grows
+  from it.
 - **Done when:** a "pine forest floor" Ecotope preset loads from a
   `.ecotope.yml` file and draws trees, boulders, logs and mushrooms on a
   `HeightGrid` in a viewer or studio tab, with each Scatter keyed and
