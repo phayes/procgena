@@ -51,6 +51,10 @@ const RIVER_BLEND: f64 = 0.5;
 /// Smaller than the road's tolerance band.
 const ROAD_BLEND: f64 = 0.2;
 
+/// How much further off than the nearest water, in metres, another water's
+/// surface still counts towards [`Nearby::water_level`].
+pub(crate) const WATER_MIX: f64 = 10.0;
+
 /// A smooth minimum: `min(a, b)` with the corner rounded where the two are
 /// within `k` of each other. Its slope is continuous. Inigo Quilez's
 /// polynomial smooth minimum (MIT).
@@ -215,6 +219,21 @@ pub(crate) struct Carved {
     pub height: f32,
     pub water: Option<f32>,
     pub tags: RoadTags,
+}
+
+/// The water and roads near a point (see [`Features::nearby`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Nearby {
+    /// Distance to the nearest water's edge, 0 in the water, at most the
+    /// reach asked for.
+    pub water_distance: f64,
+    /// Distance to the nearest road surface's edge, 0 on the road, at most
+    /// the reach asked for.
+    pub road_distance: f64,
+    /// The nearest water's surface, mixed with those of waters within
+    /// [`WATER_MIX`] of as near by the inverse square of their distance;
+    /// `None` where no water is within the reach less [`WATER_MIX`].
+    pub water_level: Option<f32>,
 }
 
 /// The closest point on a feature line's segment: distance to it and the
@@ -810,6 +829,64 @@ impl Features {
         self.carve_parts(p, h, slope, self.index.at(p))
     }
 
+    /// The water and roads within `reach` metres of `p`, at most
+    /// [`BANK_REACH`]: see [`Nearby`].
+    pub(crate) fn nearby(&self, p: DVec2, reach: f64) -> Nearby {
+        debug_assert!(reach > 0.0 && reach <= BANK_REACH);
+        let mut nearby = Nearby {
+            water_distance: reach,
+            road_distance: reach,
+            water_level: None,
+        };
+        // Every piece within `reach` of `p` is listed at `p`: each piece's
+        // box reaches at least `BANK_REACH` beyond its edge.
+        let parts = self.index.at(p);
+        let water_at = |part: &Part| -> Option<(f64, f32)> {
+            let (line, s) = (part.index as usize, part.segment as usize);
+            let (gap, level) = match part.id.kind {
+                FeatureKind::River => {
+                    let river = &self.rivers[line];
+                    let (d, level) = segment_query(river, s, p);
+                    (d - half_width(river, s), level)
+                }
+                FeatureKind::Pond => {
+                    let pond = &self.ponds[line];
+                    (p.distance(pond.centre) - pond.radius, pond.level)
+                }
+                FeatureKind::Road => return None,
+            };
+            Some((gap.max(0.0), level))
+        };
+
+        // The nearest road and water.
+        for part in parts {
+            if part.id.kind == FeatureKind::Road {
+                let (d, half_width, _, _) = self.road_at(part.index, part.segment, p);
+                nearby.road_distance = nearby.road_distance.min((d - half_width).max(0.0));
+            } else if let Some((gap, _)) = water_at(part) {
+                nearby.water_distance = nearby.water_distance.min(gap);
+            }
+        }
+        let nearest = nearby.water_distance;
+        if nearest >= reach - WATER_MIX {
+            return nearby;
+        }
+
+        // The surface: the nearest water's, mixed with those of waters
+        // nearly as near by the inverse square of their distance, down to
+        // nothing for those `WATER_MIX` further off, all within `reach`.
+        // Each piece counts on its own, so a river that comes back near
+        // itself mixes both stretches rather than jumping between them.
+        let (mut weights, mut levels) = (0.0, 0.0);
+        for (gap, level) in parts.iter().filter_map(water_at) {
+            let weight = (1.0 - smootherstep((gap - nearest) / WATER_MIX)) / (1.0 + gap).powi(2);
+            weights += weight;
+            levels += weight * f64::from(level);
+        }
+        nearby.water_level = Some((levels / weights) as f32);
+        nearby
+    }
+
     /// Every piece of every feature, in the order the index lists them.
     #[cfg(test)]
     pub(crate) fn all_parts(&self) -> Vec<Part> {
@@ -1163,6 +1240,67 @@ mod tests {
         let far = features.apply(DVec2::new(50.0, 200.0), 20.0);
         assert_eq!(far.height, 20.0);
         assert_eq!(far.water, None);
+    }
+
+    #[test]
+    fn nearby_water_and_roads_are_measured_from_their_edges() {
+        // The river along z = 0 from x = 0 to 100 (3 m half-width, surface
+        // 10 to 9 m), a road along z = 30 (3 m half-width) and a pond of
+        // radius 5 at (160, 0).
+        let road = FeatureLine {
+            kind: FeatureKind::Road,
+            points: vec![DVec2::new(0.0, 30.0), DVec2::new(100.0, 30.0)],
+            depth: 0.0,
+            ..river()
+        };
+        let pond = Pond {
+            centre: DVec2::new(160.0, 0.0),
+            level: 4.0,
+            radius: 5.0,
+            depth: 1.0,
+        };
+        let features = Features::new(
+            vec![river()],
+            vec![vec![ValleyShape::even(BANK_REACH); 2]],
+            vec![pond],
+            vec![road],
+            vec![vec![ROAD_BANK as f32; 2]],
+            Vec::new(),
+        );
+        let near = |x: f64, z: f64| features.nearby(DVec2::new(x, z), BANK_REACH);
+
+        // In the river: no distance, and its own surface.
+        let wet = near(50.0, 1.0);
+        assert_eq!(wet.water_distance, 0.0);
+        assert_eq!(wet.water_level, Some(9.5));
+        assert_eq!(wet.road_distance, 30.0 - 1.0 - 3.0);
+
+        // Between the two: each edge's distance.
+        let between = near(50.0, 13.0);
+        assert!((between.water_distance - 10.0).abs() < 1e-12);
+        assert!((between.road_distance - 14.0).abs() < 1e-12);
+        assert!((between.water_level.unwrap() - 9.5).abs() < 1e-6);
+
+        // Beyond the reach: the reach, and no water.
+        let far = near(50.0, -60.0);
+        assert_eq!(far.water_distance, BANK_REACH);
+        assert_eq!(far.road_distance, BANK_REACH);
+        assert_eq!(far.water_level, None);
+
+        // Beside the pond, beyond the river's reach: its edge and its
+        // surface.
+        let pond_side = near(172.0, 0.0);
+        assert!((pond_side.water_distance - 7.0).abs() < 1e-12);
+        assert_eq!(pond_side.water_level, Some(4.0));
+
+        // Between the river's end and the pond: the pond, 18 m further off
+        // than the river (gaps 17 and 35 m), doesn't count; 6 m further
+        // off (gaps 23 and 29 m), it counts, less than the river.
+        let nearer = near(120.0, 0.0);
+        assert!((nearer.water_distance - 17.0).abs() < 1e-12);
+        assert_eq!(nearer.water_level, Some(9.0));
+        let level = near(126.0, 0.0).water_level.unwrap();
+        assert!(level > 6.5 && level < 9.0, "{level}");
     }
 
     #[test]

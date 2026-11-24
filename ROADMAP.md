@@ -460,6 +460,19 @@ goldens, which have no baseline on this machine).
   ground rules (GM3) and Biome rules can use them early. **G4b** adds
   `Landform`, `Flags` and labelled tiles. See
   [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
+- **Status (2026-11-24): G4a built.** `Terrain::query(p, SampleDetail)`
+  gives `Measures` at `SampleDetail::Measures`: slope (sine of the
+  angle, from G2's gradient), curvature (4 m stencil on the carved
+  ground), height above the nearby water (surfaces mixed by nearness),
+  and water and road distance from the feature index, capped at
+  `MEASURE_REACH` (40 m, `BANK_REACH`; height above water within
+  `WATER_HEIGHT_REACH`, 30 m). The cap keeps the measures per
+  region: every feature within 40 m of a border is known to both sides,
+  since own features stay `FEATURE_CLEARANCE` from borders and crossing
+  pieces are shared. Longer reaches need the neighbours' features (a
+  World-level follow-up). Tests in `tests/measures.rs`, images from
+  `--example measures_dump`. The relief height (`GroundSite::relief_height`)
+  is not filled: see the G4a report. G4b is next.
 
 #### G5: WorldTerrain (W1–W4)
 

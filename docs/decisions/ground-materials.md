@@ -434,6 +434,42 @@ dump `--example ground_dump`):
   (bare dirt, 450, 0.6 m round boulders). A test checks that ground layers
   leave placement unchanged.
 
+## As built: G4a measures on the site (2026-11-24)
+
+- `Terrain::query(p, SampleDetail::Measures)` gives `Measures` (see
+  terrain/plan.md, "Measures as built"). Water and road distances reach
+  40 m (`MEASURE_REACH`) and height above water reaches 30 m
+  (`WATER_HEIGHT_REACH`). Both are exactly equal across borders.
+- `GroundSite` gains `water_distance`, `road_distance`, `curvature` and
+  `nearby_water_height`, all filled by `from_query` when the sample has
+  measures.
+  - A plain `Ground` site reads both distances as 40 m (measured: none
+    near) and curvature as unknown.
+  - `height_above_water()` prefers the nearby water's height, so banks
+    read how high they stand. It falls back to the covering water, or
+    infinity.
+- **`GroundSource for Terrain` still asks for `SampleDetail::Gradient`**,
+  so chunk weights don't pay for measures yet. The
+  `WaterDistance`/`RoadDistance`/`Curvature` conditions are GM3's, and GM3
+  switches the source to `Measures` using GM1's per-chunk cost.
+- **Cost per sample** (warm, `tests/bench.rs` `warm_sampling`, test
+  profile, 48,000 points on the bench worlds). The machine was heavily
+  loaded (load average about 190), so compare the rows with each other,
+  not with other runs.
+
+  | Query | p50 | p95 |
+  |---|---|---|
+  | height | 2.5 µs | 35 µs |
+  | gradient (`sample`) | 8.9 µs | 218 µs |
+  | measures | 17.9 µs | 331 µs |
+  | measures, within 200 m of a border | 69 µs | 417 µs |
+
+  Measures cost about twice the gradient (the gradient plus four
+  heights for curvature; the distances are almost free). For 129² texels
+  that is about 0.3 s per chunk at p50 on one thread under this load.
+  Curvature from the chunk's own height grid would avoid the four extra
+  heights if GM3 finds it too slow.
+
 ## Decisions
 
 The user, 2026-11-24:
@@ -483,6 +519,23 @@ The user, 2026-11-24:
    neighbour's edge. GM1.
 7. **Where `plant_far_color` lives** (`procgena_core_bevy`, or a hook the
    terrain material offers): with the plant-align lane, before GM5.
+8. **What fills the relief height** (`GroundSite::relief_height`, the
+   `relief` form of decision 6), for GM3. G4a doesn't fill it: it isn't
+   a feature-index measure, and a region's measured lowest and highest
+   ground would need a scan of the region and would jump at every border,
+   since neighbours have different ranges. The proposal: normalise
+   analytically, `(height − E) / span`, where the span comes from the
+   terrain's `Relief` layer spreads (or heights) and fades towards the
+   agreed amplitude near borders, as the relief itself does through the
+   convergence fade. Then it needs no scan and is continuous. **For the
+   user:** near a border between, say, mountains and plains, the span
+   blends, so the same metres read as "high" on the plains side and "low"
+   on the mountain side only away from the border, and meet in between.
+   Is that the behaviour wanted, or should relief height stay a
+   per-region notion that is allowed to jump at borders (hidden by the
+   Ecotope blend zone)? Also: is "1 at the highest peak" a theoretical
+   peak (relief layers at full height) or a typical one (some spread
+   above the mean), since real peaks rarely reach the theoretical top?
 
 ## What changes where
 

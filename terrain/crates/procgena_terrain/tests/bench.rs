@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use common::{DEFAULT, RIVER_SEEDS, WARPED, hills_into_plains, triple_junction, two_terrains};
 use glam::{DVec2, I64Vec2, UVec2};
-use procgena_terrain::{EdgeAgreement, HeightTile, StitchedWorld, Terrain};
+use procgena_terrain::{EdgeAgreement, HeightTile, SampleDetail, StitchedWorld, Terrain};
 
 /// The 50th, 95th and 99th percentiles and the largest of `times`, in
 /// milliseconds.
@@ -198,7 +198,8 @@ fn cold_region_planning() {
 fn warm_sampling() {
     eprintln!("Warm sampling, per call, in µs; load {}:", load());
     let (mut height, mut query, mut sample) = (Vec::new(), Vec::new(), Vec::new());
-    let mut border = (Vec::new(), Vec::new());
+    let mut measures = Vec::new();
+    let mut border = (Vec::new(), Vec::new(), Vec::new());
     for (_, world) in worlds() {
         for terrain in world.terrains() {
             for p in points_in(terrain, 4000) {
@@ -207,16 +208,21 @@ fn warm_sampling() {
                 std::hint::black_box(terrain.height(p));
                 let h = started.elapsed().as_secs_f64() * 1e6;
                 let started = Instant::now();
-                std::hint::black_box(terrain.query(p, false));
+                std::hint::black_box(terrain.query(p, SampleDetail::Height));
                 query.push(started.elapsed().as_secs_f64() * 1e6);
                 let started = Instant::now();
                 std::hint::black_box(terrain.sample(p));
                 let s = started.elapsed().as_secs_f64() * 1e6;
+                let started = Instant::now();
+                std::hint::black_box(terrain.query(p, SampleDetail::Measures));
+                let m = started.elapsed().as_secs_f64() * 1e6;
                 height.push(h);
                 sample.push(s);
+                measures.push(m);
                 if near_border {
                     border.0.push(h);
                     border.1.push(s);
+                    border.2.push(m);
                 }
             }
         }
@@ -224,6 +230,11 @@ fn warm_sampling() {
     eprintln!("  height                     {}", quantiles(&mut height));
     eprintln!("  query, no gradient         {}", quantiles(&mut query));
     eprintln!("  sample (with gradient)     {}", quantiles(&mut sample));
+    eprintln!("  query, with measures       {}", quantiles(&mut measures));
+    eprintln!(
+        "  measures, within 200 m of a border  {}",
+        quantiles(&mut border.2)
+    );
     eprintln!(
         "  height, within 200 m of a border  {}",
         quantiles(&mut border.0)
