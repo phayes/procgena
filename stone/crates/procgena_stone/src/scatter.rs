@@ -782,9 +782,10 @@ fn patches(class: &StoneClass, world: DVec2, salt: u32) -> f32 {
 fn value_noise(p: DVec2, salt: u32) -> f32 {
     let base = p.floor();
     let f = (p - base).as_vec2();
-    let (ix, iz) = (base.x as i64 as u32, base.y as i64 as u32);
-    let at =
-        |dx: u32, dz: u32| unit_float(pcg3d([ix.wrapping_add(dx), iz.wrapping_add(dz), salt])[0]);
+    let (cell_x, cell_z) = (base.x as i64 as u32, base.y as i64 as u32);
+    let at = |dx: u32, dz: u32| {
+        unit_float(pcg3d([cell_x.wrapping_add(dx), cell_z.wrapping_add(dz), salt])[0])
+    };
     let s = f * f * (Vec2::splat(3.0) - 2.0 * f);
     let top = at(0, 0) + (at(1, 0) - at(0, 0)) * s.x;
     let bottom = at(0, 1) + (at(1, 1) - at(0, 1)) * s.x;
