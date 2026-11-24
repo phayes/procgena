@@ -466,8 +466,7 @@ share the palette, cap and quantising.
 - The mesh carries UVs from 0 to 1 across the chunk, and the shader maps
   them onto texel centres, so the weights follow the mesh, whatever the
   stream's transform. Colour and roughness are the weighted palette; the
-  two-scale patchy variation stays in the shader and now applies to every
-  material (G6 left snow unvaried).
+  two-scale patchy variation stays in the shader.
 - `TerrainMaterialPlugin` draws the material without streaming;
   `TerrainPlugin` and `EcotopePlugin` add it if it isn't added.
   `TerrainExtension::new(weights, catalogue, images)` and
@@ -510,6 +509,9 @@ these are upper bounds; the ratio is the steadier number.
   behind region building there; it isn't measured on an idle machine.
 - The Ecotope patch (48 m at 0.5 m, 97² texels, with Scatter influence
   from the placed copies) paints in 9 to 46 ms.
+- The table is one paint at the fine tier. Streams load coarse first by
+  default, so a chunk that wants a later tier is painted twice: once
+  rough, once at its own tier.
 - Not optimised: a cheaper site (gradient from the samples already read,
   or fewer texels at coarse levels) or GM6's GPU port are the levers if
   release builds still call for them. Release timings aren't taken.
@@ -517,24 +519,29 @@ these are upper bounds; the ratio is the steadier number.
 **The level-ring seam** (open question 6). The same example paints a fine
 chunk and the coarser chunk beside it. Their texels on the same points
 agree (checked); between them the coarser chunk draws the mean of its
-two texels where the finer one has its own. On mountains the largest
-difference there is 0.14 in linear RGB (mean 0.001 to 0.0015) at rock
-edges; on hills, 0.09 where a road crosses at level 3 and 0 elsewhere.
-Screenshots with chunk borders drawn show no visible step. Recommendation:
-accept it, as the level change is already dithered; look again with
-textures in GM2.
+two texels where the finer one has its own. Over 6 pairs per level, the
+largest difference there is 0.14 in linear RGB on mountains (mean 0.001
+to 0.0015), and on hills 0.09 at one level-3 pair and 0 at levels 0 to
+2. The screenshots with chunk borders drawn are mostly rock, so they
+can't show a step either way. Recommendation: accept it, as the step is
+rare and the level change is already dithered; look again with textures
+in GM2. The user decides.
 
 **Look changes from G6's shader**, for the user to judge (before and
 after shots in GM1's notes):
 
-- Rock and snow edges no longer move with the shader's noise; they follow
+- Rock and snow edges no longer shift with the shader's noise; they follow
   the weights' slope and height bands, sampled per texel (0.5 m near,
   16 m at level 5).
 - Slope comes from the terrain's own gradient, not the drawn mesh's
   normal, so on coarse far chunks grass patches on mountains break up
   into smaller pieces.
 - Roads (gravel), cut and built-up banks (bare dirt) and riverbeds now
-  draw on bare terrain.
+  draw on bare terrain. The studio's Terrain view reads chunk levels 3
+  and up at the rough tier (without roads), so there roads stop at the
+  level-3 ring.
+- The patchy variation now applies to every material, snow, roads and
+  riverbeds included.
 - Roughness comes from the catalogue instead of 0.95 everywhere.
 
 ## Decisions
@@ -583,9 +590,9 @@ The user, 2026-11-24:
    starting points; GM1 and GM2 measure them on the triple-junction scene.
 6. **The level-ring seam** in the weight textures (see "Chunk weight
    textures"): accept it or have the coarser chunk read its finer
-   neighbour's edge. GM1 measured it (largest 0.14 linear RGB, mean
-   about 0.001, invisible in screenshots) and recommends accepting it;
-   the user decides.
+   neighbour's edge. GM1 measured it (texels on shared points agree;
+   between them the largest step is 0.14 in linear RGB, the mean about
+   0.001) and recommends accepting it; the user decides.
 7. **Where `plant_far_color` lives** (`procgena_core_bevy`, or a hook the
    terrain material offers): with the plant-align lane, before GM5.
 
