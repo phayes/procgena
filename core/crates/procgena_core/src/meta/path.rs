@@ -179,6 +179,16 @@ impl Pattern {
         self.0.iter().any(Option::is_none)
     }
 
+    /// The one path the pattern matches, when it has no `*`.
+    #[must_use]
+    pub fn path(&self) -> Option<SettingPath> {
+        self.0
+            .iter()
+            .cloned()
+            .collect::<Option<Vec<_>>>()
+            .map(SettingPath)
+    }
+
     /// Whether `path` matches the pattern, and if so the index the last `*`
     /// matched (`None` when there is no `*`, or the segment is not a number).
     #[must_use]

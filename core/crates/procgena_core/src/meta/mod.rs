@@ -69,7 +69,7 @@ pub use condition::{Condition, NamedConditions};
 pub use file::{
     Choice, ChoiceLists, Choices, ControlKind, GroupLayout, GroupMeta, KindMeta, MetaError,
     PartMeta, Revive, Scale, SectionLayout, SectionMeta, SettingLayout, SettingMeta, choice_index,
-    pick_choice, write_number,
+    pick_choice,
 };
 pub use path::{Match, Pattern, SettingPath, all_paths, leaves};
 

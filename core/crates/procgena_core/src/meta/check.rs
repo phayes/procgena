@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::condition::{Condition, NamedConditions};
 use super::file::{
-    ChoiceLists, ControlKind, KindMeta, Revive, SettingMeta, pick_choice, write_number,
+    ChoiceLists, ControlKind, KindMeta, Revive, SettingMeta, choice_index, pick_choice,
 };
 use super::path::{SettingPath, Template, all_paths, leaves};
 
@@ -25,13 +25,14 @@ use super::path::{SettingPath, Template, all_paths, leaves};
 /// - a setting in a sample with no entry (an entry covers its path and
 ///   everything below it);
 /// - an entry that matches no setting in any sample;
-/// - a shown entry that no section lists, and a listed path that matches
-///   no entry;
+/// - a shown entry that no section lists or that has no description, and a
+///   listed path that matches no entry;
 /// - a condition or revive that reads a setting no sample has, or names an
 ///   unknown condition;
 /// - an unknown `ref` kind, choice list or part, and a part no setting
 ///   targets;
-/// - a sample's number outside its entry's range.
+/// - a sample's number outside its entry's range, or a value that is not
+///   one of its entry's choices.
 #[must_use]
 pub fn problems(
     meta: &KindMeta,
@@ -70,6 +71,9 @@ pub fn problems(
         }
         if !entry.hidden && matched.iter().any(|p| meta.group_of(p).is_none()) {
             found.insert(format!("entry {pattern} is in no section"));
+        }
+        if !entry.hidden && entry.description.trim().is_empty() {
+            found.insert(format!("entry {pattern} has no description"));
         }
         match &entry.control {
             ControlKind::Choice(_) if entry.choices(lists).is_none() => {
@@ -145,6 +149,21 @@ pub fn problems(
                 && !(min..=max).contains(&v)
             {
                 found.insert(format!("{name}: {path} = {v} is outside {min}..={max}"));
+            }
+        }
+
+        // ...and their choices, which would otherwise show as another option.
+        for path in all_paths(value) {
+            let Some((entry, _)) = meta.setting(&path) else {
+                continue;
+            };
+            let (Some(choices), Some(current)) = (entry.choices(lists), path.get(value)) else {
+                continue;
+            };
+            if choice_index(choices, current).is_none() {
+                found.insert(format!(
+                    "{name}: {path} = {current} is not one of its choices"
+                ));
             }
         }
     }
@@ -279,7 +298,12 @@ fn setting_values(entry: &SettingMeta, lists: &ChoiceLists, current: &Value) -> 
             Value::Bool(on) => vec![Value::Bool(!on)],
             Value::Number(_) => entry
                 .range
-                .map(|[min, max]| vec![write_number(current, min), write_number(current, max)])
+                .map(|[min, max]| {
+                    vec![
+                        entry.number_value(current, min),
+                        entry.number_value(current, max),
+                    ]
+                })
                 .unwrap_or_default(),
             _ => Vec::new(),
         },

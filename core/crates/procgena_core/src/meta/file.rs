@@ -490,6 +490,9 @@ impl KindMeta {
         let Some((meta, m)) = self.setting(path) else {
             return false;
         };
+        if path.get(value).is_none() {
+            return false;
+        }
         let Some((_, group)) = self.group_of(path) else {
             return false;
         };
@@ -510,9 +513,12 @@ impl KindMeta {
     }
 
     /// The Inspector's layout for `value`: each section's groups with the
-    /// concrete settings they list, in display order. Patterns are expanded
-    /// over `value`; listed settings with no entry or not in `value` are
-    /// left out. Hidden settings are kept, marked not shown.
+    /// concrete settings they list, in display order. Patterns with `*` are
+    /// expanded over `value`. A listed path without `*` is kept even when
+    /// `value` lacks it (such as a setting of an option that is off), marked
+    /// not shown, so the layout keeps its shape as the value changes.
+    /// Listed settings with no entry are left out, and hidden settings are
+    /// kept, marked not shown.
     #[must_use]
     pub fn layout(&self, value: &Value) -> Vec<SectionLayout<'_>> {
         self.sections
@@ -527,7 +533,10 @@ impl KindMeta {
                         settings: group
                             .settings
                             .iter()
-                            .flat_map(|pattern| pattern.expand(value))
+                            .flat_map(|pattern| match pattern.path() {
+                                Some(path) => vec![path],
+                                None => pattern.expand(value),
+                            })
                             .filter_map(|path| {
                                 let (meta, m) = self.setting(&path)?;
                                 Some(SettingLayout {
@@ -580,7 +589,7 @@ impl KindMeta {
                     continue;
                 };
                 let slot = path.get(after).cloned().unwrap_or(Value::Null);
-                path.set(after, write_number(&slot, new));
+                path.set(after, meta.number_value(&slot, new));
                 revived |= new != 0.0 && meta.range.is_none_or(|[min, _]| new != min);
             }
             if !revived {
@@ -724,16 +733,39 @@ impl SettingMeta {
     }
 }
 
-/// The value to store when a number control sets `new` on a setting that
-/// holds `current`: a whole number, rounded, when `current` is one (so
-/// whole-number options still read), otherwise `new`.
-#[must_use]
-pub fn write_number(current: &Value, new: f64) -> Value {
-    match current {
-        Value::Number(n) if n.is_u64() && new >= 0.0 => Value::from(new.round() as u64),
-        Value::Number(n) if n.is_u64() || n.is_i64() => Value::from(new.round() as i64),
-        _ => Value::from(new),
+impl SettingMeta {
+    /// The value to store when a number control sets `new` on this setting
+    /// while it holds `current`.
+    ///
+    /// It is a whole number, rounded, when `current` is one and the
+    /// setting's step is whole (or not given), so whole-number options
+    /// still read. Otherwise it is `new` in the shortest form an `f32`
+    /// writes, as [`preset::to_value`](crate::preset::to_value) gives it,
+    /// so that an unchanged value compares equal.
+    #[must_use]
+    pub fn number_value(&self, current: &Value, new: f64) -> Value {
+        let whole_step = self.step.is_none_or(|step| step.fract() == 0.0);
+        match current {
+            Value::Number(n) if whole_step && n.is_u64() && new >= 0.0 => {
+                Value::from(new.round() as u64)
+            }
+            Value::Number(n) if whole_step && (n.is_u64() || n.is_i64()) => {
+                Value::from(new.round() as i64)
+            }
+            _ => shortest_f32(new),
+        }
     }
+}
+
+/// `value` as an `f32` written in its shortest form, such as `0.6` rather
+/// than `0.6000000238418579`.
+fn shortest_f32(value: f64) -> Value {
+    #[allow(clippy::cast_possible_truncation)]
+    let narrow = value as f32;
+    narrow
+        .to_string()
+        .parse::<f64>()
+        .map_or(Value::Null, Value::from)
 }
 
 /// The index of `current` among `choices`: the equal option, or for a map

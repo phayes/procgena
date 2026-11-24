@@ -25,21 +25,24 @@ sections:
       - settings: [children.*]
 settings:
   true_flag: { label: Flag, hidden: true }
-  size: { label: Size, range: [0.1, 10], scale: exponential, unit: m }
-  tint: { label: Tint, color: true }
+  size: { label: Size, description: How big., range: [0.1, 10], step: 0.1, scale: exponential, unit: m }
+  tint: { label: Tint, description: Its colour., color: true }
   shape:
     label: Shape
+    description: Its outline.
     choices:
       - { value: { kind: round, radius: 1.0 }, label: Round }
       - { value: { kind: square, side: 2.0 }, label: Square }
-  levels: { label: Levels, range: [0, 2] }
-  deciduous: { label: Deciduous }
+  levels: { label: Levels, description: How many levels., range: [0, 2] }
+  deciduous: { label: Deciduous, description: Drops its leaves. }
   length.*:
     label: Length
+    description: The level's length.
     range: [0, 5]
+    step: 0.01
     shown_if: "@grows_{index}"
     revive: { from: "length.{parent}", times: 0.5, min: 0.2 }
-  children.*: { label: Children, range: [0, 10], shown_if: "levels > {index}", revive: 4 }
+  children.*: { label: Children, description: Side arms., range: [0, 10], step: 1, shown_if: "levels > {index}", revive: 4 }
 "#;
 
 fn meta() -> KindMeta {
@@ -206,8 +209,44 @@ fn choices_match_by_kind_and_keep_that_kinds_settings() {
     assert_eq!(choice_index(choices, &edited), Some(0));
     assert_eq!(pick_choice(&choices[0], &edited), edited);
     assert_eq!(pick_choice(&choices[1], &edited), choices[1].value);
-    assert_eq!(write_number(&json!(3), 2.6), json!(3));
-    assert_eq!(write_number(&json!(3.0), 2.6), json!(2.6));
+}
+
+#[test]
+fn numbers_keep_their_kind_and_the_shortest_f32_form() {
+    let meta = meta();
+    let entry = |p: &str| meta.setting(&path(p)).unwrap().0;
+    // Whole-number settings stay whole.
+    assert_eq!(entry("children.0").number_value(&json!(3), 2.6), json!(3));
+    // A fractional setting written as a whole number in a file is not
+    // stuck on whole numbers.
+    assert_eq!(entry("size").number_value(&json!(2), 2.6), json!(2.6));
+    // A slider's f32 is stored as preset::to_value writes it.
+    let slider = f64::from(0.6_f32);
+    assert_eq!(entry("size").number_value(&json!(1.0), slider), json!(0.6));
+    let written = crate::preset::to_value(&0.6_f32);
+    assert_eq!(entry("size").number_value(&written, slider), written);
+}
+
+#[test]
+fn listed_settings_stay_in_the_layout_while_absent_but_are_not_shown() {
+    let meta = meta();
+    let mut value = sample();
+    value.as_object_mut().unwrap().remove("tint");
+    let body = &meta.layout(&value)[0].groups[0].settings;
+    let tint = body.iter().find(|s| s.path == path("tint")).unwrap();
+    assert!(!tint.shown);
+    assert!(!meta.is_shown(&path("tint"), &value));
+}
+
+const DECIDUOUS: &str = "  deciduous: { label: Deciduous, description: Drops its leaves. }";
+const LEVELS: &str = "  levels: { label: Levels, description: How many levels., range: [0, 2] }";
+
+/// `text` with each `(from, to)` replaced, checking that each `from` is there.
+fn edit(text: &str, changes: &[(&str, &str)]) -> String {
+    changes.iter().fold(text.to_owned(), |text, (from, to)| {
+        assert!(text.contains(from), "{from:?} is not in the file");
+        text.replace(from, to)
+    })
 }
 
 #[test]
@@ -225,10 +264,25 @@ fn the_drift_check_passes_for_a_file_in_step() {
 
 #[test]
 fn the_drift_check_names_every_mistake() {
-    let text = FILE
-        .replace("deciduous: { label: Deciduous }", "deciduous: { label: Deciduous }\n  ghost: { label: Ghost }\n  pet: { label: Pet, ref: animal }")
-        .replace("levels: { label: Levels, range: [0, 2] }", "levels: { label: Levels, range: [0, 2], shown_if: \"@nope && height\" }")
-        .replace("  arms: { name: Arms }", "  arms: { name: Arms }\n  legs: { name: Legs }");
+    let text = edit(
+        FILE,
+        &[
+            (
+                DECIDUOUS,
+                &format!(
+                    "{DECIDUOUS}\n  ghost: {{ label: Ghost, description: G. }}\n  pet: {{ label: Pet, ref: animal }}"
+                ),
+            ),
+            (
+                LEVELS,
+                &LEVELS.replace(" }", ", shown_if: \"@nope && height\" }"),
+            ),
+            (
+                "  arms: { name: Arms }",
+                "  arms: { name: Arms }\n  legs: { name: Legs }",
+            ),
+        ],
+    );
     let meta = KindMeta::parse(&text).unwrap();
     let mut value = sample();
     value["extra"] = json!(1);
@@ -245,6 +299,7 @@ fn the_drift_check_names_every_mistake() {
         "entry ghost matches no setting",
         "entry pet is in no section",
         "entry pet refers to unknown kind animal",
+        "entry pet has no description",
         "levels: a condition names unknown condition @nope",
         "levels: a condition reads height, which no sample has",
         "part legs has no setting",
@@ -262,9 +317,12 @@ fn the_drift_check_names_every_mistake() {
 #[test]
 fn choice_variants_are_tried_as_samples() {
     // The square shape's `side` appears only through the choice's option.
-    let text = FILE.replace(
-        "  deciduous: { label: Deciduous }",
-        "  deciduous: { label: Deciduous }\n  shape.side: { label: Side, hidden: true }",
+    let text = edit(
+        FILE,
+        &[(
+            DECIDUOUS,
+            &format!("{DECIDUOUS}\n  shape.side: {{ label: Side, hidden: true }}"),
+        )],
     );
     let meta = KindMeta::parse(&text).unwrap();
     let found = problems(
