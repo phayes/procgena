@@ -371,7 +371,8 @@ impl HeightField for WorldTerrain { … }
   string-key seed salts and the erosion-aware relief amplitude (see
   "Re-recorded after the string-key seed salts" in `plan.md`): flat
   24 → **20**, down towards the plains 65 → **64**, up towards them
-  6 → **4**.
+  6 → **4**. On 2026-11-24 (after G6, and unchanged by the border offers
+  moving to the exact slope): flat **19**, down **63**, up **4**.
 - **The flat baseline:** 24 is not comparable with Phase 2.5's 10–13.
   Those came from the `river_crossing_seeds` probe before relief
   blending existed (blend 0, today's default is 0.5), and Phases 2.6 to

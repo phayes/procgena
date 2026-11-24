@@ -1357,9 +1357,10 @@ where the details are.
     their shared border from each side's slope. G2 added an exact slope,
     but the border offers still use the old estimate from nearby heights,
     which averages across sharp ridge tops (one crest jumps from 1.97 to
-    −1.0). Switching moves every agreed border profile and may unsettle
-    test seeds, for borders that follow ridges more exactly. Switch, or
-    keep the estimate? Details: terrain/plan.md, G2 notes.
+    −1.0). **Decided and done (2026-11-24): switched.** The offers read
+    the exact slope and the old estimate is gone. Agreed borders moved by
+    at most 3.3 cm in the test worlds; every test, seed and probe figure
+    stayed the same. Details: terrain/plan.md, G2 notes.
 14. **Macro cells, after a quiet benchmark rerun.** The user decided
     macro cells (planning on coarse 1 km cells inside a region) are added
     only if the benchmarks call for them. G3 step 2 measured a cold
