@@ -1,11 +1,10 @@
 # Saved-file format: preset bundles
 
-Status: **partly decided.** The user answered the first round of questions
-on 2026-11-24 (see "Decisions"). The **container is not decided**: the
-user is not sure zip is right, so "Container" reviews every candidate
-again, for lazy reading and later HTTP range requests, and question 1 asks
-the user to choose. Anything still marked "proposed" waits for the user.
-No code was changed or run.
+Status: **mostly decided.** The user decided the first round's questions
+and the container on 2026-11-24 (see "Decisions"). The zip library is
+chosen when PB1 is built. Three smaller choices remain under "Questions
+for the user". Anything still marked "proposed" waits for the user. No
+code was changed or run.
 
 Written from ARCHITECTURE.md ("Seeds", rule 10 "One preset and file
 pattern", "Bringing your own assets"),
@@ -13,10 +12,10 @@ pattern", "Bringing your own assets"),
 project folder", "Documents and the edit model", "The texture library",
 "Stages", open question 1), [ground-materials](ground-materials.md)
 (texture sizes, level 1 as the default), `procgena_core::preset`,
-`plant/src/files.rs`, `procgena_tree/src/scatter.rs` and
-`scatter/file.rs`, `procgena_biome/src/ecotope/file.rs`,
+`procgena_core::seed`, `plant/src/files.rs`, `procgena_tree/src/scatter.rs`
+and `scatter/file.rs`, `procgena_biome/src/ecotope/file.rs`,
 `tree/textures.yml`, the `bevy_asset` 0.20.1 source, `Cargo.lock`,
-crates.io (2026-11-24), and the sources linked under "Prior art".
+crates.io (2026-11-24), and the sources linked under "Why zip".
 
 One correction to the first brief: plant no longer has `.plant.ron` or
 `.field.ron` files. `plant/src/files.rs` reads `.plant.yml` and
@@ -51,36 +50,40 @@ question numbers.
 7. **`.yml` only.** JSON content inside a `.yml` file still reads (Q7 a).
 8. **BC7 KTX2 only** for textures (Q8 a).
 9. **The plant web demo is deferred,** and with it the wasm check (Q9).
-10. **The extension is `.procgena`** (Q11).
-
-**Not decided:** the container (Q10). It is question 1 below, with the zip
-library nested under it.
+10. **The container is zip, with every entry stored uncompressed, written
+    with a strict profile** (Q10). The profile is specified under "The
+    bundle zip profile". The reader accepts only that profile for
+    bundles, with clear errors.
+11. **The zip library is chosen when it is built** (Q10, nested): the
+    `zip` crate, `rawzip`, or our own reader and writer. The candidates
+    and their facts are under "Zip code: chosen at PB1".
+12. **The extension is `.procgena`** (Q11).
 
 ## Bottom line
 
-- **A bundle is a subset of a project folder, packed into one file.** The
-  layout inside is the project folder's (`procgena.yml`,
+- **A bundle is a subset of a project folder, packed into one zip file.**
+  The layout inside is the project folder's (`procgena.yml`,
   `presets/<kind>/<key>.<kind>.yml`, `textures/`), so packing and
   unpacking are copies, and the folder stays the git-friendly working
   form.
-- **Container (proposed, the user to choose): zip with every entry
-  stored uncompressed, under a strict writer profile.** That means
-  `procgena.yml` first, then every preset file, then thumbnails, then
-  textures and models; no archive comment; and no extra fields. The
-  second round found that **every indexed format reads one preset for the
-  same cost**: one seek on a local file, which is the decided use, and
-  about two HTTP round trips later. Formats with the index at the front
-  (ASAR, a PMTiles-style custom format) save one round trip only when a
-  server refuses suffix ranges. In exchange they lose double-click opening
-  on every OS, zipping a folder by hand, and readers that others have
-  already fuzzed. tar has no index. Compressed streams (tar.zst, seekable
-  zstd, 7z) gain nothing on textures that are already compressed. SQLite
-  stores large blobs as chains of linked pages, which is slow over
-  ranges, and adds a C library.
+- **The bundle zip profile** keeps every bundle easy to read lazily:
+  - every entry is stored uncompressed, so data is never inflated;
+  - `procgena.yml` comes first, then the YAML, thumbnails, textures and
+    models;
+  - every entry's data is 64-byte aligned, through a padding record that
+    is the same in the local header and the central directory, so a range
+    reader finds where data starts from the central directory alone;
+  - there is no zip64, no data descriptor, no comment, no encryption, no
+    links, and timestamps are fixed.
+
+  Every bundle the studio writes opens by double-click on every OS.
+- **The reader accepts only the profile** (proposed). A zip made by
+  Finder or Explorer is compressed, so it is rejected with a message
+  saying to unzip it and open the folder (question 3).
 - **Export gathers a closure; Open unpacks; Import copies with
   renames.** Export follows `base`, preset references, texture ids and
   model paths from the chosen roots and copies everything but built-ins.
-  "Open" unpacks into a new project folder (proposed; question 2).
+  "Open" unpacks into a new project folder (proposed; question 1).
   "Import" copies into the current project. It skips identical items and,
   by default, renames conflicting ones, rewriting `base:`, references and
   texture ids to match. It writes an explicit tree Scatter `key` where a
@@ -89,136 +92,160 @@ library nested under it.
   id, name, version, licence, authors and `made_with`, and no entry list.
 - **The reader is strict and safe on untrusted files** (see "Size and
   security"). Generated meshes are never stored.
-- **No new dependency is added by this plan.** The library choice is
-  nested under question 1.
+- **No new dependency is added by this plan.** With the strict profile,
+  our own reader and writer need only `crc32fast`, which is already in the
+  tree. Whoever builds PB1 chooses between that, `zip` and `rawzip`.
 
-## Container
+## Why zip
 
-### What the criteria mean here
+This section is kept as the record of the decision.
 
-- **Lazy reading:** list a bundle's presets and read one without reading
-  the whole file. For the decided use, the studio's Open and Import of a
-  local file, this costs one or two seeks in any format with an index.
-  Read whole, a bundle is a few MiB. Lazy reading matters for HTTP range
-  requests later: browsing a bundle library online, or a game streaming
-  presets.
-- **Round trips** are counted for HTTP with ranges, the later case, under
-  stated assumptions:
-  - **Suffix ranges work.** `Range: bytes=-N` returns the last N bytes
-    without knowing the file's size. RFC 9110 defines it;
-    [Cloudflare documents it](https://developers.cloudflare.com/cache/reference/range-requests/);
-    S3 and CloudFront support ranges but no result here confirmed suffix
-    ranges; GitHub Pages is unverified.
-  - **Suffix ranges don't work.** Then a front range `bytes=0-N` comes
-    first. Its `Content-Range` gives the total size, so a format with its
-    index at the end needs one more trip.
-    [ReplayWeb.page](https://www.github.com/webrecorder/replayweb.page/issues/246)
-    sends a HEAD first, which costs the same.
-  - **The index outgrows the first window.** One more trip in every format.
-  - Requests that don't depend on each other go out in parallel, so
-    "trips" counts the sequential ones.
-- **Not a criterion any more:** updating the packed file in place. Under
-  decision 1 a bundle is written once by Export and never edited, so
-  SQLite's main strength doesn't count.
+- **Lazy reading** means listing a bundle's presets and reading one
+  without reading the whole file. On a local file, which is how the
+  studio uses bundles, any format with an index costs one or two seeks.
+- **Round trips** matter later, for HTTP range requests.
+  - A suffix range (`Range: bytes=-N`) fetches the end of a file without
+    knowing its size. RFC 9110 defines it, and
+    [Cloudflare documents it](https://developers.cloudflare.com/cache/reference/range-requests/).
+  - Without suffix ranges, a front range comes first, and its
+    `Content-Range` gives the size.
+  - Requests that don't depend on each other go out in parallel, so the
+    table counts sequential trips.
+- **Compression doesn't decide it.** The textures are BC7 KTX2, already
+  supercompressed with Zstandard. A bundle of 20 presets and one 512 px
+  texture set holds about 50 KiB of YAML beside about 1 MiB of KTX2.
+  Deflating the YAML would save 35–40 KiB.
 
-### Sizes, for scale
-
-| Content | Typical size | Already compressed? |
-|---|---|---|
-| A preset file | 0.2–5 KiB of YAML | No |
-| A texture map at 128 px (the level 1 default) | ≈ 21 KiB BC7 with mips, before Zstandard | Yes (KTX2 Zstandard) |
-| A texture set at 512 px, 1k and 2k (3 maps) | ≈ 21 MiB with mips, before Zstandard | Yes |
-| A GLB model | 50 KiB – 10 MiB | Partly |
-
-A bundle of 20 presets and one 512 px set holds about 50 KiB of YAML
-beside about 1 MiB of KTX2. Deflating the YAML would save 35–40 KiB.
-Compression doesn't decide the container.
-
-### Round trips
-
-Each column assumes the writer orders `procgena.yml` and all YAML first,
-and that the index fits the first fetch (64 KiB), unless the cell says
-otherwise.
-
-| Format | Index location | Trips to the index: suffix ranges work / don't | Trips to one entry after the index | Manifest and every preset, from nothing |
+| Format | Trips to the index (suffix ranges work / don't) | Trips to one entry | Tooling | Why not chosen |
 |---|---|---|---|---|
-| **Zip, stored, our profile** | End (central directory, 22-byte end record) | **1 / 2** | **1**: the local header is 30 bytes plus name and extra field. Exact when our writer adds no extra field; otherwise over-fetch ~1 KiB. | **1 / 2**: a front window and the tail (in parallel when suffix ranges work). The front window's local headers give the YAML, and the central directory confirms it. |
-| Zip with a generated index as its first entry | Front (and end) | 1 / 1 | 1, exact | 1 |
-| tar, plain | None | n/a: walk the 512-byte headers, one trip per entry before the one wanted | k sequential trips for the k-th entry | 1 if all YAML fits the first window |
-| tar + TOC at the end ([eStargz](https://github.com/containerd/stargz-snapshotter/blob/2713db58dc69454d4ed5cffdd277560e5c52aa25/docs/estargz.md): TOC as the last entry, 51-byte gzip footer) | End | 1 / 2 | 1 | 1 |
-| tar + separate index ([SOCI](https://aws.amazon.com/blogs/containers/under-the-hood-lazy-loading-container-images-with-seekable-oci-and-aws-fargate)) | A second file | 1 (other file) | 1 | 1, but two files to share |
-| [Seekable zstd](https://github.com/facebook/zstd/blob/dev/contrib/seekable_format/README.md) around a tar | End (seek table in a skippable frame) maps only uncompressed offsets; a file index still needs a TOC inside | 2 / 3 | 1, plus decompressing the frame | 2 |
-| [ASAR](https://github.com/electron/asar) | Front: an 8-byte size, then a JSON header with offsets | **1 / 1** (+1 if the JSON outgrows the window; its size is in the first 16 bytes) | 1, exact | 1 |
-| Custom, index at the front ([PMTiles](https://gist.github.com/DerZade/cda63bccd24b3999b04e429955f61bfb): 127-byte header, root directory within the first 16 KiB. Godot `.pck` is described with a directory of path, offset, size and MD5. Its offset storage changed in 4.3 and a new pack version came in 4.5; where its directory sits was not checked.) | Front | **1 / 1** | 1, exact | 1 |
-| SQLite (`sqlar`) over an HTTP VFS ([sql.js-httpvfs](https://npmjs.com/package/sql.js-httpvfs)) | Pages: B-tree | 1 for page 1, then the B-tree depth (about 2–3 sequential) | A blob larger than a page continues in a **linked list of overflow pages**, each found from the one before (SQLite's file-format document, from memory; not fetched in this review). Read-ahead hides some of this; a 1 MiB texture at 4 KiB pages is a 256-page chain. | 3–4 |
-| [7z](https://py7zr.readthedocs.io/en/latest/archive_format.html), non-solid, stored | A 32-byte start header points to the header at the end, often itself compressed | 2 / 2 | 1; solid archives need their whole block decompressed from its start | 2 |
-| Unreal `.pak` | End: fixed footer, then index (details from community tools, unverified) | 1–2 / 2–3 | 1 | 2 |
+| **Zip, stored, our profile** | 1 / 2 | 1, exact under the profile | Opens by double-click on Windows, macOS and Linux; `unzip`, `7z` | **Chosen** |
+| tar | No index: one trip per header walked | k trips for the k-th entry | Linux, macOS; recent Windows (from memory) | No index. An end TOC ([eStargz](https://github.com/containerd/stargz-snapshotter/blob/2713db58dc69454d4ed5cffdd277560e5c52aa25/docs/estargz.md)) would rebuild zip's central directory, with worse tools. |
+| [ASAR](https://github.com/electron/asar) | 1 / 1 (index at the front) | 1 | `npx @electron/asar`; no OS support | Electron quirks (Pickle sizes, offsets as strings); no OS tools |
+| Custom, index at the front, like [PMTiles](https://gist.github.com/DerZade/cda63bccd24b3999b04e429955f61bfb) | 1 / 1 | 1 | Only the tools we would write | Saves a trip only on servers without suffix ranges, or that ignore ranges altogether; costs every OS tool, plus a format of our own to keep stable |
+| SQLite [`sqlar`](https://sqlite.org/sqlar.html) over an HTTP VFS ([sql.js-httpvfs](https://npmjs.com/package/sql.js-httpvfs)) | 1, then the B-tree depth (2–3) | Large blobs follow a chain of overflow pages, each found from the one before (from memory) | `sqlite3 -A`, DB browsers | Slow blob reads over ranges; a bundled C library; in-place update, its strength, isn't needed for files written once |
+| [7z](https://py7zr.readthedocs.io/en/latest/archive_format.html) | 2 / 2 (a start header points to a header at the end, often compressed) | 1, or the whole solid block | 7-Zip; recent Windows (from memory) | Built for solid compression; complex |
 
-**What the table says:** with suffix ranges, zip and the front-index
-formats tie: one trip for the index, one per entry, and one for "manifest
-and all presets" when YAML comes first. Without suffix ranges, zip needs
-one trip more, both to reach the index and to get manifest and presets.
+Prior art for zip over ranges:
+- [WACZ](https://specs.webrecorder.net/wacz/1.2.0/) is a stored zip of web
+  archives, which ReplayWeb.page reads lazily in the browser with range
+  requests.
+- [USDZ](https://openusd.org/dev/spec_usdz.html) is a stored zip with every
+  entry 64-byte aligned.
+- [`.conda`](https://prefix-dev.github.io/rattler-book/deep-dive-package-format)
+  packages are an uncompressed outer zip, so the metadata can be read
+  without decompressing the payload.
 
-**When a host ignores `Range` altogether** and returns the whole file
-with a 200, as [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range)
-allows and one report says a CDN does under gzip:
-- a front-index format with YAML first lets the client read the index
-  and every preset from the first bytes of the stream, then stop;
-- zip must read to the end for its central directory, or trust local
-  headers before seeing it, against the rule that the central directory
-  is the truth.
+## The bundle zip profile
 
-This is the one case where a front index clearly wins. On a local file, all indexed formats
-cost one seek. tar without an index and SQLite's blob chains are the only
-real losers on access.
+Terms follow PKWARE's zip specification (APPNOTE): each entry has a
+**local header** before its data and a **central directory record** in
+the index at the end, which closes with the **end of central directory
+record** (EOCD).
 
-### The rest of the criteria
+### What the writer writes
 
-| Format | Opens by double-click / CLI | Writing | Alignment | Implementation and dependencies | Folder form | Verdict |
-|---|---|---|---|---|---|---|
-| **Zip, stored** | **Windows, macOS, Linux** / `zip`, `unzip`, `7z` | One pass to a seekable file; sizes known up front, as nothing is compressed | Pad the local extra field ([USDZ](https://openusd.org/dev/spec_usdz.html): 64 bytes; zipalign: 4) | A crate (`zip` or `rawzip`) or our own ~400 lines on `flate2` and `crc32fast`, both already in the tree | Paths are entries; a hand-zipped folder opens (DEFLATE read) | **Proposed** |
-| Zip + generated front index | Same | Two passes, or offsets computed up front | Same | Zip, plus our index and a check that it matches the central directory: two sources of truth to keep in step | Same; hand-zipped bundles lack the index and fall back to the tail | Saves one trip only without suffix ranges; reopens decision 4 |
-| tar | Linux, macOS; recent Windows (from memory) / `tar` | One pass, streaming | 512-byte blocks | `tar` crate (not in tree) | Paths are entries | No index |
-| tar + TOC (eStargz-like) | As tar; gzip per file adds nothing for us | One pass, TOC last | — | Our TOC convention on `tar` | Same | A zip central directory by another name, with worse tools |
-| tar + SOCI-style sidecar | As tar | Two files | — | Same | Two files to share | Breaks "one file" |
-| Seekable zstd | `zstd -d` decompresses it, then `tar` | Frames per entry | — | `zstd-framed` (MIT/Unlicense, 0.3 M downloads) or `zeekstd` (BSD-2, 72 k), plus tar | A file index on top | Compresses incompressible data; two layers |
-| ASAR | No / `npx @electron/asar` | Header first: all sizes known first, then data | None built in | `asar` crate (Apache/MIT, 54 k downloads), or ~200 lines of our own | JSON tree mirrors folders | Front index, but Electron's quirks (Pickle sizes, offsets as strings) and no OS support |
-| **Custom front index** | No / our `procgena pack` and `unpack` only | Header and index first, then data | Ours to choose | ~300–500 lines of our own, plus fuzzing and a CLI; no dependency | Path-keyed index | **The alternative** if range reads without suffix ranges matter more than tooling |
-| SQLite `sqlar` | DB browsers / [`sqlite3 -A`](https://sqlite.org/sqlar.html) | Transactions; in-place update (no longer needed) | Pages | `rusqlite` (MIT, 166 M downloads) with bundled C SQLite, not in tree; a C build | `sqlar` is path → blob, compressed when smaller | Slow for large blobs over ranges; adds a C build |
-| 7z | 7-Zip; recent Windows Explorer (from memory) / `7z` | Header last; solid by default | — | `sevenz-rust2` (Apache-2.0, 2.6 M downloads) | Paths | Complex, built for solid compression |
-| Unreal `.pak`, Godot `.pck` | Engine tools only | Custom | Custom | Ours | — | Prior art only |
+| Item | Rule |
+|---|---|
+| Compression | Every entry is STORED (method 0): compressed size equals uncompressed size. |
+| Order | `procgena.yml` first, then every other `.yml` sorted by path, then `thumbnails/`, then textures and models sorted by path. A front fetch therefore holds the manifest and the presets. |
+| Layout | The first local header at offset 0. Each local header follows the previous entry's data directly. The central directory follows the last entry's data. The EOCD is the last 22 bytes, as there is no comment. No other bytes anywhere. |
+| Names | UTF-8, with general-purpose flag bit 11 set. The path rules under "Size and security" make names ASCII in practice. Folders are implicit: no folder entries. |
+| Flags | Only bit 11. No bit 3 (data descriptor), no bit 0 (encryption). |
+| CRC-32 and sizes | Computed before the local header is written, so local and central values agree. There are no data descriptors. |
+| zip64 | **Never written; rejected on read.** The size limits keep every bundle under 2 GiB and 10 000 entries, well inside 32-bit zip's 4 GiB and 65 535. The writer refuses a bundle over the limits, naming the entry or the total. |
+| Extra field | **Exactly one padding record, the same bytes in the local header and the central directory record:** a 2-byte id, a 2-byte length, then 0–63 zero bytes. Its length is chosen so the entry's data starts on a 64-byte boundary. Android's zipalign uses id `0xD935` for its alignment record (from memory). PB1 fixes our id, checked against the ids APPNOTE lists, or reuses zipalign's if that one is confirmed. |
+| Data start | `local header offset + 30 + name length + extra length`, all read from the central directory. A range reader needs no local header to find an entry's bytes, and fetches exactly `offset .. offset + size`. |
+| Alignment | **64 bytes** (see below). |
+| Timestamps | Fixed: DOS date 1980-01-01, time 00:00. The same input gives the same bytes. |
+| Attributes | Version made by: Unix. External attributes: a regular file, mode `0644`, so `unzip` sets sane permissions. No symlinks, devices or folders. Internal attributes: 0. |
+| Version needed to extract | 1.0 (stored). Whether every tool accepts 1.0 with the UTF-8 flag set is checked in PB1's interop test. |
+| Comments | None: no archive comment, no file comments. |
+| Multi-disk | No: every disk number is 0. |
 
-Others considered:
-- Parquet keeps its index in a footer, and Zarr v3 shards keep theirs at
-  a configurable end. Cloud-Optimized GeoTIFF puts its directories at the
-  front. All three are read over ranges in production, but none is a file
-  archive. This line is from memory, not checked in this review.
-- WACZ is the closest real use of zip over ranges:
-  [WACZ](https://specs.webrecorder.net/wacz/1.2.0/) is a stored zip of web
-  archives, and ReplayWeb.page reads it lazily in the browser with range
-  requests. It reads the end record, then the central directory, then
-  each entry's local header. Its hosts must serve the file without gzip,
-  or ranges break.
-- `.conda` packages are an uncompressed outer zip, so a reader can get at
-  the metadata without decompressing the payload.
+**Why the padding record sits in both headers.** The request was for an
+empty or fixed-size local extra field. That can't hold together with
+alignment. An empty field leaves data wherever the name ends. A
+fixed-size field shifts every entry by the same amount, so the padding
+still has to vary per entry. USDZ puts the varying padding in the local
+extra field. Copying the same record into the central directory record
+keeps what the fixed size was for: data start computed from the central
+directory alone. The reader checks that the two copies match.
+Padding between entries instead, outside any header, would leave bytes
+that the zip specification doesn't describe. That relies on every tool
+skipping them, so it is not used.
 
-### Recommendation
+**Why 64 bytes.**
+- **What it buys.** A stored entry can be used in place from an mmap
+  or a fetched buffer, cast as any type up to 64-byte vectors: GLB
+  buffers need 4-byte alignment, KTX2 level data 8 or 16, AVX-512 64.
+  Every entry also starts on a cache line.
+- **Precedent.** USDZ chose 64 for the same reasons.
+- **What it costs.** About 36 bytes per entry on average (the 4-byte record
+  plus 32 bytes of padding), or about 3.5 KiB for 100 entries.
+- **Rejected:**
+  - 4 bytes (zipalign) is too small for 8-byte and SIMD reads.
+  - 4096 bytes (a page) would allow mapping each entry directly. It costs
+    about 2 KiB of padding per entry, so a 1 KiB preset file would take
+    three times its size.
+- **The honest note.** Today's textures are Zstandard-supercompressed and
+  decoded on load, so nothing uses the alignment yet. It is cheap, and it
+  can't be added later without rewriting every bundle.
 
-**Zip, stored, with a strict writer profile** (proposed):
+### What the reader accepts
 
-1. `procgena.yml` is the first entry, then every `.yml` sorted by path,
-   then thumbnails, then textures and models.
-2. Every entry is STORED; no archive comment; no extra fields in local
-   headers, so an entry's data starts at `offset + 30 + name length`
-   (whether the `zip` crate writes it this way is a spike item; if not,
-   use `rawzip` or our own writer); no data descriptors (the writer
-   seeks back); no zip64 (bundles stay under 2 GiB).
-3. Readers treat the central directory as the truth, and accept DEFLATE
-   and data descriptors from hand-made zips within the limits below.
+For `.procgena` files the reader accepts **exactly the profile** and
+checks:
+- the EOCD is the last 22 bytes, with no comment and no zip64 records;
+- the central directory sits right before it and fills the space up to it;
+- every central directory record matches its local header byte for byte
+  in method, flags, CRC, sizes, name and extra field;
+- entries follow one another with no gaps or overlaps, starting at 0;
+- every data offset is a multiple of 64;
+- every CRC matches when an entry is read whole.
 
-This keeps every tool people already have and costs one extra round trip
-only on servers that refuse suffix ranges. The custom front-index format
-is the real alternative, and question 1 puts both to the user.
+Errors name the entry and the rule it breaks, and say what to do, for
+example:
+
+> `textures/bark/alpine_bark/color_128.ktx2` is compressed (DEFLATE).
+> `.procgena` bundles store every entry uncompressed. If you zipped a
+> folder yourself, unzip it and open the folder as a project, or export
+> a bundle from the studio.
+
+**Zips made by Finder or Explorer** compress their entries, add data
+descriptors, `__MACOSX/` folders and wrapping folders, so they never fit
+the profile. Two policies:
+- **Reject them** (proposed). Every `.procgena` is then range-readable and
+  free of decompression bombs. The reader needs no DEFLATE, no `flate2`
+  and no bomb limits. Someone with a hand-made zip unzips it and opens the
+  folder: a project folder is the working form anyway (decision 1).
+- **Accept DEFLATE through a second, lenient path** that inflates within
+  bomb limits. Hand-made zips then open, at the cost of a second reader,
+  `flate2`, limits, and bundles that range readers can't read in place.
+
+This is question 3. A future `procgena bundle pack <folder>` command
+(not planned yet) would make bundles without the studio.
+
+**The folder form** follows the same path rules. It skips `.DS_Store`,
+`Thumbs.db` and `__MACOSX/`, which unzipping a hand-made zip leaves
+behind.
+
+### Zip code: chosen at PB1
+
+The user decided this is chosen when PB1 is built. Facts for whoever
+builds it:
+
+| Option | What it brings | What the strict profile changes |
+|---|---|---|
+| **Our own reader and writer** | No new crate: `crc32fast` is already in the tree (through `flate2` and `png`). Estimated at about 150 lines for the writer and 250 for the reader, plus tests. | The profile removes zip's hard parts: compression, zip64, data descriptors, comment scanning, multi-disk. The reader's bulk is profile validation, which we need whatever parses the bytes. The writer controls the padding record exactly. Interop and fuzzing are ours. |
+| **`rawzip`** 0.5.3 (MIT, 0.9 M downloads, no dependencies) | A low-level reader and writer that exposes raw records | It could do the parsing under our checks. Whether its writer can mirror a custom extra field into the central directory needs checking. It is a new crate in `Cargo.lock`, and young (0.x). |
+| **`zip`** 9.8.2 (MIT, 361 M downloads) | The most used Rust zip crate. Use it with `default-features = false`, since the defaults pull in AES, bzip2, LZMA, xz, PPMd and zstd. | Its reader accepts far more than the profile, so we validate on top anyway. `with_alignment` appears in its 2.x docs, but whether it pads the same way in the central directory is unconfirmed. Many required dependencies. It had a symlink advisory, fixed in 2.3.0 ([SNYK-RUST-ZIP-9460813](https://security.snyk.io/vuln/SNYK-RUST-ZIP-9460813)). |
+
+**Leaning,** for the builder to confirm: our own code. The strict profile
+makes it small, keeps the dependency list as it is, and gives exact
+control of the layout. Whatever is chosen, PB1 needs an **interop test**:
+`unzip -t`, Python's `zipfile`, macOS Archive Utility and Windows Explorer
+must all open a bundle the writer made. The tools folder already runs
+Python through `uv`.
 
 ## Inside the container
 
@@ -226,7 +253,7 @@ is the real alternative, and question 1 puts both to the user.
 
 ```
 alpine_pack.procgena            (or the folder it unpacks to)
-  procgena.yml                  # first entry, stored: the manifest
+  procgena.yml                  # first entry: the manifest
   README.md                     # optional
   LICENSE                       # optional; the licence named in procgena.yml
   presets/
@@ -272,8 +299,8 @@ made_with: 0.1.0                # procgena version that exported it; for message
 roots: [biome/alpine]           # what the author picked; the rest came with them
 ```
 
-- **Preset kinds** come from the paths. **The entry list** is the
-  container's own index (decision 4). **Hashes:** each entry's CRC-32 is
+- **Preset kinds** come from the paths. **The entry list** is the zip's
+  central directory (decision 4). **Hashes:** each entry's CRC-32 is
   checked on read; content hashes for caches and for Import's "identical"
   test are computed on load with `blake3`, already in the tree through
   `bevy_asset`.
@@ -311,8 +338,8 @@ roots: [biome/alpine]           # what the author picked; the rest came with the
    - "Flatten built-in bases" (off, decision 5) and "Include thumbnails";
    - the manifest fields, with the licence required, beside the licences
      of the textures that are included.
-4. **Write** a `.procgena` file with the writer profile. The same input
-   gives the same bytes: fixed timestamps, sorted paths.
+4. **Write** a `.procgena` file with the profile. The same input gives
+   the same bytes.
 
 ### Open a bundle as a project
 
@@ -328,7 +355,7 @@ So **Open unpacks into a new project folder and opens it** (proposed):
 
 The alternative, a read-only view straight from the file with "Unpack to
 edit", needs the studio to read presets and textures from inside a zip,
-which only the deferred mount source would give. That is question 2.
+which only the deferred mount source would give. That is question 1.
 
 ### Import into the current project
 
@@ -340,17 +367,18 @@ which only the deferred mount source would give. That is question 2.
      used. Presets are compared as settings trees after parsing, so
      comments and layout don't count. Textures are compared by `blake3`.
    - **Same key, different content, or a built-in's key:** a conflict.
-     Under decision 3, a project preset with a built-in's key is a problem
-     to qualify, so Import avoids creating one. The qualifier's syntax is
-     ST2's to fix along with studio_plan.md's open question 1; `builtin:<key>`
-     is proposed. Each conflict offers **Rename**. The default name is
-     `<key>_<bundle id>`, which can be edited. Like every preset key,
-     the new name must be a valid child key: `[a-z][a-z0-9_]*`, at most
-     32 bytes (`procgena_core::seed`). So it is shortened and numbered
-     (`_2`, `_3`) when needed.
-     **Use mine** (skip it and point the imported files at the project's
-     copy), or **Replace** (overwrite the project's copy, showing its
-     "used by" first).
+     Under decision 3, a project preset with a built-in's key is a
+     problem to qualify, so Import avoids creating one. The qualifier's
+     syntax is ST2's to fix along with studio_plan.md's open question 1;
+     `builtin:<key>` is proposed. Each conflict offers:
+     - **Rename.** The default name is `<key>_<bundle id>`, which can be
+       edited. Like every preset key, the new name must be a valid child
+       key: `[a-z][a-z0-9_]*`, at most 32 bytes (`procgena_core::seed`).
+       So it is shortened and numbered (`_2`, `_3`) when needed.
+     - **Use mine:** skip it and point the imported files at the
+       project's copy.
+     - **Replace:** overwrite the project's copy, showing its "used by"
+       first.
 3. **Rewrite references to renamed items** inside the imported files:
    `base:`, preset keys in Scatter, Ecotope and Biome files, and texture
    ids. Edits go through `yamlpatch`, as ST2's Update does, so the
@@ -360,17 +388,18 @@ which only the deferred mount source would give. That is question 2.
    (`procgena_tree/src/scatter/file.rs`, `scatter.rs`; ARCHITECTURE.md
    "Seeds"). When Import renames that tree, it writes `key: <old key>`
    into the species entry, so the Scatter places exactly as it did in the
-   bundle. Writing `key:` into an item of a list is an edit that ST2's
-   `yamlpatch` spike doesn't cover (it covers replace, insert a nested key
-   and remove), so PB3 starts with a spike of its own. No other reader
-   takes a child key from a preset key today. Every `ChildKey::new` call
-   site was checked: the others build keys from map keys, fixed stems or
-   numbered names. In detail:
-   - Ecotope Scatters and ground layers are keyed by their map keys;
-   - stone classes name their own `key`;
-   - dead wood and mushroom references resolve to options.
+   bundle.
+   - **A new kind of edit.** Writing `key:` into an item of a list isn't
+     covered by ST2's `yamlpatch` spike (replace, insert a nested key,
+     remove), so PB3 starts with a spike of its own.
+   - **Only the tree Scatter needs this.** Every `ChildKey::new` call site
+     was checked; the others build keys from map keys, fixed stems or
+     numbered names:
+     - Ecotope Scatters and ground layers are keyed by their map keys;
+     - stone classes name their own `key`;
+     - dead wood and mushroom references resolve to options.
 
-   Any reader that adds such a default later must be added to this step.
+     A reader that adds such a default later must be added to this step.
 5. **Write** new files whole, each with a first comment line
    `# Imported from alpine_pack 0.3.0` (proposed). Show a summary, then
    reload the registry.
@@ -383,15 +412,15 @@ A new engine-free crate, `core/crates/procgena_bundle`:
 
 - `Bundle::open(path)` reads a `.procgena` file or a folder;
   `Bundle::from_bytes` reads one in memory. Both read the index once,
-  check every path and limit, read `procgena.yml`, and list presets by
-  kind and key. No other entry is read yet.
-- `bundle.read(path)` reads one entry, within its limits.
+  check the profile, every path and every limit, read `procgena.yml`, and
+  list presets by kind and key. No other entry is read yet.
+- `bundle.read(path)` reads one entry: a slice, checked against its CRC.
 - `export(project, roots, options, out)`, `unpack(bundle, dir)` and
   `plan_import` / `apply_import` hold the logic above, so the studio and a
   future CLI share it.
 
-It stays out of `procgena_core` so that only crates that read bundles
-build the container code. `procgena_core` rebuilds most of the workspace.
+It stays out of `procgena_core`, so that only crates that read bundles
+build the container code; `procgena_core` rebuilds most of the workspace.
 The closure walk needs the registry's reference index (ST2), so this
 crate depends on `procgena_core::preset` and receives the per-kind
 reference finders from the studio's kind registry.
@@ -414,7 +443,8 @@ for bundles. Two options are kept for later, with facts from the
   (`load_value_from_reader`, `add_loaded_labeled_asset`), but it reads
   the whole bundle at once, and entries can't load other entries by path.
 - **The wasm reader fetches whole files** (`io/wasm.rs`); range reading on
-  the web would need our own reader.
+  the web would need our own reader. Under the profile it needs only the
+  central directory and plain byte ranges.
 
 **Open for ST6:** studio_plan.md's ST6 "registers the project as one more
 asset source". Sources are fixed at startup, so a project opened or
@@ -435,7 +465,8 @@ redirect, now that the mount source is deferred.
 
 ## Size and security
 
-Bundles are untrusted input. The reader enforces:
+Bundles are untrusted input. On top of the profile checks, the reader
+enforces:
 
 - **Paths:** relative, `/` separators, UTF-8, at most 255 bytes, each
   part matching `[a-z0-9_.-]+` with no `.` or `..` parts. The exceptions
@@ -443,30 +474,23 @@ Bundles are untrusted input. The reader enforces:
   letters, leading `/` or NUL. No two names that differ only in case.
   This blocks [Zip Slip](https://security.snyk.io/research/zip-slip-vulnerability).
   Unpack and Import also refuse to write outside the target folder.
-- **No links, devices or encryption.** The `zip` crate had a symlink
-  traversal advisory, fixed in 2.3.0
-  ([SNYK-RUST-ZIP-9460813](https://security.snyk.io/vuln/SNYK-RUST-ZIP-9460813)),
-  so we don't use its extraction helpers.
-- **One source of truth:** local headers must agree with the index
-  (names and sizes); entries must not overlap; each name appears once.
+- **No links, devices or encryption,** by the profile's attribute and flag
+  rules.
+- **One source of truth:** local and central records match, entries
+  neither overlap nor leave gaps, and each name appears once.
 - **Limits** (proposed constants): 10 000 entries; YAML ≤ 1 MiB a file;
-  any entry ≤ 256 MiB; total ≤ 2 GiB. Only STORE and DEFLATE. A DEFLATE
-  entry may expand at most 100:1, and its declared size is enforced while
-  inflating.
+  any entry ≤ 256 MiB; total ≤ 2 GiB. With nothing compressed, an entry's
+  size on disk is its real size, so there are no decompression bombs.
 - **YAML alias bombs:** `serde_saphyr`'s limits are to be confirmed in
   the PB1 spike; if it has none, stop and ask.
-- **Hand-zipped files:** `__MACOSX/`, `.DS_Store`, `Thumbs.db` and
-  folder entries are skipped. A single wrapping folder is accepted as the
-  root. Data descriptors are accepted.
 - **Data only:** no shaders, scripts or native code.
-
-These rules are written for zip. A custom format needs the same path,
-overlap and limit checks, minus the compression ones.
 
 ## Versioning and migration
 
 - `format: 1`, checked first. Another number is rejected, naming
   `made_with`. No migration code (the user's standing rule).
+- The profile belongs to `format: 1`. A later format may change it, and a
+  reader rejects formats it doesn't know.
 - Preset files carry no version. An options change makes an old file fail
   with the setting's path, as a loose `.tree.yml` does today.
 
@@ -477,17 +501,11 @@ All licences are on `deny.toml`'s allow list.
 
 | Crate | Version | Downloads (all / recent) | Licence | In tree? | For |
 |---|---|---|---|---|---|
-| `zip` | 9.8.2 | 361 M / 112 M | MIT | No | Zip: use `default-features = false` plus deflate. To confirm in the spike: the deflate feature's name, and whether it writes local headers with no extra field. |
-| `rawzip` | 0.5.3 | 0.9 M / 0.6 M | MIT | No | Zip, no dependencies; pair with `flate2` |
-| `flate2` | 1.1.10 | 891 M / 252 M | MIT or Apache-2.0 | **Yes** (`png`) | DEFLATE for hand-zipped reads |
-| `crc32fast` | 1.5.2 | — | MIT or Apache-2.0 | **Yes** | Our own zip code |
+| `crc32fast` | 1.5.2 | — | MIT or Apache-2.0 | **Yes** (through `flate2`) | CRC-32, if we write our own zip code |
+| `rawzip` | 0.5.3 | 0.9 M / 0.6 M | MIT | No | Zip, no dependencies |
+| `zip` | 9.8.2 | 361 M / 112 M | MIT | No | Zip, with default features off |
 | `blake3` | 1.8.7 | 238 M / 67 M | CC0-1.0 or Apache-2.0 | **Yes** (`bevy_asset`) | Content hashes |
-| `asar` | 0.3.0 | 54 k / 24 k | Apache-2.0 or MIT | No | ASAR |
-| `tar` | 0.4.46 | 302 M / 86 M | MIT or Apache-2.0 | No | tar rows |
-| `zstd-framed` / `zeekstd` | 0.1.1 / 0.6.3 | 0.3 M / 72 k | MIT or Unlicense / BSD-2-Clause | No | Seekable zstd |
-| `rusqlite` | 0.43.0 | 166 M / 68 M | MIT | No (bundles C SQLite) | SQLite |
-| `sevenz-rust2` | 0.25.0 | 2.6 M / 1.6 M | Apache-2.0 | No | 7z |
-| `ruzstd` | 0.9.1 | 84 M / 23 M | MIT | **Yes** (`bevy_image`) | Already decodes our KTX2 |
+| `flate2` | 1.1.10 | 891 M / 252 M | MIT or Apache-2.0 | **Yes** (`png`) | Only if question 3 accepts DEFLATE |
 
 ## Staged build plan
 
@@ -496,11 +514,11 @@ don't run beside them.
 
 | Stage | Covers | Needs | Done when |
 |---|---|---|---|
-| **PB1: container and crate** | `procgena_bundle`: the chosen container (question 1), the writer profile, the strict reader, path rules and limits, `procgena.yml`, `unpack`. A spike first: the library choice, then `serde_saphyr` alias limits. Fuzz the reader. | The user's answer to question 1; the dependency through the coordinator | Tests pack a folder and read it back from the file and from the folder with equal results. They reject the hostile corpus (traversal, symlink, duplicate, overlap, bomb, wrong `format`) and read a zip made by Finder. |
+| **PB1: container and crate** | `procgena_bundle`: choose the zip code (decision 11); the profile writer and the strict reader; path rules and limits; `procgena.yml`; `unpack`. A spike first on `serde_saphyr`'s alias limits. Fuzz the reader. | Question 3; a dependency, if one is chosen, through the coordinator | Tests write a folder and read it back from the file and from the folder with equal results, with every data offset a multiple of 64. They reject the hostile corpus with the right messages: traversal, symlink, duplicate, gap, overlap, mismatched headers, DEFLATE, zip64, data descriptor, comment, wrong `format`. The interop test opens a written bundle with `unzip -t`, Python's `zipfile`, Archive Utility and Explorer. |
 | **PB2: Export** | The closure walk, the export dialog, the manifest from the project's `procgena.yml`, flattening, thumbnails | PB1; ST2 (registry, "used by"); ST1's `ref` metadata; ST8's export panel for the dialog | A headless script exports a project Ecotope and gets a bundle holding exactly its project presets, with no built-ins. Biome roots wait for `.biome.yml` files (B1/W0). |
 | **PB3: Open and Import** | Open by unpacking; Import with the plan, conflicts, renames through `yamlpatch`, and seed-keeping `key` lines | PB1; ST2 (registry, Update's `yamlpatch`); ST3 (Library) | A headless script imports a bundle whose tree clashes with a project tree. Import renames it, the imported Scatter places the same copies as in the bundle, and the comments survive. |
 | **PB4: textures** | Texture ids in the closure; the bundle's `textures.yml` merged on Import and Open; KTX2 sizes on Export | PB2, PB3; ST6 (catalogue, `ctt`) | A bundle's bark draws in another project at 128 px with no other size present |
-| **Later** | Mount source or `#label` loader for games; HTTP range reading; wasm; bundles that require other bundles, with `bundle:key` references; models in `MeshScatter`; alignment | Decisions 2 and 9 revisited; `MeshScatter` | — |
+| **Later** | Mount source or `#label` loader for games; HTTP range reading; wasm; bundles that require other bundles, with `bundle:key` references; models in `MeshScatter`; a `procgena bundle pack` command | Decisions 2 and 9 revisited; `MeshScatter` | — |
 
 ## Effects on other documents
 
@@ -512,9 +530,9 @@ Proposed only; ST0 is active, so none is edited here.
   ST6's "project as an asset source" has the startup conflict noted
   under "Bevy and games: later".
 - **ARCHITECTURE.md:** rule 10 gains "presets travel in bundles: a
-  subset of a project folder, packed". "Seeds" notes that a tree Scatter
-  species' default child key is its preset's key, so tools that rename
-  presets must write the key out.
+  subset of a project folder, in a stored, aligned zip". "Seeds" notes
+  that a tree Scatter species' default child key is its preset's key, so
+  tools that rename presets must write the key out.
 - **ROADMAP.md:** PB1–PB4 after ST2, ST3 and ST6.
 - **A risk ST2 already has, found here:** `ScatterTree` built from a
   preset calls `ChildKey::new(preset.key).expect(...)`
@@ -526,44 +544,7 @@ Proposed only; ST0 is active, so none is edited here.
 
 ## Questions for the user
 
-1. **Which container?** *Context:* the second round compared every
-   candidate for lazy reading and later HTTP range requests. On a local
-   file, which is how the studio uses bundles today, every indexed format
-   costs one seek. Over HTTP, zip and a front-index format tie when
-   servers honour suffix ranges. Zip needs one more round trip when they
-   don't. When a host ignores ranges altogether, only a front index can
-   stop after the first bytes. *Options:*
-   - **(a) Zip, stored, with the strict writer profile.** It opens by
-     double-click everywhere, people can zip a folder themselves, and the
-     format and its readers are proven in use, WACZ already over ranges.
-     Its index is at the end. Its attack surface is wide (zip64, local
-     headers against the central directory), which the strict reader
-     narrows.
-   - **(b) A custom format with the index at the front,** in the style of
-     PMTiles: magic, version and index in the first 16 KiB, with data
-     after. One round trip to the index on any server, exact ranges, and
-     no dependency. But no OS or third-party tool opens it, so we must
-     ship pack, unpack and list commands. It is ~300–500 lines of our own
-     to write and fuzz, and its format is ours to keep stable.
-   - **(c) ASAR:** a front index in an existing format, but with Electron's
-     quirks and no OS support.
-   - **(d) SQLite `sqlar`:** queries and in-place updates (no longer
-     needed), slow blob reads over ranges, and a bundled C library.
-
-   *Nested, if (a): which zip code?*
-   - (a1) the `zip` crate, default features off: the most used, but with
-     unconfirmed control over local extra fields;
-   - (a2) `rawzip` plus `flate2`: no dependencies, young;
-   - (a3) our own: a stored writer and a strict reader on `flate2` and
-     `crc32fast` (both already in the tree), so no new crate, but the
-     fuzzing is ours.
-
-   *Recommendation:* (a), and between (a1) and (a3), whichever the PB1
-   spike shows can write the profile exactly. (b) is the honest
-   alternative if serving bundles from arbitrary static hosts matters
-   more than tooling.
-
-2. **Does Open unpack, or show the bundle read-only?** *Context:* the
+1. **Does Open unpack, or show the bundle read-only?** *Context:* the
    studio edits only folders (decision 1), and reading straight from a
    file needs the deferred mount source. *Options:*
    - **(a) unpack into a new project folder,** asking where: one code
@@ -577,13 +558,27 @@ Proposed only; ST0 is active, so none is edited here.
    *Recommendation:* (a) now. (b) comes cheaply once the mount source
    exists.
 
-3. **What should Import do by default on a conflict?** *Context:* a
+2. **What should Import do by default on a conflict?** *Context:* a
    bundle's preset or texture has the same key as one in the project or a
    built-in, with different content. *Options:*
-   - **(a) rename the imported item** to `<key>_<bundle id>` and rewrite
-     its references, with Use mine and Replace offered per item;
+   - **(a) rename the imported item** to `<key>_<bundle id>`, shortened to
+     a valid key, and rewrite its references, with Use mine and Replace
+     offered per item;
    - (b) ask for every conflict, with no default;
    - (c) always use the project's copy.
 
    *Recommendation:* (a). The summary lists every rename before anything
    is written.
+
+3. **Should the reader accept zips made by Finder or Explorer?**
+   *Context:* those tools always compress, so their zips never fit the
+   profile. Someone might zip a project folder by hand and rename it to
+   `.procgena`. *Options:*
+   - **(a) reject them,** with a message saying to unzip and open the
+     folder, or to export from the studio. There is one reader, no DEFLATE
+     and no decompression bombs, and every `.procgena` is range-readable;
+   - (b) accept DEFLATE through a second, lenient reader with bomb limits.
+     Hand-made zips then open, but it adds `flate2`, limits and a second
+     code path, and range readers can't read those bundles in place.
+
+   *Recommendation:* (a). The folder is already the hand-made form.
