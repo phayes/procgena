@@ -7,7 +7,7 @@ use procgena_deadwood::{
 
 /// The seedling log preset with leaves changed by `edit`.
 fn seedling_log(edit: impl FnOnce(&mut LeafOptions)) -> DeadwoodOptions {
-    let mut o = DeadwoodPreset::SeedlingLog.options();
+    let mut o = DeadwoodPreset::seedling_log().deadwood.clone();
     edit(&mut o.leaves);
     o
 }
@@ -33,23 +33,23 @@ fn card_bases(b: &MeshBuffers) -> Vec<Vec3> {
 fn leaves_are_off_by_default() {
     let piece = Piece::new(DeadwoodOptions::default()).unwrap();
     assert!(piece.mesh().leaves.is_none());
-    for preset in DeadwoodPreset::ALL {
-        let has = preset.options().leaves.per_metre > 0.0;
-        let expected = matches!(
-            preset,
-            DeadwoodPreset::SproutingStump | DeadwoodPreset::SeedlingLog
-        );
-        assert_eq!(has, expected, "{}", preset.name());
+    for preset in DeadwoodPreset::all() {
+        let has = preset.deadwood.leaves.per_metre > 0.0;
+        let expected = matches!(preset.key.as_ref(), "sprouting_stump" | "seedling_log");
+        assert_eq!(has, expected, "{}", preset.name);
     }
 }
 
 #[test]
 fn leaf_presets_grow_well_formed_cards() {
-    for preset in [DeadwoodPreset::SproutingStump, DeadwoodPreset::SeedlingLog] {
-        let piece = Piece::from_preset(preset);
+    for preset in [
+        DeadwoodPreset::sprouting_stump(),
+        DeadwoodPreset::seedling_log(),
+    ] {
+        let piece = Piece::from_preset(preset).unwrap();
         let b = leaves(&piece, &DeadwoodDetail::FULL);
         let n = b.vertex_count();
-        assert!(n >= 4, "{}", preset.name());
+        assert!(n >= 4, "{}", preset.name);
         assert_eq!(n % 4, 0);
         for len in [
             b.normals.len(),
@@ -70,10 +70,13 @@ fn leaf_presets_grow_well_formed_cards() {
 
 #[test]
 fn cards_grow_above_the_ground() {
-    for preset in [DeadwoodPreset::SproutingStump, DeadwoodPreset::SeedlingLog] {
-        let piece = Piece::from_preset(preset);
+    for preset in [
+        DeadwoodPreset::sprouting_stump(),
+        DeadwoodPreset::seedling_log(),
+    ] {
+        let piece = Piece::from_preset(preset).unwrap();
         for base in card_bases(&leaves(&piece, &DeadwoodDetail::FULL)) {
-            assert!(base.y > 0.0, "{}: card base at {base}", preset.name());
+            assert!(base.y > 0.0, "{}: card base at {base}", preset.name);
         }
     }
 }
@@ -85,7 +88,7 @@ fn leaves_never_change_the_wood() {
     let (a, b) = (bare.mesh(), leafy.mesh());
     assert_eq!(a.surfaces, b.surfaces);
     assert_eq!(a.ribbons, b.ribbons);
-    assert_eq!(bare.placement(), leafy.placement());
+    assert_eq!(bare.pose(), leafy.pose());
     assert!(a.leaves.is_none());
     assert!(b.leaves.is_some());
 }

@@ -20,14 +20,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&dir)?;
 
     // Every preset, one object per level of detail.
-    for preset in DeadwoodPreset::ALL {
-        let piece = Piece::from_preset(preset);
+    for preset in DeadwoodPreset::all() {
+        let piece = Piece::from_preset(preset)?;
         let meshes: Vec<_> = piece
             .lod_meshes(&default_lod())?
             .into_iter()
             .map(|(_, m)| m)
             .collect();
-        let name = preset.name().to_lowercase().replace(' ', "_");
+        let name = &preset.key;
 
         let files = obj::to_obj(&meshes, piece.options(), &format!("{name}.mtl"));
         fs::write(dir.join(format!("{name}.obj")), files.obj)?;
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "{name}: {} stems, triangles per level {triangles:?}, burial {:.3} m",
             piece.stem_count(),
-            piece.placement().burial
+            piece.pose().burial
         );
     }
 
@@ -53,7 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let kindling = ScatterOptions::kindling();
     let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(6.0));
-    let scatter = StickScatter::new(&kindling, &ScatterInput::new(&ground, area, kindling.seed))?;
+    let input = ScatterInput::new(&ground, area, kindling.default_seed);
+    let scatter = StickScatter::new(&kindling, &input)?;
     let mut meshes = Vec::new();
     for instance in scatter.instances() {
         let mut mesh = scatter.variants()[instance.variant as usize].mesh();

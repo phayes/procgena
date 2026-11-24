@@ -22,9 +22,34 @@
 //! App::new()
 //!     .add_plugins((DefaultPlugins, DeadwoodPlugin::default()))
 //!     .add_systems(Startup, |mut commands: Commands| {
-//!         commands.spawn(DeadwoodParams::preset(DeadwoodPreset::MossyLog));
+//!         commands.spawn(DeadwoodParams::preset(DeadwoodPreset::mossy_log()));
 //!     })
 //!     .run();
+//! ```
+//!
+//! A piece can also come from a `.deadwood.yml` preset file in Bevy's
+//! asset folder, such as `assets/wood/short_log.deadwood.yml`. The file
+//! names a built-in preset as its `base` and gives only the settings that
+//! differ; without a `base`, missing settings use their defaults:
+//!
+//! ```yaml
+//! base: mossy_log
+//! deadwood:
+//!   default_seed: 42
+//!   length: 2.0
+//! ```
+//!
+//! Load it with [`DeadwoodParams::Asset`]:
+//!
+//! ```no_run
+//! use bevy::prelude::*;
+//! use procgena_deadwood_bevy::DeadwoodParams;
+//!
+//! fn load_log(mut commands: Commands, asset_server: Res<AssetServer>) {
+//!     commands.spawn(DeadwoodParams::Asset(
+//!         asset_server.load("wood/short_log.deadwood.yml"),
+//!     ));
+//! }
 //! ```
 //!
 //! Each piece is drawn by [`DeadwoodPart`] child entities, one or two per
@@ -57,14 +82,14 @@ pub use mesh::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, deadwood_mesh, ribbon_aabb, ribbon_mesh,
 };
 pub use spawn::{
-    DeadwoodBuildError, DeadwoodFinished, DeadwoodGenerating, DeadwoodOptionsAsset, DeadwoodParams,
-    DeadwoodPart, DeadwoodPartKind, DeadwoodPlacement, DeadwoodScatterParams, ScatterGround,
+    DeadwoodBuildError, DeadwoodFinished, DeadwoodGenerating, DeadwoodParams, DeadwoodPart,
+    DeadwoodPartKind, DeadwoodPose, DeadwoodPresetAsset, DeadwoodScatterParams, ScatterGround,
 };
 
-use spawn::{DeadwoodCache, DeadwoodOptionsLoader, SpawnSettings, TextureSettings};
+use spawn::{DeadwoodCache, DeadwoodPresetLoader, SpawnSettings, TextureSettings};
 
-/// Adds dead wood building and drawing, and loading of `.deadwood.json`
-/// files, to a Bevy app. It also adds the shared [`LodPlugin`], whose
+/// Adds dead wood building and drawing, and loading of `.deadwood.yml`
+/// preset files, to a Bevy app. It also adds the shared [`LodPlugin`], whose
 /// [`LodQuality`] resource scales every piece's switch distances.
 ///
 /// # Panics
@@ -133,12 +158,12 @@ impl Plugin for DeadwoodPlugin {
     }
 }
 
-/// Registers the options file loader, the shared cache and the build
+/// Registers the preset file loader, the shared cache and the build
 /// systems, using detail levels `lod`, but nothing for drawing. The plugin
 /// and the tests (which run without a renderer) both use it.
 pub(crate) fn add_systems(app: &mut App, lod: DeadwoodLod) {
-    app.init_asset::<DeadwoodOptionsAsset>()
-        .register_asset_loader(DeadwoodOptionsLoader)
+    app.init_asset::<DeadwoodPresetAsset>()
+        .register_asset_loader(DeadwoodPresetLoader)
         .init_resource::<DeadwoodCache>()
         .init_resource::<LodQuality>()
         .insert_resource(SpawnSettings {

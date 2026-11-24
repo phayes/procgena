@@ -12,11 +12,10 @@ use std::fmt;
 
 use glam::{Affine3A, Mat3, Vec2, Vec3};
 use procgena_core::hash::{derive_seed, seed_for};
-use procgena_core::scatter::{
-    Footprint, Placement as GroundPlacement, Rest, ScatterInput, place, steeper_than,
-};
+use procgena_core::scatter::{Footprint, Placement, Rest, ScatterInput, place, steeper_than};
 use procgena_core::{Rng, SpecimenId};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
+use serde::{Deserialize, Serialize};
 
 use crate::detail::DeadwoodLod;
 use crate::options::{DeadwoodOptions, OptionsError, PieceKind, int_range, positive, within};
@@ -38,12 +37,13 @@ const MAX_CONTACTS: usize = 48;
 pub use procgena_core::{FlatGround, Ground, HeightGrid};
 
 /// Settings for a [`StickScatter`].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScatterOptions {
     /// The seed to pass in [`ScatterInput::seed`] when this scatter is
     /// built on its own, such as in a viewer. [`StickScatter::new`] uses the
     /// input's seed, not this one.
-    pub seed: u32,
+    pub default_seed: u32,
     /// The steepest ground, in degrees from 0 through 90, that a stick is
     /// placed on. 90 places sticks on any measured slope.
     pub max_slope: f32,
@@ -78,7 +78,7 @@ impl ScatterOptions {
     /// takes to dry out or soak up moisture.
     pub fn kindling() -> Self {
         Self {
-            seed: 1,
+            default_seed: 1,
             max_slope: 35.0,
             density: 1.5,
             min_spacing: 0.3,
@@ -86,7 +86,7 @@ impl ScatterOptions {
             decay: [1.0, 3.0],
             diameter: [0.01, 0.07],
             length: [0.4, 1.2],
-            piece: DeadwoodPreset::Stick.options(),
+            piece: DeadwoodPreset::stick().deadwood.clone(),
         }
     }
 
@@ -94,7 +94,7 @@ impl ScatterOptions {
     /// strips at a distance.
     pub fn twig_litter() -> Self {
         Self {
-            seed: 2,
+            default_seed: 2,
             max_slope: 45.0,
             density: 8.0,
             min_spacing: 0.08,
@@ -102,7 +102,7 @@ impl ScatterOptions {
             decay: [1.0, 4.0],
             diameter: [0.004, 0.02],
             length: [0.15, 0.5],
-            piece: DeadwoodPreset::Twig.options(),
+            piece: DeadwoodPreset::twig().deadwood.clone(),
         }
     }
 
@@ -110,7 +110,7 @@ impl ScatterOptions {
     /// long, kept to gentle slopes.
     pub fn fallen_logs() -> Self {
         Self {
-            seed: 3,
+            default_seed: 3,
             max_slope: 25.0,
             density: 0.04,
             min_spacing: 3.0,
@@ -118,7 +118,7 @@ impl ScatterOptions {
             decay: [1.0, 4.0],
             diameter: [0.2, 0.5],
             length: [2.0, 6.0],
-            piece: DeadwoodPreset::WindthrowLog.options(),
+            piece: DeadwoodPreset::windthrow_log().deadwood.clone(),
         }
     }
 
@@ -213,7 +213,7 @@ struct Fit {
     /// Where the variant touches the ground, measured from `centre`.
     footprint: Footprint,
     /// How the variant follows the ground, from its kind.
-    placement: GroundPlacement,
+    placement: Placement,
 }
 
 impl StickScatter {
@@ -248,8 +248,8 @@ impl StickScatter {
         let mut variants = Vec::with_capacity(options.variants as usize);
         for v in 0..options.variants {
             let mut o = options.piece.clone();
-            o.seed = SpecimenId::new(input.seed, pool, v).seed();
-            let mut rng = stream(o.seed, SCATTER_VARIANT);
+            o.default_seed = SpecimenId::new(input.seed, pool, v).seed();
+            let mut rng = stream(o.default_seed, SCATTER_VARIANT);
             o.decay = rng.range(options.decay[0], options.decay[1]);
             let (lo, hi) = (options.diameter[0].ln(), options.diameter[1].ln());
             o.diameter = rng.range(lo, hi).exp();
@@ -365,17 +365,17 @@ impl PieceKind {
     /// [`StickScatter`]: logs and branches lie along the ground's slope,
     /// resting on the plane fitted under them; stumps stay upright, sunk
     /// until the lowest ground around their base meets it.
-    pub fn placement(self) -> GroundPlacement {
+    pub fn placement(self) -> Placement {
         match self {
-            PieceKind::Log | PieceKind::Branch => GroundPlacement {
+            PieceKind::Log | PieceKind::Branch => Placement {
                 conform: 1.0,
                 rest: Rest::Plane,
-                ..GroundPlacement::default()
+                ..Placement::default()
             },
-            PieceKind::Stump => GroundPlacement {
+            PieceKind::Stump => Placement {
                 conform: 0.0,
                 rest: Rest::Lowest,
-                ..GroundPlacement::default()
+                ..Placement::default()
             },
         }
     }

@@ -34,7 +34,8 @@
 //! - **A group with a different `kind` replaces the base's group whole.**
 //!   Switching a setting from one kind to another, such as a sawn end to an
 //!   axe-cut one, starts that group afresh, so settings of the old kind do
-//!   not linger.
+//!   not linger. The key `kind` is kept for this: an options type whose
+//!   setting is a plain value named `kind` writes it under another name.
 //! - Without a `base`, the settings are laid over the options' defaults.
 //!
 //! A setting the options don't have, or a value of the wrong type, is an

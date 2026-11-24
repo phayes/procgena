@@ -8,7 +8,7 @@ use procgena_deadwood::{
 };
 
 /// Hashes of the default options and of every preset, in
-/// [`DeadwoodPreset::ALL`] order. They must never change by accident:
+/// [`DeadwoodPreset::all`] order. They must never change by accident:
 /// a changed hash regrows every specimen built from those options.
 const GOLDEN: &[(&str, u64)] = &[
     ("default", 0x95598bc00475c557),
@@ -33,11 +33,7 @@ const GOLDEN: &[(&str, u64)] = &[
 #[test]
 fn hashes_match_reference_values() {
     let mut actual = vec![("default", content_hash(&DeadwoodOptions::default()))];
-    actual.extend(
-        DeadwoodPreset::ALL
-            .iter()
-            .map(|p| (p.name(), content_hash(&p.options()))),
-    );
+    actual.extend(DeadwoodPreset::all().map(|p| (p.name.as_ref(), content_hash(&p.deadwood))));
     assert_eq!(actual, GOLDEN);
 }
 
@@ -63,7 +59,7 @@ fn variant_pools_match_reference_values() {
 fn the_variant_pool_leaves_out_what_only_places_copies() {
     let o = ScatterOptions::kindling();
     let placed = ScatterOptions {
-        seed: o.seed + 1,
+        default_seed: o.default_seed + 1,
         max_slope: o.max_slope + 10.0,
         density: o.density * 2.0,
         min_spacing: o.min_spacing + 0.1,
@@ -90,7 +86,7 @@ fn a_piece_pool_is_its_options_hash() {
 fn seed_and_detail_leave_the_hash_alone() {
     let o = DeadwoodOptions::default();
     let mut changed = o.clone();
-    changed.seed = o.seed.wrapping_add(1);
+    changed.default_seed = o.default_seed.wrapping_add(1);
     changed.detail = DeadwoodDetail::STRIP;
     assert_eq!(OptionsHash::of(&o), OptionsHash::of(&changed));
 }

@@ -415,7 +415,7 @@ pub fn deadwood_material(
             ring_strength: 1.0 - 0.7 * rotten,
             crack_strength: smoothstep(0.3, 2.5, decay) * (1.0 - 0.6 * rotten),
             grain_strength: 1.0 - 0.5 * rotten,
-            seed: (options.seed % 1000) as f32 * 7.31,
+            seed: (options.default_seed % 1000) as f32 * 7.31,
             end_textured: u32::from(photo.is_some()),
             end_centre: photo.map_or(Vec2::splat(0.5), |p| p.centre),
             end_radius: photo.map_or(0.5, |p| p.radius),

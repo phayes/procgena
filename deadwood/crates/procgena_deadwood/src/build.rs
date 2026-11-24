@@ -43,8 +43,8 @@ pub(crate) fn build(o: &DeadwoodOptions, decay: &Decay) -> Vec<Limb> {
 
 /// Builds the main stem.
 fn main_limb(o: &DeadwoodOptions, decay: &Decay) -> Limb {
-    let mut rng = stream(o.seed, STEM_SHAPE);
-    let surface = seed_for(o.seed, STEM_SURFACE);
+    let mut rng = stream(o.default_seed, STEM_SHAPE);
+    let surface = seed_for(o.default_seed, STEM_SURFACE);
     let (r0, r1) = (o.base_radius(), o.tip_radius());
     let stump = o.kind == PieceKind::Stump;
 
@@ -336,8 +336,8 @@ pub(crate) fn visible_span(o: &DeadwoodOptions, main: &Limb) -> (f32, f32) {
 
 /// Adds broken-off branch stubs to the main stem.
 fn add_stubs(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
-    let mut rng = stream(o.seed, STUB_SHAPE);
-    let surface = seed_for(o.seed, STUB_SURFACE);
+    let mut rng = stream(o.default_seed, STUB_SHAPE);
+    let surface = seed_for(o.default_seed, STUB_SURFACE);
     let (u0, u1) = visible_span(o, &limbs[0]);
     let visible = (u1 - u0) * limbs[0].length();
     let count = (o.stubs.per_metre * visible).round() as u32;
@@ -392,8 +392,8 @@ fn add_stubs(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
 /// Adds side branches and twigs to a fallen branch.
 fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
     let b = &o.branching;
-    let mut rng = stream(o.seed, BRANCH_SHAPE);
-    let surface = seed_for(o.seed, BRANCH_SURFACE);
+    let mut rng = stream(o.default_seed, BRANCH_SHAPE);
+    let surface = seed_for(o.default_seed, BRANCH_SURFACE);
     // Numbers each side branch and twig in the order they grow.
     let mut sprouted = 0;
 
@@ -502,8 +502,8 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
 /// Adds a stump's surface roots, one on each buttress where possible.
 fn add_roots(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
     let r = &o.roots;
-    let mut rng = stream(o.seed, ROOT_SHAPE);
-    let surface = seed_for(o.seed, ROOT_SURFACE);
+    let mut rng = stream(o.default_seed, ROOT_SHAPE);
+    let surface = seed_for(o.default_seed, ROOT_SURFACE);
     let main = &limbs[0];
     let flare = main.flare.expect("stumps have a flare");
     let u = (flare.ground + 0.15 * flare.height) / main.length();
@@ -660,13 +660,13 @@ mod tests {
             },
             EndKind::Taper,
         ];
-        for preset in DeadwoodPreset::ALL {
+        for preset in DeadwoodPreset::all() {
             for base in shapes {
                 for tip in shapes {
-                    let mut o = preset.options();
+                    let mut o = preset.deadwood.clone();
                     o.ends = crate::EndsOptions { base, tip };
                     let piece = Piece::new(o);
-                    assert!(piece.is_ok(), "{}: {base:?} {tip:?}", preset.name());
+                    assert!(piece.is_ok(), "{}: {base:?} {tip:?}", preset.name);
                 }
             }
         }

@@ -52,7 +52,7 @@ pub(crate) fn place(o: &DeadwoodOptions, main: &Limb, span: (f32, f32), burial: 
     let floor = burial + CLEARANCE * o.diameter;
     // Leaves draw from their own stream, apart from the stem streams in
     // `build`, so turning leaves on never changes the wood.
-    let mut rng = stream(o.seed, LEAF_SPRAYS);
+    let mut rng = stream(o.default_seed, LEAF_SPRAYS);
     let mut cards = Vec::new();
 
     for spray in 0..count {

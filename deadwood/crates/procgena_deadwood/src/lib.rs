@@ -17,10 +17,31 @@
 //! ```
 //! use procgena_deadwood::{DeadwoodPreset, Piece, default_lod};
 //!
-//! let log = Piece::from_preset(DeadwoodPreset::WindthrowLog);
-//! for (level, mesh) in log.lod_meshes(&default_lod()).unwrap() {
+//! let log = Piece::from_preset(DeadwoodPreset::windthrow_log())?;
+//! for (level, mesh) in log.lod_meshes(&default_lod())? {
 //!     println!("from {} m: {} triangles", level.distance, mesh.triangle_count());
 //! }
+//! # Ok::<(), procgena_deadwood::OptionsError>(())
+//! ```
+//!
+//! A `.deadwood.yml` file names a preset as its `base` and gives only the
+//! settings it changes:
+//!
+//! ```
+//! use procgena_deadwood::{DeadwoodPreset, Piece};
+//!
+//! let preset = DeadwoodPreset::from_yaml(
+//!     "short_mossy_log",
+//!     "base: mossy_log\n\
+//!      deadwood:\n  \
+//!        default_seed: 7\n  \
+//!        length: 2.0\n  \
+//!        ends:\n    \
+//!          tip: { kind: axe, angle: 45 }\n",
+//! )?;
+//! let log = Piece::from_preset(&preset)?;
+//! assert!(log.mesh().triangle_count() > 0);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! [`LeafOptions`] grows leafy shoots, ferns or shelf fungi out of the main
@@ -33,7 +54,7 @@
 //! standard levels.
 //!
 //! Pieces rest on flat ground at `y = 0`, with Y up. Logs and branches turn
-//! onto a stable resting side, as if dropped; see [`Placement`]. Stumps
+//! onto a stable resting side, as if dropped; see [`RestingPose`]. Stumps
 //! stand upright with their roots and base below the ground. A piece's
 //! [`Piece::specimen`] lets other generators, such as moss from
 //! `procgena_clump`, grow on it.
@@ -88,13 +109,14 @@ pub use options::{
     MaterialOptions, OptionsError, PieceKind, RootOptions, SettleOptions, ShapeOptions,
     StubOptions,
 };
-pub use piece::{DeadwoodError, Piece};
+pub use piece::Piece;
 pub use presets::DeadwoodPreset;
+pub use procgena_core::preset::PresetFileError;
 pub use scatter::{
     FlatGround, Ground, HeightGrid, Instance, MAX_INSTANCES, MAX_VARIANTS, ScatterError,
     ScatterOptions, StickScatter,
 };
-pub use settle::Placement;
+pub use settle::RestingPose;
 pub use specimen::specimen_from_meshes;
 pub use texture::{
     BARK_TEXTURE_SETS, END_TEXTURE_SETS, LEAF_TEXTURE_SETS, LeafMap, TextureCompression,
