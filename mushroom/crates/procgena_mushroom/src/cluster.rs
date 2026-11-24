@@ -4,11 +4,11 @@
 use std::f32::consts::TAU;
 
 use glam::{Affine3A, Quat, Vec3};
+use procgena_core::Rng;
 use procgena_core::hash::{derive_seed, seed_for};
-use procgena_core::{Rng, SpecimenId};
 use serde::{Deserialize, Serialize};
 
-use crate::mushroom::MushroomBody;
+use crate::mushroom::{BodyId, MushroomBody};
 use crate::options::{MushroomOptions, OptionsError, int_range, within};
 use crate::rng::{CLUSTER_BODY, CLUSTER_LAYOUT, CLUSTER_VARIATION, RngExt};
 
@@ -165,16 +165,17 @@ impl MushroomInstance {
     }
 }
 
-/// Returns the seed of body `index` of the specimen seeded with
+/// Returns the seed of body `index` of the cluster grown with
 /// `specimen_seed`.
-pub(crate) fn body_seed(specimen_seed: u32, index: u32) -> u32 {
+fn body_seed(specimen_seed: u32, index: u32) -> u32 {
     derive_seed(seed_for(specimen_seed, CLUSTER_BODY), index)
 }
 
-/// Makes the first `count` bodies of cluster specimen `specimen`, grown
-/// from `base`: single mushrooms, each seeded from the specimen and its
-/// index; all but the first also vary stem and cap height a little. A body's
-/// shape depends only on `base`, `specimen` and its index, never on `count`.
+/// Makes the first `count` bodies of the cluster grown from `base` with
+/// seed `specimen_seed`: single mushrooms, each seeded from that seed and
+/// its index; all but the first also vary stem and cap height a little. A
+/// body's shape depends only on `base` (less its seed), `specimen_seed` and
+/// its index, never on `count`.
 ///
 /// With `cluster.sweep` above 0, every body's stem leans by about `sweep`
 /// times its height toward +X, so [`arrange`] can turn it to face away from
@@ -182,12 +183,12 @@ pub(crate) fn body_seed(specimen_seed: u32, index: u32) -> u32 {
 /// direction.
 pub(crate) fn make_bodies(
     base: &MushroomOptions,
-    specimen: SpecimenId,
+    specimen_seed: u32,
     count: u32,
 ) -> Result<Vec<MushroomBody>, OptionsError> {
     base.validate()?;
     let sweep = base.cluster.sweep;
-    let specimen_seed = specimen.seed();
+    let pool = base.pool();
     (0..count)
         .map(|i| {
             let mut o = base.clone();
@@ -207,7 +208,12 @@ pub(crate) fn make_bodies(
                 o.stem.lean = (sweep * amount).min(1.0);
                 o.stem.lean_direction = 0.0;
             }
-            MushroomBody::new(o, specimen, i)
+            let id = BodyId {
+                pool,
+                seed: specimen_seed,
+                index: i,
+            };
+            MushroomBody::new(o, id)
         })
         .collect()
 }

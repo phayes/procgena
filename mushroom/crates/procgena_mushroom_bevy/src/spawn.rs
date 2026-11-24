@@ -13,10 +13,10 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
-use procgena_core::{ContentHasher, SpecimenId};
+use procgena_core::ContentHasher;
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_mushroom::{
-    BodyShape, Mushroom, MushroomBody, MushroomError, MushroomInstance, MushroomLod,
+    BodyId, BodyShape, Mushroom, MushroomBody, MushroomError, MushroomInstance, MushroomLod,
     MushroomOptions, MushroomPreset, MushroomScatter, OptionsError, ScatterError, ScatterOptions,
     TextureCompression, TexturePart, TextureSize,
 };
@@ -292,10 +292,10 @@ struct Built {
     specimen: Option<Specimen>,
 }
 
-/// Names one body: the specimen it belongs to and its index there. Every
-/// body is meshed at the plugin's detail levels, which never change while
-/// the app runs, so bodies with equal keys share uploaded meshes.
-type BodyKey = (SpecimenId, u32);
+/// Names one body. Every body is meshed at the plugin's detail levels,
+/// which never change while the app runs, so bodies with equal ids share
+/// uploaded meshes.
+type BodyKey = BodyId;
 
 /// One variant's meshes, one per detail level.
 struct BuiltVariant {
@@ -591,7 +591,7 @@ fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant,
         })
         .collect();
     Ok(BuiltVariant {
-        key: (body.specimen(), body.index()),
+        key: body.id(),
         options,
         levels,
     })

@@ -3,10 +3,10 @@
 //! Every options type here has a [`ContentHash`]: a hash of its settings
 //! that is the same in every run and on every machine. The hash of a
 //! [`MushroomOptions`] leaves out the seed and the mesh detail, and names a
-//! pool of look-alike specimens; [`MushroomOptions::specimen_id`] names one
+//! pool of look-alike specimens; a [`procgena_core::SpecimenId`] names one
 //! specimen in that pool.
 
-use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, PoolId, SpecimenId};
+use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, PoolId};
 
 use crate::cluster::{ClusterLayout, ClusterOptions, FairyRingOptions};
 use crate::options::{
@@ -27,13 +27,6 @@ impl MushroomOptions {
     /// [`detail`](Self::detail) share a pool.
     pub fn pool(&self) -> PoolId {
         PoolId::new(GENERATOR_KIND, OptionsHash::of(self))
-    }
-
-    /// Returns the id of specimen `slot` of these options' pool, for a
-    /// mushroom built on its own: [`seed`](Self::seed) stands in for the
-    /// World seed.
-    pub fn specimen_id(&self, slot: u32) -> SpecimenId {
-        SpecimenId::new(self.seed, self.pool(), slot)
     }
 }
 

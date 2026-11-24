@@ -71,7 +71,7 @@ pub use detail::{
 pub use mesh::{
     BillboardMesh, BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, Zone,
 };
-pub use mushroom::{Mushroom, MushroomBody, MushroomError};
+pub use mushroom::{BodyId, Mushroom, MushroomBody, MushroomError};
 pub use options::{
     AnnulusOptions, BulbOptions, CapOptions, MAX_GILL_LINES, MAX_LOBES, MAX_SEGMENTS, MAX_WARTS,
     MaterialOptions, MushroomOptions, OptionsError, Pattern, StemOptions, UndersideOptions,

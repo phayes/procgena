@@ -6,7 +6,7 @@ use std::fmt;
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
 use procgena_core::hash::{derive_seed, seed_for};
-use procgena_core::{Quality, Rng};
+use procgena_core::{Quality, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 
 use crate::cluster::{MushroomInstance, arrange, make_bodies};
@@ -28,11 +28,10 @@ pub const MAX_SITES: u32 = 20_000;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScatterOptions {
     /// Number that picks the growing spots, sizes, turns, which variant
-    /// grows at each spot, and how each spot's cluster is laid out. The
-    /// variants themselves come from the mushroom's own
-    /// [`seed`](MushroomOptions::seed), so scatters with different seeds
-    /// share them. The same seeds, settings and host always give the same
-    /// scatter.
+    /// grows at each spot and how each spot's cluster is laid out. It also
+    /// stands in for the World seed of the variants' specimen ids, so it
+    /// picks their shapes too. The same seed, settings and host always give
+    /// the same scatter.
     pub seed: u32,
     /// Which parts of the host mushrooms grow on, chosen by their tags, such
     /// as ground or rock; see [`procgena_specimen::tags`].
@@ -170,11 +169,11 @@ impl MushroomScatter {
     /// when [`ClusterOptions::stems`](crate::ClusterOptions::stems) is more
     /// than one. Every spot gets its own variations, picked from
     /// [`ClusterOptions::variants`](crate::ClusterOptions::variants)
-    /// different bodies. For a single mushroom these are the first
-    /// specimens of the mushroom's pool
-    /// ([`MushroomOptions::specimen_id`] slots 0, 1, …); for a cluster they
-    /// are the bodies of its specimen 0, the same ones [`crate::Mushroom::new`]
-    /// makes.
+    /// different bodies. For a single mushroom these are the specimens in
+    /// slots 0, 1, … of the mushroom's pool; for a cluster they are the
+    /// bodies of the specimen in slot 0. Each specimen is seeded from its
+    /// [`SpecimenId`], with [`ScatterOptions::seed`] as the World seed, and the
+    /// mushroom's own [`seed`](MushroomOptions::seed) is not used.
     ///
     /// Mushrooms grow only on the parts of the host's most detailed level
     /// that [`ScatterOptions::grows_on`] picks, and only where the surface is
@@ -200,12 +199,14 @@ impl MushroomScatter {
         options.validate()?;
         mushroom.validate()?;
         let cluster = &mushroom.cluster;
+        let pool = mushroom.pool();
+        let specimen_seed = |slot| SpecimenId::new(options.seed, pool, slot).seed();
         let bodies = if cluster.stems == 1 {
             (0..cluster.variants)
-                .map(|slot| MushroomBody::single(mushroom, mushroom.specimen_id(slot)))
+                .map(|slot| MushroomBody::single(mushroom, specimen_seed(slot)))
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            make_bodies(mushroom, mushroom.specimen_id(0), cluster.variants)?
+            make_bodies(mushroom, specimen_seed(0), cluster.variants)?
         };
         let part = host
             .merged(0, &options.grows_on)

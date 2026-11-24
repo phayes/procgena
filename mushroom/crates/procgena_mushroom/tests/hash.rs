@@ -2,7 +2,7 @@
 
 use procgena_core::{OptionsHash, SpecimenId};
 use procgena_mushroom::{
-    CapFamily, ClusterLayout, GENERATOR_KIND, Mushroom, MushroomDetail, MushroomOptions,
+    BodyId, CapFamily, ClusterLayout, GENERATOR_KIND, Mushroom, MushroomDetail, MushroomOptions,
     MushroomPreset, MushroomScatter, Pattern, ScatterOptions,
 };
 use procgena_specimen::{Part, Specimen, SurfaceMesh, tags};
@@ -36,10 +36,10 @@ fn hashes_are_pinned() {
     for (preset, value) in MushroomPreset::ALL.into_iter().zip(pinned) {
         assert_eq!(hash(&preset.options()), value, "{}", preset.name());
     }
-    assert_eq!(
-        MushroomOptions::default().specimen_id(0).seed(),
-        0xd362_d2a1
-    );
+    // The seed of slot 0 of the default pool in a World (or scatter) seeded
+    // with 1.
+    let pool = MushroomOptions::default().pool();
+    assert_eq!(SpecimenId::new(1, pool, 0).seed(), 0xd362_d2a1);
 }
 
 #[test]
@@ -58,7 +58,6 @@ fn seed_and_detail_are_left_out() {
     other.seed = 99;
     other.detail = MushroomDetail::FLAT;
     assert_eq!(base.pool(), other.pool());
-    assert_ne!(base.specimen_id(0), other.specimen_id(0));
 }
 
 #[test]
@@ -183,22 +182,23 @@ fn every_field_changes_the_hash() {
     }
 }
 
-/// Renderers share meshes between bodies with the same specimen id and
-/// index, so a mushroom and a scatter must build identical bodies for them.
+/// Renderers share meshes between bodies with equal ids, so a mushroom and
+/// a scatter must build identical bodies for one id.
 #[test]
 fn equal_body_ids_mean_equal_bodies() {
     let host = Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(2.0, 8))]);
+    let scatter_options = ScatterOptions::default();
     for preset in [MushroomPreset::Enoki, MushroomPreset::Porcini] {
-        let options = preset.options();
-        let scatter = MushroomScatter::on(&host, &options, &ScatterOptions::default()).unwrap();
-        // A single mushroom's slot-0 specimen is the scatter's first body; a
-        // cluster's bodies are the scatter's first bodies.
+        let mut options = preset.options();
+        let scatter = MushroomScatter::on(&host, &options, &scatter_options).unwrap();
+        // The scatter's slot-0 specimen, grown on its own from its seed.
+        options.seed = SpecimenId::new(scatter_options.seed, options.pool(), 0).seed();
         let mushroom = Mushroom::new(options).unwrap();
         for body in mushroom.bodies() {
             let twin = scatter
                 .bodies()
                 .iter()
-                .find(|b| b.specimen() == body.specimen() && b.index() == body.index())
+                .find(|b| b.id() == body.id())
                 .unwrap_or_else(|| panic!("{}: no matching body", preset.name()));
             assert_eq!(twin.options(), body.options(), "{}", preset.name());
         }
@@ -206,20 +206,42 @@ fn equal_body_ids_mean_equal_bodies() {
 }
 
 #[test]
-fn specimens_of_one_pool_share_nothing_but_the_pool() {
+fn a_mushroom_is_shaped_from_its_own_seed() {
     let options = MushroomPreset::Enoki.options();
     assert!(options.cluster.stems > 1);
     let mushroom = Mushroom::new(options.clone()).unwrap();
-    assert_eq!(mushroom.id(), options.specimen_id(0));
-    assert_eq!(
-        mushroom.id(),
-        SpecimenId::new(options.seed, options.pool(), 0)
-    );
     for (i, body) in mushroom.bodies().iter().enumerate() {
-        assert_eq!(body.specimen(), mushroom.id());
-        assert_eq!(body.index(), i as u32);
+        let id = BodyId {
+            pool: options.pool(),
+            seed: options.seed,
+            index: i as u32,
+        };
+        assert_eq!(body.id(), id);
     }
     // Equal options give an identical mushroom.
     let again = Mushroom::new(options).unwrap();
     assert_eq!(again.mesh().surfaces, mushroom.mesh().surfaces);
+}
+
+#[test]
+fn a_scatter_seeds_its_variants_from_specimen_ids() {
+    let host = Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(2.0, 8))]);
+    let options = MushroomPreset::Porcini.options();
+    let scatter_options = ScatterOptions {
+        seed: 7,
+        ..ScatterOptions::default()
+    };
+    let scatter = MushroomScatter::on(&host, &options, &scatter_options).unwrap();
+    assert_eq!(scatter.bodies().len(), options.cluster.variants as usize);
+    for (slot, body) in scatter.bodies().iter().enumerate() {
+        let seed = SpecimenId::new(7, options.pool(), slot as u32).seed();
+        assert_eq!(body.id().seed, seed);
+        assert_eq!(body.options().seed, seed);
+    }
+    // The mushroom's own seed plays no part.
+    let mut reseeded = options.clone();
+    reseeded.seed += 1;
+    let again = MushroomScatter::on(&host, &reseeded, &scatter_options).unwrap();
+    let ids = |s: &MushroomScatter| s.bodies().iter().map(|b| b.id()).collect::<Vec<_>>();
+    assert_eq!(ids(&again), ids(&scatter));
 }

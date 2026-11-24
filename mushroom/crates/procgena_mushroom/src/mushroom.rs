@@ -4,9 +4,9 @@
 use std::fmt;
 
 use glam::{Affine3A, Vec3};
-use procgena_core::SpecimenId;
+use procgena_core::PoolId;
 
-use crate::cluster::{ClusterOptions, MushroomInstance, arrange, body_seed, make_bodies};
+use crate::cluster::{ClusterOptions, MushroomInstance, arrange, make_bodies};
 use crate::colour::Palette;
 use crate::detail::{MushroomDetail, MushroomLod, MushroomLodLevel, validate_lod};
 use crate::mesh::{MushroomMesh, build, combine};
@@ -43,7 +43,6 @@ use crate::shape::Shape;
 #[derive(Debug, Clone)]
 pub struct Mushroom {
     options: MushroomOptions,
-    id: SpecimenId,
     bodies: Vec<MushroomBody>,
     members: Vec<MushroomInstance>,
 }
@@ -55,15 +54,27 @@ pub struct Mushroom {
 /// differences in height, and a single stem. It stands on the ground at the
 /// origin, growing up the +Y axis, in metres.
 ///
-/// A body is named by the specimen it belongs to and its index there:
-/// bodies with the same [`specimen`](Self::specimen) and
-/// [`index`](Self::index) are identical.
+/// Bodies with the same [`id`](Self::id) are identical.
 #[derive(Debug, Clone)]
 pub struct MushroomBody {
     options: MushroomOptions,
-    specimen: SpecimenId,
-    index: u32,
+    id: BodyId,
     shape: Shape,
+}
+
+/// Names one [`MushroomBody`]: bodies with equal ids are identical, so a
+/// renderer can mesh each id once and share it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BodyId {
+    /// The pool of the options the body was grown from; see
+    /// [`MushroomOptions::pool`].
+    pub pool: PoolId,
+    /// The seed the whole mushroom or cluster was grown with: the options'
+    /// [`seed`](MushroomOptions::seed) for a [`Mushroom`], or a specimen
+    /// seed in a scatter.
+    pub seed: u32,
+    /// The body's index among the bodies grown with that seed.
+    pub index: u32,
 }
 
 /// Why a [`Mushroom`] could not be created from JSON.
@@ -96,22 +107,20 @@ impl std::error::Error for MushroomError {
 
 impl Mushroom {
     /// Creates a mushroom, or a cluster, from `options`, after checking
-    /// them. It is specimen 0 of the options' pool, with
-    /// [`MushroomOptions::seed`] standing in for the World seed; see
-    /// [`MushroomOptions::specimen_id`].
+    /// them. Its shape comes from [`MushroomOptions::seed`].
     ///
     /// # Errors
     ///
     /// Returns the first setting that is out of range.
     pub fn new(options: MushroomOptions) -> Result<Self, OptionsError> {
         options.validate()?;
-        let id = options.specimen_id(0);
+        let seed = options.seed;
 
         // A single mushroom is exactly what the options describe; a
         // cluster's members are variations of it.
         let cluster = &options.cluster;
         let (bodies, members) = if cluster.stems == 1 {
-            let body = MushroomBody::single(&options, id)?;
+            let body = MushroomBody::single(&options, seed)?;
             let member = MushroomInstance {
                 variant: 0,
                 translation: Vec3::ZERO,
@@ -120,13 +129,12 @@ impl Mushroom {
             };
             (vec![body], vec![member])
         } else {
-            let bodies = make_bodies(&options, id, cluster.variants.min(cluster.stems))?;
-            let members = arrange(&bodies, cluster, id.seed());
+            let bodies = make_bodies(&options, seed, cluster.variants.min(cluster.stems))?;
+            let members = arrange(&bodies, cluster, seed);
             (bodies, members)
         };
         Ok(Self {
             options,
-            id,
             bodies,
             members,
         })
@@ -153,12 +161,6 @@ impl Mushroom {
     /// Returns the options this mushroom was made from.
     pub fn options(&self) -> &MushroomOptions {
         &self.options
-    }
-
-    /// Returns the id of this specimen. Mushrooms with equal ids are
-    /// identical.
-    pub fn id(&self) -> SpecimenId {
-        self.id
     }
 
     /// Returns the different single mushrooms the members are copies of.
@@ -251,46 +253,34 @@ impl Mushroom {
 
 impl MushroomBody {
     /// Works out the shape of a single mushroom made from `options`, after
-    /// checking them, as body `index` of `specimen`. The cluster settings
-    /// are not used, and `options.seed` must already be the body's own seed.
-    pub(crate) fn new(
-        options: MushroomOptions,
-        specimen: SpecimenId,
-        index: u32,
-    ) -> Result<Self, OptionsError> {
+    /// checking them, named `id`. The cluster settings are not used, and
+    /// `options.seed` must already be the body's own seed.
+    pub(crate) fn new(options: MushroomOptions, id: BodyId) -> Result<Self, OptionsError> {
         options.validate()?;
         let shape = Shape::new(&options);
-        Ok(Self {
-            options,
-            specimen,
-            index,
-            shape,
-        })
+        Ok(Self { options, id, shape })
     }
 
-    /// Makes the one body of single-stem specimen `specimen`, grown from
-    /// `options`: exactly the mushroom the options describe, with the body's
-    /// own seed. The cluster settings are not used.
-    pub(crate) fn single(
-        options: &MushroomOptions,
-        specimen: SpecimenId,
-    ) -> Result<Self, OptionsError> {
+    /// Makes the one body of a single-stem mushroom grown from `options`
+    /// with `seed`: exactly the mushroom the options describe, with `seed`
+    /// in place of theirs. The cluster settings are not used.
+    pub(crate) fn single(options: &MushroomOptions, seed: u32) -> Result<Self, OptionsError> {
+        let id = BodyId {
+            pool: options.pool(),
+            seed,
+            index: 0,
+        };
         let options = MushroomOptions {
-            seed: body_seed(specimen.seed(), 0),
+            seed,
             cluster: ClusterOptions::default(),
             ..options.clone()
         };
-        Self::new(options, specimen, 0)
+        Self::new(options, id)
     }
 
-    /// Returns the id of the specimen this body belongs to.
-    pub fn specimen(&self) -> SpecimenId {
-        self.specimen
-    }
-
-    /// Returns this body's index within its [`specimen`](Self::specimen).
-    pub fn index(&self) -> u32 {
-        self.index
+    /// Returns this body's id. Bodies with equal ids are identical.
+    pub fn id(&self) -> BodyId {
+        self.id
     }
 
     /// Returns this body's options. Its
