@@ -5,10 +5,11 @@
 use std::f32::consts::TAU;
 
 use glam::{Quat, Vec3};
+use procgena_core::Rng;
 
 use crate::skeleton::{place, shuffled_indices};
 use crate::{
-    Attachment, ClusterKind, ClusterPlacement, ClusterShape, Facing, Rng, Section, SkeletonBranch,
+    Attachment, ClusterKind, ClusterPlacement, ClusterShape, Facing, Section, SkeletonBranch,
     TreeOptions, TreeType,
 };
 

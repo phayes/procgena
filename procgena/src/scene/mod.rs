@@ -27,12 +27,13 @@ mod viewport;
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
 use procgena_clump_bevy::ClumpPlugin;
+use procgena_core::Lod;
 use procgena_deadwood_bevy::DeadwoodPlugin;
 use procgena_impostor::{ImpostorPlugin, ImpostorSettings};
 use procgena_mushroom_bevy::MushroomPlugin;
 use procgena_plant::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
-use procgena_tree::TextureCompression;
+use procgena_tree::{LOD_REFERENCE_SIZE, TextureCompression};
 use procgena_tree_bevy::{TreeImpostor, TreePlugin};
 
 pub use assets::{
@@ -133,7 +134,7 @@ impl Plugin for ScenePlugin {
                 texture_root: Some(TREE_TEXTURE_ROOT.to_owned()),
                 texture_compression: TextureCompression::Bc7,
                 // The scene reports which of these levels is on screen.
-                lod_levels: subject::lod_levels(),
+                lod: Lod::new(LOD_REFERENCE_SIZE, subject::lod_levels()),
                 impostor: self.impostors.then(|| TreeImpostor {
                     distance: subject::IMPOSTOR_DISTANCE,
                     ..default()

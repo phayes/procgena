@@ -4,7 +4,7 @@
 use glam::{Mat4, Quat, Vec3};
 use procgena_tree::{
     MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights, Tree, TreeMesh, TreePreset,
-    default_lod_levels,
+    default_lod,
 };
 
 /// Computes each joint's transform in tree coordinates, including its ancestors.
@@ -120,7 +120,7 @@ fn simpler_meshes_share_the_rig() {
         })
         .unwrap();
     assert!(rig.joint_count() > 64);
-    for (_, mesh) in tree.lod_meshes(&default_lod_levels()) {
+    for (_, mesh) in tree.lod_meshes(&default_lod().levels) {
         let skin = rig.skin(&mesh);
         check_weights(
             &skin.branches,

@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::scene::Scene;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_clump::ClumpPreset;
-use procgena_tree::Rng;
+use procgena_core::Rng;
 
 use super::{
     START_PRESET, START_SUBJECT, Subject, params, preset_label, settings, start_settings,
@@ -157,7 +157,7 @@ pub fn spawn_clump_editor(commands: &mut Commands, parent: Entity) {
         });
     commands.entity(editor).insert(ClumpEditor {
         panel,
-        rng: Rng::new(std::process::id() as i32),
+        rng: Rng::new(std::process::id()),
     });
 }
 

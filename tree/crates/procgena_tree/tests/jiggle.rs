@@ -1,6 +1,7 @@
 //! Check that tree variations respect the requested amount and preserve fixed settings.
 
-use procgena_tree::{PerLevel, Rng, Skeleton, TreeOptions, TreePreset};
+use procgena_core::Rng;
+use procgena_tree::{PerLevel, Skeleton, TreeOptions, TreePreset};
 
 /// Checks that the change is no larger than the given fraction of the original value.
 /// Allows a small tolerance for floating-point calculations.

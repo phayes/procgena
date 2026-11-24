@@ -1024,7 +1024,7 @@ mod tests {
         let built = std::panic::catch_unwind(|| {
             let skeleton = procgena_tree::Skeleton::generate(options)?;
             Ok::<_, procgena_tree::OptionsError>(
-                skeleton.mesh(options, &procgena_tree::default_lod_levels()[0].detail),
+                skeleton.mesh(options, &procgena_tree::default_lod().levels[0].detail),
             )
         });
         match built {

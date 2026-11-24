@@ -1,18 +1,38 @@
 //! Check mesh layout, detail levels, texture and lighting data, and closed bark.
 
 use glam::{Quat, Vec3};
+use procgena_core::{FarForm, LevelForm, LodLevel};
 use procgena_tree::{
-    BarkUvMode, Billboard, BillboardMode, BranchShape, LodDetail, MeshBuffers, Section, Skeleton,
-    TreeMesh, TreeOptions, TreePreset, default_lod_levels,
+    BarkUvMode, Billboard, BillboardMode, BranchShape, LOD_REFERENCE_SIZE, LodDetail, MeshBuffers,
+    Section, Skeleton, TreeMesh, TreeOptions, TreePreset, default_lod,
 };
+
+/// The four levels of [`default_lod`], nearest first.
+fn default_lod_levels() -> [LodLevel<LodDetail>; 4] {
+    default_lod().levels.try_into().unwrap()
+}
 
 /// Checks the default switching distances and branch and leaf settings.
 /// Fruit and flower defaults are covered in `tests/cluster_mesh.rs`.
 #[test]
 fn default_lod_levels_have_the_documented_settings() {
+    let lod = default_lod();
+    lod.validate().unwrap();
+    assert_eq!(lod.reference_size, LOD_REFERENCE_SIZE);
+    assert_eq!(lod.cull_distance, None);
     let levels = default_lod_levels();
     assert_eq!(levels.map(|l| l.distance), [0.0, 10.0, 25.0, 50.0]);
     assert_eq!(levels.map(|l| l.hysteresis), [0.0, 0.05, 0.05, 0.05]);
+    assert_eq!(
+        levels.map(|l| l.form),
+        [
+            LevelForm::Mesh,
+            LevelForm::Mesh,
+            LevelForm::Mesh,
+            LevelForm::Far(FarForm::BillboardLeaves)
+        ]
+    );
+    assert!(levels.iter().all(|l| l.casts_shadows));
     assert_eq!(levels[0].detail, LodDetail::default());
 
     let [_, near, far, farthest] = levels.map(|l| l.detail);
@@ -45,7 +65,7 @@ fn spans_cover_the_buffers() {
     let options = TreeOptions::default();
     let skeleton = Skeleton::generate(&options).unwrap();
     let levels = default_lod_levels().into_iter().flat_map(|level| {
-        [true, false].map(|closed| procgena_tree::LodLevel {
+        [true, false].map(|closed| LodLevel {
             detail: LodDetail {
                 closed,
                 ..level.detail
@@ -178,10 +198,11 @@ fn leaf_stride_keeps_each_branch_tip() {
     }
 }
 
-/// Checks that enlarging cards preserves their original centres, and that
-/// a size multiplier of 1 preserves the original corners.
+/// Checks that enlarging cards keeps each leaf's tip edge, so they grow
+/// toward the stem, and that a size multiplier of 1 preserves the original
+/// corners.
 #[test]
-fn scaled_leaves_stay_centred() {
+fn scaled_leaves_keep_their_tip() {
     let options = TreePreset::OakSmall.options();
     let skeleton = Skeleton::generate(&options).unwrap();
     let mesh_at = |leaf_scale| {
@@ -201,10 +222,14 @@ fn scaled_leaves_stay_centred() {
         };
         let (a, b) = (corners(&unscaled), corners(&scaled));
         let centre = leaf.origin + leaf.orientation * Vec3::Y * (leaf.size / 2.0);
+        let tip = leaf.origin + leaf.orientation * Vec3::Y * leaf.size;
         let mean = |c: &[Vec3]| c.iter().sum::<Vec3>() / 4.0;
+        // Corners 0 and 3 make the card's tip edge.
+        let tip_edge = |c: &[Vec3]| (c[0] + c[3]) / 2.0;
         let tolerance = 1e-4 * leaf.size.max(1.0);
         assert!(mean(&a).abs_diff_eq(centre, tolerance), "leaf {i}");
-        assert!(mean(&b).abs_diff_eq(centre, tolerance), "leaf {i}");
+        assert!(tip_edge(&a).abs_diff_eq(tip, tolerance), "leaf {i}");
+        assert!(tip_edge(&b).abs_diff_eq(tip, tolerance), "leaf {i}");
         let side = |c: &[Vec3]| c[1].distance(c[2]);
         assert!((side(&a) - leaf.size).abs() < tolerance, "leaf {i}");
         assert!((side(&b) - leaf.size * 1.8).abs() < tolerance, "leaf {i}");

@@ -14,6 +14,7 @@ use super::protocol::{
 use super::viewport::{ViewportActivity, ViewportCamera};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
+use procgena_core::LodLevel;
 use procgena_deadwood::{DeadwoodOptions, PieceKind, ScatterOptions, default_lod, size_factor};
 use procgena_deadwood_bevy::{
     DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
@@ -32,8 +33,8 @@ use procgena_stone_bevy::{
 use procgena_tree::{TreeGrove, TreeOptions};
 use procgena_tree_bevy::{
     TreeFinished, TreeGenerating, TreeGroveAssets, TreeGroveFinished, TreeGroveGenerating,
-    TreeGroveParams, TreeGroveStats, TreeLodLevel, TreeMaterial, TreeParams, TreePart,
-    TreePartKind, default_tree_lod_levels,
+    TreeGroveParams, TreeGroveStats, TreeLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
+    default_tree_lod,
 };
 
 /// Camera distances at which each tree detail level starts, nearest first.
@@ -55,10 +56,10 @@ const FAR_CLIP: f32 = 2500.0;
 /// The tree detail levels the scene shows, most detailed first: procgena_tree_bevy's
 /// default levels, switched at greater camera distances so that full detail
 /// lasts further out. The lowest level starts at 500 m.
-pub fn lod_levels() -> Vec<TreeLodLevel> {
-    let mut levels = default_tree_lod_levels();
+pub fn lod_levels() -> Vec<LodLevel<TreeLevel>> {
+    let mut levels = default_tree_lod().levels;
     for (level, distance) in levels.iter_mut().zip(LOD_DISTANCES) {
-        level.level.distance = distance;
+        level.distance = distance;
     }
     levels
 }
@@ -936,7 +937,7 @@ fn show_level(
 fn lod_at(distance: f32) -> usize {
     lod_levels()
         .iter()
-        .rposition(|level| distance >= level.level.distance)
+        .rposition(|level| distance >= level.distance)
         .unwrap_or(0)
 }
 
@@ -1525,6 +1526,6 @@ mod tests {
 
     #[test]
     fn every_tree_detail_level_has_a_distance() {
-        assert_eq!(default_tree_lod_levels().len(), LOD_DISTANCES.len());
+        assert_eq!(default_tree_lod().levels.len(), LOD_DISTANCES.len());
     }
 }

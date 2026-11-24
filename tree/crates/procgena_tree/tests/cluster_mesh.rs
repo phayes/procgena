@@ -5,8 +5,13 @@ use std::ops::Range;
 use glam::{Vec2, Vec3};
 use procgena_tree::{
     ClusterKind, ClusterSpan, ItemDetail, LodDetail, MeshBuffers, MeshPart, Skeleton, TreeMesh,
-    TreeOptions, TreePreset, default_lod_levels,
+    TreeOptions, TreePreset, default_lod,
 };
+
+/// The four levels of [`default_lod`], nearest first.
+fn default_lod_levels() -> [procgena_core::LodLevel<LodDetail>; 4] {
+    default_lod().levels.try_into().unwrap()
+}
 
 const KINDS: [ClusterKind; 5] = [
     ClusterKind::Single,

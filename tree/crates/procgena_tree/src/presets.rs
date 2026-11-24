@@ -86,7 +86,8 @@ impl TreePreset {
     ];
 
     /// The 13 presets whose settings match ez-tree's own presets, in ez-tree
-    /// display order. They grow no fruit or flowers.
+    /// display order. They grow no fruit or flowers. Their shapes differ from
+    /// ez-tree's, since this crate draws its own random numbers.
     pub const EZ_TREE: [TreePreset; 13] = [
         Self::AshSmall,
         Self::AshMedium,
@@ -251,7 +252,7 @@ impl TreePreset {
     /// 10,000 / (π r²) and a spacing of 0.55 r.
     fn grove_stand(self) -> (f32, f32) {
         match self {
-            Self::AshSmall => (1100.0, 0.95),
+            Self::AshSmall => (510.0, 1.4),
             Self::AshMedium => (260.0, 1.9),
             Self::AshLarge => (160.0, 2.5),
             Self::AspenSmall => (2600.0, 0.6),
@@ -266,14 +267,14 @@ impl TreePreset {
             Self::PineSmall => (2600.0, 0.6),
             Self::PineMedium => (1100.0, 0.95),
             Self::PineLarge => (550.0, 1.3),
-            Self::Trellis => (0.0, 0.65),
+            Self::Trellis => (0.0, 0.8),
             Self::BigLeafMapleMedium => (310.0, 1.75),
             Self::BigLeafMapleLarge => (140.0, 2.6),
             Self::Apple => (650.0, 1.2),
             Self::FloweringDogwood => (470.0, 1.45),
             Self::SpringPussyWillow => (2600.0, 0.6),
             Self::WinterThicket => (1250.0, 0.9),
-            Self::Cedar => (600.0, 1.25),
+            Self::Cedar => (480.0, 1.4),
         }
     }
 }

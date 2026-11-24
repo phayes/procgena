@@ -44,6 +44,22 @@ Where things stand:
   meshes carry tangents. See "Textures" below.
 
 Open items carried forward:
+- **Shapes no longer match ez-tree (2026-11-23).** The tree now draws its random
+  numbers from `procgena_core::Rng` (ARCHITECTURE rule 13, one generator), so a
+  seed grows a different tree than in ez-tree. Settings, presets and growth rules
+  are unchanged. Notes below about matching ez-tree's random sequence are history.
+- **Follow-up: optional `LodDetail::max_leaf_growth` for large-leaf presets.**
+  Enlarged leaf cards keep the leaf's tip edge (so thinned far levels don't reach
+  past the crown). A cap on how far a card may grow, in metres, would add headroom
+  for presets with very large leaves. Measured with a 0.2 m cap on top of the tip
+  rule (core generator, outline averages in check order stored L1, L2, L3, turned
+  L3, stored L1→2, L2→3, turned L2→3):
+  `0.954 0.930 0.905 0.903 0.960 0.943 0.909`, against `0.953 0.928 0.896 0.903
+  0.958 0.923 0.910` without it. Big Leaf Maple Medium's stored L3 rises from
+  0.767 to 0.868, and Big Leaf Maple Large's from 0.864 to 0.909. A few other
+  checks drop by up to 0.018 (Aspen Large L3, the maples' turned L2→3). Not built:
+  as a fixed length it only helps large-leaf presets, so it should be a per-level
+  setting if it is ever added.
 - **D9:** fractional seeds act like their truncated value. Accepted as documented;
   revisit only if someone needs JS-identical fractional seeds.
 - **f32 options vs f64 preset literals:** preset files contain values such as

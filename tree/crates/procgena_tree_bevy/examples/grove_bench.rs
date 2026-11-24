@@ -49,7 +49,7 @@ use bevy::time::Real;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_impostor::{ImpostorBakeCamera, ImpostorPlugin, ImpostorSettings};
-use procgena_tree::{GrovePreset, default_lod_levels};
+use procgena_tree::{GrovePreset, default_lod};
 use procgena_tree_bevy::{
     TreeGroveAssets, TreeGroveFinished, TreeGroveInstances, TreeGroveParams, TreeGroveStats,
     TreeImpostor, TreeParams, TreePlugin,
@@ -374,7 +374,7 @@ fn record(
     // each tree on the level its distance picks (ignoring crossfades and
     // culling). An impostor is the level after the meshes, two triangles.
     let eye = camera.translation();
-    let starts: Vec<f32> = default_lod_levels().iter().map(|l| l.distance).collect();
+    let starts: Vec<f32> = default_lod().levels.iter().map(|l| l.distance).collect();
     let impostor_distance = bench.impostor.map_or(f32::INFINITY, |i| i.distance);
     for (instances, stats, _, transform) in &groves {
         let mut per_tree: Vec<f64> = stats

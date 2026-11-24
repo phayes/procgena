@@ -16,8 +16,9 @@ use bevy::gltf::{GltfAssetLabel, GltfPlugin};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::world_serialization::WorldAssetRoot;
+use procgena_core::Lod;
 use procgena_tree::export::gltf::{GltfOptions, to_glb};
-use procgena_tree::{Tree, TreePreset, default_lod_levels};
+use procgena_tree::{LOD_REFERENCE_SIZE, Tree, TreePreset, default_lod};
 use procgena_tree_bevy::{TreePlugin, add_tree_gltf_attributes};
 
 /// Scene file name relative to the asset folder, plus an optional screenshot path.
@@ -58,7 +59,8 @@ fn main() {
             // detail levels and external tree textures.
             TreePlugin {
                 texture_root: None,
-                lod_levels: Vec::new(),
+                lod: Lod::new(LOD_REFERENCE_SIZE, Vec::new()),
+                impostor: None,
                 ..default()
             },
             FreeCameraPlugin,
@@ -76,7 +78,7 @@ fn main() {
 /// Panics if exporting or writing the file fails.
 fn export_apple() -> PathBuf {
     let tree = Tree::from_preset(TreePreset::Apple);
-    let mesh = tree.mesh_with_detail(&default_lod_levels()[3].detail);
+    let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
     let bytes = to_glb(
         std::slice::from_ref(&mesh),
         tree.options(),

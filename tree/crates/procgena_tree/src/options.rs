@@ -973,6 +973,10 @@ impl Checker {
 impl TreeOptions {
     /// Reads a full or partial ez-tree options object from JSON.
     ///
+    /// The settings match ez-tree's, but the tree they grow does not: this
+    /// crate draws its own random numbers, so the same seed gives a different
+    /// shape than in ez-tree.
+    ///
     /// Missing fields keep their defaults, including nested fields. For example,
     /// `{"branch":{"length":{"0":12}}}` changes only the trunk length.
     /// Unknown fields are ignored. Numeric seeds are read as `f64`, truncated

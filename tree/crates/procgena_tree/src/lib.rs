@@ -1,9 +1,11 @@
 //! # procgena_tree
 //!
 //! Generate procedural trees in Rust, from small bushes to branching oaks and pines.
-//! A port of [ez-tree](https://github.com/dgreenheck/ez-tree), `procgena_tree` produces
+//! Based on [ez-tree](https://github.com/dgreenheck/ez-tree), `procgena_tree` produces
 //! branch and leaf meshes, repeatable shapes from a seed, and simpler meshes for
-//! distant trees. Your application supplies the renderer.
+//! distant trees. Your application supplies the renderer. It uses ez-tree's
+//! settings and growth rules but its own random numbers, so a seed grows a
+//! different tree here than in ez-tree.
 //!
 //! ## Generate a tree
 //!
@@ -56,7 +58,9 @@
 //! Load full settings or a partial JSON object, using ez-tree's field names.
 //! Missing fields, including nested fields, use defaults. Lengths are in metres,
 //! so ez-tree's own files, which use a unit of about 10 cm, give trees 10 times
-//! too large. JSON support is always enabled.
+//! too large. An ez-tree file grows a tree of the same kind, but not the same
+//! shape as in ez-tree, since the random numbers differ. JSON support is always
+//! enabled.
 //!
 //! ```rust
 //! use procgena_tree::Tree;
@@ -83,10 +87,10 @@
 //! which mesh to show based on camera distance.
 //!
 //! ```rust
-//! use procgena_tree::{Tree, TreePreset, default_lod_levels};
+//! use procgena_tree::{Tree, TreePreset, default_lod};
 //!
 //! let tree = Tree::from_preset(TreePreset::AshSmall);
-//! for (level, mesh) in tree.lod_meshes(&default_lod_levels()) {
+//! for (level, mesh) in tree.lod_meshes(&default_lod().levels) {
 //!     println!(
 //!         "From distance {}: {} triangles",
 //!         level.distance,
@@ -195,18 +199,25 @@
 //! A [`TreeGrove`] mixes several species over a stretch of ground, like a plant
 //! field for trees. Each species is a [`GroveTree`] with its own density in trees
 //! per hectare, the spacing it keeps from its neighbours, and how much it gathers
-//! into stands. [`GrovePlacement::new`] lays the grove out over ground of a given
-//! size and returns one [`GroveInstance`] per tree:
+//! into stands. [`GrovePlacement::new`] lays the grove out over a [`ScatterInput`]
+//! (ground, area, seed and an optional mask) and returns one [`GroveInstance`] per
+//! tree:
 //!
 //! ```rust
-//! use procgena_tree::{FlatGround, GrovePlacement, GrovePreset, GroveTree, TreePreset};
+//! use glam::{DVec2, Vec2};
+//! use procgena_tree::{
+//!     FlatGround, GrovePlacement, GrovePreset, GroveTree, ScatterArea, ScatterInput, TreePreset,
+//! };
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Start from a preset and add a few clumps of bushes.
 //!     let mut grove = GrovePreset::OakWoodland.grove();
 //!     grove.trees.insert(0, GroveTree::new(TreePreset::Bush2).scaled(0.05).clustered(0.7));
 //!
-//!     let placement = GrovePlacement::new(&grove, [40.0, 40.0], &FlatGround, None)?;
+//!     // A 40 m square around the World origin, placed with the grove's own seed.
+//!     let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(40.0));
+//!     let input = ScatterInput::new(&FlatGround, area, grove.seed);
+//!     let placement = GrovePlacement::new(&grove, &input)?;
 //!     for instance in placement.instances() {
 //!         // Build each variant's mesh once and draw it at every instance.
 //!         let _options = grove.trees[instance.tree].variant(instance.variant);
@@ -250,6 +261,7 @@
 
 mod cluster;
 mod cluster_mesh;
+mod content_hash;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
 mod grove;
@@ -260,16 +272,15 @@ mod options;
 mod part;
 mod presets;
 mod rig;
-mod rng;
 mod skeleton;
 mod specimen;
 mod tree;
-mod tree_id;
 mod trellis;
 mod units;
 mod wind;
 
 pub use cluster::{ClusterItem, ClusterStalk, SkeletonCluster};
+pub use content_hash::{TREE_KIND, TreeCacheKey};
 pub use grove::{
     GroveError, GroveFileError, GroveInstance, GrovePlacement, GrovePreset, GroveTree,
     GroveVariation, MAX_GROVE_INSTANCES, MAX_GROVE_SIZE, MAX_GROVE_TREES, MAX_GROVE_VARIANTS,
@@ -282,7 +293,8 @@ pub use material::{
 };
 pub use mesh::{
     BillboardCull, BillboardMode, BillboardVertex, BranchShape, BranchSpan, ClusterSpan,
-    ItemDetail, LeafSpan, LodDetail, LodLevel, MeshBuffers, TreeMesh, default_lod_levels,
+    ItemDetail, LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh,
+    default_lod,
 };
 pub use options::{
     BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterKind, ClusterPlacement, ClusterShape,
@@ -291,9 +303,9 @@ pub use options::{
 };
 pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::TreePreset;
+pub use procgena_core::scatter::{Mask, Placement, Rest, ScatterArea, ScatterInput};
 pub use procgena_core::{FlatGround, Ground, HeightGrid};
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
-pub use rng::Rng;
 pub use skeleton::{Attachment, Section, Skeleton, SkeletonBranch, SkeletonLeaf};
 pub use tree::{Tree, TreeError};
 pub use trellis::{TrellisPull, TrellisWire};

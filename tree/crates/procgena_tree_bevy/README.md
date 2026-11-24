@@ -272,27 +272,30 @@ shapes, called billboards, turn toward the camera to help preserve the tree’s
 outline as the view changes. For shadow rendering, they turn toward the light.
 To see shadows at this distance, extend the directional light’s shadow cascades
 far enough to cover the trees.
-Set `TreePlugin::lod_levels` when adding the plugin to choose mesh detail,
+Set `TreePlugin::lod` when adding the plugin to choose mesh detail,
 switching distances, bark appearance and leaf images. For a single full-detail
-mesh with 2k bark textures and no distance switching:
+mesh with 2k bark textures, no distance switching and no impostor:
 
 ```rust
-use procgena_tree::{LodLevel, TextureSize};
-use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLodLevel, TreePlugin};
+use procgena_core::{Lod, LodLevel};
+use procgena_tree::{LOD_REFERENCE_SIZE, LodDetail, TextureSize};
+use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLevel, TreePlugin};
 
+let level = TreeLevel {
+    detail: LodDetail::default(),
+    bark: BarkTexture::Textured(TextureSize::Size2k),
+    leaves: LeafTexture::Leaf,
+};
 let plugin = TreePlugin {
-    lod_levels: vec![TreeLodLevel {
-        level: LodLevel::default(),
-        bark: BarkTexture::Textured(TextureSize::Size2k),
-        leaves: LeafTexture::Leaf,
-    }],
+    lod: Lod::new(LOD_REFERENCE_SIZE, vec![LodLevel::new(0.0, 0.0, level)]),
+    impostor: None,
     ..Default::default()
 };
 ```
 
 The 2k bark textures are downloaded only with `--sizes 512,1k,2k`.
 
-An empty list produces no bark or leaf meshes. Generated children have a
+No levels at all produce no bark or leaf meshes. Generated children have a
 `TreePart` component identifying their detail level and whether they draw bark,
 leaves, or a trellis wire.
 

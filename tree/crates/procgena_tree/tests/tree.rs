@@ -1,9 +1,9 @@
 //! Verify that `Tree` produces the same layout and geometry as generating them
 //! separately, and handles settings and detail levels.
 
+use procgena_core::LodLevel;
 use procgena_tree::{
-    LodDetail, LodLevel, OptionsError, Skeleton, Tree, TreeError, TreeOptions, TreePreset,
-    default_lod_levels,
+    LodDetail, OptionsError, Skeleton, Tree, TreeError, TreeOptions, TreePreset, default_lod,
 };
 
 #[test]
@@ -33,7 +33,7 @@ fn lod_meshes_are_sorted_by_distance_and_reuse_the_skeleton() {
     // Supply levels in reverse distance order to check sorting. Give the extra
     // level at distance 10 different leaf detail so the two tied levels can be
     // distinguished when checking that their input order is preserved.
-    let mut levels = default_lod_levels().to_vec();
+    let mut levels = default_lod().levels;
     levels.reverse();
     let mut tie = levels[2];
     assert_eq!(tie.distance, 10.0);
@@ -55,7 +55,7 @@ fn lod_meshes_are_sorted_by_distance_and_reuse_the_skeleton() {
 #[test]
 fn lod_meshes_accepts_no_levels() {
     let tree = Tree::from_preset(TreePreset::Bush1);
-    assert!(tree.lod_meshes(&[] as &[LodLevel]).is_empty());
+    assert!(tree.lod_meshes(&[] as &[LodLevel<LodDetail>]).is_empty());
 }
 
 #[test]

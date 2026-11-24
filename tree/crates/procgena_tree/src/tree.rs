@@ -2,9 +2,10 @@
 
 use std::fmt;
 
+use procgena_core::LodLevel;
+
 use crate::{
-    LodDetail, LodLevel, OptionsError, Rig, RigError, RigOptions, Skeleton, TreeMesh, TreeOptions,
-    TreePreset,
+    LodDetail, OptionsError, Rig, RigError, RigOptions, Skeleton, TreeMesh, TreeOptions, TreePreset,
 };
 
 /// A generated tree with settings, a branch and leaf layout, and triangles for rendering.
@@ -20,10 +21,10 @@ use crate::{
 /// Generate an ash tree and check that its farthest-distance mesh uses fewer triangles:
 ///
 /// ```
-/// use procgena_tree::{Tree, TreePreset, default_lod_levels};
+/// use procgena_tree::{Tree, TreePreset, default_lod};
 ///
 /// let tree = Tree::from_preset(TreePreset::AshSmall);
-/// let lods = tree.lod_meshes(&default_lod_levels());
+/// let lods = tree.lod_meshes(&default_lod().levels);
 /// assert!(lods[2].1.triangle_count() < tree.triangle_count());
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -103,12 +104,15 @@ impl Tree {
 
     /// Creates meshes for the supplied detail levels, ordered by increasing camera distance.
     ///
-    /// Each result pairs a [`LodLevel`] with its mesh. Levels with equal distances
+    /// Each result pairs a level with its mesh. Levels with equal distances
     /// keep their input order; an empty slice returns an empty vector.
     /// Your application decides when to switch meshes using [`LodLevel::distance`].
-    /// Pass `&default_lod_levels()` to use the four standard levels returned by
-    /// [`default_lod_levels`](crate::default_lod_levels).
-    pub fn lod_meshes(&self, levels: &[LodLevel]) -> Vec<(LodLevel, TreeMesh)> {
+    /// Pass `&default_lod().levels` to use the four standard levels of
+    /// [`default_lod`](crate::default_lod).
+    pub fn lod_meshes(
+        &self,
+        levels: &[LodLevel<LodDetail>],
+    ) -> Vec<(LodLevel<LodDetail>, TreeMesh)> {
         let mut ordered = levels.to_vec();
         ordered.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         ordered

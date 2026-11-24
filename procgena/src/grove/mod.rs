@@ -10,8 +10,10 @@ pub mod params;
 
 use std::sync::LazyLock;
 
+use bevy::math::{DVec2, Vec2};
 use procgena_tree::{
-    FlatGround, GrovePlacement, GrovePreset, GroveTree, TreeGrove, TreeOptions, TreePreset,
+    FlatGround, GrovePlacement, GrovePreset, GroveTree, ScatterArea, ScatterInput, TreeGrove,
+    TreeOptions, TreePreset,
 };
 
 /// The grove preset shown when the app starts.
@@ -69,7 +71,9 @@ pub fn row_statuses(grove: &TreeGrove) -> Vec<RowStatus> {
     let count = grove.trees.len();
     let rest = grove.trees.iter().rposition(|tree| tree.density() > 0.0);
     let size = SAMPLE_SIZE;
-    let placed = GrovePlacement::new(grove, [size, size], &FlatGround, None).ok();
+    let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(size));
+    let input = ScatterInput::new(&FlatGround, area, grove.seed);
+    let placed = GrovePlacement::new(grove, &input).ok();
 
     // Trees per species: placed ones when the placement worked, otherwise
     // the density the settings ask for.

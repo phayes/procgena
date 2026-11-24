@@ -6,16 +6,41 @@ use std::f32::consts::TAU;
 
 use glam::{EulerRot, Mat3, Quat, Vec3};
 
+use procgena_core::Rng;
+use procgena_core::hash::seed_for;
+
 use crate::cluster::{SkeletonCluster, grow_clusters};
 use crate::units::{GNARL_REFERENCE_RADIUS, TIP_RADIUS};
-use crate::{OptionsError, Rng, TreeOptions, TreeType};
+use crate::{OptionsError, TreeOptions, TreeType};
 
-/// Combines with the tree seed to give fruit its own repeatable random sequence.
-const FRUIT_SALT: i32 = 0x2f6b_3c1d;
-/// Combines with the tree seed to give flowers a separate repeatable random sequence.
-const FLOWER_SALT: i32 = 0x5a1e_7b93;
-/// Combines with the tree seed to give stem placement its own repeatable random sequence.
-const STEM_SALT: i32 = 0x3c97_e215;
+// Seed keys for the tree's separate random streams. Each is frozen: renaming
+// one changes every tree. Add a new key to `KEYS` too.
+
+/// The random stream for branches and leaves.
+const BRANCH_SEED: &str = "tree.skeleton.branches";
+/// The random stream for fruit, so fruit settings never move branches.
+const FRUIT_SEED: &str = "tree.skeleton.fruit";
+/// The random stream for flowers, kept apart from fruit and branches.
+const FLOWER_SEED: &str = "tree.skeleton.flowers";
+/// The random stream for placing several trunks.
+const STEM_SEED: &str = "tree.skeleton.stems";
+
+/// Every seed key in this crate, for the test that they are all different.
+#[cfg(test)]
+pub(crate) const KEYS: &[&str] = &[
+    BRANCH_SEED,
+    FRUIT_SEED,
+    FLOWER_SEED,
+    STEM_SEED,
+    "tree.generator.kind",
+];
+
+/// A random stream for the role named by seed key `key`, for a tree grown
+/// from `seed`.
+fn stream(seed: i32, key: &str) -> Rng {
+    // The seed's bits, read as unsigned, so negative seeds stay distinct.
+    Rng::new(seed_for(seed as u32, key))
+}
 
 /// A tree's branch structure, with positions for leaves, fruit, and flowers.
 ///
@@ -113,13 +138,13 @@ impl Skeleton {
         let branch = &options.branch;
         let mut grower = Grower {
             options,
-            rng: Rng::new(options.seed),
+            rng: stream(options.seed, BRANCH_SEED),
             queue: VecDeque::new(),
             skeleton: Skeleton::default(),
         };
 
-        // Process the trunks, then their children, then their children. Preserve this
-        // ez-tree order so each branch receives the same random draws.
+        // Process the trunks, then their children, then their children, so
+        // every branch of one level is grown before any branch of the next.
         for (origin, orientation) in stem_placements(options) {
             grower.queue.push_back(Bud {
                 origin,
@@ -145,14 +170,14 @@ impl Skeleton {
             options,
             &fruit.placement,
             &fruit.cluster,
-            Rng::new(options.seed ^ FRUIT_SALT),
+            stream(options.seed, FRUIT_SEED),
         );
         skeleton.flowers = grow_clusters(
             &skeleton.branches,
             options,
             &flowers.placement,
             &flowers.cluster,
-            Rng::new(options.seed ^ FLOWER_SALT),
+            stream(options.seed, FLOWER_SEED),
         );
         Ok(skeleton)
     }
@@ -214,15 +239,14 @@ impl Grower<'_> {
                 radius,
             });
 
-            // Draw random bends even at the tip to keep later draws aligned with ez-tree.
-            // Tip draws are discarded; a zero tip radius can make them non-finite.
+            // The tip is the last slice: nothing grows past it.
+            if i == section_count {
+                break;
+            }
             let gnarliness = (1.0 / (radius / GNARL_REFERENCE_RADIUS).sqrt()).max(1.0)
                 * options.branch.gnarliness[level];
             let bend_x = self.rng.range(-gnarliness, gnarliness);
             let bend_z = self.rng.range(-gnarliness, gnarliness);
-            if i == section_count {
-                break;
-            }
 
             origin += orientation * Vec3::new(0.0, section_length, 0.0);
             let turned = self.next_orientation(orientation, bend_x, bend_z, level, origin, radius);
@@ -351,8 +375,11 @@ impl Grower<'_> {
     ) {
         let branch = &self.options.branch;
 
-        // Divide the length and circumference into slots for the children. Draw the
-        // angular offset even when count is zero to preserve ez-tree's random sequence.
+        if count == 0 {
+            return;
+        }
+
+        // Divide the length and circumference into slots for the children.
         let radial_offset = self.rng.next_f32();
         let start_min = branch.start[level];
         let height_step = (1.0 - start_min) / count as f32;
@@ -393,10 +420,13 @@ impl Grower<'_> {
     fn generate_leaves(&mut self, sections: &[Section], parent: usize) {
         let leaves = &self.options.leaves;
 
-        // Use the same lengthwise and angular slots as side branches. Keep the offset
-        // draw even for zero leaves so subsequent random draws match ez-tree.
-        let radial_offset = self.rng.next_f32();
         let count = leaves.count;
+        if count == 0 {
+            return;
+        }
+
+        // Use the same lengthwise and angular slots as side branches.
+        let radial_offset = self.rng.next_f32();
         let start_min = leaves.start;
         let height_step = (1.0 - start_min) / count as f32;
         let angle_slots = shuffled_indices(&mut self.rng, count);
@@ -416,15 +446,14 @@ impl Grower<'_> {
     }
 
     /// Stores a leaf at the supplied attachment, position, and rotation with a random size.
-    /// With a leaf count of zero (only tip leaves reach here), nothing is stored,
-    /// but the size is still drawn so later branches keep their random sequence.
+    /// With a leaf count of zero (only tip leaves reach here), nothing is stored.
     fn record_leaf(&mut self, parent: Attachment, origin: Vec3, orientation: Quat) {
         let leaves = &self.options.leaves;
-        let variance = leaves.size_variance;
-        let size = leaves.size * (1.0 + self.rng.range(-variance, variance));
         if leaves.count == 0 {
             return;
         }
+        let variance = leaves.size_variance;
+        let size = leaves.size * (1.0 + self.rng.range(-variance, variance));
         let orientation = flatten_leaf(orientation, leaves.flatten);
         self.skeleton.leaves.push(SkeletonLeaf {
             parent,
@@ -447,7 +476,7 @@ fn stem_placements(options: &TreeOptions) -> Vec<(Vec3, Quat)> {
         return vec![(Vec3::ZERO, Quat::IDENTITY)];
     }
 
-    let mut rng = Rng::new(options.seed ^ STEM_SALT);
+    let mut rng = stream(options.seed, STEM_SEED);
     let count = branch.stems;
     let radial_offset = rng.next_f32();
     let max_tilt = branch.stem_angle.to_radians();
@@ -471,8 +500,8 @@ fn stem_placements(options: &TreeOptions) -> Vec<(Vec3, Quat)> {
 pub(crate) fn shuffled_indices(rng: &mut Rng, count: u32) -> Vec<u32> {
     let mut indices: Vec<u32> = (0..count).collect();
     for k in (1..count as usize).rev() {
-        // Preserve f64 precision so rounding cannot select index `k + 1`.
-        let r = (rng.next_f64() * (k + 1) as f64) as usize;
+        // Multiply in f64 so rounding cannot select index `k + 1`.
+        let r = (f64::from(rng.next_f32()) * (k + 1) as f64) as usize;
         indices.swap(k, r);
     }
     indices
@@ -630,6 +659,19 @@ mod tests {
     fn rotation_angle(a: Quat, b: Quat) -> f32 {
         // Use the relative rotation's vector part to retain precision for small angles.
         2.0 * (a.conjugate() * b).xyz().length().min(1.0).asin()
+    }
+
+    #[test]
+    fn seed_keys_and_their_salts_are_all_different() {
+        use procgena_core::hash::salt;
+        for (i, a) in KEYS.iter().enumerate() {
+            assert!(a.starts_with("tree."), "{a}");
+            assert_eq!(a.split('.').count(), 3, "{a} isn't <crate>.<area>.<role>");
+            for b in &KEYS[i + 1..] {
+                assert_ne!(a, b);
+                assert_ne!(salt(a), salt(b), "{a} and {b} share a salt");
+            }
+        }
     }
 
     #[test]

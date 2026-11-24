@@ -23,7 +23,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 use procgena_tree::{
     FlatGround, Ground, GroveError, GroveInstance, GrovePlacement, GrovePreset, HeightGrid,
-    TreeGrove, TreeOptions,
+    ScatterArea, ScatterInput, TreeGrove, TreeOptions,
 };
 
 use crate::impostor::TreeImpostorAssets;
@@ -722,12 +722,19 @@ impl Ground for ScaledGround {
     }
 }
 
-/// Places the grove described by `input`, in world metres. Runs on a
-/// background thread.
+/// Places the grove described by `input`, in metres from the grove entity,
+/// with the grove's own seed. Runs on a background thread.
 fn place(input: &Input) -> Result<Vec<GroveInstance>, TreeGroveBuildError> {
-    let size = input.size.to_array();
+    // The grove entity's transform puts the area's centre in the world.
+    let area = ScatterArea::new(DVec2::ZERO, input.size);
+    let at = |ground: &dyn Ground| {
+        GrovePlacement::new(
+            &input.grove,
+            &ScatterInput::new(ground, area, input.grove.seed),
+        )
+    };
     let placement = match &input.ground {
-        InputGround::Flat => GrovePlacement::new(&input.grove, size, &FlatGround, None),
+        InputGround::Flat => at(&FlatGround),
         InputGround::Host {
             filter,
             cell,
@@ -741,7 +748,7 @@ fn place(input: &Input) -> Result<Vec<GroveInstance>, TreeGroveBuildError> {
                 grid,
                 scale: *scale,
             };
-            GrovePlacement::new(&input.grove, size, &ground, None)
+            at(&ground)
         }
     };
     placement
@@ -927,12 +934,16 @@ mod tests {
     use std::collections::HashSet;
     use std::time::{Duration, Instant};
 
+    use procgena_core::{Lod, LodLevel};
+    use procgena_core_bevy::LodQuality;
     use procgena_specimen::{Part, SurfaceMesh, tags};
-    use procgena_tree::{GroveTree, LodLevel, TextureCompression, TextureSize, TreePreset};
+    use procgena_tree::{
+        GroveTree, LOD_REFERENCE_SIZE, LodDetail, TextureCompression, TextureSize, TreePreset,
+    };
 
     use super::*;
     use crate::spawn::{
-        BarkTexture, LeafTexture, TreeGenerating, TreeLodLevel, TreeOptionsAsset, TreeParams,
+        BarkTexture, LeafTexture, TreeGenerating, TreeLevel, TreeOptionsAsset, TreeParams,
         TreePart, finish_generation, prune_cache, reset_changed_trees, spawn_parts,
         start_generation,
     };
@@ -956,14 +967,22 @@ mod tests {
             .init_resource::<Wind>()
             .init_resource::<TreeCache>()
             .init_resource::<Finished>()
+            .init_resource::<LodQuality>()
             .insert_resource(SpawnSettings {
                 texture_root: None,
                 texture_compression: TextureCompression::Bc7,
-                lod_levels: vec![TreeLodLevel {
-                    level: LodLevel::default(),
-                    bark: BarkTexture::Textured(TextureSize::Size1k),
-                    leaves: LeafTexture::Leaf,
-                }],
+                lod: Lod::new(
+                    LOD_REFERENCE_SIZE,
+                    vec![LodLevel::new(
+                        0.0,
+                        0.0,
+                        TreeLevel {
+                            detail: LodDetail::default(),
+                            bark: BarkTexture::Textured(TextureSize::Size1k),
+                            leaves: LeafTexture::Leaf,
+                        },
+                    )],
+                ),
                 impostor: None,
             })
             .add_systems(
@@ -1070,7 +1089,9 @@ mod tests {
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
         // Every placed tree, and no tree entities.
-        let placed = GrovePlacement::new(&grove, SIZE.to_array(), &FlatGround, None).unwrap();
+        let area = ScatterArea::new(DVec2::ZERO, SIZE);
+        let input = ScatterInput::new(&FlatGround, area, grove.seed);
+        let placed = GrovePlacement::new(&grove, &input).unwrap();
         let drawn = trees(&app, entity);
         assert!(drawn.len() > 4);
         assert_eq!(drawn.len(), placed.instances().len());
@@ -1639,7 +1660,7 @@ mod tests {
         let grove = small_grove();
         let variants = grove_variants(&grove);
         assert_eq!(variants.len(), 4);
-        let ids: HashSet<u64> = variants.iter().map(|v| v.tree_id()).collect();
+        let ids: HashSet<_> = variants.iter().map(|v| v.cache_key()).collect();
         assert_eq!(ids.len(), 4, "variants differ");
         assert_eq!(*variants[1], grove.trees[0].variant(1));
         assert_eq!(*variants[2], grove.trees[1].variant(0));

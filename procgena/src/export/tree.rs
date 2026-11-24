@@ -9,8 +9,8 @@ use procgena_tree::export::gltf::{
 use procgena_tree::export::obj::ObjOptions;
 use procgena_tree::export::{TextureMap, TextureRef};
 use procgena_tree::{
-    BarkMaterial, OptionsError, RigError, RigOptions, TextureSize, Tree, TreeOptions,
-    default_lod_levels, leaf_has_normal_map,
+    BarkMaterial, OptionsError, RigError, RigOptions, TextureSize, Tree, TreeOptions, default_lod,
+    leaf_has_normal_map,
 };
 
 /// Controls the images, detail levels and animation joints included in an export.
@@ -107,7 +107,7 @@ pub fn glb(
 
     // Include the full-detail tree first, followed by simpler versions if requested.
     let meshes = if settings.detail_levels {
-        tree.lod_meshes(&default_lod_levels())
+        tree.lod_meshes(&default_lod().levels)
             .into_iter()
             .map(|(_, mesh)| mesh)
             .collect()

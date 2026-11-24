@@ -7,6 +7,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use std::ops::Range;
 
 use glam::{Quat, Vec3};
+use procgena_core::{FarForm, LevelForm, Lod, LodLevel};
 use serde::{Deserialize, Serialize};
 
 use crate::cluster_mesh::{mesh_flowers, mesh_fruit};
@@ -42,7 +43,7 @@ pub struct LodDetail {
     /// that start inside their parent. Use closed bark for physics bodies,
     /// volume and mass, or voxelizing. When false, tubes are open at both ends.
     /// Closed bark is reliable at the detail of the first two
-    /// [`default_lod_levels`], which enable it; the coarser levels turn it off
+    /// [`default_lod`] levels, which enable it; the coarser levels turn it off
     /// because their tubes may fold over themselves at sharp bends.
     ///
     /// Each shell is closed once vertices at identical positions are merged:
@@ -63,8 +64,9 @@ pub struct LodDetail {
     /// leaf, and so on. Both 0 and 1 keep all leaves.
     pub leaf_stride: u32,
     /// Scale the stored width and height of each retained leaf card (a textured square).
-    /// The card stays centred on the original leaf, so enlargement extends toward
-    /// the stem as well as the tip. Use values above 1 to fill gaps between fewer leaves.
+    /// The card keeps the original leaf's tip edge, so enlargement extends toward
+    /// the stem and the card never reaches past where the leaf ended. Use values above
+    /// 1 to fill gaps between fewer leaves.
     pub leaf_scale: f32,
     /// Choose one textured square per leaf or two crossed squares.
     /// `None` uses [`LeafOptions::billboard`](crate::LeafOptions::billboard).
@@ -241,24 +243,21 @@ pub enum ItemDetail {
     Minimal,
 }
 
-/// A mesh detail setting and the camera distance at which an application should use it.
-///
-/// Pass `detail` to [`Skeleton::mesh`]. The application must select levels and switch meshes;
-/// this crate does not track a camera or apply the distance and hysteresis settings.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct LodLevel {
-    /// Suggested starting distance from the camera, in the same units as the tree positions.
-    pub distance: f32,
-    /// Suggested switching margin as a fraction of `distance`.
-    /// For example, 0.05 gives a 5% margin to help avoid rapid switching near a threshold.
-    pub hysteresis: f32,
-    /// Geometry settings to pass to [`Skeleton::mesh`] for this level.
-    pub detail: LodDetail,
-}
+/// A tree's levels of detail: the shared [`Lod`] type, with the mesh
+/// settings of each level as its detail. Pass a level's `detail` to
+/// [`Skeleton::mesh`]. This crate does not track a camera: the application
+/// (or `procgena_tree_bevy`) switches levels using [`Lod::ranges`].
+pub type TreeLod = Lod<LodDetail>;
+
+/// The tree size, in metres, that [`default_lod`]'s distances are written
+/// for. Trees are not yet scaled by their own size, so every tree uses
+/// these distances as they are.
+pub const LOD_REFERENCE_SIZE: f32 = 10.0;
 
 /// Returns four suggested detail levels at distances of 0, 10, 25 and 50
-/// metres. The caller must select and switch meshes as the camera moves.
+/// metres, each fading in over 5% either side of its distance. The last is
+/// the tree's far form, [`FarForm::BillboardLeaves`]. There is no cull
+/// distance. The caller must select and switch meshes as the camera moves.
 ///
 /// Only the levels at 0 and 10 m (LOD0 and LOD1) are for gameplay: their bark is
 /// [`closed`](LodDetail::closed) and suitable for physics, collision and volumes.
@@ -287,63 +286,58 @@ pub struct LodLevel {
 ///   every item in each kept cluster; larger ones keep every second item.
 ///
 /// Renderers that rotate billboards should skip [`TreeMesh::billboard_cull`].
-pub fn default_lod_levels() -> [LodLevel; 4] {
-    [
-        LodLevel::default(),
-        LodLevel {
-            distance: 10.0,
-            hysteresis: 0.05,
-            detail: LodDetail {
-                section_stride: 3,
-                segment_factor: 0.75,
-                leaf_stride: 2,
-                leaf_scale: 1.25,
-                billboard: None,
-                item_detail: ItemDetail::Simple,
-                ..LodDetail::default()
-            },
-        },
-        LodLevel {
-            distance: 25.0,
-            hysteresis: 0.05,
-            detail: LodDetail {
-                section_stride: 6,
-                segment_factor: 0.4,
-                closed: false,
-                leaf_stride: 2,
-                leaf_scale: 1.3,
-                billboard: Some(Billboard::Single),
-                cluster_stride: 1,
-                item_stride: 2,
-                item_scale: 1.25,
-                item_detail: ItemDetail::Minimal,
-                flat_item_size: 0.075,
-                ..LodDetail::default()
-            },
-        },
-        LodLevel {
-            distance: 50.0,
-            hysteresis: 0.05,
-            detail: LodDetail {
-                section_stride: 8,
-                branch_shape: BranchShape::Ribbons,
-                closed: false,
-                min_branch_radius: 0.015,
-                leaf_stride: 4,
-                leaf_scale: 1.8,
-                billboard: Some(Billboard::Single),
-                leaf_billboard: Some(BillboardMode::Camera),
-                leaf_billboard_scale: 1.25,
-                cluster_stride: 2,
-                item_stride: 2,
-                item_scale: 1.4,
-                item_detail: ItemDetail::Minimal,
-                item_stalks: false,
-                flat_item_size: 0.15,
-                ..LodDetail::default()
-            },
-        },
-    ]
+pub fn default_lod() -> TreeLod {
+    let near = LodDetail::default();
+    let middle = LodDetail {
+        section_stride: 3,
+        segment_factor: 0.75,
+        leaf_stride: 2,
+        leaf_scale: 1.25,
+        billboard: None,
+        item_detail: ItemDetail::Simple,
+        ..LodDetail::default()
+    };
+    let far = LodDetail {
+        section_stride: 6,
+        segment_factor: 0.4,
+        closed: false,
+        leaf_stride: 2,
+        leaf_scale: 1.3,
+        billboard: Some(Billboard::Single),
+        cluster_stride: 1,
+        item_stride: 2,
+        item_scale: 1.25,
+        item_detail: ItemDetail::Minimal,
+        flat_item_size: 0.075,
+        ..LodDetail::default()
+    };
+    let farthest = LodDetail {
+        section_stride: 8,
+        branch_shape: BranchShape::Ribbons,
+        closed: false,
+        min_branch_radius: 0.015,
+        leaf_stride: 4,
+        leaf_scale: 1.8,
+        billboard: Some(Billboard::Single),
+        leaf_billboard: Some(BillboardMode::Camera),
+        leaf_billboard_scale: 1.25,
+        cluster_stride: 2,
+        item_stride: 2,
+        item_scale: 1.4,
+        item_detail: ItemDetail::Minimal,
+        item_stalks: false,
+        flat_item_size: 0.15,
+        ..LodDetail::default()
+    };
+    Lod::new(
+        LOD_REFERENCE_SIZE,
+        vec![
+            LodLevel::new(0.0, 0.0, near),
+            LodLevel::new(10.0, 0.05, middle),
+            LodLevel::new(25.0, 0.05, far),
+            LodLevel::new(50.0, 0.05, farthest).with_form(LevelForm::Far(FarForm::BillboardLeaves)),
+        ],
+    )
 }
 
 /// Vertex data and triangle indices for one mesh.
@@ -1104,9 +1098,10 @@ fn mesh_leaf(
     style: &LeafStyle,
     wind: [f32; 3],
 ) -> LeafSpan {
-    // Keep the original centre so resizing extends equally toward the stem and tip.
+    // Keep the leaf's tip edge where it is, so an enlarged card grows toward
+    // the stem and never past the crown's edge.
     let half = leaf.size * style.scale / 2.0;
-    let centre = leaf.size / 2.0;
+    let centre = leaf.size - half;
     let (first_vertex, first_index) = (out.next_index(), out.indices.len());
     let (first_cull_vertex, first_cull_index) = (cull.next_index(), cull.indices.len());
 
@@ -1527,7 +1522,8 @@ mod tests {
     }
 
     /// Checks both rotation modes and card counts: stored and camera-facing cards
-    /// use their own size multipliers while sharing the original leaf centre.
+    /// use their own size multipliers. Stored cards keep the leaf's tip edge;
+    /// camera-facing cards turn about the original leaf centre.
     #[test]
     fn billboard_leaves_turn_around_the_leaf_centre() {
         let orientation = Quat::from_euler(glam::EulerRot::XYZ, 0.3, -0.7, 1.1);
@@ -1542,6 +1538,9 @@ mod tests {
             size: 0.2,
         };
         let centre = leaf.origin + orientation * Vec3::Y * 0.1;
+        // A 1.8 times card (0.36 m) keeps the leaf's tip at 0.2 m, so its
+        // centre lies 0.2 - 0.18 = 0.02 m along the stem.
+        let stored_centre = leaf.origin + orientation * Vec3::Y * 0.02;
         for mode in [BillboardMode::Camera, BillboardMode::Axis] {
             for billboard in [Billboard::Single, Billboard::Double] {
                 let style = LeafStyle {
@@ -1578,17 +1577,17 @@ mod tests {
                 }
                 assert_eq!(out.normals.len(), 4, "{case}");
 
-                // Fallback cards use the 1.8 size multiplier without shifting the centre.
+                // Fallback cards use the 1.8 size multiplier and keep the tip edge.
                 let stored: Vec<Vec3> = out.positions.iter().map(|&p| p.into()).collect();
                 let mean = stored.iter().sum::<Vec3>() / 4.0;
-                assert!(mean.abs_diff_eq(centre, 1e-5), "{case}: {mean}");
+                assert!(mean.abs_diff_eq(stored_centre, 1e-5), "{case}: {mean}");
                 assert!(
                     (stored[1].distance(stored[2]) - 0.36).abs() < 1e-6,
                     "{case}"
                 );
                 if crossed {
                     let second = (0..4).map(|i| Vec3::from(cull.positions[i])).sum::<Vec3>();
-                    assert!((second / 4.0).abs_diff_eq(centre, 1e-5), "{case}");
+                    assert!((second / 4.0).abs_diff_eq(stored_centre, 1e-5), "{case}");
                 }
 
                 // Camera-facing cards use the independent 1.25 multiplier at the same centre.
@@ -1688,17 +1687,17 @@ mod tests {
         let flutter: Vec<f32> = out.wind.iter().map(|w| w[3]).collect();
         assert_eq!(flutter, [1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0]);
         assert_eq!(span.indices, 0..12);
-        // Halving the card keeps its original centre at y = 0.3; its top edge
-        // therefore lies at y = 0.35.
+        // Halving the card keeps the leaf's tip edge at y = 0.4, 0.2 m above
+        // its origin.
         let first = Vec3::from_array(out.positions[0]);
         assert!(
-            first.abs_diff_eq(Vec3::new(0.05, 0.35, 0.3), 1e-6),
+            first.abs_diff_eq(Vec3::new(0.05, 0.4, 0.3), 1e-6),
             "{first}"
         );
         // The crossed card lies at a right angle around the +Y stem direction.
         let turned = Vec3::from_array(out.positions[4]);
         assert!(
-            turned.abs_diff_eq(Vec3::new(0.1, 0.35, 0.35), 1e-6),
+            turned.abs_diff_eq(Vec3::new(0.1, 0.4, 0.35), 1e-6),
             "{turned}"
         );
         // Both fixed cards use the same face normal, as in ez-tree.
