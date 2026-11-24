@@ -1,5 +1,7 @@
 //! Repeatable pseudo-random values from integer coordinates.
 
+use crate::region::RegionId;
+
 /// Multiplier applied to each input before mixing in [`pcg3d`].
 const PCG_MULTIPLIER: u32 = 1_664_525;
 /// Increment added to each input before mixing in [`pcg3d`].
@@ -94,6 +96,20 @@ pub(crate) const GULLY_CELLS: &str = "terrain.gully.cells";
 /// The irregularities along every border. A fixed seed, the same in every
 /// world, so both sides of a border share them whatever their seeds.
 pub(crate) const SEAM_DETAIL: &str = "terrain.seam.detail";
+/// A Terrain's own choices for its region, made once per region rather
+/// than sampled at world positions. See [`region_local_seed`].
+pub(crate) const REGION_LOCAL: &str = "terrain.region.local";
+
+/// The seed a Terrain uses for its own choices in `region` of a world
+/// seeded with `world_seed`: choices made once for the region, rather than
+/// noise sampled at world positions, which always uses the world seed.
+///
+/// It depends only on the world seed and the region's id, never on the
+/// Biome that fills the region, so the same land comes back when a region
+/// switches to another Biome on the same Terrain.
+pub fn region_local_seed(world_seed: u32, region: RegionId) -> u32 {
+    procgena_core::region_seed(world_seed, REGION_LOCAL, region)
+}
 
 /// Every seed key in this crate, for the test that they are all different.
 #[cfg(test)]
@@ -109,6 +125,7 @@ pub(crate) const KEYS: &[&str] = &[
     GRAPH_BORDER_WARP,
     GULLY_CELLS,
     SEAM_DETAIL,
+    REGION_LOCAL,
 ];
 
 /// Mixes a 64-bit value into a 64-bit hash, for building identifiers.

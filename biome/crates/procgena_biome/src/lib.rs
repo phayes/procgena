@@ -63,7 +63,7 @@ mod biome;
 mod ecotope;
 mod presets;
 
-pub use biome::{Biome, BiomeError, BiomeTerrain, EcotopeRule, terrain_seed};
+pub use biome::{BIOME_SEED_ROLE, Biome, BiomeError, BiomeTerrain, EcotopeRule, biome_seed};
 pub use ecotope::{
     Ecotope, EcotopeError, EcotopePlacement, EcotopePreset, EcotopeScatter, FootprintMask,
     Footprints, PlacedScatter, SCATTER_SEED_KIND, ScatterCopies, ScatterFailure, ScatterKind,

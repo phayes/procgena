@@ -3,9 +3,10 @@
 use std::borrow::Cow;
 use std::fmt;
 
+use procgena_core::region_seed;
 use procgena_terrain::{
-    EdgeAgreement, OptionsError, Region, Terrain, TerrainError, TerrainGenerator, TerrainOptions,
-    TerrainPreset,
+    EdgeAgreement, OptionsError, Region, RegionId, Terrain, TerrainError, TerrainGenerator,
+    TerrainOptions, TerrainPreset,
 };
 
 /// One region's climate and character: its Terrain and the rules for which
@@ -32,7 +33,7 @@ pub enum BiomeTerrain {
     /// is an error when the Terrain is resolved.
     Preset(Cow<'static, str>),
     /// Terrain settings given in full. Their `default_seed` is ignored: the
-    /// Biome replaces it with the seed from [`terrain_seed`].
+    /// Biome replaces it with the World seed.
     Inline(TerrainOptions),
 }
 
@@ -89,14 +90,20 @@ impl From<TerrainError> for BiomeError {
     }
 }
 
-/// The Terrain seed a Biome uses in a World with seed `world_seed`.
+/// The seed key of a region's Biome: see [`biome_seed`].
+pub const BIOME_SEED_ROLE: &str = "biome.region.local";
+
+/// The seed of the Biome instance in `region` of a World seeded with
+/// `world_seed`.
 ///
-/// Today this returns `world_seed` unchanged, so every Terrain in a World
-/// shares the same noise and neighbouring regions join naturally. It is
-/// provisional: how a Terrain's seed comes from the World seed is still to
-/// be decided, and this function may then change.
-pub const fn terrain_seed(world_seed: u32) -> u32 {
-    world_seed
+/// Every region has its own Biome instance with its own seed, even when
+/// its neighbours use the same Biome preset. It depends only on the World
+/// seed and the region's id, so it is the same whichever Biome fills the
+/// region and whichever regions were built first. The seeds of the Biome's
+/// Ecotopes and Scatters come from it. Its Terrain doesn't use it: see
+/// [`Biome::terrain_options`].
+pub fn biome_seed(world_seed: u32, region: RegionId) -> u32 {
+    region_seed(world_seed, BIOME_SEED_ROLE, region)
 }
 
 impl Biome {
@@ -118,9 +125,10 @@ impl Biome {
     /// The settings of this Biome's Terrain in a World with seed
     /// `world_seed`.
     ///
-    /// The `default_seed` in the result comes from [`terrain_seed`], also for
-    /// inline settings. The settings are not checked; [`build`](Self::build)
-    /// checks them.
+    /// The `default_seed` in the result is `world_seed`, also for inline
+    /// settings: every Terrain in a World samples the World's shared noise,
+    /// so neighbouring regions join at their borders. The settings are not
+    /// checked; [`build`](Self::build) checks them.
     ///
     /// # Errors
     ///
@@ -134,7 +142,7 @@ impl Biome {
                 .clone(),
             BiomeTerrain::Inline(options) => options.clone(),
         };
-        options.default_seed = terrain_seed(world_seed);
+        options.default_seed = world_seed;
         Ok(options)
     }
 

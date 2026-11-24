@@ -124,6 +124,7 @@ pub use feature::{FeatureId, FeatureShape, TerrainFeature};
 pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };
+pub use hash::region_local_seed;
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,

@@ -2,9 +2,10 @@
 
 use std::fmt;
 
+use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use crate::noise::MAX_OCTAVES;
+use crate::noise::{MAX_OCTAVES, Octaves, fbm};
 use crate::ports::MAX_PORT_WIDTH;
 
 /// The longest feature wavelength a noise layer accepts, in metres.
@@ -348,6 +349,26 @@ fn check_octaves(field: &'static str, octaves: u32) -> Result<(), OptionsError> 
 }
 
 impl NoiseLayer {
+    /// The layer's value at world position `p` (x and z, metres) for noise
+    /// seed `seed`, with no erosion: smooth noise centred on 0, about 95 %
+    /// of it within `height` above or below. The same `p` and `seed` always
+    /// give the same value.
+    ///
+    /// Use it to sample a layer as a field of its own, such as a World's
+    /// selector field. The layer must have a positive wavelength and 1 to
+    /// [`MAX_OCTAVES`] octaves (see [`TerrainOptions::validate`]); a height
+    /// of 0 gives 0 everywhere.
+    pub fn sample(&self, p: DVec2, seed: u32) -> f32 {
+        if self.height == 0.0 {
+            return 0.0;
+        }
+        let octaves = Octaves {
+            count: self.octaves,
+            gain: self.roughness,
+        };
+        0.5 * self.height * fbm(p / f64::from(self.wavelength), seed, octaves, 0.0)
+    }
+
     /// Checks the layer, reporting errors under `fields`: the paths of its
     /// height, wavelength, octaves and roughness.
     fn validate(&self, fields: [&'static str; 4]) -> Result<(), OptionsError> {

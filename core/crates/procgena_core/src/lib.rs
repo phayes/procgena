@@ -44,5 +44,5 @@ pub use ground::{FlatGround, GRADIENT_STEP, Ground, GroundSample, HeightGrid};
 pub use lod::{FarForm, LevelForm, Lod, LodError, LodLevel, LodRange};
 pub use quality::Quality;
 pub use rng::Rng;
-pub use seed::{CHILD_KEY_MAX_LEN, ChildKey, KeyError, child_seed};
+pub use seed::{CHILD_KEY_MAX_LEN, ChildKey, KeyError, child_seed, region_seed};
 pub use specimen_id::{GeneratorKind, PoolId, SpecimenId};
