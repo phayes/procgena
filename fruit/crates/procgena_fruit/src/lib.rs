@@ -73,6 +73,6 @@ pub use options::{
     ClusterKind, ClusterShape, Facing, FlowerShape, FruitOptions, FruitShape, ItemShape,
     OptionsError, Variation,
 };
-pub use presets::FruitPreset;
+pub use presets::{FlowerPreset, FruitPreset, cluster_presets};
 pub use procgena_core::preset::PresetFileError;
 pub use skeleton::{ClusterItem, ClusterStalk, FruitSkeleton, ItemVariation};

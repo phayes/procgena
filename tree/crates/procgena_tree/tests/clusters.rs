@@ -3,7 +3,7 @@
 //! shapes are tested in `procgena_fruit`.
 
 use glam::Vec3;
-use procgena_tree::procgena_fruit::{ClusterKind, Facing, FruitOptions, FruitPreset};
+use procgena_tree::procgena_fruit::{ClusterKind, Facing, FlowerPreset, FruitOptions, FruitPreset};
 use procgena_tree::{
     AttachedFruit, ClusterPart, ClusterPlacement, Skeleton, SkeletonCluster, TreeOptions,
     TreePreset, TreeType,
@@ -42,7 +42,7 @@ fn flowers(options: &mut TreeOptions) -> &mut AttachedFruit {
             ..ClusterPlacement::default()
         },
         ..AttachedFruit::new(
-            FruitPreset::dogwood_bloom().fruit.clone(),
+            FlowerPreset::dogwood_bloom().flower.clone(),
             Default::default(),
         )
     })

@@ -345,6 +345,7 @@
 //! to look around, and use WASD and Q/E to fly.
 
 mod clusters;
+mod fruit_impostor;
 #[cfg(feature = "gltf")]
 mod gltf;
 mod impostor;
@@ -361,6 +362,7 @@ use bevy::prelude::*;
 use bevy::shader::{Shader, load_shader_library};
 use procgena_tree::{TextureCompression, WIND_WESL};
 
+pub use fruit_impostor::default_fruit_impostor;
 pub use impostor::default_tree_impostor;
 pub use material::{
     BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
@@ -396,6 +398,10 @@ type TreeMaterialKey = CombinedBindGroupData<StandardMaterialKey, WindKey>;
 
 /// The pipeline key of an [`ImpostorMaterial`].
 type ImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, ImpostorPipelineKey>;
+
+/// The pipeline key of a [`FruitImpostorMaterial`].
+type FruitImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, FruitImpostorKey>;
+use fruit_impostor::{FruitImpostorKey, FruitImpostorMaterial};
 
 #[cfg(feature = "gltf")]
 pub use gltf::add_tree_gltf_attributes;
@@ -435,6 +441,13 @@ pub struct TreePlugin {
     /// Defaults to [`default_tree_impostor`]. `None` draws the farthest mesh
     /// level out to the cull distance.
     pub impostor: Option<ImpostorLevel>,
+    /// Draws fruit and flower clusters far away as baked impostors, after
+    /// their own detail levels. Defaults to [`default_fruit_impostor`].
+    /// Clusters get their impostors together with their tree's, so this
+    /// has no effect when [`impostor`](Self::impostor) is `None`. `None`
+    /// draws each cluster's farthest level until the tree's impostor takes
+    /// over.
+    pub fruit_impostor: Option<ImpostorLevel>,
 }
 
 impl Default for TreePlugin {
@@ -444,6 +457,7 @@ impl Default for TreePlugin {
             texture_compression: TextureCompression::Bc7,
             lod: default_tree_lod(),
             impostor: Some(default_tree_impostor()),
+            fruit_impostor: Some(default_fruit_impostor()),
         }
     }
 }
@@ -463,10 +477,14 @@ impl Plugin for TreePlugin {
                 "embedded://procgena_tree/wind.wesl",
             ));
         app.insert_resource(WindShader(wind_shader));
+        load_shader_library!(app, "shaders/tree_wind_phase.wesl");
         load_shader_library!(app, "shaders/tree_wind.wesl");
         load_shader_library!(app, "shaders/tree_billboard.wesl");
         embedded_asset!(app, "shaders/tree.wesl");
         embedded_asset!(app, "shaders/tree_prepass.wesl");
+        load_shader_library!(app, "shaders/fruit_impostor_place.wesl");
+        embedded_asset!(app, "shaders/fruit_impostor.wesl");
+        embedded_asset!(app, "shaders/fruit_impostor_prepass.wesl");
 
         // The mesh levels must be valid. The impostor, as the last level,
         // must fit after them, or impostors are turned off.
@@ -480,6 +498,7 @@ impl Plugin for TreePlugin {
             texture_compression: self.texture_compression,
             lod: self.lod.clone(),
             impostor: self.impostor,
+            fruit_impostor: self.fruit_impostor,
         };
         if settings.impostor.is_some()
             && let Err(error) = settings.draw_lod().validate()
@@ -488,6 +507,14 @@ impl Plugin for TreePlugin {
                 "procgena_tree_bevy: tree impostors don't fit after the levels ({error}); impostors are off"
             );
             settings.impostor = None;
+        }
+        if let Some(fruit) = settings.fruit_impostor
+            && let Err(error) = clusters::cluster_lod(Some(fruit)).validate()
+        {
+            error!(
+                "procgena_tree_bevy: fruit impostors don't fit after the fruit levels ({error}); fruit impostors are off"
+            );
+            settings.fruit_impostor = None;
         }
         let impostor = settings.impostor;
 
@@ -511,7 +538,12 @@ impl Plugin for TreePlugin {
             InstancedMaterialPlugin::<ImpostorMaterial, ImpostorMaterialKey>::new(|key| {
                 key.extension.instanced = true;
             }),
+            MaterialPlugin::<FruitImpostorMaterial>::default(),
+            InstancedMaterialPlugin::<FruitImpostorMaterial, FruitImpostorMaterialKey>::attached(
+                |key| key.extension.attached = true,
+            ),
         ))
+        .init_resource::<impostor::FruitImpostorMaterials>()
         .init_asset::<TreePresetAsset>()
         .register_asset_loader(TreePresetLoader)
         .init_asset::<TreeScatterAsset>()
@@ -543,6 +575,7 @@ impl Plugin for TreePlugin {
                 scatter::finish_groves,
                 scatter::update_grove_draws,
                 wind::sync_wind,
+                fruit_impostor::sync_fruit_wind,
             )
                 .chain(),
         )

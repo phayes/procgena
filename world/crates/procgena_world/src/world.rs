@@ -8,7 +8,7 @@ use glam::DVec2;
 use procgena_biome::{BiomeError, BiomePreset, biome_seed};
 use procgena_core::hash::seed_for;
 use procgena_terrain::{
-    DEFAULT_CACHE, Elevation, NoiseLayer, RegionId, TerrainOptions, WorldTerrain,
+    DEFAULT_CACHE, Elevation, NoiseLayer, RegionGraph, RegionId, TerrainOptions, WorldTerrain,
     WorldTerrainOptions, region_local_seed,
 };
 
@@ -51,6 +51,8 @@ pub enum WorldError {
     UnknownBiome(String),
     /// Two of the Biomes the World was given share this key.
     DuplicateBiome(String),
+    /// Two pins land on this region, by id or by a point inside it.
+    DuplicatePin(RegionId),
     /// The Terrain of the Biome with this key can't be resolved, or its
     /// settings aren't valid.
     Biome(String, BiomeError),
@@ -64,6 +66,7 @@ impl fmt::Display for WorldError {
             Self::Options(e) => write!(f, "invalid World settings: {e}"),
             Self::UnknownBiome(key) => write!(f, "no Biome is named {key:?}"),
             Self::DuplicateBiome(key) => write!(f, "two Biomes are named {key:?}"),
+            Self::DuplicatePin(region) => write!(f, "region {} is pinned twice", region.0),
             Self::Biome(key, e) => write!(f, "Biome {key:?}: {e}"),
             Self::Terrain(e) => write!(f, "land: {e}"),
         }
@@ -76,7 +79,7 @@ impl std::error::Error for WorldError {
             Self::Options(e) => Some(e),
             Self::Biome(_, e) => Some(e),
             Self::Terrain(e) => Some(e),
-            Self::UnknownBiome(_) | Self::DuplicateBiome(_) => None,
+            Self::UnknownBiome(_) | Self::DuplicateBiome(_) | Self::DuplicatePin(_) => None,
         }
     }
 }
@@ -213,8 +216,9 @@ impl World {
     /// [`WorldError::Options`] if the settings aren't valid,
     /// [`WorldError::DuplicateBiome`] if two of `biomes` share a key,
     /// [`WorldError::UnknownBiome`] if a rule, the fallback or a pin names
-    /// a key not in `biomes`, and [`WorldError::Biome`] if one of `biomes`
-    /// has a Terrain that can't be resolved or isn't valid.
+    /// a key not in `biomes`, [`WorldError::DuplicatePin`] if two pins land
+    /// on one region, and [`WorldError::Biome`] if one of `biomes` has a
+    /// Terrain that can't be resolved or isn't valid.
     pub fn with_biomes(
         options: WorldOptions,
         biomes: Vec<BiomePreset>,
@@ -251,11 +255,21 @@ impl World {
             .map(|rule| Ok((rule.clone(), index(&rule.biome)?)))
             .collect::<Result<Vec<_>, WorldError>>()?;
         let fallback = index(&options.biomes.fallback)?;
-        let pins = options
-            .pins
-            .iter()
-            .map(|pin| Ok((RegionId(pin.region), index(&pin.biome)?)))
-            .collect::<Result<HashMap<_, _>, WorldError>>()?;
+
+        // Each pin's region: given by id, or the region holding its point.
+        let graph = RegionGraph::new(options.regions, options.seed)
+            .map_err(|e| WorldError::Options(WorldOptionsError::Regions(e)))?;
+        let mut pins = HashMap::new();
+        for pin in &options.pins {
+            let region = match (pin.region, pin.at) {
+                (Some(id), _) => RegionId(id),
+                (None, Some(p)) => graph.region_at(DVec2::from_array(p)).id(),
+                (None, None) => unreachable!("checked by `WorldOptions::validate`"),
+            };
+            if pins.insert(region, index(&pin.biome)?).is_some() {
+                return Err(WorldError::DuplicatePin(region));
+            }
+        }
 
         let horizontal = options.scale.horizontal;
         let choice = Arc::new(Choice {

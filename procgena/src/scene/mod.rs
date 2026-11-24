@@ -1,29 +1,39 @@
-//! The 3D scene: environment, orbit camera, and a tree, a plant field, a rock,
-//! a tree or rock with a clump grown on it, a mushroom, a grove, a piece
-//! of dead wood, or an Ecotope.
+//! The 3D scene: environment, orbit camera, and one subject, such as a
+//! tree, a plant field, a rock, a clump on a tree or rock, a mushroom, a
+//! fruit cluster, a grove, a piece of dead wood, an Ecotope or terrain.
 //!
 //! Add [`ScenePlugin`] to the app, show the scene in a UI node marked
-//! [`SceneViewport`], and drive it with [`ViewerCommand`] messages. The scene
-//! reports back with [`ViewerEvent`] messages. The studio's layout shows how
-//! the pieces fit together.
+//! [`SceneViewport`], and drive it with [`ViewerCommand`] messages: show a
+//! subject with [`ViewerCommand::Show`]. The scene reports back with
+//! [`ViewerEvent`] messages. The studio's layout shows how the pieces fit
+//! together.
+//!
+//! Each kind of subject, such as [`TreeSubject`], has a module of its own.
 //!
 //! [`headless`] helps render without a window, for tests and headless runs.
 
 mod assets;
 mod clump;
+mod deadwood;
 mod ecotope;
 mod environment;
+mod fruit;
+mod grove;
 #[cfg(any(test, debug_assertions))]
 pub mod headless;
 #[cfg(test)]
 mod headless_scene;
+mod mushroom;
 mod orbit;
+mod plants;
 mod protocol;
 #[cfg(test)]
 mod render_tests;
+mod stone;
 mod subject;
 mod terrain;
 mod texture_reader;
+mod tree;
 mod viewport;
 
 use bevy::camera::visibility::VisibilitySystems;
@@ -31,7 +41,9 @@ use bevy::prelude::*;
 use procgena_clump_bevy::ClumpPlugin;
 use procgena_core::Lod;
 use procgena_deadwood_bevy::DeadwoodPlugin;
-use procgena_impostor::{ImpostorLevel, ImpostorPlugin, ImpostorSettings};
+use procgena_impostor::{
+    BakedImpostor, ImpostorLevel, ImpostorPlugin, ImpostorRequest, ImpostorSettings,
+};
 use procgena_mushroom_bevy::MushroomPlugin;
 use procgena_plant::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
@@ -42,15 +54,22 @@ pub use assets::{
     CLUMP_TEXTURE_ROOT, DEADWOOD_TEXTURE_ROOT, MUSHROOM_TEXTURE_ROOT, STONE_TEXTURE_ROOT,
     TREE_TEXTURE_ROOT, add_asset_sources,
 };
+pub use clump::{ClumpHost, ClumpSettings, ClumpSubject};
+pub use deadwood::{DeadwoodSettings, DeadwoodSubject, DeadwoodView};
+pub use ecotope::{EcotopeGround, EcotopeSettings, EcotopeSubject};
 pub use environment::EnvironmentSettings;
-pub use protocol::{
-    BuildStats, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView, EcotopeGround,
-    EcotopeSettings, FieldSettings, GroveProgress, SceneMode, SceneStart, ViewerCommand,
-    ViewerEvent,
-};
-pub use terrain::{TerrainSettings, TerrainShow};
+pub use fruit::FruitSubject;
+pub use grove::GroveSubject;
+pub use mushroom::MushroomSubject;
+pub use orbit::OrbitCamera;
+pub use plants::{FieldSettings, PlantsSubject};
+pub use protocol::{BuildStats, GroveProgress, ViewerCommand, ViewerEvent};
+pub use stone::StoneSubject;
+pub use subject::{AddSubject, Detail, Show, Shown};
+pub use terrain::{TerrainSettings, TerrainShow, TerrainSubject};
 pub use texture_reader::TextureDownloads;
-pub use viewport::SceneViewport;
+pub use tree::TreeSubject;
+pub use viewport::{SceneViewport, ViewportCamera};
 
 // Used by the headless studio, to tell when the scene is idle.
 #[cfg(any(test, debug_assertions))]
@@ -59,22 +78,22 @@ pub use viewport::ViewportActivity;
 // Used only by tests, to drive the scene and check what it shows.
 #[cfg(test)]
 pub use {
-    orbit::OrbitCamera,
+    clump::ClumpBuildError,
     protocol::MeshSize,
-    subject::lod_levels,
-    viewport::{PointerButton, ViewportCamera, ViewportInput, ViewportTarget},
+    subject::Subject,
+    tree::lod_levels,
+    viewport::{PointerButton, ViewportInput, ViewportTarget},
 };
 
-/// The viewer scene: sky, sun, ground, an orbit camera, and a tree, a grass
-/// field or a rock.
+/// The viewer scene: sky, sun, ground, an orbit camera, and the subject
+/// shown, which starts out empty.
 ///
 /// Add it after Bevy's default plugins, with [`add_asset_sources`] called
-/// before them. It adds the tree, grass and rock plugins itself, spawns the
-/// [`ViewportCamera`](viewport::ViewportCamera), and renders into
+/// before them. It adds the generator plugins itself, spawns the
+/// [`ViewportCamera`], and renders into
 /// [`ViewportTarget`](viewport::ViewportTarget), which a
 /// [`SceneViewport`] UI node displays.
 pub struct ScenePlugin {
-    start: SceneStart,
     /// Whether clumps load their textures; without them they are flat colours.
     clump_textures: bool,
     /// Whether baked impostors are saved to and read from the user's cache
@@ -84,17 +103,17 @@ pub struct ScenePlugin {
     impostors: bool,
 }
 
-impl ScenePlugin {
-    /// Creates a scene that first shows what `start` describes.
-    pub fn new(start: SceneStart) -> Self {
+impl Default for ScenePlugin {
+    fn default() -> Self {
         Self {
-            start,
             clump_textures: true,
             impostor_cache: true,
             impostors: true,
         }
     }
+}
 
+impl ScenePlugin {
     /// Draws far trees at their farthest mesh level at every distance
     /// beyond it, never as impostors, so tests can compare the two.
     #[cfg(test)]
@@ -138,17 +157,18 @@ impl Plugin for ScenePlugin {
                 texture_root: Some(TREE_TEXTURE_ROOT.to_owned()),
                 texture_compression: TextureCompression::Bc7,
                 // The scene reports which of these levels is on screen.
-                lod: Lod::new(LOD_REFERENCE_SIZE, subject::lod_levels()),
+                lod: Lod::new(LOD_REFERENCE_SIZE, tree::lod_levels()),
                 impostor: self.impostors.then(|| ImpostorLevel {
-                    distance: subject::IMPOSTOR_DISTANCE,
+                    distance: tree::IMPOSTOR_DISTANCE,
                     ..default_tree_impostor()
                 }),
+                ..default()
             },
             PlantPlugins,
             StonePlugin {
                 texture_root: Some(STONE_TEXTURE_ROOT.to_owned()),
                 texture_compression: procgena_stone::TextureCompression::Bc7,
-                // The studio's rock tab draws one close rock.
+                // The studio shows one close rock.
                 impostor: None,
             },
             ClumpPlugin {
@@ -167,48 +187,43 @@ impl Plugin for ScenePlugin {
         ))
         .add_plugins((
             procgena_biome_bevy::EcotopePlugin,
-            ecotope::EcotopeScenePlugin,
+            procgena_fruit_bevy::FruitPlugin,
+            terrain::plugin(),
         ))
-        .add_plugins(procgena_fruit_bevy::FruitPlugin)
-        .add_plugins(terrain::plugin())
-        .add_systems(
-            Update,
-            (
-                terrain::apply_show,
-                terrain::hide_ground.after(environment::apply_environment),
-                terrain::report_progress,
-            ),
-        )
-        .insert_resource(self.start.environment)
-        .insert_resource(subject::LodChoice(self.start.lod))
-        .insert_resource(subject::PlantLodChoice(self.start.plant_lod))
-        .init_resource::<subject::MushroomLodChoice>()
-        .init_resource::<subject::DeadwoodLodChoice>()
-        .insert_resource(subject::Start(self.start.clone()))
-        .init_resource::<clump::ShownClump>()
-        .init_resource::<clump::ShownCover>()
+        .init_resource::<EnvironmentSettings>()
+        .init_resource::<subject::SceneState>()
+        .init_resource::<subject::ChosenDetail>()
+        .init_resource::<subject::SubjectLook>()
         .add_message::<ViewerCommand>()
-        .add_message::<ViewerEvent>()
-        .add_systems(
+        .add_message::<ViewerEvent>();
+
+        // Each kind of subject.
+        tree::plugin(app);
+        plants::plugin(app);
+        stone::plugin(app);
+        clump::plugin(app);
+        mushroom::plugin(app);
+        fruit::plugin(app);
+        grove::plugin(app);
+        deadwood::plugin(app);
+        ecotope::plugin(app);
+        terrain::add_subject(app);
+
+        app.add_systems(
             Startup,
             (environment::spawn_environment, subject::setup_scene),
         )
-        // Host commands run before the tree and grass systems see this frame's entities.
+        // Host commands run before the generator systems see this frame's entities.
         .add_systems(
             PreUpdate,
-            (subject::apply_commands, subject::apply_plant_lod).chain(),
+            (subject::apply_commands, plants::apply_plant_lod).chain(),
         )
         .add_systems(
             Update,
             (
                 (orbit::drive_orbit, environment::apply_environment),
                 orbit::follow_orbit,
-                (subject::render_while_loading, clump::render_while_loading),
-                (
-                    subject::report_lod,
-                    subject::report_mushroom_lod,
-                    subject::report_deadwood_lod,
-                ),
+                render_while_baking,
                 (clump::show_clump, clump::show_deadwood_cover),
             )
                 .chain(),
@@ -218,24 +233,31 @@ impl Plugin for ScenePlugin {
         .add_systems(
             PostUpdate,
             (
-                (
-                    subject::apply_lod,
-                    subject::apply_mushroom_lod,
-                    subject::apply_deadwood_lod,
-                ),
+                (tree::apply_lod, mushroom::apply_lod, deadwood::apply_lod),
                 ApplyDeferred,
             )
                 .chain()
                 .before(VisibilitySystems::VisibilityPropagate),
-        )
-        // After Update, once the tree plugin has asked for this frame's bakes.
-        .add_systems(PostUpdate, subject::report_grove_progress)
-        .add_observer(subject::report_tree)
-        .add_observer(subject::report_stone)
-        .add_observer(subject::report_mushroom)
-        .add_observer(subject::report_fruit)
-        .add_observer(subject::report_deadwood)
-        .add_observer(subject::report_grove)
-        .add_observer(clump::report_clump);
+        );
     }
+}
+
+/// Requests more frames while impostors are baking, since they bake only
+/// in frames that are drawn.
+fn render_while_baking(
+    baking: Query<(), (With<ImpostorRequest>, Without<BakedImpostor>)>,
+    mut activity: ResMut<viewport::ViewportActivity>,
+) {
+    if !baking.is_empty() {
+        activity.request_frames(viewport::ViewportActivity::SETTLE_FRAMES);
+    }
+}
+
+/// Whether the texture `texture`, if any, is still loading.
+fn is_loading(server: &AssetServer, texture: &Option<Handle<Image>>) -> bool {
+    texture.as_ref().is_some_and(|handle| {
+        server
+            .get_load_state(handle)
+            .is_some_and(|state| state.is_loading())
+    })
 }

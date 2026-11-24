@@ -570,7 +570,8 @@ From D5 (decided by the user 2026-11-24; see
   ids for designer polygons (lattice worlds only so far).** New crate
   `procgena_world` (`world/crates/procgena_world`): `WorldOptions` (seed,
   scale pair, region graph, E, convergence, ruggedness and moisture
-  fields, ordered Biome rules with a fallback, pins by region id) in F3's
+  fields, ordered Biome rules with a fallback, pins by a point or a
+  region id) in F3's
   preset pattern, with one `WorldPreset` per D5 scale class
   (`.world.yml`); `World` picks each region's Biome (pin, else the first
   matching rule at the region's site, else the fallback; neighbours may
@@ -579,7 +580,8 @@ From D5 (decided by the user 2026-11-24; see
   and Terrain seed (`"terrain.region.local"`,
   `procgena_terrain::region_local_seed`), and hands `WorldTerrain` a source
   reading the Biome. `terrain_seed` is gone; `Biome::terrain_options` sets
-  the World seed. The scale pair stretches E (layers, tilt, bumps) and the
+  the World seed. The scale pair stretches E's layers and tilt (hand-placed bumps and pins
+  stay in real metres, decided by the user 2026-11-24) and the
   selector fields, and the rules' elevation bounds follow `vertical`;
   Terrain presets, region size and border warp are not scaled (G7). Image
   example `--example large_world`; see world_plan.md, "W0 as built", for
@@ -675,8 +677,11 @@ From D5 (decided by the user 2026-11-24; see
   `FlatGround`.
 - **Plant can join late.** Plants sit at the bottom of most Ecotopes and
   already take a density function, so a first Ecotope can draw grass
-  through that hook. Plant implements the trait once R3 gives it a seed,
-  copy ids and `Ground`.
+  through that hook. Staged in [plant/alignment_plan.md](plant/alignment_plan.md):
+  P1 and P2 put plants in the C3a Ecotope through an adapter. In C3, plant
+  joins through P4: a sibling trait for Scatters placed on the GPU, with
+  addresses but no listed copies. That changes `procgena_core`, so the
+  coordinator agrees it first.
 - **Done when:** a "pine forest floor" preset shows trees, boulders, logs and
   grass on uneven ground, and no lower-priority copy stands inside a
   higher one.
@@ -724,6 +729,18 @@ milestones.
 - **Needs:** F1, F2, and F3 for plant's part (the plant split and the
   `PlantScatter` rename touch the same files).
 - **Parallel:** one worker per asset; none blocks the others.
+- **Plant's part is staged** ([plant/alignment_plan.md](plant/alignment_plan.md),
+  decided with the user 2026-11-24), so Ecotopes get grass before the full
+  move-over:
+  - P1: split into the engine-free `procgena_plant` (settings, presets,
+    files, with an optional `reflect` feature) and `procgena_plant_bevy`,
+    under `plant/crates/`.
+  - P2: plants in the early Ecotope, through a bake of ground and density
+    over a `ScatterInput`, with a seed and a slope limit.
+  - P3: World tile cells and integer placement (one golden bless).
+  - P4: a sibling of the `Scatter` trait for GPU-placed Scatters, in C3.
+  - The CPU path, export, promotion, hash, shared LOD, Bevy pattern,
+    wind and edits come after.
 
 #### R4: Promotion and Bevy queries everywhere
 
@@ -815,7 +832,14 @@ confused with the B1 milestone or the D1 and D2 gates.
   and a material hook for drawing impostors with a host-composed transform
   and a world offset (`impostor_vertex`, `impostor_prepass_vertex`; see
   `procgena_impostor`'s crate docs and the `impostor` example's `--hang`).
-  Fruit step D2 waits for AC1, B1 and B2.
+- **Status (2026-11-24): fruit step D2 done.** Each cluster specimen bakes
+  its own impostor (full sphere, 6 × 6 views of 32 px, baked from fruit
+  level 1), drawn as the last fruit level from 20 m for a 10 cm cluster
+  (`default_fruit_impostor`, `TreePlugin::fruit_impostor`). It is drawn
+  attached, through the D1 hook, with the branch's sway. The tree's
+  impostor key names its cluster specimens, so a new fruit `N` or seed
+  rebakes it. See "As built (fruit step D2)" in
+  [fruit/plan.md](fruit/plan.md).
 - **Studio (decided by the user 2026-11-24):** fruit and flowers each get
   their own tab, a Fruit tab and a Flower tab, with their own presets and
   viewer, and the tree panels pick a fruit preset and a flower preset by
@@ -1256,16 +1280,16 @@ where the details are.
     **Stretch (as built)** keeps a hand-made layout looking the same
     at every scale class. **Fixed metres** keeps a bump a known real
     size, but its place in the landscape changes with scale.
-    Recommendation: stretch, matching D5's rule that landscape lengths
-    scale and objects don't.
+    **Decided by the user (2026-11-24): bumps stay in real metres.**
+    Built in W0 (5ad5388).
 26. **How World pins name a region (W0).** A pin forces a region to one
     Biome ("this region is a mountain"). W0 names the region by its
     id number, which is exact but means nothing to someone writing the
     file by hand. The alternatives are a lattice cell (`[12, -3]`) or a
     world point (the region containing `x, z`). A point is easiest to
     write and survives region-size changes best, but two pins may land in
-    the same region. Recommendation: accept a point in files and resolve
-    it to the id when the World loads.
+    the same region. **Decided by the user (2026-11-24): a pin takes
+    either a point or a region id.** Built in W0 (5ad5388).
 27. **Making fruit cheap to draw (fruit B2 measured).** 1,007 willows, the
     camera plus four shadow cascades, on an M1 Max: catkins add about
     32 ms a frame near the grove and 10 ms in the middle distance, while
@@ -1277,8 +1301,8 @@ where the details are.
        which removes most of the far camera's 1.5 ms (no look change);
     3. smaller cull entries, saving memory more than time.
 
-    Recommendation: do 2 now. Do 1 after before/after screenshots, and
-    fold it into IX planning, since thinning is a far-form choice.
+    **Decided by the user (2026-11-24):** all three wait for the
+    impostor and LOD sweep (IX), so nobody picks them up early.
     Details: [fruit/plan.md](fruit/plan.md), "Measured".
 28. **Ground look choices (GM0).** GM0 picked the ground material
     colours, the bare terrain's layer order, and the pine forest floor's
@@ -1292,6 +1316,16 @@ where the details are.
       until something fills in relief;
     - pine litter reaches a fixed 3 m, because trees expose only their
       trunk.
+
+29. **Saved-file format (preset bundles).** The proposal is a zipped
+    project folder with every entry stored uncompressed, named
+    `.procgena`, and mounted in Bevy as `procgena://<bundle>/<path>`.
+    It has 11 open questions, each with options and a recommendation:
+    save versus export, how games load bundles, key clashes, an entry
+    list, flattening built-in bases, thumbnails, JSON, texture encodings,
+    wasm, the zip library, and the extension. Details:
+    [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md),
+    "Questions for the user".
 
 ### Looks of work already built (wave 5)
 
@@ -1359,9 +1393,10 @@ where the details are.
     their shared border from each side's slope. G2 added an exact slope,
     but the border offers still use the old estimate from nearby heights,
     which averages across sharp ridge tops (one crest jumps from 1.97 to
-    −1.0). Switching moves every agreed border profile and may unsettle
-    test seeds, for borders that follow ridges more exactly. Switch, or
-    keep the estimate? Details: terrain/plan.md, G2 notes.
+    −1.0). **Decided and done (2026-11-24): switched.** The offers read
+    the exact slope and the old estimate is gone. Agreed borders moved by
+    at most 3.3 cm in the test worlds; every test, seed and probe figure
+    stayed the same. Details: terrain/plan.md, G2 notes.
 14. **Macro cells, after a quiet benchmark rerun.** The user decided
     macro cells (planning on coarse 1 km cells inside a region) are added
     only if the benchmarks call for them. G3 step 2 measured a cold

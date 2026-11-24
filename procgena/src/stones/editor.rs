@@ -1,9 +1,6 @@
-//! The Stones tab's controls: preset, seed, and every rock setting.
+//! A rock document's editor: seed, and every rock setting.
 
-use bevy::feathers::controls::{
-    FeathersButton, FeathersNumberInput, FeathersSelect, HardLimit, NumberInputValue, OptionIndex,
-    list_rows_from_strings,
-};
+use bevy::feathers::controls::{FeathersButton, FeathersNumberInput, HardLimit, NumberInputValue};
 use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::scene::Scene;
@@ -11,23 +8,24 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_stone::{StoneOptions, StonePreset};
 
-use super::{START_PRESET, params};
+use super::params;
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
+use crate::studio::Dormant;
 use crate::ui::{LABEL_WIDTH, labelled_row};
 
-/// Triggered after the rock settings change. Read them from the panel named by
-/// [`StoneEditor::panel`].
+/// Triggered after the selected rock's settings change. Read them from the
+/// panel named by [`StoneEditor::panel`].
 #[derive(Event, Debug)]
 pub struct StoneEdited {
-    /// Whether the camera should reset to fit the new rock, as after choosing
-    /// a preset or loading settings.
+    /// Whether the camera should reset to fit the new rock, as after loading
+    /// settings.
     pub reframe: bool,
 }
 
-/// The rock editor's state. There is one, on the Stones tab.
+/// A rock editor's state, one per open rock.
 #[derive(Component)]
 pub struct StoneEditor {
-    /// The preset last chosen.
+    /// The preset edited.
     preset: &'static StonePreset,
     /// The panel holding the edited options.
     panel: Entity,
@@ -36,13 +34,13 @@ pub struct StoneEditor {
 }
 
 impl StoneEditor {
-    /// Suggests a file name without an extension from the chosen preset: its
-    /// key, such as `river_stone`.
+    /// Suggests a file name without an extension from the preset: its key,
+    /// such as `river_stone`.
     pub fn file_stem(&self) -> String {
         self.preset.key.to_string()
     }
 
-    /// The preset last chosen, which saved files name as their base.
+    /// The preset edited, which saved files name as their base.
     pub fn preset(&self) -> &'static StonePreset {
         self.preset
     }
@@ -57,7 +55,7 @@ impl StoneEditor {
 #[derive(Component, Default, Clone)]
 struct StoneSeed;
 
-/// Makes the rock editor work. Needs the param panel plugins.
+/// Makes rock editors work. Needs the param panel plugins.
 pub struct StoneEditorPlugin;
 
 impl Plugin for StoneEditorPlugin {
@@ -67,20 +65,18 @@ impl Plugin for StoneEditorPlugin {
     }
 }
 
-/// Spawns the rock editor, showing [`START_PRESET`], as the last child of `parent`.
-pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity) {
-    let names: Vec<String> = StonePreset::all().map(|p| p.name.to_string()).collect();
-    let selected = StonePreset::all().position(|p| p.key == START_PRESET);
-    let start = StonePreset::named(START_PRESET).expect("the start preset is built in");
-    let options = start.stone.clone();
+/// Spawns a rock editor for the built-in preset `key` as the last child of
+/// `parent`, and returns the editor's entity.
+///
+/// # Panics
+///
+/// Panics if `key` names no built-in rock preset.
+pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
+    let preset = StonePreset::named(key).expect("the stone preset is built in");
+    let options = preset.stone.clone();
     let seed = i64::from(options.default_seed);
 
-    // Preset, seed, and the seed button, above the panel.
-    let preset: Box<dyn Scene> = Box::new(bsn! {
-        @FeathersSelect { @options: list_rows_from_strings(names, selected) }
-        Node { flex_grow: 1.0 }
-        on(choose_preset)
-    });
+    // Seed, and the seed button, above the panel.
     let seed_field: Box<dyn Scene> = Box::new(bsn! {
         @FeathersNumberInput
         Node { flex_grow: 1.0 }
@@ -98,8 +94,6 @@ pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity) {
                 row_gap: px(8),
             }
             Children [
-                @labelled_row("Preset", preset)
-                --
                 @labelled_row("Seed", seed_field)
                 --
                 Node {
@@ -125,18 +119,19 @@ pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity) {
             commands.trigger(StoneEdited { reframe: false });
         });
     commands.entity(editor).insert(StoneEditor {
-        preset: start,
+        preset,
         panel,
         rng: Rng::new(std::process::id()),
     });
+    editor
 }
 
-/// Shows loaded rock settings in the editor, rebuilds the rock and fits the
-/// camera to it. The chosen preset, and so the suggested file name, stays as
-/// it was. Run it with `World::run_system_cached_with`.
+/// Shows loaded rock settings in the selected rock's editor, rebuilds the
+/// rock and fits the camera to it. The preset, and so the suggested file
+/// name, stays as it was. Run it with `World::run_system_cached_with`.
 pub fn load_stone(
     In(options): In<StoneOptions>,
-    editor: Single<&StoneEditor>,
+    editor: Single<&StoneEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<StoneOptions>>,
     mut commands: Commands,
 ) {
@@ -157,35 +152,10 @@ fn replace(
     }
 }
 
-/// Starts over from the chosen preset, and fits the camera to it.
-fn choose_preset(
-    change: On<ValueChange<Entity>>,
-    rows: Query<&OptionIndex>,
-    mut editor: Single<&mut StoneEditor>,
-    mut panels: Query<&mut ParamPanel<StoneOptions>>,
-    mut commands: Commands,
-) {
-    let Some(preset) = rows
-        .get(change.value)
-        .ok()
-        .and_then(|index| StonePreset::all().nth(index.0))
-    else {
-        return;
-    };
-    editor.preset = preset;
-    replace(
-        preset.stone.clone(),
-        true,
-        &editor,
-        &mut panels,
-        &mut commands,
-    );
-}
-
 /// Uses a typed seed.
 fn type_seed(
     change: On<ValueChange<i64>>,
-    editor: Single<&StoneEditor>,
+    editor: Single<&StoneEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<StoneOptions>>,
     mut commands: Commands,
 ) {
@@ -204,7 +174,7 @@ fn type_seed(
 /// Picks a random seed.
 fn random_seed(
     _: On<Activate>,
-    mut editor: Single<&mut StoneEditor>,
+    mut editor: Single<&mut StoneEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<StoneOptions>>,
     mut commands: Commands,
 ) {
@@ -216,20 +186,23 @@ fn random_seed(
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
-/// Shows the options' seed in the seed field whenever it changes.
+/// Shows each rock's seed in its own seed field whenever it changes.
 fn show_seed(
-    editor: Single<&StoneEditor>,
+    editors: Query<(Entity, &StoneEditor)>,
     panels: Query<&ParamPanel<StoneOptions>, Changed<ParamPanel<StoneOptions>>>,
-    fields: Query<(Entity, &NumberInputValue), With<StoneSeed>>,
+    children: Query<&Children>,
+    fields: Query<&NumberInputValue, With<StoneSeed>>,
     mut commands: Commands,
 ) {
-    let Ok(panel) = panels.get(editor.panel) else {
-        return;
-    };
-    let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
-    for (field, shown) in &fields {
-        if *shown != seed {
-            commands.entity(field).insert(seed);
+    for (entity, editor) in &editors {
+        let Ok(panel) = panels.get(editor.panel) else {
+            continue;
+        };
+        let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
+        for field in children.iter_descendants(entity) {
+            if fields.get(field).is_ok_and(|shown| *shown != seed) {
+                commands.entity(field).insert(seed);
+            }
         }
     }
 }

@@ -371,7 +371,8 @@ impl HeightField for WorldTerrain { … }
   string-key seed salts and the erosion-aware relief amplitude (see
   "Re-recorded after the string-key seed salts" in `plan.md`): flat
   24 → **20**, down towards the plains 65 → **64**, up towards them
-  6 → **4**.
+  6 → **4**. On 2026-11-24 (after G6, and unchanged by the border offers
+  moving to the exact slope): flat **19**, down **63**, up **4**.
 - **The flat baseline:** 24 is not comparable with Phase 2.5's 10–13.
   Those came from the `river_crossing_seeds` probe before relief
   blending existed (blend 0, today's default is 0.5), and Phases 2.6 to
@@ -640,7 +641,10 @@ Phase W5 was built as roadmap milestone W0, in the new World crate
   whose source reads each region's Biome. A region's Biome is its pin, or
   else the first of the ordered rules whose bounds on E, ruggedness and
   moisture at the region's site all hold, or else the fallback.
-  Neighbours may share a type. `World::with_biomes` takes Biomes besides
+  Neighbours may share a type. A pin names its region by a point in real
+  metres (`at: [x, z]`, the region holding it, so it stays at its place
+  when the region size or seed changes) or by its id (`region: <id>`);
+  two pins on one region are refused. `World::with_biomes` takes Biomes besides
   the built-in presets. Ruggedness and moisture are fBm fields (values
   about 95 % in −1 to 1, sampled with the new public `NoiseLayer::sample`)
   seeded by `"world.field.ruggedness"` and `"world.field.moisture"`.
@@ -656,9 +660,11 @@ Phase W5 was built as roadmap milestone W0, in the new World crate
   and `Convergence` gained serde in this crate (`DVec2` written as
   `[x, z]`); `WorldTerrainOptions` still has none.
 - **Scale (D5):** the pair stretches E (layer heights × vertical,
-  wavelengths × horizontal, tilt × vertical ÷ horizontal, bump centres
-  and radii × horizontal and heights × vertical; `max_slope` kept and
-  checked on the stretched field) and the selector wavelengths. The rules'
+  wavelengths × horizontal, tilt × vertical ÷ horizontal; `max_slope`
+  kept and checked on the stretched field) and the selector wavelengths.
+  The scale is for what the World generates: anything placed by hand,
+  bumps and pins, stays in real metres (decided by the user 2026-11-24:
+  "Placing features is by meters"). The rules'
   elevation bounds are written at scale 1 and multiplied by vertical.
   Terrain presets, region size and the border warp are not scaled; that
   waits for G7's derived lengths. The small class uses 2 km regions (the

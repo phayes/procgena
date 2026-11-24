@@ -1026,6 +1026,7 @@ mod tests {
                     )],
                 ),
                 impostor: None,
+                fruit_impostor: None,
             })
             .add_systems(
                 Update,

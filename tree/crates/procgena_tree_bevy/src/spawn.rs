@@ -20,7 +20,7 @@ use procgena_tree::{
 };
 
 use crate::clusters::{
-    BuiltClusters, TreeClusters, add_meshes, build_clusters, single_tree_clusters,
+    BuiltClusters, ClusterImpostors, TreeClusters, add_meshes, build_clusters, single_tree_clusters,
 };
 use crate::impostor::{ImpostorShown, TreeImpostorAssets};
 use crate::material::{
@@ -210,6 +210,9 @@ pub(crate) struct SpawnSettings {
     /// The mesh and far-form levels, without the impostor.
     pub lod: Lod<TreeLevel>,
     pub impostor: Option<ImpostorLevel>,
+    /// The impostor of fruit and flower clusters, drawn beyond their fruit
+    /// levels once the tree's own impostor is baked; unused without it.
+    pub fruit_impostor: Option<ImpostorLevel>,
 }
 
 impl SpawnSettings {
@@ -887,7 +890,7 @@ pub(crate) fn spawn_parts(
                 spawn_tree_parts(&mut commands, entity, generated, &ranges, copy);
                 let clusters = SingleTreeClusters {
                     specimen,
-                    impostor: false,
+                    impostor: None,
                     copy,
                 };
                 spawn_clusters(&mut commands, entity, generated, &settings, clusters);
@@ -937,12 +940,13 @@ impl SingleTree {
 
 /// What a single tree's fruit and flower clusters are drawn with.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct SingleTreeClusters {
+pub(crate) struct SingleTreeClusters<'a> {
     /// The tree's specimen id.
     pub(crate) specimen: SpecimenId,
-    /// Whether the tree's levels end in its baked impostor, so clusters stop
-    /// where it fades in.
-    pub(crate) impostor: bool,
+    /// The tree's baked impostor, once it is shown: the tree's levels then
+    /// end in it, so clusters stop where it fades in, and clusters with a
+    /// baked impostor of their own draw it beyond their fruit levels.
+    pub(crate) impostor: Option<&'a TreeImpostorAssets>,
     /// The tree as a copy.
     pub(crate) copy: SingleTree,
 }
@@ -954,15 +958,23 @@ pub(crate) fn spawn_clusters(
     tree: Entity,
     generated: &Generated,
     settings: &SpawnSettings,
-    clusters: SingleTreeClusters,
+    clusters: SingleTreeClusters<'_>,
 ) {
+    let impostors = clusters.impostor.and_then(|assets| {
+        Some(ClusterImpostors {
+            level: settings.fruit_impostor?,
+            quad: &assets.quad,
+            baked: &assets.clusters,
+        })
+    });
     let Some((scatter, attached)) = single_tree_clusters(
         &generated.clusters,
         clusters.specimen,
         &settings.lod.levels,
-        tree_lod(settings, clusters.impostor),
+        tree_lod(settings, clusters.impostor.is_some()),
         generated.bounds(SWAY_ALLOWANCE),
         clusters.copy,
+        impostors,
     ) else {
         return;
     };
@@ -1138,6 +1150,7 @@ mod tests {
                 texture_compression: TextureCompression::Bc7,
                 lod,
                 impostor: None,
+                fruit_impostor: None,
             })
             .add_systems(
                 Update,
@@ -1553,6 +1566,7 @@ mod tests {
             texture_compression: TextureCompression::Bc7,
             lod,
             impostor: None,
+            fruit_impostor: None,
         };
         let default = settings(default_tree_lod());
         let ranges: Vec<VisibilityRange> = default

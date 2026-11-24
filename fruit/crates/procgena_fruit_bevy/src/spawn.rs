@@ -144,9 +144,9 @@ mod tests {
         let levels = default_lod().levels.len();
         assert_eq!(parts(&mut app), (0..levels).collect::<Vec<_>>());
 
-        app.world_mut()
-            .entity_mut(entity)
-            .insert(FruitParams::preset(FruitPreset::dogwood_bloom()));
+        app.world_mut().entity_mut(entity).insert(FruitParams::new(
+            procgena_fruit::FlowerPreset::dogwood_bloom().flower.clone(),
+        ));
         app.update();
         app.update();
         assert_eq!(parts(&mut app), (0..levels).collect::<Vec<_>>());

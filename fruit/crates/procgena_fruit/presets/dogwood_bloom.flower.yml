@@ -1,10 +1,10 @@
-# A built-in FruitPreset. Copy it, change what you like, and read it
-# with FruitPreset::from_yaml, or name it as the `base` of your own
+# A built-in FlowerPreset. Copy it, change what you like, and read it
+# with FlowerPreset::from_yaml, or name it as the `base` of your own
 # file and give only what differs.
 name: Dogwood Bloom
 description: A flowering dogwood bloom of four broad, notched white bracts around a green-gold centre.
 group: Flowers
-fruit:
+flower:
   default_seed: 2718
   facing: outward
   size: 0.105

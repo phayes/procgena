@@ -88,7 +88,7 @@ All of it lives in `procgena_tree`:
 | Materials: `FruitMaterial`, `FlowerMaterial`, `fruit_material`, `flower_material`, `TreePartKind::{Fruit, Flowers}` | tree core and Bevy | Move to fruit Bevy |
 | Export: `MeshPart::{Fruit, Flowers}` | `src/export/` | See "Today's tree work" |
 | Tests: `tests/clusters.rs`, `tests/cluster_mesh.rs`, the fruit checks in `tests/silhouette.rs` | | Split: shape tests move, placement and outline stay |
-| Studio: fruit and flower panels | `procgena/src/tree/params.rs`, `export/tree.rs` | Tree panel picks a fruit preset; fruit gets its own tab later |
+| Studio: fruit and flower panels | `procgena/src/tree/params.rs`, `export/tree.rs` | Tree panel picks a fruit preset; fruit and flowers are kinds of their own in the studio (ST0) |
 
 Three tree presets grow clusters (checked in `presets/*.json`):
 
@@ -875,7 +875,8 @@ What the numbers say:
   threads themselves: one per row of every tree in every view (about 5.9
   million a frame here), each searching for its host and reading its
   state, even for trees the host step skipped.
-- **Proposed next steps**, in order of payoff:
+- **Possible next steps, deferred by the user (2026-11-24) to the full
+  impostor and LOD sweep**, in order of payoff:
   1. Draw fewer catkins. The near frame's 266,000 are counted over the
      camera and its four shadow views together (the bench doesn't split
      them yet), and fruit levels 0 and 1 cast shadows. Letting only level
@@ -887,6 +888,43 @@ What the numbers say:
      step's cost for skipped trees (all of the far camera's 1.5 ms).
   3. Only then, smaller entries (a row index into a storage buffer, 8
      bytes), which cuts the memory above by 8 times but saves little time.
+
+## As built (fruit step D2, 2026-11-24)
+
+- **The tree impostor's key names its fruit.** `default_slots` and the
+  fruit seed are left out of the tree's pool, so the tree's specimen id
+  alone didn't change with them. The key now hashes each cluster part's
+  specimen ids, which carry the fruit pool, the seed and `N`.
+- **The tree impostor already bakes its fruit.** It bakes the merged
+  fruit and flowers of its baked level, from the same slots, as B2 left
+  it. Baking each placed cluster instead would mean one bake entity per
+  cluster per view, so this was kept.
+- **Cluster impostors** (in `procgena_tree_bevy`, `fruit_impostor.rs`):
+  - Each cluster specimen bakes one impostor. The bake is from fruit
+    level 1 (`Simple`), 6 × 6 views of 32 px, `SPHERE` coverage, keyed by
+    the fruit `SpecimenId`, the part, the baked level and the crate's
+    version.
+  - It is the last level of the cluster slot: from 20 m for a 10 cm
+    cluster, scaled by the cluster's size like the other fruit levels,
+    without shadows (`default_fruit_impostor`,
+    `TreePlugin::fruit_impostor`).
+  - It is drawn as an attached copy with a tree-owned material,
+    `FruitImpostorMaterial`. That material has impostor bindings 100–103
+    and the tree's wind at 104. Its vertex shader composes the tree's
+    record with the row's place, turn and scale, and adds the branch's
+    sway at the cluster as one rigid offset (flutter 0), through D1's
+    `impostor_vertex`. Fragments are the impostor crate's own.
+  - It lives in the tree's Bevy crate, not `procgena_fruit_bevy`: the
+    wind is still the tree's, and fruit_bevy doesn't depend on
+    `procgena_impostor`. It moves when the wind moves to core (rule 9).
+- **Readiness.** A tree's cluster impostors are requested with its own
+  impostor, and the tree counts as having its impostor only when all of
+  them are baked. Single trees and groves then rebuild their cluster
+  slots with the impostor level, as they already did for the tree
+  impostor. So cluster impostors need tree impostors on.
+- **Not measured:** the per-view attached-entry memory. Entries are kept
+  per fruit level, so a fourth level adds about a third to the figures
+  above.
 
 ## Decisions
 

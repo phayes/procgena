@@ -1,12 +1,5 @@
 //! The build progress, mesh size or error shown over the 3D view.
 
-use std::sync::Arc;
-
-use crate::ecotope::EcotopeStatus;
-use crate::scene::{
-    BuildStats, EnvironmentSettings, FieldSettings, GroveProgress, SceneMode, TextureDownloads,
-    ViewerCommand, ViewerEvent,
-};
 use bevy::feathers::display::label_small;
 use bevy::prelude::*;
 use bevy::scene::Scene;
@@ -15,14 +8,19 @@ use procgena_plant::prelude::PlantSettings;
 use procgena_terrain::{FeatureTier, RegionStage};
 use procgena_terrain_bevy::TerrainProgress;
 
-use super::ActiveTab;
-use super::tabs::StudioTab;
+use super::documents::{Document, Selection};
+use super::kinds::Kinds;
+use crate::ecotope::EcotopeStatus;
+use crate::scene::{
+    BuildStats, Detail, EnvironmentSettings, FieldSettings, GroveProgress, PlantsSubject,
+    TextureDownloads, ViewerCommand, ViewerEvent,
+};
 
 /// Background of the overlay normally, and when a build failed.
 const NORMAL_BG: Color = Color::srgba(0.1, 0.1, 0.12, 0.7);
 const FAILED_BG: Color = Color::srgba(0.55, 0.12, 0.12, 0.85);
 
-/// Where a tree or rock build stands.
+/// Where a build of the shown subject stands.
 #[derive(Debug, Clone, Default)]
 pub enum BuildStatus {
     /// Being built.
@@ -44,60 +42,41 @@ impl BuildStatus {
     }
 }
 
-/// The latest tree and rock build statuses, and the tree detail level on screen.
+/// What the scene last reported about the subject it shows.
 #[derive(Resource, Debug, Default)]
 pub struct BuildState {
-    /// The tree's build status.
-    pub tree: BuildStatus,
-    /// The rock's build status.
-    pub stone: BuildStatus,
-    /// The Clumps tab's build status, covering its subject and its clump.
-    pub clump: BuildStatus,
-    /// The mushroom's build status.
-    pub mushroom: BuildStatus,
-    /// The fruit or flower cluster's build status, for the Fruit and
-    /// Flower tabs, which share one view.
-    pub fruit: BuildStatus,
-    /// The grove's build status, with every tree's meshes added together.
-    pub grove: BuildStatus,
-    /// How many trees the last built grove has.
+    /// The latest build's status.
+    pub build: BuildStatus,
+    /// The detail level on screen, for subjects that report one.
+    pub level: usize,
+    /// Whether the camera is too far away to draw the subject.
+    pub too_far: bool,
+    /// How many trees the last built tree Scatter has.
     pub grove_trees: usize,
-    /// How far the grove has got generating its trees and baking their
+    /// How far a tree Scatter has got generating its trees and baking their
     /// impostors.
     pub grove_progress: GroveProgress,
-    /// The tree detail level on screen; the overlay shows that level's size.
-    pub lod_shown: usize,
-    /// The mushroom detail level on screen, or the last one before the
-    /// camera moved too far away to draw any.
-    pub mushroom_lod_shown: usize,
-    /// Whether the camera is too far from the mushroom to draw it.
-    pub mushroom_too_far: bool,
-    /// The dead wood piece's build status.
-    pub deadwood: BuildStatus,
-    /// The dead wood detail level on screen, or the last one before the
-    /// camera moved too far away to draw any.
-    pub deadwood_lod_shown: usize,
-    /// Whether the camera is too far from the dead wood piece to draw it.
-    pub deadwood_too_far: bool,
-    /// Where placing the Ecotope stands.
+    /// Where placing an Ecotope stands.
     pub ecotope: EcotopeStatus,
-    /// How far the terrain has got, once terrain mode has reported.
+    /// How far terrain has got, once it has reported.
     pub terrain: Option<TerrainProgress>,
-    /// What the plant tabs show, as last sent to the scene.
+    /// The plants shown, as last sent to the scene.
     pub plants: PlantsShown,
     /// How many texture files are downloading.
     pub downloading: usize,
 }
 
-/// The plants the scene was last asked to show, for the plant tabs' overlay.
+/// The plants the scene was last asked to show, for the plant overlay.
 #[derive(Debug, Clone)]
 pub struct PlantsShown {
     /// The field shown, or `None` before one was sent.
-    pub field: Option<Arc<FieldSettings>>,
+    pub field: Option<FieldSettings>,
     /// The forced detail level, or `None` to switch by camera distance.
     pub lod: Option<u32>,
     /// Side length of the square field, in metres.
     pub field_size: f32,
+    /// The plant drawing settings, for mesh sizes.
+    pub settings: PlantSettings,
 }
 
 impl Default for PlantsShown {
@@ -106,6 +85,7 @@ impl Default for PlantsShown {
             field: None,
             lod: None,
             field_size: EnvironmentSettings::default().field_size,
+            settings: PlantSettings::default(),
         }
     }
 }
@@ -139,54 +119,70 @@ pub fn status_overlay() -> impl Scene {
 pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<BuildState>) {
     for event in events.read() {
         match event {
-            ViewerEvent::TreeBuilt(result) => state.tree = BuildStatus::from_result(result),
-            ViewerEvent::StoneBuilt(result) => state.stone = BuildStatus::from_result(result),
-            ViewerEvent::ClumpBuilt(result) => state.clump = BuildStatus::from_result(result),
-            ViewerEvent::MushroomBuilt(result) => {
-                state.mushroom = BuildStatus::from_result(result);
+            ViewerEvent::Building => {
+                state.build = BuildStatus::Building;
+                state.ecotope = EcotopeStatus::Placing;
             }
-            ViewerEvent::FruitBuilt(result) => state.fruit = BuildStatus::from_result(result),
+            ViewerEvent::TreeBuilt(result) => state.build = BuildStatus::from_result(result),
+            ViewerEvent::StoneBuilt(result) => state.build = BuildStatus::from_result(result),
+            ViewerEvent::ClumpBuilt(result) => state.build = BuildStatus::from_result(result),
+            ViewerEvent::MushroomBuilt(result) => state.build = BuildStatus::from_result(result),
+            ViewerEvent::FruitBuilt(result) => state.build = BuildStatus::from_result(result),
+            ViewerEvent::DeadwoodBuilt(result) => state.build = BuildStatus::from_result(result),
             ViewerEvent::GroveBuilt(result) => {
                 if let Ok(stats) = result {
                     state.grove_trees = stats.trees;
                 }
                 let built = result.as_ref().map(|stats| stats.build.clone());
-                state.grove = BuildStatus::from_result(&built);
+                state.build = BuildStatus::from_result(&built);
             }
             ViewerEvent::GroveProgress(progress) => state.grove_progress = *progress,
-            ViewerEvent::LodShown(level) => state.lod_shown = *level,
-            ViewerEvent::MushroomLodShown(level) => {
-                state.mushroom_too_far = level.is_none();
+            ViewerEvent::LodShown(level) => state.level = *level,
+            ViewerEvent::MushroomLodShown(level) | ViewerEvent::DeadwoodLodShown(level) => {
+                state.too_far = level.is_none();
                 if let Some(level) = level {
-                    state.mushroom_lod_shown = *level;
+                    state.level = *level;
                 }
-            }
-            ViewerEvent::DeadwoodBuilt(result) => {
-                state.deadwood = BuildStatus::from_result(result);
             }
             ViewerEvent::EcotopeBuilt(result) => {
                 state.ecotope = EcotopeStatus::from_result(result);
-            }
-            ViewerEvent::DeadwoodLodShown(level) => {
-                state.deadwood_too_far = level.is_none();
-                if let Some(level) = level {
-                    state.deadwood_lod_shown = *level;
-                }
             }
             ViewerEvent::TerrainProgress(progress) => state.terrain = Some(*progress),
         }
     }
 }
 
-/// Records the plants, detail level and field size sent to the scene.
-pub fn record_plant_commands(
+/// Starts the state over for each newly shown document, and records the
+/// plants, detail level and field size sent to the scene.
+pub fn record_commands(
     mut commands: MessageReader<ViewerCommand>,
     mut state: ResMut<BuildState>,
+    mut shown: Local<Option<u64>>,
 ) {
     for command in commands.read() {
         match command {
-            ViewerCommand::SetField(field) => state.plants.field = Some(field.clone()),
-            ViewerCommand::SetPlantLod(lod) => state.plants.lod = *lod,
+            ViewerCommand::Show(show) => {
+                if *shown != Some(show.document()) {
+                    *shown = Some(show.document());
+                    *state = BuildState {
+                        plants: PlantsShown {
+                            field: None,
+                            ..state.plants.clone()
+                        },
+                        downloading: state.downloading,
+                        ..default()
+                    };
+                }
+                if let Some(field) = show.settings::<PlantsSubject>() {
+                    state.plants.field = Some(field.clone());
+                }
+            }
+            ViewerCommand::SetDetail(detail) => {
+                state.plants.lod = match detail {
+                    Detail::Level(level) => Some(*level as u32),
+                    Detail::ByDistance { .. } => None,
+                };
+            }
             ViewerCommand::SetEnvironment(environment)
                 if environment.field_size != state.plants.field_size =>
             {
@@ -197,43 +193,57 @@ pub fn record_plant_commands(
     }
 }
 
-/// Records how many texture files are downloading, when that changes.
-pub fn record_downloads(downloads: Option<Res<TextureDownloads>>, mut state: ResMut<BuildState>) {
+/// Records how many texture files are downloading, and the plant drawing
+/// settings, when they change.
+pub fn record_resources(
+    downloads: Option<Res<TextureDownloads>>,
+    plant_settings: Option<Res<PlantSettings>>,
+    mut state: ResMut<BuildState>,
+) {
     let downloading = downloads.map_or(0, |downloads| downloads.in_progress());
     if state.downloading != downloading {
         state.downloading = downloading;
     }
+    if let Some(settings) = plant_settings
+        && settings.is_changed()
+    {
+        state.plants.settings = *settings;
+    }
 }
 
-/// Shows the active tab's build status or, on the plant tabs, mesh sizes,
-/// with a line saying when textures are downloading.
+/// Shows the selected document's build status, with a line saying when
+/// textures are downloading.
 pub fn update_overlay(
     state: Res<BuildState>,
-    tab: Res<ActiveTab>,
-    plant_settings: Option<Res<PlantSettings>>,
+    selection: Res<Selection>,
+    documents: Query<&Document>,
+    kinds: Res<Kinds>,
     mut overlay: Single<&mut BackgroundColor, With<StatusOverlay>>,
     mut text: Single<&mut Text, With<StatusText>>,
 ) {
-    if !state.is_changed() && !tab.is_changed() {
+    if !state.is_changed() && !selection.is_changed() {
         return;
     }
-    let (line, failed) = if tab.0.mode() == SceneMode::Plants {
-        let settings = plant_settings.map(|s| *s).unwrap_or_default();
-        plants_line(&state.plants, &settings)
-    } else {
-        status_line(&state, tab.0)
+    let kind = selection
+        .document
+        .and_then(|document| documents.get(document).ok())
+        .and_then(|document| kinds.get(document.kind));
+    let (line, failed) = match kind {
+        Some(kind) => (kind.status_line)(&state),
+        None => ("Open a preset from the Library".into(), false),
     };
     text.0 = with_downloads(line, state.downloading);
     overlay.0 = if failed { FAILED_BG } else { NORMAL_BG };
 }
 
-/// The overlay text for the plant tabs, and whether it reports a failure.
+/// The overlay text for plants, and whether it reports a failure.
 ///
 /// The first line gives one plant's mesh at the detail level shown; with
 /// detail chosen by distance, that is the nearest level. The second line
 /// estimates the whole field at that level, before distance thinning and
 /// culling remove plants. Accent stems are not counted.
-fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) {
+pub fn plants_line(state: &BuildState) -> (String, bool) {
+    let shown = &state.plants;
     let Some(field) = &shown.field else {
         return ("Building plants…".into(), false);
     };
@@ -250,7 +260,7 @@ fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) 
     let (mut plants, mut vertices, mut triangles) = (0.0, 0.0, 0.0);
     let mut per_plant = None;
     for entry in field.plants.iter().take(MAX_PLANTS) {
-        let Some(size) = entry.plant.mesh_size(level, settings) else {
+        let Some(size) = entry.plant.mesh_size(level, &shown.settings) else {
             return ("Cannot draw this plant: too many branches".into(), true);
         };
         per_plant.get_or_insert(size);
@@ -278,51 +288,29 @@ fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) 
     (format!("{first}\n{total}"), false)
 }
 
-/// The overlay text for `tab`, and whether it reports a failure.
-/// Tree and mushroom sizes are for the detail level on screen; rock sizes
-/// are always for the most detailed mesh; clump sizes are for the clump
-/// alone; grove sizes are for every tree at full detail.
-fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
-    let (status, noun, level) = match tab {
-        StudioTab::Terrain => return terrain_line(state.terrain),
-        StudioTab::Stones => (&state.stone, "rock", None),
-        StudioTab::TreeScatter => (&state.grove, "tree Scatter", None),
-        StudioTab::Clumps => (&state.clump, "clump", None),
-        StudioTab::Mushrooms => (&state.mushroom, "mushroom", Some(state.mushroom_lod_shown)),
-        StudioTab::Fruit => (&state.fruit, "fruit", None),
-        StudioTab::Flowers => (&state.fruit, "flower", None),
-        StudioTab::Deadwood => (&state.deadwood, "dead wood", Some(state.deadwood_lod_shown)),
-        StudioTab::Ecotope => return state.ecotope.line(),
-        StudioTab::Trees | StudioTab::Plant | StudioTab::PlantScatter => {
-            (&state.tree, "tree", Some(state.lod_shown))
-        }
-    };
-    match status {
-        BuildStatus::Building if tab == StudioTab::TreeScatter => {
-            (grove_building_line(state.grove_progress), false)
-        }
+/// The overlay text for a single object named `noun`, such as `"rock"`,
+/// whose size is given for its most detailed level, and whether it reports
+/// a failure.
+pub fn object_line(state: &BuildState, noun: &str) -> (String, bool) {
+    built_line(state, noun, None)
+}
+
+/// The overlay text for a single object named `noun` with detail levels,
+/// whose size is given for the level on screen, and whether it reports a
+/// failure.
+pub fn leveled_line(state: &BuildState, noun: &str) -> (String, bool) {
+    built_line(state, noun, Some(state.level))
+}
+
+/// The overlay text for a single object named `noun`, sized at `level` and
+/// labelled with it, or at its most detailed level without one.
+fn built_line(state: &BuildState, noun: &str, level: Option<usize>) -> (String, bool) {
+    match &state.build {
         BuildStatus::Building => (format!("Building {noun}…"), false),
-        BuildStatus::Built(_) if tab == StudioTab::Mushrooms && state.mushroom_too_far => (
-            "The camera is too far away to draw the mushroom".into(),
+        BuildStatus::Built(_) if state.too_far => (
+            format!("The camera is too far away to draw the {noun}"),
             false,
         ),
-        BuildStatus::Built(_) if tab == StudioTab::Deadwood && state.deadwood_too_far => (
-            "The camera is too far away to draw the dead wood".into(),
-            false,
-        ),
-        // Each tree of a grove switches detail by its own distance, so the
-        // grove's size is given at full detail.
-        BuildStatus::Built(stats) if tab == StudioTab::TreeScatter => {
-            let size = stats.levels.first().copied().unwrap_or_default();
-            let line = format!(
-                "{} trees · {} vertices · {} triangles at full detail · {} ms",
-                group_digits(state.grove_trees),
-                group_digits(size.vertices),
-                group_digits(size.triangles),
-                stats.build_time.as_millis()
-            );
-            (with_bakes(line, state.grove_progress), false)
-        }
         BuildStatus::Built(stats) => {
             let size = stats
                 .levels
@@ -342,10 +330,36 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
     }
 }
 
-/// The overlay text for the Terrain tab, and whether it reports a failure:
-/// how many chunks are drawn, or how many are still being built.
-fn terrain_line(progress: Option<TerrainProgress>) -> (String, bool) {
-    let Some(progress) = progress else {
+/// The overlay text for a tree Scatter, and whether it reports a failure.
+/// Each tree switches detail by its own distance, so the size is given at
+/// full detail.
+pub fn grove_line(state: &BuildState) -> (String, bool) {
+    match &state.build {
+        BuildStatus::Building => (grove_building_line(state.grove_progress), false),
+        BuildStatus::Built(stats) => {
+            let size = stats.levels.first().copied().unwrap_or_default();
+            let line = format!(
+                "{} trees · {} vertices · {} triangles at full detail · {} ms",
+                group_digits(state.grove_trees),
+                group_digits(size.vertices),
+                group_digits(size.triangles),
+                stats.build_time.as_millis()
+            );
+            (with_bakes(line, state.grove_progress), false)
+        }
+        BuildStatus::Failed(error) => (format!("Cannot build this tree Scatter: {error}"), true),
+    }
+}
+
+/// The overlay text for an Ecotope, and whether it reports a failure.
+pub fn ecotope_line(state: &BuildState) -> (String, bool) {
+    state.ecotope.line()
+}
+
+/// The overlay text for terrain, and whether it reports a failure: how
+/// many chunks are drawn, or how many are still being built.
+pub fn terrain_line(state: &BuildState) -> (String, bool) {
+    let Some(progress) = state.terrain else {
         return ("Building terrain…".into(), false);
     };
     let failed = progress.failed > 0;
@@ -434,7 +448,13 @@ mod tests {
 
     #[test]
     fn the_terrain_line_shows_its_chunks_and_failures() {
-        assert_eq!(terrain_line(None), ("Building terrain…".into(), false));
+        let line = |terrain| {
+            terrain_line(&BuildState {
+                terrain,
+                ..default()
+            })
+        };
+        assert_eq!(line(None), ("Building terrain…".into(), false));
         let mut progress = TerrainProgress {
             fraction: 0.427,
             stage: Some(RegionStage::Tier(FeatureTier::Fine)),
@@ -446,17 +466,17 @@ mod tests {
             settled: false,
         };
         assert_eq!(
-            terrain_line(Some(progress)),
+            line(Some(progress)),
             ("Building terrain… 42% · adding roads".into(), false)
         );
         progress.stage = None;
         assert_eq!(
-            terrain_line(Some(progress)),
+            line(Some(progress)),
             ("Building terrain… 42% · reading chunks".into(), false)
         );
         progress.refining = 30;
         assert_eq!(
-            terrain_line(Some(progress)),
+            line(Some(progress)),
             (
                 "Building terrain… 42% · adding roads to near ground".into(),
                 false
@@ -470,7 +490,7 @@ mod tests {
             ..progress
         };
         assert_eq!(
-            terrain_line(Some(progress)),
+            line(Some(progress)),
             (
                 "1,200 terrain chunks\n2 chunks could not be built".into(),
                 true
@@ -479,91 +499,65 @@ mod tests {
     }
 
     #[test]
-    fn the_line_shows_the_shown_tree_level_and_rock_failures() {
+    fn the_line_shows_the_shown_level_and_failures() {
         let size = |n| MeshSize {
             vertices: n,
             triangles: n / 2,
         };
-        let state = BuildState {
-            tree: BuildStatus::Built(BuildStats {
-                levels: vec![size(4000), size(1000)],
-                build_time: Duration::from_millis(12),
-            }),
-            stone: BuildStatus::Failed("too small".into()),
-            clump: BuildStatus::Built(BuildStats {
-                levels: vec![size(2000)],
-                build_time: Duration::from_millis(40),
-            }),
-            mushroom: BuildStatus::Built(BuildStats {
-                levels: vec![size(3000), size(800)],
-                build_time: Duration::from_millis(5),
-            }),
-            fruit: BuildStatus::Built(BuildStats {
-                levels: vec![size(600), size(200)],
-                build_time: Duration::from_millis(1),
-            }),
-            grove: BuildStatus::Built(BuildStats {
-                levels: vec![size(120_000), size(30_000)],
-                build_time: Duration::from_millis(900),
-            }),
-            grove_trees: 64,
-            grove_progress: GroveProgress::Idle,
-            lod_shown: 1,
-            mushroom_lod_shown: 1,
-            mushroom_too_far: false,
-            deadwood: BuildStatus::Building,
-            deadwood_lod_shown: 0,
-            deadwood_too_far: false,
-            ecotope: EcotopeStatus::Failed("Scatters a and b share priority 5".into()),
-            terrain: None,
-            plants: PlantsShown::default(),
-            downloading: 0,
+        let built = |levels, millis| {
+            BuildStatus::Built(BuildStats {
+                levels,
+                build_time: Duration::from_millis(millis),
+            })
         };
+        let state = |build, level| BuildState {
+            build,
+            level,
+            ..default()
+        };
+
+        let tree = state(built(vec![size(4000), size(1000)], 12), 1);
         assert_eq!(
-            status_line(&state, StudioTab::Ecotope),
-            (
-                "Cannot place this Ecotope: Scatters a and b share priority 5".into(),
-                true
-            )
-        );
-        assert_eq!(
-            status_line(&state, StudioTab::Trees),
+            leveled_line(&tree, "tree"),
             (
                 "LOD 1 · 1,000 vertices · 500 triangles · 12 ms".into(),
                 false
             )
         );
+        let flower = state(built(vec![size(600), size(200)], 1), 0);
         assert_eq!(
-            status_line(&state, StudioTab::Flowers),
+            object_line(&flower, "flower"),
             ("600 vertices · 300 triangles · 1 ms".into(), false)
         );
+        let rock = state(BuildStatus::Failed("too small".into()), 0);
         assert_eq!(
-            status_line(&state, StudioTab::Stones),
+            object_line(&rock, "rock"),
             ("Cannot build this rock: too small".into(), true)
         );
+        let mushroom = state(built(vec![size(3000), size(800)], 5), 1);
         assert_eq!(
-            status_line(&state, StudioTab::Clumps),
-            ("2,000 vertices · 1,000 triangles · 40 ms".into(), false)
-        );
-        assert_eq!(
-            status_line(&state, StudioTab::Mushrooms),
+            leveled_line(&mushroom, "mushroom"),
             ("LOD 1 · 800 vertices · 400 triangles · 5 ms".into(), false)
         );
+        let ecotope = BuildState {
+            ecotope: EcotopeStatus::Failed("Scatters a and b share priority 5".into()),
+            ..default()
+        };
         assert_eq!(
-            status_line(&state, StudioTab::TreeScatter),
+            ecotope_line(&ecotope),
             (
-                "64 trees · 120,000 vertices · 60,000 triangles at full detail · 900 ms".into(),
-                false
+                "Cannot place this Ecotope: Scatters a and b share priority 5".into(),
+                true
             )
         );
 
         // Past the last level, no mushroom is drawn, so there is no size to give.
-        let state = BuildState {
-            mushroom_too_far: true,
-            ..state
+        let far = BuildState {
+            too_far: true,
+            ..mushroom
         };
         assert_eq!(
-            status_line(&state, StudioTab::Mushrooms),
+            leveled_line(&far, "mushroom"),
             (
                 "The camera is too far away to draw the mushroom".into(),
                 false
@@ -573,14 +567,14 @@ mod tests {
 
     #[test]
     fn the_grove_line_shows_trees_generating_then_impostors_baking() {
-        let line = |grove, grove_progress| {
+        let line = |build, grove_progress| {
             let state = BuildState {
-                grove,
+                build,
                 grove_trees: 64,
                 grove_progress,
                 ..default()
             };
-            status_line(&state, StudioTab::TreeScatter).0
+            grove_line(&state).0
         };
         let built = || {
             BuildStatus::Built(BuildStats {
@@ -645,12 +639,16 @@ mod tests {
             density_scale: 1.0,
             ..PlantScatter::default()
         };
-        let shown = PlantsShown {
-            field: Some(Arc::new(FieldSettings { field })),
-            lod: Some(1),
-            field_size: 10.0,
+        let state = BuildState {
+            plants: PlantsShown {
+                field: Some(FieldSettings { field }),
+                lod: Some(1),
+                field_size: 10.0,
+                settings,
+            },
+            ..default()
         };
-        let (line, failed) = plants_line(&shown, &settings);
+        let (line, failed) = plants_line(&state);
         assert!(!failed);
         assert_eq!(
             line,
@@ -666,7 +664,7 @@ mod tests {
 
         // Before any field is sent, the overlay says the plants are coming.
         assert_eq!(
-            plants_line(&PlantsShown::default(), &settings),
+            plants_line(&BuildState::default()),
             ("Building plants…".into(), false)
         );
     }

@@ -1,5 +1,5 @@
-//! The Tree Scatter tab's controls: preset, one row per species, and the
-//! Scatter's shared settings.
+//! A tree Scatter document's editor: one row per species, and the Scatter's
+//! shared settings.
 
 use std::collections::HashMap;
 
@@ -10,7 +10,6 @@ use bevy::feathers::controls::{
 };
 use bevy::feathers::display::{caption, icon, label_small};
 use bevy::prelude::*;
-use bevy::scene::Scene;
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_tree::{
@@ -19,25 +18,26 @@ use procgena_tree::{
 };
 
 use super::{
-    CUSTOM, RowStatus, START_PRESET, added_tree, choice_of, custom_choice, params, per_ha_text,
-    read_grove, row_statuses,
+    CUSTOM, RowStatus, added_tree, choice_of, custom_choice, params, per_ha_text, read_grove,
+    row_statuses,
 };
 use crate::export::{Done, FileOps, read_preset, save_preset};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
-use crate::ui::{SelectOptions, labelled_row};
+use crate::studio::Dormant;
+use crate::ui::SelectOptions;
 
 /// Triggered after any tree Scatter editor's Scatter changes. Read the
-/// Tree Scatter tab's with [`GroveReader::grove`], and another editor's
-/// with [`GroveReader::grove_of`].
+/// selected tree Scatter document's with [`GroveReader::grove`], and any
+/// editor's with [`GroveReader::grove_of`].
 #[derive(Event, Debug)]
 pub struct GroveEdited;
 
-/// A tree Scatter editor's state: the one on the Tree Scatter tab, or one
-/// spawned elsewhere with [`spawn_tree_scatter_editor`].
+/// A tree Scatter editor's state: one per open tree Scatter document, or
+/// one spawned inside another editor with [`spawn_tree_scatter_editor`].
 #[derive(Component)]
 pub struct GroveEditor {
-    /// The preset last chosen, which saved files name as their base, on the
-    /// Tree Scatter tab's editor; `None` on other editors.
+    /// The preset edited, which saved files name as their base, on a tree
+    /// Scatter document's editor; `None` on other editors.
     preset: Option<&'static TreeScatterPreset>,
     /// The panel holding the Scatter's shared settings. Its Scatter has no
     /// species; they come from the rows.
@@ -101,7 +101,7 @@ impl Plugin for GroveEditorPlugin {
 /// Reads the edited tree Scatters.
 #[derive(SystemParam)]
 pub struct GroveReader<'w, 's> {
-    editors: Query<'w, 's, (Entity, &'static GroveEditor)>,
+    editors: Query<'w, 's, (Entity, &'static GroveEditor, Has<Dormant>)>,
     children: Query<'w, 's, &'static Children>,
     rows: Query<'w, 's, &'static SpeciesRow>,
     shares: Query<'w, 's, &'static ParamPanel<ScatterTree>>,
@@ -109,24 +109,26 @@ pub struct GroveReader<'w, 's> {
 }
 
 impl GroveReader<'_, '_> {
-    /// The Tree Scatter tab's editor entity, and its state.
-    fn tab(&self) -> Option<(Entity, &GroveEditor)> {
+    /// The selected tree Scatter document's editor entity, and its state.
+    fn selected(&self) -> Option<(Entity, &GroveEditor)> {
         self.editors
             .iter()
-            .find(|(_, editor)| editor.preset.is_some())
+            .find(|(_, editor, dormant)| editor.preset.is_some() && !dormant)
+            .map(|(entity, editor, _)| (entity, editor))
     }
 
-    /// The tree Scatter edited on the Tree Scatter tab: its species, in row
-    /// order, with its shared settings. `None` before the editor is spawned.
+    /// The tree Scatter of the selected tree Scatter document: its species,
+    /// in row order, with its shared settings. `None` while no tree Scatter
+    /// document is selected.
     pub fn grove(&self) -> Option<TreeScatter> {
-        self.grove_of(self.tab()?.0)
+        self.grove_of(self.selected()?.0)
     }
 
     /// The tree Scatter edited by the editor `entity`, as returned by
-    /// [`spawn_tree_scatter_editor`]. `None` if `entity` is not a tree
-    /// Scatter editor.
+    /// [`spawn_grove_editor`] or [`spawn_tree_scatter_editor`], selected or
+    /// not. `None` if `entity` is not a tree Scatter editor.
     pub fn grove_of(&self, entity: Entity) -> Option<TreeScatter> {
-        let (_, editor) = self.editors.get(entity).ok()?;
+        let (_, editor, _) = self.editors.get(entity).ok()?;
         let panel = self.groves.get(editor.panel).ok()?;
         let trees: Vec<ScatterTree> = self
             .children
@@ -140,10 +142,11 @@ impl GroveReader<'_, '_> {
         Some(panel.value().clone().with_trees(trees))
     }
 
-    /// The tree Scatter preset last chosen, which saved files name as their
-    /// base. `None` before the editor is spawned.
+    /// The preset of the selected tree Scatter document, which saved files
+    /// name as their base. `None` while no tree Scatter document is
+    /// selected.
     pub fn preset(&self) -> Option<&'static TreeScatterPreset> {
-        self.tab()?.1.preset
+        self.selected()?.1.preset
     }
 }
 
@@ -158,46 +161,42 @@ fn editor_of(
         .find(|ancestor| editors.contains(*ancestor))
 }
 
-/// The tree Scatter preset shown when the studio opens.
+/// The tree Scatter preset [`START_PRESET`] names.
+#[cfg(test)]
 pub fn start_preset() -> &'static TreeScatterPreset {
-    TreeScatterPreset::named(START_PRESET).expect("the start preset is built in")
+    TreeScatterPreset::named(super::START_PRESET).expect("the start preset is built in")
 }
 
-/// The tree Scatter shown when the studio opens.
+/// The tree Scatter of [`start_preset`].
+#[cfg(test)]
 pub fn start_grove() -> TreeScatter {
     start_preset().tree_scatter.clone()
 }
 
-/// Spawns the tree Scatter editor, showing [`START_PRESET`], as the last
-/// child of `parent`.
-pub fn spawn_grove_editor(commands: &mut Commands, parent: Entity) {
-    let start = start_grove();
-    let names: Vec<String> = TreeScatterPreset::all()
-        .map(|p| p.name.to_string())
-        .collect();
-    let selected = TreeScatterPreset::all().position(|p| p.key == START_PRESET);
-    let preset: Box<dyn Scene> = Box::new(bsn! {
-        @FeathersSelect { @options: list_rows_from_strings(names, selected) }
-        Node { flex_grow: 1.0 }
-        on(choose_grove_preset)
-    });
+/// Spawns a tree Scatter document's editor for the built-in preset `key`,
+/// with file buttons, as the last child of `parent`, and returns the
+/// editor's entity.
+///
+/// # Panics
+///
+/// Panics if `key` names no built-in tree Scatter preset.
+pub fn spawn_grove_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
+    let preset = TreeScatterPreset::named(key).expect("the tree Scatter preset is built in");
 
-    // Preset, the species rows, and the Add Tree button, above the panel.
+    // The species rows, and the Add Tree button, above the panel.
     let editor = commands
-        .spawn_scene(bsn! {
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                flex_shrink: 0.0,
-                row_gap: px(8),
-            }
-            Children [ @labelled_row("Preset", preset) ]
+        .spawn(Node {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            flex_shrink: 0.0,
+            row_gap: px(8),
+            ..default()
         })
         .insert(ChildOf(parent))
         .id();
-    let (panel, list) = spawn_body(commands, editor, start);
+    let (panel, list) = spawn_body(commands, editor, preset.tree_scatter.clone());
     commands.entity(editor).insert(GroveEditor {
-        preset: Some(start_preset()),
+        preset: Some(preset),
         panel,
         list,
     });
@@ -215,10 +214,11 @@ pub fn spawn_grove_editor(commands: &mut Commands, parent: Entity) {
             ]
         })
         .insert(ChildOf(editor));
+    editor
 }
 
 /// Spawns an editor of `grove`'s species rows and shared settings, without
-/// a preset picker or file buttons, as the last child of `parent`, and
+/// file buttons, as the last child of `parent`, and
 /// returns it. Each edit triggers [`GroveEdited`]; read the Scatter with
 /// [`GroveReader::grove_of`] and the returned entity.
 pub fn spawn_tree_scatter_editor(
@@ -367,44 +367,12 @@ fn row_of(
         .find(|ancestor| rows.contains(*ancestor))
 }
 
-/// Replaces every row and the shared settings with the chosen tree Scatter
-/// preset's.
-fn choose_grove_preset(
-    change: On<ValueChange<Entity>>,
-    options: Query<&OptionIndex>,
-    parents: Query<&ChildOf>,
-    mut editors: Query<&mut GroveEditor>,
-    children: Query<&Children>,
-    mut groves: Query<&mut ParamPanel<TreeScatter>>,
-    mut commands: Commands,
-) {
-    let Some(mut editor) = editor_of(change.source, &parents, &editors)
-        .and_then(|entity| editors.get_mut(entity).ok())
-    else {
-        return;
-    };
-    if let Some(preset) = options
-        .get(change.value)
-        .ok()
-        .and_then(|index| TreeScatterPreset::all().nth(index.0))
-    {
-        editor.preset = Some(preset);
-        show_grove(
-            preset.tree_scatter.clone(),
-            &editor,
-            &children,
-            &mut groves,
-            &mut commands,
-        );
-    }
-}
-
-/// Shows a loaded tree Scatter in the Tree Scatter tab's editor, replacing
-/// every row. The preset picker keeps its choice. Run it with
-/// `World::run_system_cached_with`.
+/// Shows a loaded tree Scatter in the selected tree Scatter document's
+/// editor, replacing every row. The preset, and so the suggested file name,
+/// stays as it was. Run it with `World::run_system_cached_with`.
 pub fn load_grove(
     In(grove): In<TreeScatter>,
-    editors: Query<&GroveEditor>,
+    editors: Query<&GroveEditor, Without<Dormant>>,
     children: Query<&Children>,
     mut groves: Query<&mut ParamPanel<TreeScatter>>,
     mut commands: Commands,
@@ -435,8 +403,8 @@ fn show_grove(
     commands.trigger(GroveEdited);
 }
 
-/// Saves the tree Scatter as a `.tree_scatter.yml` preset file based on the
-/// chosen preset.
+/// Saves the selected tree Scatter as a `.tree_scatter.yml` preset file
+/// based on its document's preset.
 fn save_grove(_: On<Activate>, reader: GroveReader, mut files: FileOps) {
     let (Some(grove), Some(base)) = (reader.grove(), reader.preset()) else {
         return;
@@ -446,7 +414,8 @@ fn save_grove(_: On<Activate>, reader: GroveReader, mut files: FileOps) {
     });
 }
 
-/// Loads a `.tree_scatter.yml` preset file into the editor.
+/// Loads a `.tree_scatter.yml` preset file into the selected tree Scatter
+/// document's editor.
 fn load_grove_file(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let grove = read_grove(text)?;
@@ -929,9 +898,9 @@ mod tests {
 
     use super::*;
     use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
-    use crate::scene::{EnvironmentSettings, ViewerCommand};
+    use crate::scene::{EnvironmentSettings, GroveSubject, ViewerCommand};
 
-    /// The tree Scatter being edited.
+    /// The tree Scatter of the selected document.
     fn edited(studio: &mut HeadlessStudio) -> TreeScatter {
         let world = studio.app_mut().world_mut();
         world
@@ -940,15 +909,21 @@ mod tests {
             .unwrap()
     }
 
-    /// The grove in the last `SetGrove` among `commands`.
+    /// The grove `command` shows, if it shows one.
+    fn grove_shown(command: &ViewerCommand) -> Option<&TreeScatter> {
+        match command {
+            ViewerCommand::Show(show) => show.settings::<GroveSubject>(),
+            _ => None,
+        }
+    }
+
+    /// The grove in the last grove `Show` among `commands`.
     fn last_grove(commands: &[ViewerCommand]) -> TreeScatter {
         commands
             .iter()
             .rev()
-            .find_map(|command| match command {
-                ViewerCommand::SetGrove(grove) => Some((**grove).clone()),
-                _ => None,
-            })
+            .find_map(grove_shown)
+            .cloned()
             .expect("a grove was sent")
     }
 
@@ -997,13 +972,15 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn the_grove_tab_builds_its_grove_and_sends_its_edits() {
+    fn a_grove_document_builds_its_grove_and_sends_its_edits() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        studio.click("Tree Scatter").unwrap();
         let sent = studio.record::<ViewerCommand>();
         let start = start_grove();
+        studio.click("Tree Scatter").unwrap();
+        studio.click(&start_preset().name).unwrap();
 
-        // The starting grove is built, with one row per species.
+        // The opened grove is sent and built, with one row per species.
+        assert_eq!(last_grove(&lock(&sent)), start);
         assert!(built_line(&mut studio).ends_with(" ms"));
         let rows = studio
             .texts()
@@ -1026,8 +1003,7 @@ mod tests {
         );
         assert_eq!(added, edited(&mut studio));
 
-        // A tree Scatter preset replaces every row.
-        studio.click(&start_preset().name).unwrap();
+        // Opening another tree Scatter preset from the Library shows it.
         studio.click(&TreeScatterPreset::pine_stand().name).unwrap();
         let pines = last_grove(&lock(&sent));
         assert_eq!(pines, TreeScatterPreset::pine_stand().tree_scatter);
@@ -1039,6 +1015,7 @@ mod tests {
     fn the_environments_grove_size_sizes_the_grove_shown() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
         studio.click("Tree Scatter").unwrap();
+        studio.click(&start_preset().name).unwrap();
         let start = EnvironmentSettings::default();
         let first = built_line(&mut studio);
         let small = tree_count(&first);
@@ -1059,7 +1036,7 @@ mod tests {
         assert!(
             !lock(&sent)
                 .iter()
-                .any(|command| matches!(command, ViewerCommand::SetGrove(_)))
+                .any(|command| grove_shown(command).is_some())
         );
     }
 
@@ -1069,26 +1046,24 @@ mod tests {
         let dir = folder("grove");
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
         studio.click("Tree Scatter").unwrap();
+        studio.click(&start_preset().name).unwrap();
         studio.click("+ Add Tree").unwrap();
         let saved = edited(&mut studio);
 
-        // The file buttons sit below the rows, so scroll down to them, and
-        // back up to the preset picker. The column stops at either end.
-        let panel = studio.find("Preset").unwrap();
-        let scroll = |studio: &mut HeadlessStudio, down: bool| {
-            studio.scroll(panel, if down { -100.0 } else { 100.0 });
-        };
+        // The file buttons sit below the rows, so scroll down to them. The
+        // column stops at its end.
+        let panel = studio.find("+ Add Tree").unwrap();
+        let scroll = |studio: &mut HeadlessStudio| studio.scroll(panel, -100.0);
 
-        // Saving writes the Scatter; loading it undoes later edits.
-        scroll(&mut studio, true);
+        // Saving writes the Scatter; loading it into another document makes
+        // that document's Scatter the saved one.
+        scroll(&mut studio);
         studio.answer_dialog(Some(dir.join("woods.tree_scatter.yml")));
         studio.click("Save Preset…").unwrap();
         assert!(studio.find("Saved woods.tree_scatter.yml").is_ok());
-        scroll(&mut studio, false);
-        studio.click(&start_preset().name).unwrap();
         studio.click(&TreeScatterPreset::orchard().name).unwrap();
         assert_ne!(edited(&mut studio), saved);
-        scroll(&mut studio, true);
+        scroll(&mut studio);
         studio.answer_dialog(Some(dir.join("woods.tree_scatter.yml")));
         studio.click("Load Preset…").unwrap();
         assert_eq!(edited(&mut studio), saved);
@@ -1096,7 +1071,7 @@ mod tests {
 
         // A file that is not a tree Scatter changes nothing.
         std::fs::write(dir.join("bad.tree_scatter.yml"), "not a preset").unwrap();
-        scroll(&mut studio, true);
+        scroll(&mut studio);
         studio.answer_dialog(Some(dir.join("bad.tree_scatter.yml")));
         studio.click("Load Preset…").unwrap();
         assert!(studio.shows_text_starting("Not tree Scatter settings"));

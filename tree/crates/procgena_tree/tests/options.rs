@@ -3,7 +3,9 @@
 use std::path::Path;
 
 use glam::Vec3;
-use procgena_tree::procgena_fruit::{ClusterKind, Facing, FruitOptions, FruitPreset, ItemShape};
+use procgena_tree::procgena_fruit::{
+    ClusterKind, Facing, FlowerPreset, FruitOptions, FruitPreset, ItemShape,
+};
 use procgena_tree::{
     AttachedFruit, BarkUvMode, OptionsError, PresetFileError, Tree, TreeOptions, TreePreset,
     TreeScatterPreset,
@@ -179,11 +181,10 @@ fn fruit_reads_as_a_preset_key_or_settings_over_a_base() {
     assert_eq!(options.fruit.unwrap().fruit, FruitPreset::apple().fruit);
 
     let options =
-        tree_yaml("tree:\n  flowers: { fruit: { base: dogwood_bloom, maturity: 0.2 } }\n")
-            .unwrap();
+        tree_yaml("tree:\n  flowers: { fruit: { base: dogwood_bloom, maturity: 0.2 } }\n").unwrap();
     let flowers = options.flowers.unwrap().fruit;
     assert_eq!(flowers.maturity, 0.2);
-    assert_eq!(flowers.item, FruitPreset::dogwood_bloom().fruit.item);
+    assert_eq!(flowers.item, FlowerPreset::dogwood_bloom().flower.item);
 
     assert!(tree_yaml("tree:\n  fruit: { fruit: quince }\n").is_err());
 
@@ -336,10 +337,11 @@ fn partial_fruit_and_flower_yaml_keeps_nested_defaults() {
     fruit(&mut expected).fruit.maturity = 0.25;
     flowers(&mut expected).placement.count = 3;
     flowers(&mut expected).fruit.facing = Facing::Up;
-    flowers(&mut expected).fruit.item = ItemShape::Flower(procgena_tree::procgena_fruit::FlowerShape {
-        petal_count: 6,
-        ..Default::default()
-    });
+    flowers(&mut expected).fruit.item =
+        ItemShape::Flower(procgena_tree::procgena_fruit::FlowerShape {
+            petal_count: 6,
+            ..Default::default()
+        });
     assert_eq!(options, expected);
 }
 
@@ -348,7 +350,7 @@ fn fruit_and_flower_settings_round_trip() {
     let mut preset = TreePreset::oak_medium().clone();
     preset.tree.fruit = Some(AttachedFruit::default());
     preset.tree.flowers = Some(AttachedFruit::new(
-        FruitPreset::dogwood_bloom().fruit.clone(),
+        FlowerPreset::dogwood_bloom().flower.clone(),
         Default::default(),
     ));
     let options = &mut preset.tree;
@@ -360,7 +362,11 @@ fn fruit_and_flower_settings_round_trip() {
     flowers(options).fruit.cluster.kind = ClusterKind::Catkin;
     flowers(options).fruit.maturity = 0.9;
 
-    for base in [None, Some(TreePreset::oak_medium()), Some(TreePreset::apple())] {
+    for base in [
+        None,
+        Some(TreePreset::oak_medium()),
+        Some(TreePreset::apple()),
+    ] {
         let text = preset.to_yaml(base);
         assert_eq!(tree_yaml(&text).unwrap(), preset.tree, "{text}");
     }
@@ -370,7 +376,10 @@ fn fruit_and_flower_settings_round_trip() {
     assert_eq!(value["fruit"]["fruit"]["facing"], "outward");
     assert_eq!(value["fruit"]["fruit"]["cluster"]["arrangement"], "umbel");
     assert_eq!(value["fruit"]["default_slots"], 3);
-    assert_eq!(value["flowers"]["fruit"]["cluster"]["arrangement"], "catkin");
+    assert_eq!(
+        value["flowers"]["fruit"]["cluster"]["arrangement"],
+        "catkin"
+    );
     assert_eq!(value["flowers"]["fruit"]["item"]["kind"], "flower");
     assert!(value["flowers"]["placement"]["scale_variance"].is_number());
 }
@@ -414,7 +423,7 @@ fn out_of_range_fruit_and_flower_settings_are_rejected() {
     };
     let check = |change: fn(&mut TreeOptions), error: OptionsError| {
         let mut options = with_clusters();
-        flowers(&mut options).fruit = FruitPreset::dogwood_bloom().fruit.clone();
+        flowers(&mut options).fruit = FlowerPreset::dogwood_bloom().flower.clone();
         change(&mut options);
         assert_eq!(options.validate(), Err(error));
     };

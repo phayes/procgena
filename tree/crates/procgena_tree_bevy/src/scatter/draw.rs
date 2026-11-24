@@ -20,7 +20,7 @@ use procgena_core_bevy::instanced::{
 
 use super::promote::{PromotedAs, PromotedTree};
 use super::{TreeScatterAssets, TreeScatterInstances, TreeScatterVariant};
-use crate::clusters::grove_clusters;
+use crate::clusters::{ClusterImpostors, grove_clusters};
 use crate::spawn::{SpawnSettings, TreeCache, TreeGenerating, tree_size};
 
 /// How much a variant's bounding sphere is enlarged to cover wind sway.
@@ -139,11 +139,30 @@ fn grove_slots(
         })
         .collect();
 
-    // The clusters, after the variants.
+    // The clusters, after the variants, drawn as impostors far away once
+    // their variant's impostors are baked.
+    let baked_variants: Vec<_> = assets
+        .variants()
+        .iter()
+        .filter_map(|variant| variant.impostor())
+        .collect();
+    let baked: HashMap<_, _> = baked_variants
+        .iter()
+        .flat_map(|assets| assets.clusters.iter())
+        .map(|(id, impostor)| (*id, impostor.clone()))
+        .collect();
+    let impostors = baked_variants.first().and_then(|first| {
+        Some(ClusterImpostors {
+            level: settings.fruit_impostor?,
+            quad: &first.quad,
+            baked: &baked,
+        })
+    });
     let (cluster_slots, tables) = grove_clusters(
         assets.variants().iter().map(|variant| variant.clusters()),
         &settings.lod.levels,
         slots.len() as u32,
+        impostors,
     );
     slots.extend(cluster_slots);
     (

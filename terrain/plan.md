@@ -1844,7 +1844,10 @@ Earlier figures in this plan describe the worlds as they were then.
   139 / 274, 100 / 114 and 0 / 0 m.
 - **River crossings on a slope** (`river_crossings_on_a_slope`): flat
   24 → 20, tilted down towards the plains 65 → 64, up towards them
-  6 → 4.
+  6 → 4. Measured again on 2026-11-24 (master after G6, before and after
+  the offers moved to the exact slope, the same both times): flat 19,
+  down 63, up 4. Some later change between these records moved them
+  (not the exact slope).
 - **Bridges in the feature test worlds** (12 configurations): road–river
   crossings 44 → 33, all of them still removing the water; rivers
   crossed twice by one road 3 → 2, each with over 1.5 km of river between
@@ -1884,12 +1887,32 @@ What that asks of this crate, and where it stands:
   - By differences: the soft distance and mixed targets of the border's
     and the fade's pulls, 0.5 m either side in f64 (`pull_gradients`). The
     pulls' closed forms move with the point in ways not worth deriving.
-  - Heights are bit-identical to before. The border offers still read the
-    old central-difference `Relief::gradient`, which averages across the
-    ridges' sharp crests where a point slope jumps (from 1.97 to −1.0 across
-    one measured crest). Switching them would move every agreed profile
-    and could unsettle the re-picked test seeds, so it is left as a
-    question for the user rather than done in G3 step 1.
+  - Heights were bit-identical to before. The border offers then still
+    read the old central-difference `Relief::gradient`, which averages
+    across the ridges' sharp crests where a point slope jumps (from 1.97 to
+    −1.0 across one measured crest).
+  - **Offers on the exact slope** (decided by the user and built
+    2026-11-24). Edge and corner offers now read `Relief::slope`, and the
+    central-difference `Relief::gradient` is gone. On the offer samples of
+    four worlds (hills into plains, three plains–mountains seeds) the two
+    slopes differ by 7e-5 at p50 and 0.014 at most: the fade has already
+    flattened the mountains' crests by the time they reach the border.
+    Across the test worlds (two terrains straight and warped, the triple
+    junction, hills into plains with `RIVER_SEEDS` and `JOIN_SEEDS`) the
+    agreed profiles moved by 0.5 mm on average and 3.3 cm at most in
+    height, and 0.0013 at most in slope; no port appeared or vanished.
+    Every seam, crack, feature and world test passed unchanged, no
+    expected value moved, and no seed needed re-picking (`RIVER_SEEDS`
+    still cross in every configuration, `JOIN_SEEDS` are still the
+    sharpest joins, seed 217's two mountain rivers still cross). The
+    border gap, river-crossing, join-bend and feature-limit probes print
+    the same figures before and after (see "Re-recorded after the
+    string-key seed salts" for the slope-crossing figures, which had
+    drifted before this change).
+  - Cost (cold region bench, old and new binaries run back to back, load
+    about 25–30): offers p50 30 → 31 ms, p95 68 → 80 ms (cold ÷ warm
+    0.7 → 0.8); a whole region plan 631 → 644 ms at p50, within the
+    noise. A busier pair (load about 45) showed the same picture.
   - Precision: mountain heights carry up to about 5e-3 m of f32 rounding,
     so tests compare the slope with differences over 4 m spans
     (`tests/ground.rs`, `relief::tests::slopes_match_the_heights`).

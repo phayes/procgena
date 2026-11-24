@@ -530,8 +530,11 @@ E, the selector fields, ordered Biome rules with a fallback, and pins;
 `WorldPreset` has one preset per scale class. Each region gets its Biome
 (pin, else the first matching rule at its site, else the fallback), its
 own Biome seed and its Terrain's local seed, and `WorldTerrain` builds the
-land from a source that reads the Biome. The scale pair stretches E and
-the selector fields, and the rules' elevation bounds follow `vertical`;
+land from a source that reads the Biome. The scale pair stretches what
+the World generates (E's layers and tilt, the selector fields; the rules'
+elevation bounds follow `vertical`), while anything placed by hand (E's
+bumps, pins by a point or a region id) stays in real metres (decided by
+the user, 2026-11-24);
 Terrain presets, region size and the border warp are not scaled yet
 (roadmap G7). Specimen budgets and the Biome border negotiation come with
 W1.
@@ -609,8 +612,7 @@ roads).
 The terrain knows its slope better than anyone sampling it:
 
 - **Relief** has an analytic gradient from its noise's own derivatives
-  (G2). The border offers still read a central-difference one, which
-  averages across sharp ridge crests; whether to switch them is open.
+  (G2), and the border offers read it too (decided 2026-11-24).
 - **Bending to the borders** and **carving rivers and roads** are smooth
   blends of known shapes, so their gradients follow by the chain rule. Where
   that is not worth the work, the terrain can take central differences
@@ -1799,7 +1801,9 @@ it starts.
   D3 for its first step, then R1 and I1. Milestone I1b.
   - Done in fruit step AC1 (2026-11-24): the crate, `AttachedFruit`,
     per-tree-specimen slots, part paths, export, and the removal of the
-    superseded cluster cards. The rest is still to do.
+    superseded cluster cards. Fruit levels, the attached instancing (B1,
+    B2) and the fruit impostors (D2) are done since; see the "As built"
+    sections in [fruit/plan.md](fruit/plan.md).
 - [x] **Impostor bake options**: per-bake view count and frame size,
   view coverage declared per preset as a lowest viewer elevation (−90° by
   default, −45° for trees, in the bake key), with the octahedral layout
@@ -1824,7 +1828,14 @@ it starts.
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
   ids, `Ground`, `validate()`, hash, export, promotion, and the shared Bevy
-  pattern (`XParams`, `XGenerating`, `XFinished`, `XPart`).
+  pattern (`XParams`, `XGenerating`, `XFinished`, `XPart`). Staged
+  (decided 2026-11-24, [plant/alignment_plan.md](plant/alignment_plan.md)):
+  P1 split, P2 plants in the early Ecotope, P3 World cells and integer
+  placement, P4 a sibling `Scatter` trait for GPU-placed Scatters (C3).
+  The rest follows. Grass blades get addresses (World tile cell plus tile
+  point) but are never listed as copies. The split keeps two crates, and
+  each engine-free core gains an optional `reflect` feature for its
+  options (plant first, the others as a follow-up).
 - [x] **Tags**: mushroom's tags into `procgena_specimen::tags` (done in F1);
   every Scatter offers each slot's `Specimen` plus its copy list (C2).
   Done in C2: `Scatter::slots` names each slot's `SpecimenId` and mix
@@ -1882,7 +1893,10 @@ it starts.
   and shown in its Outline beside the levels below, instead of a tab per
   level (decided by the user 2026-11-24; see
   [procgena/studio_plan.md](procgena/studio_plan.md), milestones ST0–ST9
-  in ROADMAP.md).
+  in ROADMAP.md). ST0 built the registry (`procgena/src/studio/kinds/`),
+  documents, and the Library and Outline as plain lists, with every
+  asset, Scatter, Ecotope and Terrain as a kind; Biome and World register
+  as kinds when B1 and W1 bring their types.
 
 ### Later
 

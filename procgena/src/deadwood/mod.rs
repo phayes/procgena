@@ -1,26 +1,21 @@
-//! Controls for choosing a dead wood preset (a log, branch or stump) and
-//! customising its shape, ends, decay and colours, and for choosing what
-//! the Dead Wood tab shows: that piece, with any cover such as moss grown
-//! on it, or a scatter of sticks.
+//! The dead wood editor: controls for customising a dead wood preset (a
+//! log, branch or stump), its shape, ends, decay and colours, and for
+//! choosing what its document shows: that piece, with any cover such as
+//! moss grown on it, or a scatter of sticks.
 
 pub mod editor;
 pub mod params;
 
 use procgena_clump::ClumpPreset;
-use procgena_deadwood::DeadwoodPreset;
 
 use crate::params::{Group, Section, choice};
 use crate::scene::{DeadwoodSettings, DeadwoodView};
 
-/// The key of the dead wood preset the editor shows first.
+/// The key of the dead wood preset opened when the studio starts on dead
+/// wood.
 pub const START_PRESET: &str = "windthrow_log";
 
-/// The dead wood preset the editor shows first.
-pub fn start_preset() -> &'static DeadwoodPreset {
-    DeadwoodPreset::named(START_PRESET).expect("the start preset is built in")
-}
-
-/// What the Dead Wood tab shows, apart from the piece's own settings.
+/// What a dead wood document shows, apart from the piece's own settings.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct DeadwoodShow {
     /// A single piece, or a scatter of sticks.
@@ -38,12 +33,6 @@ impl DeadwoodShow {
             cover: self.cover,
         }
     }
-}
-
-/// What the scene shows on the Dead Wood tab at first: [`START_PRESET`],
-/// bare.
-pub fn start_settings() -> DeadwoodSettings {
-    DeadwoodShow::default().settings(start_preset().deadwood.clone())
 }
 
 /// The View and Cover controls.

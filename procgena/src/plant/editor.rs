@@ -1,28 +1,26 @@
-//! The Plant tab's controls: preset and every plant setting.
+//! A plant document's editor: every plant setting, and saving and loading
+//! plant files.
 
-use bevy::feathers::controls::{
-    FeathersButton, FeathersSelect, OptionIndex, list_rows_from_strings,
-};
+use bevy::feathers::controls::FeathersButton;
 use bevy::feathers::display::caption;
 use bevy::prelude::*;
-use bevy::scene::Scene;
-use bevy::ui_widgets::{Activate, ValueChange};
+use bevy::ui_widgets::Activate;
 use procgena_plant::prelude::{PlantParams, PlantPreset};
 
-use super::{START_PRESET, params, read_plant, save_plant_preset};
+use super::{params, read_plant, save_plant_preset};
 use crate::export::{Done, FileOps};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
-use crate::ui::labelled_row;
+use crate::studio::Dormant;
 
-/// Triggered after the plant settings change. Read them from the panel named
-/// by [`PlantEditor::panel`].
+/// Triggered after the selected plant's settings change. Read them from the
+/// panel named by [`PlantEditor::panel`].
 #[derive(Event, Debug)]
 pub struct PlantEdited;
 
-/// The plant editor's state. There is one, on the Plant tab.
+/// A plant editor's state, one per open plant.
 #[derive(Component)]
 pub struct PlantEditor {
-    /// The preset last chosen, which saved files name as their base.
+    /// The preset edited, which saved files name as their base.
     preset: &'static PlantPreset,
     /// The panel holding the edited plant.
     panel: Entity,
@@ -35,7 +33,7 @@ impl PlantEditor {
     }
 }
 
-/// Makes the plant editor work, and every `ParamPanel<PlantParams>`. Needs the
+/// Makes plant editors work, and every `ParamPanel<PlantParams>`. Needs the
 /// param panel plugins.
 pub struct PlantEditorPlugin;
 
@@ -50,8 +48,9 @@ impl Plugin for PlantEditorPlugin {
 /// # Panics
 ///
 /// Panics if [`START_PRESET`] names no plant preset.
+#[cfg(test)]
 pub fn start_preset() -> &'static PlantPreset {
-    PlantPreset::named(START_PRESET).expect("START_PRESET names a plant preset")
+    PlantPreset::named(super::START_PRESET).expect("START_PRESET names a plant preset")
 }
 
 /// The plant shown when the studio opens.
@@ -59,43 +58,40 @@ pub fn start_preset() -> &'static PlantPreset {
 /// # Panics
 ///
 /// Panics if [`START_PRESET`] names no plant preset.
+#[cfg(test)]
 pub fn start_plant() -> PlantParams {
     start_preset().plant
 }
 
-/// Spawns the plant editor, showing [`START_PRESET`], as the last child of `parent`.
-pub fn spawn_plant_editor(commands: &mut Commands, parent: Entity) {
-    let names: Vec<String> = PlantPreset::all().map(|p| p.name.to_string()).collect();
-    let selected = PlantPreset::all().position(|p| p.key == START_PRESET);
-    let preset: Box<dyn Scene> = Box::new(bsn! {
-        @FeathersSelect { @options: list_rows_from_strings(names, selected) }
-        Node { flex_grow: 1.0 }
-        on(choose_preset)
-    });
+/// Spawns a plant editor for the built-in preset `key` as the last child of
+/// `parent`, and returns the editor's entity.
+///
+/// # Panics
+///
+/// Panics if `key` names no built-in plant preset.
+pub fn spawn_plant_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
+    let preset = PlantPreset::named(key).expect("the plant preset is built in");
     let editor = commands
-        .spawn_scene(bsn! {
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                flex_shrink: 0.0,
-                row_gap: px(8),
-            }
-            Children [ @labelled_row("Preset", preset) ]
+        .spawn(Node {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            flex_shrink: 0.0,
+            row_gap: px(8),
+            ..default()
         })
         .insert(ChildOf(parent))
         .id();
 
-    // Every other setting; the first section starts open.
-    let panel = spawn_param_panel(commands, editor, start_plant(), params::sections(), &[0]);
+    // Every plant setting; the first section starts open.
+    let panel = spawn_param_panel(commands, editor, preset.plant, params::sections(), &[0]);
     commands
         .entity(panel)
         .observe(|_: On<ParamsChanged>, mut commands: Commands| {
             commands.trigger(PlantEdited);
         });
-    commands.entity(editor).insert(PlantEditor {
-        preset: start_preset(),
-        panel,
-    });
+    commands
+        .entity(editor)
+        .insert(PlantEditor { preset, panel });
 
     // Saving and loading, below the settings.
     commands
@@ -110,12 +106,14 @@ pub fn spawn_plant_editor(commands: &mut Commands, parent: Entity) {
             ]
         })
         .insert(ChildOf(editor));
+    editor
 }
 
-/// Shows a loaded plant in the editor. Run it with `World::run_system_cached_with`.
+/// Shows a loaded plant in the selected plant's editor. Run it with
+/// `World::run_system_cached_with`.
 pub fn load_plant(
     In(plant): In<PlantParams>,
-    editor: Single<&PlantEditor>,
+    editor: Single<&PlantEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<PlantParams>>,
     mut commands: Commands,
 ) {
@@ -125,10 +123,11 @@ pub fn load_plant(
     }
 }
 
-/// Saves the plant as a `.plant.yml` preset file based on the chosen preset.
+/// Saves the selected plant as a `.plant.yml` preset file based on its
+/// preset.
 fn save_plant(
     _: On<Activate>,
-    editor: Single<&PlantEditor>,
+    editor: Single<&PlantEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<PlantParams>>,
     mut files: FileOps,
 ) {
@@ -141,7 +140,7 @@ fn save_plant(
     });
 }
 
-/// Loads a `.plant.yml` preset file into the editor.
+/// Loads a `.plant.yml` preset file into the selected plant's editor.
 fn load_plant_file(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let plant = read_plant(text)?;
@@ -150,26 +149,4 @@ fn load_plant_file(_: On<Activate>, mut files: FileOps) {
             .map_err(|error| format!("Cannot show the plant: {error}"))?;
         Ok(Done::new("Loaded the plant"))
     });
-}
-
-/// Starts over from the chosen preset.
-fn choose_preset(
-    change: On<ValueChange<Entity>>,
-    rows: Query<&OptionIndex>,
-    mut editor: Single<&mut PlantEditor>,
-    mut panels: Query<&mut ParamPanel<PlantParams>>,
-    mut commands: Commands,
-) {
-    let Some(preset) = rows
-        .get(change.value)
-        .ok()
-        .and_then(|index| PlantPreset::all().nth(index.0))
-    else {
-        return;
-    };
-    editor.preset = preset;
-    if let Ok(mut panel) = panels.get_mut(editor.panel) {
-        panel.set_value(preset.plant);
-        commands.trigger(PlantEdited);
-    }
 }

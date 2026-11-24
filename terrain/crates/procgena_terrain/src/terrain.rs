@@ -369,7 +369,7 @@ impl TerrainGenerator {
         (0..count)
             .map(|i| {
                 let (point, normal) = point_at(&segments, i as f64 * step);
-                let slope = self.relief.gradient(point).dot(normal.as_vec2());
+                let slope = self.relief.slope(point).dot(normal) as f32;
                 EdgeSample {
                     height: self.relief.height(point),
                     slope,
@@ -419,7 +419,7 @@ impl TerrainGenerator {
             corner: corner.id,
             region: region.id,
             height: self.relief.height(corner.position),
-            gradient: self.relief.gradient(corner.position),
+            gradient: self.relief.slope(corner.position).as_vec2(),
             stiffness: self.options.edges.stiffness,
         }
     }

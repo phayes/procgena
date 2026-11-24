@@ -23,6 +23,7 @@ use super::{
 };
 use crate::mushrooms::editor::{MushroomEditor, load_mushroom};
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
+use crate::studio::Dormant;
 
 /// Selects whether an exported mushroom includes its simpler versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,20 +110,35 @@ pub fn spawn_mushroom_export(commands: &mut Commands, parent: Entity) {
 fn snapshot(
     editor: &MushroomEditor,
     panels: &Query<&ParamPanel<MushroomOptions>>,
-    settings: &Query<&ParamPanel<MushroomModelSettings>>,
+    settings: &ModelPanels,
 ) -> Option<(MushroomOptions, String, MushroomModelSettings)> {
     let options = panels.get(editor.panel()).ok()?.value().clone();
-    let settings = *settings.single().ok()?.value();
+    let settings = *settings
+        .iter()
+        .find(|(_, visible)| visible.get())?
+        .0
+        .value();
     Some((options, editor.file_stem(), settings))
 }
+
+/// The export settings panels, one per open mushroom, with whether each is
+/// on screen: only the selected mushroom's is.
+type ModelPanels<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ParamPanel<MushroomModelSettings>,
+        &'static InheritedVisibility,
+    ),
+>;
 
 /// Saves the mushroom settings as a `.mushroom.yml` preset file based on
 /// the chosen preset.
 fn save_mushroom_preset(
     _: On<Activate>,
-    editor: Single<&MushroomEditor>,
+    editor: Single<&MushroomEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<MushroomOptions>>,
-    settings: Query<&ParamPanel<MushroomModelSettings>>,
+    settings: ModelPanels,
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {
@@ -148,9 +164,9 @@ fn load_mushroom_preset(_: On<Activate>, mut files: FileOps) {
 /// Exports the mushroom as a GLB model.
 fn export_mushroom_glb(
     _: On<Activate>,
-    editor: Single<&MushroomEditor>,
+    editor: Single<&MushroomEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<MushroomOptions>>,
-    settings: Query<&ParamPanel<MushroomModelSettings>>,
+    settings: ModelPanels,
     mut files: FileOps,
 ) {
     if let Some((options, stem, settings)) = snapshot(&editor, &panels, &settings) {
@@ -163,9 +179,9 @@ fn export_mushroom_glb(
 /// Exports the mushroom as an OBJ model with its material file.
 fn export_mushroom_obj(
     _: On<Activate>,
-    editor: Single<&MushroomEditor>,
+    editor: Single<&MushroomEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<MushroomOptions>>,
-    settings: Query<&ParamPanel<MushroomModelSettings>>,
+    settings: ModelPanels,
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {

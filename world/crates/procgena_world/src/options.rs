@@ -1,11 +1,11 @@
 //! Settings for one World.
 
-use std::collections::BTreeSet;
 use std::fmt;
 
+use glam::DVec2;
 use procgena_terrain::{
-    Convergence, ElevationError, ElevationOptions, HeightBump, MAX_OCTAVES, NoiseLayer,
-    RegionGraphError, RegionGraphOptions, relief_meeting_is_valid,
+    Convergence, ElevationError, ElevationOptions, MAX_OCTAVES, NoiseLayer, RegionGraphError,
+    RegionGraphOptions, RegionId, relief_meeting_is_valid,
 };
 use serde::{Deserialize, Serialize};
 
@@ -13,10 +13,11 @@ use serde::{Deserialize, Serialize};
 /// split into regions, the fields that choose each region's Biome, the
 /// rules that turn field values into Biomes, and pinned regions.
 ///
-/// Landscape lengths and heights here (the world elevation E, the selector
-/// fields and the rules' elevation bounds) are written at reference scale
-/// 1, and [`scale`](Self::scale) stretches them when the World is built.
-/// Region sizes and border warp are in real metres and never scaled.
+/// The settings of what the World generates (E's noise layers and tilt,
+/// the selector fields and the rules' elevation bounds) are written at
+/// reference scale 1, and [`scale`](Self::scale) stretches them when the
+/// World is built. Anything placed by hand (E's bumps, pins), region sizes
+/// and border warp are in real metres and never scaled.
 ///
 /// Start from [`Self::default()`] (the medium scale class) or a
 /// [`WorldPreset`](crate::WorldPreset), or read a `.world.yml` file with
@@ -32,10 +33,10 @@ pub struct WorldOptions {
     pub scale: WorldScale,
     /// How the plane is split into regions, in real metres (not scaled).
     pub regions: RegionGraphOptions,
-    /// The world elevation E every region stands on, at reference scale.
-    /// Its noise layers, tilt and bumps (centres, radii and heights) are
-    /// stretched by the scale. Its `max_slope` is not: it is checked
-    /// against the stretched field.
+    /// The world elevation E every region stands on. Its noise layers and
+    /// tilt are written at reference scale and stretched by the scale. Its
+    /// bumps are placed by hand in real metres and are not stretched. Its
+    /// `max_slope` is checked against the field as built.
     pub elevation: ElevationOptions,
     /// How neighbouring terrains become alike near their shared borders.
     pub convergence: Convergence,
@@ -43,8 +44,8 @@ pub struct WorldOptions {
     pub fields: SelectorFields,
     /// Which Biome fills a region, from the field values at its site.
     pub biomes: BiomeRules,
-    /// Regions whose Biome is set by hand, whatever the rules say. At most
-    /// one pin per region.
+    /// Regions whose Biome is set by hand, whatever the rules say, by a
+    /// point in the region or by its id. At most one pin per region.
     pub pins: Vec<BiomePin>,
 }
 
@@ -67,12 +68,12 @@ impl Default for WorldOptions {
 
 /// How much a World stretches its landscape against reference scale 1.
 ///
-/// `horizontal` multiplies every landscape wavelength and distance (E's
-/// layers, its bumps' centres and radii, the selector fields' wavelengths);
-/// `vertical` multiplies every landscape height (E's layers and bumps, the
-/// rules' elevation bounds). Slopes change by `vertical / horizontal`.
-/// Objects, road and river widths, chunks and level of detail never
-/// scale.
+/// The scale stretches what the World generates: `horizontal` multiplies
+/// every landscape wavelength (E's layers, the selector fields), and
+/// `vertical` every generated height (E's layers, the rules' elevation
+/// bounds). Slopes change by `vertical / horizontal`. Anything placed by
+/// hand, such as E's bumps and pins, stays in real metres, as do objects,
+/// road and river widths, chunks and level of detail.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldScale {
@@ -296,17 +297,69 @@ impl FieldRange {
 
 /// A region whose Biome is set by hand.
 ///
+/// A pin names its region in one of two ways, and must give exactly one:
+///
+/// - `at: [x, z]`, a point in real metres: the pin goes to whichever
+///   region holds that point. It stays at the same place on the map if the
+///   region size or the seed changes. A point right on a border may pin
+///   either region beside it.
+/// - `region: <id>`, the region's id exactly: the number in its
+///   [`RegionId`](procgena_terrain::RegionId), as
+///   [`World::region_at`](crate::World::region_at) gives it. It follows the
+///   region, not the place: with another region size it lands elsewhere.
+///
+/// ```yaml
+/// pins:
+///   - at: [0.0, 0.0]
+///     biome: mountains
+///   - region: 17179869182
+///     biome: rolling_hills
+/// ```
+///
 /// A pin chooses the Biome only. To make a pinned mountain range actually
-/// stand high, also add a [`HeightBump`] to the World's elevation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// stand high, also add a [`HeightBump`](procgena_terrain::HeightBump) to
+/// the World's elevation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BiomePin {
-    /// The region's id: the number in its
-    /// [`RegionId`](procgena_terrain::RegionId), as
-    /// [`World::region_at`](crate::World::region_at) gives it.
-    pub region: u64,
+    /// A point in the region, x and z in metres. Give this or
+    /// [`region`](Self::region), not both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<[f64; 2]>,
+    /// The region's id. Give this or [`at`](Self::at), not both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<u64>,
     /// The Biome, by key.
     pub biome: String,
+}
+
+impl BiomePin {
+    /// A pin giving `biome` to the region that holds `point` (x and z in
+    /// metres).
+    pub fn at(point: DVec2, biome: impl Into<String>) -> Self {
+        Self {
+            at: Some(point.to_array()),
+            region: None,
+            biome: biome.into(),
+        }
+    }
+
+    /// A pin giving `biome` to the region with id `region`.
+    pub fn region(region: RegionId, biome: impl Into<String>) -> Self {
+        Self {
+            at: None,
+            region: Some(region.0),
+            biome: biome.into(),
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        match (self.at, self.region) {
+            (Some(p), None) => p.iter().all(|v| v.is_finite()),
+            (None, Some(_)) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Why World settings were refused.
@@ -329,8 +382,9 @@ pub enum WorldOptionsError {
     /// The rule at this index has a bound that isn't finite, or a `min`
     /// above its `max`.
     Rule(usize),
-    /// More than one pin names this region.
-    DuplicatePin(u64),
+    /// The pin at this index gives both a point and a region id, or
+    /// neither, or a point that isn't finite.
+    Pin(usize),
 }
 
 impl fmt::Display for WorldOptionsError {
@@ -350,7 +404,10 @@ impl fmt::Display for WorldOptionsError {
                 f,
                 "Biome rule {i} has a bound that isn't finite, or a min above its max"
             ),
-            Self::DuplicatePin(id) => write!(f, "region {id} is pinned more than once"),
+            Self::Pin(i) => write!(
+                f,
+                "pin {i} must give either a finite point `at` or a `region` id"
+            ),
         }
     }
 }
@@ -397,19 +454,17 @@ impl WorldOptions {
                 return Err(WorldOptionsError::Rule(i));
             }
         }
-        let mut pinned = BTreeSet::new();
-        for pin in &self.pins {
-            if !pinned.insert(pin.region) {
-                return Err(WorldOptionsError::DuplicatePin(pin.region));
-            }
+        if let Some(i) = self.pins.iter().position(|pin| !pin.is_valid()) {
+            return Err(WorldOptionsError::Pin(i));
         }
         Ok(())
     }
 
     /// The world elevation E as the World builds it: [`elevation`](Self::elevation)
-    /// stretched by the scale. Layer and bump heights are multiplied by
-    /// `vertical`, wavelengths and bump centres and radii by `horizontal`,
-    /// and the tilt by `vertical / horizontal`. `max_slope` is kept.
+    /// with its noise layers and tilt stretched by the scale. Layer heights
+    /// are multiplied by `vertical`, wavelengths by `horizontal`, and the
+    /// tilt by `vertical / horizontal`. Bumps are placed by hand in real
+    /// metres, so they are kept as written, and so is `max_slope`.
     pub fn scaled_elevation(&self) -> ElevationOptions {
         let WorldScale {
             horizontal,
@@ -426,15 +481,7 @@ impl WorldOptions {
             uplift: layer(&e.uplift),
             tilt: e.tilt * (vertical / horizontal),
             max_slope: e.max_slope,
-            bumps: e
-                .bumps
-                .iter()
-                .map(|b| HeightBump {
-                    centre: b.centre * horizontal,
-                    radius: b.radius * horizontal,
-                    height: (f64::from(b.height) * vertical) as f32,
-                })
-                .collect(),
+            bumps: e.bumps.clone(),
         }
     }
 }
