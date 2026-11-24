@@ -139,10 +139,14 @@ pub(crate) struct StoneKey {
 }
 
 impl StoneKey {
-    /// The rock as a specimen: slot 0 of its pool, with its own seed
-    /// standing in for the World seed, as for every asset built on its own.
-    /// Pooled variants carry their specimen's seed, so each has its own id.
-    pub(crate) fn specimen_id(&self) -> SpecimenId {
+    /// An interim specimen id for the rock, used until the caller passes
+    /// its real [`SpecimenId`]: slot 0 of its pool, with its build seed (its
+    /// options' `default_seed`) in the World seed's place.
+    ///
+    /// For a rock built on its own this is the id the architecture gives it.
+    /// A pool variant's build seed is already its real specimen's seed, so
+    /// each variant still gets its own id, but not its real World slot.
+    pub(crate) fn interim_specimen_id(&self) -> SpecimenId {
         SpecimenId::new(self.seed, self.pool, 0)
     }
 

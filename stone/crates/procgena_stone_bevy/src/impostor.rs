@@ -104,7 +104,7 @@ fn stone_key(key: &StoneKey, impostor: ImpostorLevel, settings: &SpawnSettings) 
         settings.texture_root, settings.texture_compression
     );
     ImpostorKey::specimen(
-        key.specimen_id(),
+        key.interim_specimen_id(),
         impostor.bake,
         &[
             &level,

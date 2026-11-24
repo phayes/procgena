@@ -4,6 +4,7 @@
 
 use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
+use procgena_core::SpecimenId;
 use procgena_impostor::{
     BakeOutput, BakePart, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial, ImpostorQuad,
     ImpostorRequest, Impostors,
@@ -58,7 +59,10 @@ pub(crate) fn request_impostors(
         if impostor.baked_level >= generated.level_count() {
             continue;
         }
-        let impostor_key = tree_key(key, impostor, &settings);
+        // The one place a tree's specimen id is chosen. Groves should pass
+        // each variant's real SpecimenId here instead of the interim one.
+        let specimen = key.interim_specimen_id();
+        let impostor_key = tree_key(specimen, impostor, &settings);
         let ready = impostors
             .request(&mut commands, impostor_key, || {
                 tree_request(impostor_key, &generated, impostor, &mut materials)
@@ -76,17 +80,21 @@ pub(crate) fn request_impostors(
     }
 }
 
-/// The impostor key of the tree under `key`: its specimen, baked with
-/// `impostor`'s settings from its baked level's detail and textures, and
-/// this crate's version.
-fn tree_key(key: TreeKey, impostor: ImpostorLevel, settings: &SpawnSettings) -> ImpostorKey {
+/// The impostor key of tree specimen `specimen`, baked with `impostor`'s
+/// settings from its baked level's detail and textures, and this crate's
+/// version.
+fn tree_key(
+    specimen: SpecimenId,
+    impostor: ImpostorLevel,
+    settings: &SpawnSettings,
+) -> ImpostorKey {
     let level = format!("{:?}", settings.lod.levels.get(impostor.baked_level));
     let textures = format!(
         "{:?} {:?}",
         settings.texture_root, settings.texture_compression
     );
     ImpostorKey::specimen(
-        key.specimen_id(),
+        specimen,
         impostor.bake,
         &[
             level.as_bytes(),
