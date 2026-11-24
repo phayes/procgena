@@ -1,13 +1,18 @@
 [package]
 name = "procgena_biome"
 version = "0.1.0"
-description = "Biomes: one region's terrain and the ecotopes that cover it"
+description = "Biomes and Ecotopes: one region's terrain and the ground cover that grows on it"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-procgena_terrain = { path = "../../../terrain/crates/procgena_terrain" }
-
-[dev-dependencies]
 glam = { workspace = true }
+procgena_core = { path = "../../../core/crates/procgena_core" }
+procgena_deadwood = { path = "../../../deadwood/crates/procgena_deadwood" }
+procgena_mushroom = { path = "../../../mushroom/crates/procgena_mushroom" }
+procgena_stone = { path = "../../../stone/crates/procgena_stone" }
+procgena_terrain = { path = "../../../terrain/crates/procgena_terrain" }
+procgena_tree = { path = "../../../tree/crates/procgena_tree" }
+serde = { workspace = true }
+serde_json = { workspace = true }

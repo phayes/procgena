@@ -5384,7 +5384,14 @@ name = "procgena_biome"
 version = "0.1.0"
 dependencies = [
  "glam 0.33.12",
+ "procgena_core",
+ "procgena_deadwood",
+ "procgena_mushroom",
+ "procgena_stone",
  "procgena_terrain",
+ "procgena_tree",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
