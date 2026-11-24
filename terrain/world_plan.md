@@ -328,7 +328,7 @@ impl HeightField for WorldTerrain { … }
 | W1 | E: options, calibration, slope bound (tilt and bumps included), no sea-level field (E's zero is sea level); `Terrain` adds E; the plane-shift check on negotiation and a seam test on curved E (a bump across the border, noise on); existing tests pass on E = 0 and on a sloped E. **Deferred to W4:** making the preset offsets equal (today 20 / 50 / 120 m), as a separate commit with the border figures re-recorded, after the user's terrain review. **Exit test:** measure the river crossing rate on a sloped E (built: 65 in 300 tilted towards the plains, against 24 flat; see "W1 as built") | terrain 2.5 |
 | W2 | Region graph: staggered jittered lattice, Voronoi polygons, short-edge collapse, corner incidence, owner lookup; purity, tiling and window-size tests | — (in parallel with W1) |
 | W3 | Border segment index in `Terrain`; border warp (subdivided, noise-displaced edges); no-crossing check. **Exit test:** the existing border, crack and feature suites pass on warped fixtures | W2 |
-| W3b | Border nodes shared along a whole edge instead of per piece (see "Before W4") | W3 |
+| W3b | Cheaper border pulls: an exact skip for points beyond the fades and a faster integral; shared nodes measured and not built (see "W3b as built") | W3 |
 | W4 | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source | W1, W3b |
 | W5 | Moved to the World crate: selector fields, Biome rules and pins, with empty Biomes (milestones B0 and W0 in ROADMAP.md) | — |
 | W6 | Image example of a large world; drainage measurement. Built on W4 with a closure source; redone through the World once W0 exists | W4 |
@@ -528,13 +528,40 @@ impl HeightField for WorldTerrain { … }
 - **Follow-up:** keep the height path in f64 until the final cast, so the
   seam test can go back to short steps.
 
-### Before W4: shared border nodes along an edge
+### W3b as built: cheaper border pulls (2026-11-23)
 
-The border pull anchors its target nodes per straight piece, so a warped
-edge pays for every piece. Share the nodes along a whole edge (one set
-per polygon side, interpolated along its polyline) to bring warped cost
-back towards straight. Do this as its own task before W4, with the seam
-and feature suites on warped worlds as the check.
+The plan was to share target nodes along a whole edge. Measuring first
+showed that would save little, so W3b changed course (the user chose
+the faster integral).
+
+- **Where warped cost goes** (two-terrain world, 30,000 heights on a
+  20 m grid, at the start of W3b): per height, 39 distance integrals
+  against 5 straight, 27 pieces read for targets against 3.4, 44 target
+  intervals against 20, and 77 target reads against 27. The closed-form
+  integral is about 35% of warped time, split evenly between the
+  distance and target passes; target reads, the only part shared nodes
+  would cut, are about 10%.
+- **Exact skip** (`border::surely_beyond`): before adding pulls, a bound
+  from each piece's plain distance and length proves that a point is
+  beyond the fade or the bending. Before it, 60% of fade passes and 80%
+  of bending passes worked out the whole soft distance only to find that;
+  it now skips almost all of them (1.18 of the 1.19 fade passes per
+  height that ended beyond the width). Heights don't change.
+- **Faster integral:** the far-from-foot series is worked out per power
+  at compile time, and its value at twice the distance across, which
+  most stretches start from and which needs the most terms, is a
+  constant times a power of the distance. A near-and-far integral went
+  from 79 to 33 ns.
+- **Result:** every f32 height is bit-identical to before (hashed over
+  carved and uncarved grids of six worlds, warped and straight). Heights
+  are about 10–17% faster for both straight and warped borders, measured
+  under heavy machine load. Warped is still about 2.7× straight.
+- **Left for later:** the gap comes from the number of pieces, which only
+  height-moving changes can cut: points every quarter wavelength instead
+  of every eighth, cheaper approximate integrals for far pieces, or
+  shared target nodes (at most about 10%, and the per-edge anchor must
+  stay continuous at bends). These wait for the performance sweep unless
+  the user decides otherwise.
 
 ## Open questions
 
