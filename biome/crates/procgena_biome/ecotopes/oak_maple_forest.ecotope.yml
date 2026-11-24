@@ -1,0 +1,115 @@
+# A built-in EcotopePreset. Copy it, change what you like, and read it with
+# EcotopePreset::from_yaml, or name it as the `base` of your own file and
+# give only what differs.
+name: Oak and maple forest
+description: A mature deciduous forest of oaks and big-leaf maples with the odd cedar, over bushes, ferns and shrubs, mossy boulders, fallen logs, old stumps and clusters of mushrooms.
+group: Forest
+ecotope:
+  default_seed: 23
+  scatters:
+    canopy:
+      priority: 920
+      clearance: 0.8
+      kind: tree
+      density_scale: 1.0
+      trees:
+        - { tree: oak_large, density_scale: 0.35 }
+        - { tree: big_leaf_maple_large, density_scale: 0.3 }
+        - { tree: oak_medium, density_scale: 0.45, clustering: 0.4 }
+        - { tree: big_leaf_maple_medium, density_scale: 0.4, clustering: 0.4 }
+        - { tree: cedar, density_scale: 0.06 }
+    boulders:
+      priority: 860
+      clearance: 0.3
+      kind: stone
+      classes:
+        - key: boulders
+          stone: lichen_boulder
+          variants: 4
+          density: 0.004
+          spacing: 6.0
+          size: [0.6, 1.3]
+          max_slope: 30.0
+          patchiness: 0.4
+          patch_size: 25.0
+        - key: rocks
+          stone: boulder
+          variants: 3
+          density: 0.015
+          spacing: 1.5
+          members: [1, 4]
+          cluster_radius: 0.8
+          size: [0.25, 0.6]
+          patchiness: 0.5
+          patch_size: 10.0
+    logs:
+      priority: 820
+      clearance: 0.3
+      kind: deadwood
+      piece: mossy_log
+      density: 0.01
+      min_spacing: 5.0
+      variants: 3
+      diameter: [0.3, 0.6]
+      length: [3.0, 7.0]
+      decay: [1.0, 3.0]
+    stumps:
+      priority: 810
+      clearance: 0.2
+      kind: deadwood
+      piece: rotten_stump
+      density: 0.006
+      min_spacing: 4.0
+      variants: 3
+      diameter: [0.4, 0.8]
+      length: [0.3, 0.9]
+      decay: [1.0, 3.0]
+    bushes:
+      priority: 640
+      clearance: 0.3
+      kind: tree
+      density_scale: 0.3
+      trees:
+        - { tree: bush_1, density_scale: 0.4, clustering: 0.6 }
+        - { tree: bush_2, density_scale: 0.3, clustering: 0.6 }
+        - { tree: bush_3, density_scale: 0.3, clustering: 0.6 }
+    chanterelles:
+      priority: 220
+      clearance: 0.1
+      kind: mushroom
+      mushroom: { base: chanterelle, cluster: { stems: 4, size_variation: 0.5 } }
+      density: 0.03
+      min_spacing: 2.0
+      scale_min: 0.8
+      scale_max: 1.2
+      specimens: 3
+    ink_caps:
+      priority: 210
+      clearance: 0.1
+      kind: mushroom
+      mushroom: { base: shaggy_ink_cap, cluster: { stems: 5, size_variation: 0.6 } }
+      density: 0.015
+      min_spacing: 3.0
+      scale_min: 0.8
+      scale_max: 1.2
+      specimens: 2
+    understory:
+      priority: 150
+      kind: plant
+      base: forest_understory
+      density_scale: 1.5
+      max_slope: 40.0
+  ground:
+    soil:
+      material: forest_soil
+      order: 100
+    moss:
+      material: moss
+      order: 320
+      opacity: 0.8
+      noise: { wavelength: 8.0, contrast: 2.5, threshold: 0.5 }
+    dirt:
+      material: bare_dirt
+      order: 450
+      under:
+        - { scatter: boulders, reach: { metres: 0.6 }, falloff: { fall: [0.5, 1.0] } }
