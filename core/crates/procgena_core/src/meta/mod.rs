@@ -22,7 +22,9 @@
 //!     settings: [carve.steps, carve.depth]
 //!     groups:                  # optional titled groups after the settings
 //!       - { title: Edges, shown_if: "@carved", settings: [carve.smoothness] }
-//! settings:                    # one entry per setting, by path or pattern
+//!       # A group may name a control the tool draws itself, such as a list
+//!       # editor: { custom: cut_list, settings: [carve.cuts] }
+//! settings:                   # one entry per setting, by path or pattern
 //!   carve.steps:
 //!     label: Cuts
 //!     description: How many flat cuts shape the rock.

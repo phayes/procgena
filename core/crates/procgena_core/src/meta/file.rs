@@ -93,6 +93,10 @@ pub struct GroupMeta {
     /// The settings' paths or patterns, in display order. A pattern lists
     /// every matching setting of the value, in the value's order.
     pub settings: Vec<Pattern>,
+    /// The name of the control a tool draws in place of the group's
+    /// generated controls, such as a list editor, or `None` for generated
+    /// controls. The settings are still listed and described here.
+    pub custom: Option<String>,
 }
 
 /// What a metadata file says about one setting, or every setting a
@@ -269,6 +273,8 @@ struct RawGroup {
     title: Option<String>,
     #[serde(default)]
     shown_if: Option<String>,
+    #[serde(default)]
+    custom: Option<String>,
     settings: Vec<String>,
 }
 
@@ -400,6 +406,7 @@ impl KindMeta {
                         title: None,
                         shown_if: None,
                         settings: raw.settings.iter().map(|s| Pattern::parse(s)).collect(),
+                        custom: None,
                     });
                 }
                 for (g, group) in raw.groups.into_iter().enumerate() {
@@ -412,6 +419,7 @@ impl KindMeta {
                         title: group.title,
                         shown_if,
                         settings: group.settings.iter().map(|s| Pattern::parse(s)).collect(),
+                        custom: group.custom,
                     });
                 }
                 if let Some(section_if) = section_if {

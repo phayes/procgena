@@ -22,7 +22,7 @@ sections:
     groups:
       - title: Lengths
         settings: [length.*]
-      - settings: [children.*]
+      - { custom: child_list, settings: [children.*] }
 settings:
   true_flag: { label: Flag, hidden: true }
   size: { label: Size, description: How big., range: [0.1, 10], step: 0.1, scale: exponential, unit: m }
@@ -178,6 +178,8 @@ fn layout_expands_patterns_in_order_with_parts() {
         .collect();
     assert_eq!(lengths, ["length.0", "length.1", "length.2"]);
     assert_eq!(arms.groups[0].settings[0].part, Some("arms"));
+    assert_eq!(arms.groups[0].group.custom, None);
+    assert_eq!(arms.groups[1].group.custom.as_deref(), Some("child_list"));
     assert_eq!(meta.part_of(&path("size")), Some("body"));
 }
 
