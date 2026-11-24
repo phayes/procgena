@@ -25,6 +25,19 @@ fn view_direction(cell: vec2<u32>, frames: u32) -> vec3<f32> {
     return normalize(vec3<f32>(x, 1.0 - abs(x) - abs(z), z));
 }
 
+/// The elevation view of `count`, in the `Elevations` layout, nearest to
+/// looking from `direction` (from the object towards the viewer), whatever
+/// its azimuth about +Y. View `index` sits in cell `(index % frames, index / frames)`.
+fn elevation_index(direction: vec3<f32>, count: u32) -> u32 {
+    var d = direction;
+    if dot(d, d) < 1e-12 {
+        d = vec3<f32>(0.0, 0.0, 1.0);
+    }
+    let y = clamp(normalize(d).y, -1.0, 1.0);
+    let t = (asin(y) / 3.14159265 + 0.5) * f32(count);
+    return min(u32(max(floor(t), 0.0)), count - 1u);
+}
+
 /// The axes of a view's image: right and up across it, and back towards the
 /// viewer, as the columns of a matrix.
 fn view_basis(direction: vec3<f32>) -> mat3x3<f32> {
