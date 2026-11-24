@@ -14,10 +14,13 @@ use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_impostor::ImpostorLevel;
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
-    BranchShape, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
-    TreeCacheKey, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod,
+    BranchShape, ClusterPart, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression,
+    TextureSize, TreeCacheKey, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod,
 };
 
+use crate::clusters::{
+    BuiltClusters, TreeClusters, add_meshes, build_clusters, single_tree_clusters,
+};
 use crate::impostor::{ImpostorShown, TreeImpostorAssets};
 use crate::material::{
     BarkTextures, LeafTextures, TreeMaterial, average_bark_material, bark_material,
@@ -86,10 +89,12 @@ pub enum TreePartKind {
     Bark,
     /// The tree's leaves, drawn together.
     Leaves,
-    /// The tree's fruit and their stalks, drawn together.
-    Fruit,
-    /// The tree's flowers and their stalks, drawn together.
-    Flowers,
+    /// The tree's fruit and flower clusters. One child draws them all, at
+    /// every detail level, through the shared instanced renderer of
+    /// `procgena_core_bevy` (an `InstancedScatter` with its
+    /// `InstancedAttached`): each cluster is drawn at the detail its own
+    /// distance gives, until the tree's impostor takes over. Its `lod` is 0.
+    Clusters,
     /// A single support wire for a trellis.
     Trellis,
     /// The tree's impostor: one quad showing a baked view of the tree,
@@ -302,13 +307,22 @@ struct LevelMeshes {
     level: TreeLevel,
     bark: Option<PartMesh<Mesh>>,
     leaves: Option<PartMesh<Mesh>>,
-    fruit: Option<PartMesh<Mesh>>,
-    flowers: Option<PartMesh<Mesh>>,
 }
 
-/// Generated detail levels and the tree as a tagged specimen, or the
-/// validation error that prevented generation.
-type TaskOutput = Result<(Vec<LevelMeshes>, Arc<Specimen>), OptionsError>;
+/// What a background task generates for one tree.
+struct TaskMeshes {
+    levels: Vec<LevelMeshes>,
+    /// The tree as a tagged specimen.
+    specimen: Arc<Specimen>,
+    /// The cluster specimens and tables, drawn instanced.
+    clusters: Vec<BuiltClusters>,
+    /// The impostor's baked level's fruit and flowers, each merged into one
+    /// mesh, for the impostor bake only.
+    baked_clusters: Vec<(ClusterPart, Mesh)>,
+}
+
+/// A generated tree, or the validation error that prevented generation.
+type TaskOutput = Result<TaskMeshes, OptionsError>;
 
 /// Mesh handles and materials for one detail level.
 struct LevelAssets {
@@ -316,10 +330,6 @@ struct LevelAssets {
     bark: Option<PartMesh<Handle<Mesh>>>,
     /// Leaf mesh, absent when this level contains no leaf triangles.
     leaves: Option<PartMesh<Handle<Mesh>>>,
-    /// Fruit mesh, absent when this level contains no fruit triangles.
-    fruit: Option<PartMesh<Handle<Mesh>>>,
-    /// Flower mesh, absent when this level contains no flower triangles.
-    flowers: Option<PartMesh<Handle<Mesh>>>,
     /// Bark material, shared by levels with matching bark settings and sidedness.
     bark_material: Handle<TreeMaterial>,
     /// Leaf material, shared by levels using the same leaf image selection.
@@ -335,8 +345,11 @@ pub(crate) struct Generated {
     /// Each level's fade bands, then the impostor's, once the impostor is
     /// baked. `None` when trees have no impostor.
     impostor_ranges: Option<Vec<LodRange>>,
-    fruit: Handle<TreeMaterial>,
-    flowers: Handle<TreeMaterial>,
+    /// The tree's fruit and flower cluster specimens and tables.
+    pub(crate) clusters: Vec<TreeClusters>,
+    /// The impostor's baked level's fruit and flowers, merged, with their
+    /// materials, for the impostor bake only.
+    pub(crate) baked_clusters: Vec<(Handle<Mesh>, Handle<TreeMaterial>)>,
     /// One cylinder mesh and material shared by all wires, plus each wire's placement.
     pub(crate) trellis: Option<(Handle<Mesh>, Handle<StandardMaterial>, Vec<Transform>)>,
     /// The tree as a tagged specimen, shared by every tree with these options.
@@ -344,8 +357,23 @@ pub(crate) struct Generated {
 }
 
 impl Generated {
+    /// A sphere around every mesh part at every level, in the tree's own
+    /// coordinates, enlarged by `allowance` for wind sway; a point at the
+    /// origin for a tree with no parts.
+    pub(crate) fn bounds(&self, allowance: f32) -> (Vec3, f32) {
+        let (min, max) = self.parts().map(|(_, _, part, _)| part.extent).fold(
+            (Vec3::INFINITY, Vec3::NEG_INFINITY),
+            |(min, max), aabb: Aabb| (min.min(aabb.min().into()), max.max(aabb.max().into())),
+        );
+        if min.x > max.x {
+            return (Vec3::ZERO, 0.0);
+        }
+        let center = (min + max) / 2.0;
+        (center, (max - center).length() * allowance)
+    }
+
     /// Every mesh part of every detail level, nearest level first, with its
-    /// material. Trellis wires are not included.
+    /// material. Trellis wires and clusters are not included.
     pub(crate) fn parts(
         &self,
     ) -> impl Iterator<
@@ -363,8 +391,6 @@ impl Generated {
                 [
                     (TreePartKind::Bark, &level.bark, &level.bark_material),
                     (TreePartKind::Leaves, &level.leaves, &level.leaf_material),
-                    (TreePartKind::Fruit, &level.fruit, &self.fruit),
-                    (TreePartKind::Flowers, &level.flowers, &self.flowers),
                 ]
                 .into_iter()
                 .filter_map(move |(kind, mesh, material)| {
@@ -434,9 +460,10 @@ impl TreeCache {
         let key = TreeKey(options.cache_key());
         self.trees.entry(key).or_insert_with(|| {
             let levels = settings.lod.levels.clone();
+            let baked = settings.impostor.map(|impostor| impostor.baked_level);
             let task_options = options.clone();
-            let task =
-                AsyncComputeTaskPool::get().spawn(async move { generate(&task_options, &levels) });
+            let task = AsyncComputeTaskPool::get()
+                .spawn(async move { generate(&task_options, &levels, baked) });
             Entry::Pending(task, options.clone())
         });
         key
@@ -571,10 +598,16 @@ pub(crate) fn start_generation(
     }
 }
 
-/// Generates one skeleton and meshes for each detail level, sorted by distance.
+/// Generates one skeleton and meshes for each detail level, sorted by
+/// distance, and the fruit and flower clusters. `baked` is the level an
+/// impostor bakes, whose clusters are also merged for the bake.
 /// Skips [`TreeMesh::billboard_cull`](procgena_tree::TreeMesh::billboard_cull) because
 /// the tree shaders rotate the main shapes toward each view.
-fn generate(options: &TreeOptions, levels: &[LodLevel<TreeLevel>]) -> TaskOutput {
+fn generate(
+    options: &TreeOptions,
+    levels: &[LodLevel<TreeLevel>],
+    baked: Option<usize>,
+) -> TaskOutput {
     let skeleton = Skeleton::generate(options)?;
     let part = |buffers: &MeshBuffers, convert: &dyn Fn(&MeshBuffers) -> Mesh| {
         (!buffers.indices.is_empty()).then(|| {
@@ -610,11 +643,29 @@ fn generate(options: &TreeOptions, levels: &[LodLevel<TreeLevel>]) -> TaskOutput
             level: level.detail,
             bark: part(&mesh.branches, &|b| bark_mesh(b, &options.bark)),
             leaves: part(&mesh.leaves, &leaf_mesh),
-            fruit: part(&mesh.fruit, &cluster_mesh),
-            flowers: part(&mesh.flowers, &cluster_mesh),
         })
         .collect();
-    Ok((meshes, specimen))
+
+    // The baked level's clusters, merged as that level composes them.
+    let baked_clusters = baked
+        .and_then(|level| lods.get(level))
+        .map(|(_, mesh)| {
+            [
+                (ClusterPart::Fruit, &mesh.fruit),
+                (ClusterPart::Flowers, &mesh.flowers),
+            ]
+            .into_iter()
+            .filter(|(_, buffers)| !buffers.indices.is_empty())
+            .map(|(part, buffers)| (part, cluster_mesh(buffers)))
+            .collect()
+        })
+        .unwrap_or_default();
+    Ok(TaskMeshes {
+        levels: meshes,
+        specimen,
+        clusters: build_clusters(&skeleton),
+        baked_clusters,
+    })
 }
 
 /// Collects completed tasks and registers shared meshes and materials.
@@ -639,7 +690,12 @@ pub(crate) fn finish_generation(
         let Some(output) = block_on(poll_once(task)) else {
             continue;
         };
-        let (levels, specimen) = match output {
+        let TaskMeshes {
+            levels,
+            specimen,
+            clusters,
+            baked_clusters,
+        } = match output {
             Ok(generated) => generated,
             Err(error) => {
                 error!("procgena_tree_bevy: cannot generate tree: {error}");
@@ -727,8 +783,6 @@ pub(crate) fn finish_generation(
             level_assets.push(LevelAssets {
                 bark: add(l.bark),
                 leaves: add(l.leaves),
-                fruit: add(l.fruit),
-                flowers: add(l.flowers),
                 bark_material: bark.clone(),
                 leaf_material: leaves.clone(),
             });
@@ -757,12 +811,21 @@ pub(crate) fn finish_generation(
                 wires.iter().map(wire_transform).collect(),
             )
         });
+        let material = |part| match part {
+            ClusterPart::Fruit => fruit.clone(),
+            ClusterPart::Flowers => flowers.clone(),
+        };
+        let baked_clusters = baked_clusters
+            .into_iter()
+            .map(|(part, mesh)| (meshes.add(mesh), material(part)))
+            .collect();
+        let clusters = add_meshes(clusters, &mut meshes, material);
         let generated = Generated {
             levels: level_assets,
             ranges: settings.mesh_ranges(quality.0),
             impostor_ranges: settings.impostor_ranges(quality.0),
-            fruit,
-            flowers,
+            clusters,
+            baked_clusters,
             trellis,
             specimen,
         };
@@ -792,11 +855,15 @@ pub(crate) fn spawn_parts(
     mut commands: Commands,
     waiting: Query<(Entity, &TreeKey), With<TreeGenerating>>,
     cache: Res<TreeCache>,
+    settings: Res<SpawnSettings>,
 ) {
     for (entity, key) in &waiting {
         let result = match cache.trees.get(key) {
             Some(Entry::Ready(generated)) => {
+                // Drawn without the impostor until `show_impostors` adds it.
+                let specimen = cache.specimen_id(*key);
                 spawn_tree_parts(&mut commands, entity, generated);
+                spawn_clusters(&mut commands, entity, generated, specimen, &settings, false);
                 commands
                     .entity(entity)
                     .insert(GeneratedSpecimen(generated.specimen.clone()));
@@ -807,6 +874,51 @@ pub(crate) fn spawn_parts(
         };
         commands.entity(entity).remove::<TreeGenerating>();
         commands.trigger(TreeFinished { entity, result });
+    }
+}
+
+/// How much a single tree's bounding sphere is enlarged to cover wind sway.
+const SWAY_ALLOWANCE: f32 = 1.15;
+
+/// Spawns the child that draws `tree`'s fruit and flower clusters, if it
+/// grows any. `specimen` is the tree's specimen id. With `impostor`, the
+/// tree's levels end in its baked impostor, so clusters stop where it
+/// fades in.
+pub(crate) fn spawn_clusters(
+    commands: &mut Commands,
+    tree: Entity,
+    generated: &Generated,
+    specimen: SpecimenId,
+    settings: &SpawnSettings,
+    impostor: bool,
+) {
+    let Some((scatter, attached)) = single_tree_clusters(
+        &generated.clusters,
+        specimen,
+        &settings.lod.levels,
+        tree_lod(settings, impostor),
+        generated.bounds(SWAY_ALLOWANCE),
+    ) else {
+        return;
+    };
+    commands.spawn((
+        TreePart {
+            lod: 0,
+            kind: TreePartKind::Clusters,
+        },
+        scatter,
+        attached,
+        ChildOf(tree),
+    ));
+}
+
+/// A single tree's levels as its clusters see them: the mesh levels, then
+/// the impostor once it is shown.
+pub(crate) fn tree_lod(settings: &SpawnSettings, impostor: bool) -> Lod {
+    if impostor {
+        settings.draw_lod().map_detail(|_| ())
+    } else {
+        settings.lod.clone().map_detail(|_| ())
     }
 }
 
@@ -1090,8 +1202,9 @@ mod tests {
     }
 
     /// Checks that LOD3 spawns only the main parts, with rotation data and bounds
-    /// for the camera-facing bark and leaves; fruit is drawn flat. Crossed
-    /// fallback shapes must not be spawned.
+    /// for the camera-facing bark and leaves. Fruit is not a per-level part
+    /// (see `clusters_are_drawn_by_one_instanced_child`). Crossed fallback
+    /// shapes must not be spawned.
     #[test]
     fn farthest_level_parts_turn_toward_the_camera() {
         let mut app = spawn_app_with(default_tree_lod());
@@ -1120,14 +1233,67 @@ mod tests {
             }
         }
         far_kinds.sort_by_key(|k| *k as u8);
-        assert_eq!(
-            far_kinds,
-            [
-                TreePartKind::Bark,
-                TreePartKind::Leaves,
-                TreePartKind::Fruit
-            ]
+        assert_eq!(far_kinds, [TreePartKind::Bark, TreePartKind::Leaves]);
+    }
+
+    /// Checks that a fruiting tree draws its clusters through one instanced
+    /// child: the tree's levels as slot 0, one slot per fruit specimen with
+    /// a part per fruit level, and one row per cluster for the levels that
+    /// keep it, plus an enlarged row for the farthest level, which keeps
+    /// every second cluster. A tree without fruit gets no such child.
+    #[test]
+    fn clusters_are_drawn_by_one_instanced_child() {
+        let mut app = spawn_app_with(default_tree_lod());
+        let apple = app
+            .world_mut()
+            .spawn(TreeParams::preset(TreePreset::apple()))
+            .id();
+        let oak = app
+            .world_mut()
+            .spawn(TreeParams::preset(TreePreset::oak_small()))
+            .id();
+        update_until_finished(&mut app, apple);
+        update_until_finished(&mut app, oak);
+
+        let mut children = app.world_mut().query::<(
+            &TreePart,
+            &ChildOf,
+            &procgena_core_bevy::instanced::InstancedScatter,
+            &procgena_core_bevy::instanced::InstancedAttached,
+        )>();
+        let clusters: Vec<_> = children.iter(app.world()).collect();
+        assert_eq!(clusters.len(), 1, "one clusters child, on the apple tree");
+        let (part, parent, scatter, attached) = clusters[0];
+        assert_eq!(part.kind, TreePartKind::Clusters);
+        assert_eq!(parent.parent(), apple);
+
+        // The tree's levels, then the fruit specimens.
+        let skeleton = Skeleton::generate(&TreePreset::apple().tree).unwrap();
+        let (placed, fruit) = skeleton.clusters(ClusterPart::Fruit);
+        assert_eq!(scatter.slots.len(), 1 + fruit.len());
+        assert!(scatter.slots[0].parts.is_empty());
+        assert_eq!(scatter.slots[0].lod.levels.len(), 4);
+        for slot in &scatter.slots[1..] {
+            assert_eq!(slot.lod.levels.len(), 3, "fruit levels");
+            assert!(!slot.parts.is_empty());
+        }
+        assert_eq!(scatter.copies.len(), 1);
+
+        // Every cluster at levels 0 to 2, every second one enlarged at 3.
+        let rows = &attached.tables[0];
+        let near = rows.iter().filter(|row| row.host_levels == 0b0111).count();
+        let far: Vec<_> = rows
+            .iter()
+            .filter(|row| row.host_levels == 0b1000)
+            .collect();
+        assert_eq!(near, placed.len());
+        assert_eq!(far.len(), placed.len().div_ceil(2));
+        assert_eq!(rows.len(), near + far.len(), "no other masks");
+        assert!(
+            rows.iter()
+                .all(|row| (row.slot as usize) < scatter.slots.len())
         );
+        assert!(rows.iter().all(|row| row.slot >= 1));
     }
 
     /// Checks that camera-facing leaves omit normal maps even when their leaf

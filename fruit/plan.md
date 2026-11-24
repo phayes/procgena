@@ -776,6 +776,69 @@ The coordinator approved each of these.
 - **Tree glTF export writes fruit merged per level**, as OBJ does; one mesh
   per fruit slot with glTF instancing is not built yet.
 
+## As built (fruit step B2, shared renderer, 2026-11-24)
+
+The coordinator chose to extend R2's shared renderer
+(`procgena_core_bevy::instanced`) with general sub-instances, rather than
+give fruit a GPU pass of its own. How the plan maps onto it:
+
+- **Cluster table → `InstancedAttached`.** A component beside the grove's
+  `InstancedScatter` holds one table of `AttachedRow`s per host slot (tree
+  variant): the row's slot (fruit specimen), its place, turn and scale in
+  host coordinates, its size for fruit levels, three wind floats (the
+  branch sway `[trunk_bend, branch_weight, branch_phase]`), and
+  `host_levels`, a mask of the host levels that draw it. Rows are stored
+  once per tree variant; nothing is stored per tree copy.
+- **The tree decides which clusters are drawn, through `host_levels`.**
+  `cluster_stride` and `cluster_scale` become rows: a cluster kept at
+  every level is one row; one enlarged at far levels is a second row with
+  those levels' bits and the larger scale. Rows leave out the impostor
+  level, because the tree impostor carries fruit (D2). The host level is
+  the one it switches to mid-band, as in shadow maps, so rows appear and
+  vanish there without fading.
+- **The coarse step runs on the GPU, not on the CPU** (a change from
+  "Fruit's own LOD chain", awaiting the coordinator's sign-off). R2 has a
+  per-view CPU pass (`prepare_views`), but it works per Scatter, not per
+  copy; a per-tree CPU check would add a CPU loop over every tree for
+  every view, plus an upload. Instead `cull_hosts` runs once per tree
+  copy per view and writes a per-view state: skip (out of view, or
+  beyond every row's reach), whole at one fruit level (the tree's
+  distance ± its row radius, over the smallest and largest row size,
+  lies inside one level's undithered core, in cameras only), or one by
+  one. `cull_rows` reads that state. Moving the coarse step to the CPU
+  later would change only the code that writes the state.
+- **Whole trees still write one entry per cluster.** The plan's "the
+  vertex shader splits `instance_index` into (tree entry, cluster)" is
+  not built: every drawn cluster gets its own 64-byte entry (host record,
+  dither, place, turn, wind), so whole trees save the distance and
+  frustum maths, not the entries.
+- **The fine step is R2's per-copy cull**, per row: frustum test against
+  the row's own sphere, its own distance and dither, shadow views at one
+  level by switch distance.
+- **Single trees** get one child entity (`TreePartKind::Clusters`) with
+  their own `InstancedScatter`: slot 0 is the tree, with no parts, only its
+  levels, and one copy; its clusters are rows as in a grove. When the
+  tree's impostor arrives, the child is rebuilt with the impostor level, so
+  clusters stop where it fades in.
+- **Fruit is drawn with the tree's `fruit_material` and
+  `flower_material`.** The tree shaders' `ATTACHED` path moves each
+  vertex onto the tree and adds the row's branch sway to the vertex's
+  own flutter, so wind matches the merged meshes. `procgena_fruit_bevy`'s
+  own material is used only for fruit drawn on its own (the studio's
+  Fruit and Flower tabs).
+- **The impostor still bakes merged fruit**: the baked level's
+  `TreeMesh::{fruit, flowers}` become two meshes used only by the bake
+  (D2 replaces this). `Skeleton::mesh` still composes fruit at every
+  level, which the Bevy crate no longer draws; skipping that work is a
+  follow-up.
+- **Memory:** each view keeps `attached copies × fruit levels × 64` bytes
+  of entries. With the plan's Willow grove (100 trees inside 120 m, about
+  780 clusters each, as its 47,000 quads at 60 % kept imply, and 3 fruit
+  mesh levels) that is about 15 MB per view,
+  so about 75 MB for a camera and four shadow cascades. Smaller entries
+  (a row index read from a storage buffer) or lists sized per level are
+  possible follow-ups.
+
 ## Decisions
 
 The user answered on 2026-11-23:

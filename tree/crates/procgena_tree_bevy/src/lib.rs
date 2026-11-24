@@ -342,6 +342,7 @@
 //! To load your own file, append `-- path/to/tree.glb`. Hold the left mouse button
 //! to look around, and use WASD and Q/E to fly.
 
+mod clusters;
 #[cfg(feature = "gltf")]
 mod gltf;
 mod impostor;
@@ -498,6 +499,9 @@ impl Plugin for TreePlugin {
             MaterialPlugin::<TreeMaterial>::default(),
             InstancedMaterialPlugin::<TreeMaterial, TreeMaterialKey>::new(|key| {
                 key.extension.grove = true;
+            }),
+            InstancedMaterialPlugin::<TreeMaterial, TreeMaterialKey>::attached(|key| {
+                key.extension.attached = true;
             }),
             InstancedMaterialPlugin::<ImpostorMaterial, ImpostorMaterialKey>::new(|key| {
                 key.extension.instanced = true;

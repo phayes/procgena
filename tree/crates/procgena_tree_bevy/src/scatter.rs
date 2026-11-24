@@ -29,6 +29,7 @@ use procgena_tree::{
     TreeScatter, TreeScatterError, TreeScatterPlacement, TreeScatterPreset,
 };
 
+use crate::clusters::TreeClusters;
 use crate::impostor::TreeImpostorAssets;
 use crate::material::TreeMaterial;
 use crate::spawn::{
@@ -288,6 +289,12 @@ impl TreeScatterVariant {
                     bounds: mesh.extent,
                 })
         })
+    }
+
+    /// The variant's fruit and flower clusters; empty until the variant is
+    /// ready.
+    pub(crate) fn clusters(&self) -> &[TreeClusters] {
+        self.generated.as_ref().map_or(&[], |g| &g.clusters)
     }
 
     /// Whether the variant is drawn as an impostor far away. Until its

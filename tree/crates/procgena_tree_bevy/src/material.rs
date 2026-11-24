@@ -11,6 +11,7 @@ use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
+use procgena_core_bevy::instanced::attached_vertex;
 use procgena_impostor::{BakeOutput, instance_buffer_layout, use_bake_shader};
 use procgena_tree::procgena_fruit::FruitMaterial;
 use procgena_tree::{
@@ -82,16 +83,20 @@ pub struct WindKey {
     /// Whether the pipeline draws grove trees: many trees from one mesh, each
     /// naming its own mesh record through an extra per-tree vertex input.
     pub(crate) grove: bool,
+    /// Whether the pipeline draws fruit or flowers attached to trees, each
+    /// naming its tree's mesh record and its place on the tree.
+    pub(crate) attached: bool,
     /// What a bake copy draws instead of lit colour.
     pub(crate) bake: BakeOutput,
 }
 
 impl From<&WindExtension> for WindKey {
     fn from(extension: &WindExtension) -> Self {
-        // Materials are always created for single trees; groves ask for their
-        // pipelines with `grove` set.
+        // Materials are always created for single trees; groves and attached
+        // fruit ask for their pipelines with `grove` or `attached` set.
         Self {
             grove: false,
+            attached: false,
             bake: extension.bake,
         }
     }
@@ -157,7 +162,9 @@ impl MaterialExtension for WindExtension {
         // Grove trees read their mesh record index and dither from a second,
         // per-instance vertex buffer, laid out as for instanced impostors so
         // a grove feeds both from one buffer.
-        if key.bind_group_data.grove {
+        if key.bind_group_data.attached {
+            attached_vertex(descriptor);
+        } else if key.bind_group_data.grove {
             descriptor.vertex.shader_defs.push("GROVE".into());
             descriptor.vertex.buffers.push(instance_buffer_layout());
         }
