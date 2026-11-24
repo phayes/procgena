@@ -1846,8 +1846,12 @@ it starts.
   (F3), on every asset, Scatter and Terrain options type; plant gained a
   `default_seed` that nothing reads yet (R3 wires it in). Still to do:
   `region_seed`, and the terrain switching to core's functions.
-- [ ] **Studio**: a tab per new level (Ecotope, Biome, World), each built on
-  the tabs of the level below. Terrain keeps a tab of its own.
+- [ ] **Studio**: every level (Ecotope, Biome, World, and each asset and
+  Scatter) is a kind in the studio's registry, opened from its Library
+  and shown in its Outline beside the levels below, instead of a tab per
+  level (decided by the user 2026-11-24; see
+  [procgena/studio_plan.md](procgena/studio_plan.md), milestones ST0–ST9
+  in ROADMAP.md).
 
 ### Later
 
