@@ -39,7 +39,7 @@
 //! - Without a `base`, the settings are laid over the options' defaults.
 //!
 //! A setting the options don't have, or a value of the wrong type, is an
-//! error that names the setting's path, such as `tree.branch.lenght`.
+//! error that names the setting's path, such as `tree.branch.lengths`.
 //!
 //! # Reading and writing
 //!
