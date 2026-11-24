@@ -1390,6 +1390,13 @@ it starts.
   `.grove.json` format, `tree/docs/groves.md`, the examples, and the
   studio's Tree Grove tab. Wait until the grove work in progress is
   committed.
+- [ ] **Rename deadwood's `Placement`** (F3): `procgena_deadwood::Placement`,
+  where a piece came to rest on flat ground, has the same name as
+  `procgena_core::scatter::Placement`, how a Scatter puts copies on uneven
+  ground. Deadwood imports core's as `GroundPlacement` to tell them apart.
+  Give deadwood's a name of its own (for example `RestingPose`), with
+  `Piece::placement`, `DeadwoodPlacement` in `procgena_deadwood_bevy` and
+  the studio's uses.
 - [ ] **Rename `PlantField` → `PlantScatter`** in `procgena_plant`:
   `FieldPlant`, `FieldPreset`, the `.field.ron` loader, `procgena_plant_web`,
   and the studio's field tab.
@@ -1520,6 +1527,17 @@ it starts.
   `LevelForm`, `FarForm` and `Quality` in `procgena_core`, and the dither
   shader, `LodQuality` and `visibility_range` in `procgena_core_bevy`.
   Still to do: each asset adopts them.
+- [ ] **More draws on core's `Rng`**: add `jitter(amount)` (a value in
+  `1 ± amount`) and `chance(p)` to `procgena_core::Rng`, and drop
+  deadwood's local `RngExt` trait that adds them today. Check tree's and
+  mushroom's random numbers for the same draws first.
+- [ ] **Content hash for the LOD types**: implement `ContentHash` for
+  `Lod<D: ContentHash>`, `LodLevel`, `LevelForm` and `FarForm` in
+  `procgena_core`, with a fixed number per form. This replaces
+  `procgena_deadwood_bevy`'s local `lod_hash` and `form_number`, which
+  panics on a far form it doesn't know because `FarForm` is
+  `#[non_exhaustive]`. Every asset's cache key can then hash its levels the
+  same way.
 - [ ] **Shared instanced renderer**, from stone's pool and tree's grove
   renderer; deadwood and mushroom move onto it.
 - [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`
