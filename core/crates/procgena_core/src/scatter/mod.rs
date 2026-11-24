@@ -17,6 +17,7 @@
 //! below is its footprints, or a [`MaskLayer`] stamped from them.
 
 mod cache;
+pub mod conformance;
 mod footprint;
 pub mod lattice;
 mod mask;
