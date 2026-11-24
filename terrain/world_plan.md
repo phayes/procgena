@@ -706,9 +706,10 @@ committed.
   regions):** the mountain range continues across borders between
   mountain regions with no visible seam (shared World noise), so many
   same-type regions read as one range. Where mountains meet plains or
-  hills, the mountain region's edge stands as a raised rim above its
-  neighbours: the unequal preset base offsets (open question 5, ROADMAP
-  item 11), which this World mixes everywhere.
+  hills, the mountain region's edge stands as a raised step above its
+  neighbours. Its cause was not measured: the unequal preset base offsets
+  (open question 5, ROADMAP item 11) account for at most 100 m of it, and
+  the mountains' own mean relief is likely the larger part.
 - **What it says about region size (D4):** at 4 km, regions are small
   next to the Biome areas the fields make (hill patches of 4–25 km, the
   range about 20 km), so Biome areas come out as clusters of regions with
