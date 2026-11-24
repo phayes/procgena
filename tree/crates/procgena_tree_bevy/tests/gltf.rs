@@ -16,8 +16,9 @@ use bevy::render::settings::WgpuSettings;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use bevy::world_serialization::WorldAssetRoot;
+use procgena_core::Lod;
 use procgena_tree::export::gltf::{GltfOptions, to_glb};
-use procgena_tree::{LodDetail, Tree, TreePreset, default_lod_levels};
+use procgena_tree::{LOD_REFERENCE_SIZE, LodDetail, Tree, TreePreset, default_lod};
 use procgena_tree_bevy::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, TreeMaterial, TreePlugin,
     add_tree_gltf_attributes,
@@ -31,7 +32,7 @@ fn export(name: &str, wind: bool) -> PathBuf {
     let tree = Tree::from_preset(TreePreset::Apple);
     let mesh = tree.mesh_with_detail(&LodDetail {
         billboard_fruit: true,
-        ..default_lod_levels()[3].detail
+        ..default_lod().levels[3].detail
     });
     let options = GltfOptions {
         wind,
@@ -77,7 +78,8 @@ fn app(dir: &Path, register: bool) -> App {
             }),
         TreePlugin {
             texture_root: None,
-            lod_levels: Vec::new(),
+            lod: Lod::new(LOD_REFERENCE_SIZE, Vec::new()),
+            impostor: None,
             ..default()
         },
     ));

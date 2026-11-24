@@ -5,7 +5,7 @@
 use glam::Vec3;
 use procgena_tree::export::obj::{ObjOptions, to_obj};
 use procgena_tree::export::{TextureMap, TextureRef};
-use procgena_tree::{BranchGrouping, LodDetail, MeshPart, Tree, TreePreset, default_lod_levels};
+use procgena_tree::{BranchGrouping, LodDetail, MeshPart, Tree, TreePreset, default_lod};
 
 /// Counts lines whose first space-separated field equals `prefix`.
 fn count(text: &str, prefix: &str) -> usize {
@@ -54,7 +54,7 @@ fn obj_contains_every_vertex_and_triangle() {
 #[test]
 fn billboard_parts_keep_their_stored_shapes() {
     let tree = Tree::from_preset(TreePreset::OakSmall);
-    let mesh = tree.mesh_with_detail(&default_lod_levels()[3].detail);
+    let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
     let obj = to_obj(&mesh, tree.options(), &ObjOptions::default()).obj;
 
     // Include fallback ribbon vertices in the export count; only leaves have normals.

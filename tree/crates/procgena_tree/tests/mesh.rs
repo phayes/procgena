@@ -1,18 +1,38 @@
 //! Check mesh layout, detail levels, texture and lighting data, and closed bark.
 
 use glam::{Quat, Vec3};
+use procgena_core::{FarForm, LevelForm, LodLevel};
 use procgena_tree::{
-    BarkUvMode, Billboard, BillboardMode, BranchShape, LodDetail, MeshBuffers, Section, Skeleton,
-    TreeMesh, TreeOptions, TreePreset, default_lod_levels,
+    BarkUvMode, Billboard, BillboardMode, BranchShape, LOD_REFERENCE_SIZE, LodDetail, MeshBuffers,
+    Section, Skeleton, TreeMesh, TreeOptions, TreePreset, default_lod,
 };
+
+/// The four levels of [`default_lod`], nearest first.
+fn default_lod_levels() -> [LodLevel<LodDetail>; 4] {
+    default_lod().levels.try_into().unwrap()
+}
 
 /// Checks the default switching distances and branch and leaf settings.
 /// Fruit and flower defaults are covered in `tests/cluster_mesh.rs`.
 #[test]
 fn default_lod_levels_have_the_documented_settings() {
+    let lod = default_lod();
+    lod.validate().unwrap();
+    assert_eq!(lod.reference_size, LOD_REFERENCE_SIZE);
+    assert_eq!(lod.cull_distance, None);
     let levels = default_lod_levels();
     assert_eq!(levels.map(|l| l.distance), [0.0, 10.0, 25.0, 50.0]);
     assert_eq!(levels.map(|l| l.hysteresis), [0.0, 0.05, 0.05, 0.05]);
+    assert_eq!(
+        levels.map(|l| l.form),
+        [
+            LevelForm::Mesh,
+            LevelForm::Mesh,
+            LevelForm::Mesh,
+            LevelForm::Far(FarForm::BillboardLeaves)
+        ]
+    );
+    assert!(levels.iter().all(|l| l.casts_shadows));
     assert_eq!(levels[0].detail, LodDetail::default());
 
     let [_, near, far, farthest] = levels.map(|l| l.detail);
@@ -45,7 +65,7 @@ fn spans_cover_the_buffers() {
     let options = TreeOptions::default();
     let skeleton = Skeleton::generate(&options).unwrap();
     let levels = default_lod_levels().into_iter().flat_map(|level| {
-        [true, false].map(|closed| procgena_tree::LodLevel {
+        [true, false].map(|closed| LodLevel {
             detail: LodDetail {
                 closed,
                 ..level.detail

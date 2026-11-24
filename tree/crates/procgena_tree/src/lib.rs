@@ -87,10 +87,10 @@
 //! which mesh to show based on camera distance.
 //!
 //! ```rust
-//! use procgena_tree::{Tree, TreePreset, default_lod_levels};
+//! use procgena_tree::{Tree, TreePreset, default_lod};
 //!
 //! let tree = Tree::from_preset(TreePreset::AshSmall);
-//! for (level, mesh) in tree.lod_meshes(&default_lod_levels()) {
+//! for (level, mesh) in tree.lod_meshes(&default_lod().levels) {
 //!     println!(
 //!         "From distance {}: {} triangles",
 //!         level.distance,
@@ -286,7 +286,8 @@ pub use material::{
 };
 pub use mesh::{
     BillboardCull, BillboardMode, BillboardVertex, BranchShape, BranchSpan, ClusterSpan,
-    ItemDetail, LeafSpan, LodDetail, LodLevel, MeshBuffers, TreeMesh, default_lod_levels,
+    ItemDetail, LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh,
+    default_lod,
 };
 pub use options::{
     BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterKind, ClusterPlacement, ClusterShape,

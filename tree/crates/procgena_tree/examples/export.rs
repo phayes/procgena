@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use procgena_tree::export::TextureRef;
 use procgena_tree::export::gltf::{EmbeddedImage, GltfOptions, GltfTextures, ImageFormat, to_glb};
 use procgena_tree::export::obj::{ObjOptions, to_obj};
-use procgena_tree::{RigOptions, TextureSize, Tree, TreePreset, default_lod_levels};
+use procgena_tree::{RigOptions, TextureSize, Tree, TreePreset, default_lod};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Use command-line folders when supplied, otherwise the workspace defaults.
@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Include the default detail variants, shared joints, and available image bytes in GLB.
         let rig = tree.rig(&RigOptions::default())?;
         let meshes: Vec<_> = tree
-            .lod_meshes(&default_lod_levels())
+            .lod_meshes(&default_lod().levels)
             .into_iter()
             .map(|(_, mesh)| mesh)
             .collect();

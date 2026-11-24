@@ -1,7 +1,13 @@
 //! Check the tagged specimen a tree hands to other generators.
 
+use procgena_core::LodLevel;
 use procgena_specimen::{Part, SurfaceMesh, TagSet, tags};
-use procgena_tree::{MeshPart, Tree, TreePreset, default_lod_levels};
+use procgena_tree::{LodDetail, MeshPart, Tree, TreePreset, default_lod};
+
+/// The four levels of [`default_lod`], nearest first.
+fn default_lod_levels() -> [LodLevel<LodDetail>; 4] {
+    default_lod().levels.try_into().unwrap()
+}
 
 /// The parts of `parts` with exactly `wanted` tags.
 fn find<'a>(parts: &'a [Part], wanted: &TagSet) -> Option<&'a Part> {

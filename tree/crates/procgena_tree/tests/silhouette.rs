@@ -9,7 +9,7 @@
 
 use glam::{Vec2, Vec3};
 use procgena_tree::{
-    BillboardVertex, LodDetail, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod_levels,
+    BillboardVertex, LodDetail, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod,
 };
 
 /// Width and height of each square mask, in pixels.
@@ -209,7 +209,8 @@ impl Scores {
 
 /// The default detail levels' settings.
 fn default_details() -> [LodDetail; 4] {
-    default_lod_levels().map(|level| level.detail)
+    let details: Vec<LodDetail> = default_lod().levels.iter().map(|l| l.detail).collect();
+    details.try_into().unwrap()
 }
 
 /// Measures each preset's overlap for `levels`, using LOD0 to frame every

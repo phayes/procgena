@@ -11,9 +11,13 @@ use procgena_tree::export::gltf::{
 };
 use procgena_tree::export::{TextureMap, TextureRef};
 use procgena_tree::{
-    BranchGrouping, LodDetail, MeshPart, RigOptions, Tree, TreeOptions, TreePreset,
-    default_lod_levels,
+    BranchGrouping, LodDetail, MeshPart, RigOptions, Tree, TreeOptions, TreePreset, default_lod,
 };
+
+/// The four levels of [`default_lod`], nearest first.
+fn default_lod_levels() -> [procgena_core::LodLevel<LodDetail>; 4] {
+    default_lod().levels.try_into().unwrap()
+}
 
 fn read(glb: &[u8]) -> Gltf {
     Gltf::from_slice(glb).expect("the exported file is valid glTF")

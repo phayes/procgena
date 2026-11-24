@@ -6,7 +6,7 @@ use bevy::render::render_resource::encase::UniformBuffer;
 use bevy::render::render_resource::{Face, ShaderType};
 use procgena_tree::{
     BarkMaterial, BarkUvMode, LodDetail, Tree, TreePreset, WindParams, bark_average_color,
-    default_lod_levels,
+    default_lod,
 };
 use procgena_tree_bevy::{
     ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
@@ -223,7 +223,7 @@ fn billboard_meshes_carry_their_turning_data() {
     let tree = Tree::new(options).unwrap();
     let mesh = tree.mesh_with_detail(&LodDetail {
         billboard_fruit: true,
-        ..default_lod_levels()[3].detail
+        ..default_lod().levels[3].detail
     });
     let converted = [
         (

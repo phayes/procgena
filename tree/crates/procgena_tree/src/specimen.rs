@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet, tags};
 
-use crate::mesh::{BranchShape, BranchSpan, LodDetail, LodLevel, MeshBuffers, TreeMesh};
+use procgena_core::LodLevel;
+
+use crate::mesh::{BranchShape, BranchSpan, LodDetail, MeshBuffers, TreeMesh};
 use crate::skeleton::Skeleton;
 use crate::tree::Tree;
 
@@ -22,7 +24,7 @@ impl Tree {
     /// # Panics
     ///
     /// Panics if `lods` is empty, or if a mesh was not made from this tree.
-    pub fn specimen(&self, lods: &[(LodLevel, TreeMesh)]) -> Specimen {
+    pub fn specimen(&self, lods: &[(LodLevel<LodDetail>, TreeMesh)]) -> Specimen {
         self.skeleton().specimen(lods)
     }
 }
@@ -34,7 +36,7 @@ impl Skeleton {
     /// # Panics
     ///
     /// Panics if `lods` is empty, or if a mesh was not made from this skeleton.
-    pub fn specimen(&self, lods: &[(LodLevel, TreeMesh)]) -> Specimen {
+    pub fn specimen(&self, lods: &[(LodLevel<LodDetail>, TreeMesh)]) -> Specimen {
         assert!(!lods.is_empty(), "a tree specimen needs at least one level");
         let levels = lods
             .iter()

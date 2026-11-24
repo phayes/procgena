@@ -1,12 +1,10 @@
 //! Tree impostors: each generated tree is baked into an impostor (see
-//! [`procgena_impostor`]) and drawn as one quad beyond its farthest mesh
-//! level.
-
-use std::ops::Range;
+//! [`procgena_impostor`]) and drawn as one quad, the last level of the
+//! tree's levels of detail.
 
 use bevy::asset::UntypedAssetId;
-use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
+use procgena_core::{LevelForm, LodLevel};
 use procgena_impostor::{
     BakeOutput, BakePart, BakedImpostor, Impostor, ImpostorKey, ImpostorMaterial, ImpostorQuad,
     ImpostorReady, ImpostorRequest,
@@ -14,8 +12,8 @@ use procgena_impostor::{
 
 use crate::material::{TreeMaterial, bake_copy};
 use crate::spawn::{
-    CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreePart,
-    TreePartKind,
+    CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreeLevel, TreePart,
+    TreePartKind, part_range,
 };
 
 /// Draws trees far away as impostors: one quad showing a baked view of the
@@ -55,62 +53,19 @@ impl Default for TreeImpostor {
 }
 
 impl TreeImpostor {
-    /// The camera distances over which the impostor fades in, which are also
-    /// where the farthest mesh level fades out.
-    pub(crate) fn band(&self) -> Range<f32> {
-        let half = self.distance * self.hysteresis;
-        (self.distance - half).max(0.0)..self.distance + half
-    }
-
-    /// The distances the impostor is drawn at.
-    pub(crate) fn range(&self) -> VisibilityRange {
-        VisibilityRange {
-            start_margin: self.band(),
-            end_margin: f32::INFINITY..f32::INFINITY,
-            use_aabb: false,
-        }
-    }
-
-    /// The distance bands of a tree's levels once the impostor is drawn
-    /// beyond them: `levels` (the mesh levels' bands, nearest first) with
-    /// the farthest level ending where the impostor fades in, then the
-    /// impostor's own band.
-    pub(crate) fn level_ranges(
-        &self,
-        mut levels: Vec<Option<VisibilityRange>>,
-    ) -> Vec<Option<VisibilityRange>> {
-        if let Some(last) = levels.last_mut() {
-            *last = Some(ended_at(last.take(), self.band()));
-        }
-        levels.push(Some(self.range()));
-        levels
+    /// The impostor as the last level of a tree's levels of detail, after
+    /// the mesh levels. It has no mesh settings of its own.
+    pub(crate) fn level(&self) -> LodLevel<Option<TreeLevel>> {
+        LodLevel::new(self.distance, self.hysteresis, None).with_form(LevelForm::Impostor)
     }
 }
 
-/// A tree's impostor, once baked, with the quad and material that draw it
-/// and the distances it is drawn at.
+/// A tree's impostor, once baked, with the quad and material that draw it.
 #[derive(Clone, Debug)]
 pub(crate) struct TreeImpostorAssets {
     pub(crate) impostor: Impostor,
     pub(crate) quad: Handle<Mesh>,
     pub(crate) material: Handle<ImpostorMaterial>,
-    pub(crate) setting: TreeImpostor,
-}
-
-/// `range` (or, for a level without one, every distance from the camera)
-/// ending over `band`.
-fn ended_at(range: Option<VisibilityRange>, band: Range<f32>) -> VisibilityRange {
-    match range {
-        Some(range) => VisibilityRange {
-            end_margin: band,
-            ..range
-        },
-        None => VisibilityRange {
-            start_margin: 0.0..0.0,
-            end_margin: band,
-            use_aabb: false,
-        },
-    }
 }
 
 /// On an impostor request spawned for a generated tree.
@@ -179,7 +134,7 @@ fn tree_request(
 
     // Everything that changes the picture: the tree, the baked level's
     // detail and textures, and this crate's version.
-    let level = format!("{:?}", settings.lod_levels.get(impostor.baked_level));
+    let level = format!("{:?}", settings.lod.levels.get(impostor.baked_level));
     let textures = format!(
         "{:?} {:?}",
         settings.texture_root, settings.texture_compression
@@ -208,7 +163,7 @@ pub(crate) fn keep_impostor(
     mut cache: ResMut<TreeCache>,
     mut materials: ResMut<Assets<ImpostorMaterial>>,
 ) {
-    let (Ok((ImpostorFor(key), BakedImpostor(impostor))), Some(setting)) =
+    let (Ok((ImpostorFor(key), BakedImpostor(impostor))), Some(_)) =
         (requests.get(event.entity), settings.impostor)
     else {
         return;
@@ -220,7 +175,6 @@ pub(crate) fn keep_impostor(
             impostor: impostor.clone(),
             quad: quad.0.clone(),
             material,
-            setting,
         },
     );
 }
@@ -237,41 +191,46 @@ pub(crate) fn show_impostors(
         (Entity, &TreeKey, Option<&Children>),
         (Without<TreeGenerating>, Without<ImpostorShown>),
     >,
-    parts: Query<(&TreePart, Option<&VisibilityRange>)>,
+    parts: Query<&TreePart>,
 ) {
-    let Some(setting) = settings.impostor else {
+    if settings.impostor.is_none() {
         return;
-    };
+    }
     for (tree, key, children) in &trees {
         let (CacheState::Ready(generated), Some(assets)) =
             (cache.state(*key), cache.impostor(*key))
         else {
             continue;
         };
+        let Some(ranges) = generated.impostor_ranges() else {
+            continue;
+        };
 
-        // The farthest mesh level now fades out where the impostor fades in.
-        // A tree with a single level had no range: it starts at the camera.
-        let last = generated.level_count().saturating_sub(1);
+        // Every mesh level takes its bands with the impostor as the last
+        // level: the farthest now fades out where the impostor fades in.
         for child in children.into_iter().flatten() {
-            let Ok((part, range)) = parts.get(*child) else {
+            let Ok(part) = parts.get(*child) else {
                 continue;
             };
-            if part.lod != last || part.kind == TreePartKind::Trellis {
+            if part.kind == TreePartKind::Trellis {
                 continue;
             }
-            commands
-                .entity(*child)
-                .insert(ended_at(range.cloned(), setting.band()));
+            if let Some(range) = part_range(&ranges[part.lod]) {
+                commands.entity(*child).insert(range);
+            }
         }
-        commands.spawn((
+        let lod = generated.level_count();
+        let mut impostor = commands.spawn((
             TreePart {
-                lod: last + 1,
+                lod,
                 kind: TreePartKind::Impostor,
             },
             assets.impostor.bundle(&quad, assets.material.clone()),
-            setting.range(),
             ChildOf(tree),
         ));
+        if let Some(range) = part_range(&ranges[lod]) {
+            impostor.insert(range);
+        }
         commands.entity(tree).insert(ImpostorShown);
     }
 }
@@ -280,27 +239,36 @@ pub(crate) fn show_impostors(
 mod tests {
     use super::*;
 
-    /// A level faded in over `start` and out over `end`.
-    fn level(start: Range<f32>, end: Range<f32>) -> Option<VisibilityRange> {
-        Some(VisibilityRange {
-            start_margin: start,
-            end_margin: end,
-            use_aabb: false,
-        })
+    use std::ops::Range;
+
+    use procgena_core::{Lod, Quality};
+    use procgena_tree::TextureCompression;
+
+    use crate::default_tree_lod;
+
+    /// Spawn settings with `levels` (distance and hysteresis of each mesh
+    /// level, all with the default nearest level's materials) and
+    /// `impostor`.
+    fn settings(levels: &[(f32, f32)], impostor: Option<TreeImpostor>) -> SpawnSettings {
+        let near = default_tree_lod().levels[0].detail;
+        let levels = levels
+            .iter()
+            .map(|&(distance, hysteresis)| LodLevel::new(distance, hysteresis, near))
+            .collect();
+        SpawnSettings {
+            texture_root: None,
+            texture_compression: TextureCompression::Bc7,
+            lod: Lod::new(10.0, levels),
+            impostor,
+        }
     }
 
-    /// Each level's fade-in and fade-out bands, which can be printed.
-    type Bands = Vec<Option<(Range<f32>, Range<f32>)>>;
-
-    /// The bands of `levels`.
-    fn bands(levels: &[Option<VisibilityRange>]) -> Bands {
-        levels
-            .iter()
-            .map(|level| {
-                level
-                    .as_ref()
-                    .map(|r| (r.start_margin.clone(), r.end_margin.clone()))
-            })
+    /// Each level's fade-in and fade-out bands.
+    fn bands(settings: &SpawnSettings) -> Vec<(Range<f32>, Range<f32>)> {
+        let ranges = settings.impostor_ranges(Quality::High).unwrap();
+        ranges
+            .into_iter()
+            .map(|r| (r.fade_in, r.fade_out))
             .collect()
     }
 
@@ -311,30 +279,71 @@ mod tests {
             hysteresis: 0.1,
             baked_level: 0,
         };
-        assert_eq!(impostor.band(), 90.0..110.0);
 
-        // The farthest level keeps its start and ends over the band; the
-        // impostor starts over the same band and never ends.
-        let ranges = impostor.level_ranges(vec![
-            level(0.0..0.0, 18.0..22.0),
-            level(18.0..22.0, f32::INFINITY..f32::INFINITY),
-        ]);
+        // The farthest level keeps its start and ends over the impostor's
+        // band; the impostor starts over the same band and never ends.
+        let two = settings(&[(0.0, 0.0), (20.0, 0.1)], Some(impostor));
+        two.draw_lod().validate().unwrap();
         assert_eq!(
-            bands(&ranges),
+            bands(&two),
             vec![
-                Some((0.0..0.0, 18.0..22.0)),
-                Some((18.0..22.0, 90.0..110.0)),
-                Some((90.0..110.0, f32::INFINITY..f32::INFINITY)),
+                (0.0..0.0, 18.0..22.0),
+                (18.0..22.0, 90.0..110.0),
+                (90.0..110.0, f32::INFINITY..f32::INFINITY),
             ]
         );
 
         // A tree with a single level, drawn at every distance, now ends.
-        let ranges = impostor.level_ranges(vec![None]);
+        let one = settings(&[(0.0, 0.0)], Some(impostor));
         assert_eq!(
-            bands(&ranges),
+            bands(&one),
             vec![
-                Some((0.0..0.0, 90.0..110.0)),
-                Some((90.0..110.0, f32::INFINITY..f32::INFINITY)),
+                (0.0..0.0, 90.0..110.0),
+                (90.0..110.0, f32::INFINITY..f32::INFINITY),
+            ]
+        );
+        assert!(one.mesh_ranges(Quality::High)[0].is_always());
+        assert!(
+            settings(&[(0.0, 0.0)], None)
+                .impostor_ranges(Quality::High)
+                .is_none()
+        );
+    }
+
+    /// The default levels and impostor keep the bands trees had before
+    /// they moved onto the shared levels of detail.
+    #[test]
+    fn default_levels_keep_their_bands() {
+        let settings = SpawnSettings {
+            texture_root: None,
+            texture_compression: TextureCompression::Bc7,
+            lod: default_tree_lod(),
+            impostor: Some(TreeImpostor::default()),
+        };
+        settings.draw_lod().validate().unwrap();
+        let inf = f32::INFINITY..f32::INFINITY;
+        let before: Vec<_> = settings
+            .mesh_ranges(Quality::High)
+            .into_iter()
+            .map(|r| (r.fade_in, r.fade_out))
+            .collect();
+        assert_eq!(
+            before,
+            vec![
+                (0.0..0.0, 9.5..10.5),
+                (9.5..10.5, 23.75..26.25),
+                (23.75..26.25, 47.5..52.5),
+                (47.5..52.5, inf.clone()),
+            ]
+        );
+        assert_eq!(
+            bands(&settings),
+            vec![
+                (0.0..0.0, 9.5..10.5),
+                (9.5..10.5, 23.75..26.25),
+                (23.75..26.25, 47.5..52.5),
+                (47.5..52.5, 108.0..132.0),
+                (108.0..132.0, inf),
             ]
         );
     }

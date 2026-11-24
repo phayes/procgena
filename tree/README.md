@@ -83,10 +83,10 @@ Generate several levels of detail (LOD) from the same tree. Your renderer choose
 which mesh to show based on camera distance.
 
 ```rust
-use procgena_tree::{Tree, TreePreset, default_lod_levels};
+use procgena_tree::{Tree, TreePreset, default_lod};
 
 let tree = Tree::from_preset(TreePreset::AshSmall);
-for (level, mesh) in tree.lod_meshes(&default_lod_levels()) {
+for (level, mesh) in tree.lod_meshes(&default_lod().levels) {
     println!(
         "From distance {}: {} triangles",
         level.distance,

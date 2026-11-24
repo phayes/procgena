@@ -9,10 +9,12 @@ use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use procgena_core::{Lod, LodLevel, LodRange, Quality};
+use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
-    BranchShape, LodLevel, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
-    TreeCacheKey, TreeError, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod_levels,
+    BranchShape, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression, TextureSize,
+    TreeCacheKey, TreeError, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod,
 };
 
 use crate::grove::PreparedTrees;
@@ -120,13 +122,13 @@ impl AssetLoader for TreeOptionsLoader {
     }
 }
 
-/// Mesh and material settings for one entry in
-/// [`TreePlugin::lod_levels`](crate::TreePlugin::lod_levels).
+/// Mesh and material settings for one level of
+/// [`TreePlugin::lod`](crate::TreePlugin::lod).
 /// The plugin automatically renders [`BranchShape::Ribbons`] from both sides.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TreeLodLevel {
-    /// Mesh detail and the camera distance, in metres, where this level starts.
-    pub level: LodLevel,
+pub struct TreeLevel {
+    /// Mesh detail for this level, passed to [`Skeleton::mesh`].
+    pub detail: LodDetail,
     /// Bark texture size or flat-colour shading for this level.
     pub bark: BarkTexture,
     /// Leaf image to use for this level's flat leaf cards.
@@ -160,27 +162,29 @@ pub enum LeafTexture {
     Clump,
 }
 
-/// Returns four detail levels, nearest first, using [`default_lod_levels`].
-/// Bark uses 1k textures at the nearest level and 512 textures at the next two.
-/// The fourth level uses a flat average bark colour and images of several leaves
-/// per card. These material choices require a configured plugin texture folder.
-pub fn default_tree_lod_levels() -> Vec<TreeLodLevel> {
-    let [near, middle, far, farthest] = default_lod_levels();
-    let textured = |level, size| TreeLodLevel {
-        level,
-        bark: BarkTexture::Textured(size),
-        leaves: LeafTexture::Leaf,
-    };
-    vec![
-        textured(near, TextureSize::Size1k),
-        textured(middle, TextureSize::Size512),
-        textured(far, TextureSize::Size512),
-        TreeLodLevel {
-            level: farthest,
-            bark: BarkTexture::AverageColor,
-            leaves: LeafTexture::Clump,
-        },
-    ]
+/// Returns [`default_lod`]'s four levels, at the same distances, with their
+/// materials. Bark uses 1k textures at the nearest level and 512 textures at
+/// the next two. The fourth level uses a flat average bark colour and images
+/// of several leaves per card. These material choices require a configured
+/// plugin texture folder.
+pub fn default_tree_lod() -> Lod<TreeLevel> {
+    let lod = default_lod();
+    let last = lod.levels.len() - 1;
+    let mut index = 0;
+    lod.map_detail(|detail| {
+        let textured = |size| (BarkTexture::Textured(size), LeafTexture::Leaf);
+        let (bark, leaves) = match index {
+            0 => textured(TextureSize::Size1k),
+            i if i < last => textured(TextureSize::Size512),
+            _ => (BarkTexture::AverageColor, LeafTexture::Clump),
+        };
+        index += 1;
+        TreeLevel {
+            detail,
+            bark,
+            leaves,
+        }
+    })
 }
 
 /// Texture location, format and detail levels copied from the plugin configuration.
@@ -188,8 +192,41 @@ pub fn default_tree_lod_levels() -> Vec<TreeLodLevel> {
 pub(crate) struct SpawnSettings {
     pub texture_root: Option<String>,
     pub texture_compression: TextureCompression,
-    pub lod_levels: Vec<TreeLodLevel>,
+    /// The mesh and far-form levels, without the impostor.
+    pub lod: Lod<TreeLevel>,
     pub impostor: Option<crate::TreeImpostor>,
+}
+
+impl SpawnSettings {
+    /// Every level a tree is drawn with: the mesh levels, then the impostor,
+    /// if any, as the last level (`None` as its detail).
+    pub(crate) fn draw_lod(&self) -> Lod<Option<TreeLevel>> {
+        let mut lod = self.lod.clone().map_detail(Some);
+        if let Some(impostor) = self.impostor {
+            lod.levels.push(impostor.level());
+        }
+        lod
+    }
+
+    /// Each mesh level's fade bands at `quality`, nearest first, as drawn
+    /// before the tree's impostor is baked: the farthest level is drawn at
+    /// every distance beyond.
+    pub(crate) fn mesh_ranges(&self, quality: Quality) -> Vec<LodRange> {
+        self.lod.ranges(self.factor(quality))
+    }
+
+    /// Each level's fade bands at `quality` once the impostor is baked: the
+    /// mesh levels, then the impostor. `None` without an impostor.
+    pub(crate) fn impostor_ranges(&self, quality: Quality) -> Option<Vec<LodRange>> {
+        self.impostor?;
+        Some(self.draw_lod().ranges(self.factor(quality)))
+    }
+
+    /// The factor every distance is multiplied by. Trees are not sized yet:
+    /// each one counts as the levels' reference size.
+    fn factor(&self, quality: Quality) -> f32 {
+        self.lod.factor(self.lod.reference_size, quality)
+    }
 }
 
 /// The tree's [`TreeOptions::cache_key`], used to find shared generation
@@ -247,7 +284,7 @@ pub(crate) struct PartMesh<M> {
 /// Meshes produced by a background task for one detail level; each is absent
 /// when the level has no triangles of that kind.
 struct LevelMeshes {
-    level: TreeLodLevel,
+    level: TreeLevel,
     bark: Option<PartMesh<Mesh>>,
     leaves: Option<PartMesh<Mesh>>,
     fruit: Option<PartMesh<Mesh>>,
@@ -258,10 +295,8 @@ struct LevelMeshes {
 /// error that prevented generation.
 type TaskOutput = Result<(Vec<LevelMeshes>, Arc<Specimen>), OptionsError>;
 
-/// Mesh handles and the camera-distance range for one detail level.
+/// Mesh handles and materials for one detail level.
 struct LevelAssets {
-    /// Camera-distance limits; `None` means the sole detail level has no distance limit.
-    range: Option<VisibilityRange>,
     /// Bark mesh, absent when this level contains no bark triangles.
     bark: Option<PartMesh<Handle<Mesh>>>,
     /// Leaf mesh, absent when this level contains no leaf triangles.
@@ -278,8 +313,13 @@ struct LevelAssets {
 
 /// Meshes and materials reused by trees with identical options.
 pub(crate) struct Generated {
-    /// Detail levels sorted from the nearest switching distance to the farthest.
+    /// Detail levels, nearest first.
     levels: Vec<LevelAssets>,
+    /// Each level's fade bands until the impostor is baked, one per level.
+    ranges: Vec<LodRange>,
+    /// Each level's fade bands, then the impostor's, once the impostor is
+    /// baked. `None` when trees have no impostor.
+    impostor_ranges: Option<Vec<LodRange>>,
     fruit: Handle<TreeMaterial>,
     flowers: Handle<TreeMaterial>,
     /// One cylinder mesh and material shared by all wires, plus each wire's placement.
@@ -323,10 +363,16 @@ impl Generated {
         self.levels.len()
     }
 
-    /// The camera distances detail level `lod` is drawn at, or `None` when
-    /// the tree has a single level, drawn at every distance.
-    pub(crate) fn range(&self, lod: usize) -> Option<&VisibilityRange> {
-        self.levels[lod].range.as_ref()
+    /// Each level's fade bands, nearest first, as drawn before the impostor
+    /// is baked.
+    pub(crate) fn ranges(&self) -> &[LodRange] {
+        &self.ranges
+    }
+
+    /// Each level's fade bands, then the impostor's, as drawn once the
+    /// impostor is baked; `None` when trees have no impostor.
+    pub(crate) fn impostor_ranges(&self) -> Option<&[LodRange]> {
+        self.impostor_ranges.as_deref()
     }
 }
 
@@ -381,7 +427,7 @@ impl TreeCache {
     ) -> TreeKey {
         let key = TreeKey(options.cache_key());
         self.trees.entry(key).or_insert_with(|| {
-            let levels = settings.lod_levels.clone();
+            let levels = settings.lod.levels.clone();
             let task_options = options.clone();
             let task =
                 AsyncComputeTaskPool::get().spawn(async move { generate(&task_options, &levels) });
@@ -507,10 +553,8 @@ pub(crate) fn start_generation(
 /// Generates one skeleton and meshes for each detail level, sorted by distance.
 /// Skips [`TreeMesh::billboard_cull`](procgena_tree::TreeMesh::billboard_cull) because
 /// the tree shaders rotate the main shapes toward each view.
-fn generate(options: &TreeOptions, levels: &[TreeLodLevel]) -> TaskOutput {
+fn generate(options: &TreeOptions, levels: &[LodLevel<TreeLevel>]) -> TaskOutput {
     let skeleton = Skeleton::generate(options)?;
-    let mut levels = levels.to_vec();
-    levels.sort_by(|a, b| a.level.distance.total_cmp(&b.level.distance));
     let part = |buffers: &MeshBuffers, convert: &dyn Fn(&MeshBuffers) -> Mesh| {
         (!buffers.indices.is_empty()).then(|| {
             let mesh = convert(buffers);
@@ -523,16 +567,26 @@ fn generate(options: &TreeOptions, levels: &[TreeLodLevel]) -> TaskOutput {
             }
         })
     };
-    let lods: Vec<(LodLevel, TreeMesh)> = levels
+    let lods: Vec<(LodLevel<LodDetail>, TreeMesh)> = levels
         .iter()
-        .map(|level| (level.level, skeleton.mesh(options, &level.level.detail)))
+        .map(|level| {
+            let mesh = skeleton.mesh(options, &level.detail.detail);
+            let level = LodLevel {
+                distance: level.distance,
+                hysteresis: level.hysteresis,
+                form: level.form,
+                casts_shadows: level.casts_shadows,
+                detail: level.detail.detail,
+            };
+            (level, mesh)
+        })
         .collect();
     let specimen = Arc::new(skeleton.specimen(&lods));
     let meshes = levels
-        .into_iter()
+        .iter()
         .zip(&lods)
         .map(|(level, (_, mesh))| LevelMeshes {
-            level,
+            level: level.detail,
             bark: part(&mesh.branches, &|b| bark_mesh(b, &options.bark)),
             leaves: part(&mesh.leaves, &leaf_mesh),
             fruit: part(&mesh.fruit, &cluster_mesh),
@@ -543,10 +597,13 @@ fn generate(options: &TreeOptions, levels: &[TreeLodLevel]) -> TaskOutput {
 }
 
 /// Collects completed tasks and registers shared meshes and materials.
-/// Invalid options are logged and cached as a failed result.
+/// Invalid options are logged and cached as a failed result. Each tree's
+/// fade bands use the [`LodQuality`] in use when it finishes.
+#[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 pub(crate) fn finish_generation(
     mut cache: ResMut<TreeCache>,
     settings: Res<SpawnSettings>,
+    quality: Res<LodQuality>,
     wind: Res<Wind>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -575,11 +632,10 @@ pub(crate) fn finish_generation(
         // Reuse texture images; without a texture folder, use plain colours.
         let compression = settings.texture_compression;
         let root = settings.texture_root.as_deref();
-        let ranges = visibility_ranges(levels.iter().map(|l| l.level.level));
         let mut level_assets = Vec::with_capacity(levels.len());
-        for (l, range) in levels.into_iter().zip(ranges) {
+        for l in levels {
             // Render both faces of each ribbon strip.
-            let two_sided = l.level.level.detail.branch_shape == BranchShape::Ribbons;
+            let two_sided = l.level.detail.branch_shape == BranchShape::Ribbons;
             let look = root.map(|_| l.level.bark);
             let key = BarkKey::new(&options.bark, look, two_sided);
             let bark = cache.bark_materials.entry(key).or_insert_with(|| {
@@ -615,7 +671,7 @@ pub(crate) fn finish_generation(
 
             // Omit normal maps for camera-facing leaves, which have no tangents.
             let image = root.map(|_| l.level.leaves);
-            let billboard = l.level.level.detail.leaf_billboard.is_some();
+            let billboard = l.level.detail.leaf_billboard.is_some();
             let key = LeafKey::new(&options.leaves, image, billboard);
             let leaves = cache.leaf_materials.entry(key).or_insert_with(|| {
                 let textures = image.zip(root).map(|(image, root)| {
@@ -648,7 +704,6 @@ pub(crate) fn finish_generation(
                 })
             };
             level_assets.push(LevelAssets {
-                range,
                 bark: add(l.bark),
                 leaves: add(l.leaves),
                 fruit: add(l.fruit),
@@ -683,6 +738,8 @@ pub(crate) fn finish_generation(
         });
         let generated = Generated {
             levels: level_assets,
+            ranges: settings.mesh_ranges(quality.0),
+            impostor_ranges: settings.impostor_ranges(quality.0),
             fruit,
             flowers,
             trellis,
@@ -692,35 +749,10 @@ pub(crate) fn finish_generation(
     }
 }
 
-/// Builds camera-distance limits for detail levels supplied in nearest-first order.
-/// A single level has no distance limit.
-///
-/// The first level starts at distance zero; the last extends indefinitely.
-/// At each intervening switch, adjacent levels fade over a band extending
-/// `distance × hysteresis` to either side of the switching distance.
-fn visibility_ranges(levels: impl Iterator<Item = LodLevel>) -> Vec<Option<VisibilityRange>> {
-    let levels: Vec<LodLevel> = levels.collect();
-    if levels.len() < 2 {
-        return vec![None; levels.len()];
-    }
-    let margin = |level: &LodLevel| {
-        let half = level.distance * level.hysteresis;
-        (level.distance - half).max(0.0)..level.distance + half
-    };
-    (0..levels.len())
-        .map(|i| {
-            let start_margin = if i == 0 { 0.0..0.0 } else { margin(&levels[i]) };
-            let end_margin = match levels.get(i + 1) {
-                Some(next) => margin(next),
-                None => f32::INFINITY..f32::INFINITY,
-            };
-            Some(VisibilityRange {
-                start_margin,
-                end_margin,
-                use_aabb: false,
-            })
-        })
-        .collect()
+/// The visibility range a part with fade bands `range` is drawn with, or
+/// `None` when it is drawn at every distance and needs no range.
+pub(crate) fn part_range(range: &LodRange) -> Option<VisibilityRange> {
+    (!range.is_always()).then(|| visibility_range(range))
 }
 
 /// Positions, rotates and stretches a unit-height cylinder to connect a wire's endpoints.
@@ -765,8 +797,8 @@ fn spawn_tree_parts(commands: &mut Commands, tree: Entity, generated: &Generated
             MeshMaterial3d(material.clone()),
             ChildOf(tree),
         ));
-        if let Some(range) = &generated.levels[lod].range {
-            part.insert(range.clone());
+        if let Some(range) = part_range(&generated.ranges[lod]) {
+            part.insert(range);
         }
         // Use rotation-aware bounds so Bevy does not hide a billboard whose
         // stored shape is outside the view but whose rotated shape is visible.
@@ -856,7 +888,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use procgena_tree::default_lod_levels;
+    use procgena_tree::LOD_REFERENCE_SIZE;
 
     /// Results of every [`TreeFinished`] event, in order.
     #[derive(Resource, Default)]
@@ -865,16 +897,23 @@ mod tests {
     /// Creates a test app with one full-detail level and the spawn systems,
     /// without rendering or loading textures.
     fn spawn_app() -> App {
-        spawn_app_with(vec![TreeLodLevel {
-            level: LodLevel::default(),
-            bark: BarkTexture::Textured(TextureSize::Size1k),
-            leaves: LeafTexture::Leaf,
-        }])
+        spawn_app_with(Lod::new(
+            LOD_REFERENCE_SIZE,
+            vec![LodLevel::new(
+                0.0,
+                0.0,
+                TreeLevel {
+                    detail: LodDetail::default(),
+                    bark: BarkTexture::Textured(TextureSize::Size1k),
+                    leaves: LeafTexture::Leaf,
+                },
+            )],
+        ))
     }
 
     /// Creates a test app with the supplied levels and the spawn systems,
     /// without rendering or loading textures.
-    fn spawn_app_with(lod_levels: Vec<TreeLodLevel>) -> App {
+    fn spawn_app_with(lod: Lod<TreeLevel>) -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<Mesh>()
@@ -885,10 +924,11 @@ mod tests {
             .init_resource::<Wind>()
             .init_resource::<TreeCache>()
             .init_resource::<Finished>()
+            .init_resource::<LodQuality>()
             .insert_resource(SpawnSettings {
                 texture_root: None,
                 texture_compression: TextureCompression::Bc7,
-                lod_levels,
+                lod,
                 impostor: None,
             })
             .add_systems(
@@ -978,7 +1018,7 @@ mod tests {
         update_until_finished(&mut app, tree);
         let expected = {
             let tree = procgena_tree::Tree::from_preset(TreePreset::OakSmall);
-            tree.specimen(&tree.lod_meshes(&[LodLevel::default()]))
+            tree.specimen(&tree.lod_meshes(&[LodLevel::new(0.0, 0.0, LodDetail::default())]))
         };
         let specimen = app.world().get::<GeneratedSpecimen>(tree).unwrap();
         assert_eq!(*specimen.0, expected);
@@ -1002,7 +1042,7 @@ mod tests {
     /// is two-sided only at the fourth level, which uses ribbons.
     #[test]
     fn ribbon_bark_is_drawn_two_sided() {
-        let mut app = spawn_app_with(default_tree_lod_levels());
+        let mut app = spawn_app_with(default_tree_lod());
         let tree = app
             .world_mut()
             .spawn(TreeParams::preset(TreePreset::OakSmall))
@@ -1034,7 +1074,7 @@ mod tests {
     /// fallback shapes must not be spawned.
     #[test]
     fn farthest_level_parts_turn_toward_the_camera() {
-        let mut app = spawn_app_with(default_tree_lod_levels());
+        let mut app = spawn_app_with(default_tree_lod());
         let tree = app
             .world_mut()
             .spawn(TreeParams::preset(TreePreset::Apple))
@@ -1074,13 +1114,20 @@ mod tests {
     /// texture set provides one.
     #[test]
     fn billboard_leaves_leave_out_the_normal_map() {
-        let [near, .., farthest] = default_lod_levels();
-        let leaf_image = |level| TreeLodLevel {
-            level,
-            bark: BarkTexture::AverageColor,
-            leaves: LeafTexture::Leaf,
+        let levels = default_lod().levels;
+        let leaf_image = |level: &LodLevel<LodDetail>| LodLevel {
+            distance: level.distance,
+            hysteresis: level.hysteresis,
+            form: level.form,
+            casts_shadows: level.casts_shadows,
+            detail: TreeLevel {
+                detail: level.detail,
+                bark: BarkTexture::AverageColor,
+                leaves: LeafTexture::Leaf,
+            },
         };
-        let mut app = spawn_app_with(vec![leaf_image(near), leaf_image(farthest)]);
+        let near_and_farthest = vec![leaf_image(&levels[0]), leaf_image(&levels[3])];
+        let mut app = spawn_app_with(Lod::new(LOD_REFERENCE_SIZE, near_and_farthest));
         app.world_mut().resource_mut::<SpawnSettings>().texture_root = Some("textures".into());
         let mut options = TreePreset::OakSmall.options();
         options.leaves.kind = "white_oak".to_owned();
@@ -1191,8 +1238,18 @@ mod tests {
 
     #[test]
     fn detail_levels_hand_over_at_their_distances() {
-        let ranges = visibility_ranges(default_lod_levels().into_iter());
-        let ranges: Vec<VisibilityRange> = ranges.into_iter().map(Option::unwrap).collect();
+        let settings = |lod| SpawnSettings {
+            texture_root: None,
+            texture_compression: TextureCompression::Bc7,
+            lod,
+            impostor: None,
+        };
+        let default = settings(default_tree_lod());
+        let ranges: Vec<VisibilityRange> = default
+            .mesh_ranges(Quality::High)
+            .iter()
+            .map(|r| part_range(r).unwrap())
+            .collect();
         assert_eq!(ranges[0].start_margin, 0.0..0.0);
         assert_eq!(ranges[0].end_margin, 9.5..10.5);
         assert_eq!(ranges[1].start_margin, 9.5..10.5);
@@ -1202,9 +1259,16 @@ mod tests {
         assert_eq!(ranges[3].start_margin, 47.5..52.5);
         assert_eq!(ranges[3].end_margin.start, f32::INFINITY);
 
+        // A lower quality setting switches every level sooner.
+        let low = default.mesh_ranges(Quality::Low);
+        let fade_in = &low[1].fade_in;
+        assert!((fade_in.start - 3.8).abs() < 1e-5 && (fade_in.end - 4.2).abs() < 1e-5);
+
         // A lone detail level must remain visible at every camera distance.
-        let single = visibility_ranges([LodLevel::default()].into_iter());
-        assert!(matches!(single[..], [None]));
+        let mut one = default_tree_lod();
+        one.levels.truncate(1);
+        let single = settings(one).mesh_ranges(Quality::High);
+        assert!(part_range(&single[0]).is_none());
     }
 
     #[test]

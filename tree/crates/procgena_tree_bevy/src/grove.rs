@@ -927,12 +927,16 @@ mod tests {
     use std::collections::HashSet;
     use std::time::{Duration, Instant};
 
+    use procgena_core::{Lod, LodLevel};
+    use procgena_core_bevy::LodQuality;
     use procgena_specimen::{Part, SurfaceMesh, tags};
-    use procgena_tree::{GroveTree, LodLevel, TextureCompression, TextureSize, TreePreset};
+    use procgena_tree::{
+        GroveTree, LOD_REFERENCE_SIZE, LodDetail, TextureCompression, TextureSize, TreePreset,
+    };
 
     use super::*;
     use crate::spawn::{
-        BarkTexture, LeafTexture, TreeGenerating, TreeLodLevel, TreeOptionsAsset, TreeParams,
+        BarkTexture, LeafTexture, TreeGenerating, TreeLevel, TreeOptionsAsset, TreeParams,
         TreePart, finish_generation, prune_cache, reset_changed_trees, spawn_parts,
         start_generation,
     };
@@ -956,14 +960,22 @@ mod tests {
             .init_resource::<Wind>()
             .init_resource::<TreeCache>()
             .init_resource::<Finished>()
+            .init_resource::<LodQuality>()
             .insert_resource(SpawnSettings {
                 texture_root: None,
                 texture_compression: TextureCompression::Bc7,
-                lod_levels: vec![TreeLodLevel {
-                    level: LodLevel::default(),
-                    bark: BarkTexture::Textured(TextureSize::Size1k),
-                    leaves: LeafTexture::Leaf,
-                }],
+                lod: Lod::new(
+                    LOD_REFERENCE_SIZE,
+                    vec![LodLevel::new(
+                        0.0,
+                        0.0,
+                        TreeLevel {
+                            detail: LodDetail::default(),
+                            bark: BarkTexture::Textured(TextureSize::Size1k),
+                            leaves: LeafTexture::Leaf,
+                        },
+                    )],
+                ),
                 impostor: None,
             })
             .add_systems(

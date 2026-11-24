@@ -5532,6 +5532,7 @@ dependencies = [
  "bevy",
  "image",
  "procgena_core",
+ "procgena_core_bevy",
  "procgena_impostor",
  "procgena_specimen",
  "procgena_tree",

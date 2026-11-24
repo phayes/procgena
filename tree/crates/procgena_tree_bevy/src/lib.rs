@@ -249,27 +249,30 @@
 //! outline as the view changes. For shadow rendering, they turn toward the light.
 //! To see shadows at this distance, extend the directional light’s shadow cascades
 //! far enough to cover the trees.
-//! Set `TreePlugin::lod_levels` when adding the plugin to choose mesh detail,
+//! Set `TreePlugin::lod` when adding the plugin to choose mesh detail,
 //! switching distances, bark appearance and leaf images. For a single full-detail
-//! mesh with 2k bark textures and no distance switching:
+//! mesh with 2k bark textures, no distance switching and no impostor:
 //!
 //! ```rust
-//! use procgena_tree::{LodLevel, TextureSize};
-//! use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLodLevel, TreePlugin};
+//! use procgena_core::{Lod, LodLevel};
+//! use procgena_tree::{LOD_REFERENCE_SIZE, LodDetail, TextureSize};
+//! use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLevel, TreePlugin};
 //!
+//! let level = TreeLevel {
+//!     detail: LodDetail::default(),
+//!     bark: BarkTexture::Textured(TextureSize::Size2k),
+//!     leaves: LeafTexture::Leaf,
+//! };
 //! let plugin = TreePlugin {
-//!     lod_levels: vec![TreeLodLevel {
-//!         level: LodLevel::default(),
-//!         bark: BarkTexture::Textured(TextureSize::Size2k),
-//!         leaves: LeafTexture::Leaf,
-//!     }],
+//!     lod: Lod::new(LOD_REFERENCE_SIZE, vec![LodLevel::new(0.0, 0.0, level)]),
+//!     impostor: None,
 //!     ..Default::default()
 //! };
 //! ```
 //!
 //! The 2k bark textures are downloaded only with `--sizes 512,1k,2k`.
 //!
-//! An empty list produces no bark or leaf meshes. Generated children have a
+//! No levels at all produce no bark or leaf meshes. Generated children have a
 //! `TreePart` component identifying their detail level and whether they draw bark,
 //! leaves, or a trellis wire.
 //!
@@ -369,11 +372,13 @@ pub use mesh::{
     ATTRIBUTE_WIND, bark_mesh, billboard_aabb, cluster_mesh, leaf_mesh,
 };
 pub use spawn::{
-    BarkTexture, LeafTexture, TreeFinished, TreeGenerating, TreeLodLevel, TreeOptionsAsset,
-    TreeParams, TreePart, TreePartKind, default_tree_lod_levels,
+    BarkTexture, LeafTexture, TreeFinished, TreeGenerating, TreeLevel, TreeOptionsAsset,
+    TreeParams, TreePart, TreePartKind, default_tree_lod,
 };
 pub use wind::Wind;
 
+use procgena_core::Lod;
+use procgena_core_bevy::LodPlugin;
 use procgena_impostor::ImpostorPlugin;
 
 #[cfg(feature = "gltf")]
@@ -397,13 +402,19 @@ pub struct TreePlugin {
     /// Which texture files to load. Defaults to BC7; UASTC needs Bevy's
     /// `basis-universal` feature.
     pub texture_compression: TextureCompression,
-    /// Mesh detail, switching distance in metres, and bark and leaf appearance
-    /// for each level. Defaults to [`default_tree_lod_levels`]. Levels are sorted
-    /// by distance before generation. Supply one level to disable distance
-    /// switching, or an empty list to produce no tree meshes.
-    pub lod_levels: Vec<TreeLodLevel>,
-    /// Draws trees far away as baked impostors; see [`TreeImpostor`].
-    /// `None` draws the farthest mesh level at every distance beyond.
+    /// The mesh and far-form levels, nearest first: each one's mesh detail,
+    /// switching distance in metres, and bark and leaf appearance. Defaults
+    /// to [`default_tree_lod`]. Every tree uses the distances as written, scaled
+    /// for the [`LodQuality`](procgena_core_bevy::LodQuality) in use when it is
+    /// generated: trees are not yet
+    /// scaled by their own size. Supply one level to disable distance
+    /// switching, or no levels to produce no tree meshes.
+    ///
+    /// The levels must pass [`Lod::validate`], or adding the plugin panics.
+    pub lod: Lod<TreeLevel>,
+    /// Draws trees far away as baked impostors, as the last level after
+    /// [`lod`](Self::lod)'s; see [`TreeImpostor`]. `None` draws the farthest
+    /// mesh level at every distance beyond.
     pub impostor: Option<TreeImpostor>,
 }
 
@@ -412,7 +423,7 @@ impl Default for TreePlugin {
         Self {
             texture_root: Some("procgena_tree/textures".to_owned()),
             texture_compression: TextureCompression::Bc7,
-            lod_levels: default_tree_lod_levels(),
+            lod: default_tree_lod(),
             impostor: Some(TreeImpostor::default()),
         }
     }
@@ -438,23 +449,28 @@ impl Plugin for TreePlugin {
         embedded_asset!(app, "shaders/tree.wesl");
         embedded_asset!(app, "shaders/tree_prepass.wesl");
 
-        // Impostors must start beyond the farthest mesh level.
-        let farthest = self
-            .lod_levels
-            .iter()
-            .map(|l| l.level.distance)
-            .fold(0.0, f32::max);
-        let impostor = self.impostor.filter(|impostor| {
-            let fits = impostor.band().start > farthest;
-            if !fits {
-                error!(
-                    "procgena_tree_bevy: tree impostors start at {} m, inside the farthest \
-                     detail level (from {farthest} m); impostors are off",
-                    impostor.distance
-                );
-            }
-            fits
-        });
+        // The mesh levels must be valid. The impostor, as the last level,
+        // must fit after them, or impostors are turned off.
+        if !self.lod.levels.is_empty()
+            && let Err(error) = self.lod.validate()
+        {
+            panic!("procgena_tree_bevy: invalid tree levels of detail: {error}");
+        }
+        let mut settings = SpawnSettings {
+            texture_root: self.texture_root.clone(),
+            texture_compression: self.texture_compression,
+            lod: self.lod.clone(),
+            impostor: self.impostor,
+        };
+        if settings.impostor.is_some()
+            && let Err(error) = settings.draw_lod().validate()
+        {
+            error!(
+                "procgena_tree_bevy: tree impostors don't fit after the levels ({error}); impostors are off"
+            );
+            settings.impostor = None;
+        }
+        let impostor = settings.impostor;
 
         // Impostors, unless the app added the plugin itself with settings of
         // its own.
@@ -463,6 +479,7 @@ impl Plugin for TreePlugin {
         }
 
         app.add_plugins((
+            LodPlugin,
             MaterialPlugin::<TreeMaterial>::default(),
             grove::GroveRenderPlugin,
         ))
@@ -472,12 +489,7 @@ impl Plugin for TreePlugin {
         .register_asset_loader(TreeGroveLoader)
         .init_resource::<Wind>()
         .init_resource::<TreeCache>()
-        .insert_resource(SpawnSettings {
-            texture_root: self.texture_root.clone(),
-            texture_compression: self.texture_compression,
-            lod_levels: self.lod_levels.clone(),
-            impostor,
-        })
+        .insert_resource(settings)
         .add_observer(impostor::keep_impostor)
         .add_systems(
             Update,

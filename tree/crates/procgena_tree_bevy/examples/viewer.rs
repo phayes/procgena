@@ -58,7 +58,7 @@ use procgena_core::Rng;
 use procgena_tree::{BARK_KINDS, BarkUvMode, LEAF_KINDS, TreeOptions, TreePreset, WindParams};
 use procgena_tree_bevy::{
     TreeGenerating, TreeImpostor, TreeMaterial, TreeParams, TreePart, TreePartKind, TreePlugin,
-    Wind, default_tree_lod_levels,
+    Wind, default_tree_lod,
 };
 
 /// Distance between neighbouring trees in the forest, in metres.
@@ -131,7 +131,7 @@ fn main() -> AppExit {
     let mut size = UVec2::new(1280, 720);
     let mut eye = Vec3::new(0.0, 3.0, 11.0);
     let mut target = Vec3::new(0.0, 2.8, 0.0);
-    let mut lod_levels = default_tree_lod_levels();
+    let mut lod = default_tree_lod();
 
     // Apply command-line choices before creating the scene.
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -207,9 +207,10 @@ fn main() -> AppExit {
             }
             "--lod" => {
                 let index: usize = args[i + 1].parse().expect("a detail level number");
-                let mut level = *lod_levels.get(index).expect("a default detail level");
-                level.level.distance = 0.0;
-                lod_levels = vec![level];
+                let mut level = *lod.levels.get(index).expect("a default detail level");
+                level.distance = 0.0;
+                level.hysteresis = 0.0;
+                lod.levels = vec![level];
                 i += 1;
             }
             other => panic!("unknown option {other}"),
@@ -261,7 +262,7 @@ fn main() -> AppExit {
     let impostor = viewer.impostors.then(TreeImpostor::default);
     app.add_plugins(TreePlugin {
         texture_root: Some("textures".to_owned()),
-        lod_levels,
+        lod,
         impostor,
         ..default()
     })

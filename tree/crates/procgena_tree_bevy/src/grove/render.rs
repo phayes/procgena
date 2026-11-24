@@ -23,7 +23,7 @@ use std::ops::Range;
 
 use bevy::asset::UntypedAssetId;
 use bevy::camera::primitives::Frustum;
-use bevy::camera::visibility::{RenderLayers, VisibilityRange};
+use bevy::camera::visibility::RenderLayers;
 use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey};
 use bevy::core_pipeline::deferred::{AlphaMask3dDeferred, Opaque3dDeferred};
 use bevy::core_pipeline::prepass::{
@@ -68,6 +68,7 @@ use bevy::render::view::{ExtractedView, RetainedViewEntity};
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::shape::ViewFrustum;
 
+use procgena_core::LodRange;
 use procgena_impostor::{INSTANCE_SIZE, ImpostorMaterial, ImpostorPipelineKey};
 
 use super::promote::{PromotedAs, PromotedTree};
@@ -249,7 +250,7 @@ struct GroveGpu {
     draws: Vec<GroveDraw>,
     trees: Vec<TreeBounds>,
     /// Each variant's detail-level distance bands, nearest level first.
-    ranges: Vec<Vec<Option<VisibilityRange>>>,
+    ranges: Vec<Vec<LodRange>>,
     /// The most detail levels of any variant.
     levels: u32,
     /// Trees promoted to entities this frame, which the grove leaves out.
@@ -396,9 +397,7 @@ fn describe_grove(gpu: &mut GroveGpu) {
             continue;
         };
         let levels = generated.level_count();
-        let mut ranges: Vec<_> = (0..levels)
-            .map(|lod| generated.range(lod).cloned())
-            .collect();
+        let mut ranges = generated.ranges().to_vec();
         let mut min = Vec3A::splat(f32::INFINITY);
         let mut max = Vec3A::splat(f32::NEG_INFINITY);
         for part in variant.parts() {
@@ -414,8 +413,10 @@ fn describe_grove(gpu: &mut GroveGpu) {
         }
 
         // The impostor, once baked, is one more level beyond the rest.
-        if let Some(impostor) = variant.impostor() {
-            ranges = impostor.setting.level_ranges(ranges);
+        if let (Some(impostor), Some(with_impostor)) =
+            (variant.impostor(), generated.impostor_ranges())
+        {
+            ranges = with_impostor.to_vec();
             gpu.draws.push(GroveDraw {
                 slot: slot as u32,
                 lod: levels as u32,
@@ -1095,7 +1096,7 @@ pub(crate) fn cull_groves(
                 }
                 let distance = (tree.origin - cull.lod_origin).length();
                 for (lod, range) in grove.ranges[tree.slot as usize].iter().enumerate() {
-                    let Some(dither) = dither_level(range.as_ref(), distance) else {
+                    let Some(dither) = dither_level(range, distance) else {
                         continue;
                     };
                     lists[grove.list(tree.slot, lod as u32)]
@@ -1146,26 +1147,10 @@ fn in_frustum(view: &CullView, tree: &TreeBounds) -> bool {
 /// trees, or `None` if the level isn't drawn at that distance.
 ///
 /// Levels -16 to 0 fade in over the near band, 0 to 16 fade out over the
-/// far band, and 0 is fully drawn. A level without a range is always drawn.
-fn dither_level(range: Option<&VisibilityRange>, distance: f32) -> Option<i32> {
-    let Some(range) = range else {
-        return Some(0);
-    };
-    if distance < range.start_margin.start || distance >= range.end_margin.end {
-        return None;
-    }
-    let (offset, band) = if distance >= range.end_margin.start {
-        (0, &range.end_margin)
-    } else {
-        (-16, &range.start_margin)
-    };
-    let width = band.end - band.start;
-    let level = if width > 0.0 {
-        (((distance - band.start) / width * 16.0).round() as i32).clamp(0, 16)
-    } else {
-        16
-    };
-    Some(offset + level)
+/// far band, and 0 is fully drawn, from [`LodRange::dither_level`].
+fn dither_level(range: &LodRange, distance: f32) -> Option<i32> {
+    let outside = distance < range.fade_in.start || distance >= range.fade_out.end;
+    (!outside).then(|| range.dither_level(distance))
 }
 
 // --------------------------------------------------------------------------
@@ -1311,18 +1296,17 @@ mod tests {
     use super::*;
 
     /// A middle detail level, faded in over 8–12 m and out over 18–22 m.
-    fn middle() -> VisibilityRange {
-        VisibilityRange {
-            start_margin: 8.0..12.0,
-            end_margin: 18.0..22.0,
-            use_aabb: false,
+    fn middle() -> LodRange {
+        LodRange {
+            fade_in: 8.0..12.0,
+            fade_out: 18.0..22.0,
         }
     }
 
     #[test]
     fn detail_levels_fade_over_their_bands_as_single_trees_do() {
         let range = middle();
-        let at = |distance| dither_level(Some(&range), distance);
+        let at = |distance| dither_level(&range, distance);
 
         // Outside the level, fading in, fully drawn, fading out.
         assert_eq!(at(7.9), None);
@@ -1337,12 +1321,16 @@ mod tests {
 
         // A level that starts at the camera is fully drawn there, and a lone
         // level everywhere.
-        let first = VisibilityRange {
-            start_margin: 0.0..0.0,
+        let first = LodRange {
+            fade_in: 0.0..0.0,
             ..middle()
         };
-        assert_eq!(dither_level(Some(&first), 0.0), Some(0));
-        assert_eq!(dither_level(None, 1e6), Some(0));
+        assert_eq!(dither_level(&first, 0.0), Some(0));
+        assert_eq!(dither_level(&LodRange::ALWAYS, 1e6), Some(0));
+
+        // An exact half step rounds to even, as WGSL's `round` does: 2.5 of
+        // 16 steps into the fade-out band is level 2, not 3.
+        assert_eq!(at(18.0 + 4.0 * 2.5 / 16.0), Some(2));
     }
 
     #[test]

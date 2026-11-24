@@ -7,6 +7,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use std::ops::Range;
 
 use glam::{Quat, Vec3};
+use procgena_core::{FarForm, LevelForm, Lod, LodLevel};
 use serde::{Deserialize, Serialize};
 
 use crate::cluster_mesh::{mesh_flowers, mesh_fruit};
@@ -42,7 +43,7 @@ pub struct LodDetail {
     /// that start inside their parent. Use closed bark for physics bodies,
     /// volume and mass, or voxelizing. When false, tubes are open at both ends.
     /// Closed bark is reliable at the detail of the first two
-    /// [`default_lod_levels`], which enable it; the coarser levels turn it off
+    /// [`default_lod`] levels, which enable it; the coarser levels turn it off
     /// because their tubes may fold over themselves at sharp bends.
     ///
     /// Each shell is closed once vertices at identical positions are merged:
@@ -242,24 +243,21 @@ pub enum ItemDetail {
     Minimal,
 }
 
-/// A mesh detail setting and the camera distance at which an application should use it.
-///
-/// Pass `detail` to [`Skeleton::mesh`]. The application must select levels and switch meshes;
-/// this crate does not track a camera or apply the distance and hysteresis settings.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct LodLevel {
-    /// Suggested starting distance from the camera, in the same units as the tree positions.
-    pub distance: f32,
-    /// Suggested switching margin as a fraction of `distance`.
-    /// For example, 0.05 gives a 5% margin to help avoid rapid switching near a threshold.
-    pub hysteresis: f32,
-    /// Geometry settings to pass to [`Skeleton::mesh`] for this level.
-    pub detail: LodDetail,
-}
+/// A tree's levels of detail: the shared [`Lod`] type, with the mesh
+/// settings of each level as its detail. Pass a level's `detail` to
+/// [`Skeleton::mesh`]. This crate does not track a camera: the application
+/// (or `procgena_tree_bevy`) switches levels using [`Lod::ranges`].
+pub type TreeLod = Lod<LodDetail>;
+
+/// The tree size, in metres, that [`default_lod`]'s distances are written
+/// for. Trees are not yet scaled by their own size, so every tree uses
+/// these distances as they are.
+pub const LOD_REFERENCE_SIZE: f32 = 10.0;
 
 /// Returns four suggested detail levels at distances of 0, 10, 25 and 50
-/// metres. The caller must select and switch meshes as the camera moves.
+/// metres, each fading in over 5% either side of its distance. The last is
+/// the tree's far form, [`FarForm::BillboardLeaves`]. There is no cull
+/// distance. The caller must select and switch meshes as the camera moves.
 ///
 /// Only the levels at 0 and 10 m (LOD0 and LOD1) are for gameplay: their bark is
 /// [`closed`](LodDetail::closed) and suitable for physics, collision and volumes.
@@ -288,63 +286,58 @@ pub struct LodLevel {
 ///   every item in each kept cluster; larger ones keep every second item.
 ///
 /// Renderers that rotate billboards should skip [`TreeMesh::billboard_cull`].
-pub fn default_lod_levels() -> [LodLevel; 4] {
-    [
-        LodLevel::default(),
-        LodLevel {
-            distance: 10.0,
-            hysteresis: 0.05,
-            detail: LodDetail {
-                section_stride: 3,
-                segment_factor: 0.75,
-                leaf_stride: 2,
-                leaf_scale: 1.25,
-                billboard: None,
-                item_detail: ItemDetail::Simple,
-                ..LodDetail::default()
-            },
-        },
-        LodLevel {
-            distance: 25.0,
-            hysteresis: 0.05,
-            detail: LodDetail {
-                section_stride: 6,
-                segment_factor: 0.4,
-                closed: false,
-                leaf_stride: 2,
-                leaf_scale: 1.3,
-                billboard: Some(Billboard::Single),
-                cluster_stride: 1,
-                item_stride: 2,
-                item_scale: 1.25,
-                item_detail: ItemDetail::Minimal,
-                flat_item_size: 0.075,
-                ..LodDetail::default()
-            },
-        },
-        LodLevel {
-            distance: 50.0,
-            hysteresis: 0.05,
-            detail: LodDetail {
-                section_stride: 8,
-                branch_shape: BranchShape::Ribbons,
-                closed: false,
-                min_branch_radius: 0.015,
-                leaf_stride: 4,
-                leaf_scale: 1.8,
-                billboard: Some(Billboard::Single),
-                leaf_billboard: Some(BillboardMode::Camera),
-                leaf_billboard_scale: 1.25,
-                cluster_stride: 2,
-                item_stride: 2,
-                item_scale: 1.4,
-                item_detail: ItemDetail::Minimal,
-                item_stalks: false,
-                flat_item_size: 0.15,
-                ..LodDetail::default()
-            },
-        },
-    ]
+pub fn default_lod() -> TreeLod {
+    let near = LodDetail::default();
+    let middle = LodDetail {
+        section_stride: 3,
+        segment_factor: 0.75,
+        leaf_stride: 2,
+        leaf_scale: 1.25,
+        billboard: None,
+        item_detail: ItemDetail::Simple,
+        ..LodDetail::default()
+    };
+    let far = LodDetail {
+        section_stride: 6,
+        segment_factor: 0.4,
+        closed: false,
+        leaf_stride: 2,
+        leaf_scale: 1.3,
+        billboard: Some(Billboard::Single),
+        cluster_stride: 1,
+        item_stride: 2,
+        item_scale: 1.25,
+        item_detail: ItemDetail::Minimal,
+        flat_item_size: 0.075,
+        ..LodDetail::default()
+    };
+    let farthest = LodDetail {
+        section_stride: 8,
+        branch_shape: BranchShape::Ribbons,
+        closed: false,
+        min_branch_radius: 0.015,
+        leaf_stride: 4,
+        leaf_scale: 1.8,
+        billboard: Some(Billboard::Single),
+        leaf_billboard: Some(BillboardMode::Camera),
+        leaf_billboard_scale: 1.25,
+        cluster_stride: 2,
+        item_stride: 2,
+        item_scale: 1.4,
+        item_detail: ItemDetail::Minimal,
+        item_stalks: false,
+        flat_item_size: 0.15,
+        ..LodDetail::default()
+    };
+    Lod::new(
+        LOD_REFERENCE_SIZE,
+        vec![
+            LodLevel::new(0.0, 0.0, near),
+            LodLevel::new(10.0, 0.05, middle),
+            LodLevel::new(25.0, 0.05, far),
+            LodLevel::new(50.0, 0.05, farthest).with_form(LevelForm::Far(FarForm::BillboardLeaves)),
+        ],
+    )
 }
 
 /// Vertex data and triangle indices for one mesh.
