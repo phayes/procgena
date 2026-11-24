@@ -336,6 +336,13 @@ fn a_chunk_without_finer_neighbours_is_a_plain_grid() {
     let v = samples.vertex(10, 20);
     let at = ChunkKey::new(-3, 2, 1).min_corner() + DVec2::new(20.0, 40.0);
     assert_eq!(v.height, full.height(at));
+
+    // Level 0 has no finer level, so its transitions are ignored.
+    let finest =
+        ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 0), ChunkStage::Canonical).unwrap();
+    let mesh = finest.mesh(Transitions::ALL, 0.0);
+    assert_eq!(mesh.transitions, Transitions::NONE);
+    assert_eq!(mesh, finest.mesh(Transitions::NONE, 0.0));
 }
 
 #[test]

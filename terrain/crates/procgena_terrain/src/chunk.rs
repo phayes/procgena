@@ -549,7 +549,15 @@ impl ChunkSamples {
     /// other ground, such as a provisional chunk beside a canonical one.
     /// Chunks of the same stage, at the same level or one level apart,
     /// join without gaps when each is meshed with its own transitions.
+    ///
+    /// A chunk at level 0 has no finer neighbours, so its transitions are
+    /// ignored and the mesh records none.
     pub fn mesh(&self, transitions: Transitions, skirt: f32) -> ChunkMesh {
+        let transitions = if self.key.level == 0 {
+            Transitions::NONE
+        } else {
+            transitions
+        };
         let step = self.key.step() as f32;
         let half = 0.5 * step;
         let mut mesh = ChunkMesh {

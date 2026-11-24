@@ -692,6 +692,15 @@ patches).
 - Water: each chunk's `WaterMesh` covers every triangle with water at a
   corner, with dry corners at the wet corners' mean level so it runs into
   the banks.
+- **Benchmark (2026-11-24, provisional):** release, `--test bench chunks`,
+  load average 160 to 180 while other lanes built; rerun on a quiet
+  machine. Warm read of one chunk (6,000 samples, rayon): p50 31 ms at
+  level 0, 112 ms at level 3, 60 ms at level 6. Meshing: about 0.4 ms at
+  every level, split sides or not, so a neighbour changing level costs
+  almost nothing. Cold first chunk of a fresh world (builds the regions
+  it touches and their neighbours' plans): canonical p50 18 s (p95 61 s),
+  provisional p50 7 s at level 0 and 9 s at level 5: the road-free stage
+  cuts a cold start by about 2.5×.
 - Not built: the vertical band, volume patches, exports (Phase 9),
   geometric-error LOD (distance only), and `tile(key)` beyond
   `HeightTile`.
