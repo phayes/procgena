@@ -178,10 +178,11 @@ fn leaf_stride_keeps_each_branch_tip() {
     }
 }
 
-/// Checks that enlarging cards preserves their original centres, and that
-/// a size multiplier of 1 preserves the original corners.
+/// Checks that enlarging cards keeps each leaf's tip edge, so they grow
+/// toward the stem, and that a size multiplier of 1 preserves the original
+/// corners.
 #[test]
-fn scaled_leaves_stay_centred() {
+fn scaled_leaves_keep_their_tip() {
     let options = TreePreset::OakSmall.options();
     let skeleton = Skeleton::generate(&options).unwrap();
     let mesh_at = |leaf_scale| {
@@ -201,10 +202,14 @@ fn scaled_leaves_stay_centred() {
         };
         let (a, b) = (corners(&unscaled), corners(&scaled));
         let centre = leaf.origin + leaf.orientation * Vec3::Y * (leaf.size / 2.0);
+        let tip = leaf.origin + leaf.orientation * Vec3::Y * leaf.size;
         let mean = |c: &[Vec3]| c.iter().sum::<Vec3>() / 4.0;
+        // Corners 0 and 3 make the card's tip edge.
+        let tip_edge = |c: &[Vec3]| (c[0] + c[3]) / 2.0;
         let tolerance = 1e-4 * leaf.size.max(1.0);
         assert!(mean(&a).abs_diff_eq(centre, tolerance), "leaf {i}");
-        assert!(mean(&b).abs_diff_eq(centre, tolerance), "leaf {i}");
+        assert!(tip_edge(&a).abs_diff_eq(tip, tolerance), "leaf {i}");
+        assert!(tip_edge(&b).abs_diff_eq(tip, tolerance), "leaf {i}");
         let side = |c: &[Vec3]| c[1].distance(c[2]);
         assert!((side(&a) - leaf.size).abs() < tolerance, "leaf {i}");
         assert!((side(&b) - leaf.size * 1.8).abs() < tolerance, "leaf {i}");

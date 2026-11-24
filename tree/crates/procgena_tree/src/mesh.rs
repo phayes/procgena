@@ -63,8 +63,9 @@ pub struct LodDetail {
     /// leaf, and so on. Both 0 and 1 keep all leaves.
     pub leaf_stride: u32,
     /// Scale the stored width and height of each retained leaf card (a textured square).
-    /// The card stays centred on the original leaf, so enlargement extends toward
-    /// the stem as well as the tip. Use values above 1 to fill gaps between fewer leaves.
+    /// The card keeps the original leaf's tip edge, so enlargement extends toward
+    /// the stem and the card never reaches past where the leaf ended. Use values above
+    /// 1 to fill gaps between fewer leaves.
     pub leaf_scale: f32,
     /// Choose one textured square per leaf or two crossed squares.
     /// `None` uses [`LeafOptions::billboard`](crate::LeafOptions::billboard).
@@ -1104,9 +1105,10 @@ fn mesh_leaf(
     style: &LeafStyle,
     wind: [f32; 3],
 ) -> LeafSpan {
-    // Keep the original centre so resizing extends equally toward the stem and tip.
+    // Keep the leaf's tip edge where it is, so an enlarged card grows toward
+    // the stem and never past the crown's edge.
     let half = leaf.size * style.scale / 2.0;
-    let centre = leaf.size / 2.0;
+    let centre = leaf.size - half;
     let (first_vertex, first_index) = (out.next_index(), out.indices.len());
     let (first_cull_vertex, first_cull_index) = (cull.next_index(), cull.indices.len());
 
@@ -1527,7 +1529,8 @@ mod tests {
     }
 
     /// Checks both rotation modes and card counts: stored and camera-facing cards
-    /// use their own size multipliers while sharing the original leaf centre.
+    /// use their own size multipliers. Stored cards keep the leaf's tip edge;
+    /// camera-facing cards turn about the original leaf centre.
     #[test]
     fn billboard_leaves_turn_around_the_leaf_centre() {
         let orientation = Quat::from_euler(glam::EulerRot::XYZ, 0.3, -0.7, 1.1);
@@ -1542,6 +1545,9 @@ mod tests {
             size: 0.2,
         };
         let centre = leaf.origin + orientation * Vec3::Y * 0.1;
+        // A 1.8 times card (0.36 m) keeps the leaf's tip at 0.2 m, so its
+        // centre lies 0.2 - 0.18 = 0.02 m along the stem.
+        let stored_centre = leaf.origin + orientation * Vec3::Y * 0.02;
         for mode in [BillboardMode::Camera, BillboardMode::Axis] {
             for billboard in [Billboard::Single, Billboard::Double] {
                 let style = LeafStyle {
@@ -1578,17 +1584,17 @@ mod tests {
                 }
                 assert_eq!(out.normals.len(), 4, "{case}");
 
-                // Fallback cards use the 1.8 size multiplier without shifting the centre.
+                // Fallback cards use the 1.8 size multiplier and keep the tip edge.
                 let stored: Vec<Vec3> = out.positions.iter().map(|&p| p.into()).collect();
                 let mean = stored.iter().sum::<Vec3>() / 4.0;
-                assert!(mean.abs_diff_eq(centre, 1e-5), "{case}: {mean}");
+                assert!(mean.abs_diff_eq(stored_centre, 1e-5), "{case}: {mean}");
                 assert!(
                     (stored[1].distance(stored[2]) - 0.36).abs() < 1e-6,
                     "{case}"
                 );
                 if crossed {
                     let second = (0..4).map(|i| Vec3::from(cull.positions[i])).sum::<Vec3>();
-                    assert!((second / 4.0).abs_diff_eq(centre, 1e-5), "{case}");
+                    assert!((second / 4.0).abs_diff_eq(stored_centre, 1e-5), "{case}");
                 }
 
                 // Camera-facing cards use the independent 1.25 multiplier at the same centre.
@@ -1688,17 +1694,17 @@ mod tests {
         let flutter: Vec<f32> = out.wind.iter().map(|w| w[3]).collect();
         assert_eq!(flutter, [1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0]);
         assert_eq!(span.indices, 0..12);
-        // Halving the card keeps its original centre at y = 0.3; its top edge
-        // therefore lies at y = 0.35.
+        // Halving the card keeps the leaf's tip edge at y = 0.4, 0.2 m above
+        // its origin.
         let first = Vec3::from_array(out.positions[0]);
         assert!(
-            first.abs_diff_eq(Vec3::new(0.05, 0.35, 0.3), 1e-6),
+            first.abs_diff_eq(Vec3::new(0.05, 0.4, 0.3), 1e-6),
             "{first}"
         );
         // The crossed card lies at a right angle around the +Y stem direction.
         let turned = Vec3::from_array(out.positions[4]);
         assert!(
-            turned.abs_diff_eq(Vec3::new(0.1, 0.35, 0.35), 1e-6),
+            turned.abs_diff_eq(Vec3::new(0.1, 0.4, 0.35), 1e-6),
             "{turned}"
         );
         // Both fixed cards use the same face normal, as in ez-tree.
