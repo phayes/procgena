@@ -1,9 +1,11 @@
 //! # procgena_tree
 //!
 //! Generate procedural trees in Rust, from small bushes to branching oaks and pines.
-//! A port of [ez-tree](https://github.com/dgreenheck/ez-tree), `procgena_tree` produces
+//! Based on [ez-tree](https://github.com/dgreenheck/ez-tree), `procgena_tree` produces
 //! branch and leaf meshes, repeatable shapes from a seed, and simpler meshes for
-//! distant trees. Your application supplies the renderer.
+//! distant trees. Your application supplies the renderer. It uses ez-tree's
+//! settings and growth rules but its own random numbers, so a seed grows a
+//! different tree here than in ez-tree.
 //!
 //! ## Generate a tree
 //!
@@ -56,7 +58,9 @@
 //! Load full settings or a partial JSON object, using ez-tree's field names.
 //! Missing fields, including nested fields, use defaults. Lengths are in metres,
 //! so ez-tree's own files, which use a unit of about 10 cm, give trees 10 times
-//! too large. JSON support is always enabled.
+//! too large. An ez-tree file grows a tree of the same kind, but not the same
+//! shape as in ez-tree, since the random numbers differ. JSON support is always
+//! enabled.
 //!
 //! ```rust
 //! use procgena_tree::Tree;
@@ -261,7 +265,6 @@ mod options;
 mod part;
 mod presets;
 mod rig;
-mod rng;
 mod skeleton;
 mod specimen;
 mod tree;
@@ -294,7 +297,6 @@ pub use part::{BranchGrouping, MeshPart, PartMesh};
 pub use presets::TreePreset;
 pub use procgena_core::{FlatGround, Ground, HeightGrid};
 pub use rig::{Joint, MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights};
-pub use rng::Rng;
 pub use skeleton::{Attachment, Section, Skeleton, SkeletonBranch, SkeletonLeaf};
 pub use tree::{Tree, TreeError};
 pub use trellis::{TrellisPull, TrellisWire};

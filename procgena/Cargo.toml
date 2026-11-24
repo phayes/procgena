@@ -37,6 +37,7 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "bevy_feathers",
     "bevy_scene",
 ] }
+procgena_core = { path = "../core/crates/procgena_core" }
 procgena_tree = { path = "../tree/crates/procgena_tree", features = ["export-obj", "export-gltf"] }
 procgena_tree_bevy = { path = "../tree/crates/procgena_tree_bevy" }
 procgena_impostor = { path = "../impostor/crates/procgena_impostor" }

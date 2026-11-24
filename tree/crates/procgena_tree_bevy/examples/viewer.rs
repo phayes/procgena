@@ -54,7 +54,8 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_tree::{BARK_KINDS, BarkUvMode, LEAF_KINDS, Rng, TreeOptions, TreePreset, WindParams};
+use procgena_core::Rng;
+use procgena_tree::{BARK_KINDS, BarkUvMode, LEAF_KINDS, TreeOptions, TreePreset, WindParams};
 use procgena_tree_bevy::{
     TreeGenerating, TreeImpostor, TreeMaterial, TreeParams, TreePart, TreePartKind, TreePlugin,
     Wind, default_tree_lod_levels,
@@ -452,7 +453,7 @@ fn show_trees(
             // Give each forest position a repeatable variation; pressing R selects a new set.
             let tree = if viewer.vary {
                 let cell = (x + half) * FOREST_SIZE + (z + half);
-                let mut rng = Rng::new(viewer.roll.wrapping_mul(1000).wrapping_add(cell));
+                let mut rng = Rng::new(viewer.roll.wrapping_mul(1000).wrapping_add(cell) as u32);
                 let mut varied = options.clone();
                 varied.jiggle(JIGGLE, &mut rng);
                 TreeParams::new(varied)

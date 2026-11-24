@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 procgena_tree = { path = "../procgena_tree" }
+procgena_core = { path = "../../../core/crates/procgena_core" }
 procgena_specimen = { path = "../../../specimen/crates/procgena_specimen", features = ["bevy"] }
 procgena_impostor = { path = "../../../impostor/crates/procgena_impostor" }
 serde_json = { workspace = true }

@@ -5311,6 +5311,7 @@ dependencies = [
  "dirs",
  "procgena_clump",
  "procgena_clump_bevy",
+ "procgena_core",
  "procgena_deadwood",
  "procgena_deadwood_bevy",
  "procgena_impostor",
@@ -5530,6 +5531,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "image",
+ "procgena_core",
  "procgena_impostor",
  "procgena_specimen",
  "procgena_tree",

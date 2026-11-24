@@ -1,6 +1,8 @@
 //! Vary tree settings to grow trees that look similar without being identical.
 
-use crate::{PerLevel, Rng, TreeOptions};
+use procgena_core::Rng;
+
+use crate::{PerLevel, TreeOptions};
 
 impl TreeOptions {
     /// Varies this tree's shape to create another tree with a similar appearance.

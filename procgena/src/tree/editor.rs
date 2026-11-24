@@ -8,7 +8,8 @@ use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::scene::Scene;
 use bevy::ui_widgets::{Activate, ValueChange};
-use procgena_tree::{Rng, TreeOptions, TreePreset};
+use procgena_core::Rng;
+use procgena_tree::{TreeOptions, TreePreset};
 
 use super::{JIGGLE_AMOUNT, START_PRESET, params};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
@@ -120,7 +121,7 @@ pub fn spawn_tree_editor(commands: &mut Commands, parent: Entity) {
     commands.entity(editor).insert(TreeEditor {
         preset: START_PRESET,
         panel,
-        rng: Rng::new(std::process::id() as i32),
+        rng: Rng::new(std::process::id()),
     });
 }
 

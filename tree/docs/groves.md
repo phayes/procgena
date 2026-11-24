@@ -342,7 +342,7 @@ The density is about one tree per crown area, so a species alone at
 
 | Tree preset | Key | Trees per hectare | Spacing (m) |
 | --- | --- | --- | --- |
-| Ash Small | `ash_small` | 1100 | 0.95 |
+| Ash Small | `ash_small` | 510 | 1.4 |
 | Ash Medium | `ash_medium` | 260 | 1.9 |
 | Ash Large | `ash_large` | 160 | 2.5 |
 | Aspen Small | `aspen_small` | 2600 | 0.6 |
@@ -357,14 +357,14 @@ The density is about one tree per crown area, so a species alone at
 | Pine Small | `pine_small` | 2600 | 0.6 |
 | Pine Medium | `pine_medium` | 1100 | 0.95 |
 | Pine Large | `pine_large` | 550 | 1.3 |
-| Trellis | `trellis` | 0 | 0.65 |
+| Trellis | `trellis` | 0 | 0.8 |
 | Big Leaf Maple Medium | `big_leaf_maple_medium` | 310 | 1.75 |
 | Big Leaf Maple Large | `big_leaf_maple_large` | 140 | 2.6 |
 | Apple | `apple` | 650 | 1.2 |
 | Flowering Dogwood | `flowering_dogwood` | 470 | 1.45 |
 | Spring Pussy Willow | `spring_pussy_willow` | 2600 | 0.6 |
 | Winter Thicket | `winter_thicket` | 1250 | 0.9 |
-| Cedar | `cedar` | 600 | 1.25 |
+| Cedar | `cedar` | 480 | 1.4 |
 
 The trellis has a density of 0, so it grows in a grove only when given a
 density of its own.

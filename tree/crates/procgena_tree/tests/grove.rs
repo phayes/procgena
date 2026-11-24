@@ -311,12 +311,20 @@ fn a_density_function_thins_the_grove() {
 
 #[test]
 fn variants_differ_only_in_their_seed() {
+    // Every variant, the first included, takes its specimen's seed.
     let oak = GroveTree::new(TreePreset::OakMedium);
-    assert_eq!(oak.variant(0), oak.tree);
-    let mut other = oak.variant(1);
-    assert_ne!(other.seed, oak.tree.seed);
-    other.seed = oak.tree.seed;
-    assert_eq!(other, oak.tree);
+    let seeds: Vec<i32> = (0..3).map(|v| oak.variant(v).seed).collect();
+    assert!(!seeds.contains(&oak.tree.seed), "{seeds:?}");
+    assert!(seeds[0] != seeds[1] && seeds[1] != seeds[2] && seeds[0] != seeds[2]);
+    for v in 0..3 {
+        let mut other = oak.variant(v);
+        assert_eq!(
+            other.seed as u32,
+            oak.tree.specimen_id(oak.tree.seed as u32, v).seed()
+        );
+        other.seed = oak.tree.seed;
+        assert_eq!(other, oak.tree);
+    }
 
     // Changing the grove's seed moves trees but keeps the variants.
     let mut grove = GrovePreset::PineStand.grove();

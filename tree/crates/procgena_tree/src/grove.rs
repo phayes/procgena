@@ -88,7 +88,6 @@ const SALT_SCALE: u64 = 0x8;
 const SALT_SPECIES: u64 = 0x100;
 const SALT_PATCHES: u64 = 0x200;
 const SALT_CLUSTER: u64 = 0x400;
-const SALT_VARIANT_SEED: u64 = 0x300;
 const SALT_GLADES: u64 = 0x500;
 
 /// One species in a grove: what the tree looks like, and how many grow and
@@ -99,8 +98,9 @@ const SALT_GLADES: u64 = 0x500;
 /// changed directly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroveTree {
-    /// The tree's shape. Its [`seed`](TreeOptions::seed) is the seed of the
-    /// species' first variant; the other variants use seeds derived from it.
+    /// The tree's shape. Every variant, the first included, grows from a seed
+    /// derived from this [`seed`](TreeOptions::seed); see
+    /// [`variant`](Self::variant).
     pub tree: TreeOptions,
     /// Trees per hectare (10,000 m²) that suit this species on its own, before
     /// [`density_scale`](Self::density_scale) and the grove's own scale. Must
@@ -186,16 +186,16 @@ impl GroveTree {
 
     /// The tree settings of shape variant `variant`, counting from 0.
     ///
-    /// Variant 0 is [`tree`](Self::tree) itself. The others differ only in
-    /// their seed, which depends on the tree's own seed and the variant
-    /// number, so changing the grove's seed moves trees without changing
-    /// their shapes.
+    /// Every variant differs from [`tree`](Self::tree) only in its seed,
+    /// variant 0 included: the seed of specimen `variant` of the tree's pool
+    /// ([`TreeOptions::specimen_id`]), with the tree's own seed standing in
+    /// for the World seed. Changing the grove's seed therefore moves trees
+    /// without changing their shapes.
     pub fn variant(&self, variant: u32) -> TreeOptions {
         let mut options = self.tree.clone();
-        if variant > 0 {
-            let offset = mix(SALT_VARIANT_SEED ^ u64::from(variant)) as i32;
-            options.seed = options.seed.wrapping_add(offset);
-        }
+        // The seed's bits, read as unsigned, so negative seeds stay distinct.
+        let specimen = self.tree.specimen_id(self.tree.seed as u32, variant);
+        options.seed = specimen.seed() as i32;
         options
     }
 
