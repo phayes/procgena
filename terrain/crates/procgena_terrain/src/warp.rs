@@ -49,7 +49,8 @@ const WEDGE_SHARE: f64 = 0.5;
 
 /// How region borders are made irregular. The default passes
 /// [`validate`](Self::validate); an amplitude of 0 leaves borders straight.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BorderWarp {
     /// The most a border moves from the straight line between its corners,
     /// in metres. Short or sharply angled sides, and thin regions, move

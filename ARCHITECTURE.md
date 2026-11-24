@@ -521,7 +521,17 @@ The World holds the Biomes; it does not hold Terrains directly.
 - Running every Biome border negotiation: step 1 through WorldTerrain,
   step 2 the Ecotope seams (see "4.1 Biome", "Borders").
 
-**Status.** New. The terrain plan calls it "World generator (TBD)".
+**Status.** Started (W0, 2026-11-24): `procgena_world` holds a World of
+bare land. `WorldOptions` carry the seed, the scale pair, the region graph,
+E, the selector fields, ordered Biome rules with a fallback, and pins;
+`WorldPreset` has one preset per scale class. Each region gets its Biome
+(pin, else the first matching rule at its site, else the fallback), its
+own Biome seed and its Terrain's local seed, and `WorldTerrain` builds the
+land from a source that reads the Biome. The scale pair stretches E and
+the selector fields, and the rules' elevation bounds follow `vertical`;
+Terrain presets, region size and the border warp are not scaled yet
+(roadmap G7). Specimen budgets and the Biome border negotiation come with
+W1.
 
 #### 5.1 WorldTerrain
 
@@ -684,8 +694,8 @@ preset or options. One World seed fixes everything below it.
   hand-picked numbers. A registry per crate tests that its keys and their
   hashes are unique. Keys are frozen: renaming one changes every world built
   from it. (Decided 2026-11-23.) The functions live in `procgena_core`:
-  `hash::{salt, derive_seed, seed_for}`, plus `ChildKey` and `child_seed`
-  at the crate root. The terrain crate still has its own copies until
+  `hash::{salt, derive_seed, seed_for}`, plus `ChildKey`, `child_seed` and
+  `region_seed` at the crate root. The terrain crate still has its own copies until
   it switches over.
 - **Data keys use the same `salt`**, hashed at load time instead of at
   compile time, and always under a code `kind` key. A parent rejects two
@@ -1657,9 +1667,8 @@ it starts.
   World cells wherever they can, so D4 can't move them.
 - [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
   default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
-  The Terrain seed is the World seed for now, passed through
-  `terrain_seed`. D3 settled the final derivation: the Terrain keeps the
-  World seed for its noise, and `terrain_seed` goes away (W0).
+  As D3 settled, the Terrain takes the World seed for its noise
+  (`Biome::terrain_options` sets it; `terrain_seed` was removed in W0).
 - [ ] **Region size and shape** (decision gate D4): the region graph's
   size and shape (even regions or a multi-scale mix), after the G3 step 2
   cold benchmarks and W0's image example. Each region already has its own
@@ -1669,7 +1678,11 @@ it starts.
 - [ ] **World crate**: region graph options, Biome choice per region
   (fields, rules, pins), seed derivation for every level below, specimen
   budgets per pool, and running the two-step Biome border negotiation.
-  Starts with empty Biomes, before Ecotopes exist.
+  Started in `procgena_world` (W0): options and scale-class presets, the
+  Biome choice, the region seeds of each Biome and Terrain, and the terrain
+  source, with empty Biomes. Still to do: seeds below the Biome, specimen
+  budgets, the border negotiation (W1), designer polygons with stable ids,
+  and scaling Terrain presets (G7).
 
 ### Extensibility
 

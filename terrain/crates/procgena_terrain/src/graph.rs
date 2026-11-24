@@ -90,7 +90,8 @@ impl RegionKey {
 }
 
 /// How the plane is split into regions.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegionGraphOptions {
     /// The lattice spacing, about the width of a region, in metres.
     pub size: f64,
