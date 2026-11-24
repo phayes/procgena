@@ -35,6 +35,7 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core::scatter::ScatterArea;
 use procgena_core::{Ground, HeightGrid, Lod, LodLevel};
+use procgena_core_bevy::instanced::InstancedScatter;
 use procgena_mushroom::{
     DEFAULT_LOD_SIZE, MushroomDetail, MushroomPreset, ScatterOptions, default_lod,
 };
@@ -163,6 +164,10 @@ fn main() {
         .run();
 }
 
+/// Entities that draw mushrooms: a mushroom's or cluster's parts, or a
+/// scatter.
+type Drawn = Or<(With<MushroomPart>, With<InstancedScatter>)>;
+
 /// With `--screenshot`, saves one image once every mushroom has been built
 /// and drawn for a moment, then exits. Exits with an error if nothing is
 /// built within [`SCREENSHOT_TIMEOUT`].
@@ -173,7 +178,7 @@ fn screenshot(
     offscreen: Option<Res<Offscreen>>,
     time: Res<Time>,
     generating: Query<(), With<MushroomGenerating>>,
-    parts: Query<(), With<MushroomPart>>,
+    parts: Query<(), Drawn>,
     mut settled: Local<u32>,
     mut exit: MessageWriter<AppExit>,
 ) {

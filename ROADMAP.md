@@ -530,6 +530,16 @@ milestones.
 - **Needs:** R1, F2.
 - **Done when:** tree, stone, deadwood and mushroom scatters draw through one
   renderer, with dither in every pass and shadow culling.
+- **Status (2026-11-24):** the renderer and specimen cache are built in
+  `procgena_core_bevy::instanced`: GPU culling per camera and shadow view
+  into per-part indirect draws, each part drawn with its own material's
+  pipelines, dither in the main, prepass and deferred passes, one level per
+  copy in shadow maps (switching mid-band, only levels that cast shadows),
+  and a wind phase per copy. Stone's pool, deadwood's stick scatters and
+  mushroom's scatters draw through it; single pieces stay entities. Tree is
+  left: its move needs `tree_bevy/src/scatter.rs` (C2's this wave), so it
+  follows C2's merge. Impostors join as a last level once tree moves (the
+  impostor material already reads the same per-copy input).
 
 #### R3: CPU and GPU building, plant alignment
 

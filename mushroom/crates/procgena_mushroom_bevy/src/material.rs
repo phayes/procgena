@@ -6,12 +6,15 @@ use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamp
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+    StandardMaterialKey,
 };
 use bevy::prelude::*;
+use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
+use procgena_core_bevy::instanced::instanced_vertex;
 use procgena_mushroom::{
     MushroomOptions, Pattern, TextureCompression, TextureMap, TexturePart, TextureSize,
     linear_from_hex, stem_texture_average, texture_path,
@@ -55,6 +58,7 @@ pub type MushroomMaterial = ExtendedMaterial<StandardMaterial, MushroomExtension
 /// same way with [`MushroomSurface::stem_textured`]; they share one sampler,
 /// taken from the stem colour image.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+#[bind_group_data(MushroomKey)]
 pub struct MushroomExtension {
     /// Pattern, gill and cap texture settings.
     #[uniform(100)]
@@ -146,6 +150,26 @@ pub struct MushroomSurface {
     pub cap_top_length: f32,
 }
 
+/// The pipeline variant a [`MushroomMaterial`] is drawn with. Bevy builds
+/// one pipeline per distinct key; you never need to create one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MushroomKey {
+    /// Whether the pipeline draws scattered mushrooms through the shared
+    /// instanced renderer.
+    pub(crate) instanced: bool,
+}
+
+impl From<&MushroomExtension> for MushroomKey {
+    fn from(_: &MushroomExtension) -> Self {
+        // Materials are drawn as single mushrooms; the instanced renderer
+        // asks for its pipelines with `instanced` set.
+        Self { instanced: false }
+    }
+}
+
+/// The pipeline key of a [`MushroomMaterial`].
+pub(crate) type MushroomMaterialKey = CombinedBindGroupData<StandardMaterialKey, MushroomKey>;
+
 impl MaterialExtension for MushroomExtension {
     fn vertex_shader() -> ShaderRef {
         VERTEX_SHADER.into()
@@ -171,8 +195,12 @@ impl MaterialExtension for MushroomExtension {
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        if key.bind_group_data.instanced {
+            instanced_vertex(descriptor);
+        }
+
         // For meshes with billboard data, pass it to the shaders and turn on
         // the code that turns them toward the viewer.
         let layout = &layout.0;

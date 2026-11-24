@@ -34,6 +34,8 @@
 //!     .run();
 //! ```
 
+pub mod instanced;
+
 use bevy::app::{App, Plugin};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::ecs::resource::Resource;
@@ -73,6 +75,14 @@ impl Plugin for LodPlugin {
     fn is_unique(&self) -> bool {
         false
     }
+}
+
+/// Adds the instanced renderer's shaders to the app's embedded assets.
+fn load_instanced_shaders(app: &mut App) {
+    load_shader_library!(app, "shaders/instanced.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/instanced_mesh.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/instanced_prepass.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/instanced_cull.wesl");
 }
 
 /// The quality setting every asset scales its drawing distances by.
