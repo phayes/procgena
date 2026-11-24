@@ -1244,6 +1244,53 @@ where the details are.
     - *Details:* [procgena/studio_plan.md](procgena/studio_plan.md),
       "Proposed, not decided" and "Open questions".
 
+### From wave 6 (W0, GM0, fruit B2)
+
+25. **Do hand-placed height bumps stretch with the World's scale? (W0)**
+    A World can add a hand-placed bump or dip to the large-scale
+    elevation E, for example to put a mountain range where a story needs
+    one. W0 stretches each bump with the scale pair, like the rest of E:
+    on a World scaled ×4 horizontally, a bump 10 km across becomes 40 km.
+    **Stretch (as built)** keeps a hand-made layout looking the same
+    at every scale class. **Fixed metres** keeps a bump a known real
+    size, but its place in the landscape changes with scale.
+    Recommendation: stretch, matching D5's rule that landscape lengths
+    scale and objects don't.
+26. **How World pins name a region (W0).** A pin forces a region to one
+    Biome ("this region is a mountain"). W0 names the region by its
+    id number, which is exact but means nothing to someone writing the
+    file by hand. The alternatives are a lattice cell (`[12, -3]`) or a
+    world point (the region containing `x, z`). A point is easiest to
+    write and survives region-size changes best, but two pins may land in
+    the same region. Recommendation: accept a point in files and resolve
+    it to the id when the World loads.
+27. **Making fruit cheap to draw (fruit B2 measured).** 1,007 willows, the
+    camera plus four shadow cascades, on an M1 Max: catkins add about
+    32 ms a frame near the grove and 10 ms in the middle distance, while
+    the GPU cull costs only 1.2–1.7 ms. Drawing, not culling, is the
+    cost. The worker's proposals, in order of payoff:
+    1. only fruit level 0 casts shadows, and catkins thin out at the
+       tree's middle levels (changes the look: needs your eye);
+    2. the per-row cull runs only over trees its first stage keeps,
+       which removes most of the far camera's 1.5 ms (no look change);
+    3. smaller cull entries, saving memory more than time.
+
+    Recommendation: do 2 now. Do 1 after before/after screenshots, and
+    fold it into IX planning, since thinning is a far-form choice.
+    Details: [fruit/plan.md](fruit/plan.md), "Measured".
+28. **Ground look choices (GM0).** GM0 picked the ground material
+    colours, the bare terrain's layer order, and the pine forest floor's
+    opacities, and these need your eye. The images are in GM0's notes
+    folder: `gm0-pine-forest-floor.png` and `gm0-bare-terrain.png`. The
+    needle litter under the pines looks fairly round and hard-edged. GM0
+    also made calls you may want to check:
+    - a plain `Ground` reports "no water, no roads", so riverbeds and
+      roads don't paint everywhere;
+    - a height rule relative to the region's relief counts as everywhere
+      until something fills in relief;
+    - pine litter reaches a fixed 3 m, because trees expose only their
+      trunk.
+
 ### Looks of work already built (wave 5)
 
 7. **Plant goldens.** None of the 48 golden images has a baseline for this
