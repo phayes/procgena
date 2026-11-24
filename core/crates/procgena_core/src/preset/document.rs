@@ -2,8 +2,8 @@
 
 use serde_json::{Map, Value};
 
-use crate::PresetFileError;
-use crate::merge::to_yaml;
+use super::PresetFileError;
+use super::merge::to_yaml;
 
 /// The group a preset read from a file is listed under when the file
 /// gives none.

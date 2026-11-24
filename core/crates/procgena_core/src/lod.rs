@@ -21,12 +21,8 @@ use glam::Vec4;
 use crate::Quality;
 
 /// The named, cheap form an asset switches to far away, after its meshes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "snake_case")
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum FarForm {
     /// Stems or branches drawn as flat strips that turn to face the camera.
@@ -40,12 +36,10 @@ pub enum FarForm {
 /// What kind of geometry a level draws. Levels must run in this order:
 /// meshes first, then far forms, then at most one impostor as the last
 /// level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "snake_case")
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum LevelForm {
     /// A triangle mesh of the specimen, simpler at each level.
     #[default]
@@ -70,8 +64,8 @@ impl LevelForm {
 
 /// One level of an [`Lod`]: the distance where it starts, how it fades in,
 /// what it draws, and the asset's own settings for it in `detail`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LodLevel<D = ()> {
     /// Distance in metres, at the reference size and [`Quality::High`],
     /// where this level takes over from the one before. The first level
@@ -139,8 +133,8 @@ impl<D> LodLevel<D> {
 /// assert_eq!(lod.level_at(9.0, factor), Some(1));
 /// assert_eq!(lod.level_at(40.0, factor), None);
 /// ```
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Lod<D = ()> {
     /// Size in metres of the copy the distances are written for. Must be
     /// positive. How an asset measures a copy's size (height, diameter,
@@ -152,7 +146,7 @@ pub struct Lod<D = ()> {
     /// Distance in metres, at the reference size and [`Quality::High`],
     /// beyond which nothing is drawn. It fades out over the last level's
     /// hysteresis band. `None` draws the last level at every distance.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub cull_distance: Option<f32>,
 }
 

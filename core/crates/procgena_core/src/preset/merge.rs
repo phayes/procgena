@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::PresetFileError;
+use super::PresetFileError;
 
 /// The key whose value tells which kind of a setting a group holds.
 const KIND_KEY: &str = "kind";

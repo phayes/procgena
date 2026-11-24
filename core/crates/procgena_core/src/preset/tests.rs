@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::*;
+use super::*;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

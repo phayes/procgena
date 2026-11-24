@@ -1,9 +1,9 @@
-//! Preset files for every procgena level.
+//! Presets and preset files for every procgena level.
 //!
 //! A preset is a named, ready-made set of options: a tree, a stone, a
 //! Scatter of trees, a Terrain. Each generator crate lists its built-in
 //! presets in a catalogue and implements [`Preset`] for its preset type.
-//! This crate reads and writes those presets as YAML files, so people can
+//! This module reads and writes those presets as YAML files, so people can
 //! keep their own variants next to their game and comment them.
 //!
 //! # The file format
@@ -42,9 +42,9 @@
 //!
 //! # Reading and writing
 //!
-//! [`catalogue!`] declares a crate's built-in presets and implements
+//! [`catalogue!`](crate::catalogue) declares a crate's built-in presets and implements
 //! [`Preset`] for them. [`read`] turns a file's text into a preset, and
-//! [`write`] turns a preset into a file's text, writing only what differs
+//! [`write`](fn@write) turns a preset into a file's text, writing only what differs
 //! from a base.
 //! Formats that need more than this, such as Scatter files that refer to
 //! asset presets by key, build on [`Document`], [`merge`], [`to_value`],
@@ -53,13 +53,13 @@
 mod catalogue;
 mod document;
 mod error;
+mod file;
 mod merge;
-mod preset;
 
 pub use document::{Document, FILE_GROUP};
 pub use error::PresetFileError;
+pub use file::{Preset, PresetMeta, groups, read, write};
 pub use merge::{diff, from_value, merge, to_value, to_yaml};
-pub use preset::{Preset, PresetMeta, groups, read, write};
 
 #[cfg(test)]
 mod tests;

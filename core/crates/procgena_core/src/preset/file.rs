@@ -3,15 +3,15 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::PresetFileError;
-use crate::document::{Document, FILE_GROUP};
-use crate::merge::{diff, from_value, merge, to_value};
+use super::PresetFileError;
+use super::document::{Document, FILE_GROUP};
+use super::merge::{diff, from_value, merge, to_value};
 
 /// A named, ready-made set of options in a catalogue of built-in presets.
 ///
 /// Each generator crate implements this for its preset type, such as a
 /// tree preset, so its presets can be read from and written to
-/// `.<kind>.yml` files with [`read`] and [`write`], and listed with
+/// `.<kind>.yml` files with [`read`] and [`write`](fn@write), and listed with
 /// [`groups`].
 pub trait Preset: Sized + 'static {
     /// The options the preset holds.

@@ -6,7 +6,6 @@ members = [
     "clump/crates/procgena_clump_bevy",
     "core/crates/procgena_core",
     "core/crates/procgena_core_bevy",
-    "core/crates/procgena_preset",
     "deadwood/crates/procgena_deadwood",
     "deadwood/crates/procgena_deadwood_bevy",
     "impostor/crates/procgena_impostor",
@@ -34,7 +33,7 @@ glam = "0.33"
 rayon = "1.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Preset files (`procgena_preset`). Pinned to 2.2: 3.0 changes how some YAML
+# Preset files (`procgena_core::preset`). Pinned to 2.2: 3.0 changes how some YAML
 # is read, so upgrade on purpose (docs/decisions/D1.md).
 serde-saphyr = "2.2"
 serde_path_to_error = "0.1.20"

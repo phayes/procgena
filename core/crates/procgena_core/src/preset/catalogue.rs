@@ -1,7 +1,7 @@
 //! The [`catalogue!`](crate::catalogue) macro.
 
-/// Declares a crate's built-in presets and implements [`Preset`](crate::Preset)
-/// for its preset type.
+/// Declares a crate's built-in presets and implements
+/// [`Preset`](crate::preset::Preset) for its preset type.
 ///
 /// The preset type must be a struct with public fields `key`, `name`,
 /// `description` and `group`, all `Cow<'static, str>`, plus one field
@@ -12,8 +12,8 @@
 /// - `all()`, every preset in the order listed; `named(key)`, a preset by
 ///   its exact key; and `groups()`, the presets grouped for a menu;
 /// - `from_yaml(key, text)` and `to_yaml(&self, base)`, which call
-///   [`read`](crate::read) and [`write`](crate::write);
-/// - the [`Preset`](crate::Preset) impl, whose `check` runs the given
+///   [`read`](crate::preset::read) and [`write`](fn@crate::preset::write);
+/// - the [`Preset`](crate::preset::Preset) impl, whose `check` runs the given
 ///   check on options read from a file.
 ///
 /// Each preset's options are built once, the first time any preset is
@@ -36,7 +36,7 @@
 ///     pub rock: RockOptions,
 /// }
 ///
-/// procgena_preset::catalogue! {
+/// procgena_core::catalogue! {
 ///     RockPreset { rock: RockOptions, check: |_options| Ok(()) }
 ///     "Large" {
 ///         boulder { name: "Boulder", description: "A big rock." }
@@ -99,31 +99,31 @@ macro_rules! catalogue {
             /// and its presets, in catalogue order.
             #[must_use]
             pub fn groups() -> ::std::vec::Vec<(&'static str, ::std::vec::Vec<&'static Self>)> {
-                $crate::groups::<Self>()
+                $crate::preset::groups::<Self>()
             }
 
             /// Reads a preset from the text of a file; see
-            /// [`procgena_preset::read`]. `key` is usually the file name
-            /// without its extension.
+            /// [`procgena_core::preset::read`]. `key` is usually the file
+            /// name without its extension.
             ///
             /// # Errors
             ///
-            /// Returns a [`procgena_preset::PresetFileError`] for text that
-            /// isn't YAML, unknown keys or settings, an unknown `base`, and
-            /// settings that fail the options' check.
+            /// Returns a [`procgena_core::preset::PresetFileError`] for text
+            /// that isn't YAML, unknown keys or settings, an unknown `base`,
+            /// and settings that fail the options' check.
             pub fn from_yaml(
                 key: &str,
                 text: &str,
-            ) -> ::std::result::Result<Self, $crate::PresetFileError> {
-                $crate::read(key, text)
+            ) -> ::std::result::Result<Self, $crate::preset::PresetFileError> {
+                $crate::preset::read(key, text)
             }
 
             /// Writes the preset as the text of a file holding only what
             /// differs from `base`, or from the default options when `base`
-            /// is `None`; see [`procgena_preset::write`].
+            /// is `None`; see [`procgena_core::preset::write`].
             #[must_use]
             pub fn to_yaml(&self, base: ::std::option::Option<&Self>) -> ::std::string::String {
-                $crate::write(self, base)
+                $crate::preset::write(self, base)
             }
 
             $($(
@@ -136,7 +136,7 @@ macro_rules! catalogue {
             )*)*
         }
 
-        impl $crate::Preset for $preset {
+        impl $crate::preset::Preset for $preset {
             type Options = $options;
             const KIND: &'static str = ::std::stringify!($field);
 
@@ -155,7 +155,7 @@ macro_rules! catalogue {
             fn options(&self) -> &$options {
                 &self.$field
             }
-            fn from_parts(meta: $crate::PresetMeta, options: $options) -> Self {
+            fn from_parts(meta: $crate::preset::PresetMeta, options: $options) -> Self {
                 Self {
                     key: ::std::borrow::Cow::Owned(meta.key),
                     name: ::std::borrow::Cow::Owned(meta.name),

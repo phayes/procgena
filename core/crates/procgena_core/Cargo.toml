@@ -1,18 +1,16 @@
 [package]
 name = "procgena_core"
 version = "0.1.0"
-description = "Engine-free rules every procgena level shares: hashing, random numbers and ground shapes"
+description = "Engine-free rules every procgena level shares: hashing, random numbers, ground shapes and preset files"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[features]
-# Serialize and deserialize the level-of-detail and quality types.
-serde = ["dep:serde"]
-
 [dependencies]
 glam = { workspace = true }
-serde = { workspace = true, optional = true }
-
-[package.metadata.docs.rs]
-all-features = true
+serde = { workspace = true }
+serde-saphyr = { workspace = true }
+# `preserve_order` keeps settings in the order their structs declare them
+# when a preset file is written.
+serde_json = { workspace = true, features = ["preserve_order"] }
+serde_path_to_error = { workspace = true }

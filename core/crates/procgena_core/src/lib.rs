@@ -17,15 +17,17 @@
 //!   by the [`Quality`] setting.
 //! - [`scatter`]: what every Scatter takes as input, and the shared rules
 //!   for slope limits and resting rigid pieces on the ground.
+//! - [`preset`]: named, ready-made options in catalogues, and `.<kind>.yml`
+//!   preset files that name a base preset and give only what differs.
 //!
-//! This crate depends on glam alone, plus serde with the `serde` feature,
-//! which lets the level-of-detail and quality types be saved and loaded. Code about one generated specimen's
+//! This crate uses no game engine. Code about one generated specimen's
 //! shape belongs in `procgena_specimen`, which builds on this crate.
 
 mod content_hash;
 mod ground;
 pub mod hash;
 mod lod;
+pub mod preset;
 mod quality;
 mod rng;
 pub mod scatter;
