@@ -18,10 +18,13 @@
 use std::f32::consts::TAU;
 
 use glam::Vec3;
+use procgena_core::Rng;
+use procgena_core::hash::seed_for;
 
 use crate::curve::{Curve, Frame, perpendicular};
 use crate::options::{EndKind, SNAP_BASE, SNAP_SPIKE};
-use crate::rng::{Rng, cell_border, fbm, smoothstep, value_noise};
+use crate::rng::{cell_border, fbm, smoothstep, value_noise};
+use crate::seed_keys::{BARK_CRACKS, BARK_PATCHES, HOLLOW_WALL};
 
 /// What a stem is, for size tags and for which detail levels keep it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -81,7 +84,7 @@ impl End {
     /// Prepares an end of `kind` on a stem of `radius`, with `seed` picking
     /// its random details and `soften` (0 to 1) wearing down a break.
     pub(crate) fn new(kind: EndKind, radius: f32, seed: u32, soften: f32) -> Self {
-        let mut rng = Rng::new(seed, 0);
+        let mut rng = Rng::new(seed);
         let phase = rng.range(0.0, TAU);
         let mut spikes = [[0.0; 4]; crate::options::MAX_SPLINTERS as usize];
         let mut spike_count = 0;
@@ -305,7 +308,7 @@ impl Limb {
         }
         let n = fbm(
             self.wrap(u, theta) / self.bark.patch_size,
-            self.seed ^ 0xba4c,
+            seed_for(self.seed, BARK_PATCHES),
             3,
         );
         let threshold = 0.55 - 1.1 * stripped;
@@ -326,7 +329,12 @@ impl Limb {
         // Cracks between plates, in elongated cells along the grain.
         let plate = self.bark.plate_size;
         let cell = Vec3::new(wrap.x / plate, wrap.y / plate, wrap.z / (3.0 * plate));
-        let crack = 1.0 - smoothstep(0.0, 0.12, cell_border(cell, self.seed ^ 0xc7ac));
+        let crack = 1.0
+            - smoothstep(
+                0.0,
+                0.12,
+                cell_border(cell, seed_for(self.seed, BARK_CRACKS)),
+            );
         let crack_depth = self.bark.cracks * bark * crack * (1.0 - bare);
 
         nominal * bumps - bark * bare - crack_depth
@@ -361,7 +369,11 @@ impl Limb {
     pub(crate) fn inner_radius(&self, u: f32, theta: f32) -> f32 {
         let Some(h) = &self.hollow else { return 0.0 };
         let wrap = self.wrap(u, theta);
-        let n = fbm(wrap * (2.0 / self.radius[0]), self.seed ^ 0x401, 2);
+        let n = fbm(
+            wrap * (2.0 / self.radius[0]),
+            seed_for(self.seed, HOLLOW_WALL),
+            2,
+        );
         let r = h.ratio * self.nominal_radius(u, theta) * (1.0 + h.roughness * n);
         r.min(0.9 * self.outer_radius(u, theta))
     }

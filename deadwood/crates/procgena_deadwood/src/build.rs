@@ -10,19 +10,17 @@ use crate::curve::Curve;
 use crate::decay::Decay;
 use crate::limb::{Bark, End, Flare, Hollow, Limb, Role, SizeClass};
 use crate::options::{DeadwoodOptions, EndKind, MAX_END_SHARE, PieceKind};
-use crate::rng::{Rng, sub_seed};
+use procgena_core::hash::{derive_seed, seed_for};
 
-// Each feature draws its random numbers from its own stream. Changing how
-// many numbers one feature draws then never changes another feature's
-// shape for the same seed.
-/// Random stream for the main stem.
-const STREAM_MAIN: u32 = 1;
-/// Random stream for branch stubs.
-const STREAM_STUBS: u32 = 2;
-/// Random stream for side branches and twigs.
-const STREAM_CHILDREN: u32 = 3;
-/// Random stream for a stump's roots.
-const STREAM_ROOTS: u32 = 4;
+use crate::rng::{RngExt, stream};
+use crate::seed_keys::{
+    BRANCH_SHAPE, BRANCH_SURFACE, END_BASE, END_TIP, ROOT_SHAPE, ROOT_SURFACE, STEM_SHAPE,
+    STEM_SURFACE, STUB_SHAPE, STUB_SURFACE,
+};
+
+// Each feature draws its random numbers from its own stream, named by a
+// seed key. Changing how many numbers one feature draws then never changes
+// another feature's shape for the same seed.
 
 /// Thinnest stem radius generated, in metres.
 const MIN_RADIUS: f32 = 0.001;
@@ -45,7 +43,8 @@ pub(crate) fn build(o: &DeadwoodOptions, decay: &Decay) -> Vec<Limb> {
 
 /// Builds the main stem.
 fn main_limb(o: &DeadwoodOptions, decay: &Decay) -> Limb {
-    let mut rng = Rng::new(o.seed, STREAM_MAIN);
+    let mut rng = stream(o.seed, STEM_SHAPE);
+    let surface = seed_for(o.seed, STEM_SURFACE);
     let (r0, r1) = (o.base_radius(), o.tip_radius());
     let stump = o.kind == PieceKind::Stump;
 
@@ -103,8 +102,8 @@ fn main_limb(o: &DeadwoodOptions, decay: &Decay) -> Limb {
     };
     let (base_kind, tip_kind) = fit_ends(base_kind, o.ends.tip, r0, r1, o.length);
     let ends = [
-        End::new(base_kind, r0, sub_seed(o.seed, 10), decay.soften),
-        End::new(tip_kind, r1, sub_seed(o.seed, 11), decay.soften),
+        End::new(base_kind, r0, seed_for(surface, END_BASE), decay.soften),
+        End::new(tip_kind, r1, seed_for(surface, END_TIP), decay.soften),
     ];
 
     let flare = stump.then(|| Flare {
@@ -137,7 +136,7 @@ fn main_limb(o: &DeadwoodOptions, decay: &Decay) -> Limb {
         curve,
         radius: [r0, r1],
         taper_from: depth,
-        seed: sub_seed(o.seed, 0),
+        seed: surface,
         ends,
         bark: bark(o, decay),
         lumps: o.shape.lumps,
@@ -305,10 +304,10 @@ fn sprout(o: &DeadwoodOptions, decay: &Decay, limbs: &[Limb], s: Sprout) -> Limb
             End::new(
                 EndKind::Saw { tilt: 0.0 },
                 s.radius[0],
-                sub_seed(s.seed, 1),
+                seed_for(s.seed, END_BASE),
                 0.0,
             ),
-            End::new(tip, s.radius[1], sub_seed(s.seed, 2), decay.soften),
+            End::new(tip, s.radius[1], seed_for(s.seed, END_TIP), decay.soften),
         ],
         bark: bark(o, decay),
         lumps: o.shape.lumps * 0.5,
@@ -337,7 +336,8 @@ pub(crate) fn visible_span(o: &DeadwoodOptions, main: &Limb) -> (f32, f32) {
 
 /// Adds broken-off branch stubs to the main stem.
 fn add_stubs(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
-    let mut rng = Rng::new(o.seed, STREAM_STUBS);
+    let mut rng = stream(o.seed, STUB_SHAPE);
+    let surface = seed_for(o.seed, STUB_SURFACE);
     let (u0, u1) = visible_span(o, &limbs[0]);
     let visible = (u1 - u0) * limbs[0].length();
     let count = (o.stubs.per_metre * visible).round() as u32;
@@ -382,7 +382,7 @@ fn add_stubs(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
                 curl: 0.0,
                 droop: 0.0,
                 tip,
-                seed: sub_seed(o.seed, 100 + i),
+                seed: derive_seed(surface, i),
             },
         );
         limbs.push(limb);
@@ -392,8 +392,10 @@ fn add_stubs(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
 /// Adds side branches and twigs to a fallen branch.
 fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
     let b = &o.branching;
-    let mut rng = Rng::new(o.seed, STREAM_CHILDREN);
-    let mut next_seed = 1000;
+    let mut rng = stream(o.seed, BRANCH_SHAPE);
+    let surface = seed_for(o.seed, BRANCH_SURFACE);
+    // Numbers each side branch and twig in the order they grow.
+    let mut sprouted = 0;
 
     // Grow each level of side branches on the one before.
     let mut parents: Vec<usize> = vec![0];
@@ -427,7 +429,7 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
                 } else {
                     EndKind::Taper
                 };
-                next_seed += 1;
+                sprouted += 1;
                 let limb = sprout(
                     o,
                     decay,
@@ -444,7 +446,7 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
                         curl,
                         droop: 0.03,
                         tip,
-                        seed: sub_seed(o.seed, next_seed),
+                        seed: derive_seed(surface, sprouted),
                     },
                 );
                 grown.push(limbs.len());
@@ -472,7 +474,7 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
             let parent = &limbs[p];
             let r = (parent.nominal_radius(u, theta) * 0.45).max(MIN_RADIUS);
             let length = parent.length() * b.twig_length * len_jitter;
-            next_seed += 1;
+            sprouted += 1;
             let limb = sprout(
                 o,
                 decay,
@@ -489,7 +491,7 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
                     curl,
                     droop: 0.0,
                     tip: EndKind::Taper,
-                    seed: sub_seed(o.seed, next_seed),
+                    seed: derive_seed(surface, sprouted),
                 },
             );
             limbs.push(limb);
@@ -500,7 +502,8 @@ fn add_children(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
 /// Adds a stump's surface roots, one on each buttress where possible.
 fn add_roots(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
     let r = &o.roots;
-    let mut rng = Rng::new(o.seed, STREAM_ROOTS);
+    let mut rng = stream(o.seed, ROOT_SHAPE);
+    let surface = seed_for(o.seed, ROOT_SURFACE);
     let main = &limbs[0];
     let flare = main.flare.expect("stumps have a flare");
     let u = (flare.ground + 0.15 * flare.height) / main.length();
@@ -536,7 +539,7 @@ fn add_roots(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
             })
             .collect();
         let samples = ((length / (2.0 * radius)) * 4.0).clamp(6.0, 128.0) as usize;
-        let seed = sub_seed(o.seed, 5000 + i);
+        let seed = derive_seed(surface, i);
         roots.push(Limb {
             role: Role::Root,
             size: SizeClass::Branch,
@@ -546,11 +549,16 @@ fn add_roots(o: &DeadwoodOptions, decay: &Decay, limbs: &mut Vec<Limb>) {
             taper_from: 0.0,
             seed,
             ends: [
-                End::new(EndKind::Saw { tilt: 0.0 }, radius, sub_seed(seed, 1), 0.0),
+                End::new(
+                    EndKind::Saw { tilt: 0.0 },
+                    radius,
+                    seed_for(seed, END_BASE),
+                    0.0,
+                ),
                 End::new(
                     EndKind::Taper,
                     (radius * 0.25).max(MIN_RADIUS),
-                    sub_seed(seed, 2),
+                    seed_for(seed, END_TIP),
                     0.0,
                 ),
             ],

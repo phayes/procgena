@@ -12,13 +12,16 @@ use std::collections::HashMap;
 use std::fmt;
 
 use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
+use procgena_core::Rng;
+use procgena_core::hash::{derive_seed, seed_for};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
 
 use crate::detail::DeadwoodLod;
 use crate::options::{DeadwoodOptions, OptionsError, PieceKind, int_range, positive, within};
 use crate::piece::Piece;
 use crate::presets::DeadwoodPreset;
-use crate::rng::{Rng, sub_seed};
+use crate::rng::stream;
+use crate::seed_keys::{SCATTER_CELL, SCATTER_VARIANT};
 use crate::settle::surface_points;
 
 /// Largest number of sticks one scatter may place.
@@ -222,11 +225,11 @@ impl StickScatter {
         }
 
         // Build the variants, each resting on flat ground in its own space.
-        let mut rng = Rng::new(options.seed, 1);
+        let mut rng = stream(options.seed, SCATTER_VARIANT);
         let mut variants = Vec::with_capacity(options.variants as usize);
         for v in 0..options.variants {
             let mut o = options.piece.clone();
-            o.seed = sub_seed(options.seed, v);
+            o.seed = derive_seed(options.seed, v);
             o.decay = rng.range(options.decay[0], options.decay[1]);
             let (lo, hi) = (options.diameter[0].ln(), options.diameter[1].ln());
             o.diameter = rng.range(lo, hi).exp();
@@ -248,9 +251,10 @@ impl StickScatter {
         );
         let mut spacing = SpacingGrid::new(options.min_spacing);
         let mut instances = Vec::new();
+        let cell_seed = seed_for(options.seed, SCATTER_CELL);
         for r in 0..rows {
             for c in 0..columns {
-                let mut rng = Rng::new(options.seed, 1000 + r * columns + c);
+                let mut rng = Rng::new(derive_seed(cell_seed, r * columns + c));
                 let site = Vec2::new(
                     -half.x + (c as f32 + rng.next_f32()) * cell,
                     -half.y + (r as f32 + rng.next_f32()) * cell,
