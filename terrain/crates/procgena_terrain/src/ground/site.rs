@@ -3,7 +3,10 @@
 use glam::{DVec2, Vec2};
 use procgena_core::{Ground, GroundSample};
 
-use crate::{FeatureTier, RoadTags, Terrain, TerrainSample, WorldTerrain};
+use crate::measure::slope_of;
+use crate::{
+    FeatureTier, MEASURE_REACH, RoadTags, SampleDetail, Terrain, TerrainSample, WorldTerrain,
+};
 
 /// Whether water covers a point, where that is known.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -18,8 +21,10 @@ pub enum Water {
 /// What ground rules read at one point.
 ///
 /// A measure that is `None` is unknown, not absent: a rule's condition on
-/// it counts as 1. A plain [`Ground`] has no water and no roads; a
-/// [`Terrain`] knows where its water and roads are. Neither knows the
+/// it counts as 1. (`nearby_water_height` is the exception: it is also
+/// `None` where no water is near.) A plain [`Ground`] has no water and no
+/// roads; a [`Terrain`] knows where its water and roads are, and with
+/// measures how far they are and how the ground bends. Neither knows the
 /// relief height yet.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
@@ -36,28 +41,41 @@ pub struct GroundSite {
     pub water: Option<Water>,
     /// What the roads made of the ground there.
     pub road_tags: Option<RoadTags>,
+    /// How far the ground lies above the nearest water within
+    /// [`WATER_HEIGHT_REACH`](crate::WATER_HEIGHT_REACH), in metres (see
+    /// [`Measures::height_above_water`](crate::Measures::height_above_water)):
+    /// `None` where no water is that near, or where it wasn't measured.
+    pub nearby_water_height: Option<f32>,
+    /// How far it is to the nearest water's edge, in metres, at most
+    /// [`MEASURE_REACH`] (see
+    /// [`Measures::water_distance`](crate::Measures::water_distance)).
+    pub water_distance: Option<f32>,
+    /// How far it is to the nearest road surface's edge, in metres, at most
+    /// [`MEASURE_REACH`] (see
+    /// [`Measures::road_distance`](crate::Measures::road_distance)).
+    pub road_distance: Option<f32>,
+    /// How the ground bends, per metre: positive convex, negative concave
+    /// (see [`Measures::curvature`](crate::Measures::curvature)).
+    pub curvature: Option<f32>,
 }
 
 impl GroundSite {
     /// A site on plain ground, with no water and no roads, from its height
     /// and the gradient of the ground there (how much it rises per metre
-    /// along x and z). Its relief height is unknown. A gradient that isn't
-    /// a number gives a slope of 0.
+    /// along x and z): water and roads are [`MEASURE_REACH`] or further
+    /// away. Its relief height and curvature are unknown. A gradient that
+    /// isn't a number gives a slope of 0.
     pub fn new(height: f32, gradient: Vec2) -> Self {
-        let g = gradient.length();
-        let slope = if g.is_nan() {
-            0.0
-        } else if g.is_infinite() {
-            1.0
-        } else {
-            g / g.hypot(1.0)
-        };
         Self {
             height,
-            slope,
+            slope: slope_of(gradient),
             relief_height: None,
             water: Some(Water::Dry),
             road_tags: Some(RoadTags::NONE),
+            nearby_water_height: None,
+            water_distance: Some(MEASURE_REACH),
+            road_distance: Some(MEASURE_REACH),
+            curvature: None,
         }
     }
 
@@ -67,13 +85,20 @@ impl GroundSite {
         Self::new(sample.height, sample.gradient)
     }
 
-    /// A site from a terrain sample taken with its gradient (see
-    /// [`Terrain::query`]): height, slope, water and road tags. Without a
-    /// gradient the slope is 0.
+    /// A site from a terrain sample (see [`Terrain::query`]): height,
+    /// slope, water and road tags, and with [`SampleDetail::Measures`] the
+    /// distances to water and roads, the height above nearby water and the
+    /// curvature. Without a gradient the slope is 0; without measures the
+    /// distances, nearby water height and curvature are unknown.
     pub fn from_query(sample: &TerrainSample) -> Self {
+        let measures = sample.measures;
         Self {
             water: Some(sample.water.map_or(Water::Dry, Water::Level)),
             road_tags: Some(sample.tags),
+            nearby_water_height: measures.and_then(|m| m.height_above_water),
+            water_distance: measures.map(|m| m.water_distance),
+            road_distance: measures.map(|m| m.road_distance),
+            curvature: measures.map(|m| m.curvature),
             ..Self::new(sample.height, sample.gradient.unwrap_or(Vec2::ZERO))
         }
     }
@@ -86,10 +111,18 @@ impl GroundSite {
         self
     }
 
-    /// How far the ground lies above the water covering it, in metres:
-    /// negative under water, infinite where no water covers it, and `None`
-    /// where that isn't known.
+    /// How far the ground lies above the water, in metres: negative under
+    /// water. Where water is within
+    /// [`WATER_HEIGHT_REACH`](crate::WATER_HEIGHT_REACH) and was measured,
+    /// the height above it
+    /// ([`nearby_water_height`](Self::nearby_water_height)),
+    /// so banks read how high they stand; otherwise the height above the
+    /// water covering the point, infinite where none covers it. `None`
+    /// where neither is known.
     pub fn height_above_water(&self) -> Option<f32> {
+        if let Some(height) = self.nearby_water_height {
+            return Some(height);
+        }
         self.water.map(|water| match water {
             Water::Dry => f32::INFINITY,
             Water::Level(level) => self.height - level,
@@ -109,7 +142,7 @@ pub trait GroundSource: Sync {
 impl GroundSource for Terrain {
     /// The terrain's own ground, whatever tier is asked for.
     fn site(&self, p: DVec2, _: FeatureTier) -> GroundSite {
-        GroundSite::from_query(&self.query(p, true))
+        GroundSite::from_query(&self.query(p, SampleDetail::Gradient))
     }
 }
 
