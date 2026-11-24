@@ -832,12 +832,18 @@ give fruit a GPU pass of its own. How the plan maps onto it:
   level, which the Bevy crate no longer draws; skipping that work is a
   follow-up.
 - **Memory:** each view keeps `attached copies × fruit levels × 64` bytes
-  of entries. With the plan's Willow grove (100 trees inside 120 m, about
-  780 clusters each, as its 47,000 quads at 60 % kept imply, and 3 fruit
-  mesh levels) that is about 15 MB per view,
-  so about 75 MB for a camera and four shadow cascades. Smaller entries
-  (a row index read from a storage buffer) or lists sized per level are
-  possible follow-ups.
+  of entries, where attached copies are every tree copy in the grove
+  (not only those in range) times its rows, and rows count each cluster
+  once plus once more where a far tree level enlarges it. Measured with
+  the default tree levels: Willow 785 clusters and 1,178 rows, Apple 687
+  and 1,031, Dogwood 1,680 and 2,520. With 3 fruit levels that is
+  about 226 KB per Willow and 484 KB per Dogwood, per view. A grove of
+  100 Willows needs about 23 MB per view, so about 113 MB for a camera
+  and four shadow cascades; 100 Dogwoods need about 48 MB per view.
+  This is an open question for the coordinator. Possible fixes: smaller
+  entries (a row index read from a storage buffer), lists sized per level
+  from what can be in range, or one shared entry buffer per Scatter
+  instead of per view.
 
 ## Decisions
 
