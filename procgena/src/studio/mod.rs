@@ -109,6 +109,7 @@ pub fn scene_start() -> SceneStart {
         mushroom: Arc::new(crate::mushrooms::start_options()),
         grove: Arc::new(crate::grove::editor::start_grove()),
         deadwood: Arc::new(crate::deadwood::start_settings()),
+        terrain: Arc::new(crate::terrain::start_settings()),
         environment: EnvironmentSettings::default(),
         lod: None,
         plant_lod: None,
@@ -208,6 +209,7 @@ mod tests {
         );
         assert_eq!(*start.grove, crate::grove::editor::start_grove());
         assert_eq!(*start.deadwood, crate::deadwood::start_settings());
+        assert_eq!(*start.terrain, crate::terrain::start_settings());
         let field = procgena_plant::prelude::PlantScatterPreset::named(crate::field::START_PRESET);
         assert_eq!(start.field.field, field.unwrap().plant_scatter);
     }

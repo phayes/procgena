@@ -21,6 +21,7 @@ mod protocol;
 #[cfg(test)]
 mod render_tests;
 mod subject;
+mod terrain;
 mod texture_reader;
 mod viewport;
 
@@ -45,6 +46,7 @@ pub use protocol::{
     BuildStats, ClumpSettings, ClumpSubject, DeadwoodSettings, DeadwoodView, FieldSettings,
     GroveProgress, SceneMode, SceneStart, ViewerCommand, ViewerEvent,
 };
+pub use terrain::{TerrainSettings, TerrainShow};
 pub use texture_reader::TextureDownloads;
 pub use viewport::SceneViewport;
 
@@ -161,6 +163,15 @@ impl Plugin for ScenePlugin {
             },
             viewport::ViewportPlugin,
         ))
+        .add_plugins(terrain::plugin())
+        .add_systems(
+            Update,
+            (
+                terrain::apply_show,
+                terrain::hide_ground.after(environment::apply_environment),
+                terrain::report_progress,
+            ),
+        )
         .insert_resource(self.start.environment)
         .insert_resource(subject::LodChoice(self.start.lod))
         .insert_resource(subject::PlantLodChoice(self.start.plant_lod))

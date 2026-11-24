@@ -22,11 +22,13 @@ pub enum StudioTab {
     Mushrooms,
     /// A single fallen log, branch or stump.
     Deadwood,
+    /// An endless world of terrain.
+    Terrain,
 }
 
 impl StudioTab {
     /// Every tab, left to right.
-    pub const ALL: [StudioTab; 8] = [
+    pub const ALL: [StudioTab; 9] = [
         StudioTab::Trees,
         StudioTab::TreeScatter,
         StudioTab::Plant,
@@ -35,6 +37,7 @@ impl StudioTab {
         StudioTab::Clumps,
         StudioTab::Mushrooms,
         StudioTab::Deadwood,
+        StudioTab::Terrain,
     ];
 
     /// The tab's label.
@@ -48,6 +51,7 @@ impl StudioTab {
             Self::Clumps => "Clumps",
             Self::Mushrooms => "Mushrooms",
             Self::Deadwood => "Dead Wood",
+            Self::Terrain => "Terrain",
         }
     }
 
@@ -62,6 +66,7 @@ impl StudioTab {
             Self::Clumps => SceneMode::Clump,
             Self::Mushrooms => SceneMode::Mushroom,
             Self::Deadwood => SceneMode::Deadwood,
+            Self::Terrain => SceneMode::Terrain,
         }
     }
 
