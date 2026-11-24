@@ -179,7 +179,7 @@ mod tests {
     fn every_detail_level_can_be_chosen() {
         assert_eq!(LOD_CHOICES.len(), crate::scene::lod_levels().len() + 1);
         // The scene uses the mushroom plugin's default levels.
-        let mushroom_levels = procgena_mushroom::MushroomLod::default().levels.len();
+        let mushroom_levels = procgena_mushroom::default_lod().levels.len();
         assert_eq!(MUSHROOM_LOD_CHOICES.len(), mushroom_levels + 1);
         // The scene uses the dead wood plugin's default levels.
         let deadwood_levels = procgena_deadwood::default_lod().levels.len();

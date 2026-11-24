@@ -3,39 +3,45 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 
-use glam::{Affine3A, Quat, Vec2, Vec3};
+use glam::{Affine3A, IVec2, Quat, Vec2, Vec3};
+use procgena_core::hash::{derive_seed, seed_for};
+use procgena_core::scatter::Placement;
+use procgena_core::{Quality, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 
-use crate::cluster::{MushroomInstance, arrange, make_variants};
+use crate::cluster::{MushroomInstance, arrange, make_bodies};
 use crate::detail::MushroomLod;
 use crate::mesh::{MushroomMesh, combine};
 use crate::mushroom::MushroomBody;
-use crate::options::{MushroomOptions, OptionsError, non_negative, positive, within};
-use crate::rng::Rng;
+use crate::options::{MushroomOptions, OptionsError, int_range, non_negative, positive, within};
+use crate::rng::{RngExt, SCATTER_CLUSTER, SCATTER_SITES};
 use crate::specimen::specimen_from_meshes;
 
 /// The most growing spots a scatter makes, however large the surface or
 /// high the density.
 pub const MAX_SITES: u32 = 20_000;
 
-/// Random-number stream for growing spots, sizes and turns.
-const STREAM_SITES: u32 = 21;
-
-/// Settings for [`MushroomScatter::on`].
+/// Settings for [`MushroomScatter::on`] and [`MushroomScatter::new`].
 ///
-/// Lengths are in the host specimen's units, which are metres for procgena
-/// generators.
+/// Lengths are in metres; for [`on`](MushroomScatter::on), in the host
+/// specimen's units. Each field says if only one of the two uses it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScatterOptions {
-    /// Number that picks the growing spots, sizes and turns. The same seed,
-    /// settings and host always give the same scatter.
+    /// Number that picks the growing spots, sizes, turns, which variant
+    /// grows at each spot and how each spot's cluster is laid out. It also
+    /// stands in for the World seed of the variants' specimen ids, so it
+    /// picks their shapes too. The same seed, settings and host always give
+    /// the same scatter. Used by [`MushroomScatter::on`];
+    /// [`MushroomScatter::new`] uses its input's seed instead.
     pub seed: u32,
     /// Which parts of the host mushrooms grow on, chosen by their tags, such
-    /// as ground or rock; see [`procgena_specimen::tags`].
+    /// as ground or rock; see [`procgena_specimen::tags`]. Only used by
+    /// [`MushroomScatter::on`].
     pub grows_on: TagFilter,
     /// Which way is up, in the host specimen's coordinates. Any length other
-    /// than zero.
+    /// than zero. Only used by [`MushroomScatter::on`].
     pub up: Vec3,
     /// Growing spots per square metre of suitable surface. Must be zero or
     /// positive. Fewer may fit because of
@@ -58,11 +64,28 @@ pub struct ScatterOptions {
     pub scale_max: f32,
     /// How much mushrooms tilt with a sloping surface instead of growing
     /// straight up, from 0 (straight up) through 1 (square to the surface).
+    /// Only used by [`MushroomScatter::on`]; a ground scatter keeps
+    /// mushrooms upright.
     pub follow_surface: f32,
-    /// How deep each stem base sits in the surface, as a multiple of its
-    /// radius, from 0 through 2. A little depth hides gaps on uneven ground.
-    pub sink: f32,
+    /// How each mushroom is set on the ground, or `None` for the species'
+    /// own [`MushroomOptions::ground_placement`]. Lengths in it are shares
+    /// of each stem's radius at the ground. [`conform`](Placement::conform)
+    /// must be from 0 through 1, and [`embed`](Placement::embed) and any
+    /// [`max_bend`](Placement::max_bend) zero or more.
+    ///
+    /// [`MushroomScatter::new`] places every member of a copy with it.
+    /// [`MushroomScatter::on`] uses only its `embed`, to sink each stem
+    /// into the host's surface.
+    pub placement: Option<Placement>,
+    /// How many different whole mushrooms (or clusters) a ground scatter
+    /// ([`MushroomScatter::new`]) draws its copies from, from 1 through
+    /// [`MAX_SPECIMENS`]. Not used by [`MushroomScatter::on`], which uses
+    /// [`ClusterOptions::variants`](crate::ClusterOptions::variants).
+    pub specimens: u32,
 }
+
+/// Largest allowed [`ScatterOptions::specimens`].
+pub const MAX_SPECIMENS: u32 = 256;
 
 impl Default for ScatterOptions {
     fn default() -> Self {
@@ -76,7 +99,8 @@ impl Default for ScatterOptions {
             scale_min: 0.6,
             scale_max: 1.1,
             follow_surface: 0.5,
-            sink: 0.3,
+            placement: None,
+            specimens: 3,
         }
     }
 }
@@ -106,7 +130,22 @@ impl ScatterOptions {
             f32::MAX,
         )?;
         within("scatter.follow_surface", self.follow_surface, 0.0, 1.0)?;
-        within("scatter.sink", self.sink, 0.0, 2.0)
+        if let Some(p) = &self.placement {
+            within("scatter.placement.conform", p.conform, 0.0, 1.0)?;
+            non_negative("scatter.placement.embed", p.embed)?;
+            if let Some(bend) = p.max_bend {
+                non_negative("scatter.placement.max_bend", bend)?;
+            }
+        }
+        int_range("scatter.specimens", self.specimens, 1, MAX_SPECIMENS)
+    }
+
+    /// Returns the placement to use for `mushroom`: [`placement`](Self::placement)
+    /// if set, otherwise the species' own
+    /// [`ground_placement`](MushroomOptions::ground_placement).
+    pub fn placement_for(&self, mushroom: &MushroomOptions) -> Placement {
+        self.placement
+            .unwrap_or_else(|| mushroom.ground_placement())
     }
 }
 
@@ -122,6 +161,13 @@ pub enum ScatterError {
     Surface(SurfaceError),
     /// A setting is out of range.
     Options(OptionsError),
+    /// A ground scatter's area holds more candidate spots than
+    /// [`MAX_CELLS`](crate::MAX_CELLS): the area is too large for its
+    /// [`min_spacing`](ScatterOptions::min_spacing).
+    TooLarge {
+        /// How many candidate spots the area holds.
+        cells: u64,
+    },
 }
 
 impl fmt::Display for ScatterError {
@@ -132,6 +178,11 @@ impl fmt::Display for ScatterError {
             }
             ScatterError::Surface(e) => write!(f, "the host surface is invalid: {e}"),
             ScatterError::Options(e) => write!(f, "invalid scatter options: {e}"),
+            ScatterError::TooLarge { cells } => write!(
+                f,
+                "the scatter area holds {cells} candidate spots, more than {}",
+                crate::MAX_CELLS
+            ),
         }
     }
 }
@@ -155,8 +206,36 @@ impl From<OptionsError> for ScatterError {
 /// [`specimen`](Self::specimen) if you do need a single mesh.
 #[derive(Debug, Clone)]
 pub struct MushroomScatter {
-    bodies: Vec<MushroomBody>,
-    instances: Vec<MushroomInstance>,
+    pub(crate) bodies: Vec<MushroomBody>,
+    pub(crate) instances: Vec<MushroomInstance>,
+    pub(crate) copies: Vec<MushroomCopy>,
+}
+
+/// One copy in a ground scatter ([`MushroomScatter::new`]): one whole
+/// mushroom, or one whole cluster such as a fairy ring, whose members were
+/// each set on the ground.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MushroomCopy {
+    /// Which of the scatter's specimens this copy is, from 0 up to
+    /// [`ScatterOptions::specimens`].
+    pub slot: u32,
+    /// The lattice cell the copy grew from. Equal cells in two scatters with
+    /// the same input seed are the same copy.
+    pub cell: IVec2,
+    /// Where the copy's centre stands, relative to the area's centre: X and
+    /// Z across, Y the ground height there.
+    pub translation: Vec3,
+    /// The copy's turn about the vertical, in radians.
+    pub yaw: f32,
+    /// The copy's size multiplier.
+    pub scale: f32,
+    /// The copy's entries in [`MushroomScatter::instances`].
+    pub instances: Range<usize>,
+    /// For each of those instances, its member's index in the specimen's
+    /// [`Mushroom::members`](crate::Mushroom::members). A member that
+    /// couldn't be set on the ground is missing, and the others keep their
+    /// indices.
+    pub members: Vec<u32>,
 }
 
 impl MushroomScatter {
@@ -167,7 +246,11 @@ impl MushroomScatter {
     /// when [`ClusterOptions::stems`](crate::ClusterOptions::stems) is more
     /// than one. Every spot gets its own variations, picked from
     /// [`ClusterOptions::variants`](crate::ClusterOptions::variants)
-    /// different bodies.
+    /// different bodies. For a single mushroom these are the specimens in
+    /// slots 0, 1, … of the mushroom's pool; for a cluster they are the
+    /// bodies of the specimen in slot 0. Each specimen is seeded from its
+    /// [`SpecimenId`], with [`ScatterOptions::seed`] as the World seed, and the
+    /// mushroom's own [`seed`](MushroomOptions::seed) is not used.
     ///
     /// Mushrooms grow only on the parts of the host's most detailed level
     /// that [`ScatterOptions::grows_on`] picks, and only where the surface is
@@ -191,8 +274,17 @@ impl MushroomScatter {
         options: &ScatterOptions,
     ) -> Result<Self, ScatterError> {
         options.validate()?;
+        mushroom.validate()?;
         let cluster = &mushroom.cluster;
-        let bodies = make_variants(mushroom, cluster.variants, options.seed)?;
+        let pool = mushroom.pool();
+        let specimen_seed = |slot| SpecimenId::new(options.seed, pool, slot).seed();
+        let bodies = if cluster.stems == 1 {
+            (0..cluster.variants)
+                .map(|slot| MushroomBody::single(mushroom, specimen_seed(slot)))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            make_bodies(mushroom, specimen_seed(0), cluster.variants)?
+        };
         let part = host
             .merged(0, &options.grows_on)
             .ok_or(ScatterError::NoSurface)?;
@@ -215,7 +307,11 @@ impl MushroomScatter {
         }
         let mut instances = Vec::new();
         if faces.is_empty() {
-            return Ok(Self { bodies, instances });
+            return Ok(Self {
+                bodies,
+                instances,
+                copies: Vec::new(),
+            });
         }
         // Clusters drop their members onto the gentle faces.
         let columns = (cluster.stems > 1).then(|| Columns::new(&surface, &faces, up));
@@ -223,7 +319,9 @@ impl MushroomScatter {
         // Try random spots and keep those far enough from earlier ones. A
         // grid of cells, each `min_spacing` wide, means only nearby spots
         // need checking.
-        let mut rng = Rng::new(options.seed, STREAM_SITES);
+        let mut rng = Rng::new(seed_for(options.seed, SCATTER_SITES));
+        let embed = options.placement_for(mushroom).embed;
+        let cluster_seeds = seed_for(options.seed, SCATTER_CLUSTER);
         let wanted = ((options.density * total).round() as u32).min(MAX_SITES);
         let cell = options.min_spacing.max(1e-4);
         let mut grid: HashMap<[i32; 3], Vec<Vec3>> = HashMap::new();
@@ -283,7 +381,7 @@ impl MushroomScatter {
             // A single mushroom, sunk a little into the surface.
             let Some(columns) = &columns else {
                 let variant = rng.int(0, bodies.len() as u32 - 1);
-                let sink = bodies[variant as usize].base_radius() * scale * options.sink;
+                let sink = bodies[variant as usize].base_radius() * scale * embed;
                 instances.push(MushroomInstance {
                     variant,
                     translation: point - grow * sink,
@@ -295,14 +393,13 @@ impl MushroomScatter {
 
             // A cluster around the spot, each member dropped onto the
             // surface and sunk a little into it.
-            let seed = options.seed ^ sites.wrapping_mul(0x85eb_ca6b);
-            for member in arrange(&bodies, cluster, seed) {
+            for member in arrange(&bodies, cluster, derive_seed(cluster_seeds, sites)) {
                 let planned = point + rotation * (member.translation * scale);
                 let Some(ground) = columns.drop(planned) else {
                     continue;
                 };
                 let scale = member.scale * scale;
-                let sink = bodies[member.variant as usize].base_radius() * scale * options.sink;
+                let sink = bodies[member.variant as usize].base_radius() * scale * embed;
                 instances.push(MushroomInstance {
                     variant: member.variant,
                     translation: ground - grow * sink,
@@ -311,7 +408,11 @@ impl MushroomScatter {
                 });
             }
         }
-        Ok(Self { bodies, instances })
+        Ok(Self {
+            bodies,
+            instances,
+            copies: Vec::new(),
+        })
     }
 
     /// Returns the different single mushrooms the instances are copies of.
@@ -319,9 +420,18 @@ impl MushroomScatter {
         &self.bodies
     }
 
-    /// Returns the placed mushrooms, in the host's coordinates.
+    /// Returns the placed mushrooms: in the host's coordinates for
+    /// [`on`](Self::on), and relative to the area's centre for
+    /// [`new`](Self::new) (X and Z across, Y the ground height).
     pub fn instances(&self) -> &[MushroomInstance] {
         &self.instances
+    }
+
+    /// Returns the copies of a ground scatter ([`new`](Self::new)), each one
+    /// whole mushroom or cluster, in lattice order. Empty for
+    /// [`on`](Self::on).
+    pub fn copies(&self) -> &[MushroomCopy] {
+        &self.copies
     }
 
     /// Combines every instance into one [`Specimen`], with one detail level
@@ -329,10 +439,14 @@ impl MushroomScatter {
     /// be a large mesh; drawing [`instances`](Self::instances) is usually
     /// cheaper.
     ///
+    /// Each level starts at its distance in `lod` scaled to the species'
+    /// size at [`Quality::High`], as for [`crate::Mushroom::specimen`].
+    ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
+    /// Returns an error if `lod` is invalid; see [`crate::validate_lod`].
     pub fn specimen(&self, lod: &MushroomLod) -> Result<Specimen, OptionsError> {
+        let size = self.bodies[0].options().size;
         let meshes: Vec<_> = self
             .bodies
             .iter()
@@ -351,7 +465,10 @@ impl MushroomScatter {
                 (*level, combine(&placed))
             })
             .collect();
-        Ok(specimen_from_meshes(&levels))
+        Ok(specimen_from_meshes(
+            &levels,
+            lod.factor(size, Quality::High),
+        ))
     }
 }
 

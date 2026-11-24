@@ -12,16 +12,18 @@ use glam::{Quat, Vec2, Vec3};
 
 use crate::options::MushroomOptions;
 use crate::profile::Profile;
-use crate::rng::{Rng, fbm, smoothstep};
+use procgena_core::Rng;
+use procgena_core::hash::{derive_seed, seed_for};
 
-// Separate random-number streams, one per use, so that changing how many
-// values one feature draws never changes another feature.
-/// Stream for the rim waves, lopsidedness and tilt.
-const STREAM_CAP: u32 = 1;
-/// Stream for wart placement.
-const STREAM_WARTS: u32 = 2;
-/// Stream that picks the surface-noise pattern.
-const STREAM_NOISE: u32 = 3;
+use crate::rng::{RngExt, SHAPE_CAP, SHAPE_NOISE, SHAPE_WARTS, fbm, smoothstep};
+
+/// Second-level salts under the noise seed, one per noise field, so the cap,
+/// stem and annulus bumps don't repeat each other.
+const NOISE_CAP: u32 = 0;
+/// Salt of the stem's surface noise.
+const NOISE_STEM: u32 = 1;
+/// Salt of the annulus's ragged edge.
+const NOISE_ANNULUS: u32 = 2;
 
 /// Radius of the disc that closes the cap's underside, relative to the stem
 /// radius under the cap. Below 1 keeps the disc hidden inside the stem.
@@ -109,7 +111,7 @@ impl Shape {
     /// Works out the shape for `o`, which must already be validated.
     pub(crate) fn new(o: &MushroomOptions) -> Self {
         let radius = o.cap_radius();
-        let mut rng = Rng::new(o.seed, STREAM_CAP);
+        let mut rng = Rng::new(seed_for(o.seed, SHAPE_CAP));
 
         // Stem sizes in metres.
         let s = &o.stem;
@@ -157,7 +159,7 @@ impl Shape {
             roughness_frequency: o.cap.roughness_scale * 0.5,
             cap_origin: Vec3::ZERO,
             cap_rotation: Quat::IDENTITY,
-            noise_seed: Rng::new(o.seed, STREAM_NOISE).int(0, u32::MAX - 1),
+            noise_seed: seed_for(o.seed, SHAPE_NOISE),
             annulus: None,
             warts: Vec::new(),
         };
@@ -248,7 +250,9 @@ impl Shape {
                 s * self.stem_height / self.neck_radius * 0.5,
                 around.z * 2.0,
             );
-            r *= 1.0 + self.stem_roughness * fbm(p, self.noise_seed ^ 0x57e3, NOISE_OCTAVES);
+            r *= 1.0
+                + self.stem_roughness
+                    * fbm(p, derive_seed(self.noise_seed, NOISE_STEM), NOISE_OCTAVES);
         }
         self.stem_centre(s) + self.stem_frame(s) * (around * r)
     }
@@ -288,7 +292,7 @@ impl Shape {
         if self.cap_roughness > 0.0 {
             let n = fbm(
                 local * self.roughness_frequency * 2.0,
-                self.noise_seed,
+                derive_seed(self.noise_seed, NOISE_CAP),
                 NOISE_OCTAVES,
             );
             local.y += n * self.cap_roughness;
@@ -330,7 +334,11 @@ impl Shape {
         let rag = 1.0
             - annulus.raggedness
                 * 0.5
-                * (fbm(around * 3.0, self.noise_seed ^ 0x2196, NOISE_OCTAVES) + 1.0);
+                * (fbm(
+                    around * 3.0,
+                    derive_seed(self.noise_seed, NOISE_ANNULUS),
+                    NOISE_OCTAVES,
+                ) + 1.0);
         let r = annulus.inner + (p.x - annulus.inner) * rag;
         let y = p.y * rag;
         self.stem_centre(annulus.at) + self.stem_frame(annulus.at) * (around * r + Vec3::Y * y)
@@ -387,7 +395,7 @@ fn place_warts(o: &MushroomOptions, shape: &Shape) -> Vec<Wart> {
     if w.count == 0 {
         return warts;
     }
-    let mut rng = Rng::new(o.seed, STREAM_WARTS);
+    let mut rng = Rng::new(seed_for(o.seed, SHAPE_WARTS));
     let length = shape.top.length();
     let start = length * (1.0 - w.coverage);
     let max_r = (0..=16)

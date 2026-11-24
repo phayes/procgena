@@ -27,16 +27,20 @@ use std::time::Duration;
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
+use bevy::math::DVec2;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_mushroom::{LodLevel, MushroomDetail, MushroomLod, MushroomPreset, ScatterOptions};
-use procgena_mushroom_bevy::{
-    MushroomGenerating, MushroomParams, MushroomPart, MushroomPlugin, MushroomScatterParams,
+use procgena_core::scatter::ScatterArea;
+use procgena_core::{Ground, HeightGrid, Lod, LodLevel};
+use procgena_mushroom::{
+    DEFAULT_LOD_SIZE, MushroomDetail, MushroomPreset, ScatterOptions, default_lod,
 };
-use procgena_specimen::{GeneratedSpecimen, Part, Specimen, SurfaceMesh, tags};
+use procgena_mushroom_bevy::{
+    MushroomGenerating, MushroomGroundScatterParams, MushroomParams, MushroomPart, MushroomPlugin,
+};
 
 /// Frames to wait after generation finishes before a screenshot, so meshes
 /// and shaders are ready.
@@ -97,21 +101,15 @@ fn main() {
     });
 
     // `--flat` and `--billboard` use only that one detail, drawn out to
-    // 100 m.
-    let only = |detail| MushroomLod {
-        levels: vec![LodLevel {
-            distance: 0.0,
-            hysteresis: 0.1,
-            detail,
-        }],
-        cull_distance: 100.0,
-    };
+    // 100 m for an 8 cm cap.
+    let only =
+        |detail| Lod::new(DEFAULT_LOD_SIZE, vec![LodLevel::new(0.0, 0.1, detail)]).with_cull(100.0);
     let lod = if args.iter().any(|a| a == "--flat") {
         only(MushroomDetail::FLAT)
     } else if args.iter().any(|a| a == "--billboard") {
         only(MushroomDetail::BILLBOARD)
     } else {
-        MushroomLod::default()
+        default_lod()
     };
     // Read assets from the repository's `mushroom/assets`. The fly agaric's
     // cap texture is used when its files have been converted or downloaded
@@ -271,53 +269,91 @@ fn setup(
         Transform::from_xyz(0.4, 0.0, -0.4),
     ));
 
-    // A ground patch that mushrooms are scattered over.
-    let ground = SurfaceMesh::ground(6.0, 24);
-    let ground_mesh = Mesh::new(
-        bevy::mesh::PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::default(),
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, ground.positions.clone())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, ground.normals.clone())
-    .with_inserted_indices(bevy::mesh::Indices::U32(ground.indices.clone()));
-    let host = commands
-        .spawn((
-            Mesh3d(meshes.add(ground_mesh)),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.28, 0.22, 0.14),
-                perceptual_roughness: 1.0,
-                ..default()
-            })),
-            Transform::from_xyz(0.0, -0.001, -4.0),
-            GeneratedSpecimen(Arc::new(Specimen::single(vec![Part::new(
-                [tags::GROUND],
-                ground,
-            )]))),
-        ))
-        .id();
+    // A patch of gently rolling ground that mushrooms are scattered over,
+    // sampled once into a height grid.
+    let centre = DVec2::new(0.0, f64::from(GROUND_Z));
+    let area = ScatterArea::new(centre, Vec2::splat(GROUND_SIZE));
+    let half = DVec2::splat(f64::from(GROUND_SIZE) * 0.5);
+    let ground: Arc<dyn Ground> = Arc::new(HeightGrid::from_fn(
+        centre - half,
+        centre + half,
+        f64::from(GROUND_CELL),
+        rolling,
+    ));
     commands.spawn((
-        MushroomScatterParams {
+        Mesh3d(meshes.add(ground_mesh(&*ground, centre))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.28, 0.22, 0.14),
+            perceptual_roughness: 1.0,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, -0.001, GROUND_Z),
+    ));
+    commands.spawn((
+        MushroomGroundScatterParams {
             mushroom: Arc::new(MushroomPreset::Porcini.options()),
             scatter: ScatterOptions {
                 density: 6.0,
                 ..ScatterOptions::default()
             },
+            ground: ground.clone(),
+            area,
+            mask: None,
         },
-        ChildOf(host),
+        Transform::from_xyz(0.0, 0.0, GROUND_Z),
     ));
-    // A couple of fairy rings on the same ground.
+    // A couple of fairy rings on the same ground, each one whole copy whose
+    // members follow the ground.
     commands.spawn((
-        MushroomScatterParams {
+        MushroomGroundScatterParams {
             mushroom: Arc::new(MushroomPreset::FairyRing.options()),
             scatter: ScatterOptions {
-                seed: 3,
+                seed: 4,
                 density: 0.06,
                 min_spacing: 2.0,
                 scale_min: 0.9,
                 scale_max: 1.1,
+                specimens: 2,
                 ..ScatterOptions::default()
             },
+            ground,
+            area,
+            mask: None,
         },
-        ChildOf(host),
+        Transform::from_xyz(0.0, 0.0, GROUND_Z),
     ));
+}
+
+/// Width and depth of the scattered ground patch, in metres.
+const GROUND_SIZE: f32 = 6.0;
+/// Spacing of the ground's height samples, in metres.
+const GROUND_CELL: f32 = 0.25;
+/// World Z of the ground patch's centre, behind the preset row.
+const GROUND_Z: f32 = -4.0;
+
+/// Gently rolling ground, a few centimetres high, in World metres.
+fn rolling(p: DVec2) -> f32 {
+    let (x, z) = (p.x as f32, p.y as f32);
+    0.06 * (1.3 * x).sin() + 0.05 * (0.9 * z + 0.4 * x).cos() - 0.05
+}
+
+/// Builds a mesh of `ground` over the patch around `centre`, relative to
+/// the centre, with one vertex per height sample.
+fn ground_mesh(ground: &dyn Ground, centre: DVec2) -> Mesh {
+    let cuts = (GROUND_SIZE / GROUND_CELL) as u32 - 1;
+    let mut mesh = Plane3d::default()
+        .mesh()
+        .size(GROUND_SIZE, GROUND_SIZE)
+        .subdivisions(cuts)
+        .build();
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for p in positions.iter_mut() {
+            let at = centre + DVec2::new(f64::from(p[0]), f64::from(p[2]));
+            p[1] = ground.height(at);
+        }
+    }
+    mesh.compute_smooth_normals();
+    mesh
 }

@@ -4,10 +4,11 @@
 use std::fmt;
 
 use glam::{Affine3A, Vec3};
+use procgena_core::PoolId;
 
-use crate::cluster::{ClusterOptions, MushroomInstance, arrange, make_variants};
+use crate::cluster::{ClusterOptions, MushroomInstance, arrange, make_bodies};
 use crate::colour::Palette;
-use crate::detail::{LodLevel, MushroomDetail, MushroomLod};
+use crate::detail::{MushroomDetail, MushroomLod, MushroomLodLevel, validate_lod};
 use crate::mesh::{MushroomMesh, build, combine};
 use crate::options::{MushroomOptions, OptionsError};
 use crate::presets::MushroomPreset;
@@ -52,10 +53,28 @@ pub struct Mushroom {
 /// Its options are the [`Mushroom`]'s, with this body's own seed, small
 /// differences in height, and a single stem. It stands on the ground at the
 /// origin, growing up the +Y axis, in metres.
+///
+/// Bodies with the same [`id`](Self::id) are identical.
 #[derive(Debug, Clone)]
 pub struct MushroomBody {
     options: MushroomOptions,
+    id: BodyId,
     shape: Shape,
+}
+
+/// Names one [`MushroomBody`]: bodies with equal ids are identical, so a
+/// renderer can mesh each id once and share it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BodyId {
+    /// The pool of the options the body was grown from; see
+    /// [`MushroomOptions::pool`].
+    pub pool: PoolId,
+    /// The seed the whole mushroom or cluster was grown with: the options'
+    /// [`seed`](MushroomOptions::seed) for a [`Mushroom`], or a specimen
+    /// seed in a scatter.
+    pub seed: u32,
+    /// The body's index among the bodies grown with that seed.
+    pub index: u32,
 }
 
 /// Why a [`Mushroom`] could not be created from JSON.
@@ -88,22 +107,20 @@ impl std::error::Error for MushroomError {
 
 impl Mushroom {
     /// Creates a mushroom, or a cluster, from `options`, after checking
-    /// them.
+    /// them. Its shape comes from [`MushroomOptions::seed`].
     ///
     /// # Errors
     ///
     /// Returns the first setting that is out of range.
     pub fn new(options: MushroomOptions) -> Result<Self, OptionsError> {
         options.validate()?;
+        let seed = options.seed;
 
         // A single mushroom is exactly what the options describe; a
         // cluster's members are variations of it.
         let cluster = &options.cluster;
         let (bodies, members) = if cluster.stems == 1 {
-            let body = MushroomBody::new(MushroomOptions {
-                cluster: ClusterOptions::default(),
-                ..options.clone()
-            })?;
+            let body = MushroomBody::single(&options, seed)?;
             let member = MushroomInstance {
                 variant: 0,
                 translation: Vec3::ZERO,
@@ -112,8 +129,8 @@ impl Mushroom {
             };
             (vec![body], vec![member])
         } else {
-            let bodies = make_variants(&options, cluster.variants.min(cluster.stems), 0)?;
-            let members = arrange(&bodies, cluster, options.seed);
+            let bodies = make_bodies(&options, seed, cluster.variants.min(cluster.stems))?;
+            let members = arrange(&bodies, cluster, seed);
             (bodies, members)
         };
         Ok(Self {
@@ -178,17 +195,18 @@ impl Mushroom {
     /// Builds one mesh of every member for each level of `lod`, nearest
     /// level first, paired with the level it belongs to.
     ///
-    /// The distances in `lod` are used as given; use
-    /// [`MushroomLod::for_size`] to suit them to this mushroom's size.
+    /// The levels are returned as written in `lod`, for its reference size;
+    /// use [`Lod::factor`](procgena_core::Lod::factor) with this mushroom's
+    /// size to scale their distances.
     ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
+    /// Returns an error if `lod` is invalid; see [`validate_lod`].
     pub fn lod_meshes(
         &self,
         lod: &MushroomLod,
-    ) -> Result<Vec<(LodLevel, MushroomMesh)>, OptionsError> {
-        lod.validate()?;
+    ) -> Result<Vec<(MushroomLodLevel, MushroomMesh)>, OptionsError> {
+        validate_lod(lod)?;
         Ok(lod
             .levels
             .iter()
@@ -235,11 +253,34 @@ impl Mushroom {
 
 impl MushroomBody {
     /// Works out the shape of a single mushroom made from `options`, after
-    /// checking them. The cluster settings are not used.
-    pub(crate) fn new(options: MushroomOptions) -> Result<Self, OptionsError> {
+    /// checking them, named `id`. The cluster settings are not used, and
+    /// `options.seed` must already be the body's own seed.
+    pub(crate) fn new(options: MushroomOptions, id: BodyId) -> Result<Self, OptionsError> {
         options.validate()?;
         let shape = Shape::new(&options);
-        Ok(Self { options, shape })
+        Ok(Self { options, id, shape })
+    }
+
+    /// Makes the one body of a single-stem mushroom grown from `options`
+    /// with `seed`: exactly the mushroom the options describe, with `seed`
+    /// in place of theirs. The cluster settings are not used.
+    pub(crate) fn single(options: &MushroomOptions, seed: u32) -> Result<Self, OptionsError> {
+        let id = BodyId {
+            pool: options.pool(),
+            seed,
+            index: 0,
+        };
+        let options = MushroomOptions {
+            seed,
+            cluster: ClusterOptions::default(),
+            ..options.clone()
+        };
+        Self::new(options, id)
+    }
+
+    /// Returns this body's id. Bodies with equal ids are identical.
+    pub fn id(&self) -> BodyId {
+        self.id
     }
 
     /// Returns this body's options. Its
@@ -261,17 +302,16 @@ impl MushroomBody {
     }
 
     /// Builds one mesh for each level of `lod`, nearest level first, paired
-    /// with the level it belongs to. The distances in `lod` are used as
-    /// given.
+    /// with the level it belongs to, as written in `lod`.
     ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`MushroomLod::validate`].
+    /// Returns an error if `lod` is invalid; see [`validate_lod`].
     pub fn lod_meshes(
         &self,
         lod: &MushroomLod,
-    ) -> Result<Vec<(LodLevel, MushroomMesh)>, OptionsError> {
-        lod.validate()?;
+    ) -> Result<Vec<(MushroomLodLevel, MushroomMesh)>, OptionsError> {
+        validate_lod(lod)?;
         Ok(lod
             .levels
             .iter()

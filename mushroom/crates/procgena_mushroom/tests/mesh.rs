@@ -2,8 +2,8 @@
 
 use glam::Vec3;
 use procgena_mushroom::{
-    BillboardMesh, BodyShape, MeshBuffers, Mushroom, MushroomDetail, MushroomLod, MushroomOptions,
-    MushroomPreset, PartKind, Zone,
+    BillboardMesh, BodyShape, MeshBuffers, Mushroom, MushroomDetail, MushroomOptions,
+    MushroomPreset, PartKind, Zone, default_lod,
 };
 
 /// Every named detail level.
@@ -225,7 +225,7 @@ fn turned_shapes_face_the_viewer() {
 fn triangle_counts_fall_along_the_default_ladder() {
     for preset in MushroomPreset::ALL {
         let mushroom = Mushroom::from_preset(preset);
-        let lod = MushroomLod::for_size(mushroom.options().size);
+        let lod = default_lod();
         let counts: Vec<usize> = mushroom
             .lod_meshes(&lod)
             .unwrap()

@@ -1,87 +1,78 @@
-//! Repeatable random numbers and smooth noise.
+//! Repeatable random numbers, smooth noise and the crate's seed keys.
 //!
 //! Everything here is "pseudo-random": it looks random but is worked out
-//! from a seed, so the same seed always gives the same mushroom.
+//! from a seed, so the same seed always gives the same mushroom. The random
+//! number stream itself is [`procgena_core::Rng`]; each use gets its own
+//! seed from a named seed key (see [`KEYS`]), so adding draws to one use
+//! never shifts another.
 
 use glam::Vec3;
+use procgena_core::Rng;
+use procgena_core::hash::{derive_seed, pcg3d, unit_float};
 
-/// Multiplier applied to each input before mixing in [`pcg3d`].
-const PCG_MULTIPLIER: u32 = 1_664_525;
-/// Increment added to each input before mixing in [`pcg3d`].
-const PCG_INCREMENT: u32 = 1_013_904_223;
+// --------------------------------------------------------------------------
+// Seed keys
+//
+// Each key names one use of random numbers. Keys are frozen: renaming one
+// changes every mushroom built with it. To add a use, add a key here and
+// list it in `KEYS`.
 
-/// Turns three integers into three repeatable pseudo-random integers.
-///
-/// Uses the PCG3D hash from Jarzynski and Olano, "Hash Functions for GPU
-/// Rendering" (2020), with wrapping 32-bit arithmetic.
-pub(crate) fn pcg3d(v: [u32; 3]) -> [u32; 3] {
-    let [mut x, mut y, mut z] =
-        v.map(|c| c.wrapping_mul(PCG_MULTIPLIER).wrapping_add(PCG_INCREMENT));
+/// The rim waves, lopsidedness and tilt of a cap.
+pub(crate) const SHAPE_CAP: &str = "mushroom.shape.cap";
+/// Wart placement on a cap.
+pub(crate) const SHAPE_WARTS: &str = "mushroom.shape.warts";
+/// The surface-noise pattern of a cap, stem and annulus.
+pub(crate) const SHAPE_NOISE: &str = "mushroom.shape.noise";
+/// The seed of each single mushroom (body) of a specimen.
+pub(crate) const CLUSTER_BODY: &str = "mushroom.cluster.body";
+/// The small differences between the bodies of one specimen.
+pub(crate) const CLUSTER_VARIATION: &str = "mushroom.cluster.variation";
+/// Member sizes and placement in a cluster.
+pub(crate) const CLUSTER_LAYOUT: &str = "mushroom.cluster.layout";
+/// Growing spots, sizes and turns in a scatter.
+pub(crate) const SCATTER_SITES: &str = "mushroom.scatter.sites";
+/// The layout of the cluster grown at each spot of a scatter.
+pub(crate) const SCATTER_CLUSTER: &str = "mushroom.scatter.cluster";
 
-    x = x.wrapping_add(y.wrapping_mul(z));
-    y = y.wrapping_add(z.wrapping_mul(x));
-    z = z.wrapping_add(x.wrapping_mul(y));
+/// Every seed key of this crate, plus the generator kind's key.
+#[cfg(test)]
+pub(crate) const KEYS: &[&str] = &[
+    crate::specimen_id::GENERATOR_KIND_KEY,
+    SHAPE_CAP,
+    SHAPE_WARTS,
+    SHAPE_NOISE,
+    CLUSTER_BODY,
+    CLUSTER_VARIATION,
+    CLUSTER_LAYOUT,
+    SCATTER_SITES,
+    SCATTER_CLUSTER,
+];
 
-    x ^= x >> 16;
-    y ^= y >> 16;
-    z ^= z >> 16;
+// --------------------------------------------------------------------------
+// Random numbers
 
-    x = x.wrapping_add(y.wrapping_mul(z));
-    y = y.wrapping_add(z.wrapping_mul(x));
-    z = z.wrapping_add(x.wrapping_mul(y));
-
-    [x, y, z]
-}
-
-/// Converts a hash to a number from 0 (inclusive) to 1 (exclusive), using its
-/// upper 24 bits so the result is exact in an `f32`.
-pub(crate) fn unit_float(h: u32) -> f32 {
-    (h >> 8) as f32 * (1.0 / 16_777_216.0)
-}
-
-/// A small seeded random number stream. The same seed and stream id always
-/// give the same values.
-#[derive(Debug, Clone)]
-pub(crate) struct Rng {
-    seed: u32,
-    stream: u32,
-    counter: u32,
-}
-
-impl Rng {
-    /// Starts stream `stream` for `seed`. Different streams of one seed are
-    /// independent, so adding draws to one never shifts another.
-    pub(crate) fn new(seed: u32, stream: u32) -> Self {
-        Self {
-            seed,
-            stream,
-            counter: 0,
-        }
-    }
-
-    /// Returns the next value in `[0, 1)`.
-    pub(crate) fn next_f32(&mut self) -> f32 {
-        let h = pcg3d([self.counter, self.seed, self.stream]);
-        self.counter = self.counter.wrapping_add(1);
-        unit_float(h[0])
-    }
-
-    /// Returns the next value in `[lo, hi)`.
-    pub(crate) fn range(&mut self, lo: f32, hi: f32) -> f32 {
-        lo + (hi - lo) * self.next_f32()
-    }
-
+/// Draws this crate needs beyond [`Rng::next_f32`] and [`Rng::range`].
+pub(crate) trait RngExt {
     /// Returns the next value in `[1 - amount, 1 + amount)`.
-    pub(crate) fn jitter(&mut self, amount: f32) -> f32 {
+    fn jitter(&mut self, amount: f32) -> f32;
+    /// Returns the next whole number in `lo..=hi`. `lo` must not be above
+    /// `hi`.
+    fn int(&mut self, lo: u32, hi: u32) -> u32;
+}
+
+impl RngExt for Rng {
+    fn jitter(&mut self, amount: f32) -> f32 {
         self.range(1.0 - amount, 1.0 + amount)
     }
 
-    /// Returns the next whole number in `lo..=hi`.
-    pub(crate) fn int(&mut self, lo: u32, hi: u32) -> u32 {
-        let span = (hi - lo + 1) as f32;
+    fn int(&mut self, lo: u32, hi: u32) -> u32 {
+        let span = (hi - lo) as f32 + 1.0;
         lo + ((self.next_f32() * span) as u32).min(hi - lo)
     }
 }
+
+// --------------------------------------------------------------------------
+// Noise
 
 /// Returns smooth random noise at point `p`, from -1 to 1: a value that
 /// changes gradually as `p` moves, with features about one unit apart.
@@ -95,7 +86,7 @@ pub(crate) fn fbm(p: Vec3, seed: u32, octaves: u32) -> f32 {
     let mut norm = 0.0;
     let mut q = p;
     for octave in 0..octaves {
-        total += value_noise(q, seed.wrapping_add(octave.wrapping_mul(0x9e37_79b9))) * weight;
+        total += value_noise(q, derive_seed(seed, octave)) * weight;
         norm += weight;
         weight *= 0.5;
         q *= 2.0;
@@ -137,25 +128,32 @@ pub(crate) fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use procgena_core::hash::salt;
+
     use super::*;
 
     #[test]
-    fn streams_repeat_and_differ() {
-        let draw = |seed, stream| {
-            let mut r = Rng::new(seed, stream);
-            (0..8).map(|_| r.next_f32()).collect::<Vec<_>>()
-        };
-        assert_eq!(draw(3, 1), draw(3, 1));
-        assert_ne!(draw(3, 1), draw(3, 2));
-        assert_ne!(draw(3, 1), draw(4, 1));
+    fn seed_keys_and_their_salts_are_all_different() {
+        for (i, a) in KEYS.iter().enumerate() {
+            assert!(a.starts_with("mushroom."), "{a}");
+            assert_eq!(a.split('.').count(), 3, "{a} isn't <crate>.<area>.<role>");
+            for b in &KEYS[i + 1..] {
+                assert_ne!(a, b);
+                assert_ne!(salt(a), salt(b), "{a} and {b} share a salt");
+            }
+        }
     }
 
     #[test]
     fn int_stays_in_range() {
-        let mut r = Rng::new(9, 0);
+        let mut r = Rng::new(9);
         for _ in 0..1000 {
             let v = r.int(2, 5);
             assert!((2..=5).contains(&v));
+        }
+        let mut all = Rng::new(9);
+        for _ in 0..1000 {
+            all.int(0, u32::MAX);
         }
     }
 

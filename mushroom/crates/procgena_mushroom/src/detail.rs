@@ -2,17 +2,31 @@
 //!
 //! A "level of detail" (LOD) is a simpler version of a mesh drawn when the
 //! object is far from the camera, where fine detail can't be seen anyway.
-//! [`MushroomDetail`] says how detailed one mesh is, and [`MushroomLod`]
-//! says which detail to draw at which camera distance.
+//! [`MushroomDetail`] says how detailed one mesh is, and a
+//! [`MushroomLod`] says which detail to draw at which camera distance.
 
+use procgena_core::{FarForm, LevelForm, Lod, LodLevel};
 use serde::{Deserialize, Serialize};
 
-use crate::options::{MAX_SEGMENTS, OptionsError, int_range, non_negative, positive, within};
+use crate::options::{MAX_SEGMENTS, OptionsError, int_range};
 
-/// The cap diameter, in metres, that the distances in
-/// [`MushroomLod::default`] are chosen for (8 cm). Use
-/// [`MushroomLod::for_size`] for other sizes.
+/// The cap diameter, in metres, that the distances in [`default_lod`] are
+/// chosen for (8 cm): its [`Lod::reference_size`].
 pub const DEFAULT_LOD_SIZE: f32 = 0.08;
+
+/// A mushroom's levels of detail: which [`MushroomDetail`] to draw at which
+/// camera distance, written for a cap of
+/// [`reference_size`](Lod::reference_size) metres. Start from
+/// [`default_lod`], and check your own with [`validate_lod`].
+///
+/// Use [`Lod::factor`] with a mushroom's cap diameter to scale the
+/// distances to its size, so a mushroom twice as big keeps its detail twice
+/// as far away.
+pub type MushroomLod = Lod<MushroomDetail>;
+
+/// One level of a [`MushroomLod`]: the detail to draw from its distance
+/// onward, until the next level starts.
+pub type MushroomLodLevel = LodLevel<MushroomDetail>;
 
 /// How the cap and stem surfaces are built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -173,105 +187,40 @@ impl Default for MushroomDetail {
     }
 }
 
-/// One step of a [`MushroomLod`]: the detail to draw from `distance`
-/// onward, until the next level starts.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct LodLevel {
-    /// Camera distance in metres where this level starts. The first level
-    /// must start at 0.
-    pub distance: f32,
-    /// Width of the blend with the previous level, as a fraction of
-    /// `distance`, from 0 through 1. Around the switch, renderers fade one
-    /// level out as the other fades in, so the change doesn't pop. For
-    /// example, 0.1 at 10 m blends from 9.5 m to 10.5 m.
-    pub hysteresis: f32,
-    /// Mesh quality for this level.
-    pub detail: MushroomDetail,
+/// Returns the default levels for an 8 cm cap ([`DEFAULT_LOD_SIZE`]):
+/// [`FULL`](MushroomDetail::FULL) up to 1.5 m,
+/// [`HIGH`](MushroomDetail::HIGH) to 4 m,
+/// [`MEDIUM`](MushroomDetail::MEDIUM) to 10 m,
+/// [`FLAT`](MushroomDetail::FLAT) to 18 m and
+/// [`BILLBOARD`](MushroomDetail::BILLBOARD), a camera-facing
+/// [`FarForm::Card`] that casts no shadow, to 40 m, with nothing drawn
+/// beyond. Each switch blends over 10% of its distance either side.
+pub fn default_lod() -> MushroomLod {
+    Lod::new(
+        DEFAULT_LOD_SIZE,
+        vec![
+            LodLevel::new(0.0, 0.1, MushroomDetail::FULL),
+            LodLevel::new(1.5, 0.1, MushroomDetail::HIGH),
+            LodLevel::new(4.0, 0.1, MushroomDetail::MEDIUM),
+            LodLevel::new(10.0, 0.1, MushroomDetail::FLAT),
+            LodLevel::new(18.0, 0.1, MushroomDetail::BILLBOARD)
+                .with_form(LevelForm::Far(FarForm::Card))
+                .without_shadows(),
+        ],
+    )
+    .with_cull(40.0)
 }
 
-/// Which detail to draw at which camera distance, and where to stop
-/// drawing the mushroom altogether.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MushroomLod {
-    /// Levels from nearest to farthest. The first starts at 0, and each
-    /// starts no nearer than the one before.
-    pub levels: Vec<LodLevel>,
-    /// Distance in metres beyond which the mushroom is not drawn at all.
-    /// Must be at least the last level's distance.
-    pub cull_distance: f32,
-}
-
-impl Default for MushroomLod {
-    /// Five levels for an 8 cm cap: [`FULL`](MushroomDetail::FULL) up to
-    /// 1.5 m, [`HIGH`](MushroomDetail::HIGH) to 4 m,
-    /// [`MEDIUM`](MushroomDetail::MEDIUM) to 10 m,
-    /// [`FLAT`](MushroomDetail::FLAT) to 18 m and
-    /// [`BILLBOARD`](MushroomDetail::BILLBOARD) to 40 m, with nothing drawn
-    /// beyond.
-    fn default() -> Self {
-        let level = |distance, detail| LodLevel {
-            distance,
-            hysteresis: 0.1,
-            detail,
-        };
-        Self {
-            levels: vec![
-                level(0.0, MushroomDetail::FULL),
-                level(1.5, MushroomDetail::HIGH),
-                level(4.0, MushroomDetail::MEDIUM),
-                level(10.0, MushroomDetail::FLAT),
-                level(18.0, MushroomDetail::BILLBOARD),
-            ],
-            cull_distance: 40.0,
-        }
-    }
-}
-
-impl MushroomLod {
-    /// Returns the default levels with their distances scaled for a cap of
-    /// diameter `size` metres, so a mushroom twice as big keeps its detail
-    /// twice as far away.
-    pub fn for_size(size: f32) -> Self {
-        Self::default().scaled(size / DEFAULT_LOD_SIZE)
-    }
-
-    /// Returns these levels with every distance, including the cull
-    /// distance, multiplied by `factor`.
-    pub fn scaled(mut self, factor: f32) -> Self {
-        for level in &mut self.levels {
-            level.distance *= factor;
-        }
-        self.cull_distance *= factor;
-        self
-    }
-
-    /// Checks the levels and their order.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if there are no levels, the first does not start at
-    /// 0, a level starts nearer than the one before, a hysteresis is out of
-    /// range, a level's detail is invalid, or the cull distance is not
-    /// positive or is nearer than the last level.
-    pub fn validate(&self) -> Result<(), OptionsError> {
-        let Some(first) = self.levels.first() else {
-            return Err(OptionsError::IntOutOfRange {
-                field: "lod.levels",
-                value: 0,
-                min: 1,
-                max: u32::MAX,
-            });
-        };
-        within("lod.levels[0].distance", first.distance, 0.0, 0.0)?;
-        let mut previous = 0.0;
-        for level in &self.levels {
-            non_negative("lod.levels.distance", level.distance)?;
-            within("lod.levels.distance", level.distance, previous, f32::MAX)?;
-            within("lod.levels.hysteresis", level.hysteresis, 0.0, 1.0)?;
-            level.detail.validate()?;
-            previous = level.distance;
-        }
-        positive("lod.cull_distance", self.cull_distance)?;
-        within("lod.cull_distance", self.cull_distance, previous, f32::MAX)
-    }
+/// Checks `lod`'s levels, their order and every level's detail.
+///
+/// # Errors
+///
+/// Returns [`OptionsError::Lod`] if the levels themselves are invalid (see
+/// [`Lod::validate`]), or the first count out of range in a level's
+/// [`MushroomDetail`].
+pub fn validate_lod(lod: &MushroomLod) -> Result<(), OptionsError> {
+    lod.validate().map_err(OptionsError::Lod)?;
+    lod.levels
+        .iter()
+        .try_for_each(|level| level.detail.validate())
 }

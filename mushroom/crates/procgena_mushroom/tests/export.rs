@@ -2,11 +2,11 @@
 #![cfg(all(feature = "export-obj", feature = "export-gltf"))]
 
 use procgena_mushroom::export::{gltf, obj};
-use procgena_mushroom::{Mushroom, MushroomLod, MushroomMesh, MushroomPreset};
+use procgena_mushroom::{Mushroom, MushroomMesh, MushroomPreset, default_lod};
 
 fn meshes() -> (Mushroom, Vec<MushroomMesh>) {
     let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
-    let lod = MushroomLod::default();
+    let lod = default_lod();
     let meshes = mushroom
         .lod_meshes(&lod)
         .unwrap()

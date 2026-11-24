@@ -1,21 +1,24 @@
 //! Specimens, clusters and scatter.
 
 use glam::Vec3;
+use procgena_core::Quality;
+use procgena_core::scatter::Placement;
 use procgena_mushroom::{
-    ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomLod, MushroomOptions,
-    MushroomPreset, MushroomScatter, ScatterError, ScatterOptions,
+    ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomOptions, MushroomPreset,
+    MushroomScatter, ScatterError, ScatterOptions, default_lod,
 };
 use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 #[test]
 fn specimen_has_one_level_per_lod_level_with_tags() {
     let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
-    let lod = MushroomLod::for_size(mushroom.options().size);
+    let lod = default_lod();
+    let factor = lod.factor(mushroom.options().size, Quality::High);
     let specimen = mushroom.specimen(&lod).unwrap();
     specimen.validate().unwrap();
     assert_eq!(specimen.levels.len(), lod.levels.len());
     for (level, lod_level) in specimen.levels.iter().zip(&lod.levels) {
-        assert_eq!(level.start, lod_level.distance);
+        assert_eq!(level.start, lod_level.distance * factor);
         for part in &level.parts {
             assert!(part.tags.contains(&tags::MUSHROOM));
         }
@@ -95,7 +98,7 @@ fn clusters_spread_their_members() {
         assert!(min_base_gap(members) > 0.0, "{layout:?}");
 
         // The combined specimen keeps one closed cap piece per member.
-        let specimen = mushroom.specimen(&MushroomLod::default()).unwrap();
+        let specimen = mushroom.specimen(&default_lod()).unwrap();
         specimen.validate().unwrap();
         let caps = specimen.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
         assert!(caps.closed);
@@ -250,7 +253,7 @@ fn scatter_places_mushrooms_on_the_ground() {
         );
         assert!((m.rotation * Vec3::Y).y > 0.5);
     }
-    let specimen = scatter.specimen(&MushroomLod::default()).unwrap();
+    let specimen = scatter.specimen(&default_lod()).unwrap();
     specimen.validate().unwrap();
 }
 
@@ -268,7 +271,10 @@ fn scattered_clusters_drop_their_members_onto_the_surface() {
     let options = ScatterOptions {
         density: 0.3,
         min_spacing: 1.0,
-        sink: 0.0,
+        placement: Some(Placement {
+            embed: 0.0,
+            ..mushroom.ground_placement()
+        }),
         ..ScatterOptions::default()
     };
     let scatter = MushroomScatter::on(&host, &mushroom, &options).unwrap();
