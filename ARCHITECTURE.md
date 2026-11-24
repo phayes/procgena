@@ -128,10 +128,10 @@ or "negotiates with".
 flowchart LR
     Ground["Ground<br/>height and slope"]
     Coverage["Ecotope coverage<br/>from the Biome's rules"]
-    S1["Priority 1: TreeScatter<br/>trunks and canopy"]
-    S2["Priority 2: StoneScatter<br/>boulders"]
-    S3["Priority 3: DeadwoodScatter<br/>logs and sticks"]
-    S4["Priority 4: PlantScatter<br/>grass and ferns"]
+    S1["Priority 900: TreeScatter<br/>trunks and canopy"]
+    S2["Priority 850: StoneScatter<br/>boulders"]
+    S3["Priority 800: DeadwoodScatter<br/>logs and sticks"]
+    S4["Priority 200: PlantScatter<br/>grass and ferns"]
 
     Ground --> S1
     Ground --> S2
@@ -243,17 +243,18 @@ time, and gives its mask over a chunk without drawing anything. See
 | `PlantScatter` | Built as `PlantField` ([plant/docs/fields.md](plant/docs/fields.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
 | `MushroomScatter` | Exists, but grows on tagged host meshes | Becomes a ground Scatter of `Mushroom`s (single, tuft or fairy ring). Growing on hosts moves to the later `MushroomGrowth` modifier. |
 | `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
-| `StoneScatter` | Half built: `StonePool` | `StonePool` is the drawing half (variants, GPU instancing). Placement over a `Ground` with a mask is new. |
+| `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of single stones over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. Pebble clusters wait for the group half of open question 3. |
 
 ### 3. Ecotope
 
 **What it is.** One kind of ground cover with a single character, such as
-"pine forest floor", "wet meadow" or "scree slope". It is a list of Scatters
-in priority order, all laid over the same ground.
+"pine forest floor", "wet meadow" or "scree slope". It is a set of Scatters,
+each named by a frozen key and given a priority, all laid over the same
+ground.
 
 **What it owns.**
 
-- Its Scatters, in priority order.
+- Its Scatters, each with a key (see "Seeds") and a `priority` number.
 - How each Scatter masks the ones below it. Examples:
   - Tree trunks clear a disc around themselves.
   - Canopy shade thins grass.
@@ -268,12 +269,25 @@ the Ecotope's coverage alone. Each later Scatter sees the coverage times the
 masks of every Scatter above it. A Scatter never reads a Scatter below it,
 so the order alone settles every conflict and nothing loops.
 
+**One priority scale for every Ecotope** (decided in
+[D3](docs/decisions/D3.md)). A Scatter's `priority` is a number on one
+World-wide scale, not a place in its Ecotope's list, so Ecotopes written
+apart still interleave sensibly where they blend (see "Masks cross the
+blend"). Documented bands give the numbers meaning, for example 900 and up
+for big obstacles (boulders, trunks), the 600s for shrubs, and 100 to 300
+for ground cover. Two Scatters of one Ecotope with the same priority are a
+validation error. A differences file adds a Scatter with its key and
+number, without restating the others.
+
 **Status.** New.
 
 ### 4. Biome and Terrain
 
 Biome and Terrain live at the same level. Each region of the World has
-exactly one Biome, and each Biome exactly one Terrain. Terrain is still its
+exactly one Biome, and each Biome exactly one Terrain. A region is one
+Biome's whole area: its outline is where the Biome changes, and two
+neighbouring regions never share a Biome (decided by the user in D3; how
+the region graph achieves this is decision gate D4). Terrain is still its
 own type: it is edited on its own (in its own studio tab), and one Terrain
 preset can be reused by many Biome presets ("alpine forest" and "alpine
 meadow" on the same mountains).
@@ -321,8 +335,11 @@ same ground, so the masks must chain across them too, or a tree from one
 side can stand inside a boulder from the other. The agreement therefore
 also sets one merged priority order for the blend zone: the Scatters of
 both Ecotopes, interleaved, each masking every Scatter after it, whichever
-side it came from. The order is worked out from both offers by the same
-symmetric function, so both sides build the same blend.
+side it came from. Because priorities share one World-wide scale, the
+merge is a sort by `priority`. A tie between the two sides is broken by
+the Scatters' address prefixes (region, Ecotope key, Scatter key; see
+"Queries"), which never depends on which side made the offer, so both
+sides build the same blend.
 
 **Empty Biomes.** A Biome with a Terrain and no Ecotope rules is valid,
 and every Terrain preset has a default empty Biome. A World of bare land
@@ -367,6 +384,10 @@ The World holds the Biomes; it does not hold Terrains directly.
 - The region graph's options: region size, jitter and border warp, or a
   designer's polygons. The terrain crate computes the graph from them (see
   "5.1 WorldTerrain"), because the land needs it before anything grows.
+  Each region is one Biome's whole area, so neighbouring regions never
+  share a Biome. How the graph and the Biome choice achieve that, while
+  keeping each `RegionId` stable and computable from the World's options
+  and seed alone, is decision gate D4.
 - Which Biome fills each region, chosen field first: rules match the
   world elevation E and the World's own selector fields (ruggedness,
   moisture) at each region, and a user can pin a region's Biome. A pin
@@ -415,7 +436,7 @@ grown into a real level.
 | WorldTerrain → Terrain | `Region` and its `EdgeAgreement`s and `CornerAgreement`s | Yes, in `procgena_terrain` |
 | Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height` and height tiles; slope and `annotate` are new |
 | Biome → Ecotope | Coverage function from 0 to 1, ground, seed | New |
-| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed | `Ground` in `procgena_mesh` gives height only; density functions on groves and plant fields |
+| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed, copy-address prefix (region and key salts) | `ScatterInput` in `procgena_core::scatter` (see [C1](docs/decisions/C1.md)) without the address prefix; stone takes it, and tree, deadwood and mushroom are moving to it |
 | Scatter → Scatter below | Mask: density function from 0 to 1 | New |
 | Scatter → Asset | Transform and variant | Yes |
 | Modifier → Asset | Host `Specimen` and `TagFilter` | Yes, as `Object` in `procgena_mesh` |
@@ -466,7 +487,10 @@ So the plan:
   and `sample(DVec2) -> GroundSample` (both at once, by default from the
   other two), taking World `f64` positions. Flat ground, closures and
   `HeightGrid` keep working; `HeightGrid` answers with central differences
-  one cell apart.
+  one cell apart. Where only one side has ground (at an edge or beside a
+  hole), the default and `HeightGrid` compare that side with the point
+  itself (C1), so the slope is known wherever the height is, except in a
+  gap narrower than the step.
 - **`Terrain` implements `Ground`** and answers slope from its own stages.
 - **Labels reuse it.** `Measures::slope` in `annotate` comes from the same
   gradient, so labels and Scatters always agree on what is steep.
@@ -487,16 +511,38 @@ preset or options. One World seed fixes everything below it.
   Ecotope previewed on flat ground. Once the item sits inside a higher
   level, its `default_seed` is ignored.
 - **A child's seed is a hash of its parent's seed and the child's stable
-  id**: its region for a Biome and its Terrain, its place in the list for an
-  Ecotope's Scatters. So two Biomes that use the same Terrain preset still
-  get different land.
+  id**: its region for a Biome, and its frozen **key** for an Ecotope in a
+  Biome, a Scatter in an Ecotope and an asset in a Scatter's mix (decided
+  in [D3](docs/decisions/D3.md)). The chain is World → region's Biome →
+  Ecotope → Scatter, so each region places its own cover, and a region
+  border is a seam that the Ecotope border protocol blends.
+  - **Keys** (`ChildKey`, such as `pines` or `pine_floor`) are short
+    lower-case names, unique within their parent, given in the preset file
+    or by the hook that inserts the child. A key is frozen, with no
+    aliases: renaming it is a removal plus an addition, and a separate
+    display `name` may change freely. Never a list position, so inserting
+    or reordering children reseeds nothing.
+  - `child_seed(parent, kind, key)` is `derive_seed(seed_for(parent,
+    kind), key.salt())`, where `kind` is a code seed key such as
+    `"ecotope.child.scatter"`, so a data key never meets a code key.
+- **Land uses the World seed; what a region decides uses a region seed.**
+  The Terrain's relief, the world elevation field and the region graph
+  are sampled at World positions with the World seed, so neighbouring
+  Terrains converge at their borders (a Terrain rebuilds its neighbours'
+  relief from their options alone). Choices made once per region take
+  `region_seed(W, role, region)`: `"terrain.region.local"` for the
+  Terrain and `"biome.region.local"` for the Biome. The two are siblings,
+  so WorldTerrain derives a Terrain's seeds without knowing Biomes. Two
+  Biomes on one Terrain preset get different land because they sample the
+  shared noise at different places. The gully cells and the seam detail
+  keep fixed seeds in every World, so neighbours agree whatever their
+  seeds.
 - **Inside a Scatter, specimens and copies get different seeds.**
   - A **specimen** (one generated variant of an asset) is seeded from its
-    specimen id: the World seed, the hash of its options, a slot number
-    from the specimen budget (see "Specimen budget") and any hook keys. So
-    every copy using
-    that slot shares one specimen anywhere in the World, and each World has
-    its own specimens.
+    specimen id: the World seed, its pool id (the generator's kind plus
+    the hash of its options) and a slot number from the specimen budget
+    (see "Specimen budget"). So every copy using that slot shares one
+    specimen anywhere in the World, and each World has its own specimens.
   - A **copy** is seeded from the Scatter's seed and its spot. That seed
     drives only what changes per copy without a new mesh: transform,
     scale, tint and wind phase.
@@ -511,8 +557,13 @@ preset or options. One World seed fixes everything below it.
   (`<crate>.<area>.<role>`), hashed into the salt at compile time, never
   hand-picked numbers. A registry per crate tests that its keys and their
   hashes are unique. Keys are frozen: renaming one changes every world built
-  from it. (Decided 2026-11-23. The terrain crate goes first, and F2 lifts
-  the function into `procgena_core`.)
+  from it. (Decided 2026-11-23.) The functions live in `procgena_core`:
+  `hash::{salt, derive_seed, seed_for}`, plus `ChildKey` and `child_seed`
+  at the crate root. The terrain crate still has its own copies until
+  it switches over.
+- **Data keys use the same `salt`**, hashed at load time instead of at
+  compile time, and always under a code `kind` key. A parent rejects two
+  children whose keys share a salt.
 - **Sharing is a choice, not an accident.** When two things should come out
   identical, such as the specimens a Scatter draws from, they share an
   id on purpose, and the hash gives them the same seed.
@@ -527,9 +578,18 @@ over the whole World, and copies are spread over that cap by hashing.
 - **Two hashes.**
   - The **options hash** covers an asset's options alone: no seed, no
     detail level. It names a **pool**.
-  - The **specimen id** (`SpecimenId`) is the World seed, the options
-    hash, a slot number `k` and any hook keys. It names one specimen, and
-    is the content hash the cache uses (rule 3 under "Asset alignment").
+  - The **pool id** (`PoolId`) is the generator's kind plus the options
+    hash. A built-in generator's kind is a frozen code key such as
+    `"tree.generator.kind"`; a user generator's kind is its key, name and
+    version, and it must bump the version when its output changes. Hooks
+    add nothing: a hook that changes options already changes the options
+    hash, and an output hook changes copies, never specimens (decided in
+    D3).
+  - The **specimen id** (`SpecimenId { world_seed, pool, slot }` in
+    `procgena_core`) is the World seed, the pool id and a
+    slot number `k`. It names one specimen, and is the content hash the
+    cache uses (rule 3 under "Asset alignment"). `SpecimenId::seed` is the
+    one function that turns it into the specimen's seed.
     Because the World seed is in it, every World grows its own specimens.
     An asset built on its own (in
     its viewer or studio tab) uses its `default_seed` in place of the World
@@ -538,24 +598,25 @@ over the whole World, and copies are spread over that cap by hashing.
   distinct specimens of it anywhere in the World. Copies with the same
   options, in every region and every Scatter, draw from the same `N`
   slots.
-- **Stable slot choice.** A copy's slot comes from hashing its copy id
-  into one of `N` slots, with a method that moves as few copies as
-  possible when `N` changes. Plain modulo would give almost every copy a
-  new mesh when `N` changes by one. Candidates:
-  - **Jump consistent hash**: no stored state, a few lines of code, and the
-    fewest moves when slots are added or removed at the end. It returns
-    only a slot number, which suits numbered slots. The published version
-    uses 64-bit integer maths, so it needs checking against WGSL for GPU
-    placement.
-  - **Rendezvous hashing**: score every slot with one 32-bit hash and keep
-    the highest. It also covers subsets directly (score only the allowed
-    slots). It costs `N` hashes per copy.
+- **Stable slot choice: rendezvous hashing** (decided in D3). A copy's slot
+  comes from scoring every allowed slot with `hash(key ^ hash(slot))` and
+  keeping the highest, ties to the lower slot. It moves as few copies as
+  possible when `N` changes (plain modulo would give almost every copy a
+  new mesh), scores a subset directly, and nests: a copy whose slot is in
+  a subset keeps it when the subset is turned on. D2's spike ran this slot
+  function bit for bit on the CPU and in WGSL, at about 2.7 ns per copy
+  for `N = 64`. The key is proposed to be the copy's own placement hash
+  mixed with the pool, so copies of different pools at related cells
+  don't pick related slots; W1 settles it. Jump
+  consistent hashing was rejected: it only handles slots `0..N`, so
+  subsets would shuffle copies.
+  - **`N` is at most 256 per pool**, a validation error above it, which
+    bounds the cost per copy.
+  - **No excluded slots.** A World can't drop one slot from a pool.
 
   Slots are equal: every slot is as likely as every other. A rare specimen,
   such as a giant tree, is a separate asset with its own density, not a
-  weighted slot. So the weighting that favours rendezvous hashing isn't
-  needed, and the choice between the two comes down to GPU cost and how
-  each handles Scatter subsets.
+  weighted slot.
 - **Specimens are the same wherever they are used in a World.** The
   specimen in slot `k` is seeded from its specimen id, so nothing is
   counted or coordinated across chunks.
@@ -573,10 +634,18 @@ over the whole World, and copies are spread over that cap by hashing.
   far away, a Scatter draws fewer copies (see "Loading by chunk"), never
   fewer specimens.
 - **Local variety from a shared pool.** A Scatter that wants only a few
-  variants nearby (a stand of near-identical pines) hashes its own id to
-  pick a small subset of the `N` slots. Neighbouring Scatters pick
-  different subsets, so the World still looks varied, but the total stays
-  at `N`.
+  variants nearby (a stand of near-identical pines) picks a small subset
+  of the `N` slots, so the World still looks varied, but the total stays
+  at `N`. Proposed in D3, to be settled and tested in W1: stands are the
+  cells of a coarse World lattice (a Scatter option, say 100 m); each
+  stand takes the top `k` slots by rendezvous score with a key from the
+  Scatter's seed and the stand cell, and each copy picks among those `k`.
+- **A World overrides `N` per pool.** Proposed in D3, to be settled in
+  W1: overrides are named by path, such as
+  `temperate_forest/pine_floor/pines/scots_pine` (Biome preset, Ecotope
+  key, Scatter key, mix key), because an options hash is not something a
+  person can write; where several paths reach one pool, the pool takes
+  the largest `N` named, with a warning.
 - **No cap across pools.** Each pool has its own `N`, and the World does not
   cap the total. The total is the sum of every pool's `N`, so it is known
   from the World's definition before anything is built.
@@ -918,6 +987,16 @@ Edits serialise, so a saved game is the World seed plus its edits. Because
 ids are stable, an edit made in one session lands on the same copy after a
 reload.
 
+- **Edits store addresses as integers** (see "Queries"), exactly as they
+  are held in memory, plus two checks: the copy's kind and the Scatter's
+  cell size. No key strings are saved; keys are frozen, so a salt names
+  its key for good.
+- **Orphaned edits are kept.** An edit whose region, Ecotope or Scatter no
+  longer exists, whose kind or cell size no longer matches, or whose part
+  path's specimen has changed is kept in the save untouched, reported in
+  the load result by its salts, and applied to nothing. It is never moved
+  onto another copy, and the library never drops it (the game may).
+
 ### Queries: reading the result
 
 Queries come in two layers:
@@ -937,9 +1016,42 @@ Queries come in two layers:
   casts against meshes, and promotion. `GroveTrees::within` and
   `GroveTrees::ray_cast` are today's examples.
 
-Every copy a query returns carries a **stable id** that names where it
-came from: region, Ecotope, Scatter, and the spot it stands on. The same id
-is what edits and promotion use.
+Every copy a query returns carries a **stable address** that names where
+it came from. The same address is what edits, picking and promotion use
+(decided in [D3](docs/decisions/D3.md), section 7b). Addresses are built
+for lookup and programmatic use, not for reading:
+
+- **The copy address** is plain integers:
+  `CopyAddress { region: RegionId, ecotope: u32, scatter: u32, cell:
+  CellId, index: u16 }`. The two `u32`s are the salts of the Ecotope's and
+  Scatter's keys. `CellId` is the Scatter's World lattice cell packed into
+  one integer, like `RegionKey::id`, and `index` is the point within the
+  cell (0 on a one-per-cell lattice, the tile point for grass). Together
+  the cell and index are each Scatter's sparse index of its children: no
+  table is stored. The type is `Copy`, hashable and ordered, and its field
+  order is the lookup order.
+- **A part path** can follow: up to four flat steps `(kind, index)` into
+  the specimen's structure, such as `fruit 17 / item 2`. A step indexes
+  the skeleton, not the mesh, so it names the same part at every level of
+  detail. Each step is pinned to the `SpecimenId` it indexes, so when a
+  World's `N` or an asset's options change, a saved path to a part of
+  another specimen is set aside, while the copy part still applies. An
+  attached copy (one fruit) is its host's address plus a part path.
+- **Groups are addressed where they are defined.** A group that an asset
+  defines, such as a fairy ring that is part of `Mushroom`, is one copy,
+  and its members are part steps; the Scatter settles each member on the
+  ground. Members of a group that a Scatter defines would be copies, each
+  with its own `index` in the cell (this follows from the rule, but was
+  not put to the user separately).
+- **`resolve` is the lookup.** It turns an address into the copy or part,
+  or into nothing when the spot is masked out or thinned. It is batched:
+  addresses are sorted, grouped by the chunk holding each cell, and each
+  chunk is placed once on the CPU and cached. So it is an expensive query
+  in the sense above.
+- **A runtime handle is for drawing and picking only.**
+  `DrawHandle { chunk, instance }` indexes a loaded chunk's buffer. Each
+  loaded chunk keeps a map from address to handle, so either side finds
+  the other in O(1). A handle is never saved.
 
 Queries obey the same layering as hooks. During generation a hook may only
 query what is built before it. Gameplay may query everything, and changes
@@ -951,7 +1063,7 @@ reservation changes.
 **Promotion** turns a copy into an ordinary entity, as grove trees do
 today: the Scatter stops drawing its copy, the entity draws the same mesh
 at the same spot, and despawning it hands the copy back. Every Scatter
-offers it, through a query result's id.
+offers it, through a query result's address.
 
 ### User stories
 
@@ -961,8 +1073,8 @@ offers it, through a query result's id.
    point of interest.
 3. **Biome**: "Ferns grow only within 5 m of a river." An Ecotope rule in
    code over `Measures::water_distance`.
-4. **Ecotope**: "My fence posts sit at priority 2 and are masked like the
-   others." Your own `Scatter` in the Ecotope's list.
+4. **Ecotope**: "My fence posts sit at priority 450 and are masked like the
+   others." Your own `Scatter` in the Ecotope, under its own key.
 5. **Scatter**: "My hand-made bush is scattered, kept out from under trees,
    and can be promoted." A `MeshScatter` with your glTF.
 6. **Gameplay query**: "Click any tree, stone or log to harvest it; tell the
@@ -1078,17 +1190,19 @@ Each rule says what every asset does, and which crates have to change.
    (tree's `tree_id` is the model: floats hashed by their bits, the same
    across runs and machines). Two hashes come from it, as "Specimen
    budget" describes: the **options hash** (options alone) names a pool,
-   and the **specimen id** (World seed, options hash, slot and hook keys)
-   names one specimen. The specimen id plus the detail level keys one
-   shared cache, pruned by use.
+   and the **specimen id** (World seed, pool id and slot, where the pool
+   id is the generator's kind plus the options hash) names one specimen.
+   The specimen id plus the detail level keys one shared cache, pruned by
+   use. `procgena_core` has the hasher (`ContentHash`, `ContentHasher`,
+   `OptionsHash`) and the ids (`GeneratorKind`, `PoolId`, `SpecimenId`).
    - Change: stone, deadwood and mushroom drop their JSON-string keys; plant
      and clump gain a hash.
 4. **Two ids: one for the specimen, one for the copy.**
    - A **specimen id** (`SpecimenId`) is the content hash: copies with
      equal ids share one specimen.
-   - A **copy id** names a copy's spot in the world (see "Queries: reading
-     the result"), so it
-     survives edits, reloads and chunking.
+   - A **copy id** is the integer `CopyAddress` that names a copy's spot
+     in the world (see "Queries: reading the result"), so it survives
+     edits, reloads and chunking.
    - Each copy carries its own transform, scale, tint and wind phase, drawn
      from its copy seed, so copies of one specimen still look unique.
    - Variants are seeded by one shared function, not four, and the number
@@ -1219,8 +1333,8 @@ the move into the new crates rather than on its own.
   and placement").
 - ~~**Names of the two new crates.**~~ Decided 2026-11-23 (D1):
   `procgena_core` and `procgena_core_bevy` (see "Where shared code lives").
-- **Slot choice.** Jump consistent hash or rendezvous hashing (see
-  "Specimen budget"), decided by GPU cost and Scatter subsets.
+- ~~**Slot choice.**~~ Decided 2026-11-23 (D3): rendezvous hashing, with
+  `N` ≤ 256 per pool and no excluded slots (see "Specimen budget").
 - **Scatter file kind.** What the `.<kind>.yml` files of `TreeScatter`
   and the other Scatters are called, now that `.grove.json` goes away.
 
@@ -1282,7 +1396,10 @@ it starts.
   are passed the same way in every Scatter crate. Today trees take
   `&dyn Ground` and `Option<&dyn Fn>`, plants take a density image or a
   closure, sticks take a `Ground` and a density function, and mushrooms take
-  a host mesh.
+  a host mesh. The shared type, `ScatterInput` in `procgena_core::scatter`,
+  is built (C1, see [docs/decisions/C1.md](docs/decisions/C1.md)), and
+  stone takes it. Tree, deadwood and mushroom still have to move to it;
+  plant joins at R3.
 - [ ] **Mushroom as a whole growth**: fold stems and clustering into the
   `Mushroom` asset, moving the existing fairy-ring layout into it, and make `MushroomScatter` a
   ground Scatter of `Mushroom`s.
@@ -1307,8 +1424,10 @@ it starts.
 
 - [ ] **`DeadwoodScatter`**: grow `StickScatter` to cover logs and stumps,
   and give it a slope limit.
-- [ ] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
-  clustering and partial burial.
+- [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
+  clustering and partial burial. Done in C1 for single stones: clustering
+  is patches in the density, not groups. Pebble clusters as groups wait
+  for open question 3.
 - [ ] **Scatter masks out**: each Scatter reports the mask it leaves for the
   Scatters below it (trunk discs, canopy shade, stone and log footprints).
 
@@ -1319,12 +1438,13 @@ it starts.
   [docs/decisions/D2.md](docs/decisions/D2.md)), and the GPU spike passed on
   one GPU. Still to do: a timing run on a low-end integrated GPU and on a
   discrete GPU.
-- [ ] **Ecotope crate**: an ordered list of Scatters, mask chaining, presets,
-  and a Bevy part that draws one Ecotope over a patch of ground.
+- [ ] **Ecotope crate**: Scatters by frozen key with a `priority` on one
+  World-wide scale and its documented bands, mask chaining, presets, and
+  a Bevy part that draws one Ecotope over a patch of ground.
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
   conforming, for Ecotopes meeting inside a Biome and across Biome
-  borders, including one merged priority order so masks chain across the
-  blend zone.
+  borders, including one merged priority order (a sort by `priority`,
+  ties broken by address prefix) so masks chain across the blend zone.
 - [ ] **Biome crate**: one Terrain (by preset or inline), Ecotope rules
   matched on terrain labels, border noise and shapes, the two-step border
   negotiation, presets.
@@ -1334,7 +1454,12 @@ it starts.
 - [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
   default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
   The Terrain seed is the World seed for now, passed through
-  `terrain_seed`; open question 5 settles the final derivation.
+  `terrain_seed`. D3 settled the final derivation: the Terrain keeps the
+  World seed for its noise, and `terrain_seed` goes away (W0).
+- [ ] **One region per Biome** (decision gate D4): a region graph whose
+  regions are whole Biome areas, so neighbouring regions never share a
+  Biome, with stable region ids computable from the World's options and
+  seed alone.
 - [ ] **World crate**: region graph options, Biome choice per region
   (fields, rules, pins), seed derivation for every level below, specimen
   budgets per pool, and running the two-step Biome border negotiation.
@@ -1342,13 +1467,15 @@ it starts.
 
 ### Extensibility
 
-- [ ] **`Scatter` trait**: area, ground, mask and seed in; copies with
-  stable ids and a mask out. The built-in Scatters implement it too.
+- [ ] **`Scatter` trait**: area, ground, mask, seed and copy-address prefix
+  in; copies with stable `CopyAddress`es and a mask out; `resolve` for
+  one address. The built-in Scatters implement it too.
 - [ ] **`MeshScatter`**: places and draws any user mesh, with levels of
   detail, masks, promotion and queries.
 - [ ] **Hook traits per level**, with keys that feed the cache hash.
-- [ ] **World-stable ids**: count spots on a world-anchored lattice and
-  prefix them with region, Ecotope and Scatter. Today a grove's spot id is
+- [ ] **World-stable ids**: the integer `CopyAddress` (region, Ecotope and
+  Scatter key salts, `CellId`, index) from a world-anchored lattice, as
+  "Queries" describes. Today a grove's spot id is
   its cell counted from the grove's own centre (`site_id` in
   `procgena_tree`).
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
@@ -1370,10 +1497,16 @@ it starts.
   `Ground`, `FlatGround` and `HeightGrid` into the core crate, in the same
   change as the move into the shared crates.
 - [ ] **Content hash** for every options type, replacing JSON cache keys.
+  The core half is done (F2): `ContentHash`, `ContentHasher`,
+  `content_hash` and `OptionsHash` in `procgena_core`. Still to do: each
+  asset's options implement it.
 - [ ] **Specimen budget**: options hash and `SpecimenId`, a per-pool `N` with
-  World overrides, fixed per World, minimal-move slot choice (jump or
-  rendezvous hashing, checked on the GPU), and Scatter subsets. Slots are
-  equal, and there is no cap across pools.
+  World overrides by path, fixed per World, rendezvous slot choice with
+  `N` ≤ 256 and no excluded slots, and stand subsets. Slots are equal,
+  and there is no cap across pools. The core half is done (F2):
+  `GeneratorKind`, `PoolId` and `SpecimenId { world_seed, pool, slot }`
+  with `SpecimenId::seed` in `procgena_core`. Still to do: the slot
+  function, `N` and its overrides, stand subsets, and adoption.
   Today each Scatter sets its own variant count (`GroveTree::variants`,
   `StonePool`, `StickScatter`, mushroom clusters) with no World-wide cap.
 - [ ] **Shared LOD type, dither shader and quality setting**, adopted by
@@ -1435,6 +1568,10 @@ it starts.
   `default_seed`, used only when the item is built on its own. Today each
   asset's options own their seed (for example `TreeGrove::seed`, and the
   terrain's `TerrainOptions::seed`). Plant has no seed at all and gains one.
+  The core half is done (F2): `hash::{salt, derive_seed, seed_for}`,
+  `ChildKey` and `child_seed` in `procgena_core`. Still to do:
+  `region_seed`, the terrain switching to core's functions, and the
+  `default_seed` renames (F3).
 - [ ] **Studio**: a tab per new level (Ecotope, Biome, World), each built on
   the tabs of the level below. Terrain keeps a tab of its own.
 
@@ -1459,21 +1596,28 @@ it starts.
    transform, but a fairy ring is metres across and a fallen log is long.
    On a slope their members or ends need ground heights. Does the asset get
    the `Ground` at build time, or does the Scatter settle its parts?
-4. **Ids from list positions.** Under "Seeds", a Scatter's id is its place
-   in its Ecotope's list. Inserting or reordering a Scatter (a user hook
-   at priority 2, say) then reseeds every Scatter below it and breaks saved
-   edits keyed by copy id. Should Scatters and Ecotopes have stable named
-   keys instead?
-5. **Biome and Terrain share an id.** Both are keyed by their region, so
-   they can get the same seed. Should the Terrain's id be its region plus
-   something of its own?
+   **Decided 2026-11-23 (C1 and D3):** the asset never sees the `Ground`,
+   so its specimens stay shared. The Scatter settles rigid wide pieces
+   (logs, stumps, boulders) with `procgena_core::scatter::settle` (see
+   [docs/decisions/C1.md](docs/decisions/C1.md)). A group the asset
+   defines (a fairy ring is part of `Mushroom`) is one copy with its
+   members as part steps, and the Scatter settles each member on the
+   ground; a group a Scatter defines (pebble clusters in `StoneScatter`)
+   is ordinary copies, each with its own index. See "Queries".
+4. ~~**Ids from list positions.**~~ Decided 2026-11-23 (D3): Scatters,
+   Ecotopes and mix entries have frozen `ChildKey`s, and priority is a
+   number on one World-wide scale. See "Seeds" and "3. Ecotope".
+5. ~~**Biome and Terrain share an id.**~~ Decided 2026-11-23 (D3): the
+   Terrain's noise uses the World seed, and the Terrain and the Biome each
+   take a sibling region seed (`"terrain.region.local"`,
+   `"biome.region.local"`). See "Seeds".
 6. ~~**How far a Scatter reaches across chunks.**~~ Decided 2026-11-23
    (D2): each Scatter states `S`, `J` and `F`, margins stack down the
    Ecotope under a one-ring cap that warns, and spacing becomes the bounded
    rule `K_d`. See "Masks and placement".
-7. **Hook keys in the specimen id.** Assets have no hooks, and a hook that
-   changes an asset's options already changes the options hash. Are hook
-   keys in the specimen id needed at all?
+7. ~~**Hook keys in the specimen id.**~~ Decided 2026-11-23 (D3): no. The
+   pool id is the generator's kind plus the options hash, and a user
+   generator's kind includes its version. See "Specimen budget".
 8. ~~**Coordinates.**~~ Decided 2026-11-23 (D1): `Ground` takes World
    `f64` positions and returns `f32` heights and gradients. Scatters work
    relative to the chunk inside and convert at the call.

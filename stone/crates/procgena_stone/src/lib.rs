@@ -84,6 +84,7 @@ mod options;
 mod parallel;
 mod placement;
 mod presets;
+mod scatter;
 pub mod shaders;
 mod stone;
 
@@ -100,4 +101,10 @@ pub use options::{
 };
 pub use placement::StonePlacement;
 pub use presets::StonePreset;
+pub use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
+pub use procgena_core::{FlatGround, Ground, HeightGrid};
+pub use scatter::{
+    MAX_STONE_CANDIDATES, MAX_STONE_CLASSES, MAX_STONE_INSTANCES, MAX_STONE_VARIANTS, StoneClass,
+    StoneInstance, StoneScatter, StoneScatterError, StoneScatterOptions,
+};
 pub use stone::{Stone, StoneError};

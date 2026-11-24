@@ -250,14 +250,14 @@ fn rivers_cross_borders_and_keep_falling() {
 
 #[test]
 fn neighbouring_mountain_rivers_both_cross_and_join_below() {
-    // Plains and mountains with seed 30: two mountain rivers cross the
-    // bent border 140 m apart, closer than crossings of different kinds may
+    // Plains and mountains with seed 217: two mountain rivers cross the
+    // bent border 159 m apart, closer than crossings of different kinds may
     // be (rivers from one side may cross closer together). Both cross into
     // the plains, and neither ends in a pond: each joins a river there.
     let world = common::two_regions(
         DVec2::ZERO,
-        common::preset(procgena_terrain::TerrainPreset::Plains, 30),
-        common::preset(procgena_terrain::TerrainPreset::Mountains, 30),
+        common::preset(procgena_terrain::TerrainPreset::Plains, 217),
+        common::preset(procgena_terrain::TerrainPreset::Mountains, 217),
         common::DEFAULT.convergence(),
         &procgena_terrain::Elevation::flat(),
     );
