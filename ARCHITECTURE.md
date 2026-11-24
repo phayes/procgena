@@ -612,8 +612,7 @@ roads).
 The terrain knows its slope better than anyone sampling it:
 
 - **Relief** has an analytic gradient from its noise's own derivatives
-  (G2). The border offers still read a central-difference one, which
-  averages across sharp ridge crests; whether to switch them is open.
+  (G2), and the border offers read it too (decided 2026-11-24).
 - **Bending to the borders** and **carving rivers and roads** are smooth
   blends of known shapes, so their gradients follow by the chain rule. Where
   that is not worth the work, the terrain can take central differences
