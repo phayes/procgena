@@ -456,9 +456,11 @@ Terrains, nothing else. Its own tests hand it a closure as the source;
 whole worlds of bare land are built through the World with empty Biomes
 (see "4.1 Biome").
 
-**Status.** The protocol is built inside `procgena_terrain`, with a
-reference "stitcher" for tests and examples. WorldTerrain is that stitcher
-grown into a real level.
+**Status.** Built inside `procgena_terrain` as `WorldTerrain` (phase W4):
+an endless lattice world whose regions are built on demand from a terrain
+source, with each region's settings, plan and terrain cached. The
+reference "stitcher" (`StitchedWorld`) stays for tests and designer
+polygons.
 
 ## Interfaces between levels
 
