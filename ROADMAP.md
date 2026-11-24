@@ -229,7 +229,8 @@ blocks. Until then, nothing that depends on it starts.
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
-| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks and on W0's image example. Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). |
+| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks and on W0's image example. Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
+| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | W0's World options (scale pair, class presets); a new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), validated for slope; World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Draft: the class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -884,6 +885,29 @@ where the details are.
      (item 14) and W0's image example.
    - *Details:* [docs/decisions/D4.md](docs/decisions/D4.md), "Bottom
      line" and "Region size".
+   - *Scale (D5, 2026-11-24):* region size becomes a per-class World
+     setting. D4 still sets the default shape and the medium class's size.
+5b. **World and Biome scale (D5): what is still open.**
+   - *Decided by the user 2026-11-24:*
+     - Game scales first; real-life is a stretch goal.
+     - A World scale pair `{ horizontal, vertical }` with World presets
+       per class.
+     - No landscape length fixed in metres: fades, margins, ramps and
+       clearances derive from scale and local size, which lowers the
+       region floor.
+     - Huge Biomes come from many same-type regions.
+     - Real-life limits are recorded.
+   - *Still open:*
+     - The class numbers (pair, region size, Biome extent and E per
+       class), tuned with W0's image examples.
+     - How low the region floor goes.
+     - A World-level, analytic river-size field, so rivers widen
+       downstream across regions. Opened by the user.
+     - Whether Ecotope geometry scales.
+     - E's slope bound under unequal pairs.
+     - When a floating origin is needed.
+   - *Details:* [docs/decisions/D5.md](docs/decisions/D5.md), "Decisions",
+     "Scale classes" and "Open questions".
 6. ~~**Fruit cluster cards versus the fruit crate.**~~ Decided by the user
    2026-11-24. The cluster cards (built in wave 5 under I1b's earlier
    scope, set by `LodDetail::cluster_cards`, off by default) are removed
