@@ -1458,13 +1458,11 @@ mod tests {
             .spawn(DeadwoodParams::preset(DeadwoodPreset::seedling_log()))
             .id();
         run_until_finished(&mut app, entity);
-        let mut query = app
-            .world_mut()
-            .query::<(
-                &DeadwoodPart,
-                &MeshMaterial3d<InstancedStandardMaterial>,
-                &ChildOf,
-            )>();
+        let mut query = app.world_mut().query::<(
+            &DeadwoodPart,
+            &MeshMaterial3d<InstancedStandardMaterial>,
+            &ChildOf,
+        )>();
         let leaves: Vec<(usize, Handle<InstancedStandardMaterial>)> = query
             .iter(app.world())
             .filter(|(p, _, parent)| {
