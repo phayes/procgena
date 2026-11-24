@@ -637,8 +637,12 @@ that has one (rule 2).
   `TreePlugin::impostor` and the new `StonePlugin::impostor` (80 m for a
   2.5 m rock, scaled by size and quality). Stone's bake keeps its
   projected textures. Deadwood and mushroom gain none (see the TODO). Not
-  built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`),
-  view coverage (added to "Covers" after this status was written).
+  built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`).
+  View coverage was built with fruit step D1 (I1b): `ViewCoverage` in
+  `BakeSettings`; trees declare −45° at 10 × 10 views and stone −45° at
+  8 × 8; 0° reproduces the old layout. A tree seen from about 42° below,
+  up a 40° hillside, now shows a baked view from below instead of a
+  horizon view.
 
 #### I1b: Fruit as an attached asset
 
@@ -678,6 +682,12 @@ confused with the B1 milestone or the D1 and D2 gates.
   - They are off by default in `default_lod`. **Decided by the user
     2026-11-24: remove them** as part of fruit step AC1; fruit's own
     levels and impostor replace them.
+- **Status (2026-11-24): fruit step D1 done.** `ViewCoverage` in the bake
+  key with the warped octahedral layout (trees −45° at 10 × 10, stone −45°),
+  and a material hook for drawing impostors with a host-composed transform
+  and a world offset (`impostor_vertex`, `impostor_prepass_vertex`; see
+  `procgena_impostor`'s crate docs and the `impostor` example's `--hang`).
+  Fruit step D2 waits for AC1, B1 and B2.
 - **Studio (decided by the user 2026-11-24):** fruit and flowers each get
   their own tab, a Fruit tab and a Flower tab, with their own presets and
   viewer, and the tree panels pick a fruit preset and a flower preset by

@@ -6,8 +6,8 @@ use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
 use procgena_core::SpecimenId;
 use procgena_impostor::{
-    BakeOutput, BakePart, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial, ImpostorQuad,
-    ImpostorRequest, Impostors,
+    BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial,
+    ImpostorQuad, ImpostorRequest, Impostors, ViewCoverage,
 };
 
 use crate::material::{TreeMaterial, bake_copy};
@@ -17,8 +17,10 @@ use crate::spawn::{
 };
 
 /// The impostor trees use unless told otherwise: from 120 m, crossfading
-/// over 10% on each side, baked from level 1 with the default
-/// [`BakeSettings`](procgena_impostor::BakeSettings). Set it on
+/// over 10% on each side, baked from level 1 as 10 × 10 views of 128
+/// pixels covering viewers from straight above down to 45° below level.
+/// That covers looking up a hillside of up to about 40° at a tree; from
+/// further below, the tree shows its view from 45° below. Set it on
 /// [`TreePlugin::impostor`](crate::TreePlugin::impostor).
 ///
 /// Each distinct tree is baked once, in the background, the first time it
@@ -27,7 +29,10 @@ use crate::spawn::{
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`TreePlugin`](crate::TreePlugin).
 pub fn default_tree_impostor() -> ImpostorLevel {
-    ImpostorLevel::new(120.0, 0.1, 1)
+    ImpostorLevel {
+        bake: BakeSettings::new(10, 128).with_coverage(ViewCoverage::from_lowest_elevation(-45.0)),
+        ..ImpostorLevel::new(120.0, 0.1, 1)
+    }
 }
 
 /// A tree's impostor, once baked, with the quad and material that draw it.

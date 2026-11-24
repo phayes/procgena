@@ -1728,8 +1728,9 @@ it starts.
   the default 35° slope limit. Stone declares its own lowest elevation:
   −45° for things on slopes, or 0° (today's upper hemisphere) for low
   things seen mostly from above. Deadwood and mushroom do the same if
-  they ever gain an impostor. View coverage is not built yet (see
-  "Impostor bake options").
+  they ever gain an impostor. View coverage is built (see "Impostor bake
+  options"): `default_tree_impostor()` declares −45° at 10 × 10 views and
+  `default_stone_impostor()` −45° at 8 × 8.
 - [ ] **Fruit as an attached asset** ([fruit/plan.md](fruit/plan.md)):
   the `procgena_fruit` crate (cluster builder and meshers moved from the
   tree, in the cluster frame), the tree's `AttachedFruit`, pools and
@@ -1743,12 +1744,26 @@ it starts.
     baked per pool part. They are off by default in `default_lod`.
     The user decided on 2026-11-24 to remove them in the fruit crate's
     first step.
-- [ ] **Impostor bake options**: per-bake view count and frame size,
+- [x] **Impostor bake options**: per-bake view count and frame size,
   view coverage declared per preset as a lowest viewer elevation (−90° by
   default, −45° for trees, in the bake key), with the octahedral layout
   warped to the declared range, a composed host-plus-attached instance,
   and a vertex offset hook for wind. Per-bake view count and size are
-  done (`BakeSettings`, I1).
+  done (`BakeSettings`, I1). The rest is done (fruit step D1):
+  - `ViewCoverage` is a field of `BakeSettings`, so it is in the key.
+    −90° (`SPHERE`) lays out the whole octahedron; any other value warps
+    the angle from +Y so the declared cap fills the atlas, and 0°
+    (`UPPER_HEMISPHERE`) is the old layout exactly. Coverage is declared
+    by each asset's impostor settings (`ImpostorLevel::bake`), not yet by
+    its preset files.
+  - The hook is a material hook rather than an instanced variant: a
+    host's own `MaterialExtension` binds the impostor at bindings 100–103,
+    reuses the impostor fragment shaders, and calls `impostor_vertex` /
+    `impostor_prepass_vertex` with its composed `world_from_local` and a
+    world offset (the wind). The impostor fragment shader takes the view's
+    world axes from screen-space derivatives, so it needs no mesh record
+    transform. The cluster table and instance format stay the fruit
+    crate's.
 - [ ] **CPU and GPU building for every asset**, with parity tests: GPU paths
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy

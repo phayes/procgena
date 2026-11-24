@@ -6,8 +6,8 @@ use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
 use procgena_core::{LodRange, Quality};
 use procgena_impostor::{
-    BakeOutput, BakePart, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial, ImpostorQuad,
-    ImpostorRequest, Impostors,
+    BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial,
+    ImpostorQuad, ImpostorRequest, Impostors, ViewCoverage,
 };
 use procgena_stone::StoneDetail;
 
@@ -18,8 +18,9 @@ use crate::spawn::{
 
 /// The impostor rocks use unless told otherwise: from 80 m for a rock of
 /// the reference size (2.5 m across, scaled with each rock's size like its
-/// other levels), crossfading over 10% on each side, baked from level 1 with
-/// the default [`BakeSettings`](procgena_impostor::BakeSettings). Set it on
+/// other levels), crossfading over 10% on each side, baked from level 1 as
+/// 8 × 8 views of 128 pixels covering viewers from straight above down to
+/// 45° below level, as for a boulder seen up a hillside. Set it on
 /// [`StonePlugin::impostor`](crate::StonePlugin::impostor).
 ///
 /// Each distinct rock is baked once, in the background, the first time it
@@ -30,7 +31,10 @@ use crate::spawn::{
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`StonePlugin`](crate::StonePlugin).
 pub fn default_stone_impostor() -> ImpostorLevel {
-    ImpostorLevel::new(80.0, 0.1, 1)
+    ImpostorLevel {
+        bake: BakeSettings::new(8, 128).with_coverage(ViewCoverage::from_lowest_elevation(-45.0)),
+        ..ImpostorLevel::new(80.0, 0.1, 1)
+    }
 }
 
 /// A rock's impostor, once baked, with the material that draws it.

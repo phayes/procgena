@@ -15,10 +15,15 @@ use bevy::render::render_resource::{
 use bevy::shader::{Shader, ShaderRef};
 
 /// Vertex and fragment shader of impostors in the forward pass.
-pub(crate) const IMPOSTOR_SHADER: &str = "embedded://procgena_impostor/shaders/impostor.wesl";
+///
+/// A material that draws impostors with a vertex shader of its own can use
+/// this as its fragment shader; see the crate's "Drawing impostors with
+/// your own transform" section for what the material must bind.
+pub const IMPOSTOR_SHADER: &str = "embedded://procgena_impostor/shaders/impostor.wesl";
 /// Vertex and fragment shader of impostors in depth, normal and shadow
-/// passes.
-pub(crate) const IMPOSTOR_PREPASS_SHADER: &str =
+/// passes. A material with its own vertex shader can use this as its
+/// prepass fragment shader, like [`IMPOSTOR_SHADER`].
+pub const IMPOSTOR_PREPASS_SHADER: &str =
     "embedded://procgena_impostor/shaders/impostor_prepass.wesl";
 
 /// The fragment shader of bake copies: base colour, or the normal with
@@ -139,6 +144,9 @@ pub struct ImpostorUniform {
     pub radius: f32,
     /// Views along each side of the atlas.
     pub frames: u32,
+    /// The lowest viewer elevation the views cover, in degrees; -90 covers
+    /// every direction. See [`ViewCoverage`](crate::ViewCoverage).
+    pub lowest_elevation: f32,
 }
 
 /// The pipeline variant an [`ImpostorMaterial`] is drawn with.

@@ -1,39 +1,28 @@
 // Draws an impostor into depth, normal and shadow passes: the same quad as
 // the forward pass, cut out by the albedo atlas's alpha.
+//
+// The fragment shader also serves materials that place impostors with
+// their own vertex shader (see `vertex_prepass.wesl`).
 
 import bevy_pbr::{
     prepass::io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
-    render::{mesh_functions, pbr_functions, view_transformations::position_world_to_clip},
+    render::{mesh_functions, pbr_functions},
 };
-import package::shaders::common::{Instance, albedo_atlas, atlas_sampler, impostor_corner};
+import package::shaders::common::{Instance, albedo_atlas, atlas_sampler, impostor};
+import package::shaders::vertex_prepass::impostor_prepass_vertex;
 
 /// Places the quad's corner for this view (a light's view for shadows), for
 /// the mesh record `index`.
 fn place(in: Vertex, index: u32) -> VertexOutput {
-    var out: VertexOutput;
     let vertex = decompress_vertex(in, in.instance_index);
-    let world_from_local = mesh_functions::get_world_from_local(index);
-    let local_from_world = mesh_functions::get_local_from_world(index);
-
-    let corner = impostor_corner(vertex.position.xy, local_from_world);
-    out.world_position = mesh_functions::mesh_position_local_to_world(
-        world_from_local,
-        vec4<f32>(corner.position, 1.0),
+    return impostor_prepass_vertex(
+        impostor,
+        vertex.position.xy,
+        mesh_functions::get_world_from_local(index),
+        mesh_functions::get_local_from_world(index),
+        vec3<f32>(0.0),
+        index,
     );
-    out.position = position_world_to_clip(out.world_position.xyz);
-@if(UNCLIPPED_DEPTH_ORTHO_EMULATION) {
-    out.unclipped_depth = out.position.z;
-    out.position.z = min(out.position.z, 1.0);
-}
-@if(VERTEX_UVS_A)
-    out.uv = corner.uv;
-@if(NORMAL_PREPASS_OR_DEFERRED_PREPASS)
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(corner.basis[2], index);
-@if(MOTION_VECTOR_PREPASS)
-    out.previous_world_position = out.world_position;
-@if(VERTEX_OUTPUT_INSTANCE_INDEX)
-    out.instance_index = index;
-    return out;
 }
 
 // One impostor per entity, faded by its own visibility range.

@@ -5,11 +5,14 @@ use std::fmt;
 
 use procgena_core::{ContentHash, ContentHasher, PoolId, SpecimenId};
 
-/// How one impostor is baked: how many views its atlas holds, and how many
-/// pixels each view has.
+use crate::layout::ViewCoverage;
+
+/// How one impostor is baked: how many views its atlas holds, how many
+/// pixels each view has, and which viewer elevations the views cover.
 ///
 /// More views switch less visibly as the camera moves round; more pixels
-/// keep detail closer to the camera. Both make the atlas larger.
+/// keep detail closer to the camera. Both make the atlas larger. A wider
+/// coverage spreads the same views over more directions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BakeSettings {
     /// Views along each side of the atlas; the atlas holds `frames²` views.
@@ -19,15 +22,19 @@ pub struct BakeSettings {
     pub frame_size: u32,
     /// Which directions the views look from.
     pub layout: BakeLayout,
+    /// The viewer elevations the views cover, for the
+    /// [`Octahedral`](BakeLayout::Octahedral) layout. The
+    /// [`Elevations`](BakeLayout::Elevations) layout ignores it.
+    pub coverage: ViewCoverage,
 }
 
 /// Which directions an impostor's views look from.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BakeLayout {
-    /// From every direction of the upper hemisphere, for an object seen
-    /// from any side and from above, drawn with [`ImpostorMaterial`](crate::ImpostorMaterial).
+    /// From every direction its [`ViewCoverage`] covers, for an object seen
+    /// from any side, drawn with [`ImpostorMaterial`](crate::ImpostorMaterial).
     #[default]
-    Hemisphere,
+    Octahedral,
     /// From one side of the object's +Y axis, at elevations from below to
     /// above (see [`elevation_direction`](crate::elevation_direction)), for
     /// a card turned about that axis that picks its view by elevation alone.
@@ -36,14 +43,21 @@ pub enum BakeLayout {
 }
 
 impl BakeSettings {
-    /// Hemisphere settings with `frames` views along each side, each
-    /// `frame_size` pixels square.
+    /// [`Octahedral`](BakeLayout::Octahedral) settings with `frames` views
+    /// along each side, each `frame_size` pixels square, covering every
+    /// direction ([`ViewCoverage::SPHERE`]).
     pub const fn new(frames: u32, frame_size: u32) -> Self {
         Self {
             frames,
             frame_size,
-            layout: BakeLayout::Hemisphere,
+            layout: BakeLayout::Octahedral,
+            coverage: ViewCoverage::SPHERE,
         }
+    }
+
+    /// These settings with their views covering `coverage`.
+    pub const fn with_coverage(self, coverage: ViewCoverage) -> Self {
+        Self { coverage, ..self }
     }
 
     /// [`Elevations`](BakeLayout::Elevations) settings with `frames` views
@@ -54,6 +68,7 @@ impl BakeSettings {
             frames,
             frame_size,
             layout: BakeLayout::Elevations,
+            coverage: ViewCoverage::SPHERE,
         }
     }
 
@@ -63,27 +78,30 @@ impl BakeSettings {
     }
 }
 
-/// 8 × 8 views of 128 pixels: a 1024-pixel atlas.
+/// 8 × 8 views of 128 pixels, a 1024-pixel atlas, covering every direction.
 impl Default for BakeSettings {
     fn default() -> Self {
         Self::new(8, 128)
     }
 }
 
-/// Writes the view count, the view size, then the layout's number.
+/// Writes the view count, the view size, the layout's number, then the
+/// coverage's lowest elevation as bits.
 impl ContentHash for BakeSettings {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
             frames,
             frame_size,
             layout,
+            coverage,
         } = self;
         hasher.write_u32(*frames);
         hasher.write_u32(*frame_size);
         hasher.write_u32(match layout {
-            BakeLayout::Hemisphere => 0,
+            BakeLayout::Octahedral => 0,
             BakeLayout::Elevations => 1,
         });
+        hasher.write_u32(coverage.lowest_elevation_deg().to_bits());
     }
 }
 
@@ -191,7 +209,9 @@ impl fmt::Display for ImpostorKey {
 ///   to a grove could show its trees in some views).
 /// - 3: keys name a specimen or a pool's part, and carry their bake
 ///   settings.
-const BAKE_VERSION: u32 = 3;
+/// - 4: the octahedral layout covers a declared range of viewer
+///   elevations, the whole sphere by default.
+const BAKE_VERSION: u32 = 4;
 
 #[cfg(test)]
 mod tests {
@@ -221,6 +241,8 @@ mod tests {
         assert_ne!(base, key(id(TREE, 1, 0), small, &[b"level 1", b"bc7"]));
         let strip = BakeSettings::elevations(8, 128);
         assert_ne!(base, key(id(TREE, 1, 0), strip, &[b"level 1", b"bc7"]));
+        let slope = bake.with_coverage(ViewCoverage::from_lowest_elevation(-45.0));
+        assert_ne!(base, key(id(TREE, 1, 0), slope, &[b"level 1", b"bc7"]));
         assert_eq!(
             key(id(TREE, 1, 0), small, &[]).bake(),
             small,
