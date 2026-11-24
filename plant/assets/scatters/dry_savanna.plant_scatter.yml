@@ -1,0 +1,121 @@
+# The `dry_savanna` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Dry savanna
+description: Yellow-brown, sparse and stiff. Arid and late-summer biomes.
+group: General
+plant_scatter:
+  ground_tint:
+    color:
+    - 0.42
+    - 0.33
+    - 0.2
+    amount: 0.3
+  plants:
+  - plant:
+      default_seed: 0
+      density: 25.0
+      height:
+      - 0.5
+      - 1.0
+      width: 0.02
+      lean: 0.2
+      stems_per_plant: 1
+      root_occlusion: 0.5
+      translucency: 0.35
+      specular: 0.2
+      head_length: 0.0
+      head_width: 0.03
+      head_color:
+      - 0.85
+      - 0.8
+      - 0.6
+      tufts: 0.0
+      tuft_size: 0.6
+      segment:
+        profile: 0.0
+        stiffness: 0.6
+        droop: 0.0
+        twist: 0.0
+        fold: 0.0
+        root_color:
+        - 0.25
+        - 0.2
+        - 0.1
+        tip_color:
+        - 0.74
+        - 0.62
+        - 0.36
+      levels:
+      - count: 0
+        arrangement: opposite
+        attachment_start: 0.0
+        length: 0.0
+        length_envelope: 0.5
+        width: 0.0
+        angle: 0.0
+        spread: 0.0
+        segment:
+          profile: 0.0
+          stiffness: 0.5
+          droop: 0.0
+          twist: 0.0
+          fold: 0.0
+          root_color:
+          - 0.06
+          - 0.13
+          - 0.03
+          tip_color:
+          - 0.38
+          - 0.55
+          - 0.16
+      - count: 0
+        arrangement: opposite
+        attachment_start: 0.0
+        length: 0.0
+        length_envelope: 0.5
+        width: 0.0
+        angle: 0.0
+        spread: 0.0
+        segment:
+          profile: 0.0
+          stiffness: 0.5
+          droop: 0.0
+          twist: 0.0
+          fold: 0.0
+          root_color:
+          - 0.06
+          - 0.13
+          - 0.03
+          tip_color:
+          - 0.38
+          - 0.55
+          - 0.16
+      accent:
+        share: 0.0
+        height:
+        - 0.3
+        - 0.6
+        width: 0.02
+        lean: 0.15
+        translucency: 0.6
+        head_length: 0.0
+        head_width: 0.03
+        head_color:
+        - 0.85
+        - 0.8
+        - 0.6
+        segment:
+          profile: 0.0
+          stiffness: 0.3
+          droop: 0.0
+          twist: 0.0
+          fold: 0.0
+          root_color:
+          - 0.06
+          - 0.13
+          - 0.03
+          tip_color:
+          - 0.38
+          - 0.55
+          - 0.16

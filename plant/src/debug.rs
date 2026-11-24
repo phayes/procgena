@@ -40,7 +40,7 @@ use crate::api::{
     NoPlants, PlantCamera, PlantInteractor, PlantInteractorFootprint, PlantInteractorSpread,
     interactor_offsets,
 };
-use crate::fields::{CHUNK_SIZE, FieldTables};
+use crate::scatters::{CHUNK_SIZE, FieldTables};
 use crate::trample::{self, TrampleView};
 use crate::{PlantSettings, PlantSystems};
 

@@ -21,7 +21,7 @@ fn set(root: &mut dyn PartialReflect, path: &str, text: &str) -> Result<(), Stri
 
 #[test]
 fn sets_numbers_colours_and_list_items_by_path() {
-    let mut field = FieldPreset::WILDFLOWER_MEADOW.field;
+    let mut field = PlantScatterPreset::WILDFLOWER_MEADOW.plant_scatter;
     let main = field.plants.len() - 1;
     let plant = |path: &str| format!("plants[{main}].plant.{path}");
     set(&mut field, &plant("height.y"), "0.9").unwrap();
@@ -63,40 +63,40 @@ fn switches_enum_variants_and_their_values() {
 
 #[test]
 fn rust_names_only_what_changed_from_the_preset() {
-    let mut field = FieldPreset::MEADOW.field;
+    let mut field = PlantScatterPreset::MEADOW.plant_scatter;
     field.plants.to_mut()[0].plant.width = 0.037;
     let mut rust = String::new();
     write_rust_changes(
         &field,
-        Some(&FieldPreset::MEADOW.field),
-        "FieldPreset::MEADOW.field",
+        Some(&PlantScatterPreset::MEADOW.plant_scatter),
+        "PlantScatterPreset::MEADOW.plant_scatter",
         0,
         &mut rust,
     );
     assert_eq!(
         rust,
-        "PlantField {\n    plants: vec![\n        FieldPlant {\n            \
+        "PlantScatter {\n    plants: vec![\n        ScatterPlant {\n            \
          plant: PlantParams {\n                width: 0.037,\n                \
-         ..FieldPreset::MEADOW.field.plants[0].plant\n            },\n            \
-         ..FieldPreset::MEADOW.field.plants[0]\n        },\n    ].into(),\n    \
-         ..FieldPreset::MEADOW.field\n}"
+         ..PlantScatterPreset::MEADOW.plant_scatter.plants[0].plant\n            },\n            \
+         ..PlantScatterPreset::MEADOW.plant_scatter.plants[0]\n        },\n    ].into(),\n    \
+         ..PlantScatterPreset::MEADOW.plant_scatter\n}"
     );
 
     let mut unchanged = String::new();
     write_rust_changes(
-        &FieldPreset::MEADOW.field,
-        Some(&FieldPreset::MEADOW.field),
-        "FieldPreset::MEADOW.field",
+        &PlantScatterPreset::MEADOW.plant_scatter,
+        Some(&PlantScatterPreset::MEADOW.plant_scatter),
+        "PlantScatterPreset::MEADOW.plant_scatter",
         0,
         &mut unchanged,
     );
-    assert_eq!(unchanged, "FieldPreset::MEADOW.field");
+    assert_eq!(unchanged, "PlantScatterPreset::MEADOW.plant_scatter");
 }
 
 /// An unchanged plant in an exported mix should retain its preset expression.
 #[test]
 fn rust_names_untuned_plants_of_a_mix_by_their_place() {
-    let base = FieldPreset::SUMMER_WILD.field;
+    let base = PlantScatterPreset::SUMMER_WILD.plant_scatter;
     let mut field = base.clone();
     field.plants.to_mut()[1].density_scale = 0.5;
     let mut rust = String::new();
@@ -104,7 +104,7 @@ fn rust_names_untuned_plants_of_a_mix_by_their_place() {
     assert!(rust.contains("        F.plants[0],\n"), "{rust}");
     assert!(
         rust.contains(
-            "        FieldPlant {\n            density_scale: 0.5,\n            ..F.plants[1]\n"
+            "        ScatterPlant {\n            density_scale: 0.5,\n            ..F.plants[1]\n"
         ),
         "{rust}"
     );

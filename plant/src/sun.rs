@@ -28,8 +28,8 @@ use bevy::transform::TransformSystems;
 use bevy::transform::components::GlobalTransform;
 
 use crate::api::PlantSun;
-use crate::fields::FieldTables;
 use crate::gpu_layout::FieldGpu;
+use crate::scatters::FieldTables;
 use crate::{PlantSettings, PlantShadows};
 
 /// A directional light, as far as choosing one goes.

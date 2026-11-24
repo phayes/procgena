@@ -18,7 +18,7 @@ use crate::api::{
 };
 use crate::clock::PlantClock;
 use crate::edit::{MaskPatches, PatchList};
-use crate::fields::{CHUNK_SIZE, FieldTables};
+use crate::scatters::{CHUNK_SIZE, FieldTables};
 use crate::sun::PlantLightFrame;
 use crate::trample::{self, Stamp, Tracked};
 use crate::wind::PlantWindFrame;

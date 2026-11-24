@@ -190,7 +190,7 @@ fn setup(
             MeshMaterial3d(
                 far_materials.add(FarPlantMaterial {
                     base: soil,
-                    extension: FarPlants::new(&FieldPreset::MEADOW.field)
+                    extension: FarPlants::new(&PlantScatterPreset::MEADOW.plant_scatter)
                         .with_area(Rect::new(-half, -half, half, half)),
                 }),
             ),
@@ -204,13 +204,13 @@ fn setup(
     );
 
     // The meadow, with a clearing 12 m across at its centre.
-    commands.spawn(PlantField {
+    commands.spawn(PlantScatter {
         density_map: Some(images.add(clearing_mask(1024, Vec2::splat(0.5), 6.0 / MEADOW))),
-        ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(MEADOW))
+        ..PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(MEADOW))
     });
     // A patch of tall prairie beyond the clearing.
     commands.spawn((
-        PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(24.0, 16.0)),
+        PlantScatter::from_preset(&PlantScatterPreset::TALL_PRAIRIE, Vec2::new(24.0, 16.0)),
         Transform::from_xyz(4.0, 0.0, -16.0),
     ));
 }

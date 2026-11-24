@@ -83,7 +83,7 @@ for it. The [`passes`](../examples/passes.rs) example shows each path.
 
 ## Branching plants
 
-Ferns and bushes ([Plants that branch](fields.md#plants-that-branch)) go
+Ferns and bushes ([Plants that branch](scatters.md#plants-that-branch)) go
 through every path above, shadows included, as grass does. They are drawn
 apart from grass, because one draw gives every plant the same number of
 vertices: grass keeps its 15-vertex blades, and branching plants are grouped

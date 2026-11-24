@@ -37,7 +37,7 @@ const QUALITIES: [(&str, PlantSettings); 4] = [
 ];
 /// `ULTRA`, where the demo starts.
 const START_QUALITY: usize = 3;
-const START_PRESET: &str = "WILDFLOWER_MEADOW";
+const START_PRESET: &str = "wildflower_meadow";
 
 /// Side of the meadow, in metres: wider than Ultra's 300 m circle of blades,
 /// so the blades end inside the field and far grass carries on beyond them.
@@ -97,7 +97,7 @@ fn main() {
 struct Requests {
     /// An index into `QUALITIES`.
     quality: Option<usize>,
-    /// A field preset's key, such as `"WHEAT"`.
+    /// A Scatter preset's key, such as `"wheat"`.
     preset: Option<&'static str>,
     /// Whether shadows are enabled.
     shadows: Option<bool>,
@@ -110,7 +110,7 @@ struct Requests {
 #[derive(Resource, Debug)]
 struct Meadow {
     ground: Handle<FarPlantMaterial>,
-    /// The `PlantField`, with its `PlantRegrowth`.
+    /// The `PlantScatter`, with its `PlantRegrowth`.
     field: Entity,
     /// The walker's `PlantInteractor`.
     walker: Entity,
@@ -125,18 +125,18 @@ struct Meadow {
     antialiasing: u32,
 }
 
-/// The field preset whose key is `name`.
-fn preset(name: &str) -> Option<&'static FieldPreset> {
-    FieldPreset::named(name)
+/// The Scatter preset whose key is `name`.
+fn preset(name: &str) -> Option<&'static PlantScatterPreset> {
+    PlantScatterPreset::named(name)
 }
 
 /// Creates the preview field from a preset, using the meadow's size.
-fn meadow_field(preset: &FieldPreset) -> PlantField {
-    PlantField::from_preset(preset, Vec2::splat(MEADOW))
+fn meadow_field(preset: &PlantScatterPreset) -> PlantScatter {
+    PlantScatter::from_preset(preset, Vec2::splat(MEADOW))
 }
 
 /// Matches the meadow's distant ground shading to the field's plant colours.
-fn far_plants(field: &PlantField) -> FarPlants {
+fn far_plants(field: &PlantScatter) -> FarPlants {
     let half = MEADOW * 0.5;
     FarPlants::new(field).with_area(Rect::new(-half, -half, half, half))
 }
@@ -244,7 +244,9 @@ fn keyboard(keys: Res<ButtonInput<KeyCode>>, meadow: Res<Meadow>, mut requests: 
     if !forward && !keys.just_pressed(KeyCode::BracketLeft) {
         return;
     }
-    let names: Vec<&'static str> = FieldPreset::all().map(|preset| &*preset.key).collect();
+    let names: Vec<&'static str> = PlantScatterPreset::all()
+        .map(|preset| &*preset.key)
+        .collect();
     let at = names
         .iter()
         .position(|name| *name == meadow.preset)
@@ -262,7 +264,7 @@ fn apply_requests(
     mut requests: ResMut<Requests>,
     mut meadow: ResMut<Meadow>,
     mut settings: ResMut<PlantSettings>,
-    mut fields: Query<&mut PlantField>,
+    mut fields: Query<&mut PlantScatter>,
     mut far_materials: ResMut<Assets<FarPlantMaterial>>,
     mut windows: Query<&mut Window>,
     mut tuning: ResMut<Tuning>,

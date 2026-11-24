@@ -69,9 +69,9 @@ fn setup(
     // transform, so the grass lies where the mesh is drawn, turn included.
     // The terrain fades to the grass colour past the last blade.
     let terrain = meshes.add(hills());
-    let field = PlantField {
+    let field = PlantScatter {
         ground: PlantGround::mesh(terrain.clone()),
-        ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(SIZE))
+        ..PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(SIZE))
     };
     commands.spawn((
         Mesh3d(terrain.clone()),

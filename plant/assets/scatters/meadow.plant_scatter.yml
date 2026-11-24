@@ -1,0 +1,6 @@
+# The `meadow` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Meadow
+description: Fresh green, soft, mixed heights. The default for temperate worlds.
+group: General

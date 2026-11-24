@@ -290,7 +290,7 @@
     $("preset").addEventListener("change", (e) => {
       demo.set_preset(e.target.value);
       choose("preset", e.target.value);
-      forget("field");
+      forget("scatter");
       forget("far");
       $("grass").focus();
     });
@@ -341,44 +341,44 @@
     "settings.trample_recovery": [0.01, 10, 0.01],
     "settings.trample_cell_size": [0.05, 2, 0.01],
     "settings.max_interactor_radius": [0.1, 16, 0.1],
-    "field.size": [1, 1000, 1],
-    "field.wind_scale": [0, 3, 0.01],
-    "field.plants.density_scale": [0, 2, 0.01],
-    "field.plants.clustering": [0, 1, 0.01],
-    "field.plants.plant.density": [0, 300, 0.1],
-    "field.plants.plant.height": [0, 4, 0.01],
-    "field.plants.plant.width": [0.001, 0.2, 0.001],
-    "field.plants.plant.lean": [0, 1, 0.01],
-    "field.plants.plant.stems_per_plant": [1, 8, 1],
-    "field.plants.plant.root_occlusion": [0, 1, 0.01],
-    "field.plants.plant.translucency": [0, 1, 0.01],
-    "field.plants.plant.specular": [0, 1, 0.01],
-    "field.plants.plant.head_length": [0, 1, 0.01],
-    "field.plants.plant.head_width": [0, 0.2, 0.001],
-    "field.plants.plant.tufts": [0, 1, 0.01],
-    "field.plants.plant.tuft_size": [0.05, 5, 0.01],
-    "field.plants.plant.accent.share": [0, 1, 0.01],
-    "field.plants.plant.segment.profile": [0, 1, 0.01],
-    "field.plants.plant.segment.stiffness": [0, 1, 0.01],
-    "field.plants.plant.segment.twist": [0, 2, 0.01],
-    "field.plants.plant.segment.droop": [0, 2, 0.01],
-    "field.plants.plant.segment.fold": [0, 1, 0.01],
-    "field.plants.plant.levels.segment.droop": [0, 1, 0.01],
-    "field.plants.plant.levels.count": [0, 32, 1],
-    "field.plants.plant.levels.attachment_start": [0, 0.99, 0.01],
-    "field.plants.plant.levels.length": [0, 1, 0.01],
-    "field.plants.plant.levels.length_envelope": [0, 1, 0.01],
-    "field.plants.plant.levels.width": [0, 1, 0.01],
-    "field.plants.plant.levels.angle": [0, 1, 0.01],
-    "field.density_scale": [0, 2, 0.01],
-    "field.variation.patch_amount": [0, 1, 0.01],
-    "field.variation.patch_size": [0.5, 100, 0.5],
-    "field.variation.dry_tips": [0, 1, 0.01],
-    "field.variation.dead_share": [0, 1, 0.01],
-    "field.variation.bare_share": [0, 1, 0.01],
-    "field.variation.bare_patch_size": [0.5, 50, 0.1],
-    "field.ground_tint.amount": [0, 1, 0.01],
-    "field.toon_bands": [0, 8, 1],
+    "scatter.size": [1, 1000, 1],
+    "scatter.wind_scale": [0, 3, 0.01],
+    "scatter.plants.density_scale": [0, 2, 0.01],
+    "scatter.plants.clustering": [0, 1, 0.01],
+    "scatter.plants.plant.density": [0, 300, 0.1],
+    "scatter.plants.plant.height": [0, 4, 0.01],
+    "scatter.plants.plant.width": [0.001, 0.2, 0.001],
+    "scatter.plants.plant.lean": [0, 1, 0.01],
+    "scatter.plants.plant.stems_per_plant": [1, 8, 1],
+    "scatter.plants.plant.root_occlusion": [0, 1, 0.01],
+    "scatter.plants.plant.translucency": [0, 1, 0.01],
+    "scatter.plants.plant.specular": [0, 1, 0.01],
+    "scatter.plants.plant.head_length": [0, 1, 0.01],
+    "scatter.plants.plant.head_width": [0, 0.2, 0.001],
+    "scatter.plants.plant.tufts": [0, 1, 0.01],
+    "scatter.plants.plant.tuft_size": [0.05, 5, 0.01],
+    "scatter.plants.plant.accent.share": [0, 1, 0.01],
+    "scatter.plants.plant.segment.profile": [0, 1, 0.01],
+    "scatter.plants.plant.segment.stiffness": [0, 1, 0.01],
+    "scatter.plants.plant.segment.twist": [0, 2, 0.01],
+    "scatter.plants.plant.segment.droop": [0, 2, 0.01],
+    "scatter.plants.plant.segment.fold": [0, 1, 0.01],
+    "scatter.plants.plant.levels.segment.droop": [0, 1, 0.01],
+    "scatter.plants.plant.levels.count": [0, 32, 1],
+    "scatter.plants.plant.levels.attachment_start": [0, 0.99, 0.01],
+    "scatter.plants.plant.levels.length": [0, 1, 0.01],
+    "scatter.plants.plant.levels.length_envelope": [0, 1, 0.01],
+    "scatter.plants.plant.levels.width": [0, 1, 0.01],
+    "scatter.plants.plant.levels.angle": [0, 1, 0.01],
+    "scatter.density_scale": [0, 2, 0.01],
+    "scatter.variation.patch_amount": [0, 1, 0.01],
+    "scatter.variation.patch_size": [0.5, 100, 0.5],
+    "scatter.variation.dry_tips": [0, 1, 0.01],
+    "scatter.variation.dead_share": [0, 1, 0.01],
+    "scatter.variation.bare_share": [0, 1, 0.01],
+    "scatter.variation.bare_patch_size": [0.5, 50, 0.1],
+    "scatter.ground_tint.amount": [0, 1, 0.01],
+    "scatter.toon_bands": [0, 8, 1],
     "wind.direction": [-1, 1, 0.01],
     "wind.strength": [0, 1, 0.01],
     "wind.gust_scale": [1, 100, 0.5],
@@ -407,12 +407,12 @@
     "debug.max_chunks": [0, 10000, 1],
   };
   const TITLES = {
-    settings: "Quality", field: "Field", wind: "Wind", far: "Far grass",
+    settings: "Quality", scatter: "Scatter", wind: "Wind", far: "Far grass",
     regrowth: "Regrowth", walker: "Walker", camera: "Camera", brush: "Brush", debug: "Debug view",
   };
   const NOTES = {
     settings: "The quality buttons above start these again from a tier.",
-    field: "The meadow's PlantField: its plants and their look. The preset picker above starts this again from a preset.",
+    scatter: "The meadow's PlantScatter: its plants and their look. The preset picker above starts this again from a preset.",
     far: "The ground beyond the blades, in a FarPlantMaterial. It follows the field's colours as you change them.",
     regrowth: "On the meadow's field: how fast what the brush cleared grows back.",
     walker: "The PlantInteractor on the blue capsule.",
@@ -604,7 +604,7 @@
       const remove = el("button", { textContent: "Remove" });
       remove.addEventListener("click", () => {
         demo.remove_plant(at);
-        ronAfter = revision;
+        yamlAfter = revision;
       });
       const entry = details(`${target}|${path}[${at}]`, "group", [`${name}[${at}]`]);
       entry.append(el("div", { className: "tools" }, remove));
@@ -616,7 +616,7 @@
     const add = el("button", { textContent: "Add" });
     add.addEventListener("click", () => {
       demo.add_plant(plant.value);
-      ronAfter = revision;
+      yamlAfter = revision;
     });
     group.append(el("div", { className: "tools" }, plant, add));
     parent.append(group);
@@ -644,7 +644,7 @@
   let shape = "";
   // Set when the field changed in a way no single setting describes (a
   // plant added or removed, a file loaded): the revision it changed after.
-  let ronAfter = null;
+  let yamlAfter = null;
   const codeOf = (name, kind) => tunables.targets.find((t) => t.name === name)?.[kind] ?? "";
 
   // The variants and list lengths: what decides which controls there are.
@@ -663,10 +663,10 @@
     // Values the page did not set (a tier, a preset, a reset) or a new set
     // of controls (a variant switched, a plant added): build it again.
     const now = tunables.targets.map((t) => shapeOf(t.value)).join("|");
-    if (ronAfter !== null && tunables.revision > ronAfter) {
-      ronAfter = null;
-      forget("field");
-      tweaks.set("field|ron", codeOf("field", "ron"));
+    if (yamlAfter !== null && tunables.revision > yamlAfter) {
+      yamlAfter = null;
+      forget("scatter");
+      tweaks.set("scatter|yaml", codeOf("scatter", "yaml"));
       saveTweaks();
     }
     if (tunables.revision !== revision || now !== shape) {
@@ -674,7 +674,7 @@
       shape = now;
       buildPanel();
     }
-    // The Rust and RON follow every change.
+    // The Rust and YAML follow every change.
     for (const pre of document.querySelectorAll("pre.code")) {
       const code = codeOf(pre.dataset.target, pre.dataset.kind);
       if (pre.textContent !== code) pre.textContent = code;
@@ -714,8 +714,8 @@
       if (NOTES[target.name]) section.append(el("div", { className: "doc", textContent: NOTES[target.name] }));
       render(section, target.value, target.name, "", target.name, null);
       section.append(codeBlock(target.name, "rust", "Rust"));
-      if (target.name === "field") {
-        section.append(codeBlock(target.name, "ron", ".field.ron"));
+      if (target.name === "scatter") {
+        section.append(codeBlock(target.name, "yaml", ".plant_scatter.yml"));
         section.append(importBlock());
       }
       sections.append(section);
@@ -737,13 +737,13 @@
   }
 
   function importBlock() {
-    const block = details("field|import", "group", ["Load a .field.ron"]);
-    const text = el("textarea", { placeholder: "(base: \"MEADOW\", density_scale: 2.0)", spellcheck: false });
+    const block = details("scatter|import", "group", ["Load a .plant_scatter.yml"]);
+    const text = el("textarea", { placeholder: "base: meadow\nplant_scatter:\n  density_scale: 2.0", spellcheck: false });
     const error = el("div", { className: "doc error" });
     const load = el("button", { textContent: "Load" });
     load.addEventListener("click", () => {
-      error.textContent = demo.import_field(text.value);
-      if (!error.textContent) ronAfter = revision;
+      error.textContent = demo.import_scatter(text.value);
+      if (!error.textContent) yamlAfter = revision;
     });
     block.append(text, el("div", { className: "tools" }, load), error);
     return block;
@@ -768,7 +768,7 @@
   function replayTweaks() {
     for (const [key, value] of tweaks) {
       const at = key.indexOf("|");
-      if (key === "field|ron") demo.import_field(value);
+      if (key === "scatter|yaml") demo.import_scatter(value);
       else if (at > 0) demo.set(key.slice(0, at), key.slice(at + 1), value);
     }
   }

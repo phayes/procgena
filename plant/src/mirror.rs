@@ -10,10 +10,10 @@ use std::f32::consts::{PI, TAU};
 use bevy::math::{IVec2, Vec2, Vec3};
 
 use crate::PlantSettings;
-use crate::fields::level_entries;
 use crate::gpu_layout::LevelGpu;
 use crate::look::PlantParams;
 use crate::render::view::MAX_BUCKETS;
+use crate::scatters::level_entries;
 
 use crate::shader_model::{
     CHILD_ROWS, CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, GRANDCHILD_ROWS, GUST_SIZE,

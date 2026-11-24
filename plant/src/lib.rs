@@ -13,14 +13,14 @@
 //! }
 //!
 //! fn setup(mut commands: Commands) {
-//!     commands.spawn(PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0)));
+//!     commands.spawn(PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(64.0)));
 //! }
 //! ```
 //!
 //! [`PlantPlugins`] is a plugin group: [`PlantPlugin`] (the grass itself),
 //! [`FarPlantPlugin`] (the terrain material for ground past the last blade)
-//! and [`PlantFilePlugin`] (`.plant.ron` and `.field.ron` files, and the
-//! presets as assets). Turn one off with `PlantPlugins.build().disable::<FarPlantPlugin>()`,
+//! and [`PlantFilePlugin`] (`.plant.yml` and `.plant_scatter.yml` files, and
+//! the presets as assets). Turn one off with `PlantPlugins.build().disable::<FarPlantPlugin>()`,
 //! or add only the ones you want. `PlantDebugPlugin` (cargo feature
 //! `debug`) is always added by hand.
 //!
@@ -29,10 +29,10 @@
 //! and anything else reading the prepass see it; a deferred camera (with
 //! `DefaultOpaqueRendererMethod::deferred()`) draws grass into its G-buffer.
 //!
-//! A [`PlantField`] holds everything about how it looks: the plants that
+//! A [`PlantScatter`] holds everything about how it looks: the plants that
 //! grow in it, each a [`PlantParams`] at its own density, scaled by a
-//! [`FieldPlant`], and
-//! the settings they share. Start from a [`FieldPreset`] or build one in
+//! [`ScatterPlant`], and
+//! the settings they share. Start from a [`PlantScatterPreset`] or build one in
 //! code from [`PlantPreset`]s. [`FarPlantMaterial`] carries the grass's
 //! colour onto the ground beyond the last blade.
 //!
@@ -40,7 +40,7 @@
 //! (grass, seed heads, flowers, clover, ferns, shrubs), plants gathered into
 //! tufts, bare patches, blades that twist, droop and fold, and colour
 //! patches, dry tips and dead blades. Every kind is off at 0 and costs
-//! nothing while no field uses it. Browse [`FieldPreset::WILD`] and the
+//! nothing while no field uses it. Browse [`PlantScatterPreset::WILD`] and the
 //! forest-floor presets for examples of these effects.
 //!
 //! Plants use curved strips ([`PlantSegment`]) for blades, stalks and leaves. A
@@ -53,7 +53,6 @@ mod clock;
 mod debug;
 mod edit;
 mod far;
-mod fields;
 mod files;
 mod gpu_layout;
 mod ground;
@@ -65,6 +64,7 @@ mod physics;
 mod presets;
 mod reach;
 mod render;
+mod scatters;
 mod settings;
 mod shader_model;
 mod stats;
@@ -73,10 +73,10 @@ mod trample;
 pub mod wind;
 
 pub use api::{
-    FieldPlant, FieldPreset, GroundTint, MAX_PLANTS, NoPlants, PlantAccent, PlantArrangement,
-    PlantBranches, PlantCamera, PlantField, PlantGround, PlantInteractor, PlantInteractorFootprint,
-    PlantInteractorSpread, PlantMeshSize, PlantParams, PlantPreset, PlantSegment, PlantSun,
-    PlantVariation,
+    GroundTint, MAX_PLANTS, NoPlants, PlantAccent, PlantArrangement, PlantBranches, PlantCamera,
+    PlantGround, PlantInteractor, PlantInteractorFootprint, PlantInteractorSpread, PlantMeshSize,
+    PlantParams, PlantPreset, PlantScatter, PlantScatterPreset, PlantSegment, PlantSun,
+    PlantVariation, ScatterPlant,
 };
 #[cfg(feature = "debug")]
 pub use debug::{PlantDebug, PlantDebugPlugin, PlantGizmos};
@@ -85,8 +85,11 @@ pub use edit::{
     PlantRegrowth, PlantSample, PlantSampler,
 };
 pub use far::{FarPlantMaterial, FarPlantPlugin, FarPlantUniform, FarPlants};
-pub use files::{PlantFieldLoader, PlantFileError, PlantFilePlugin, PlantParamsLoader};
+pub use files::{PlantFileError, PlantFilePlugin, PlantParamsLoader, PlantScatterLoader};
 pub use physics::{PlantColliderBounds, PlantColliderSystems, PlantInteractorFromCollider};
+/// Why a preset file's text could not be read, as held by
+/// [`PlantFileError::File`].
+pub use procgena_core::preset::PresetFileError;
 pub use render::platform::PlantSupport;
 pub use settings::{PlantQuality, PlantSettings, PlantShadows};
 pub use stats::{GpuStats, PlantDiagnostics, PlantStats, TableStats};
@@ -104,15 +107,15 @@ use bevy::shader::load_shader_library;
 /// The things a game needs, in one import.
 pub mod prelude {
     pub use crate::{
-        FarPlantMaterial, FarPlantPlugin, FarPlants, FieldPlant, FieldPreset, GroundTint, NoPlants,
-        PlantAccent, PlantArrangement, PlantBranches, PlantBrush, PlantBrushFootprint,
-        PlantBrushShape, PlantCamera, PlantColliderBounds, PlantColliderSystems, PlantEdit,
-        PlantEditOp, PlantField, PlantFilePlugin, PlantGround, PlantInteractor,
-        PlantInteractorFootprint, PlantInteractorFromCollider, PlantInteractorSpread,
-        PlantLightFrame, PlantLightPlugin, PlantLightSystems, PlantParams, PlantPlugin,
-        PlantPlugins, PlantPreset, PlantQuality, PlantRegrowth, PlantSample, PlantSampler,
-        PlantSegment, PlantSettings, PlantShadows, PlantStats, PlantSun, PlantSupport,
-        PlantSystems, PlantVariation, PlantWind, PlantWindFrame, PlantWindPlugin, PlantWindSystems,
+        FarPlantMaterial, FarPlantPlugin, FarPlants, GroundTint, NoPlants, PlantAccent,
+        PlantArrangement, PlantBranches, PlantBrush, PlantBrushFootprint, PlantBrushShape,
+        PlantCamera, PlantColliderBounds, PlantColliderSystems, PlantEdit, PlantEditOp,
+        PlantFilePlugin, PlantGround, PlantInteractor, PlantInteractorFootprint,
+        PlantInteractorFromCollider, PlantInteractorSpread, PlantLightFrame, PlantLightPlugin,
+        PlantLightSystems, PlantParams, PlantPlugin, PlantPlugins, PlantPreset, PlantQuality,
+        PlantRegrowth, PlantSample, PlantSampler, PlantScatter, PlantScatterPreset, PlantSegment,
+        PlantSettings, PlantShadows, PlantStats, PlantSun, PlantSupport, PlantSystems,
+        PlantVariation, PlantWind, PlantWindFrame, PlantWindPlugin, PlantWindSystems, ScatterPlant,
     };
     #[cfg(feature = "debug")]
     pub use crate::{PlantDebug, PlantDebugPlugin};
@@ -205,8 +208,8 @@ pub enum PlantSystems {
 /// - [`PlantPlugin`]: fields, presets, wind, interaction and the rendering.
 ///   The only one that is required.
 /// - [`FarPlantPlugin`]: [`FarPlantMaterial`], for ground past the last blade.
-/// - [`PlantFilePlugin`]: `.plant.ron` and `.field.ron` files, and the presets
-///   as assets.
+/// - [`PlantFilePlugin`]: `.plant.yml` and `.plant_scatter.yml` files, and the
+///   presets as assets.
 ///
 /// `PlantDebugPlugin` (cargo feature `debug`)
 /// is not in the group; add it by hand.
@@ -293,7 +296,7 @@ impl Plugin for PlantPlugin {
             .add_systems(Update, clock::tick)
             .init_resource::<sun::ShadowSetupReport>()
             .insert_resource(self.settings)
-            .add_plugins((stats::PlantDiagnosticsPlugin, fields::plugin))
+            .add_plugins((stats::PlantDiagnosticsPlugin, scatters::plugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -321,8 +324,8 @@ impl Plugin for PlantPlugin {
 fn register_types(app: &mut App) {
     app.init_asset::<PlantPreset>()
         .register_asset_reflect::<PlantPreset>()
-        .init_asset::<FieldPreset>()
-        .register_asset_reflect::<FieldPreset>()
+        .init_asset::<PlantScatterPreset>()
+        .register_asset_reflect::<PlantScatterPreset>()
         .register_type::<PlantParams>()
         .register_type::<PlantSegment>()
         .register_type::<PlantAccent>()
@@ -330,8 +333,8 @@ fn register_types(app: &mut App) {
         .register_type::<PlantArrangement>()
         .register_type::<PlantVariation>()
         .register_type::<GroundTint>()
-        .register_type::<FieldPlant>()
-        .register_type::<PlantField>()
+        .register_type::<ScatterPlant>()
+        .register_type::<PlantScatter>()
         .register_type::<PlantGround>()
         .register_type::<PlantInteractor>()
         .register_type::<PlantInteractorSpread>()

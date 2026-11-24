@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FieldPlant, FieldPreset, PlantField, PlantParams, PlantSegment, PlantVariation,
-    seasons::AUTUMN_TALL_GRASS,
+    Color, Cow, PlantParams, PlantScatter, PlantScatterPreset, PlantSegment, PlantVariation,
+    ScatterPlant, seasons::AUTUMN_TALL_GRASS,
 };
 
 preset_group! {
@@ -11,21 +11,21 @@ WILD "Wild" {
         description: "Summer grass gone wild: tufts and bare spots, blades that twist and \
                       droop, yellower patches, dry tips, seed heads, broad leaves and a few \
                       flowers.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(PlantParams::SEED_HEADS)
+            ScatterPlant::new(PlantParams::SEED_HEADS)
                 .scaled(0.1)
                 .clustered(0.3),
-            FieldPlant::new(PlantParams::BROAD_LEAF)
+            ScatterPlant::new(PlantParams::BROAD_LEAF)
                 .scaled(0.12)
                 .clustered(0.6),
-            FieldPlant::new(PlantParams::WHITE_FLOWERS)
+            ScatterPlant::new(PlantParams::WHITE_FLOWERS)
                 .scaled(0.04)
                 .clustered(0.8),
-            FieldPlant::new(PlantParams::YELLOW_FLOWERS)
+            ScatterPlant::new(PlantParams::YELLOW_FLOWERS)
                 .scaled(0.02)
                 .clustered(0.8),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 density: 31.6,
                 segment: PlantSegment {
                     twist: 0.15,
@@ -43,17 +43,17 @@ WILD "Wild" {
             dry_tips: 0.2,
             dead_share: 0.04,
             bare_share: 0.06,
-            ..FieldPreset::SUMMER_TALL.field.variation
+            ..PlantScatterPreset::SUMMER_TALL.plant_scatter.variation
         },
-        ..FieldPreset::SUMMER_TALL.field
+        ..PlantScatterPreset::SUMMER_TALL.plant_scatter
     };
     AUTUMN_WILD {
         name: "Autumn wild",
         description: "Autumn grass gone wild: drier, more dead blades and beaten-down tufts, \
                       rusty patches, and seed heads and leaves gone brown.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 translucency: 0.4,
                 head_color: Color::srgb(0.48, 0.36, 0.20),
                 segment: PlantSegment {
@@ -65,7 +65,7 @@ WILD "Wild" {
             })
             .scaled(0.12)
             .clustered(0.3),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 translucency: 0.3,
                 segment: PlantSegment {
                     root_color: Color::srgb(0.12, 0.07, 0.03),
@@ -76,7 +76,7 @@ WILD "Wild" {
             })
             .scaled(0.12)
             .clustered(0.6),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 density: 32.8,
                 segment: PlantSegment {
                     twist: 0.15,
@@ -94,25 +94,25 @@ WILD "Wild" {
             dry_tips: 0.35,
             dead_share: 0.12,
             bare_share: 0.08,
-            ..FieldPreset::AUTUMN_TALL.field.variation
+            ..PlantScatterPreset::AUTUMN_TALL.plant_scatter.variation
         },
-        ..FieldPreset::AUTUMN_TALL.field
+        ..PlantScatterPreset::AUTUMN_TALL.plant_scatter
     };
     WILDFLOWER_MEADOW {
         name: "Wildflower meadow",
         description: "A short meadow full of flowers and clover.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(PlantParams::CLOVER)
+            ScatterPlant::new(PlantParams::CLOVER)
                 .scaled(0.09)
                 .clustered(0.7),
-            FieldPlant::new(PlantParams::WHITE_FLOWERS)
+            ScatterPlant::new(PlantParams::WHITE_FLOWERS)
                 .scaled(0.12)
                 .clustered(0.6),
-            FieldPlant::new(PlantParams::YELLOW_FLOWERS)
+            ScatterPlant::new(PlantParams::YELLOW_FLOWERS)
                 .scaled(0.09)
                 .clustered(0.6),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 density: 43.8,
                 segment: PlantSegment {
                     twist: 0.1,
@@ -128,9 +128,9 @@ WILD "Wild" {
             patch_color: Color::srgb(0.30, 0.55, 0.14),
             patch_amount: 0.4,
             dry_tips: 0.1,
-            ..FieldPreset::MEADOW.field.variation
+            ..PlantScatterPreset::MEADOW.plant_scatter.variation
         },
-        ..FieldPreset::MEADOW.field
+        ..PlantScatterPreset::MEADOW.plant_scatter
     };
 }
 }

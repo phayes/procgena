@@ -36,38 +36,38 @@ const BACKDROP: Color = Color::srgb(0.12, 0.12, 0.13);
 /// centred; taller plants sit at the back to keep labels visible.
 const PAGES: [&[&[&str]]; 6] = [
     &[
-        &["MEADOW", "TALL_PRAIRIE", "WHEAT"],
-        &["DRY_SAVANNA", "LAWN", "STYLIZED"],
+        &["meadow", "tall_prairie", "wheat"],
+        &["dry_savanna", "lawn", "stylized"],
     ],
     &[
-        &["SUMMER_TALL", "AUTUMN_TALL"],
-        &["SUMMER_WILD", "AUTUMN_WILD", "WILDFLOWER_MEADOW"],
+        &["summer_tall", "autumn_tall"],
+        &["summer_wild", "autumn_wild", "wildflower_meadow"],
     ],
     &[
-        &["FOREST_BRACKEN", "BRAMBLE"],
-        &["FOREST_MOSS", "FOREST_FERNS", "FOREST_FLOOR"],
-    ],
-    &[
-        &[
-            "REED_MARSH",
-            "PAMPAS",
-            "ELEPHANT_GRASS",
-            "RYE_AND_CORNFLOWERS",
-        ],
-        &["COTTON_BOG", "DUNE_MARRAM", "SPINIFEX", "FROSTED_MEADOW"],
-    ],
-    &[
-        &["KELP_BED", "CORKSCREW_ALIEN", "CRYSTAL_SPIRES", "BLIGHTED"],
-        &["BURNT_REGROWTH", "LAVENDER", "CEL_FIELD", "COZY_PASTEL"],
+        &["forest_bracken", "bramble"],
+        &["forest_moss", "forest_ferns", "forest_floor"],
     ],
     &[
         &[
-            "MATURE_BRACKEN",
-            "SAPLING",
-            "HUCKLEBERRY",
-            "FOREST_UNDERSTORY",
+            "reed_marsh",
+            "pampas",
+            "elephant_grass",
+            "rye_and_cornflowers",
         ],
-        &["BROOM", "SALAL", "NETTLE", "OREGON_GRAPE"],
+        &["cotton_bog", "dune_marram", "spinifex", "frosted_meadow"],
+    ],
+    &[
+        &["kelp_bed", "corkscrew_alien", "crystal_spires", "blighted"],
+        &["burnt_regrowth", "lavender", "cel_field", "cozy_pastel"],
+    ],
+    &[
+        &[
+            "mature_bracken",
+            "sapling",
+            "huckleberry",
+            "forest_understory",
+        ],
+        &["broom", "salal", "nettle", "oregon_grape"],
     ],
 ];
 
@@ -166,7 +166,7 @@ fn setup(
         for (column, name) in names.iter().enumerate() {
             let across = (column as f32 - (names.len() as f32 - 1.0) * 0.5) * layout.across;
             let center = right * across + away * (up / pitch);
-            let preset = FieldPreset::named(name).expect("a field preset");
+            let preset = PlantScatterPreset::named(name).expect("a field preset");
             let density_map = common::setting::spawn_setting(
                 &mut commands,
                 &mut meshes,
@@ -177,9 +177,9 @@ fn setup(
                 Vec2::splat(layout.patch),
             );
             commands.spawn((
-                PlantField {
+                PlantScatter {
                     density_map,
-                    ..PlantField::from_preset(preset, Vec2::splat(layout.patch))
+                    ..PlantScatter::from_preset(preset, Vec2::splat(layout.patch))
                 },
                 Transform::from_translation(center),
             ));
@@ -199,7 +199,8 @@ fn setup(
                     },
                 ))
                 .with_child((
-                    Text::new(*name),
+                    // The preset's constant, as the README's pictures show it.
+                    Text::new(name.to_ascii_uppercase()),
                     TextFont {
                         font_size: layout.label_font.into(),
                         ..default()

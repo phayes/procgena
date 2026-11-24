@@ -12,13 +12,13 @@
 //! stronger than the default breeze, for a film rather than a game. The
 //! reeds stand in almost still air instead, against the waving fields.
 //!
-//! `--fields A,B,C` picks the field presets (any number), `--shot SECONDS` how long
+//! `--fields A,B,C` picks the Scatter presets by key, in any case (any number), `--shot SECONDS` how long
 //! each is shown (3). `tools/plant/record_walk.py` records the film and makes the
 //! WebP.
 //!
 //! ```text
 //! cargo run --release --example walk
-//! cargo run --release --example walk -- --fields MEADOW,WHEAT --shot 5
+//! cargo run --release --example walk -- --fields meadow,wheat --shot 5
 //! cargo run --release --example walk -- --fixed-time --record target/walk --record-frames 720
 //! ```
 
@@ -29,7 +29,7 @@ use bevy::prelude::*;
 use common::setting::{setting, spawn_setting};
 use procgena_plant::prelude::*;
 
-const PRESETS: [&str; 3] = ["WILDFLOWER_MEADOW", "RYE_AND_CORNFLOWERS", "REED_MARSH"];
+const PRESETS: [&str; 3] = ["wildflower_meadow", "rye_and_cornflowers", "reed_marsh"];
 
 /// The fields sit this far apart along Z, further than grass reaches, so a
 /// camera sees only its own.
@@ -69,7 +69,7 @@ const STILL: PlantWind = PlantWind {
 /// it changes at each cut.
 fn wind_for(name: &str) -> PlantWind {
     match name {
-        "REED_MARSH" => STILL,
+        "reed_marsh" => STILL,
         _ => setting(name).wind.unwrap_or(WIND),
     }
 }
@@ -119,11 +119,11 @@ fn main() {
     let args = common::ExampleArgs::parse();
     let presets: Vec<String> = args.value("--fields").map_or_else(
         || PRESETS.iter().map(|name| (*name).to_owned()).collect(),
-        |list| list.split(',').map(str::to_owned).collect(),
+        |list| list.split(',').map(str::to_ascii_lowercase).collect(),
     );
     for name in &presets {
         assert!(
-            FieldPreset::named(name).is_some(),
+            PlantScatterPreset::named(name).is_some(),
             "--fields takes field preset names, such as {}; {name} is not one",
             PRESETS.join(",")
         );
@@ -199,11 +199,11 @@ fn setup(
             center,
             Vec2::splat(GROUND),
         );
-        let preset = FieldPreset::named(name).expect("checked in main");
-        let field = PlantField::from_preset(preset, Vec2::splat(FIELD));
+        let preset = PlantScatterPreset::named(name).expect("checked in main");
+        let field = PlantScatter::from_preset(preset, Vec2::splat(FIELD));
         let density = field.density().max(MIN_DENSITY) * DENSITY;
         commands.spawn((
-            PlantField {
+            PlantScatter {
                 density_map,
                 ..field.with_density(density)
             },

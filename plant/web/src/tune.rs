@@ -24,7 +24,7 @@ use crate::{Meadow, QUALITIES};
 
 /// What the page can tune, in the order it shows them.
 pub(crate) const TARGETS: [&str; 9] = [
-    "settings", "field", "wind", "far", "regrowth", "walker", "camera", "brush", "debug",
+    "settings", "scatter", "wind", "far", "regrowth", "walker", "camera", "brush", "debug",
 ];
 
 /// The wind presets, for the wind's base and the page's list.
@@ -83,8 +83,8 @@ pub(crate) enum TuneEdit {
     AddPlant(String),
     /// The field's plant at this index taken out.
     RemovePlant(usize),
-    /// A field read from a `.field.ron` file.
-    Field(Box<PlantField>),
+    /// A Scatter read from a `.plant_scatter.yml` file.
+    Scatter(Box<PlantScatter>),
     /// The meadow's grass back as it grew, undoing the brush.
     RestoreField,
 }
@@ -140,7 +140,7 @@ pub(crate) fn apply_tuning(world: &mut World) {
             })
             .unwrap_or_else(|| Err(format!("no target {target}")))
             .map(|()| {
-                if target == "field" {
+                if target == "scatter" {
                     far_follows_field(world);
                 }
             })
@@ -172,11 +172,11 @@ pub(crate) fn apply_tuning(world: &mut World) {
                     }
                 })
             }
-            TuneEdit::Field(new) => {
+            TuneEdit::Scatter(new) => {
                 outside = true;
                 edit_field(world, |field| {
                     // Apply the file's appearance while preserving the preview's placement.
-                    *field = PlantField {
+                    *field = PlantScatter {
                         size: field.size,
                         ground: field.ground.clone(),
                         density_map: field.density_map.clone(),
@@ -236,11 +236,11 @@ fn write_tunables(world: &World, json: &mut String) {
         write_rust_changes(value, base.as_deref(), &expression, 0, &mut rust);
         json.push_str(",\"rust\":");
         write_string(&rust, json);
-        if *name == "field"
-            && let Some(field) = value.try_downcast_ref::<PlantField>()
+        if *name == "scatter"
+            && let Some(scatter) = value.try_downcast_ref::<PlantScatter>()
         {
-            json.push_str(",\"ron\":");
-            write_string(&field.to_ron(), json);
+            json.push_str(",\"yaml\":");
+            write_string(&scatter.to_yaml(), json);
         }
         json.push('}');
     }
@@ -260,14 +260,17 @@ fn add_plant(world: &mut World, key: &str) -> Result<(), String> {
         // Keep the background plant last so it continues to fill the gaps.
         let plants = field.plants.to_mut();
         let at = plants.len().saturating_sub(1);
-        plants.insert(at, FieldPlant::new(preset.plant).scaled(ADDED_PLANT_SCALE));
+        plants.insert(
+            at,
+            ScatterPlant::new(preset.plant).scaled(ADDED_PLANT_SCALE),
+        );
     })
 }
 
-fn edit_field(world: &mut World, change: impl FnOnce(&mut PlantField)) -> Result<(), String> {
+fn edit_field(world: &mut World, change: impl FnOnce(&mut PlantScatter)) -> Result<(), String> {
     let entity = world.resource::<Meadow>().field;
     let mut field = world
-        .get_mut::<PlantField>(entity)
+        .get_mut::<PlantScatter>(entity)
         .ok_or("the meadow has no field")?;
     change(&mut field);
     far_follows_field(world);
@@ -279,7 +282,7 @@ fn far_follows_field(world: &mut World) {
     let meadow = world.resource::<Meadow>();
     let (field, ground) = (meadow.field, meadow.ground.clone());
     let Some(color) = world
-        .get::<PlantField>(field)
+        .get::<PlantScatter>(field)
         .map(|field| FarPlants::new(field).color)
     else {
         return;
@@ -298,7 +301,7 @@ fn reset(world: &mut World, name: &str) -> Result<(), String> {
     let preset = crate::preset(preset);
     match name {
         "settings" => *world.resource_mut::<PlantSettings>() = QUALITIES[quality].1,
-        "field" => {
+        "scatter" => {
             let preset = preset.ok_or("no preset")?;
             edit_field(world, |current| *current = crate::meadow_field(preset))?;
         }
@@ -309,7 +312,7 @@ fn reset(world: &mut World, name: &str) -> Result<(), String> {
                 .resource_mut::<Assets<FarPlantMaterial>>()
                 .get_mut(&ground)
             {
-                material.extension = crate::far_plants(&preset.field);
+                material.extension = crate::far_plants(&preset.plant_scatter);
             }
         }
         "wind" => {
@@ -347,10 +350,14 @@ fn base(world: &World, name: &str) -> (Option<Box<dyn PartialReflect>>, String) 
             let (tier, settings) = QUALITIES[meadow.quality];
             (Some(Box::new(settings)), format!("PlantSettings::{tier}"))
         }
-        // The preset's own field, so the meadow's size reads as a change.
-        "field" => (
-            crate::preset(meadow.preset).map(|preset| Box::new(preset.field.clone()) as _),
-            format!("FieldPreset::{}.field", meadow.preset),
+        // The preset's own Scatter, so the meadow's size reads as a change.
+        // The preset's constant is its key in upper case.
+        "scatter" => (
+            crate::preset(meadow.preset).map(|preset| Box::new(preset.plant_scatter.clone()) as _),
+            format!(
+                "PlantScatterPreset::{}.plant_scatter",
+                meadow.preset.to_ascii_uppercase()
+            ),
         ),
         "wind" => {
             let wind = world.resource::<Tuning>().wind;
@@ -384,8 +391,8 @@ fn target<'w>(world: &'w World, name: &str) -> Option<&'w dyn PartialReflect> {
         "wind" => world.get_resource::<PlantWind>().map(|value| value as _),
         "debug" => world.get_resource::<PlantDebug>().map(|value| value as _),
         "brush" => world.get_resource::<Brush>().map(|brush| &brush.0 as _),
-        "field" => world
-            .get::<PlantField>(meadow.field)
+        "scatter" => world
+            .get::<PlantScatter>(meadow.field)
             .map(|value| value as _),
         "far" => world
             .resource::<Assets<FarPlantMaterial>>()
@@ -419,7 +426,7 @@ fn with_target_mut<R>(
         "wind" => Some(change(&mut *world.resource_mut::<PlantWind>())),
         "debug" => Some(change(&mut *world.resource_mut::<PlantDebug>())),
         "brush" => Some(change(&mut world.resource_mut::<Brush>().0)),
-        "field" => Some(change(&mut *world.get_mut::<PlantField>(field)?)),
+        "scatter" => Some(change(&mut *world.get_mut::<PlantScatter>(field)?)),
         "far" => {
             let mut materials = world.resource_mut::<Assets<FarPlantMaterial>>();
             let mut material = materials.get_mut(&ground)?;

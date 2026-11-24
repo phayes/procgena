@@ -1,10 +1,10 @@
 use super::*;
-use crate::presets::FieldPreset;
+use crate::presets::PlantScatterPreset;
 
 #[test]
 fn a_terrain_of_your_own_gets_what_far_plant_material_uploads() {
-    let far =
-        FarPlants::new(&FieldPreset::MEADOW.field).with_area(Rect::new(-10.0, -20.0, 30.0, 40.0));
+    let far = FarPlants::new(&PlantScatterPreset::MEADOW.plant_scatter)
+        .with_area(Rect::new(-10.0, -20.0, 30.0, 40.0));
     let wind = PlantWindFrame {
         strength: 0.7,
         gust_offset: Vec2::new(3.0, -1.0),
@@ -48,10 +48,10 @@ fn a_terrain_of_your_own_gets_what_far_plant_material_uploads() {
 /// A plant past the last one a field grows does not colour far grass.
 #[test]
 fn far_plants_mix_only_the_plants_a_field_grows() {
-    use crate::look::{FieldPlant, MAX_PLANTS};
+    use crate::look::{MAX_PLANTS, ScatterPlant};
 
-    let grown: Vec<FieldPlant> = FieldPreset::MEADOW
-        .field
+    let grown: Vec<ScatterPlant> = PlantScatterPreset::MEADOW
+        .plant_scatter
         .plants
         .iter()
         .copied()
@@ -64,9 +64,9 @@ fn far_plants_mix_only_the_plants_a_field_grows() {
     let mut extra = grown.clone();
     extra.push(red);
 
-    let field = |plants: Vec<FieldPlant>| PlantField {
+    let field = |plants: Vec<ScatterPlant>| PlantScatter {
         plants: plants.into(),
-        ..FieldPreset::MEADOW.field
+        ..PlantScatterPreset::MEADOW.plant_scatter
     };
     assert_eq!(
         FarPlants::new(&field(extra)).color,

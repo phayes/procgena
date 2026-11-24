@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FieldPlant, FieldPreset, PlantArrangement, PlantBranches, PlantField, PlantParams,
-    PlantPreset, PlantSegment, Vec2,
+    Color, Cow, PlantArrangement, PlantBranches, PlantParams, PlantPreset, PlantScatter,
+    PlantScatterPreset, PlantSegment, ScatterPlant, Vec2,
 };
 
 // Each matching field preset grows the named shrub in clumps, with grass
@@ -87,13 +87,13 @@ SHRUBS "Shrubs" {
         name: "Broom",
         description: "Broom bushes scattered through meadow grass.\n\n\
                       Clumps of tall green rods stand well above the grass.",
-    } => PlantField {
+    } => PlantScatter {
         // Meadow grass fills most planting positions, leaving clumps of broom.
         plants: Cow::Borrowed(&[
-            FieldPlant::new(PlantParams::MEADOW_GRASS).clustered(0.6),
-            FieldPlant::new(PlantParams::BROOM),
+            ScatterPlant::new(PlantParams::MEADOW_GRASS).clustered(0.6),
+            ScatterPlant::new(PlantParams::BROOM),
         ]),
-        ..FieldPreset::MEADOW.field
+        ..PlantScatterPreset::MEADOW.plant_scatter
     };
 }
 }

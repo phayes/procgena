@@ -97,7 +97,7 @@ fn texels_of(images: &Assets<Image>, handle: &Handle<Image>) -> (bevy::math::UVe
 #[test]
 fn a_ground_from_a_function_is_its_heights_at_each_cell_centre() {
     let mut images = Assets::<Image>::default();
-    let field = PlantField {
+    let field = PlantScatter {
         size: Vec2::new(4.0, 2.0),
         ..Default::default()
     }
@@ -129,7 +129,7 @@ fn a_ground_from_a_function_is_its_heights_at_each_cell_centre() {
 #[test]
 fn a_density_from_a_function_is_a_mask_at_full_height() {
     let mut images = Assets::<Image>::default();
-    let field = PlantField {
+    let field = PlantScatter {
         size: Vec2::splat(2.0),
         ..Default::default()
     }
@@ -156,7 +156,7 @@ fn a_density_from_a_function_is_a_mask_at_full_height() {
 #[test]
 fn the_cells_never_exceed_4096_per_side() {
     let mut images = Assets::<Image>::default();
-    let field = PlantField {
+    let field = PlantScatter {
         size: Vec2::new(10_000.0, 1.0),
         ..Default::default()
     }

@@ -108,7 +108,7 @@ fn setup(
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
     commands.spawn((
-        PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::splat(64.0)),
+        PlantScatter::from_preset(&PlantScatterPreset::TALL_PRAIRIE, Vec2::splat(64.0)),
         REGROWTH,
         Meadow,
     ));

@@ -1,0 +1,6 @@
+# The `meadow_grass` plant preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Meadow grass
+description: Fresh green, soft blades of mixed heights. The default plant.
+group: Grasses

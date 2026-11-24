@@ -32,11 +32,13 @@ use super::view::{
 };
 use crate::PlantPlugin;
 use crate::PlantWind;
-use crate::api::{FieldPlant, PlantField, PlantGround, PlantInteractor, PlantInteractorFootprint};
-use crate::fields::{CHUNK_SIZE, FieldTables};
+use crate::api::{
+    PlantGround, PlantInteractor, PlantInteractorFootprint, PlantScatter, ScatterPlant,
+};
 use crate::gpu_layout::{FieldGpu, NO_CLASS};
 use crate::mirror;
-use crate::presets::FieldPreset;
+use crate::presets::PlantScatterPreset;
+use crate::scatters::{CHUNK_SIZE, FieldTables};
 use crate::shader_model::{self, ChunkLayout, DistanceLod, TILE_POINTS};
 
 /// Copies a buffer to the CPU, waiting for the GPU.
@@ -260,7 +262,7 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
                 field.shape.y
             } else {
                 height
-            } * crate::fields::reach_factor(&field.levels);
+            } * crate::scatters::reach_factor(&field.levels);
             if height < 0.01 || !sphere_visible(&view.planes, root + Vec3::Y * height * 0.5, reach)
             {
                 continue;
@@ -408,7 +410,7 @@ fn headless_app_with(transform: Transform, ground: PlantGround) -> App {
         Transform::from_xyz(-5.0, 1.7, 30.0).looking_at(Vec3::new(5.0, 0.0, 0.0), Vec3::Y),
     ));
     world.spawn((
-        PlantField {
+        PlantScatter {
             size: Vec2::new(70.0, 50.0),
             ground,
             ..default()
@@ -422,20 +424,20 @@ fn headless_app_with(transform: Transform, ground: PlantGround) -> App {
 
 /// Creates a headless scene with the supplied plants and appearance.
 /// Keeps the harness's field size and ground.
-fn app_with_field(field: PlantField) -> App {
+fn app_with_field(field: PlantScatter) -> App {
     let mut app = headless_app();
     set_harness_field(&mut app, field);
     app
 }
 
 /// Updates the harness's plants and appearance without changing size or ground.
-fn set_harness_field(app: &mut App, field: PlantField) {
+fn set_harness_field(app: &mut App, field: PlantScatter) {
     let world = app.world_mut();
     let mut harness = world
-        .query_filtered::<&mut PlantField, ()>()
+        .query_filtered::<&mut PlantScatter, ()>()
         .single_mut(world)
         .expect("the harness's field");
-    *harness = PlantField {
+    *harness = PlantScatter {
         size: harness.size,
         ground: harness.ground.clone(),
         density_map: harness.density_map.clone(),

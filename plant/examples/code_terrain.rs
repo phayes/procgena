@@ -103,7 +103,7 @@ fn setup(
     ));
 
     // The terrain, in chunks, fading to the grass colour past the last blade.
-    let field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(SIZE));
+    let field = PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(SIZE));
     let terrain = ground.add(FarPlantMaterial {
         base: StandardMaterial {
             base_color: Color::srgb(0.2, 0.15, 0.09),

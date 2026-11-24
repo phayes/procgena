@@ -170,10 +170,10 @@ fn setup(
         density: 36.0,
         height: Vec2::new(0.4, 0.9),
         width: 0.05,
-        ..FieldPreset::TALL_PRAIRIE.field.plants[0].plant
+        ..PlantScatterPreset::TALL_PRAIRIE.plant_scatter.plants[0].plant
     };
-    commands.spawn(PlantField {
-        plants: vec![FieldPlant::new(plant)].into(),
-        ..PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::splat(64.0))
+    commands.spawn(PlantScatter {
+        plants: vec![ScatterPlant::new(plant)].into(),
+        ..PlantScatter::from_preset(&PlantScatterPreset::TALL_PRAIRIE, Vec2::splat(64.0))
     });
 }

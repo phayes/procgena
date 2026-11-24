@@ -133,7 +133,7 @@ fn box_visible(lo: vec3<f32>, hi: vec3<f32>) -> bool {
 }
 
 /// `v`, given along the field's own axes, in world XZ. Unturned it is `v`
-/// exactly. Twin of `fields::turn`.
+/// exactly. Twin of `scatters::turn`.
 fn field_turn(field: Field, v: vec2<f32>) -> vec2<f32> {
     let x = field.axis.xy;
     return x * v.x + vec2<f32>(-x.y, x.x) * v.y;

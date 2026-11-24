@@ -2,7 +2,7 @@
 //! runs, and read back on the CPU for gameplay.
 //!
 //! A field's density mask says where grass grows and how tall: red is
-//! density, green a height multiplier (`PlantField::density_map`). Edits
+//! density, green a height multiplier (`PlantScatter::density_map`). Edits
 //! change that mask and nothing else, so the shaders draw an edited field
 //! exactly as they draw a painted one, and a game that edits nothing pays
 //! nothing.
@@ -37,11 +37,11 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::time::Time;
 use bevy::transform::components::{GlobalTransform, Transform};
 
-use crate::api::PlantField;
-use crate::fields::{FieldFrame, FieldSlot, FieldTables, TablesDirty};
+use crate::api::PlantScatter;
 use crate::gpu_layout::{FieldGpu, NO_MAP};
 use crate::ground::HOLE;
 use crate::packed::{self, PackedImages};
+use crate::scatters::{FieldFrame, FieldSlot, FieldTables, TablesDirty};
 use crate::shader_model::{bare_noise, gust_noise_table, hash2, unit};
 use crate::{PlantStats, PlantSystems};
 
@@ -184,7 +184,7 @@ pub enum PlantEditOp {
 /// waits for it.
 ///
 /// A field remembers its edits until it is despawned or its
-/// [`density_map`](PlantField::density_map) changes (a different image, or
+/// [`density_map`](PlantScatter::density_map) changes (a different image, or
 /// that image modified or reloaded), which starts it again from the new mask.
 #[derive(Message, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Debug, PartialEq)]
@@ -412,7 +412,7 @@ impl Default for PlantBrushFootprint {
 /// # use procgena_plant::prelude::*;
 /// # fn setup(mut commands: Commands) {
 /// commands.spawn((
-///     PlantField::from_preset(&FieldPreset::LAWN, Vec2::splat(64.0)),
+///     PlantScatter::from_preset(&PlantScatterPreset::LAWN, Vec2::splat(64.0)),
 ///     // Mowed lawn is back to full height in about a minute; paths through
 ///     // it never close.
 ///     PlantRegrowth { density_rate: 0.0, height_rate: 0.015 },
@@ -453,7 +453,7 @@ pub struct PlantSample {
     /// distance or quality.
     pub density: f32,
     /// Plants per square metre here: the field's
-    /// [`density`](crate::PlantField::density) times `density`.
+    /// [`density`](crate::PlantScatter::density) times `density`.
     pub blades_per_m2: f32,
     /// How tall the grass is here, as a share of its full height: the mask's
     /// height with every edit. Mowed grass is below 1.
@@ -539,7 +539,7 @@ impl PlantSampler<'_> {
     /// `field`'s density mask as it is now, edits and all, as an RGBA image
     /// (red density, green height, linear): save it with a game, or keep what
     /// was painted in the game as the field's new
-    /// [`density_map`](PlantField::density_map). `None` for a field with no
+    /// [`density_map`](PlantScatter::density_map). `None` for a field with no
     /// mask and no edits, or not drawn yet.
     #[must_use]
     pub fn mask_image(&self, field: Entity) -> Option<Image> {
@@ -1279,7 +1279,7 @@ pub(crate) struct EditLayers {
 
 impl EditLayers {
     /// `entity`'s layer, if it was made from the mask `field` has now.
-    pub(crate) fn layer_of(&self, entity: Entity, field: &PlantField) -> Option<&Layer> {
+    pub(crate) fn layer_of(&self, entity: Entity, field: &PlantScatter) -> Option<&Layer> {
         let source = field.density_map.as_ref().map(Handle::id);
         self.layers
             .get(&entity)
@@ -1291,7 +1291,7 @@ impl EditLayers {
     fn layer_mut(
         &mut self,
         entity: Entity,
-        field: &PlantField,
+        field: &PlantScatter,
         frame: &FieldFrame,
         sources: &mut Sources,
     ) -> Option<&mut Layer> {
@@ -1319,7 +1319,7 @@ impl EditLayers {
     /// loaded. Edits for a field keep their order.
     fn apply(
         &mut self,
-        (entity, field, frame): (Entity, &PlantField, &FieldFrame),
+        (entity, field, frame): (Entity, &PlantScatter, &FieldFrame),
         edit: &Edit,
         sources: &mut Sources,
         seed: u32,
@@ -1345,7 +1345,7 @@ impl EditLayers {
         } else if !std::mem::replace(&mut self.warned, true) {
             warn!(
                 "procgena_plant: {MAX_WAITING} edits are waiting for the density map of the \
-                 PlantField {entity} to load; further edits to it are dropped until it does."
+                 PlantScatter {entity} to load; further edits to it are dropped until it does."
             );
         }
     }
@@ -1419,8 +1419,8 @@ pub(crate) fn plugin(app: &mut App) {
 /// new mask. Regrowth whose rates changed looks at every tile again.
 pub(crate) fn forget_stale_layers(
     mut edits: ResMut<EditLayers>,
-    mut removed: RemovedComponents<PlantField>,
-    changed: Query<(Entity, &PlantField), Changed<PlantField>>,
+    mut removed: RemovedComponents<PlantScatter>,
+    changed: Query<(Entity, &PlantScatter), Changed<PlantScatter>>,
     mut images: MessageReader<AssetEvent<Image>>,
     regrowth: Query<Entity, Changed<PlantRegrowth>>,
 ) {
@@ -1455,7 +1455,7 @@ pub(crate) fn apply_edits(
         &GlobalTransform,
         Option<&PlantBrushFootprint>,
     )>,
-    fields: Query<(Entity, &PlantField, &GlobalTransform)>,
+    fields: Query<(Entity, &PlantScatter, &GlobalTransform)>,
     (images, mut cache, mut dirty): (
         Res<Assets<Image>>,
         ResMut<PackedImages>,

@@ -6,7 +6,7 @@ use crate::look::MAX_PLANTS;
 
 /// The lines around the generated tables in `docs/presets.md`.
 const TABLE_START: &str =
-    "<!-- preset numbers: written by `BLESS_PRESETS=1 cargo test`, do not edit -->";
+    "<!-- preset numbers: checked against the constants by a test, do not edit by hand -->";
 const TABLE_END: &str = "<!-- end of preset numbers -->";
 
 /// How high `plant` reaches: a branched plant's highest point at rest, or an
@@ -23,11 +23,11 @@ fn top_of(plant: &PlantParams) -> f32 {
 /// This keeps the dimensions readers use to choose plants in sync with the code.
 fn preset_tables() -> String {
     let mut table = String::from(
-        "| Field preset | Name | Plants | Tallest plant (m) | Plants per m² | Spacing (cm) |\n\
+        "| Scatter preset | Name | Plants | Tallest plant (m) | Plants per m² | Spacing (cm) |\n\
          | --- | --- | --- | --- | --- | --- |\n",
     );
-    for preset in FieldPreset::all() {
-        let field = &preset.field;
+    for preset in PlantScatterPreset::all() {
+        let field = &preset.plant_scatter;
         let tallest = field
             .plants
             .iter()
@@ -67,7 +67,7 @@ fn preset_tables() -> String {
 
 #[test]
 fn the_preset_numbers_in_the_docs_match_the_constants() {
-    // `BLESS_PRESETS=1 cargo test` rewrites the tables from the constants.
+    // When a preset changes, copy the table this test prints into the page.
     let path = format!("{}/docs/presets.md", env!("CARGO_MANIFEST_DIR"));
     // The crates.io package leaves `docs/` out; there is nothing to check.
     let Ok(page) = std::fs::read_to_string(&path) else {
@@ -82,23 +82,18 @@ fn the_preset_numbers_in_the_docs_match_the_constants() {
         .expect("docs/presets.md has the table's end line");
     let written = page[start..end].trim();
     let table = preset_tables();
-    if std::env::var_os("BLESS_PRESETS").is_some() {
-        let blessed = format!("{}\n{}\n{}", &page[..start], table, &page[end..]);
-        std::fs::write(&path, blessed).unwrap();
-        return;
-    }
     assert_eq!(
         written,
         table.trim(),
-        "docs/presets.md is out of date: run `BLESS_PRESETS=1 cargo test`"
+        "docs/presets.md is out of date: replace its table with the one above"
     );
 }
 
 #[test]
 fn every_field_preset_grows_something_and_fits() {
-    for preset in FieldPreset::all() {
+    for preset in PlantScatterPreset::all() {
         let key = &preset.key;
-        let plants = &preset.field.plants;
+        let plants = &preset.plant_scatter.plants;
         assert!(!plants.is_empty(), "{key}");
         assert!(
             plants.len() <= MAX_PLANTS,
@@ -108,9 +103,13 @@ fn every_field_preset_grows_something_and_fits() {
             assert!(entry.density() > 0.0, "{key}: every plant grows");
             assert!((0.0..=1.0).contains(&entry.clustering), "{key}");
         }
-        assert_eq!(preset.field.size, Vec2::ZERO, "{key}: a preset has no size");
-        assert_eq!(preset.field.ground, PlantGround::Flat, "{key}");
-        assert!(preset.field.density_map.is_none(), "{key}");
+        assert_eq!(
+            preset.plant_scatter.size,
+            Vec2::ZERO,
+            "{key}: a preset has no size"
+        );
+        assert_eq!(preset.plant_scatter.ground, PlantGround::Flat, "{key}");
+        assert!(preset.plant_scatter.density_map.is_none(), "{key}");
         assert!(
             !preset.name.is_empty() && !preset.description.is_empty(),
             "{key}"
@@ -122,14 +121,14 @@ fn every_field_preset_grows_something_and_fits() {
 fn keys_and_names_are_unique_and_named_finds_every_preset() {
     let mut keys = HashSet::new();
     let mut names = HashSet::new();
-    for preset in FieldPreset::all() {
+    for preset in PlantScatterPreset::all() {
         assert!(keys.insert(&preset.key), "field key {} twice", preset.key);
         assert!(
             names.insert(&preset.name),
             "field name {} twice",
             preset.name
         );
-        assert_eq!(FieldPreset::named(&preset.key), Some(preset));
+        assert_eq!(PlantScatterPreset::named(&preset.key), Some(preset));
     }
     let (mut keys, mut names) = (HashSet::new(), HashSet::new());
     for preset in PlantPreset::all() {
@@ -142,8 +141,11 @@ fn keys_and_names_are_unique_and_named_finds_every_preset() {
         assert_eq!(PlantPreset::named(&preset.key), Some(preset));
         assert!(!preset.description.is_empty(), "{}", preset.key);
     }
-    assert!(FieldPreset::named("NOT_A_PRESET").is_none());
-    assert!(PlantPreset::named("NOT_A_PRESET").is_none());
+    assert!(PlantScatterPreset::named("not_a_preset").is_none());
+    assert!(PlantPreset::named("not_a_preset").is_none());
+    // Keys are lower case; the constant's name is no other spelling of one.
+    assert!(PlantScatterPreset::named("MEADOW").is_none());
+    assert!(PlantPreset::named("FERN").is_none());
 }
 
 #[test]
@@ -151,15 +153,22 @@ fn a_plant_preset_is_its_plant_constant() {
     assert_eq!(PlantPreset::FERN.plant, PlantParams::FERN);
     assert_eq!(PlantPreset::MEADOW_GRASS.plant, PlantParams::MEADOW_GRASS);
     assert_eq!(PlantPreset::BROOM.plant, PlantParams::BROOM);
-    assert_eq!(PlantPreset::FERN.key, "FERN");
+    assert_eq!(PlantPreset::FERN.key, "fern");
     assert_eq!(PlantPreset::FERN.group, "Ground cover");
-    assert_eq!(FieldPreset::MEADOW.key, "MEADOW");
-    assert_eq!(FieldPreset::MEADOW.group, "General");
+    assert_eq!(PlantScatterPreset::MEADOW.key, "meadow");
+    assert_eq!(
+        PlantScatterPreset::RYE_AND_CORNFLOWERS.key,
+        "rye_and_cornflowers"
+    );
+    assert_eq!(PlantScatterPreset::MEADOW.group, "General");
     // The group arrays list each preset once, in order.
-    assert_eq!(FieldPreset::GENERAL[0], FieldPreset::MEADOW);
+    assert_eq!(PlantScatterPreset::GENERAL[0], PlantScatterPreset::MEADOW);
     assert_eq!(PlantPreset::GRASSES[0], PlantPreset::MEADOW_GRASS);
-    let listed: usize = FieldPreset::GROUPS.iter().map(|group| group.len()).sum();
-    assert_eq!(listed, FieldPreset::all().count());
+    let listed: usize = PlantScatterPreset::GROUPS
+        .iter()
+        .map(|group| group.len())
+        .sum();
+    assert_eq!(listed, PlantScatterPreset::all().count());
 }
 
 #[test]
@@ -176,16 +185,16 @@ fn every_plant_preset_grows_at_a_density_of_its_own() {
     }
     // A field preset grows no denser than its densest plant could on its own
     // within twice its scale, so preset scales stay near 1 or below.
-    for preset in FieldPreset::all() {
-        for entry in preset.field.plants.iter() {
+    for preset in PlantScatterPreset::all() {
+        for entry in preset.plant_scatter.plants.iter() {
             assert!(
-                entry.density_scale <= 2.0 && preset.field.density_scale <= 2.0,
+                entry.density_scale <= 2.0 && preset.plant_scatter.density_scale <= 2.0,
                 "{}: scales stay near the plants' own densities",
                 preset.key
             );
         }
     }
-    let broom = &FieldPreset::BROOM.field.plants;
+    let broom = &PlantScatterPreset::BROOM.plant_scatter.plants;
     assert_eq!(
         broom.last().map(|entry| entry.plant),
         Some(PlantParams::BROOM)

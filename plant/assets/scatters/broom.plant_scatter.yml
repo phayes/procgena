@@ -1,0 +1,14 @@
+# The `broom` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Broom
+description: |-
+  Broom bushes scattered through meadow grass.
+
+  Clumps of tall green rods stand well above the grass.
+group: Shrubs
+plant_scatter:
+  plants:
+  - plant: meadow_grass
+    clustering: 0.6
+  - plant: broom

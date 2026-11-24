@@ -1,0 +1,32 @@
+# The `poppy` plant preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Poppy
+description: Red flowers on tall stems, like field poppies.
+group: Ground cover
+plant:
+  density: 20.0
+  height:
+  - 0.8
+  - 1.25
+  width: 0.01
+  lean: 0.08
+  root_occlusion: 0.65
+  translucency: 0.4
+  specular: 0.0
+  head_length: 0.1
+  head_width: 0.065
+  head_color:
+  - 0.86
+  - 0.1
+  - 0.06
+  segment:
+    stiffness: 0.5
+    root_color:
+    - 0.05
+    - 0.11
+    - 0.03
+    tip_color:
+    - 0.24
+    - 0.42
+    - 0.12

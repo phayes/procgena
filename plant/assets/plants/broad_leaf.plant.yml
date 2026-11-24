@@ -1,0 +1,29 @@
+# The `broad_leaf` plant preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Broad leaf
+description: Wide, folded leaves that arch over, like plantain or dock.
+group: Ground cover
+plant:
+  density: 20.0
+  height:
+  - 0.2
+  - 0.45
+  width: 0.06
+  lean: 0.3
+  root_occlusion: 0.55
+  translucency: 0.5
+  specular: 0.0
+  segment:
+    stiffness: 0.4
+    droop: 0.6
+    twist: 0.1
+    fold: 0.5
+    root_color:
+    - 0.04
+    - 0.09
+    - 0.03
+    tip_color:
+    - 0.2
+    - 0.38
+    - 0.1

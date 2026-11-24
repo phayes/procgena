@@ -10,11 +10,11 @@ use bevy::shape::ViewFrustum;
 use bevy::transform::components::Transform;
 
 use super::*;
-use crate::api::{PlantField, PlantParams};
+use crate::api::{PlantParams, PlantScatter};
 
 /// The field systems with every field visible, and the tables they build.
 fn tables_for(fields: &[(Vec2, Transform)]) -> FieldTables {
-    fn show(mut fields: Query<&mut InheritedVisibility, With<PlantField>>) {
+    fn show(mut fields: Query<&mut InheritedVisibility, With<PlantScatter>>) {
         for mut visibility in &mut fields {
             *visibility = InheritedVisibility::VISIBLE;
         }
@@ -27,10 +27,10 @@ fn tables_for(fields: &[(Vec2, Transform)]) -> FieldTables {
             PostUpdate,
             show.in_set(VisibilitySystems::VisibilityPropagate),
         )
-        .add_plugins(crate::fields::plugin);
+        .add_plugins(crate::scatters::plugin);
     for &(size, transform) in fields {
         app.world_mut().spawn((
-            PlantField {
+            PlantScatter {
                 size,
                 ..Default::default()
             },

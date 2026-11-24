@@ -95,7 +95,7 @@ fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_a_field_moves_by_its_own_wind_scale() {
-    use crate::api::PlantField;
+    use crate::api::PlantScatter;
 
     let mut app = headless_app();
     // A steady storm, so every blade bends alike, and far.
@@ -121,12 +121,12 @@ fn gpu_a_field_moves_by_its_own_wind_scale() {
 
     let field = app
         .world_mut()
-        .query_filtered::<Entity, With<PlantField>>()
+        .query_filtered::<Entity, With<PlantScatter>>()
         .single(app.world())
         .unwrap();
     for scale in [0.5f32, 0.0, 2.0] {
         app.world_mut()
-            .get_mut::<PlantField>(field)
+            .get_mut::<PlantScatter>(field)
             .expect("the harness's field")
             .wind_scale = scale;
         let scaled = mean_bend(&mut app);

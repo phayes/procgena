@@ -15,7 +15,7 @@ use bevy::transform::components::GlobalTransform;
 
 use crate::PlantInteractorFootprint;
 use crate::PlantSettings;
-use crate::fields::{CHUNK_SIZE, FieldTables};
+use crate::scatters::{CHUNK_SIZE, FieldTables};
 
 /// Cells along each side of the window. The WESL twin is `TRAMPLE_TEXELS`.
 /// It is a power of two, which is what makes a cell's slot a mask.

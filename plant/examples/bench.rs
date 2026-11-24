@@ -36,7 +36,7 @@
 //! The fields are the M3 look, without the optional terms (sheen, ground tint,
 //! toon bands) or any variation, so runs stay comparable across versions;
 //! each term and each kind of variation has a flag, to measure what it
-//! costs. The variation flags take `FieldPreset::SUMMER_WILD`'s settings:
+//! costs. The variation flags take `PlantScatterPreset::SUMMER_WILD`'s settings:
 //! `--species` its other plants (whose heads also turn on the shape code),
 //! `--tufts` its grass's tufts and the field's bare patches, `--shape` its
 //! grass's twist, droop and fold, `--variation` its colour patches, dry tips
@@ -134,7 +134,7 @@ struct Bench {
     shape: bool,
     variation: bool,
     /// Optional `--field` preset used in place of the benchmark's default field.
-    field: Option<&'static FieldPreset>,
+    field: Option<&'static PlantScatterPreset>,
     /// Distances marked by `--lod-rings`, in metres from the camera.
     ///
     /// The rings follow the ground and mark the start of mid detail, far detail
@@ -172,7 +172,7 @@ struct Cli {
     tufts: bool,
     shape: bool,
     variation: bool,
-    field: Option<&'static FieldPreset>,
+    field: Option<&'static PlantScatterPreset>,
     lod_rings: bool,
     single_threaded: bool,
     plugin: bool,
@@ -237,7 +237,7 @@ fn parse_cli() -> Cli {
             "--field" => {
                 let name = args.next().expect("--field needs a preset name");
                 let preset = named_field(&name).unwrap_or_else(|| {
-                    panic!("unknown field {name}; use a FieldPreset, such as forest_ferns")
+                    panic!("unknown field {name}; use a PlantScatterPreset, such as forest_ferns")
                 });
                 cli.field = Some(preset);
             }
@@ -285,10 +285,10 @@ fn parse_cli() -> Cli {
     cli
 }
 
-/// Finds a field preset case-insensitively; `forest_ferns` selects
-/// `FOREST_FERNS`.
-fn named_field(name: &str) -> Option<&'static FieldPreset> {
-    FieldPreset::named(&name.to_ascii_uppercase())
+/// Finds a Scatter preset case-insensitively; `Forest_Ferns` selects
+/// `forest_ferns`.
+fn named_field(name: &str) -> Option<&'static PlantScatterPreset> {
+    PlantScatterPreset::named(&name.to_ascii_lowercase())
 }
 
 fn main() {
@@ -467,13 +467,13 @@ fn terrain_mesh() -> Mesh {
 
 /// Selects the requested preset or the camera mode's default benchmark field,
 /// then applies the look and variation flags.
-fn bench_field(bench: &Bench) -> PlantField {
+fn bench_field(bench: &Bench) -> PlantScatter {
     // DEMO ARPG GAME's blades are wider and fewer than a perspective game's (the
     // `arpg_camera` example's field); its camera asks for 2-pixel minimum width.
     let mut field = if let Some(preset) = bench.field {
-        preset.field.clone()
+        preset.plant_scatter.clone()
     } else if bench.orthographic {
-        let prairie = &FieldPreset::TALL_PRAIRIE.field;
+        let prairie = &PlantScatterPreset::TALL_PRAIRIE.plant_scatter;
         let plant = PlantParams {
             // 36, not 45: the look approved at gate G1 drew 36 per m² while a
             // rounding bug capped 45 (fixed in the perf pass).
@@ -482,14 +482,14 @@ fn bench_field(bench: &Bench) -> PlantField {
             width: 0.05,
             ..prairie.plants[0].plant
         };
-        PlantField {
-            plants: vec![FieldPlant::new(plant)].into(),
+        PlantScatter {
+            plants: vec![ScatterPlant::new(plant)].into(),
             ..prairie.clone()
         }
     } else {
-        FieldPreset::MEADOW.field.clone()
+        PlantScatterPreset::MEADOW.plant_scatter.clone()
     };
-    let wild = &FieldPreset::SUMMER_WILD.field;
+    let wild = &PlantScatterPreset::SUMMER_WILD.plant_scatter;
     let (wild_grass, wild_others) = wild.plants.split_last().expect("summer wild has plants");
 
     // The field's settings.
@@ -505,7 +505,7 @@ fn bench_field(bench: &Bench) -> PlantField {
             .expect("a bench field has plants");
         let density = field.density();
         let mut plants = wild_others.to_vec();
-        plants.push(FieldPlant {
+        plants.push(ScatterPlant {
             density_scale: wild_grass.density() / main.plant.density,
             ..main
         });
@@ -601,7 +601,7 @@ fn setup(
     if !bench.plants {
         return;
     }
-    commands.spawn(PlantField {
+    commands.spawn(PlantScatter {
         size: Vec2::splat(TERRAIN_SIZE),
         ground: PlantGround::Heightmap {
             image: images.add(heightmap()),
@@ -877,11 +877,11 @@ mod tests {
     fn a_field_is_named_in_any_case() {
         assert_eq!(
             named_field("forest_ferns"),
-            Some(&FieldPreset::FOREST_FERNS)
+            Some(&PlantScatterPreset::FOREST_FERNS)
         );
         assert_eq!(
             named_field("Forest_Ferns"),
-            Some(&FieldPreset::FOREST_FERNS)
+            Some(&PlantScatterPreset::FOREST_FERNS)
         );
         assert_eq!(named_field("no_such_field"), None);
     }

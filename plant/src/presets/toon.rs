@@ -1,12 +1,13 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantAccent, PlantBranches,
-    PlantField, PlantParams, PlantSegment, PlantVariation, Vec2,
+    Color, Cow, GroundTint, PlantAccent, PlantBranches, PlantParams, PlantScatter,
+    PlantScatterPreset, PlantSegment, PlantVariation, SCATTER_BASE, ScatterPlant, Vec2,
 };
 
 /// A flower for the toon fields: a short stem and a big, flat-coloured head,
 /// 20 to the square metre on its own.
 const fn toon_flower(height: Vec2, head_color: Color) -> PlantParams {
     PlantParams {
+        default_seed: 0,
         density: 20.0,
         height,
         width: 0.015,
@@ -42,15 +43,15 @@ TOON "Toon" {
         description: "A cel-shaded field in the manner of open-world adventure games: wide, \
                       saturated blades gathered into chunky tufts, two bands of light, and \
                       red and white flowers in clumps.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(toon_flower(Vec2::new(0.5, 0.9), Color::srgb(0.95, 0.25, 0.25)))
+            ScatterPlant::new(toon_flower(Vec2::new(0.5, 0.9), Color::srgb(0.95, 0.25, 0.25)))
                 .scaled(0.055)
                 .clustered(0.7),
-            FieldPlant::new(toon_flower(Vec2::new(0.5, 0.9), Color::srgb(0.98, 0.97, 0.92)))
+            ScatterPlant::new(toon_flower(Vec2::new(0.5, 0.9), Color::srgb(0.98, 0.97, 0.92)))
                 .scaled(0.055)
                 .clustered(0.7),
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 19.8,
                     height: Vec2::new(0.35, 0.75),
@@ -78,31 +79,31 @@ TOON "Toon" {
             patch_color: Color::srgb(0.75, 0.95, 0.35),
             patch_amount: 0.3,
             patch_size: 10.0,
-            ..FIELD_BASE.variation
+            ..SCATTER_BASE.variation
         },
         ground_tint: GroundTint {
             color: Color::srgb(0.30, 0.45, 0.20),
             amount: 0.4,
         },
         toon_bands: 2,
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     COZY_PASTEL {
         name: "Cosy pastel",
         description: "Short, soft, floppy mint grass with pastel flowers and four soft bands \
                       of light: cosy and casual games.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(toon_flower(Vec2::new(0.25, 0.45), Color::srgb(0.98, 0.62, 0.78)))
+            ScatterPlant::new(toon_flower(Vec2::new(0.25, 0.45), Color::srgb(0.98, 0.62, 0.78)))
                 .scaled(0.15)
                 .clustered(0.7),
-            FieldPlant::new(toon_flower(Vec2::new(0.25, 0.45), Color::srgb(0.72, 0.62, 0.98)))
+            ScatterPlant::new(toon_flower(Vec2::new(0.25, 0.45), Color::srgb(0.72, 0.62, 0.98)))
                 .scaled(0.12)
                 .clustered(0.7),
-            FieldPlant::new(toon_flower(Vec2::new(0.25, 0.45), Color::srgb(1.00, 0.88, 0.45)))
+            ScatterPlant::new(toon_flower(Vec2::new(0.25, 0.45), Color::srgb(1.00, 0.88, 0.45)))
                 .scaled(0.12)
                 .clustered(0.7),
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 52.2,
                     height: Vec2::new(0.15, 0.35),
@@ -130,14 +131,14 @@ TOON "Toon" {
             patch_color: Color::srgb(0.95, 0.92, 0.70),
             patch_amount: 0.25,
             patch_size: 6.0,
-            ..FIELD_BASE.variation
+            ..SCATTER_BASE.variation
         },
         ground_tint: GroundTint {
             color: Color::srgb(0.55, 0.72, 0.50),
             amount: 0.3,
         },
         toon_bands: 4,
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
 }
 }

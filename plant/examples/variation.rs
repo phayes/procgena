@@ -1,7 +1,7 @@
 //! Variation, one kind at a time: a wild field with each kind of variation
 //! switched on and off, to see what each adds.
 //!
-//! The field is loaded from its `.field.ron` file in `assets/fields`,
+//! The field is loaded from its `.plant_scatter.yml` file in `assets/scatters`,
 //! so editing the file and saving it changes the running example; the
 //! switches apply on top.
 //!
@@ -58,7 +58,7 @@ struct Start {
 /// The loaded field preset and the variation switches applied to its settings.
 #[derive(Resource)]
 struct Shown {
-    files: Vec<Handle<FieldPreset>>,
+    files: Vec<Handle<PlantScatterPreset>>,
     file: usize,
     switches: Switches,
     dirty: bool,
@@ -157,11 +157,11 @@ fn setup(
     }
 
     // Empty until the file has loaded; `refresh` fills it in.
-    commands.spawn(PlantField::new(Vec2::splat(80.0), Vec::new()));
+    commands.spawn(PlantScatter::new(Vec2::splat(80.0), Vec::new()));
     commands.insert_resource(Shown {
         files: FIELDS
             .iter()
-            .map(|name| assets.load(format!("fields/{name}.field.ron")))
+            .map(|name| assets.load(format!("scatters/{name}.plant_scatter.yml")))
             .collect(),
         file: start.file,
         switches: start.switches,
@@ -243,9 +243,9 @@ fn switch(
 /// Reapplies the switches when the field file or a switch changes.
 fn refresh(
     mut shown: ResMut<Shown>,
-    mut events: MessageReader<AssetEvent<FieldPreset>>,
-    presets: Res<Assets<FieldPreset>>,
-    mut fields: Query<&mut PlantField>,
+    mut events: MessageReader<AssetEvent<PlantScatterPreset>>,
+    presets: Res<Assets<PlantScatterPreset>>,
+    mut fields: Query<&mut PlantScatter>,
 ) {
     let file = shown.files[shown.file].id();
     if events
@@ -261,16 +261,16 @@ fn refresh(
         return;
     };
     for mut field in &mut fields {
-        *field = PlantField {
+        *field = PlantScatter {
             size: field.size,
-            ..apply(&preset.field, shown.switches)
+            ..apply(&preset.plant_scatter, shown.switches)
         };
     }
     shown.dirty = false;
 }
 
 /// `base` with the kinds of variation that are off taken out.
-fn apply(base: &PlantField, on: Switches) -> PlantField {
+fn apply(base: &PlantScatter, on: Switches) -> PlantScatter {
     let mut field = base.clone();
     if !on.plants
         && let Some(background) = field.plants.last().copied()

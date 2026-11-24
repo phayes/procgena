@@ -18,8 +18,8 @@ use bevy::math::{UVec2, Vec2, Vec3};
 use bevy::mesh::{Mesh, MeshAccessError, PrimitiveTopology};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
-use crate::api::{PlantField, PlantGround};
-use crate::fields::TablesDirty;
+use crate::api::{PlantGround, PlantScatter};
+use crate::scatters::TablesDirty;
 
 /// The height a baked ground has where the mesh does not reach: no blade
 /// grows there. Twin of `HOLE` in `generate.wesl`.
@@ -210,7 +210,7 @@ pub(crate) fn heights_image(heights: &[f32], texels: UVec2) -> Image {
 /// its field draws nothing instead of holding every other field back, and one
 /// warning.
 pub(crate) fn bake_mesh_grounds(
-    fields: Query<(Entity, &PlantField)>,
+    fields: Query<(Entity, &PlantScatter)>,
     meshes: Res<Assets<Mesh>>,
     mut events: MessageReader<AssetEvent<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -260,7 +260,7 @@ pub(crate) fn bake_mesh_grounds(
         let heights = bake(mesh, key.size, texels).unwrap_or_else(|error| {
             if warned.insert(entity) {
                 warn!(
-                    "procgena_plant: the mesh ground of the PlantField {entity} cannot be baked: \
+                    "procgena_plant: the mesh ground of the PlantScatter {entity} cannot be baked: \
                      {error}. The field draws nothing."
                 );
             }

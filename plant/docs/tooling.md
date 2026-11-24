@@ -52,13 +52,13 @@ procgena_plant = { version = "0.20.6", features = ["debug"] }
 
 Every public type is reflected, with the type data tools look for: every
 component has `ReflectComponent`, `PlantWind` and `PlantSettings` have
-`ReflectResource`, and `FieldPreset` and `PlantPreset` have `ReflectAsset`
+`ReflectResource`, and `PlantScatterPreset` and `PlantPreset` have `ReflectAsset`
 (the plugin calls `register_asset_reflect`). So fields, with their plants,
 can be spawned from `.scn.ron` scenes, BSN or Blender exporters such as Skein
 and Blenvy; `PlantWind`, `PlantSettings` and fields show up in the resource
 and entity panels of inspectors such as `bevy-inspector-egui`; and a designer
 can tune a meadow live there, down to one plant's colour
-(`plants[0].plant.segment.tip_color`), instead of editing RON.
+(`plants[0].plant.segment.tip_color`), instead of editing a file.
 
 ## Order your systems against the grass
 

@@ -16,7 +16,7 @@ use bevy::render::render_resource::{
 use bevy::render::texture::GpuImage;
 use bevy::shader::ShaderRef;
 
-use crate::api::{FieldPlant, PlantField, PlantParams, PlantSegment};
+use crate::api::{PlantParams, PlantScatter, PlantSegment, ScatterPlant};
 use crate::look::MAX_PLANTS;
 use crate::render::resources::WindUniform;
 use crate::wind::{PlantWindFrame, PlantWindSystems};
@@ -39,7 +39,7 @@ use crate::{PlantQuality, PlantSettings};
 ///         Mesh3d(meshes.add(Plane3d::default().mesh().size(500.0, 500.0))),
 ///         MeshMaterial3d(materials.add(FarPlantMaterial {
 ///             base: StandardMaterial::from_color(Color::srgb(0.2, 0.15, 0.09)),
-///             extension: FarPlants::new(&FieldPreset::MEADOW.field),
+///             extension: FarPlants::new(&PlantScatterPreset::MEADOW.plant_scatter),
 ///         })),
 ///     ));
 /// }
@@ -98,7 +98,7 @@ impl FarPlants {
     /// black. Call this again after
     /// changing plant colours if the distant ground should match.
     #[must_use]
-    pub fn new(field: &PlantField) -> Self {
+    pub fn new(field: &PlantScatter) -> Self {
         // Seen from afar, the upper part of the blades hides the rest. Lit,
         // grass is about half as bright as flat ground of its colour: blades
         // shade each other and catch the sun edge-on, while the ground faces
@@ -120,7 +120,7 @@ impl FarPlants {
         };
         // Only the plants a field grows count.
         let grown = &field.plants[..field.plants.len().min(MAX_PLANTS)];
-        let total: f32 = grown.iter().map(FieldPlant::density).sum();
+        let total: f32 = grown.iter().map(ScatterPlant::density).sum();
         let mixed = grown
             .iter()
             .filter(|plant| plant.density() > 0.0)
@@ -255,7 +255,7 @@ impl FarPlants {
 
 impl Default for FarPlants {
     fn default() -> Self {
-        Self::new(&PlantField::default())
+        Self::new(&PlantScatter::default())
     }
 }
 

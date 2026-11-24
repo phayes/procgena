@@ -141,7 +141,7 @@ commands.spawn((
 A camera far above the ground, like an ARPG's, wants thicker blades: its
 blades are thin on screen, so it asks for `min_width_px: Some(2.0)`. That is a
 property of the camera, not of the grass, which is why it is not on
-`PlantField`.
+`PlantScatter`.
 
 A perspective camera draws grass only within `radius` of the camera itself,
 in 3D: a camera 150 m above the ground reaches none at High's 100 m, however

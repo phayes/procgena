@@ -1,0 +1,11 @@
+# The `summer_tall` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Summer tall
+description: Tall green summer grass.
+group: Seasons
+plant_scatter:
+  ground_tint:
+    amount: 0.0
+  plants:
+  - plant: summer_tall_grass

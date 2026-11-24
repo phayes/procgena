@@ -28,7 +28,7 @@ app.insert_resource(PlantWind {
 There is one wind for the whole world, as there is one weather: every field
 sways in the same gusts, so two fields that meet never disagree at the seam.
 A field that should move less, in a courtyard, a canyon or a greenhouse,
-sets its `PlantField::wind_scale` to 0.3: the same gusts roll across it,
+sets its `PlantScatter::wind_scale` to 0.3: the same gusts roll across it,
 weaker, and 0 holds it still. A field on a windswept ridge can go above 1. A
 plant can also be stiffer: `PlantSegment::stiffness` runs
 from 0 (soft) to 1, and a blade at 1 bends a quarter as far as one at 0, and
