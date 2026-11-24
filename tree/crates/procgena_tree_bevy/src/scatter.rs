@@ -1,17 +1,17 @@
 //! Tree Scatters: many generated trees spread over ground and drawn by one
 //! entity.
 
+mod draw;
 mod prepare;
 mod promote;
-mod render;
 
+pub(crate) use draw::update_grove_draws;
 pub use prepare::{
     PrepareTreeScatter, TreeScatterPreparing, TreeScatterReady, tree_scatter_variants,
 };
 pub(crate) use prepare::{PreparedTrees, start_preparing, stop_preparing, track_preparing};
 pub use promote::{PromotedTree, TreeScatterHit, TreeScatterTrees};
 pub(crate) use promote::{demote_trees, sync_promoted_trees};
-pub(crate) use render::GroveRenderPlugin;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -161,7 +161,8 @@ pub struct PlacedTree {
 /// trees are placed and replaces it whenever they are placed again, so
 /// `Changed<TreeScatterInstances>` finds groves whose trees moved.
 ///
-/// Groves draw their trees themselves; the trees are not entities. To give
+/// Groves draw their trees through the shared instanced renderer (an
+/// `InstancedScatter` on the grove entity); the trees are not entities. To give
 /// one tree an entity of its own, for a collider or to interact with it, see
 /// [`PromotedTree`](crate::PromotedTree).
 #[derive(Component, Debug, Clone)]

@@ -1017,8 +1017,9 @@ anything beyond them is a new asset.
 
 ### Bringing your own assets
 
-Placement is the same for every Scatter; drawing is not. Trees draw through
-their own instanced renderer, and plants are built in a shader. So your own
+Placement is the same for every Scatter; drawing is not. Trees, stones,
+dead wood and mushrooms draw through the shared instanced renderer, and
+plants are built in a shader. So your own
 assets come in at two places:
 
 - **Your own meshes** (glTF or a `Specimen`) go into a
@@ -1633,14 +1634,17 @@ it starts.
   panics on a far form it doesn't know because `FarForm` is
   `#[non_exhaustive]`. Every asset's cache key can then hash its levels the
   same way.
-- [ ] **Shared instanced renderer**, from stone's pool and tree's grove
-  renderer; deadwood and mushroom move onto it. The renderer is built (R2):
+- [x] **Shared instanced renderer**, from stone's pool and tree's grove
+  renderer; deadwood and mushroom move onto it. Done in R2:
   `procgena_core_bevy::instanced`, with `InstancedScatter` (slots and
   copies), `SpecimenCache` keyed by `SpecimenId`, piece and detail level,
   `InstancedMaterialPlugin` for any material with an `INSTANCED` vertex
-  path, and external meshes for GPU-built specimens. Stone, deadwood and
-  mushroom scatters draw through it. Still to do: tree (its grove renderer
-  in `tree_bevy/src/scatter/render.rs`), with impostors as its last level.
+  path, and external meshes for GPU-built specimens. Tree groves, stone
+  pools, and deadwood and mushroom scatters draw through it; groves draw
+  their baked impostors as the last level. Left for later: tree's shaders
+  still name the per-copy input `GROVE` and read it themselves rather than
+  through `procgena_core_bevy::shaders::instanced`, and plant keeps its
+  own GPU path (rule 6).
 - [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`
   keyed by `SpecimenId` for any asset, not only trees, and baking ahead
   per Ecotope instead of per grove. The first half is done (I1): an
@@ -1673,8 +1677,9 @@ it starts.
   `Specimen`, so each asset builds a slot's specimen with its own API.
 - [ ] **One wind** for tree, plant and clumps on trees. The shared
   renderer carries a wind phase per copy (R2), which vertex shaders read
-  with `copy_wind_phase` from `procgena_core_bevy::shaders::instanced`; no
-  asset sways with it yet.
+  with `copy_wind_phase` from `procgena_core_bevy::shaders::instanced`.
+  Grove trees get a phase from their copy address, but tree's wind shader
+  still sways by world position and doesn't read it yet.
 - [x] **One preset and file pattern**: done in F3 (see rule 10). Left for
   later: `.biome.yml` files once `Biome` has serde (B1/W0), and presets
   and files for the stone, stick and mushroom Scatters, which have serde
