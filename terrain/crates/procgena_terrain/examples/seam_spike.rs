@@ -8,7 +8,8 @@
 //! Each world is written twice as a binary PPM image: joined, with rivers,
 //! ponds and roads; and with each region's own unbent terrain, for
 //! comparison. An optional second argument sets the relief blend (0 to 1,
-//! default 0.5; see `Convergence::blend`).
+//! default 0.5; see `Convergence::blend`). A third argument, `warped`,
+//! warps the borders with the default `BorderWarp`.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -51,8 +52,14 @@ fn main() -> std::io::Result<()> {
     let blend = std::env::args().nth(2).map_or(common::DEFAULT.blend, |b| {
         b.parse().expect("a blend from 0 to 1")
     });
+    let warp = match std::env::args().nth(3).as_deref() {
+        None => None,
+        Some("warped") => Some(procgena_terrain::BorderWarp::default()),
+        Some(other) => panic!("the third argument may only be `warped`, not {other}"),
+    };
     let config = common::Config {
         blend,
+        warp,
         ..common::DEFAULT
     };
     for (name, world) in [

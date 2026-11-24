@@ -4,9 +4,9 @@
 mod common;
 
 use common::{
-    CONFIGS, CURVED, FOUR_REGION_ENDS, JUNCTION, RIVER_SEEDS, TWO_REGION_BORDER, WITH_LAND,
+    CONFIGS, CURVED, FOUR_REGION_ENDS, JUNCTION, RIVER_SEEDS, TWO_REGION_BORDER, WARPED, WITH_LAND,
     assert_no_crack, four_regions, hills_into_plains, preset, triple_junction, two_regions,
-    two_terrains,
+    two_regions_warped, two_terrains,
 };
 use glam::{DVec2, I64Vec2, UVec2};
 use procgena_terrain::{HeightField, HeightTile, StitchedWorld, Terrain, TerrainPreset};
@@ -32,8 +32,81 @@ fn side(world: &StitchedWorld, p: DVec2) -> &Terrain {
 
 /// Checks height and slope continuity across a border of `world`.
 fn assert_continuous(world: &StitchedWorld, border: &[DVec2], label: &str) {
-    let h = 0.05;
-    for (q, n) in along(border, 40) {
+    assert_continuous_along(world, border, 40, label);
+}
+
+/// Every border between two regions of `world`, once each.
+fn shared_borders(world: &StitchedWorld) -> Vec<Vec<DVec2>> {
+    let mut seen = Vec::new();
+    let mut out = Vec::new();
+    for edge in world.terrains().iter().flat_map(|t| &t.region().edges) {
+        if edge.neighbor.is_some() && !seen.contains(&edge.id) {
+            seen.push(edge.id);
+            out.push(edge.polyline.clone());
+        }
+    }
+    out
+}
+
+/// [`assert_continuous`], at `per_segment` − 1 points on each straight
+/// piece of `border`.
+fn assert_continuous_along(
+    world: &StitchedWorld,
+    border: &[DVec2],
+    per_segment: usize,
+    label: &str,
+) {
+    assert_continuous_with_step(world, border, per_segment, Step::Short, label);
+}
+
+/// The largest difference in slope across a border that still counts as
+/// continuous.
+const SLOPE_LIMIT: f32 = 0.05;
+
+/// How far from the border slopes are read.
+#[derive(Clone, Copy)]
+enum Step {
+    /// First-order differences over 5 cm.
+    Short,
+    /// Second-order differences over 0.5 m and 1 m, so curved ground reads
+    /// the same slope from both sides.
+    Long,
+}
+
+/// The slope across a border at `q`: field `a` on the side `n` points to and
+/// field `b` on the other, each read only on its own side.
+fn slope_gap(
+    a: impl Fn(DVec2) -> f32,
+    b: impl Fn(DVec2) -> f32,
+    q: DVec2,
+    n: DVec2,
+    step: Step,
+) -> (f32, f32) {
+    let one_sided = |f: &dyn Fn(DVec2) -> f32, d: DVec2| match step {
+        Step::Short => (f(q + d * 0.05) - f(q)) / 0.05,
+        Step::Long => {
+            let [f0, f1, f2] = [0.0, 0.5, 1.0].map(|k| f64::from(f(q + d * k)));
+            ((-3.0 * f0 + 4.0 * f1 - f2) / 1.0) as f32
+        }
+    };
+    (one_sided(&a, n), -one_sided(&b, -n))
+}
+
+/// [`assert_continuous_along`], with slopes read at `step`.
+///
+/// Heights are `f32`, so on high ground they carry noise of about half a
+/// millimetre from point to point; [`Step::Short`] can read that as a slope
+/// change of a few hundredths. [`Step::Long`] reads it as under 0.005, and
+/// still catches a real change of slope (see
+/// `a_kink_just_over_the_limit_is_caught_at_half_metre_steps`).
+fn assert_continuous_with_step(
+    world: &StitchedWorld,
+    border: &[DVec2],
+    per_segment: usize,
+    step: Step,
+    label: &str,
+) {
+    for (q, n) in along(border, per_segment) {
         // Both terrains meet the same height on the border.
         let [a, b] = [side(world, q + n * 1.0), side(world, q - n * 1.0)];
         assert_ne!(
@@ -48,12 +121,33 @@ fn assert_continuous(world: &StitchedWorld, border: &[DVec2], label: &str) {
         );
 
         // The slope across the border matches, from one-sided differences.
-        let slope_a = (a.height(q + n * h) - ha) / h as f32;
-        let slope_b = (hb - b.height(q - n * h)) / h as f32;
+        let (slope_a, slope_b) = slope_gap(|p| a.height(p), |p| b.height(p), q, n, step);
         assert!(
-            (slope_a - slope_b).abs() < 0.05,
+            (slope_a - slope_b).abs() < SLOPE_LIMIT,
             "{label}: slopes differ at {q}: {slope_a} vs {slope_b}"
         );
+    }
+}
+
+#[test]
+fn a_kink_just_over_the_limit_is_caught_at_half_metre_steps() {
+    // Two planes meeting along a slanted line at the height of the warped
+    // test worlds, as f32 like terrain heights, with slopes across the line
+    // differing by just over the limit, or just under it.
+    let n = DVec2::new(0.6, 0.8);
+    let plane = |slope: f64| move |p: DVec2| (109.4 + slope * p.dot(n)) as f32;
+    for (change, kinked) in [(1.1 * SLOPE_LIMIT, true), (0.8 * SLOPE_LIMIT, false)] {
+        let change = f64::from(change);
+        for k in 0..200 {
+            let q = n.perp() * (f64::from(k) * 13.7 - 1300.0);
+            let (a, b) = slope_gap(plane(0.02 + change), plane(0.02), q, n, Step::Long);
+            assert_eq!(
+                (a - b).abs() >= SLOPE_LIMIT,
+                kinked,
+                "a slope change of {change} at {q} reads as {}",
+                a - b
+            );
+        }
     }
 }
 
@@ -146,6 +240,72 @@ fn assert_no_cracks(world: &StitchedWorld, area: (DVec2, DVec2), vertices: &[DVe
                 &format!("{label} ring {r} m around {v}"),
             );
         }
+    }
+}
+
+#[test]
+fn warped_borders_join_continuously() {
+    // Every preset pair on flat land, and the fixtures on every land.
+    let flat = WARPED[0];
+    for (i, west) in TerrainPreset::ALL.into_iter().enumerate() {
+        for (j, east) in TerrainPreset::ALL.into_iter().enumerate() {
+            let world = two_regions_warped(
+                DVec2::ZERO,
+                preset(west, flat.seed(1, i as u32 + 1)),
+                preset(east, flat.seed(1, j as u32 + 11)),
+                flat.convergence(),
+                &flat.elevation(),
+                flat.warp,
+            );
+            for border in shared_borders(&world) {
+                assert_continuous_with_step(
+                    &world,
+                    &border,
+                    4,
+                    Step::Long,
+                    &format!("warped {} | {}", west.name(), east.name()),
+                );
+            }
+        }
+    }
+    for config in WARPED {
+        let worlds = [
+            ("two terrains", two_terrains(DVec2::ZERO, config)),
+            ("triple junction", triple_junction(config)),
+        ]
+        .into_iter()
+        .chain(RIVER_SEEDS.map(|s| ("hills into plains", hills_into_plains(s, config))));
+        for (name, world) in worlds {
+            let borders = shared_borders(&world);
+            assert!(
+                borders.iter().all(|b| b.len() > 10),
+                "{name}: borders should be warped"
+            );
+            for border in borders {
+                let label = format!("{name}, {config:?}");
+                assert_continuous_with_step(&world, &border, 4, Step::Long, &label);
+            }
+        }
+    }
+}
+
+#[test]
+fn no_cracks_in_warped_borders() {
+    let area = (DVec2::new(-750.0, -1450.0), DVec2::new(750.0, 1450.0));
+    for config in WARPED {
+        let world = two_terrains(DVec2::ZERO, config);
+        let label = format!("warped two terrains, {config:?}");
+        assert_no_cracks(&world, area, &border(DVec2::ZERO)[1..4], &label);
+        let world = triple_junction(config);
+        let area = (DVec2::new(-1200.0, -1100.0), DVec2::new(1300.0, 1400.0));
+        let vertices = [
+            DVec2::new(JUNCTION.0, JUNCTION.1),
+            DVec2::new(-800.0, -500.0),
+            DVec2::new(-50.0, 900.0),
+            DVec2::new(700.0, -600.0),
+        ];
+        let label = format!("warped triple junction, {config:?}");
+        assert_no_cracks(&world, area, &vertices, &label);
     }
 }
 

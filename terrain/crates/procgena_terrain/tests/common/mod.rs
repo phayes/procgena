@@ -4,8 +4,8 @@
 
 use glam::DVec2;
 use procgena_terrain::{
-    Convergence, Elevation, ElevationOptions, HeightBump, HeightField, NoiseLayer, RegionId,
-    RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset,
+    BorderWarp, Convergence, Elevation, ElevationOptions, HeightBump, HeightField, NoiseLayer,
+    RegionId, RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset, warp_borders,
 };
 
 /// The largest height change between neighbouring samples along `path`
@@ -91,6 +91,31 @@ pub struct Config {
     pub blend: f32,
     /// The world elevation the regions stand on.
     pub land: Land,
+    /// How the borders between regions are warped, if at all. The warp is
+    /// seeded with the world seed 1, whatever the regions' own seeds.
+    pub warp: Option<BorderWarp>,
+}
+
+/// The border warp of warped test worlds: nearly the strongest allowed at
+/// the default wavelength (about 134 m).
+pub const TEST_WARP: BorderWarp = BorderWarp {
+    amplitude: 130.0,
+    wavelength: 800.0,
+};
+
+/// Builds `specs` into a world, with their borders warped by `warp`, if
+/// any, seeded with the world seed 1.
+pub fn stitch(
+    specs: Vec<RegionSpec>,
+    convergence: &Convergence,
+    elevation: &Elevation,
+    warp: Option<BorderWarp>,
+) -> Result<StitchedWorld, procgena_terrain::StitchError> {
+    let specs = match warp {
+        Some(warp) => warp_borders(&specs, &warp, 1).expect("the test warp is valid"),
+        None => specs,
+    };
+    StitchedWorld::build(specs, convergence, elevation)
 }
 
 impl Config {
@@ -142,7 +167,30 @@ pub const DEFAULT: Config = Config {
     meeting: procgena_terrain::DEFAULT_RELIEF_MEETING,
     blend: procgena_terrain::DEFAULT_RELIEF_BLEND,
     land: Land::Flat,
+    warp: None,
 };
+
+/// The usual world, on flat, tilted and curved land, and with unrelated
+/// region seeds on flat land, all with borders warped by [`TEST_WARP`].
+pub const WARPED: [Config; 4] = [
+    Config {
+        warp: Some(TEST_WARP),
+        ..DEFAULT
+    },
+    Config {
+        warp: Some(TEST_WARP),
+        ..TILTED
+    },
+    Config {
+        warp: Some(TEST_WARP),
+        ..CURVED
+    },
+    Config {
+        seeds: Seeds::Unrelated,
+        warp: Some(TEST_WARP),
+        ..DEFAULT
+    },
+];
 
 /// The usual world on a steady slope.
 pub const TILTED: Config = Config {
@@ -218,12 +266,13 @@ fn shifted(points: &[(f64, f64)], offset: DVec2) -> Vec<DVec2> {
 /// Plains in the west and mountains in the east, 4 km × 3 km, split by a
 /// bent border, all moved by `offset`.
 pub fn two_terrains(offset: DVec2, config: Config) -> StitchedWorld {
-    two_regions(
+    two_regions_warped(
         offset,
         preset(TerrainPreset::Plains, config.seed(1, 1)),
         preset(TerrainPreset::Mountains, config.seed(1, 2)),
         config.convergence(),
         &config.elevation(),
+        config.warp,
     )
 }
 
@@ -236,6 +285,18 @@ pub fn two_regions(
     east: TerrainOptions,
     convergence: Convergence,
     elevation: &Elevation,
+) -> StitchedWorld {
+    two_regions_warped(offset, west, east, convergence, elevation, None)
+}
+
+/// [`two_regions`], with the border warped by `warp`, if any.
+pub fn two_regions_warped(
+    offset: DVec2,
+    west: TerrainOptions,
+    east: TerrainOptions,
+    convergence: Convergence,
+    elevation: &Elevation,
+    warp: Option<BorderWarp>,
 ) -> StitchedWorld {
     let west_points = [
         (-2000.0, -1500.0),
@@ -255,7 +316,7 @@ pub fn two_regions(
         (-200.0, 0.0),
         (150.0, -700.0),
     ];
-    StitchedWorld::build(
+    stitch(
         vec![
             RegionSpec {
                 id: RegionId(1),
@@ -270,6 +331,7 @@ pub fn two_regions(
         ],
         &convergence,
         elevation,
+        warp,
     )
     .expect("two-region world builds")
 }
@@ -290,12 +352,13 @@ pub const JOIN_SEEDS: [u32; 2] = [56, 65];
 /// two-region border. With a seed from [`RIVER_SEEDS`] a river from the
 /// hills crosses into the plains.
 pub fn hills_into_plains(seed: u32, config: Config) -> StitchedWorld {
-    two_regions(
+    two_regions_warped(
         DVec2::ZERO,
         preset(TerrainPreset::Plains, config.seed(seed, seed + 100)),
         preset(TerrainPreset::RollingHills, seed),
         config.convergence(),
         &config.elevation(),
+        config.warp,
     )
 }
 
@@ -314,7 +377,7 @@ pub const JUNCTION: (f64, f64) = (100.0, -50.0);
 /// Plains (north-west), mountains (north-east) and rolling hills (south)
 /// meeting at [`JUNCTION`], in a 4 km square.
 pub fn triple_junction(config: Config) -> StitchedWorld {
-    three_regions(
+    three_regions_warped(
         [
             preset(TerrainPreset::Plains, config.seed(3, 3)),
             preset(TerrainPreset::Mountains, config.seed(3, 4)),
@@ -322,6 +385,7 @@ pub fn triple_junction(config: Config) -> StitchedWorld {
         ],
         config.convergence(),
         &config.elevation(),
+        config.warp,
     )
 }
 
@@ -366,9 +430,19 @@ pub fn four_regions(
 /// south) meeting at [`JUNCTION`] in a 4 km square, joined with
 /// `convergence`, standing on `elevation`.
 pub fn three_regions(
+    options: [TerrainOptions; 3],
+    convergence: Convergence,
+    elevation: &Elevation,
+) -> StitchedWorld {
+    three_regions_warped(options, convergence, elevation, None)
+}
+
+/// [`three_regions`], with the borders warped by `warp`, if any.
+pub fn three_regions_warped(
     [north_west_options, north_east_options, south_options]: [TerrainOptions; 3],
     convergence: Convergence,
     elevation: &Elevation,
+    warp: Option<BorderWarp>,
 ) -> StitchedWorld {
     let c = JUNCTION;
     let north_west = [
@@ -396,7 +470,7 @@ pub fn three_regions(
         (-2000.0, -900.0),
         (-800.0, -500.0),
     ];
-    StitchedWorld::build(
+    stitch(
         vec![
             RegionSpec {
                 id: RegionId(10),
@@ -416,6 +490,7 @@ pub fn three_regions(
         ],
         &convergence,
         elevation,
+        warp,
     )
     .expect("three-region world builds")
 }
