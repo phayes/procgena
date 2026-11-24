@@ -37,6 +37,9 @@ pub trait Preset: Sized + 'static {
     /// The preset's options.
     fn options(&self) -> &Self::Options;
 
+    /// The preset's options, taken out of the preset.
+    fn into_options(self) -> Self::Options;
+
     /// Builds a preset from its name parts and options, as read from a file.
     ///
     /// `base` is the built-in preset the file named as its `base`, if any.

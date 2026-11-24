@@ -108,6 +108,9 @@ impl Preset for Thing {
     fn options(&self) -> &Options {
         &self.thing
     }
+    fn into_options(self) -> Options {
+        self.thing
+    }
     fn from_parts(meta: PresetMeta, thing: Options, _base: Option<&'static Self>) -> Self {
         Self {
             key: meta.key.into(),

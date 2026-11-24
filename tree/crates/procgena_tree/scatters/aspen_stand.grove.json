@@ -1,8 +1,0 @@
-{
-  "seed": 2,
-  "trees": [
-    { "tree": "aspen_small", "densityScale": 0.3, "clustering": 0.5 },
-    { "tree": "aspen_large", "densityScale": 0.4 },
-    { "tree": "aspen_medium", "densityScale": 0.6 }
-  ]
-}

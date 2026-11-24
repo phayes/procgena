@@ -169,6 +169,9 @@ macro_rules! catalogue {
             fn options(&self) -> &$options {
                 &self.$field
             }
+            fn into_options(self) -> $options {
+                self.$field
+            }
             fn from_parts(
                 meta: $crate::preset::PresetMeta,
                 options: $options,
