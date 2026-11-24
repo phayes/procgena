@@ -330,3 +330,20 @@ fn validate_rejects_bad_levels() {
         LodError::CullDistance(10.5)
     );
 }
+
+#[test]
+fn far_forms_have_their_file_names() {
+    let names = [
+        (FarForm::Strips, "strips"),
+        (FarForm::BillboardLeaves, "billboard_leaves"),
+        (FarForm::Card, "card"),
+        (FarForm::FlatCapRibbon, "flat_cap_ribbon"),
+        (FarForm::GroundMaterial, "ground_material"),
+    ];
+    for (form, name) in names {
+        let level = LevelForm::Far(form);
+        let json = serde_json::to_value(level).unwrap();
+        assert_eq!(json, serde_json::json!({ "far": name }));
+        assert_eq!(serde_json::from_value::<LevelForm>(json).unwrap(), level);
+    }
+}

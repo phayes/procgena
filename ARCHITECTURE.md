@@ -1267,8 +1267,8 @@ Assets and their Scatters:
 | CPU mesh | Yes | No (CPU copy is test-only) | Yes | Yes | Yes | Yes |
 | GPU build | No | Yes, everything | Yes (`gpu` feature) | No | No | Yes, but Bevy doesn't use it |
 | `procgena_mesh` Object | Yes | No | Yes | Yes | Yes, own local tags | Yes, reads and writes |
-| Detail levels | 4, fixed metres | 3, per blade on GPU | Up to 8, by resolution | 4 + cull | 4 + cull | None |
-| LOD scaled by size | No | No | Yes | Yes, also radii | Yes, per copy | No |
+| Detail levels | 4 + impostor + cull | 3, per blade on GPU | Up to 8, by resolution | 4 + cull | 4 + cull | None |
+| LOD scaled by size | Yes, by height, per copy | No | Yes | Yes, also radii | Yes, per copy | No |
 | Far form | Billboard leaves | Far ground material | None | Strips | Flat cap + ribbon | None |
 | Transition | Crossfade; grove dither | GPU dither | Crossfade; pool GPU dither | Crossfade | Crossfade | None |
 | Cache key | Stable hash (`tree_id`) | None | Options JSON | Options JSON | Options JSON | None |
@@ -1328,7 +1328,8 @@ Each rule says what every asset does, and which crates have to change.
      copy's world size (mushroom does this today).
    - One transition: dither, the same in every render pass, from one shared
      shader module.
-   - Every asset names its far form (strips, billboard leaves, a card), and
+   - Every asset names its far form (strips, billboard leaves, a card, a
+     flat cap plus ribbon, or a far ground material: `FarForm`), and
      its last level drops shadows where it should.
    - **Attached assets own their levels.** Fruit and flowers are their own
      asset (decided by the user, superseding the cluster-card plan of
@@ -1843,8 +1844,10 @@ it starts.
 - [ ] **One wind** for tree, plant and clumps on trees. The shared
   renderer carries a wind phase per copy (R2), which vertex shaders read
   with `copy_wind_phase` from `procgena_core_bevy::shaders::instanced`.
-  Grove trees get a phase from their copy address, but tree's wind shader
-  still sways by world position and doesn't read it yet.
+  Grove trees get a phase from their copy address, and tree's wind shader
+  sways by world position plus a small shift from that phase (decided by
+  the user 2026-11-24); a promoted tree keeps its copy's phase in its
+  `MeshTag`. Plant and clumps don't share it yet.
 - [x] **One preset and file pattern**: done in F3 (see rule 10). Left for
   later: `.biome.yml` files once `Biome` has serde (B1/W0), and presets
   and files for the stone, stick and mushroom Scatters, which have serde
@@ -1864,7 +1867,9 @@ it starts.
 - [ ] **Per-Scatter ranges**: draw range from the size-scaled cull distance,
   place range from the Scatters after it, density-field masks for dense
   Scatters, and the Ecotope's warning when a dense Scatter sits above a
-  long-range one.
+  long-range one. Tree, deadwood and mushroom Scatters take their draw
+  range from their size-scaled cull distance (tree since 2026-11-24, from
+  `TreeOptions::height_bound`); stone still uses a fixed stand-in.
 - [ ] **World-anchored lattices**: every Scatter's spots on a lattice fixed
   to the World, each spot owned by one chunk. Done in C2 for tree, stone,
   deadwood and mushroom (`scatter::Lattice`, `ChunkGrid`, `K_d`); plant's

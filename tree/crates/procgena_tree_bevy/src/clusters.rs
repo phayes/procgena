@@ -24,7 +24,7 @@ use procgena_tree::{ClusterPart, ClusterRow, Skeleton};
 use crate::fruit_impostor::FruitImpostor;
 use crate::material::TreeMaterial;
 use crate::mesh::attached_cluster_mesh;
-use crate::spawn::TreeLevel;
+use crate::spawn::{SingleTree, TreeLevel};
 
 /// How much a cluster's bounding sphere is enlarged to cover its flutter.
 const FLUTTER_ALLOWANCE: f32 = 1.2;
@@ -272,22 +272,23 @@ pub(crate) fn grove_clusters<'a>(
 /// What a tree drawn on its own needs to draw its clusters: a Scatter of
 /// one copy of the tree (slot 0: the tree specimen `tree`, with no parts,
 /// carrying only the tree's levels `tree_lod`) with its cluster specimens
-/// as the other slots, and the rows. `tree_levels` are its mesh levels and
-/// `bounds` a sphere around it. Clusters are drawn as their impostors
-/// beyond their fruit levels where `impostors` has one. `None` when the
-/// tree grows no clusters.
+/// as the other slots, and the rows. `tree_levels` are its mesh levels,
+/// `bounds` a sphere around it, and `copy` its size and wind phase, so the
+/// clusters switch and sway with the tree. Clusters are drawn as their
+/// impostors beyond their fruit levels where `impostors` has one. `None`
+/// when the tree grows no clusters.
 pub(crate) fn single_tree_clusters(
     clusters: &[TreeClusters],
     tree: SpecimenId,
     tree_levels: &[LodLevel<TreeLevel>],
     tree_lod: Lod,
     bounds: (Vec3, f32),
+    copy: SingleTree,
     impostors: Option<ClusterImpostors>,
 ) -> Option<(InstancedScatter, InstancedAttached)> {
     if clusters.is_empty() {
         return None;
     }
-    let reference_size = tree_lod.reference_size;
     let host = InstancedSlot {
         specimen: tree,
         piece: 0,
@@ -303,8 +304,8 @@ pub(crate) fn single_tree_clusters(
             copies: Arc::from([InstancedCopy {
                 slot: 0,
                 transform: default(),
-                size: reference_size,
-                wind_phase: 0.0,
+                size: copy.size,
+                wind_phase: copy.wind_phase,
             }]),
         },
         InstancedAttached {

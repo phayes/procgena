@@ -269,6 +269,12 @@ impl TreeScatterVariant {
         self.generated.is_some()
     }
 
+    /// How tall the variant's tree is before it is scaled, in metres, once
+    /// generated: the top of its nearest level's bark and leaves.
+    pub(crate) fn height(&self) -> Option<f32> {
+        self.generated.as_ref().map(|g| g.height())
+    }
+
     /// The variant's tree as a tagged specimen, in the tree's own coordinates,
     /// once generated. Use it to build colliders.
     pub fn specimen(&self) -> Option<&Arc<Specimen>> {
@@ -975,9 +981,13 @@ mod tests {
     };
 
     use super::*;
+    use bevy::camera::visibility::VisibilityRange;
+    use bevy::mesh::MeshTag;
+
     use crate::spawn::{
-        BarkTexture, LeafTexture, TreeGenerating, TreeLevel, TreeParams, TreePart, TreePresetAsset,
-        finish_generation, prune_cache, reset_changed_trees, spawn_parts, start_generation,
+        BarkTexture, LeafTexture, SpawnSettings, TreeGenerating, TreeLevel, TreeParams, TreePart,
+        TreePartKind, TreePresetAsset, finish_generation, part_range, prune_cache,
+        reset_changed_trees, spawn_parts, start_generation,
     };
     use crate::wind::Wind;
 
@@ -1683,6 +1693,12 @@ mod tests {
         assert!(Arc::ptr_eq(&before.copies, &idle.copies));
         assert!(Arc::ptr_eq(&before.slots, &idle.slots));
 
+        // A cull distance gives the promoted tree's single level a range,
+        // which depends on the tree's size.
+        app.world_mut()
+            .resource_mut::<SpawnSettings>()
+            .lod
+            .cull_distance = Some(100.0);
         let promoted = app
             .world_mut()
             .spawn((PromotedTree::new(grove, tree.address), Collider))
@@ -1702,6 +1718,38 @@ mod tests {
         assert_eq!(entity.get::<ChildOf>().map(ChildOf::parent), Some(grove));
         assert!(!entity.contains::<TreeGenerating>());
         assert!(has_parts(&app, promoted));
+
+        // The grove copy's size is its variant's height times its scale.
+        let instances = app.world().get::<TreeScatterInstances>(grove).unwrap();
+        let copy = before.copies[instances.index_of(&tree.address).unwrap() as usize];
+        let height = assets.of(&tree).height().unwrap();
+        let scale = tree.transform.scale.max_element();
+        assert!((copy.size - height * scale).abs() < 1e-5);
+        assert!(copy.wind_phase > 0.0);
+
+        // Its parts sway with the copy's wind phase and end at the copy's
+        // cull distance, so promotion changes nothing on screen.
+        let settings = app.world().resource::<SpawnSettings>();
+        let quality = app.world().resource::<LodQuality>().0;
+        let nearest = part_range(&settings.mesh_ranges(quality, copy.size)[0]).unwrap();
+        let mut checked = 0;
+        for child in app.world().get::<Children>(promoted).unwrap() {
+            let child = app.world().entity(*child);
+            let Some(part) = child.get::<TreePart>() else {
+                continue;
+            };
+            if !matches!(part.kind, TreePartKind::Bark | TreePartKind::Leaves) {
+                continue;
+            }
+            let tag = child.get::<MeshTag>().unwrap();
+            assert_eq!(tag.value, copy.wind_phase.to_bits());
+            if part.lod == 0 {
+                let range = child.get::<VisibilityRange>().unwrap();
+                assert_eq!(range.end_margin, nearest.end_margin);
+            }
+            checked += 1;
+        }
+        assert!(checked > 0);
 
         // Demoting removes the tree but keeps the host's components.
         app.world_mut()

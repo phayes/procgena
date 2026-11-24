@@ -8,6 +8,7 @@ import bevy_pbr::render::{
 };
 import package::shaders::tree_billboard::{TurnedVertex, turn_billboard, turn_lit_billboard};
 import package::shaders::tree_wind::tree_wind_offset;
+import procgena_core_bevy::shaders::instanced::copy_wind_phase;
 @if(ATTACHED)
 import procgena_core_bevy::shaders::instanced::{attached_position, attached_direction, attached_wind};
 
@@ -79,8 +80,11 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     out.world_normal = mesh_functions::mesh_normal_local_to_world(turned.normal, index);
 }
 
-    // Apply wind locally, then use the entity transform to place the vertex in the world.
-    position += tree_wind_offset(position, wind, world_from_local, globals.time);
+    // Apply wind locally, then use the entity transform to place the vertex in
+    // the world. The tree's wind phase is in its mesh record's tag, for grove
+    // copies, single trees and attached fruit alike.
+    let wind_phase = copy_wind_phase(index);
+    position += tree_wind_offset(position, wind, world_from_local, wind_phase, globals.time);
     out.world_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,
         vec4<f32>(position, 1.0),

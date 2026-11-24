@@ -2,8 +2,9 @@
 // forward and prepass shaders of attached cluster impostors.
 
 import bevy_pbr::render::mesh_functions;
-import procgena_core_bevy::shaders::instanced::attached_wind;
-import procgena_tree::wind::{WindParams, wind_offset};
+import procgena_core_bevy::shaders::instanced::{attached_wind, copy_wind_phase};
+import procgena_tree::wind::{WindParams, wind_offset_shifted};
+import package::shaders::tree_wind_phase::wind_phase_shift;
 
 /// The material's wind settings, the trees' own (binding 104, after the
 /// impostor's bindings 100 to 103).
@@ -63,11 +64,13 @@ fn place_cluster(copy: Attached, record: u32, time: f32) -> ClusterPlace {
         vec4<f32>(-(back * copy.place.xyz), 1.0),
     );
 
-    // The branch's sway at the cluster, as the tree's meshes sway, without
-    // the leaves' own flutter: the whole cluster moves as one.
+    // The branch's sway at the cluster, as the tree's meshes sway (with the
+    // tree's own wind phase), without the leaves' own flutter: the whole
+    // cluster moves as one.
     let anchor = world_from_tree[3].xyz;
     let wind = vec4<f32>(attached_wind(copy.wind), 0.0);
-    let sway = wind_offset(copy.place.xyz + anchor, wind, anchor, time, wind_params);
+    let shift = wind_phase_shift(copy_wind_phase(record));
+    let sway = wind_offset_shifted(copy.place.xyz + anchor, wind, anchor, shift, time, wind_params);
 
     var out: ClusterPlace;
     out.world_from_cluster = world_from_tree * tree_from_cluster;

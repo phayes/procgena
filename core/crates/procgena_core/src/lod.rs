@@ -31,6 +31,11 @@ pub enum FarForm {
     BillboardLeaves,
     /// The whole specimen drawn as one or a few flat cards.
     Card,
+    /// A mushroom drawn as a flat cap with its stem as one flat ribbon.
+    FlatCapRibbon,
+    /// No geometry: the specimens are drawn as a colour in the ground's
+    /// material, as grass far away is.
+    GroundMaterial,
 }
 
 /// What kind of geometry a level draws. Levels must run in this order:

@@ -21,7 +21,7 @@ use procgena_core_bevy::instanced::{
 use super::promote::{PromotedAs, PromotedTree};
 use super::{TreeScatterAssets, TreeScatterInstances, TreeScatterVariant};
 use crate::clusters::{ClusterImpostors, grove_clusters};
-use crate::spawn::{SpawnSettings, TreeCache, TreeGenerating};
+use crate::spawn::{SpawnSettings, TreeCache, TreeGenerating, tree_size};
 
 /// How much a variant's bounding sphere is enlarged to cover wind sway.
 const SWAY_ALLOWANCE: f32 = 1.15;
@@ -71,17 +71,20 @@ pub(crate) fn update_grove_draws(
     }
 
     // Rebuild what changed: the slots and rows when the variants did, the
-    // copies when the trees or the promoted trees did.
+    // copies when the trees, their variants' heights or the promoted trees
+    // did.
     for (entity, instances, assets, current, current_rows, drawn) in &groves {
         let hide = hidden.remove(&entity).unwrap_or_default();
         let current = current.zip(current_rows).filter(|_| drawn.is_some());
         let copies = match current {
             Some((scatter, _))
-                if !instances.is_changed() && drawn.is_some_and(|d| d.hidden == hide) =>
+                if !instances.is_changed()
+                    && !assets.is_changed()
+                    && drawn.is_some_and(|d| d.hidden == hide) =>
             {
                 scatter.copies.clone()
             }
-            _ => grove_copies(&instances, &hide, settings.lod.reference_size),
+            _ => grove_copies(&instances, &assets, &hide, settings.lod.reference_size),
         };
         let (slots, rows) = match current {
             Some((scatter, rows)) if !assets.is_changed() => (scatter.slots.clone(), rows.clone()),
@@ -216,28 +219,34 @@ fn variant_bounds(variant: &TreeScatterVariant) -> (Vec3, f32) {
 }
 
 /// One copy per tree of a grove, leaving out the trees at positions in
-/// `hidden`. Trees aren't sized yet, so each counts as the levels'
-/// reference size, `size`.
+/// `hidden`. Each copy's size is its variant's height times its scale; a
+/// variant not generated yet (which draws nothing) counts as `reference`
+/// metres tall.
 fn grove_copies(
     instances: &TreeScatterInstances,
+    assets: &TreeScatterAssets,
     hidden: &HashSet<u32>,
-    size: f32,
+    reference: f32,
 ) -> std::sync::Arc<[InstancedCopy]> {
     instances
         .trees()
         .iter()
         .enumerate()
         .filter(|(index, _)| !hidden.contains(&(*index as u32)))
-        .map(|(_, tree)| InstancedCopy {
-            slot: tree.slot,
-            transform: tree.transform.compute_affine(),
-            size,
-            wind_phase: wind_phase(&tree.address),
+        .map(|(_, tree)| {
+            let height = assets.of(tree).height().unwrap_or(reference);
+            InstancedCopy {
+                slot: tree.slot,
+                transform: tree.transform.compute_affine(),
+                size: tree_size(height, &tree.transform),
+                wind_phase: wind_phase(&tree.address),
+            }
         })
         .collect()
 }
 
-/// A repeatable number from 0 to 1 for the tree on the spot at `address`.
-fn wind_phase(address: &CopyAddress) -> f32 {
+/// A repeatable number from 0 to 1 for the tree on the spot at `address`:
+/// its wind phase, the same for its grove copy and its promoted tree.
+pub(crate) fn wind_phase(address: &CopyAddress) -> f32 {
     (FixedHasher.hash_one(address) >> 40) as f32 / (1u64 << 24) as f32
 }

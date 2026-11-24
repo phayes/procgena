@@ -190,15 +190,25 @@ pub enum BranchShape {
 /// (or `procgena_tree_bevy`) switches levels using [`Lod::ranges`].
 pub type TreeLod = Lod<LodDetail>;
 
-/// The tree size, in metres, that [`default_lod`]'s distances are written
-/// for. Trees are not yet scaled by their own size, so every tree uses
-/// these distances as they are.
+/// The tree height, in metres, that [`default_lod`]'s distances are written
+/// for. A tree's own distances are these times its height (as built, times
+/// any scale it is placed with) over this size, so a 5 m tree switches at
+/// half the distances a 10 m one does.
 pub const LOD_REFERENCE_SIZE: f32 = 10.0;
 
+/// How far away, in metres, [`default_lod`] stops drawing a tree of
+/// [`LOD_REFERENCE_SIZE`]. Around this distance a tree is only a few pixels
+/// tall on screen.
+pub const LOD_CULL_DISTANCE: f32 = 1500.0;
+
 /// Returns four suggested detail levels at distances of 0, 10, 25 and 50
-/// metres, each fading in over 5% either side of its distance. The last is
-/// the tree's far form, [`FarForm::BillboardLeaves`]. There is no cull
-/// distance. The caller must select and switch meshes as the camera moves.
+/// metres, each fading in over 5% either side of its distance, for a tree
+/// [`LOD_REFERENCE_SIZE`] metres tall. The last is the tree's far form,
+/// [`FarForm::BillboardLeaves`]. Nothing is drawn beyond
+/// [`LOD_CULL_DISTANCE`]; a renderer with impostors puts its impostor level
+/// between the far form and the cull distance. The caller must select and
+/// switch meshes as the camera moves, scaling every distance by the tree's
+/// height ([`Lod::factor`]).
 ///
 /// Only the levels at 0 and 10 m (LOD0 and LOD1) are for gameplay: their bark is
 /// [`closed`](LodDetail::closed) and suitable for physics, collision and volumes.
@@ -279,6 +289,7 @@ pub fn default_lod() -> TreeLod {
             LodLevel::new(50.0, 0.05, farthest).with_form(LevelForm::Far(FarForm::BillboardLeaves)),
         ],
     )
+    .with_cull(LOD_CULL_DISTANCE)
 }
 
 /// Vertex data and triangle indices for one mesh.

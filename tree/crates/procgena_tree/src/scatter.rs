@@ -25,9 +25,10 @@ use procgena_core::scatter::{
     DEFAULT_SPACING_ROUNDS, Disc, Footprint, Lattice, Placement, Rank, Reach, Rest, Scatter,
     ScatterCopy, ScatterError, ScatterInput, ScatterSlot, Spaced, keep_spaced, place, steeper_than,
 };
-use procgena_core::{CellId, ChildKey, CopyAddress, SpecimenId};
+use procgena_core::{CellId, ChildKey, CopyAddress, Quality, SpecimenId};
 use serde::{Deserialize, Serialize};
 
+use crate::mesh::default_lod;
 use crate::options::{OptionsError, TreeOptions};
 use crate::presets::{TreePreset, TreeStand};
 
@@ -99,11 +100,6 @@ const GIANT_GROWTH: f32 = 2.5;
 /// How rare giants are: the higher, the fewer trees approach the largest
 /// size.
 const GIANT_RARITY: i32 = 8;
-
-/// How far away, in metres, a tree Scatter is drawn. Trees have no cull
-/// distance of their own yet (their impostors draw on), so this is a fixed
-/// stand-in for the largest trees.
-const DRAW_RANGE: f32 = 2000.0;
 
 // Seed keys for the Scatter's random streams, named
 // `<crate>.<area>.<role>`. They are frozen: renaming one moves every tree.
@@ -762,7 +758,16 @@ impl Scatter for TreeScatter {
     }
 
     fn draw_range(&self) -> f32 {
-        DRAW_RANGE
+        // The default detail levels' cull distance, for the tallest tree any
+        // species can grow at the largest scale.
+        let lod = default_lod();
+        let tallest = self
+            .trees
+            .iter()
+            .map(|t| t.tree.height_bound())
+            .fold(0.0, f32::max);
+        let size = tallest * self.largest_scale();
+        lod.cull_distance.unwrap_or(f32::INFINITY) * lod.factor(size, Quality::High)
     }
 
     fn slots(&self, _world_seed: u32) -> Vec<ScatterSlot> {

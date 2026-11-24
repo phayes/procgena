@@ -43,7 +43,8 @@
 //! between screenshots. Use `--lod <0–3>` to lock the
 //! viewer to one default detail level at all distances. For example, `--lod 3`
 //! lets you inspect the distant tree’s camera-facing shapes and shadows up close.
-//! Trees beyond 120 m are drawn as baked impostors; `--no-impostor` keeps the
+//! Trees beyond 120 m (for a 10 m tree; in proportion to each tree's height)
+//! are drawn as baked impostors; `--no-impostor` keeps the
 //! farthest mesh level instead. Fruit and flower clusters are drawn as
 //! impostors from 20 m for a 10 cm cluster (see `default_fruit_impostor`);
 //! `--fruit-impostor <m>` sets that distance, and `--no-fruit-impostor`
@@ -244,6 +245,7 @@ fn main() -> AppExit {
                 level.distance = 0.0;
                 level.hysteresis = 0.0;
                 lod.levels = vec![level];
+                lod.cull_distance = None;
                 i += 1;
             }
             other => panic!("unknown option {other}"),
