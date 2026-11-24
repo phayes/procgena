@@ -1689,6 +1689,59 @@ fast Terrain Generation*; the Salève model, ESurf 2021).
   part of the agreement), and how this fits the world generator's
   drainage tilt (`world_plan.md`).
 
+**As built in G1 (2026-11-24): measured, not wired in.** Any profile that
+never rises and never floats sits at or below today's running minimum, so
+stream-power levels can only deepen cuts, which the user decided to leave
+until lakes, and the approved look keeps levels and widths unchanged. So
+G1 builds the tools and measures, and changes no height (the bit-for-bit
+dump of five test worlds is unchanged).
+
+- [x] Drainage area per cell on a region's 25 m grid (steepest-descent
+  accumulation) and carried along each river, never falling, with each
+  tributary's area added to its trunk below the join (`src/drainage.rs`,
+  test-only for now; tests
+  `a_tilted_plane_drains_downhill_and_keeps_every_square_metre`,
+  `areas_never_fall_along_a_river_and_add_up_at_a_join`).
+- [x] The steady-state profile through a river's ends
+  (`steady_profile`, concavity 0.45), as a measurement
+  (`steady_profiles_are_concave_and_meet_their_ends`).
+- [ ] River levels from it: **for the user.** See the exit measurements:
+  in mountains it would cut up to 176 m deeper than today. It needs the
+  ground to conform to the river (Génevaux), or lakes (G3), or the world
+  level's elevation field.
+- [ ] Options for U, K, m and n: not added, since nothing reads them yet.
+- [ ] Smoother mountain river profiles: the same question as river levels
+  (today's lower thirds are dead level, see below); left with it.
+- [ ] Sizing rivers (width, depth) and picking river types from drainage
+  area: changes the approved look, so it waits for a review. Costs about
+  20 ms per region.
+
+**Phase 2.8 exit measurements (2026-11-24).** One-region 4 km worlds,
+seeds 1 to 6 per preset, `drainage::tests::measure_phase_2_8_exit`. The
+machine was heavily loaded (load average about 60), so timings are upper
+bounds.
+
+| Preset | River points | Cut median | 90% | 99% | Max | Over 10 m | Over 20 m |
+|---|---|---|---|---|---|---|---|
+| Plains | 12 365 | 1.4 m | 3.6 m | 4.8 m | 5.1 m | 0% | 0% |
+| Rolling hills | 856 | 1.5 m | 4.7 m | 6.4 m | 7.1 m | 0% | 0% |
+| Mountains | 7 763 | 6.4 m | 27.3 m | 31.7 m | 54.4 m | 41% | 19% |
+
+- **Extra cut if levels followed the steady profile** (kept under today's
+  levels): plains median 0, 90% 1.6 m, max 5.1 m; rolling hills median
+  1.4 m, 90% 6.0 m, max 12.4 m; mountains median 0, 90% 27.9 m, 99%
+  115 m, max 176 m.
+- **Concavity of the longest river** (upper-third slope over lower-third
+  slope), today / steady: plains 1.7/2.3, 6.5/2.3, 1.3/1.7, 6.5/2.0,
+  8.5/2.4, 3693/1.7; rolling hills 3.6/5.9, 4.6/7.4, 8.1/7.8, 3.0/3.1;
+  mountains 114/3.2, 4.2·10⁵/3.1, 1.4·10⁶/5.7, 15.6/3.2, 5.9·10⁵/3.7,
+  42/2.3. Mountain rivers' lower thirds are dead level today (the running
+  minimum after a breach); hills are already about as concave as stream
+  power would make them.
+- **Drainage area cost:** 14–37 ms per region (cells and carrying along
+  rivers).
+- Valleys: built before G1 (see "Step 2" above); their measurements stand.
+
 ### Re-recorded after the string-key seed salts (2026-11-23)
 
 Seed salts became named string keys (`hash::KEYS`, FNV-1a), and the
@@ -1801,7 +1854,7 @@ What that asks of this crate, and where it stands:
 | 2.5 ✅ | **Shared world noise and relief convergence** (built 2026-11-22; exit results recorded under "Relief convergence (Phase 2.5)") (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
 | 2.6 ✅ | **Relief blending** (built 2026-11-22, review pending) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
 | 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest; cut and fill measured across the road; roads narrow through deep cuts (`min_width`); sped up with an A* search and parallel region builds. Still to do: hub placement (deferred); a GPU implementation is a later follow-up. | 2.6 |
-| 2.8 | **River valleys and erosion** (built in part 2026-11-23, review pending; see "River valleys and erosion (Phase 2.8, built in part)" above). Built: valleys that keep the ground's relief, varied shapes, gullies, rivers stepping down at crossings, rivers from one side crossing closer together. Deep cuts measured: they come from rivers breaching hollow rims, and wait for lakes (Phase 4). Planned: valleys from the distance to the river, wider for deeper cuts, shaped by river type; river profiles from analytic stream-power erosion over per-region drainage area. | 2.7 |
+| 2.8 ✅ | **River valleys and erosion** (built 2026-11-23 and 2026-11-24 (G1); exit measurements recorded under "As built in G1"). Built: valleys from the distance to the river that keep the ground's relief, wider for deeper cuts, shaped by river type (from slope); gullies; rivers stepping down at crossings; rivers from one side crossing closer together; drainage area per region and along rivers, and the steady-state stream-power profile, as measurements. Deep cuts come from rivers breaching hollow rims, and wait for lakes (Phase 4). For the user: whether river levels, widths and types should follow drainage area (stream-power levels would cut up to 176 m deeper in mountains). | 2.7 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
 | 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |

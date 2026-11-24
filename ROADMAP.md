@@ -324,6 +324,13 @@ goldens, which have no baseline on this machine).
   lakes in G3, as the user decided.
 - **Needs:** M0.
 - **Done when:** the Phase 2.8 exit measurements are recorded.
+- **Status (2026-11-24): done, as a first cut.** Valleys were already
+  built. Drainage area (per region, carried along rivers) and the
+  steady-state stream-power profile are built as measurements, and the
+  exit measurements are in plan.md ("As built in G1"). No height changed.
+  Left for the user: river levels, widths and types from drainage area
+  (stream-power levels would cut up to 176 m deeper in mountains, so they
+  need lakes or ground that conforms to the river first).
 
 #### G2: Terrain as `Ground`
 

@@ -80,6 +80,9 @@ mod border;
 mod calibration;
 mod carve;
 mod converge;
+// Measurements only, for now: see the module's own documentation.
+#[cfg(test)]
+mod drainage;
 mod elevation;
 mod graph;
 mod grid;
@@ -95,9 +98,6 @@ mod relief;
 mod river;
 mod road;
 mod seam;
-// SPIKE (Phase 2.8): test-only measurements; delete after review.
-#[cfg(test)]
-mod spike_erosion;
 mod stitch;
 mod terrain;
 mod warp;
