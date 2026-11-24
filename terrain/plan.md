@@ -21,6 +21,15 @@ and joins seamlessly with any other terrain generator on its border.
   - Meshes come from the SDF, so overhangs and caves appear in the mesh.
 
   **Please confirm this reading.** Everything below depends on it.
+  **Open: see [features_plan_review.md](features_plan_review.md) §C1.**
+  The features proposal suggests a heightfield mesh by default, with
+  volume meshing only in bounded patches for caves and overhangs.
+- **Terrain features.** Rivers, roads, ponds, and later cliffs, caves,
+  lakes and general landforms (mesas, terraces, outcrops) share one
+  lifecycle: plan, check bounds, evaluate, draw, query. Each keeps its own
+  planner. See [features_plan.md](features_plan.md) for the design and
+  [features_plan_review.md](features_plan_review.md) for what is adopted
+  and how its steps map onto the phases below.
 - **Two new crates**, in the stone/tree split:
   - `terrain/crates/procgena_terrain`: engine-free core. It holds the
     options, presets, field, the seam protocol, features, classification,
@@ -1792,6 +1801,25 @@ What that asks of this crate, and where it stands:
 Phases 3 and 6 can run in parallel after phase 1, with one agent each. They
 touch separate modules.
 
+**Terrain features** ([features_plan.md](features_plan.md), reviewed in
+[features_plan_review.md](features_plan_review.md)) add two steps before
+Phase 4:
+
+1. Rivers, roads and ponds become one feature type with one index, with
+   every feature test result unchanged.
+2. Planning is split into stages that are cached on their own, with
+   stable feature ids, one batched sample path, and cold and warm
+   benchmarks, so a far view needs relief and seam offers but not inland
+   road routing.
+
+The review's mapping table shows where the proposal's later steps fall in
+Phases 3 to 7. Four points there wait for the user and change these rows:
+
+- the mesher of Phases 6 and 7 (§C1);
+- rock outcrops in Phase 6 (§C2);
+- lakes in Phase 4 (§C3);
+- macro cells in Phase 4 (§C4).
+
 ## Non-goals for v1
 
 - Simulated erosion of any kind (the user chose analytic only).
@@ -1804,7 +1832,9 @@ touch separate modules.
 ## Open questions
 
 1. **Volumetric reading.** Is the "SDF with a heightfield base, plus a
-   pure top-surface heightmap API" reading right?
+   pure top-surface heightmap API" reading right? Open: see
+   [features_plan_review.md](features_plan_review.md) §C1, which also
+   bears on question 5.
 2. ~~**Sea level.**~~ **Answered 2026-11-22:** oceans are not this crate's
    concern. Sea level is the zero of `WorldTerrain`'s elevation field E,
    used for labels and coasts; an ocean is just a terrain type below it.
@@ -1820,7 +1850,9 @@ touch separate modules.
    `transvoxel` crate (MIT/Apache) as a new dependency?
 6. **Rock outcrops.** **Answered 2026-11-22:** a Voronoi-rock SDF in the
    terrain; procgena_stone scatter is out of scope (this plan is just
-   terrain).
+   terrain). Open again: the features proposal suggests rock meshes laid
+   into the ground; see [features_plan_review.md](features_plan_review.md)
+   §C2.
 7. **Edge not yet known.** When a neighbour region appears later, chunks
    within the margin rebuild. Is that acceptable for the world generator,
    or must the region graph be known before generation?

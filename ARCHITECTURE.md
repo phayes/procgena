@@ -362,6 +362,34 @@ carries a primary `Landform`, `Flags` and `Measures`.
 **What it owns.** Everything in [terrain/plan.md](terrain/plan.md): its
 relief, erosion, water, roads, volume features, chunks and meshes.
 
+**Terrain features.** Rivers, roads and ponds, and later cliffs, caves,
+lakes and general landforms (mesas, terraces, rock outcrops), are
+**terrain features**: planned, bounded pieces of the ground, inside the
+Terrain, not a level of their own. The design is in
+[terrain/features_plan.md](terrain/features_plan.md), and what is adopted
+is in [terrain/features_plan_review.md](terrain/features_plan_review.md).
+
+- **Where the line is.** A loose stone is a copy in a Scatter. A formation
+  that shapes the ground, makes a cliff or carries the surface is a
+  terrain feature.
+- **Bounded.** Every feature declares how far it can reach, and adds
+  nothing outside that. Chunks never fade a feature at their edges.
+- **Borders.** A feature stays inside its region's border margin, or
+  crosses through an agreed port (as rivers and roads do), or comes from a
+  field both sides share.
+- **Canonical ground.** Placement, masks, gameplay and queries read the
+  terrain's own height and labels. Drawing may use coarser meshes, but
+  never becomes what anything else reads.
+- **Reaching the cover.** A feature reaches Ecotopes and Scatters through
+  terrain labels, and through height or occupancy where a rock mesh
+  stands. How a feature's footprint takes part in Scatter exclusion is
+  open: see the review, §G1 and §G3.
+
+Open for the user: whether terrain is meshed as a heightfield by default
+with volume only where a feature needs it, or as one volume everywhere
+(review §C1), and whether rock outcrops are meshes or part of that volume
+(review §C2).
+
 **What it gets from above.**
 
 - From its Biome: its options.
@@ -410,7 +438,10 @@ It reaches into each Biome for that Biome's one Terrain, and this is step 1
 of every Biome border.
 It runs the terrain seam protocol across the region graph: offers, then
 agreements, then each Terrain conforms to its agreements. Rivers and roads
-cross borders through the ports those agreements set.
+cross borders through the ports those agreements set. Any other terrain
+feature either stays inside its region's border margin, crosses through
+an agreed port, or comes from a field both sides share. None needs its
+neighbour's full plan.
 
 **What it owns.** Geometry and height, not choice: the region graph
 (computed from the World's options), the world elevation field E with its
@@ -736,6 +767,13 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   far region's terrain needs only its neighbours' offers, never their
   plans. Ecotope border offers must keep the same rule: built from their
   own Biome alone, never from labels that depend on a neighbour's plan.
+- **A Terrain's plan comes in stages**, each cached on its own: relief and
+  seam offers, then rivers, then roads, then local features (see
+  [terrain/features_plan.md](terrain/features_plan.md)). A far region can
+  be drawn from its relief and agreements before its roads are routed,
+  so a distant mountain never waits for a road search (story 5). Such a
+  far tile is **provisional**: only drawing may use it. Placement, masks
+  and queries wait for the stages they read.
 - **Place.** Placement is decided per Scatter and per chunk. It needs the
   plan, the Ground and the masks from above, and never the drawn meshes.
 - **Draw.** Drawing picks a detail level per copy, as rule 2 says. An
@@ -1464,6 +1502,13 @@ it starts.
 - [ ] **WorldTerrain**: grow the terrain crate's reference stitcher into the
   level that runs the seam protocol over a whole region graph, with the
   region graph, E and a terrain source.
+- [ ] **Terrain features**: one feature type for rivers, roads and ponds
+  with unchanged results, then staged and separately cached planning with
+  benchmarks, then cliffs and landforms (see
+  [terrain/features_plan_review.md](terrain/features_plan_review.md) for
+  the steps and the four open points). Feature seeds follow "Seeds":
+  32-bit, from frozen keys, and on World cells where they can be, so D4
+  can't move them.
 - [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
   default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
   The Terrain seed is the World seed for now, passed through
@@ -1583,7 +1628,8 @@ it starts.
   to the World, each spot owned by one chunk. Groves fix theirs to the
   grove's centre today, and plant's 16 m cells are local to their field.
 - [ ] **Region plans ahead of view**: plan regions one region beyond the
-  view distance, and cache plans on disk.
+  view distance, and cache plans on disk, stage by stage, so a far region
+  needs only its relief and seam stage to be drawn.
 - [ ] **Thinning at a distance**: nested, by copy-id hash, at draw time.
 - [ ] **Far forest tint**: the Biome hands Terrain a tint from Ecotope
   coverage for beyond the last impostor.

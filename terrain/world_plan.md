@@ -89,7 +89,11 @@ stays as a small test fixture.
 - **Caches, all rebuildable:**
   - region plans (`Terrain`), built lazily from the region's own options
     and its neighbours' offers (neighbours are never fully built);
-  - optional per-region feature plans;
+  - optional per-region feature plans, in stages cached on their own
+    (relief and seam offers, rivers, roads, local features), so a far
+    region can be drawn from its relief and offers before its roads are
+    routed (see [features_plan.md](features_plan.md), "Real-time
+    generation and far vistas");
   - chunks, which stay pure and disposable.
 
 ## Why a field, not a starting height chosen while exploring
@@ -540,6 +544,9 @@ and feature suites on warped worlds as the check.
 2. **Region size and shape:** a jittered staggered (hexagonal) lattice gives fairly even
    regions. Is that wanted, or should region sizes vary more (a
    multi-scale lattice: large regions with occasional small ones)?
+   This moved to decision gate D4. Region size also sets how long a
+   region's feature plan takes while planning stays per region; see
+   [features_plan_review.md](features_plan_review.md) §C4.
 3. **Moisture:** include it now as a Biome selector (deserts, wetlands)
    or later? It is now the World crate's question.
 4. **Bounded worlds:** besides infinite lattice worlds, should
