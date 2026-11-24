@@ -22,6 +22,11 @@
 /// `inherit: [spacing]` before `check`. A preset read from a file then
 /// takes them from its `base`, or from their `Default` when it has none.
 ///
+/// A preset type whose settings refer to presets of other kinds by key
+/// names how in `references: <expr>` before `check`, where the expression
+/// is a [`References`](crate::preset::References); see
+/// [`Preset::references`](crate::preset::Preset::references).
+///
 /// Each preset's options are built once, the first time any preset is
 /// used. Keys must be unique; listing one twice makes `named` find only
 /// the first.
@@ -65,6 +70,7 @@ macro_rules! catalogue {
         $preset:ident {
             $field:ident : $options:ty,
             $(inherit: [$($inherit:ident),* $(,)?],)?
+            $(references: $references:expr,)?
             check: $check:expr $(,)?
         }
         $(
@@ -198,6 +204,11 @@ macro_rules! catalogue {
                 let check: fn(&$options) -> ::std::result::Result<(), ::std::string::String> = $check;
                 check(options)
             }
+            $(
+                fn references() -> $crate::preset::References {
+                    $references
+                }
+            )?
         }
     };
 }

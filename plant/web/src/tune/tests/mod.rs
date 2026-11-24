@@ -1,6 +1,6 @@
-use bevy::color::Color;
+use bevy::color::{Color, ColorToComponents, Srgba};
 use bevy::reflect::{PartialReflect, ReflectPath, TypeRegistry};
-use procgena_plant::prelude::*;
+use procgena_plant_bevy::prelude::*;
 
 use super::{set_value, write_node, write_rust_changes};
 
@@ -32,7 +32,10 @@ fn sets_numbers_colours_and_list_items_by_path() {
     set(&mut field, "plants[0].density_scale", "0.25").unwrap();
     let grass = field.plants[main].plant;
     assert!((grass.height.y - 0.9).abs() < f32::EPSILON);
-    assert_eq!(grass.segment.tip_color.to_srgba().to_hex(), "#FF8000");
+    assert_eq!(
+        Srgba::from_f32_array_no_alpha(grass.segment.tip_color.0).to_hex(),
+        "#FF8000"
+    );
     assert_eq!(grass.levels[0].count, 12);
     assert_eq!(grass.levels[0].arrangement, PlantArrangement::Alternate);
     assert_eq!(field.toon_bands, 3);
@@ -75,7 +78,7 @@ fn rust_names_only_what_changed_from_the_preset() {
     );
     assert_eq!(
         rust,
-        "PlantScatter {\n    plants: vec![\n        ScatterPlant {\n            \
+        "PlantScatterOptions {\n    plants: vec![\n        ScatterPlant {\n            \
          plant: PlantParams {\n                width: 0.037,\n                \
          ..PlantScatterPreset::MEADOW.plant_scatter.plants[0].plant\n            },\n            \
          ..PlantScatterPreset::MEADOW.plant_scatter.plants[0]\n        },\n    ].into(),\n    \

@@ -43,7 +43,7 @@ procgena_core = { path = "../core/crates/procgena_core" }
 procgena_tree = { path = "../tree/crates/procgena_tree", features = ["export-obj", "export-gltf"] }
 procgena_tree_bevy = { path = "../tree/crates/procgena_tree_bevy" }
 procgena_impostor = { path = "../impostor/crates/procgena_impostor" }
-procgena_plant = { path = "../plant" }
+procgena_plant_bevy = { path = "../plant/crates/procgena_plant_bevy" }
 procgena_stone = { path = "../stone/crates/procgena_stone", features = ["export-obj", "export-gltf"] }
 procgena_stone_bevy = { path = "../stone/crates/procgena_stone_bevy" }
 procgena_clump = { path = "../clump/crates/procgena_clump" }
@@ -63,5 +63,8 @@ dirs = "6"
 # Runs texture downloads on their own threads, as Bevy's web asset reader does.
 blocking = "1.7"
 serde_json = { workspace = true }
+# The project file, procgena.yml.
+serde = { workspace = true }
+serde-saphyr = { workspace = true }
 # Native file dialogs.
 rfd = "0.18"

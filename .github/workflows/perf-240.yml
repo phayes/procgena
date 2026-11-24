@@ -45,7 +45,7 @@ concurrency:
   group: perf-240-${{ inputs.machine }}
   cancel-in-progress: false
 
-# The benchmark is procgena_plant's. Artifact paths are relative to the
+# The benchmark is procgena_plant_bevy's; the script finds the crate itself. Artifact paths are relative to the
 # repository root, where the workspace's target/ is.
 defaults:
   run:

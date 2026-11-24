@@ -1,0 +1,58 @@
+[package]
+name = "procgena_plant"
+description = "Grass and foliage settings without a game engine: plants, Scatters, presets and their YAML files."
+version = "0.20.6"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
+publish = false
+keywords = ["grass", "foliage", "procedural", "gamedev"]
+categories = ["game-development"]
+
+[dependencies]
+glam = { workspace = true }
+# The `.plant.yml` and `.plant_scatter.yml` files: the YAML preset layout
+# that every procgena generator shares (a base preset, a name, and the
+# settings under the file's kind).
+procgena_core = { path = "../../../core/crates/procgena_core" }
+serde = { workspace = true }
+# The settings tree a preset file is read into before plant's own checks.
+# Already in procgena_core's tree.
+serde_json = { workspace = true }
+# Bevy's reflection alone (no ECS, renderer or windows), for the `reflect`
+# feature. The version Bevy uses, so its glam impls cover this crate's `Vec2`.
+bevy_reflect = { version = "0.20", default-features = false, features = [
+  "std",
+  "glam",
+], optional = true }
+
+[features]
+# Derives Bevy's `Reflect` on every settings type, so scenes and inspectors
+# can read and edit them. `procgena_plant_bevy` turns it on.
+reflect = ["dep:bevy_reflect"]
+
+[package.metadata.docs.rs]
+features = ["reflect"]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+missing_docs = "warn"
+
+# The same table as procgena_plant_bevy's.
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Bounded f32/integer conversions and exact float comparisons are
+# intentional: preset values are compared bit for bit.
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+float_cmp = "allow"
+# Plant looks are naturally boolean-heavy.
+struct_excessive_bools = "allow"

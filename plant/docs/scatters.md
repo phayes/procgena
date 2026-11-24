@@ -20,9 +20,11 @@ you need.
 
 ## Make your own field
 
-A field preset is a constant; `PlantScatter::from_preset` gives a field of it at
-the size you ask for. The plant is one level in, and its shape and colours one
-more, in its `segment`:
+A field is a `PlantScatter` component: a size and a ground, and its
+`options`, a `PlantScatterOptions` that says what grows and how it looks.
+A Scatter preset is a constant; `PlantScatter::from_preset` gives a field of
+it at the size you ask for. The plant is one level in, and its shape and
+colours one more, in its `segment`. Colours are `Srgb`, sRGB from 0 to 1:
 
 ```rust
 fn setup(mut commands: Commands) {
@@ -30,24 +32,26 @@ fn setup(mut commands: Commands) {
     let plant = PlantParams {
         height: Vec2::new(0.6, 1.2),
         segment: PlantSegment {
-            tip_color: Color::srgb(0.75, 0.70, 0.35),
+            tip_color: Srgb::new(0.75, 0.70, 0.35),
             stiffness: 0.6,
             ..prairie.segment
         },
         ..prairie
     };
+    let options = PlantScatterPreset::TALL_PRAIRIE
+        .plant_scatter
+        .with_plants(vec![ScatterPlant::new(plant)])
+        .with_spacing(0.15); // plants about 15 cm apart
     commands.spawn((
-        PlantScatter::from_preset(&PlantScatterPreset::TALL_PRAIRIE, Vec2::new(120.0, 80.0))
-            .with_plants(vec![ScatterPlant::new(plant, 1.0)])
-            .with_spacing(0.15), // plants about 15 cm apart
+        PlantScatter::with_options(Vec2::new(120.0, 80.0), options),
         Transform::from_xyz(40.0, 2.0, -10.0),
     ));
 }
 ```
 
 `PlantParams`, `PlantSegment`, `PlantBranches`, `PlantAccent` and `ScatterPlant`
-are `Copy`. `PlantScatter` is not, so to reuse a field held in a variable after
-`..field`, write `..field.clone()`.
+are `Copy`. `PlantScatterOptions` is not, so to reuse settings held in a
+variable after `..options`, write `..options.clone()`.
 
 ## Change a field at runtime
 
@@ -59,8 +63,8 @@ day/night blend or wet grass:
 fn season(time: Res<Time>, mut fields: Query<&mut PlantScatter>) {
     let t = (time.elapsed_secs() * 0.1).sin() * 0.5 + 0.5;
     for mut field in &mut fields {
-        for entry in field.plants.to_mut() {
-            entry.plant.segment.tip_color = Color::srgb(0.34 + 0.3 * t, 0.56 - 0.1 * t, 0.14);
+        for entry in field.options.plants.to_mut() {
+            entry.plant.segment.tip_color = Srgb::new(0.34 + 0.3 * t, 0.56 - 0.1 * t, 0.14);
         }
     }
 }
@@ -93,7 +97,7 @@ well, scale the heights of the field's plants:
 
 ```rust
 let mut field = PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(800.0));
-for entry in field.plants.to_mut() {
+for entry in field.options.plants.to_mut() {
     entry.plant.height *= 0.4 / 0.6;
     entry.plant.accent.height *= 0.4 / 0.6;
 }
@@ -112,7 +116,8 @@ on its own: 60 for `MEADOW_GRASS`, 40 for `SEED_HEADS`, 2 for `FERN`. In a
 field it grows at its density times its `density_scale` (1 by default):
 
 ```rust
-let field = PlantScatter::from_preset(&PlantScatterPreset::SUMMER_TALL, Vec2::splat(100.0))
+let options = PlantScatterPreset::SUMMER_TALL
+    .plant_scatter
     .with_plants(vec![
         // 40 × 0.1 = 4 seed heads per m².
         ScatterPlant::new(PlantParams::SEED_HEADS).scaled(0.1),
@@ -121,7 +126,7 @@ let field = PlantScatter::from_preset(&PlantScatterPreset::SUMMER_TALL, Vec2::sp
         // A plant of your own sets its own density: 0.8 purple flowers per m².
         ScatterPlant::new(PlantParams {
             density: 0.8,
-            head_color: Color::srgb(0.70, 0.45, 0.95),
+            head_color: Srgb::new(0.70, 0.45, 0.95),
             ..PlantParams::WHITE_FLOWERS
         })
         .clustered(0.8),
@@ -136,21 +141,22 @@ let field = PlantScatter::from_preset(&PlantScatterPreset::SUMMER_TALL, Vec2::sp
         })
         .scaled(0.85),
     ]);
-let wild = PlantScatter {
+let wild = PlantScatterOptions {
     variation: PlantVariation {
         bare_share: 0.05,  // 5% of the ground bare
         patch_amount: 0.4, // colour drifts in patches several metres across
         dry_tips: 0.2,
-        ..field.variation
+        ..options.variation
     },
-    ..field
+    ..options
 };
+let field = PlantScatter::with_options(Vec2::splat(100.0), wild);
 ```
 
 How the plants share the field:
 
 - **Densities add up.** The field grows the sum of its plants' densities per
-  m² (`field.density()`), and each plant's share is its density over that
+  m² (`options.density()`), and each plant's share is its density over that
   sum. A plant scaled to 0 does not grow, and a field with no plants, or none
   with a density above 0, grows nothing.
 - **The field's own `density_scale`** multiplies every plant's density at
@@ -171,12 +177,12 @@ ready-made examples.
 A mix is not made by adding two whole fields together. `FOREST_FLOOR`, for
 example, starts from `FOREST_MOSS` and grows ferns, leaf litter, clover and
 broad leaves among its moss (see
-[`src/presets/forest.rs`](../src/presets/forest.rs)). Each plant has its own
+[`src/presets/forest.rs`](../crates/procgena_plant/src/presets/forest.rs) in `procgena_plant`). Each plant has its own
 `PlantParams`, so its shape, height, colours and tufts can differ from every
 other plant's:
 
 ```rust
-let mixed = PlantScatter {
+let mixed = PlantScatterOptions {
     density_scale: 1.0, // FOREST_MOSS grows its moss at 1.1
     plants: vec![
         // 2 × 0.7 = 1.4 ferns per m².
@@ -186,7 +192,7 @@ let mixed = PlantScatter {
             height: Vec2::new(0.12, 0.30),
             width: 0.07,
             segment: PlantSegment {
-                tip_color: Color::srgb(0.45, 0.22, 0.08),
+                tip_color: Srgb::new(0.45, 0.22, 0.08),
                 ..PlantParams::BROAD_LEAF.segment
             },
             ..PlantParams::BROAD_LEAF
@@ -195,7 +201,7 @@ let mixed = PlantScatter {
         .clustered(0.4),
         // 30 × 0.2 = 6 pink flowers per m².
         ScatterPlant::new(PlantParams {
-            head_color: Color::srgb(0.80, 0.30, 0.55),
+            head_color: Srgb::new(0.80, 0.30, 0.55),
             ..PlantParams::WHITE_FLOWERS
         })
         .scaled(0.2)
@@ -204,7 +210,7 @@ let mixed = PlantScatter {
         ScatterPlant::new(PlantParams::MOSS).scaled(0.6),
     ]
     .into(),
-    ..PlantScatter::from_preset(&PlantScatterPreset::FOREST_MOSS, Vec2::splat(30.0))
+    ..PlantScatterPreset::FOREST_MOSS.plant_scatter
 };
 ```
 
@@ -276,7 +282,7 @@ let pampas = PlantParams {
         width: 0.01,
         head_length: 0.3,
         head_width: 0.045,
-        head_color: Color::srgb(0.94, 0.88, 0.74),
+        head_color: Srgb::new(0.94, 0.88, 0.74),
         ..PlantAccent::NONE
     },
     ..PlantScatterPreset::PAMPAS.plant_scatter.plants[0].plant
@@ -356,7 +362,7 @@ plant:
 
 Every branched plant preset (`FERN`, `SALAL`, `MATURE_BRACKEN` and the others
 in [Presets](presets.md)) has its settings written out this way in its file
-in [`assets/plants`](../assets/plants), to copy from.
+in [`assets/plants`](../crates/procgena_plant/assets/plants), to copy from.
 
 What to know about branched plants:
 
@@ -385,8 +391,8 @@ What to know about branched plants:
 ## Load plants and fields from files, and edit them live
 
 Every preset ships as a file: plants in
-[`assets/plants`](../assets/plants) as `.plant.yml`, Scatters in
-[`assets/scatters`](../assets/scatters) as `.plant_scatter.yml`. Copy one
+[`assets/plants`](../crates/procgena_plant/assets/plants) as `.plant.yml`, Scatters in
+[`assets/scatters`](../crates/procgena_plant/assets/scatters) as `.plant_scatter.yml`. Copy one
 into your game's assets and load it like any asset: a `.plant.yml` loads as
 a `PlantPreset`, a `.plant_scatter.yml` as a `PlantScatterPreset`. The
 loaded preset's `key` is the file's name without its extensions, and its
@@ -402,16 +408,17 @@ let fern: Handle<PlantPreset> = assets.load("embedded://procgena_plant/plants/fe
 ```
 
 A Scatter file holds the plants and look, not where the Scatter is, so its
-`size`, `ground` and `density_map` are the Scatter's own. Copy a loaded
-Scatter onto yours when it loads, and again whenever the file changes:
+A file holds a Scatter's `options`; `size`, `ground` and `density_map` are
+the component's own. Copy a loaded Scatter's options onto yours when it
+loads, and again whenever the file changes:
 
 ```rust
 #[derive(Component)]
-struct ScatterFile(Handle<PlantScatterPreset>);
+struct ScatterFile(Handle<PlantScatterPresetAsset>);
 
 fn follow_scatter_files(
-    mut events: MessageReader<AssetEvent<PlantScatterPreset>>,
-    presets: Res<Assets<PlantScatterPreset>>,
+    mut events: MessageReader<AssetEvent<PlantScatterPresetAsset>>,
+    presets: Res<Assets<PlantScatterPresetAsset>>,
     mut fields: Query<(&ScatterFile, &mut PlantScatter)>,
 ) {
     for event in events.read() {
@@ -419,15 +426,10 @@ fn follow_scatter_files(
         else {
             continue;
         };
-        let Some(preset) = presets.get(id) else { continue };
+        let Some(PlantScatterPresetAsset(preset)) = presets.get(id) else { continue };
         for (file, mut field) in &mut fields {
             if file.0.id() == id {
-                *field = PlantScatter {
-                    size: field.size,
-                    ground: field.ground.clone(),
-                    density_map: field.density_map.clone(),
-                    ..preset.plant_scatter.clone()
-                };
+                field.options = preset.plant_scatter.clone();
             }
         }
     }

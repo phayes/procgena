@@ -105,18 +105,25 @@ macro_rules! name_choice {
     };
 }
 
-/// Edits a Bevy [`Color`](bevy::color::Color) using an sRGB colour picker.
+/// Edits a plant setting's [`Srgb`](procgena_plant_bevy::Srgb) colour using
+/// an sRGB colour picker.
 ///
 /// The picker uses `0xRRGGBB`, with 8 bits per channel. Merely displaying
 /// a colour preserves its original precision; choosing a colour stores the
-/// picker's rounded, opaque value.
+/// picker's rounded value.
 macro_rules! srgb {
     ($t:ty, $key:expr, $label:expr, |$o:ident| $place:expr) => {
         $crate::params::Param::color(
             $key,
             $label,
-            |$o: &$t| $crate::params::srgb_to_hex($place),
-            |$o: &mut $t, value| $place = $crate::params::srgb_from_hex(value),
+            |$o: &$t| $crate::params::srgb_to_hex(bevy::color::Color::srgb_from_array($place.0)),
+            |$o: &mut $t, value| {
+                $place = procgena_plant_bevy::Srgb(
+                    bevy::color::ColorToComponents::to_f32_array_no_alpha(
+                        $crate::params::srgb_from_hex(value).to_srgba(),
+                    ),
+                )
+            },
         )
     };
 }

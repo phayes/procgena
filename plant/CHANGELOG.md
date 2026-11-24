@@ -5,6 +5,35 @@ break the API; each breaking change below says what to write instead.
 
 ## Unreleased
 
+### Two crates: `procgena_plant` and `procgena_plant_bevy`
+
+Plant is now an engine-free crate, `procgena_plant`, with the plant and
+Scatter settings, the presets and their YAML files, and a Bevy crate,
+`procgena_plant_bevy`, that draws them and re-exports every settings type.
+Nothing drawn changes. The settings types derive Bevy's `Reflect` through
+`procgena_plant`'s `reflect` feature, which `procgena_plant_bevy` turns on.
+See [`alignment_plan.md`](alignment_plan.md), stage P1.
+
+**Breaking, and what to write instead**
+
+| Before | Now |
+|--------|-----|
+| `procgena_plant = "0.20.6"`, `use procgena_plant::prelude::*` | `procgena_plant_bevy`, `use procgena_plant_bevy::prelude::*` |
+| `PlantScatter { density_scale: 0.75, ..PlantScatter::from_preset(&preset, size) }` | `let mut field = PlantScatter::from_preset(&preset, size); field.options.density_scale = 0.75;` |
+| `field.plants`, `field.density_scale`, `field.variation`, `field.ground_tint`, `field.toon_bands`, `field.wind_scale`, `field.default_seed` on a `PlantScatter` | `field.options.plants` and so on: the settings are a `PlantScatterOptions` |
+| `PlantScatter::density`, `spacing`, `with_density`, `with_spacing`, `with_plants`, `from_yaml`, `to_yaml` | The same methods on `PlantScatterOptions`; `PlantScatter::with_options(size, options)` makes a field of them |
+| `PlantScatterPreset::plant_scatter` is a `PlantScatter` | It is a `PlantScatterOptions` (no size, ground or density map) |
+| `PlantScatter` with serde | `PlantScatterOptions` with serde; the component has none |
+| Colours as `Color` (`Color::srgb(r, g, b)`) | `Srgb::new(r, g, b)`; `Color::srgb_from_array(colour.0)` gives a Bevy `Color` |
+| `Assets<PlantScatterPreset>`, `Assets<PlantPreset>`, `Handle<PlantScatterPreset>` | `PlantScatterPresetAsset` and `PlantPresetAsset`, each holding the preset in `.0` |
+| `plant.mesh_size(lod, &settings)` | `settings.mesh_size(&plant, lod)` |
+| `FarPlants::new(&field)` | `FarPlants::new(&field.options)` |
+| WESL `import procgena_plant::shaders::far::...` | `import procgena_plant_bevy::shaders::far::...` |
+| `plant/assets`, `plant/examples`, `plant/tests/golden` | `plant/crates/procgena_plant/assets`, `plant/crates/procgena_plant_bevy/examples` and `.../tests/golden` |
+
+`PlantParams::validate` and `PlantScatterOptions::validate` check settings as
+a file is checked.
+
 ### Scatters, YAML preset files and `default_seed`
 
 A field of plants is now a Scatter, as in every procgena generator, and

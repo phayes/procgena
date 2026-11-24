@@ -52,7 +52,7 @@ use std::fmt;
 use glam::{DVec2, DVec3, Vec3};
 use procgena_core::{Lod, LodLevel};
 
-use crate::{FeatureTier, Terrain, WorldTerrain};
+use crate::{FeatureTier, SampleDetail, Terrain, WorldTerrain};
 
 /// Width in metres of a chunk at level 0. Each level up doubles it.
 pub const CHUNK_SIZE: f64 = 64.0;
@@ -349,7 +349,7 @@ pub trait ChunkSource: Sync {
 impl ChunkSource for Terrain {
     /// The terrain's own ground, whatever tier is asked for.
     fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
-        let sample = self.query(p, false);
+        let sample = self.query(p, SampleDetail::Height);
         SurfacePoint {
             height: sample.height,
             water: sample.water,

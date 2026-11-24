@@ -24,7 +24,8 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
             height_scale: 40.0,
         },
         density_map: Some(linear("terrain/plant_mask.png")),
-        ..PlantScatter::from_preset(&PlantScatterPreset::SUMMER_TALL, Vec2::splat(512.0))
+        options: PlantScatterPreset::SUMMER_TALL.plant_scatter,
+        size: Vec2::splat(512.0),
     });
 }
 ```
@@ -68,7 +69,7 @@ and Z. Set the field's `size` before calling them. A height that is not
 finite leaves no ground, and nothing grows within a cell of it, as past the
 edge of a mesh. The mask can be edited afterwards like any other.
 
-[`examples/code_terrain.rs`](../examples/code_terrain.rs) is an island in 16
+[`examples/code_terrain.rs`](../crates/procgena_plant_bevy/examples/code_terrain.rs) is an island in 16
 chunk meshes with one field over all of it, bare on the beach and the cliff.
 
 ## Grow grass on a mesh
@@ -122,7 +123,7 @@ field waits for the mesh to load, so it never appears at the wrong height.
   field on each tile, or, when the tiles come from code, one field over all
   of them from the same function.
 
-[`examples/mesh_terrain.rs`](../examples/mesh_terrain.rs) builds rolling
+[`examples/mesh_terrain.rs`](../crates/procgena_plant_bevy/examples/mesh_terrain.rs) builds rolling
 hills and grows a meadow on them.
 
 
@@ -149,7 +150,7 @@ fn ground(
 ```
 
 A game with a terrain shader of its own calls the same WESL function,
-`procgena_plant::shaders::far::plant_far_color`, from it. Its material holds a
+`procgena_plant_bevy::shaders::far::plant_far_color`, from it. Its material holds a
 `FarPlantUniform` and the gust texture, and a system rewrites the uniform
 each frame, since the gusts scroll:
 
@@ -181,7 +182,7 @@ fn follow_the_plants(
 and in the shader:
 
 ```wgsl
-import procgena_plant::shaders::far::{FarPlants, plant_far_color};
+import procgena_plant_bevy::shaders::far::{FarPlants, plant_far_color};
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> far: FarPlants;
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var gust_texture: texture_2d<f32>;
@@ -190,7 +191,7 @@ import procgena_plant::shaders::far::{FarPlants, plant_far_color};
 let color = plant_far_color(world_position, view.world_position, soil, far, gust_texture, gust_sampler);
 ```
 
-[`examples/custom_terrain.rs`](../examples/custom_terrain.rs) is the whole
+[`examples/custom_terrain.rs`](../crates/procgena_plant_bevy/examples/custom_terrain.rs) is the whole
 thing, with its shader beside it.
 
 | Item | What it does |
@@ -205,7 +206,7 @@ thing, with its shader beside it.
 | `FarPlantUniform` | The material's GPU data, for a terrain material of your own |
 | `FarPlants::uniform(&wind, &settings)` | That data with this frame's wind and grass radius |
 | `FarPlants::GUSTS` | The gust texture `plant_far_color` reads |
-| `plant_far_color` (WESL) | `procgena_plant::shaders::far::plant_far_color`, for your own terrain shader |
+| `plant_far_color` (WESL) | `procgena_plant_bevy::shaders::far::plant_far_color`, for your own terrain shader |
 
 ## Hide a field, or leave a camera out
 

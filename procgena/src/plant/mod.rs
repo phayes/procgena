@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use procgena_core::preset::FILE_GROUP;
-use procgena_plant::prelude::{PlantParams, PlantPreset};
+use procgena_plant_bevy::prelude::{PlantParams, PlantPreset};
 
 use crate::export::{Done, file_key, shown_name, write_file};
 

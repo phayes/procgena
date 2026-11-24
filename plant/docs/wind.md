@@ -79,5 +79,5 @@ multiples of 256. Put the
 system in
 `PlantWindSystems::Sample` so the blades and the far-grass material read the
 same frame. The built-in model remains available by itself as
-`PlantWindPlugin`; [`examples/custom_wind.rs`](../examples/custom_wind.rs) is
+`PlantWindPlugin`; [`examples/custom_wind.rs`](../crates/procgena_plant_bevy/examples/custom_wind.rs) is
 a complete scene driven this way.

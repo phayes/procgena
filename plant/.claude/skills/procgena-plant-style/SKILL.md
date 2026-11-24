@@ -5,8 +5,16 @@ description: House rules for changing procgena_plant. Load before writing or edi
 
 # procgena_plant house rules
 
-One crate: a Bevy 0.20 renderer for grass and foliage (WESL shaders in
-`src/shaders/`) with a CPU twin of the shaders. `rust-version = 1.97.1`,
+Two crates. The engine-free `procgena_plant` (`plant/crates/procgena_plant`)
+holds the settings types, presets, YAML files, `validate()` and an optional
+`reflect` feature. The Bevy 0.20 renderer for grass and foliage,
+`procgena_plant_bevy` (`plant/crates/procgena_plant_bevy`), holds everything
+that draws: the WESL shaders in `src/shaders/`, `shader_model.rs`, the CPU
+twin `mirror.rs`, examples and goldens. Paths below are in the Bevy crate
+unless they name settings, presets or files. Settings colours are
+`procgena_plant::Srgb`, not Bevy `Color`; settings types derive `Reflect`
+only behind `#[cfg_attr(feature = "reflect", ...)]` and are re-exported by
+name from `procgena_plant_bevy`'s root and prelude. `rust-version = 1.97.1`,
 toolchain `1.98.1`, `edition = 2024`. These rules describe what the crate
 already does. Where they disagree with generic Rust or API advice, they win
 until a human changes them here; [Deliberate deviations](#deliberate-deviations)
@@ -91,7 +99,7 @@ Rules:
 
 ## WESL shaders
 
-- Each file opens with `//! procgena_plant::shaders::<name> — <what it does>` and
+- Each file opens with `//! procgena_plant_bevy::shaders::<name> — <what it does>` and
   says which passes use it. Keep that header true.
 - A library module is registered with `load_shader_library!`, an entry-point
   shader with `embedded_asset!`, in the `build` of the plugin that uses it:
@@ -234,12 +242,12 @@ Code shape for hot paths:
 A new look term (a field of `PlantParams`, `PlantAccent` or `PlantField` the
 shaders read) touches, in one commit:
 
-1. `src/look.rs` (plant terms) or `src/api.rs` (field terms): the field, its
-   doc, its value in every constant and in every preset that should use it
-   (`src/presets/`).
-2. `src/files.rs`: the setting in its `settings_file!` or `field_file!` list,
-   and its check, so `.plant.ron` and `.field.ron` files can set it. Then
-   `BLESS_PRESETS=1 cargo test` rewrites the shipped files.
+1. `procgena_plant/src/look.rs` (plant terms) or
+   `procgena_plant/src/scatter.rs` (Scatter terms): the field, its doc, its
+   value in every constant and in every preset that should use it.
+2. `procgena_plant/src/files.rs`: the setting and its check, so `.plant.yml`
+   and `.plant_scatter.yml` files can set it. Write a new preset's file
+   with `to_yaml(None)`; the tests check the shipped files.
 3. `src/gpu_layout.rs`: where it goes in `FieldGpu` (a free component of an
    existing `Vec4` before a new one), filled in `fields.rs`.
 4. `src/shaders/common.wesl`: the same slot in `Field`.
@@ -293,16 +301,19 @@ continue with a trailing `\` from a non-raw Python string.
 
 ## Verify before saying done
 
-The same steps as `.github/workflows/ci.yml`:
+The same steps as `.github/workflows/ci.yml`, run from
+`plant/crates/procgena_plant_bevy/`:
 
 ```bash
-cargo fmt --check
+cargo fmt --check -p procgena_plant -p procgena_plant_bevy
 python tools/plant/lint.py                      # clippy -D warnings, every feature set
+cargo test -p procgena_plant
+cargo check -p procgena_plant --no-default-features
 cargo test
 cargo test --features rapier
 cargo test --features avian
 cargo test --example bench
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features -p procgena_plant -p procgena_plant_bevy
 cargo +1.97.1 check --all-targets --all-features    # MSRV
 typos && cargo machete && cargo deny check
 ```
@@ -322,9 +333,10 @@ These are choices, not oversights. Do not "correct" them:
 
 - **`prelude` exists.** It is how Bevy users import a plugin crate;
   `docs/api.md` calls it the front door.
-- **Bevy types in public signatures** (`Vec2`, `Handle<T>`, `Assets<T>`,
-  `Color`). Wrapping them would fight the engine and break reflection,
-  scenes and inspectors.
+- **Bevy types in the Bevy crate's public signatures** (`Vec2`,
+  `Handle<T>`, `Assets<T>`, `Color`). Wrapping them would fight the engine
+  and break reflection, scenes and inspectors. The engine-free
+  `procgena_plant` uses `procgena_plant::Srgb` and `glam` instead.
 - **Unit tests under `src/`**, GPU harnesses as `examples/`, for the reasons
   in `tests/README.md`.
 - **Prose-heavy rustdoc and `docs/`.** The measured "why" is the value: the
