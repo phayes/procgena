@@ -100,6 +100,9 @@ struct Case {
     position: Vec3,
     wind: Vec4,
     anchor: Vec3,
+    /// Radians added to the trunk and branch timing. The shader is called
+    /// through `wind_offset` when it is 0, `wind_offset_shifted` otherwise.
+    shift: f32,
     time: f32,
     params: WindParams,
 }
@@ -108,15 +111,26 @@ struct Case {
 fn shader_offset(case: &Case) -> Vec3 {
     let v3 = |v: Vec3| format!("vec3<f32>({:?}, {:?}, {:?})", v.x, v.y, v.z);
     let p = case.params;
+    let call = if case.shift == 0.0 {
+        "wind_offset(position, wind, anchor, time, params)".to_owned()
+    } else {
+        format!(
+            "wind_offset_shifted(position, wind, anchor, {:?}, time, params)",
+            case.shift
+        )
+    };
     let main = format!(
         r#"
-import package::wind::{{wind_offset, WindParams}};
+import package::wind::{{wind_offset, wind_offset_shifted, WindParams}};
 
 @fragment
 fn main() -> @location(0) vec4<f32> {{
     let params = WindParams({}, {:?}, {:?}, {:?}, {:?});
     let wind = vec4<f32>({:?}, {:?}, {:?}, {:?});
-    return vec4<f32>(wind_offset({}, wind, {}, {:?}, params), 0.0);
+    let position = {};
+    let anchor = {};
+    let time = {:?};
+    return vec4<f32>({call}, 0.0);
 }}
 "#,
         v3(p.strength),
@@ -233,7 +247,7 @@ fn leaf_flutter(position: Vec3, weight: f32, time: f32, p: &WindParams) -> Vec3 
 fn cpu_offset(case: &Case) -> Vec3 {
     let p = &case.params;
     let [bend, weight, phase, flutter] = case.wind.to_array();
-    let tree_phase = std::f32::consts::TAU * simplex3(case.anchor / p.scale);
+    let tree_phase = std::f32::consts::TAU * simplex3(case.anchor / p.scale) + case.shift;
 
     let lean = 0.75 + 0.25 * (0.5 * case.time * p.frequency + tree_phase).sin();
     let trunk = p.strength * (p.trunk_bend * bend * lean);
@@ -259,6 +273,7 @@ fn cases() -> Vec<Case> {
             position: Vec3::new(3.2, 11.5, -4.75),
             wind: Vec4::new(0.6, 2.5, 0.3, 1.0),
             anchor: Vec3::ZERO,
+            shift: 0.0,
             time: 12.25,
             params: WindParams::LEAVES_ONLY,
         },
@@ -267,6 +282,7 @@ fn cases() -> Vec<Case> {
             position: Vec3::new(-1.0, 6.0, 2.0),
             wind: Vec4::new(0.3, 1.0, 0.7, 0.0),
             anchor: Vec3::ZERO,
+            shift: 0.0,
             time: 3.0,
             params: WindParams::LEAVES_ONLY,
         },
@@ -275,6 +291,7 @@ fn cases() -> Vec<Case> {
             position: Vec3::new(-1.0, 6.0, 2.0),
             wind: Vec4::new(0.3, 1.0, 0.7, 0.0),
             anchor: Vec3::ZERO,
+            shift: 0.0,
             time: 3.0,
             params: WindParams::default(),
         },
@@ -283,6 +300,16 @@ fn cases() -> Vec<Case> {
             position: Vec3::new(0.4, 7.9, 1.1),
             wind: Vec4::new(0.45, 3.2, 0.81, 1.0),
             anchor: Vec3::new(25.0, 0.0, -13.0),
+            shift: 0.0,
+            time: 47.5,
+            params: layered,
+        },
+        // The same tree with its trunk and branch timing shifted.
+        Case {
+            position: Vec3::new(0.4, 7.9, 1.1),
+            wind: Vec4::new(0.45, 3.2, 0.81, 1.0),
+            anchor: Vec3::new(25.0, 0.0, -13.0),
+            shift: 0.9,
             time: 47.5,
             params: layered,
         },
@@ -291,6 +318,7 @@ fn cases() -> Vec<Case> {
             position: Vec3::new(1.5, 4.0, -0.5),
             wind: Vec4::new(0.2, 1.4, 0.12, 0.0),
             anchor: Vec3::new(-8.0, 0.0, 30.0),
+            shift: 0.0,
             time: 0.75,
             params: layered,
         },
@@ -315,6 +343,14 @@ fn leaves_only_moves_only_leaf_tips() {
     let cases = cases();
     assert_ne!(cpu_offset(&cases[0]), Vec3::ZERO);
     assert_eq!(shader_offset(&cases[1]), Vec3::ZERO);
+}
+
+/// A tree's own timing shift moves its trunk and branches out of step with an
+/// unshifted tree on the same spot.
+#[test]
+fn a_shift_moves_the_tree_out_of_step() {
+    let cases = cases();
+    assert!(!shader_offset(&cases[3]).abs_diff_eq(shader_offset(&cases[4]), 1e-3));
 }
 
 /// Default wind carries a leaf base along even though its flutter weight is zero.

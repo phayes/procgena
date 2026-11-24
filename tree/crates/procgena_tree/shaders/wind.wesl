@@ -40,16 +40,34 @@ fn wind_offset(
     time: f32,
     params: WindParams,
 ) -> vec3<f32> {
-    return trunk_offset(wind.x, anchor, time, params)
-        + branch_offset(wind.y, wind.z, anchor, time, params)
+    return wind_offset_shifted(position, wind, anchor, 0.0, time, params);
+}
+
+/// Returns the same displacement as `wind_offset`, with the trunk and branch
+/// timing moved on by `shift` radians.
+///
+/// Give each tree its own fixed `shift` to make neighbouring trees sway a
+/// little out of step while still following the same gusts. A `shift` of 0
+/// gives exactly `wind_offset`. Leaf flutter is not shifted.
+fn wind_offset_shifted(
+    position: vec3<f32>,
+    wind: vec4<f32>,
+    anchor: vec3<f32>,
+    shift: f32,
+    time: f32,
+    params: WindParams,
+) -> vec3<f32> {
+    let phase = tree_phase(anchor, params) + shift;
+    return trunk_offset(wind.x, phase, time, params)
+        + branch_offset(wind.y, wind.z, phase, time, params)
         + leaf_flutter(position, wind.w, time, params);
 }
 
 /// Moves the trunk downwind, varying between half and all of
 /// `bend × trunk_bend × strength`. The mesh supplies `bend`: 0 at ground level
-/// and 1 at the highest section.
-fn trunk_offset(bend: f32, anchor: vec3<f32>, time: f32, params: WindParams) -> vec3<f32> {
-    let angle = 0.5 * time * params.frequency + tree_phase(anchor, params);
+/// and 1 at the highest section. `tree` is the tree's timing offset in radians.
+fn trunk_offset(bend: f32, tree: f32, time: f32, params: WindParams) -> vec3<f32> {
+    let angle = 0.5 * time * params.frequency + tree;
     let lean = 0.75 + 0.25 * sin(angle);
     return params.strength * (params.trunk_bend * bend * lean);
 }
@@ -57,14 +75,15 @@ fn trunk_offset(bend: f32, anchor: vec3<f32>, time: f32, params: WindParams) -> 
 /// Moves a branch back and forth along the wind direction, by up to
 /// `weight × branch_sway × strength`. The mesh supplies the movement `weight`
 /// and the timing offset `phase` in `[0, 1)` for the branch's main limb.
+/// `tree` is the whole tree's timing offset in radians.
 fn branch_offset(
     weight: f32,
     phase: f32,
-    anchor: vec3<f32>,
+    tree: f32,
     time: f32,
     params: WindParams,
 ) -> vec3<f32> {
-    let angle = time * params.frequency + 6.283185307 * phase + tree_phase(anchor, params);
+    let angle = time * params.frequency + 6.283185307 * phase + tree;
     let swing = 0.7 * sin(angle) + 0.3 * sin(2.3 * angle);
     return params.strength * (params.branch_sway * weight * swing);
 }

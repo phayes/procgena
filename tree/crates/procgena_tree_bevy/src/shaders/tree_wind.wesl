@@ -1,21 +1,29 @@
 // Wind displacement shared by the main, depth, shadow and deferred tree shaders.
 
-import procgena_tree::wind::{WindParams, wind_offset};
+import procgena_tree::wind::{WindParams, wind_offset_shifted};
 
 /// The material's wind settings, supplied by the Rust `WindExtension`.
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> wind_params: WindParams;
 
+/// How far apart in timing two trees on the same spot can sway, as a share of
+/// one sway cycle: a tree's wind phase of 0 to 1 shifts it by up to this much.
+const WIND_PHASE_SPREAD: f32 = 0.15;
+
 /// Returns movement in tree coordinates to add to `position` at `time` seconds.
 ///
-/// `wind` holds this vertex's animation weights and timing offset. The tree's
-/// world translation varies the wind pattern so copies at different positions
-/// do not all move together.
+/// `wind` holds this vertex's animation weights and timing offset. Trees sway
+/// with gusts that travel across the world by their world position, and each
+/// is shifted a little by its own `wind_phase`, from 0 to 1, so that
+/// neighbours don't move in perfect step. Pass the same `wind_phase` for every
+/// part of one tree, in every pass.
 fn tree_wind_offset(
     position: vec3<f32>,
     wind: vec4<f32>,
     world_from_local: mat4x4<f32>,
+    wind_phase: f32,
     time: f32,
 ) -> vec3<f32> {
     let anchor = world_from_local[3].xyz;
-    return wind_offset(position + anchor, wind, anchor, time, wind_params);
+    let shift = 6.283185307 * WIND_PHASE_SPREAD * wind_phase;
+    return wind_offset_shifted(position + anchor, wind, anchor, shift, time, wind_params);
 }
