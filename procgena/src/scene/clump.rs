@@ -91,7 +91,7 @@ pub(crate) fn show_deadwood_cover(
         Some(preset)
             if state.mode() == SceneMode::Deadwood && settings.view == DeadwoodView::Piece =>
         {
-            preset.options()
+            preset.clump.clone()
         }
         _ => {
             if let Some(cover) = shown.0.take()

@@ -8,12 +8,12 @@ pub enum StudioTab {
     /// A single tree.
     #[default]
     Trees,
-    /// A grove mixing several kinds of tree.
-    TreeGrove,
+    /// A tree Scatter mixing several kinds of tree.
+    TreeScatter,
     /// One plant, previewed on its own.
     Plant,
-    /// A field mixing several plants.
-    PlantField,
+    /// A Plant Scatter mixing several plants.
+    PlantScatter,
     /// A single rock.
     Stones,
     /// A tree or rock with a clump, such as snow or moss, grown on it.
@@ -28,9 +28,9 @@ impl StudioTab {
     /// Every tab, left to right.
     pub const ALL: [StudioTab; 8] = [
         StudioTab::Trees,
-        StudioTab::TreeGrove,
+        StudioTab::TreeScatter,
         StudioTab::Plant,
-        StudioTab::PlantField,
+        StudioTab::PlantScatter,
         StudioTab::Stones,
         StudioTab::Clumps,
         StudioTab::Mushrooms,
@@ -41,9 +41,9 @@ impl StudioTab {
     pub fn label(self) -> &'static str {
         match self {
             Self::Trees => "Trees",
-            Self::TreeGrove => "Tree Grove",
+            Self::TreeScatter => "Tree Scatter",
             Self::Plant => "Plant",
-            Self::PlantField => "Plant Field",
+            Self::PlantScatter => "Plant Scatter",
             Self::Stones => "Stones",
             Self::Clumps => "Clumps",
             Self::Mushrooms => "Mushrooms",
@@ -51,13 +51,13 @@ impl StudioTab {
         }
     }
 
-    /// What the scene shows on this tab. Both plant tabs show a plant field;
-    /// the Plant tab fills it with only its selected plant.
+    /// What the scene shows on this tab. Both plant tabs show a Plant
+    /// Scatter; the Plant tab fills it with only its selected plant.
     pub fn mode(self) -> SceneMode {
         match self {
             Self::Trees => SceneMode::Tree,
-            Self::TreeGrove => SceneMode::Grove,
-            Self::Plant | Self::PlantField => SceneMode::Plants,
+            Self::TreeScatter => SceneMode::Grove,
+            Self::Plant | Self::PlantScatter => SceneMode::Plants,
             Self::Stones => SceneMode::Stone,
             Self::Clumps => SceneMode::Clump,
             Self::Mushrooms => SceneMode::Mushroom,

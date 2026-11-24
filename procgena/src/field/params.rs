@@ -1,30 +1,31 @@
-//! Controls for a field's shared appearance and each plant's role in the mix.
+//! Controls for a Plant Scatter's shared appearance and each plant's role in
+//! the mix.
 //!
 //! Plant shape and colour controls are shared with the Plant tab.
 
-use procgena_plant::prelude::{FieldPlant, GroundTint, PlantField, PlantVariation};
+use procgena_plant::prelude::{GroundTint, PlantScatter, PlantVariation, ScatterPlant};
 
 use crate::params::{Group, Section, count, number, srgb};
 
-/// The field's own settings, in display order. Its plants are edited
+/// The Scatter's own settings, in display order. Its plants are edited
 /// separately, one row each.
-pub fn sections() -> Vec<Section<PlantField>> {
+pub fn sections() -> Vec<Section<PlantScatter>> {
     vec![
         Section {
             title: "Variation",
             groups: vec![variation().lift(
                 "variation",
-                |f: &PlantField| &f.variation,
+                |f: &PlantScatter| &f.variation,
                 |f| &mut f.variation,
             )],
         },
         Section {
-            title: "Field",
+            title: "Scatter",
             groups: vec![
                 field(),
                 ground_tint().lift(
                     "ground_tint",
-                    |f: &PlantField| &f.ground_tint,
+                    |f: &PlantScatter| &f.ground_tint,
                     |f| &mut f.ground_tint,
                 ),
             ],
@@ -36,12 +37,12 @@ pub fn sections() -> Vec<Section<PlantField>> {
 ///
 /// The density scale multiplies the plant's natural plants per square metre.
 /// Plant shape, colours and natural density are edited separately.
-pub fn share_sections() -> Vec<Section<FieldPlant>> {
+pub fn share_sections() -> Vec<Section<ScatterPlant>> {
     vec![Section {
         title: "Share",
         groups: vec![Group::plain(vec![
             number!(
-                FieldPlant,
+                ScatterPlant,
                 "density_scale",
                 "Density ×",
                 (0.001, 2.0, 0.001),
@@ -49,7 +50,7 @@ pub fn share_sections() -> Vec<Section<FieldPlant>> {
             )
             .exponential(),
             number!(
-                FieldPlant,
+                ScatterPlant,
                 "clustering",
                 "Clustering",
                 (0.0, 1.0, 0.01),
@@ -59,24 +60,24 @@ pub fn share_sections() -> Vec<Section<FieldPlant>> {
     }]
 }
 
-fn field() -> Group<PlantField> {
+fn field() -> Group<PlantScatter> {
     Group::plain(vec![
         // Multiply all entry densities together without changing the plant proportions.
         number!(
-            PlantField,
+            PlantScatter,
             "density_scale",
-            "Field Density ×",
+            "Scatter Density ×",
             (0.0, 2.0, 0.01),
             |f| f.density_scale
         ),
         number!(
-            PlantField,
+            PlantScatter,
             "wind_scale",
             "Wind Scale",
             (0.0, 2.0, 0.01),
             |f| f.wind_scale
         ),
-        count!(PlantField, "toon_bands", "Toon Bands", (0, 8), |f| f
+        count!(PlantScatter, "toon_bands", "Toon Bands", (0, 8), |f| f
             .toon_bands),
     ])
 }
@@ -150,16 +151,16 @@ fn ground_tint() -> Group<GroundTint> {
 
 #[cfg(test)]
 mod tests {
-    use procgena_plant::prelude::FieldPreset;
+    use procgena_plant::prelude::PlantScatterPreset;
 
     use super::*;
     use crate::params::{Param, checks};
 
-    fn field_params() -> Vec<Param<PlantField>> {
+    fn field_params() -> Vec<Param<PlantScatter>> {
         params_of(sections())
     }
 
-    fn share_params() -> Vec<Param<FieldPlant>> {
+    fn share_params() -> Vec<Param<ScatterPlant>> {
         params_of(share_sections())
     }
 
@@ -171,17 +172,17 @@ mod tests {
             .collect()
     }
 
-    /// Each field preset, named so test failures identify it.
-    fn fields() -> Vec<(String, PlantField)> {
-        FieldPreset::all()
-            .map(|preset| (preset.key.to_string(), preset.field.clone()))
+    /// Each Plant Scatter preset, named so test failures identify it.
+    fn fields() -> Vec<(String, PlantScatter)> {
+        PlantScatterPreset::all()
+            .map(|preset| (preset.key.to_string(), preset.plant_scatter.clone()))
             .collect()
     }
 
-    /// The presets, plus a field that hides every setting that can be hidden.
-    fn varied_fields() -> Vec<(String, PlantField)> {
+    /// The presets, plus a Scatter that hides every setting that can be hidden.
+    fn varied_fields() -> Vec<(String, PlantScatter)> {
         let mut cases = fields();
-        let mut even = FieldPreset::MEADOW.field;
+        let mut even = PlantScatterPreset::MEADOW.plant_scatter;
         even.variation.patch_amount = 0.0;
         even.variation.bare_share = 0.0;
         even.ground_tint.amount = 0.0;
@@ -189,12 +190,12 @@ mod tests {
         cases
     }
 
-    /// Each plant of each field preset, named by its place.
-    fn shares() -> Vec<(String, FieldPlant)> {
-        FieldPreset::all()
+    /// Each plant of each Plant Scatter preset, named by its place.
+    fn shares() -> Vec<(String, ScatterPlant)> {
+        PlantScatterPreset::all()
             .flat_map(|preset| {
                 preset
-                    .field
+                    .plant_scatter
                     .plants
                     .iter()
                     .enumerate()
@@ -204,9 +205,9 @@ mod tests {
             .collect()
     }
 
-    /// Checks `field` the way a `.field.ron` file is checked.
-    fn file_accepts(field: PlantField) -> Result<(), String> {
-        PlantField::from_ron(&field.to_ron())
+    /// Checks `field` the way a `.plant_scatter.yml` file is checked.
+    fn file_accepts(field: PlantScatter) -> Result<(), String> {
+        PlantScatter::from_yaml(&field.to_yaml())
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -227,9 +228,9 @@ mod tests {
     fn every_range_end_is_valid() {
         checks::range_ends_are_valid(&field_params(), &fields(), file_accepts);
 
-        // A plant's share is checked in a field holding only that plant.
+        // A plant's share is checked in a Scatter holding only that plant.
         let alone =
-            |entry: FieldPlant| file_accepts(PlantField::new(Default::default(), vec![entry]));
+            |entry: ScatterPlant| file_accepts(PlantScatter::new(Default::default(), vec![entry]));
         checks::range_ends_are_valid(&share_params(), &shares(), alone);
     }
 

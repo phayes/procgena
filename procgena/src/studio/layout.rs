@@ -109,11 +109,11 @@ pub fn spawn_layout(mut commands: Commands) {
                     Children [
                         @page(StudioTab::Trees) Children [ @lod_row() ]
                         --
-                        @page(StudioTab::TreeGrove)
+                        @page(StudioTab::TreeScatter)
                         --
                         @page(StudioTab::Plant)
                         --
-                        @page(StudioTab::PlantField)
+                        @page(StudioTab::PlantScatter)
                         --
                         @plant_lod_row()
                         --

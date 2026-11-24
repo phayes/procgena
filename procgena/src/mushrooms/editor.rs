@@ -28,7 +28,7 @@ pub struct MushroomEdited {
 #[derive(Component)]
 pub struct MushroomEditor {
     /// The preset last chosen.
-    preset: MushroomPreset,
+    preset: &'static MushroomPreset,
     /// The panel holding the edited options.
     panel: Entity,
     /// Picks seeds for Random Seed.
@@ -36,10 +36,15 @@ pub struct MushroomEditor {
 }
 
 impl MushroomEditor {
-    /// Suggests a file name without an extension from the chosen preset, in
-    /// lowercase with underscores, such as `fly_agaric`.
+    /// Suggests a file name without an extension from the chosen preset: its
+    /// key, such as `fly_agaric`.
     pub fn file_stem(&self) -> String {
-        self.preset.name().to_lowercase().replace(' ', "_")
+        self.preset.key.to_string()
+    }
+
+    /// The preset last chosen, which saved files name as their base.
+    pub fn preset(&self) -> &'static MushroomPreset {
+        self.preset
     }
 
     /// The panel entity holding the edited [`MushroomOptions`].
@@ -65,10 +70,11 @@ impl Plugin for MushroomEditorPlugin {
 /// Spawns the mushroom editor, showing [`START_PRESET`], as the last child of
 /// `parent`.
 pub fn spawn_mushroom_editor(commands: &mut Commands, parent: Entity) {
-    let names = MushroomPreset::ALL.map(MushroomPreset::name);
-    let selected = MushroomPreset::ALL.iter().position(|p| *p == START_PRESET);
-    let options = START_PRESET.options();
-    let seed = i64::from(options.seed);
+    let names: Vec<String> = MushroomPreset::all().map(|p| p.name.to_string()).collect();
+    let selected = MushroomPreset::all().position(|p| p.key == START_PRESET);
+    let start = MushroomPreset::named(START_PRESET).expect("the start preset is built in");
+    let options = start.mushroom.clone();
+    let seed = i64::from(options.default_seed);
 
     // Preset, seed, and the seed button, above the panel.
     let preset: Box<dyn Scene> = Box::new(bsn! {
@@ -120,7 +126,7 @@ pub fn spawn_mushroom_editor(commands: &mut Commands, parent: Entity) {
             commands.trigger(MushroomEdited { reframe: false });
         });
     commands.entity(editor).insert(MushroomEditor {
-        preset: START_PRESET,
+        preset: start,
         panel,
         rng: Rng::new(std::process::id()),
     });
@@ -163,12 +169,18 @@ fn choose_preset(
     let Some(preset) = rows
         .get(change.value)
         .ok()
-        .and_then(|index| MushroomPreset::ALL.get(index.0))
+        .and_then(|index| MushroomPreset::all().nth(index.0))
     else {
         return;
     };
-    editor.preset = *preset;
-    replace(preset.options(), true, &editor, &mut panels, &mut commands);
+    editor.preset = preset;
+    replace(
+        preset.mushroom.clone(),
+        true,
+        &editor,
+        &mut panels,
+        &mut commands,
+    );
 }
 
 /// Uses a typed seed.
@@ -182,11 +194,11 @@ fn type_seed(
         return;
     };
     // Ignore echoes of the seed already in use.
-    if panel.value().seed == seed {
+    if panel.value().default_seed == seed {
         return;
     }
     let mut options = panel.value().clone();
-    options.seed = seed;
+    options.default_seed = seed;
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
@@ -201,7 +213,7 @@ fn random_seed(
         return;
     };
     let mut options = panel.value().clone();
-    options.seed = editor.rng.next_u32() % 65536;
+    options.default_seed = editor.rng.next_u32() % 65536;
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
@@ -215,7 +227,7 @@ fn show_seed(
     let Ok(panel) = panels.get(editor.panel) else {
         return;
     };
-    let seed = NumberInputValue::I64(i64::from(panel.value().seed));
+    let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
     for (field, shown) in &fields {
         if *shown != seed {
             commands.entity(field).insert(seed);

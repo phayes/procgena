@@ -10,10 +10,10 @@ use procgena_deadwood::DeadwoodOptions;
 use procgena_deadwood_bevy::DeadwoodBuildError;
 use procgena_mushroom::MushroomOptions;
 use procgena_mushroom_bevy::MushroomBuildError;
-use procgena_plant::prelude::{FieldPreset, PlantField};
+use procgena_plant::prelude::{PlantScatter, PlantScatterPreset};
 use procgena_stone::{OptionsError as StoneOptionsError, StoneOptions};
-use procgena_tree::{OptionsError, TreeGrove, TreeOptions, TreePreset};
-use procgena_tree_bevy::TreeGroveBuildError;
+use procgena_tree::{OptionsError, TreeOptions, TreePreset, TreeScatter};
+use procgena_tree_bevy::TreeScatterBuildError;
 
 use super::environment::EnvironmentSettings;
 
@@ -35,8 +35,8 @@ pub struct SceneStart {
     pub clump: Arc<ClumpSettings>,
     /// Mushroom settings, as for [`ViewerCommand::SetMushroom`].
     pub mushroom: Arc<MushroomOptions>,
-    /// The grove, as for [`ViewerCommand::SetGrove`].
-    pub grove: Arc<TreeGrove>,
+    /// The tree Scatter, as for [`ViewerCommand::SetGrove`].
+    pub grove: Arc<TreeScatter>,
     /// Dead wood settings, as for [`ViewerCommand::SetDeadwood`].
     pub deadwood: Arc<DeadwoodSettings>,
     /// Lighting, ground, wind and auto-rotation, as for [`ViewerCommand::SetEnvironment`].
@@ -52,7 +52,7 @@ impl Default for SceneStart {
     fn default() -> Self {
         Self {
             mode: SceneMode::default(),
-            tree: Arc::new(TreePreset::OakMedium.options()),
+            tree: Arc::new(TreePreset::oak_medium().tree.clone()),
             field: Arc::default(),
             stone: Arc::default(),
             clump: Arc::default(),
@@ -126,12 +126,13 @@ pub enum ViewerCommand {
     /// until mushroom mode is shown. The scene uses its own detail levels,
     /// scaled to the mushroom's size, and ignores `options.detail`.
     SetMushroom(Arc<MushroomOptions>),
-    /// Sets the grove. In grove mode, the grove updates in place: trees that
-    /// keep their spot, species and shape stay, and the rest are added,
-    /// removed or rebuilt. A [`ViewerEvent::GroveBuilt`] follows. In other
-    /// modes, saves the grove until grove mode is shown. The grove grows on a
-    /// square of flat ground [`EnvironmentSettings::grove_size`] across.
-    SetGrove(Arc<TreeGrove>),
+    /// Sets the tree Scatter. In grove mode, the Scatter updates in place:
+    /// trees that keep their spot, species and shape stay, and the rest are
+    /// added, removed or rebuilt. A [`ViewerEvent::GroveBuilt`] follows. In
+    /// other modes, saves the Scatter until grove mode is shown. The trees
+    /// grow on a square of flat ground [`EnvironmentSettings::grove_size`]
+    /// across.
+    SetGrove(Arc<TreeScatter>),
     /// Sets what dead wood mode shows: a piece, with any cover grown on it,
     /// or a scatter of sticks. In dead wood mode, a changed piece or view is
     /// built in the background and reported through
@@ -175,14 +176,14 @@ pub struct FieldSettings {
     /// The scene supplies size, flat ground and no density map, ignoring
     /// those parts of this value. Keep values within procgena_plant's documented
     /// ranges; assigning the component does not run file-loader validation.
-    pub field: PlantField,
+    pub field: PlantScatter,
 }
 
 impl Default for FieldSettings {
-    /// Starts with the meadow field preset.
+    /// Starts with the meadow Plant Scatter preset.
     fn default() -> Self {
         Self {
-            field: FieldPreset::MEADOW.field,
+            field: PlantScatterPreset::MEADOW.plant_scatter,
         }
     }
 }
@@ -196,7 +197,7 @@ pub struct DeadwoodSettings {
     pub view: DeadwoodView,
     /// A clump, such as moss, grown on the piece, or `None` for bare wood.
     /// Scatters are always bare.
-    pub cover: Option<ClumpPreset>,
+    pub cover: Option<&'static ClumpPreset>,
 }
 
 /// Whether dead wood mode shows one piece or a scatter of sticks.
@@ -291,7 +292,7 @@ pub enum ViewerEvent {
     /// Reports the result of building the grove in grove mode: how many
     /// trees it has and their meshes added together, or why it could not be
     /// built.
-    GroveBuilt(Result<GroveStats, TreeGroveBuildError>),
+    GroveBuilt(Result<GroveStats, TreeScatterBuildError>),
     /// How far the grove shown in grove mode has got, sent whenever that
     /// changes. Also sent when grove mode is shown.
     GroveProgress(GroveProgress),

@@ -235,13 +235,13 @@ mod tests {
     #[test]
     fn image_paths_are_the_images_the_exporter_asks_for() {
         let settings = ModelSettings::default();
-        for preset in TreePreset::ALL {
-            let mut options = preset.options();
+        for preset in TreePreset::all() {
+            let mut options = preset.tree.clone();
             let mut expected = requested(&options, TextureSize::Size1k);
             let mut paths = image_paths(&options, &settings);
             expected.sort();
             paths.sort();
-            assert_eq!(paths, expected, "{}", preset.name());
+            assert_eq!(paths, expected, "{}", preset.name);
 
             // Disabling bark textures leaves only the leaf image requests.
             options.bark.textured = false;
@@ -249,7 +249,7 @@ mod tests {
                 image_paths(&options, &settings),
                 requested(&options, TextureSize::Size1k),
                 "{}",
-                preset.name()
+                preset.name
             );
         }
     }
@@ -260,7 +260,7 @@ mod tests {
             textures: None,
             ..ModelSettings::default()
         };
-        assert!(image_paths(&TreePreset::OakMedium.options(), &settings).is_empty());
+        assert!(image_paths(&TreePreset::oak_medium().tree, &settings).is_empty());
     }
 
     /// Provides placeholder image contents for each path required by the preset.
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn glb_embeds_the_images_and_follows_the_settings() {
-        let options = TreePreset::OakSmall.options();
+        let options = TreePreset::oak_small().tree.clone();
         let settings = ModelSettings::default();
         let images = fake_images(&options, &settings);
         let full = glb(&options, &settings, &images).unwrap();
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn obj_names_its_files_after_the_stem() {
-        let options = TreePreset::OakSmall.options();
+        let options = TreePreset::oak_small().tree.clone();
         let settings = ModelSettings::default();
         let images = fake_images(&options, &settings);
         let export = obj(&options, &settings, &images, "oak").unwrap();

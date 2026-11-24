@@ -210,8 +210,8 @@ mod tests {
 
     /// Uses the selected preset with three small detail levels (32, 16 and 8
     /// cells) to keep tests quick.
-    fn quick(preset: StonePreset) -> StoneOptions {
-        let mut options = preset.options();
+    fn quick(preset: &StonePreset) -> StoneOptions {
+        let mut options = preset.stone.clone();
         options.mesh.detail = StoneDetail::new(vec![
             DetailLevel::new(32, 0.0, TextureSize::Size1k),
             DetailLevel::new(16, 15.0, TextureSize::Size512),
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn image_paths_are_the_images_the_exporter_asks_for() {
         let settings = StoneModelSettings::default();
-        for preset in StonePreset::ALL {
+        for preset in StonePreset::all() {
             let options = quick(preset);
             let asked = RefCell::new(Vec::new());
             let record = |map: ImageMap| {
@@ -244,7 +244,7 @@ mod tests {
             let mut paths = image_paths(&options, &settings);
             expected.sort();
             paths.sort();
-            assert_eq!(paths, expected, "{}", preset.name());
+            assert_eq!(paths, expected, "{}", preset.name);
         }
     }
 
@@ -254,12 +254,12 @@ mod tests {
             textures: false,
             ..StoneModelSettings::default()
         };
-        assert!(image_paths(&quick(StonePreset::Boulder), &settings).is_empty());
+        assert!(image_paths(&quick(StonePreset::boulder()), &settings).is_empty());
     }
 
     #[test]
     fn images_use_the_most_detailed_levels_texture_size() {
-        let mut options = quick(StonePreset::Boulder);
+        let mut options = quick(StonePreset::boulder());
         options.mesh.detail = StoneDetail::HIGH;
         let paths = image_paths(&options, &StoneModelSettings::default());
         let expected = image_path(
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn detail_levels_follow_the_rocks_detail_set() {
-        let options = StonePreset::Boulder.options();
+        let options = StonePreset::boulder().stone.clone();
         let levels = meshes(&options, true).unwrap();
         assert_eq!(levels.len(), options.mesh.detail.levels().len());
         assert!(
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn glb_embeds_the_images_and_follows_the_settings() {
-        let options = quick(StonePreset::Pebble);
+        let options = quick(StonePreset::pebble());
         let settings = StoneModelSettings::default();
         let images = fake_images(&options, &settings);
         let full = glb(&options, &settings, &images).unwrap();
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn a_rock_carved_away_is_an_error() {
-        let mut options = quick(StonePreset::Boulder);
+        let mut options = quick(StonePreset::boulder());
         options.carve.steps = 72;
         options.carve.depth = 1.2;
         let settings = StoneModelSettings::default();
@@ -344,7 +344,7 @@ mod tests {
     fn exports_with_downloaded_images() {
         use crate::export::images::{ImageStore, STONE_IMAGES, fetch_images};
 
-        let options = StonePreset::Boulder.options();
+        let options = StonePreset::boulder().stone.clone();
         let settings = StoneModelSettings::default();
         let store = ImageStore::new(STONE_IMAGES, "stone").unwrap();
         let (found, warnings) = fetch_images(Some(&store), &image_paths(&options, &settings));
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn obj_names_its_files_after_the_stem() {
-        let options = quick(StonePreset::RiverStone);
+        let options = quick(StonePreset::river_stone());
         let settings = StoneModelSettings::default();
         let images = fake_images(&options, &settings);
         let export = obj(&options, &settings, &images, "pebble").unwrap();

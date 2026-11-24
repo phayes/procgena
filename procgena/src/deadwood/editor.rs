@@ -11,7 +11,7 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_deadwood::{DeadwoodOptions, DeadwoodPreset};
 
-use super::{DeadwoodShow, START_PRESET, params, show_sections};
+use super::{DeadwoodShow, START_PRESET, params, show_sections, start_preset};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
 use crate::scene::DeadwoodView;
 use crate::ui::{LABEL_WIDTH, labelled_row};
@@ -29,7 +29,7 @@ pub struct DeadwoodEdited {
 #[derive(Component)]
 pub struct DeadwoodEditor {
     /// The preset last chosen.
-    preset: DeadwoodPreset,
+    preset: &'static DeadwoodPreset,
     /// The panel holding the edited options.
     panel: Entity,
     /// The panel holding what the tab shows: the view and cover.
@@ -39,10 +39,15 @@ pub struct DeadwoodEditor {
 }
 
 impl DeadwoodEditor {
-    /// Suggests a file name without an extension from the chosen preset, in
-    /// lowercase with underscores, such as `windthrow_log`.
+    /// Suggests a file name without an extension from the chosen preset: its
+    /// key, such as `windthrow_log`.
     pub fn file_stem(&self) -> String {
-        self.preset.name().to_lowercase().replace(' ', "_")
+        self.preset.key.to_string()
+    }
+
+    /// The preset last chosen, which saved files name as their base.
+    pub fn preset(&self) -> &'static DeadwoodPreset {
+        self.preset
     }
 
     /// The panel entity holding the edited [`DeadwoodOptions`].
@@ -76,10 +81,11 @@ impl Plugin for DeadwoodEditorPlugin {
 /// Spawns the dead wood editor, showing [`START_PRESET`], as the last child
 /// of `parent`.
 pub fn spawn_deadwood_editor(commands: &mut Commands, parent: Entity) {
-    let names = DeadwoodPreset::ALL.map(DeadwoodPreset::name);
-    let selected = DeadwoodPreset::ALL.iter().position(|p| *p == START_PRESET);
-    let options = START_PRESET.options();
-    let seed = i64::from(options.seed);
+    let names: Vec<String> = DeadwoodPreset::all().map(|p| p.name.to_string()).collect();
+    let selected = DeadwoodPreset::all().position(|p| p.key == START_PRESET);
+    let start = start_preset();
+    let options = start.deadwood.clone();
+    let seed = i64::from(options.default_seed);
 
     // Preset, seed, and the seed button, above the panel.
     let preset: Box<dyn Scene> = Box::new(bsn! {
@@ -140,7 +146,7 @@ pub fn spawn_deadwood_editor(commands: &mut Commands, parent: Entity) {
             });
     }
     commands.entity(editor).insert(DeadwoodEditor {
-        preset: START_PRESET,
+        preset: start,
         panel,
         show_panel,
         rng: Rng::new(std::process::id()),
@@ -184,12 +190,18 @@ fn choose_preset(
     let Some(preset) = rows
         .get(change.value)
         .ok()
-        .and_then(|index| DeadwoodPreset::ALL.get(index.0))
+        .and_then(|index| DeadwoodPreset::all().nth(index.0))
     else {
         return;
     };
-    editor.preset = *preset;
-    replace(preset.options(), true, &editor, &mut panels, &mut commands);
+    editor.preset = preset;
+    replace(
+        preset.deadwood.clone(),
+        true,
+        &editor,
+        &mut panels,
+        &mut commands,
+    );
 }
 
 /// Uses a typed seed.
@@ -203,11 +215,11 @@ fn type_seed(
         return;
     };
     // Ignore echoes of the seed already in use.
-    if panel.value().seed == seed {
+    if panel.value().default_seed == seed {
         return;
     }
     let mut options = panel.value().clone();
-    options.seed = seed;
+    options.default_seed = seed;
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
@@ -222,7 +234,7 @@ fn random_seed(
         return;
     };
     let mut options = panel.value().clone();
-    options.seed = editor.rng.next_u32() % 65536;
+    options.default_seed = editor.rng.next_u32() % 65536;
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
@@ -256,7 +268,7 @@ fn show_seed(
     let Ok(panel) = panels.get(editor.panel) else {
         return;
     };
-    let seed = NumberInputValue::I64(i64::from(panel.value().seed));
+    let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
     for (field, shown) in &fields {
         if *shown != seed {
             commands.entity(field).insert(seed);

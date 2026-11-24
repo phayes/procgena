@@ -13,8 +13,7 @@ use procgena_clump::ClumpPreset;
 use procgena_core::Rng;
 
 use super::{
-    START_PRESET, START_SUBJECT, Subject, params, preset_label, settings, start_settings,
-    subject_seed, with_subject_seed,
+    START_PRESET, Subject, params, settings, start_settings, subject_seed, with_subject_seed,
 };
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
 use crate::scene::ClumpSettings;
@@ -74,7 +73,7 @@ pub fn spawn_clump_editor(commands: &mut Commands, parent: Entity) {
 
     // Subject and clump presets, each with its seed and reroll button.
     let subjects: Vec<String> = Subject::all().into_iter().map(Subject::label).collect();
-    let subject_index = Subject::all().iter().position(|s| *s == START_SUBJECT);
+    let subject_index = Subject::all().iter().position(|s| *s == Subject::start());
     let subject_picker: Box<dyn Scene> = Box::new(bsn! {
         @FeathersSelect { @options: list_rows_from_strings(subjects, subject_index) }
         Node { flex_grow: 1.0 }
@@ -89,14 +88,14 @@ pub fn spawn_clump_editor(commands: &mut Commands, parent: Entity) {
         SubjectSeed
         on(type_subject_seed)
     });
-    let presets: Vec<String> = ClumpPreset::ALL.into_iter().map(preset_label).collect();
-    let preset_index = ClumpPreset::ALL.iter().position(|p| *p == START_PRESET);
+    let presets: Vec<String> = ClumpPreset::all().map(|p| p.name.to_string()).collect();
+    let preset_index = ClumpPreset::all().position(|p| p.key == START_PRESET);
     let preset_picker: Box<dyn Scene> = Box::new(bsn! {
         @FeathersSelect { @options: list_rows_from_strings(presets, preset_index) }
         Node { flex_grow: 1.0 }
         on(choose_preset)
     });
-    let seed = i64::from(start.clump.seed);
+    let seed = i64::from(start.clump.default_seed);
     let clump_seed_field: Box<dyn Scene> = Box::new(bsn! {
         @FeathersNumberInput
         Node { flex_grow: 1.0 }
@@ -220,7 +219,7 @@ fn choose_preset(
     let Some(preset) = rows
         .get(change.value)
         .ok()
-        .and_then(|index| ClumpPreset::ALL.get(index.0).copied())
+        .and_then(|index| ClumpPreset::all().nth(index.0))
     else {
         return;
     };
@@ -269,10 +268,10 @@ fn type_clump_seed(
         return;
     };
     // Ignore echoes of the seed already in use.
-    if settings.clump.seed == seed {
+    if settings.clump.default_seed == seed {
         return;
     }
-    settings.clump.seed = seed;
+    settings.clump.default_seed = seed;
     replace(settings, false, &editor, &mut panels, &mut commands);
 }
 
@@ -303,7 +302,7 @@ fn reroll_clump(
     let Some(mut settings) = current(&editor, &panels) else {
         return;
     };
-    settings.clump.seed = editor.rng.next_u32() % REROLL_SEEDS;
+    settings.clump.default_seed = editor.rng.next_u32() % REROLL_SEEDS;
     replace(settings, false, &editor, &mut panels, &mut commands);
 }
 
@@ -319,7 +318,7 @@ fn show_seeds(
         return;
     };
     let subject = NumberInputValue::I64(subject_seed(&panel.value().subject));
-    let clump = NumberInputValue::I64(i64::from(panel.value().clump.seed));
+    let clump = NumberInputValue::I64(i64::from(panel.value().clump.default_seed));
     let fields = subject_fields
         .iter()
         .map(|field| (field, &subject))

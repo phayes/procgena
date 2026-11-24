@@ -55,7 +55,7 @@ fn lift<S: 'static>(
 fn bark() -> Vec<Group<BarkOptions>> {
     let look = Group::plain(vec![
         color!(BarkOptions, "tint", "Tint", |b| b.tint),
-        toggle!(BarkOptions, "flatShading", "Flat Shading", |b| b
+        toggle!(BarkOptions, "flat_shading", "Flat Shading", |b| b
             .flat_shading),
         toggle!(BarkOptions, "textured", "Textured", |b| b.textured),
     ]);
@@ -63,7 +63,7 @@ fn bark() -> Vec<Group<BarkOptions>> {
         name_choice!(BarkOptions, "type", "Type", BARK_KINDS, |b| b.kind),
         number!(
             BarkOptions,
-            "textureScale.x",
+            "texture_scale.x",
             "Texture Scale X",
             (5.0, 200.0, 1.0),
             |b| b.texture_scale.x
@@ -71,13 +71,13 @@ fn bark() -> Vec<Group<BarkOptions>> {
         .exponential(),
         number!(
             BarkOptions,
-            "textureScale.y",
+            "texture_scale.y",
             "Texture Scale Y",
             (0.5, 20.0, 0.1),
             |b| b.texture_scale.y
         )
         .exponential(),
-        choice!(BarkOptions, "uvMode", "UV Mode", [
+        choice!(BarkOptions, "uv_mode", "UV Mode", [
             "Mirrored" => BarkUvMode::Mirrored,
             "Continuous" => BarkUvMode::Continuous,
         ], |b| b.uv_mode),
@@ -250,7 +250,7 @@ fn branches() -> Vec<Group<TreeOptions>> {
         .exponential(),
         number!(
             TreeOptions,
-            "branch.stemAngle",
+            "branch.stem_angle",
             "Stem Angle",
             (0.0, 90.0, 1.0),
             |o| o.branch.stem_angle
@@ -338,19 +338,19 @@ fn leaves() -> Vec<Group<TreeOptions>> {
         number!(LeafOptions, "size", "Size", (0.0, 1.0, 0.01), |l| l.size).revive(0.25),
         number!(
             LeafOptions,
-            "sizeVariance",
+            "size_variance",
             "Size Variance",
             (0.0, 1.0, 0.01),
             |l| l.size_variance
         ),
         number!(
             LeafOptions,
-            "alphaTest",
+            "alpha_test",
             "Alpha Test",
             (0.0, 1.0, 0.01),
             |l| l.alpha_test
         ),
-        toggle!(LeafOptions, "roundedNormals", "Rounded Normals", |l| l
+        toggle!(LeafOptions, "rounded_normals", "Rounded Normals", |l| l
             .rounded_normals),
     ]);
 
@@ -380,7 +380,7 @@ fn placement() -> Group<ClusterPlacement> {
     let rest = Group::plain(vec![
         count!(
             ClusterPlacement,
-            "minLevel",
+            "min_level",
             "From Level",
             (0, procgena_tree::MAX_LEVELS),
             |p| p.min_level
@@ -395,7 +395,7 @@ fn placement() -> Group<ClusterPlacement> {
         ], |p| p.facing),
         number!(
             ClusterPlacement,
-            "facingJitter",
+            "facing_jitter",
             "Facing Jitter",
             (0.0, 90.0, 1.0),
             |p| p.facing_jitter
@@ -406,7 +406,7 @@ fn placement() -> Group<ClusterPlacement> {
         .revive(0.1),
         number!(
             ClusterPlacement,
-            "sizeVariance",
+            "size_variance",
             "Size Variance",
             (0.0, 1.0, 0.01),
             |p| p.size_variance
@@ -453,7 +453,7 @@ fn cluster() -> Group<ClusterShape> {
     Group::titled(
         "Cluster",
         vec![
-            choice!(ClusterShape, "kind", "Kind", [
+            choice!(ClusterShape, "arrangement", "Kind", [
                 "Single" => ClusterKind::Single,
                 "Umbel" => ClusterKind::Umbel,
                 "Raceme" => ClusterKind::Raceme,
@@ -465,7 +465,7 @@ fn cluster() -> Group<ClusterShape> {
                 .revive(6.0),
             number!(
                 ClusterShape,
-                "itemsVariance",
+                "items_variance",
                 "Items Variance",
                 (0.0, 1.0, 0.01),
                 |c| c.items_variance
@@ -477,7 +477,7 @@ fn cluster() -> Group<ClusterShape> {
             .revive(30.0),
             number!(
                 ClusterShape,
-                "axisLength",
+                "axis_length",
                 "Axis Length",
                 (0.0, 1.0, 0.005),
                 |c| c.axis_length
@@ -490,12 +490,12 @@ fn cluster() -> Group<ClusterShape> {
             number!(ClusterShape, "taper", "Taper", (0.0, 1.0, 0.01), |c| c
                 .taper)
             .shown_if(main_stem),
-            count!(ClusterShape, "sideStalks", "Side Stalks", (1, 12), |c| c
+            count!(ClusterShape, "side_stalks", "Side Stalks", (1, 12), |c| c
                 .side_stalks)
             .shown_if(side_stems),
             number!(
                 ClusterShape,
-                "sideLength",
+                "side_length",
                 "Side Length",
                 (0.0, 2.0, 0.01),
                 |c| c.side_length
@@ -504,7 +504,7 @@ fn cluster() -> Group<ClusterShape> {
             .revive(0.4),
             number!(
                 ClusterShape,
-                "stalkLength",
+                "stalk_length",
                 "Stalk Length",
                 (0.0, 0.3, 0.001),
                 |c| c.stalk_length
@@ -512,7 +512,7 @@ fn cluster() -> Group<ClusterShape> {
             .exponential(),
             number!(
                 ClusterShape,
-                "stalkRadius",
+                "stalk_radius",
                 "Stalk Radius",
                 (0.0, 0.02, 0.0005),
                 |c| c.stalk_radius
@@ -544,14 +544,14 @@ fn fruit() -> Vec<Group<TreeOptions>> {
             ),
             number!(
                 FruitShape,
-                "topDimple",
+                "top_dimple",
                 "Top Dimple",
                 (0.0, 1.0, 0.01),
                 |s| s.top_dimple
             ),
             number!(
                 FruitShape,
-                "bottomTaper",
+                "bottom_taper",
                 "Bottom Taper",
                 (0.0, 1.0, 0.01),
                 |s| s.bottom_taper
@@ -559,7 +559,7 @@ fn fruit() -> Vec<Group<TreeOptions>> {
             count!(FruitShape, "lobes", "Lobes", (0, 12), |s| s.lobes),
             number!(
                 FruitShape,
-                "lobeDepth",
+                "lobe_depth",
                 "Lobe Depth",
                 (0.0, 0.95, 0.01),
                 |s| s.lobe_depth
@@ -575,14 +575,14 @@ fn fruit() -> Vec<Group<TreeOptions>> {
     let stem = Group::plain(vec![
         number!(
             FruitShape,
-            "stemLength",
+            "stem_length",
             "Stem Length",
             (0.0, 1.0, 0.01),
             |s| s.stem_length
         ),
         number!(
             FruitShape,
-            "stemRadius",
+            "stem_radius",
             "Stem Radius",
             (0.0, 0.2, 0.005),
             |s| s.stem_radius
@@ -592,7 +592,7 @@ fn fruit() -> Vec<Group<TreeOptions>> {
         .revive(0.03),
         number!(
             FruitShape,
-            "stemCurve",
+            "stem_curve",
             "Stem Curve",
             (0.0, 1.0, 0.01),
             |s| s.stem_curve
@@ -609,23 +609,23 @@ fn fruit() -> Vec<Group<TreeOptions>> {
         vec![
             color!(FruitOptions, "shape.color", "Ripe", |f| f.shape.color)
                 .shown_if(|f| f.maturity > 0.0),
-            color!(FruitOptions, "shape.unripeColor", "Unripe", |f| f
+            color!(FruitOptions, "shape.unripe_color", "Unripe", |f| f
                 .shape
                 .unripe_color)
             .shown_if(|f| f.maturity < 1.0),
             number!(
                 FruitOptions,
-                "shape.blushAmount",
+                "shape.blush_amount",
                 "Blush Amount",
                 (0.0, 1.0, 0.01),
                 |f| f.shape.blush_amount
             )
             .shown_if(|f| f.maturity > 0.0),
-            color!(FruitOptions, "shape.blushColor", "Blush", |f| f
+            color!(FruitOptions, "shape.blush_color", "Blush", |f| f
                 .shape
                 .blush_color)
             .shown_if(|f| f.maturity > 0.0 && f.shape.blush_amount > 0.0),
-            color!(FruitOptions, "cluster.stalkColor", "Stalks", |f| f
+            color!(FruitOptions, "cluster.stalk_color", "Stalks", |f| f
                 .cluster
                 .stalk_color)
             .shown_if(move |f| has_stalks(&f.cluster) || has_stem(f)),
@@ -667,12 +667,12 @@ fn flowers() -> Vec<Group<TreeOptions>> {
     let shape = Group::titled(
         "Shape",
         vec![
-            count!(FlowerShape, "petalCount", "Petals", (1, 20), |s| s
+            count!(FlowerShape, "petal_count", "Petals", (1, 20), |s| s
                 .petal_count),
             count!(FlowerShape, "rings", "Rings", (1, 6), |s| s.rings),
             number!(
                 FlowerShape,
-                "petalLength",
+                "petal_length",
                 "Petal Length",
                 (0.0, 2.0, 0.01),
                 |s| s.petal_length
@@ -680,7 +680,7 @@ fn flowers() -> Vec<Group<TreeOptions>> {
             .revive(0.5),
             number!(
                 FlowerShape,
-                "petalWidth",
+                "petal_width",
                 "Petal Width",
                 (0.0, 1.5, 0.01),
                 |s| s.petal_width
@@ -691,14 +691,14 @@ fn flowers() -> Vec<Group<TreeOptions>> {
             number!(FlowerShape, "notch", "Notch", (0.0, 1.0, 0.01), |s| s.notch),
             count!(
                 FlowerShape,
-                "petalSegments",
+                "petal_segments",
                 "Petal Segments",
                 (1, 12),
                 |s| s.petal_segments
             ),
             number!(
                 FlowerShape,
-                "centerSize",
+                "center_size",
                 "Centre Size",
                 (0.0, 1.0, 0.01),
                 |s| s.center_size
@@ -712,27 +712,27 @@ fn flowers() -> Vec<Group<TreeOptions>> {
     let colors = Group::titled(
         "Colour",
         vec![
-            color!(FlowerOptions, "shape.petalColor", "Petal", |f| f
+            color!(FlowerOptions, "shape.petal_color", "Petal", |f| f
                 .shape
                 .petal_color)
             .shown_if(open),
-            color!(FlowerOptions, "shape.baseColor", "Petal Base", |f| f
+            color!(FlowerOptions, "shape.base_color", "Petal Base", |f| f
                 .shape
                 .base_color)
             .shown_if(move |f| open(f) && !catkin(f)),
-            color!(FlowerOptions, "shape.centerColor", "Centre", |f| f
+            color!(FlowerOptions, "shape.center_color", "Centre", |f| f
                 .shape
                 .center_color)
             .shown_if(move |f| !catkin(f) && f.shape.center_size > 0.0),
-            color!(FlowerOptions, "shape.budColor", "Bud", |f| f
+            color!(FlowerOptions, "shape.bud_color", "Bud", |f| f
                 .shape
                 .bud_color)
             .shown_if(|f| f.maturity < 0.5),
-            color!(FlowerOptions, "shape.fadeColor", "Faded", |f| f
+            color!(FlowerOptions, "shape.fade_color", "Faded", |f| f
                 .shape
                 .fade_color)
             .shown_if(|f| f.maturity > 0.5),
-            color!(FlowerOptions, "cluster.stalkColor", "Stalks", |f| f
+            color!(FlowerOptions, "cluster.stalk_color", "Stalks", |f| f
                 .cluster
                 .stalk_color)
             .shown_if(|f| has_stalks(&f.cluster)),
@@ -814,7 +814,7 @@ fn trellis() -> Vec<Group<TreeOptions>> {
             .exponential(),
             number!(
                 TrellisOptions,
-                "force.maxDistance",
+                "force.max_distance",
                 "Max Distance",
                 (0.05, 2.0, 0.01),
                 |t| t.force.max_distance
@@ -836,7 +836,7 @@ fn trellis() -> Vec<Group<TreeOptions>> {
         vec![
             number!(
                 TrellisOptions,
-                "cylinderRadius",
+                "cylinder_radius",
                 "Wire Radius",
                 (0.001, 0.05, 0.001),
                 |t| t.cylinder_radius
@@ -880,7 +880,7 @@ mod tests {
     }
 
     fn json(options: &TreeOptions) -> Value {
-        serde_json::from_str(&options.to_json()).unwrap()
+        serde_json::to_value(options).unwrap()
     }
 
     #[test]
@@ -975,8 +975,8 @@ mod tests {
     #[test]
     fn a_new_branch_level_grows_and_can_be_seen() {
         // Raise Levels on every preset that has room, on both tree types.
-        for preset in TreePreset::ALL {
-            let before = preset.options();
+        for preset in TreePreset::all() {
+            let before = preset.tree.clone();
             let new_level = before.branch.levels as usize + 1;
             if new_level > procgena_tree::MAX_LEVELS as usize {
                 continue;
@@ -984,7 +984,7 @@ mod tests {
             let mut after = before.clone();
             after.branch.levels += 1;
             crate::params::spec::revive(&sections(), &before, &mut after);
-            let name = preset.name();
+            let name = &preset.name;
             assert!(grows(&after, new_level), "{name}: level {new_level} grows");
             assert!(
                 after.branch.length[new_level] > 0.0,
@@ -1125,9 +1125,8 @@ mod tests {
     /// Options that between them hide every kind of setting, named for messages.
     fn varied_options() -> Vec<(String, TreeOptions)> {
         use ClusterKind::{Catkin, Panicle, Raceme, Single, Umbel};
-        let mut cases: Vec<(String, TreeOptions)> = TreePreset::ALL
-            .iter()
-            .map(|preset| (preset.name().to_owned(), preset.options()))
+        let mut cases: Vec<(String, TreeOptions)> = TreePreset::all()
+            .map(|preset| (preset.name.to_string(), preset.tree.clone()))
             .collect();
         cases.push(("panicle/umbel".into(), flowering((Panicle, Umbel))));
         cases.push(("catkin/catkin".into(), flowering((Catkin, Catkin))));
@@ -1307,9 +1306,9 @@ mod tests {
     #[test]
     fn presets_fit_the_controls() {
         let params = all_params();
-        for preset in TreePreset::ALL {
-            let options = preset.options();
-            let name = preset.name();
+        for preset in TreePreset::all() {
+            let options = preset.tree.clone();
+            let name = &preset.name;
             for param in &params {
                 let key = &param.key;
                 match &param.control {

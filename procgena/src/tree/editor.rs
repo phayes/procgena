@@ -24,7 +24,7 @@ pub struct TreeEdited;
 #[derive(Component)]
 pub struct TreeEditor {
     /// The preset last chosen.
-    preset: TreePreset,
+    preset: &'static TreePreset,
     /// The panel holding the edited options.
     panel: Entity,
     /// Picks seeds for Random Seed and Jiggle.
@@ -32,10 +32,15 @@ pub struct TreeEditor {
 }
 
 impl TreeEditor {
-    /// Suggests a file name without an extension from the chosen preset, in
-    /// lowercase with underscores, such as `oak_medium`.
+    /// Suggests a file name without an extension from the chosen preset: its
+    /// key, such as `oak_medium`.
     pub fn file_stem(&self) -> String {
-        self.preset.name().to_lowercase().replace(' ', "_")
+        self.preset.key.to_string()
+    }
+
+    /// The preset last chosen, which saved files name as their base.
+    pub fn preset(&self) -> &'static TreePreset {
+        self.preset
     }
 
     /// The panel entity holding the edited [`TreeOptions`].
@@ -60,10 +65,11 @@ impl Plugin for TreeEditorPlugin {
 
 /// Spawns the tree editor, showing [`START_PRESET`], as the last child of `parent`.
 pub fn spawn_tree_editor(commands: &mut Commands, parent: Entity) {
-    let names = TreePreset::ALL.map(TreePreset::name);
-    let selected = TreePreset::ALL.iter().position(|p| *p == START_PRESET);
-    let options = START_PRESET.options();
-    let seed = options.seed;
+    let names: Vec<String> = TreePreset::all().map(|p| p.name.to_string()).collect();
+    let selected = TreePreset::all().position(|p| p.key == START_PRESET);
+    let start = TreePreset::named(START_PRESET).expect("the start preset is built in");
+    let options = start.tree.clone();
+    let seed = options.default_seed;
 
     // Preset, seed, and the seed buttons, above the panel.
     let preset: Box<dyn Scene> = Box::new(bsn! {
@@ -119,7 +125,7 @@ pub fn spawn_tree_editor(commands: &mut Commands, parent: Entity) {
             commands.trigger(TreeEdited);
         });
     commands.entity(editor).insert(TreeEditor {
-        preset: START_PRESET,
+        preset: start,
         panel,
         rng: Rng::new(std::process::id()),
     });
@@ -161,12 +167,12 @@ fn choose_preset(
     let Some(preset) = rows
         .get(change.value)
         .ok()
-        .and_then(|index| TreePreset::ALL.get(index.0))
+        .and_then(|index| TreePreset::all().nth(index.0))
     else {
         return;
     };
-    editor.preset = *preset;
-    replace(preset.options(), &editor, &mut panels, &mut commands);
+    editor.preset = preset;
+    replace(preset.tree.clone(), &editor, &mut panels, &mut commands);
 }
 
 /// Uses a typed seed.
@@ -180,11 +186,11 @@ fn type_seed(
         return;
     };
     // Ignore echoes of the seed already in use.
-    if panel.value().seed == change.value {
+    if panel.value().default_seed == change.value {
         return;
     }
     let mut options = panel.value().clone();
-    options.seed = change.value;
+    options.default_seed = change.value;
     replace(options, &editor, &mut panels, &mut commands);
 }
 
@@ -199,7 +205,7 @@ fn random_seed(
         return;
     };
     let mut options = panel.value().clone();
-    options.seed = (editor.rng.next_u32() % 65536) as i32;
+    options.default_seed = (editor.rng.next_u32() % 65536) as i32;
     replace(options, &editor, &mut panels, &mut commands);
 }
 
@@ -228,7 +234,7 @@ fn show_seed(
     let Ok(panel) = panels.get(editor.panel) else {
         return;
     };
-    let seed = NumberInputValue::I32(panel.value().seed);
+    let seed = NumberInputValue::I32(panel.value().default_seed);
     for (field, shown) in &fields {
         if *shown != seed {
             commands.entity(field).insert(seed);

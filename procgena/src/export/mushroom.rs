@@ -1,5 +1,6 @@
-//! Save and reload mushroom settings as JSON, or export the current mushroom
-//! as a GLB or OBJ model for use in another 3D tool.
+//! Save and reload mushroom settings as `.mushroom.yml` preset files, or
+//! export the current mushroom as a GLB or OBJ model for use in another 3D
+//! tool.
 //!
 //! Each function does the work after the user has chosen a file. Pass copies
 //! of the settings taken when the user asked, so later edits do not change a
@@ -13,9 +14,13 @@ use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use procgena_mushroom::export::{gltf, obj};
-use procgena_mushroom::{Mushroom, MushroomDetail, MushroomMesh, MushroomOptions, default_lod};
+use procgena_mushroom::{
+    Mushroom, MushroomDetail, MushroomMesh, MushroomOptions, MushroomPreset, default_lod,
+};
 
-use super::{Done, FileOps, chosen_stem, shown_name, write_file, write_files};
+use super::{
+    Done, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file, write_files,
+};
 use crate::mushrooms::editor::{MushroomEditor, load_mushroom};
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
 
@@ -79,11 +84,11 @@ pub fn spawn_mushroom_export(commands: &mut Commands, parent: Entity) {
             Children [
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
                 Children [
-                    @FeathersButton { @caption: bsn! { @caption("Save JSON…") } }
-                    on(save_mushroom_json)
+                    @FeathersButton { @caption: bsn! { @caption("Save Preset…") } }
+                    on(save_mushroom_preset)
                     --
-                    @FeathersButton { @caption: bsn! { @caption("Load JSON…") } }
-                    on(load_mushroom_json)
+                    @FeathersButton { @caption: bsn! { @caption("Load Preset…") } }
+                    on(load_mushroom_preset)
                 ]
                 --
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
@@ -111,8 +116,9 @@ fn snapshot(
     Some((options, editor.file_stem(), settings))
 }
 
-/// Saves the mushroom settings as JSON.
-fn save_mushroom_json(
+/// Saves the mushroom settings as a `.mushroom.yml` preset file based on
+/// the chosen preset.
+fn save_mushroom_preset(
     _: On<Activate>,
     editor: Single<&MushroomEditor>,
     panels: Query<&ParamPanel<MushroomOptions>>,
@@ -120,14 +126,16 @@ fn save_mushroom_json(
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {
-        files.save(&format!("{stem}.json"), move |path| {
-            save_json(&options, path)
+        let base = editor.preset();
+        files.save(&format!("{stem}.mushroom.yml"), move |path| {
+            save_preset(options, base, path)
         });
     }
 }
 
-/// Loads mushroom settings from JSON into the editor.
-fn load_mushroom_json(_: On<Activate>, mut files: FileOps) {
+/// Loads mushroom settings from a `.mushroom.yml` preset file into the
+/// editor.
+fn load_mushroom_preset(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let options = read_options(text)?;
         world
@@ -167,21 +175,11 @@ fn export_mushroom_obj(
     }
 }
 
-/// Writes `options` to `path` as JSON.
-pub fn save_json(options: &MushroomOptions, path: &Path) -> Result<Done, String> {
-    write_file(path, options.to_json().as_bytes())?;
-    Ok(Done::new(format!("Saved {}", shown_name(path))))
-}
-
-/// Parses JSON mushroom settings and checks their values. Returns a readable
-/// error for malformed JSON or invalid settings.
+/// Reads the mushroom settings of a `.mushroom.yml` preset file and checks
+/// their values. Returns a readable error for text that isn't a mushroom
+/// preset file or for invalid settings.
 pub fn read_options(text: &str) -> Result<MushroomOptions, String> {
-    let options = MushroomOptions::from_json(text)
-        .map_err(|error| format!("Not mushroom settings: {error}"))?;
-    options
-        .validate()
-        .map_err(|error| format!("These mushroom settings cannot be used: {error}"))?;
-    Ok(options)
+    read_preset::<MushroomPreset>(text, "mushroom")
 }
 
 /// Builds the meshes to export: the full mesh, then, with `detail_levels`,
@@ -265,14 +263,14 @@ mod tests {
 
     #[test]
     fn loading_checks_the_settings() {
-        assert!(read_options(&MushroomOptions::default().to_json()).is_ok());
+        assert!(read_options("base: fly_agaric\n").is_ok());
         assert!(
-            read_options("not json")
+            read_options("mushroom: [not settings]\n")
                 .unwrap_err()
                 .starts_with("Not mushroom settings")
         );
-        let error = read_options(r#"{"size": -1}"#).unwrap_err();
-        assert!(error.contains("cannot be used"), "{error}");
+        let error = read_options("mushroom:\n  size: -1\n").unwrap_err();
+        assert!(error.contains("size"), "{error}");
     }
 
     #[test]

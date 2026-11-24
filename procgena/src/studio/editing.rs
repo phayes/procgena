@@ -11,9 +11,9 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use procgena_deadwood::DeadwoodOptions;
 use procgena_mushroom::MushroomOptions;
-use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams};
+use procgena_plant::prelude::{PlantParams, PlantScatter, ScatterPlant};
 use procgena_stone::StoneOptions;
-use procgena_tree::{TreeGrove, TreeOptions};
+use procgena_tree::{TreeOptions, TreeScatter};
 
 use super::layout::TabPage;
 use super::status::{BuildState, BuildStatus};
@@ -73,9 +73,9 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
                 spawn_tree_editor(&mut commands, page);
                 spawn_tree_export(&mut commands, page);
             }
-            StudioTab::TreeGrove => spawn_grove_editor(&mut commands, page),
+            StudioTab::TreeScatter => spawn_grove_editor(&mut commands, page),
             StudioTab::Plant => spawn_plant_editor(&mut commands, page),
-            StudioTab::PlantField => spawn_field_editor(&mut commands, page),
+            StudioTab::PlantScatter => spawn_field_editor(&mut commands, page),
             StudioTab::Stones => {
                 spawn_stone_editor(&mut commands, page);
                 spawn_stone_export(&mut commands, page);
@@ -112,7 +112,7 @@ impl ShownField<'_, '_> {
     }
 }
 
-/// The field to show on `tab`, from the Plant Field tab's `field` and the
+/// The field to show on `tab`, from the Plant Scatter tab's `field` and the
 /// Plant tab's `plant`.
 ///
 /// The Plant tab shows `plant` alone, at its natural plants per square
@@ -120,11 +120,11 @@ impl ShownField<'_, '_> {
 /// field as edited.
 pub fn field_shown(
     tab: StudioTab,
-    mut field: PlantField,
+    mut field: PlantScatter,
     plant: PlantParams,
 ) -> Arc<FieldSettings> {
     if tab == StudioTab::Plant {
-        field.plants = vec![FieldPlant::new(plant)].into();
+        field.plants = vec![ScatterPlant::new(plant)].into();
         field.density_scale = 1.0;
     }
     Arc::new(FieldSettings { field })
@@ -156,7 +156,7 @@ fn send_stone(
     let Ok(panel) = panels.get(editor.panel()) else {
         return;
     };
-    let sent = sent.get_or_insert_with(|| crate::stones::START_PRESET.options());
+    let sent = sent.get_or_insert_with(crate::stones::start_options);
     if panel.value() != sent {
         *sent = panel.value().clone();
         state.stone = BuildStatus::Building;
@@ -180,7 +180,7 @@ fn send_mushroom(
     let Ok(panel) = panels.get(editor.panel()) else {
         return;
     };
-    let sent = sent.get_or_insert_with(|| crate::mushrooms::START_PRESET.options());
+    let sent = sent.get_or_insert_with(crate::mushrooms::start_options);
     if panel.value() != sent {
         *sent = panel.value().clone();
         state.mushroom = BuildStatus::Building;
@@ -224,11 +224,11 @@ fn send_deadwood(
     }
 }
 
-/// Sends the grove when an edit changed it.
+/// Sends the tree Scatter when an edit changed it.
 fn send_grove(
     _: On<GroveEdited>,
     reader: GroveReader,
-    mut sent: Local<Option<TreeGrove>>,
+    mut sent: Local<Option<TreeScatter>>,
     mut state: ResMut<BuildState>,
     mut viewer: MessageWriter<ViewerCommand>,
 ) {
@@ -271,9 +271,9 @@ fn send_plant(_: On<PlantEdited>, shown: ShownField, viewer: MessageWriter<Viewe
     send_field_for(StudioTab::Plant, &shown, viewer);
 }
 
-/// Shows field edits while the Plant Field tab is active.
+/// Shows field edits while the Plant Scatter tab is active.
 fn send_field(_: On<FieldEdited>, shown: ShownField, viewer: MessageWriter<ViewerCommand>) {
-    send_field_for(StudioTab::PlantField, &shown, viewer);
+    send_field_for(StudioTab::PlantScatter, &shown, viewer);
 }
 
 /// Sends the shown field to the scene if `tab` is the active tab.
@@ -298,7 +298,7 @@ pub fn send_field_on_plant_tab(shown: &ShownField, viewer: &mut MessageWriter<Vi
 mod tests {
     use crate::scene::{OrbitCamera, ViewportCamera};
     use bevy::math::Vec2;
-    use procgena_plant::prelude::{FieldPreset, PlantPreset};
+    use procgena_plant::prelude::{PlantPreset, PlantScatterPreset};
     use procgena_stone::StonePreset;
     use procgena_tree::TreePreset;
 
@@ -320,7 +320,7 @@ mod tests {
     }
 
     /// The field in the last `SetField` among `commands`.
-    fn last_field(commands: &[ViewerCommand]) -> PlantField {
+    fn last_field(commands: &[ViewerCommand]) -> PlantScatter {
         commands
             .iter()
             .rev()
@@ -341,8 +341,8 @@ mod tests {
         studio.click("Oak Medium").unwrap();
         studio.click("Aspen Small").unwrap();
         let options: TreeOptions = panel_value(&mut studio);
-        assert_eq!(options, TreePreset::AspenSmall.options());
-        assert!(studio.find(&options.seed.to_string()).is_ok());
+        assert_eq!(options, TreePreset::aspen_small().tree);
+        assert!(studio.find(&options.default_seed.to_string()).is_ok());
         assert!(matches!(
             lock(&sent).last(),
             Some(ViewerCommand::SetTree(built)) if **built == options
@@ -351,11 +351,11 @@ mod tests {
         // Random Seed changes only the seed; Jiggle changes the shape too.
         studio.click("Random Seed").unwrap();
         let reseeded: TreeOptions = panel_value(&mut studio);
-        assert_ne!(reseeded.seed, options.seed);
-        assert!(studio.find(&reseeded.seed.to_string()).is_ok());
+        assert_ne!(reseeded.default_seed, options.default_seed);
+        assert!(studio.find(&reseeded.default_seed.to_string()).is_ok());
         assert_eq!(
             TreeOptions {
-                seed: options.seed,
+                default_seed: options.default_seed,
                 ..reseeded.clone()
             },
             options
@@ -364,7 +364,7 @@ mod tests {
         let jiggled: TreeOptions = panel_value(&mut studio);
         assert_ne!(
             TreeOptions {
-                seed: reseeded.seed,
+                default_seed: reseeded.default_seed,
                 ..jiggled
             },
             reseeded
@@ -376,14 +376,14 @@ mod tests {
         );
 
         // Dragging across the seed field scrubs the seed.
-        let field = studio.find(&jiggled.seed.to_string()).unwrap();
+        let field = studio.find(&jiggled.default_seed.to_string()).unwrap();
         studio.drag(field, field + Vec2::new(120.0, 0.0));
         let scrubbed: TreeOptions = panel_value(&mut studio);
-        assert!(scrubbed.seed > jiggled.seed);
-        assert!(studio.find(&scrubbed.seed.to_string()).is_ok());
+        assert!(scrubbed.default_seed > jiggled.default_seed);
+        assert!(studio.find(&scrubbed.default_seed.to_string()).is_ok());
         assert!(matches!(
             lock(&sent).last(),
-            Some(ViewerCommand::SetTree(built)) if built.seed == scrubbed.seed
+            Some(ViewerCommand::SetTree(built)) if built.default_seed == scrubbed.default_seed
         ));
     }
 
@@ -400,7 +400,7 @@ mod tests {
         studio.click("Boulder").unwrap();
         studio.click("Ice Chunk").unwrap();
         let options: StoneOptions = panel_value(&mut studio);
-        assert_eq!(options, StonePreset::IceChunk.options());
+        assert_eq!(options, StonePreset::ice_chunk().stone);
         assert!(lock(&sent).iter().any(
             |command| matches!(command, ViewerCommand::SetStone(built) if **built == options)
         ));
@@ -420,16 +420,16 @@ mod tests {
         studio.scroll(list, -5.0);
         studio.click("Pebble").unwrap();
         let options: StoneOptions = panel_value(&mut studio);
-        assert_eq!(options, StonePreset::Pebble.options());
+        assert_eq!(options, StonePreset::pebble().stone);
         assert_eq!(studio.find("Seed").unwrap(), seed_label);
 
         // Dragging across the seed field scrubs the seed.
-        let field = studio.find(&options.seed.to_string()).unwrap();
+        let field = studio.find(&options.default_seed.to_string()).unwrap();
         studio.drag(field, field + Vec2::new(120.0, 0.0));
         let scrubbed: StoneOptions = panel_value(&mut studio);
-        assert!(scrubbed.seed > options.seed);
+        assert!(scrubbed.default_seed > options.default_seed);
         assert!(lock(&sent).iter().any(
-            |command| matches!(command, ViewerCommand::SetStone(built) if built.seed == scrubbed.seed)
+            |command| matches!(command, ViewerCommand::SetStone(built) if built.default_seed == scrubbed.default_seed)
         ));
     }
 
@@ -453,7 +453,7 @@ mod tests {
         studio.click("Fly agaric").unwrap();
         studio.click("Enoki").unwrap();
         let options: MushroomOptions = panel_value(&mut studio);
-        assert_eq!(options, MushroomPreset::Enoki.options());
+        assert_eq!(options, MushroomPreset::enoki().mushroom);
         assert!(lock(&sent).iter().any(
             |command| matches!(command, ViewerCommand::SetMushroom(built) if **built == options)
         ));
@@ -467,15 +467,15 @@ mod tests {
         // Random Seed changes only the seed, and sends it.
         studio.click("Random Seed").unwrap();
         let reseeded: MushroomOptions = panel_value(&mut studio);
-        assert_ne!(reseeded.seed, options.seed);
+        assert_ne!(reseeded.default_seed, options.default_seed);
         assert_eq!(
             MushroomOptions {
-                seed: options.seed,
+                default_seed: options.default_seed,
                 ..reseeded.clone()
             },
             options
         );
-        assert!(studio.find(&reseeded.seed.to_string()).is_ok());
+        assert!(studio.find(&reseeded.default_seed.to_string()).is_ok());
         assert!(matches!(
             lock(&sent).last(),
             Some(ViewerCommand::SetMushroom(built)) if **built == reseeded
@@ -494,7 +494,7 @@ mod tests {
         let shown = last_field(&lock(&sent));
         assert_eq!(
             shown.plants.as_ref(),
-            &[FieldPlant::new(crate::plant::editor::start_plant())]
+            &[ScatterPlant::new(crate::plant::editor::start_plant())]
         );
         studio.click("Meadow grass").unwrap();
         studio.click("Wheat").unwrap();
@@ -504,11 +504,11 @@ mod tests {
             .plant;
         assert_eq!(
             last_field(&lock(&sent)).plants.as_ref(),
-            &[FieldPlant::new(wheat)]
+            &[ScatterPlant::new(wheat)]
         );
 
-        // The Plant Field tab shows the whole field, and its edits.
-        studio.click("Plant Field").unwrap();
+        // The Plant Scatter tab shows the whole field, and its edits.
+        studio.click("Plant Scatter").unwrap();
         assert_eq!(last_field(&lock(&sent)), field);
         studio.click("+ Add Plant").unwrap();
         assert_eq!(
@@ -519,16 +519,16 @@ mod tests {
         // A new field preset replaces every row.
         studio.click("Meadow").unwrap();
         studio.click("Summer wild").unwrap();
-        let preset = FieldPreset::all()
+        let preset = PlantScatterPreset::all()
             .find(|p| p.name == "Summer wild")
             .unwrap();
-        assert_eq!(last_field(&lock(&sent)), preset.field);
+        assert_eq!(last_field(&lock(&sent)), preset.plant_scatter);
         let shares = studio
             .texts()
             .into_iter()
             .filter(|t| t.text.ends_with('%'))
             .count();
-        assert_eq!(shares, preset.field.plants.len());
+        assert_eq!(shares, preset.plant_scatter.plants.len());
     }
 
     #[test]
@@ -544,9 +544,13 @@ mod tests {
         // Reroll Clump changes only the clump's seed, and sends it.
         studio.click("Reroll Clump").unwrap();
         let reclumped: ClumpSettings = panel_value(&mut studio);
-        assert_ne!(reclumped.clump.seed, start.clump.seed);
+        assert_ne!(reclumped.clump.default_seed, start.clump.default_seed);
         assert_eq!(reclumped.subject, start.subject);
-        assert!(studio.find(&reclumped.clump.seed.to_string()).is_ok());
+        assert!(
+            studio
+                .find(&reclumped.clump.default_seed.to_string())
+                .is_ok()
+        );
 
         // Reroll Subject changes only the subject's seed, and sends it.
         studio.click("Reroll Subject").unwrap();
@@ -562,27 +566,31 @@ mod tests {
         ));
 
         // A new clump preset keeps the subject.
-        studio.click("Snow Cap").unwrap();
+        studio.click("Fresh Snow Cap").unwrap();
         studio.click("Moss Patches").unwrap();
         let moss: ClumpSettings = panel_value(&mut studio);
         assert_eq!(
             moss.clump,
-            procgena_clump::ClumpPreset::MossPatches.options()
+            procgena_clump::ClumpPreset::moss_patches().clump
         );
         assert_eq!(moss.subject, resubjected.subject);
     }
 
     #[test]
     fn the_plant_tab_shows_its_plant_alone_at_natural_density() {
-        let field = FieldPreset::all().next().unwrap().field.clone();
+        let field = PlantScatterPreset::all()
+            .next()
+            .unwrap()
+            .plant_scatter
+            .clone();
         let plant = PlantParams::CLOVER;
 
         let alone = field_shown(StudioTab::Plant, field.clone(), plant);
-        assert_eq!(alone.field.plants.as_ref(), &[FieldPlant::new(plant)]);
+        assert_eq!(alone.field.plants.as_ref(), &[ScatterPlant::new(plant)]);
         assert_eq!(alone.field.density_scale, 1.0);
         assert_eq!(alone.field.wind_scale, field.wind_scale);
 
-        let mix = field_shown(StudioTab::PlantField, field.clone(), plant);
+        let mix = field_shown(StudioTab::PlantScatter, field.clone(), plant);
         assert_eq!(mix.field, field);
     }
 }
