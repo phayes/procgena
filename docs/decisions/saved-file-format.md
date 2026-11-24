@@ -544,6 +544,10 @@ Proposed only; ST0 is active, so none is edited here.
 
 ## Questions for the user
 
+All three were decided by the user on 2026-11-24, each as recommended:
+Open unpacks into a new project folder, Import renames on conflict, and
+the reader rejects compressed zips.
+
 1. **Does Open unpack, or show the bundle read-only?** *Context:* the
    studio edits only folders (decision 1), and reading straight from a
    file needs the deferred mount source. *Options:*

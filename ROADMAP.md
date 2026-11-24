@@ -1328,8 +1328,9 @@ where the details are.
     - qualify a key with its bundle only when a name is ambiguous;
     - game loading, wasm, and the zip library are deferred to the build.
 
-    Three small questions remain: does Open unpack, Import's default on
-    a conflict, and whether Finder/Explorer zips are accepted. Details:
+    The last three questions are also decided: Open unpacks into a new
+    project folder, Import renames an item on a key conflict, and the
+    reader rejects compressed (Finder/Explorer) zips. Details:
     [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md),
     "Questions for the user".
 
