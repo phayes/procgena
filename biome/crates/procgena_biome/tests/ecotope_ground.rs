@@ -7,8 +7,8 @@ use procgena_biome::{Ecotope, EcotopeError, EcotopePlacement, EcotopePreset, Sca
 use procgena_core::scatter::{ScatterArea, ScatterInput};
 use procgena_core::{ChildKey, HeightGrid};
 use procgena_terrain::ground::{
-    ChunkWeights, GROUND_TEXELS, GroundError, GroundLayer, GroundPainter, GroundSource,
-    GroundStack, MaterialCatalogue, MaterialId, OnGround,
+    GROUND_TEXELS, GroundError, GroundLayer, GroundPainter, GroundSource, GroundStack,
+    GroundWeights, MaterialCatalogue, MaterialId, OnGround,
 };
 use procgena_terrain::{ChunkKey, FeatureTier};
 
@@ -137,7 +137,7 @@ fn chunks_of_an_ecotope_agree_along_their_edge_in_any_order() {
     let painter = ecotope.ground(&bare, &placement).unwrap();
     let source = OnGround(&grid);
     let (west, east) = (ChunkKey::new(-1, 0, 0), ChunkKey::new(0, 0, 0));
-    let build = |k| ChunkWeights::build(&painter, &source, k, FeatureTier::Fine).unwrap();
+    let build = |k| GroundWeights::chunk(&painter, &source, k, FeatureTier::Fine).unwrap();
     let (a, b) = (build(west), build(east));
     let (b_first, a_second) = (build(east), build(west));
     assert_eq!((&a, &b), (&a_second, &b_first));
@@ -154,7 +154,7 @@ fn chunks_of_an_ecotope_agree_along_their_edge_in_any_order() {
     }
 
     // A single point matches the painter.
-    let p = ChunkWeights::texel_point(east, 30, 40);
+    let p = GroundWeights::chunk_point(east, 30, 40);
     let site = source.site(p, FeatureTier::Fine);
     assert_eq!(
         ecotope.ground_at(p, &site, &bare, &placement).unwrap(),
@@ -221,7 +221,7 @@ ecotope:
     let (placement, grid) = placed(ecotope);
     let bare = GroundStack::bare(1, 1.0);
     let painter = ecotope.ground(&bare, &placement).unwrap();
-    let weights = ChunkWeights::build(
+    let weights = GroundWeights::chunk(
         &painter,
         &OnGround(&grid),
         ChunkKey::new(0, 0, 0),

@@ -6,13 +6,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use glam::DVec2;
-use procgena_terrain::{
-    CHUNK_CELLS, ChunkKey, ChunkSamples, ChunkSelection, FeatureTier, Transitions,
-};
+use procgena_terrain::{CHUNK_CELLS, ChunkKey, ChunkSelection, FeatureTier, Transitions};
 
-/// A chunk's samples, or `None` if it could not be read (it is then drawn
+use crate::ChunkRead;
+
+/// A chunk as read, or `None` if it could not be read (it is then drawn
 /// as a hole rather than holding up every other chunk).
-pub(crate) type Read = Option<Arc<ChunkSamples>>;
+pub(crate) type Read = Option<Arc<ChunkRead>>;
 
 /// One terrain's streaming state.
 ///
@@ -149,7 +149,7 @@ impl Stream {
 
     /// The tier of the samples kept for `key`, if read.
     pub(crate) fn tier_of(&self, key: ChunkKey) -> Option<FeatureTier> {
-        Some(self.samples.get(&key)?.as_ref()?.tier())
+        Some(self.samples.get(&key)?.as_ref()?.samples.tier())
     }
 
     /// The samples kept for `key`, if read.
@@ -254,7 +254,7 @@ impl Stream {
         let top = self.samples.keys().map(|k| k.level).max()?;
         (0..=top).find_map(|level| {
             let key = ChunkKey::containing(p, level);
-            let samples = self.samples.get(&key)?.as_ref()?;
+            let samples = &self.samples.get(&key)?.as_ref()?.samples;
             let local = (p - key.min_corner()) / key.step();
             let cell = |x: f64| (x.round() as u32).min(CHUNK_CELLS);
             Some(samples.vertex(cell(local.x), cell(local.y)).height)
@@ -266,6 +266,7 @@ impl Stream {
 mod tests {
     use glam::DVec3;
     use procgena_core::{Lod, LodLevel};
+    use procgena_terrain::ground::{GroundSite, GroundSource, GroundStack};
 
     use super::*;
 
@@ -310,12 +311,20 @@ mod tests {
         }
     }
 
-    /// Reads `key` from [`TwoTiers`] at `tier` and finishes it.
+    impl GroundSource for TwoTiers {
+        fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
+            use procgena_terrain::ChunkSource;
+            GroundSite::new(self.surface(p, tier).height, glam::Vec2::ZERO)
+        }
+    }
+
+    /// Reads `key` from [`TwoTiers`] at `tier`, painted bare, and finishes
+    /// it.
     fn read(stream: &mut Stream, key: ChunkKey, tier: FeatureTier) {
         stream.start(key);
-        let samples = ChunkSamples::sample(&TwoTiers, key, tier).unwrap();
+        let read = ChunkRead::read(&TwoTiers, &GroundStack::bare(0, 1.0), key, tier).unwrap();
         let generation = stream.generation;
-        stream.finish(key, generation, Some(Arc::new(samples)));
+        stream.finish(key, generation, Some(Arc::new(read)));
     }
 
     #[test]
@@ -352,7 +361,7 @@ mod tests {
         let (key, transitions, samples) = &refreshed[0];
         assert_eq!(*key, upgrades[0]);
         assert_eq!(stream.drawn.get(*key), Some(*transitions));
-        let samples = samples.as_ref().unwrap();
+        let samples = &samples.as_ref().unwrap().samples;
         assert_eq!(samples.tier(), FeatureTier::Fine);
         assert_eq!(stream.tier_of(upgrades[1]), Some(FeatureTier::Rough));
         assert_eq!(samples.vertex(3, 3).height, 2.0);

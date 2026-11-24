@@ -116,7 +116,8 @@ pub(crate) fn add_subject(app: &mut App) {
         .add_systems(Update, (apply_show, report_progress));
 }
 
-/// The stream drawing `world`.
+/// The stream drawing `world`, coloured with bare terrain's ground layers
+/// (grass, rock, snow, roads and riverbeds).
 fn stream(world: WorldTerrain) -> TerrainStream {
     TerrainStream {
         rough_from: Some(ROUGH_FROM),

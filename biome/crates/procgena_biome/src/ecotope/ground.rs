@@ -27,7 +27,7 @@ struct Follow<'a> {
 /// copies of one placement. Get one from [`Ecotope::ground`].
 ///
 /// It paints as a [`GroundPainter`], so it can fill
-/// [`ChunkWeights`](procgena_terrain::ground::ChunkWeights). Only copies
+/// [`GroundWeights`](procgena_terrain::ground::GroundWeights). Only copies
 /// in the placement shape the ground, so beyond the placed area layers
 /// that follow Scatters are absent.
 pub struct EcotopeGround<'a> {
