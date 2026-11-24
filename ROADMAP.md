@@ -677,8 +677,11 @@ From D5 (decided by the user 2026-11-24; see
   `FlatGround`.
 - **Plant can join late.** Plants sit at the bottom of most Ecotopes and
   already take a density function, so a first Ecotope can draw grass
-  through that hook. Plant implements the trait once R3 gives it a seed,
-  copy ids and `Ground`.
+  through that hook. Staged in [plant/alignment_plan.md](plant/alignment_plan.md):
+  P1 and P2 put plants in the C3a Ecotope through an adapter. In C3, plant
+  joins through P4: a sibling trait for Scatters placed on the GPU, with
+  addresses but no listed copies. That changes `procgena_core`, so the
+  coordinator agrees it first.
 - **Done when:** a "pine forest floor" preset shows trees, boulders, logs and
   grass on uneven ground, and no lower-priority copy stands inside a
   higher one.
@@ -726,6 +729,18 @@ milestones.
 - **Needs:** F1, F2, and F3 for plant's part (the plant split and the
   `PlantScatter` rename touch the same files).
 - **Parallel:** one worker per asset; none blocks the others.
+- **Plant's part is staged** ([plant/alignment_plan.md](plant/alignment_plan.md),
+  decided with the user 2026-11-24), so Ecotopes get grass before the full
+  move-over:
+  - P1: split into the engine-free `procgena_plant` (settings, presets,
+    files, with an optional `reflect` feature) and `procgena_plant_bevy`,
+    under `plant/crates/`.
+  - P2: plants in the early Ecotope, through a bake of ground and density
+    over a `ScatterInput`, with a seed and a slope limit.
+  - P3: World tile cells and integer placement (one golden bless).
+  - P4: a sibling of the `Scatter` trait for GPU-placed Scatters, in C3.
+  - The CPU path, export, promotion, hash, shared LOD, Bevy pattern,
+    wind and edits come after.
 
 #### R4: Promotion and Bevy queries everywhere
 
