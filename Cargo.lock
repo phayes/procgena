@@ -5639,6 +5639,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "procgena_world"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.12",
+ "procgena_biome",
+ "procgena_core",
+ "procgena_terrain",
+ "serde",
+]
+
+[[package]]
 name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

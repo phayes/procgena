@@ -19,6 +19,7 @@ members = [
     "terrain/crates/procgena_terrain_bevy",
     "tree/crates/procgena_tree",
     "tree/crates/procgena_tree_bevy",
+    "world/crates/procgena_world",
     "plant",
     "plant/web",
     "procgena",
