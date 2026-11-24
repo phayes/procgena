@@ -2,6 +2,7 @@
 // and deferred rendering.
 
 import bevy_pbr::render::mesh_view_bindings::view;
+import procgena_impostor::shaders::layout::elevation_index;
 
 /// Outward tilt of the lighting direction for camera-facing shapes without a
 /// stored normal, such as fruit. Larger values make the side of the canopy away
@@ -113,6 +114,61 @@ fn turn_billboard(
     var out: TurnedVertex;
     out.position = place(pivot, axis, frame);
     out.normal = normal;
+    return out;
+}
+
+/// Views along each side of a cluster card's atlas; the atlas holds
+/// `CARD_FRAMES²` views in the `Elevations` layout. Must match
+/// `CARD_BAKE` in `cluster_card.rs`.
+const CARD_FRAMES: u32 = 4u;
+
+/// A cluster card vertex turned toward the view: its position and lighting
+/// normal, and where it samples the card's atlas.
+struct CardVertex {
+    position: vec3<f32>,
+    normal: vec3<f32>,
+    uv: vec2<f32>,
+}
+
+/// Turns one corner of a cluster card toward the current view: the card
+/// faces the view fully, with its up kept along the cluster's axis, and
+/// samples the atlas view baked nearest to the view's elevation above the
+/// axis.
+///
+/// Pass the card's centre and horizontal corner offset in `pivot`, and the
+/// cluster's unit axis and vertical corner offset in `axis`, as for
+/// [`turn_billboard`]. `local_from_world` converts world to tree coordinates.
+fn turn_card(
+    pivot: vec4<f32>,
+    axis: vec4<f32>,
+    local_from_world: mat4x4<f32>,
+) -> CardVertex {
+    // Face the view: right across the axis, up along it as far as it goes.
+    let full = billboard_frame(pivot, vec4<f32>(0.0), local_from_world);
+    let to_view = full.to_view;
+    let along = normalize(axis.xyz);
+    var right = cross(along, to_view);
+    if dot(right, right) < 1e-8 {
+        right = full.right;
+    }
+    right = normalize(right);
+    let up = cross(to_view, right);
+
+    // The view baked nearest to this elevation above the axis.
+    let height = dot(to_view, along);
+    let across = length(to_view - along * height);
+    let index = elevation_index(vec3<f32>(0.0, height, across), CARD_FRAMES * CARD_FRAMES);
+    let cell = vec2<f32>(f32(index % CARD_FRAMES), f32(index / CARD_FRAMES));
+    let corner = vec2<f32>(sign(pivot.w) * 0.5 + 0.5, 0.5 - sign(axis.w) * 0.5);
+
+    var frame: BillboardFrame;
+    frame.to_view = to_view;
+    frame.right = right;
+    frame.up = up;
+    var out: CardVertex;
+    out.position = place(pivot, axis, frame);
+    out.normal = normalize(to_view + up * UPWARD_LEAN);
+    out.uv = (cell + corner) / f32(CARD_FRAMES);
     return out;
 }
 

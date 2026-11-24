@@ -7,9 +7,10 @@
 //! combined area; 1 means identical masks. Leaf cards are solid squares here, so
 //! these approximate checks do not include texture transparency or lighting.
 
-use glam::{Vec2, Vec3};
+use glam::{Quat, Vec2, Vec3};
 use procgena_tree::{
-    BillboardVertex, LodDetail, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod,
+    BillboardVertex, ClusterPart, LodDetail, MeshBuffers, Skeleton, TreeMesh, TreeOptions,
+    TreePreset, cluster_card_bounds, cluster_card_mesh, default_lod,
 };
 
 /// Width and height of each square mask, in pixels.
@@ -156,6 +157,38 @@ fn turned_triangles(mesh: &TreeMesh, to_camera: Vec3) -> Vec<Triangle> {
     out
 }
 
+/// Replaces `mesh`'s cluster cards with the clusters their pictures show:
+/// each card's variant mesh ([`cluster_card_mesh`]), scaled, turned onto
+/// the card's axis and centred on its pivot, as fixed fruit or flower
+/// geometry. A CPU test has no bake; this is what the bake shows.
+fn place_cards(options: &TreeOptions, mesh: &mut TreeMesh) {
+    let parts = [
+        (ClusterPart::Fruit, std::mem::take(&mut mesh.fruit_cards)),
+        (ClusterPart::Flowers, std::mem::take(&mut mesh.flower_cards)),
+    ];
+    for (part, cards) in parts {
+        let out = match part {
+            ClusterPart::Fruit => &mut mesh.fruit,
+            ClusterPart::Flowers => &mut mesh.flowers,
+        };
+        for (variant, buffers) in (0u32..).zip(&cards) {
+            let shown = cluster_card_mesh(options, part, variant);
+            let (center, radius) = cluster_card_bounds(&shown);
+            for card in buffers.billboard.as_chunks::<4>().0 {
+                let pivot = Vec3::from_array(card[0].pivot);
+                let axis = Vec3::from_array(card[0].axis);
+                let scale = card[0].offset[1].abs() / radius;
+                let turn = Quat::from_rotation_arc(Vec3::Y, axis);
+                let base = out.positions.len() as u32;
+                out.positions.extend(shown.positions.iter().map(|p| {
+                    (pivot + turn * ((Vec3::from_array(*p) - center) * scale)).to_array()
+                }));
+                out.indices.extend(shown.indices.iter().map(|i| base + i));
+            }
+        }
+    }
+}
+
 /// Reconstructs one billboard vertex for the unit direction `to_camera`.
 /// The sampled views avoid +Y; axis-aligned views use a zero sideways vector.
 fn turned(b: &BillboardVertex, to_camera: Vec3) -> Vec3 {
@@ -236,6 +269,7 @@ fn measure(
             .enumerate()
             .map(|(level, detail)| {
                 let mut mesh = skeleton.mesh(&options, detail);
+                place_cards(&options, &mut mesh);
                 change(level, &mut mesh);
                 mesh
             })

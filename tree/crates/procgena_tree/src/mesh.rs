@@ -10,6 +10,7 @@ use glam::{Quat, Vec3};
 use procgena_core::{FarForm, LevelForm, Lod, LodLevel};
 use serde::{Deserialize, Serialize};
 
+use crate::cluster_card::{ClusterPart, mesh_cards};
 use crate::cluster_mesh::{mesh_flowers, mesh_fruit};
 use crate::units::LEAF_NORMAL_REFERENCE;
 use crate::wind::{BranchWind, branch_winds, wind_at};
@@ -136,6 +137,21 @@ pub struct LodDetail {
     /// [`flat_item_size`](Self::flat_item_size) then affect flowers only.
     /// [`min_item_size`](Self::min_item_size) still filters fruit.
     pub billboard_fruit: bool,
+    /// Draw each kept fruit and flower cluster as one camera-facing card
+    /// showing a baked picture of a cluster, instead of its own geometry.
+    /// The value is the number of baked cluster variants to choose among,
+    /// at least 1; 0 (the default) draws clusters as geometry.
+    ///
+    /// Cards go into [`TreeMesh::fruit_cards`] and
+    /// [`TreeMesh::flower_cards`], one buffer per variant, and
+    /// [`TreeMesh::fruit`] and [`TreeMesh::flowers`] stay empty. Each card
+    /// is sized to its own cluster and turned about the cluster's axis;
+    /// see [`cluster_card_mesh`](crate::cluster_card_mesh) for the pictures
+    /// they show. [`cluster_stride`](Self::cluster_stride) and
+    /// [`min_item_size`](Self::min_item_size) still choose the clusters.
+    /// Use the same value on every level that draws cards. Overrides
+    /// [`billboard_fruit`](Self::billboard_fruit).
+    pub cluster_cards: u32,
 }
 
 impl Default for LodDetail {
@@ -159,6 +175,7 @@ impl Default for LodDetail {
             flat_item_size: 0.0,
             min_item_size: 0.0,
             billboard_fruit: false,
+            cluster_cards: 0,
         }
     }
 }
@@ -494,6 +511,16 @@ pub struct TreeMesh {
     /// Ranges in [`flowers`](Self::flowers), one per cluster in [`Skeleton::flowers`]
     /// and in the same order. A cluster that produces no surface has empty ranges.
     pub flower_spans: Vec<ClusterSpan>,
+    /// Fruit cluster cards ([`LodDetail::cluster_cards`]), one buffer per
+    /// cluster variant; empty when clusters are drawn as geometry. Each card
+    /// is two triangles with [`MeshBuffers::billboard`] data: its pivot is
+    /// the centre of the cluster's baked picture, its axis the cluster's
+    /// axis, and its offsets the corners of a square as wide as the picture.
+    /// Its positions are the card unturned, facing across the axis, and its
+    /// texture coordinates cover 0 to 1 for renderers that draw it so.
+    pub fruit_cards: Vec<MeshBuffers>,
+    /// Flower cluster cards, as [`fruit_cards`](Self::fruit_cards).
+    pub flower_cards: Vec<MeshBuffers>,
 }
 
 impl TreeMesh {
@@ -505,6 +532,12 @@ impl TreeMesh {
             + self.fruit.vertex_count()
             + self.flowers.vertex_count()
             + self.billboard_cull.vertex_count()
+            + self.cards().map(MeshBuffers::vertex_count).sum::<usize>()
+    }
+
+    /// Every cluster card buffer: fruit, then flowers.
+    fn cards(&self) -> impl Iterator<Item = &MeshBuffers> {
+        self.fruit_cards.iter().chain(&self.flower_cards)
     }
 
     /// Returns the total triangle count, including crossed fallback shapes.
@@ -517,6 +550,7 @@ impl TreeMesh {
             + self.fruit.triangle_count()
             + self.flowers.triangle_count()
             + self.billboard_cull.triangle_count()
+            + self.cards().map(MeshBuffers::triangle_count).sum::<usize>()
     }
 }
 
@@ -740,6 +774,17 @@ impl Skeleton {
                 wind_at(&winds, &leaf.parent),
             );
             mesh.leaf_spans.push(span);
+        }
+        // Fruit and flowers: one card per kept cluster, or their geometry.
+        if detail.cluster_cards > 0 {
+            let parts = [
+                (&mut mesh.fruit_cards, &self.fruit, ClusterPart::Fruit),
+                (&mut mesh.flower_cards, &self.flowers, ClusterPart::Flowers),
+            ];
+            for (cards, clusters, part) in parts {
+                mesh_cards(cards, clusters, options, part, &winds, detail);
+            }
+            return mesh;
         }
         mesh.fruit_spans = mesh_fruit(
             [&mut mesh.fruit, &mut cull.fruit],

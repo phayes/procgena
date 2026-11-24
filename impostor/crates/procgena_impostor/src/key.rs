@@ -17,13 +17,44 @@ pub struct BakeSettings {
     pub frames: u32,
     /// Pixels along each side of one view. At least 1.
     pub frame_size: u32,
+    /// Which directions the views look from.
+    pub layout: BakeLayout,
+}
+
+/// Which directions an impostor's views look from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum BakeLayout {
+    /// From every direction of the upper hemisphere, for an object seen
+    /// from any side and from above, drawn with [`ImpostorMaterial`](crate::ImpostorMaterial).
+    #[default]
+    Hemisphere,
+    /// From one side of the object's +Y axis, at elevations from below to
+    /// above (see [`elevation_direction`](crate::elevation_direction)), for
+    /// a card turned about that axis that picks its view by elevation alone.
+    /// [`ImpostorMaterial`](crate::ImpostorMaterial) can't draw these.
+    Elevations,
 }
 
 impl BakeSettings {
-    /// Settings with `frames` views along each side, each `frame_size`
-    /// pixels square.
+    /// Hemisphere settings with `frames` views along each side, each
+    /// `frame_size` pixels square.
     pub const fn new(frames: u32, frame_size: u32) -> Self {
-        Self { frames, frame_size }
+        Self {
+            frames,
+            frame_size,
+            layout: BakeLayout::Hemisphere,
+        }
+    }
+
+    /// [`Elevations`](BakeLayout::Elevations) settings with `frames` views
+    /// along each side (`frames²` elevations), each `frame_size` pixels
+    /// square.
+    pub const fn elevations(frames: u32, frame_size: u32) -> Self {
+        Self {
+            frames,
+            frame_size,
+            layout: BakeLayout::Elevations,
+        }
     }
 
     /// Pixels along each side of the whole atlas.
@@ -39,12 +70,20 @@ impl Default for BakeSettings {
     }
 }
 
-/// Writes the view count, then the view size.
+/// Writes the view count, the view size, then the layout's number.
 impl ContentHash for BakeSettings {
     fn content_hash(&self, hasher: &mut ContentHasher) {
-        let Self { frames, frame_size } = self;
+        let Self {
+            frames,
+            frame_size,
+            layout,
+        } = self;
         hasher.write_u32(*frames);
         hasher.write_u32(*frame_size);
+        hasher.write_u32(match layout {
+            BakeLayout::Hemisphere => 0,
+            BakeLayout::Elevations => 1,
+        });
     }
 }
 
@@ -180,6 +219,8 @@ mod tests {
         assert_ne!(base, key(id(TREE, 1, 0), bake, &[b"level 1"]));
         let small = BakeSettings::new(4, 64);
         assert_ne!(base, key(id(TREE, 1, 0), small, &[b"level 1", b"bc7"]));
+        let strip = BakeSettings::elevations(8, 128);
+        assert_ne!(base, key(id(TREE, 1, 0), strip, &[b"level 1", b"bc7"]));
         assert_eq!(
             key(id(TREE, 1, 0), small, &[]).bake(),
             small,

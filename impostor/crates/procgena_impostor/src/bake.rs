@@ -23,8 +23,8 @@ use bevy::render::{Extract, RenderApp};
 
 use crate::ImpostorSettings;
 use crate::cache::{self, DiskReads, ImpostorWrites};
-use crate::key::ImpostorKey;
-use crate::layout::{view_basis, view_direction};
+use crate::key::{BakeLayout, ImpostorKey};
+use crate::layout::{elevation_basis, elevation_direction, view_basis, view_direction};
 use crate::material::{
     BakeOutput, ImpostorExtension, ImpostorMaterial, ImpostorUniform, impostor_base,
 };
@@ -522,7 +522,12 @@ fn spawn_bake(
     let views: Vec<Transform> = (0..frames * frames)
         .map(|index| {
             let cell_index = UVec2::new(index % frames, index / frames);
-            let basis = view_basis(view_direction(cell_index, frames));
+            let basis = match bake.layout {
+                BakeLayout::Hemisphere => view_basis(view_direction(cell_index, frames)),
+                BakeLayout::Elevations => {
+                    elevation_basis(elevation_direction(index, frames * frames))
+                }
+            };
             let cell_center = Vec3::new(
                 (cell_index.x as f32 + 0.5) * cell - side / 2.0,
                 side / 2.0 - (cell_index.y as f32 + 0.5) * cell,

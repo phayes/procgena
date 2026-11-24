@@ -53,8 +53,10 @@ pub use bake::{
     ImpostorRequest, Impostors,
 };
 pub use batch::{ImpostorBatch, ImpostorBatchFinished, ImpostorBatchProgress};
-pub use key::{BakeSettings, ImpostorKey};
-pub use layout::{view_basis, view_cell, view_direction};
+pub use key::{BakeLayout, BakeSettings, ImpostorKey};
+pub use layout::{
+    elevation_basis, elevation_direction, elevation_index, view_basis, view_cell, view_direction,
+};
 pub use level::ImpostorLevel;
 pub use material::{
     BAKE_SHADER, BakeExtension, BakeKey, BakeOutput, BakeStandardMaterial, INSTANCE_LOCATION,

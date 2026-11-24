@@ -271,6 +271,7 @@
 //! See that crate's documentation for setup and texture paths.
 
 mod cluster;
+mod cluster_card;
 mod cluster_mesh;
 mod content_hash;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
@@ -291,6 +292,7 @@ mod units;
 mod wind;
 
 pub use cluster::{ClusterItem, ClusterStalk, SkeletonCluster};
+pub use cluster_card::{ClusterPart, cluster_card_bounds, cluster_card_mesh};
 pub use content_hash::{TREE_KIND, TreeCacheKey};
 pub use material::{
     BARK_KINDS, BarkMap, BarkMaterial, FlowerMaterial, FruitMaterial, LEAF_KINDS, LeafMap,

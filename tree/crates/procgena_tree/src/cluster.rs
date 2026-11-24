@@ -134,6 +134,48 @@ pub(crate) fn grow_clusters(
     clusters
 }
 
+/// Grows one cluster on its own, in cluster-local coordinates: it starts at
+/// the origin and faces +Y, whatever `placement`'s facing. `seed` drives its
+/// random choices. A `representative` cluster has no random variation in
+/// item count, item size or facing.
+pub(crate) fn grow_lone_cluster(
+    placement: &ClusterPlacement,
+    shape: &ClusterShape,
+    seed: u32,
+    representative: bool,
+) -> SkeletonCluster {
+    let mut placement = placement.clone();
+    let mut shape = shape.clone();
+    placement.facing = Facing::Up;
+    if representative {
+        placement.facing_jitter = 0.0;
+        placement.size_variance = 0.0;
+        shape.items_variance = 0.0;
+    }
+    let mut rng = Rng::new(seed);
+    let attachment = Attachment {
+        branch: 0,
+        section: 0,
+        t: 0.0,
+    };
+    ClusterBuilder::new(&placement, &shape, &mut rng).build(attachment, Vec3::ZERO, Vec3::Y)
+}
+
+/// The distance from a cluster's origin to the farthest point of its stalks
+/// and items (each item counted as a ball of its size), in metres.
+pub(crate) fn cluster_extent(cluster: &SkeletonCluster) -> f32 {
+    let stalks = cluster
+        .stalks
+        .iter()
+        .flat_map(|stalk| &stalk.points)
+        .map(|point| point.distance(cluster.origin));
+    let items = cluster
+        .items
+        .iter()
+        .map(|item| item.origin.distance(cluster.origin) + item.size);
+    stalks.chain(items).fold(0.0, f32::max)
+}
+
 /// Number of extra side clusters that [`ClusterPlacement::density`] adds to one
 /// branch, based on the branch length after `placement.start`. The fractional
 /// part sets the chance of one more cluster. Draws nothing from `rng` when the

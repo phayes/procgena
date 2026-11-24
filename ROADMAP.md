@@ -641,6 +641,20 @@ Decided by the user 2026-11-23.
   as cards with their triangle counts recorded (today 45,414 and 13,440 at
   level 2), the outline test passes, and a headless screenshot comparison
   shows the clusters keep their facing.
+- **Status (2026-11-24):** built, opt-in. `LodDetail::cluster_cards` (the
+  variant count) draws each kept cluster as one card, and
+  `cluster_card_mesh` builds the lone cluster that each variant's picture
+  shows. The pictures are baked per pool part through `Impostors::request`,
+  with a new `BakeLayout::Elevations` strip (4 × 4 views of 64 px), and the
+  tree shaders' `CLUSTER_CARD` path draws them with wind.
+  - Measured at level 2: Willow 45,530 → 1,570 cluster triangles, Dogwood
+    13,440 → 3,360. The recorded 45,414 predates the F3 preset rewrite.
+  - The outline test passes with cards on at levels 1 and 2.
+  - Headless shots show the clusters keep their facing.
+  - Cards are not yet on in `default_lod`. With them on, level 3 costs
+    more than level 2 for fruit trees (Apple 3,144 vs 5,106 / 2). So
+    level 3 moving to cards, and the default variant count, are the
+    user's decisions.
 
 #### I2: Impostors prepared per Ecotope
 

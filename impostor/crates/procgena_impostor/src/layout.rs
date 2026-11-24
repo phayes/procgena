@@ -5,6 +5,11 @@
 //! straight down on the object; the corners look at it from the horizon.
 //! [`view_direction`] and [`view_cell`] convert between the two, and
 //! [`view_basis`] gives the axes a view's image is drawn along.
+//!
+//! Atlases baked with the [`Elevations`](crate::BakeLayout::Elevations)
+//! layout instead hold one strip of views around the object's +Y axis, from
+//! below to above: see [`elevation_direction`], [`elevation_index`] and
+//! [`elevation_basis`].
 
 use bevy::math::{Mat3, UVec2, Vec3};
 
@@ -45,9 +50,47 @@ pub fn view_basis(direction: Vec3) -> Mat3 {
     Mat3::from_cols(right, up, back)
 }
 
+/// The direction from the object towards the viewer of view `index` of
+/// `count` in the [`Elevations`](crate::BakeLayout::Elevations) layout, in
+/// the object's own coordinates.
+///
+/// The views look at the object's +Y axis from one side (from +Z), at
+/// elevations evenly spaced from just above -Y (looking up from below) to
+/// just below +Y (looking down from above), view 0 first. View `index` sits
+/// in atlas cell `(index % frames, index / frames)`.
+pub fn elevation_direction(index: u32, count: u32) -> Vec3 {
+    let elevation = elevation_of(index, count);
+    Vec3::new(0.0, elevation.sin(), elevation.cos())
+}
+
+/// The elevation view of `count` nearest to looking from `direction`, from
+/// the object towards the viewer, whatever its azimuth about +Y.
+pub fn elevation_index(direction: Vec3, count: u32) -> u32 {
+    let d = direction.try_normalize().unwrap_or(Vec3::Z);
+    let t = (d.y.clamp(-1.0, 1.0).asin() / std::f32::consts::PI + 0.5) * count as f32;
+    (t.floor().max(0.0) as u32).min(count - 1)
+}
+
+/// The axes of an [`elevation_direction`] view's image, in the object's
+/// coordinates: right (always +X), up (towards +Y on screen) and back
+/// towards the viewer (`direction` itself). Unlike [`view_basis`], up never
+/// flips, so +Y always points up the image.
+pub fn elevation_basis(direction: Vec3) -> Mat3 {
+    let back = direction.normalize();
+    let right = Vec3::X;
+    let up = back.cross(right);
+    Mat3::from_cols(right, up, back)
+}
+
+/// The elevation of view `index` of `count`, in radians from -π/2 to π/2.
+fn elevation_of(index: u32, count: u32) -> f32 {
+    let pi = std::f32::consts::PI;
+    -pi / 2.0 + pi * (index as f32 + 0.5) / count as f32
+}
+
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::Transform;
+    use bevy::prelude::{Quat, Transform};
 
     use super::*;
 
@@ -87,5 +130,31 @@ mod tests {
             let expected = Mat3::from_quat(camera.rotation);
             assert!(basis.abs_diff_eq(expected, 1e-5), "{basis} vs {expected}");
         }
+    }
+
+    #[test]
+    fn elevation_views_run_from_below_to_above_and_keep_their_up() {
+        let count = 16;
+        for index in 0..count {
+            let direction = elevation_direction(index, count);
+            assert!(direction.is_normalized());
+            assert_eq!(elevation_index(direction, count), index);
+            // Any azimuth about +Y finds the same view.
+            let turned = Quat::from_rotation_y(1.0) * direction;
+            assert_eq!(elevation_index(turned, count), index);
+            // +Y points up the image, even nearly along +Y or -Y.
+            let basis = elevation_basis(direction);
+            assert!(basis.y_axis.dot(Vec3::Y) > 0.0, "view {index}");
+            assert!(
+                basis
+                    .x_axis
+                    .cross(basis.y_axis)
+                    .abs_diff_eq(basis.z_axis, 1e-5)
+            );
+        }
+        assert!(elevation_direction(0, count).y < -0.99);
+        assert!(elevation_direction(count - 1, count).y > 0.99);
+        assert_eq!(elevation_index(Vec3::NEG_Y, count), 0);
+        assert_eq!(elevation_index(Vec3::Y, count), count - 1);
     }
 }
