@@ -5411,6 +5411,8 @@ dependencies = [
  "procgena_mushroom",
  "procgena_mushroom_bevy",
  "procgena_stone_bevy",
+ "procgena_terrain",
+ "procgena_terrain_bevy",
  "procgena_tree_bevy",
 ]
 
