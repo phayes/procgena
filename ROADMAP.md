@@ -793,6 +793,12 @@ go to the few copies near the camera.
     where impostors take over for distance, and how the quality setting
     moves each. It replaces or extends today's shared LOD type and
     quality factors (R1), so the plan says what changes there.
+  - **Level 1 is the default for everything** (the user, 2026-11-24).
+    Every asset draws at detail level 1 by default, even near the camera,
+    and for meshes as well as textures; full-detail level 0 is an opt-in,
+    per game or per asset. The plan works out what this means for each
+    asset's level table, the quality setting, the studio (which may show
+    level 0 for editing), bakes and the specimen budget.
   - **The question and the measures:** how close impostors can come
     (per asset kind and size) before they look wrong, and what that saves
     in frame time, draw calls, triangles, memory and bake time.
