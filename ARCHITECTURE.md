@@ -300,6 +300,11 @@ ground.
   - Tree trunks clear a disc around themselves.
   - Canopy shade thins grass.
   - Boulders and logs clear the plants under them.
+- Its ground layers: materials such as needle litter, moss and mud, each
+  with a rule over slope, height, water and road distance, labels, noise
+  and its own Scatters (litter under trees), laid over its Biome's base
+  ground and weighted by its coverage. Planned (milestones GM0–GM6) in
+  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
 
 **What it gets from above.** Its area, as a coverage function from 0 to 1
 that the Biome works out from Terrain labels and border noise. Also the
