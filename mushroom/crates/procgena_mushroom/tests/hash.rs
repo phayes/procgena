@@ -3,8 +3,9 @@
 use procgena_core::{OptionsHash, SpecimenId};
 use procgena_mushroom::{
     CapFamily, ClusterLayout, GENERATOR_KIND, Mushroom, MushroomDetail, MushroomOptions,
-    MushroomPreset, Pattern,
+    MushroomPreset, MushroomScatter, Pattern, ScatterOptions,
 };
+use procgena_specimen::{Part, Specimen, SurfaceMesh, tags};
 
 /// The options hash of `options`, as a bare number.
 fn hash(options: &MushroomOptions) -> u64 {
@@ -179,6 +180,28 @@ fn every_field_changes_the_hash() {
         let changed = hash(&options);
         assert!(!seen.contains(&changed), "{name} did not change the hash");
         seen.push(changed);
+    }
+}
+
+/// Renderers share meshes between bodies with the same specimen id and
+/// index, so a mushroom and a scatter must build identical bodies for them.
+#[test]
+fn equal_body_ids_mean_equal_bodies() {
+    let host = Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(2.0, 8))]);
+    for preset in [MushroomPreset::Enoki, MushroomPreset::Porcini] {
+        let options = preset.options();
+        let scatter = MushroomScatter::on(&host, &options, &ScatterOptions::default()).unwrap();
+        // A single mushroom's slot-0 specimen is the scatter's first body; a
+        // cluster's bodies are the scatter's first bodies.
+        let mushroom = Mushroom::new(options).unwrap();
+        for body in mushroom.bodies() {
+            let twin = scatter
+                .bodies()
+                .iter()
+                .find(|b| b.specimen() == body.specimen() && b.index() == body.index())
+                .unwrap_or_else(|| panic!("{}: no matching body", preset.name()));
+            assert_eq!(twin.options(), body.options(), "{}", preset.name());
+        }
     }
 }
 
