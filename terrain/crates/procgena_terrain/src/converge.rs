@@ -4,7 +4,7 @@
 
 use glam::DVec2;
 
-use crate::border::{Pull, SegmentIndex};
+use crate::border::{Pull, SegmentIndex, surely_beyond};
 use crate::options::RoadGrades;
 use crate::region::{EdgeId, Region, RegionId, Segment, segments};
 use crate::relief::Relief;
@@ -577,6 +577,11 @@ impl Fade {
         let reach = BORDER_REACH * width;
         let mut pull = Pull::<N>::default();
         let near = self.index.near(p);
+        // Cheaper still: points the fade surely can't reach.
+        let segments = near.iter().map(|&(e, k)| &self.edges[e].segments[k]);
+        if surely_beyond(segments, p, reach, width) {
+            return None;
+        }
         for &(e, k) in near {
             let (edge, segment) = (&self.edges[e], &self.edges[e].segments[k]);
             let projection = segment.project(p);

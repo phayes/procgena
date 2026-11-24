@@ -189,6 +189,39 @@ impl<const N: usize> Pull<N> {
     }
 }
 
+/// Whether the soft distance from `p` to `segments`, with pulls out to
+/// `reach`, is certainly at least `width`, judged from each segment's plain
+/// distance and length alone, which is much cheaper than adding the pulls.
+/// `false` means only that it may be nearer: add the pulls to find out.
+pub(crate) fn surely_beyond<'a>(
+    segments: impl Iterator<Item = &'a Segment>,
+    p: DVec2,
+    reach: f64,
+    width: f64,
+) -> bool {
+    // Each segment pulls at most as hard as if all of its stretch within
+    // reach (at most `2 × reach` long) were at its plain distance.
+    let mut most = 0.0;
+    for segment in segments {
+        let distance = segment.project(p).distance / reach;
+        if distance == 0.0 {
+            return false;
+        }
+        if distance >= 1.0 {
+            continue;
+        }
+        let stretch = (segment.length / reach).min(2.0);
+        most += stretch * (half_power(distance * distance, -(DISTANCE_POWER as i32 + 1)) - 1.0);
+    }
+    // The soft distance falls as the pull grows; a margin of 1% in the pull
+    // covers rounding in both sums.
+    let pull = Pull::<0> {
+        closeness: most * 1.01,
+        ..Default::default()
+    };
+    pull.distance(reach) >= width
+}
+
 /// Which segments of a set of edges can pull on each part of the plane,
 /// out to a reach, so a point visits only those. Segments left out of a
 /// point's list are beyond the reach and would add nothing, so the result
@@ -357,32 +390,101 @@ fn power_integral(x0: f64, x1: f64, a: f64, power: u32) -> f64 {
         total += a.powi(-(power as i32)) * cos_power_integral(power - 1, x0 / a, top / a);
     }
     if x1 > near {
-        let start = x0.max(near);
-        total += far_antiderivative(x1, a, power) - far_antiderivative(start, a, power);
+        // The powers the pulls use have their series worked out once.
+        let computed;
+        let series = match power {
+            DISTANCE_POWER => &DISTANCE_SERIES,
+            TARGET_POWER => &TARGET_SERIES,
+            TARGET_SECOND_POWER => &TARGET_SECOND_SERIES,
+            _ => {
+                computed = FarSeries::new(power);
+                &computed
+            }
+        };
+        // From NEAR_FOOT × a, where the antiderivative is the same for every
+        // `a` but for a power of `a`, and the series is slowest.
+        let start = if x0 <= near {
+            a.powi(-(power as i32)) * series.at_near
+        } else {
+            series.antiderivative(x0, a, power)
+        };
+        total += series.antiderivative(x1, a, power) - start;
     }
     total
 }
 
-/// An antiderivative of `(x² + a²)^(−ν)` for `x ≥` [`NEAR_FOOT`] × `a`,
-/// from `(x² + a²)^(−ν) = x^(−2ν) Σₖ C(−ν, k) (a/x)^(2k)`, which converges
-/// there since `(a/x)² ≤ 1/4`.
-fn far_antiderivative(x: f64, a: f64, power: u32) -> f64 {
-    let nu = f64::from(power + 1) / 2.0;
-    let r = (a / x) * (a / x);
-    let mut coefficient = 1.0; // C(−ν, k)
-    let mut ratio = 1.0; // (a/x)^(2k)
-    let mut sum = 0.0;
-    for k in 0..80 {
-        let k = f64::from(k);
-        let term = coefficient * ratio / (1.0 - 2.0 * nu - 2.0 * k);
-        sum += term;
-        if term.abs() <= 1e-17 * sum.abs() {
+/// The most terms a [`FarSeries`] adds.
+const FAR_TERMS: usize = 80;
+
+/// The power of the second moment of the target pulls (see [`moments`]).
+const TARGET_SECOND_POWER: u32 = TARGET_POWER - 2;
+
+/// The [`FarSeries`] of each power the pulls use.
+const DISTANCE_SERIES: FarSeries = FarSeries::new(DISTANCE_POWER);
+const TARGET_SERIES: FarSeries = FarSeries::new(TARGET_POWER);
+const TARGET_SECOND_SERIES: FarSeries = FarSeries::new(TARGET_SECOND_POWER);
+
+/// An antiderivative of `(x² + a²)^(−ν)`, for `ν = (power + 1) / 2`, valid
+/// for `x ≥` [`NEAR_FOOT`] × `a`: from `(x² + a²)^(−ν) =
+/// x^(−2ν) Σₖ C(−ν, k) (a/x)^(2k)`, which converges there since
+/// `(a/x)² ≤ 1/4`.
+struct FarSeries {
+    /// `C(−ν, k) / (1 − 2ν − 2k)`: the coefficient of `(a/x)^(2k)`.
+    coefficients: [f64; FAR_TERMS],
+    /// The antiderivative at [`NEAR_FOOT`] × `a`, divided by `a^(−power)`,
+    /// which is the same for every `a`.
+    at_near: f64,
+}
+
+impl FarSeries {
+    /// The series for `power`.
+    const fn new(power: u32) -> Self {
+        let nu = (power + 1) as f64 / 2.0;
+        let mut coefficients = [0.0; FAR_TERMS];
+        let mut binomial = 1.0; // C(−ν, k)
+        let mut k = 0;
+        while k < FAR_TERMS {
+            let kf = k as f64;
+            coefficients[k] = binomial / (1.0 - 2.0 * nu - 2.0 * kf);
+            binomial *= -(nu + kf) / (kf + 1.0);
+            k += 1;
+        }
+
+        // NEAR_FOOT^(−power) times the sum at (a/x)² = NEAR_FOOT^(−2).
+        let mut scale = 1.0;
+        let mut i = 0;
+        while i < power {
+            scale /= NEAR_FOOT;
+            i += 1;
+        }
+        let at_near = scale * sum(&coefficients, 1.0 / (NEAR_FOOT * NEAR_FOOT));
+        Self {
+            coefficients,
+            at_near,
+        }
+    }
+
+    /// The antiderivative at `x`, for `power` (the one the series is for).
+    fn antiderivative(&self, x: f64, a: f64, power: u32) -> f64 {
+        x.powi(-(power as i32)) * sum(&self.coefficients, (a / x) * (a / x))
+    }
+}
+
+/// `Σₖ coefficients[k] rᵏ`, stopping once a term no longer changes the sum.
+const fn sum(coefficients: &[f64; FAR_TERMS], r: f64) -> f64 {
+    let mut ratio = 1.0; // rᵏ
+    let mut total = 0.0;
+    let mut k = 0;
+    while k < FAR_TERMS {
+        let term = coefficients[k] * ratio;
+        total += term;
+        if term.abs() <= 1e-17 * total.abs() {
             break;
         }
-        coefficient *= -(nu + k) / (k + 1.0);
         ratio *= r;
+        k += 1;
     }
-    x.powi(-(power as i32)) * sum
+    total
 }
 
 /// `∫ cos^n θ dθ` between `atan(u0)` and `atan(u1)`, by the recursion
@@ -457,6 +559,45 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn surely_beyond_never_skips_a_point_within_reach() {
+        // A wiggly edge in 100 m pieces with a sharp bend, like a warped
+        // border, and points all around it, some exactly on it.
+        let mut points: Vec<DVec2> = (0..=30)
+            .map(|i| {
+                let x = -1500.0 + 100.0 * f64::from(i);
+                DVec2::new(x, 130.0 * (x / 127.0).sin())
+            })
+            .collect();
+        let corner = *points.last().unwrap();
+        points.extend((1..=10).map(|i| corner + DVec2::new(-60.0, 80.0) * f64::from(i)));
+        let edge = segments(&points);
+        let (reach, width) = (500.0, 250.0);
+
+        let mut on_edge = vec![points[3], (points[7] + points[8]) / 2.0, corner];
+        let grid = (-40..=40).flat_map(|i| (-20..=30).map(move |j| (i, j)));
+        on_edge
+            .extend(grid.map(|(i, j)| DVec2::new(f64::from(i) * 50.0, f64::from(j) * 50.0 + 3.0)));
+        let mut skipped = 0;
+        for p in on_edge {
+            if !surely_beyond(edge.iter(), p, reach, width) {
+                continue;
+            }
+            skipped += 1;
+            let mut pull = Pull::<0>::default();
+            for s in &edge {
+                pull.add_distance(s, p, reach);
+            }
+            assert!(
+                pull.distance(reach) >= width,
+                "skipped {p}: {}",
+                pull.distance(reach)
+            );
+        }
+        // It does skip: most of the grid is farther than the width.
+        assert!(skipped > 1000, "skipped only {skipped}");
     }
 
     #[test]

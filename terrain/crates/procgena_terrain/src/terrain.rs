@@ -4,7 +4,7 @@ use std::fmt;
 
 use glam::DVec2;
 
-use crate::border::{Pull, SegmentIndex};
+use crate::border::{Pull, SegmentIndex, surely_beyond};
 use crate::carve::{FeatureLine, Features, PointOfInterest, Pond, RoadTags};
 use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
@@ -560,6 +560,13 @@ impl Terrain {
         // First the distance alone, which is cheap; the targets only where
         // the bending reaches.
         let near = self.index.near(p);
+        // Cheaper still: points the bending surely can't reach.
+        let segments = near
+            .iter()
+            .map(|&(e, k)| &self.seams[e].agreed.segments()[k]);
+        if surely_beyond(segments, p, reach, self.margin) {
+            return own as f32;
+        }
         for &(e, k) in near {
             let seam = &self.seams[e];
             let segment = &seam.agreed.segments()[k];
