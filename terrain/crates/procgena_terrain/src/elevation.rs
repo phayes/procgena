@@ -5,10 +5,26 @@ use std::fmt;
 use std::sync::Arc;
 
 use glam::DVec2;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::hash::{ELEVATION_CONTINENTS, ELEVATION_UPLIFT, seed_for};
 use crate::noise::{MAX_OCTAVES, Octaves, fbm_gradient, fbm_slope_bound};
 use crate::options::NoiseLayer;
+
+/// Reads and writes a `DVec2` as `[x, z]` in settings files.
+mod xz {
+    use super::{DVec2, Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(v: &DVec2, serializer: S) -> Result<S::Ok, S::Error> {
+        [v.x, v.y].serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<DVec2, D::Error> {
+        <[f64; 2]>::deserialize(deserializer).map(DVec2::from)
+    }
+}
 
 /// The steepest a [`HeightBump`] gets, as a multiple of its height over its
 /// radius: the largest slope of `(1 − t²)³` for `t` from 0 to 1, which is
@@ -16,7 +32,11 @@ use crate::options::NoiseLayer;
 const BUMP_SLOPE: f64 = 1.717_301;
 
 /// Settings for the world elevation field. See [`Elevation`].
-#[derive(Debug, Clone, PartialEq)]
+///
+/// In settings files, the tilt and each bump's centre are written as
+/// `[x, z]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ElevationOptions {
     /// Land and sea: a very long noise layer, typically 50 to 200 km
     /// between rises. A height of 0 turns it off.
@@ -27,6 +47,7 @@ pub struct ElevationOptions {
     /// A constant slope added everywhere: metres of rise per metre along x
     /// and along z. Heights grow without limit with distance along it, so
     /// it suits test worlds and bounded areas more than endless ones.
+    #[serde(with = "xz")]
     pub tilt: DVec2,
     /// The steepest E may get anywhere, as rise over run. The layers,
     /// the tilt and the bumps together must stay within it.
@@ -37,9 +58,11 @@ pub struct ElevationOptions {
 
 /// A smooth rise of the land, added to E: `height` at `centre`, falling to
 /// nothing at `radius` metres and beyond.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeightBump {
     /// The middle of the bump, in metres (x and z).
+    #[serde(with = "xz")]
     pub centre: DVec2,
     /// How far the bump reaches, in metres. Must be positive.
     pub radius: f64,

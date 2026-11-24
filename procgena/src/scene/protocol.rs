@@ -10,6 +10,7 @@ use procgena_biome_bevy::EcotopeSummary;
 use procgena_clump::{ClumpOptions, ClumpPreset};
 use procgena_deadwood::DeadwoodOptions;
 use procgena_deadwood_bevy::DeadwoodBuildError;
+use procgena_fruit::FruitOptions;
 use procgena_mushroom::MushroomOptions;
 use procgena_mushroom_bevy::MushroomBuildError;
 use procgena_plant::prelude::{PlantScatter, PlantScatterPreset};
@@ -39,6 +40,8 @@ pub struct SceneStart {
     pub clump: Arc<ClumpSettings>,
     /// Mushroom settings, as for [`ViewerCommand::SetMushroom`].
     pub mushroom: Arc<MushroomOptions>,
+    /// Fruit or flower cluster settings, as for [`ViewerCommand::SetFruit`].
+    pub fruit: Arc<FruitOptions>,
     /// The tree Scatter, as for [`ViewerCommand::SetGrove`].
     pub grove: Arc<TreeScatter>,
     /// Dead wood settings, as for [`ViewerCommand::SetDeadwood`].
@@ -65,6 +68,7 @@ impl Default for SceneStart {
             stone: Arc::default(),
             clump: Arc::default(),
             mushroom: Arc::default(),
+            fruit: Arc::default(),
             grove: Arc::default(),
             deadwood: Arc::default(),
             ecotope: Arc::default(),
@@ -101,6 +105,9 @@ pub enum SceneMode {
     Ecotope,
     /// An endless world of terrain, streamed around the camera.
     Terrain,
+    /// A single fruit or flower cluster, hanging from or standing on its
+    /// attachment point, from the current cluster settings.
+    Fruit,
 }
 
 /// A change requested by the host application.
@@ -141,6 +148,10 @@ pub enum ViewerCommand {
     /// until mushroom mode is shown. The scene uses its own detail levels,
     /// scaled to the mushroom's size, and ignores `options.detail`.
     SetMushroom(Arc<MushroomOptions>),
+    /// Sets the fruit or flower cluster settings. In fruit mode, grows the
+    /// cluster again at once; invalid settings keep the previous cluster.
+    /// In other modes, saves the settings until fruit mode is shown.
+    SetFruit(Arc<FruitOptions>),
     /// Sets the tree Scatter. In grove mode, the Scatter updates in place:
     /// trees that keep their spot, species and shape stay, and the rest are
     /// added, removed or rebuilt. A [`ViewerEvent::GroveBuilt`] follows. In
@@ -349,6 +360,10 @@ pub enum ViewerEvent {
     /// level and build time on success, or why its settings were rejected.
     /// A rejected replacement leaves the previous mushroom visible.
     MushroomBuilt(Result<BuildStats, MushroomBuildError>),
+    /// Reports the result of growing a fruit or flower cluster: mesh sizes
+    /// per detail level on success, or why its settings were rejected. A
+    /// rejected cluster leaves the previous one visible.
+    FruitBuilt(Result<BuildStats, procgena_fruit::OptionsError>),
     /// Reports the result of building the grove in grove mode: how many
     /// trees it has and their meshes added together, or why it could not be
     /// built.

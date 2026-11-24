@@ -92,6 +92,7 @@ mod elevation;
 mod feature;
 mod graph;
 mod grid;
+pub mod ground;
 mod gully;
 mod hash;
 mod noise;
@@ -124,6 +125,7 @@ pub use feature::{FeatureId, FeatureShape, FeatureTier, TerrainFeature};
 pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };
+pub use hash::region_local_seed;
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,

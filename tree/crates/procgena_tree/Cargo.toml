@@ -16,6 +16,7 @@ export-gltf = ["dep:gltf-json"]
 [dependencies]
 glam = { workspace = true }
 procgena_core = { path = "../../../core/crates/procgena_core" }
+procgena_fruit = { path = "../../../fruit/crates/procgena_fruit" }
 procgena_specimen = { path = "../../../specimen/crates/procgena_specimen" }
 serde = { workspace = true }
 serde_json = { workspace = true }

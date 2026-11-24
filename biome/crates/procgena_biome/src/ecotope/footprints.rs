@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use glam::{DVec2, Vec2};
 use procgena_core::scatter::Mask;
+use procgena_terrain::ground::{Ramp, Reach};
 
 /// Width of a lookup cell, in metres.
 const CELL: f32 = 2.0;
@@ -21,6 +22,8 @@ pub struct Footprints {
     shapes: Vec<Shape>,
     /// Indexes into `shapes`, by the lookup cells each shape's bounds touch.
     cells: HashMap<(i32, i32), Vec<u32>>,
+    /// The largest radius of any shape.
+    max_radius: f32,
 }
 
 /// One copy's footprint, relative to [`Footprints::origin`].
@@ -33,6 +36,15 @@ pub(crate) enum Shape {
 }
 
 impl Shape {
+    /// The shape's radius, and how far `p` lies from its middle: its
+    /// centre, or the segment along a capsule.
+    fn reach_of(self, p: Vec2) -> (f32, f32) {
+        match self {
+            Self::Disc { centre, radius } => (radius, p.distance(centre)),
+            Self::Capsule { a, b, radius } => (radius, p.distance(nearest_on(a, b, p))),
+        }
+    }
+
     /// The smallest and largest corner of the shape's bounds.
     fn bounds(self) -> (Vec2, Vec2) {
         match self {
@@ -46,17 +58,22 @@ impl Shape {
         match self {
             Self::Disc { centre, radius } => p.distance_squared(centre) <= radius * radius,
             Self::Capsule { a, b, radius } => {
-                let ab = b - a;
-                let length = ab.length_squared();
-                let t = if length > 0.0 {
-                    ((p - a).dot(ab) / length).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                p.distance_squared(a + ab * t) <= radius * radius
+                p.distance_squared(nearest_on(a, b, p)) <= radius * radius
             }
         }
     }
+}
+
+/// The point of the segment from `a` to `b` nearest to `p`.
+fn nearest_on(a: Vec2, b: Vec2, p: Vec2) -> Vec2 {
+    let ab = b - a;
+    let length = ab.length_squared();
+    let t = if length > 0.0 {
+        ((p - a).dot(ab) / length).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    a + ab * t
 }
 
 impl Footprints {
@@ -66,6 +83,7 @@ impl Footprints {
             origin,
             shapes: Vec::new(),
             cells: HashMap::new(),
+            max_radius: 0.0,
         }
     }
 
@@ -78,6 +96,7 @@ impl Footprints {
         }
         let index = self.shapes.len() as u32;
         self.shapes.push(shape);
+        self.max_radius = self.max_radius.max(shape.reach_of(Vec2::ZERO).0);
         let (lo, hi) = (cell_of(lo), cell_of(hi));
         for x in lo.0..=hi.0 {
             for z in lo.1..=hi.1 {
@@ -104,6 +123,35 @@ impl Footprints {
                 .iter()
                 .any(|&i| self.shapes[i as usize].contains(local))
         })
+    }
+
+    /// How strongly the copies reach World position `p`, from 0 to 1: the
+    /// strongest of any one copy's `falloff`, read at 0 on the copy's
+    /// middle (its centre, or the line along a lying copy) and at 1 on the
+    /// outer edge of `reach`. 0 beyond every copy's reach.
+    pub fn influence(&self, p: DVec2, reach: Reach, falloff: &Ramp) -> f32 {
+        let outer_max = reach.outer(self.max_radius);
+        if self.shapes.is_empty() || outer_max.is_nan() || outer_max <= 0.0 {
+            return 0.0;
+        }
+        let local = (p - self.origin).as_vec2();
+        let (lo, hi) = (cell_of(local - outer_max), cell_of(local + outer_max));
+        let mut strongest = 0.0_f32;
+        for x in lo.0..=hi.0 {
+            for z in lo.1..=hi.1 {
+                let Some(shapes) = self.cells.get(&(x, z)) else {
+                    continue;
+                };
+                for &i in shapes {
+                    let (radius, distance) = self.shapes[i as usize].reach_of(local);
+                    let outer = reach.outer(radius);
+                    if outer > 0.0 && distance <= outer {
+                        strongest = strongest.max(falloff.at(distance / outer));
+                    }
+                }
+            }
+        }
+        strongest
     }
 }
 
@@ -168,6 +216,37 @@ mod tests {
         assert!(!at(0.0, 0.3));
         assert!(!at(5.3, 0.0));
         assert_eq!(footprints.len(), 2);
+    }
+
+    #[test]
+    fn influence_fades_across_the_reach_of_the_nearest_copy() {
+        let mut footprints = Footprints::new(DVec2::new(10.0, 10.0));
+        footprints.insert(Shape::Disc {
+            centre: Vec2::ZERO,
+            radius: 1.0,
+        });
+        footprints.insert(Shape::Capsule {
+            a: Vec2::new(20.0, 0.0),
+            b: Vec2::new(30.0, 0.0),
+            radius: 0.5,
+        });
+        let full = Ramp::default();
+        let fade = Ramp::fall(0.0, 1.0);
+        let at = |x: f64, z: f64, reach, falloff: &Ramp| {
+            footprints.influence(DVec2::new(10.0 + x, 10.0 + z), reach, falloff)
+        };
+
+        // A disc of radius 1 reaching 3 m beyond its edge: out to 4 m.
+        assert_eq!(at(3.9, 0.0, Reach::Metres(3.0), &full), 1.0);
+        assert_eq!(at(4.1, 0.0, Reach::Metres(3.0), &full), 0.0);
+        assert_eq!(at(2.0, 0.0, Reach::Metres(3.0), &fade), 0.5);
+        // Twice its radius: out to 2 m.
+        assert_eq!(at(0.0, 1.9, Reach::Footprint(2.0), &full), 1.0);
+        assert_eq!(at(0.0, 2.1, Reach::Footprint(2.0), &full), 0.0);
+        // Along the capsule, measured from its middle line.
+        assert_eq!(at(25.0, 1.4, Reach::Metres(1.0), &full), 1.0);
+        assert_eq!(at(25.0, 1.6, Reach::Metres(1.0), &full), 0.0);
+        assert_eq!(at(31.4, 0.0, Reach::Metres(1.0), &full), 1.0);
     }
 
     #[test]

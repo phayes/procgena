@@ -3,7 +3,8 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use crate::hash::{derive_seed, salt, seed_for};
+use crate::RegionId;
+use crate::hash::{derive_seed, pcg3d, salt, seed_for};
 
 /// The most bytes a [`ChildKey`] may have.
 pub const CHILD_KEY_MAX_LEN: usize = 32;
@@ -162,6 +163,19 @@ pub fn child_seed(parent: u32, kind: &str, key: &ChildKey) -> u32 {
     derive_seed(seed_for(parent, kind), key.salt())
 }
 
+/// The seed of one region of a World for one role, such as its Biome's
+/// seed or its Terrain's own per-region choices.
+///
+/// `world` is the World seed and `role` a code seed key naming what the
+/// seed is for, such as `"biome.region.local"`. Every region gets its own
+/// seed for each role, worked out from the World seed and the region's id
+/// alone, so it never depends on which regions were built first. Two
+/// regions can still get equal seeds by chance.
+pub fn region_seed(world: u32, role: &str, region: RegionId) -> u32 {
+    let id = region.0;
+    pcg3d([seed_for(world, role), (id >> 32) as u32, id as u32])[0]
+}
+
 // Seed keys owned by this crate, named `<crate>.<area>.<role>`. They are
 // frozen: renaming one changes every world built from it. Add a new key for
 // a new role, and list it in `KEYS`.
@@ -254,6 +268,26 @@ mod tests {
         assert_eq!(child_seed(0, "ecotope.child.scatter", &pines), 0x2434_f59d);
         assert_eq!(child_seed(42, "ecotope.child.scatter", &pines), 0x0144_aff5);
         assert_eq!(child_seed(42, "biome.child.ecotope", &pines), 0x274f_965e);
+    }
+
+    /// Reference values computed outside this crate, in Python, from the
+    /// published FNV-1a and PCG3D definitions. The region ids are lattice
+    /// cells (0, 0), (3, −2) and (−1, 5), packed as x in the high half and
+    /// z in the low half.
+    #[test]
+    fn region_seed_matches_reference_values() {
+        let biome = "biome.region.local";
+        let terrain = "terrain.region.local";
+        assert_eq!(region_seed(0, biome, RegionId(0)), 0x3520_9441);
+        assert_eq!(region_seed(42, biome, RegionId(0x3_ffff_fffe)), 0x2e49_3036);
+        assert_eq!(
+            region_seed(42, terrain, RegionId(0x3_ffff_fffe)),
+            0x2d9a_d2c9
+        );
+        assert_eq!(
+            region_seed(7, terrain, RegionId(0xffff_ffff_0000_0005)),
+            0xd5b1_4158
+        );
     }
 
     #[test]

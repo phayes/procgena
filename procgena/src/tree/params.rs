@@ -1,9 +1,11 @@
 //! The tree settings shown in the Trees tab, with their ranges.
 
+use std::sync::LazyLock;
+
+use procgena_tree::procgena_fruit::FruitPreset;
 use procgena_tree::{
-    BARK_KINDS, BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterKind, ClusterPlacement,
-    ClusterShape, Facing, FlowerOptions, FlowerShape, FruitOptions, FruitShape, LEAF_KINDS,
-    LeafOptions, TreeOptions, TreeType, TrellisOptions,
+    AttachedFruit, BARK_KINDS, BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterPart,
+    ClusterPlacement, LEAF_KINDS, LeafOptions, TreeOptions, TreeType, TrellisOptions,
 };
 
 use crate::params::{Group, Param, Section, choice, color, count, name_choice, number, toggle};
@@ -29,11 +31,11 @@ pub fn sections() -> Vec<Section<TreeOptions>> {
         },
         Section {
             title: "Fruit",
-            groups: fruit(),
+            groups: clusters(ClusterPart::Fruit),
         },
         Section {
             title: "Flowers",
-            groups: flowers(),
+            groups: clusters(ClusterPart::Flowers),
         },
         Section {
             title: "Trellis",
@@ -373,9 +375,9 @@ fn side_clusters(p: &ClusterPlacement) -> bool {
     p.count > 0 || p.density > 0.0
 }
 
-/// Where clusters grow and how big they are; shared by fruit and flowers.
-/// Only the cluster count, density and tip chance show while no clusters
-/// are asked for.
+/// Where clusters grow, how they turn and how big they are; shared by fruit
+/// and flowers. Only the cluster count, density and tip chance show while
+/// no clusters are asked for.
 fn placement() -> Group<ClusterPlacement> {
     let rest = Group::plain(vec![
         count!(
@@ -388,11 +390,6 @@ fn placement() -> Group<ClusterPlacement> {
         number!(ClusterPlacement, "start", "Start", (0.0, 1.0, 0.01), |p| p
             .start)
         .shown_if(side_clusters),
-        choice!(ClusterPlacement, "facing", "Facing", [
-            "Hang" => Facing::Hang,
-            "Up" => Facing::Up,
-            "Outward" => Facing::Outward,
-        ], |p| p.facing),
         number!(
             ClusterPlacement,
             "facing_jitter",
@@ -400,16 +397,16 @@ fn placement() -> Group<ClusterPlacement> {
             (0.0, 90.0, 1.0),
             |p| p.facing_jitter
         ),
-        number!(ClusterPlacement, "size", "Size", (0.005, 0.5, 0.005), |p| p
-            .size)
+        number!(ClusterPlacement, "scale", "Scale", (0.1, 4.0, 0.01), |p| p
+            .scale)
         .exponential()
-        .revive(0.1),
+        .revive(1.0),
         number!(
             ClusterPlacement,
-            "size_variance",
-            "Size Variance",
+            "scale_variance",
+            "Scale Variance",
             (0.0, 1.0, 0.01),
-            |p| p.size_variance
+            |p| p.scale_variance
         ),
     ])
     .shown_if(clusters_grow);
@@ -438,331 +435,128 @@ fn placement() -> Group<ClusterPlacement> {
     Group::titled("Placement", params)
 }
 
-/// Whether a cluster has stalks or a main stem to draw.
-fn has_stalks(c: &ClusterShape) -> bool {
-    !matches!(c.kind, ClusterKind::Single | ClusterKind::Umbel) || c.stalk_length > 0.0
+/// The settings of a tree that grows no clusters of one part, read while
+/// their controls are hidden.
+static NO_CLUSTERS: LazyLock<AttachedFruit> = LazyLock::new(AttachedFruit::default);
+
+/// The fruit or flower presets a tree part can pick: the built-in presets
+/// of that kind, in catalogue order.
+fn cluster_presets(part: ClusterPart) -> &'static [&'static FruitPreset] {
+    static FRUIT: LazyLock<Vec<&'static FruitPreset>> =
+        LazyLock::new(|| FruitPreset::of_kind(true).collect());
+    static FLOWERS: LazyLock<Vec<&'static FruitPreset>> =
+        LazyLock::new(|| FruitPreset::of_kind(false).collect());
+    match part {
+        ClusterPart::Fruit => &FRUIT,
+        ClusterPart::Flowers => &FLOWERS,
+    }
 }
 
-/// How items are arranged within a cluster; shared by fruit and flowers.
-/// The stalk colour is with each one's other colours.
-fn cluster() -> Group<ClusterShape> {
-    use ClusterKind::{Catkin, Panicle, Raceme, Single};
-    let several = |c: &ClusterShape| c.kind != Single;
-    let main_stem = |c: &ClusterShape| matches!(c.kind, Raceme | Panicle | Catkin);
-    let side_stems = |c: &ClusterShape| c.kind == Panicle;
-    Group::titled(
-        "Cluster",
-        vec![
-            choice!(ClusterShape, "arrangement", "Kind", [
-                "Single" => ClusterKind::Single,
-                "Umbel" => ClusterKind::Umbel,
-                "Raceme" => ClusterKind::Raceme,
-                "Panicle" => ClusterKind::Panicle,
-                "Catkin" => ClusterKind::Catkin,
-            ], |c| c.kind),
-            count!(ClusterShape, "items", "Items", (1, 60), |c| c.items)
-                .shown_if(several)
-                .revive(6.0),
-            number!(
-                ClusterShape,
-                "items_variance",
-                "Items Variance",
-                (0.0, 1.0, 0.01),
-                |c| c.items_variance
-            )
-            .shown_if(several),
-            number!(ClusterShape, "spread", "Spread", (0.0, 90.0, 1.0), |c| c
-                .spread)
-            .shown_if(several)
-            .revive(30.0),
-            number!(
-                ClusterShape,
-                "axis_length",
-                "Axis Length",
-                (0.0, 1.0, 0.005),
-                |c| c.axis_length
-            )
-            .shown_if(main_stem)
-            .revive(0.2),
-            number!(ClusterShape, "droop", "Droop", (0.0, 1.0, 0.01), |c| c
-                .droop)
-            .shown_if(main_stem),
-            number!(ClusterShape, "taper", "Taper", (0.0, 1.0, 0.01), |c| c
-                .taper)
-            .shown_if(main_stem),
-            count!(ClusterShape, "side_stalks", "Side Stalks", (1, 12), |c| c
-                .side_stalks)
-            .shown_if(side_stems),
-            number!(
-                ClusterShape,
-                "side_length",
-                "Side Length",
-                (0.0, 2.0, 0.01),
-                |c| c.side_length
-            )
-            .shown_if(side_stems)
-            .revive(0.4),
-            number!(
-                ClusterShape,
-                "stalk_length",
-                "Stalk Length",
-                (0.0, 0.3, 0.001),
-                |c| c.stalk_length
-            )
-            .exponential(),
-            number!(
-                ClusterShape,
-                "stalk_radius",
-                "Stalk Radius",
-                (0.0, 0.02, 0.0005),
-                |c| c.stalk_radius
-            )
-            .shown_if(has_stalks)
-            .exponential()
-            .revive(0.003),
-        ],
-    )
+/// The picker's option names for `part`: "None", then each preset.
+fn cluster_choices(part: ClusterPart) -> &'static [&'static str] {
+    static FRUIT: LazyLock<Vec<&'static str>> = LazyLock::new(|| names(ClusterPart::Fruit));
+    static FLOWERS: LazyLock<Vec<&'static str>> = LazyLock::new(|| names(ClusterPart::Flowers));
+    fn names(part: ClusterPart) -> Vec<&'static str> {
+        let presets = cluster_presets(part).iter().map(|p| p.name.as_ref());
+        std::iter::once("None").chain(presets).collect()
+    }
+    match part {
+        ClusterPart::Fruit => &FRUIT,
+        ClusterPart::Flowers => &FLOWERS,
+    }
 }
 
-fn fruit() -> Vec<Group<TreeOptions>> {
-    let maturity = Group::plain(vec![number!(
-        FruitOptions,
-        "maturity",
-        "Ripeness",
-        (0.0, 1.0, 0.01),
-        |f| f.maturity
-    )]);
-    let shape = Group::titled(
-        "Shape",
-        vec![
-            number!(
-                FruitShape,
-                "elongation",
-                "Elongation",
-                (0.2, 3.0, 0.01),
-                |s| s.elongation
-            ),
-            number!(
-                FruitShape,
-                "top_dimple",
-                "Top Dimple",
-                (0.0, 1.0, 0.01),
-                |s| s.top_dimple
-            ),
-            number!(
-                FruitShape,
-                "bottom_taper",
-                "Bottom Taper",
-                (0.0, 1.0, 0.01),
-                |s| s.bottom_taper
-            ),
-            count!(FruitShape, "lobes", "Lobes", (0, 12), |s| s.lobes),
-            number!(
-                FruitShape,
-                "lobe_depth",
-                "Lobe Depth",
-                (0.0, 0.95, 0.01),
-                |s| s.lobe_depth
-            )
-            .shown_if(|s| s.lobes > 0)
-            .revive(0.3),
-            count!(FruitShape, "segments", "Segments", (3, 32), |s| s.segments),
-            count!(FruitShape, "rings", "Rings", (2, 24), |s| s.rings),
-            toggle!(FruitShape, "calyx", "Calyx", |s| s.calyx),
-        ],
-    );
-    // Catkin fruit have no stems of their own.
-    let stem = Group::plain(vec![
-        number!(
-            FruitShape,
-            "stem_length",
-            "Stem Length",
-            (0.0, 1.0, 0.01),
-            |s| s.stem_length
-        ),
-        number!(
-            FruitShape,
-            "stem_radius",
-            "Stem Radius",
-            (0.0, 0.2, 0.005),
-            |s| s.stem_radius
-        )
-        .shown_if(|s| s.stem_length > 0.0)
-        .exponential()
-        .revive(0.03),
-        number!(
-            FruitShape,
-            "stem_curve",
-            "Stem Curve",
-            (0.0, 1.0, 0.01),
-            |s| s.stem_curve
-        )
-        .shown_if(|s| s.stem_length > 0.0),
-    ]);
-    let has_stem =
-        |f: &FruitOptions| f.cluster.kind != ClusterKind::Catkin && f.shape.stem_length > 0.0;
+/// The tree's slot for `part`'s settings.
+fn slot(options: &mut TreeOptions, part: ClusterPart) -> &mut Option<AttachedFruit> {
+    match part {
+        ClusterPart::Fruit => &mut options.fruit,
+        ClusterPart::Flowers => &mut options.flowers,
+    }
+}
 
-    // Unripe fruit show only the unripe colour, and ripe fruit only the ripe
-    // one. The blush grows with ripeness.
-    let colors = Group::titled(
-        "Colour",
-        vec![
-            color!(FruitOptions, "shape.color", "Ripe", |f| f.shape.color)
-                .shown_if(|f| f.maturity > 0.0),
-            color!(FruitOptions, "shape.unripe_color", "Unripe", |f| f
-                .shape
-                .unripe_color)
-            .shown_if(|f| f.maturity < 1.0),
-            number!(
-                FruitOptions,
-                "shape.blush_amount",
-                "Blush Amount",
-                (0.0, 1.0, 0.01),
-                |f| f.shape.blush_amount
-            )
-            .shown_if(|f| f.maturity > 0.0),
-            color!(FruitOptions, "shape.blush_color", "Blush", |f| f
-                .shape
-                .blush_color)
-            .shown_if(|f| f.maturity > 0.0 && f.shape.blush_amount > 0.0),
-            color!(FruitOptions, "cluster.stalk_color", "Stalks", |f| f
-                .cluster
-                .stalk_color)
-            .shown_if(move |f| has_stalks(&f.cluster) || has_stem(f)),
-        ],
-    );
-
-    let lift_shape = |group: Group<FruitShape>| {
-        group.lift("shape", |f: &FruitOptions| &f.shape, |f| &mut f.shape)
-    };
-    let grown = [
-        maturity,
-        cluster().lift("cluster", |f: &FruitOptions| &f.cluster, |f| &mut f.cluster),
-        lift_shape(shape),
-        lift_shape(stem).shown_if(|f| f.cluster.kind != ClusterKind::Catkin),
-        colors,
-    ]
-    .map(|group| group.shown_if(|f| clusters_grow(&f.placement)));
-    let [maturity, cluster, shape, stem, colors] = grown;
-
+/// Where clusters grow and how many distinct ones a tree draws from.
+fn attached_group() -> Group<AttachedFruit> {
     let placement = placement().lift(
         "placement",
-        |f: &FruitOptions| &f.placement,
-        |f| &mut f.placement,
+        |a: &AttachedFruit| &a.placement,
+        |a| &mut a.placement,
     );
-    [placement, maturity, cluster, shape, stem, colors]
-        .into_iter()
-        .map(|group| lift(group, "fruit", |o| &o.fruit, |o| &mut o.fruit))
-        .collect()
+    let mut params = placement.params;
+    params.push(
+        count!(
+            AttachedFruit,
+            "default_slots",
+            "Distinct Clusters",
+            (1, 32),
+            |a| a.default_slots
+        )
+        .revive(procgena_tree::DEFAULT_FRUIT_SLOTS as f32),
+    );
+    Group::titled("Placement", params)
 }
 
-fn flowers() -> Vec<Group<TreeOptions>> {
-    let maturity = Group::plain(vec![number!(
-        FlowerOptions,
-        "maturity",
-        "Bloom",
-        (0.0, 1.0, 0.01),
-        |f| f.maturity
-    )]);
-    let shape = Group::titled(
-        "Shape",
-        vec![
-            count!(FlowerShape, "petal_count", "Petals", (1, 20), |s| s
-                .petal_count),
-            count!(FlowerShape, "rings", "Rings", (1, 6), |s| s.rings),
-            number!(
-                FlowerShape,
-                "petal_length",
-                "Petal Length",
-                (0.0, 2.0, 0.01),
-                |s| s.petal_length
-            )
-            .revive(0.5),
-            number!(
-                FlowerShape,
-                "petal_width",
-                "Petal Width",
-                (0.0, 1.5, 0.01),
-                |s| s.petal_width
-            )
-            .revive(0.35),
-            number!(FlowerShape, "cup", "Cup", (0.0, 1.0, 0.01), |s| s.cup),
-            number!(FlowerShape, "curl", "Curl", (0.0, 1.0, 0.01), |s| s.curl),
-            number!(FlowerShape, "notch", "Notch", (0.0, 1.0, 0.01), |s| s.notch),
-            count!(
-                FlowerShape,
-                "petal_segments",
-                "Petal Segments",
-                (1, 12),
-                |s| s.petal_segments
-            ),
-            number!(
-                FlowerShape,
-                "center_size",
-                "Centre Size",
-                (0.0, 1.0, 0.01),
-                |s| s.center_size
-            ),
-        ],
-    );
-    // Flowers go from bud colour (bloom 0) through the open colours (0.5) to
-    // the faded colour (1). Catkin flowers have no petal base or centre.
-    let catkin = |f: &FlowerOptions| f.cluster.kind == ClusterKind::Catkin;
-    let open = |f: &FlowerOptions| f.maturity > 0.0 && f.maturity < 1.0;
-    let colors = Group::titled(
-        "Colour",
-        vec![
-            color!(FlowerOptions, "shape.petal_color", "Petal", |f| f
-                .shape
-                .petal_color)
-            .shown_if(open),
-            color!(FlowerOptions, "shape.base_color", "Petal Base", |f| f
-                .shape
-                .base_color)
-            .shown_if(move |f| open(f) && !catkin(f)),
-            color!(FlowerOptions, "shape.center_color", "Centre", |f| f
-                .shape
-                .center_color)
-            .shown_if(move |f| !catkin(f) && f.shape.center_size > 0.0),
-            color!(FlowerOptions, "shape.bud_color", "Bud", |f| f
-                .shape
-                .bud_color)
-            .shown_if(|f| f.maturity < 0.5),
-            color!(FlowerOptions, "shape.fade_color", "Faded", |f| f
-                .shape
-                .fade_color)
-            .shown_if(|f| f.maturity > 0.5),
-            color!(FlowerOptions, "cluster.stalk_color", "Stalks", |f| f
-                .cluster
-                .stalk_color)
-            .shown_if(|f| has_stalks(&f.cluster)),
-        ],
+/// The groups of one cluster part: which preset it grows, by key, and
+/// where. Settings edited in the Fruit or Flower tab, or loaded from a
+/// file, that match no preset show as the first preset. The rest is
+/// hidden while the part grows nothing.
+fn clusters(part: ClusterPart) -> Vec<Group<TreeOptions>> {
+    let picker = Param::choice(
+        part.name(),
+        "Preset",
+        cluster_choices(part),
+        move |o: &TreeOptions| {
+            let Some(attached) = part.of(o) else {
+                return 0;
+            };
+            let presets = cluster_presets(part);
+            presets
+                .iter()
+                .position(|p| p.fruit == attached.fruit)
+                .map_or(1, |i| i + 1)
+        },
+        move |o: &mut TreeOptions, index| {
+            let presets = cluster_presets(part);
+            let slot = slot(o, part);
+            match index.checked_sub(1).and_then(|i| presets.get(i)) {
+                None => *slot = None,
+                Some(preset) => {
+                    let fruit = preset.fruit.clone();
+                    match slot {
+                        Some(attached) => attached.fruit = fruit,
+                        None => *slot = Some(AttachedFruit::new(fruit, Default::default())),
+                    }
+                }
+            }
+        },
     );
 
-    let grown = [
-        maturity,
-        cluster().lift(
-            "cluster",
-            |f: &FlowerOptions| &f.cluster,
-            |f| &mut f.cluster,
-        ),
-        shape
-            .lift("shape", |f: &FlowerOptions| &f.shape, |f| &mut f.shape)
-            .shown_if(move |f| !catkin(f)),
-        colors,
-    ]
-    .map(|group| group.shown_if(|f| clusters_grow(&f.placement)));
-    let [maturity, cluster, shape, colors] = grown;
-
-    let placement = placement().lift(
-        "placement",
-        |f: &FlowerOptions| &f.placement,
-        |f| &mut f.placement,
-    );
-    [placement, maturity, cluster, shape, colors]
+    // Fruit and flower lifts differ only in which part they read.
+    let group = attached_group();
+    let params = group
+        .params
         .into_iter()
-        .map(|group| lift(group, "flowers", |o| &o.flowers, |o| &mut o.flowers))
-        .collect()
+        .map(|param| match part {
+            ClusterPart::Fruit => param.lift_option(
+                "fruit",
+                |o: &TreeOptions| o.fruit.as_ref(),
+                |o| o.fruit.as_mut(),
+                &NO_CLUSTERS,
+            ),
+            ClusterPart::Flowers => param.lift_option(
+                "flowers",
+                |o: &TreeOptions| o.flowers.as_ref(),
+                |o| o.flowers.as_mut(),
+                &NO_CLUSTERS,
+            ),
+        })
+        .collect();
+    vec![
+        Group::plain(vec![picker]),
+        Group {
+            title: group.title,
+            params,
+        },
+    ]
 }
 
 fn trellis() -> Vec<Group<TreeOptions>> {
@@ -861,6 +655,7 @@ mod tests {
     use std::collections::HashSet;
 
     use procgena_tree::TreePreset;
+    use procgena_tree::procgena_fruit::ClusterKind;
     use serde_json::Value;
 
     use super::*;
@@ -897,8 +692,14 @@ mod tests {
 
     #[test]
     fn every_setting_writes_the_json_field_named_by_its_key() {
+        // Fruit and flower settings exist only while the tree grows them.
+        let base = TreeOptions {
+            fruit: Some(AttachedFruit::default()),
+            flowers: Some(AttachedFruit::default()),
+            ..TreeOptions::default()
+        };
         for param in all_params() {
-            let mut options = TreeOptions::default();
+            let mut options = base.clone();
             let key = &param.key;
             match &param.control {
                 Control::Number {
@@ -997,22 +798,17 @@ mod tests {
     /// and the trellis switched on.
     fn flowering(kinds: (ClusterKind, ClusterKind)) -> TreeOptions {
         let mut options = TreeOptions::default();
-        for (placement, cluster, kind) in [
-            (
-                &mut options.fruit.placement,
-                &mut options.fruit.cluster,
-                kinds.0,
-            ),
-            (
-                &mut options.flowers.placement,
-                &mut options.flowers.cluster,
-                kinds.1,
-            ),
+        let presets = [FruitPreset::apple(), FruitPreset::dogwood_bloom()];
+        for (slot, preset, kind) in [
+            (&mut options.fruit, presets[0], kinds.0),
+            (&mut options.flowers, presets[1], kinds.1),
         ] {
-            placement.count = 2;
-            placement.tips = 0.5;
-            cluster.kind = kind;
-            cluster.items = 6;
+            let mut attached = AttachedFruit::new(preset.fruit.clone(), Default::default());
+            attached.placement.count = 2;
+            attached.placement.tips = 0.5;
+            attached.fruit.cluster.kind = kind;
+            attached.fruit.cluster.items = 6;
+            *slot = Some(attached);
         }
         options.trellis.enabled = true;
         options
@@ -1134,8 +930,12 @@ mod tests {
         // Bloom and ripeness at both ends.
         for maturity in [0.0, 1.0] {
             let mut options = flowering((Single, Raceme));
-            options.fruit.maturity = maturity;
-            options.flowers.maturity = maturity;
+            for attached in [&mut options.fruit, &mut options.flowers]
+                .into_iter()
+                .flatten()
+            {
+                attached.fruit.maturity = maturity;
+            }
             cases.push((format!("maturity {maturity}"), options));
         }
 

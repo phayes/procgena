@@ -168,7 +168,7 @@ impl ChunkKey {
     /// World position of the point `(u, v)` half steps from the chunk's
     /// smallest corner. Computed from integers, so every chunk that shares
     /// a point gives exactly the same position.
-    fn half_point(self, u: i64, v: i64) -> DVec2 {
+    pub(crate) fn half_point(self, u: i64, v: i64) -> DVec2 {
         // A half step is 2^(level − 1) metres; at level 0, 0.5 m.
         let half = 0.5 * f64::from(1u32 << self.level);
         DVec2::new(
@@ -776,7 +776,7 @@ impl VertexLayout {
 }
 
 /// Builds `count` rows with `row`, in parallel with the `rayon` feature.
-fn rows<T: Send>(
+pub(crate) fn rows<T: Send>(
     count: i64,
     row: impl Fn(i64) -> Result<T, ChunkError> + Sync,
 ) -> Result<Vec<T>, ChunkError> {

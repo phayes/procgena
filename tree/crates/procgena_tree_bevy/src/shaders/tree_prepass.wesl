@@ -5,10 +5,10 @@ import bevy_pbr::{
     render::{mesh_functions, view_transformations::position_world_to_clip},
 };
 import bevy_render::globals::Globals;
-import package::shaders::tree_billboard::{
-    TurnedVertex, turn_billboard, turn_card, turn_lit_billboard,
-};
+import package::shaders::tree_billboard::{TurnedVertex, turn_billboard, turn_lit_billboard};
 import package::shaders::tree_wind::tree_wind_offset;
+@if(ATTACHED)
+import procgena_core_bevy::shaders::instanced::{attached_position, attached_direction, attached_wind};
 
 @group(0) @binding(1) var<uniform> globals: Globals;
 
@@ -22,9 +22,18 @@ struct TreeVertex {
     @if(BILLBOARD_NORMAL)
     @location(11) billboard_normal: vec3<f32>,
     /// For a grove tree: its index in the grove's mesh records, and its
-    /// detail-level dither, as the bits of an `i32`.
-    @if(GROVE)
+    /// detail-level dither, as the bits of an `i32`. For fruit or flowers
+    /// attached to a tree: the tree's record, and their own dither.
+    @if(GROVE || ATTACHED)
     @location(12) grove: vec2<u32>,
+    /// For attached fruit or flowers: their place, turn and branch sway on
+    /// the tree (see `procgena_core_bevy::shaders::instanced`).
+    @if(ATTACHED)
+    @location(13) attached_place: vec4<f32>,
+    @if(ATTACHED)
+    @location(14) attached_turn: vec4<f32>,
+    @if(ATTACHED)
+    @location(15) attached_wind: vec4<f32>,
 }
 
 @vertex
@@ -34,26 +43,30 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
 
     // A grove draws many trees from one mesh; each names its own mesh record.
     var index = in.instance_index;
-@if(GROVE) {
+@if(GROVE || ATTACHED) {
     index = tree.grove.x;
 }
     let world_from_local = mesh_functions::get_world_from_local(index);
 
+    // Attached fruit and flowers move into the tree's coordinates, and sway
+    // with their branch plus their own flutter.
+    var rest = vertex.position;
+    var normal = vec3<f32>(0.0, 1.0, 0.0);
+@if(VERTEX_NORMALS)
+    normal = vertex.normal;
+    var wind = tree.wind;
+@if(ATTACHED) {
+    rest = attached_position(tree.attached_place, tree.attached_turn, rest);
+    normal = attached_direction(tree.attached_turn, normal);
+    wind = vec4<f32>(attached_wind(tree.attached_wind), tree.wind.w);
+}
+
     // Rotate toward this pass’s view, including the light for a shadow pass,
     // then apply wind movement.
-    var rest = vertex.position;
-    // Cluster cards also choose where they sample their atlas.
-    var card_uv = vec2<f32>(0.0);
 @if(BILLBOARD) {
     let local_from_world = mesh_functions::get_local_from_world(index);
     var turned: TurnedVertex;
-@if(CLUSTER_CARD) {
-    let card = turn_card(tree.billboard_pivot, tree.billboard_axis, local_from_world);
-    turned.position = card.position;
-    turned.normal = card.normal;
-    card_uv = card.uv;
-}
-@if(!CLUSTER_CARD && BILLBOARD_NORMAL) {
+@if(BILLBOARD_NORMAL) {
     turned = turn_lit_billboard(
         tree.billboard_pivot,
         tree.billboard_axis,
@@ -61,7 +74,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
         local_from_world,
     );
 }
-@if(!CLUSTER_CARD && !BILLBOARD_NORMAL) {
+@if(!BILLBOARD_NORMAL) {
     turned = turn_billboard(tree.billboard_pivot, tree.billboard_axis, local_from_world);
 }
     rest = turned.position;
@@ -70,7 +83,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
 }
 
     // Keep wind movement and world placement consistent with the visible render pass.
-    let position = rest + tree_wind_offset(rest, tree.wind, world_from_local, globals.time);
+    let position = rest + tree_wind_offset(rest, wind, world_from_local, globals.time);
     out.world_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,
         vec4<f32>(position, 1.0),
@@ -83,19 +96,21 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
 
 @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-@if(CLUSTER_CARD && VERTEX_UVS_A)
-    out.uv = card_uv;
 @if(VERTEX_UVS_B)
     out.uv_b = vertex.uv_b;
 @if(NORMAL_PREPASS_OR_DEFERRED_PREPASS) {
 @if(VERTEX_NORMALS && !BILLBOARD)
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, index);
-@if(VERTEX_TANGENTS)
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(normal, index);
+@if(VERTEX_TANGENTS) {
+    var tangent = vertex.tangent;
+@if(ATTACHED)
+    tangent = vec4<f32>(attached_direction(tree.attached_turn, tangent.xyz), tangent.w);
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
         world_from_local,
-        vertex.tangent,
+        tangent,
         index,
     );
+}
 }
 @if(VERTEX_COLORS)
     out.color = vertex.color;
@@ -106,7 +121,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     let previous_world_from_local = mesh_functions::get_previous_world_from_local(index);
     let previous = rest + tree_wind_offset(
         rest,
-        tree.wind,
+        wind,
         previous_world_from_local,
         globals.time - globals.delta_time,
     );
@@ -117,12 +132,12 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
 }
 @if(VERTEX_OUTPUT_INSTANCE_INDEX)
     out.instance_index = index;
-@if(VISIBILITY_RANGE_DITHER && !GROVE)
+@if(VISIBILITY_RANGE_DITHER && !GROVE && !ATTACHED)
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
         index,
         world_from_local[3],
     );
-@if(VISIBILITY_RANGE_DITHER && GROVE)
+@if(VISIBILITY_RANGE_DITHER && (GROVE || ATTACHED))
     out.visibility_range_dither = bitcast<i32>(tree.grove.y);
     return out;
 }

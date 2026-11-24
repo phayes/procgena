@@ -322,16 +322,13 @@ fn levels_of_detail_get_suffixed_names() {
 }
 
 /// Checks LOD3 export tags, links between main and fallback nodes, rotation
-/// attributes and bark/leaf joint assignments on a fruiting tree, with
-/// camera-facing fruit turned on.
+/// attributes and bark/leaf joint assignments on a fruiting tree. Fruit and
+/// flowers are fixed meshes with no rotation tags.
 #[test]
 fn billboard_parts_carry_their_tags() {
     let tree = fruiting_tree();
     let rig = tree.rig(&RigOptions::default()).unwrap();
-    let mesh = tree.mesh_with_detail(&LodDetail {
-        billboard_fruit: true,
-        ..default_lod_levels()[3].detail
-    });
+    let mesh = tree.mesh_with_detail(&default_lod_levels()[3].detail);
     let options = GltfOptions {
         rig: Some(&rig),
         ..GltfOptions::default()
@@ -356,13 +353,14 @@ fn billboard_parts_carry_their_tags() {
         let primitive = node.mesh().unwrap().primitives().next().unwrap();
         let pivot = primitive.get(&Semantic::Extras("BILLBOARD_PIVOT".to_owned()));
         let axis = primitive.get(&Semantic::Extras("BILLBOARD_AXIS".to_owned()));
-        // Flower nodes must not carry billboard tags.
-        if name == "flowers" {
-            assert!(extras.is_null() && pivot.is_none());
-            assert!(primitive.get(&Semantic::Normals).is_some());
+        // Fruit and flower nodes must not carry billboard tags.
+        if name == "fruit" || name == "flowers" {
+            assert!(extras.is_null() && pivot.is_none(), "{name}");
+            assert!(primitive.get(&Semantic::Normals).is_some(), "{name}");
+            seen.insert(name.to_owned());
             continue;
         }
-        // Leaves keep one lighting normal per card; bark and fruit have none.
+        // Leaves keep one lighting normal per card; bark has none.
         let leaves = name.starts_with("leaves");
         assert_eq!(
             primitive.get(&Semantic::Normals).is_some(),
@@ -427,10 +425,10 @@ fn billboard_parts_carry_their_tags() {
         "branches_billboard_cull",
         "leaves",
         "fruit",
+        "flowers",
     ] {
         assert!(seen.contains(name), "{name}");
     }
-    assert!(seen.contains("fruit_billboard_cull"));
 }
 
 #[test]
@@ -665,15 +663,23 @@ fn flat_shaded_bark_omits_normals_and_tangents() {
 
 /// Creates a small test tree with fruit, flowers and flat-shaded bark.
 fn fruiting_tree() -> Tree {
+    use procgena_tree::procgena_fruit::{ClusterKind, FruitPreset};
+    use procgena_tree::{AttachedFruit, ClusterPlacement};
+
     let mut options = TreePreset::ash_small().tree.clone();
-    for (placement, cluster) in [
-        (&mut options.fruit.placement, &mut options.fruit.cluster),
-        (&mut options.flowers.placement, &mut options.flowers.cluster),
+    for (part, preset) in [
+        (&mut options.fruit, FruitPreset::apple()),
+        (&mut options.flowers, FruitPreset::dogwood_bloom()),
     ] {
-        placement.count = 2;
-        placement.min_level = 2;
-        cluster.kind = procgena_tree::ClusterKind::Umbel;
-        cluster.items = 5;
+        let mut fruit = preset.fruit.clone();
+        fruit.cluster.kind = ClusterKind::Umbel;
+        fruit.cluster.items = 5;
+        let placement = ClusterPlacement {
+            count: 2,
+            min_level: 2,
+            ..ClusterPlacement::default()
+        };
+        *part = Some(AttachedFruit::new(fruit, placement));
     }
     options.bark.flat_shading = true;
     Tree::new(options).unwrap()

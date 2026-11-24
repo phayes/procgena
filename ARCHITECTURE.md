@@ -237,12 +237,17 @@ step pinned to the `SpecimenId` it indexes, for example
 `… / fruit 17 / item 2` (see "Queries: reading the result" and
 [D3](docs/decisions/D3.md) section 7b).
 
-**Status.** Planned: `procgena_fruit` (milestone I1b in
-[ROADMAP.md](ROADMAP.md)). Today the tree still builds its own fruit and
-flower clusters. Cluster cards for them (baked views per cluster variant,
-drawn at levels 1 and 2) were built on 2026-11-24, before this
-decision was applied, and are off by default; see the "Fruit as an
-attached asset" TODO.
+**Status.** `procgena_fruit` is built (milestone I1b in
+[ROADMAP.md](ROADMAP.md), fruit step AC1): the tree places clusters and
+picks each one's slot per tree specimen, and fruit specimens have their
+own mesh levels. The cluster cards built on 2026-11-24 are removed.
+Fruit steps B1 and B2 are built: tree groves and single trees draw their
+clusters as attached copies of the shared instanced renderer
+(`InstancedAttached`: one row table per host slot, a GPU step per host
+copy, then one per row), each cluster at its own fruit level. Fruit
+impostors are still to do; see the
+"Fruit as an attached asset" TODO and the "As built" notes in
+[fruit/plan.md](fruit/plan.md).
 
 ### 2. Scatter
 
@@ -304,7 +309,10 @@ ground.
   with a rule over slope, height, water and road distance, labels, noise
   and its own Scatters (litter under trees), laid over its Biome's base
   ground and weighted by its coverage. Planned (milestones GM0–GM6) in
-  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
+  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md);
+  GM0 built the engine-free model (`procgena_terrain::ground`) and the
+  Ecotope's `ground` map, painted from its placed copies (coverage not
+  yet).
 
 **What it gets from above.** Its area, as a coverage function from 0 to 1
 that the Biome works out from Terrain labels and border noise. Also the
@@ -516,7 +524,17 @@ The World holds the Biomes; it does not hold Terrains directly.
 - Running every Biome border negotiation: step 1 through WorldTerrain,
   step 2 the Ecotope seams (see "4.1 Biome", "Borders").
 
-**Status.** New. The terrain plan calls it "World generator (TBD)".
+**Status.** Started (W0, 2026-11-24): `procgena_world` holds a World of
+bare land. `WorldOptions` carry the seed, the scale pair, the region graph,
+E, the selector fields, ordered Biome rules with a fallback, and pins;
+`WorldPreset` has one preset per scale class. Each region gets its Biome
+(pin, else the first matching rule at its site, else the fallback), its
+own Biome seed and its Terrain's local seed, and `WorldTerrain` builds the
+land from a source that reads the Biome. The scale pair stretches E and
+the selector fields, and the rules' elevation bounds follow `vertical`;
+Terrain presets, region size and the border warp are not scaled yet
+(roadmap G7). Specimen budgets and the Biome border negotiation come with
+W1.
 
 #### 5.1 WorldTerrain
 
@@ -679,8 +697,8 @@ preset or options. One World seed fixes everything below it.
   hand-picked numbers. A registry per crate tests that its keys and their
   hashes are unique. Keys are frozen: renaming one changes every world built
   from it. (Decided 2026-11-23.) The functions live in `procgena_core`:
-  `hash::{salt, derive_seed, seed_for}`, plus `ChildKey` and `child_seed`
-  at the crate root. The terrain crate still has its own copies until
+  `hash::{salt, derive_seed, seed_for}`, plus `ChildKey`, `child_seed` and
+  `region_seed` at the crate root. The terrain crate still has its own copies until
   it switches over.
 - **Data keys use the same `salt`**, hashed at load time instead of at
   compile time, and always under a code `kind` key. A parent rejects two
@@ -1653,9 +1671,8 @@ it starts.
   World cells wherever they can, so D4 can't move them.
 - [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
   default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
-  The Terrain seed is the World seed for now, passed through
-  `terrain_seed`. D3 settled the final derivation: the Terrain keeps the
-  World seed for its noise, and `terrain_seed` goes away (W0).
+  As D3 settled, the Terrain takes the World seed for its noise
+  (`Biome::terrain_options` sets it; `terrain_seed` was removed in W0).
 - [ ] **Region size and shape** (decision gate D4): the region graph's
   size and shape (even regions or a multi-scale mix), after the G3 step 2
   cold benchmarks and W0's image example. Each region already has its own
@@ -1665,7 +1682,11 @@ it starts.
 - [ ] **World crate**: region graph options, Biome choice per region
   (fields, rules, pins), seed derivation for every level below, specimen
   budgets per pool, and running the two-step Biome border negotiation.
-  Starts with empty Biomes, before Ecotopes exist.
+  Started in `procgena_world` (W0): options and scale-class presets, the
+  Biome choice, the region seeds of each Biome and Terrain, and the terrain
+  source, with empty Biomes. Still to do: seeds below the Biome, specimen
+  budgets, the border negotiation (W1), designer polygons with stable ids,
+  and scaling Terrain presets (G7).
 
 ### Extensibility
 
@@ -1683,7 +1704,9 @@ it starts.
   Scatter key salts, `CellId`, index) from a world-anchored lattice, as
   "Queries" describes. Done in C2 for tree, stone, deadwood and mushroom
   (`procgena_core::CopyAddress`); plant's blades wait for World tile
-  cells (R3). Part paths (`PartStep`, `Address`) are still to do.
+  cells (R3). Part paths (`PartStep`, `Address`) are built in
+  `procgena_core`; the tree and fruit resolve their own steps
+  (`Skeleton::part`, `Fruit::part`). A World-level `resolve` is still to do.
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
   serde.
 - [ ] **Core queries**: at a point, near a point, along a ray, and spot
@@ -1738,7 +1761,9 @@ it starts.
   `InstancedMaterialPlugin` for any material with an `INSTANCED` vertex
   path, and external meshes for GPU-built specimens. Tree groves, stone
   pools, and deadwood and mushroom scatters draw through it; groves draw
-  their baked impostors as the last level. Left for later: tree's shaders
+  their baked impostors as the last level. Attached copies
+  (`InstancedAttached`, fruit step B2) draw rows of other slots on each
+  host copy, culled per row on the GPU. Left for later: tree's shaders
   still name the per-copy input `GROVE` and read it themselves rather than
   through `procgena_core_bevy::shaders::instanced`, and plant keeps its
   own GPU path (rule 6).
@@ -1771,13 +1796,9 @@ it starts.
   per-tree-specimen slots, fruit LOD levels and impostors, cluster-table
   instancing in the grove with a two-step detail check. Needs F1, F2 and
   D3 for its first step, then R1 and I1. Milestone I1b.
-  - Built before this decision was applied: cluster impostor cards, the
-    plan this one supersedes, were built on 2026-11-24. With
-    `LodDetail::cluster_cards` set, each kept cluster at levels 1 and 2
-    draws as one card showing one of that many seeded cluster variants,
-    baked per pool part. They are off by default in `default_lod`.
-    The user decided on 2026-11-24 to remove them in the fruit crate's
-    first step.
+  - Done in fruit step AC1 (2026-11-24): the crate, `AttachedFruit`,
+    per-tree-specimen slots, part paths, export, and the removal of the
+    superseded cluster cards. The rest is still to do.
 - [x] **Impostor bake options**: per-bake view count and frame size,
   view coverage declared per preset as a lowest viewer elevation (−90° by
   default, −45° for trees, in the bake key), with the octahedral layout

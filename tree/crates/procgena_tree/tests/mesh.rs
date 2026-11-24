@@ -440,7 +440,7 @@ fn farthest_level_culls_thin_branches_and_keeps_leaves() {
         assert_eq!(mesh.leaf_spans.len(), kept.len(), "{name}");
 
         // The crossed fallback shapes pair each bark ribbon one to one. Single
-        // leaf cards and flat fruit need none.
+        // leaf cards need none.
         let cull = &mesh.billboard_cull;
         let triangles = |buffers: &MeshBuffers| buffers.triangle_count();
         assert_eq!(
@@ -448,7 +448,6 @@ fn farthest_level_culls_thin_branches_and_keeps_leaves() {
             triangles(&mesh.branches),
             "{name}"
         );
-        assert_eq!(triangles(&cull.fruit), 0, "{name}");
         assert_eq!(triangles(&cull.leaves), 0, "{name}");
 
         // Compare what a renderer that turns billboards toward the camera,

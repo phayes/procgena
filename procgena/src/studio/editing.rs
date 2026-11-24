@@ -32,6 +32,9 @@ use crate::export::mushroom::spawn_mushroom_export;
 use crate::export::stone_panel::spawn_stone_export;
 use crate::export::tree_panel::spawn_tree_export;
 use crate::field::editor::{FieldEdited, FieldEditorPlugin, FieldReader, spawn_field_editor};
+use crate::fruit::editor::{
+    FruitEdited, FruitEditor, FruitEditorPlugin, edited_options, spawn_fruit_editor,
+};
 use crate::grove::editor::{GroveEdited, GroveEditorPlugin, GroveReader, spawn_grove_editor};
 use crate::mushrooms::editor::{
     MushroomEdited, MushroomEditor, MushroomEditorPlugin, spawn_mushroom_editor,
@@ -41,6 +44,7 @@ use crate::plant::editor::{PlantEdited, PlantEditor, PlantEditorPlugin, spawn_pl
 use crate::stones::editor::{StoneEdited, StoneEditor, StoneEditorPlugin, spawn_stone_editor};
 use crate::terrain::editor::{TerrainEditorPlugin, spawn_terrain_editor};
 use crate::tree::editor::{TreeEdited, TreeEditor, TreeEditorPlugin, spawn_tree_editor};
+use procgena_fruit::FruitOptions;
 
 /// The editors, and the observers sending their edits to the scene.
 pub struct EditingPlugin;
@@ -54,6 +58,7 @@ impl Plugin for EditingPlugin {
             FieldEditorPlugin,
             ClumpEditorPlugin,
             MushroomEditorPlugin,
+            FruitEditorPlugin,
             GroveEditorPlugin,
             DeadwoodEditorPlugin,
             EcotopeEditorPlugin,
@@ -61,6 +66,8 @@ impl Plugin for EditingPlugin {
             FileOpsPlugin,
         ))
         .add_observer(send_ecotope)
+        .add_observer(send_fruit)
+        .add_systems(Update, send_fruit_on_tab)
         .add_observer(send_deadwood)
         .add_observer(send_grove)
         .add_observer(send_tree)
@@ -94,6 +101,8 @@ pub fn spawn_editors(mut commands: Commands, pages: Query<(Entity, &TabPage)>) {
                 spawn_mushroom_editor(&mut commands, page);
                 spawn_mushroom_export(&mut commands, page);
             }
+            StudioTab::Fruit => spawn_fruit_editor::<true>(&mut commands, page),
+            StudioTab::Flowers => spawn_fruit_editor::<false>(&mut commands, page),
             StudioTab::Deadwood => {
                 spawn_deadwood_editor(&mut commands, page);
                 spawn_deadwood_export(&mut commands, page);
@@ -199,6 +208,57 @@ fn send_mushroom(
     }
     if edited.reframe {
         viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Grows the cluster again after an edit on the Fruit or Flower tab, and
+/// fits the camera to it when asked. Edits on the tab not shown wait until
+/// it is shown.
+fn send_fruit(
+    edited: On<FruitEdited>,
+    tab: Res<ActiveTab>,
+    editors: Query<&FruitEditor>,
+    panels: Query<&ParamPanel<FruitOptions>>,
+    mut viewer: MessageWriter<ViewerCommand>,
+) {
+    if fruit_tab(tab.0) != Some(edited.fruit) {
+        return;
+    }
+    if let Some(options) = edited_options(edited.fruit, &editors, &panels) {
+        viewer.write(ViewerCommand::SetFruit(Arc::new(options)));
+    }
+    if edited.reframe {
+        viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Shows the Fruit or Flower tab's cluster when that tab becomes active,
+/// since both tabs share one scene mode.
+fn send_fruit_on_tab(
+    tab: Res<ActiveTab>,
+    editors: Query<&FruitEditor>,
+    panels: Query<&ParamPanel<FruitOptions>>,
+    mut viewer: MessageWriter<ViewerCommand>,
+) {
+    if !tab.is_changed() {
+        return;
+    }
+    let Some(fruit) = fruit_tab(tab.0) else {
+        return;
+    };
+    if let Some(options) = edited_options(fruit, &editors, &panels) {
+        viewer.write(ViewerCommand::SetFruit(Arc::new(options)));
+        viewer.write(ViewerCommand::ResetCamera);
+    }
+}
+
+/// Whether `tab` is the Fruit tab (`Some(true)`), the Flower tab
+/// (`Some(false)`), or neither.
+fn fruit_tab(tab: StudioTab) -> Option<bool> {
+    match tab {
+        StudioTab::Fruit => Some(true),
+        StudioTab::Flowers => Some(false),
+        _ => None,
     }
 }
 

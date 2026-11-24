@@ -3,10 +3,30 @@
 use std::path::Path;
 
 use glam::Vec3;
+use procgena_tree::procgena_fruit::{ClusterKind, Facing, FruitOptions, FruitPreset, ItemShape};
 use procgena_tree::{
-    BarkUvMode, ClusterKind, Facing, OptionsError, PresetFileError, Tree, TreeOptions, TreePreset,
+    AttachedFruit, BarkUvMode, OptionsError, PresetFileError, Tree, TreeOptions, TreePreset,
     TreeScatterPreset,
 };
+
+/// Default tree settings that grow default fruit and flowers.
+fn with_clusters() -> TreeOptions {
+    TreeOptions {
+        fruit: Some(AttachedFruit::default()),
+        flowers: Some(AttachedFruit::default()),
+        ..TreeOptions::default()
+    }
+}
+
+/// The tree's fruit settings, which must be present.
+fn fruit(options: &mut TreeOptions) -> &mut AttachedFruit {
+    options.fruit.as_mut().unwrap()
+}
+
+/// The tree's flower settings, which must be present.
+fn flowers(options: &mut TreeOptions) -> &mut AttachedFruit {
+    options.flowers.as_mut().unwrap()
+}
 use serde_json::Value;
 
 /// Reads a file in the crate's folder.
@@ -132,20 +152,44 @@ fn bark_uv_mode_defaults_to_continuous_and_reads_from_yaml() {
     assert_eq!(value["bark"]["uv_mode"], "mirrored");
 }
 
-/// Clusters default to no density, and `placement.density` reads from a file.
+/// Trees grow no fruit or flowers by default, and `placement.density` reads
+/// from a file, with the other cluster settings at their defaults.
 #[test]
 fn cluster_density_reads_from_yaml() {
     let defaults = TreeOptions::default();
-    assert_eq!(defaults.fruit.placement.density, 0.0);
-    assert_eq!(defaults.flowers.placement.density, 0.0);
+    assert_eq!(defaults.fruit, None);
+    assert_eq!(defaults.flowers, None);
 
     let options = tree_yaml("tree:\n  fruit: { placement: { density: 1.5 } }\n").unwrap();
-    assert_eq!(options.fruit.placement.density, 1.5);
+    let fruit = options.fruit.unwrap();
+    assert_eq!(fruit.placement.density, 1.5);
+    assert_eq!(fruit.fruit, FruitOptions::default());
 
     // The pussy willow preset is leafless and places catkins by density.
     let willow = &TreePreset::spring_pussy_willow().tree;
     assert_eq!(willow.leaves.count, 0);
-    assert!(willow.fruit.placement.density > 0.0);
+    assert!(willow.fruit.as_ref().unwrap().placement.density > 0.0);
+}
+
+/// A tree file names its fruit by a fruit preset key, or gives settings over
+/// a `base` fruit preset; an unknown key is an error.
+#[test]
+fn fruit_reads_as_a_preset_key_or_settings_over_a_base() {
+    let options = tree_yaml("tree:\n  fruit: { fruit: apple }\n").unwrap();
+    assert_eq!(options.fruit.unwrap().fruit, FruitPreset::apple().fruit);
+
+    let options =
+        tree_yaml("tree:\n  flowers: { fruit: { base: dogwood_bloom, maturity: 0.2 } }\n")
+            .unwrap();
+    let flowers = options.flowers.unwrap().fruit;
+    assert_eq!(flowers.maturity, 0.2);
+    assert_eq!(flowers.item, FruitPreset::dogwood_bloom().fruit.item);
+
+    assert!(tree_yaml("tree:\n  fruit: { fruit: quince }\n").is_err());
+
+    // A tree whose fruit is a built-in preset writes the preset's key.
+    let value = serde_json::to_value(&TreePreset::apple().tree).unwrap();
+    assert_eq!(value["fruit"]["fruit"], "apple");
 }
 
 #[test]
@@ -281,53 +325,60 @@ fn zero_radius_is_rejected_only_for_levels_in_use() {
 fn partial_fruit_and_flower_yaml_keeps_nested_defaults() {
     let options = tree_yaml(
         "tree:\n  \
-           fruit: { cluster: { arrangement: panicle, items: 40 }, maturity: 0.25 }\n  \
-           flowers: { placement: { facing: up, count: 3 }, shape: { petal_count: 6 } }\n",
+           fruit: { fruit: { cluster: { arrangement: panicle, items: 40 }, maturity: 0.25 } }\n  \
+           flowers: { placement: { count: 3 }, fruit: { facing: up, item: { kind: flower, petal_count: 6 } } }\n",
     )
     .unwrap();
 
-    let mut expected = TreeOptions::default();
-    expected.fruit.cluster.kind = ClusterKind::Panicle;
-    expected.fruit.cluster.items = 40;
-    expected.fruit.maturity = 0.25;
-    expected.flowers.placement.facing = Facing::Up;
-    expected.flowers.placement.count = 3;
-    expected.flowers.shape.petal_count = 6;
+    let mut expected = with_clusters();
+    fruit(&mut expected).fruit.cluster.kind = ClusterKind::Panicle;
+    fruit(&mut expected).fruit.cluster.items = 40;
+    fruit(&mut expected).fruit.maturity = 0.25;
+    flowers(&mut expected).placement.count = 3;
+    flowers(&mut expected).fruit.facing = Facing::Up;
+    flowers(&mut expected).fruit.item = ItemShape::Flower(procgena_tree::procgena_fruit::FlowerShape {
+        petal_count: 6,
+        ..Default::default()
+    });
     assert_eq!(options, expected);
 }
 
 #[test]
 fn fruit_and_flower_settings_round_trip() {
     let mut preset = TreePreset::oak_medium().clone();
+    preset.tree.fruit = Some(AttachedFruit::default());
+    preset.tree.flowers = Some(AttachedFruit::new(
+        FruitPreset::dogwood_bloom().fruit.clone(),
+        Default::default(),
+    ));
     let options = &mut preset.tree;
-    options.fruit.placement.count = 4;
-    options.fruit.placement.facing = Facing::Outward;
-    options.fruit.cluster.kind = ClusterKind::Umbel;
-    options.fruit.shape.lobes = 5;
-    options.fruit.shape.calyx = false;
-    options.flowers.placement.tips = 0.5;
-    options.flowers.cluster.kind = ClusterKind::Catkin;
-    options.flowers.shape.fade_color = 0x123456;
-    options.flowers.maturity = 0.9;
+    fruit(options).placement.count = 4;
+    fruit(options).fruit.facing = Facing::Outward;
+    fruit(options).fruit.cluster.kind = ClusterKind::Umbel;
+    fruit(options).default_slots = 3;
+    flowers(options).placement.tips = 0.5;
+    flowers(options).fruit.cluster.kind = ClusterKind::Catkin;
+    flowers(options).fruit.maturity = 0.9;
 
-    for base in [None, Some(TreePreset::oak_medium())] {
+    for base in [None, Some(TreePreset::oak_medium()), Some(TreePreset::apple())] {
         let text = preset.to_yaml(base);
         assert_eq!(tree_yaml(&text).unwrap(), preset.tree, "{text}");
     }
 
     // Serialized settings should use the documented file names and enum values.
     let value: Value = serde_json::to_value(&preset.tree).unwrap();
-    assert_eq!(value["fruit"]["placement"]["facing"], "outward");
-    assert_eq!(value["fruit"]["cluster"]["arrangement"], "umbel");
-    assert_eq!(value["fruit"]["shape"]["calyx"], false);
-    assert_eq!(value["flowers"]["cluster"]["arrangement"], "catkin");
-    assert_eq!(value["flowers"]["shape"]["fade_color"], 0x123456);
-    assert!(value["flowers"]["placement"]["size_variance"].is_number());
+    assert_eq!(value["fruit"]["fruit"]["facing"], "outward");
+    assert_eq!(value["fruit"]["fruit"]["cluster"]["arrangement"], "umbel");
+    assert_eq!(value["fruit"]["default_slots"], 3);
+    assert_eq!(value["flowers"]["fruit"]["cluster"]["arrangement"], "catkin");
+    assert_eq!(value["flowers"]["fruit"]["item"]["kind"], "flower");
+    assert!(value["flowers"]["placement"]["scale_variance"].is_number());
 }
 
 #[test]
 fn fruit_and_flower_defaults_are_valid() {
     assert_eq!(TreeOptions::default().validate(), Ok(()));
+    assert_eq!(with_clusters().validate(), Ok(()));
 }
 
 #[test]
@@ -362,76 +413,99 @@ fn out_of_range_fruit_and_flower_settings_are_rejected() {
         requirement,
     };
     let check = |change: fn(&mut TreeOptions), error: OptionsError| {
-        let mut options = TreeOptions::default();
+        let mut options = with_clusters();
+        flowers(&mut options).fruit = FruitPreset::dogwood_bloom().fruit.clone();
         change(&mut options);
         assert_eq!(options.validate(), Err(error));
     };
+    // Placement and slot settings.
+    check(
+        |o| fruit(o).placement.tips = 1.5,
+        invalid("fruit.placement.tips", "between 0 and 1"),
+    );
+    check(
+        |o| flowers(o).placement.scale = 0.0,
+        invalid("flowers.placement.scale", "a finite value above 0"),
+    );
+    check(
+        |o| flowers(o).placement.scale_variance = 1.5,
+        invalid("flowers.placement.scale_variance", "between 0 and 1"),
+    );
+    check(
+        |o| fruit(o).default_slots = 0,
+        invalid("fruit.default_slots", "between 1 and 256"),
+    );
 
+    // Cluster settings, named under their part's `fruit` key.
     check(
-        |o| o.fruit.maturity = 1.5,
-        invalid("fruit.maturity", "between 0 and 1"),
+        |o| fruit(o).fruit.maturity = 1.5,
+        invalid("fruit.fruit.maturity", "between 0 and 1"),
     );
     check(
-        |o| o.flowers.maturity = -0.1,
-        invalid("flowers.maturity", "between 0 and 1"),
+        |o| flowers(o).fruit.maturity = -0.1,
+        invalid("flowers.fruit.maturity", "between 0 and 1"),
     );
     check(
-        |o| o.fruit.maturity = f32::NAN,
-        invalid("fruit.maturity", "between 0 and 1"),
+        |o| fruit(o).fruit.maturity = f32::NAN,
+        invalid("fruit.fruit.maturity", "between 0 and 1"),
     );
     check(
-        |o| o.fruit.placement.size = -1.0,
-        invalid("fruit.placement.size", "a finite value of 0 or more"),
+        |o| fruit(o).fruit.size = -1.0,
+        invalid("fruit.fruit.size", "a finite value of 0 or more"),
     );
     check(
-        |o| o.flowers.cluster.stalk_length = f32::INFINITY,
+        |o| flowers(o).fruit.cluster.stalk_length = f32::INFINITY,
         invalid(
-            "flowers.cluster.stalk_length",
+            "flowers.fruit.cluster.stalk_length",
             "a finite value of 0 or more",
         ),
     );
     check(
-        |o| o.flowers.placement.size_variance = 1.5,
-        invalid("flowers.placement.size_variance", "between 0 and 1"),
+        |o| flowers(o).fruit.size_variance = 1.5,
+        invalid("flowers.fruit.size_variance", "between 0 and 1"),
     );
     check(
-        |o| o.fruit.cluster.side_stalks = 0,
-        invalid("fruit.cluster.side_stalks", "at least 1"),
+        |o| fruit(o).fruit.cluster.side_stalks = 0,
+        invalid("fruit.fruit.cluster.side_stalks", "at least 1"),
     );
     check(
-        |o| o.fruit.shape.segments = 2,
-        invalid("fruit.shape.segments", "at least 3"),
+        |o| {
+            if let ItemShape::Fruit(shape) = &mut fruit(o).fruit.item {
+                shape.segments = 2;
+            }
+        },
+        invalid("fruit.fruit.item.segments", "at least 3"),
     );
     check(
-        |o| o.fruit.shape.rings = 1,
-        invalid("fruit.shape.rings", "at least 2"),
+        |o| {
+            if let ItemShape::Fruit(shape) = &mut fruit(o).fruit.item {
+                shape.lobe_depth = 1.0;
+            }
+        },
+        invalid("fruit.fruit.item.lobe_depth", "at least 0 and below 1"),
     );
     check(
-        |o| o.fruit.shape.elongation = 0.0,
-        invalid("fruit.shape.elongation", "a finite value above 0"),
+        |o| {
+            if let ItemShape::Flower(shape) = &mut flowers(o).fruit.item {
+                shape.petal_count = 0;
+            }
+        },
+        invalid("flowers.fruit.item.petal_count", "at least 1"),
     );
     check(
-        |o| o.fruit.shape.lobe_depth = 1.0,
-        invalid("fruit.shape.lobe_depth", "at least 0 and below 1"),
-    );
-    check(
-        |o| o.flowers.shape.petal_count = 0,
-        invalid("flowers.shape.petal_count", "at least 1"),
-    );
-    check(
-        |o| o.flowers.shape.petal_segments = 0,
-        invalid("flowers.shape.petal_segments", "at least 1"),
-    );
-    check(
-        |o| o.flowers.shape.cup = 2.0,
-        invalid("flowers.shape.cup", "between 0 and 1"),
+        |o| {
+            if let ItemShape::Flower(shape) = &mut flowers(o).fruit.item {
+                shape.cup = 2.0;
+            }
+        },
+        invalid("flowers.fruit.item.cup", "between 0 and 1"),
     );
 
     // An invalid branch depth should be reported before an invalid fruit setting.
     check(
         |o| {
             o.branch.levels = 4;
-            o.fruit.maturity = 2.0;
+            fruit(o).fruit.maturity = 2.0;
         },
         OptionsError::TooManyLevels { levels: 4 },
     );
@@ -439,8 +513,8 @@ fn out_of_range_fruit_and_flower_settings_are_rejected() {
 
 #[test]
 fn invalid_setting_message_names_the_field() {
-    let mut options = TreeOptions::default();
-    options.fruit.cluster.droop = 3.0;
+    let mut options = with_clusters();
+    fruit(&mut options).fruit.cluster.droop = 3.0;
     let message = options.validate().unwrap_err().to_string();
-    assert_eq!(message, "fruit.cluster.droop must be between 0 and 1");
+    assert_eq!(message, "fruit.fruit.cluster.droop must be between 0 and 1");
 }

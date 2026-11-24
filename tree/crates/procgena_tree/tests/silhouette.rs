@@ -7,10 +7,9 @@
 //! combined area; 1 means identical masks. Leaf cards are solid squares here, so
 //! these approximate checks do not include texture transparency or lighting.
 
-use glam::{Quat, Vec2, Vec3};
+use glam::{Vec2, Vec3};
 use procgena_tree::{
-    BillboardVertex, ClusterPart, LodDetail, MeshBuffers, Skeleton, TreeMesh, TreeOptions,
-    TreePreset, cluster_card_bounds, cluster_card_mesh, default_lod,
+    BillboardVertex, LodDetail, MeshBuffers, Skeleton, TreeMesh, TreePreset, default_lod,
 };
 
 /// Width and height of each square mask, in pixels.
@@ -124,15 +123,17 @@ fn stored(buffers: &MeshBuffers, out: &mut Vec<Triangle>) {
 
 /// Collects fixed bark, leaf, fruit and flower triangles, including crossed
 /// fallback shapes, to represent a renderer without billboard rotation.
-/// Flowers count because some presets, such as Flowering Dogwood, have no
-/// leaves and their flowers make the canopy.
+/// Fruit and flowers are each kept cluster's own `procgena_fruit` mesh at
+/// the level for that tree level's distance, moved into place. Flowers
+/// count because some presets, such as Flowering Dogwood, have no leaves
+/// and their flowers make the canopy.
 fn stored_triangles(mesh: &TreeMesh) -> Vec<Triangle> {
     let cull = &mesh.billboard_cull;
     let mut out = Vec::new();
     for buffers in [&mesh.branches, &mesh.leaves, &mesh.fruit, &mesh.flowers] {
         stored(buffers, &mut out);
     }
-    for buffers in [&cull.branches, &cull.leaves, &cull.fruit] {
+    for buffers in [&cull.branches, &cull.leaves] {
         stored(buffers, &mut out);
     }
     out
@@ -155,38 +156,6 @@ fn turned_triangles(mesh: &TreeMesh, to_camera: Vec3) -> Vec<Triangle> {
         }
     }
     out
-}
-
-/// Replaces `mesh`'s cluster cards with the clusters their pictures show:
-/// each card's variant mesh ([`cluster_card_mesh`]), scaled, turned onto
-/// the card's axis and centred on its pivot, as fixed fruit or flower
-/// geometry. A CPU test has no bake; this is what the bake shows.
-fn place_cards(options: &TreeOptions, mesh: &mut TreeMesh) {
-    let parts = [
-        (ClusterPart::Fruit, std::mem::take(&mut mesh.fruit_cards)),
-        (ClusterPart::Flowers, std::mem::take(&mut mesh.flower_cards)),
-    ];
-    for (part, cards) in parts {
-        let out = match part {
-            ClusterPart::Fruit => &mut mesh.fruit,
-            ClusterPart::Flowers => &mut mesh.flowers,
-        };
-        for (variant, buffers) in (0u32..).zip(&cards) {
-            let shown = cluster_card_mesh(options, part, variant);
-            let (center, radius) = cluster_card_bounds(&shown);
-            for card in buffers.billboard.as_chunks::<4>().0 {
-                let pivot = Vec3::from_array(card[0].pivot);
-                let axis = Vec3::from_array(card[0].axis);
-                let scale = card[0].offset[1].abs() / radius;
-                let turn = Quat::from_rotation_arc(Vec3::Y, axis);
-                let base = out.positions.len() as u32;
-                out.positions.extend(shown.positions.iter().map(|p| {
-                    (pivot + turn * ((Vec3::from_array(*p) - center) * scale)).to_array()
-                }));
-                out.indices.extend(shown.indices.iter().map(|i| base + i));
-            }
-        }
-    }
 }
 
 /// Reconstructs one billboard vertex for the unit direction `to_camera`.
@@ -269,7 +238,6 @@ fn measure(
             .enumerate()
             .map(|(level, detail)| {
                 let mut mesh = skeleton.mesh(&options, detail);
-                place_cards(&options, &mut mesh);
                 change(level, &mut mesh);
                 mesh
             })
@@ -351,16 +319,14 @@ fn distant_levels_keep_the_outline() {
     assert!(failed.is_empty(), "{failed:#?}");
 }
 
-/// The outline check must catch a farthest level that drops small fruit, as
-/// the default once did: Spring Pussy Willow then keeps only its twigs.
+/// The outline check must catch a farthest level that drops its fruit
+/// clusters, as the default once did for small fruit: Spring Pussy Willow
+/// then keeps only its twigs.
 #[test]
 fn the_outline_check_catches_dropped_catkins() {
     let mut levels = default_details();
     levels[3] = LodDetail {
-        item_scale: 1.25,
-        min_item_size: 0.05,
-        billboard_fruit: true,
-        item_stalks: true,
+        cluster_stride: u32::MAX,
         ..levels[3]
     };
     let failed = failures(&measure(levels, |_, _| {}));

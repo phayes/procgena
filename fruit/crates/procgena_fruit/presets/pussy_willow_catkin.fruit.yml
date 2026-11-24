@@ -1,0 +1,35 @@
+# A built-in FruitPreset. Copy it, change what you like, and read it
+# with FruitPreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Pussy Willow Catkin
+description: A small upright spray of three fuzzy, silver-grey pussy willow catkins.
+group: Fruit
+fruit:
+  default_seed: 2603
+  facing: up
+  size: 0.015
+  size_variance: 0.3
+  cluster:
+    arrangement: panicle
+    items: 3
+    stalk_length: 0.0
+    stalk_radius: 0.002
+    stalk_color: 7031342
+  item:
+    kind: fruit
+    elongation: 2.0
+    bottom_taper: 0.35
+    segments: 8
+    rings: 5
+    stem_length: 0.0
+    stem_radius: 0.02
+    stem_curve: 0.0
+    calyx: false
+    color: 14468808
+    unripe_color: 7027246
+    blush_color: 14715552
+    blush_amount: 0.6
+  variation:
+    maturity_spread: 0.2
+    hue_spread: 0.05
+    shape_jitter: 0.3

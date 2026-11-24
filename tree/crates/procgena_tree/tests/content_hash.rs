@@ -5,9 +5,9 @@
 use std::collections::HashSet;
 
 use procgena_core::content_hash;
+use procgena_tree::procgena_fruit::{ClusterKind, Facing, FruitPreset};
 use procgena_tree::{
-    ClusterKind, Facing, GrowthForce, TREE_KIND, Tree, TreeOptions, TreePreset, TreeType,
-    TrellisForce,
+    AttachedFruit, GrowthForce, TREE_KIND, Tree, TreeOptions, TreePreset, TreeType, TrellisForce,
 };
 
 #[test]
@@ -49,9 +49,23 @@ fn yaml_round_trip_keeps_the_hash() {
     }
 }
 
+/// The tree's fruit settings, which the test's base has.
+fn fruit(options: &mut TreeOptions) -> &mut AttachedFruit {
+    options.fruit.as_mut().unwrap()
+}
+
+/// The tree's flower settings, which the test's base has.
+fn flowers(options: &mut TreeOptions) -> &mut AttachedFruit {
+    options.flowers.as_mut().unwrap()
+}
+
 #[test]
 fn every_kind_of_setting_changes_the_hash() {
-    let base = TreeOptions::default();
+    let base = TreeOptions {
+        fruit: Some(AttachedFruit::default()),
+        flowers: Some(AttachedFruit::default()),
+        ..TreeOptions::default()
+    };
     type Edit = (&'static str, fn(&mut TreeOptions));
     let edits: Vec<Edit> = vec![
         ("tree_type", |o| o.tree_type = TreeType::Evergreen),
@@ -71,18 +85,21 @@ fn every_kind_of_setting_changes_the_hash() {
         ("leaves.flatten", |o| o.leaves.flatten = 0.5),
         ("trellis.position", |o| o.trellis.position.z += 1.0),
         ("trellis.force.falloff", |o| o.trellis.force.falloff += 1.0),
-        ("fruit.placement.facing", |o| {
-            o.fruit.placement.facing = Facing::Up
+        ("fruit", |o| o.fruit = None),
+        ("flowers", |o| o.flowers = None),
+        ("fruit.placement.count", |o| fruit(o).placement.count += 1),
+        ("fruit.placement.scale", |o| fruit(o).placement.scale = 1.5),
+        ("fruit.fruit.facing", |o| fruit(o).fruit.facing = Facing::Up),
+        ("fruit.fruit.cluster.kind", |o| {
+            fruit(o).fruit.cluster.kind = ClusterKind::Umbel
         }),
-        ("fruit.cluster.kind", |o| {
-            o.fruit.cluster.kind = ClusterKind::Umbel
+        ("fruit.fruit.maturity", |o| fruit(o).fruit.maturity = 0.5),
+        ("flowers.fruit", |o| {
+            flowers(o).fruit = FruitPreset::dogwood_bloom().fruit.clone()
         }),
-        ("fruit.shape.calyx", |o| o.fruit.shape.calyx ^= true),
-        ("fruit.maturity", |o| o.fruit.maturity = 0.5),
-        ("flowers.shape.fade_color", |o| {
-            o.flowers.shape.fade_color ^= 1
+        ("flowers.fruit.variation", |o| {
+            flowers(o).fruit.variation.hue_spread = 0.75
         }),
-        ("flowers.maturity", |o| o.flowers.maturity = 0.75),
     ];
 
     let mut hashes = HashSet::from([base.options_hash()]);
@@ -184,6 +201,23 @@ fn hashes_match_reference_values() {
 #[test]
 fn default_hashes_are_pinned() {
     let options = TreeOptions::default();
-    assert_eq!(options.options_hash().0, 5_340_872_859_848_595_951);
-    assert_eq!(options.specimen_id(0, 0).seed(), 1_712_387_412);
+    assert_eq!(options.options_hash().0, 7_793_763_759_547_326_935);
+    assert_eq!(options.specimen_id(0, 0).seed(), 3_672_822_613);
+}
+
+/// The number of fruit slots and the fruit's own seed pick which fruit
+/// specimens a tree shows: they change the cache key, never the options
+/// hash or the tree's pool.
+#[test]
+fn fruit_slots_and_seed_change_the_key_but_not_the_pool() {
+    let a = TreePreset::apple().tree.clone();
+    let mut b = a.clone();
+    b.fruit.as_mut().unwrap().default_slots += 1;
+    let mut c = a.clone();
+    c.fruit.as_mut().unwrap().fruit.default_seed += 1;
+    for other in [&b, &c] {
+        assert_eq!(a.options_hash(), other.options_hash());
+        assert_eq!(a.pool_id(), other.pool_id());
+        assert_ne!(a.cache_key(), other.cache_key());
+    }
 }

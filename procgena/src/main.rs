@@ -10,6 +10,7 @@ mod ecotope;
 mod environment;
 mod export;
 mod field;
+mod fruit;
 mod grove;
 #[cfg(any(test, debug_assertions))]
 mod headless;

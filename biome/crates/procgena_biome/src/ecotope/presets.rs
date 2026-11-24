@@ -27,6 +27,15 @@ use super::Ecotope;
 ///       density: 0.1
 ///       min_spacing: 1.0
 ///     fly_agarics: null     # remove a Scatter the base has
+///   ground:
+///     litter:               # change one setting of one ground layer
+///       opacity: 0.6
+///     mud:                  # add a ground layer
+///       material: mud
+///       order: 330
+///       when:
+///         - slope: { fall: [0.05, 0.1] }
+///     moss: null            # remove a ground layer the base has
 /// ```
 ///
 /// Scatters are listed by key, and a file gives only what differs from its
@@ -41,6 +50,11 @@ use super::Ecotope;
 /// plus its `mushroom`. Each stone class gives what differs from
 /// [`StoneClass::new`](procgena_stone::StoneClass::new) with default stone
 /// settings, a density of 0.01 and a spacing of 2.
+///
+/// Ground layers are listed by key in the same way. A new layer gives its
+/// `material` and `order` and the settings of a
+/// [`GroundLayer`](procgena_terrain::ground::GroundLayer) that differ from
+/// its defaults.
 ///
 /// A stone class's `stone`, a dead wood Scatter's `piece` and a mushroom
 /// Scatter's `mushroom` each name a built-in preset of their generator by

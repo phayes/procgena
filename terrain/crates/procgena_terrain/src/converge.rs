@@ -32,7 +32,8 @@ pub fn relief_meeting_is_valid(meeting: f32) -> bool {
 /// How neighbouring terrains become alike near their shared borders. It
 /// must be the same for the whole world, since both sides of a border
 /// compute the same targets from it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Convergence {
     /// The exponent of the [`relief_target`] power mean, which decides how
     /// much each side changes. Must be valid (see

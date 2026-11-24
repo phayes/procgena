@@ -77,9 +77,14 @@ use bevy::shader::Shader;
 mod cull_test;
 #[cfg(test)]
 mod gpu_test;
+mod measure;
 
-use super::material::{INSTANCE_SIZE, InstancedMaterials};
-use super::{ExternalMeshId, InstancedScatter, InstancedSlot, PartMesh};
+pub use measure::{CullTimes, InstanceCounts, InstancedTimings, read_instance_counts};
+
+use super::material::{ATTACHED_SIZE, INSTANCE_SIZE, InstancedMaterials};
+use super::{
+    AttachedRow, ExternalMeshId, InstancedAttached, InstancedScatter, InstancedSlot, PartMesh,
+};
 use crate::LodQuality;
 use procgena_core::LodRange;
 
@@ -157,20 +162,21 @@ pub struct ExternalMeshes(pub HashMap<ExternalMeshId, ExternalMesh>);
 #[derive(Resource, Clone)]
 struct InstancedShaders {
     cull: Handle<Shader>,
+    attach: Handle<Shader>,
 }
 
 /// Adds the render world's resources and systems.
 pub(super) fn build(app: &mut App) {
-    let cull = app
-        .world()
-        .resource::<AssetServer>()
-        .load("embedded://procgena_core_bevy/shaders/instanced_cull.wesl");
+    let assets = app.world().resource::<AssetServer>();
+    let cull = assets.load("embedded://procgena_core_bevy/shaders/instanced_cull.wesl");
+    let attach = assets.load("embedded://procgena_core_bevy/shaders/instanced_attach.wesl");
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
     render_app
-        .insert_resource(InstancedShaders { cull })
+        .insert_resource(InstancedShaders { cull, attach })
         .insert_resource(CullLayout::new())
+        .insert_resource(AttachLayout::new())
         .init_resource::<InstancedMaterials>()
         .init_resource::<ExternalMeshes>()
         .init_resource::<ExtractedScatters>()
@@ -195,6 +201,7 @@ pub(super) fn build(app: &mut App) {
                     .in_set(InstancedSystems::Prepare),
                 prepare_views.in_set(RenderSystems::PrepareResources),
                 prepare_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+                measure::map_timings.in_set(RenderSystems::Cleanup),
             ),
         )
         .add_systems(RenderGraph, run_cull.before(camera_driver));
@@ -207,6 +214,8 @@ pub(super) fn build(app: &mut App) {
 struct ExtractedScatter {
     world_from_scatter: Affine3A,
     scatter: InstancedScatter,
+    /// The rows drawn on the Scatter's copies, if any.
+    attached: Option<InstancedAttached>,
     /// The Scatter's render layers: cameras draw it only if they share one.
     layers: RenderLayers,
 }
@@ -226,6 +235,7 @@ fn extract_scatters(
         Query<(
             Entity,
             &InstancedScatter,
+            Option<&InstancedAttached>,
             &GlobalTransform,
             &InheritedVisibility,
             Option<&RenderLayers>,
@@ -235,7 +245,7 @@ fn extract_scatters(
 ) {
     extracted.quality_scale = quality.as_ref().map_or(1.0, |q| q.0.distance_scale());
     extracted.scatters.clear();
-    for (entity, scatter, transform, visibility, layers) in &scatters {
+    for (entity, scatter, attached, transform, visibility, layers) in &scatters {
         if !visibility.get() || scatter.copies.is_empty() {
             continue;
         }
@@ -244,6 +254,7 @@ fn extract_scatters(
             ExtractedScatter {
                 world_from_scatter: transform.affine(),
                 scatter: scatter.clone(),
+                attached: attached.cloned(),
                 layers: layers.cloned().unwrap_or_default(),
             },
         );
@@ -272,6 +283,39 @@ struct GpuSlot {
     first_range: u32,
 }
 
+/// One host copy's input to the attached culling: a drawn copy whose slot
+/// has rows. Mirrors `Host` in `instanced_attach.wesl`.
+#[derive(Debug, Clone, Copy, ShaderType)]
+struct GpuHost {
+    /// The copy's world transform, by row.
+    world: [Vec4; 3],
+    sphere: Vec4,
+    origin: Vec4,
+    rows: Vec4,
+    slot: u32,
+    record: u32,
+    first_row: u32,
+    row_count: u32,
+    first_thread: u32,
+    whole_slot: u32,
+    reach: f32,
+    world_scale: f32,
+}
+
+/// One row of a host slot's table. Mirrors `Row` in `instanced_attach.wesl`.
+#[derive(Debug, Clone, Copy, ShaderType)]
+struct GpuRow {
+    place: Vec4,
+    turn: Vec4,
+    wind: Vec4,
+    sphere: Vec4,
+    slot: u32,
+    host_levels: u32,
+}
+
+/// `whole_slot` of a host whose rows' slots don't all share their levels.
+const NO_SLOT: u32 = u32::MAX;
+
 /// Where a part's mesh is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum MeshRef {
@@ -290,16 +334,20 @@ struct GpuPart {
     /// Whether the part's slot fades between levels, so its pipelines read
     /// the dither.
     dithers: bool,
-    /// The list the part draws: its first entry in a view's visible copies,
-    /// and the most copies it can hold.
+    /// Whether the part's slot is drawn by rows, from a view's attached
+    /// entries with attached pipelines.
+    attached: bool,
+    /// The list the part draws: its first entry in a view's visible copies
+    /// (or attached entries), and the most copies it can hold.
     list_start: u32,
     list_len: u32,
 }
 
 /// What the render world keeps for one Scatter between frames.
 struct ScatterGpu {
-    /// The Scatter and transform the buffers were built for.
+    /// The Scatter, rows and transform the buffers were built for.
     scatter: InstancedScatter,
+    attached: Option<InstancedAttached>,
     world_from_scatter: Affine3A,
     /// One mesh record per drawn copy, sorted by slot.
     records: StorageBuffer<Vec<MeshUniform>>,
@@ -319,6 +367,17 @@ struct ScatterGpu {
     list_count: u32,
     /// The most detail levels of any slot.
     levels: u32,
+    /// Host copies, and every host slot's rows, for the attached culling;
+    /// empty without rows.
+    hosts: StorageBuffer<Vec<GpuHost>>,
+    rows: StorageBuffer<Vec<GpuRow>>,
+    host_count: u32,
+    /// Rows of every host copy: the attached culling's threads.
+    row_threads: u32,
+    /// Attached copies there can be, over all attached slots.
+    attached_count: u32,
+    /// The most detail levels of any attached slot.
+    attached_levels: u32,
     layers: RenderLayers,
 }
 
@@ -351,6 +410,11 @@ fn prepare_scatters(
             !Arc::ptr_eq(&gpu.scatter.slots, &scatter.scatter.slots)
                 || !Arc::ptr_eq(&gpu.scatter.copies, &scatter.scatter.copies)
                 || gpu.world_from_scatter != scatter.world_from_scatter
+                || match (&gpu.attached, &scatter.attached) {
+                    (Some(old), Some(new)) => !Arc::ptr_eq(&old.tables, &new.tables),
+                    (None, None) => false,
+                    _ => true,
+                }
         });
         if changed {
             let gpu = build_scatter(scatter, metadata_index, &device, &queue, &mut warned);
@@ -405,9 +469,22 @@ fn build_scatter(
         levels = levels.max(count as u32);
     }
 
-    // Copies sorted by slot, skipping those with no such slot.
+    // Slots drawn by rows, and each host slot's rows.
+    let no_tables: &[Arc<[AttachedRow]>] = &[];
+    let tables = extracted
+        .attached
+        .as_ref()
+        .map_or(no_tables, |a| &a.tables[..]);
+    let is_attached = attached_slots(slots.len(), tables);
+    let (gpu_rows, table_infos) = build_tables(slots, &gpu_slots, &ranges, tables, &is_attached);
+
+    // Copies sorted by slot, skipping those with no such slot and those of
+    // slots that rows draw.
     let mut order: Vec<usize> = (0..scatter.copies.len())
-        .filter(|&i| (scatter.copies[i].slot as usize) < slots.len())
+        .filter(|&i| {
+            let slot = scatter.copies[i].slot as usize;
+            slot < slots.len() && !is_attached[slot]
+        })
         .collect();
     order.sort_by_key(|&i| scatter.copies[i].slot);
     for &i in &order {
@@ -420,9 +497,37 @@ fn build_scatter(
     }
     let copy_count = order.len() as u32;
 
-    // Mesh records and culling inputs, in sorted order.
+    // Attached slots count and place their copies among the attached
+    // entries instead: each copy of a host slot adds its table's rows.
+    let mut attached_counts = vec![0u32; slots.len()];
+    for (host_slot, info) in table_infos.iter().enumerate() {
+        let Some(info) = info else {
+            continue;
+        };
+        let copies = gpu_slots[host_slot].count;
+        for row in &gpu_rows[info.first_row as usize..][..info.row_count as usize] {
+            attached_counts[row.slot as usize] += copies;
+        }
+    }
+    let (mut attached_count, mut attached_levels) = (0, 0);
+    for (gpu_slot, (&attached, &count)) in gpu_slots
+        .iter_mut()
+        .zip(is_attached.iter().zip(&attached_counts))
+    {
+        if attached {
+            gpu_slot.start = attached_count;
+            gpu_slot.count = count;
+            attached_count += count;
+            attached_levels = attached_levels.max(gpu_slot.level_count);
+        }
+    }
+
+    // Mesh records and culling inputs, in sorted order, and the host copies
+    // among them.
     let mut records = Vec::with_capacity(order.len());
     let mut copies = Vec::with_capacity(order.len());
+    let mut hosts = Vec::new();
+    let mut row_threads = 0;
     for (record, &i) in order.iter().enumerate() {
         let copy = &scatter.copies[i];
         let slot = &slots[copy.slot as usize];
@@ -430,15 +535,21 @@ fn build_scatter(
         records.push(copy_record(world, copy.wind_phase, metadata_index));
         let (center, radius) = slot.bounds;
         let factor = copy.size / slot.lod.reference_size;
+        let origin = Vec3::from(world.translation).extend(factor);
         copies.push(GpuCopy {
             sphere: world
                 .transform_point3a(Vec3A::from(center))
                 .extend(radius * largest_scale(&world)),
-            origin: Vec3::from(world.translation).extend(factor),
+            origin,
             slot: copy.slot,
             record: record as u32,
         });
+        if let Some(Some(info)) = table_infos.get(copy.slot as usize) {
+            hosts.push(host(&world, copy, origin, record as u32, info, row_threads));
+            row_threads += info.row_count;
+        }
     }
+    let host_count = hosts.len() as u32;
 
     // Parts, each drawing one list.
     let mut parts = Vec::new();
@@ -453,6 +564,8 @@ fn build_scatter(
             }
             let ranges = &ranges[gpu_slot.first_range as usize..][..gpu_slot.level_count as usize];
             let fades = ranges.len() > 1 || ranges.iter().any(|r| r.w < f32::MAX);
+            let attached = is_attached[index];
+            let entries = if attached { attached_count } else { copy_count };
             part_lists.push(index as u32 * levels + part.level);
             parts.push(GpuPart {
                 mesh: match &part.mesh {
@@ -463,7 +576,8 @@ fn build_scatter(
                 type_id: part.material.type_id(),
                 casts_shadows: slot.lod.levels[part.level as usize].casts_shadows,
                 dithers: fades,
-                list_start: part.level * copy_count + gpu_slot.start,
+                attached,
+                list_start: part.level * entries + gpu_slot.start,
                 list_len: gpu_slot.count,
             });
         }
@@ -472,6 +586,7 @@ fn build_scatter(
     // Upload.
     let mut gpu = ScatterGpu {
         scatter: scatter.clone(),
+        attached: extracted.attached.clone(),
         world_from_scatter,
         records: StorageBuffer::default(),
         records_group: None,
@@ -484,6 +599,12 @@ fn build_scatter(
         copy_count,
         list_count: slots.len() as u32 * levels,
         levels,
+        hosts: StorageBuffer::default(),
+        rows: StorageBuffer::default(),
+        host_count,
+        row_threads,
+        attached_count,
+        attached_levels,
         layers: extracted.layers.clone(),
     };
     if copy_count == 0 || gpu.parts.is_empty() {
@@ -509,6 +630,14 @@ fn build_scatter(
     gpu.slots.write_buffer(device, queue);
     gpu.ranges.write_buffer(device, queue);
     gpu.part_lists.write_buffer(device, queue);
+    if host_count > 0 {
+        gpu.hosts.set_label(Some("procgena_instanced_hosts"));
+        gpu.rows.set_label(Some("procgena_instanced_rows"));
+        gpu.hosts.set(hosts);
+        gpu.rows.set(gpu_rows);
+        gpu.hosts.write_buffer(device, queue);
+        gpu.rows.write_buffer(device, queue);
+    }
     gpu.template_args = Some(device.create_buffer(&BufferDescriptor {
         label: Some("procgena_instanced_template_args"),
         size: gpu.parts.len() as u64 * DRAW_ARGS_SIZE,
@@ -516,6 +645,170 @@ fn build_scatter(
         mapped_at_creation: false,
     }));
     gpu
+}
+
+/// Which of `slot_count` slots rows draw: those any row of any table names.
+fn attached_slots(slot_count: usize, tables: &[Arc<[AttachedRow]>]) -> Vec<bool> {
+    let mut attached = vec![false; slot_count];
+    for row in tables
+        .iter()
+        .take(slot_count)
+        .flat_map(|table| table.iter())
+    {
+        if let Some(flag) = attached.get_mut(row.slot as usize) {
+            *flag = true;
+        }
+    }
+    attached
+}
+
+/// What the host stage needs to know about one host slot's rows, in the
+/// host's own coordinates.
+#[derive(Clone, Debug)]
+struct TableInfo {
+    first_row: u32,
+    row_count: u32,
+    /// How far the farthest row origin is from the host's origin.
+    radius: f32,
+    /// A sphere around every row's bounds.
+    sphere: (Vec3, f32),
+    /// The smallest and largest row size factors.
+    min_factor: f32,
+    max_factor: f32,
+    /// The farthest a row is drawn, in reference metres times its factor.
+    reach: f32,
+    /// A slot whose levels every row's slot shares, or [`NO_SLOT`].
+    whole_slot: u32,
+}
+
+/// Every host slot's rows, packed one table after another, and each host
+/// slot's summary (`None` for slots that host no rows). Skips tables of
+/// slots that rows draw, and rows whose slot is out of range or not drawn.
+fn build_tables(
+    slots: &[InstancedSlot],
+    gpu_slots: &[GpuSlot],
+    ranges: &[Vec4],
+    tables: &[Arc<[AttachedRow]>],
+    is_attached: &[bool],
+) -> (Vec<GpuRow>, Vec<Option<TableInfo>>) {
+    let slot_ranges = |slot: usize| {
+        let gpu = &gpu_slots[slot];
+        &ranges[gpu.first_range as usize..][..gpu.level_count as usize]
+    };
+    let mut rows = Vec::new();
+    let mut infos = vec![None; slots.len()];
+    for (host_slot, table) in tables.iter().enumerate().take(slots.len()) {
+        if is_attached[host_slot] {
+            continue;
+        }
+
+        // The table's rows, and the bounds and factors they span.
+        let first_row = rows.len();
+        let mut info = TableInfo {
+            first_row: first_row as u32,
+            row_count: 0,
+            radius: 0.0,
+            sphere: (Vec3::ZERO, 0.0),
+            min_factor: f32::MAX,
+            max_factor: 0.0,
+            reach: 0.0,
+            whole_slot: NO_SLOT,
+        };
+        let (mut low, mut high) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        let mut shared: Option<&[Vec4]> = None;
+        let mut all_share = true;
+        for row in table.iter() {
+            let index = row.slot as usize;
+            let Some(slot) = slots.get(index) else {
+                continue;
+            };
+            if gpu_slots[index].level_count == 0 {
+                continue;
+            }
+            let levels = slot_ranges(index);
+            let factor = row.size / slot.lod.reference_size;
+            let (center, radius) = slot.bounds;
+            let center = row.position + row.rotation * (center * row.scale);
+            let radius = radius * row.scale;
+            rows.push(GpuRow {
+                place: row.position.extend(row.scale),
+                turn: Vec4::from(row.rotation),
+                wind: row.wind.extend(factor),
+                sphere: center.extend(radius),
+                slot: row.slot,
+                host_levels: row.host_levels,
+            });
+            low = low.min(center - radius);
+            high = high.max(center + radius);
+            info.radius = info.radius.max(row.position.length());
+            info.min_factor = info.min_factor.min(factor);
+            info.max_factor = info.max_factor.max(factor);
+            let last = levels[levels.len() - 1];
+            info.reach = info.reach.max((last.w * factor).min(f32::MAX));
+            match shared {
+                None => {
+                    shared = Some(levels);
+                    info.whole_slot = row.slot;
+                }
+                Some(first) => all_share &= first == levels,
+            }
+        }
+        info.row_count = (rows.len() - first_row) as u32;
+        if info.row_count == 0 {
+            continue;
+        }
+
+        // One sphere around them all.
+        let center = (low + high) * 0.5;
+        let radius = rows[first_row..]
+            .iter()
+            .map(|row| (row.sphere.truncate() - center).length() + row.sphere.w)
+            .fold(0.0, f32::max);
+        info.sphere = (center, radius);
+        if !all_share {
+            info.whole_slot = NO_SLOT;
+        }
+        infos[host_slot] = Some(info);
+    }
+    (rows, infos)
+}
+
+/// One host copy's culling input: `copy`, placed at `world`, whose slot's
+/// rows are summed up in `info`. `origin` is the copy's `GpuCopy::origin`,
+/// `record` its mesh record, and `first_thread` its first row's thread.
+fn host(
+    world: &Affine3A,
+    copy: &super::InstancedCopy,
+    origin: Vec4,
+    record: u32,
+    info: &TableInfo,
+    first_thread: u32,
+) -> GpuHost {
+    let (m, t) = (world.matrix3, world.translation);
+    let row = |i: usize| Vec4::new(m.x_axis[i], m.y_axis[i], m.z_axis[i], t[i]);
+    let world_scale = largest_scale(world);
+    let (center, radius) = info.sphere;
+    GpuHost {
+        world: [row(0), row(1), row(2)],
+        sphere: world
+            .transform_point3a(Vec3A::from(center))
+            .extend(radius * world_scale),
+        origin,
+        rows: Vec4::new(
+            info.radius * world_scale,
+            largest_scale(&copy.transform),
+            info.min_factor,
+            info.max_factor,
+        ),
+        slot: copy.slot,
+        record,
+        first_row: info.first_row,
+        row_count: info.row_count,
+        first_thread,
+        whole_slot: info.whole_slot,
+        reach: info.reach,
+        world_scale,
+    }
 }
 
 /// A copy's mesh record: its world transform, which never changes between
@@ -609,6 +902,9 @@ struct CullUniform {
     levels: u32,
     shadow: u32,
     skip_near: u32,
+    host_count: u32,
+    row_threads: u32,
+    attached_count: u32,
 }
 
 /// One view's culling of one Scatter, and its pipelines this frame.
@@ -618,6 +914,8 @@ struct ViewScatter {
     /// Holds what the cull needs; `None` until the view is first culled.
     buffers: Option<ViewBuffers>,
     cull_group: Option<BindGroup>,
+    /// The attached culling's bind group, for Scatters with host copies.
+    attach_group: Option<BindGroup>,
     /// Updated for this frame by `prepare_views`.
     seen: bool,
     /// The pipeline of each of the Scatter's parts in each pass, or `None`
@@ -635,13 +933,45 @@ struct ViewBuffers {
     counts: Buffer,
     /// The copies each part draws, as instance-rate vertex data.
     visible: Buffer,
+    /// What the host stage decided for each host copy.
+    host_state: Buffer,
+    /// The attached copies each attached part draws, as instance-rate
+    /// vertex data.
+    attached_visible: Buffer,
+    /// What the buffers have room for.
+    size: ViewSize,
+}
+
+/// What a view's buffers must have room for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ViewSize {
     parts: u32,
     lists: u32,
     entries: u32,
+    hosts: u32,
+    attached_entries: u32,
+}
+
+impl ViewSize {
+    /// Whether buffers of this size hold everything `need` asks for.
+    fn holds(&self, need: &ViewSize) -> bool {
+        self.parts >= need.parts
+            && self.lists >= need.lists
+            && self.entries >= need.entries
+            && self.hosts >= need.hosts
+            && self.attached_entries >= need.attached_entries
+    }
 }
 
 impl ViewBuffers {
-    fn new(device: &RenderDevice, parts: u32, lists: u32, entries: u32) -> Self {
+    fn new(device: &RenderDevice, size: ViewSize) -> Self {
+        let ViewSize {
+            parts,
+            lists,
+            entries,
+            hosts,
+            attached_entries,
+        } = size;
         let buffer = |label: &'static str, size: u64, usage: BufferUsages| {
             device.create_buffer(&BufferDescriptor {
                 label: Some(label),
@@ -669,9 +999,17 @@ impl ViewBuffers {
                 u64::from(entries) * INSTANCE_SIZE,
                 BufferUsages::STORAGE | BufferUsages::VERTEX | BufferUsages::COPY_SRC,
             ),
-            parts,
-            lists,
-            entries,
+            host_state: buffer(
+                "procgena_instanced_view_host_state",
+                u64::from(hosts) * 4,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            attached_visible: buffer(
+                "procgena_instanced_view_attached",
+                u64::from(attached_entries) * ATTACHED_SIZE,
+                BufferUsages::STORAGE | BufferUsages::VERTEX | BufferUsages::COPY_SRC,
+            ),
+            size,
         }
     }
 }
@@ -816,26 +1154,30 @@ fn update_view(
     device: &RenderDevice,
     queue: &RenderQueue,
 ) {
-    let parts = gpu.parts.len() as u32;
-    let lists = gpu.list_count;
-    let entries = gpu.copy_count * gpu.levels;
-    let fits = state
-        .buffers
-        .as_ref()
-        .is_some_and(|b| b.parts >= parts && b.lists >= lists && b.entries >= entries);
+    let size = ViewSize {
+        parts: gpu.parts.len() as u32,
+        lists: gpu.list_count,
+        entries: gpu.copy_count * gpu.levels,
+        hosts: gpu.host_count,
+        attached_entries: gpu.attached_count * gpu.attached_levels,
+    };
+    let fits = state.buffers.as_ref().is_some_and(|b| b.size.holds(&size));
     if !fits {
-        state.buffers = Some(ViewBuffers::new(device, parts, lists, entries));
+        state.buffers = Some(ViewBuffers::new(device, size));
     }
     state.uniform.set(CullUniform {
         planes: frustum_planes(&spec.clip_from_world),
         lod_origin: spec.lod_origin.extend(1.0),
         quality_scale,
         copy_count: gpu.copy_count,
-        list_count: lists,
-        part_count: parts,
+        list_count: size.lists,
+        part_count: size.parts,
         levels: gpu.levels,
         shadow: u32::from(spec.shadow),
         skip_near: u32::from(spec.skip_near),
+        host_count: gpu.host_count,
+        row_threads: gpu.row_threads,
+        attached_count: gpu.attached_count,
     });
     state.uniform.write_buffer(device, queue);
     state.seen = true;
@@ -867,11 +1209,39 @@ impl CullLayout {
     }
 }
 
-/// Builds each Scatter's mesh bind group and each view's culling bind group.
+/// Bind group layout of the attached culling passes.
+#[derive(Resource, Clone)]
+struct AttachLayout(BindGroupLayoutDescriptor);
+
+impl AttachLayout {
+    fn new() -> Self {
+        // Binding numbers match `instanced_attach.wesl`.
+        Self(BindGroupLayoutDescriptor::new(
+            "procgena_instanced_attach",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    uniform_buffer::<CullUniform>(false),
+                    storage_buffer_read_only_sized(false, None),
+                    storage_buffer_read_only_sized(false, None),
+                    storage_buffer_read_only_sized(false, None),
+                    storage_buffer_read_only_sized(false, None),
+                    storage_buffer_sized(false, None),
+                    storage_buffer_sized(false, None),
+                    storage_buffer_sized(false, None),
+                ),
+            ),
+        ))
+    }
+}
+
+/// Builds each Scatter's mesh bind group and each view's culling bind groups.
+#[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn prepare_bind_groups(
     mut scatters: ResMut<Scatters>,
     mut views: ResMut<ScatterViews>,
     layout: Res<CullLayout>,
+    attach_layout: Res<AttachLayout>,
     mesh_pipeline: Res<MeshPipeline>,
     pipeline_cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
@@ -890,9 +1260,35 @@ fn prepare_bind_groups(
     }
     for ((_, entity), view) in &mut views.0 {
         view.cull_group = None;
+        view.attach_group = None;
         let (Some(gpu), Some(buffers)) = (scatters.0.get(entity), view.buffers.as_ref()) else {
             continue;
         };
+
+        // The attached culling's inputs, for Scatters with host copies.
+        if let (Some(uniform), Some(slots), Some(ranges), Some(hosts), Some(rows)) = (
+            view.uniform.binding(),
+            gpu.slots.binding(),
+            gpu.ranges.binding(),
+            gpu.hosts.binding(),
+            gpu.rows.binding(),
+        ) {
+            view.attach_group = Some(device.create_bind_group(
+                "procgena_instanced_attach",
+                &pipeline_cache.get_bind_group_layout(&attach_layout.0),
+                &BindGroupEntries::sequential((
+                    uniform,
+                    slots,
+                    ranges,
+                    hosts,
+                    rows,
+                    buffers.host_state.as_entire_binding(),
+                    buffers.counts.as_entire_binding(),
+                    buffers.attached_visible.as_entire_binding(),
+                )),
+            ));
+        }
+
         let (Some(uniform), Some(copies), Some(slots), Some(ranges), Some(part_lists)) = (
             view.uniform.binding(),
             gpu.copies.binding(),
@@ -925,33 +1321,41 @@ struct CullPipelines {
     reset_counts: CachedComputePipelineId,
     cull: CachedComputePipelineId,
     write_args: CachedComputePipelineId,
+    cull_hosts: CachedComputePipelineId,
+    cull_rows: CachedComputePipelineId,
 }
 
 fn init_cull_pipelines(
     mut commands: Commands,
     pipeline_cache: Res<PipelineCache>,
     layout: Res<CullLayout>,
+    attach_layout: Res<AttachLayout>,
     shaders: Res<InstancedShaders>,
 ) {
-    let queue = |entry: &'static str| {
-        pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some(format!("procgena_instanced_{entry}").into()),
-            layout: vec![layout.0.clone()],
-            shader: shaders.cull.clone(),
-            entry_point: Some(entry.into()),
-            ..Default::default()
-        })
-    };
+    let queue =
+        |entry: &'static str, layout: &BindGroupLayoutDescriptor, shader: &Handle<Shader>| {
+            pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                label: Some(format!("procgena_instanced_{entry}").into()),
+                layout: vec![layout.clone()],
+                shader: shader.clone(),
+                entry_point: Some(entry.into()),
+                ..Default::default()
+            })
+        };
     commands.insert_resource(CullPipelines {
-        reset_counts: queue("reset_counts"),
-        cull: queue("cull"),
-        write_args: queue("write_args"),
+        reset_counts: queue("reset_counts", &layout.0, &shaders.cull),
+        cull: queue("cull", &layout.0, &shaders.cull),
+        write_args: queue("write_args", &layout.0, &shaders.cull),
+        cull_hosts: queue("cull_hosts", &attach_layout.0, &shaders.attach),
+        cull_rows: queue("cull_rows", &attach_layout.0, &shaders.attach),
     });
 }
 
 /// Records every view's culling: copies external parts' draws into each
 /// Scatter's template, the template into the view's draws, then counts and
-/// lists the copies each part draws.
+/// lists the copies each part draws, one compute pass per stage over every
+/// view: copies, attached hosts, attached rows, then the draws' instance
+/// counts. Each stage pass is timed when [`InstancedTimings`] is present.
 fn run_cull(
     mut ctx: RenderContext,
     pipelines: Option<Res<CullPipelines>>,
@@ -959,6 +1363,7 @@ fn run_cull(
     scatters: Res<Scatters>,
     views: Res<ScatterViews>,
     external: Res<ExternalMeshes>,
+    mut timings: Option<ResMut<InstancedTimings>>,
 ) {
     let Some(pipelines) = pipelines else {
         return;
@@ -970,6 +1375,9 @@ fn run_cull(
     ) else {
         return;
     };
+    let attach = pipeline_cache
+        .get_compute_pipeline(pipelines.cull_hosts)
+        .zip(pipeline_cache.get_compute_pipeline(pipelines.cull_rows));
     let encoder = ctx.command_encoder();
 
     // External parts' draws, as their owners wrote them this frame.
@@ -992,37 +1400,106 @@ fn run_cull(
         }
     }
 
-    // Each view's lists and draws.
-    for ((_, entity), view) in &views.0 {
-        let (Some(gpu), Some(group), Some(buffers)) = (
-            scatters.0.get(entity),
-            view.cull_group.as_ref(),
-            view.buffers.as_ref(),
-        ) else {
-            continue;
-        };
-        let Some(template) = &gpu.template_args else {
-            continue;
-        };
-        let parts = gpu.parts.len() as u32;
-        encoder.copy_buffer_to_buffer(
-            template,
-            0,
-            &buffers.args,
-            0,
-            u64::from(parts) * DRAW_ARGS_SIZE,
-        );
-        let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-            label: Some("procgena_instanced_cull"),
-            ..Default::default()
-        });
-        pass.set_bind_group(0, group, &[]);
-        pass.set_pipeline(reset_counts);
-        pass.dispatch_workgroups(gpu.list_count.div_ceil(WORKGROUP_SIZE), 1, 1);
-        pass.set_pipeline(cull);
-        pass.dispatch_workgroups(gpu.copy_count.div_ceil(WORKGROUP_SIZE), 1, 1);
+    // The views that cull a Scatter this frame, each starting from its
+    // Scatter's template draws.
+    let culled: Vec<_> = views
+        .0
+        .iter()
+        .filter_map(|((_, entity), view)| {
+            let gpu = scatters.0.get(entity)?;
+            let template = gpu.template_args.as_ref()?;
+            let group = view.cull_group.as_ref()?;
+            let buffers = view.buffers.as_ref()?;
+            Some((gpu, view, group, buffers, template))
+        })
+        .collect();
+    for (gpu, _, _, buffers, template) in &culled {
+        let size = gpu.parts.len() as u64 * DRAW_ARGS_SIZE;
+        encoder.copy_buffer_to_buffer(template, 0, &buffers.args, 0, size);
+    }
+    if let Some(timings) = timings.as_deref_mut() {
+        timings.begin_frame();
+    }
+    let timings = timings.as_deref();
+
+    // Each view's copies, by level.
+    {
+        let mut pass = stage_pass(encoder, timings, 0, "procgena_instanced_cull");
+        for (gpu, _, group, _, _) in &culled {
+            pass.set_bind_group(0, *group, &[]);
+            pass.set_pipeline(reset_counts);
+            pass.dispatch_workgroups(gpu.list_count.div_ceil(WORKGROUP_SIZE), 1, 1);
+            pass.set_pipeline(cull);
+            pass.dispatch_workgroups(gpu.copy_count.div_ceil(WORKGROUP_SIZE), 1, 1);
+        }
+    }
+
+    // Attached copies: each host copy, then each of its rows.
+    let attached: Vec<_> = culled
+        .iter()
+        .filter_map(|(gpu, view, ..)| Some((*gpu, view.attach_group.as_ref()?)))
+        .filter(|_| attach.is_some())
+        .collect();
+    {
+        let mut pass = stage_pass(encoder, timings, 1, "procgena_instanced_attach_hosts");
+        if let Some((cull_hosts, _)) = attach {
+            pass.set_pipeline(cull_hosts);
+            for (gpu, group) in &attached {
+                pass.set_bind_group(0, *group, &[]);
+                pass.dispatch_workgroups(gpu.host_count.div_ceil(WORKGROUP_SIZE), 1, 1);
+            }
+        }
+    }
+    {
+        let mut pass = stage_pass(encoder, timings, 2, "procgena_instanced_attach_rows");
+        if let Some((_, cull_rows)) = attach {
+            pass.set_pipeline(cull_rows);
+            for (gpu, group) in &attached {
+                pass.set_bind_group(0, *group, &[]);
+                let (x, y) = workgroups_2d(gpu.row_threads.div_ceil(WORKGROUP_SIZE));
+                pass.dispatch_workgroups(x, y, 1);
+            }
+        }
+    }
+
+    // Each part's instance count.
+    {
+        let mut pass = stage_pass(encoder, timings, 3, "procgena_instanced_args");
         pass.set_pipeline(write_args);
-        pass.dispatch_workgroups(parts.div_ceil(WORKGROUP_SIZE), 1, 1);
+        for (gpu, _, group, _, _) in &culled {
+            pass.set_bind_group(0, *group, &[]);
+            pass.dispatch_workgroups((gpu.parts.len() as u32).div_ceil(WORKGROUP_SIZE), 1, 1);
+        }
+    }
+    if let Some(timings) = timings {
+        timings.resolve(encoder);
+    }
+}
+
+/// Begins the compute pass of culling stage `stage`, timed by `timings` if
+/// given.
+fn stage_pass<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    timings: Option<&'a InstancedTimings>,
+    stage: u32,
+    label: &'static str,
+) -> wgpu::ComputePass<'a> {
+    encoder.begin_compute_pass(&ComputePassDescriptor {
+        label: Some(label),
+        timestamp_writes: timings.and_then(|t| t.timestamp_writes(stage)),
+    })
+}
+
+/// Most workgroups one dimension of a dispatch may have.
+const MAX_WORKGROUPS: u32 = 65_535;
+
+/// Splits `groups` workgroups over two dispatch dimensions, as `cull_rows`
+/// in `instanced_attach.wesl` reads them: at least `groups` in all.
+fn workgroups_2d(groups: u32) -> (u32, u32) {
+    if groups <= MAX_WORKGROUPS {
+        (groups, 1)
+    } else {
+        (MAX_WORKGROUPS, groups.div_ceil(MAX_WORKGROUPS))
     }
 }
 
@@ -1056,10 +1533,11 @@ struct SpecializeView {
     layers: Option<RenderLayers>,
 }
 
-/// Pipelines already looked up, by pass, mesh key, mesh and material.
+/// Pipelines already looked up, by pass, mesh key, mesh, material, and
+/// whether the pipeline draws attached copies.
 #[derive(Resource, Default)]
 struct PipelineMemo(
-    HashMap<(u8, MeshPipelineKey, MeshRef, UntypedAssetId), CachedRenderPipelineId>,
+    HashMap<(u8, MeshPipelineKey, MeshRef, UntypedAssetId, bool), CachedRenderPipelineId>,
 );
 
 /// Works out, for every view and Scatter, which passes each part is drawn
@@ -1293,8 +1771,9 @@ fn collect_work(world: &World, views: &[SpecializeView]) -> Vec<Work> {
 fn specialize(world: &mut World, item: &Work) -> Option<CachedRenderPipelineId> {
     let scatters = world.resource::<Scatters>();
     let part = scatters.0.get(&item.scatter)?.parts.get(item.part)?;
-    let (mesh, material, type_id) = (part.mesh, part.material, part.type_id);
-    let memo_key = (item.pass, item.key, mesh, material);
+    let (mesh, material, type_id, attached) =
+        (part.mesh, part.material, part.type_id, part.attached);
+    let memo_key = (item.pass, item.key, mesh, material, attached);
     if let Some(id) = world.resource::<PipelineMemo>().0.get(&memo_key) {
         return Some(*id);
     }
@@ -1308,15 +1787,22 @@ fn specialize(world: &mut World, item: &Work) -> Option<CachedRenderPipelineId> 
         .get(material)?
         .properties
         .clone();
-    let Some(instanced) = world
-        .resource::<InstancedMaterials>()
-        .0
-        .get(&type_id)
-        .cloned()
-    else {
-        error!(
-            "procgena_core_bevy: a part's material type was not registered with InstancedMaterialPlugin; it is not drawn"
-        );
+    let materials = world.resource::<InstancedMaterials>();
+    let registered = if attached {
+        &materials.attached
+    } else {
+        &materials.copies
+    };
+    let Some(instanced) = registered.get(&type_id).cloned() else {
+        if attached {
+            error!(
+                "procgena_core_bevy: an attached part's material type was not registered with InstancedMaterialPlugin::attached; it is not drawn"
+            );
+        } else {
+            error!(
+                "procgena_core_bevy: a part's material type was not registered with InstancedMaterialPlugin; it is not drawn"
+            );
+        }
         return None;
     };
 
@@ -1664,9 +2150,14 @@ impl<P: PhaseItem, const PASS: u8, const CLASS: u8> RenderCommand<P> for DrawPar
 
             pass.set_render_pipeline(pipeline);
             pass.set_bind_group(3, bind_group, &[]);
-            let start = u64::from(part.list_start) * INSTANCE_SIZE;
-            let end = start + u64::from(part.list_len) * INSTANCE_SIZE;
-            pass.set_vertex_buffer(1, buffers.visible.slice(start..end));
+            let (entries, stride) = if part.attached {
+                (&buffers.attached_visible, ATTACHED_SIZE)
+            } else {
+                (&buffers.visible, INSTANCE_SIZE)
+            };
+            let start = u64::from(part.list_start) * stride;
+            let end = start + u64::from(part.list_len) * stride;
+            pass.set_vertex_buffer(1, entries.slice(start..end));
             pass.draw_indexed_indirect(&buffers.args, index as u64 * DRAW_ARGS_SIZE);
         }
         RenderCommandResult::Success

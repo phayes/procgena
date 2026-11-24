@@ -66,6 +66,61 @@ pub fn instanced_vertex(descriptor: &mut RenderPipelineDescriptor) {
     descriptor.vertex.buffers.push(instance_buffer_layout());
 }
 
+/// Bytes per attached copy in the per-copy vertex buffer of an attached
+/// pipeline: four `u32`s and three `vec4<f32>`s.
+pub const ATTACHED_SIZE: u64 = 64;
+
+/// The second vertex buffer of an attached pipeline (see
+/// [`InstancedAttached`](super::InstancedAttached)): per attached copy,
+/// - at [`INSTANCE_LOCATION`], two `u32`s as for [`instance_buffer_layout`],
+///   the first naming the *host* copy's mesh record;
+/// - at the next location, the copy's position relative to its host in
+///   `xyz` and its scale in `w`;
+/// - at the one after, its rotation relative to its host, as a quaternion;
+/// - at the one after that, its [`wind`](super::AttachedRow::wind) in `xyz`.
+pub fn attached_buffer_layout() -> VertexBufferLayout {
+    let vec4 = |offset: u64, location: u32| VertexAttribute {
+        format: VertexFormat::Float32x4,
+        offset,
+        shader_location: location,
+    };
+    VertexBufferLayout {
+        array_stride: ATTACHED_SIZE,
+        step_mode: VertexStepMode::Instance,
+        attributes: vec![
+            VertexAttribute {
+                format: VertexFormat::Uint32x2,
+                offset: 0,
+                shader_location: INSTANCE_LOCATION,
+            },
+            vec4(16, INSTANCE_LOCATION + 1),
+            vec4(32, INSTANCE_LOCATION + 2),
+            vec4(48, INSTANCE_LOCATION + 3),
+        ],
+    }
+}
+
+/// Turns a material's pipeline into its attached variant: adds the
+/// `INSTANCED` and `ATTACHED` shader defs to the vertex stage and the
+/// attached per-copy vertex buffer ([`attached_buffer_layout`]).
+///
+/// Call it from the material's `specialize` when its pipeline key asks for
+/// the attached variant (the key change you give
+/// [`InstancedMaterialPlugin::attached`]). With `ATTACHED` defined, the
+/// vertex shader reads, besides `instance` at location 12,
+/// `@location(13) attached_place: vec4<f32>`,
+/// `@location(14) attached_turn: vec4<f32>` and
+/// `@location(15) attached_wind: vec4<f32>`. It moves each vertex into the
+/// host's coordinates with `attached_position` and `attached_direction`
+/// from `procgena_core_bevy::shaders::instanced`, then applies the host
+/// record's transform as for any copy. [`INSTANCED_MESH_SHADER`] and
+/// [`INSTANCED_PREPASS_SHADER`] do this.
+pub fn attached_vertex(descriptor: &mut RenderPipelineDescriptor) {
+    descriptor.vertex.shader_defs.push("INSTANCED".into());
+    descriptor.vertex.shader_defs.push("ATTACHED".into());
+    descriptor.vertex.buffers.push(attached_buffer_layout());
+}
+
 /// Bevy's standard mesh vertex shader for the main pass, without skinning
 /// or morph targets, that also draws instanced copies. Return it from a
 /// material's `vertex_shader` when the material has no vertex shader of its
@@ -98,11 +153,16 @@ pub struct InstancedStandard {}
 pub struct InstancedStandardKey {
     /// Whether the pipeline draws copies of the instanced renderer.
     instanced: bool,
+    /// Whether the pipeline draws attached copies.
+    attached: bool,
 }
 
 impl From<&InstancedStandard> for InstancedStandardKey {
     fn from(_: &InstancedStandard) -> Self {
-        Self { instanced: false }
+        Self {
+            instanced: false,
+            attached: false,
+        }
     }
 }
 
@@ -125,33 +185,39 @@ impl MaterialExtension for InstancedStandard {
         _layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        if key.bind_group_data.instanced {
+        if key.bind_group_data.attached {
+            attached_vertex(descriptor);
+        } else if key.bind_group_data.instanced {
             instanced_vertex(descriptor);
         }
         Ok(())
     }
 }
 
-/// Adds [`InstancedStandardMaterial`] and registers it with the renderer.
+/// Adds [`InstancedStandardMaterial`] and registers it with the renderer,
+/// for copies and attached copies.
 pub(crate) fn add_standard_material(app: &mut App) {
     if app.get_sub_app(RenderApp).is_some() {
         app.add_plugins(MaterialPlugin::<InstancedStandardMaterial>::default());
     } else {
         app.init_asset::<InstancedStandardMaterial>();
     }
-    register::<
-        InstancedStandardMaterial,
-        CombinedBindGroupData<StandardMaterialKey, InstancedStandardKey>,
-    >(app, |key| key.extension.instanced = true);
+    type Key = CombinedBindGroupData<StandardMaterialKey, InstancedStandardKey>;
+    register::<InstancedStandardMaterial, Key>(app, |key| key.extension.instanced = true, false);
+    register::<InstancedStandardMaterial, Key>(app, |key| key.extension.attached = true, true);
 }
 
 /// Turns a material's pipeline key into its instanced variant, by material
 /// type.
 pub(crate) type InstancedKeyFn = Arc<dyn Fn(&ErasedMaterialKey) -> ErasedMaterialKey + Send + Sync>;
 
-/// Every registered material's key change, in the render world.
+/// Every registered material's key changes, in the render world: to its
+/// instanced variant, and to its attached variant.
 #[derive(Resource, Default, Clone)]
-pub(crate) struct InstancedMaterials(pub HashMap<TypeId, InstancedKeyFn>);
+pub(crate) struct InstancedMaterials {
+    pub copies: HashMap<TypeId, InstancedKeyFn>,
+    pub attached: HashMap<TypeId, InstancedKeyFn>,
+}
 
 /// Lets the instanced renderer draw parts with material `M`.
 ///
@@ -163,14 +229,31 @@ pub(crate) struct InstancedMaterials(pub HashMap<TypeId, InstancedKeyFn>);
 /// after `MaterialPlugin::<M>`. Adds [`InstancedPlugin`].
 pub struct InstancedMaterialPlugin<M, K> {
     set_instanced: fn(&mut K),
+    /// Whether `set_instanced` makes the attached variant.
+    attached: bool,
     material: PhantomData<fn() -> M>,
 }
 
 impl<M, K> InstancedMaterialPlugin<M, K> {
-    /// Registers `M`, whose instanced key is made by `set_instanced`.
+    /// Registers `M` for copies; its instanced key is made by
+    /// `set_instanced`.
     pub fn new(set_instanced: fn(&mut K)) -> Self {
         Self {
             set_instanced,
+            attached: false,
+            material: PhantomData,
+        }
+    }
+
+    /// Registers `M` for attached copies (see
+    /// [`InstancedAttached`](super::InstancedAttached)); its attached key is
+    /// made by `set_attached`, and its `specialize` calls
+    /// [`attached_vertex`] for that key. Add it beside the plugin from
+    /// [`new`](Self::new) when `M` draws both.
+    pub fn attached(set_attached: fn(&mut K)) -> Self {
+        Self {
+            set_instanced: set_attached,
+            attached: true,
             material: PhantomData,
         }
     }
@@ -183,7 +266,7 @@ where
 {
     fn build(&self, app: &mut App) {
         app.add_plugins(InstancedPlugin);
-        register::<M, K>(app, self.set_instanced);
+        register::<M, K>(app, self.set_instanced, self.attached);
     }
 
     fn is_unique(&self) -> bool {
@@ -191,8 +274,9 @@ where
     }
 }
 
-/// Records in the render world how `M`'s key `K` becomes its instanced key.
-fn register<M, K>(app: &mut App, set: fn(&mut K))
+/// Records in the render world how `M`'s key `K` becomes its instanced key,
+/// or with `attached`, its attached key.
+fn register<M, K>(app: &mut App, set: fn(&mut K), attached: bool)
 where
     M: Material,
     K: Clone + Hash + PartialEq + Send + Sync + 'static,
@@ -205,9 +289,13 @@ where
         set(&mut key);
         ErasedMaterialKey::new(key)
     });
-    render_app
+    let mut materials = render_app
         .world_mut()
-        .get_resource_or_init::<InstancedMaterials>()
-        .0
-        .insert(TypeId::of::<M>(), change);
+        .get_resource_or_init::<InstancedMaterials>();
+    let table = if attached {
+        &mut materials.attached
+    } else {
+        &mut materials.copies
+    };
+    table.insert(TypeId::of::<M>(), change);
 }

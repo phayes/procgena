@@ -7,6 +7,10 @@
 //! it (a stone class's `stone`, dead wood's `piece`, a mushroom Scatter's
 //! `mushroom`) name a built-in preset by key, or give settings laid over
 //! one (`{ base: <key>, ... }`) or over the asset's defaults.
+//!
+//! Ground layers are a map from key to settings in the same way: a file
+//! changes, adds or (with `null`) removes one layer without restating the
+//! others.
 
 use std::collections::BTreeMap;
 
@@ -17,6 +21,7 @@ use procgena_mushroom::{
     MushroomOptions, MushroomPreset, ScatterOptions as MushroomScatterOptions,
 };
 use procgena_stone::{StoneClass, StoneOptions, StonePreset, StoneScatterOptions};
+use procgena_terrain::ground::GroundLayer;
 use procgena_tree::TreeScatter;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -25,31 +30,27 @@ use serde_json::{Map, Value};
 use super::scatters::ScatterKind;
 use super::{Ecotope, EcotopeScatter};
 
-/// Reads and writes an Ecotope's map of Scatters with [`ChildKey`]s as keys.
+/// Reads and writes an Ecotope's maps of Scatters and ground layers with
+/// [`ChildKey`]s as keys. An entry set to `null` is left out.
 pub(crate) mod keyed {
     use super::*;
 
-    pub(crate) fn serialize<S: Serializer>(
-        scatters: &BTreeMap<ChildKey, EcotopeScatter>,
+    pub(crate) fn serialize<S: Serializer, T: Serialize>(
+        entries: &BTreeMap<ChildKey, T>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        serializer.collect_map(
-            scatters
-                .iter()
-                .map(|(key, scatter)| (key.as_str(), scatter)),
-        )
+        serializer.collect_map(entries.iter().map(|(key, entry)| (key.as_str(), entry)))
     }
 
-    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
         deserializer: D,
-    ) -> Result<BTreeMap<ChildKey, EcotopeScatter>, D::Error> {
-        // A Scatter whose settings are `null` is removed.
-        let raw = BTreeMap::<String, Option<EcotopeScatter>>::deserialize(deserializer)?;
+    ) -> Result<BTreeMap<ChildKey, T>, D::Error> {
+        let raw = BTreeMap::<String, Option<T>>::deserialize(deserializer)?;
         raw.into_iter()
-            .filter_map(|(key, scatter)| Some((key, scatter?)))
-            .map(|(key, scatter)| match ChildKey::new(key.as_str()) {
-                Ok(key) => Ok((key, scatter)),
-                Err(error) => Err(D::Error::custom(format!("Scatter key {key:?}: {error}"))),
+            .filter_map(|(key, entry)| Some((key, entry?)))
+            .map(|(key, entry)| match ChildKey::new(key.as_str()) {
+                Ok(key) => Ok((key, entry)),
+                Err(error) => Err(D::Error::custom(format!("key {key:?}: {error}"))),
             })
             .collect()
     }
@@ -200,21 +201,52 @@ pub(crate) fn settings_over(base: Option<&Ecotope>, ecotope: &Ecotope) -> Option
         for (key, scatter) in &ecotope.scatters {
             value["scatters"][key.as_str()] = to_file(scatter, true);
         }
+        for (key, layer) in &ecotope.ground {
+            value["ground"][key.as_str()] = short_layer(layer);
+        }
         return diff(&to_value(&Ecotope::default()), &value);
     };
 
-    // Exact differences, then the removed Scatters.
+    // Exact differences, with new ground layers written short.
     let mut settings = diff(&to_value(base), &to_value(ecotope));
+    for (key, layer) in &ecotope.ground {
+        if !base.ground.contains_key(key) {
+            entry(&mut settings, "ground")[key.as_str()] = short_layer(layer);
+        }
+    }
+
+    // The removed Scatters and ground layers.
     for key in base.scatters.keys() {
         if !ecotope.scatters.contains_key(key) {
-            let settings = settings.get_or_insert_with(|| Value::Object(Map::new()));
-            if settings.get("scatters").is_none() {
-                settings["scatters"] = Value::Object(Map::new());
-            }
-            settings["scatters"][key.as_str()] = Value::Null;
+            entry(&mut settings, "scatters")[key.as_str()] = Value::Null;
+        }
+    }
+    for key in base.ground.keys() {
+        if !ecotope.ground.contains_key(key) {
+            entry(&mut settings, "ground")[key.as_str()] = Value::Null;
         }
     }
     settings
+}
+
+/// The map at `settings[field]`, made (with `settings`) if missing.
+fn entry<'a>(settings: &'a mut Option<Value>, field: &str) -> &'a mut Value {
+    let settings = settings.get_or_insert_with(|| Value::Object(Map::new()));
+    if settings.get(field).is_none() {
+        settings[field] = Value::Object(Map::new());
+    }
+    &mut settings[field]
+}
+
+/// A ground layer's settings, leaving out those equal to a new layer's of
+/// the same material and order.
+fn short_layer(layer: &GroundLayer) -> Value {
+    let defaults = GroundLayer::new(layer.material.clone(), layer.order);
+    let mut value =
+        diff(&to_value(&defaults), &to_value(layer)).unwrap_or_else(|| Value::Object(Map::new()));
+    value["material"] = Value::String(layer.material.as_str().to_owned());
+    value["order"] = Value::from(layer.order);
+    value
 }
 
 /// Writes one Scatter as its file settings. With `short`, the settings of

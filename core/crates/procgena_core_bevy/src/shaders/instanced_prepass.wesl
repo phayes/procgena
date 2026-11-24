@@ -1,6 +1,7 @@
 // Bevy's standard prepass vertex shader (depth, normals, motion vectors,
 // shadows and the deferred G-buffer), without skinning or morph targets, that
-// also draws copies of the shared instanced renderer (`INSTANCED`).
+// also draws copies of the shared instanced renderer (`INSTANCED`) and
+// attached copies (`ATTACHED`).
 
 import bevy_pbr::{
     prepass::io::{Vertex, VertexOutput, decompress_vertex},
@@ -8,30 +9,59 @@ import bevy_pbr::{
 };
 @if(INSTANCED)
 import procgena_core_bevy::shaders::instanced::{copy_record, copy_dither};
+@if(ATTACHED)
+import procgena_core_bevy::shaders::instanced::{attached_position, attached_direction};
 
 /// The per-copy input of an instanced draw.
-@if(INSTANCED)
+@if(INSTANCED && !ATTACHED)
 struct Copy {
     @location(12) instance: vec2<u32>,
 }
 
-@if(INSTANCED)
+/// The per-copy input of an attached draw.
+@if(ATTACHED)
+struct Attached {
+    @location(12) instance: vec2<u32>,
+    @location(13) place: vec4<f32>,
+    @location(14) turn: vec4<f32>,
+}
+
+@if(INSTANCED && !ATTACHED)
 @vertex
 fn vertex(in: Vertex, copy: Copy) -> VertexOutput {
-    return shade(in, copy_record(copy.instance), copy_dither(copy.instance));
+    return shade(in, copy_record(copy.instance), copy_dither(copy.instance), PLACE, TURN);
+}
+
+@if(ATTACHED)
+@vertex
+fn vertex(in: Vertex, copy: Attached) -> VertexOutput {
+    return shade(in, copy_record(copy.instance), copy_dither(copy.instance), copy.place, copy.turn);
 }
 
 @if(!INSTANCED)
 @vertex
 fn vertex(in: Vertex) -> VertexOutput {
-    return shade(in, in.instance_index, 0);
+    return shade(in, in.instance_index, 0, PLACE, TURN);
 }
 
+/// No offset and no turn, for draws that are not attached.
+const PLACE: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+const TURN: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+
 /// Bevy's standard prepass vertex outputs for mesh record `index`. `dither`
-/// is the copy's dither level when instanced, and ignored otherwise.
-fn shade(in: Vertex, index: u32, dither: i32) -> VertexOutput {
+/// is the copy's dither level when instanced, and ignored otherwise. With
+/// `ATTACHED`, `place` and `turn` move each vertex into the host's
+/// coordinates first; otherwise they are ignored.
+fn shade(in: Vertex, index: u32, dither: i32, place: vec4<f32>, turn: vec4<f32>) -> VertexOutput {
     var out: VertexOutput;
-    let vertex = decompress_vertex(in, index);
+    var vertex = decompress_vertex(in, index);
+@if(ATTACHED) {
+    vertex.position = attached_position(place, turn, vertex.position);
+@if(VERTEX_NORMALS)
+    vertex.normal = attached_direction(turn, vertex.normal);
+@if(VERTEX_TANGENTS)
+    vertex.tangent = vec4<f32>(attached_direction(turn, vertex.tangent.xyz), vertex.tangent.w);
+}
     let world_from_local = mesh_functions::get_world_from_local(index);
     out.world_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,

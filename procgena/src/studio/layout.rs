@@ -123,6 +123,10 @@ pub fn spawn_layout(mut commands: Commands) {
                         --
                         @page(StudioTab::Mushrooms) Children [ @mushroom_lod_row() ]
                         --
+                        @page(StudioTab::Fruit)
+                        --
+                        @page(StudioTab::Flowers)
+                        --
                         @page(StudioTab::Deadwood) Children [ @deadwood_lod_row() ]
                         --
                         @page(StudioTab::Ecotope)

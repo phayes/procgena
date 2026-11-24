@@ -292,7 +292,7 @@ blocks. Until then, nothing that depends on it starts.
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
-| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks and on W0's image example. Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
+| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks; W0's image example is done (world_plan.md, "W0 image example": nothing in it argues against 4 km). Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
 | D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Draft: the class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
 
 Questions that wait for later milestones, and are decided inside them:
@@ -566,6 +566,24 @@ From D5 (decided by the user 2026-11-24; see
 - **Done when:** a World of empty Biomes builds the same land whatever order
   its regions are asked for, pinned regions keep their Biome, and the
   image example shows Biomes following E and the selector fields.
+- **Status (2026-11-24): done, at scale 1 on 4 km regions, except stable
+  ids for designer polygons (lattice worlds only so far).** New crate
+  `procgena_world` (`world/crates/procgena_world`): `WorldOptions` (seed,
+  scale pair, region graph, E, convergence, ruggedness and moisture
+  fields, ordered Biome rules with a fallback, pins by region id) in F3's
+  preset pattern, with one `WorldPreset` per D5 scale class
+  (`.world.yml`); `World` picks each region's Biome (pin, else the first
+  matching rule at the region's site, else the fallback; neighbours may
+  share a type), gives each region its own Biome seed
+  (`region_seed(W, "biome.region.local", id)`, `procgena_biome::biome_seed`)
+  and Terrain seed (`"terrain.region.local"`,
+  `procgena_terrain::region_local_seed`), and hands `WorldTerrain` a source
+  reading the Biome. `terrain_seed` is gone; `Biome::terrain_options` sets
+  the World seed. The scale pair stretches E (layers, tilt, bumps) and the
+  selector fields, and the rules' elevation bounds follow `vertical`;
+  Terrain presets, region size and border warp are not scaled (G7). Image
+  example `--example large_world`; see world_plan.md, "W0 as built", for
+  what it shows and what is left.
 
 ### Cover track
 
@@ -802,8 +820,14 @@ confused with the B1 milestone or the D1 and D2 gates.
   their own tab, a Fruit tab and a Flower tab, with their own presets and
   viewer, and the tree panels pick a fruit preset and a flower preset by
   key.
-- **Status (2026-11-24):** started: fruit steps AC1 → B1 → B2 and the two
-  studio tabs in one lane, fruit steps D1 → D2 in another.
+- **Status (2026-11-24):** fruit step AC1 done (the crate, slots, part
+  paths, export; cluster cards removed; see "As built" in
+  [fruit/plan.md](fruit/plan.md)). Fruit steps B1 and B2 and the Fruit
+  and Flower tabs are done in the fruit lane: B2 extends the shared
+  renderer with attached copies (`InstancedAttached`) and draws grove and
+  single-tree clusters through it. Its coarse step runs on the GPU, which
+  awaits the coordinator's sign-off ("As built (fruit step B2)"). Fruit
+  steps D1 → D2 are in another lane.
 
 #### I2: Impostors prepared per Ecotope
 
@@ -960,6 +984,12 @@ label-chosen material.
   under pines and dirt round boulders, and tests show equal edges between
   same-level chunks under the cap, build-order independence, file merge
   and `null` removal, and the default stack matching G6's colours.
+- **Status (2026-11-24): done.** `procgena_terrain::ground` and the
+  Ecotope's `ground` map are built, with image dumps
+  (`--example ground_dump` in both crates) and the tests the done-when
+  names. Not yet: material presets and `.ground_material.yml` files, far
+  (density-field) Scatter influence, coverage, and the relief height
+  (no source fills it yet). See "As built" in the plan.
 
 #### GM1: Ground colours drawn
 
@@ -1136,7 +1166,9 @@ where the details are.
      type freely from the selector fields and pins, on today's region
      graph, and can start on the 4 km default.
    - *Waits on:* the quiet-machine rerun of the G3 step 2 cold benchmarks
-     (item 14) and W0's image example.
+     (item 14). W0's image example is done: see world_plan.md, "W0 image
+     example" (4 km regions make Biome areas clusters of regions; nothing
+     argues against 4 km).
    - *Details:* [docs/decisions/D4.md](docs/decisions/D4.md), "Bottom
      line" and "Region size".
    - *Scale (D5, 2026-11-24):* region size becomes a per-class World
