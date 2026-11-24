@@ -1667,6 +1667,12 @@ it starts.
   textured, alpha-masked cluster material on the leaf billboard path, and a
   view chosen from the cluster's axis. Check first that each preset has one
   cluster shape and layout. Needs F2's options hash.
+  - Built opt-in in I1b. A preset has one cluster *shape*, but each
+    cluster draws its own item count, tilt and stalk curves. So cards show
+    a representative cluster (variant 0) or one of `cluster_cards` seeded
+    variants, each sized and turned to its own cluster.
+  - Still to do: turning cards on in `default_lod`. That waits on whether
+    level 3 also moves to cards, and on the default variant count.
 - [ ] **CPU and GPU building for every asset**, with parity tests: GPU paths
   for tree, deadwood and mushroom; clump's Bevy crate uses its GPU path.
 - [ ] **Plant alignment**: core/Bevy split, production CPU path, seed, copy
