@@ -478,6 +478,11 @@ The World holds the Biomes; it does not hold Terrains directly.
 
 **What it owns.**
 
+- Its scale: a pair `{ horizontal, vertical }` that stretches every
+  landscape length (Terrain relief, E, the selector fields), never object
+  sizes, road or river widths, chunks or LOD. World presets per scale
+  class set it with region size and Biome extent (decision gate D5,
+  [docs/decisions/D5.md](docs/decisions/D5.md)).
 - The region graph's options: region size, jitter and border warp, or a
   designer's polygons. The terrain crate computes the graph from them (see
   "5.1 WorldTerrain"), because the land needs it before anything grows.
