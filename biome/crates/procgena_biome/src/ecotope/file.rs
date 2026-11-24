@@ -78,9 +78,24 @@ fn stone_default() -> StoneScatterOptions {
     }
 }
 
-/// The settings a stone class's left-out settings come from.
+/// The settings a stone class's left-out settings come from, its `key`
+/// aside: every class names its own key.
 fn class_default() -> StoneClass {
-    StoneClass::new(StoneOptions::default(), 0.01, 2.0)
+    StoneClass::new(
+        ChildKey::from_static("class"),
+        StoneOptions::default(),
+        0.01,
+        2.0,
+    )
+}
+
+/// `value` without its `key`, so a class laid over it, or written against
+/// it, always gives its own key.
+fn without_key(mut value: Value) -> Value {
+    if let Value::Object(map) = &mut value {
+        map.remove("key");
+    }
+    value
 }
 
 /// Reads one Scatter from its file settings.
@@ -117,7 +132,7 @@ fn from_file(value: Value) -> Result<EcotopeScatter, String> {
         "tree" => ScatterKind::Tree(fill(&TreeScatter::default(), map)?),
         "stone" => {
             if let Some(Value::Array(classes)) = map.get_mut("classes") {
-                let base = to_value(&class_default());
+                let base = without_key(to_value(&class_default()));
                 for (i, class) in classes.iter_mut().enumerate() {
                     let at = |e: String| format!("classes.{i}: {e}");
                     resolve::<StonePreset>(class, "stone").map_err(at)?;
@@ -206,7 +221,7 @@ fn to_file(scatter: &EcotopeScatter) -> Value {
 /// [`class_default`] and its stone as a preset reference.
 fn stone_file(options: &StoneScatterOptions) -> Value {
     let mut value = to_value(options);
-    let base = class_file(&class_default());
+    let base = without_key(class_file(&class_default()));
     let classes = options
         .classes
         .iter()

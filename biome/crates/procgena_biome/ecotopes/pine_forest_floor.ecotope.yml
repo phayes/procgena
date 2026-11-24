@@ -21,7 +21,8 @@ ecotope:
       clearance: 0.3
       kind: stone
       classes:
-        - stone: lichen_boulder
+        - key: boulders
+          stone: lichen_boulder
           variants: 4
           density: 0.006
           spacing: 5.0
@@ -29,7 +30,8 @@ ecotope:
           max_slope: 30.0
           patchiness: 0.3
           patch_size: 20.0
-        - stone: river_stone
+        - key: rocks
+          stone: river_stone
           variants: 3
           density: 0.02
           spacing: 1.5
