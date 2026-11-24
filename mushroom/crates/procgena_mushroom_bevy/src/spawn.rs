@@ -13,7 +13,8 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
-use procgena_core::ContentHasher;
+use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
+use procgena_core::{ContentHasher, Ground};
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_mushroom::{
     BodyId, BodyShape, Mushroom, MushroomBody, MushroomError, MushroomInstance, MushroomLod,
@@ -82,6 +83,40 @@ pub struct MushroomScatterParams {
     pub scatter: ScatterOptions,
 }
 
+/// Spreads whole mushrooms, or whole clusters such as fairy rings, over a
+/// [`Ground`]; see [`MushroomScatter::new`].
+///
+/// Put the entity at the area's centre, at height 0 and without rotation
+/// or scale: parts are placed relative to it, across from the centre and
+/// up to the ground's own heights. [`ScatterOptions::seed`] seeds the
+/// scatter, as its input seed. It rebuilds when the settings, the area or
+/// the ground or mask (compared as shared copies) change.
+#[derive(Component, Clone)]
+#[require(Transform, Visibility)]
+pub struct MushroomGroundScatterParams {
+    /// The species to scatter.
+    pub mushroom: Arc<MushroomOptions>,
+    /// How densely mushrooms grow, and how many different ones.
+    pub scatter: ScatterOptions,
+    /// The ground to grow on.
+    pub ground: Arc<dyn Ground>,
+    /// Where on the ground to scatter, in World metres.
+    pub area: ScatterArea,
+    /// How much of the density is allowed where, or `None` for all of it.
+    pub mask: Option<Arc<dyn Mask>>,
+}
+
+impl fmt::Debug for MushroomGroundScatterParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MushroomGroundScatterParams")
+            .field("mushroom", &self.mushroom)
+            .field("scatter", &self.scatter)
+            .field("area", &self.area)
+            .field("mask", &self.mask.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Mushroom options loaded from a `.mushroom.json` file.
 ///
 /// The file may leave settings out to use their defaults; see
@@ -130,7 +165,8 @@ pub enum MushroomBuildError {
     /// A setting is out of range.
     Options(OptionsError),
     /// The scatter could not grow on its host, for example because no part
-    /// of the host matched its tag filter.
+    /// of the host matched its tag filter, or a ground scatter's area is too
+    /// large.
     Scatter(ScatterError),
     /// The scatter's host is scaled differently along different axes.
     NonUniformScale,
@@ -226,10 +262,12 @@ enum Input {
         rotation: Quat,
         scale: f32,
     },
+    /// A scatter of whole mushrooms over a ground.
+    Ground(MushroomGroundScatterParams),
 }
 
 // Host specimens can be large, so they are compared by identity (the same
-// shared copy) rather than by content.
+// shared copy) rather than by content, as are grounds and masks.
 impl PartialEq for Input {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -250,6 +288,18 @@ impl PartialEq for Input {
                     scale: l,
                 },
             ) => a == b && s == t && Arc::ptr_eq(h, i) && r == q && k == l,
+            (Input::Ground(a), Input::Ground(b)) => {
+                let same_mask = match (&a.mask, &b.mask) {
+                    (Some(m), Some(n)) => Arc::ptr_eq(m, n),
+                    (None, None) => true,
+                    _ => false,
+                };
+                a.mushroom == b.mushroom
+                    && a.scatter == b.scatter
+                    && a.area == b.area
+                    && Arc::ptr_eq(&a.ground, &b.ground)
+                    && same_mask
+            }
             _ => false,
         }
     }
@@ -360,10 +410,15 @@ pub(crate) fn remove_mushrooms(
     mut commands: Commands,
     mut singles: RemovedComponents<MushroomParams>,
     mut scatters: RemovedComponents<MushroomScatterParams>,
+    mut grounds: RemovedComponents<MushroomGroundScatterParams>,
     children: Query<&Children>,
     parts: Query<(), With<MushroomPart>>,
 ) {
-    let removed: Vec<Entity> = singles.read().chain(scatters.read()).collect();
+    let removed: Vec<Entity> = singles
+        .read()
+        .chain(scatters.read())
+        .chain(grounds.read())
+        .collect();
     for entity in removed {
         despawn_parts(&mut commands, children.get(entity).ok(), &parts);
         if let Ok(mut entity) = commands.get_entity(entity) {
@@ -403,6 +458,7 @@ pub(crate) fn start_generation(
     mut commands: Commands,
     singles: Query<(Entity, &MushroomParams)>,
     scatters: Query<(Entity, &MushroomScatterParams, Option<&ChildOf>)>,
+    grounds: Query<(Entity, &MushroomGroundScatterParams)>,
     state: Query<(
         Option<&Building>,
         Option<&Attempted>,
@@ -426,6 +482,9 @@ pub(crate) fn start_generation(
             entity,
             options.map_or(Wanted::Wait, |o| Wanted::Build(Input::Single(o))),
         ));
+    }
+    for (entity, params) in &grounds {
+        wanted.push((entity, Wanted::Build(Input::Ground(params.clone()))));
     }
     for (entity, params, parent) in &scatters {
         // Wait for the host's specimen. Work out the host's world transform
@@ -553,6 +612,24 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             let mut species = (**mushroom).clone();
             species.size /= scale;
             let built = MushroomScatter::on(host, &species, &options)
+                .map_err(MushroomBuildError::Scatter)?;
+            let variants = built
+                .bodies()
+                .iter()
+                .map(|b| build_variant(b, lod))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Built {
+                variants,
+                instances: built.instances().to_vec(),
+                specimen: None,
+            })
+        }
+        Input::Ground(params) => {
+            let mut input = ScatterInput::new(&*params.ground, params.area, params.scatter.seed);
+            if let Some(mask) = &params.mask {
+                input = input.with_mask(&**mask);
+            }
+            let built = MushroomScatter::new(&params.mushroom, &params.scatter, &input)
                 .map_err(MushroomBuildError::Scatter)?;
             let variants = built
                 .bodies()
@@ -1043,6 +1120,52 @@ mod tests {
         app.update();
         assert!(parts(&mut app, entity).is_empty());
         assert!(app.world().entity(entity).contains::<MushroomGenerating>());
+    }
+
+    #[test]
+    fn a_ground_scatter_spawns_each_member_at_its_ground_height() {
+        let mut app = app();
+        let ground: Arc<dyn Ground> =
+            Arc::new(|p: bevy::math::DVec2| 0.3 * (p.x as f32 * 0.8).sin());
+        let params = MushroomGroundScatterParams {
+            mushroom: Arc::new(MushroomPreset::Button.options()),
+            scatter: ScatterOptions {
+                density: 2.0,
+                ..ScatterOptions::default()
+            },
+            ground: ground.clone(),
+            area: ScatterArea::new(bevy::math::DVec2::ZERO, Vec2::splat(4.0)),
+            mask: None,
+        };
+        let entity = app.world_mut().spawn(params.clone()).id();
+        run_until_finished(&mut app, entity);
+        assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
+
+        // Every part stands near the ground under it (sunk a little).
+        let mut query = app
+            .world_mut()
+            .query::<(&MushroomPart, &Transform, &ChildOf)>();
+        let mut count = 0;
+        for (_, transform, parent) in query.iter(app.world()) {
+            assert_eq!(parent.parent(), entity);
+            let t = transform.translation;
+            let h = ground.height(bevy::math::DVec2::new(t.x.into(), t.z.into()));
+            assert!((t.y - h).abs() < 0.05, "part at {t} over ground {h}");
+            count += 1;
+        }
+        assert!(count > 0);
+
+        // The same ground and settings don't rebuild; a new ground does.
+        app.update();
+        assert_eq!(app.world().resource::<Finished>().0.len(), 1);
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(MushroomGroundScatterParams {
+                ground: Arc::new(procgena_core::FlatGround),
+                ..params
+            });
+        run_until_finished(&mut app, entity);
+        assert_eq!(app.world().resource::<Finished>().0.len(), 2);
     }
 
     #[test]

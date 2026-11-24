@@ -436,7 +436,7 @@ grown into a real level.
 | WorldTerrain → Terrain | `Region` and its `EdgeAgreement`s and `CornerAgreement`s | Yes, in `procgena_terrain` |
 | Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height` and height tiles; slope and `annotate` are new |
 | Biome → Ecotope | Coverage function from 0 to 1, ground, seed | New |
-| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed, copy-address prefix (region and key salts) | `ScatterInput` in `procgena_core::scatter` (see [C1](docs/decisions/C1.md)) without the address prefix; stone takes it, and tree, deadwood and mushroom are moving to it |
+| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed, copy-address prefix (region and key salts) | `ScatterInput` in `procgena_core::scatter` (see [C1](docs/decisions/C1.md)) without the address prefix; stone and mushroom (`MushroomScatter::new`) take it, and tree and deadwood are moving to it |
 | Scatter → Scatter below | Mask: density function from 0 to 1 | New |
 | Scatter → Asset | Transform and variant | Yes |
 | Modifier → Asset | Host `Specimen` and `TagFilter` | Yes, as `Object` in `procgena_mesh` |
@@ -1400,9 +1400,13 @@ it starts.
   is built (C1, see [docs/decisions/C1.md](docs/decisions/C1.md)), and
   stone takes it. Tree, deadwood and mushroom still have to move to it;
   plant joins at R3.
-- [ ] **Mushroom as a whole growth**: fold stems and clustering into the
+- [x] **Mushroom as a whole growth**: fold stems and clustering into the
   `Mushroom` asset, moving the existing fairy-ring layout into it, and make `MushroomScatter` a
-  ground Scatter of `Mushroom`s.
+  ground Scatter of `Mushroom`s. Done in C1: `MushroomScatter::new` takes a
+  `ScatterInput`, each copy is one whole `Mushroom` specimen (slot of
+  `ScatterOptions::specimens`), and every member is set on the ground with
+  `place()` (D3 Q7b). `MushroomScatter::on` (growing on hosts) stays until
+  `MushroomGrowth`.
 
 ### Ground slope
 

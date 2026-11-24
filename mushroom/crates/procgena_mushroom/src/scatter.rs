@@ -3,8 +3,9 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 
-use glam::{Affine3A, Quat, Vec2, Vec3};
+use glam::{Affine3A, IVec2, Quat, Vec2, Vec3};
 use procgena_core::hash::{derive_seed, seed_for};
 use procgena_core::{Quality, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
@@ -13,7 +14,7 @@ use crate::cluster::{MushroomInstance, arrange, make_bodies};
 use crate::detail::MushroomLod;
 use crate::mesh::{MushroomMesh, combine};
 use crate::mushroom::MushroomBody;
-use crate::options::{MushroomOptions, OptionsError, non_negative, positive, within};
+use crate::options::{MushroomOptions, OptionsError, int_range, non_negative, positive, within};
 use crate::rng::{RngExt, SCATTER_CLUSTER, SCATTER_SITES};
 use crate::specimen::specimen_from_meshes;
 
@@ -64,7 +65,15 @@ pub struct ScatterOptions {
     /// How deep each stem base sits in the surface, as a multiple of its
     /// radius, from 0 through 2. A little depth hides gaps on uneven ground.
     pub sink: f32,
+    /// How many different whole mushrooms (or clusters) a ground scatter
+    /// ([`MushroomScatter::new`]) draws its copies from, from 1 through
+    /// [`MAX_SPECIMENS`]. Not used by [`MushroomScatter::on`], which uses
+    /// [`ClusterOptions::variants`](crate::ClusterOptions::variants).
+    pub specimens: u32,
 }
+
+/// Largest allowed [`ScatterOptions::specimens`].
+pub const MAX_SPECIMENS: u32 = 256;
 
 impl Default for ScatterOptions {
     fn default() -> Self {
@@ -79,6 +88,7 @@ impl Default for ScatterOptions {
             scale_max: 1.1,
             follow_surface: 0.5,
             sink: 0.3,
+            specimens: 3,
         }
     }
 }
@@ -108,7 +118,8 @@ impl ScatterOptions {
             f32::MAX,
         )?;
         within("scatter.follow_surface", self.follow_surface, 0.0, 1.0)?;
-        within("scatter.sink", self.sink, 0.0, 2.0)
+        within("scatter.sink", self.sink, 0.0, 2.0)?;
+        int_range("scatter.specimens", self.specimens, 1, MAX_SPECIMENS)
     }
 }
 
@@ -124,6 +135,13 @@ pub enum ScatterError {
     Surface(SurfaceError),
     /// A setting is out of range.
     Options(OptionsError),
+    /// A ground scatter's area holds more candidate spots than
+    /// [`MAX_CELLS`](crate::MAX_CELLS): the area is too large for its
+    /// [`min_spacing`](ScatterOptions::min_spacing).
+    TooLarge {
+        /// How many candidate spots the area holds.
+        cells: u64,
+    },
 }
 
 impl fmt::Display for ScatterError {
@@ -134,6 +152,11 @@ impl fmt::Display for ScatterError {
             }
             ScatterError::Surface(e) => write!(f, "the host surface is invalid: {e}"),
             ScatterError::Options(e) => write!(f, "invalid scatter options: {e}"),
+            ScatterError::TooLarge { cells } => write!(
+                f,
+                "the scatter area holds {cells} candidate spots, more than {}",
+                crate::MAX_CELLS
+            ),
         }
     }
 }
@@ -157,8 +180,36 @@ impl From<OptionsError> for ScatterError {
 /// [`specimen`](Self::specimen) if you do need a single mesh.
 #[derive(Debug, Clone)]
 pub struct MushroomScatter {
-    bodies: Vec<MushroomBody>,
-    instances: Vec<MushroomInstance>,
+    pub(crate) bodies: Vec<MushroomBody>,
+    pub(crate) instances: Vec<MushroomInstance>,
+    pub(crate) copies: Vec<MushroomCopy>,
+}
+
+/// One copy in a ground scatter ([`MushroomScatter::new`]): one whole
+/// mushroom, or one whole cluster such as a fairy ring, whose members were
+/// each set on the ground.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MushroomCopy {
+    /// Which of the scatter's specimens this copy is, from 0 up to
+    /// [`ScatterOptions::specimens`].
+    pub slot: u32,
+    /// The lattice cell the copy grew from. Equal cells in two scatters with
+    /// the same input seed are the same copy.
+    pub cell: IVec2,
+    /// Where the copy's centre stands, relative to the area's centre: X and
+    /// Z across, Y the ground height there.
+    pub translation: Vec3,
+    /// The copy's turn about the vertical, in radians.
+    pub yaw: f32,
+    /// The copy's size multiplier.
+    pub scale: f32,
+    /// The copy's entries in [`MushroomScatter::instances`].
+    pub instances: Range<usize>,
+    /// For each of those instances, its member's index in the specimen's
+    /// [`Mushroom::members`](crate::Mushroom::members). A member that
+    /// couldn't be set on the ground is missing, and the others keep their
+    /// indices.
+    pub members: Vec<u32>,
 }
 
 impl MushroomScatter {
@@ -230,7 +281,11 @@ impl MushroomScatter {
         }
         let mut instances = Vec::new();
         if faces.is_empty() {
-            return Ok(Self { bodies, instances });
+            return Ok(Self {
+                bodies,
+                instances,
+                copies: Vec::new(),
+            });
         }
         // Clusters drop their members onto the gentle faces.
         let columns = (cluster.stems > 1).then(|| Columns::new(&surface, &faces, up));
@@ -326,7 +381,11 @@ impl MushroomScatter {
                 });
             }
         }
-        Ok(Self { bodies, instances })
+        Ok(Self {
+            bodies,
+            instances,
+            copies: Vec::new(),
+        })
     }
 
     /// Returns the different single mushrooms the instances are copies of.
@@ -334,9 +393,18 @@ impl MushroomScatter {
         &self.bodies
     }
 
-    /// Returns the placed mushrooms, in the host's coordinates.
+    /// Returns the placed mushrooms: in the host's coordinates for
+    /// [`on`](Self::on), and relative to the area's centre for
+    /// [`new`](Self::new) (X and Z across, Y the ground height).
     pub fn instances(&self) -> &[MushroomInstance] {
         &self.instances
+    }
+
+    /// Returns the copies of a ground scatter ([`new`](Self::new)), each one
+    /// whole mushroom or cluster, in lattice order. Empty for
+    /// [`on`](Self::on).
+    pub fn copies(&self) -> &[MushroomCopy] {
+        &self.copies
     }
 
     /// Combines every instance into one [`Specimen`], with one detail level

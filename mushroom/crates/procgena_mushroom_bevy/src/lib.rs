@@ -67,8 +67,8 @@ pub use mesh::{
     mushroom_mesh,
 };
 pub use spawn::{
-    MushroomBuildError, MushroomFinished, MushroomGenerating, MushroomOptionsAsset, MushroomParams,
-    MushroomPart, MushroomScatterParams,
+    MushroomBuildError, MushroomFinished, MushroomGenerating, MushroomGroundScatterParams,
+    MushroomOptionsAsset, MushroomParams, MushroomPart, MushroomScatterParams,
 };
 
 use spawn::{MushroomCache, MushroomOptionsLoader, SpawnSettings, TextureSettings};
