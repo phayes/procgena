@@ -1634,7 +1634,13 @@ it starts.
   `#[non_exhaustive]`. Every asset's cache key can then hash its levels the
   same way.
 - [ ] **Shared instanced renderer**, from stone's pool and tree's grove
-  renderer; deadwood and mushroom move onto it.
+  renderer; deadwood and mushroom move onto it. The renderer is built (R2):
+  `procgena_core_bevy::instanced`, with `InstancedScatter` (slots and
+  copies), `SpecimenCache` keyed by `SpecimenId`, piece and detail level,
+  `InstancedMaterialPlugin` for any material with an `INSTANCED` vertex
+  path, and external meshes for GPU-built specimens. Stone, deadwood and
+  mushroom scatters draw through it. Still to do: tree (its grove renderer
+  in `tree_bevy/src/scatter/render.rs`), with impostors as its last level.
 - [ ] **Impostors per specimen, prepared per Ecotope**: `procgena_impostor`
   keyed by `SpecimenId` for any asset, not only trees, and baking ahead
   per Ecotope instead of per grove.
@@ -1654,7 +1660,10 @@ it starts.
   Done in C2: `Scatter::slots` names each slot's `SpecimenId` and mix
   entry, and every `ScatterCopy` names its slot. `procgena_core` can't name
   `Specimen`, so each asset builds a slot's specimen with its own API.
-- [ ] **One wind** for tree, plant and clumps on trees.
+- [ ] **One wind** for tree, plant and clumps on trees. The shared
+  renderer carries a wind phase per copy (R2), which vertex shaders read
+  with `copy_wind_phase` from `procgena_core_bevy::shaders::instanced`; no
+  asset sways with it yet.
 - [x] **One preset and file pattern**: done in F3 (see rule 10). Left for
   later: `.biome.yml` files once `Biome` has serde (B1/W0), and presets
   and files for the stone, stick and mushroom Scatters, which have serde

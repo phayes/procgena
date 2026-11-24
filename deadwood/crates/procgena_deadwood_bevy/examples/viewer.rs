@@ -39,6 +39,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
+use procgena_core_bevy::instanced::InstancedScatter;
 use procgena_deadwood::{
     DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, DeadwoodPreset, LodLevel, PieceKind,
     ScatterOptions, default_lod,
@@ -173,6 +174,9 @@ fn main() {
         .run();
 }
 
+/// Entities that draw dead wood: a single piece's parts, or a scatter.
+type Drawn = Or<(With<DeadwoodPart>, With<InstancedScatter>)>;
+
 /// With `--screenshot`, saves one image once every piece has been built
 /// and drawn for a moment, then exits. Exits with an error if nothing is
 /// built within [`SCREENSHOT_TIMEOUT`].
@@ -183,7 +187,7 @@ fn screenshot(
     offscreen: Option<Res<Offscreen>>,
     time: Res<Time>,
     generating: Query<(), With<DeadwoodGenerating>>,
-    parts: Query<(), With<DeadwoodPart>>,
+    parts: Query<(), Drawn>,
     mut settled: Local<u32>,
     mut exit: MessageWriter<AppExit>,
 ) {

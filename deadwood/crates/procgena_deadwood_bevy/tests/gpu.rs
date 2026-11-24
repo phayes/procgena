@@ -22,6 +22,7 @@ use bevy::tasks::tick_global_task_pools_on_main_thread;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core::Quality;
+use procgena_core_bevy::instanced::InstancedScatter;
 use procgena_deadwood::{DeadwoodPreset, ScatterOptions, default_lod, lod_size};
 use procgena_deadwood_bevy::{
     DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPartKind, DeadwoodPlugin,
@@ -172,6 +173,10 @@ fn every_detail_level_compiles_its_shaders() {
         parts.iter().any(|p| p.kind == DeadwoodPartKind::Ribbon),
         "no strips"
     );
+
+    // The scatter draws through the shared instanced renderer.
+    let scatters = world.query::<&InstancedScatter>().iter(world).count();
+    assert_eq!(scatters, 1, "the scatter has no instanced copies");
 
     // No pipeline failed: a shader error shows up here.
     let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();

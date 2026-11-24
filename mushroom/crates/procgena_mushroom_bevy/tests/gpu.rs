@@ -18,8 +18,16 @@ use bevy::render::render_resource::{CachedPipelineState, PipelineCache, TextureF
 use bevy::tasks::tick_global_task_pools_on_main_thread;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_mushroom::{MushroomOptions, MushroomPreset};
-use procgena_mushroom_bevy::{MushroomGenerating, MushroomPart, MushroomPlugin};
+use std::sync::Arc;
+
+use bevy::math::DVec2;
+use procgena_core::FlatGround;
+use procgena_core::scatter::ScatterArea;
+use procgena_core_bevy::instanced::InstancedScatter;
+use procgena_mushroom::{MushroomOptions, MushroomPreset, ScatterOptions};
+use procgena_mushroom_bevy::{
+    MushroomGenerating, MushroomGroundScatterParams, MushroomPart, MushroomPlugin,
+};
 
 /// The longest the test waits for mushrooms and shaders before failing.
 const LIMIT: Duration = Duration::from_secs(120);
@@ -86,8 +94,24 @@ fn spawn_scene(app: &mut App) {
         (-25.0, near(MushroomPreset::fly_agaric())),
     ] {
         app.world_mut().spawn((
-            procgena_mushroom_bevy::MushroomParams::new(options),
+            procgena_mushroom_bevy::MushroomParams::new(options.clone()),
             Transform::from_xyz(0.0, 0.0, z),
+        ));
+
+        // A small ground scatter beside each, drawn by the shared
+        // instanced renderer at the same level.
+        app.world_mut().spawn((
+            MushroomGroundScatterParams {
+                mushroom: Arc::new(options),
+                scatter: ScatterOptions {
+                    density: 20.0,
+                    ..ScatterOptions::default()
+                },
+                ground: Arc::new(FlatGround),
+                area: ScatterArea::new(DVec2::ZERO, Vec2::splat(0.5)),
+                mask: None,
+            },
+            Transform::from_xyz(0.4, 0.0, z),
         ));
     }
 }
@@ -143,6 +167,14 @@ fn every_detail_level_compiles_its_shaders() {
             "no camera-facing shapes at level {lod}"
         );
     }
+
+    // Every scatter draws through the shared instanced renderer.
+    let scattered = world
+        .query::<&InstancedScatter>()
+        .iter(world)
+        .filter(|scatter| !scatter.copies.is_empty())
+        .count();
+    assert_eq!(scattered, 5, "a scatter has no instanced copies");
 
     // No pipeline failed: a shader error shows up here.
     let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();

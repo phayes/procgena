@@ -8,12 +8,17 @@ use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamp
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+    StandardMaterialKey,
 };
 use bevy::prelude::*;
+use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
+use procgena_core_bevy::instanced::{
+    InstancedStandard, InstancedStandardMaterial, instanced_vertex,
+};
 use procgena_deadwood::{
     DeadwoodOptions, END_TEXTURE_SETS, LeafMap, TextureCompression, TextureMap, TextureSize,
     bark_texture_path, end_texture_path, leaf_texture_path,
@@ -60,6 +65,7 @@ pub type DeadwoodMaterial = ExtendedMaterial<StandardMaterial, DeadwoodExtension
 /// [`DeadwoodSurface::end_textured`] is 1, and leave them `None` when it is
 /// 0.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+#[bind_group_data(DeadwoodKey)]
 pub struct DeadwoodExtension {
     /// Ring, crack, grain and bark settings.
     #[uniform(100)]
@@ -123,6 +129,26 @@ pub struct DeadwoodSurface {
     pub end_average: Vec3,
 }
 
+/// The pipeline variant a [`DeadwoodMaterial`] is drawn with. Bevy builds
+/// one pipeline per distinct key; you never need to create one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DeadwoodKey {
+    /// Whether the pipeline draws scattered sticks through the shared
+    /// instanced renderer.
+    pub(crate) instanced: bool,
+}
+
+impl From<&DeadwoodExtension> for DeadwoodKey {
+    fn from(_: &DeadwoodExtension) -> Self {
+        // Materials are drawn as single pieces; the instanced renderer asks
+        // for its pipelines with `instanced` set.
+        Self { instanced: false }
+    }
+}
+
+/// The pipeline key of a [`DeadwoodMaterial`].
+pub(crate) type DeadwoodMaterialKey = CombinedBindGroupData<StandardMaterialKey, DeadwoodKey>;
+
 impl MaterialExtension for DeadwoodExtension {
     fn vertex_shader() -> ShaderRef {
         VERTEX_SHADER.into()
@@ -148,8 +174,12 @@ impl MaterialExtension for DeadwoodExtension {
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        if key.bind_group_data.instanced {
+            instanced_vertex(descriptor);
+        }
+
         // For meshes with billboard data, pass it to the shaders and turn on
         // the code that turns them toward the viewer.
         let layout = &layout.0;
@@ -323,19 +353,24 @@ impl LeafTextures {
 ///
 /// Both sides of each card are drawn, and the colour image's alpha cuts
 /// out the leaves (alpha testing at 0.5). The vertex colours carry
-/// [`LeafOptions::tint`](procgena_deadwood::LeafOptions::tint).
-pub fn leaf_material(textures: &LeafTextures) -> StandardMaterial {
-    StandardMaterial {
-        base_color: Color::WHITE,
-        base_color_texture: Some(textures.color.clone()),
-        normal_map_texture: Some(textures.normal.clone()),
-        alpha_mode: AlphaMode::Mask(0.5),
-        perceptual_roughness: 0.7,
-        metallic: 0.0,
-        reflectance: 0.3,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
+/// [`LeafOptions::tint`](procgena_deadwood::LeafOptions::tint). The
+/// material is a standard material that scattered sticks can also be drawn
+/// with.
+pub fn leaf_material(textures: &LeafTextures) -> InstancedStandardMaterial {
+    InstancedStandardMaterial {
+        base: StandardMaterial {
+            base_color: Color::WHITE,
+            base_color_texture: Some(textures.color.clone()),
+            normal_map_texture: Some(textures.normal.clone()),
+            alpha_mode: AlphaMode::Mask(0.5),
+            perceptual_roughness: 0.7,
+            metallic: 0.0,
+            reflectance: 0.3,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        },
+        extension: InstancedStandard::default(),
     }
 }
 
