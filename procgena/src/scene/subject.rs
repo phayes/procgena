@@ -20,7 +20,7 @@ use procgena_deadwood_bevy::{
     DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
     DeadwoodScatterParams, ScatterGround,
 };
-use procgena_fruit::{Fruit, FruitOptions};
+use procgena_fruit::{Facing, Fruit, FruitOptions};
 use procgena_fruit_bevy::{FruitFinished, FruitParams};
 use procgena_impostor::{BakedImpostor, ImpostorRequest};
 use procgena_mushroom::{Mushroom, MushroomOptions};
@@ -327,11 +327,24 @@ fn fruit_view(options: &FruitOptions) -> OrbitCamera {
 /// the ground.
 fn spawn_fruit(commands: &mut Commands, options: &Arc<FruitOptions>) -> Entity {
     commands
-        .spawn((
-            FruitParams(options.clone()),
-            Transform::from_xyz(0.0, FRUIT_HEIGHT, 0.0),
-        ))
+        .spawn((FruitParams(options.clone()), fruit_transform(options)))
         .id()
+}
+
+/// Where fruit mode shows a cluster: attached `FRUIT_HEIGHT` above the
+/// ground, turned as it would grow on a level branch. A cluster's own +Y
+/// is its facing, so hanging clusters are turned upside down, and outward
+/// ones face the camera's starting side with their down still down.
+fn fruit_transform(options: &FruitOptions) -> Transform {
+    let rotation = match options.facing {
+        Facing::Up => Quat::IDENTITY,
+        Facing::Hang => Quat::from_rotation_x(std::f32::consts::PI),
+        Facing::Outward => {
+            Quat::from_rotation_y(std::f32::consts::PI)
+                * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+        }
+    };
+    Transform::from_xyz(0.0, FRUIT_HEIGHT, 0.0).with_rotation(rotation)
 }
 
 /// The camera's nearest allowed distance in dead wood mode, kept clear of
@@ -600,7 +613,7 @@ pub(crate) fn apply_commands(
                 if state.mode == SceneMode::Fruit {
                     commands
                         .entity(state.subject)
-                        .insert(FruitParams(options.clone()));
+                        .insert((FruitParams(options.clone()), fruit_transform(options)));
                 }
             }
             ViewerCommand::SetDeadwood(settings) => {
