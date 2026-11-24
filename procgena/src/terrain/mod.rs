@@ -1,25 +1,31 @@
-//! Controls for choosing a terrain preset and customising its land,
-//! rivers, roads and borders, for the Terrain tab, which shows an endless
-//! world with those settings in every region.
+//! Controls for customising a terrain preset's land, rivers, roads and
+//! borders, for terrain documents, which show an endless world with those
+//! settings in every region.
 
 pub mod editor;
 pub mod params;
 
+#[cfg(test)]
 use procgena_terrain::TerrainPreset;
 
 use crate::params::{Group, Section, toggle};
-use crate::scene::{TerrainSettings, TerrainShow};
+#[cfg(test)]
+use crate::scene::TerrainSettings;
+use crate::scene::TerrainShow;
 
-/// The key of the terrain preset the editor shows first.
+/// The key of the terrain preset opened when terrain is the kind opened
+/// first.
 pub const START_PRESET: &str = "rolling_hills";
 
-/// The terrain preset the editor shows first.
+/// The terrain preset named by [`START_PRESET`].
+#[cfg(test)]
 pub fn start_preset() -> &'static TerrainPreset {
     TerrainPreset::named(START_PRESET).expect("the start preset is built in")
 }
 
-/// What the scene shows on the Terrain tab at first: [`START_PRESET`], with
-/// no debug drawing.
+/// What the scene shows for [`START_PRESET`] when it is first opened: its
+/// terrain, with no debug drawing.
+#[cfg(test)]
 pub fn start_settings() -> TerrainSettings {
     TerrainSettings {
         terrain: start_preset().terrain.clone(),

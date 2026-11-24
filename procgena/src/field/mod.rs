@@ -1,6 +1,6 @@
 //! Compose a Plant Scatter from plants and adjust its shared appearance.
 //!
-//! The Plant Scatter tab starts from a Plant Scatter preset. Each row
+//! A Plant Scatter document starts from a Plant Scatter preset. Each row
 //! controls one plant's appearance, density multiplier and grouping into
 //! patches. Each plant has a natural density in plants per square metre;
 //! the row's multiplier and the Scatter's multiplier both scale that density.
@@ -18,7 +18,8 @@ use procgena_plant::prelude::{
 
 use crate::export::{Done, file_key, shown_name, write_file};
 
-/// The Plant Scatter preset shown when the app starts, by its key.
+/// The Plant Scatter preset opened when the studio starts on Plant
+/// Scatters, by its key.
 pub const START_PRESET: &str = "meadow";
 
 /// Clover added by `+ Add Plant`, at 10% of its natural density.

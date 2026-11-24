@@ -15,8 +15,8 @@ use bevy::tasks::tick_global_task_pools_on_main_thread;
 use super::headless::{headless_plugins, unpad_rows};
 use super::viewport::target_image;
 use super::{
-    OrbitCamera, ScenePlugin, SceneStart, ViewerCommand, ViewerEvent, ViewportActivity,
-    ViewportCamera, ViewportInput, ViewportTarget,
+    OrbitCamera, ScenePlugin, ViewerCommand, ViewerEvent, ViewportActivity, ViewportCamera,
+    ViewportInput, ViewportTarget,
 };
 
 /// Time slept per extra frame rendered after the scene goes idle while
@@ -69,27 +69,28 @@ pub struct HeadlessScene {
 }
 
 impl HeadlessScene {
-    /// Starts the scene described by `start`, rendering at `size` pixels.
-    /// Clumps are drawn in their plain material colours, without textures.
+    /// Starts an empty scene, with no subject shown, rendering at `size`
+    /// pixels. Show a subject by sending [`ViewerCommand::Show`]. Clumps are
+    /// drawn in their plain material colours, without textures.
     ///
     /// # Panics
     ///
     /// Panics if Bevy cannot start its renderer, for example without a GPU.
-    pub fn new(start: SceneStart, size: UVec2) -> Self {
-        Self::with_sources(start, size, super::add_asset_sources)
+    pub fn new(size: UVec2) -> Self {
+        Self::with_sources(size, super::add_asset_sources)
     }
 
     /// Like [`new`](Self::new), but registers the asset sources with
     /// `sources` instead of [`add_asset_sources`](super::add_asset_sources).
-    pub fn with_sources(start: SceneStart, size: UVec2, sources: impl FnOnce(&mut App)) -> Self {
-        Self::build(ScenePlugin::new(start), size, sources)
+    pub fn with_sources(size: UVec2, sources: impl FnOnce(&mut App)) -> Self {
+        Self::build(ScenePlugin::default(), size, sources)
     }
 
     /// Like [`new`](Self::new), but trees are drawn at their farthest mesh
     /// level at every distance beyond it, never as impostors.
-    pub fn without_impostors(start: SceneStart, size: UVec2) -> Self {
+    pub fn without_impostors(size: UVec2) -> Self {
         Self::build(
-            ScenePlugin::new(start).without_impostors(),
+            ScenePlugin::default().without_impostors(),
             size,
             super::add_asset_sources,
         )

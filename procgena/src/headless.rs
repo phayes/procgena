@@ -21,7 +21,11 @@
 //! | `click-at X Y` | Clicks at a point. |
 //! | `drag X1 Y1 X2 Y2` | Drags with the left button between two points. |
 //! | `scroll X Y LINES` | Turns the wheel at a point; positive scrolls up. |
-//! | `key KEY` | Presses a key: `Escape`, `Enter`, `Tab` or a letter, optionally after `ctrl+` or `cmd+`. |
+//! | `key KEY` | Presses a key: `Escape`, `Enter`, `Tab`, `Backspace` or a letter, optionally after `ctrl+` or `cmd+`. |
+//! | `type TEXT` | Types `TEXT` into the focused text field. Click the field first. |
+//! | `hover X Y` | Moves the mouse to a point without clicking, for example to show a tooltip. |
+//! | `select PATH` | Selects a document as `KIND/KEY[/NODE…][#PART]`, such as `ecotope/pine_forest_floor`, opening it if needed. |
+//! | `command NAME` | Runs a studio command, such as `reset-camera` or `close-document`. |
 //! | `wait SECONDS` | Lets time pass, drawing all the while, for example for a message to hide itself. |
 //! | `choose PATH` | Answers the next file dialog with `PATH`. Give it before the click that opens the dialog. |
 //! | `cancel-dialog` | Cancels the next file dialog. Dialogs with no answer given are cancelled too. |
@@ -42,6 +46,8 @@ use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput, NativeKey};
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::input::touch::TouchPhase;
+use bevy::input_focus::{AcquireFocus, FocusedInput, InputFocus};
+use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::{Location, PointerAction, PointerButton, PointerId, PointerInput};
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
@@ -141,7 +147,8 @@ impl HeadlessStudio {
             .insert_resource(TimeUpdateStrategy::ManualDuration(FRAME_TIME))
             .insert_resource(frames.clone())
             .add_systems(Startup, spawn_readback)
-            .add_systems(PostStartup, retarget_ui_camera);
+            .add_systems(PostStartup, retarget_ui_camera)
+            .add_observer(click_to_focus);
 
         // Finish the plugins; the renderer starts asynchronously.
         while app.plugins_state() == PluginsState::Adding {
@@ -241,16 +248,49 @@ impl HeadlessStudio {
         shown_center(node, transform, visible, clip)
     }
 
-    /// The value of the only settings panel editing a `T`.
+    /// The value of the only settings panel editing a `T` that is on
+    /// screen: the selected document's, since other documents' panels are
+    /// hidden.
     ///
     /// # Panics
     ///
-    /// Panics unless exactly one such panel exists.
+    /// Panics unless exactly one such panel is on screen.
     #[cfg(test)]
     pub fn panel_value<T: Clone + Send + Sync + 'static>(&mut self) -> T {
         let world = self.app.world_mut();
-        let mut panels = world.query::<&crate::params::ParamPanel<T>>();
-        panels.single(world).unwrap().value().clone()
+        let mut panels = world.query::<(&crate::params::ParamPanel<T>, &InheritedVisibility)>();
+        let shown: Vec<T> = panels
+            .iter(world)
+            .filter(|(_, visible)| visible.get())
+            .map(|(panel, _)| panel.value().clone())
+            .collect();
+        let [value] = <[T; 1]>::try_from(shown)
+            .unwrap_or_else(|shown| panic!("{} panels on screen edit this type", shown.len()));
+        value
+    }
+
+    /// Selects `path`, opening its document if needed; see
+    /// [`select_path`](crate::studio::commands::select_path).
+    ///
+    /// # Errors
+    ///
+    /// Fails as `select_path` does.
+    pub fn select(&mut self, path: &str) -> Result<(), String> {
+        crate::studio::commands::select_path(self.app.world_mut(), path)?;
+        self.settle();
+        Ok(())
+    }
+
+    /// Runs the studio command named `name`; see
+    /// [`run_command`](crate::studio::commands::run_command).
+    ///
+    /// # Errors
+    ///
+    /// Fails if there is no such command.
+    pub fn command(&mut self, name: &str) -> Result<(), String> {
+        crate::studio::commands::run_command(self.app.world_mut(), name)?;
+        self.settle();
+        Ok(())
     }
 
     /// Whether a visible text starts with `start`, as toasts with details do.
@@ -325,6 +365,40 @@ impl HeadlessStudio {
         for &code in keys.iter().rev() {
             self.keyboard(code, ButtonState::Released);
         }
+        self.settle();
+    }
+
+    /// Types `text` into the focused text field, one character at a time,
+    /// as a keyboard would. Click the field first to focus it. Characters
+    /// typed with nothing focused are ignored.
+    pub fn type_text(&mut self, text: &str) {
+        for character in text.chars() {
+            let key_code = typed_key_code(character);
+            let logical_key = if character == ' ' {
+                Key::Space
+            } else {
+                Key::Character(character.to_string().into())
+            };
+            for state in [ButtonState::Pressed, ButtonState::Released] {
+                self.send_key(KeyboardInput {
+                    key_code,
+                    logical_key: logical_key.clone(),
+                    state,
+                    // Only the press produces text.
+                    text: (state == ButtonState::Pressed).then(|| character.to_string().into()),
+                    repeat: false,
+                    window: Entity::PLACEHOLDER,
+                });
+                self.update();
+            }
+        }
+        self.settle();
+    }
+
+    /// Moves the mouse to `at` without pressing anything, for example to
+    /// show a tooltip.
+    pub fn hover(&mut self, at: Vec2) {
+        self.move_to(at);
         self.settle();
     }
 
@@ -484,7 +558,7 @@ impl HeadlessStudio {
 
     /// Sends a key press or release and runs one frame.
     fn keyboard(&mut self, key_code: KeyCode, state: ButtonState) {
-        self.app.world_mut().write_message(KeyboardInput {
+        self.send_key(KeyboardInput {
             key_code,
             logical_key: logical_key(key_code),
             state,
@@ -493,6 +567,29 @@ impl HeadlessStudio {
             window: Entity::PLACEHOLDER,
         });
         self.update();
+    }
+
+    /// Sends `input` as the keyboard would, and to the focused UI element,
+    /// such as a text field. Without a window, Bevy delivers keys to no
+    /// element, so this does it in its place.
+    fn send_key(&mut self, input: KeyboardInput) {
+        let world = self.app.world_mut();
+        world.write_message(input.clone());
+        if let Some(focused) = world.resource::<InputFocus>().get() {
+            world.trigger(FocusedInput::new(focused, input, Entity::PLACEHOLDER));
+        }
+    }
+}
+
+/// Focuses the focusable element under a press, such as a text field, as
+/// Bevy does in a window. Without a window Bevy focuses nothing on a press.
+/// Pressing outside every focusable element keeps the focus where it was.
+fn click_to_focus(press: On<PointerPress>, mut commands: Commands) {
+    if press.entity == press.original_event_target() {
+        commands.trigger(AcquireFocus {
+            focused_entity: press.entity,
+            window: Entity::PLACEHOLDER,
+        });
     }
 }
 
@@ -565,11 +662,39 @@ fn logical_key(code: KeyCode) -> Key {
         KeyCode::Escape => Key::Escape,
         KeyCode::Enter => Key::Enter,
         KeyCode::Tab => Key::Tab,
+        KeyCode::Backspace => Key::Backspace,
         KeyCode::ControlLeft => Key::Control,
         KeyCode::SuperLeft => Key::Super,
         _ => key_letter(code)
             .map(|letter| Key::Character(letter.to_ascii_lowercase().to_string().into()))
             .unwrap_or(Key::Unidentified(NativeKey::Unidentified)),
+    }
+}
+
+/// The physical key that types `character` on a US layout, or
+/// [`KeyCode::Unidentified`] for characters without one of their own.
+fn typed_key_code(character: char) -> KeyCode {
+    use bevy::input::keyboard::NativeKeyCode;
+    const DIGITS: [KeyCode; 10] = [
+        KeyCode::Digit0,
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+    match character {
+        'a'..='z' | 'A'..='Z' => LETTERS[(character.to_ascii_uppercase() as u8 - b'A') as usize],
+        '0'..='9' => DIGITS[(character as u8 - b'0') as usize],
+        ' ' => KeyCode::Space,
+        '.' => KeyCode::Period,
+        '-' => KeyCode::Minus,
+        '_' => KeyCode::Minus,
+        _ => KeyCode::Unidentified(NativeKeyCode::Unidentified),
     }
 }
 
@@ -602,6 +727,7 @@ fn parse_key(text: &str) -> Result<(Option<KeyCode>, KeyCode), String> {
         "Escape" => KeyCode::Escape,
         "Enter" => KeyCode::Enter,
         "Tab" => KeyCode::Tab,
+        "Backspace" => KeyCode::Backspace,
         _ => {
             let mut chars = name.chars();
             let (Some(letter), None) = (chars.next(), chars.next()) else {
@@ -701,6 +827,13 @@ fn run_line(studio: &mut HeadlessStudio, line: &str) -> Result<(), String> {
             let (modifier, key) = parse_key(args)?;
             studio.key(modifier, key);
         }
+        "type" => studio.type_text(args),
+        "select" => studio.select(args)?,
+        "command" => studio.command(args)?,
+        "hover" => {
+            let [x, y] = numbers(args)?;
+            studio.hover(Vec2::new(x, y));
+        }
         "wait" => {
             let [seconds] = numbers(args)?;
             studio.wait(Duration::from_secs_f32(seconds.max(0.0)));
@@ -743,7 +876,7 @@ mod tests {
     //! Run them with `cargo test -p procgena -- --ignored`.
 
     use super::*;
-    use crate::studio::{ActiveTab, StudioTab};
+    use crate::studio::documents::{Document, Selection};
     use crate::ui::toast::{ShowToast, ToastKind};
 
     #[test]
@@ -773,8 +906,9 @@ mod tests {
             let [r, g, b, _] = color.to_srgba().to_u8_array();
             g > r.saturating_add(10) && g > b.saturating_add(10)
         };
-        // Foliage covers part of the 3D view.
-        let view_pixels = (0..1000)
+        // Foliage covers part of the 3D view, between the Library and the
+        // Inspector.
+        let view_pixels = (260..1076)
             .step_by(4)
             .flat_map(|x| (0..900).step_by(4).map(move |y| (x, y)));
         let leaves = view_pixels.filter(|&(x, y)| leafy(x, y)).count();
@@ -816,16 +950,14 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn clicking_a_tab_shows_its_page_and_subject() {
+    fn opening_a_preset_from_the_library_shows_its_editor_and_subject() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        assert!(studio.find("Level of Detail").is_ok());
+        assert!(studio.find("Detail").is_ok());
         studio.click("Stones").unwrap();
-        assert_eq!(
-            studio.app_mut().world().resource::<ActiveTab>().0,
-            StudioTab::Stones
-        );
-        // The tree's detail picker is gone and the overlay describes the rock.
-        assert!(studio.find("Level of Detail").is_err());
+        studio.click("Boulder").unwrap();
+        assert_eq!(selected(&mut studio).kind, "stone");
+        // The tree's detail control is gone and the overlay describes the rock.
+        assert!(studio.find("Detail").is_err());
         let texts = studio.texts();
         assert!(
             texts
@@ -833,6 +965,113 @@ mod tests {
                 .any(|t| t.text.contains("vertices") && !t.text.starts_with("LOD")),
             "no rock size in {texts:?}"
         );
+    }
+
+    /// The selected document.
+    fn selected(studio: &mut HeadlessStudio) -> Document {
+        let world = studio.app_mut().world();
+        let document = world.resource::<Selection>().document.unwrap();
+        world.get::<Document>(document).unwrap().clone()
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn two_trees_keep_their_own_settings_and_closing_one_selects_the_other() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        let oak = studio.panel_value::<procgena_tree::TreeOptions>();
+
+        // A second tree opens beside the first, with its own settings.
+        studio.click("Aspen Small").unwrap();
+        let aspen = studio.panel_value::<procgena_tree::TreeOptions>();
+        assert_eq!(aspen, procgena_tree::TreePreset::aspen_small().tree);
+        studio.click("Random Seed").unwrap();
+        let reseeded = studio.panel_value::<procgena_tree::TreeOptions>();
+        assert_ne!(reseeded.default_seed, aspen.default_seed);
+
+        // The first tree is as it was; opening its preset again selects it.
+        studio.click("Oak Medium").unwrap();
+        assert_eq!(selected(&mut studio).key, "oak_medium");
+        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), oak);
+        studio.command("next-document").unwrap();
+        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), reseeded);
+
+        // The Outline lists them in the order they were opened.
+        let oak = studio.find("Oak Medium · Trees").unwrap();
+        let aspen = studio.find("Aspen Small · Trees").unwrap();
+        assert!(oak.y < aspen.y, "{oak} then {aspen}");
+
+        // Closing the aspen selects the oak; closing the oak too leaves the
+        // view empty.
+        studio.command("close-document").unwrap();
+        assert_eq!(selected(&mut studio).key, "oak_medium");
+        assert!(studio.find("Aspen Small · Trees").is_err());
+        studio.command("close-document").unwrap();
+        let world = studio.app_mut().world_mut();
+        assert_eq!(world.resource::<Selection>().document, None);
+        let trees = world
+            .query::<&procgena_tree_bevy::TreeParams>()
+            .iter(world)
+            .count();
+        assert_eq!(trees, 0, "the tree is gone from the view");
+        assert!(studio.find("Open a preset from the Library").is_ok());
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn scripts_select_documents_and_run_commands() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        studio.select("ecotope/pine_forest_floor#ground").unwrap();
+        assert_eq!(selected(&mut studio).kind, "ecotope");
+        let selection = studio.app_mut().world().resource::<Selection>().clone();
+        assert_eq!(selection.part.as_deref(), Some("ground"));
+        assert!(studio.select("ecotope/no_such_preset").is_err());
+        assert!(studio.select("tree").is_err());
+        assert!(studio.command("no-such-command").is_err());
+        studio.select("tree/oak_medium").unwrap();
+        assert_eq!(selected(&mut studio).kind, "tree");
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn typing_into_a_text_field_renames_a_scatter() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        studio.select("ecotope/pine_forest_floor").unwrap();
+        studio.click("+ Add Scatter").unwrap();
+
+        // Clicking the new Scatter's key field focuses it; select its text
+        // and type over it. The Scatter list shows the key too, so find the
+        // field itself.
+        let world = studio.app_mut().world_mut();
+        let mut fields = world.query::<(Entity, &EditableText)>();
+        let field = fields
+            .iter(world)
+            .find(|(_, text)| text.value() == "trees")
+            .map(|(entity, _)| entity)
+            .unwrap();
+        let at = studio.center_of(field).unwrap();
+        studio.click_at(at);
+        let command = if cfg!(target_os = "macos") {
+            KeyCode::SuperLeft
+        } else {
+            KeyCode::ControlLeft
+        };
+        let focus = studio.app_mut().world().resource::<InputFocus>().get();
+        assert_eq!(focus, Some(field), "the key field has focus");
+        studio.key(Some(command), KeyCode::KeyA);
+        studio.type_text("young_pines 2");
+        assert!(studio.find("young_pines 2").is_ok(), "{:?}", studio.texts());
+        studio.key(None, KeyCode::Backspace);
+        studio.key(None, KeyCode::Backspace);
+        studio.click("Rename").unwrap();
+        let world = studio.app_mut().world_mut();
+        let mut editors = world.query_filtered::<
+            &crate::ecotope::editor::EcotopeEditor,
+            Without<crate::studio::Dormant>,
+        >();
+        let ecotope = editors.single(world).unwrap().ecotope().clone();
+        let keys: Vec<String> = ecotope.scatters.keys().map(|key| key.to_string()).collect();
+        assert!(keys.iter().any(|key| key == "young_pines"), "{keys:?}");
+        assert!(!keys.iter().any(|key| key == "trees"), "{keys:?}");
     }
 
     #[test]
@@ -865,15 +1104,22 @@ mod tests {
         };
 
         // Turn the tree's camera, visit the rock, and come back to the same view.
-        studio.drag(Vec2::new(300.0, 400.0), Vec2::new(500.0, 350.0));
+        studio.drag(Vec2::new(500.0, 400.0), Vec2::new(700.0, 350.0));
         let tree_view = camera(&mut studio);
         studio.click("Stones").unwrap();
+        studio.click("Boulder").unwrap();
         assert_ne!(camera(&mut studio), tree_view);
-        studio.click("Trees").unwrap();
+        studio.click("Oak Medium · Trees").unwrap();
         assert_eq!(camera(&mut studio), tree_view);
 
-        // Picking a detail level shows that level's size in the overlay.
-        studio.click("Auto (by distance)").unwrap();
+        // The game default draws no finer than level 1; picking a level
+        // shows that level's size in the overlay.
+        assert!(
+            studio.shows_text_starting("LOD 1 ·"),
+            "{:?}",
+            studio.texts()
+        );
+        studio.click("Game default").unwrap();
         studio.click("2 · Low").unwrap();
         assert!(
             studio.shows_text_starting("LOD 2 ·"),
@@ -882,11 +1128,12 @@ mod tests {
         );
 
         // Wind animates every frame. With it off, an idle studio asks for no
-        // more frames, so the window sleeps.
+        // more frames, so the window sleeps. The switch sits right of its
+        // label in the Environment settings over the view.
         assert!(continuous(&mut studio), "wind starts on");
         studio.click("Environment").unwrap();
         let wind = studio.find("Wind").unwrap();
-        studio.click_at(Vec2::new(1240.0, wind.y));
+        studio.click_at(Vec2::new(wind.x + 130.0, wind.y));
         assert!(!continuous(&mut studio));
         assert!(!studio.update());
     }
@@ -919,11 +1166,12 @@ mod tests {
     #[test]
     #[ignore = "needs a GPU"]
     fn the_wheel_scrolls_settings_taller_than_the_window() {
-        // The Trees tab's settings are far taller than this window.
+        // A tree's settings are far taller than this window. The settings
+        // scroll under the Inspector's title, so follow one well below it.
         let mut studio = HeadlessStudio::new(UVec2::new(1440, 400));
-        let before = studio.find("Random Seed").unwrap();
+        let before = studio.find("Branches").unwrap();
         studio.scroll(Vec2::new(1250.0, 300.0), -3.0);
-        let after = studio.find("Random Seed").unwrap();
+        let after = studio.find("Branches").unwrap();
         assert!(after.y < before.y - 40.0, "{before} -> {after}");
     }
 

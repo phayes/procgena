@@ -1,17 +1,8 @@
-//! Controls for choosing a rock preset and customising its shape and appearance.
+//! The rock editor: controls for customising a rock preset's shape and
+//! appearance.
 
 pub mod editor;
 pub mod params;
 
-use procgena_stone::{StoneOptions, StonePreset};
-
-/// The key of the initial rock preset displayed by the editor.
+/// The key of the rock preset opened when the studio starts on rocks.
 pub const START_PRESET: &str = "boulder";
-
-/// The settings of [`START_PRESET`], which the editor shows first.
-pub fn start_options() -> StoneOptions {
-    StonePreset::named(START_PRESET)
-        .expect("the start preset is built in")
-        .stone
-        .clone()
-}

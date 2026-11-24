@@ -172,10 +172,30 @@ Made by the user on 2026-11-24 in this planning session.
     The ground material catalogue stays in the terrain crates, as
     ground-materials.md decided, and names texture ids from it.
 
+### Decided for ST0 (2026-11-24, asked by the ST0 worker)
+
+12. **Detail starts at "Game default"** before IX's API exists: levels by
+    distance, never finer than level 1 near the camera, through the
+    studio's level forcing. "Level 0 preview" is levels by distance from
+    level 0. Subjects that can't leave out finer levels (plants, rocks,
+    fruit) draw every level; a clump's host draws level 0, the level the
+    clump grows on; groves and Ecotopes choose per copy by distance.
+13. **Documents are identity in ST0.** Each document's typed editor
+    (`ParamPanel<T>`) holds its settings; the `Document` names the preset
+    and keeps its camera view and detail choice. The `Value` edit model
+    comes with ST1 and ST2.
+14. **Fruit and flowers are two kinds and two file types**
+    (`.fruit.yml`, `.flower.yml`).
+15. **The studio opens one document** (the `oak_medium` tree). Any number
+    of documents may be open, several of one kind included; opening a
+    preset that is open selects it. Each document keeps its own camera
+    view.
+
 ### Proposed, not decided
 
-- The kind registry, the document and edit model, and the `Selection`
-  shape (the user agreed the layout; these are how it is built).
+- The document edit model (`Value` and path edits, ST1 and ST2). The kind
+  registry, documents as identity and `Selection { document, node, part }`
+  are built as ST0 (see "ST0 as built").
 - The metadata file's exact shape and its "shown if" language.
 - The runtime preset registry in `procgena_core::preset`, and changing
   `Preset::from_parts`, `read` and the `catalogue!` macro from
@@ -797,6 +817,35 @@ own folders.
   and edits as before; headless scripts open a tree, an Ecotope and the
   Terrain and take screenshots; the existing studio tests pass with their
   intent kept.
+
+#### ST0 as built
+
+- **Kinds** (`procgena/src/studio/kinds/`): a `Kind` per kind, in a file
+  of its own, registered by one line in `kinds::register_all`. It names
+  the kind (`id`, the preset file kind; `label`, the Library filter), its
+  presets, how to spawn its editor from a preset key, what the scene shows
+  for an editor (`show`), its detail levels, the Environment settings it
+  hides and its status line. Fruit and flowers are two kinds.
+- **Documents** (`studio/documents.rs`): `Document` entities (kind, key,
+  name, origin, Inspector page, editor, camera view, detail choice),
+  `Selection`, `OpenDocument`, `CloseDocument`, `DocumentEdited`. Editors
+  of unselected documents carry `Dormant` and their pages are hidden.
+- **Scene** (`procgena/src/scene/`): a `Subject` trait per kind of
+  subject, each in its own module, replaces `SceneMode`, `SceneStart` and
+  the per-kind commands. The host sends `ViewerCommand::Show` with the
+  document's id; the same document updates in place, another replaces the
+  subject. `SetDetail`, `SetEnvironment`, `ResetCamera` and `SetCamera`
+  are shared. The scene reports `ViewerEvent::Building` when a build
+  starts. `ViewerEvent` still has a variant per kind's build report.
+- **Layout:** Library (kind chips and the chosen kind's presets) above the
+  list of open documents, the view frame bar (Detail, camera controls)
+  over the 3D view with the Environment settings folded over its corner,
+  and the Inspector (the selected document's title and editor). The
+  per-editor preset pickers are gone; the Library opens presets.
+- **Commands and scripts** (`studio/commands.rs`): named commands
+  (`reset-camera`, `close-document`, `next-document`,
+  `previous-document`), and headless `type`, `hover`, `select`,
+  `command`. ST8 builds the palette and shortcuts on this registry.
 
 ### ST1: Metadata and the generated Inspector
 

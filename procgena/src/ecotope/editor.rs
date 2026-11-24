@@ -1,7 +1,5 @@
-//! The Ecotope tab's controls: preset, seed, ground, one row per Scatter,
-//! the selected Scatter's settings, and saving and loading.
-
-use std::path::PathBuf;
+//! An Ecotope document's editor: seed, ground, one row per Scatter, the
+//! selected Scatter's settings, and saving and loading.
 
 use bevy::feathers::constants::icons;
 use bevy::feathers::controls::{
@@ -25,47 +23,33 @@ use procgena_mushroom::{
 use procgena_stone::{StoneClass, StoneOptions, StonePreset};
 
 use super::{
-    EcotopeView, KINDS, START_PRESET, add_scatter, file_text, kind_index, new_scatter,
-    new_stone_class, params, read_ecotope, rename_scatter, start_preset,
+    EcotopeView, KINDS, add_scatter, file_text, kind_index, new_scatter, new_stone_class, params,
+    read_ecotope, rename_scatter,
 };
 use crate::export::{Done, FileOps, file_key, shown_name, write_file};
 use crate::grove::editor::{GroveEdited, GroveReader, spawn_tree_scatter_editor};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, Section, spawn_param_panel};
+use crate::studio::Dormant;
 use crate::ui::toast::{ShowToast, ToastKind};
 use crate::ui::{LABEL_WIDTH, SelectOptions, labelled_row};
 
 /// Picker label for an asset whose settings match no built-in preset.
 const CUSTOM: &str = "Custom";
 
-/// Triggered after the Ecotope or its view changes. Read them with
+/// Triggered after the selected Ecotope or its view changes. Read them with
 /// [`EcotopeEditor::ecotope`] and [`EcotopeEditor::view`].
 #[derive(Event, Debug)]
 pub struct EcotopeEdited {
     /// Whether the camera should reset to fit the new patch, as after
-    /// choosing a preset or loading a file.
+    /// loading a file.
     pub reframe: bool,
 }
 
-/// One entry of the preset list: a built-in preset, or a loaded file.
-#[derive(Debug, Clone)]
-struct Entry {
-    /// The name shown in the list.
-    name: String,
-    /// The Ecotope it holds.
-    ecotope: Ecotope,
-    /// The built-in preset that saved files name as their base.
-    base: Option<&'static EcotopePreset>,
-    /// The file it was read from, for a loaded file.
-    file: Option<PathBuf>,
-}
-
-/// The Ecotope editor's state. There is one, on the Ecotope tab.
+/// An Ecotope editor's state, one per open Ecotope.
 #[derive(Component)]
 pub struct EcotopeEditor {
-    /// The built-in presets, then each loaded file.
-    entries: Vec<Entry>,
-    /// The entry last chosen or loaded.
-    chosen: usize,
+    /// The preset edited, which saved files name as their base.
+    preset: &'static EcotopePreset,
     /// The Ecotope being edited.
     ecotope: Ecotope,
     /// The ground it is shown on.
@@ -74,8 +58,6 @@ pub struct EcotopeEditor {
     selected: Option<ChildKey>,
     /// The kind `+ Add Scatter` adds, an index in [`KINDS`].
     add_kind: usize,
-    /// The node holding the preset picker.
-    preset_slot: Entity,
     /// The node holding one row per Scatter.
     list: Entity,
     /// The node holding the selected Scatter's settings.
@@ -99,11 +81,6 @@ impl EcotopeEditor {
         self.view
     }
 
-    /// The built-in preset that saved files name as their base, if any.
-    fn base(&self) -> Option<&'static EcotopePreset> {
-        self.entries.get(self.chosen).and_then(|entry| entry.base)
-    }
-
     /// Shows `ecotope`, with its first Scatter selected, and respawns every
     /// part of the editor.
     fn show(&mut self, ecotope: Ecotope) {
@@ -116,7 +93,6 @@ impl EcotopeEditor {
 /// Which parts of the editor must be spawned again.
 #[derive(Debug, Clone, Copy, Default)]
 struct Stale {
-    presets: bool,
     list: bool,
     detail: bool,
 }
@@ -124,7 +100,6 @@ struct Stale {
 impl Stale {
     fn all() -> Self {
         Self {
-            presets: true,
             list: true,
             detail: true,
         }
@@ -241,7 +216,7 @@ struct EcotopeSeed;
 #[derive(Component, Default, Clone)]
 struct KeyField(Option<String>);
 
-/// Makes the Ecotope editor work. Needs the param panel plugins, and the
+/// Makes Ecotope editors work. Needs the param panel plugins, and the
 /// tree Scatter, stone, dead wood and mushroom editor plugins, which
 /// register the panels it embeds.
 pub struct EcotopeEditorPlugin;
@@ -261,11 +236,15 @@ impl Plugin for EcotopeEditorPlugin {
     }
 }
 
-/// Spawns the Ecotope editor, showing [`START_PRESET`], as the last child of
-/// `parent`.
-pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity) {
-    let start = start_preset();
-    let seed = i64::from(start.ecotope.default_seed);
+/// Spawns an Ecotope editor for the built-in preset `key` as the last child
+/// of `parent`, and returns the editor's entity.
+///
+/// # Panics
+///
+/// Panics if `key` names no built-in Ecotope preset.
+pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
+    let preset = EcotopePreset::named(key).expect("the Ecotope preset is built in");
+    let seed = i64::from(preset.ecotope.default_seed);
     let seed_field: Box<dyn Scene> = Box::new(bsn! {
         @FeathersNumberInput
         Node { flex_grow: 1.0 }
@@ -282,9 +261,8 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity) {
         ..default()
     };
 
-    // Preset, seed and the seed button, then the ground.
+    // Seed and the seed button, then the ground.
     let editor = commands.spawn((column.clone(), ChildOf(parent))).id();
-    let preset_slot = commands.spawn((column.clone(), ChildOf(editor))).id();
     commands
         .spawn_scene(bsn! {
             Node {
@@ -359,78 +337,51 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity) {
         })
         .insert(ChildOf(editor));
 
-    let entries = EcotopePreset::all()
-        .map(|preset| Entry {
-            name: preset.name.to_string(),
-            ecotope: preset.ecotope.clone(),
-            base: Some(preset),
-            file: None,
-        })
-        .collect::<Vec<_>>();
-    let chosen = entries
-        .iter()
-        .position(|entry| entry.base.is_some_and(|base| base.key == START_PRESET))
-        .unwrap_or(0);
     let mut state = EcotopeEditor {
-        entries,
-        chosen,
+        preset,
         ecotope: Ecotope::default(),
         view: EcotopeView::default(),
         selected: None,
         add_kind: 0,
-        preset_slot,
         list,
         detail,
         tree_editor: None,
         stale: Stale::default(),
         rng: Rng::new(std::process::id()),
     };
-    state.show(start.ecotope.clone());
+    state.show(preset.ecotope.clone());
     commands.entity(editor).insert(state);
+    editor
 }
 
-/// Respawns the parts of the editor that an edit made stale.
-fn rebuild(editor: Single<&mut EcotopeEditor>, children: Query<&Children>, mut commands: Commands) {
-    let mut editor = editor.into_inner();
-    let stale = std::mem::take(&mut editor.stale);
+/// Respawns the parts of each editor that an edit made stale.
+fn rebuild(
+    mut editors: Query<&mut EcotopeEditor>,
+    children: Query<&Children>,
+    mut commands: Commands,
+) {
     let clear = |commands: &mut Commands, node: Entity| {
         for child in children.get(node).into_iter().flatten() {
             commands.entity(*child).despawn();
         }
     };
-    if stale.presets {
-        clear(&mut commands, editor.preset_slot);
-        spawn_preset_picker(&mut commands, &editor);
-    }
-    if stale.list {
-        clear(&mut commands, editor.list);
-        for (key, scatter) in editor.ecotope.order() {
-            let selected = editor.selected.as_ref() == Some(key);
-            spawn_row(&mut commands, editor.list, key, scatter, selected);
+    for mut editor in &mut editors {
+        if !(editor.stale.list || editor.stale.detail) {
+            continue;
+        }
+        let stale = std::mem::take(&mut editor.stale);
+        if stale.list {
+            clear(&mut commands, editor.list);
+            for (key, scatter) in editor.ecotope.order() {
+                let selected = editor.selected.as_ref() == Some(key);
+                spawn_row(&mut commands, editor.list, key, scatter, selected);
+            }
+        }
+        if stale.detail {
+            clear(&mut commands, editor.detail);
+            editor.tree_editor = spawn_detail(&mut commands, &editor);
         }
     }
-    if stale.detail {
-        clear(&mut commands, editor.detail);
-        editor.tree_editor = spawn_detail(&mut commands, &editor);
-    }
-}
-
-/// Spawns the preset picker, listing every entry, in the editor's preset
-/// slot.
-fn spawn_preset_picker(commands: &mut Commands, editor: &EcotopeEditor) {
-    let names: Vec<String> = editor
-        .entries
-        .iter()
-        .map(|entry| entry.name.clone())
-        .collect();
-    let preset: Box<dyn Scene> = Box::new(bsn! {
-        @FeathersSelect { @options: list_rows_from_strings(names, Some(editor.chosen)) }
-        Node { flex_grow: 1.0 }
-        on(choose_preset)
-    });
-    commands
-        .spawn_scene(bsn! { @labelled_row("Preset", preset) })
-        .insert(ChildOf(editor.preset_slot));
 }
 
 /// Spawns a row for the Scatter `key` as the last child of `list`: a button
@@ -710,7 +661,7 @@ where
 fn store_panel<T: Stored>(
     changed: On<ParamsChanged>,
     panels: Query<(&ParamPanel<T>, &Part)>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,
 ) {
     let mut editor = editor.into_inner();
@@ -731,45 +682,63 @@ fn store_panel<T: Stored>(
     commands.trigger(EcotopeEdited { reframe: false });
 }
 
-/// Shows in each asset picker the preset its asset now matches, or Custom.
+/// Shows in each editor's asset pickers the preset their asset now
+/// matches, or Custom.
 fn show_asset_choices(
-    editor: Single<&EcotopeEditor, Changed<EcotopeEditor>>,
-    pickers: Query<(Entity, &AssetPicker)>,
+    editors: Query<(Entity, &EcotopeEditor), Changed<EcotopeEditor>>,
+    children: Query<&Children>,
+    pickers: Query<&AssetPicker>,
     selects: SelectOptions,
     mut commands: Commands,
 ) {
-    let Some(scatter) = editor
-        .selected
-        .as_ref()
-        .and_then(|key| editor.ecotope.scatters.get(key))
-    else {
-        return;
-    };
-    for (entity, picker) in &pickers {
-        let choice = match (picker.0, &scatter.scatter) {
-            (Part::ClassStone(i), ScatterKind::Stone(options)) => options
-                .classes
-                .get(i)
-                .map(|class| asset_choice::<StonePreset>(&class.stone)),
-            (Part::Piece, ScatterKind::Deadwood(options)) => {
-                Some(asset_choice::<DeadwoodPreset>(&options.piece))
-            }
-            (Part::Species, ScatterKind::Mushroom { mushroom, .. }) => {
-                Some(asset_choice::<MushroomPreset>(mushroom))
-            }
-            _ => None,
+    for (editor_entity, editor) in &editors {
+        let Some(scatter) = editor
+            .selected
+            .as_ref()
+            .and_then(|key| editor.ecotope.scatters.get(key))
+        else {
+            continue;
         };
-        if let Some(choice) = choice {
-            selects.select(&mut commands, entity, choice);
+        for entity in children.iter_descendants(editor_entity) {
+            if let Ok(picker) = pickers.get(entity) {
+                show_asset_choice(entity, picker, scatter, &selects, &mut commands);
+            }
         }
     }
 }
 
-/// Stores the embedded tree Scatter editor's edits.
+/// Shows in the asset picker `entity` the preset its asset in `scatter`
+/// now matches, or Custom.
+fn show_asset_choice(
+    entity: Entity,
+    picker: &AssetPicker,
+    scatter: &EcotopeScatter,
+    selects: &SelectOptions,
+    commands: &mut Commands,
+) {
+    let choice = match (picker.0, &scatter.scatter) {
+        (Part::ClassStone(i), ScatterKind::Stone(options)) => options
+            .classes
+            .get(i)
+            .map(|class| asset_choice::<StonePreset>(&class.stone)),
+        (Part::Piece, ScatterKind::Deadwood(options)) => {
+            Some(asset_choice::<DeadwoodPreset>(&options.piece))
+        }
+        (Part::Species, ScatterKind::Mushroom { mushroom, .. }) => {
+            Some(asset_choice::<MushroomPreset>(mushroom))
+        }
+        _ => None,
+    };
+    if let Some(choice) = choice {
+        selects.select(commands, entity, choice);
+    }
+}
+
+/// Stores the selected Ecotope's embedded tree Scatter editor's edits.
 fn edit_tree_scatter(
     _: On<GroveEdited>,
     reader: GroveReader,
-    editor: Option<Single<&mut EcotopeEditor>>,
+    editor: Option<Single<&mut EcotopeEditor, Without<Dormant>>>,
     mut commands: Commands,
 ) {
     let Some(mut editor) = editor.map(Single::into_inner) else {
@@ -789,32 +758,10 @@ fn edit_tree_scatter(
     }
 }
 
-/// Starts over from the chosen preset or file.
-fn choose_preset(
-    change: On<ValueChange<Entity>>,
-    rows: Query<&OptionIndex>,
-    editor: Single<&mut EcotopeEditor>,
-    mut commands: Commands,
-) {
-    let mut editor = editor.into_inner();
-    let Some(index) = rows.get(change.value).ok().map(|index| index.0) else {
-        return;
-    };
-    let Some(entry) = editor.entries.get(index).cloned() else {
-        return;
-    };
-    if index == editor.chosen && entry.ecotope == editor.ecotope {
-        return;
-    }
-    editor.chosen = index;
-    editor.show(entry.ecotope);
-    commands.trigger(EcotopeEdited { reframe: true });
-}
-
 /// Uses a typed seed.
 fn type_seed(
     change: On<ValueChange<i64>>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,
 ) {
     let mut editor = editor.into_inner();
@@ -829,22 +776,29 @@ fn type_seed(
 }
 
 /// Picks a random seed.
-fn random_seed(_: On<Activate>, editor: Single<&mut EcotopeEditor>, mut commands: Commands) {
+fn random_seed(
+    _: On<Activate>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
+    mut commands: Commands,
+) {
     let mut editor = editor.into_inner();
     editor.ecotope.default_seed = editor.rng.next_u32() % 65536;
     commands.trigger(EcotopeEdited { reframe: false });
 }
 
-/// Shows the Ecotope's seed in the seed field whenever it changes.
+/// Shows each Ecotope's seed in its own seed field whenever it changes.
 fn show_seed(
-    editor: Single<&EcotopeEditor, Changed<EcotopeEditor>>,
-    fields: Query<(Entity, &NumberInputValue), With<EcotopeSeed>>,
+    editors: Query<(Entity, &EcotopeEditor), Changed<EcotopeEditor>>,
+    children: Query<&Children>,
+    fields: Query<&NumberInputValue, With<EcotopeSeed>>,
     mut commands: Commands,
 ) {
-    let seed = NumberInputValue::I64(i64::from(editor.ecotope.default_seed));
-    for (field, shown) in &fields {
-        if *shown != seed {
-            commands.entity(field).insert(seed);
+    for (entity, editor) in &editors {
+        let seed = NumberInputValue::I64(i64::from(editor.ecotope.default_seed));
+        for field in children.iter_descendants(entity) {
+            if fields.get(field).is_ok_and(|shown| *shown != seed) {
+                commands.entity(field).insert(seed);
+            }
         }
     }
 }
@@ -853,7 +807,7 @@ fn show_seed(
 fn edit_view(
     changed: On<ParamsChanged>,
     panels: Query<&ParamPanel<EcotopeView>>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,
 ) {
     if let Ok(panel) = panels.get(changed.entity) {
@@ -868,7 +822,7 @@ fn select_scatter(
     activate: On<Activate>,
     parents: Query<&ChildOf>,
     rows: Query<&ScatterRow>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
 ) {
     let mut editor = editor.into_inner();
     let Some(row) = parents
@@ -889,7 +843,7 @@ fn remove_scatter(
     activate: On<Activate>,
     parents: Query<&ChildOf>,
     rows: Query<&ScatterRow>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,
 ) {
     let mut editor = editor.into_inner();
@@ -916,7 +870,7 @@ fn remove_scatter(
 fn choose_add_kind(
     change: On<ValueChange<Entity>>,
     rows: Query<&OptionIndex>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
 ) {
     if let Ok(index) = rows.get(change.value) {
         editor.into_inner().add_kind = index.0;
@@ -924,7 +878,11 @@ fn choose_add_kind(
 }
 
 /// Adds a Scatter of the chosen kind and shows its settings.
-fn add_new_scatter(_: On<Activate>, editor: Single<&mut EcotopeEditor>, mut commands: Commands) {
+fn add_new_scatter(
+    _: On<Activate>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
+    mut commands: Commands,
+) {
     let mut editor = editor.into_inner();
     let kind = editor.add_kind;
     let key = add_scatter(&mut editor.ecotope, kind);
@@ -934,16 +892,20 @@ fn add_new_scatter(_: On<Activate>, editor: Single<&mut EcotopeEditor>, mut comm
     commands.trigger(EcotopeEdited { reframe: false });
 }
 
-/// Gives the selected Scatter the key typed in the key field. Shows why if
-/// the key can't be used.
+/// Gives the selected Scatter the key typed in the selected Ecotope's key
+/// field. Shows why if the key can't be used.
 fn rename_selected(
     _: On<Activate>,
     fields: Query<&EditableText, With<KeyField>>,
-    editor: Single<&mut EcotopeEditor>,
+    children: Query<&Children>,
+    editor: Single<(Entity, &mut EcotopeEditor), Without<Dormant>>,
     mut commands: Commands,
 ) {
-    let mut editor = editor.into_inner();
-    let (Some(from), Ok(field)) = (editor.selected.clone(), fields.single()) else {
+    let (entity, mut editor) = editor.into_inner();
+    let field = children
+        .iter_descendants(entity)
+        .find_map(|child| fields.get(child).ok());
+    let (Some(from), Some(field)) = (editor.selected.clone(), field) else {
         return;
     };
     let typed = field.value().to_string();
@@ -977,7 +939,7 @@ fn fill_key_field(mut fields: Query<(&mut EditableText, &mut KeyField)>) {
 fn choose_kind(
     change: On<ValueChange<Entity>>,
     rows: Query<&OptionIndex>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,
 ) {
     let mut editor = editor.into_inner();
@@ -1002,7 +964,7 @@ fn choose_asset(
     change: On<ValueChange<Entity>>,
     rows: Query<&OptionIndex>,
     pickers: Query<&AssetPicker>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,
 ) {
     let mut editor = editor.into_inner();
@@ -1052,7 +1014,11 @@ where
 }
 
 /// Adds a class of river stones to the selected stone Scatter.
-fn add_stone_class(_: On<Activate>, editor: Single<&mut EcotopeEditor>, mut commands: Commands) {
+fn add_stone_class(
+    _: On<Activate>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
+    mut commands: Commands,
+) {
     let mut editor = editor.into_inner();
     let Some(key) = editor.selected.clone() else {
         return;
@@ -1078,7 +1044,7 @@ fn add_stone_class(_: On<Activate>, editor: Single<&mut EcotopeEditor>, mut comm
 fn remove_stone_class(
     activate: On<Activate>,
     classes: Query<&StoneClassIndex>,
-    editor: Single<&mut EcotopeEditor>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,
 ) {
     let mut editor = editor.into_inner();
@@ -1101,64 +1067,43 @@ fn remove_stone_class(
     }
 }
 
-/// Saves the Ecotope as a `.ecotope.yml` preset file based on the chosen
-/// preset.
-fn save_ecotope(_: On<Activate>, editor: Single<&EcotopeEditor>, mut files: FileOps) {
+/// Saves the selected Ecotope as a `.ecotope.yml` preset file based on its
+/// document's preset.
+fn save_ecotope(
+    _: On<Activate>,
+    editor: Single<&EcotopeEditor, Without<Dormant>>,
+    mut files: FileOps,
+) {
     let ecotope = editor.ecotope.clone();
-    let base = editor.base();
-    let stem = base.map_or("ecotope", |base| base.key.as_ref()).to_owned();
-    files.save(&format!("{stem}.ecotope.yml"), move |path| {
+    let base = editor.preset;
+    files.save(&format!("{}.ecotope.yml", base.key), move |path| {
         let key = file_key(path, EcotopePreset::KIND);
-        write_file(path, file_text(&ecotope, &key, base).as_bytes())?;
+        write_file(path, file_text(&ecotope, &key, Some(base)).as_bytes())?;
         Ok(Done::new(format!("Saved {}", shown_name(path))))
     });
 }
 
-/// Loads a `.ecotope.yml` preset file, adds it to the preset list and shows
-/// it.
+/// Loads a `.ecotope.yml` preset file into the selected Ecotope's editor.
 fn load_ecotope_file(_: On<Activate>, mut files: FileOps) {
     files.open_file(|path, text, world| {
         let key = file_key(path, EcotopePreset::KIND);
         let preset = read_ecotope(&key, text)?;
-        let base = procgena_core::preset::Document::parse(EcotopePreset::KIND, text)
-            .ok()
-            .and_then(|document| document.base)
-            .and_then(|base| EcotopePreset::named(&base));
-        let entry = Entry {
-            name: format!("File: {}", preset.name),
-            ecotope: preset.ecotope,
-            base,
-            file: Some(path.to_owned()),
-        };
         world
-            .run_system_cached_with(add_file, entry)
+            .run_system_cached_with(load_ecotope, preset.ecotope)
             .map_err(|error| format!("Cannot show the Ecotope: {error}"))?;
         Ok(Done::new(format!("Loaded the Ecotope {key}")))
     });
 }
 
-/// Adds a loaded file's entry to the preset list, or replaces the entry the
-/// same file already has, and shows it. Run it with
-/// `World::run_system_cached_with`.
-fn add_file(In(entry): In<Entry>, editor: Single<&mut EcotopeEditor>, mut commands: Commands) {
-    let mut editor = editor.into_inner();
-    let index = match editor
-        .entries
-        .iter()
-        .position(|e| e.file.is_some() && e.file == entry.file)
-    {
-        Some(index) => {
-            editor.entries[index] = entry;
-            index
-        }
-        None => {
-            editor.entries.push(entry);
-            editor.entries.len() - 1
-        }
-    };
-    editor.chosen = index;
-    let ecotope = editor.entries[index].ecotope.clone();
-    editor.show(ecotope);
+/// Shows a loaded Ecotope in the selected Ecotope's editor, and fits the
+/// camera to it. The preset, and so the suggested file name, stays as it
+/// was. Run it with `World::run_system_cached_with`.
+fn load_ecotope(
+    In(ecotope): In<Ecotope>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
+    mut commands: Commands,
+) {
+    editor.into_inner().show(ecotope);
     commands.trigger(EcotopeEdited { reframe: true });
 }
 
@@ -1166,29 +1111,38 @@ fn add_file(In(entry): In<Entry>, editor: Single<&mut EcotopeEditor>, mut comman
 mod tests {
     //! These start the whole studio on the GPU, so they are ignored by default.
 
+    use std::path::PathBuf;
     use std::time::Duration;
 
     use super::*;
+    use crate::ecotope::{START_PRESET, start_preset};
     use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
-    use crate::scene::{EcotopeGround, ViewerCommand};
+    use crate::scene::{EcotopeGround, EcotopeSubject, ViewerCommand};
 
-    /// The editor's Ecotope and view.
+    /// Opens the start Ecotope preset from the Library.
+    fn open_start(studio: &mut HeadlessStudio) {
+        studio.click("Ecotope").unwrap();
+        studio.click(&start_preset().name).unwrap();
+    }
+
+    /// The selected editor's Ecotope and view.
     fn edited(studio: &mut HeadlessStudio) -> (Ecotope, EcotopeView) {
         let world = studio.app_mut().world_mut();
-        let mut editors = world.query::<&EcotopeEditor>();
+        let mut editors = world.query_filtered::<&EcotopeEditor, Without<Dormant>>();
         let editor = editors.single(world).unwrap();
         (editor.ecotope.clone(), editor.view)
     }
 
-    /// The Ecotope in the last `SetEcotope` among `commands`.
+    /// The Ecotope in the last Ecotope `Show` among `commands`.
     fn last_sent(commands: &[ViewerCommand]) -> Ecotope {
         commands
             .iter()
             .rev()
             .find_map(|command| match command {
-                ViewerCommand::SetEcotope(settings) => Some(settings.ecotope.clone()),
+                ViewerCommand::Show(show) => show.settings::<EcotopeSubject>(),
                 _ => None,
             })
+            .map(|settings| settings.ecotope.clone())
             .expect("an Ecotope was sent")
     }
 
@@ -1222,13 +1176,14 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn the_ecotope_tab_places_its_ecotope_and_edits_its_scatters() {
+    fn an_ecotope_document_places_its_ecotope_and_edits_its_scatters() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        studio.click("Ecotope").unwrap();
         let sent = studio.record::<ViewerCommand>();
         let start = start_preset().ecotope.clone();
+        open_start(&mut studio);
 
-        // The starting Ecotope is placed, with one row per Scatter.
+        // The opened Ecotope is sent and placed, with one row per Scatter.
+        assert_eq!(last_sent(&lock(&sent)), start);
         let line = placed_line(&mut studio);
         assert!(line.contains("in 5 Scatters"), "{line}");
         for key in start.scatters.keys() {
@@ -1314,7 +1269,7 @@ mod tests {
     #[ignore = "needs a GPU"]
     fn an_edit_redraws_only_the_scatters_it_moves() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        studio.click("Ecotope").unwrap();
+        open_start(&mut studio);
         placed_line(&mut studio);
 
         // Flat ground places everything again.
@@ -1339,10 +1294,10 @@ mod tests {
         assert!(line.ends_with("1 redrawn"), "{line}");
     }
 
-    /// Applies `change` to the editor as an edit would.
+    /// Applies `change` to the selected editor as an edit would.
     fn edit(studio: &mut HeadlessStudio, change: impl FnOnce(&mut EcotopeEditor)) {
         let world = studio.app_mut().world_mut();
-        let mut editors = world.query::<&mut EcotopeEditor>();
+        let mut editors = world.query_filtered::<&mut EcotopeEditor, Without<Dormant>>();
         change(&mut editors.single_mut(world).unwrap());
         world.trigger(EcotopeEdited { reframe: false });
         studio.settle();
@@ -1364,51 +1319,51 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn ecotopes_save_and_load_and_loaded_files_join_the_list() {
+    fn ecotopes_save_and_load() {
         let dir = folder("ecotope");
         let path = dir.join("mossy.ecotope.yml");
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        studio.click("Ecotope").unwrap();
+        open_start(&mut studio);
         studio.click("+ Add Scatter").unwrap();
         let saved = edited(&mut studio).0;
 
         // The file buttons sit below the settings, so scroll down to them.
-        let panel = studio.find("Preset").unwrap();
+        let panel = studio.find("Seed").unwrap();
         studio.scroll(panel, -100.0);
 
-        // Saving writes the Ecotope; loading it adds it to the list.
+        // Saving writes the Ecotope based on the document's preset; loading
+        // it undoes later edits and keeps the document's preset.
         studio.answer_dialog(Some(path.clone()));
         studio.click("Save Preset…").unwrap();
         assert!(studio.find("Saved mossy.ecotope.yml").is_ok());
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("base: pine_forest_floor"), "{text}");
+        edit(&mut studio, |editor| editor.ecotope.default_seed += 1);
+        assert_ne!(edited(&mut studio).0, saved);
         studio.answer_dialog(Some(path.clone()));
         studio.click("Load Preset…").unwrap();
         assert!(studio.find("Loaded the Ecotope mossy").is_ok());
         assert_eq!(edited(&mut studio).0, saved);
-        {
+        let preset = |studio: &mut HeadlessStudio| {
             let world = studio.app_mut().world_mut();
-            let mut editors = world.query::<&EcotopeEditor>();
-            let editor = editors.single(world).unwrap();
-            assert_eq!(editor.entries.len(), EcotopePreset::all().count() + 1);
-            assert_eq!(editor.chosen, editor.entries.len() - 1);
-        }
+            let mut editors = world.query_filtered::<&EcotopeEditor, Without<Dormant>>();
+            editors.single(world).unwrap().preset.key.to_string()
+        };
+        assert_eq!(preset(&mut studio), START_PRESET);
 
-        // Loading the file again after it changed replaces its entry.
+        // Loading the file again after it changed shows the change.
         let changed = text.replace("ecotope:\n", "ecotope:\n  default_seed: 5\n");
         std::fs::write(&path, changed).unwrap();
+        // Let the last message hide, so it covers no button.
+        studio.wait(Duration::from_secs(5));
         studio.answer_dialog(Some(path.clone()));
         studio.click("Load Preset…").unwrap();
         assert_eq!(edited(&mut studio).0.default_seed, 5);
-        {
-            let world = studio.app_mut().world_mut();
-            let mut editors = world.query::<&EcotopeEditor>();
-            let editor = editors.single(world).unwrap();
-            assert_eq!(editor.entries.len(), EcotopePreset::all().count() + 1);
-        }
+        assert_eq!(preset(&mut studio), START_PRESET);
 
         // A file that is not an Ecotope changes nothing.
         std::fs::write(dir.join("bad.ecotope.yml"), "not a preset").unwrap();
+        studio.wait(Duration::from_secs(5));
         studio.answer_dialog(Some(dir.join("bad.ecotope.yml")));
         studio.click("Load Preset…").unwrap();
         assert!(studio.shows_text_starting("Not Ecotope settings"));

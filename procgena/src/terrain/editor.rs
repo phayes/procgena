@@ -1,13 +1,9 @@
-//! The Terrain tab's controls: preset, seed, debug drawing, every terrain
-//! setting, and saving and loading `.terrain.yml` preset files.
+//! A terrain document's editor: seed, debug drawing, every terrain setting,
+//! and saving and loading `.terrain.yml` preset files.
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use bevy::feathers::controls::{
-    FeathersButton, FeathersNumberInput, FeathersSelect, HardLimit, NumberInputValue, OptionIndex,
-    list_rows_from_strings,
-};
+use bevy::feathers::controls::{FeathersButton, FeathersNumberInput, HardLimit, NumberInputValue};
 use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::scene::Scene;
@@ -15,20 +11,31 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_terrain::{TerrainOptions, TerrainPreset};
 
-use super::{START_PRESET, params, show_sections, start_preset, start_settings};
+use super::{params, show_sections};
 use crate::export::{Done, FileOps, read_preset, save_preset};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
-use crate::scene::{TerrainSettings, TerrainShow, ViewerCommand};
+use crate::scene::{TerrainSettings, TerrainShow};
+use crate::studio::Dormant;
 use crate::ui::{LABEL_WIDTH, labelled_row};
 
 /// How long the settings must stay unchanged before the terrain is built
 /// again, so dragging a slider doesn't start a build at every step.
 const SETTLE: Duration = Duration::from_millis(400);
 
-/// The terrain editor's state. There is one, on the Terrain tab.
+/// Triggered after the selected terrain's settled settings change, or when
+/// the camera should be fitted to them. Read them with
+/// [`TerrainEditor::settled`].
+#[derive(Event, Debug)]
+pub struct TerrainEdited {
+    /// Whether the camera should reset to fit the terrain, as after
+    /// loading settings.
+    pub reframe: bool,
+}
+
+/// A terrain editor's state, one per open terrain.
 #[derive(Component)]
 pub struct TerrainEditor {
-    /// The preset last chosen, which saved files name as their base.
+    /// The preset edited, which saved files name as their base.
     preset: &'static TerrainPreset,
     /// The panel holding the edited options.
     panel: Entity,
@@ -36,17 +43,28 @@ pub struct TerrainEditor {
     show_panel: Entity,
     /// Picks seeds for Random Seed.
     rng: Rng,
-    /// When the settings last changed, while that change is unsent.
+    /// The settings to show: the edited ones, once they have settled.
+    settled: TerrainSettings,
+    /// When the settings last changed, while that change hasn't settled.
     changed: Option<Duration>,
-    /// Whether the camera should be fitted to the next settings sent.
+    /// Whether the camera should be fitted to the next settled settings.
     reframe: bool,
 }
 
-/// Marks the seed field.
+impl TerrainEditor {
+    /// The settings to show. Terrain edits appear here once the settings
+    /// have stayed unchanged for a moment; debug drawing edits appear at
+    /// once.
+    pub fn settled(&self) -> &TerrainSettings {
+        &self.settled
+    }
+}
+
+/// Marks an editor's seed field.
 #[derive(Component, Default, Clone)]
 struct TerrainSeed;
 
-/// Makes the terrain editor work. Needs the param panel plugins.
+/// Makes terrain editors work. Needs the param panel plugins.
 pub struct TerrainEditorPlugin;
 
 impl Plugin for TerrainEditorPlugin {
@@ -55,26 +73,24 @@ impl Plugin for TerrainEditorPlugin {
             ParamPanelPlugin::<TerrainOptions>::default(),
             ParamPanelPlugin::<TerrainShow>::default(),
         ))
-        .add_systems(Update, send_terrain)
+        .add_systems(Update, settle_terrain)
         .add_systems(PostUpdate, show_seed);
     }
 }
 
-/// Spawns the terrain editor, showing [`START_PRESET`], as the last child
-/// of `parent`, with the save and load buttons below it.
-pub fn spawn_terrain_editor(commands: &mut Commands, parent: Entity) {
-    let names: Vec<String> = TerrainPreset::all().map(|p| p.name.to_string()).collect();
-    let selected = TerrainPreset::all().position(|p| p.key == START_PRESET);
-    let start = start_preset();
-    let options = start.terrain.clone();
+/// Spawns a terrain editor for the built-in preset `key` as the last child
+/// of `parent`, with the save and load buttons below it, and returns the
+/// editor's entity.
+///
+/// # Panics
+///
+/// Panics if `key` names no built-in terrain preset.
+pub fn spawn_terrain_editor(commands: &mut Commands, parent: Entity, key: &str) -> Entity {
+    let preset = TerrainPreset::named(key).expect("the terrain preset is built in");
+    let options = preset.terrain.clone();
     let seed = i64::from(options.default_seed);
 
-    // Preset, seed, and the seed button, above the panels.
-    let preset: Box<dyn Scene> = Box::new(bsn! {
-        @FeathersSelect { @options: list_rows_from_strings(names, selected) }
-        Node { flex_grow: 1.0 }
-        on(choose_preset)
-    });
+    // Seed, and the seed button, above the panels.
     let seed_field: Box<dyn Scene> = Box::new(bsn! {
         @FeathersNumberInput
         Node { flex_grow: 1.0 }
@@ -92,8 +108,6 @@ pub fn spawn_terrain_editor(commands: &mut Commands, parent: Entity) {
                 row_gap: px(8),
             }
             Children [
-                @labelled_row("Preset", preset)
-                --
                 @labelled_row("Seed", seed_field)
                 --
                 Node {
@@ -119,19 +133,25 @@ pub fn spawn_terrain_editor(commands: &mut Commands, parent: Entity) {
         show_sections(),
         &[0],
     );
-    let panel = spawn_param_panel(commands, editor, options, params::sections(), &[0]);
+    let panel = spawn_param_panel(commands, editor, options.clone(), params::sections(), &[0]);
     for edited in [show_panel, panel] {
         commands.entity(edited).observe(
-            |_: On<ParamsChanged>, mut editor: Single<&mut TerrainEditor>, time: Res<Time>| {
-                editor.changed = Some(time.elapsed());
+            move |_: On<ParamsChanged>, mut editors: Query<&mut TerrainEditor>, time: Res<Time>| {
+                if let Ok(mut editor) = editors.get_mut(editor) {
+                    editor.changed = Some(time.elapsed());
+                }
             },
         );
     }
     commands.entity(editor).insert(TerrainEditor {
-        preset: start,
+        preset,
         panel,
         show_panel,
         rng: Rng::new(std::process::id()),
+        settled: TerrainSettings {
+            terrain: options,
+            show: TerrainShow::default(),
+        },
         changed: None,
         reframe: false,
     });
@@ -149,58 +169,65 @@ pub fn spawn_terrain_editor(commands: &mut Commands, parent: Entity) {
             ]
         })
         .insert(ChildOf(parent));
+    editor
 }
 
-/// Sends the settings to the scene once they have stopped changing for
-/// [`SETTLE`], if they differ from the ones sent last.
-fn send_terrain(
+/// Takes each editor's settings as settled once they have stopped changing
+/// for [`SETTLE`], and triggers [`TerrainEdited`] for the selected editor
+/// when its settled settings change or its camera should be fitted.
+fn settle_terrain(
     time: Res<Time>,
-    editor: Option<Single<&mut TerrainEditor>>,
+    mut editors: Query<(&mut TerrainEditor, Has<Dormant>)>,
     panels: Query<&ParamPanel<TerrainOptions>>,
     shows: Query<&ParamPanel<TerrainShow>>,
-    mut sent: Local<Option<TerrainSettings>>,
-    mut viewer: MessageWriter<ViewerCommand>,
+    mut commands: Commands,
 ) {
-    let Some(mut editor) = editor else { return };
-    let Some(changed) = editor.changed else {
-        return;
-    };
-    let (Ok(panel), Ok(show)) = (panels.get(editor.panel), shows.get(editor.show_panel)) else {
-        return;
-    };
-    let wanted = TerrainSettings {
-        terrain: panel.value().clone(),
-        show: *show.value(),
-    };
-    // Debug drawing is cheap: send it at once. A new terrain waits until
-    // the settings settle.
-    let sent = sent.get_or_insert_with(start_settings);
-    let settled = time.elapsed().saturating_sub(changed) >= SETTLE;
-    if wanted.terrain == sent.terrain || settled {
-        editor.changed = None;
-        if wanted != *sent {
-            *sent = wanted;
-            viewer.write(ViewerCommand::SetTerrain(Arc::new(sent.clone())));
+    for (mut editor, dormant) in &mut editors {
+        let Some(changed) = editor.changed else {
+            continue;
+        };
+        let (Ok(panel), Ok(show)) = (panels.get(editor.panel), shows.get(editor.show_panel)) else {
+            continue;
+        };
+        let wanted = TerrainSettings {
+            terrain: panel.value().clone(),
+            show: *show.value(),
+        };
+
+        // Debug drawing is cheap: take it at once. A new terrain waits
+        // until the settings settle.
+        let settled = time.elapsed().saturating_sub(changed) >= SETTLE;
+        if wanted.terrain != editor.settled.terrain && !settled {
+            continue;
         }
-        if std::mem::take(&mut editor.reframe) {
-            viewer.write(ViewerCommand::ResetCamera);
+        editor.changed = None;
+        let edited = wanted != editor.settled;
+        if edited {
+            editor.settled = wanted;
+        }
+
+        // Only the selected editor's edits reach the scene.
+        let reframe = std::mem::take(&mut editor.reframe);
+        if !dormant && (edited || reframe) {
+            commands.trigger(TerrainEdited { reframe });
         }
     }
 }
 
-/// Shows loaded terrain settings in the editor and fits the camera to them.
-/// The chosen preset, and so the suggested file name, stays as it was. Run
-/// it with `World::run_system_cached_with`.
+/// Shows loaded terrain settings in the selected terrain's editor and fits
+/// the camera to them. The preset, and so the suggested file name, stays
+/// as it was. Run it with `World::run_system_cached_with`.
 pub fn load_terrain(
     In(options): In<TerrainOptions>,
-    editor: Single<&mut TerrainEditor>,
+    editor: Single<&mut TerrainEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<TerrainOptions>>,
     time: Res<Time>,
 ) {
     replace(options, true, &mut editor.into_inner(), &mut panels, &time);
 }
 
-/// Shows `options` in the editor's controls, to be sent once they settle.
+/// Shows `options` in the editor's controls, to be shown in the scene once
+/// they settle.
 fn replace(
     options: TerrainOptions,
     reframe: bool,
@@ -215,35 +242,10 @@ fn replace(
     }
 }
 
-/// Starts over from the chosen preset, and fits the camera to it.
-fn choose_preset(
-    change: On<ValueChange<Entity>>,
-    rows: Query<&OptionIndex>,
-    mut editor: Single<&mut TerrainEditor>,
-    mut panels: Query<&mut ParamPanel<TerrainOptions>>,
-    time: Res<Time>,
-) {
-    let Some(preset) = rows
-        .get(change.value)
-        .ok()
-        .and_then(|index| TerrainPreset::all().nth(index.0))
-    else {
-        return;
-    };
-    editor.preset = preset;
-    replace(
-        preset.terrain.clone(),
-        true,
-        &mut editor,
-        &mut panels,
-        &time,
-    );
-}
-
 /// Uses a typed seed.
 fn type_seed(
     change: On<ValueChange<i64>>,
-    mut editor: Single<&mut TerrainEditor>,
+    mut editor: Single<&mut TerrainEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<TerrainOptions>>,
     time: Res<Time>,
 ) {
@@ -262,7 +264,7 @@ fn type_seed(
 /// Picks a random seed.
 fn random_seed(
     _: On<Activate>,
-    mut editor: Single<&mut TerrainEditor>,
+    mut editor: Single<&mut TerrainEditor, Without<Dormant>>,
     mut panels: Query<&mut ParamPanel<TerrainOptions>>,
     time: Res<Time>,
 ) {
@@ -274,30 +276,32 @@ fn random_seed(
     replace(options, false, &mut editor, &mut panels, &time);
 }
 
-/// Shows the options' seed in the seed field whenever it changes.
+/// Shows each terrain's seed in its own seed field whenever it changes.
 fn show_seed(
-    editor: Option<Single<&TerrainEditor>>,
+    editors: Query<(Entity, &TerrainEditor)>,
     panels: Query<&ParamPanel<TerrainOptions>, Changed<ParamPanel<TerrainOptions>>>,
-    fields: Query<(Entity, &NumberInputValue), With<TerrainSeed>>,
+    children: Query<&Children>,
+    fields: Query<&NumberInputValue, With<TerrainSeed>>,
     mut commands: Commands,
 ) {
-    let Some(editor) = editor else { return };
-    let Ok(panel) = panels.get(editor.panel) else {
-        return;
-    };
-    let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
-    for (field, shown) in &fields {
-        if *shown != seed {
-            commands.entity(field).insert(seed);
+    for (entity, editor) in &editors {
+        let Ok(panel) = panels.get(editor.panel) else {
+            continue;
+        };
+        let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
+        for field in children.iter_descendants(entity) {
+            if fields.get(field).is_ok_and(|shown| *shown != seed) {
+                commands.entity(field).insert(seed);
+            }
         }
     }
 }
 
 /// Saves the terrain settings as a `.terrain.yml` preset file based on the
-/// chosen preset.
+/// preset.
 fn save_terrain_preset(
     _: On<Activate>,
-    editor: Single<&TerrainEditor>,
+    editor: Single<&TerrainEditor, Without<Dormant>>,
     panels: Query<&ParamPanel<TerrainOptions>>,
     mut files: FileOps,
 ) {
@@ -332,6 +336,7 @@ pub fn read_options(text: &str) -> Result<TerrainOptions, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terrain::start_preset;
 
     #[test]
     fn a_saved_preset_loads_back() {

@@ -1,7 +1,7 @@
-//! Edit one plant independently of the Plant Scatter tab's plant mix.
+//! Edit one plant independently of any Plant Scatter's plant mix.
 //!
-//! Start from a preset or load a file, then adjust the plant's settings.
-//! The same controls also customise individual plants in the Plant Scatter tab.
+//! Open a preset or load a file, then adjust the plant's settings. The same
+//! controls also customise individual plants in a Plant Scatter's editor.
 
 pub mod editor;
 pub mod params;

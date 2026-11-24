@@ -2,7 +2,7 @@
 
 use std::sync::LazyLock;
 
-use procgena_tree::procgena_fruit::FruitPreset;
+use procgena_tree::procgena_fruit::{FlowerPreset, FruitOptions, FruitPreset};
 use procgena_tree::{
     AttachedFruit, BARK_KINDS, BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterPart,
     ClusterPlacement, LEAF_KINDS, LeafOptions, TreeOptions, TreeType, TrellisOptions,
@@ -439,13 +439,22 @@ fn placement() -> Group<ClusterPlacement> {
 /// their controls are hidden.
 static NO_CLUSTERS: LazyLock<AttachedFruit> = LazyLock::new(AttachedFruit::default);
 
-/// The fruit or flower presets a tree part can pick: the built-in presets
-/// of that kind, in catalogue order.
-fn cluster_presets(part: ClusterPart) -> &'static [&'static FruitPreset] {
-    static FRUIT: LazyLock<Vec<&'static FruitPreset>> =
-        LazyLock::new(|| FruitPreset::of_kind(true).collect());
-    static FLOWERS: LazyLock<Vec<&'static FruitPreset>> =
-        LazyLock::new(|| FruitPreset::of_kind(false).collect());
+/// A preset a tree part can pick: its display name and settings.
+type ClusterChoice = (&'static str, &'static FruitOptions);
+
+/// The fruit or flower presets a tree part can pick: the built-in fruit
+/// presets for fruit and flower presets for flowers, in catalogue order.
+fn cluster_presets(part: ClusterPart) -> &'static [ClusterChoice] {
+    static FRUIT: LazyLock<Vec<ClusterChoice>> = LazyLock::new(|| {
+        FruitPreset::all()
+            .map(|p| (p.name.as_ref(), &p.fruit))
+            .collect()
+    });
+    static FLOWERS: LazyLock<Vec<ClusterChoice>> = LazyLock::new(|| {
+        FlowerPreset::all()
+            .map(|p| (p.name.as_ref(), &p.flower))
+            .collect()
+    });
     match part {
         ClusterPart::Fruit => &FRUIT,
         ClusterPart::Flowers => &FLOWERS,
@@ -457,7 +466,7 @@ fn cluster_choices(part: ClusterPart) -> &'static [&'static str] {
     static FRUIT: LazyLock<Vec<&'static str>> = LazyLock::new(|| names(ClusterPart::Fruit));
     static FLOWERS: LazyLock<Vec<&'static str>> = LazyLock::new(|| names(ClusterPart::Flowers));
     fn names(part: ClusterPart) -> Vec<&'static str> {
-        let presets = cluster_presets(part).iter().map(|p| p.name.as_ref());
+        let presets = cluster_presets(part).iter().map(|(name, _)| *name);
         std::iter::once("None").chain(presets).collect()
     }
     match part {
@@ -511,7 +520,7 @@ fn clusters(part: ClusterPart) -> Vec<Group<TreeOptions>> {
             let presets = cluster_presets(part);
             presets
                 .iter()
-                .position(|p| p.fruit == attached.fruit)
+                .position(|(_, fruit)| **fruit == attached.fruit)
                 .map_or(1, |i| i + 1)
         },
         move |o: &mut TreeOptions, index| {
@@ -519,8 +528,8 @@ fn clusters(part: ClusterPart) -> Vec<Group<TreeOptions>> {
             let slot = slot(o, part);
             match index.checked_sub(1).and_then(|i| presets.get(i)) {
                 None => *slot = None,
-                Some(preset) => {
-                    let fruit = preset.fruit.clone();
+                Some((_, preset)) => {
+                    let fruit = (*preset).clone();
                     match slot {
                         Some(attached) => attached.fruit = fruit,
                         None => *slot = Some(AttachedFruit::new(fruit, Default::default())),
@@ -798,12 +807,15 @@ mod tests {
     /// and the trellis switched on.
     fn flowering(kinds: (ClusterKind, ClusterKind)) -> TreeOptions {
         let mut options = TreeOptions::default();
-        let presets = [FruitPreset::apple(), FruitPreset::dogwood_bloom()];
-        for (slot, preset, kind) in [
-            (&mut options.fruit, presets[0], kinds.0),
-            (&mut options.flowers, presets[1], kinds.1),
+        for (slot, cluster, kind) in [
+            (&mut options.fruit, &FruitPreset::apple().fruit, kinds.0),
+            (
+                &mut options.flowers,
+                &FlowerPreset::dogwood_bloom().flower,
+                kinds.1,
+            ),
         ] {
-            let mut attached = AttachedFruit::new(preset.fruit.clone(), Default::default());
+            let mut attached = AttachedFruit::new(cluster.clone(), Default::default());
             attached.placement.count = 2;
             attached.placement.tips = 0.5;
             attached.fruit.cluster.kind = kind;

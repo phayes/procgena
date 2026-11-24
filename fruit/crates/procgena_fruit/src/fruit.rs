@@ -4,8 +4,8 @@ use procgena_core::{LodLevel, PartStep, SpecimenId};
 
 use crate::mesh::mesh_cluster;
 use crate::{
-    ClusterDetail, ClusterItem, ClusterStalk, FruitLod, FruitMesh, FruitOptions, FruitPreset,
-    FruitSkeleton, OptionsError,
+    ClusterDetail, ClusterItem, ClusterStalk, FlowerPreset, FruitLod, FruitMesh, FruitOptions,
+    FruitPreset, FruitSkeleton, OptionsError,
 };
 
 /// One fruit or flower cluster, grown from its settings and its
@@ -53,6 +53,19 @@ impl Fruit {
     /// never has.
     pub fn from_preset(preset: &FruitPreset) -> Result<Self, OptionsError> {
         let options = preset.fruit.clone();
+        let seed = options.default_seed;
+        Self::new(options, seed, 0)
+    }
+
+    /// Grows the flower preset `preset` as [`from_preset`](Self::from_preset)
+    /// grows a fruit preset.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first setting out of range, which a built-in preset
+    /// never has.
+    pub fn from_flower_preset(preset: &FlowerPreset) -> Result<Self, OptionsError> {
+        let options = preset.flower.clone();
         let seed = options.default_seed;
         Self::new(options, seed, 0)
     }

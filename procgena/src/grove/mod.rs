@@ -1,6 +1,6 @@
 //! Compose a tree Scatter from tree species and adjust how its trees vary.
 //!
-//! The Tree Scatter tab starts from a tree Scatter preset. Each row controls
+//! A tree Scatter document starts from a tree Scatter preset. Each row controls
 //! one species: its tree, how densely it grows and whether it gathers into
 //! stands. Each species has a natural density in trees per hectare; the
 //! row's multiplier and the Scatter's multiplier both scale it.
@@ -16,7 +16,7 @@ use procgena_tree::{
 
 use crate::export::read_preset;
 
-/// The key of the tree Scatter preset shown when the app starts.
+/// The key of the tree Scatter preset opened first.
 pub const START_PRESET: &str = "oak_woodland";
 
 /// Smallest and largest width of the grove's square of ground in the 3D

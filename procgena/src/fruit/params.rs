@@ -400,18 +400,22 @@ fn variation() -> Group<Variation> {
 
 #[cfg(test)]
 mod tests {
-    use procgena_fruit::FruitPreset;
+    use procgena_fruit::{FlowerPreset, FruitPreset};
 
     use super::*;
 
     /// Every setting's key names a real field of the settings file.
     #[test]
     fn every_key_names_a_setting() {
-        for (fruit, preset) in [
-            (true, FruitPreset::apple()),
-            (false, FruitPreset::dogwood_bloom()),
+        for (fruit, key, options) in [
+            (true, "apple", &FruitPreset::apple().fruit),
+            (
+                false,
+                "dogwood_bloom",
+                &FlowerPreset::dogwood_bloom().flower,
+            ),
         ] {
-            let value = serde_json::to_value(&preset.fruit).unwrap();
+            let value = serde_json::to_value(options).unwrap();
             for section in sections(fruit) {
                 for group in &section.groups {
                     for param in &group.params {
@@ -419,7 +423,7 @@ mod tests {
                         for step in param.key.split('.') {
                             at = &at[step];
                         }
-                        assert!(!at.is_null(), "{} has no setting {}", preset.key, param.key);
+                        assert!(!at.is_null(), "{key} has no setting {}", param.key);
                     }
                 }
             }
@@ -432,7 +436,7 @@ mod tests {
         let mut apple = FruitPreset::apple().fruit.clone();
         fruit_shape_mut(&mut apple).lobes = 3;
         assert!(apple.item.is_fruit());
-        let mut bloom = FruitPreset::dogwood_bloom().fruit.clone();
+        let mut bloom = FlowerPreset::dogwood_bloom().flower.clone();
         flower_shape_mut(&mut bloom).cup = 0.5;
         assert!(!bloom.item.is_fruit());
         assert_eq!(fruit_shape(&bloom), &FruitShape::default());
