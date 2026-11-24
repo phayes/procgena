@@ -30,8 +30,8 @@ kind.
   stay readable. Proposed extension: **`.procgena`**.
 - **Zip, written with every entry STORED (no compression).** Textures are
   BC7 KTX2 already supercompressed with Zstandard, and GLB models are
-  binary. Together they outweigh the YAML by about a thousand to one, so
-  compressing the archive saves almost nothing. The user's instinct is right
+  binary. Together they outweigh the YAML by tens to thousands of times,
+  so compressing the archive saves a few tens of KiB at most. The user's instinct is right
   that compression is pointless here. That argues for STORE, not for tar.
   Zip keeps what tar lacks: an index at the end (the central directory),
   so one preset is read without reading the rest; a compression method per
@@ -52,11 +52,10 @@ kind.
 - **In Bevy, a bundle is mounted, not loaded with a `#` label.** One
   asset source, `procgena://`, is registered at startup. Bundles are
   mounted into it at run time as `procgena://<bundle id>/<path>`. Every
-  existing loader (`.tree.yml`, KTX2, glTF) then reads entries by path,
-  relative glTF URIs work, and only what is asked for is read. A `#label`
-  loader also works, because Bevy 0.20 can hand an in-memory reader to a
-  nested loader, but it decodes the whole bundle at once and breaks
-  relative references. See "Loading in Bevy".
+  existing loader (`.tree.yml`, KTX2, GLB) then reads entries by path, and
+  only what is asked for is read. A `#label` loader also works, because
+  Bevy 0.20 can hand an in-memory reader to a nested loader, but it reads
+  and decodes the whole bundle at once. See "Loading in Bevy".
 - **Generated meshes are never stored.** A bundle holds inputs: presets,
   textures, and your own models for a future `MeshScatter`. Meshes are
   always regenerated from options and seeds. Thumbnails and impostor bakes
@@ -92,10 +91,12 @@ kind.
 | A texture set at 512 px, 1k and 2k (3 maps, as ST6 imports) | ≈ 21 MiB with mips, before Zstandard | Yes, as above. |
 | A GLB model | 50 KiB – 10 MiB | Partly. The binary buffers deflate somewhat; meshopt or Draco GLBs are already compressed. |
 
-Even a small bundle of 20 presets and one texture set at 512 px holds
-about 50 KiB of YAML beside megabytes of KTX2. **The archive's own
-compression changes the bundle's size by under 1 %.** So the choice turns
-on access, tooling and safety, not on size.
+A small bundle of 20 presets and one texture set at 512 px holds about
+50 KiB of YAML beside about 1 MiB of KTX2 (less after Zstandard).
+Deflating the YAML saves some 35–40 KiB, a few percent of this bundle and
+well under 1 % of one with 1k or 2k textures. **The archive's own
+compression saves tens of KiB at most.** So the choice turns on access,
+tooling and safety, not on size.
 
 ### Comparison
 
@@ -113,7 +114,7 @@ on access, tooling and safety, not on size.
 | Opens by double-click (Windows, macOS, Linux) | **Yes** | Yes | Linux and macOS; Windows 11 only lately | Needs tools | No | Yes |
 | Path and metadata rules | UTF-8 flag, no owners, optional timestamps | Same | ustar's 100-byte name limit (PAX lifts it); uid, gid and mtime must be zeroed for repeatable output | Same as tar | Ours | OS rules |
 | Attack surface | Path traversal, symlinks, duplicate names, local and central headers that disagree, zip64 | Same, **plus decompression bombs** | Path traversal, symlinks and hard links, device files | Same as tar, plus bombs | Our own bugs, with no outside fuzzing | Symlinks |
-| Crates, and already in our tree? | `zip`, `rawzip`: neither is in the tree | `zip` with flate2; `flate2` is in the tree (through `png`) | `tar`: not in the tree | `tar` plus the C `zstd` crate for writing; `ruzstd` (in the tree, through `bevy_image`) decodes, and encodes only at its fastest level | None | None |
+| Crates, and already in our tree? | `zip`, `rawzip`: neither is in the tree | `zip` with flate2; `flate2` is in the tree (through `png`) | `tar`: not in the tree | `tar`, plus either the C `zstd` crate or `ruzstd` (in the tree, through `bevy_image`) for writing; `ruzstd`'s encoder is reported at its fastest level, and sources disagree on the others | None | None |
 
 **Why not tar:** its strengths are streaming and simplicity, and neither
 matters here. Bundles are written by the studio to a file, not piped
@@ -150,13 +151,13 @@ ignores that padding.
 | [.conda](https://prefix-dev.github.io/rattler-book/deep-dive-package-format) | An outer **uncompressed** zip holding `metadata.json` (format version only) and inner `info-*.tar.zst` and `pkg-*.tar.zst` | The closest real answer to "tar or zip": they chose an indexed, uncompressed zip on the outside, so the metadata is read without decompressing the payload. Our payload is already compressed, so we need no inner tar at all. |
 | Android APK (zipalign), Java JAR, Python wheel | Zip; APKs align stored entries so they can be mmapped | Zip is the usual choice for a package of mixed files |
 | [Minecraft resource and data packs](https://minecraft.fandom.com/wiki/Tutorials/Creating_a_resource_pack) | A folder **or** a zip of it, identified by `pack.mcmeta` with a `pack_format` number; data in `data/<namespace>/` | **One layout in two forms**, a root file with a format number, and namespaces to avoid clashes |
-| [OpenDocument](https://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2-part3.html) (OpenRaster follows the same packaging) | Zip; a `mimetype` entry first and stored, so the file type sits at a fixed offset; `META-INF/manifest.xml` must list exactly the files present | A known first entry (we use `procgena.yml`). **We avoid** a manifest that must list every file: LibreOffice users meet "corrupt file" errors when it drifts. |
+| [OpenDocument](https://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2-part3.html) (OpenRaster is understood to package the same way; not checked here) | Zip; a `mimetype` entry first and stored, so the file type sits at a fixed offset; `META-INF/manifest.xml` lists the files present | A known first entry (we use `procgena.yml`). **We avoid** a manifest that must list every file: a [2012 LibreOffice thread](https://listarchives.libreoffice.org/global/users/2012/msg06175.html) found a file failing to open because its list and its contents differed. |
 | [.unitypackage](https://docs.rs/crate/unity-pack/0.1.0/source/README.md) | tar.gz; one folder per asset, named by GUID, holding `pathname`, `asset` and `asset.meta` | Ids that survive renames. Its cost is that nothing can be read without decompressing the whole archive. |
 | [Godot `.pck`](https://docs.godotengine.org/en/stable/tutorials/export/exporting_pcks.html) | Custom: a header, then a directory of path, offset, size and MD5 | Index plus offsets is what the zip central directory already gives us. Its format version changed in 4.3 and 4.5, breaking third-party tools: a reason not to own a binary format. |
 | [Unreal `.pak`](https://dev.epicgames.com/documentation/unreal-engine/oodle-data) | Custom index with a mount point; Oodle compression per block | Mounting at a root path is the model for our `procgena://<bundle id>/` source |
 | glTF `.glb` | One file: a 12-byte header, then a JSON chunk and a binary chunk, each 4-byte aligned | Used inside bundles for models, as is. Not a container for many presets. |
 | `.blend` | Blender's own block file, which describes its own structs so old files still read | Shows what full backward compatibility costs; we don't need it (the user's rule) |
-| [Bevy asset meta files](https://docs.rs/bevy/latest/bevy/asset/meta/struct.AssetMeta.html) | `<file>.meta` beside each asset, with `meta_format_version` and loader settings | We write none. Bevy treats a missing `.meta` as "default loader". Our mount source answers `read_meta` with "not found". |
+| [Bevy asset meta files](https://docs.rs/bevy/latest/bevy/asset/meta/struct.AssetMeta.html) | `<file>.meta` beside each asset, with `meta_format_version` and loader settings | We write none. When a reader answers "not found" for a `.meta`, Bevy 0.20.1 picks the loader by extension with its default settings (`server/mod.rs`), so our mount source answers `read_meta` that way. |
 | [`bevy_archive_reader`](https://docs.rs/crate/bevy_archive_reader/0.1.0/source/README.md), [`bevy_mod_pakfile`](https://docs.rs/crate/bevy_mod_pakfile/0.1.0/source/src/lib.rs) | Bevy `AssetReader`s over a zip and a Quake PAK (Bevy 0.17 era) | Proof that an archive asset source is the usual pattern; too young or old to depend on, but worth reading for B3 |
 
 ## Inside the container
@@ -188,6 +189,11 @@ alpine_pack.procgena            (or the folder alpine_pack/)
   `description`, `group`, and the options under the kind's key. The key
   comes from the file name and the kind from the folder and the
   extension. If the two disagree, the file is reported as a problem.
+- **Kinds come from paths, so a new kind needs no format change.** The
+  `.flower.yml` kind that ST0 is splitting out of fruit is simply
+  `presets/flower/`. A kind folder this procgena doesn't know (from a
+  newer release, or a misspelling) is reported as a problem and skipped.
+  The rest of the bundle still opens.
 - **The allowed file types** are `.yml`, `.ktx2`, `.glb`, `.md` and
   `LICENSE`, plus `.png` only for thumbnails if question 6 allows them.
   Anything else is a problem, reported by the reader and left unread.
@@ -244,9 +250,7 @@ on that and doesn't settle it. It proposes:
 - **Textures follow the same rule.** Texture ids resolve through the
   bundle's `textures/textures.yml` first, so a bundle's `alpine_bark`
   can't be shadowed by a project texture.
-- **Models are paths**, relative to the bundle root (`models/cairn.glb`),
-  because glTF files refer to their own buffers and images by relative
-  URI.
+- **Models are paths**, relative to the bundle root (`models/cairn.glb`).
 - **Seeds must not see the qualifier.** A tree Scatter's species with no
   `key` takes the preset's key as its `ChildKey`
   (`procgena_tree/src/scatter/file.rs`), and that key salts the seed
@@ -318,15 +322,15 @@ The two ways to load:
 |---|---|---|
 | How | `ProcgenaBundlePlugin` registers the `procgena` source before `DefaultPlugins`. `BundleMounts` (a resource over `Arc<RwLock<…>>`) mounts bundles by id at any time: from a path, or from bytes on wasm. Its `AssetReader` serves entries; `read_meta` answers "not found"; `read_directory` lists entries. | A loader for `.procgena` reads the archive and runs each entry's own loader by extension on an in-memory reader, then adds the result as a labeled sub-asset |
 | What is read | Only what is asked for | Every entry, every texture decoded, when the bundle loads |
-| Existing loaders (`.tree.yml`, KTX2, glTF) | Unchanged; they read by path | Run nested; must be registered for the bundle loader to find them |
-| glTF with external `.bin` or images | **Works**: relative URIs resolve in the same source | Breaks: a nested loader's relative paths point at paths that exist only inside the archive |
-| Hot reload while editing | The folder form is a plain `file` source and watches as today; packed bundles don't change | Reload the whole bundle |
+| Existing loaders (`.tree.yml`, KTX2, GLB) | Unchanged; they read by path | Run nested; must be registered for the bundle loader to find them |
+| An entry that loads another by relative path | Works: relative paths resolve in the same source | Breaks: they point at paths that exist only inside the archive. Nothing needs this in format 1 (GLB only, no `.gltf` side files), but a later format might. |
+| Hot reload while editing | Packed bundles don't change. Folder-form mounts go through the same reader, so watching them means the source must emit `AssetSourceEvent`s itself: **a PB4 item to confirm**. Until then, the studio edits project files through its own watcher (studio_plan.md "Outside edits reload"). | Reload the whole bundle |
 | Startup order | The plugin must be added before `AssetPlugin`; Bevy logs an error otherwise | No constraint |
 | One handle for "the bundle" | `BundleMounts` events, plus a `Bundle` asset for the manifest | Natural: the bundle is one asset |
 
-Mounting is proposed because it reads lazily, reuses every loader as it
-is, and keeps glTF working. Its cost is a plugin-order rule and a little
-locking. The `#label` form can be added later as a convenience for
+Mounting is proposed because it reads lazily, so a game pays only for
+the presets and texture sizes it uses, and it reuses every loader as it
+is. Its cost is a plugin-order rule and a little locking. The `#label` form can be added later as a convenience for
 small, self-contained bundles. Question 2 asks the user.
 
 Presets in a mounted bundle also reach the **registry**, not only Bevy
@@ -349,8 +353,9 @@ then fetches `procgena://<id>/textures/...`.
 - **The web:** BC7 runs on desktop WebGPU (`texture-compression-bc`), but
   not on most phones or on WebGL2. UASTC copies come from the Python tool
   at publishing time (studio_plan.md decision 7). Whether bundles may
-  carry them is question 8. The plant web demo draws without textures
-  today, so it is not blocked.
+  carry them is question 8. The plant web demo loads no texture files
+  today (`plant/web/src` loads no images; its textures are made on the
+  GPU), so it is not blocked.
 - **Models are GLB** (glTF binary, one file, buffers inside), for the
   `MeshScatter` of "Bringing your own assets", which doesn't exist yet.
   Plain `.gltf` with side files is refused, to keep one model in one
@@ -367,7 +372,8 @@ A bundle is untrusted input: people will download them. Rules for the
 reader, applied in both forms:
 
 - **Paths:** relative, `/` separators, UTF-8, at most 255 bytes, each part
-  matching `[a-z0-9_.-]+` with no `.` or `..` parts. No backslashes, drive
+  matching `[a-z0-9_.-]+` with no `.` or `..` parts. The only exceptions
+  are the root files `README.md` and `LICENSE`. No backslashes, drive
   letters, leading `/` or NUL. No two names that differ only in case, as
   they would collide when unpacked on macOS or Windows. This blocks [Zip
   Slip](https://security.snyk.io/research/zip-slip-vulnerability).
@@ -465,6 +471,12 @@ here.
   bundles: a project folder, zipped", and "Seeds" gains the rule that a
   default child key is the unqualified preset key.
 - **ROADMAP.md:** adds PB1–PB5 after ST2 and ST6.
+- **studio_plan.md ST6** says the studio "registers the project as one
+  more asset source". Bevy fixes sources when `AssetPlugin` is built, so
+  a project opened or switched at run time can't be a source of its own.
+  The `procgena://` mount source covers this: the open project mounts
+  under its `id` like any bundle. ST6 and PB4 should share that one
+  source.
 
 ## Questions for the user
 
@@ -485,10 +497,11 @@ here.
 2. **How do Bevy games load bundles?** *Context:* Bevy fixes asset sources
    at startup, but a loader can run other loaders on in-memory bytes.
    *Options:* (a) **mount source** `procgena://<id>/<path>`: lazy, reuses
-   every loader, glTF works; the plugin must be added before
-   `DefaultPlugins`. (b) **bundle loader** `pack.procgena#<path>`: one
-   asset, no plugin-order rule; everything decoded at once; glTF with side
-   files breaks. (c) both. *Recommendation:* (a) now, and (b) later only if
+   every loader, also serves the open project (ST6); the plugin must be
+   added before `DefaultPlugins`. (b) **bundle loader**
+   `pack.procgena#<path>`: one asset, no plugin-order rule; everything
+   read and decoded at once; entries can't load other entries by path.
+   (c) both. *Recommendation:* (a) now, and (b) later only if
    games ask for it.
 
 3. **What happens when keys clash?** (Settled together with studio_plan.md's
@@ -560,6 +573,19 @@ here.
    may favour `rawzip`. *Recommendation:* (a), but run the `wasm32` check in
    the spike anyway, since it is cheap and keeps (b) open.
 
-10. **What extension?** *Options:* `.procgena` (clear, searchable, long like
+10. **Which zip library?** *Context:* none of these is in the tree; each
+    goes through the coordinator. The figures are in "Dependencies".
+    *Options:* (a) **`zip`** (361 M downloads, MIT) with default features off
+    and deflate only: the most used and fuzzed, but it has a symlink
+    advisory in its history and required dependencies whose wasm build is
+    unconfirmed; (b) **`rawzip` plus `flate2`** (`rawzip` has no
+    dependencies, MIT, 0.9 M downloads, 0.x): small and auditable, but
+    young; (c) **our own reader and writer** on `flate2` and `crc32fast`,
+    both already in the tree, so no new crate: a STORE writer plus a strict
+    reader is a few hundred lines, but zip64, data descriptors and fuzzing
+    are ours to get right. *Recommendation:* (a), with (b) if the PB1 spike
+    finds that (a) doesn't build for `wasm32` and question 9 needs it.
+
+11. **What extension?** *Options:* `.procgena` (clear, searchable, long like
     `.unitypackage`), `.pgpack`, or `.pgz` (the brief's example, but "z"
     suggests compression we don't use). *Recommendation:* `.procgena`.
