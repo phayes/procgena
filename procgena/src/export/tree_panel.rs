@@ -21,7 +21,7 @@ use super::{
 };
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, choice, spawn_param_panel, toggle};
 use crate::studio::Dormant;
-use crate::tree::editor::{TreeEditor, load_tree};
+use crate::tree::editor::{TreeEditor, TreePanel, load_tree};
 
 /// Makes the tree's save, load and export controls work.
 pub struct TreeExportPlugin;
@@ -83,10 +83,10 @@ pub fn spawn_tree_export(commands: &mut Commands, parent: Entity) {
 /// copied so later edits do not change a save already under way.
 fn snapshot(
     editor: &TreeEditor,
-    panels: &Query<&ParamPanel<TreeOptions>>,
+    panels: &Query<&TreePanel>,
     settings: &ModelPanels,
 ) -> Option<(TreeOptions, String, ModelSettings)> {
-    let options = panels.get(editor.panel()).ok()?.value().clone();
+    let options = panels.get(editor.panel()).ok()?.value().options().clone();
     let settings = *settings
         .iter()
         .find(|(_, visible)| visible.get())?
@@ -111,7 +111,7 @@ type ModelPanels<'w, 's> = Query<
 fn save_tree_preset(
     _: On<Activate>,
     editor: Single<&TreeEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<TreeOptions>>,
+    panels: Query<&TreePanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {
@@ -138,7 +138,7 @@ fn load_tree_preset(_: On<Activate>, mut files: FileOps) {
 fn export_tree_glb(
     _: On<Activate>,
     editor: Single<&TreeEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<TreeOptions>>,
+    panels: Query<&TreePanel>,
     settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,
@@ -155,7 +155,7 @@ fn export_tree_glb(
 fn export_tree_obj(
     _: On<Activate>,
     editor: Single<&TreeEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<TreeOptions>>,
+    panels: Query<&TreePanel>,
     settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,

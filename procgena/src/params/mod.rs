@@ -54,18 +54,6 @@ macro_rules! toggle {
     };
 }
 
-/// A colour setting for a `0xRRGGBB` field.
-macro_rules! color {
-    ($t:ty, $key:expr, $label:expr, |$o:ident| $place:expr) => {
-        $crate::params::Param::color(
-            $key,
-            $label,
-            |$o: &$t| $place,
-            |$o: &mut $t, value| $place = value,
-        )
-    };
-}
-
 /// A choice between enum variants, each listed as `"Name" => Variant`.
 /// A value not in the list shows as the first option.
 macro_rules! choice {
@@ -121,7 +109,7 @@ macro_rules! srgb {
     };
 }
 
-pub(crate) use {choice, color, count, name_choice, number, srgb, toggle};
+pub(crate) use {choice, count, name_choice, number, srgb, toggle};
 
 /// Converts a colour to sRGB `0xRRGGBB`, rounding each channel to 8 bits.
 pub fn srgb_to_hex(color: bevy::color::Color) -> u32 {

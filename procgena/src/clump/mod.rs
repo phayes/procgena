@@ -2,15 +2,23 @@
 //! grown on it, each with its own preset and seed.
 
 pub mod editor;
-pub mod params;
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use procgena_clump::ClumpPreset;
 use procgena_stone::StonePreset;
 use procgena_tree::TreePreset;
 
 use crate::scene::{ClumpHost, ClumpSettings};
+use crate::studio::inspector::MetaKind;
+
+/// The clump settings' metadata, from `clump.meta.yml`.
+pub static META: LazyLock<MetaKind> = LazyLock::new(|| {
+    MetaKind::new(
+        procgena_clump::CLUMP_META,
+        procgena_core::meta::ChoiceLists::new(),
+    )
+});
 
 /// The key of the clump preset shown when the app starts.
 pub const START_PRESET: &str = "fresh_snow_cap";
@@ -92,12 +100,6 @@ pub fn settings(subject: ClumpHost, preset: &ClumpPreset) -> ClumpSettings {
 #[cfg(test)]
 pub fn start_preset() -> &'static ClumpPreset {
     ClumpPreset::named(START_PRESET).expect("the start preset is built in")
-}
-
-/// The start clump preset grown on the start subject.
-#[cfg(test)]
-pub fn start_settings() -> ClumpSettings {
-    settings(Subject::start().settings(), start_preset())
 }
 
 #[cfg(test)]

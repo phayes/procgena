@@ -8,10 +8,13 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_stone::{StoneOptions, StonePreset};
 
-use super::params;
-use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
+use crate::params::{ParamPanel, ParamsChanged};
 use crate::studio::Dormant;
+use crate::studio::inspector::{InspectorPlugin, Settings, edit_setting, spawn_meta_panel};
 use crate::ui::{LABEL_WIDTH, labelled_row};
+
+/// The panel holding a rock editor's settings.
+pub type StonePanel = ParamPanel<Settings<StoneOptions>>;
 
 /// Triggered after the selected rock's settings change. Read them from the
 /// panel named by [`StoneEditor::panel`].
@@ -60,7 +63,7 @@ pub struct StoneEditorPlugin;
 
 impl Plugin for StoneEditorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ParamPanelPlugin::<StoneOptions>::default())
+        app.add_plugins(InspectorPlugin::<StoneOptions>::default())
             .add_systems(PostUpdate, show_seed);
     }
 }
@@ -112,7 +115,14 @@ pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity, key: &str) ->
         .id();
 
     // Every other setting; Shape starts open.
-    let panel = spawn_param_panel(commands, editor, options, params::sections(), &[0]);
+    let panel = spawn_meta_panel(
+        commands,
+        editor,
+        &super::META,
+        Settings::new(options),
+        &[0],
+        &|_, _| Vec::new(),
+    );
     commands
         .entity(panel)
         .observe(|_: On<ParamsChanged>, mut commands: Commands| {
@@ -132,23 +142,12 @@ pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity, key: &str) ->
 pub fn load_stone(
     In(options): In<StoneOptions>,
     editor: Single<&StoneEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<StoneOptions>>,
+    mut panels: Query<&mut StonePanel>,
     mut commands: Commands,
 ) {
-    replace(options, true, &editor, &mut panels, &mut commands);
-}
-
-/// Shows `options` in the editor's controls and triggers [`StoneEdited`].
-fn replace(
-    options: StoneOptions,
-    reframe: bool,
-    editor: &StoneEditor,
-    panels: &mut Query<&mut ParamPanel<StoneOptions>>,
-    commands: &mut Commands,
-) {
     if let Ok(mut panel) = panels.get_mut(editor.panel) {
-        panel.set_value(options);
-        commands.trigger(StoneEdited { reframe });
+        panel.set_value(Settings::new(options));
+        commands.trigger(StoneEdited { reframe: true });
     }
 }
 
@@ -156,40 +155,41 @@ fn replace(
 fn type_seed(
     change: On<ValueChange<i64>>,
     editor: Single<&StoneEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<StoneOptions>>,
+    mut panels: Query<&mut StonePanel>,
     mut commands: Commands,
 ) {
-    let (Ok(panel), Ok(seed)) = (panels.get(editor.panel), u32::try_from(change.value)) else {
-        return;
-    };
-    // Ignore echoes of the seed already in use.
-    if panel.value().default_seed == seed {
-        return;
+    if let Ok(seed) = u32::try_from(change.value) {
+        edit_setting(
+            &mut commands,
+            &mut panels,
+            editor.panel,
+            "default_seed",
+            seed.into(),
+        );
     }
-    let mut options = panel.value().clone();
-    options.default_seed = seed;
-    replace(options, false, &editor, &mut panels, &mut commands);
 }
 
 /// Picks a random seed.
 fn random_seed(
     _: On<Activate>,
     mut editor: Single<&mut StoneEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<StoneOptions>>,
+    mut panels: Query<&mut StonePanel>,
     mut commands: Commands,
 ) {
-    let Ok(panel) = panels.get(editor.panel) else {
-        return;
-    };
-    let mut options = panel.value().clone();
-    options.default_seed = editor.rng.next_u32() % 65536;
-    replace(options, false, &editor, &mut panels, &mut commands);
+    let seed = editor.rng.next_u32() % 65536;
+    edit_setting(
+        &mut commands,
+        &mut panels,
+        editor.panel,
+        "default_seed",
+        seed.into(),
+    );
 }
 
 /// Shows each rock's seed in its own seed field whenever it changes.
 fn show_seed(
     editors: Query<(Entity, &StoneEditor)>,
-    panels: Query<&ParamPanel<StoneOptions>, Changed<ParamPanel<StoneOptions>>>,
+    panels: Query<&StonePanel, Changed<StonePanel>>,
     children: Query<&Children>,
     fields: Query<&NumberInputValue, With<StoneSeed>>,
     mut commands: Commands,
@@ -198,7 +198,7 @@ fn show_seed(
         let Ok(panel) = panels.get(editor.panel) else {
             continue;
         };
-        let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
+        let seed = NumberInputValue::I64(i64::from(panel.value().options().default_seed));
         for field in children.iter_descendants(entity) {
             if fields.get(field).is_ok_and(|shown| *shown != seed) {
                 commands.entity(field).insert(seed);

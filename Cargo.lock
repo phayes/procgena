@@ -5380,6 +5380,7 @@ dependencies = [
  "procgena_tree",
  "procgena_tree_bevy",
  "rfd",
+ "serde",
  "serde_json",
  "sha2",
  "ureq",

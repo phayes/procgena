@@ -8,10 +8,16 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_tree::{TreeOptions, TreePreset};
 
-use super::{JIGGLE_AMOUNT, params};
-use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
+use super::JIGGLE_AMOUNT;
+use crate::params::{ParamPanel, ParamsChanged};
 use crate::studio::Dormant;
+use crate::studio::inspector::{
+    InspectorPlugin, Settings, edit_options, edit_setting, spawn_meta_panel,
+};
 use crate::ui::{LABEL_WIDTH, labelled_row};
+
+/// The panel holding a tree editor's settings.
+pub type TreePanel = ParamPanel<Settings<TreeOptions>>;
 
 /// Triggered after the selected tree's settings change. Read them from the
 /// panel named by [`TreeEditor::panel`].
@@ -56,7 +62,7 @@ pub struct TreeEditorPlugin;
 
 impl Plugin for TreeEditorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ParamPanelPlugin::<TreeOptions>::default())
+        app.add_plugins(InspectorPlugin::<TreeOptions>::default())
             .add_systems(PostUpdate, show_seed);
     }
 }
@@ -112,7 +118,14 @@ pub fn spawn_tree_editor(commands: &mut Commands, parent: Entity, key: &str) -> 
         .id();
 
     // Every other setting; Bark starts open.
-    let panel = spawn_param_panel(commands, editor, options, params::sections(), &[0]);
+    let panel = spawn_meta_panel(
+        commands,
+        editor,
+        &super::META,
+        Settings::new(options),
+        &[0],
+        &super::custom,
+    );
     commands
         .entity(panel)
         .observe(|_: On<ParamsChanged>, mut commands: Commands| {
@@ -132,21 +145,11 @@ pub fn spawn_tree_editor(commands: &mut Commands, parent: Entity, key: &str) -> 
 pub fn load_tree(
     In(options): In<TreeOptions>,
     editor: Single<&TreeEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<TreeOptions>>,
+    mut panels: Query<&mut TreePanel>,
     mut commands: Commands,
 ) {
-    replace(options, &editor, &mut panels, &mut commands);
-}
-
-/// Shows `options` in the editor's controls and triggers [`TreeEdited`].
-fn replace(
-    options: TreeOptions,
-    editor: &TreeEditor,
-    panels: &mut Query<&mut ParamPanel<TreeOptions>>,
-    commands: &mut Commands,
-) {
     if let Ok(mut panel) = panels.get_mut(editor.panel) {
-        panel.set_value(options);
+        panel.set_value(Settings::new(options));
         commands.trigger(TreeEdited);
     }
 }
@@ -155,55 +158,55 @@ fn replace(
 fn type_seed(
     change: On<ValueChange<i32>>,
     editor: Single<&TreeEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<TreeOptions>>,
+    mut panels: Query<&mut TreePanel>,
     mut commands: Commands,
 ) {
-    let Ok(panel) = panels.get(editor.panel) else {
-        return;
-    };
-    // Ignore echoes of the seed already in use.
-    if panel.value().default_seed == change.value {
-        return;
-    }
-    let mut options = panel.value().clone();
-    options.default_seed = change.value;
-    replace(options, &editor, &mut panels, &mut commands);
+    let seed = change.value.into();
+    edit_setting(
+        &mut commands,
+        &mut panels,
+        editor.panel,
+        "default_seed",
+        seed,
+    );
 }
 
 /// Picks a random seed.
 fn random_seed(
     _: On<Activate>,
     mut editor: Single<&mut TreeEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<TreeOptions>>,
+    mut panels: Query<&mut TreePanel>,
     mut commands: Commands,
 ) {
-    let Ok(panel) = panels.get(editor.panel) else {
-        return;
-    };
-    let mut options = panel.value().clone();
-    options.default_seed = (editor.rng.next_u32() % 65536) as i32;
-    replace(options, &editor, &mut panels, &mut commands);
+    let seed = (editor.rng.next_u32() % 65536).into();
+    edit_setting(
+        &mut commands,
+        &mut panels,
+        editor.panel,
+        "default_seed",
+        seed,
+    );
 }
 
 /// Varies the shape slightly, with a new seed.
 fn jiggle(
     _: On<Activate>,
     mut editor: Single<&mut TreeEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<TreeOptions>>,
+    mut panels: Query<&mut TreePanel>,
     mut commands: Commands,
 ) {
     let Ok(panel) = panels.get(editor.panel) else {
         return;
     };
-    let mut options = panel.value().clone();
+    let mut options = panel.value().options().clone();
     options.jiggle(JIGGLE_AMOUNT, &mut editor.rng);
-    replace(options, &editor, &mut panels, &mut commands);
+    edit_options(&mut commands, &mut panels, editor.panel, &options);
 }
 
 /// Shows each tree's seed in its own seed field whenever it changes.
 fn show_seed(
     editors: Query<(Entity, &TreeEditor)>,
-    panels: Query<&ParamPanel<TreeOptions>, Changed<ParamPanel<TreeOptions>>>,
+    panels: Query<&TreePanel, Changed<TreePanel>>,
     children: Query<&Children>,
     fields: Query<&NumberInputValue, With<TreeSeed>>,
     mut commands: Commands,
@@ -212,7 +215,7 @@ fn show_seed(
         let Ok(panel) = panels.get(editor.panel) else {
             continue;
         };
-        let seed = NumberInputValue::I32(panel.value().default_seed);
+        let seed = NumberInputValue::I32(panel.value().options().default_seed);
         for field in children.iter_descendants(entity) {
             if fields.get(field).is_ok_and(|shown| *shown != seed) {
                 commands.entity(field).insert(seed);

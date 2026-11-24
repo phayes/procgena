@@ -7,6 +7,7 @@
 mod camera;
 pub mod commands;
 pub mod documents;
+pub mod inspector;
 pub mod kinds;
 mod layout;
 mod library;

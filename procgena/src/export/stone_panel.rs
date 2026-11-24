@@ -20,7 +20,7 @@ use super::{
     write_files,
 };
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
-use crate::stones::editor::{StoneEditor, load_stone};
+use crate::stones::editor::{StoneEditor, StonePanel, load_stone};
 use crate::studio::Dormant;
 
 /// Makes the rock's save, load and export controls work.
@@ -89,10 +89,10 @@ pub fn spawn_stone_export(commands: &mut Commands, parent: Entity) {
 /// copied so later edits do not change a save already under way.
 fn snapshot(
     editor: &StoneEditor,
-    panels: &Query<&ParamPanel<StoneOptions>>,
+    panels: &Query<&StonePanel>,
     settings: &ModelPanels,
 ) -> Option<(StoneOptions, String, StoneModelSettings)> {
-    let options = panels.get(editor.panel()).ok()?.value().clone();
+    let options = panels.get(editor.panel()).ok()?.value().options().clone();
     let settings = *settings
         .iter()
         .find(|(_, visible)| visible.get())?
@@ -117,7 +117,7 @@ type ModelPanels<'w, 's> = Query<
 fn save_stone_preset(
     _: On<Activate>,
     editor: Single<&StoneEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<StoneOptions>>,
+    panels: Query<&StonePanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {
@@ -144,7 +144,7 @@ fn load_stone_preset(_: On<Activate>, mut files: FileOps) {
 fn export_stone_glb(
     _: On<Activate>,
     editor: Single<&StoneEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<StoneOptions>>,
+    panels: Query<&StonePanel>,
     settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,
@@ -161,7 +161,7 @@ fn export_stone_glb(
 fn export_stone_obj(
     _: On<Activate>,
     editor: Single<&StoneEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<StoneOptions>>,
+    panels: Query<&StonePanel>,
     settings: ModelPanels,
     images: Res<ExportImages>,
     mut files: FileOps,

@@ -439,17 +439,17 @@ mod tests {
     fn tree_settings_save_load_and_export() {
         let dir = folder("tree");
         let mut studio = offline_studio();
-        let saved: TreeOptions = studio.panel_value();
+        let saved: TreeOptions = studio.settings_value();
 
         // Saving writes the settings; loading them undoes later edits.
         studio.answer_dialog(Some(dir.join("tree.tree.yml")));
         studio.click("Save Preset…").unwrap();
         assert!(studio.find("Saved tree.tree.yml").is_ok());
         studio.click("Jiggle").unwrap();
-        assert_ne!(studio.panel_value::<TreeOptions>(), saved);
+        assert_ne!(studio.settings_value::<TreeOptions>(), saved);
         studio.answer_dialog(Some(dir.join("tree.tree.yml")));
         studio.click("Load Preset…").unwrap();
-        assert_eq!(studio.panel_value::<TreeOptions>(), saved);
+        assert_eq!(studio.settings_value::<TreeOptions>(), saved);
         assert!(studio.find("Loaded the tree settings").is_ok());
 
         // Cancelling writes nothing; a file that is not tree settings changes nothing.
@@ -460,7 +460,7 @@ mod tests {
         studio.answer_dialog(Some(dir.join("bad.tree.yml")));
         studio.click("Load Preset…").unwrap();
         assert!(studio.shows_text_starting("Not tree settings"));
-        assert_eq!(studio.panel_value::<TreeOptions>(), saved);
+        assert_eq!(studio.settings_value::<TreeOptions>(), saved);
 
         // Both model formats are written, the OBJ with its material file.
         studio.answer_dialog(Some(dir.join("tree.glb")));
@@ -479,7 +479,7 @@ mod tests {
         let mut studio = offline_studio();
         studio.click("Stones").unwrap();
         studio.click("Boulder").unwrap();
-        let saved: StoneOptions = studio.panel_value();
+        let saved: StoneOptions = studio.settings_value();
         studio.answer_dialog(Some(dir.join("rock.stone.yml")));
         studio.click("Save Preset…").unwrap();
         studio.click("Random Seed").unwrap();
@@ -487,7 +487,7 @@ mod tests {
 
         studio.answer_dialog(Some(dir.join("rock.stone.yml")));
         studio.click("Load Preset…").unwrap();
-        assert_eq!(studio.panel_value::<StoneOptions>(), saved);
+        assert_eq!(studio.settings_value::<StoneOptions>(), saved);
         let camera = |studio: &mut HeadlessStudio| {
             let world = studio.app_mut().world_mut();
             let mut cameras = world.query_filtered::<&OrbitCamera, With<ViewportCamera>>();
