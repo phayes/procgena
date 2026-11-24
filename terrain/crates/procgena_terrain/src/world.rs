@@ -6,6 +6,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use glam::{DVec2, IVec2};
+use procgena_core::Ground;
 
 use crate::converge::{
     BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
@@ -511,6 +512,14 @@ impl WorldTerrain {
 
 impl HeightField for WorldTerrain {
     /// See [`WorldTerrain::height`].
+    fn height(&self, p: DVec2) -> f32 {
+        WorldTerrain::height(self, p)
+    }
+}
+
+impl Ground for WorldTerrain {
+    /// See [`WorldTerrain::height`]. The slope is NaN where a nearby
+    /// region's terrain can't be built.
     fn height(&self, p: DVec2) -> f32 {
         WorldTerrain::height(self, p)
     }

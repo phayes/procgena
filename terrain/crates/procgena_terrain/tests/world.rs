@@ -360,6 +360,12 @@ fn each_region_builds_from_its_source() {
         expected.default_seed = SEED;
         assert_eq!(terrain.generator().options(), &expected, "region {id:?}");
         assert_eq!(terrain.region().id, id);
+
+        // As a Ground the world gives the owner's height and a slope.
+        let site = world.site(id);
+        let ground = procgena_core::Ground::sample(&world, site);
+        assert_eq!(ground.height.to_bits(), terrain.height(site).to_bits());
+        assert!(ground.gradient.is_finite(), "slope at {site}");
     }
 }
 
