@@ -2,6 +2,7 @@
 
 use glam::Vec3;
 use procgena_core::Quality;
+use procgena_core::scatter::Placement;
 use procgena_mushroom::{
     ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomOptions, MushroomPreset,
     MushroomScatter, ScatterError, ScatterOptions, default_lod,
@@ -270,7 +271,10 @@ fn scattered_clusters_drop_their_members_onto_the_surface() {
     let options = ScatterOptions {
         density: 0.3,
         min_spacing: 1.0,
-        sink: 0.0,
+        placement: Some(Placement {
+            embed: 0.0,
+            ..mushroom.ground_placement()
+        }),
         ..ScatterOptions::default()
     };
     let scatter = MushroomScatter::on(&host, &mushroom, &options).unwrap();

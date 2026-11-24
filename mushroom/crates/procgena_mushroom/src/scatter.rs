@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use glam::{Affine3A, IVec2, Quat, Vec2, Vec3};
 use procgena_core::hash::{derive_seed, seed_for};
+use procgena_core::scatter::Placement;
 use procgena_core::{Quality, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 
@@ -66,9 +67,16 @@ pub struct ScatterOptions {
     /// Only used by [`MushroomScatter::on`]; a ground scatter keeps
     /// mushrooms upright.
     pub follow_surface: f32,
-    /// How deep each stem base sits in the surface, as a multiple of its
-    /// radius, from 0 through 2. A little depth hides gaps on uneven ground.
-    pub sink: f32,
+    /// How each mushroom is set on the ground, or `None` for the species'
+    /// own [`MushroomOptions::ground_placement`]. Lengths in it are shares
+    /// of each stem's radius at the ground. [`conform`](Placement::conform)
+    /// must be from 0 through 1, and [`embed`](Placement::embed) and any
+    /// [`max_bend`](Placement::max_bend) zero or more.
+    ///
+    /// [`MushroomScatter::new`] places every member of a copy with it.
+    /// [`MushroomScatter::on`] uses only its `embed`, to sink each stem
+    /// into the host's surface.
+    pub placement: Option<Placement>,
     /// How many different whole mushrooms (or clusters) a ground scatter
     /// ([`MushroomScatter::new`]) draws its copies from, from 1 through
     /// [`MAX_SPECIMENS`]. Not used by [`MushroomScatter::on`], which uses
@@ -91,7 +99,7 @@ impl Default for ScatterOptions {
             scale_min: 0.6,
             scale_max: 1.1,
             follow_surface: 0.5,
-            sink: 0.3,
+            placement: None,
             specimens: 3,
         }
     }
@@ -122,8 +130,22 @@ impl ScatterOptions {
             f32::MAX,
         )?;
         within("scatter.follow_surface", self.follow_surface, 0.0, 1.0)?;
-        within("scatter.sink", self.sink, 0.0, 2.0)?;
+        if let Some(p) = &self.placement {
+            within("scatter.placement.conform", p.conform, 0.0, 1.0)?;
+            non_negative("scatter.placement.embed", p.embed)?;
+            if let Some(bend) = p.max_bend {
+                non_negative("scatter.placement.max_bend", bend)?;
+            }
+        }
         int_range("scatter.specimens", self.specimens, 1, MAX_SPECIMENS)
+    }
+
+    /// Returns the placement to use for `mushroom`: [`placement`](Self::placement)
+    /// if set, otherwise the species' own
+    /// [`ground_placement`](MushroomOptions::ground_placement).
+    pub fn placement_for(&self, mushroom: &MushroomOptions) -> Placement {
+        self.placement
+            .unwrap_or_else(|| mushroom.ground_placement())
     }
 }
 
@@ -298,6 +320,7 @@ impl MushroomScatter {
         // grid of cells, each `min_spacing` wide, means only nearby spots
         // need checking.
         let mut rng = Rng::new(seed_for(options.seed, SCATTER_SITES));
+        let embed = options.placement_for(mushroom).embed;
         let cluster_seeds = seed_for(options.seed, SCATTER_CLUSTER);
         let wanted = ((options.density * total).round() as u32).min(MAX_SITES);
         let cell = options.min_spacing.max(1e-4);
@@ -358,7 +381,7 @@ impl MushroomScatter {
             // A single mushroom, sunk a little into the surface.
             let Some(columns) = &columns else {
                 let variant = rng.int(0, bodies.len() as u32 - 1);
-                let sink = bodies[variant as usize].base_radius() * scale * options.sink;
+                let sink = bodies[variant as usize].base_radius() * scale * embed;
                 instances.push(MushroomInstance {
                     variant,
                     translation: point - grow * sink,
@@ -376,7 +399,7 @@ impl MushroomScatter {
                     continue;
                 };
                 let scale = member.scale * scale;
-                let sink = bodies[member.variant as usize].base_radius() * scale * options.sink;
+                let sink = bodies[member.variant as usize].base_radius() * scale * embed;
                 instances.push(MushroomInstance {
                     variant: member.variant,
                     translation: ground - grow * sink,

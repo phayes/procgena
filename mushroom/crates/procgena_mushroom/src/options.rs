@@ -9,6 +9,7 @@ use std::fmt;
 
 use glam::Vec2;
 use procgena_core::LodError;
+use procgena_core::scatter::{Placement, Rest};
 use serde::{Deserialize, Serialize};
 
 use crate::cluster::ClusterOptions;
@@ -680,6 +681,22 @@ impl MushroomOptions {
     /// Cap radius in metres: half of [`size`](Self::size).
     pub fn cap_radius(&self) -> f32 {
         self.size * 0.5
+    }
+
+    /// Returns how this mushroom is set on the ground by a scatter, unless
+    /// the scatter overrides it with
+    /// [`ScatterOptions::placement`](crate::ScatterOptions::placement): it
+    /// stays upright, rests on the lowest ground under its stem, and sinks
+    /// by 0.3 of its stem's radius at the ground, so no gap shows on uneven
+    /// ground. It is the same for every mushroom today. Placement only says
+    /// how copies are put down, so it isn't part of the options hash.
+    pub fn ground_placement(&self) -> Placement {
+        Placement {
+            conform: 0.0,
+            rest: Rest::Lowest,
+            embed: 0.3,
+            max_bend: None,
+        }
     }
 
     /// Returns the length of the cap's top surface measured along its

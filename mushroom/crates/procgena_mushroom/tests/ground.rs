@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use glam::{DVec2, IVec2, Vec2, Vec3};
-use procgena_core::scatter::{ScatterArea, ScatterInput};
+use procgena_core::scatter::{Placement, Rest, ScatterArea, ScatterInput};
 use procgena_core::{FlatGround, Ground, SpecimenId};
 use procgena_mushroom::{
     Mushroom, MushroomCopy, MushroomOptions, MushroomPreset, MushroomScatter, ScatterError,
@@ -131,6 +131,60 @@ fn a_patchy_mask_only_removes_copies_even_when_crowded() {
 }
 
 #[test]
+fn the_species_placement_is_the_default_and_a_scatter_can_override_it() {
+    let porcini = MushroomPreset::Porcini.options();
+    let default = porcini.ground_placement();
+    assert_eq!(
+        default,
+        Placement {
+            conform: 0.0,
+            rest: Rest::Lowest,
+            embed: 0.3,
+            max_bend: None,
+        }
+    );
+
+    // No override and the species' own placement give the same scatter.
+    let own = ScatterOptions {
+        placement: Some(default),
+        ..options()
+    };
+    let plain = scatter(&porcini, &options(), &FlatGround, DVec2::ZERO, 4.0, 3);
+    let explicit = scatter(&porcini, &own, &FlatGround, DVec2::ZERO, 4.0, 3);
+    assert_eq!(plain.instances(), explicit.instances());
+
+    // Sinking deeper lowers every mushroom by its stem radius times the
+    // extra depth.
+    let deep = ScatterOptions {
+        placement: Some(Placement {
+            embed: 1.0,
+            ..default
+        }),
+        ..options()
+    };
+    let deep = scatter(&porcini, &deep, &FlatGround, DVec2::ZERO, 4.0, 3);
+    assert!(!plain.instances().is_empty());
+    for (a, b) in plain.instances().iter().zip(deep.instances()) {
+        let radius = plain.bodies()[a.variant as usize].base_radius() * a.scale;
+        assert!((a.translation.y - b.translation.y - 0.7 * radius).abs() < 1e-5);
+    }
+
+    // A placement out of range is refused.
+    let bad = ScatterOptions {
+        placement: Some(Placement {
+            conform: 1.5,
+            ..default
+        }),
+        ..options()
+    };
+    let input = ScatterInput::new(&FlatGround, ScatterArea::new(DVec2::ZERO, Vec2::ONE), 1);
+    assert!(matches!(
+        MushroomScatter::new(&porcini, &bad, &input),
+        Err(ScatterError::Options(_))
+    ));
+}
+
+#[test]
 fn a_non_finite_area_is_refused() {
     let input = ScatterInput::new(
         &FlatGround,
@@ -175,7 +229,10 @@ fn each_member_stands_on_its_own_ground() {
     let opts = ScatterOptions {
         density: 0.05,
         min_spacing: 3.0,
-        sink: 0.0,
+        placement: Some(Placement {
+            embed: 0.0,
+            ..ring.ground_placement()
+        }),
         ..options()
     };
     let s = scatter(&ring, &opts, &rolling, DVec2::ZERO, 30.0, 2);

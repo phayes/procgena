@@ -5,7 +5,7 @@ use std::f32::consts::TAU;
 
 use glam::{DVec2, IVec2, Quat, Vec2, Vec3};
 use procgena_core::hash::{pcg3d, seed_for};
-use procgena_core::scatter::{Footprint, Placement, Rest, ScatterInput, place, steeper_than};
+use procgena_core::scatter::{Footprint, ScatterInput, place, steeper_than};
 use procgena_core::{Rng, SpecimenId};
 
 use crate::cluster::MushroomInstance;
@@ -53,9 +53,12 @@ impl MushroomScatter {
     /// specimens, each seeded from its [`SpecimenId`] with `input.seed` as
     /// the World seed. Neither [`ScatterOptions::seed`] nor the mushroom's
     /// own seed is used. Each copy gets its own turn and size, and every
-    /// member of a cluster is set on the ground at its own spot, upright and
-    /// sunk by [`ScatterOptions::sink`]; a member with no ground under it is
-    /// left out, and the rest of the copy stays.
+    /// member of a cluster is set on the ground at its own spot with
+    /// [`ScatterOptions::placement`], or the species'
+    /// [`ground_placement`](MushroomOptions::ground_placement) (upright,
+    /// resting on the lowest ground under its stem). A member with no ground
+    /// under it, or ground bent more than the placement allows, is left out,
+    /// and the rest of the copy stays.
     ///
     /// Spots come from a lattice of cells anchored at the area's centre, one
     /// candidate per cell, [`min_spacing`](ScatterOptions::min_spacing)
@@ -148,12 +151,7 @@ impl MushroomScatter {
         }
 
         // Set every member of each copy on the ground.
-        let placement = Placement {
-            conform: 0.0,
-            rest: Rest::Lowest,
-            embed: options.sink,
-            max_bend: None,
-        };
+        let placement = options.placement_for(mushroom);
         let mut instances = Vec::new();
         let mut copies = Vec::new();
         for c in kept {
