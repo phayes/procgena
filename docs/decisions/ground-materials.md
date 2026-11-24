@@ -523,12 +523,11 @@ two texels where the finer one has its own. Over 6 pairs per level, the
 largest difference there is 0.14 in linear RGB on mountains (mean 0.001
 to 0.0015), and on hills 0.09 at one level-3 pair and 0 at levels 0 to
 2. The screenshots with chunk borders drawn are mostly rock, so they
-can't show a step either way. Recommendation: accept it, as the step is
-rare and the level change is already dithered; look again with textures
-in GM2. The user decides.
+can't show a step either way. The user accepted it as it is (decision
+9); GM2 looks again with textures.
 
-**Look changes from G6's shader**, for the user to judge (before and
-after shots in GM1's notes):
+**Look changes from G6's shader**, accepted by the user (decision 8;
+before and after shots in GM1's notes):
 
 - Rock and snow edges no longer shift with the shader's noise; they follow
   the weights' slope and height bands, sampled per texel (0.5 m near,
@@ -611,6 +610,15 @@ The user, 2026-11-24:
    level 0 (full detail) optional**, so full-resolution textures are an
    opt-in. The exact sizes per level and the resident cap are set in GM2,
    with the machines from ROADMAP item 18.
+8. **GM1's look is accepted** (2026-11-24): every change listed under
+   "Look changes from G6's shader" in "As built: GM1".
+9. **The level-ring seam stays as it is** (2026-11-24). The coarser
+   chunk does not read its finer neighbour's edge (open question 6).
+10. **Weights stay at 0.5 m near the camera and on Ecotope patches**
+    (2026-11-24). Decision 7's "level 1 by default" is about texture
+    detail, for GM2, not the weights' texel size.
+11. **The painting cost stays as it is until GM2 and GM6** (2026-11-24):
+    no cheaper site or coarser texels for now.
 
 ## Open questions
 
@@ -628,7 +636,7 @@ The user, 2026-11-24:
    textures"): accept it or have the coarser chunk read its finer
    neighbour's edge. GM1 measured it (texels on shared points agree;
    between them the largest step is 0.14 in linear RGB, the mean about
-   0.001) and recommends accepting it; the user decides.
+   0.001). **Settled:** accepted as it is (decision 9).
 7. **Where `plant_far_color` lives** (`procgena_core_bevy`, or a hook the
    terrain material offers): with the plant-align lane, before GM5.
 8. **What fills the relief height** (`GroundSite::relief_height`, the
