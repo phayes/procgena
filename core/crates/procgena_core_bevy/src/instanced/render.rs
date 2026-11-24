@@ -77,6 +77,9 @@ use bevy::shader::Shader;
 mod cull_test;
 #[cfg(test)]
 mod gpu_test;
+mod measure;
+
+pub use measure::{CullTimes, InstanceCounts, InstancedTimings, read_instance_counts};
 
 use super::material::{ATTACHED_SIZE, INSTANCE_SIZE, InstancedMaterials};
 use super::{
@@ -198,6 +201,7 @@ pub(super) fn build(app: &mut App) {
                     .in_set(InstancedSystems::Prepare),
                 prepare_views.in_set(RenderSystems::PrepareResources),
                 prepare_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+                measure::map_timings.in_set(RenderSystems::Cleanup),
             ),
         )
         .add_systems(RenderGraph, run_cull.before(camera_driver));
@@ -1349,7 +1353,9 @@ fn init_cull_pipelines(
 
 /// Records every view's culling: copies external parts' draws into each
 /// Scatter's template, the template into the view's draws, then counts and
-/// lists the copies each part draws.
+/// lists the copies each part draws, one compute pass per stage over every
+/// view: copies, attached hosts, attached rows, then the draws' instance
+/// counts. Each stage pass is timed when [`InstancedTimings`] is present.
 fn run_cull(
     mut ctx: RenderContext,
     pipelines: Option<Res<CullPipelines>>,
@@ -1357,6 +1363,7 @@ fn run_cull(
     scatters: Res<Scatters>,
     views: Res<ScatterViews>,
     external: Res<ExternalMeshes>,
+    mut timings: Option<ResMut<InstancedTimings>>,
 ) {
     let Some(pipelines) = pipelines else {
         return;
@@ -1393,51 +1400,94 @@ fn run_cull(
         }
     }
 
-    // Each view's lists and draws.
-    for ((_, entity), view) in &views.0 {
-        let (Some(gpu), Some(group), Some(buffers)) = (
-            scatters.0.get(entity),
-            view.cull_group.as_ref(),
-            view.buffers.as_ref(),
-        ) else {
-            continue;
-        };
-        let Some(template) = &gpu.template_args else {
-            continue;
-        };
-        let parts = gpu.parts.len() as u32;
-        encoder.copy_buffer_to_buffer(
-            template,
-            0,
-            &buffers.args,
-            0,
-            u64::from(parts) * DRAW_ARGS_SIZE,
-        );
-        let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-            label: Some("procgena_instanced_cull"),
-            ..Default::default()
-        });
-        pass.set_bind_group(0, group, &[]);
-        pass.set_pipeline(reset_counts);
-        pass.dispatch_workgroups(gpu.list_count.div_ceil(WORKGROUP_SIZE), 1, 1);
-        pass.set_pipeline(cull);
-        pass.dispatch_workgroups(gpu.copy_count.div_ceil(WORKGROUP_SIZE), 1, 1);
-
-        // Attached copies: each host copy, then each of its rows.
-        if let (Some((cull_hosts, cull_rows)), Some(attach_group)) =
-            (attach, view.attach_group.as_ref())
-        {
-            pass.set_bind_group(0, attach_group, &[]);
-            pass.set_pipeline(cull_hosts);
-            pass.dispatch_workgroups(gpu.host_count.div_ceil(WORKGROUP_SIZE), 1, 1);
-            pass.set_pipeline(cull_rows);
-            let (x, y) = workgroups_2d(gpu.row_threads.div_ceil(WORKGROUP_SIZE));
-            pass.dispatch_workgroups(x, y, 1);
-            pass.set_bind_group(0, group, &[]);
-        }
-        pass.set_pipeline(write_args);
-        pass.dispatch_workgroups(parts.div_ceil(WORKGROUP_SIZE), 1, 1);
+    // The views that cull a Scatter this frame, each starting from its
+    // Scatter's template draws.
+    let culled: Vec<_> = views
+        .0
+        .iter()
+        .filter_map(|((_, entity), view)| {
+            let gpu = scatters.0.get(entity)?;
+            let template = gpu.template_args.as_ref()?;
+            let group = view.cull_group.as_ref()?;
+            let buffers = view.buffers.as_ref()?;
+            Some((gpu, view, group, buffers, template))
+        })
+        .collect();
+    for (gpu, _, _, buffers, template) in &culled {
+        let size = gpu.parts.len() as u64 * DRAW_ARGS_SIZE;
+        encoder.copy_buffer_to_buffer(template, 0, &buffers.args, 0, size);
     }
+    if let Some(timings) = timings.as_deref_mut() {
+        timings.begin_frame();
+    }
+    let timings = timings.as_deref();
+
+    // Each view's copies, by level.
+    {
+        let mut pass = stage_pass(encoder, timings, 0, "procgena_instanced_cull");
+        for (gpu, _, group, _, _) in &culled {
+            pass.set_bind_group(0, *group, &[]);
+            pass.set_pipeline(reset_counts);
+            pass.dispatch_workgroups(gpu.list_count.div_ceil(WORKGROUP_SIZE), 1, 1);
+            pass.set_pipeline(cull);
+            pass.dispatch_workgroups(gpu.copy_count.div_ceil(WORKGROUP_SIZE), 1, 1);
+        }
+    }
+
+    // Attached copies: each host copy, then each of its rows.
+    let attached: Vec<_> = culled
+        .iter()
+        .filter_map(|(gpu, view, ..)| Some((*gpu, view.attach_group.as_ref()?)))
+        .filter(|_| attach.is_some())
+        .collect();
+    {
+        let mut pass = stage_pass(encoder, timings, 1, "procgena_instanced_attach_hosts");
+        if let Some((cull_hosts, _)) = attach {
+            pass.set_pipeline(cull_hosts);
+            for (gpu, group) in &attached {
+                pass.set_bind_group(0, *group, &[]);
+                pass.dispatch_workgroups(gpu.host_count.div_ceil(WORKGROUP_SIZE), 1, 1);
+            }
+        }
+    }
+    {
+        let mut pass = stage_pass(encoder, timings, 2, "procgena_instanced_attach_rows");
+        if let Some((_, cull_rows)) = attach {
+            pass.set_pipeline(cull_rows);
+            for (gpu, group) in &attached {
+                pass.set_bind_group(0, *group, &[]);
+                let (x, y) = workgroups_2d(gpu.row_threads.div_ceil(WORKGROUP_SIZE));
+                pass.dispatch_workgroups(x, y, 1);
+            }
+        }
+    }
+
+    // Each part's instance count.
+    {
+        let mut pass = stage_pass(encoder, timings, 3, "procgena_instanced_args");
+        pass.set_pipeline(write_args);
+        for (gpu, _, group, _, _) in &culled {
+            pass.set_bind_group(0, *group, &[]);
+            pass.dispatch_workgroups((gpu.parts.len() as u32).div_ceil(WORKGROUP_SIZE), 1, 1);
+        }
+    }
+    if let Some(timings) = timings {
+        timings.resolve(encoder);
+    }
+}
+
+/// Begins the compute pass of culling stage `stage`, timed by `timings` if
+/// given.
+fn stage_pass<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    timings: Option<&'a InstancedTimings>,
+    stage: u32,
+    label: &'static str,
+) -> wgpu::ComputePass<'a> {
+    encoder.begin_compute_pass(&ComputePassDescriptor {
+        label: Some(label),
+        timestamp_writes: timings.and_then(|t| t.timestamp_writes(stage)),
+    })
 }
 
 /// Most workgroups one dimension of a dispatch may have.

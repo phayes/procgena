@@ -630,4 +630,171 @@ fn gpu_attached_rows_beyond_their_reach_are_skipped() {
     let args = view_draw_args(&mut app).remove(&camera).expect("culled");
     assert_eq!(count(&args, 0, 1), 1, "the host");
     assert_eq!(count(&args, 1, 0) + count(&args, 1, 1), 0, "its rows");
+
+    // The host step dropped it, so no row was looked at.
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let state = camera_buffer(world, camera, |buffers| &buffers.host_state);
+    assert_eq!(state[0], 0, "skipped");
+}
+
+/// Reads back the camera's `buffer` of its only Scatter.
+fn camera_buffer(
+    world: &mut World,
+    camera: RetainedViewEntity,
+    buffer: impl Fn(&ViewBuffers) -> &Buffer,
+) -> Vec<u32> {
+    let device = world.resource::<RenderDevice>().clone();
+    let queue = world.resource::<RenderQueue>().clone();
+    let views = world.resource::<ScatterViews>();
+    let state = views
+        .0
+        .iter()
+        .find(|((view, _), _)| *view == camera)
+        .map(|(_, state)| state)
+        .expect("the camera's state");
+    read_words(
+        &device,
+        &queue,
+        buffer(state.buffers.as_ref().expect("buffers")),
+    )
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn gpu_attached_rows_find_their_host_at_every_offset() {
+    // Host slots with tables of 1, 0, 3 and 70 rows (the last crosses a
+    // 64-thread workgroup), copied 2, 1, 2 and 1 times, all near the camera
+    // and drawn at the rows' first level. Row threads start at 0, 1, 2, 5
+    // and 8, so the host search meets uneven boundaries.
+    let row = |i: usize| AttachedRow {
+        slot: 4,
+        position: Vec3::new((i % 10) as f32 * 0.05, 0.5 + (i / 10) as f32 * 0.05, 0.0),
+        rotation: Quat::from_rotation_y(i as f32 * 0.1),
+        scale: 0.2,
+        size: 1.0,
+        wind: Vec3::new(i as f32, 0.0, 0.0),
+        host_levels: AttachedRow::ALL_LEVELS,
+    };
+    let tables: Vec<Vec<AttachedRow>> = vec![
+        vec![row(0)],
+        Vec::new(),
+        (1..4).map(row).collect(),
+        (4..74).map(row).collect(),
+    ];
+    let hosts: [(u32, Vec3); 6] = [
+        (0, Vec3::new(-2.0, 0.0, -5.0)),
+        (0, Vec3::new(-1.0, 0.0, -5.0)),
+        (1, Vec3::new(0.0, 0.0, -5.0)),
+        (2, Vec3::new(1.0, 0.0, -5.0)),
+        (2, Vec3::new(2.0, 0.0, -5.0)),
+        (3, Vec3::new(0.0, 0.0, -6.0)),
+    ];
+    let mut app = multi_host_app(&hosts, &tables);
+    run_until_drawn(&mut app);
+    let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
+
+    // Every row of every host once, at level 0. Copies keep their order
+    // within a slot, so mesh records follow `hosts`.
+    let mut expected: Vec<Entry> = hosts
+        .iter()
+        .enumerate()
+        .flat_map(|(record, (slot, _))| {
+            tables[*slot as usize]
+                .iter()
+                .map(move |row| expected_entry(record as u32, 0, row))
+        })
+        .collect();
+    expected.sort();
+    assert_eq!(expected.len(), 2 + 6 + 70);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let words = camera_buffer(world, camera, |buffers| &buffers.attached_visible);
+    let mut drawn: Vec<Entry> = (0..expected.len())
+        .map(|i| words[i * 16..][..16].try_into().unwrap())
+        .collect();
+    drawn.sort();
+    assert_eq!(drawn, expected);
+}
+
+/// A headless app like `headless_app`, with one Scatter: host slots 0 to 3
+/// copied as `hosts` gives (slot, position), with `tables` as their rows,
+/// and slot 4, which the rows draw, with levels up to 10 m and beyond.
+fn multi_host_app(hosts: &[(u32, Vec3)], tables: &[Vec<AttachedRow>]) -> App {
+    let mut app = headless_app(&[], true);
+    let world = app.world_mut();
+    let mesh = world
+        .resource_mut::<Assets<Mesh>>()
+        .add(Cuboid::from_length(0.2));
+    let material = world
+        .resource_mut::<Assets<InstancedStandardMaterial>>()
+        .add(InstancedStandardMaterial::default());
+    let kind = GeneratorKind::from_key("procgena_core_bevy.test.hosts");
+    let pool = PoolId::new(kind, OptionsHash(3));
+    let lod = Lod::new(
+        1.0,
+        vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(10.0, 0.1, ())],
+    );
+    let slots: Vec<InstancedSlot> = (0..5)
+        .map(|index| InstancedSlot {
+            specimen: SpecimenId::new(0, pool, index),
+            piece: 0,
+            lod: lod.clone(),
+            parts: (0..2)
+                .map(|level| InstancedPart {
+                    level,
+                    mesh: PartMesh::Mesh(mesh.clone()),
+                    material: material.clone().untyped(),
+                })
+                .collect(),
+            bounds: (Vec3::ZERO, 0.2),
+        })
+        .collect();
+    let copies: Vec<InstancedCopy> = hosts
+        .iter()
+        .map(|&(slot, position)| InstancedCopy {
+            slot,
+            transform: Affine3A::from_translation(position),
+            size: 1.0,
+            wind_phase: 0.0,
+        })
+        .collect();
+    world.spawn((
+        InstancedScatter {
+            slots: slots.into(),
+            copies: copies.into(),
+        },
+        InstancedAttached {
+            tables: tables.iter().map(|t| Arc::from(t.clone())).collect(),
+        },
+    ));
+    app
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn gpu_timings_report_every_stage_when_supported() {
+    let mut app = attached_app(&[Vec3::new(0.0, 0.0, -8.0)], None);
+    run_until_drawn(&mut app);
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .init_resource::<InstancedTimings>();
+    for _ in 0..10 {
+        app.update();
+    }
+    let world = app.sub_app(RenderApp).world();
+    let timings = world.resource::<InstancedTimings>();
+    if !timings.is_supported() {
+        assert_eq!(timings.last(), None);
+        return;
+    }
+    let times = timings.last().expect("a frame's times read back");
+    assert!(times.total() > std::time::Duration::ZERO, "{times:?}");
+
+    // The counts match the camera and shadow views' draws.
+    let counts = read_instance_counts(world);
+    assert!(counts.views >= 2, "camera and shadow views");
+    assert!(counts.attached >= 3, "the near host's rows");
+    assert_eq!(
+        counts.bytes(),
+        counts.copies * INSTANCE_SIZE + counts.attached * ATTACHED_SIZE
+    );
 }

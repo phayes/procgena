@@ -46,7 +46,10 @@ pub use material::{
     InstancedStandardMaterial, attached_buffer_layout, attached_vertex, instance_buffer_layout,
     instanced_vertex,
 };
-pub use render::{ExternalMesh, ExternalMeshes, InstancedSystems};
+pub use render::{
+    CullTimes, ExternalMesh, ExternalMeshes, InstanceCounts, InstancedSystems, InstancedTimings,
+    read_instance_counts,
+};
 
 use crate::LodPlugin;
 
