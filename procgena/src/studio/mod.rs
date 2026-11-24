@@ -11,6 +11,7 @@ pub mod kinds;
 mod layout;
 mod library;
 mod outline;
+pub mod overlays;
 pub mod project;
 mod quit;
 pub mod status;
@@ -39,6 +40,7 @@ impl Plugin for StudioPlugin {
                 outline::OutlinePlugin,
                 view_frame::ViewFramePlugin,
                 commands::CommandsPlugin,
+                overlays::OverlaysPlugin,
                 project::ProjectPlugin,
                 crate::export::FileOpsPlugin,
             ))

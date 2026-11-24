@@ -25,6 +25,7 @@ pub mod headless;
 mod headless_scene;
 mod mushroom;
 mod orbit;
+mod overlay;
 mod plants;
 mod protocol;
 #[cfg(test)]
@@ -62,6 +63,7 @@ pub use fruit::FruitSubject;
 pub use grove::GroveSubject;
 pub use mushroom::MushroomSubject;
 pub use orbit::OrbitCamera;
+pub use overlay::{FamilyCost, Legend, Overlay, OverlayStatus, Readout};
 pub use plants::{FieldSettings, PlantsSubject};
 pub use protocol::{BuildStats, GroveProgress, ViewerCommand, ViewerEvent};
 pub use stone::StoneSubject;
@@ -208,6 +210,7 @@ impl Plugin for ScenePlugin {
         deadwood::plugin(app);
         ecotope::plugin(app);
         terrain::add_subject(app);
+        overlay::plugin(app);
 
         app.add_systems(
             Startup,

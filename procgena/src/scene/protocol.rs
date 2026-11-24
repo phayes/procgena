@@ -15,6 +15,7 @@ use procgena_tree_bevy::TreeScatterBuildError;
 use super::clump::ClumpBuildError;
 use super::environment::EnvironmentSettings;
 use super::orbit::OrbitCamera;
+use super::overlay::Overlay;
 use super::subject::{Detail, Show};
 
 /// A change requested by the host application.
@@ -36,6 +37,10 @@ pub enum ViewerCommand {
     /// draw a detail of their own whatever is chosen. The scene starts with
     /// [`Detail::default`].
     SetDetail(Detail),
+    /// Draws an overlay over the ground of subjects that offer it, or none.
+    /// It stays chosen while other subjects are shown, and is drawn again
+    /// on the next subject that offers it. The scene starts with none.
+    SetOverlay(Option<Overlay>),
     /// Returns the camera to the shown subject's starting view.
     ResetCamera,
     /// Points the camera with this view, for example one saved earlier.

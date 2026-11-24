@@ -15,6 +15,7 @@ use super::camera::camera_controls;
 use super::documents::InspectorPages;
 use super::library::library;
 use super::outline::outline;
+use super::overlays::{overlay_legend, overlay_picker};
 use super::status::status_overlay;
 use super::view_frame::{environment_popover, view_frame_bar};
 use crate::scene::SceneViewport;
@@ -77,11 +78,11 @@ pub fn spawn_layout(mut commands: Commands) {
                 flex_direction: FlexDirection::Column,
             }
             Children [
-                @view_frame_bar() Children [ @camera_controls() ]
+                @view_frame_bar() Children [ @overlay_picker() -- @camera_controls() ]
                 --
                 Node { flex_grow: 1.0, min_height: px(0) }
                 SceneViewport
-                Children [ @status_overlay() -- @environment_popover() ]
+                Children [ @status_overlay() -- @overlay_legend() -- @environment_popover() ]
             ]
             --
             @divider(PANEL_MIN, PANEL_MAX)
