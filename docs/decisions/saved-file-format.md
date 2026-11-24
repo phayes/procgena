@@ -142,22 +142,33 @@ otherwise.
 
 | Format | Index location | Trips to the index: suffix ranges work / don't | Trips to one entry after the index | Manifest and every preset, from nothing |
 |---|---|---|---|---|
-| **Zip, stored, our profile** | End (central directory, 22-byte end record) | **1 / 2** | **1**: the local header is 30 bytes plus name and extra field. Exact when our writer adds no extra field; otherwise over-fetch ~1 KiB. | **1**: a front window and the tail, fetched in parallel. The front window's local headers give the YAML, and the central directory confirms it. |
+| **Zip, stored, our profile** | End (central directory, 22-byte end record) | **1 / 2** | **1**: the local header is 30 bytes plus name and extra field. Exact when our writer adds no extra field; otherwise over-fetch ~1 KiB. | **1 / 2**: a front window and the tail (in parallel when suffix ranges work). The front window's local headers give the YAML, and the central directory confirms it. |
 | Zip with a generated index as its first entry | Front (and end) | 1 / 1 | 1, exact | 1 |
 | tar, plain | None | n/a: walk the 512-byte headers, one trip per entry before the one wanted | k sequential trips for the k-th entry | 1 if all YAML fits the first window |
 | tar + TOC at the end ([eStargz](https://github.com/containerd/stargz-snapshotter/blob/2713db58dc69454d4ed5cffdd277560e5c52aa25/docs/estargz.md): TOC as the last entry, 51-byte gzip footer) | End | 1 / 2 | 1 | 1 |
 | tar + separate index ([SOCI](https://aws.amazon.com/blogs/containers/under-the-hood-lazy-loading-container-images-with-seekable-oci-and-aws-fargate)) | A second file | 1 (other file) | 1 | 1, but two files to share |
 | [Seekable zstd](https://github.com/facebook/zstd/blob/dev/contrib/seekable_format/README.md) around a tar | End (seek table in a skippable frame) maps only uncompressed offsets; a file index still needs a TOC inside | 2 / 3 | 1, plus decompressing the frame | 2 |
 | [ASAR](https://github.com/electron/asar) | Front: an 8-byte size, then a JSON header with offsets | **1 / 1** (+1 if the JSON outgrows the window; its size is in the first 16 bytes) | 1, exact | 1 |
-| Custom, index at the front ([PMTiles](https://gist.github.com/DerZade/cda63bccd24b3999b04e429955f61bfb): 127-byte header, root directory within the first 16 KiB. Godot `.pck` is described with a directory of path, offset, size and MD5; its position changed across 4.3 and 4.5, unverified.) | Front | **1 / 1** | 1, exact | 1 |
-| SQLite (`sqlar`) over an HTTP VFS ([sql.js-httpvfs](https://npmjs.com/package/sql.js-httpvfs)) | Pages: B-tree | 1 for page 1, then the B-tree depth (about 2–3 sequential) | A blob larger than a page continues in a **linked list of overflow pages** ([file format](https://www.sqlite.org/fileformat2.html)), each found from the one before. Read-ahead hides some of this; a 1 MiB texture at 4 KiB pages is a 256-page chain. | 3–4 |
+| Custom, index at the front ([PMTiles](https://gist.github.com/DerZade/cda63bccd24b3999b04e429955f61bfb): 127-byte header, root directory within the first 16 KiB. Godot `.pck` is described with a directory of path, offset, size and MD5. Its offset storage changed in 4.3 and a new pack version came in 4.5; where its directory sits was not checked.) | Front | **1 / 1** | 1, exact | 1 |
+| SQLite (`sqlar`) over an HTTP VFS ([sql.js-httpvfs](https://npmjs.com/package/sql.js-httpvfs)) | Pages: B-tree | 1 for page 1, then the B-tree depth (about 2–3 sequential) | A blob larger than a page continues in a **linked list of overflow pages**, each found from the one before (SQLite's file-format document, from memory; not fetched in this review). Read-ahead hides some of this; a 1 MiB texture at 4 KiB pages is a 256-page chain. | 3–4 |
 | [7z](https://py7zr.readthedocs.io/en/latest/archive_format.html), non-solid, stored | A 32-byte start header points to the header at the end, often itself compressed | 2 / 2 | 1; solid archives need their whole block decompressed from its start | 2 |
 | Unreal `.pak` | End: fixed footer, then index (details from community tools, unverified) | 1–2 / 2–3 | 1 | 2 |
 
 **What the table says:** with suffix ranges, zip and the front-index
 formats tie: one trip for the index, one per entry, and one for "manifest
 and all presets" when YAML comes first. Without suffix ranges, zip needs
-one trip more to reach the index. On a local file, all indexed formats
+one trip more, both to reach the index and to get manifest and presets.
+
+**When a host ignores `Range` altogether** and returns the whole file
+with a 200, as [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range)
+allows and one report says a CDN does under gzip:
+- a front-index format with YAML first lets the client read the index
+  and every preset from the first bytes of the stream, then stop;
+- zip must read to the end for its central directory, or trust local
+  headers before seeing it, against the rule that the central directory
+  is the truth.
+
+This is the one case where a front index clearly wins. On a local file, all indexed formats
 cost one seek. tar without an index and SQLite's blob chains are the only
 real losers on access.
 
@@ -167,20 +178,21 @@ real losers on access.
 |---|---|---|---|---|---|---|
 | **Zip, stored** | **Windows, macOS, Linux** / `zip`, `unzip`, `7z` | One pass to a seekable file; sizes known up front, as nothing is compressed | Pad the local extra field ([USDZ](https://openusd.org/dev/spec_usdz.html): 64 bytes; zipalign: 4) | A crate (`zip` or `rawzip`) or our own ~400 lines on `flate2` and `crc32fast`, both already in the tree | Paths are entries; a hand-zipped folder opens (DEFLATE read) | **Proposed** |
 | Zip + generated front index | Same | Two passes, or offsets computed up front | Same | Zip, plus our index and a check that it matches the central directory: two sources of truth to keep in step | Same; hand-zipped bundles lack the index and fall back to the tail | Saves one trip only without suffix ranges; reopens decision 4 |
-| tar | Linux, macOS; Windows only lately / `tar` | One pass, streaming | 512-byte blocks | `tar` crate (not in tree) | Paths are entries | No index |
+| tar | Linux, macOS; recent Windows (from memory) / `tar` | One pass, streaming | 512-byte blocks | `tar` crate (not in tree) | Paths are entries | No index |
 | tar + TOC (eStargz-like) | As tar; gzip per file adds nothing for us | One pass, TOC last | — | Our TOC convention on `tar` | Same | A zip central directory by another name, with worse tools |
 | tar + SOCI-style sidecar | As tar | Two files | — | Same | Two files to share | Breaks "one file" |
 | Seekable zstd | `zstd -d` decompresses it, then `tar` | Frames per entry | — | `zstd-framed` (MIT/Unlicense, 0.3 M downloads) or `zeekstd` (BSD-2, 72 k), plus tar | A file index on top | Compresses incompressible data; two layers |
 | ASAR | No / `npx @electron/asar` | Header first: all sizes known first, then data | None built in | `asar` crate (Apache/MIT, 54 k downloads), or ~200 lines of our own | JSON tree mirrors folders | Front index, but Electron's quirks (Pickle sizes, offsets as strings) and no OS support |
 | **Custom front index** | No / our `procgena pack` and `unpack` only | Header and index first, then data | Ours to choose | ~300–500 lines of our own, plus fuzzing and a CLI; no dependency | Path-keyed index | **The alternative** if range reads without suffix ranges matter more than tooling |
 | SQLite `sqlar` | DB browsers / [`sqlite3 -A`](https://sqlite.org/sqlar.html) | Transactions; in-place update (no longer needed) | Pages | `rusqlite` (MIT, 166 M downloads) with bundled C SQLite, not in tree; a C build | `sqlar` is path → blob, compressed when smaller | Slow for large blobs over ranges; adds a C build |
-| 7z | Windows 11 Explorer, 7-Zip / `7z` | Header last; solid by default | — | `sevenz-rust2` (Apache-2.0, 2.6 M downloads) | Paths | Complex, built for solid compression |
+| 7z | 7-Zip; recent Windows Explorer (from memory) / `7z` | Header last; solid by default | — | `sevenz-rust2` (Apache-2.0, 2.6 M downloads) | Paths | Complex, built for solid compression |
 | Unreal `.pak`, Godot `.pck` | Engine tools only | Custom | Custom | Ours | — | Prior art only |
 
 Others considered:
-- Zarr v3 shards, Parquet and Cloud-Optimized GeoTIFF all put a small
-  index at a known end. They confirm that an end index works well over
-  ranges, but none is a file archive.
+- Parquet keeps its index in a footer, and Zarr v3 shards keep theirs at
+  a configurable end. Cloud-Optimized GeoTIFF puts its directories at the
+  front. All three are read over ranges in production, but none is a file
+  archive. This line is from memory, not checked in this review.
 - WACZ is the closest real use of zip over ranges:
   [WACZ](https://specs.webrecorder.net/wacz/1.2.0/) is a stored zip of web
   archives, and ReplayWeb.page reads it lazily in the browser with range
@@ -329,8 +341,13 @@ which only the deferred mount source would give. That is question 2.
      comments and layout don't count. Textures are compared by `blake3`.
    - **Same key, different content, or a built-in's key:** a conflict.
      Under decision 3, a project preset with a built-in's key is a problem
-     to qualify, so Import avoids creating one. Each conflict offers
-     **Rename** (the default: `<key>_<bundle id>`, which can be edited),
+     to qualify, so Import avoids creating one. The qualifier's syntax is
+     ST2's to fix along with studio_plan.md's open question 1; `builtin:<key>`
+     is proposed. Each conflict offers **Rename**. The default name is
+     `<key>_<bundle id>`, which can be edited. Like every preset key,
+     the new name must be a valid child key: `[a-z][a-z0-9_]*`, at most
+     32 bytes (`procgena_core::seed`). So it is shortened and numbered
+     (`_2`, `_3`) when needed.
      **Use mine** (skip it and point the imported files at the project's
      copy), or **Replace** (overwrite the project's copy, showing its
      "used by" first).
@@ -343,7 +360,12 @@ which only the deferred mount source would give. That is question 2.
    (`procgena_tree/src/scatter/file.rs`, `scatter.rs`; ARCHITECTURE.md
    "Seeds"). When Import renames that tree, it writes `key: <old key>`
    into the species entry, so the Scatter places exactly as it did in the
-   bundle. No other reader takes a child key from a preset key today:
+   bundle. Writing `key:` into an item of a list is an edit that ST2's
+   `yamlpatch` spike doesn't cover (it covers replace, insert a nested key
+   and remove), so PB3 starts with a spike of its own. No other reader
+   takes a child key from a preset key today. Every `ChildKey::new` call
+   site was checked: the others build keys from map keys, fixed stems or
+   numbered names. In detail:
    - Ecotope Scatters and ground layers are keyed by their map keys;
    - stone classes name their own `key`;
    - dead wood and mushroom references resolve to options.
@@ -475,9 +497,9 @@ don't run beside them.
 | Stage | Covers | Needs | Done when |
 |---|---|---|---|
 | **PB1: container and crate** | `procgena_bundle`: the chosen container (question 1), the writer profile, the strict reader, path rules and limits, `procgena.yml`, `unpack`. A spike first: the library choice, then `serde_saphyr` alias limits. Fuzz the reader. | The user's answer to question 1; the dependency through the coordinator | Tests pack a folder and read it back from the file and from the folder with equal results. They reject the hostile corpus (traversal, symlink, duplicate, overlap, bomb, wrong `format`) and read a zip made by Finder. |
-| **PB2: Export** | The closure walk, the export dialog, the manifest from the project's `procgena.yml`, texture sizes, flattening, thumbnails | PB1; ST2 (registry, "used by"); ST1's `ref` and `texture:` metadata; ST8's export panel for the dialog | A headless script exports a Biome and gets a bundle holding exactly its project presets and textures, with no built-ins |
+| **PB2: Export** | The closure walk, the export dialog, the manifest from the project's `procgena.yml`, flattening, thumbnails | PB1; ST2 (registry, "used by"); ST1's `ref` metadata; ST8's export panel for the dialog | A headless script exports a project Ecotope and gets a bundle holding exactly its project presets, with no built-ins. Biome roots wait for `.biome.yml` files (B1/W0). |
 | **PB3: Open and Import** | Open by unpacking; Import with the plan, conflicts, renames through `yamlpatch`, and seed-keeping `key` lines | PB1; ST2 (registry, Update's `yamlpatch`); ST3 (Library) | A headless script imports a bundle whose tree clashes with a project tree. Import renames it, the imported Scatter places the same copies as in the bundle, and the comments survive. |
-| **PB4: textures** | The bundle's `textures.yml` merged on Import and Open; KTX2 sizes on Export | PB2, PB3; ST6 (catalogue, `ctt`) | A bundle's bark draws in another project at 128 px with no other size present |
+| **PB4: textures** | Texture ids in the closure; the bundle's `textures.yml` merged on Import and Open; KTX2 sizes on Export | PB2, PB3; ST6 (catalogue, `ctt`) | A bundle's bark draws in another project at 128 px with no other size present |
 | **Later** | Mount source or `#label` loader for games; HTTP range reading; wasm; bundles that require other bundles, with `bundle:key` references; models in `MeshScatter`; alignment | Decisions 2 and 9 revisited; `MeshScatter` | — |
 
 ## Effects on other documents
@@ -494,6 +516,13 @@ Proposed only; ST0 is active, so none is edited here.
   species' default child key is its preset's key, so tools that rename
   presets must write the key out.
 - **ROADMAP.md:** PB1–PB4 after ST2, ST3 and ST6.
+- **A risk ST2 already has, found here:** `ScatterTree` built from a
+  preset calls `ChildKey::new(preset.key).expect(...)`
+  (`procgena_tree/src/scatter.rs`), and the studio's `free_key` also
+  panics on a bad stem. Built-in keys always pass, but user preset keys
+  from file names may not, for example one longer than 32 bytes. ST2
+  should require preset keys to be valid child keys, or turn these into
+  errors.
 
 ## Questions for the user
 
@@ -502,7 +531,8 @@ Proposed only; ST0 is active, so none is edited here.
    file, which is how the studio uses bundles today, every indexed format
    costs one seek. Over HTTP, zip and a front-index format tie when
    servers honour suffix ranges. Zip needs one more round trip when they
-   don't. *Options:*
+   don't. When a host ignores ranges altogether, only a front index can
+   stop after the first bytes. *Options:*
    - **(a) Zip, stored, with the strict writer profile.** It opens by
      double-click everywhere, people can zip a folder themselves, and the
      format and its readers are proven in use, WACZ already over ranges.
