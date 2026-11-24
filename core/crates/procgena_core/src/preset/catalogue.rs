@@ -16,6 +16,12 @@
 /// - the [`Preset`](crate::preset::Preset) impl, whose `check` runs the given
 ///   check on options read from a file.
 ///
+/// A preset type may have more fields of its own besides the options, such
+/// as a tree's suggested spacing in a Scatter. List them after the
+/// description of each preset (`spacing: 1.5`), and name them in
+/// `inherit: [spacing]` before `check`. A preset read from a file then
+/// takes them from its `base`, or from their `Default` when it has none.
+///
 /// Each preset's options are built once, the first time any preset is
 /// used. Keys must be unique; listing one twice makes `named` find only
 /// the first.
@@ -56,12 +62,19 @@
 #[macro_export]
 macro_rules! catalogue {
     (
-        $preset:ident { $field:ident : $options:ty, check: $check:expr $(,)? }
+        $preset:ident {
+            $field:ident : $options:ty,
+            $(inherit: [$($inherit:ident),* $(,)?],)?
+            check: $check:expr $(,)?
+        }
         $(
             $group:literal {
                 $(
-                    $key:ident { name: $name:literal, description: $description:literal $(,)? }
-                        => $value:expr;
+                    $key:ident {
+                        name: $name:literal,
+                        description: $description:literal
+                        $(, $extra:ident: $extra_value:expr)* $(,)?
+                    } => $value:expr;
                 )*
             }
         )*
@@ -80,6 +93,7 @@ macro_rules! catalogue {
                                     description: ::std::borrow::Cow::Borrowed($description),
                                     group: ::std::borrow::Cow::Borrowed($group),
                                     $field: $value,
+                                    $($extra: $extra_value,)*
                                 },
                             )*)*
                         ]
@@ -155,13 +169,23 @@ macro_rules! catalogue {
             fn options(&self) -> &$options {
                 &self.$field
             }
-            fn from_parts(meta: $crate::preset::PresetMeta, options: $options) -> Self {
+            fn from_parts(
+                meta: $crate::preset::PresetMeta,
+                options: $options,
+                base: ::std::option::Option<&'static Self>,
+            ) -> Self {
+                let _ = base;
                 Self {
                     key: ::std::borrow::Cow::Owned(meta.key),
                     name: ::std::borrow::Cow::Owned(meta.name),
                     description: ::std::borrow::Cow::Owned(meta.description),
                     group: ::std::borrow::Cow::Owned(meta.group),
                     $field: options,
+                    $($(
+                        $inherit: base
+                            .map(|base| ::std::clone::Clone::clone(&base.$inherit))
+                            .unwrap_or_default(),
+                    )*)?
                 }
             }
             fn all() -> impl ::std::iter::Iterator<Item = &'static Self> {

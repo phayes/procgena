@@ -38,7 +38,11 @@ pub trait Preset: Sized + 'static {
     fn options(&self) -> &Self::Options;
 
     /// Builds a preset from its name parts and options, as read from a file.
-    fn from_parts(meta: PresetMeta, options: Self::Options) -> Self;
+    ///
+    /// `base` is the built-in preset the file named as its `base`, if any.
+    /// A preset type with fields of its own besides the options takes them
+    /// from it.
+    fn from_parts(meta: PresetMeta, options: Self::Options, base: Option<&'static Self>) -> Self;
 
     /// Every built-in preset, in catalogue order: grouped, and in display
     /// order within each group.
@@ -92,14 +96,15 @@ pub fn read<P: Preset>(key: &str, text: &str) -> Result<P, PresetFileError> {
     let document = Document::parse(P::KIND, text)?;
 
     // Start from the base preset's options, or the defaults.
-    let mut value = match &document.base {
-        Some(base) => {
-            let preset = P::named(base).ok_or_else(|| PresetFileError::UnknownBase {
-                key: base.clone(),
-                known: P::all().map(|preset| preset.key().to_owned()).collect(),
-            })?;
-            to_value(preset.options())
-        }
+    let base = match &document.base {
+        Some(base) => Some(P::named(base).ok_or_else(|| PresetFileError::UnknownBase {
+            key: base.clone(),
+            known: P::all().map(|preset| preset.key().to_owned()).collect(),
+        })?),
+        None => None,
+    };
+    let mut value = match base {
+        Some(base) => to_value(base.options()),
         None => to_value(&P::Options::default()),
     };
 
@@ -116,7 +121,7 @@ pub fn read<P: Preset>(key: &str, text: &str) -> Result<P, PresetFileError> {
         description: document.description.unwrap_or_default(),
         group: document.group.unwrap_or_else(|| FILE_GROUP.to_owned()),
     };
-    Ok(P::from_parts(meta, options))
+    Ok(P::from_parts(meta, options, base))
 }
 
 /// Writes a preset as the text of a `.<kind>.yml` file that [`read`] reads

@@ -108,7 +108,7 @@ impl Preset for Thing {
     fn options(&self) -> &Options {
         &self.thing
     }
-    fn from_parts(meta: PresetMeta, thing: Options) -> Self {
+    fn from_parts(meta: PresetMeta, thing: Options, _base: Option<&'static Self>) -> Self {
         Self {
             key: meta.key.into(),
             name: meta.name.into(),
@@ -255,6 +255,7 @@ fn a_written_file_holds_only_what_differs_and_reads_back() {
             group: FILE_GROUP.to_owned(),
         },
         ALL[0].thing.clone(),
+        None,
     );
     thing.thing.height = 0.6;
     thing.thing.level.one = 0.7;
