@@ -1,0 +1,541 @@
+# What tools that edit dead wood presets show for each setting. Kept in
+# step with DeadwoodOptions by tests/meta.rs.
+kind: deadwood
+name: Dead Wood
+description: "One piece of dead wood: a fallen log, a fallen branch or a stump, with its ends, bark, decay and anything growing on it."
+parts:
+  wood:
+    name: Wood
+    description: "The main stem: its size, shape, ends, bark and colours."
+    tags: [deadwood, wood]
+  branches:
+    name: Side Branches
+    description: "Stubs, side branches and twigs growing out of the main stem."
+    tags: [branch]
+  roots:
+    name: Roots
+    description: "A stump's flared base and surface roots."
+  leaves:
+    name: Leaves
+    description: "Leafy shoots, ferns or shelf fungi growing out of the wood."
+    tags: [leaves]
+conditions:
+  branch: "piece == branch"
+sections:
+  - title: Piece
+    part: wood
+    settings: [piece, decay, length, diameter, taper]
+  - title: Ends
+    part: wood
+    groups:
+      - title: Base
+        settings: [ends.base, ends.base.tilt, ends.base.step, ends.base.angle, ends.base.jaggedness, ends.base.splinters, ends.base.one_sided]
+      - title: Tip
+        settings: [ends.tip, ends.tip.tilt, ends.tip.step, ends.tip.angle, ends.tip.jaggedness, ends.tip.splinters, ends.tip.one_sided]
+  - title: Shape
+    part: wood
+    settings: [shape.bend, shape.wobble, shape.lumps, shape.lump_scale, shape.lean, shape.ovality]
+  - title: Parts
+    part: branches
+    groups:
+      - title: Stubs
+        settings: [stubs.per_metre, stubs.length, stubs.radius, stubs.angle, stubs.keep]
+      - title: Side Branches
+        shown_if: "@branch"
+        settings: [branching.levels, branching.children, branching.length, branching.radius, branching.angle, branching.twigs, branching.twig_length, branching.keep, branching.twig_keep]
+      - title: Hollow
+        shown_if: "!@branch"
+        settings: [hollow.enabled, hollow.radius, hollow.depth, hollow.open_base, hollow.open_tip, hollow.roughness]
+      - title: Roots
+        shown_if: "piece == stump"
+        settings: [roots.flare, roots.flare_height, roots.lobes, roots.lobe_depth, roots.count, roots.length, roots.radius, roots.pitch, roots.depth]
+      - title: Leaves
+        settings: [leaves.per_metre, leaves.texture, leaves.cards, leaves.size, leaves.size_variance, leaves.spread, leaves.lean, leaves.up, leaves.flatten, leaves.top, leaves.ends, leaves.crossed, leaves.tint]
+  - title: Bark
+    part: wood
+    settings: [bark.thickness, bark.stripped, bark.patch_size, bark.cracks, bark.plate_size]
+  - title: Colours
+    part: wood
+    settings: [material.bark, material.bark_weathered, material.sapwood, material.heartwood, material.rot, material.roughness]
+  - title: Textures
+    part: wood
+    settings: [material.bark_texture, material.bark_texture_size, material.end_texture]
+  - title: Resting
+    part: wood
+    settings: [settle.settle, settle.sag, settle.burial]
+settings:
+  default_seed:
+    label: Seed
+    description: "The seed of a piece built on its own."
+    hidden: true
+  piece:
+    label: Kind
+    description: "A fallen log, a fallen branch with side branches, or a stump with roots."
+    choices:
+      - { value: log, label: Log }
+      - { value: branch, label: Branch }
+      - { value: stump, label: Stump }
+  decay:
+    label: Decay Class
+    description: "How decayed the wood is, from just fallen at 0 to crumbling at the top of the range. Many other settings follow it unless set by hand."
+    range: [0, 5]
+    step: 0.05
+  length:
+    label: Length
+    unit: m
+    description: "How long the main stem is: along a log or branch, or a stump's height."
+    range: [0.05, 20]
+    step: 0.01
+    scale: exponential
+  diameter:
+    label: Diameter
+    unit: m
+    description: "How thick the main stem is at its base."
+    range: [0.003, 2]
+    step: 0.001
+    scale: exponential
+  taper:
+    label: Tip Width
+    description: "How wide the tip is, compared with the base."
+    range: [0.05, 1]
+    step: 0.01
+
+  # The two ends: a shape, then that shape's own settings.
+  ends.base:
+    label: Shape
+    description: "How the base end finishes: a saw or chainsaw cut, an axe cut, a break, or a natural tip."
+    choices: end_shapes
+  ends.base.tilt: &tilt
+    label: Tilt
+    unit: °
+    description: "How far the cut leans from square across the stem."
+    range: [0, 30]
+    step: 0.5
+    shown_if: "ends.base.kind in [saw, chainsaw]"
+  ends.base.step: &step
+    label: Step
+    description: "How far the two halves of a chainsaw cut are offset, where the cuts from each side didn't meet."
+    range: [0, 0.3]
+    step: 0.01
+    shown_if: "ends.base.kind == chainsaw"
+  ends.base.angle: &angle
+    label: Wedge Angle
+    unit: °
+    description: "How sharp the axe-cut wedge is."
+    range: [30, 150]
+    step: 1
+    shown_if: "ends.base.kind == axe"
+  ends.base.jaggedness: &jaggedness
+    label: Jaggedness
+    description: "How rough and torn the broken end is."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "ends.base.kind == snapped"
+  ends.base.splinters: &splinters
+    label: Splinters
+    description: "How many long splinters stick out of the broken end."
+    range: [0, 24]
+    step: 1
+    shown_if: "ends.base.kind == snapped"
+  ends.base.one_sided: &one_sided
+    label: Slant
+    description: "How much the break slants to one side, as when a trunk snaps under its own weight."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "ends.base.kind == snapped"
+  ends.tip:
+    label: Shape
+    description: "How the tip end finishes: a saw or chainsaw cut, an axe cut, a break, or a natural tip."
+    choices: end_shapes
+  ends.tip.tilt:
+    <<: *tilt
+    shown_if: "ends.tip.kind in [saw, chainsaw]"
+  ends.tip.step:
+    <<: *step
+    shown_if: "ends.tip.kind == chainsaw"
+  ends.tip.angle:
+    <<: *angle
+    shown_if: "ends.tip.kind == axe"
+  ends.tip.jaggedness:
+    <<: *jaggedness
+    shown_if: "ends.tip.kind == snapped"
+  ends.tip.splinters:
+    <<: *splinters
+    shown_if: "ends.tip.kind == snapped"
+  ends.tip.one_sided:
+    <<: *one_sided
+    shown_if: "ends.tip.kind == snapped"
+
+  shape.bend:
+    label: Bend
+    description: "How much the stem curves along its length."
+    range: [0, 0.5]
+    step: 0.01
+  shape.wobble:
+    label: Wobble
+    description: "Small random kinks along the stem."
+    range: [0, 1]
+    step: 0.01
+  shape.lumps:
+    label: Lumps
+    description: "How high the broad bumps on the surface are."
+    range: [0, 0.4]
+    step: 0.01
+  shape.lump_scale:
+    label: Lump Count
+    description: "Roughly how many bumps fit around the stem."
+    range: [0.5, 40]
+    step: 0.5
+    scale: exponential
+  shape.lean:
+    label: Lean
+    unit: °
+    description: "How far a stump leans from upright."
+    range: [0, 45]
+    step: 0.5
+  shape.ovality:
+    label: Flattening
+    description: "How much the stem is squashed toward the ground. Unset, it follows decay."
+    range: [0, 0.6]
+    step: 0.01
+    optional: 0
+
+  stubs.per_metre:
+    label: Per Metre
+    description: "How many broken-off branch stubs stick out of each metre of stem."
+    range: [0, 20]
+    step: 0.1
+  stubs.length:
+    label: Length
+    description: "How long the stubs are, compared with the stem's diameter."
+    range: [0.05, 3]
+    step: 0.01
+  stubs.radius:
+    label: Thickness
+    description: "How thick the stubs are, compared with the stem where they grow."
+    range: [0.05, 0.8]
+    step: 0.01
+  stubs.angle:
+    label: Angle
+    unit: °
+    description: "The angle between a stub and the stem."
+    range: [10, 90]
+    step: 1
+  stubs.keep:
+    label: Kept
+    description: "How many of the stubs are still attached. Unset, it follows decay."
+    range: [0, 1]
+    step: 0.01
+    optional: 1
+  branching.levels:
+    label: Levels
+    description: "How many levels of side branches grow on a fallen branch."
+    range: [0, 2]
+    step: 1
+  branching.children:
+    label: Branches
+    description: "How many side branches each branch has."
+    range: [0, 24]
+    step: 1
+  branching.length:
+    label: Length
+    description: "How long a side branch is, compared with its parent."
+    range: [0.05, 1]
+    step: 0.01
+  branching.radius:
+    label: Thickness
+    description: "How thick a side branch is, compared with its parent where it grows."
+    range: [0.1, 0.9]
+    step: 0.01
+  branching.angle:
+    label: Angle
+    unit: °
+    description: "The angle between a side branch and its parent."
+    range: [5, 90]
+    step: 1
+  branching.twigs:
+    label: Twigs
+    description: "How many twigs grow on each of the thinnest branches."
+    range: [0, 24]
+    step: 1
+  branching.twig_length:
+    label: Twig Length
+    description: "How long twigs are, compared with the branch they grow on."
+    range: [0.02, 0.6]
+    step: 0.01
+  branching.keep:
+    label: Branches Kept
+    description: "How many side branches are still attached. Unset, it follows decay."
+    range: [0, 1]
+    step: 0.01
+    optional: 1
+  branching.twig_keep:
+    label: Twigs Kept
+    description: "How many twigs are still attached. Unset, it follows decay."
+    range: [0, 1]
+    step: 0.01
+    optional: 1
+  hollow.enabled:
+    label: Hollow
+    description: "Gives the piece a hollow core, as rot leaves inside an old log or stump."
+  hollow.radius:
+    label: Width
+    description: "How wide the hollow is, compared with the outside."
+    range: [0.2, 0.85]
+    step: 0.01
+    shown_if: hollow.enabled
+  hollow.depth:
+    label: Depth
+    description: "How deep the hollow reaches from an open end."
+    range: [0.05, 1]
+    step: 0.01
+    shown_if: hollow.enabled
+  hollow.open_base:
+    label: Open at Base
+    description: "Whether the hollow opens at the base end. Stumps ignore it."
+    shown_if: hollow.enabled
+  hollow.open_tip:
+    label: Open at Tip
+    description: "Whether the hollow opens at the tip end, the top of a stump."
+    shown_if: hollow.enabled
+  hollow.roughness:
+    label: Roughness
+    description: "How uneven the hollow's inside wall is."
+    range: [0, 0.5]
+    step: 0.01
+    shown_if: hollow.enabled
+  roots.flare:
+    label: Flare
+    part: roots
+    description: "How much the stump widens toward the ground."
+    range: [0, 2]
+    step: 0.01
+  roots.flare_height:
+    label: Flare Height
+    part: roots
+    description: "How high above the ground the flare reaches."
+    range: [0.05, 3]
+    step: 0.01
+  roots.lobes:
+    label: Lobes
+    part: roots
+    description: "How many buttresses, the ridges where roots join the trunk."
+    range: [0, 12]
+    step: 1
+  roots.lobe_depth:
+    label: Lobe Depth
+    part: roots
+    description: "How strongly the buttresses stand out."
+    range: [0, 1]
+    step: 0.01
+  roots.count:
+    label: Roots
+    part: roots
+    description: "How many roots run out over the ground."
+    range: [0, 16]
+    step: 1
+  roots.length:
+    label: Root Length
+    part: roots
+    description: "How long the roots are, compared with the trunk's diameter."
+    range: [0.1, 6]
+    step: 0.01
+  roots.radius:
+    label: Root Thickness
+    part: roots
+    description: "How thick the roots are where they leave the trunk."
+    range: [0.05, 0.6]
+    step: 0.01
+  roots.pitch:
+    label: Root Dip
+    unit: °
+    part: roots
+    description: "How steeply the roots dive into the soil."
+    range: [0, 60]
+    step: 0.5
+  roots.depth:
+    label: Base Depth
+    part: roots
+    description: "How far the trunk reaches below the ground."
+    range: [0.05, 2]
+    step: 0.01
+  leaves.per_metre:
+    label: Sprays per Metre
+    part: leaves
+    description: "How many sprays of leaves, ferns or fungi grow from each metre of wood. At 0 there are none."
+    range: [0, 20]
+    step: 0.1
+  leaves.texture:
+    label: Texture
+    part: leaves
+    description: "The picture drawn on each card."
+    choices: leaf_textures
+    shown_if: "leaves.per_metre > 0"
+  leaves.cards:
+    label: Cards per Spray
+    part: leaves
+    description: "How many cards make up each spray."
+    range: [1, 16]
+    step: 1
+    shown_if: "leaves.per_metre > 0"
+  leaves.size:
+    label: Size
+    unit: m
+    part: leaves
+    description: "How long each card is."
+    range: [0.02, 2]
+    step: 0.01
+    scale: exponential
+    shown_if: "leaves.per_metre > 0"
+  leaves.size_variance:
+    label: Size Variation
+    part: leaves
+    description: "How much card sizes vary."
+    range: [0, 0.9]
+    step: 0.01
+    shown_if: "leaves.per_metre > 0"
+  leaves.spread:
+    label: Spread
+    unit: °
+    part: leaves
+    description: "How far the cards of a spray fan out."
+    range: [0, 90]
+    step: 1
+    shown_if: "leaves.per_metre > 0"
+  leaves.lean:
+    label: Lean
+    unit: °
+    part: leaves
+    description: "How far each spray tilts at random from straight out of the wood."
+    range: [0, 90]
+    step: 1
+    shown_if: "leaves.per_metre > 0"
+  leaves.up:
+    label: Toward Up
+    part: leaves
+    description: "How far each spray turns from straight out of the wood toward pointing up."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "leaves.per_metre > 0"
+  leaves.flatten:
+    label: Flatten
+    part: leaves
+    description: "How far each card turns toward lying level with its face up, like a shelf fungus."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "leaves.per_metre > 0"
+  leaves.top:
+    label: Prefer Top
+    part: leaves
+    description: "How strongly sprays prefer the upper side of the wood."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "leaves.per_metre > 0"
+  leaves.ends:
+    label: Near Ends
+    part: leaves
+    description: "How many sprays gather near the two ends of the wood."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "leaves.per_metre > 0"
+  leaves.crossed:
+    label: Crossed Cards
+    part: leaves
+    description: "Adds a second card at right angles to each card, so sprays look full from every side."
+    shown_if: "leaves.per_metre > 0"
+  leaves.tint:
+    label: Tint
+    part: leaves
+    description: "A colour the card picture is multiplied by. White keeps its own colours."
+    color: true
+    shown_if: "leaves.per_metre > 0"
+  bark.thickness:
+    label: Thickness
+    description: "How thick the bark is."
+    range: [0.01, 0.3]
+    step: 0.005
+  bark.stripped:
+    label: Peeled
+    description: "How much of the bark has peeled off. Unset, it follows decay."
+    range: [0, 1]
+    step: 0.01
+    optional: 0
+  bark.patch_size:
+    label: Peel Patch Size
+    unit: m
+    description: "How big a typical peeled patch is."
+    range: [0.02, 2]
+    step: 0.01
+    scale: exponential
+  bark.cracks:
+    label: Cracks
+    description: "How deep the cracks between bark plates are, from smooth bark at 0."
+    range: [0, 1]
+    step: 0.01
+  bark.plate_size:
+    label: Plate Size
+    unit: m
+    description: "How wide a typical bark plate is."
+    range: [0.01, 1]
+    step: 0.005
+    scale: exponential
+  material.bark:
+    label: Bark
+    description: "The colour of fresh bark."
+    color: true
+  material.bark_weathered:
+    label: Weathered Bark
+    description: "The colour bark weathers to as it decays."
+    color: true
+  material.sapwood:
+    label: Sapwood
+    description: "The colour of the outer wood, where bark has peeled off."
+    color: true
+  material.heartwood:
+    label: Heartwood
+    description: "The colour of the core of a cut end."
+    color: true
+  material.rot:
+    label: Rot
+    description: "The colour of rotten wood. Everything blends toward it with decay."
+    color: true
+  material.roughness:
+    label: Roughness
+    description: "How rough the surface looks, from glossy at 0 to matte at 1."
+    range: [0, 1]
+    step: 0.01
+  material.bark_texture:
+    label: Bark
+    description: "The set of images drawn on the bark, or none for plain colour."
+    choices: bark_textures
+  material.bark_texture_size:
+    label: Bark Size
+    unit: m
+    description: "How much bark one repeat of the bark texture covers."
+    range: [0.05, 3]
+    step: 0.01
+    scale: exponential
+    shown_if: material.bark_texture
+  material.end_texture:
+    label: End Grain
+    description: "The set of images drawn on sawn and cut ends, or none for plain colour."
+    choices: end_textures
+  settle.settle:
+    label: Roll to Rest
+    description: "Rolls the piece until it rests on the ground, as if dropped."
+  settle.sag:
+    label: Sag
+    description: "How much the piece sags between the points it rests on. Unset, it follows decay."
+    range: [0, 1]
+    step: 0.01
+    optional: 0
+  settle.burial:
+    label: Burial
+    description: "How deep the piece is suggested to sink into the ground. Unset, it follows decay."
+    range: [0, 0.5]
+    step: 0.01
+    optional: 0
+  detail:
+    label: Detail
+    description: "The mesh detail used when the piece is built on its own."
+    hidden: true
