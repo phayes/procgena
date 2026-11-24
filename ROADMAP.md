@@ -699,6 +699,42 @@ confused with the B1 milestone or the D1 and D2 gates.
   boulders and logs once each, and the Ecotope then draws its far copies
   as impostors with no bakes while it is on screen.
 
+#### IX: Experiment: lean heavily on impostors
+
+Asked for by the user 2026-11-24, instead of a harsher quality level:
+find out how far impostors can carry the scene, so that detail budgets
+go to the few copies near the camera.
+
+- **Planning step first (with the user).** Before any build work, a
+  planning session talks the experiment through in detail with the user
+  and the advisor, and writes `docs/decisions/IX-plan.md`. It settles at
+  least:
+  - **The question and the measures:** how close impostors can come
+    (per asset kind and size) before they look wrong, and what that saves
+    in frame time, draw calls, triangles, memory and bake time.
+  - **What "looks wrong" means:** parallax, lighting and shadow
+    mismatches, the fade from mesh, views from below on slopes (view
+    coverage), wind, and how it is judged (side-by-side shots, a
+    walk-through, the user's eye).
+  - **Variants to try:** impostor distances pulled in per asset; more
+    views or larger frames for near impostors; depth or normal-based
+    impostor lighting and shadows; impostors for clusters of small
+    copies (a patch of stones or a stand of grass as one impostor); fewer
+    mesh levels between the near mesh and the impostor.
+  - **Scenes and hardware:** which Ecotopes and Worlds, which camera
+    paths, and which machines (ties to "Test machines and performance
+    budgets" under "For the user").
+  - **Bake cost and memory:** the specimen budget's `N` slots per pool
+    against atlas memory, and baking ahead per Ecotope (I2).
+  - **What would make it the default:** the bar for each result to change
+    the shared LOD model and the assets' default levels.
+- **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
+  build; the planning step can start any time.
+- **Done when:** the plan is agreed with the user, the variants are
+  built behind settings and measured on the agreed scenes and machines,
+  and the results and the user's decision on defaults are recorded in
+  the plan.
+
 ### Where the tracks meet
 
 #### B1: Biome with Ecotopes
@@ -869,17 +905,14 @@ where the details are.
    species with the same key are an error. Is that the wanted policy, or
    should every species always name its key? Details: C2-plan.md, "As
    built".
-10. **Shared renderer (R2).** Three choices, with before and after
-    screenshots in the R2 report's `r2-shots/` folder:
-    - *Shadows:* each copy casts from one level, not dithered, so in a
-      band where a copy fades between two levels only one of them casts.
-      Keep that, or add dithered shadows (a fragment shader in the shadow
-      pass, which costs shadow-pass speed)?
-    - *Small differences:* stone, deadwood and mushroom shots differ from
-      before in at most 0.2% of pixels, mostly at shadow edges. Accept?
-    - *Wind:* every copy now carries its own wind phase, but trees still
-      sway by world position. Switch trees to their own phase? Groves
-      would then move visibly less in unison.
+10. ~~**Shared renderer (R2).**~~ Decided by the user 2026-11-24:
+    - *Shadows:* keep one undithered level per copy in shadow maps.
+      Shadows are expensive, and the switch is unlikely to be noticed.
+    - *Small differences:* accepted (at most 0.2% of pixels, at shadow
+      edges).
+    - *Wind:* trees sway by world position **plus a small per-tree offset**
+      from the copy's wind phase, keeping travelling gusts with some
+      individuality. To build (see "Decided, to build" below).
 11. **One base elevation for the terrain presets (W4).** Plains, rolling
     hills and mountains sit 20, 50 and 120 m above the World's elevation
     field E. Unequal offsets bring back a step of up to 100 m at every
@@ -930,21 +963,32 @@ where the details are.
 ### Shared settings and release (earlier waves)
 
 15. **Quality, far forms and file defaults (R1).**
-    - Plant has a `Competitive` quality tier for 240 Hz play (a 4.167 ms
-      budget). The shared `Quality` setting has four levels with distance
-      factors 0.4, 0.7, 1 and 1.5. Add `Competitive` as a fifth?
-    - `FarForm` names three far forms (strips, billboard leaves, a card).
-      Mushroom's "flat cap plus ribbon" is mapped to plain `Mesh` today,
-      and plant's "far ground material" has no name. Give either its own
-      variant?
-    - In files, every detail level must spell out `form` and
-      `casts_shadows`. Default them to `Mesh` and `true`?
-16. **Tree sizes for detail distances.** Every tree counts as 10 m tall
-    when its detail-level distances are worked out, so a 4 m dogwood
-    switches levels as late as a 30 m pine. Sizing by each preset's real
-    height needs per-preset impostor distances chosen. Related: C2 uses a
-    fixed draw range of 2000 m for trees and 1000 m for stones until they
-    have cull distances.
+    - ~~*A fifth `Competitive` quality level:*~~ **no** (the user,
+      2026-11-24). Rather than cutting detail harder, the project leans
+      heavily into impostors (see the "IX" experiment). Plant keeps its own
+      tier for now.
+    - ~~*Far form names:*~~ **add both** (the user, 2026-11-24): a
+      `FarForm` variant for mushroom's "flat cap plus ribbon" and one for
+      plant's "far ground material". To build.
+    - *Still open:* in files, every detail level must spell out `form` and
+      `casts_shadows`. Default them to `Mesh` and `true`? Files would get
+      shorter and only unusual levels say anything; the cost is that a
+      missing value no longer errors. Recommended: default them.
+16. ~~**Tree sizes for detail distances.**~~ Decided by the user
+    2026-11-24: **by each tree's actual height**, the shared rule every
+    other asset follows (distances written for a reference size, scaled by
+    the copy's size). Today every tree counts as 10 m tall, so a 4 m
+    dogwood keeps full detail as far out as a 30 m pine. This moves tree
+    level distances (visible). It also replaces C2's fixed 2000 m tree
+    draw range with one from the tree's cull distance. To build.
+
+#### Decided, to build
+
+One worker after the fruit crate lane merges (it edits the tree shaders
+and tree_bevy at the same time): tree wind as world position plus a small
+per-tree offset (item 10); the two new `FarForm` names (item 15); tree
+detail distances scaled by actual height, with the draw range from the
+cull distance (item 16).
 17. **Releasing plant and core.** `procgena_plant` is marked
     `publish = false` because it now depends on `procgena_core`, which is
     not on crates.io. Before the next plant release: publish
