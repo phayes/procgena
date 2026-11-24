@@ -258,6 +258,209 @@ pub fn settle(ground: &dyn Ground, at: DVec2, yaw: f32, footing: &Footing) -> Op
     })
 }
 
+/// How a piece stands on uneven ground: how far it tilts, what it rests on,
+/// how deep it sinks and how much bend under it is too much.
+///
+/// It says how copies are put down, not what they look like, so it is not
+/// part of any options hash or specimen id. Assets declare their usual
+/// placement, and a Scatter may override it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
+pub struct Placement {
+    /// How far the piece tilts towards the ground's slope, from 0 (it stays
+    /// upright, like a tree or a mushroom) to 1 (it lies along the ground,
+    /// like a log). Values between tilt it partway: 0.5 tilts it by half the
+    /// slope's angle.
+    pub conform: f32,
+    /// What the piece rests on.
+    pub rest: Rest,
+    /// How deep the piece sinks below where it rests, as a share of its
+    /// [`size`](Footprint::size). 0 or more.
+    pub embed: f32,
+    /// How far the ground under the piece may lie from the plane fitted to
+    /// it, as a share of its [`size`](Footprint::size), before the spot is
+    /// rejected (a log bridging a gully, a boulder on a ridge). `None`
+    /// never rejects.
+    pub max_bend: Option<f32>,
+}
+
+impl Default for Placement {
+    /// Upright, resting on the lowest ground, not sunk, any bend allowed.
+    fn default() -> Self {
+        Self {
+            conform: 0.0,
+            rest: Rest::Lowest,
+            embed: 0.0,
+            max_bend: None,
+        }
+    }
+}
+
+/// What a placed piece rests on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "lowercase")
+)]
+pub enum Rest {
+    /// The piece's lowest contact meets the lowest ground under its
+    /// footprint, so nothing floats; on a slope its uphill side sinks in.
+    #[default]
+    Lowest,
+    /// The piece sits on the plane fitted to the ground under it, lifted
+    /// just enough that no contact is below the ground.
+    Plane,
+}
+
+/// Where a piece touches flat ground, and how big it is, so [`place`] can
+/// put it on uneven ground.
+///
+/// Points are in the piece's own space, scaled as it will be drawn, with Y
+/// up and flat ground at `y = 0`, measured from the point that stands over
+/// the spot being placed.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Footprint {
+    /// Points on the piece's underside that touch, or nearly touch, flat
+    /// ground. A piece with none stands on its origin.
+    pub contacts: Vec<Vec3>,
+    /// More points (X and Z) where the ground is sampled to find its tilt,
+    /// without resting on them, such as points either side of a thin stick
+    /// so it still finds the slope across it.
+    pub extra: Vec<Vec2>,
+    /// The piece's size in metres, which [`Placement::embed`] and
+    /// [`Placement::max_bend`] are shares of, such as its width.
+    pub size: f32,
+}
+
+/// A piece put on the ground by [`place`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed {
+    /// Turns the piece from its own space: the requested yaw, then the tilt.
+    pub rotation: Quat,
+    /// The height in metres at which to put the piece's origin, after
+    /// [`rotation`](Self::rotation).
+    pub height: f32,
+    /// The upward unit normal of the plane fitted to the ground under the
+    /// piece, whatever the tilt.
+    pub normal: Vec3,
+}
+
+/// Puts a piece with `footprint`, turned by `yaw` radians about Y, on
+/// `ground` at World position `at`, as `placement` says.
+///
+/// The ground is sampled under every contact, every extra point and the
+/// piece's origin, and a plane is fitted to the contacts and extra points
+/// (to the origin alone when there are none). The piece tilts by
+/// [`Placement::conform`] of that plane's slope, rests as
+/// [`Placement::rest`] says, then sinks by [`Placement::embed`]. Put the
+/// piece's origin at `at` and [`Placed::height`], and turn it by
+/// [`Placed::rotation`].
+///
+/// Returns `None` where any sample has no ground (NaN), or where one lies
+/// further from the plane than [`Placement::max_bend`] allows. Check the
+/// slope with [`steeper_than`] first: it is cheaper than placing.
+pub fn place(
+    ground: &dyn Ground,
+    at: DVec2,
+    yaw: f32,
+    footprint: &Footprint,
+    placement: &Placement,
+) -> Option<Placed> {
+    let turn = Quat::from_rotation_y(yaw);
+    let height = |p: Vec3| ground.height(at + DVec2::new(f64::from(p.x), f64::from(p.z)));
+
+    // Sample the ground under the turned contacts, extra points and origin.
+    let turned = footprint.contacts.iter().map(|&c| turn * c).chain(
+        footprint
+            .extra
+            .iter()
+            .map(|e| turn * Vec3::new(e.x, 0.0, e.y)),
+    );
+    let mut samples: Vec<(Vec3, f32)> = Vec::new();
+    for p in turned.chain(std::iter::once(Vec3::ZERO)) {
+        let h = height(p);
+        if !h.is_finite() {
+            return None;
+        }
+        samples.push((p, h));
+    }
+
+    // Fit the plane, and reject ground that bends too far from it.
+    let fitted = if samples.len() > 1 {
+        &samples[..samples.len() - 1]
+    } else {
+        &samples[..]
+    };
+    let [a, b, c] = fit_plane(fitted);
+    let normal = Vec3::new(-a, 1.0, -b).normalize();
+    if let Some(max_bend) = placement.max_bend {
+        let limit = max_bend * footprint.size;
+        let bent = samples
+            .iter()
+            .any(|&(p, h)| (h - (a * p.x + b * p.z + c)).abs() > limit);
+        if bent {
+            return None;
+        }
+    }
+
+    // Tilt partway from upright towards the plane.
+    let tilt = Quat::IDENTITY.slerp(
+        Quat::from_rotation_arc(Vec3::Y, normal),
+        placement.conform.clamp(0.0, 1.0),
+    );
+    let rotation = tilt * turn;
+
+    // Rest the tilted piece, then sink it.
+    let origin_ground = samples[samples.len() - 1].1;
+    let rested = if footprint.contacts.is_empty() {
+        origin_ground
+    } else {
+        let mut lowest_ground = f32::INFINITY;
+        let mut lowest_contact = f32::INFINITY;
+        let mut lift = f32::NEG_INFINITY;
+        for &contact in &footprint.contacts {
+            let p = rotation * contact;
+            let h = height(p);
+            if !h.is_finite() {
+                return None;
+            }
+            lowest_ground = lowest_ground.min(h);
+            lowest_contact = lowest_contact.min(p.y);
+            lift = lift.max(h - p.y);
+        }
+        match placement.rest {
+            Rest::Lowest => lowest_ground.min(origin_ground) - lowest_contact,
+            Rest::Plane => lift,
+        }
+    };
+    Some(Placed {
+        rotation,
+        height: rested - placement.embed * footprint.size,
+        normal,
+    })
+}
+
+/// Fits a plane `h = a·x + b·z + c` to `samples` (points and their ground
+/// heights) by least squares, returning `[a, b, c]`. The tiny diagonal term
+/// keeps a single point or a straight line of points solvable, as a level
+/// plane across it.
+fn fit_plane(samples: &[(Vec3, f32)]) -> [f32; 3] {
+    let mut m = Mat3::ZERO;
+    let mut rhs = Vec3::ZERO;
+    for &(p, h) in samples {
+        let row = Vec3::new(p.x, p.z, 1.0);
+        m += Mat3::from_cols(row * row.x, row * row.y, row * row.z);
+        rhs += row * h;
+    }
+    m += Mat3::from_diagonal(Vec3::new(1e-6, 1e-6, 0.0));
+    (m.inverse() * rhs).to_array()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,5 +610,171 @@ mod tests {
         let ramp = |p: DVec2| (0.5 * p.y) as f32;
         let s = settle(&ramp, DVec2::ZERO, 0.0, &stick).unwrap();
         assert!((s.normal - Vec3::new(0.0, 1.0, -0.5).normalize()).length() < 1e-3);
+    }
+
+    /// A ramp rising 0.5 m per metre along X: about 26.6 degrees.
+    fn ramp(p: DVec2) -> f32 {
+        (0.5 * p.x) as f32
+    }
+
+    /// A box 2 m long along X and 1 m wide, on its four corners, 2 m in size.
+    fn slab() -> Footprint {
+        Footprint {
+            contacts: plank(0.0).contacts,
+            extra: Vec::new(),
+            size: 2.0,
+        }
+    }
+
+    fn placement(conform: f32, rest: Rest) -> Placement {
+        Placement {
+            conform,
+            rest,
+            ..Placement::default()
+        }
+    }
+
+    /// The angle in degrees between the piece's up and World up.
+    fn tilt_degrees(placed: &Placed) -> f32 {
+        (placed.rotation * Vec3::Y)
+            .angle_between(Vec3::Y)
+            .to_degrees()
+    }
+
+    #[test]
+    fn an_upright_piece_stays_vertical_and_rests_on_the_low_side() {
+        let p = place(
+            &ramp,
+            DVec2::ZERO,
+            0.0,
+            &slab(),
+            &placement(0.0, Rest::Lowest),
+        )
+        .unwrap();
+        assert!(tilt_degrees(&p) < 1e-3);
+        // The downhill corners at x = -1 sit on the ground at -0.5.
+        assert!((p.height + 0.5).abs() < 1e-5, "{}", p.height);
+        assert!((p.normal - Vec3::new(-0.5, 1.0, 0.0).normalize()).length() < 1e-4);
+    }
+
+    #[test]
+    fn a_fully_conforming_piece_follows_the_plane() {
+        let p = place(
+            &ramp,
+            DVec2::new(3.0, 1.0),
+            0.4,
+            &slab(),
+            &placement(1.0, Rest::Plane),
+        )
+        .unwrap();
+        let slope = 0.5f32.atan().to_degrees();
+        assert!((tilt_degrees(&p) - slope).abs() < 1e-3);
+        // Every corner lies on the ramp.
+        for c in slab().contacts {
+            let q = p.rotation * c + Vec3::Y * p.height;
+            let ground = ramp(DVec2::new(3.0 + f64::from(q.x), 1.0 + f64::from(q.z)));
+            assert!((q.y - ground).abs() < 1e-3, "{} vs {ground}", q.y);
+        }
+    }
+
+    #[test]
+    fn a_partway_piece_tilts_by_its_share_of_the_slope() {
+        let p = place(
+            &ramp,
+            DVec2::ZERO,
+            0.0,
+            &slab(),
+            &placement(0.3, Rest::Lowest),
+        )
+        .unwrap();
+        let slope = 0.5f32.atan().to_degrees();
+        assert!(
+            (tilt_degrees(&p) - 0.3 * slope).abs() < 1e-3,
+            "{}",
+            tilt_degrees(&p)
+        );
+        // It still leans downhill, about the slope's own axis.
+        assert!((p.rotation * Vec3::Y).x < 0.0);
+    }
+
+    #[test]
+    fn plane_rest_sits_higher_than_lowest_rest_for_an_upright_piece() {
+        let lowest = place(
+            &ramp,
+            DVec2::ZERO,
+            0.0,
+            &slab(),
+            &placement(0.0, Rest::Lowest),
+        );
+        let plane = place(
+            &ramp,
+            DVec2::ZERO,
+            0.0,
+            &slab(),
+            &placement(0.0, Rest::Plane),
+        );
+        // Lowest: the downhill corners touch (-0.5). Plane: lifted until the
+        // uphill corners are out of the ground (+0.5).
+        assert!((lowest.unwrap().height + 0.5).abs() < 1e-5);
+        assert!((plane.unwrap().height - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn embed_sinks_the_piece_by_a_share_of_its_size() {
+        let flat = Placement {
+            embed: 0.25,
+            ..placement(1.0, Rest::Plane)
+        };
+        let p = place(&FlatGround, DVec2::ZERO, 0.0, &slab(), &flat).unwrap();
+        assert!((p.height + 0.5).abs() < 1e-5, "{}", p.height);
+    }
+
+    #[test]
+    fn too_much_bend_is_rejected() {
+        // A V-shaped gully 0.5 m deep under the middle of the slab.
+        let gully = |p: DVec2| (p.x.abs() * 0.5) as f32;
+        let strict = Placement {
+            max_bend: Some(0.1),
+            ..placement(1.0, Rest::Plane)
+        };
+        assert!(place(&gully, DVec2::ZERO, 0.0, &slab(), &strict).is_none());
+        let loose = Placement {
+            max_bend: Some(0.3),
+            ..strict
+        };
+        assert!(place(&gully, DVec2::ZERO, 0.0, &slab(), &loose).is_some());
+        let any = Placement {
+            max_bend: None,
+            ..strict
+        };
+        assert!(place(&gully, DVec2::ZERO, 0.0, &slab(), &any).is_some());
+    }
+
+    #[test]
+    fn missing_ground_is_rejected() {
+        let edge = |p: DVec2| if p.x > 0.5 { f32::NAN } else { 0.0 };
+        let p = place(&edge, DVec2::ZERO, 0.0, &slab(), &Placement::default());
+        assert!(p.is_none());
+        let hole = |p: DVec2| if p.length() < 0.1 { f32::NAN } else { 0.0 };
+        let p = place(&hole, DVec2::ZERO, 0.0, &slab(), &Placement::default());
+        assert!(p.is_none(), "the origin's ground counts too");
+    }
+
+    #[test]
+    fn a_piece_without_contacts_stands_on_its_origin() {
+        let pin = Footprint {
+            size: 1.0,
+            ..Footprint::default()
+        };
+        let p = place(
+            &ramp,
+            DVec2::new(2.0, 0.0),
+            0.0,
+            &pin,
+            &Placement::default(),
+        )
+        .unwrap();
+        assert!((p.height - 1.0).abs() < 1e-5);
+        assert!(tilt_degrees(&p) < 1e-3);
     }
 }
