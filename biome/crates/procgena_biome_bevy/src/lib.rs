@@ -1,0 +1,282 @@
+//! Bevy drawing for [`procgena_biome`]: draws one placed
+//! [`Ecotope`](procgena_biome::Ecotope) over a patch of ground, each Scatter
+//! with its own asset's Bevy crate.
+//!
+//! Place the Ecotope first with
+//! [`Ecotope::place`](procgena_biome::Ecotope::place), then call
+//! [`spawn_ecotope`] with the same ground, area and coverage. Trees, stones,
+//! dead wood and mushrooms are drawn by `procgena_tree_bevy`,
+//! `procgena_stone_bevy`, `procgena_deadwood_bevy` and
+//! `procgena_mushroom_bevy`, so add their plugins to the app:
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//!
+//! use bevy::prelude::*;
+//! use procgena_biome::EcotopePreset;
+//! use procgena_biome_bevy::spawn_ecotope;
+//! use procgena_core::scatter::{ScatterArea, ScatterInput};
+//! use procgena_core::{FlatGround, Ground};
+//! use procgena_deadwood_bevy::DeadwoodPlugin;
+//! use procgena_mushroom_bevy::MushroomPlugin;
+//! use procgena_stone_bevy::StonePlugin;
+//! use procgena_tree_bevy::TreePlugin;
+//!
+//! fn setup(mut commands: Commands) {
+//!     let ecotope = &EcotopePreset::pine_forest_floor().ecotope;
+//!     let ground: Arc<dyn Ground> = Arc::new(FlatGround);
+//!     let area = ScatterArea::new(bevy::math::DVec2::ZERO, Vec2::splat(30.0));
+//!     let input = ScatterInput::new(&*ground, area, ecotope.default_seed);
+//!     let placed = ecotope.place(&input).expect("the preset places");
+//!     spawn_ecotope(&mut commands, ecotope, &placed, ground, area, None);
+//! }
+//!
+//! App::new()
+//!     .add_plugins((
+//!         DefaultPlugins,
+//!         TreePlugin { texture_root: None, ..default() },
+//!         StonePlugin { texture_root: None, ..default() },
+//!         DeadwoodPlugin { texture_root: None, ..default() },
+//!         MushroomPlugin { texture_root: None, ..default() },
+//!     ))
+//!     .add_systems(Startup, setup)
+//!     .run();
+//! ```
+//!
+//! Each copy appears when its asset finishes generating in the background.
+//! Copies with the same settings share meshes and materials.
+
+use std::sync::Arc;
+
+use bevy::math::DVec2;
+use bevy::prelude::*;
+use procgena_biome::{Ecotope, EcotopePlacement, FootprintMask, ScatterCopies, ScatterKind};
+use procgena_core::Ground;
+use procgena_core::scatter::{Mask, ScatterArea};
+use procgena_deadwood_bevy::DeadwoodParams;
+use procgena_mushroom_bevy::MushroomGroundScatterParams;
+use procgena_stone_bevy::StoneParams;
+use procgena_tree_bevy::TreeParams;
+
+/// Marks the entity that holds a drawn Ecotope. It stands at the centre of
+/// the area the Ecotope was placed over, at height 0, and holds one
+/// [`EcotopeLayer`] child per Scatter.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[require(Transform, Visibility)]
+pub struct EcotopeRoot;
+
+/// Marks the entity that holds one Scatter of a drawn Ecotope. Its children
+/// are the Scatter's copies: one [`TreeParams`], [`StoneParams`] or
+/// [`DeadwoodParams`] per copy, or one [`MushroomGroundScatterParams`] for
+/// the whole Scatter.
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+#[require(Transform, Visibility)]
+pub struct EcotopeLayer {
+    /// The Scatter's key in its Ecotope.
+    pub key: String,
+    /// The Scatter's priority.
+    pub priority: u32,
+}
+
+/// Spawns entities that draw `placed`, the copies of `ecotope` placed over
+/// `area` of `ground` with `coverage` as the input's mask. Returns the
+/// [`EcotopeRoot`] entity.
+///
+/// Pass the same Ecotope, ground, area and coverage the placement was made
+/// with: mushrooms are placed again by `procgena_mushroom_bevy`, and come
+/// out the same only from the same inputs.
+///
+/// # Panics
+///
+/// Panics if `placed` holds a Scatter that `ecotope` doesn't, or of a
+/// different kind.
+pub fn spawn_ecotope(
+    commands: &mut Commands,
+    ecotope: &Ecotope,
+    placed: &EcotopePlacement,
+    ground: Arc<dyn Ground>,
+    area: ScatterArea,
+    coverage: Option<Arc<dyn Mask>>,
+) -> Entity {
+    let centre = area.centre.as_vec2();
+    let root = commands
+        .spawn((EcotopeRoot, Transform::from_xyz(centre.x, 0.0, centre.y)))
+        .id();
+    for layer in placed.layers() {
+        let settings = &ecotope.scatters[layer.key()];
+        let parent = commands
+            .spawn((
+                EcotopeLayer {
+                    key: layer.key().to_string(),
+                    priority: layer.priority(),
+                },
+                ChildOf(root),
+            ))
+            .id();
+        let at = |transform: &bevy::math::Affine3A| {
+            (
+                Transform::from_matrix(Mat4::from(*transform)),
+                ChildOf(parent),
+            )
+        };
+        match (&settings.scatter, layer.copies()) {
+            (ScatterKind::Tree(scatter), ScatterCopies::Tree(trees)) => {
+                for tree in trees.instances() {
+                    let options = scatter.trees[tree.tree].variant(tree.variant);
+                    commands.spawn((TreeParams::new(options), at(&tree.transform)));
+                }
+            }
+            (ScatterKind::Stone(_), ScatterCopies::Stone(stones)) => {
+                for stone in stones.instances() {
+                    let options = stones.variant(stone.class, stone.variant).clone();
+                    commands.spawn((StoneParams::new(options), at(&stone.transform)));
+                }
+            }
+            (ScatterKind::Deadwood(_), ScatterCopies::Deadwood(wood)) => {
+                for copy in wood.instances() {
+                    let options = wood.variants()[copy.variant as usize].options().clone();
+                    commands.spawn((DeadwoodParams::new(options), at(&copy.transform)));
+                }
+            }
+            (ScatterKind::Mushroom { mushroom, scatter }, ScatterCopies::Mushroom(_)) => {
+                // Placed again by the mushroom crate, with the same input.
+                let mut scatter = scatter.clone();
+                scatter.default_seed = layer.seed();
+                let above = placed
+                    .mask_above(layer.key().as_str())
+                    .expect("the layer is in the placement");
+                commands.spawn((
+                    MushroomGroundScatterParams {
+                        mushroom: Arc::new(mushroom.clone()),
+                        scatter,
+                        ground: ground.clone(),
+                        area,
+                        mask: Some(Arc::new(Covered {
+                            above,
+                            coverage: coverage.clone(),
+                        })),
+                    },
+                    ChildOf(parent),
+                ));
+            }
+            (kind, _) => panic!(
+                "Scatter {} placed as another kind than its {} settings",
+                layer.key(),
+                kind.name()
+            ),
+        }
+    }
+    root
+}
+
+/// The mask a mushroom Scatter was placed with: the Ecotope's coverage,
+/// kept out of the footprints above it.
+struct Covered {
+    above: FootprintMask,
+    coverage: Option<Arc<dyn Mask>>,
+}
+
+impl Mask for Covered {
+    fn density(&self, p: DVec2) -> f32 {
+        if self.above.blocks(p) {
+            return 0.0;
+        }
+        self.coverage.as_ref().map_or(1.0, |c| c.density(p))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::asset::AssetPlugin;
+    use bevy::ecs::system::RunSystemOnce;
+    use procgena_biome::EcotopePreset;
+    use procgena_core::HeightGrid;
+    use procgena_core::scatter::ScatterInput;
+    use procgena_mushroom::MushroomScatter;
+
+    use super::*;
+
+    #[test]
+    fn every_copy_is_spawned_under_its_layer() {
+        // Place the pine forest floor over a small patch of hills.
+        let ecotope = EcotopePreset::pine_forest_floor().ecotope.clone();
+        let ground: Arc<dyn Ground> = Arc::new(HeightGrid::from_fn(
+            DVec2::splat(-12.0),
+            DVec2::splat(12.0),
+            0.5,
+            |p| 0.3 * (0.2 * p.x as f32).sin(),
+        ));
+        let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(20.0));
+        let input = ScatterInput::new(&*ground, area, ecotope.default_seed);
+        let placed = ecotope.place(&input).unwrap();
+
+        // Spawn it in a headless app.
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        let (e, p) = (ecotope.clone(), placed.clone());
+        let root = app
+            .world_mut()
+            .run_system_once(move |mut commands: Commands| {
+                spawn_ecotope(&mut commands, &e, &p, ground.clone(), area, None)
+            })
+            .unwrap();
+        app.update();
+
+        // One layer per Scatter, in priority order, each holding its copies.
+        let world = app.world_mut();
+        assert!(world.get::<EcotopeRoot>(root).is_some());
+        let layers: Vec<Entity> = world.get::<Children>(root).unwrap().to_vec();
+        assert_eq!(layers.len(), placed.layers().len());
+        for (entity, layer) in layers.iter().zip(placed.layers()) {
+            let marker = world.get::<EcotopeLayer>(*entity).unwrap();
+            assert_eq!(marker.key, layer.key().as_str());
+            assert_eq!(marker.priority, layer.priority());
+            let children: Vec<Entity> = world
+                .get::<Children>(*entity)
+                .map(|c| c.to_vec())
+                .unwrap_or_default();
+            let count = |has: fn(&World, Entity) -> bool| {
+                children.iter().filter(|c| has(world, **c)).count()
+            };
+            match layer.copies() {
+                ScatterCopies::Tree(_) => assert_eq!(
+                    count(|w, e| w.get::<TreeParams>(e).is_some()),
+                    layer.copies().len()
+                ),
+                ScatterCopies::Stone(_) => assert_eq!(
+                    count(|w, e| w.get::<StoneParams>(e).is_some()),
+                    layer.copies().len()
+                ),
+                ScatterCopies::Deadwood(_) => assert_eq!(
+                    count(|w, e| w.get::<DeadwoodParams>(e).is_some()),
+                    layer.copies().len()
+                ),
+                ScatterCopies::Mushroom(_) => {
+                    assert_eq!(
+                        count(|w, e| w.get::<MushroomGroundScatterParams>(e).is_some()),
+                        1
+                    );
+                    // The mushroom crate places the same copies from it.
+                    let params = world
+                        .get::<MushroomGroundScatterParams>(children[0])
+                        .unwrap();
+                    let input = ScatterInput {
+                        mask: params.mask.as_deref(),
+                        ..ScatterInput::new(
+                            &*params.ground,
+                            params.area,
+                            params.scatter.default_seed,
+                        )
+                    };
+                    let again =
+                        MushroomScatter::new(&params.mushroom, &params.scatter, &input).unwrap();
+                    let ScatterCopies::Mushroom(original) = layer.copies() else {
+                        unreachable!()
+                    };
+                    assert!(!original.copies().is_empty(), "{}", layer.key());
+                    assert_eq!(again.copies(), original.copies(), "{}", layer.key());
+                }
+            }
+        }
+    }
+}
