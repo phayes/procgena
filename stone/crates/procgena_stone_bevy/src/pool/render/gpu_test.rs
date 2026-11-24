@@ -393,7 +393,7 @@ fn gpu_pool_regenerates_when_its_asset_changes() {
     let world = app.world_mut();
     let mut pools = world.resource_mut::<Assets<StonePool>>();
     let (_, pool) = pools.iter_mut().next().expect("a pool");
-    pool.options.seed += 100;
+    pool.options.default_seed += 100;
     app.update();
     run_until_culled(&mut app);
     assert_eq!(seed(&mut app), (first + 100, 1));

@@ -99,7 +99,7 @@ fn settling_ends_at_a_local_minimum() {
     // Small tested tilts should not noticeably lower the rock's balance point.
     for seed in [1, 7, 880, 4242] {
         let options = StoneOptions {
-            seed,
+            default_seed: seed,
             ..StoneOptions::default()
         };
         let field = StoneField::new(&options).unwrap();
@@ -222,17 +222,17 @@ fn the_embed_limit_caps_the_search() {
 fn every_preset_sinks_partway() {
     // Each preset should suggest partial burial within its configured cap,
     // allowing for the difference between mesh and placement estimates.
-    for preset in StonePreset::ALL {
-        let options = preset.options();
-        let (_, max) = placed_mesh(&options, Mesher::MarchingCubes, 48)
+    for preset in StonePreset::all() {
+        let options = &preset.stone;
+        let (_, max) = placed_mesh(options, Mesher::MarchingCubes, 48)
             .bounds()
             .unwrap();
-        let embed = placement(&options).embed_depth();
+        let embed = placement(options).embed_depth();
         let limit = options.placement.max_embed_fraction * max[1];
         assert!(
             embed > 0.0 && embed < max[1] && embed <= limit + 1.0 / 48.0,
             "{}: embed {embed}, height {}",
-            preset.name(),
+            preset.name,
             max[1]
         );
     }
@@ -295,7 +295,7 @@ fn blocky_rocks_sink_only_a_little() {
     // nearly as wide as the widest one.
     for seed in [3, 8, 13] {
         let mut options = StoneOptions {
-            seed,
+            default_seed: seed,
             ..StoneOptions::default()
         };
         options.carve.blockiness = 1.0;

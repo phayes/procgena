@@ -180,10 +180,10 @@ impl StoneField {
         let stretch = Vec3::from(options.stretch);
         let carve_scale = 2.0 * stretch.max_element() / stretch;
         Ok(Self {
-            carve: CarveSet::new(options.seed, &options.carve),
+            carve: CarveSet::new(options.default_seed, &options.carve),
             carve_scale,
             roughness: Roughness {
-                seed: options.seed,
+                seed: options.default_seed,
                 spread: options.surface.displacement_spread,
                 octaves: options.surface.octaves,
             },
@@ -267,7 +267,7 @@ mod tests {
 
     fn field(seed: u32) -> StoneField {
         let options = StoneOptions {
-            seed,
+            default_seed: seed,
             ..StoneOptions::default()
         };
         StoneField::new(&options).unwrap()
@@ -377,7 +377,7 @@ mod tests {
         options.carve.blockiness = 1.0;
         options.surface.displacement_scale = 0.0;
         for seed in SEEDS {
-            options.seed = seed;
+            options.default_seed = seed;
             let field = StoneField::new(&options).unwrap();
             for axis in [
                 Vec3::X,

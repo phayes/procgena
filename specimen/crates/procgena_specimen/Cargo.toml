@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 glam = { workspace = true }
 procgena_core = { path = "../../../core/crates/procgena_core" }
+serde = { workspace = true }
 # Only the ECS, with a subset of the features Bevy 0.20.1 turns on, so it
 # builds together with the Bevy crates instead of as a separate copy.
 bevy_ecs = { version = "0.20.1", default-features = false, features = ["std"], optional = true }

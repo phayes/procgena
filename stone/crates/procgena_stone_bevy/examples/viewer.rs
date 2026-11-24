@@ -142,7 +142,7 @@ struct CameraSetup {
 
 fn main() -> AppExit {
     let mut viewer = Viewer {
-        seed: StoneOptions::default().seed,
+        seed: StoneOptions::default().default_seed,
         mesher: Mesher::MarchingCubes,
         texture: TEXTURE_SETS
             .iter()
@@ -429,7 +429,7 @@ fn show_rocks(
     }
 
     let mut options = StoneOptions {
-        seed: viewer.seed,
+        default_seed: viewer.seed,
         scale: viewer.size,
         ..StoneOptions::default()
     };
@@ -495,7 +495,7 @@ fn show_rocks(
     for x in -half..=half {
         for z in -half..=half {
             let mut rock = options.clone();
-            rock.seed = viewer
+            rock.default_seed = viewer
                 .seed
                 .wrapping_add(((x + half) * FIELD_SIZE + (z + half)) as u32);
             let position = Vec3::new(x as f32, 0.0, z as f32) * viewer.size * FIELD_SPACING;

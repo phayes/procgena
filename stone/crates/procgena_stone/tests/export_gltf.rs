@@ -15,7 +15,7 @@ use procgena_stone::{
 /// at 24 and 12 cells per axis.
 fn stone() -> Stone {
     let mut options = StoneOptions {
-        seed: 5,
+        default_seed: 5,
         ..StoneOptions::default()
     };
     options.mesh.detail = StoneDetail::new(vec![
@@ -174,7 +174,7 @@ fn settings_are_stored_in_the_file() {
     let gltf = read(&glb);
     let extras = gltf.document.as_json().asset.extras.as_ref().unwrap();
     let value: serde_json::Value = serde_json::from_str(extras.get()).unwrap();
-    let stored = StoneOptions::from_json(&value["stoneOptions"].to_string()).unwrap();
+    let stored: StoneOptions = serde_json::from_value(value["stoneOptions"].clone()).unwrap();
     assert_eq!(&stored, stone.options());
     assert!(
         gltf.document

@@ -1,7 +1,5 @@
 //! Creates a rock and provides access to its settings, shape, and triangle meshes.
 
-use std::fmt;
-
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, tags};
 
 use crate::detail::DetailLevel;
@@ -70,25 +68,17 @@ impl Stone {
         Ok(stone)
     }
 
-    /// Generates a rock, including its 3D mesh, using the selected preset.
-    /// To adjust settings before generation, pass [`StonePreset::options`] to
-    /// [`Self::new`] instead.
-    pub fn from_preset(preset: StonePreset) -> Self {
-        Self::new(preset.options()).expect("built-in presets are valid")
-    }
-
-    /// Creates a rock from a full or partial JSON settings object.
-    ///
-    /// Omitted settings use defaults, including fields in nested objects. For
-    /// example, `{"seed": 7, "mesh": {"mesher": "dual_contouring"}}` changes only two settings.
+    /// Generates a rock, including its 3D mesh, from a preset's settings.
+    /// To adjust settings before generation, clone [`StonePreset::stone`],
+    /// edit it, and pass it to [`Self::new`] instead.
     ///
     /// # Errors
     ///
-    /// Returns [`StoneError::Json`] for malformed JSON or values of the wrong type.
-    /// Unknown names are ignored; see [`StoneOptions::from_json`]. Returns [`StoneError::Options`] if a setting fails validation.
-    pub fn from_json(json: &str) -> Result<Self, StoneError> {
-        let options = StoneOptions::from_json(json).map_err(StoneError::Json)?;
-        Self::new(options).map_err(StoneError::Options)
+    /// Returns [`OptionsError`] if the preset's settings fail
+    /// [`StoneOptions::validate`]. Built-in presets always pass; a preset
+    /// read from a file was checked when it was read.
+    pub fn from_preset(preset: &StonePreset) -> Result<Self, OptionsError> {
+        Self::new(preset.stone.clone())
     }
 
     /// Returns the validated settings used to create this rock.
@@ -201,55 +191,29 @@ impl Stone {
     }
 }
 
-/// A failure to read or validate settings while creating a rock from JSON.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum StoneError {
-    /// The JSON is malformed or contains incompatible value types.
-    Json(serde_json::Error),
-    /// A parsed setting is non-finite or outside its allowed range.
-    Options(OptionsError),
-}
-
-impl fmt::Display for StoneError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Json(err) => write!(f, "invalid stone options JSON: {err}"),
-            Self::Options(err) => write!(f, "invalid stone options: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for StoneError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Json(err) => Some(err),
-            Self::Options(err) => Some(err),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{DetailLevel, StoneDetail, TextureSize};
 
-    /// A rock from `json` with a single mesh at `resolution` cells per axis.
-    fn small(json: &str, resolution: u32) -> Stone {
-        let mut options = StoneOptions::from_json(json).unwrap();
+    /// A rock from default settings changed by `edit`, with a single mesh at
+    /// `resolution` cells per axis.
+    fn small(edit: impl FnOnce(&mut StoneOptions), resolution: u32) -> Stone {
+        let mut options = StoneOptions::default();
+        edit(&mut options);
         options.mesh.detail = StoneDetail::single(resolution, TextureSize::Size512);
         Stone::new(options).unwrap()
     }
 
     #[test]
     fn mesh_is_in_world_units() {
-        let stone = small(r#"{"scale": 4.0}"#, 32);
+        let stone = small(|o| o.scale = 4.0, 32);
         let (min, max) = stone.mesh().bounds().unwrap();
         let unit = stone.mesh_with(Mesher::MarchingCubes, 32).unwrap();
         let (unit_min, unit_max) = unit.bounds().unwrap();
         assert_eq!((min, max), (unit_min, unit_max));
         // Scaling from 1 to 4 multiplies both placed positions and burial depth by four.
-        let small_stone = small(r#"{"scale": 1.0}"#, 32);
+        let small_stone = small(|o| o.scale = 1.0, 32);
         let (small_min, small_max) = small_stone.mesh().bounds().unwrap();
         for axis in 0..3 {
             assert!((min[axis] - 4.0 * small_min[axis]).abs() < 1e-4);
@@ -261,7 +225,7 @@ mod tests {
 
     #[test]
     fn options_choose_the_mesher() {
-        let stone = small(r#"{"mesh": {"mesher": "dual_contouring"}}"#, 24);
+        let stone = small(|o| o.mesh.mesher = Mesher::DualContouring, 24);
         let dc = stone.mesh_with(Mesher::DualContouring, 24).unwrap();
         assert_eq!(stone.mesh(), &dc);
         assert_ne!(
@@ -323,21 +287,17 @@ mod tests {
 
     #[test]
     fn errors_name_the_problem() {
-        let err = Stone::from_json(
-            r#"{"mesh": {"detail": [
-                {"resolution": 4, "distance": 0.0, "hysteresis": 0.0, "texture_size": "1k"}
-            ]}}"#,
-        )
-        .unwrap_err();
+        let mut options = StoneOptions::default();
+        options.mesh.detail = StoneDetail::single(4, TextureSize::Size1k);
+        let err = Stone::new(options).unwrap_err();
         assert!(matches!(
             err,
-            StoneError::Options(OptionsError::IntOutOfRange {
+            OptionsError::IntOutOfRange {
                 field: "mesh.detail.resolution",
                 ..
-            })
+            }
         ));
-        assert!(matches!(Stone::from_json("{"), Err(StoneError::Json(_))));
-        let stone = small("{}", 8);
+        let stone = small(|_| {}, 8);
         assert!(stone.mesh_with(Mesher::MarchingCubes, 513).is_err());
     }
 }

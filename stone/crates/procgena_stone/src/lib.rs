@@ -11,20 +11,26 @@
 //! the rock, zero on the surface, and positive outside. Field coordinates use a
 //! unit-width cube, before the world scale is applied.
 //!
-//! Supply only the settings you want to change; omitted fields use defaults:
+//! Start from a [`StonePreset`], or from a `.stone.yml` file that names a
+//! preset as its `base` and gives only the settings it changes:
 //!
 //! ```
-//! use procgena_stone::Stone;
+//! use procgena_stone::{Stone, StonePreset};
 //!
-//! let stone = Stone::from_json(
-//!     r#"{"seed": 7, "mesh": {"detail": [
-//!         {"resolution": 32, "distance": 0.0, "hysteresis": 0.0, "texture_size": "1k"}
-//!     ]}}"#,
+//! let preset = StonePreset::from_yaml(
+//!     "small_boulder",
+//!     "base: boulder\n\
+//!      stone:\n  \
+//!        default_seed: 7\n  \
+//!        mesh:\n    \
+//!          detail:\n      \
+//!            - { resolution: 32, distance: 0.0, hysteresis: 0.0, texture_size: 1k }\n",
 //! )?;
+//! let stone = Stone::from_preset(&preset)?;
 //! let mesh = stone.mesh();
 //! assert!(mesh.triangle_count() > 0);
 //! assert_eq!(mesh.positions.len(), mesh.normals.len());
-//! # Ok::<(), procgena_stone::StoneError>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! The default `rayon` feature enables generation across multiple CPU threads.
@@ -103,6 +109,7 @@ pub use options::{
 };
 pub use placement::StonePlacement;
 pub use presets::StonePreset;
+pub use procgena_core::preset::PresetFileError;
 pub use procgena_core::scatter::{Mask, Placement, Rest, ScatterArea, ScatterInput};
 pub use procgena_core::{
     ContentHash, FlatGround, Ground, HeightGrid, OptionsHash, PoolId, SpecimenId, content_hash,
@@ -112,4 +119,4 @@ pub use scatter::{
     MAX_STONE_VARIANTS, StoneClass, StoneInstance, StoneScatter, StoneScatterError,
     StoneScatterOptions,
 };
-pub use stone::{Stone, StoneError};
+pub use stone::Stone;

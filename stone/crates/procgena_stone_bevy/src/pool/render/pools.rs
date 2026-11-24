@@ -200,7 +200,7 @@ impl RenderPool {
     /// The seed of the pool these resources were made for.
     #[cfg(test)]
     pub fn seed(&self) -> u32 {
-        self.definition.pool.options.seed
+        self.definition.pool.options.default_seed
     }
 
     /// Generates the pool again with room for only a few vertices and indices

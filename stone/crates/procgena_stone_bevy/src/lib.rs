@@ -95,7 +95,7 @@
 //! fn place_rocks(mut commands: Commands) {
 //!     for i in 0..5 {
 //!         let mut options = StoneOptions::default();
-//!         options.seed = i;
+//!         options.default_seed = i;
 //!         options.stretch = [1.0, 0.6, 0.8];
 //!         options.material.texture = "lichen_rock_02".to_owned();
 //!
@@ -111,17 +111,17 @@
 //! `StoneParams` component rebuilds its generated parts; removing the component
 //! removes those children. Moving the parent entity moves the whole rock.
 //!
-//! ## Load settings from JSON
+//! ## Load a preset file
 //!
-//! Save full or partial rock settings to `assets/rocks/boulder.stone.json`.
-//! Missing fields use defaults. For example:
+//! Save a rock preset to `assets/rocks/boulder.stone.yml`. It names a
+//! built-in preset as its `base` and gives only the settings that differ;
+//! without a `base`, missing settings use their defaults. For example:
 //!
-//! ```json
-//! {
-//!   "seed": 42,
-//!   "scale": 4.0,
-//!   "material": { "texture": "rock_boulder_dry" }
-//! }
+//! ```yaml
+//! base: boulder
+//! stone:
+//!   default_seed: 42
+//!   scale: 4.0
 //! ```
 //!
 //! Load the file through Bevy's asset server in a startup system:
@@ -132,13 +132,13 @@
 //!
 //! fn load_rock(mut commands: Commands, asset_server: Res<AssetServer>) {
 //!     commands.spawn((
-//!         StoneParams::Asset(asset_server.load("rocks/boulder.stone.json")),
+//!         StoneParams::Asset(asset_server.load("rocks/boulder.stone.yml")),
 //!         Transform::from_xyz(5.0, 0.0, 0.0),
 //!     ));
 //! }
 //! ```
 //!
-//! The filename must end in `.stone.json`. The rock waits for the asset to
+//! The filename must end in `.stone.yml`. The rock waits for the asset to
 //! load, then generates in the background. It rebuilds when Bevy reports that
 //! the asset has changed; detecting live file edits requires Bevy asset
 //! watching to be enabled.
@@ -253,12 +253,12 @@ pub use mesh::stone_mesh;
 #[cfg(feature = "gpu")]
 pub use pool::{PooledStone, StonePool, StonePoolError};
 pub use spawn::{
-    StoneEmbedDepth, StoneFinished, StoneGenerating, StoneOptionsAsset, StoneParams, StonePart,
+    StoneEmbedDepth, StoneFinished, StoneGenerating, StoneParams, StonePart, StonePresetAsset,
 };
 
-use spawn::{SpawnSettings, StoneCache, StoneOptionsLoader};
+use spawn::{SpawnSettings, StoneCache, StonePresetLoader};
 
-/// Enables rock generation, rendering and `.stone.json` loading.
+/// Enables rock generation, rendering and `.stone.yml` loading.
 ///
 /// Add after Bevy's default plugins, then spawn entities with [`StoneParams`].
 #[derive(Debug, Clone)]
@@ -290,8 +290,8 @@ impl Plugin for StonePlugin {
         embedded_asset!(app, "shaders/stone_prepass.wesl");
 
         app.add_plugins((LodPlugin, MaterialPlugin::<StoneMaterial>::default()))
-            .init_asset::<StoneOptionsAsset>()
-            .register_asset_loader(StoneOptionsLoader)
+            .init_asset::<StonePresetAsset>()
+            .register_asset_loader(StonePresetLoader)
             .init_resource::<StoneCache>()
             .insert_resource(SpawnSettings {
                 texture_root: self.texture_root.clone(),

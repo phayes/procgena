@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for mesher in [Mesher::MarchingCubes, Mesher::DualContouring] {
         for seed in SEEDS {
             let mut options = StoneOptions {
-                seed,
+                default_seed: seed,
                 ..StoneOptions::default()
             };
             options.mesh.mesher = mesher;

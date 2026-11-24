@@ -32,7 +32,7 @@ impl StoneOptions {
 impl ContentHash for StoneOptions {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
-            seed: _,
+            default_seed: _,
             scale,
             stretch,
             placement,

@@ -8,7 +8,10 @@ use std::fmt;
 /// Tags are free text and compare exactly, including case. Use the constants
 /// in [`tags`] for the labels procgena's generators use, and your own names
 /// for anything else.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Tag(Cow<'static, str>);
 
 impl Tag {
@@ -163,7 +166,8 @@ impl<const N: usize> From<[Tag; N]> for TagSet {
 /// tags and none of the [`none_of`](Self::none_of) tags. An empty `any_of`
 /// matches every part not ruled out by `none_of`, so the default filter
 /// matches everything.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TagFilter {
     /// A part must have at least one of these tags. Empty means no requirement.
     pub any_of: Vec<Tag>,

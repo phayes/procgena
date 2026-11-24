@@ -48,7 +48,7 @@ fn main() {
             let requests: Vec<_> = (0..BATCH)
                 .map(|seed| {
                     let mut options = StoneOptions {
-                        seed,
+                        default_seed: seed,
                         ..StoneOptions::default()
                     };
                     options.mesh.mesher = mesher;

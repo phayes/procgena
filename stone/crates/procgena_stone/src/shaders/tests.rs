@@ -708,13 +708,13 @@ fn dual_contouring_solve_matches_glam() {
 /// Settings covering default, stretched, and smooth rocks.
 fn test_options() -> Vec<StoneOptions> {
     let mut stretched = StoneOptions {
-        seed: 3,
+        default_seed: 3,
         stretch: [1.0, 0.6, 0.8],
         ..StoneOptions::default()
     };
     stretched.carve.steps = 30;
     let mut smooth = StoneOptions {
-        seed: 7,
+        default_seed: 7,
         ..StoneOptions::default()
     };
     smooth.surface.displacement_scale = 0.0;
@@ -772,13 +772,13 @@ fn main() {{
                 out[4 * i + 3],
                 field.distance(*p),
                 "seed {} at {p}",
-                options.seed
+                options.default_seed
             );
             assert_eq!(
                 gradient,
                 field.gradient(*p, step),
                 "seed {} at {p}",
-                options.seed
+                options.default_seed
             );
         }
     }
