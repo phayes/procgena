@@ -20,11 +20,10 @@ and joins seamlessly with any other terrain generator on its border.
     that wants a heightmap gets one.
   - Meshes come from the SDF, so overhangs and caves appear in the mesh.
 
-  **Please confirm this reading.** Everything below depends on it.
-  **Open: see [features_plan_review.md](features_plan_review.md),
-  Conflict 1.**
-  The features proposal suggests a heightfield mesh by default, with
-  volume meshing only in bounded patches for caves and overhangs.
+  **Decided 2026-11-23 (user):** a heightfield mesh by default, with
+  volume meshing only in bounded patches for caves and overhangs (see
+  [features_plan_review.md](features_plan_review.md), "Decisions"). The
+  SDF stays the shape of the land; only the default mesher changes.
 - **Terrain features.** Rivers, roads, ponds, and later cliffs, caves,
   lakes and general landforms (mesas, terraces, outcrops) share one
   lifecycle: plan, check bounds, evaluate, draw, query. Each keeps its own
@@ -1814,12 +1813,15 @@ start of G3, before Phase 3's landforms and before Phase 4:
    road routing.
 
 The review's mapping table shows where the proposal's later steps fall in
-Phases 3 to 7. Four points there wait for the user and change these rows:
+Phases 3 to 7. The user settled its four open points on 2026-11-23 (see
+the review's "Decisions"):
 
-- the mesher of Phases 6 and 7 (Conflict 1);
-- rock outcrops in Phase 6 (Conflict 2);
-- lakes in Phase 4 (Conflict 3);
-- macro cells in Phase 4 (Conflict 4).
+- Phases 6 and 7 mesh a heightfield by default, with volume patches only
+  for caves and overhangs;
+- rock outcrops in Phase 6 are meshes the terrain builds;
+- lakes stay in Phase 4;
+- Phase 4 plans per region, with macro cells only if step 2's benchmarks
+  call for them.
 
 Step 2's one sample path is where Phase 5's `annotate` and the gradient
 for `Ground` (roadmap G2) belong; the review's "Milestone order" gives the
@@ -1838,10 +1840,11 @@ The worlds signed off on 2026-11-23 stay identical through steps 1 and 2.
 
 ## Open questions
 
-1. **Volumetric reading.** Is the "SDF with a heightfield base, plus a
-   pure top-surface heightmap API" reading right? Open: see
-   [features_plan_review.md](features_plan_review.md), Conflict 1, which also
-   bears on question 5.
+1. ~~**Volumetric reading.**~~ **Answered 2026-11-23:** the SDF with a
+   heightfield base and a top-surface heightmap API stands, and meshing
+   is a heightfield by default with volume patches only for caves and
+   overhangs (see [features_plan_review.md](features_plan_review.md),
+   "Decisions"). Question 5 now only matters for those patches.
 2. ~~**Sea level.**~~ **Answered 2026-11-22:** oceans are not this crate's
    concern. Sea level is the zero of `WorldTerrain`'s elevation field E,
    used for labels and coasts; an ocean is just a terrain type below it.
@@ -1857,9 +1860,9 @@ The worlds signed off on 2026-11-23 stay identical through steps 1 and 2.
    `transvoxel` crate (MIT/Apache) as a new dependency?
 6. **Rock outcrops.** **Answered 2026-11-22:** a Voronoi-rock SDF in the
    terrain; procgena_stone scatter is out of scope (this plan is just
-   terrain). Open again: the features proposal suggests rock meshes laid
-   into the ground; see [features_plan_review.md](features_plan_review.md)
-   Conflict 2.
+   terrain). **Changed 2026-11-23 (user):** outcrops are rock meshes built
+   by the terrain and laid into the ground, not solids in the volume. The
+   terrain still does not depend on `procgena_stone`.
 7. **Edge not yet known.** When a neighbour region appears later, chunks
    within the margin rebuild. Is that acceptable for the world generator,
    or must the region graph be known before generation?

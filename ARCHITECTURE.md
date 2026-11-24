@@ -385,10 +385,10 @@ is in [terrain/features_plan_review.md](terrain/features_plan_review.md).
   How a feature's footprint takes part in the exact exclusion tests of
   "Masks and placement" is open: see the review, Gaps 1 and 3.
 
-Open for the user: whether terrain is meshed as a heightfield by default
-with volume only where a feature needs it, or as one volume everywhere
-(review, Conflict 1), and whether rock outcrops are meshes or part of
-that volume (review, Conflict 2).
+Decided 2026-11-23 (user): terrain is meshed as a heightfield by default,
+with volume only where a feature needs it (caves, overhangs), and rock
+outcrops are meshes the terrain builds and lays into the ground (review,
+"Decisions").
 
 **What it gets from above.**
 

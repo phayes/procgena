@@ -75,6 +75,17 @@ documents link to it.
 | Feature ids, cache versions, composition order, and where provisional ends, before more families | Adopted as a gate inside step 2. Ids: Gap 4. Provisional: Gap 7. |
 | Streaming and far-view budgets on real hardware, as gates | Conflict 6: the user picks the hardware and signs off the budgets. Step 2 measures. |
 
+## Decisions (user, 2026-11-23)
+
+- **Conflict 1, meshing:** a heightfield mesh by default, with volume
+  meshing only in bounded patches for caves and overhangs.
+- **Conflict 2, rock outcrops:** meshes built by the terrain itself, laid
+  into the ground. The terrain does not depend on `procgena_stone`.
+- **Conflict 3, lakes:** stay in G3 (Phases 3 and 4), as decided before.
+- **Conflict 4, macro cells:** planning stays per region. 1 km macro cells
+  are added only if step 2's benchmarks show they are needed.
+- Conflicts 5 and 6 are still open; they wait for later milestones.
+
 ## Conflicts (the user decides)
 
 ### Conflict 1. Default meshing: one volume everywhere, or heightfield with local volume
