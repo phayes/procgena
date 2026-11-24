@@ -861,12 +861,16 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   plans. Ecotope border offers must keep the same rule: built from their
   own Biome alone, never from labels that depend on a neighbour's plan.
 - **A Terrain's plan comes in stages**, each cached on its own: relief and
-  seam offers, then rivers, then roads, then local features (see
+  seam offers, then its features in **tiers** from rough to fine. Each
+  feature type declares the tiers it is drawn at, and builds each as it
+  sees fit (decided 2026-11-24; see "Feature tiers" in
   [terrain/features_plan.md](terrain/features_plan.md)). A far region can
-  be drawn from its relief and agreements before its roads are routed,
-  so a distant mountain never waits for a road search (story 5). Such a
-  far tile is **provisional**: only drawing may use it. Placement, masks
-  and queries wait for the stages they read.
+  be drawn from an early tier before its costly features are planned, so
+  a distant mountain never waits for a road search (story 5). Such a far
+  tile is **provisional**: only drawing may use it. Placement, masks and
+  queries read the fine tier. Built so far: two tiers, roads fine only
+  (`WorldTerrain::provisional_terrain`), with near chunks refined in the
+  background.
 - **Place.** Placement is decided per Scatter and per chunk. It needs the
   plan, the Ground and the masks from above, and never the drawn meshes.
 - **Draw.** Drawing picks a detail level per copy, as rule 2 says. An

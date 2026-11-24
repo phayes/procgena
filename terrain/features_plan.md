@@ -293,6 +293,40 @@ Generate meshes directly at the requested LOD from a shared descriptor; do not r
 
 Use the architecture's coarse-first streaming, request-driven loading, zoom-aware detail and cancellation. A distant visual tile may be provisional, but any dependent Scatter placement must use true ground and canonical exclusion masks (the existing “no trees in boulders” user story). If that information is unavailable, defer the affected placement rather than inventing different placements.
 
+### Feature tiers (decided 2026-11-24, user)
+
+A region's features are planned in **tiers**, in order: the relief and
+border offers first, then each tier of features from the roughest to
+**fine**. Fine is always the last tier, and only the terrain with every
+fine feature is canonical. Anything drawn from an earlier tier is
+provisional (drawing only); placement, masks and queries read fine.
+
+- **Each feature type declares the tiers it is drawn at**, honestly, by
+  its cost. How it builds each one is its own business:
+  - **The same algorithm at every tier**, when that is cheap enough
+    (rivers today: the trace is cheap, so a rough river is the fine one).
+  - **Fine only**, when it is cheap but not needed far away, or has no
+    useful rough form: it is planned only in the last tier, and earlier
+    tiers draw the ground without it.
+  - **A different method per tier**, when the fine form is costly: roads
+    could route on a coarse grid, or run straight from each agreed border
+    crossing to the hub, at a rough tier, and do today's 8 m search at
+    fine.
+- **Dependencies set the order.** A feature can't be drawn at a tier
+  earlier than anything it reads. Roads read rivers, and gullies read the
+  nearest road, so a rough road needs rivers by that tier, and a gully
+  that is fine only can't feed a rough road.
+- **Earlier tiers stay close to fine.** A feature's earlier forms keep its
+  agreed border crossings, so neighbours still meet; stay inside its
+  fine form's bounds; and declare the largest height difference from the
+  fine form (for a fine-only feature, its whole effect). Those bounds set
+  the skirts between chunks of different tiers, instead of today's fixed
+  skirt depth.
+
+Today's road-free stage is the two-tier case: rivers and ponds at every
+tier, roads fine only. Two tiers are enough to start; more let far views
+drop detail step by step.
+
 ## 10. Queries, annotations and interaction
 
 Extend the planned Landform/Flags/Measures approach rather than introduce a separate classification system. To avoid confusion between the existing annotation enum Landform and the general-purpose feature family, use a disambiguated Rust name such as LandformFeature or LandformPlan.
