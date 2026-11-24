@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantAccent, PlantBranches,
-    PlantField, PlantParams, PlantSegment, PlantVariation, Vec2,
+    Color, Cow, GroundTint, PlantAccent, PlantBranches, PlantParams, PlantScatter,
+    PlantScatterPreset, PlantSegment, PlantVariation, SCATTER_BASE, ScatterPlant, Vec2,
 };
 
 preset_group! {
@@ -13,11 +13,12 @@ BIOMES "Biomes" {
         description: "A Baltic raised bog: low sedge in tussocks over red and ochre \
                       sphagnum, white tufts of cotton grass, and dark pools where the ground \
                       shows through.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
             // Sedge in tussocks.
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
+                    default_seed: 0,
                     density: 40.0,
                     height: Vec2::new(0.15, 0.4),
                     width: 0.01,
@@ -45,11 +46,11 @@ BIOMES "Biomes" {
                 },
             )
             .clustered(0.6),
-            FieldPlant::new(PlantParams::COTTON_GRASS)
+            ScatterPlant::new(PlantParams::COTTON_GRASS)
                 .scaled(0.3)
                 .clustered(0.5),
             // Sphagnum: a carpet of red moss, ochre-green in patches.
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 151.0,
                     height: Vec2::new(0.03, 0.08),
@@ -78,18 +79,18 @@ BIOMES "Biomes" {
             color: Color::srgb(0.10, 0.08, 0.05),
             amount: 0.3,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     REED_MARSH {
         name: "Reed marsh",
         description: "Reeds taller than a person in dense clumps, with cattails among them \
                       and open water between the clumps.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(PlantParams::CATTAIL)
+            ScatterPlant::new(PlantParams::CATTAIL)
                 .scaled(0.33)
                 .clustered(0.7),
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 35.1,
                     height: Vec2::new(1.2, 2.0),
@@ -126,14 +127,14 @@ BIOMES "Biomes" {
             color: Color::srgb(0.12, 0.11, 0.07),
             amount: 0.3,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     DUNE_MARRAM {
         name: "Dune marram",
         description: "Coastal dune grass: blue-grey, rolled, waxy blades in separate clumps \
                       on open sand, like marram on the Curonian Spit.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::MARRAM)]),
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams::MARRAM)]),
         variation: PlantVariation {
             patch_color: Color::srgb(0.70, 0.66, 0.48),
             patch_amount: 0.25,
@@ -147,21 +148,21 @@ BIOMES "Biomes" {
             color: Color::srgb(0.78, 0.70, 0.52),
             amount: 0.55,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     RYE_AND_CORNFLOWERS {
         name: "Rye and cornflowers",
         description: "Ripening rye, green-gold with seed heads, with blue cornflowers and \
                       red poppies growing through it.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(PlantParams::CORNFLOWER)
+            ScatterPlant::new(PlantParams::CORNFLOWER)
                 .scaled(0.24)
                 .clustered(0.45),
-            FieldPlant::new(PlantParams::POPPY)
+            ScatterPlant::new(PlantParams::POPPY)
                 .scaled(0.14)
                 .clustered(0.55),
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 72.4,
                     height: Vec2::new(1.1, 1.6),
@@ -189,20 +190,20 @@ BIOMES "Biomes" {
             patch_amount: 0.3,
             patch_size: 10.0,
             dry_tips: 0.2,
-            ..FIELD_BASE.variation
+            ..SCATTER_BASE.variation
         },
         ground_tint: GroundTint {
             color: Color::srgb(0.30, 0.24, 0.15),
             amount: 0.2,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     PAMPAS {
         name: "Pampas",
         description: "Pampas grass: every tuft a fountain of long arching leaves, with tall \
                       cream plumes standing out of it.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(
             PlantParams {
                 density: 70.0,
                 height: Vec2::new(1.6, 2.6),
@@ -258,14 +259,14 @@ BIOMES "Biomes" {
             color: Color::srgb(0.22, 0.17, 0.10),
             amount: 0.3,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     SPINIFEX {
         name: "Spinifex",
         description: "Spinifex: stiff, needle-thin blades splayed out of round hummocks on \
                       bare red earth. Outback, desert and wasteland.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(
             PlantParams {
                 density: 130.0,
                 height: Vec2::new(0.4, 0.7),
@@ -301,15 +302,15 @@ BIOMES "Biomes" {
             color: Color::srgb(0.55, 0.28, 0.14),
             amount: 0.4,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     ELEPHANT_GRASS {
         name: "Elephant grass",
         description: "Elephant grass: a wall of broad, arching blades twice as tall as a \
                       person, with sunlight glowing through it. Something to hide in.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     height: Vec2::new(0.4, 0.9),
                     width: 0.09,
@@ -318,7 +319,7 @@ BIOMES "Biomes" {
             )
             .scaled(0.16)
             .clustered(0.6),
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 36.8,
                     height: Vec2::new(2.4, 3.6),
@@ -355,15 +356,15 @@ BIOMES "Biomes" {
             color: Color::srgb(0.12, 0.09, 0.05),
             amount: 0.3,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     FROSTED_MEADOW {
         name: "Frosted meadow",
         description: "A meadow on a frosty morning: stiff, glinting, near-white blades \
                       growing out of snow, with straw stalks and frosted seed heads, and \
                       green where the frost has melted.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(
             PlantParams {
                 density: 130.0,
                 height: Vec2::new(0.12, 0.32),
@@ -416,17 +417,18 @@ BIOMES "Biomes" {
             color: Color::srgb(0.90, 0.93, 0.96),
             amount: 0.6,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     BURNT_REGROWTH {
         name: "Burnt regrowth",
         description: "After a grass fire: charcoal stubble in grey ash, scorched stalks, and \
                       bright new shoots coming through in patches.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
             // New shoots.
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
+                    default_seed: 0,
                     density: 19.8,
                     height: Vec2::new(0.08, 0.28),
                     width: 0.012,
@@ -455,8 +457,9 @@ BIOMES "Biomes" {
             )
             .clustered(0.85),
             // Scorched stalks still standing.
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
+                    default_seed: 0,
                     density: 5.4,
                     height: Vec2::new(0.5, 0.9),
                     width: 0.008,
@@ -485,7 +488,7 @@ BIOMES "Biomes" {
             )
             .clustered(0.3),
             // Charcoal stubble.
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 64.8,
                     height: Vec2::new(0.08, 0.3),
@@ -522,14 +525,14 @@ BIOMES "Biomes" {
             color: Color::srgb(0.16, 0.15, 0.14),
             amount: 0.5,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     LAVENDER {
         name: "Lavender",
         description: "Lavender: grey-green bushes of stiff stems with long purple heads. \
                       A density mask with stripes plants it in rows.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(
             PlantParams {
                 density: 160.0,
                 height: Vec2::new(0.35, 0.6),
@@ -565,7 +568,7 @@ BIOMES "Biomes" {
             color: Color::srgb(0.40, 0.32, 0.22),
             amount: 0.2,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
 }
 }

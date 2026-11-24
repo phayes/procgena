@@ -5,8 +5,6 @@
 
 use std::borrow::Cow;
 
-use procgena_terrain::TerrainPreset;
-
 use crate::biome::{Biome, BiomeTerrain};
 
 /// A named, ready-made Biome.
@@ -15,7 +13,7 @@ use crate::biome::{Biome, BiomeTerrain};
 /// [`BiomePreset::PLAINS`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct BiomePreset {
-    /// The constant's name, such as `"PLAINS"`.
+    /// The preset's key, such as `"plains"`: lower case with underscores.
     pub key: Cow<'static, str>,
     /// A short display name, such as `"Plains"`.
     pub name: Cow<'static, str>,
@@ -30,19 +28,19 @@ pub struct BiomePreset {
     pub default_seed: u32,
 }
 
-/// The default empty Biome on the Terrain preset `terrain`.
+/// The default empty Biome on the Terrain preset with key `terrain`.
 const fn bare_preset(
     key: &'static str,
     name: &'static str,
     description: &'static str,
-    terrain: TerrainPreset,
+    terrain: &'static str,
 ) -> BiomePreset {
     BiomePreset {
         key: Cow::Borrowed(key),
         name: Cow::Borrowed(name),
         description: Cow::Borrowed(description),
         group: Cow::Borrowed("Bare land"),
-        biome: Biome::empty(BiomeTerrain::Preset(terrain)),
+        biome: Biome::empty(BiomeTerrain::Preset(Cow::Borrowed(terrain))),
         default_seed: 0,
     }
 }
@@ -50,26 +48,26 @@ const fn bare_preset(
 impl BiomePreset {
     /// Bare plains: nearly flat land with slow swells, and no cover.
     pub const PLAINS: Self = bare_preset(
-        "PLAINS",
+        "plains",
         "Plains",
         "Bare plains: nearly flat land with slow swells, and no cover.",
-        TerrainPreset::Plains,
+        "plains",
     );
 
     /// Bare rolling hills a few tens of metres high, and no cover.
     pub const ROLLING_HILLS: Self = bare_preset(
-        "ROLLING_HILLS",
+        "rolling_hills",
         "Rolling hills",
         "Bare rolling hills a few tens of metres high, and no cover.",
-        TerrainPreset::RollingHills,
+        "rolling_hills",
     );
 
     /// Bare ridged mountain ranges, and no cover.
     pub const MOUNTAINS: Self = bare_preset(
-        "MOUNTAINS",
+        "mountains",
         "Mountains",
         "Bare ridged mountain ranges, and no cover.",
-        TerrainPreset::Mountains,
+        "mountains",
     );
 
     /// The default empty Biome for each Terrain preset, in the Terrain
@@ -88,18 +86,22 @@ impl BiomePreset {
 
     /// Finds a built-in preset by its exact key.
     ///
-    /// For example, `"PLAINS"` matches; a display name or lower-case
-    /// spelling does not. Returns `None` for unknown keys.
+    /// For example, `"plains"` matches; a display name or the constant's
+    /// name `"PLAINS"` does not. Returns `None` for unknown keys.
     #[must_use]
     pub fn named(key: &str) -> Option<&'static Self> {
         Self::all().find(|preset| preset.key == key)
     }
 
-    /// Finds the default empty Biome for the Terrain preset `terrain`.
+    /// Finds the default empty Biome for the Terrain preset with key
+    /// `terrain`, such as `"plains"`.
     ///
-    /// Returns `None` only if a Terrain preset has no default Biome yet.
+    /// Returns `None` for an unknown key, or if a Terrain preset has no
+    /// default Biome yet.
     #[must_use]
-    pub fn bare(terrain: TerrainPreset) -> Option<&'static Self> {
-        Self::all().find(|preset| preset.biome.terrain == BiomeTerrain::Preset(terrain))
+    pub fn bare(terrain: &str) -> Option<&'static Self> {
+        Self::all().find(
+            |preset| matches!(&preset.biome.terrain, BiomeTerrain::Preset(key) if key == terrain),
+        )
     }
 }

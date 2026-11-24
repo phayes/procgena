@@ -20,6 +20,9 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
+use procgena_core::preset::{
+    FILE_GROUP, Preset, PresetMeta, read as read_preset_file, write as write_preset,
+};
 
 use crate::ui::toast::{ShowToast, ToastKind};
 
@@ -329,6 +332,57 @@ pub fn chosen_stem(chosen: &Path, suggested: &str) -> String {
     )
 }
 
+/// The key a preset file at `path` loads as: its file name without the
+/// `.<kind>.yml` ending, such as `mossy` for `mossy.stone.yml`. A file
+/// without that ending gives its name without the last extension.
+pub fn preset_key<P: Preset>(path: &Path) -> String {
+    file_key(path, P::KIND)
+}
+
+/// The key a preset file of `kind` at `path` loads as: its file name without
+/// the `.<kind>.yml` ending, such as `meadow` for `meadow.plant_scatter.yml`
+/// with kind `plant_scatter`. A file without that ending gives its name
+/// without the last extension.
+pub fn file_key(path: &Path, kind: &str) -> String {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ending = format!(".{kind}.yml");
+    match name.strip_suffix(&ending) {
+        Some(key) => key.to_owned(),
+        None => chosen_stem(path, &name),
+    }
+}
+
+/// Writes `options` to `path` as a `.<kind>.yml` preset file that names
+/// `base` as its base and holds only the settings that differ from it. The
+/// file's name is its key, as [`preset_key`] reads it.
+pub fn save_preset<P: Preset>(
+    options: P::Options,
+    base: &'static P,
+    path: &Path,
+) -> Result<Done, String> {
+    let key = preset_key::<P>(path);
+    let meta = PresetMeta {
+        key: key.clone(),
+        name: key,
+        description: String::new(),
+        group: FILE_GROUP.to_owned(),
+    };
+    let preset = P::from_parts(meta, options, Some(base));
+    write_file(path, write_preset(&preset, Some(base)).as_bytes())?;
+    Ok(Done::new(format!("Saved {}", shown_name(path))))
+}
+
+/// Reads the options of a `.<kind>.yml` preset file's text, checked by the
+/// preset type. `what` names the settings in the error, such as `"rock"`.
+pub fn read_preset<P: Preset>(text: &str, what: &str) -> Result<P::Options, String> {
+    read_preset_file::<P>("file", text)
+        .map(|preset| preset.into_options())
+        .map_err(|error| format!("Not {what} settings: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     //! These start the whole studio on the GPU, so they are ignored by default.
@@ -336,7 +390,7 @@ mod tests {
 
     use crate::scene::{OrbitCamera, ViewportCamera};
     use bevy::math::Vec2;
-    use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams};
+    use procgena_plant::prelude::{PlantParams, PlantScatter, ScatterPlant};
     use procgena_stone::StoneOptions;
     use procgena_tree::TreeOptions;
 
@@ -363,7 +417,7 @@ mod tests {
     }
 
     /// The field being edited.
-    fn field(studio: &mut HeadlessStudio) -> PlantField {
+    fn field(studio: &mut HeadlessStudio) -> PlantScatter {
         let world = studio.app_mut().world_mut();
         world
             .run_system_cached(|reader: FieldReader| reader.field())
@@ -379,23 +433,23 @@ mod tests {
         let saved: TreeOptions = studio.panel_value();
 
         // Saving writes the settings; loading them undoes later edits.
-        studio.answer_dialog(Some(dir.join("tree.json")));
-        studio.click("Save JSON…").unwrap();
-        assert!(studio.find("Saved tree.json").is_ok());
+        studio.answer_dialog(Some(dir.join("tree.tree.yml")));
+        studio.click("Save Preset…").unwrap();
+        assert!(studio.find("Saved tree.tree.yml").is_ok());
         studio.click("Jiggle").unwrap();
         assert_ne!(studio.panel_value::<TreeOptions>(), saved);
-        studio.answer_dialog(Some(dir.join("tree.json")));
-        studio.click("Load JSON…").unwrap();
+        studio.answer_dialog(Some(dir.join("tree.tree.yml")));
+        studio.click("Load Preset…").unwrap();
         assert_eq!(studio.panel_value::<TreeOptions>(), saved);
         assert!(studio.find("Loaded the tree settings").is_ok());
 
         // Cancelling writes nothing; a file that is not tree settings changes nothing.
         studio.answer_dialog(None);
-        studio.click("Save JSON…").unwrap();
+        studio.click("Save Preset…").unwrap();
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
-        std::fs::write(dir.join("bad.json"), "not json").unwrap();
-        studio.answer_dialog(Some(dir.join("bad.json")));
-        studio.click("Load JSON…").unwrap();
+        std::fs::write(dir.join("bad.tree.yml"), "not a preset").unwrap();
+        studio.answer_dialog(Some(dir.join("bad.tree.yml")));
+        studio.click("Load Preset…").unwrap();
         assert!(studio.shows_text_starting("Not tree settings"));
         assert_eq!(studio.panel_value::<TreeOptions>(), saved);
 
@@ -416,13 +470,13 @@ mod tests {
         let mut studio = offline_studio();
         studio.click("Stones").unwrap();
         let saved: StoneOptions = studio.panel_value();
-        studio.answer_dialog(Some(dir.join("rock.json")));
-        studio.click("Save JSON…").unwrap();
+        studio.answer_dialog(Some(dir.join("rock.stone.yml")));
+        studio.click("Save Preset…").unwrap();
         studio.click("Random Seed").unwrap();
         studio.drag(Vec2::new(300.0, 400.0), Vec2::new(600.0, 300.0));
 
-        studio.answer_dialog(Some(dir.join("rock.json")));
-        studio.click("Load JSON…").unwrap();
+        studio.answer_dialog(Some(dir.join("rock.stone.yml")));
+        studio.click("Load Preset…").unwrap();
         assert_eq!(studio.panel_value::<StoneOptions>(), saved);
         let camera = |studio: &mut HeadlessStudio| {
             let world = studio.app_mut().world_mut();
@@ -444,30 +498,30 @@ mod tests {
         let dir = folder("plants");
         let mut studio = offline_studio();
 
-        // A plant comes back as saved, from RON.
+        // A plant comes back as saved.
         studio.click("Plant").unwrap();
         let plant: PlantParams = studio.panel_value();
-        studio.answer_dialog(Some(dir.join("grass.plant.ron")));
-        studio.click("Save Plant…").unwrap();
+        studio.answer_dialog(Some(dir.join("grass.plant.yml")));
+        studio.click("Save Preset…").unwrap();
         studio.click("Meadow grass").unwrap();
         studio.click("Wheat").unwrap();
         assert_ne!(studio.panel_value::<PlantParams>(), plant);
-        studio.answer_dialog(Some(dir.join("grass.plant.ron")));
-        studio.click("Load Plant…").unwrap();
+        studio.answer_dialog(Some(dir.join("grass.plant.yml")));
+        studio.click("Load Preset…").unwrap();
         assert_eq!(studio.panel_value::<PlantParams>(), plant);
 
-        // A field comes back with all its rows.
-        studio.click("Plant Field").unwrap();
+        // A Plant Scatter comes back with all its rows.
+        studio.click("Plant Scatter").unwrap();
         studio.click("+ Add Plant").unwrap();
         let saved = field(&mut studio);
         assert_eq!(saved.plants.len(), 2);
-        studio.answer_dialog(Some(dir.join("field.json")));
-        studio.click("Save Field…").unwrap();
+        studio.answer_dialog(Some(dir.join("field.plant_scatter.yml")));
+        studio.click("Save Preset…").unwrap();
         studio.click("Meadow").unwrap();
         studio.click("Lawn").unwrap();
         assert_ne!(field(&mut studio), saved);
-        studio.answer_dialog(Some(dir.join("field.json")));
-        studio.click("Load Field…").unwrap();
+        studio.answer_dialog(Some(dir.join("field.plant_scatter.yml")));
+        studio.click("Load Preset…").unwrap();
         assert_eq!(field(&mut studio), saved);
 
         // A row's plant can be loaded from a plant file.
@@ -478,11 +532,11 @@ mod tests {
             .min_by(|a, b| a.center.y.total_cmp(&b.center.y))
             .unwrap();
         studio.click_at(first_edit.center);
-        studio.answer_dialog(Some(dir.join("grass.plant.ron")));
+        studio.answer_dialog(Some(dir.join("grass.plant.yml")));
         studio.click("Load Plant…").unwrap();
         assert_eq!(
             field(&mut studio).plants[0],
-            FieldPlant {
+            ScatterPlant {
                 plant,
                 ..saved.plants[0]
             }

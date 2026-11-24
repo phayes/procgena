@@ -89,21 +89,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
     let stones = [
-        ("stone_boulder", StonePreset::Boulder),
-        ("stone_lichen_boulder", StonePreset::LichenBoulder),
-        ("stone_river_stone", StonePreset::RiverStone),
-        ("stone_flat_slab", StonePreset::FlatSlab),
-        ("stone_cliff_chunk", StonePreset::CliffChunk),
-        ("stone_standing_stone", StonePreset::StandingStone),
-        ("stone_shard", StonePreset::Shard),
-        ("stone_pebble", StonePreset::Pebble),
+        ("stone_boulder", StonePreset::boulder()),
+        ("stone_lichen_boulder", StonePreset::lichen_boulder()),
+        ("stone_river_stone", StonePreset::river_stone()),
+        ("stone_flat_slab", StonePreset::flat_slab()),
+        ("stone_cliff_chunk", StonePreset::cliff_chunk()),
+        ("stone_standing_stone", StonePreset::standing_stone()),
+        ("stone_shard", StonePreset::shard()),
+        ("stone_pebble", StonePreset::pebble()),
     ];
     let strict_stones = [
-        ("strict_boulder", StonePreset::Boulder),
-        ("strict_lichen_boulder", StonePreset::LichenBoulder),
-        ("strict_flat_slab", StonePreset::FlatSlab),
-        ("strict_cliff_chunk", StonePreset::CliffChunk),
-        ("strict_pebble", StonePreset::Pebble),
+        ("strict_boulder", StonePreset::boulder()),
+        ("strict_lichen_boulder", StonePreset::lichen_boulder()),
+        ("strict_flat_slab", StonePreset::flat_slab()),
+        ("strict_cliff_chunk", StonePreset::cliff_chunk()),
+        ("strict_pebble", StonePreset::pebble()),
     ];
     let cases: Vec<Case> = cases
         .into_iter()
@@ -308,22 +308,25 @@ fn shifted_clump(clump: &ClumpMesh, dx: f32) -> ClumpMesh {
 /// `input:<procgena_stone texture set>`, so the viewer can texture it.
 fn write_gallery(out_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     let presets = [
-        StonePreset::Boulder,
-        StonePreset::LichenBoulder,
-        StonePreset::CliffChunk,
-        StonePreset::RiverStone,
+        StonePreset::boulder(),
+        StonePreset::lichen_boulder(),
+        StonePreset::cliff_chunk(),
+        StonePreset::river_stone(),
     ];
     let rocks: Vec<(SurfaceMesh, String)> = presets.map(shapes::stone).into_iter().collect();
     let spacing = 3.2;
     // Snow falling from above plus wind-blown snow arriving from -X.
-    let mut wind = ClumpPreset::DirtySnowCap.options();
+    let mut wind = ClumpPreset::dirty_snow_cap().clump.clone();
     wind.directions.push(Direction {
         vector: [1.0, -0.3, 0.2],
         strength: 0.8,
     });
     for (file, options) in [
-        ("stones_snow.obj", ClumpPreset::DirtySnowCap.options()),
-        ("stones_moss.obj", ClumpPreset::MossPatches.options()),
+        (
+            "stones_snow.obj",
+            ClumpPreset::dirty_snow_cap().clump.clone(),
+        ),
+        ("stones_moss.obj", ClumpPreset::moss_patches().clump.clone()),
         ("stones_wind.obj", wind),
     ] {
         let mut placed = Vec::new();

@@ -1,9 +1,0 @@
-{
-  "seed": 1,
-  "trees": [
-    { "tree": "bush_1", "densityScale": 0.1, "clustering": 0.6, "variants": 3 },
-    { "tree": "ash_medium", "densityScale": 0.2, "clustering": 0.4 },
-    { "tree": "oak_large", "densityScale": 0.3, "variants": 3 },
-    { "tree": "oak_medium", "densityScale": 0.6 }
-  ]
-}

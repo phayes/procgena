@@ -162,7 +162,8 @@ impl TextureMap {
 ///
 /// Clump meshes have no texture coordinates; renderers project the textures
 /// onto the clump along its three axes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialOptions {
     /// Name of a [`TextureSet`] from [`TEXTURE_SETS`], or `None` for a plain
     /// colour.

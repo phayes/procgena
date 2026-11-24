@@ -62,13 +62,13 @@ fn check(mesh: &DeadwoodMesh, name: &str) {
 
 #[test]
 fn presets_stay_closed_across_decay_seeds_and_overrides() {
-    for preset in DeadwoodPreset::ALL {
+    for preset in DeadwoodPreset::all() {
         for decay in [0.0, 1.0, 2.0, 3.0, 4.0, 5.0] {
             for seed in [1, 2, 3] {
                 for strong in [false, true] {
-                    let mut o: DeadwoodOptions = preset.options();
+                    let mut o: DeadwoodOptions = preset.deadwood.clone();
                     o.decay = decay;
-                    o.seed = seed;
+                    o.default_seed = seed;
                     if strong {
                         o.settle.sag = Some(1.0);
                         o.stubs.keep = Some(1.0);
@@ -80,7 +80,7 @@ fn presets_stay_closed_across_decay_seeds_and_overrides() {
                     {
                         let name = format!(
                             "{} decay {decay} seed {seed} strong {strong} {label}",
-                            preset.name()
+                            preset.name
                         );
                         check(&piece.mesh_with_detail(&detail), &name);
                     }

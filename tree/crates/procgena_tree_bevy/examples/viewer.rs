@@ -111,9 +111,8 @@ struct Shown;
 
 fn main() -> AppExit {
     let mut viewer = Viewer {
-        preset: TreePreset::ALL
-            .iter()
-            .position(|&p| p == TreePreset::OakMedium)
+        preset: TreePreset::all()
+            .position(|p| p == TreePreset::oak_medium())
             .unwrap(),
         forest: false,
         sway: true,
@@ -144,9 +143,8 @@ fn main() -> AppExit {
         match args[i].as_str() {
             "--preset" => {
                 let name = args[i + 1].replace('_', " ");
-                viewer.preset = TreePreset::ALL
-                    .iter()
-                    .position(|p| p.name().eq_ignore_ascii_case(&name))
+                viewer.preset = TreePreset::all()
+                    .position(|p| p.name.eq_ignore_ascii_case(&name))
                     .unwrap_or_else(|| panic!("unknown preset {name}"));
                 i += 1;
             }
@@ -331,8 +329,17 @@ fn setup(
     ));
 }
 
+/// The built-in preset at `index` in [`TreePreset::all`].
+///
+/// # Panics
+///
+/// Panics if `index` is not below the number of presets.
+fn preset_at(index: usize) -> &'static TreePreset {
+    TreePreset::all().nth(index).expect("a preset index")
+}
+
 fn controls(keys: Res<ButtonInput<KeyCode>>, mut viewer: ResMut<Viewer>) {
-    let count = TreePreset::ALL.len();
+    let count = TreePreset::all().count();
     if keys.just_pressed(KeyCode::ArrowRight) {
         viewer.preset = (viewer.preset + 1) % count;
         viewer.maturity = None;
@@ -347,7 +354,7 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, mut viewer: ResMut<Viewer>) {
     // Step to the next leaf kind, starting after the preset's own leaves.
     if keys.just_pressed(KeyCode::KeyL) {
         let current = viewer.leaves.unwrap_or_else(|| {
-            let kind = TreePreset::ALL[viewer.preset].options().leaves.kind;
+            let kind = &preset_at(viewer.preset).tree.leaves.kind;
             LEAF_KINDS.iter().position(|&k| k == kind).unwrap_or(0)
         });
         viewer.leaves = Some((current + 1) % LEAF_KINDS.len());
@@ -365,7 +372,7 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, mut viewer: ResMut<Viewer>) {
     if step != 0.0 {
         let current = viewer
             .maturity
-            .unwrap_or_else(|| TreePreset::ALL[viewer.preset].options().fruit.maturity);
+            .unwrap_or_else(|| preset_at(viewer.preset).tree.fruit.maturity);
         viewer.maturity = Some((current + step).clamp(0.0, 1.0));
     }
     if keys.just_pressed(KeyCode::KeyF) {
@@ -409,8 +416,8 @@ fn show_trees(
         commands.entity(entity).despawn();
     }
 
-    let preset = TreePreset::ALL[viewer.preset];
-    let mut options: TreeOptions = preset.options();
+    let preset = preset_at(viewer.preset);
+    let mut options: TreeOptions = preset.tree.clone();
     options.bark.uv_mode = if viewer.continuous {
         BarkUvMode::Continuous
     } else {
@@ -431,7 +438,7 @@ fn show_trees(
     }
     info!(
         "{} (leaves {}, maturity {:.1}, bark normal maps {}, wind {}, variation {})",
-        preset.name(),
+        preset.name,
         options.leaves.kind,
         options.fruit.maturity,
         if viewer.continuous { "on" } else { "off" },

@@ -75,8 +75,8 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(64.0, 64.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
-    commands.spawn(PlantField::from_preset(
-        &FieldPreset::MEADOW,
+    commands.spawn(PlantScatter::from_preset(
+        &PlantScatterPreset::MEADOW,
         Vec2::splat(64.0),
     ));
 }

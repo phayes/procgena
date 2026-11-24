@@ -1,0 +1,54 @@
+# The `forest_understory` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Forest understory
+description: |-
+  Mixed forest shrubs and ferns above moss and fallen leaves.
+
+  Combines all understory plants in clumps, with leaf litter between them.
+group: Understory
+plant_scatter:
+  variation:
+    patch_color:
+    - 0.2
+    - 0.34
+    - 0.15
+    patch_amount: 0.35
+    patch_size: 3.0
+    dry_tips: 0.05
+    dead_share: 0.02
+    bare_share: 0.12
+    bare_patch_size: 1.2
+  ground_tint:
+    color:
+    - 0.12
+    - 0.09
+    - 0.05
+    amount: 0.4
+  plants:
+  - plant: fern
+    density_scale: 0.3
+    clustering: 0.6
+  - plant: salal
+    density_scale: 0.4
+    clustering: 0.6
+  - plant: oregon_grape
+    density_scale: 0.25
+    clustering: 0.6
+  - plant: huckleberry
+    density_scale: 0.5
+    clustering: 0.6
+  - plant: sapling
+    density_scale: 0.4
+    clustering: 0.6
+  - plant: mature_bracken
+    density_scale: 0.1
+    clustering: 0.6
+  - plant: nettle
+    density_scale: 0.1
+    clustering: 0.6
+  - plant: leaf_litter
+    density_scale: 0.25
+    clustering: 0.35
+  - plant: moss
+    density_scale: 0.55

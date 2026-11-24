@@ -16,12 +16,12 @@ fn hashes_match_pinned_values() {
         OptionsHash(0x33b4_334c_d7bb_f01a)
     );
     assert_eq!(
-        StonePreset::Boulder.options().pool_id().options,
+        StonePreset::boulder().stone.pool_id().options,
         OptionsHash(0x3dfb_05a8_763c_5bec)
     );
     assert_eq!(content_hash(&StoneDetail::MEDIUM), 0xb1ab_a7f9_e6e0_ab85);
     assert_eq!(
-        StoneOptions::default().variant(42, 3, 0.3).seed,
+        StoneOptions::default().variant(42, 3, 0.3).default_seed,
         0xd56f_fa82
     );
 }
@@ -30,7 +30,7 @@ fn hashes_match_pinned_values() {
 fn the_seed_and_detail_levels_are_not_part_of_the_pool() {
     let base = StoneOptions::default();
     let mut other = base.clone();
-    other.seed += 1;
+    other.default_seed += 1;
     other.mesh.detail = StoneDetail::HIGH;
     assert_eq!(base.pool_id(), other.pool_id());
     assert_eq!(base.pool_id().kind, STONE_KIND);
@@ -121,11 +121,11 @@ fn variants_are_specimens_of_one_pool() {
     let pool = PoolId::new(STONE_KIND, OptionsHash::of(&(&base, 0.0f32)));
     for slot in 0..4 {
         let variant = base.variant(9, slot, 0.0);
-        assert_eq!(variant.seed, SpecimenId::new(9, pool, slot).seed());
+        assert_eq!(variant.default_seed, SpecimenId::new(9, pool, slot).seed());
         // Without stretch jitter only the seed differs.
         assert_eq!(
             StoneOptions {
-                seed: base.seed,
+                default_seed: base.default_seed,
                 ..variant
             },
             base
@@ -134,11 +134,17 @@ fn variants_are_specimens_of_one_pool() {
 
     // The base seed plays no part; the World seed and the jitter do.
     let mut reseeded = base.clone();
-    reseeded.seed += 100;
+    reseeded.default_seed += 100;
     assert_eq!(
-        reseeded.variant(9, 2, 0.3).seed,
-        base.variant(9, 2, 0.3).seed
+        reseeded.variant(9, 2, 0.3).default_seed,
+        base.variant(9, 2, 0.3).default_seed
     );
-    assert_ne!(base.variant(10, 2, 0.3).seed, base.variant(9, 2, 0.3).seed);
-    assert_ne!(base.variant(9, 2, 0.2).seed, base.variant(9, 2, 0.3).seed);
+    assert_ne!(
+        base.variant(10, 2, 0.3).default_seed,
+        base.variant(9, 2, 0.3).default_seed
+    );
+    assert_ne!(
+        base.variant(9, 2, 0.2).default_seed,
+        base.variant(9, 2, 0.3).default_seed
+    );
 }

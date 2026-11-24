@@ -67,8 +67,8 @@ fn setup(
         Transform::from_xyz(0.0, -0.5, 0.0),
     ));
 
-    commands.spawn(PlantField::from_preset(
-        &FieldPreset::MEADOW,
+    commands.spawn(PlantScatter::from_preset(
+        &PlantScatterPreset::MEADOW,
         Vec2::splat(64.0),
     ));
 

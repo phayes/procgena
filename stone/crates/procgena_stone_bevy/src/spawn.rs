@@ -12,7 +12,7 @@ use procgena_core::{LodRange, PoolId, Quality, content_hash};
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_stone::{
-    DetailLevel, OptionsError, Stone, StoneDetail, StoneError, StoneOptions, TextureCompression,
+    DetailLevel, OptionsError, Stone, StoneDetail, StoneOptions, StonePreset, TextureCompression,
     TextureSize,
 };
 
@@ -41,10 +41,10 @@ use crate::mesh::stone_mesh;
 pub enum StoneParams {
     /// Generate from options supplied in memory. Use [`StoneParams::new`] to wrap owned options.
     Options(Arc<StoneOptions>),
-    /// Load options from a JSON file with a `.stone.json` extension.
+    /// Load a preset from a `.stone.yml` file and build its options.
     /// The rock waits for the asset to load and rebuilds when Bevy reports it modified.
     /// Live file edits require Bevy asset watching to be enabled.
-    Asset(Handle<StoneOptionsAsset>),
+    Asset(Handle<StonePresetAsset>),
 }
 
 impl StoneParams {
@@ -54,12 +54,14 @@ impl StoneParams {
     }
 }
 
-/// Rock settings loaded from a `.stone.json` file for [`StoneParams::Asset`].
+/// A rock preset loaded from a `.stone.yml` file for [`StoneParams::Asset`].
 ///
-/// Omitted JSON fields use their defaults; see [`StoneOptions::from_json`].
-/// The loader validates the settings before making the asset available.
+/// The file names a built-in preset as its `base` and gives only what
+/// differs; see [`StonePreset::from_yaml`](procgena_stone::StonePreset::from_yaml).
+/// Its key is the file name without `.stone.yml`. The loader checks the
+/// settings before making the asset available.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
-pub struct StoneOptionsAsset(pub StoneOptions);
+pub struct StonePresetAsset(pub StonePreset);
 
 /// Suggested burial depth for a generated [`StoneParams`], including its option scale.
 ///
@@ -80,12 +82,12 @@ pub struct StonePart {
     pub lod: usize,
 }
 
-/// Reads and validates rock JSON files with the `.stone.json` extension.
+/// Reads and checks rock preset files with the `.stone.yml` extension.
 #[derive(Debug, Default, TypePath)]
-pub(crate) struct StoneOptionsLoader;
+pub(crate) struct StonePresetLoader;
 
-impl AssetLoader for StoneOptionsLoader {
-    type Asset = StoneOptionsAsset;
+impl AssetLoader for StonePresetLoader {
+    type Asset = StonePresetAsset;
     type Settings = ();
     type Error = BevyError;
 
@@ -93,18 +95,23 @@ impl AssetLoader for StoneOptionsLoader {
         &self,
         reader: &mut dyn Reader,
         _settings: &(),
-        _context: &mut LoadContext<'_>,
-    ) -> Result<StoneOptionsAsset, BevyError> {
+        context: &mut LoadContext<'_>,
+    ) -> Result<StonePresetAsset, BevyError> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let options =
-            StoneOptions::from_json(std::str::from_utf8(&bytes)?).map_err(StoneError::Json)?;
-        options.validate().map_err(StoneError::Options)?;
-        Ok(StoneOptionsAsset(options))
+        let file_name = context
+            .path()
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let key = file_name.strip_suffix(".stone.yml").unwrap_or(file_name);
+        let preset = StonePreset::from_yaml(key, std::str::from_utf8(&bytes)?)?;
+        Ok(StonePresetAsset(preset))
     }
 
     fn extensions(&self) -> &[&str] {
-        &["stone.json"]
+        &["stone.yml"]
     }
 }
 
@@ -130,7 +137,7 @@ impl StoneKey {
     fn of(options: &StoneOptions) -> Self {
         Self {
             pool: options.pool_id(),
-            seed: options.seed,
+            seed: options.default_seed,
             detail: content_hash(&options.mesh.detail),
         }
     }
@@ -141,7 +148,7 @@ impl StoneKey {
 /// The plugin adds this whenever a rock is spawned or its [`StoneParams`] changes,
 /// and removes it once the rock's parts have been spawned or generation has
 /// failed. A [`StoneFinished`] event is triggered at the same moment. While a
-/// `.stone.json` asset has not loaded yet, the marker stays on.
+/// `.stone.yml` asset has not loaded yet, the marker stays on.
 #[derive(Component, Debug, Default)]
 pub struct StoneGenerating;
 
@@ -282,7 +289,7 @@ pub(crate) fn reset_changed_stones(
 
 /// Marks rocks for rebuilding when Bevy reports a change to their options asset.
 pub(crate) fn reload_modified_options(
-    mut events: MessageReader<AssetEvent<StoneOptionsAsset>>,
+    mut events: MessageReader<AssetEvent<StonePresetAsset>>,
     mut stones: Query<&mut StoneParams>,
 ) {
     for event in events.read() {
@@ -304,14 +311,14 @@ type AwaitingKey = (With<StoneGenerating>, Without<StoneKey>);
 pub(crate) fn start_generation(
     mut commands: Commands,
     waiting: Query<(Entity, &StoneParams), AwaitingKey>,
-    options_assets: Res<Assets<StoneOptionsAsset>>,
+    options_assets: Res<Assets<StonePresetAsset>>,
     mut cache: ResMut<StoneCache>,
 ) {
     for (entity, stone) in &waiting {
         let options = match stone {
             StoneParams::Options(options) => options.clone(),
             StoneParams::Asset(handle) => match options_assets.get(handle) {
-                Some(asset) => Arc::new(asset.0.clone()),
+                Some(asset) => Arc::new(asset.0.stone.clone()),
                 None => continue,
             },
         };
@@ -531,8 +538,8 @@ mod tests {
             .init_asset::<Mesh>()
             .init_asset::<Image>()
             .init_asset::<StoneMaterial>()
-            .init_asset::<StoneOptionsAsset>()
-            .register_asset_loader(StoneOptionsLoader)
+            .init_asset::<StonePresetAsset>()
+            .register_asset_loader(StonePresetLoader)
             .init_resource::<StoneCache>()
             .init_resource::<LodQuality>()
             .init_resource::<Finished>()
@@ -604,7 +611,10 @@ mod tests {
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(()), Ok(())]);
 
         // New options generate again.
-        let options = StoneOptions { seed: 7, ..quick() };
+        let options = StoneOptions {
+            default_seed: 7,
+            ..quick()
+        };
         *app.world_mut().get_mut::<StoneParams>(stone).unwrap() = StoneParams::new(options);
         app.update();
         assert!(app.world().entity(stone).contains::<StoneGenerating>());
@@ -612,7 +622,10 @@ mod tests {
         assert_eq!(app.world().resource::<Finished>().0.len(), 3);
 
         // A different detail set is a different rock: it generates its own levels.
-        let mut options = StoneOptions { seed: 7, ..quick() };
+        let mut options = StoneOptions {
+            default_seed: 7,
+            ..quick()
+        };
         options.mesh.detail = StoneDetail::single(16, TextureSize::Size512);
         *app.world_mut().get_mut::<StoneParams>(stone).unwrap() = StoneParams::new(options);
         app.update();
@@ -635,7 +648,10 @@ mod tests {
         assert_eq!(*specimen.0, Stone::new(quick()).unwrap().specimen());
 
         // Changing the options removes the stale specimen until the rebuild ends.
-        let options = StoneOptions { seed: 7, ..quick() };
+        let options = StoneOptions {
+            default_seed: 7,
+            ..quick()
+        };
         *app.world_mut().get_mut::<StoneParams>(stone).unwrap() = StoneParams::new(options);
         app.update();
         assert!(!app.world().entity(stone).contains::<GeneratedSpecimen>());
@@ -673,7 +689,13 @@ mod tests {
         // Changing the random seed varies rock shape while preserving the
         // shared material at every detail level.
         let first = spawn(&mut app, quick());
-        let second = spawn(&mut app, StoneOptions { seed: 7, ..quick() });
+        let second = spawn(
+            &mut app,
+            StoneOptions {
+                default_seed: 7,
+                ..quick()
+            },
+        );
         let shared = part_materials(&mut app, first);
         assert_eq!(shared.len(), 1);
         assert_eq!(part_materials(&mut app, second), shared);
@@ -693,14 +715,14 @@ mod tests {
     }
 
     #[test]
-    fn json_assets_load_partial_options() {
+    fn preset_files_load_partial_options() {
         // Write a partial settings file into a fresh asset folder.
         let dir =
             std::env::temp_dir().join(format!("procgena_stone_bevy_assets_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join("rock.stone.json"),
-            r#"{"seed": 9, "material": {"texture": "lichen_rock_02"}}"#,
+            dir.join("rock.stone.yml"),
+            "stone:\n  default_seed: 9\n  material:\n    texture: lichen_rock_02\n",
         )
         .unwrap();
 
@@ -711,7 +733,7 @@ mod tests {
         let handle = app
             .world()
             .resource::<AssetServer>()
-            .load::<StoneOptionsAsset>("rock.stone.json");
+            .load::<StonePresetAsset>("rock.stone.yml");
         let stone = app
             .world_mut()
             .spawn(StoneParams::Asset(handle.clone()))
@@ -721,12 +743,14 @@ mod tests {
 
         // Omitted settings keep their defaults.
         let mut expected = StoneOptions {
-            seed: 9,
+            default_seed: 9,
             ..StoneOptions::default()
         };
         expected.material.texture = "lichen_rock_02".to_owned();
-        let assets = app.world().resource::<Assets<StoneOptionsAsset>>();
-        assert_eq!(assets.get(&handle).unwrap().0, expected);
+        let assets = app.world().resource::<Assets<StonePresetAsset>>();
+        let preset = &assets.get(&handle).unwrap().0;
+        assert_eq!(preset.stone, expected);
+        assert_eq!(preset.key, "rock");
         assert_eq!(part_lods(&mut app, stone), [0, 1, 2]);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
     }

@@ -1,8 +1,8 @@
 //! The look of the grass: plants, and the field-wide settings that colour them.
 //!
 //! Use [`PlantParams`] to choose a plant's size, colour, shape, branches and
-//! tufting, and how densely it grows. A [`PlantField`](crate::PlantField)
-//! lists its plants as [`FieldPlant`]s, each a plant with a scale on its
+//! tufting, and how densely it grows. A [`PlantScatter`](crate::PlantScatter)
+//! lists its plants as [`ScatterPlant`]s, each a plant with a scale on its
 //! density in that field, and adds the settings shared by the whole field:
 //! [`PlantVariation`] and [`GroundTint`].
 //!
@@ -14,15 +14,16 @@ use bevy::color::Color;
 use bevy::math::Vec2;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
+use serde::{Deserialize, Serialize};
 
 use crate::PlantSettings;
-use crate::fields::level_entries;
-use crate::presets::FieldPreset;
+use crate::presets::PlantScatterPreset;
+use crate::scatters::level_entries;
 use crate::shader_model::ShapeClass;
 
 /// Maximum number of plant kinds drawn in one field.
 ///
-/// Only the first 16 entries in [`PlantField::plants`](crate::PlantField::plants)
+/// Only the first 16 entries in [`PlantScatter::plants`](crate::PlantScatter::plants)
 /// are used. Accents do not count towards this limit.
 pub const MAX_PLANTS: usize = 16;
 
@@ -34,8 +35,8 @@ pub(crate) const MAX_BRANCHES: u32 = 32;
 
 /// The size, appearance and branching of one kind of plant.
 ///
-/// Add a plant to [`PlantField::plants`](crate::PlantField::plants) with
-/// [`FieldPlant::new`]. It grows at its own [`density`](PlantParams::density),
+/// Add a plant to [`PlantScatter::plants`](crate::PlantScatter::plants) with
+/// [`ScatterPlant::new`]. It grows at its own [`density`](PlantParams::density),
 /// which the field can scale.
 ///
 /// Each stem starts with a main [`segment`](PlantParams::segment), such as a grass blade
@@ -44,14 +45,29 @@ pub(crate) const MAX_BRANCHES: u32 = 32;
 ///
 /// Start from a plant preset such as [`PlantParams::MEADOW_GRASS`],
 /// [`PlantParams::SEED_HEADS`] or [`PlantParams::FERN`].
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+///
+/// With serde, a plant and each of its parts read and write the same
+/// settings as the `plant:` part of a `.plant.yml` file. Settings that are
+/// missing come from the type's default ([`PlantParams::MEADOW_GRASS`] for a
+/// plant), and a value out of range is an error.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
+#[serde(
+    try_from = "crate::files::PlantParamsFile",
+    into = "crate::files::PlantParamsFile"
+)]
 pub struct PlantParams {
+    /// The seed used when this plant is built on its own, rather than inside
+    /// a Scatter that gives it a seed.
+    ///
+    /// Not used yet: plants are placed and shaped from their position alone,
+    /// so changing it changes nothing that is drawn.
+    pub default_seed: u32,
     /// The plant's natural density, in plants per square metre.
     ///
     /// For example, meadow grass uses 60 and ferns use 2. Adjust how densely
-    /// it grows in a field with [`FieldPlant::density_scale`] and
-    /// [`PlantField::density_scale`](crate::PlantField::density_scale); both
+    /// it grows in a field with [`ScatterPlant::density_scale`] and
+    /// [`PlantScatter::density_scale`](crate::PlantScatter::density_scale); both
     /// scales multiply this value. Each plant counts once, regardless of its
     /// [`stems_per_plant`](Self::stems_per_plant).
     pub density: f32,
@@ -113,8 +129,12 @@ pub struct PlantParams {
 /// Accents are always unbranched. They keep the plant's root shading, sheen,
 /// stem count and tuft settings, but have their own size, shape and colours.
 /// Set [`share`](Self::share) to 0, or use [`PlantAccent::NONE`], to turn them off.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
+#[serde(
+    try_from = "crate::files::PlantAccentFile",
+    into = "crate::files::PlantAccentFile"
+)]
 pub struct PlantAccent {
     /// The share of the plant's stems that are accents, from 0 (none) to 1
     /// (every stem).
@@ -184,8 +204,12 @@ impl Default for PlantAccent {
 /// A segment can represent a grass blade, fern stalk or leaflet. Its dimensions come
 /// from [`PlantParams`] or [`PlantBranches`]. Set its shape controls to 0 for a
 /// straight, pointed strip.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
+#[serde(
+    try_from = "crate::files::PlantSegmentFile",
+    into = "crate::files::PlantSegmentFile"
+)]
 pub struct PlantSegment {
     /// Outline from 0 (a grass blade tapering to a point) to 1 (an oval leaf, narrow at
     /// both ends and widest in the middle).
@@ -302,8 +326,12 @@ pub struct PlantMeshSize {
 ///
 /// Use this for leaflets along a fern stalk or leaves along twigs. See
 /// [`PlantParams::levels`] for how the two levels connect.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
+#[serde(
+    try_from = "crate::files::PlantBranchesFile",
+    into = "crate::files::PlantBranchesFile"
+)]
 pub struct PlantBranches {
     /// Children per parent segment, from 0 (disabled) to 32.
     /// [`PlantArrangement::Opposite`] rounds odd counts up to complete pairs.
@@ -338,8 +366,9 @@ pub struct PlantBranches {
 ///
 /// Choose paired attachments for fern leaflets or alternating attachments for leaves
 /// along a twig.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum PlantArrangement {
     /// Paired children attached at the same point on opposite sides.
     #[default]
@@ -382,8 +411,12 @@ impl PlantBranches {
 }
 
 /// How far the ground shows through at the foot of the grass.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
+#[serde(
+    try_from = "crate::files::GroundTintFile",
+    into = "crate::files::GroundTintFile"
+)]
 pub struct GroundTint {
     /// The colour of the ground the field grows on.
     pub color: Color,
@@ -396,8 +429,12 @@ pub struct GroundTint {
 ///
 /// Set all amounts and shares to 0 for an even field. Tufting belongs to
 /// each [`PlantParams`], so different plants can form different-sized groups.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
+#[serde(
+    try_from = "crate::files::PlantVariationFile",
+    into = "crate::files::PlantVariationFile"
+)]
 pub struct PlantVariation {
     /// The colour the blades drift toward in large patches, as the tip
     /// colour; the rest of each blade shifts with it. Real fields are greener
@@ -421,10 +458,10 @@ pub struct PlantVariation {
 
 /// A plant and its density and clustering settings within a field.
 ///
-/// Add entries to [`PlantField::plants`](crate::PlantField::plants). Each
+/// Add entries to [`PlantScatter::plants`](crate::PlantScatter::plants). Each
 /// plant grows at its own [`density`](PlantParams::density) times
 /// [`density_scale`](Self::density_scale) times the field's
-/// [`density_scale`](crate::PlantField::density_scale). For example, ferns
+/// [`density_scale`](crate::PlantScatter::density_scale). For example, ferns
 /// with a density of 2 and an entry scale of 0.5 contribute one fern per
 /// square metre when the field scale is 1. Colour variation applies to
 /// the whole field.
@@ -433,9 +470,13 @@ pub struct PlantVariation {
 /// the gaps left by earlier plants, so its own [`clustering`](Self::clustering)
 /// has no effect. Put patch-forming plants first and the background grass or
 /// moss last.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default, Debug, PartialEq)]
-pub struct FieldPlant {
+#[serde(
+    try_from = "crate::files::ScatterPlantFile",
+    into = "crate::files::ScatterPlantFile"
+)]
+pub struct ScatterPlant {
     /// The plant's shape, appearance and natural density.
     ///
     /// Use a [`PlantParams`] preset or provide customised plant settings.
@@ -444,7 +485,7 @@ pub struct FieldPlant {
     ///
     /// Use 1 for its [`density`](PlantParams::density), 0.5 for half as many
     /// plants, or 0 to remove it. Negative scales count as 0. The field's
-    /// [`density_scale`](crate::PlantField::density_scale) also applies.
+    /// [`density_scale`](crate::PlantScatter::density_scale) also applies.
     pub density_scale: f32,
     /// How strongly this plant groups into patches, from 0 to 1.
     ///
@@ -455,7 +496,7 @@ pub struct FieldPlant {
     pub clustering: f32,
 }
 
-impl FieldPlant {
+impl ScatterPlant {
     /// Creates a field entry for a plant at its natural density.
     ///
     /// Pass the plant's shape and appearance settings. The entry starts
@@ -474,7 +515,7 @@ impl FieldPlant {
     ///
     /// Pass a non-negative scale: 1 keeps the plant's natural density,
     /// 0.5 halves it, and 0 removes the plant. The field's
-    /// [`density_scale`](crate::PlantField::density_scale) also applies.
+    /// [`density_scale`](crate::PlantScatter::density_scale) also applies.
     #[must_use]
     pub const fn scaled(self, density_scale: f32) -> Self {
         Self {
@@ -488,7 +529,7 @@ impl FieldPlant {
     /// Pass 0 for scattered plants or 1 for patches about a metre across.
     /// Values outside this range are clamped when rendered. This does not
     /// change the density and has no effect on the last entry with a
-    /// positive density; see [`FieldPlant`].
+    /// positive density; see [`ScatterPlant`].
     #[must_use]
     pub const fn clustered(self, clustering: f32) -> Self {
         Self { clustering, ..self }
@@ -505,7 +546,7 @@ impl FieldPlant {
     }
 }
 
-impl Default for FieldPlant {
+impl Default for ScatterPlant {
     fn default() -> Self {
         Self::new(PlantParams::MEADOW_GRASS)
     }
@@ -531,13 +572,13 @@ impl Default for PlantBranches {
 
 impl Default for GroundTint {
     fn default() -> Self {
-        FieldPreset::MEADOW.field.ground_tint
+        PlantScatterPreset::MEADOW.plant_scatter.ground_tint
     }
 }
 
 impl Default for PlantVariation {
     fn default() -> Self {
-        FieldPreset::MEADOW.field.variation
+        PlantScatterPreset::MEADOW.plant_scatter.variation
     }
 }
 

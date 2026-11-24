@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use crate::scene::{EnvironmentSettings, FieldSettings, SceneMode, SceneStart, ViewerCommand};
 use bevy::prelude::*;
-use procgena_plant::prelude::FieldPreset;
 
 use crate::params::ParamPanel;
 use layout::{PlantLodRow, TabPage};
@@ -100,16 +99,14 @@ impl Plugin for StudioPlugin {
 /// What the scene shows when the studio opens: the Trees tab, with each
 /// editor's starting preset.
 pub fn scene_start() -> SceneStart {
-    let field = FieldPreset::named(crate::field::START_PRESET)
-        .map(|preset| preset.field.clone())
-        .unwrap_or_default();
+    let field = crate::field::editor::start_field();
     SceneStart {
         mode: StudioTab::default().mode(),
-        tree: Arc::new(crate::tree::START_PRESET.options()),
+        tree: Arc::new(crate::tree::start_options()),
         field: Arc::new(FieldSettings { field }),
-        stone: Arc::new(crate::stones::START_PRESET.options()),
+        stone: Arc::new(crate::stones::start_options()),
         clump: Arc::new(crate::clump::start_settings()),
-        mushroom: Arc::new(crate::mushrooms::START_PRESET.options()),
+        mushroom: Arc::new(crate::mushrooms::start_options()),
         grove: Arc::new(crate::grove::editor::start_grove()),
         deadwood: Arc::new(crate::deadwood::start_settings()),
         environment: EnvironmentSettings::default(),
@@ -190,12 +187,28 @@ mod tests {
     fn the_studio_starts_from_each_editors_preset() {
         let start = scene_start();
         assert_eq!(start.mode, SceneMode::Tree);
-        assert_eq!(*start.tree, crate::tree::START_PRESET.options());
-        assert_eq!(*start.stone, crate::stones::START_PRESET.options());
+        assert_eq!(
+            *start.tree,
+            procgena_tree::TreePreset::named(crate::tree::START_PRESET)
+                .unwrap()
+                .tree
+        );
+        assert_eq!(
+            *start.stone,
+            procgena_stone::StonePreset::named(crate::stones::START_PRESET)
+                .unwrap()
+                .stone
+        );
         assert_eq!(*start.clump, crate::clump::start_settings());
-        assert_eq!(*start.mushroom, crate::mushrooms::START_PRESET.options());
+        assert_eq!(
+            *start.mushroom,
+            procgena_mushroom::MushroomPreset::named(crate::mushrooms::START_PRESET)
+                .unwrap()
+                .mushroom
+        );
         assert_eq!(*start.grove, crate::grove::editor::start_grove());
         assert_eq!(*start.deadwood, crate::deadwood::start_settings());
-        assert!(FieldPreset::named(crate::field::START_PRESET).is_some());
+        let field = procgena_plant::prelude::PlantScatterPreset::named(crate::field::START_PRESET);
+        assert_eq!(start.field.field, field.unwrap().plant_scatter);
     }
 }

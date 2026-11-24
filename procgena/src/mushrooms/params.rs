@@ -605,9 +605,8 @@ mod tests {
 
     /// Every preset, named for failure messages.
     fn presets() -> Vec<(String, MushroomOptions)> {
-        MushroomPreset::ALL
-            .iter()
-            .map(|preset| (preset.name().to_owned(), preset.options()))
+        MushroomPreset::all()
+            .map(|preset| (preset.name.to_string(), preset.mushroom.clone()))
             .collect()
     }
 

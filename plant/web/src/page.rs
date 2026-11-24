@@ -54,9 +54,9 @@ pub fn set_quality(name: &str) -> bool {
     at.is_some()
 }
 
-/// Requests a built-in field preset for the next frame.
+/// Requests a built-in Scatter preset for the next frame.
 ///
-/// `name` is an exact preset key, such as `"WHEAT"`. Returns `false` if unknown.
+/// `name` is an exact preset key, such as `"wheat"`. Returns `false` if unknown.
 #[wasm_bindgen]
 pub fn set_preset(name: &str) -> bool {
     let found = crate::preset(name).map(|preset| &*preset.key);
@@ -117,7 +117,7 @@ pub fn set_wind(name: &str) -> bool {
 
 /// Requests a plant preset before the field's last plant.
 ///
-/// `name` is an exact key, such as `"POPPY"`. Returns `false` for an unknown
+/// `name` is an exact key, such as `"poppy"`. Returns `false` for an unknown
 /// key. A recognised key queues the edit for the next frame.
 #[wasm_bindgen]
 pub fn add_plant(name: &str) -> bool {
@@ -134,15 +134,15 @@ pub fn remove_plant(index: usize) {
     shared().edits.push(TuneEdit::RemovePlant(index));
 }
 
-/// Imports plant and appearance settings from `.field.ron` text.
+/// Imports plant and appearance settings from `.plant_scatter.yml` text.
 ///
 /// Keeps the preview's placement. Returns an empty string on success or a
 /// readable error on failure; successful imports are applied on the next frame.
 #[wasm_bindgen]
-pub fn import_field(ron: &str) -> String {
-    match PlantField::from_ron(ron) {
-        Ok(field) => {
-            shared().edits.push(TuneEdit::Field(Box::new(field)));
+pub fn import_scatter(yaml: &str) -> String {
+    match PlantScatter::from_yaml(yaml) {
+        Ok(scatter) => {
+            shared().edits.push(TuneEdit::Scatter(Box::new(scatter)));
             String::new()
         }
         Err(error) => error.to_string(),
@@ -157,8 +157,9 @@ pub fn restore_field() {
 
 /// Returns the tuning panel's current settings and export text as JSON.
 ///
-/// Each target includes its values and Rust expression; the field also
-/// includes RON. A revision identifies changes made outside `set`.
+/// Each target includes its values and Rust expression; the Scatter also
+/// includes its `.plant_scatter.yml` text. A revision identifies changes
+/// made outside `set`.
 #[wasm_bindgen]
 pub fn tunables() -> String {
     shared().tunables.clone()
@@ -192,12 +193,12 @@ pub fn qualities() -> Vec<String> {
         .collect()
 }
 
-/// Lists built-in field keys accepted by [`set_preset`].
+/// Lists built-in Scatter keys accepted by [`set_preset`].
 ///
 /// Keys are returned in catalogue order.
 #[wasm_bindgen]
 pub fn presets() -> Vec<String> {
-    FieldPreset::all()
+    PlantScatterPreset::all()
         .map(|preset| preset.key.to_string())
         .collect()
 }

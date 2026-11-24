@@ -1,6 +1,6 @@
 # Fields, terrain and visibility
 
-A `PlantField` is a rectangle of grass centred on its `Transform`, lying in
+A `PlantScatter` is a rectangle of grass centred on its `Transform`, lying in
 the XZ plane. Its size is `size` times the transform's X and Z scale, so a
 scaled field is bigger, like a scaled `Plane3d`. It turns with the
 transform's rotation about Y, and its mask and heightmap turn with it. Grass
@@ -18,13 +18,13 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
             .with_settings(|settings: &mut ImageLoaderSettings| settings.is_srgb = false)
             .load(path)
     };
-    commands.spawn(PlantField {
+    commands.spawn(PlantScatter {
         ground: PlantGround::Heightmap {
             image: linear("terrain/height.png"),
             height_scale: 40.0,
         },
         density_map: Some(linear("terrain/plant_mask.png")),
-        ..PlantField::from_preset(&FieldPreset::SUMMER_TALL, Vec2::splat(512.0))
+        ..PlantScatter::from_preset(&PlantScatterPreset::SUMMER_TALL, Vec2::splat(512.0))
     });
 }
 ```
@@ -46,7 +46,7 @@ off cliffs, with no mask to paint:
 ```rust
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.spawn(
-        PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(240.0))
+        PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(240.0))
             // Metres above the field's own height; NaN is no ground at all.
             .with_ground_from_fn(&mut images, 0.5, |point| island.height(point))
             // 0 bare to 1 full: nothing below the tide line or on cliffs.
@@ -88,10 +88,10 @@ fn setup(
     commands.spawn((
         Mesh3d(terrain.clone()),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
-        PlantField {
+        PlantScatter {
             ground: PlantGround::mesh(terrain),
             // The mesh's extent in X and Z.
-            ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
+            ..PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(256.0))
         },
         Transform::from_rotation(Quat::from_rotation_y(0.5)),
     ));
@@ -142,7 +142,7 @@ fn ground(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(1000.0, 1000.0))),
         MeshMaterial3d(materials.add(FarPlantMaterial {
             base: StandardMaterial::from_color(Color::srgb(0.20, 0.15, 0.09)),
-            extension: FarPlants::new(&FieldPreset::MEADOW.field),
+            extension: FarPlants::new(&PlantScatterPreset::MEADOW.plant_scatter),
         })),
     ));
 }
@@ -219,7 +219,7 @@ commands.entity(field).insert(Visibility::Hidden);
 // Split-screen, a minimap, a mirror: a camera draws the fields it shares a
 // render layer with. A field or camera without `RenderLayers` is on layer 0.
 commands.spawn((Camera3d::default(), RenderLayers::layer(1))); // a minimap
-commands.spawn((PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0)),
+commands.spawn((PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(64.0)),
                 RenderLayers::from_layers(&[0, 1])));          // seen by both
 
 // Or keep a camera from drawing any grass at all.

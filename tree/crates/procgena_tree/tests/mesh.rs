@@ -153,11 +153,11 @@ fn kept_leaves(skeleton: &Skeleton, stride: usize) -> Vec<usize> {
 #[test]
 fn leaf_stride_keeps_each_branch_tip() {
     for preset in [
-        TreePreset::AspenSmall,
-        TreePreset::OakMedium,
-        TreePreset::PineMedium,
+        TreePreset::aspen_small(),
+        TreePreset::oak_medium(),
+        TreePreset::pine_medium(),
     ] {
-        let options = preset.options();
+        let options = preset.tree.clone();
         let skeleton = Skeleton::generate(&options).unwrap();
         for stride in [2, 3, 4, 7] {
             let detail = LodDetail {
@@ -169,7 +169,8 @@ fn leaf_stride_keeps_each_branch_tip() {
             assert_eq!(
                 kept,
                 kept_leaves(&skeleton, stride as usize),
-                "{preset:?} {stride}"
+                "{} {stride}",
+                preset.key
             );
 
             let mut counts: std::collections::BTreeMap<usize, (usize, usize)> = Default::default();
@@ -180,7 +181,7 @@ fn leaf_stride_keeps_each_branch_tip() {
                 }
             }
             for (branch, (all, kept_here)) in counts {
-                let case = format!("{preset:?} stride {stride} branch {branch}");
+                let case = format!("{} stride {stride} branch {branch}", preset.key);
                 assert_eq!(kept_here, all.div_ceil(stride as usize), "{case}");
                 let outermost = (0..skeleton.leaves.len())
                     .filter(|&i| skeleton.leaves[i].parent.branch == branch)
@@ -203,7 +204,7 @@ fn leaf_stride_keeps_each_branch_tip() {
 /// corners.
 #[test]
 fn scaled_leaves_keep_their_tip() {
-    let options = TreePreset::OakSmall.options();
+    let options = TreePreset::oak_small().tree.clone();
     let skeleton = Skeleton::generate(&options).unwrap();
     let mesh_at = |leaf_scale| {
         let detail = LodDetail {
@@ -315,8 +316,8 @@ fn rounded_leaf_normals_are_unit_at_size_two() {
 /// Camera-facing buffers must omit both normals and tangents.
 #[test]
 fn bark_and_leaf_tangents_are_unit_and_perpendicular() {
-    for preset in TreePreset::ALL {
-        let mut options = preset.options();
+    for preset in TreePreset::all() {
+        let mut options = preset.tree.clone();
         options.bark.uv_mode = BarkUvMode::Continuous;
         let skeleton = Skeleton::generate(&options).unwrap();
         for level in default_lod_levels() {
@@ -416,11 +417,11 @@ fn bark_tangents_follow_the_texture_coordinates() {
 #[test]
 fn farthest_level_culls_thin_branches_and_keeps_leaves() {
     let [.., far, farthest] = default_lod_levels();
-    for preset in TreePreset::ALL {
-        let options = preset.options();
+    for preset in TreePreset::all() {
+        let options = preset.tree.clone();
         let skeleton = Skeleton::generate(&options).unwrap();
         let mesh = skeleton.mesh(&options, &farthest.detail);
-        let name = preset.name();
+        let name = &preset.name;
 
         // Keep the trunk and omit exactly those other branches below the radius threshold.
         assert!(!mesh.branch_spans[0].indices.is_empty(), "{name}");
@@ -557,12 +558,12 @@ fn closed_bark_is_watertight_and_faces_outward() {
         min_branch_radius: 0.01,
         ..LodDetail::default()
     };
-    for preset in TreePreset::ALL {
-        let options = preset.options();
+    for preset in TreePreset::all() {
+        let options = preset.tree.clone();
         let skeleton = Skeleton::generate(&options).unwrap();
         for (level, detail) in [full, near, thinned].iter().enumerate() {
             assert!(detail.closed);
-            let what = format!("{} detail {level}", preset.name());
+            let what = format!("{} detail {level}", preset.name);
             let bark = skeleton.mesh(&options, detail).branches;
             let triangles = welded_triangles(&bark);
             assert_eq!(unpaired_edges(&triangles), (0, 0), "{what}");

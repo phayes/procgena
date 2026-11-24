@@ -17,12 +17,12 @@ fn gpu_plants_and_accents_take_their_shares_and_accents_grow_in_their_tufts() {
         },
         ..PlantParams::MEADOW_GRASS
     };
-    let mut app = app_with_field(PlantField::new(
+    let mut app = app_with_field(PlantScatter::new(
         Vec2::ZERO,
         vec![
             // 18 clover and 42 grass plants per square metre: a 30% share.
-            FieldPlant::new(PlantParams::CLOVER).scaled(18.0 / PlantParams::CLOVER.density),
-            FieldPlant::new(grass).scaled(42.0 / grass.density),
+            ScatterPlant::new(PlantParams::CLOVER).scaled(18.0 / PlantParams::CLOVER.density),
+            ScatterPlant::new(grass).scaled(42.0 / grass.density),
         ],
     ));
     wait_for_plants(&mut app);
@@ -158,7 +158,7 @@ fn gpu_blades_grow_on_a_mesh_ground_and_only_on_it() {
     let ledge = Mesh::from(Plane3d::default().mesh().size(35.0, 50.0))
         .translated_by(Vec3::new(17.5, 2.0, 0.0));
     let ledge = app.world_mut().resource_mut::<Assets<Mesh>>().add(ledge);
-    let mut fields = app.world_mut().query::<&mut PlantField>();
+    let mut fields = app.world_mut().query::<&mut PlantScatter>();
     fields.single_mut(app.world_mut()).unwrap().ground = PlantGround::mesh(ledge);
     wait_for_plants(&mut app);
     // The tables are rebuilt from the bake within a frame or two.
@@ -206,7 +206,7 @@ fn gpu_a_field_with_a_mask_and_a_heightmap_reads_its_heights() {
         RenderAssetUsages::default(),
     );
     let mask = app.world_mut().resource_mut::<Assets<Image>>().add(mask);
-    let mut fields = app.world_mut().query::<&mut PlantField>();
+    let mut fields = app.world_mut().query::<&mut PlantScatter>();
     let mut field = fields.single_mut(app.world_mut()).unwrap();
     field.ground = PlantGround::mesh(ledge);
     field.density_map = Some(mask);

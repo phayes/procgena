@@ -52,9 +52,9 @@ const ANALYSIS_SIDES: u32 = DeadwoodDetail::FULL.sides;
 /// flattening then bend the piece a little further, which this transform
 /// does not include, so it is close but not exact for a sagged piece.
 ///
-/// Stumps stand as built, so their placement is [`Placement::IDENTITY`].
+/// Stumps stand as built, so their pose is [`RestingPose::IDENTITY`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Placement {
+pub struct RestingPose {
     /// Rotation onto the resting side.
     pub rotation: Mat3,
     /// Movement after the rotation, in metres, including the lift to the
@@ -67,7 +67,7 @@ pub struct Placement {
     pub burial: f32,
 }
 
-impl Placement {
+impl RestingPose {
     /// No movement and no burial.
     pub const IDENTITY: Self = Self {
         rotation: Mat3::IDENTITY,
@@ -78,9 +78,9 @@ impl Placement {
 
 /// Rests `limbs` on the ground, bending them in place, and returns the
 /// turn and move used. Stumps are left standing as built.
-pub(crate) fn settle(o: &DeadwoodOptions, decay: &Decay, limbs: &mut [Limb]) -> Placement {
+pub(crate) fn settle(o: &DeadwoodOptions, decay: &Decay, limbs: &mut [Limb]) -> RestingPose {
     if o.kind == PieceKind::Stump {
-        return Placement::IDENTITY;
+        return RestingPose::IDENTITY;
     }
 
     // Turn onto a resting side without bending, using the round, unsagged
@@ -120,7 +120,7 @@ pub(crate) fn settle(o: &DeadwoodOptions, decay: &Decay, limbs: &mut [Limb]) -> 
     }
     translation.y -= lift;
 
-    Placement {
+    RestingPose {
         rotation,
         translation,
         burial: decay.burial * o.diameter,

@@ -9,7 +9,7 @@ use crate::shader_model::ShapeClass;
 const STEMS: u32 = 5;
 
 /// A sparse fern field with `STEMS` fronds per plant and 12 leaflets per frond.
-fn fern_field() -> PlantField {
+fn fern_field() -> PlantScatter {
     let fern = PlantParams {
         height: Vec2::new(0.5, 0.9),
         width: 0.01,
@@ -26,7 +26,7 @@ fn fern_field() -> PlantField {
         ],
         ..PlantParams::MEADOW_GRASS
     };
-    PlantField::new(Vec2::ZERO, vec![FieldPlant::new(fern)]).with_density(3.0)
+    PlantScatter::new(Vec2::ZERO, vec![ScatterPlant::new(fern)]).with_density(3.0)
 }
 
 /// Counts non-zero-height stems by their packed root coordinates. The key keeps word 0

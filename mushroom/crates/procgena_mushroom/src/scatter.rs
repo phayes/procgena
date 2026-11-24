@@ -10,6 +10,7 @@ use procgena_core::hash::{derive_seed, seed_for};
 use procgena_core::scatter::Placement;
 use procgena_core::{Quality, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
+use serde::{Deserialize, Serialize};
 
 use crate::cluster::{MushroomInstance, arrange, make_bodies};
 use crate::detail::MushroomLod;
@@ -27,15 +28,19 @@ pub const MAX_SITES: u32 = 20_000;
 ///
 /// Lengths are in metres; for [`on`](MushroomScatter::on), in the host
 /// specimen's units. Each field says if only one of the two uses it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScatterOptions {
-    /// Number that picks the growing spots, sizes, turns, which variant
-    /// grows at each spot and how each spot's cluster is laid out. It also
-    /// stands in for the World seed of the variants' specimen ids, so it
-    /// picks their shapes too. The same seed, settings and host always give
-    /// the same scatter. Used by [`MushroomScatter::on`];
-    /// [`MushroomScatter::new`] uses its input's seed instead.
-    pub seed: u32,
+    /// The seed to pass in [`ScatterInput::seed`](procgena_core::scatter::ScatterInput::seed)
+    /// when this scatter is built on its own, such as in a viewer.
+    /// [`MushroomScatter::new`] uses its input's seed, not this one.
+    ///
+    /// [`MushroomScatter::on`] uses it directly: it picks the growing
+    /// spots, sizes, turns, which variant grows at each spot and how each
+    /// spot's cluster is laid out, and stands in for the World seed of the
+    /// variants' specimen ids, so it picks their shapes too. The same seed,
+    /// settings and host always give the same scatter.
+    pub default_seed: u32,
     /// Which parts of the host mushrooms grow on, chosen by their tags, such
     /// as ground or rock; see [`procgena_specimen::tags`]. Only used by
     /// [`MushroomScatter::on`].
@@ -90,7 +95,7 @@ pub const MAX_SPECIMENS: u32 = 256;
 impl Default for ScatterOptions {
     fn default() -> Self {
         Self {
-            seed: 1,
+            default_seed: 1,
             grows_on: TagFilter::any_of([procgena_specimen::tags::GROUND]),
             up: Vec3::Y,
             density: 4.0,
@@ -249,8 +254,9 @@ impl MushroomScatter {
     /// different bodies. For a single mushroom these are the specimens in
     /// slots 0, 1, … of the mushroom's pool; for a cluster they are the
     /// bodies of the specimen in slot 0. Each specimen is seeded from its
-    /// [`SpecimenId`], with [`ScatterOptions::seed`] as the World seed, and the
-    /// mushroom's own [`seed`](MushroomOptions::seed) is not used.
+    /// [`SpecimenId`], with [`ScatterOptions::default_seed`] as the World
+    /// seed, and the mushroom's own
+    /// [`default_seed`](MushroomOptions::default_seed) is not used.
     ///
     /// Mushrooms grow only on the parts of the host's most detailed level
     /// that [`ScatterOptions::grows_on`] picks, and only where the surface is
@@ -277,7 +283,7 @@ impl MushroomScatter {
         mushroom.validate()?;
         let cluster = &mushroom.cluster;
         let pool = mushroom.pool();
-        let specimen_seed = |slot| SpecimenId::new(options.seed, pool, slot).seed();
+        let specimen_seed = |slot| SpecimenId::new(options.default_seed, pool, slot).seed();
         let bodies = if cluster.stems == 1 {
             (0..cluster.variants)
                 .map(|slot| MushroomBody::single(mushroom, specimen_seed(slot)))
@@ -319,9 +325,9 @@ impl MushroomScatter {
         // Try random spots and keep those far enough from earlier ones. A
         // grid of cells, each `min_spacing` wide, means only nearby spots
         // need checking.
-        let mut rng = Rng::new(seed_for(options.seed, SCATTER_SITES));
+        let mut rng = Rng::new(seed_for(options.default_seed, SCATTER_SITES));
         let embed = options.placement_for(mushroom).embed;
-        let cluster_seeds = seed_for(options.seed, SCATTER_CLUSTER);
+        let cluster_seeds = seed_for(options.default_seed, SCATTER_CLUSTER);
         let wanted = ((options.density * total).round() as u32).min(MAX_SITES);
         let cell = options.min_spacing.max(1e-4);
         let mut grid: HashMap<[i32; 3], Vec<Vec3>> = HashMap::new();

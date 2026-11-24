@@ -217,7 +217,7 @@ impl Elevation {
     }
 
     /// The field for `options` and the world's `seed`, the same seed every
-    /// region's [`TerrainOptions::seed`](crate::TerrainOptions::seed)
+    /// region's [`TerrainOptions::default_seed`](crate::TerrainOptions::default_seed)
     /// holds.
     ///
     /// # Errors

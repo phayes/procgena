@@ -115,7 +115,9 @@ mod tests {
 
     #[test]
     fn wood_values_pack_zone_and_bark_into_uv1() {
-        let mesh = Piece::from_preset(DeadwoodPreset::FreshCutLog).mesh();
+        let mesh = Piece::from_preset(DeadwoodPreset::fresh_cut_log())
+            .unwrap()
+            .mesh();
         let bevy = deadwood_mesh(&mesh.surfaces);
         let Some(VertexAttributeValues::Float32x2(uv1)) = bevy.attribute(Mesh::ATTRIBUTE_UV_1)
         else {
@@ -133,7 +135,7 @@ mod tests {
     #[test]
     fn ribbon_bounds_hold_every_turned_vertex() {
         let lod = procgena_deadwood::default_lod();
-        let piece = Piece::from_preset(DeadwoodPreset::DeadBranch);
+        let piece = Piece::from_preset(DeadwoodPreset::dead_branch()).unwrap();
         let meshes = piece.lod_meshes(&lod).unwrap();
         let ribbons = meshes
             .iter()

@@ -33,12 +33,13 @@ impl ScatterOptions {
     /// [`piece`](Self::piece) and the decay, diameter and length ranges.
     /// Variant `v` is the specimen in slot `v` of this pool.
     ///
-    /// The seed, slope limit, density, spacing and number of variants are
-    /// left out: they choose which specimens are drawn and where, not what
-    /// the specimens are. So adding variants keeps the existing ones.
+    /// The default seed, slope limit, density, spacing and number of
+    /// variants are left out: they choose which specimens are drawn and
+    /// where, not what the specimens are. So adding variants keeps the
+    /// existing ones.
     pub fn variant_pool(&self) -> PoolId {
         let Self {
-            seed: _,
+            default_seed: _,
             max_slope: _,
             density: _,
             min_spacing: _,
@@ -58,13 +59,13 @@ impl ScatterOptions {
 }
 
 /// Writes every setting that shapes or colours the piece. Leaves out
-/// [`DeadwoodOptions::seed`], which picks a specimen within the pool these
-/// options name, and [`DeadwoodOptions::detail`], which only changes how
-/// finely the same piece is meshed.
+/// [`DeadwoodOptions::default_seed`], which picks a specimen within the pool
+/// these options name, and [`DeadwoodOptions::detail`], which only changes
+/// how finely the same piece is meshed.
 impl ContentHash for DeadwoodOptions {
     fn content_hash(&self, h: &mut ContentHasher) {
         let Self {
-            seed: _,
+            default_seed: _,
             kind,
             decay,
             length,

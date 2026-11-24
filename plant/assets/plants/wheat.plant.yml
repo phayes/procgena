@@ -1,0 +1,26 @@
+# The `wheat` plant preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Wheat
+description: Golden, stiff stems with a sheen.
+group: Grasses
+plant:
+  density: 90.0
+  height:
+  - 0.9
+  - 1.2
+  width: 0.015
+  lean: 0.08
+  root_occlusion: 0.5
+  translucency: 0.5
+  specular: 0.5
+  segment:
+    stiffness: 0.6
+    root_color:
+    - 0.3
+    - 0.27
+    - 0.11
+    tip_color:
+    - 0.86
+    - 0.7
+    - 0.32

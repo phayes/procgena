@@ -23,10 +23,42 @@
 //! App::new()
 //!     .add_plugins((DefaultPlugins, MushroomPlugin::default()))
 //!     .add_systems(Startup, |mut commands: Commands| {
-//!         commands.spawn(MushroomParams::preset(MushroomPreset::FlyAgaric));
+//!         commands.spawn(MushroomParams::preset(MushroomPreset::fly_agaric()));
 //!     })
 //!     .run();
 //! ```
+//!
+//! ## Load a preset file
+//!
+//! Save a mushroom preset to `assets/mushrooms/pale_porcini.mushroom.yml`.
+//! It names a built-in preset as its `base` and gives only the settings
+//! that differ; without a `base`, missing settings use their defaults.
+//! Colours start with `#`, so quote them:
+//!
+//! ```yaml
+//! base: porcini
+//! mushroom:
+//!   default_seed: 42
+//!   material:
+//!     cap_centre: "#c09060"
+//! ```
+//!
+//! Then load it through Bevy's asset server:
+//!
+//! ```no_run
+//! use bevy::prelude::*;
+//! use procgena_mushroom_bevy::MushroomParams;
+//!
+//! fn load_mushroom(mut commands: Commands, asset_server: Res<AssetServer>) {
+//!     commands.spawn(MushroomParams::Asset(
+//!         asset_server.load("mushrooms/pale_porcini.mushroom.yml"),
+//!     ));
+//! }
+//! ```
+//!
+//! The file name must end in `.mushroom.yml`. The mushroom waits for the
+//! file to load, and rebuilds when it changes if Bevy is watching asset
+//! files.
 //!
 //! Each mushroom is drawn by [`MushroomPart`] child entities, one or two per
 //! detail level. Bevy's `VisibilityRange` shows each level only within its
@@ -68,13 +100,13 @@ pub use mesh::{
 };
 pub use spawn::{
     MushroomBuildError, MushroomFinished, MushroomGenerating, MushroomGroundScatterParams,
-    MushroomOptionsAsset, MushroomParams, MushroomPart, MushroomScatterParams,
+    MushroomParams, MushroomPart, MushroomPresetAsset, MushroomScatterParams,
 };
 
-use spawn::{MushroomCache, MushroomOptionsLoader, SpawnSettings, TextureSettings};
+use spawn::{MushroomCache, MushroomPresetLoader, SpawnSettings, TextureSettings};
 
-/// Adds mushroom building and drawing, and loading of `.mushroom.json`
-/// files, to a Bevy app. It also adds [`LodPlugin`], which holds the
+/// Adds mushroom building and drawing, and loading of `.mushroom.yml`
+/// preset files, to a Bevy app. It also adds [`LodPlugin`], which holds the
 /// [`LodQuality`] setting and the shared dither shader.
 ///
 /// # Panics
@@ -145,12 +177,12 @@ impl Plugin for MushroomPlugin {
     }
 }
 
-/// Registers the options file loader, the shared cache and the build
+/// Registers the preset file loader, the shared cache and the build
 /// systems, using detail levels `lod`, but nothing for drawing. The plugin
 /// and the tests (which run without a renderer) both use it.
 pub(crate) fn add_systems(app: &mut App, lod: MushroomLod) {
-    app.init_asset::<MushroomOptionsAsset>()
-        .register_asset_loader(MushroomOptionsLoader)
+    app.init_asset::<MushroomPresetAsset>()
+        .register_asset_loader(MushroomPresetLoader)
         .init_resource::<MushroomCache>()
         .init_resource::<LodQuality>()
         .insert_resource(SpawnSettings {

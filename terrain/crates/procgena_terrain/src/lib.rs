@@ -54,8 +54,8 @@
 //! let west = vec![DVec2::new(-500.0, -500.0), DVec2::new(0.0, -500.0), DVec2::new(0.0, 500.0), DVec2::new(-500.0, 500.0)];
 //! let east = vec![DVec2::new(0.0, -500.0), DVec2::new(500.0, -500.0), DVec2::new(500.0, 500.0), DVec2::new(0.0, 500.0)];
 //! let world = StitchedWorld::build(vec![
-//!     RegionSpec { id: RegionId(1), polygon: west, options: TerrainPreset::Plains.options() },
-//!     RegionSpec { id: RegionId(2), polygon: east, options: TerrainPreset::Mountains.options() },
+//!     RegionSpec { id: RegionId(1), polygon: west, options: TerrainPreset::plains().terrain.clone() },
+//!     RegionSpec { id: RegionId(2), polygon: east, options: TerrainPreset::mountains().terrain.clone() },
 //! ], &Convergence::default(), &Elevation::flat())?;
 //!
 //! // Both sides meet at the same height on their shared border.
@@ -121,6 +121,7 @@ pub use ports::{
     FEATURE_CLEARANCE, INNER_DEPTHS, MAX_PORT_WIDTH, Port, PortKind, PortWish, Side, inner_depth,
 };
 pub use presets::TerrainPreset;
+pub use procgena_core::preset::PresetFileError;
 pub use region::{
     Boundary, CornerId, EdgeId, Region, RegionCorner, RegionEdge, RegionError, RegionId, corner_id,
 };

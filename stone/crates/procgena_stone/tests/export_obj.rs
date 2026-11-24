@@ -9,7 +9,7 @@ use procgena_stone::{
 /// Creates a small, repeatable rock for export checks.
 fn stone() -> Stone {
     let mut options = StoneOptions {
-        seed: 3,
+        default_seed: 3,
         ..StoneOptions::default()
     };
     options.mesh.detail = StoneDetail::single(24, TextureSize::Size512);

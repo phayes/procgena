@@ -24,7 +24,7 @@ const KINDS: [ClusterKind; 5] = [
 /// Prepares a small tree with two fruit and two flower clusters per eligible
 /// branch. Both use `kind`; branches must be at least two levels above the trunk.
 fn decorated(kind: ClusterKind) -> TreeOptions {
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     for (placement, cluster) in [
         (&mut options.fruit.placement, &mut options.fruit.cluster),
         (&mut options.flowers.placement, &mut options.flowers.cluster),
@@ -186,8 +186,7 @@ fn min_item_size_leaves_out_small_fruit_and_flowers() {
 
 #[test]
 fn presets_have_empty_fruit_and_flower_meshes() {
-    let options = TreePreset::OakMedium.options();
-    let (_, mesh) = build(&options);
+    let (_, mesh) = build(&TreePreset::oak_medium().tree);
     assert_eq!(mesh.fruit, MeshBuffers::default());
     assert_eq!(mesh.flowers, MeshBuffers::default());
     assert!(mesh.fruit_spans.is_empty() && mesh.flower_spans.is_empty());
@@ -223,7 +222,7 @@ fn every_cluster_kind_builds_well_formed_meshes() {
 
 #[test]
 fn fruit_and_flowers_leave_bark_and_leaves_unchanged() {
-    let (_, plain) = build(&TreePreset::AshSmall.options());
+    let (_, plain) = build(&TreePreset::ash_small().tree);
     let (_, decorated) = build(&decorated(ClusterKind::Raceme));
     assert_eq!(decorated.branches, plain.branches);
     assert_eq!(decorated.leaves, plain.leaves);

@@ -12,7 +12,7 @@ use bevy::render::render_resource::{CachedPipelineState, PipelineCache, Pipeline
 
 use super::*;
 use crate::api::{GroundTint, PlantAccent, PlantParams, PlantSegment, PlantVariation};
-use crate::fields::{FieldTables, LookFeatures};
+use crate::scatters::{FieldTables, LookFeatures};
 
 /// A plant enabling every optional plant appearance feature, including an accent.
 fn every_term_plant() -> PlantParams {
@@ -37,9 +37,9 @@ fn every_term_plant() -> PlantParams {
 }
 
 /// A field enabling every optional field appearance feature for the given plants.
-fn every_term(plants: Vec<FieldPlant>) -> PlantField {
-    let meadow = FieldPreset::MEADOW.field;
-    PlantField {
+fn every_term(plants: Vec<ScatterPlant>) -> PlantScatter {
+    let meadow = PlantScatterPreset::MEADOW.plant_scatter;
+    PlantScatter {
         toon_bands: 3,
         ground_tint: GroundTint {
             amount: 0.3,
@@ -51,7 +51,7 @@ fn every_term(plants: Vec<FieldPlant>) -> PlantField {
             dead_share: 0.1,
             ..meadow.variation
         },
-        ..PlantField::new(Vec2::ZERO, plants)
+        ..PlantScatter::new(Vec2::ZERO, plants)
     }
 }
 
@@ -85,7 +85,7 @@ fn compiled_plant_pipelines(app: &mut App) -> usize {
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_a_field_using_every_look_term_compiles_and_draws() {
     // Enable all appearance features together to exercise their shader combinations.
-    let mut app = app_with_field(every_term(vec![FieldPlant::new(every_term_plant())]));
+    let mut app = app_with_field(every_term(vec![ScatterPlant::new(every_term_plant())]));
 
     // The tables agree the style asks for every term, so the pipelines below
     // are built with all of them compiled in; then every branch is real.
@@ -182,8 +182,8 @@ fn gpu_branched_plants_with_every_look_term_compile_in_every_pass() {
     set_harness_field(
         &mut app,
         every_term(vec![
-            FieldPlant::new(fern).scaled(0.2),
-            FieldPlant::new(every_term_plant()).scaled(0.8),
+            ScatterPlant::new(fern).scaled(0.2),
+            ScatterPlant::new(every_term_plant()).scaled(0.8),
         ]),
     );
     let mut labels = Vec::new();

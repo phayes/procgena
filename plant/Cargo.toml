@@ -40,11 +40,13 @@ bevy = { version = "0.20", default-features = false, features = [
 # Already in Bevy's dependency tree; used only through its safe API
 # (`cast_slice`), so the crate stays `forbid(unsafe_code)`.
 bytemuck = "1"
-# The `.plant.ron` and `.field.ron` files. Both are already in Bevy's tree
-# (its asset meta files are RON), at these versions.
-ron = "0.12"
+# The `.plant.yml` and `.plant_scatter.yml` files: the YAML preset layout
+# that every procgena generator shares (a base preset, a name, and the
+# settings under the file's kind).
+procgena_core = { path = "../core/crates/procgena_core" }
 serde = { version = "1", features = ["derive"] }
-# Save and load plants and fields as JSON in applications.
+# The settings tree a preset file is read into before plant's own checks.
+# Already in procgena_core's tree.
 serde_json = "1"
 # Optional physics bridges. `default-features = false` is deliberate: the
 # engines' defaults turn on `bevy_gizmos`, `bevy_picking` and other Bevy
@@ -87,7 +89,7 @@ bevy = { version = "0.20", default-features = false, features = [
 # The golden-image check reads and writes PNGs; the version Bevy uses.
 image = { version = "0.25", default-features = false, features = ["png"] }
 
-# The examples reload `.field.ron` files when they are saved. Bevy's file
+# The examples reload `.plant_scatter.yml` files when they are saved. Bevy's file
 # watcher is a `compile_error!` on wasm, so it is native only.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 bevy = { version = "0.20", default-features = false, features = ["file_watcher"] }

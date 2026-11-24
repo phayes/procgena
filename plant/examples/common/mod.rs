@@ -42,7 +42,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::render::{ExtractSchedule, Render, RenderApp};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::{PresentMode, WindowResolution};
-use procgena_plant::{FieldPreset, NoPlants, PlantField};
+use procgena_plant::{NoPlants, PlantScatter, PlantScatterPreset};
 
 #[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct ExampleArgs {
@@ -311,21 +311,23 @@ fn count_frames(
     }
 }
 
-/// Links a field to a `.field.ron` preset for live appearance updates.
+/// Links a Scatter to a `.plant_scatter.yml` preset for live appearance
+/// updates.
 ///
-/// [`follow_field_files`] copies the preset's plants and shared appearance
-/// when it loads or changes. The field keeps its size, ground and density map.
+/// [`follow_scatter_files`] copies the preset's plants and shared appearance
+/// when it loads or changes. The Scatter keeps its size, ground and density
+/// map.
 #[derive(Component)]
-pub(crate) struct FieldFile(pub(crate) Handle<FieldPreset>);
+pub(crate) struct ScatterFile(pub(crate) Handle<PlantScatterPreset>);
 
-/// Applies loaded or changed field presets to their linked fields.
+/// Applies loaded or changed Scatter presets to their linked Scatters.
 ///
 /// Add this system to `Update`. File changes reload assets when Bevy's
 /// file watcher is enabled; this system makes those changes visible.
-pub(crate) fn follow_field_files(
-    mut events: MessageReader<AssetEvent<FieldPreset>>,
-    presets: Res<Assets<FieldPreset>>,
-    mut fields: Query<(&FieldFile, &mut PlantField)>,
+pub(crate) fn follow_scatter_files(
+    mut events: MessageReader<AssetEvent<PlantScatterPreset>>,
+    presets: Res<Assets<PlantScatterPreset>>,
+    mut fields: Query<(&ScatterFile, &mut PlantScatter)>,
 ) {
     for event in events.read() {
         let (AssetEvent::LoadedWithDependencies { id } | AssetEvent::Modified { id }) = *event
@@ -337,11 +339,11 @@ pub(crate) fn follow_field_files(
         };
         for (file, mut field) in &mut fields {
             if file.0.id() == id {
-                *field = PlantField {
+                *field = PlantScatter {
                     size: field.size,
                     ground: field.ground.clone(),
                     density_map: field.density_map.clone(),
-                    ..preset.field.clone()
+                    ..preset.plant_scatter.clone()
                 };
             }
         }

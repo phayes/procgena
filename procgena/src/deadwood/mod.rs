@@ -12,8 +12,13 @@ use procgena_deadwood::DeadwoodPreset;
 use crate::params::{Group, Section, choice};
 use crate::scene::{DeadwoodSettings, DeadwoodView};
 
+/// The key of the dead wood preset the editor shows first.
+pub const START_PRESET: &str = "windthrow_log";
+
 /// The dead wood preset the editor shows first.
-pub const START_PRESET: DeadwoodPreset = DeadwoodPreset::WindthrowLog;
+pub fn start_preset() -> &'static DeadwoodPreset {
+    DeadwoodPreset::named(START_PRESET).expect("the start preset is built in")
+}
 
 /// What the Dead Wood tab shows, apart from the piece's own settings.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -21,7 +26,7 @@ pub struct DeadwoodShow {
     /// A single piece, or a scatter of sticks.
     pub view: DeadwoodView,
     /// A clump grown on a single piece, or `None` for bare wood.
-    pub cover: Option<ClumpPreset>,
+    pub cover: Option<&'static ClumpPreset>,
 }
 
 impl DeadwoodShow {
@@ -38,7 +43,7 @@ impl DeadwoodShow {
 /// What the scene shows on the Dead Wood tab at first: [`START_PRESET`],
 /// bare.
 pub fn start_settings() -> DeadwoodSettings {
-    DeadwoodShow::default().settings(START_PRESET.options())
+    DeadwoodShow::default().settings(start_preset().deadwood.clone())
 }
 
 /// The View and Cover controls.
@@ -53,11 +58,11 @@ pub fn show_sections() -> Vec<Section<DeadwoodShow>> {
             ], |s| s.view),
             choice!(DeadwoodShow, "cover", "Cover", [
                 "None" => None,
-                "Moss Patches" => Some(ClumpPreset::MossPatches),
-                "Moss Cushions" => Some(ClumpPreset::MossCushions),
-                "Fresh Snow" => Some(ClumpPreset::FreshSnowCap),
-                "Dirty Snow" => Some(ClumpPreset::DirtySnowCap),
-                "Burl" => Some(ClumpPreset::Burl),
+                "Moss Patches" => Some(ClumpPreset::moss_patches()),
+                "Moss Cushions" => Some(ClumpPreset::moss_cushions()),
+                "Fresh Snow" => Some(ClumpPreset::fresh_snow_cap()),
+                "Dirty Snow" => Some(ClumpPreset::dirty_snow_cap()),
+                "Burl" => Some(ClumpPreset::burl()),
             ], |s| s.cover)
             .shown_if(|s| s.view == DeadwoodView::Piece),
         ])],

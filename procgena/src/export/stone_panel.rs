@@ -1,5 +1,5 @@
-//! Save and reload rock settings as JSON, or export the current rock as a
-//! GLB or OBJ model for use in another 3D tool.
+//! Save and reload rock settings as `.stone.yml` preset files, or export the
+//! current rock as a GLB or OBJ model for use in another 3D tool.
 //!
 //! Each function does the work after the user has chosen a file. Pass copies
 //! of the settings taken when the user asked, so later edits do not change a
@@ -11,11 +11,14 @@ use bevy::feathers::controls::FeathersButton;
 use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
-use procgena_stone::{StoneOptions, TEXTURE_SETS};
+use procgena_stone::{StoneOptions, StonePreset, TEXTURE_SETS};
 
 use super::images::{ImageStore, fetch_images};
 use super::stone::{self as model, StoneModelSettings};
-use super::{Done, ExportImages, FileOps, chosen_stem, shown_name, write_file, write_files};
+use super::{
+    Done, ExportImages, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file,
+    write_files,
+};
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
 use crate::stones::editor::{StoneEditor, load_stone};
 
@@ -61,11 +64,11 @@ pub fn spawn_stone_export(commands: &mut Commands, parent: Entity) {
             Children [
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
                 Children [
-                    @FeathersButton { @caption: bsn! { @caption("Save JSON…") } }
-                    on(save_stone_json)
+                    @FeathersButton { @caption: bsn! { @caption("Save Preset…") } }
+                    on(save_stone_preset)
                     --
-                    @FeathersButton { @caption: bsn! { @caption("Load JSON…") } }
-                    on(load_stone_json)
+                    @FeathersButton { @caption: bsn! { @caption("Load Preset…") } }
+                    on(load_stone_preset)
                 ]
                 --
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
@@ -93,8 +96,9 @@ fn snapshot(
     Some((options, editor.file_stem(), settings))
 }
 
-/// Saves the rock settings as JSON.
-fn save_stone_json(
+/// Saves the rock settings as a `.stone.yml` preset file based on the chosen
+/// preset.
+fn save_stone_preset(
     _: On<Activate>,
     editor: Single<&StoneEditor>,
     panels: Query<&ParamPanel<StoneOptions>>,
@@ -102,14 +106,15 @@ fn save_stone_json(
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {
-        files.save(&format!("{stem}.json"), move |path| {
-            save_json(&options, path)
+        let base = editor.preset();
+        files.save(&format!("{stem}.stone.yml"), move |path| {
+            save_preset(options, base, path)
         });
     }
 }
 
-/// Loads rock settings from JSON into the editor.
-fn load_stone_json(_: On<Activate>, mut files: FileOps) {
+/// Loads rock settings from a `.stone.yml` preset file into the editor.
+fn load_stone_preset(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let options = read_options(text)?;
         world
@@ -153,20 +158,11 @@ fn export_stone_obj(
     }
 }
 
-/// Writes `options` to `path` as JSON.
-pub fn save_json(options: &StoneOptions, path: &Path) -> Result<Done, String> {
-    write_file(path, options.to_json().as_bytes())?;
-    Ok(Done::new(format!("Saved {}", shown_name(path))))
-}
-
-/// Parses JSON rock settings and checks their values and texture name.
-/// Returns a readable error for malformed JSON, invalid settings or unavailable textures.
+/// Reads the rock settings of a `.stone.yml` preset file and checks their
+/// values and texture name. Returns a readable error for text that isn't a
+/// rock preset file, invalid settings or unavailable textures.
 pub fn read_options(text: &str) -> Result<StoneOptions, String> {
-    let options =
-        StoneOptions::from_json(text).map_err(|error| format!("Not rock settings: {error}"))?;
-    options
-        .validate()
-        .map_err(|error| format!("These rock settings cannot be used: {error}"))?;
+    let options = read_preset::<StonePreset>(text, "rock")?;
     if !TEXTURE_SETS.contains(&options.material.texture.as_str()) {
         return Err(format!(
             "These rock settings use the texture {:?}, which this app does not have",
@@ -252,15 +248,15 @@ mod tests {
 
     #[test]
     fn loading_checks_the_settings() {
-        assert!(read_options(&StoneOptions::default().to_json()).is_ok());
+        assert!(read_options("base: pebble\n").is_ok());
         assert!(
-            read_options("not json")
+            read_options("stone: [not settings]\n")
                 .unwrap_err()
                 .starts_with("Not rock settings")
         );
-        let error = read_options(r#"{"scale": -1}"#).unwrap_err();
-        assert!(error.contains("cannot be used"), "{error}");
-        let error = read_options(r#"{"material": {"texture": "marble"}}"#).unwrap_err();
+        let error = read_options("stone:\n  scale: -1\n").unwrap_err();
+        assert!(error.contains("scale"), "{error}");
+        let error = read_options("stone:\n  material:\n    texture: marble\n").unwrap_err();
         assert!(error.contains("marble"), "{error}");
     }
 }

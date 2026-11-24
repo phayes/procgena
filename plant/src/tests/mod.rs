@@ -19,12 +19,12 @@ fn app() -> App {
     app
 }
 
-/// Writes `value` as RON through reflection and reads it back, the way a
-/// `.scn.ron` file or a save game does.
-fn through_ron(value: &dyn PartialReflect, registry: &TypeRegistry) -> Box<dyn PartialReflect> {
-    let text =
-        ron::ser::to_string(&ReflectSerializer::new(value, registry)).expect("the type serializes");
-    let mut deserializer = ron::de::Deserializer::from_str(&text).unwrap();
+/// Writes `value` as text through reflection and reads it back, the way a
+/// scene file or a save game does.
+fn through_text(value: &dyn PartialReflect, registry: &TypeRegistry) -> Box<dyn PartialReflect> {
+    let text = serde_json::to_string(&ReflectSerializer::new(value, registry))
+        .expect("the type serializes");
+    let mut deserializer = serde_json::Deserializer::from_str(&text);
     ReflectDeserializer::new(registry)
         .deserialize(&mut deserializer)
         .unwrap_or_else(|error| panic!("{error}\n{text}"))
@@ -71,14 +71,14 @@ fn the_readme_quick_start_is_the_minimal_example() {
 #[test]
 fn fields_and_presets_can_be_compared() {
     // `set_if_neq` and plain `==` in games and tests.
-    let field = PlantField {
+    let field = PlantScatter {
         size: Vec2::splat(8.0),
         ..Default::default()
     };
     assert_eq!(field, field.clone());
     assert_ne!(
         field,
-        PlantField {
+        PlantScatter {
             size: Vec2::splat(9.0),
             ..field.clone()
         }
@@ -90,30 +90,36 @@ fn fields_and_presets_can_be_compared() {
             height_scale: 1.0
         }
     );
-    assert_eq!(FieldPreset::MEADOW, FieldPreset::MEADOW.clone());
-    assert_ne!(FieldPreset::MEADOW, FieldPreset::WHEAT);
+    assert_eq!(
+        PlantScatterPreset::MEADOW,
+        PlantScatterPreset::MEADOW.clone()
+    );
+    assert_ne!(PlantScatterPreset::MEADOW, PlantScatterPreset::WHEAT);
     assert_eq!(PlantPreset::FERN, PlantPreset::FERN.clone());
     assert_eq!(
-        FieldPreset::SUMMER_WILD.field.plants[0],
-        FieldPreset::SUMMER_WILD.field.plants[0]
+        PlantScatterPreset::SUMMER_WILD.plant_scatter.plants[0],
+        PlantScatterPreset::SUMMER_WILD.plant_scatter.plants[0]
     );
 }
 
 #[test]
 fn a_field_can_be_built_from_a_preset_or_plants_in_one_call() {
-    let field = PlantField::from_preset(&FieldPreset::WHEAT, Vec2::splat(8.0));
+    let field = PlantScatter::from_preset(&PlantScatterPreset::WHEAT, Vec2::splat(8.0));
     assert_eq!(field.size, Vec2::splat(8.0));
     assert_eq!(field.ground, PlantGround::Flat);
     assert_eq!(field.density_map, None);
-    assert_eq!(field.plants, FieldPreset::WHEAT.field.plants);
-    assert_eq!(field.density_scale, FieldPreset::WHEAT.field.density_scale);
+    assert_eq!(field.plants, PlantScatterPreset::WHEAT.plant_scatter.plants);
+    assert_eq!(
+        field.density_scale,
+        PlantScatterPreset::WHEAT.plant_scatter.density_scale
+    );
 
-    let plants = vec![FieldPlant::new(PlantParams::FERN)];
-    let field = PlantField::new(Vec2::splat(4.0), plants.clone());
+    let plants = vec![ScatterPlant::new(PlantParams::FERN)];
+    let field = PlantScatter::new(Vec2::splat(4.0), plants.clone());
     assert_eq!(field.size, Vec2::splat(4.0));
     assert_eq!(field.plants.to_vec(), plants);
-    assert_eq!(field.variation, PlantField::default().variation);
-    assert_eq!(PlantField::default().size, Vec2::ZERO);
+    assert_eq!(field.variation, PlantScatter::default().variation);
+    assert_eq!(PlantScatter::default().size, Vec2::ZERO);
 }
 
 #[test]
@@ -134,7 +140,7 @@ fn every_public_type_has_the_type_data_tools_look_for() {
         }};
     }
     // Components: scenes, BSN, Blender exporters and inspectors.
-    check!(PlantField: ReflectComponent, ReflectDefault);
+    check!(PlantScatter: ReflectComponent, ReflectDefault);
     check!(PlantInteractor: ReflectComponent, ReflectDefault);
     check!(PlantInteractorSpread: ReflectComponent, ReflectDefault);
     check!(PlantInteractorFootprint: ReflectComponent, ReflectDefault);
@@ -147,7 +153,7 @@ fn every_public_type_has_the_type_data_tools_look_for() {
     check!(PlantWindFrame: ReflectResource, ReflectDefault);
     check!(PlantSettings: ReflectResource, ReflectComponent, ReflectDefault);
     // The preset assets: inspector asset panels.
-    check!(FieldPreset: ReflectAsset);
+    check!(PlantScatterPreset: ReflectAsset);
     check!(PlantPreset: ReflectAsset);
     // What they contain.
     check!(PlantParams: ReflectDefault);
@@ -159,29 +165,29 @@ fn every_public_type_has_the_type_data_tools_look_for() {
     check!(PlantGround: ReflectDefault);
     check!(PlantShadows: ReflectDefault);
     check!(PlantQuality: ReflectDefault);
-    check!(FieldPlant: ReflectDefault);
+    check!(ScatterPlant: ReflectDefault);
 }
 
 #[test]
 fn a_field_survives_a_scene_file_and_can_be_inserted_from_it() {
     let mut app = app();
-    let field = PlantField {
+    let field = PlantScatter {
         size: Vec2::new(48.0, 24.0),
         ground: PlantGround::Flat,
         ..Default::default()
     };
     let registry = app.world().resource::<AppTypeRegistry>().clone();
-    let read = through_ron(field.as_partial_reflect(), &registry.read());
+    let read = through_text(field.as_partial_reflect(), &registry.read());
 
     // What a scene loader does: look up the component's type data and
     // insert the deserialized value.
     let mut entity = app.world_mut().spawn_empty();
     let registry = registry.read();
     let component = registry
-        .get_type_data::<ReflectComponent>(TypeId::of::<PlantField>())
+        .get_type_data::<ReflectComponent>(TypeId::of::<PlantScatter>())
         .expect("ReflectComponent");
     component.insert(&mut entity, read.as_ref(), &registry);
-    let inserted = entity.get::<PlantField>().expect("inserted");
+    let inserted = entity.get::<PlantScatter>().expect("inserted");
     assert_eq!(inserted.size, Vec2::new(48.0, 24.0));
     assert!(matches!(inserted.ground, PlantGround::Flat));
 }
@@ -196,7 +202,7 @@ fn the_small_components_and_the_settings_round_trip() {
         shadows: Some(PlantShadows::Off),
         ..Default::default()
     };
-    let read = through_ron(camera.as_partial_reflect(), &registry);
+    let read = through_text(camera.as_partial_reflect(), &registry);
     assert_eq!(PlantCamera::from_reflect(read.as_ref()), Some(camera));
 
     let interactor = PlantInteractor {
@@ -204,7 +210,7 @@ fn the_small_components_and_the_settings_round_trip() {
         strength: 0.5,
         max_height: Some(1.0),
     };
-    let read = through_ron(interactor.as_partial_reflect(), &registry);
+    let read = through_text(interactor.as_partial_reflect(), &registry);
     assert_eq!(
         PlantInteractor::from_reflect(read.as_ref()),
         Some(interactor)
@@ -213,7 +219,7 @@ fn the_small_components_and_the_settings_round_trip() {
     let spread = PlantInteractorSpread {
         offsets: vec![Vec3::X, Vec3::new(0.0, 1.0, 2.0)],
     };
-    let read = through_ron(spread.as_partial_reflect(), &registry);
+    let read = through_text(spread.as_partial_reflect(), &registry);
     assert_eq!(
         PlantInteractorSpread::from_reflect(read.as_ref()),
         Some(spread)
@@ -223,19 +229,19 @@ fn the_small_components_and_the_settings_round_trip() {
         radius: 140.0,
         ..PlantSettings::ULTRA
     };
-    let read = through_ron(settings.as_partial_reflect(), &registry);
+    let read = through_text(settings.as_partial_reflect(), &registry);
     assert_eq!(PlantSettings::from_reflect(read.as_ref()), Some(settings));
 
-    let read = through_ron(PlantWind::STORM.as_partial_reflect(), &registry);
+    let read = through_text(PlantWind::STORM.as_partial_reflect(), &registry);
     let wind = PlantWind::from_reflect(read.as_ref()).expect("a wind");
     assert_eq!(wind.strength, PlantWind::STORM.strength);
     assert_eq!(wind.gust_speed, PlantWind::STORM.gust_speed);
 
     let frame = PlantWindFrame::from(PlantWind::GUSTY);
-    let read = through_ron(frame.as_partial_reflect(), &registry);
+    let read = through_text(frame.as_partial_reflect(), &registry);
     assert_eq!(PlantWindFrame::from_reflect(read.as_ref()), Some(frame));
 
-    let read = through_ron(NoPlants.as_partial_reflect(), &registry);
+    let read = through_text(NoPlants.as_partial_reflect(), &registry);
     assert!(NoPlants::from_reflect(read.as_ref()).is_some());
 }
 
@@ -245,13 +251,13 @@ fn every_preset_survives_a_save_file_and_can_be_edited_like_an_inspector_does() 
     // Every field preset, mixed ones with all their plants included.
     {
         let registry = app.world().resource::<AppTypeRegistry>().read();
-        for preset in FieldPreset::all() {
-            let read = through_ron(preset.as_partial_reflect(), &registry);
-            let read = FieldPreset::from_reflect(read.as_ref()).expect(&preset.key);
+        for preset in PlantScatterPreset::all() {
+            let read = through_text(preset.as_partial_reflect(), &registry);
+            let read = PlantScatterPreset::from_reflect(read.as_ref()).expect(&preset.key);
             assert_eq!(&read, preset);
         }
         for preset in PlantPreset::all() {
-            let read = through_ron(preset.as_partial_reflect(), &registry);
+            let read = through_text(preset.as_partial_reflect(), &registry);
             let read = PlantPreset::from_reflect(read.as_ref()).expect(&preset.key);
             assert_eq!(&read, preset);
         }
@@ -262,32 +268,35 @@ fn every_preset_survives_a_save_file_and_can_be_edited_like_an_inspector_does() 
     let registry = app.world().resource::<AppTypeRegistry>().clone();
     let registry = registry.read();
     let reflect_asset = registry
-        .get_type_data::<ReflectAsset>(TypeId::of::<FieldPreset>())
+        .get_type_data::<ReflectAsset>(TypeId::of::<PlantScatterPreset>())
         .expect("ReflectAsset");
-    let handle = reflect_asset.add(app.world_mut(), FieldPreset::MEADOW.as_partial_reflect());
+    let handle = reflect_asset.add(
+        app.world_mut(),
+        PlantScatterPreset::MEADOW.as_partial_reflect(),
+    );
     let asset = reflect_asset
         .get_mut(app.world_mut(), handle.id())
         .expect("the asset is there");
     *asset
-        .reflect_path_mut("field.plants[0].plant.height.y")
+        .reflect_path_mut("plant_scatter.plants[0].plant.height.y")
         .unwrap()
         .try_downcast_mut::<f32>()
         .unwrap() = 2.5;
     *asset
-        .reflect_path_mut("field.plants[0].plant.tufts")
+        .reflect_path_mut("plant_scatter.plants[0].plant.tufts")
         .unwrap()
         .try_downcast_mut::<f32>()
         .unwrap() = 0.7;
-    let presets = app.world().resource::<Assets<FieldPreset>>();
+    let presets = app.world().resource::<Assets<PlantScatterPreset>>();
     let edited = &presets
-        .get(handle.id().typed::<FieldPreset>())
+        .get(handle.id().typed::<PlantScatterPreset>())
         .unwrap()
-        .field;
+        .plant_scatter;
     assert_eq!(edited.plants[0].plant.height.y, 2.5);
     assert_eq!(edited.plants[0].plant.tufts, 0.7);
     assert_eq!(
         edited.density_scale,
-        FieldPreset::MEADOW.field.density_scale
+        PlantScatterPreset::MEADOW.plant_scatter.density_scale
     );
 }
 

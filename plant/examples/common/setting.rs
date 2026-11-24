@@ -59,49 +59,49 @@ pub(crate) const CURRENT: PlantWind = PlantWind {
 /// Where the preset called `name` is shown.
 pub(crate) fn setting(name: &str) -> Setting {
     match name {
-        "TALL_PRAIRIE" | "SUMMER_TALL" => soil(0.17, 0.13, 0.08),
-        "WHEAT" | "RYE_AND_CORNFLOWERS" => soil(0.34, 0.27, 0.17),
-        "DRY_SAVANNA" => soil(0.50, 0.35, 0.21),
-        "LAWN" => soil(0.10, 0.11, 0.06),
-        "STYLIZED" => soil(0.24, 0.36, 0.17),
-        "AUTUMN_TALL" | "AUTUMN_WILD" => soil(0.24, 0.17, 0.10),
-        "FOREST_MOSS" | "FOREST_FERNS" | "FOREST_FLOOR" | "FOREST_BRACKEN" | "SALAL"
-        | "MATURE_BRACKEN" | "SAPLING" | "HUCKLEBERRY" | "OREGON_GRAPE" | "NETTLE" | "BRAMBLE"
-        | "FOREST_UNDERSTORY" => soil(0.09, 0.07, 0.04),
+        "tall_prairie" | "summer_tall" => soil(0.17, 0.13, 0.08),
+        "wheat" | "rye_and_cornflowers" => soil(0.34, 0.27, 0.17),
+        "dry_savanna" => soil(0.50, 0.35, 0.21),
+        "lawn" => soil(0.10, 0.11, 0.06),
+        "stylized" => soil(0.24, 0.36, 0.17),
+        "autumn_tall" | "autumn_wild" => soil(0.24, 0.17, 0.10),
+        "forest_moss" | "forest_ferns" | "forest_floor" | "forest_bracken" | "salal"
+        | "mature_bracken" | "sapling" | "huckleberry" | "oregon_grape" | "nettle" | "bramble"
+        | "forest_understory" => soil(0.09, 0.07, 0.04),
         // Broom likes poor, sandy ground.
-        "BROOM" => soil(0.27, 0.21, 0.13),
+        "broom" => soil(0.27, 0.21, 0.13),
         // Dark peat, wet enough to shine where the pools are.
-        "COTTON_BOG" => Setting {
+        "cotton_bog" => Setting {
             roughness: 0.12,
             ..soil(0.11, 0.07, 0.05)
         },
-        "REED_MARSH" => Setting {
+        "reed_marsh" => Setting {
             water: Some(Water {
                 depth: 0.3,
                 color: Color::srgba(0.10, 0.17, 0.15, 0.82),
             }),
             ..soil(0.14, 0.12, 0.08)
         },
-        "DUNE_MARRAM" => soil(0.80, 0.72, 0.55),
-        "PAMPAS" => soil(0.30, 0.24, 0.15),
-        "SPINIFEX" => soil(0.62, 0.30, 0.15),
-        "ELEPHANT_GRASS" => soil(0.13, 0.09, 0.05),
-        "FROSTED_MEADOW" => Setting {
+        "dune_marram" => soil(0.80, 0.72, 0.55),
+        "pampas" => soil(0.30, 0.24, 0.15),
+        "spinifex" => soil(0.62, 0.30, 0.15),
+        "elephant_grass" => soil(0.13, 0.09, 0.05),
+        "frosted_meadow" => Setting {
             roughness: 0.6,
             ..soil(0.92, 0.94, 0.97)
         },
-        "BURNT_REGROWTH" => soil(0.14, 0.13, 0.12),
-        "LAVENDER" => Setting {
+        "burnt_regrowth" => soil(0.14, 0.13, 0.12),
+        "lavender" => Setting {
             rows: Some(1.4),
             ..soil(0.52, 0.42, 0.30)
         },
-        "CRYSTAL_SPIRES" => Setting {
+        "crystal_spires" => Setting {
             roughness: 0.4,
             ..soil(0.08, 0.08, 0.11)
         },
-        "CORKSCREW_ALIEN" => soil(0.12, 0.06, 0.16),
+        "corkscrew_alien" => soil(0.12, 0.06, 0.16),
         // The seabed, under water deeper than the tallest kelp.
-        "KELP_BED" => Setting {
+        "kelp_bed" => Setting {
             water: Some(Water {
                 depth: 3.3,
                 color: Color::srgba(0.03, 0.20, 0.30, 0.3),
@@ -109,9 +109,9 @@ pub(crate) fn setting(name: &str) -> Setting {
             wind: Some(CURRENT),
             ..soil(0.40, 0.40, 0.32)
         },
-        "BLIGHTED" => soil(0.10, 0.06, 0.11),
-        "CEL_FIELD" => soil(0.30, 0.48, 0.20),
-        "COZY_PASTEL" => soil(0.55, 0.72, 0.50),
+        "blighted" => soil(0.10, 0.06, 0.11),
+        "cel_field" => soil(0.30, 0.48, 0.20),
+        "cozy_pastel" => soil(0.55, 0.72, 0.50),
         _ => soil(0.20, 0.15, 0.09),
     }
 }

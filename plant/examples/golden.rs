@@ -168,7 +168,7 @@ const RENDER_PATHS: [RenderPath; 8] = [
 ];
 
 /// The preset every render path draws.
-const PATH_PRESET: &FieldPreset = &FieldPreset::MEADOW;
+const PATH_PRESET: &PlantScatterPreset = &PlantScatterPreset::MEADOW;
 
 /// `ERROR` events logged by anything but this check: a shader that does not
 /// compile, a pipeline that does not validate, a wgpu error.
@@ -327,7 +327,7 @@ fn setup(
     let forward = soil_and_person(OpaqueRendererMethod::Forward);
     let deferred = soil_and_person(OpaqueRendererMethod::Auto);
 
-    let presets = FieldPreset::all().map(|preset| (preset.key.to_lowercase(), preset, None));
+    let presets = PlantScatterPreset::all().map(|preset| (preset.key.to_lowercase(), preset, None));
     let paths = RENDER_PATHS
         .iter()
         .map(|path| (format!("path_{}", path.name), PATH_PRESET, Some(path)));
@@ -364,7 +364,7 @@ fn setup(
             Transform::from_translation(at + Vec3::new(0.8, 0.9, 1.0)),
         ));
         commands.spawn((
-            PlantField::from_preset(preset, Vec2::splat(8.0)),
+            PlantScatter::from_preset(preset, Vec2::splat(8.0)),
             Transform::from_translation(at),
         ));
     }

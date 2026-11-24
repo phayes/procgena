@@ -1,7 +1,7 @@
-//! The forest-floor presets side by side, each following its `.field.ron`
+//! The forest-floor presets side by side, each following its `.plant_scatter.yml`
 //! file: a moss carpet, fern clumps, the whole floor mixed, and autumn
 //! bracken. A 1.8 m figure stands in front for scale. The presets come from
-//! `FieldPreset::FOREST`, so a new one appears here without editing the
+//! `PlantScatterPreset::FOREST`, so a new one appears here without editing the
 //! example.
 //!
 //! Compare moss, branching ferns and fallen leaves in different proportions.
@@ -36,7 +36,7 @@ fn main() {
     app.add_plugins(PlantPlugins)
         .insert_resource(ClearColor(Color::srgb(0.10, 0.08, 0.05)))
         .add_systems(Startup, setup)
-        .add_systems(Update, (place_labels, common::follow_field_files))
+        .add_systems(Update, (place_labels, common::follow_scatter_files))
         .run();
 }
 
@@ -70,18 +70,15 @@ fn setup(
     ));
 
     // The file names of the presets, which `--only` takes.
-    let names: Vec<String> = FieldPreset::FOREST
+    let names: Vec<String> = PlantScatterPreset::FOREST
         .iter()
-        .map(|preset| preset.key.to_ascii_lowercase())
+        .map(|preset| preset.key.to_string())
         .collect();
     // Show the built-in preset immediately, then follow its file when it loads.
-    let field = |preset: &FieldPreset, size: f32| {
+    let field = |preset: &PlantScatterPreset, size: f32| {
         (
-            PlantField::from_preset(preset, Vec2::splat(size)),
-            common::FieldFile(assets.load(format!(
-                "fields/{}.field.ron",
-                preset.key.to_ascii_lowercase()
-            ))),
+            PlantScatter::from_preset(preset, Vec2::splat(size)),
+            common::ScatterFile(assets.load(format!("scatters/{}.plant_scatter.yml", preset.key))),
         )
     };
 
@@ -92,7 +89,7 @@ fn setup(
                 names.join(", ")
             );
         };
-        commands.spawn(field(&FieldPreset::FOREST[index], 12.0));
+        commands.spawn(field(&PlantScatterPreset::FOREST[index], 12.0));
         commands.spawn((
             Camera3d::default(),
             Transform::from_xyz(0.0, 1.4, 4.5).looking_at(Vec3::new(0.0, 0.2, 0.0), Vec3::Y),
@@ -118,7 +115,7 @@ fn setup(
     );
 
     let columns = 2;
-    for (index, (preset, name)) in FieldPreset::FOREST.iter().zip(&names).enumerate() {
+    for (index, (preset, name)) in PlantScatterPreset::FOREST.iter().zip(&names).enumerate() {
         let row = index / columns;
         let column = index % columns;
         let width = columns as f32 * (PATCH + GAP) - GAP;

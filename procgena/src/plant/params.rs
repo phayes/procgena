@@ -295,7 +295,7 @@ fn branches(title: &'static str) -> Group<PlantBranches> {
 #[cfg(test)]
 mod tests {
     use bevy::math::Vec2Swizzles;
-    use procgena_plant::prelude::{FieldPreset, PlantPreset};
+    use procgena_plant::prelude::{PlantPreset, PlantScatterPreset};
 
     use super::*;
     use crate::params::checks;
@@ -308,13 +308,13 @@ mod tests {
             .collect()
     }
 
-    /// Built-in plants and plants from every field preset.
+    /// Built-in plants and plants from every Plant Scatter preset.
     /// Names identify the source preset when a test fails.
     fn presets() -> Vec<(String, PlantParams)> {
         let plants = PlantPreset::all().map(|preset| (preset.key.to_string(), preset.plant));
-        let in_fields = FieldPreset::all().flat_map(|preset| {
+        let in_fields = PlantScatterPreset::all().flat_map(|preset| {
             preset
-                .field
+                .plant_scatter
                 .plants
                 .iter()
                 .enumerate()
@@ -366,7 +366,7 @@ mod tests {
         } else {
             plant.levels[1].count = 0;
         }
-        PlantParams::from_ron(&plant.to_ron())
+        PlantParams::from_yaml(&plant.to_yaml())
             .map(|_| ())
             .map_err(|e| e.to_string())
     }

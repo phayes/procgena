@@ -126,7 +126,7 @@ impl<'a> ClumpField<'a> {
             sources,
             ray_dirs,
             min_support: options.shape.min_support * scale,
-            seed: options.seed,
+            seed: options.default_seed,
             any_facing: options.mask.any_facing,
             facing_min: options.mask.facing_min,
             facing_full: options.mask.facing_full,
@@ -519,7 +519,7 @@ pub(crate) fn field_words(options: &ClumpOptions) -> [u32; 48] {
         (shape.sink * scale).to_bits(),
         shape.lumpiness.to_bits(),
         (shape.lump_size * scale).to_bits(),
-        options.seed,
+        options.default_seed,
     ];
     words[32..32 + scalars.len()].copy_from_slice(&scalars);
     words

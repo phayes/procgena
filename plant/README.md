@@ -51,8 +51,8 @@ All 40 field presets are in docs/presets.md.
 - **40 field presets and 26 plant presets**, from lawn to prairie to
   wildflower meadow, forest-floor moss and ferns, salal, huckleberry, nettles
   and head-high bracken, a Baltic bog, a reed marsh, dunes, pampas, spinifex,
-  frost, kelp, crystal and cel-shaded fields, also shipped as `.field.ron` and
-  `.plant.ron` files that reload while the game runs.
+  frost, kelp, crystal and cel-shaded fields, also shipped as
+  `.plant_scatter.yml` and `.plant.yml` files that reload while the game runs.
 
 > **Status:** pre-release (0.20.6). Everything on this page is built and
 > tested; [Roadmap](#roadmap) has what is next.
@@ -129,7 +129,7 @@ browsers tested, what a device needs, and frame times per tier.
 
 ## Quick start
 
-Add `PlantPlugins` after `DefaultPlugins`, and spawn a `PlantField`. This whole
+Add `PlantPlugins` after `DefaultPlugins`, and spawn a `PlantScatter`. This whole
 program is `examples/minimal.rs`; `cargo run --release
 --example minimal` runs it:
 
@@ -164,8 +164,8 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(64.0, 64.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
-    commands.spawn(PlantField::from_preset(
-        &FieldPreset::MEADOW,
+    commands.spawn(PlantScatter::from_preset(
+        &PlantScatterPreset::MEADOW,
         Vec2::splat(64.0),
     ));
 }
@@ -175,14 +175,14 @@ A field is a rectangle centred on its `Transform`, lying in the XZ plane. A
 scene needs a camera, a light and something to stand on, as here. The light
 casts the grass's shadows too: `PlantSun` is only for choosing one when there
 are several.
-A field holds its plants and look itself: `PlantField::from_preset` copies a
+A field holds its plants and look itself: `PlantScatter::from_preset` copies a
 preset's field and gives it a size, and changing the component changes that
 field on the next frame.
 
 `PlantPlugins` is a plugin group: `PlantPlugin` (the grass itself),
 `FarPlantPlugin` (the terrain material for ground past the last blade) and
-`PlantFilePlugin` (`.field.ron` and `.plant.ron` files, and the presets as
-assets). Leave
+`PlantFilePlugin` (`.plant_scatter.yml` and `.plant.yml` files, and the
+presets as assets). Leave
 out what you do not use:
 
 ```rust
@@ -202,7 +202,7 @@ not, and each difference is one setting:
 | Hills | `PlantGround::Heightmap` or `PlantGround::mesh`; a flat field lies at its transform's height and is buried under them | Terrain |
 | Terrain built from code, or in chunks | `.with_ground_from_fn(&mut images, 0.5, height)`: the field samples your height function once | Terrain |
 | Water, roads or cliffs inside the field | A density mask, red 0 where no grass grows, or `.with_density_from_fn` | Terrain |
-| Units that must stay visible | A shorter preset, or shorter plants in the field | Presets, Plants and fields |
+| Units that must stay visible | A shorter preset, or shorter plants in the field | Presets, Plants and Scatters |
 | Wind that changes with the weather | Change the `PlantWind` resource, or drive the grass yourself | Wind |
 | Characters or vehicles | `PlantInteractor`, or the `rapier`/`avian` feature | Trampling |
 | A loading screen | Spawn the field when the level is ready, or hidden | Terrain |
@@ -258,14 +258,14 @@ as a minimap. **Quality and settings**
 
 A `PlantParams` is one plant: a blade's or a fern's shape and colours, its
 branches, its tufts, accents such as plumes rising from a tussock, and the
-density it looks right at. A `PlantField` grows one or more plants, each at
+density it looks right at. A `PlantScatter` grows one or more plants, each at
 its own density or scaled up or down (grass with flowers, seed heads, ferns
 and bushes among it), and adds what belongs to the whole field: a density
 scale, colour patches, dry tips, bare patches. Start from one of the
 40 field presets or 26 plant presets and change what you need; editing a field
 at runtime changes it on the next frame, cheaply enough for a season blend.
-Plants and fields also load from `.plant.ron` and `.field.ron` files that
-reload while the game runs. **Plants and fields**, **Presets**
+Plants and Scatters also load from `.plant.yml` and `.plant_scatter.yml`
+files that reload while the game runs. **Plants and Scatters**, **Presets**
 
 ### Terrain and visibility
 
@@ -331,7 +331,7 @@ cargo run --release --example meadow
 | `walk` | The film at the top of this page: a person walks through three presets (`--fields A,B,C` picks others). `uv run --project tools python tools/plant/record_walk.py` records it |
 | `showcase` | The 40 field presets on six pages under an ARPG camera, each on its own ground (`--page 1` to `--page 6`) |
 | `gallery` | The forest, understory, biome, fantasy and toon presets as walkable plots with a flying camera. Tab flies from plot to plot, G drops to eye level, 1–6 pick the wind |
-| `fields` | All 40 field presets side by side, following their files (edit one and it changes live). Keys 1–6 pick the wind, S toggles grass shadows |
+| `scatters` | All 40 Scatter presets side by side, following their files (edit one and it changes live). Keys 1–6 pick the wind, S toggles grass shadows |
 | `variation` | A wild field with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour (`--walk` sends a person through it) |
 | `forest_floor` | The four forest-floor presets side by side |
 | `arpg_camera` | A top-down orthographic camera, a walking hero and monsters trampling the grass |
@@ -369,7 +369,7 @@ every idea that was tried, kept or dropped.
 
 ## Documentation
 
-- Guides: Quality and settings, Plants and fields,
+- Guides: Quality and settings, Plants and Scatters,
   Presets, Fields, terrain and visibility,
   Wind, Trampling,
   Editing and reading the grass,

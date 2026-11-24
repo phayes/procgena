@@ -245,7 +245,7 @@ mod tests {
     }
 
     fn json(options: &StoneOptions) -> Value {
-        serde_json::from_str(&options.to_json()).unwrap()
+        serde_json::to_value(options).unwrap()
     }
 
     #[test]
@@ -330,9 +330,9 @@ mod tests {
     #[test]
     fn presets_fit_the_controls() {
         let params = all_params();
-        for preset in StonePreset::ALL {
-            let options = preset.options();
-            let name = preset.name();
+        for preset in StonePreset::all() {
+            let options = preset.stone.clone();
+            let name = &preset.name;
             for param in &params {
                 let key = &param.key;
                 match &param.control {

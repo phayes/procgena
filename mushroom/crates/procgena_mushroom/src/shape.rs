@@ -111,7 +111,7 @@ impl Shape {
     /// Works out the shape for `o`, which must already be validated.
     pub(crate) fn new(o: &MushroomOptions) -> Self {
         let radius = o.cap_radius();
-        let mut rng = Rng::new(seed_for(o.seed, SHAPE_CAP));
+        let mut rng = Rng::new(seed_for(o.default_seed, SHAPE_CAP));
 
         // Stem sizes in metres.
         let s = &o.stem;
@@ -159,7 +159,7 @@ impl Shape {
             roughness_frequency: o.cap.roughness_scale * 0.5,
             cap_origin: Vec3::ZERO,
             cap_rotation: Quat::IDENTITY,
-            noise_seed: seed_for(o.seed, SHAPE_NOISE),
+            noise_seed: seed_for(o.default_seed, SHAPE_NOISE),
             annulus: None,
             warts: Vec::new(),
         };
@@ -395,7 +395,7 @@ fn place_warts(o: &MushroomOptions, shape: &Shape) -> Vec<Wart> {
     if w.count == 0 {
         return warts;
     }
-    let mut rng = Rng::new(seed_for(o.seed, SHAPE_WARTS));
+    let mut rng = Rng::new(seed_for(o.default_seed, SHAPE_WARTS));
     let length = shape.top.length();
     let start = length * (1.0 - w.coverage);
     let max_r = (0..=16)

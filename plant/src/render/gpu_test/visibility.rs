@@ -22,7 +22,7 @@ fn gpu_draws_a_field_only_where_visibility_and_render_layers_allow() {
         .single(world)
         .unwrap();
     let field = world
-        .query_filtered::<Entity, With<PlantField>>()
+        .query_filtered::<Entity, With<PlantScatter>>()
         .single(world)
         .unwrap();
 

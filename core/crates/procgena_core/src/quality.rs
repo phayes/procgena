@@ -8,12 +8,10 @@
 /// [`distance_scale`](Self::distance_scale), so every asset draws nearer or
 /// further together. The quality setting never changes which specimen a copy
 /// draws, only how far each detail level reaches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "lowercase")
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
+#[serde(rename_all = "lowercase")]
 pub enum Quality {
     /// Shortest distances, for integrated GPUs and handhelds.
     Low,

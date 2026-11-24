@@ -1,6 +1,4 @@
-//! Generate a tree from settings, a preset, or JSON, and access its shape and meshes.
-
-use std::fmt;
+//! Generate a tree from settings or a preset, and access its shape and meshes.
 
 use procgena_core::LodLevel;
 
@@ -23,9 +21,10 @@ use crate::{
 /// ```
 /// use procgena_tree::{Tree, TreePreset, default_lod};
 ///
-/// let tree = Tree::from_preset(TreePreset::AshSmall);
+/// let tree = Tree::from_preset(TreePreset::ash_small())?;
 /// let lods = tree.lod_meshes(&default_lod().levels);
 /// assert!(lods[2].1.triangle_count() < tree.triangle_count());
+/// # Ok::<(), procgena_tree::OptionsError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree {
@@ -53,26 +52,14 @@ impl Tree {
         })
     }
 
-    /// Generates a tree and its full-detail mesh using a ready-made set of settings.
-    pub fn from_preset(preset: TreePreset) -> Self {
-        Self::new(preset.options()).expect("built-in presets are valid")
-    }
-
-    /// Generates a tree and its full-detail mesh from ez-tree JSON settings.
-    ///
-    /// Pass a complete settings object or just the fields to change. Omitted
-    /// fields, including nested fields, use [`TreeOptions::default`] values.
-    /// Unknown fields are ignored, and a non-object JSON value uses all defaults.
-    /// See [`TreeOptions::from_json`] for other accepted inputs.
+    /// Generates a tree and its full-detail mesh from a preset's settings.
     ///
     /// # Errors
     ///
-    /// Returns [`TreeError::Json`] if the JSON cannot be read as settings, or
-    /// [`TreeError::Options`] if the resulting settings fail the branch depth or
-    /// section count checks in [`TreeOptions::validate`].
-    pub fn from_json(json: &str) -> Result<Self, TreeError> {
-        let options = TreeOptions::from_json(json).map_err(TreeError::Json)?;
-        Self::new(options).map_err(TreeError::Options)
+    /// Returns an [`OptionsError`] as [`Tree::new`] does. Built-in presets,
+    /// and presets read from files, always pass.
+    pub fn from_preset(preset: &TreePreset) -> Result<Self, OptionsError> {
+        Self::new(preset.tree.clone())
     }
 
     /// Borrows the settings used to generate this tree.
@@ -157,30 +144,3 @@ impl Tree {
     }
 }
 
-/// An error returned by [`Tree::from_json`] when reading or validating settings.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum TreeError {
-    /// The JSON could not be read as tree settings; the enclosed error describes why.
-    Json(serde_json::Error),
-    /// The settings were read, but their branch depth or section counts are unsupported.
-    Options(OptionsError),
-}
-
-impl fmt::Display for TreeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Json(err) => write!(f, "invalid tree options JSON: {err}"),
-            Self::Options(err) => write!(f, "unsupported tree options: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for TreeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Json(err) => Some(err),
-            Self::Options(err) => Some(err),
-        }
-    }
-}

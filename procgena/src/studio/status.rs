@@ -255,7 +255,7 @@ fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) 
         _ => lod,
     };
     let total = format!(
-        "Field ≈ {} plants · {} vertices · {} triangles before thinning",
+        "Scatter ≈ {} plants · {} vertices · {} triangles before thinning",
         group_digits(plants.round() as usize),
         group_digits(vertices.round() as usize),
         group_digits(triangles.round() as usize)
@@ -270,16 +270,16 @@ fn plants_line(shown: &PlantsShown, settings: &PlantSettings) -> (String, bool) 
 fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
     let (status, noun, level) = match tab {
         StudioTab::Stones => (&state.stone, "rock", None),
-        StudioTab::TreeGrove => (&state.grove, "grove", None),
+        StudioTab::TreeScatter => (&state.grove, "tree Scatter", None),
         StudioTab::Clumps => (&state.clump, "clump", None),
         StudioTab::Mushrooms => (&state.mushroom, "mushroom", Some(state.mushroom_lod_shown)),
         StudioTab::Deadwood => (&state.deadwood, "dead wood", Some(state.deadwood_lod_shown)),
-        StudioTab::Trees | StudioTab::Plant | StudioTab::PlantField => {
+        StudioTab::Trees | StudioTab::Plant | StudioTab::PlantScatter => {
             (&state.tree, "tree", Some(state.lod_shown))
         }
     };
     match status {
-        BuildStatus::Building if tab == StudioTab::TreeGrove => {
+        BuildStatus::Building if tab == StudioTab::TreeScatter => {
             (grove_building_line(state.grove_progress), false)
         }
         BuildStatus::Building => (format!("Building {noun}…"), false),
@@ -293,7 +293,7 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
         ),
         // Each tree of a grove switches detail by its own distance, so the
         // grove's size is given at full detail.
-        BuildStatus::Built(stats) if tab == StudioTab::TreeGrove => {
+        BuildStatus::Built(stats) if tab == StudioTab::TreeScatter => {
             let size = stats.levels.first().copied().unwrap_or_default();
             let line = format!(
                 "{} trees · {} vertices · {} triangles at full detail · {} ms",
@@ -328,9 +328,9 @@ fn status_line(state: &BuildState, tab: StudioTab) -> (String, bool) {
 fn grove_building_line(progress: GroveProgress) -> String {
     match progress {
         GroveProgress::Generating { done, total } if total > 0 => {
-            format!("Building grove… {done} of {total} tree shapes generated")
+            format!("Building tree Scatter… {done} of {total} tree shapes generated")
         }
-        _ => "Building grove…".into(),
+        _ => "Building tree Scatter…".into(),
     }
 }
 
@@ -439,7 +439,7 @@ mod tests {
             ("LOD 1 · 800 vertices · 400 triangles · 5 ms".into(), false)
         );
         assert_eq!(
-            status_line(&state, StudioTab::TreeGrove),
+            status_line(&state, StudioTab::TreeScatter),
             (
                 "64 trees · 120,000 vertices · 60,000 triangles at full detail · 900 ms".into(),
                 false
@@ -469,7 +469,7 @@ mod tests {
                 grove_progress,
                 ..default()
             };
-            status_line(&state, StudioTab::TreeGrove).0
+            status_line(&state, StudioTab::TreeScatter).0
         };
         let built = || {
             BuildStatus::Built(BuildStats {
@@ -484,11 +484,14 @@ mod tests {
 
         // Before the trees are placed, the count of shapes is not known.
         let placing = GroveProgress::Generating { done: 0, total: 0 };
-        assert_eq!(line(BuildStatus::Building, placing), "Building grove…");
+        assert_eq!(
+            line(BuildStatus::Building, placing),
+            "Building tree Scatter…"
+        );
         let generating = GroveProgress::Generating { done: 3, total: 8 };
         assert_eq!(
             line(BuildStatus::Building, generating),
-            "Building grove… 3 of 8 tree shapes generated"
+            "Building tree Scatter… 3 of 8 tree shapes generated"
         );
 
         // Once built, a second line counts the impostors baked, until all are.
@@ -515,7 +518,7 @@ mod tests {
 
     #[test]
     fn the_plant_lines_show_one_plant_and_the_field_estimate() {
-        use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams};
+        use procgena_plant::prelude::{PlantParams, PlantScatter, ScatterPlant};
 
         // A 10 m field of 2 unbranched blades per m², drawn at mid detail.
         let settings = PlantSettings::default();
@@ -526,10 +529,10 @@ mod tests {
             ..PlantParams::default()
         };
         let size = blade.mesh_size(1, &settings).unwrap();
-        let field = PlantField {
-            plants: vec![FieldPlant::new(blade)].into(),
+        let field = PlantScatter {
+            plants: vec![ScatterPlant::new(blade)].into(),
             density_scale: 1.0,
-            ..PlantField::default()
+            ..PlantScatter::default()
         };
         let shown = PlantsShown {
             field: Some(Arc::new(FieldSettings { field })),
@@ -542,7 +545,7 @@ mod tests {
             line,
             format!(
                 "LOD 1 · {} vertices · {} triangles per plant\n\
-                 Field ≈ 200 plants · {} vertices · {} triangles before thinning",
+                 Scatter ≈ 200 plants · {} vertices · {} triangles before thinning",
                 size.vertices,
                 size.triangles,
                 group_digits(200 * size.vertices as usize),

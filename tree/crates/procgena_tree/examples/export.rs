@@ -85,9 +85,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
     };
 
-    for preset in TreePreset::ALL {
-        let tree = Tree::from_preset(preset);
-        let stem = preset.name().to_lowercase().replace(' ', "_");
+    for preset in TreePreset::all() {
+        let tree = Tree::from_preset(preset)?;
+        let stem = &preset.key;
 
         // Save full-detail geometry with relative paths to the copied images.
         let mtl_name = format!("{stem}.mtl");
@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         println!(
             "{:14} {:>7} triangles, {:>2} joints, {:>5.1} MB glb",
-            preset.name(),
+            preset.name,
             tree.triangle_count(),
             rig.joint_count(),
             glb.len() as f64 / 1e6

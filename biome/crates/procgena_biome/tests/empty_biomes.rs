@@ -43,7 +43,7 @@ fn square(origin: DVec2) -> Vec<DVec2> {
 /// Terrain seed for `world_seed`.
 fn reference(options: TerrainOptions, world_seed: u32) -> Terrain {
     let options = TerrainOptions {
-        seed: terrain_seed(world_seed),
+        default_seed: terrain_seed(world_seed),
         ..options
     };
     TerrainGenerator::new(options)
@@ -104,10 +104,13 @@ fn assert_same_land(a: &Terrain, b: &Terrain, origin: DVec2, label: &str) -> Cov
 
 #[test]
 fn every_terrain_preset_has_an_empty_biome() {
-    for terrain in TerrainPreset::ALL {
-        let preset = BiomePreset::bare(terrain)
-            .unwrap_or_else(|| panic!("{} has no empty Biome", terrain.name()));
-        assert_eq!(preset.biome.terrain, BiomeTerrain::Preset(terrain));
+    for terrain in TerrainPreset::all() {
+        let preset = BiomePreset::bare(&terrain.key)
+            .unwrap_or_else(|| panic!("{} has no empty Biome", terrain.name));
+        assert_eq!(
+            preset.biome.terrain,
+            BiomeTerrain::Preset(terrain.key.clone())
+        );
         assert!(preset.biome.is_empty(), "{}", preset.key);
         assert_eq!(preset.default_seed, 0, "{}", preset.key);
     }
@@ -117,15 +120,15 @@ fn every_terrain_preset_has_an_empty_biome() {
 fn empty_biome_builds_the_same_land_as_its_terrain() {
     let mut features = 0;
     let mut wet_points = 0;
-    for terrain in TerrainPreset::ALL {
-        let preset = BiomePreset::bare(terrain).expect("every preset has an empty Biome");
+    for terrain in TerrainPreset::all() {
+        let preset = BiomePreset::bare(&terrain.key).expect("every preset has an empty Biome");
         for seed in SEEDS {
             let label = format!("{} seed {seed}", preset.key);
             let built = preset
                 .biome
                 .build(seed, region(), &[])
                 .expect("Biome builds");
-            let alone = reference(terrain.options(), seed);
+            let alone = reference(terrain.terrain.clone(), seed);
             let covered = assert_same_land(&built, &alone, DVec2::ZERO, &label);
             features += covered.features;
             wet_points += covered.wet_points;
@@ -139,17 +142,20 @@ fn empty_biome_builds_the_same_land_as_its_terrain() {
 
 #[test]
 fn inline_terrain_builds_the_same_land_and_takes_the_world_seed() {
-    for terrain in TerrainPreset::ALL {
+    for terrain in TerrainPreset::all() {
         // An inline seed is replaced by the World's.
         let inline = Biome::empty(BiomeTerrain::Inline(TerrainOptions {
-            seed: 12345,
-            ..terrain.options()
+            default_seed: 12345,
+            ..terrain.terrain.clone()
         }));
         for seed in SEEDS {
-            let label = format!("inline {} seed {seed}", terrain.name());
-            assert_eq!(inline.terrain_options(seed).seed, terrain_seed(seed));
+            let label = format!("inline {} seed {seed}", terrain.name);
+            let resolved = inline
+                .terrain_options(seed)
+                .expect("inline settings resolve");
+            assert_eq!(resolved.default_seed, terrain_seed(seed));
             let built = inline.build(seed, region(), &[]).expect("Biome builds");
-            let alone = reference(terrain.options(), seed);
+            let alone = reference(terrain.terrain.clone(), seed);
             assert_same_land(&built, &alone, DVec2::ZERO, &label);
         }
     }
@@ -157,7 +163,7 @@ fn inline_terrain_builds_the_same_land_and_takes_the_world_seed() {
 
 #[test]
 fn invalid_inline_terrain_is_an_error() {
-    let mut options = TerrainPreset::Plains.options();
+    let mut options = TerrainPreset::plains().terrain.clone();
     options.base.erosion = f32::NAN;
     let biome = Biome::empty(BiomeTerrain::Inline(options));
     assert!(matches!(
@@ -167,28 +173,37 @@ fn invalid_inline_terrain_is_an_error() {
 }
 
 #[test]
+fn unknown_terrain_preset_is_an_error() {
+    let biome = Biome::empty(BiomeTerrain::Preset("PLAINS".into()));
+    let unknown = |result| matches!(result, Err(procgena_biome::BiomeError::UnknownTerrainPreset(key)) if key == "PLAINS");
+    assert!(unknown(biome.terrain_options(0).map(|_| ())));
+    assert!(unknown(biome.build(0, region(), &[]).map(|_| ())));
+}
+
+#[test]
 fn stitched_biomes_build_the_same_world_as_stitched_terrains() {
     // Plains to the west of mountains, as a World of bare land will build them.
     let west = DVec2::new(-SIDE, 0.0);
     let pairs = [
-        (RegionId(1), west, TerrainPreset::Plains),
-        (RegionId(2), DVec2::ZERO, TerrainPreset::Mountains),
+        (RegionId(1), west, TerrainPreset::plains()),
+        (RegionId(2), DVec2::ZERO, TerrainPreset::mountains()),
     ];
     for seed in SEEDS {
         let from_biomes = pairs.map(|(id, origin, terrain)| RegionSpec {
             id,
             polygon: square(origin),
-            options: BiomePreset::bare(terrain)
+            options: BiomePreset::bare(&terrain.key)
                 .expect("every preset has an empty Biome")
                 .biome
-                .terrain_options(seed),
+                .terrain_options(seed)
+                .expect("built-in Terrain preset"),
         });
         let from_terrains = pairs.map(|(id, origin, terrain)| RegionSpec {
             id,
             polygon: square(origin),
             options: TerrainOptions {
-                seed: terrain_seed(seed),
-                ..terrain.options()
+                default_seed: terrain_seed(seed),
+                ..terrain.terrain.clone()
             },
         });
         let convergence = Convergence::default();
@@ -214,7 +229,7 @@ fn stitched_biomes_build_the_same_world_as_stitched_terrains() {
 #[test]
 fn catalogue_keys_are_unique_and_named_finds_them() {
     let presets: Vec<_> = BiomePreset::all().collect();
-    assert_eq!(presets.len(), TerrainPreset::ALL.len());
+    assert_eq!(presets.len(), TerrainPreset::all().count());
     for (i, preset) in presets.iter().enumerate() {
         assert!(
             presets[..i].iter().all(|other| other.key != preset.key),
@@ -224,5 +239,5 @@ fn catalogue_keys_are_unique_and_named_finds_them() {
         assert_eq!(BiomePreset::named(&preset.key), Some(*preset));
         assert!(!preset.name.is_empty() && !preset.description.is_empty());
     }
-    assert_eq!(BiomePreset::named("plains"), None);
+    assert_eq!(BiomePreset::named("PLAINS"), None);
 }

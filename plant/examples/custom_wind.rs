@@ -91,7 +91,7 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    let field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(100.0));
+    let field = PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(100.0));
     let soil = StandardMaterial {
         base_color: Color::srgb(0.2, 0.15, 0.09),
         perceptual_roughness: 0.95,

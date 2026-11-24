@@ -156,12 +156,12 @@ fn setup(
         Transform::from_xyz(-1.5, 0.5, -1.0).with_rotation(Quat::from_rotation_y(0.5)),
     ));
 
-    commands.spawn(PlantField::from_preset(
-        &FieldPreset::MEADOW,
+    commands.spawn(PlantScatter::from_preset(
+        &PlantScatterPreset::MEADOW,
         Vec2::splat(60.0),
     ));
     commands.spawn((
-        PlantField::from_preset(&FieldPreset::TALL_PRAIRIE, Vec2::new(8.0, 6.0)),
+        PlantScatter::from_preset(&PlantScatterPreset::TALL_PRAIRIE, Vec2::new(8.0, 6.0)),
         Transform::from_xyz(4.0, 0.0, -5.0),
     ));
 }

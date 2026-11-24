@@ -18,9 +18,9 @@ use procgena_core::scatter::{ScatterArea, ScatterInput};
 use procgena_core::{ContentHash, ContentHasher, FarForm, LevelForm, PoolId, Quality};
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_deadwood::{
-    DeadwoodError, DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, FlatGround, Ground,
-    HeightGrid, LodLevel, OptionsError, Piece, Placement, ScatterError, ScatterOptions,
-    StickScatter, TextureCompression, TextureSize, lod_size, specimen_from_meshes,
+    DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, FlatGround, Ground, HeightGrid,
+    LodLevel, OptionsError, Piece, RestingPose, ScatterError, ScatterOptions, StickScatter,
+    TextureCompression, TextureSize, lod_size, specimen_from_meshes,
 };
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 
@@ -38,22 +38,22 @@ use crate::mesh::{deadwood_mesh, ribbon_aabb, ribbon_mesh};
 /// share meshes and materials, so many identical ones are cheap.
 ///
 /// The piece lies on flat ground at the entity's `y`. Once the parts
-/// appear, the entity also gets a [`DeadwoodPlacement`], whose
-/// [`burial`](Placement::burial) says how far to lower the entity to sink
+/// appear, the entity also gets a [`DeadwoodPose`], whose
+/// [`burial`](RestingPose::burial) says how far to lower the entity to sink
 /// a decayed piece into the ground, and a [`GeneratedSpecimen`] describing
 /// the piece, so other generators can grow on it (for example a
 /// `procgena_clump_bevy` moss child). Changing the options rebuilds the
-/// piece; removing this component removes the parts, the placement and the
+/// piece; removing this component removes the parts, the pose and the
 /// specimen.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub enum DeadwoodParams {
     /// Options held in memory. [`DeadwoodParams::new`] wraps them for you.
     Options(Arc<DeadwoodOptions>),
-    /// Options loaded from a `.deadwood.json` file. The piece waits for the
+    /// A preset loaded from a `.deadwood.yml` file. The piece waits for the
     /// file to load, and rebuilds when the file changes if Bevy is watching
     /// asset files.
-    Asset(Handle<DeadwoodOptionsAsset>),
+    Asset(Handle<DeadwoodPresetAsset>),
 }
 
 impl DeadwoodParams {
@@ -62,9 +62,9 @@ impl DeadwoodParams {
         Self::Options(Arc::new(options))
     }
 
-    /// Asks for a piece made from a preset.
-    pub fn preset(preset: DeadwoodPreset) -> Self {
-        Self::new(preset.options())
+    /// Asks for a piece made from a preset's settings.
+    pub fn preset(preset: &DeadwoodPreset) -> Self {
+        Self::new(preset.deadwood.clone())
     }
 }
 
@@ -76,7 +76,7 @@ impl DeadwoodParams {
 /// to three entities per stick: keep [`size`](Self::size) and
 /// [`ScatterOptions::density`] modest (the stick presets place 50 to 130
 /// sticks over 6 m by 6 m). The scatter is seeded with
-/// [`ScatterOptions::seed`].
+/// [`ScatterOptions::default_seed`].
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub struct DeadwoodScatterParams {
@@ -118,13 +118,15 @@ pub enum ScatterGround {
     },
 }
 
-/// Dead wood options loaded from a `.deadwood.json` file.
+/// A dead wood preset loaded from a `.deadwood.yml` file for
+/// [`DeadwoodParams::Asset`].
 ///
-/// The file may leave settings out to use their defaults; see
-/// [`DeadwoodOptions::from_json`]. Files with out-of-range settings fail to
-/// load.
+/// The file names a built-in preset as its `base` and gives only what
+/// differs; see [`DeadwoodPreset::from_yaml`]. Its key is the file name
+/// without `.deadwood.yml`. Files with unknown or out-of-range settings
+/// fail to load.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
-pub struct DeadwoodOptionsAsset(pub DeadwoodOptions);
+pub struct DeadwoodPresetAsset(pub DeadwoodPreset);
 
 /// Marks a child entity that draws one detail level of one piece or stick.
 /// The plugin spawns and removes these; don't add them yourself.
@@ -154,9 +156,9 @@ pub enum DeadwoodPartKind {
 }
 
 /// Where a single piece came to rest, added to a [`DeadwoodParams`] entity
-/// with its parts. See [`Placement`].
+/// with its parts. See [`RestingPose`].
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct DeadwoodPlacement(pub Placement);
+pub struct DeadwoodPose(pub RestingPose);
 
 /// Present while a piece or scatter is being prepared, including while it
 /// waits for its options file or its host.
@@ -219,13 +221,13 @@ impl From<OptionsError> for DeadwoodBuildError {
     }
 }
 
-/// Loads `.deadwood.json` files, rejecting malformed JSON and out-of-range
-/// settings.
+/// Reads and checks dead wood preset files with the `.deadwood.yml`
+/// extension.
 #[derive(Debug, Default, TypePath)]
-pub(crate) struct DeadwoodOptionsLoader;
+pub(crate) struct DeadwoodPresetLoader;
 
-impl AssetLoader for DeadwoodOptionsLoader {
-    type Asset = DeadwoodOptionsAsset;
+impl AssetLoader for DeadwoodPresetLoader {
+    type Asset = DeadwoodPresetAsset;
     type Settings = ();
     type Error = BevyError;
 
@@ -233,18 +235,23 @@ impl AssetLoader for DeadwoodOptionsLoader {
         &self,
         reader: &mut dyn Reader,
         _settings: &(),
-        _context: &mut LoadContext<'_>,
-    ) -> Result<DeadwoodOptionsAsset, BevyError> {
+        context: &mut LoadContext<'_>,
+    ) -> Result<DeadwoodPresetAsset, BevyError> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let options = DeadwoodOptions::from_json(std::str::from_utf8(&bytes)?)
-            .map_err(DeadwoodError::Json)?;
-        options.validate().map_err(DeadwoodError::Options)?;
-        Ok(DeadwoodOptionsAsset(options))
+        let file_name = context
+            .path()
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let key = file_name.strip_suffix(".deadwood.yml").unwrap_or(file_name);
+        let preset = DeadwoodPreset::from_yaml(key, std::str::from_utf8(&bytes)?)?;
+        Ok(DeadwoodPresetAsset(preset))
     }
 
     fn extensions(&self) -> &[&str] {
-        &["deadwood.json"]
+        &["deadwood.yml"]
     }
 }
 
@@ -345,8 +352,8 @@ struct Built {
     variants: Vec<BuiltVariant>,
     /// Where to draw copies of them, relative to the requesting entity.
     instances: Vec<(u32, Transform)>,
-    /// A single piece's specimen and placement; `None` for scatters.
-    single: Option<(Specimen, Placement)>,
+    /// A single piece's specimen and resting pose; `None` for scatters.
+    single: Option<(Specimen, RestingPose)>,
 }
 
 /// Names one built piece at one set of detail levels. Variants with the
@@ -425,8 +432,8 @@ pub(crate) struct DeadwoodCache {
 // --------------------------------------------------------------------------
 // Systems
 
-/// Removes the parts, markers, placement and specimen of entities whose piece
-/// or scatter component was removed.
+/// Removes the parts, markers, pose and specimen of entities whose piece or
+/// scatter component was removed.
 pub(crate) fn remove_deadwood(
     mut commands: Commands,
     mut singles: RemovedComponents<DeadwoodParams>,
@@ -443,7 +450,7 @@ pub(crate) fn remove_deadwood(
                 Building,
                 Attempted,
                 GeneratedSpecimen,
-                DeadwoodPlacement,
+                DeadwoodPose,
             )>();
         }
     }
@@ -492,7 +499,7 @@ pub(crate) fn start_generation(
     )>,
     hosts: Query<&GeneratedSpecimen>,
     transforms: TransformHelper,
-    assets: Res<Assets<DeadwoodOptionsAsset>>,
+    assets: Res<Assets<DeadwoodPresetAsset>>,
     parts: Query<(), With<DeadwoodPart>>,
     settings: Res<SpawnSettings>,
 ) {
@@ -501,7 +508,9 @@ pub(crate) fn start_generation(
     for (entity, params) in &singles {
         let options = match params {
             DeadwoodParams::Options(o) => Some(o.clone()),
-            DeadwoodParams::Asset(handle) => assets.get(handle).map(|a| Arc::new(a.0.clone())),
+            DeadwoodParams::Asset(handle) => {
+                assets.get(handle).map(|a| Arc::new(a.0.deadwood.clone()))
+            }
         };
         wanted.push((
             entity,
@@ -566,12 +575,9 @@ pub(crate) fn start_generation(
                 // If the host lost its specimen, remove the sticks laid on it.
                 if building.is_some() || attempted.is_some() {
                     despawn_parts(&mut commands, kids, &parts);
-                    commands.entity(entity).remove::<(
-                        Building,
-                        Attempted,
-                        GeneratedSpecimen,
-                        DeadwoodPlacement,
-                    )>();
+                    commands
+                        .entity(entity)
+                        .remove::<(Building, Attempted, GeneratedSpecimen, DeadwoodPose)>();
                 }
                 if !generating {
                     commands.entity(entity).insert(DeadwoodGenerating);
@@ -591,7 +597,7 @@ pub(crate) fn start_generation(
                         Building,
                         DeadwoodGenerating,
                         GeneratedSpecimen,
-                        DeadwoodPlacement,
+                        DeadwoodPose,
                     )>()
                     .insert(Attempted(input));
                 commands.trigger(DeadwoodFinished {
@@ -607,7 +613,7 @@ pub(crate) fn start_generation(
         let task = AsyncComputeTaskPool::get().spawn(async move { build(&task_input, &lod) });
         commands
             .entity(entity)
-            .remove::<(GeneratedSpecimen, DeadwoodPlacement)>()
+            .remove::<(GeneratedSpecimen, DeadwoodPose)>()
             .insert((DeadwoodGenerating, Building { input, task }));
     }
 }
@@ -638,7 +644,7 @@ impl Ground for ScaledGround {
     }
 }
 
-/// Builds the meshes and placements for `input`. Runs on a background
+/// Builds the meshes and copy transforms for `input`. Runs on a background
 /// thread. `lod` is for a piece of
 /// [`DEFAULT_LOD_SIZE`](procgena_deadwood::DEFAULT_LOD_SIZE).
 fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> {
@@ -650,7 +656,7 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
             Ok(Built {
                 variants: vec![variant],
                 instances: vec![(0, Transform::IDENTITY)],
-                single: Some((specimen, *piece.placement())),
+                single: Some((specimen, *piece.pose())),
             })
         }
         Input::FlatScatter(scatter, size) => scatter_sticks(scatter, *size, &FlatGround, 1.0, lod),
@@ -678,7 +684,7 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
 }
 
 /// Scatters sticks over a `size` rectangle of `ground` (in world metres)
-/// centred on the entity, seeded by the scatter's own seed, and builds
+/// centred on the entity, seeded by the scatter's default seed, and builds
 /// every variant. Each stick's transform is divided by `scale`, the
 /// parent's world scale, so it comes out in world metres.
 fn scatter_sticks(
@@ -689,7 +695,7 @@ fn scatter_sticks(
     lod: &DeadwoodLod,
 ) -> Result<Built, DeadwoodBuildError> {
     let area = ScatterArea::new(DVec2::ZERO, size);
-    let input = ScatterInput::new(ground, area, scatter.seed);
+    let input = ScatterInput::new(ground, area, scatter.default_seed);
     let built = StickScatter::new(scatter, &input).map_err(DeadwoodBuildError::Scatter)?;
     let variants = built
         .variants()
@@ -735,7 +741,7 @@ fn build_variant(
         .collect();
     let key = VariantKey {
         pool: options.pool_id(),
-        seed: options.seed,
+        seed: options.default_seed,
         lod: lod_hash(lod),
     };
     Ok((
@@ -751,7 +757,7 @@ fn build_variant(
 
 /// Collects finished background builds: replaces each entity's parts with
 /// the new ones, adds a single piece's [`GeneratedSpecimen`] and
-/// [`DeadwoodPlacement`], and triggers [`DeadwoodFinished`]. A failed build
+/// [`DeadwoodPose`], and triggers [`DeadwoodFinished`]. A failed build
 /// is logged and leaves no parts.
 #[expect(clippy::too_many_arguments, reason = "Bevy system parameters")]
 pub(crate) fn finish_generation(
@@ -865,11 +871,10 @@ pub(crate) fn finish_generation(
                 }
             }
         }
-        if let Some((specimen, placement)) = built.single {
-            commands.entity(entity).insert((
-                GeneratedSpecimen(Arc::new(specimen)),
-                DeadwoodPlacement(placement),
-            ));
+        if let Some((specimen, pose)) = built.single {
+            commands
+                .entity(entity)
+                .insert((GeneratedSpecimen(Arc::new(specimen)), DeadwoodPose(pose)));
         }
         commands.trigger(DeadwoodFinished {
             entity,
@@ -1025,7 +1030,7 @@ fn material_hash(o: &DeadwoodOptions) -> u64 {
     o.material.content_hash(&mut h);
     h.write_f32(o.decay);
     h.write_f32(o.diameter);
-    h.write_u32(o.seed);
+    h.write_u32(o.default_seed);
     h.finish()
 }
 
@@ -1099,8 +1104,14 @@ mod tests {
 
     /// An app running only the build systems, without rendering.
     fn app() -> App {
+        app_with(AssetPlugin::default())
+    }
+
+    /// An app running only the build systems, without rendering, that
+    /// loads files with `assets`.
+    fn app_with(assets: AssetPlugin) -> App {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        app.add_plugins((MinimalPlugins, assets))
             .init_asset::<Mesh>()
             .init_asset::<Image>()
             .init_asset::<DeadwoodMaterial>()
@@ -1140,11 +1151,11 @@ mod tests {
     }
 
     #[test]
-    fn a_log_gets_every_level_its_specimen_and_placement() {
+    fn a_log_gets_every_level_its_specimen_and_pose() {
         let mut app = app();
         let entity = app
             .world_mut()
-            .spawn(DeadwoodParams::preset(DeadwoodPreset::RottenLog))
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::rotten_log()))
             .id();
         run_until_finished(&mut app, entity);
 
@@ -1173,18 +1184,18 @@ mod tests {
             "{parts:?}"
         );
         assert!(app.world().entity(entity).contains::<GeneratedSpecimen>());
-        let placement = app.world().get::<DeadwoodPlacement>(entity).unwrap();
-        assert!(placement.0.burial > 0.0, "a rotten log suggests burial");
+        let pose = app.world().get::<DeadwoodPose>(entity).unwrap();
+        assert!(pose.0.burial > 0.0, "a rotten log suggests burial");
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
-        // Removing the request removes the parts, specimen and placement.
+        // Removing the request removes the parts, specimen and pose.
         app.world_mut()
             .entity_mut(entity)
             .remove::<DeadwoodParams>();
         app.update();
         assert!(self::parts(&mut app, entity).is_empty());
         assert!(!app.world().entity(entity).contains::<GeneratedSpecimen>());
-        assert!(!app.world().entity(entity).contains::<DeadwoodPlacement>());
+        assert!(!app.world().entity(entity).contains::<DeadwoodPose>());
     }
 
     #[test]
@@ -1199,7 +1210,7 @@ mod tests {
         // name a bark and an end-grain set.
         let entity = app
             .world_mut()
-            .spawn(DeadwoodParams::preset(DeadwoodPreset::DeadBranch))
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::dead_branch()))
             .id();
         run_until_finished(&mut app, entity);
 
@@ -1227,7 +1238,7 @@ mod tests {
         let mut app = app();
         let entity = app
             .world_mut()
-            .spawn(DeadwoodParams::preset(DeadwoodPreset::DeadBranch))
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::dead_branch()))
             .id();
         run_until_finished(&mut app, entity);
         let parts = parts(&mut app, entity);
@@ -1248,7 +1259,7 @@ mod tests {
         let mut app = app();
         let entity = app
             .world_mut()
-            .spawn(DeadwoodParams::preset(DeadwoodPreset::SeedlingLog))
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::seedling_log()))
             .id();
         run_until_finished(&mut app, entity);
         let parts = parts(&mut app, entity);
@@ -1264,7 +1275,7 @@ mod tests {
         });
         let entity = app
             .world_mut()
-            .spawn(DeadwoodParams::preset(DeadwoodPreset::SeedlingLog))
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::seedling_log()))
             .id();
         run_until_finished(&mut app, entity);
         let mut query = app
@@ -1293,11 +1304,11 @@ mod tests {
         let mut app = app();
         let a = app
             .world_mut()
-            .spawn(DeadwoodParams::preset(DeadwoodPreset::Stick))
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::stick()))
             .id();
         let b = app
             .world_mut()
-            .spawn(DeadwoodParams::preset(DeadwoodPreset::Stick))
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::stick()))
             .id();
         run_until_finished(&mut app, a);
         run_until_finished(&mut app, b);
@@ -1314,12 +1325,53 @@ mod tests {
         assert_eq!(meshes(&mut app, a), meshes(&mut app, b));
 
         // New options rebuild.
-        let mut options = DeadwoodPreset::Stick.options();
-        options.seed = 9;
+        let mut options = DeadwoodPreset::stick().deadwood.clone();
+        options.default_seed = 9;
         *app.world_mut().get_mut::<DeadwoodParams>(a).unwrap() = DeadwoodParams::new(options);
         run_until_finished(&mut app, a);
         assert_ne!(meshes(&mut app, a), meshes(&mut app, b));
         assert_eq!(app.world().resource::<Finished>().0.len(), 3);
+    }
+
+    #[test]
+    fn preset_files_load_over_their_base() {
+        // Write a partial preset file into a fresh asset folder.
+        let dir = std::env::temp_dir().join(format!(
+            "procgena_deadwood_bevy_assets_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("short.deadwood.yml"),
+            "base: stick\ndeadwood:\n  default_seed: 9\n  bark:\n    cracks: 0.8\n",
+        )
+        .unwrap();
+
+        let mut app = app_with(AssetPlugin {
+            file_path: dir.to_string_lossy().into_owned(),
+            ..default()
+        });
+        let handle = app
+            .world()
+            .resource::<AssetServer>()
+            .load::<DeadwoodPresetAsset>("short.deadwood.yml");
+        let entity = app
+            .world_mut()
+            .spawn(DeadwoodParams::Asset(handle.clone()))
+            .id();
+        run_until_finished(&mut app, entity);
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        // Settings the file leaves out keep the base's values.
+        let mut expected = DeadwoodPreset::stick().deadwood.clone();
+        expected.default_seed = 9;
+        expected.bark.cracks = 0.8;
+        let assets = app.world().resource::<Assets<DeadwoodPresetAsset>>();
+        let preset = &assets.get(&handle).unwrap().0;
+        assert_eq!(preset.deadwood, expected);
+        assert_eq!(preset.key, "short");
+        assert!(!parts(&mut app, entity).is_empty());
+        assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
     }
 
     #[test]
@@ -1354,7 +1406,7 @@ mod tests {
         let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(6.0));
         let expected = StickScatter::new(
             &scatter,
-            &ScatterInput::new(&FlatGround, area, scatter.seed),
+            &ScatterInput::new(&FlatGround, area, scatter.default_seed),
         )
         .unwrap()
         .instances()

@@ -1,0 +1,11 @@
+# The `wheat` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Wheat
+description: Golden, dense, stiff stems with a sheen. Farmland.
+group: General
+plant_scatter:
+  ground_tint:
+    amount: 0.15
+  plants:
+  - plant: wheat

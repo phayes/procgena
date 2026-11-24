@@ -35,10 +35,10 @@ fn drawn_top(plant: &PlantParams, view_height: f32) -> (f32, f32) {
     // Centre a narrow, deep patch under the camera so every stem's top is visible.
     // Grow each plant at 15 plants per square metre, regardless of its natural density.
     let world = app.world_mut();
-    let mut fields = world.query::<&mut PlantField>();
+    let mut fields = world.query::<&mut PlantScatter>();
     let mut field = fields.single_mut(world).expect("one field");
     field.size = Vec2::new(0.6, 4.0);
-    field.plants = vec![FieldPlant::new(*plant)].into();
+    field.plants = vec![ScatterPlant::new(*plant)].into();
     field.density_scale = 15.0 / plant.density;
 
     // An orthographic camera looking along -Z at a flat background.

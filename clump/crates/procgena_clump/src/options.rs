@@ -6,14 +6,22 @@
 use std::fmt;
 
 use procgena_specimen::{SpecimenError, SurfaceError, TagFilter, TagSet, tags};
+use serde::{Deserialize, Serialize};
 
 use crate::material::{MaterialOptions, texture_set};
 
 /// Settings for one generation pass, such as a snow cap.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Start from [`Self::default()`] or a [`crate::ClumpPreset`] and edit
+/// fields, or read a `.clump.yml` file with
+/// [`crate::ClumpPreset::from_yaml`]. Assigning fields does not check them;
+/// call [`validate`](Self::validate) or build a [`crate::Clump`] to do so.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ClumpOptions {
-    /// Seed for every random choice. The same seed and settings give the same clumps.
-    pub seed: u32,
+    /// Seed for every random choice when the clump is built on its own. The
+    /// same seed and settings give the same clumps.
+    pub default_seed: u32,
     /// Directions the material arrives from, such as falling snow or wind.
     /// Each one covers the surfaces that face into it and are open toward it.
     /// Their coverage adds up, capped at full thickness, and becomes one
@@ -41,10 +49,10 @@ pub struct ClumpOptions {
 }
 
 impl Default for ClumpOptions {
-    /// The [`ClumpPreset::FreshSnowCap`](crate::ClumpPreset::FreshSnowCap) settings.
+    /// The [`ClumpPreset::fresh_snow_cap`](crate::ClumpPreset::fresh_snow_cap) settings.
     fn default() -> Self {
         Self {
-            seed: 0,
+            default_seed: 0,
             directions: vec![Direction::default()],
             scale: 1.0,
             mask: MaskOptions::default(),
@@ -69,7 +77,8 @@ impl Default for ClumpOptions {
 pub const MAX_DIRECTIONS: usize = 8;
 
 /// A direction material arrives from, and how much it contributes.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Direction {
     /// The way the material travels, in world space. `[0, -1, 0]` is falling
     /// straight down; `[1, 0, 0]` is wind blowing toward +X, which coats
@@ -105,7 +114,8 @@ impl Default for Direction {
 /// For each [`Direction`], the mask is a facing term (how directly the surface
 /// faces into the direction) times an exposure term (how open the surface is
 /// toward it), times the direction's strength. The directions' masks add up.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaskOptions {
     /// Whether clumps grow on every side of the surface, whichever way it
     /// faces. When true the facing term is 1 everywhere, so `facing_min` and
@@ -143,8 +153,10 @@ impl Default for MaskOptions {
     }
 }
 
-/// How clumps are laid out on the surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+/// How clumps are laid out on the surface. Files name them `everywhere` and
+/// `scatter`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Placement {
     /// One continuous layer over everything the mask allows, such as a snow
     /// cap or a moss carpet. This is the default.
@@ -159,7 +171,8 @@ pub enum Placement {
 /// how many.
 ///
 /// Every field except `mode` applies only to [`Placement::Scatter`].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlacementOptions {
     /// One layer, or separate clumps.
     pub mode: Placement,
@@ -192,7 +205,8 @@ impl Default for PlacementOptions {
 }
 
 /// Size and profile of the clump.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShapeOptions {
     /// Height of the clump above the surface where the mask is 1, not
     /// counting lumps. For scattered clumps, the height of a typical clump.
@@ -245,7 +259,8 @@ impl Default for ShapeOptions {
 }
 
 /// How the clump is turned into triangles.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MeshOptions {
     /// Target triangle edge length in the clump mesh, and the main setting
     /// for trading detail against triangle count and build time. Finer input
@@ -517,6 +532,90 @@ mod tests {
     #[test]
     fn defaults_are_valid() {
         ClumpOptions::default().validate().unwrap();
+    }
+
+    /// Reads the options of a `.clump.yml` file with no base.
+    fn read(text: &str) -> Result<ClumpOptions, procgena_core::preset::PresetFileError> {
+        crate::ClumpPreset::from_yaml("test", text).map(|preset| preset.clump)
+    }
+
+    #[test]
+    fn a_partial_file_keeps_nested_defaults() {
+        let options = read("clump:\n  default_seed: 7\n  placement:\n    mode: scatter\n").unwrap();
+        let mut expected = ClumpOptions {
+            default_seed: 7,
+            ..ClumpOptions::default()
+        };
+        expected.placement.mode = Placement::Scatter;
+        assert_eq!(options, expected);
+    }
+
+    #[test]
+    fn a_file_list_replaces_the_whole_list() {
+        let options = read(
+            "clump:\n  directions:\n    - { vector: [1.0, 0.0, 0.0], strength: 0.5 }\n  \
+             tags: [moss]\n  grows_on:\n    any_of: [bark]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            options.directions,
+            [Direction {
+                vector: [1.0, 0.0, 0.0],
+                strength: 0.5,
+            }]
+        );
+        assert_eq!(options.tags, [tags::MOSS].into());
+        assert_eq!(
+            options.grows_on,
+            TagFilter::any_of([tags::BARK]).excluding([tags::CARD])
+        );
+    }
+
+    #[test]
+    fn a_file_round_trips() {
+        let mut options = ClumpOptions {
+            default_seed: 12345,
+            directions: vec![Direction::DOWN, Direction::new([1.0, -0.3, 0.2])],
+            ..ClumpOptions::default()
+        };
+        options.placement.mode = Placement::Scatter;
+        options.material.texture = Some("moss_003".to_owned());
+        let preset = crate::ClumpPreset {
+            clump: options.clone(),
+            ..crate::ClumpPreset::fresh_snow_cap().clone()
+        };
+        let text = preset.to_yaml(None);
+        assert!(text.contains("mode: scatter"), "{text}");
+        assert!(text.contains("texture: moss_003"), "{text}");
+        assert_eq!(read(&text).unwrap(), options);
+    }
+
+    #[test]
+    fn a_file_rejects_unknown_names() {
+        for text in [
+            "clump:\n  name: snow\n",
+            "clump:\n  shape:\n    note: 1\n",
+            "clump:\n  directions:\n    - { vector: [0.0, -1.0, 0.0], gust: 1.0 }\n",
+            "tags: [a]\n",
+        ] {
+            assert!(read(text).is_err(), "accepted {text}");
+        }
+    }
+
+    #[test]
+    fn a_file_rejects_bad_values() {
+        for text in [
+            "clump:\n  default_seed: twelve\n",
+            "clump:\n  default_seed: -1\n",
+            "clump:\n  placement:\n    mode: everywhere_else\n",
+            "clump:\n  shape: 3\n",
+            "[1, 2]\n",
+            "clump: {default_seed: 1\n",
+            "clump:\n  shape:\n    thickness: 0.0\n",
+            "clump:\n  material:\n    texture: rock_01\n",
+        ] {
+            assert!(read(text).is_err(), "accepted {text}");
+        }
     }
 
     #[test]

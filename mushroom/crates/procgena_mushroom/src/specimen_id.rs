@@ -23,7 +23,7 @@ pub const GENERATOR_KIND: GeneratorKind = GeneratorKind::from_key(GENERATOR_KIND
 
 impl MushroomOptions {
     /// Returns the pool these options grow specimens in: mushrooms whose
-    /// options differ only in [`seed`](Self::seed) or
+    /// options differ only in [`default_seed`](Self::default_seed) or
     /// [`detail`](Self::detail) share a pool.
     pub fn pool(&self) -> PoolId {
         PoolId::new(GENERATOR_KIND, OptionsHash::of(self))
@@ -37,10 +37,10 @@ impl MushroomOptions {
 // numbers chosen here, which must never change.
 
 impl ContentHash for MushroomOptions {
-    /// Leaves out `seed` and `detail`.
+    /// Leaves out `default_seed` and `detail`.
     fn content_hash(&self, h: &mut ContentHasher) {
         let Self {
-            seed: _,
+            default_seed: _,
             size,
             cap,
             underside,

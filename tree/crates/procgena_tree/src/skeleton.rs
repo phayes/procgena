@@ -138,7 +138,7 @@ impl Skeleton {
         let branch = &options.branch;
         let mut grower = Grower {
             options,
-            rng: stream(options.seed, BRANCH_SEED),
+            rng: stream(options.default_seed, BRANCH_SEED),
             queue: VecDeque::new(),
             skeleton: Skeleton::default(),
         };
@@ -170,14 +170,14 @@ impl Skeleton {
             options,
             &fruit.placement,
             &fruit.cluster,
-            stream(options.seed, FRUIT_SEED),
+            stream(options.default_seed, FRUIT_SEED),
         );
         skeleton.flowers = grow_clusters(
             &skeleton.branches,
             options,
             &flowers.placement,
             &flowers.cluster,
-            stream(options.seed, FLOWER_SEED),
+            stream(options.default_seed, FLOWER_SEED),
         );
         Ok(skeleton)
     }
@@ -476,7 +476,7 @@ fn stem_placements(options: &TreeOptions) -> Vec<(Vec3, Quat)> {
         return vec![(Vec3::ZERO, Quat::IDENTITY)];
     }
 
-    let mut rng = stream(options.seed, STEM_SEED);
+    let mut rng = stream(options.default_seed, STEM_SEED);
     let count = branch.stems;
     let radial_offset = rng.next_f32();
     let max_tilt = branch.stem_angle.to_radians();

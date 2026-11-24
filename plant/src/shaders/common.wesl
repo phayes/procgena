@@ -318,7 +318,7 @@ fn profile_width(t: f32, profile: f32) -> f32 {
 }
 
 /// Conservative root-to-tip reach relative to stem height; 1 for unbranched plants.
-/// Twin of `fields::reach_factor`.
+/// Twin of `scatters::reach_factor`.
 fn reach_factor(field: Field) -> f32 {
     return 1.0 + field.levels[0].size.x * (1.0 + field.levels[1].size.x);
 }

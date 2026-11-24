@@ -1,0 +1,31 @@
+# The `cattail` plant preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Cattail
+description: "Tall, stiff stems with a long dark-brown head: cattail."
+group: Ground cover
+plant:
+  density: 30.0
+  height:
+  - 1.6
+  - 2.4
+  width: 0.012
+  lean: 0.04
+  root_occlusion: 0.7
+  translucency: 0.35
+  head_length: 0.16
+  head_width: 0.035
+  head_color:
+  - 0.3
+  - 0.17
+  - 0.08
+  segment:
+    stiffness: 0.85
+    root_color:
+    - 0.1
+    - 0.14
+    - 0.05
+    tip_color:
+    - 0.3
+    - 0.38
+    - 0.14

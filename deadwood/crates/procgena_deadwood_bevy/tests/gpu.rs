@@ -98,7 +98,7 @@ fn spawn_scene(app: &mut App) {
 
     // A dead branch has bark, a sawn and a snapped end, and side twigs that
     // become strips; one copy per level, midway through it.
-    let options = DeadwoodPreset::DeadBranch.options();
+    let options = DeadwoodPreset::dead_branch().deadwood.clone();
     let lod = default_lod();
     let factor = lod.factor(lod_size(&options), Quality::High);
     let mut starts: Vec<f32> = lod.levels.iter().map(|l| l.distance * factor).collect();
@@ -113,7 +113,7 @@ fn spawn_scene(app: &mut App) {
 
     // A hollow log near the camera, and kindling around it.
     app.world_mut().spawn((
-        DeadwoodParams::preset(DeadwoodPreset::HollowLog),
+        DeadwoodParams::preset(DeadwoodPreset::hollow_log()),
         Transform::from_xyz(1.0, 0.0, -1.0),
     ));
     app.world_mut().spawn(DeadwoodScatterParams {

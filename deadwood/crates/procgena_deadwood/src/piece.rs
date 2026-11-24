@@ -1,7 +1,5 @@
 //! [`Piece`]: one generated piece of dead wood, resting on the ground.
 
-use std::fmt;
-
 use crate::build::{build, visible_span};
 use crate::colour::Palette;
 use crate::decay::Decay;
@@ -11,7 +9,7 @@ use crate::limb::Limb;
 use crate::mesh::{DeadwoodMesh, Shade, build_mesh};
 use crate::options::{DeadwoodOptions, OptionsError};
 use crate::presets::DeadwoodPreset;
-use crate::settle::{Placement, settle};
+use crate::settle::{RestingPose, settle};
 
 /// A generated piece of dead wood: a log, a fallen branch or a stump.
 ///
@@ -23,50 +21,10 @@ use crate::settle::{Placement, settle};
 pub struct Piece {
     options: DeadwoodOptions,
     limbs: Vec<Limb>,
-    placement: Placement,
+    pose: RestingPose,
     decay: Decay,
     /// Every leaf card, placed on the settled stem.
     cards: Vec<Card>,
-}
-
-/// Why a piece could not be created.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum DeadwoodError {
-    /// A setting is out of range.
-    Options(OptionsError),
-    /// JSON could not be read.
-    Json(serde_json::Error),
-}
-
-impl fmt::Display for DeadwoodError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DeadwoodError::Options(e) => write!(f, "invalid deadwood options: {e}"),
-            DeadwoodError::Json(e) => write!(f, "invalid deadwood JSON: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for DeadwoodError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            DeadwoodError::Options(e) => Some(e),
-            DeadwoodError::Json(e) => Some(e),
-        }
-    }
-}
-
-impl From<OptionsError> for DeadwoodError {
-    fn from(e: OptionsError) -> Self {
-        DeadwoodError::Options(e)
-    }
-}
-
-impl From<serde_json::Error> for DeadwoodError {
-    fn from(e: serde_json::Error) -> Self {
-        DeadwoodError::Json(e)
-    }
 }
 
 impl Piece {
@@ -80,32 +38,29 @@ impl Piece {
         options.validate()?;
         let decay = Decay::new(&options);
         let mut limbs = build(&options, &decay);
-        let placement = settle(&options, &decay, &mut limbs);
+        let pose = settle(&options, &decay, &mut limbs);
         let span = visible_span(&options, &limbs[0]);
-        let cards = place(&options, &limbs[0], span, placement.burial);
+        let cards = place(&options, &limbs[0], span, pose.burial);
         Ok(Self {
             options,
             limbs,
-            placement,
+            pose,
             decay,
             cards,
         })
     }
 
-    /// Builds a piece from a preset's options. Presets are always valid, so
-    /// this cannot fail.
-    pub fn from_preset(preset: DeadwoodPreset) -> Self {
-        Self::new(preset.options()).expect("presets are valid")
-    }
-
-    /// Builds a piece from JSON options; see [`DeadwoodOptions::from_json`].
+    /// Builds a piece from a preset's settings. To adjust settings first,
+    /// clone [`DeadwoodPreset::deadwood`], edit it, and pass it to
+    /// [`Self::new`] instead.
     ///
     /// # Errors
     ///
-    /// Returns [`DeadwoodError::Json`] if the JSON can't be read and
-    /// [`DeadwoodError::Options`] if a setting is out of range.
-    pub fn from_json(json: &str) -> Result<Self, DeadwoodError> {
-        Ok(Self::new(DeadwoodOptions::from_json(json)?)?)
+    /// Returns the first invalid setting; see [`DeadwoodOptions::validate`].
+    /// Built-in presets always pass; a preset read from a file was checked
+    /// when it was read.
+    pub fn from_preset(preset: &DeadwoodPreset) -> Result<Self, OptionsError> {
+        Self::new(preset.deadwood.clone())
     }
 
     /// The options the piece was built from.
@@ -114,8 +69,8 @@ impl Piece {
     }
 
     /// Where the piece came to rest, and its suggested burial depth.
-    pub fn placement(&self) -> &Placement {
-        &self.placement
+    pub fn pose(&self) -> &RestingPose {
+        &self.pose
     }
 
     /// Number of stems: the main stem plus every stub, side branch, twig and
@@ -149,7 +104,7 @@ impl Piece {
         mesh.leaves = mesh_cards(
             &self.cards,
             &self.options.leaves,
-            self.options.seed,
+            self.options.default_seed,
             detail.leaf_share,
         );
         mesh

@@ -28,7 +28,7 @@ impl ClumpOptions {
 impl ContentHash for ClumpOptions {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
-            seed: _,
+            default_seed: _,
             directions,
             scale,
             mask,

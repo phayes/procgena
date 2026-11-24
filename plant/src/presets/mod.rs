@@ -1,21 +1,23 @@
 //! Ready-made plants and fields to use directly or customise.
 //!
-//! [`PlantPreset::all`] and [`FieldPreset::all`] list built-in presets in
+//! [`PlantPreset::all`] and [`PlantScatterPreset::all`] list built-in presets in
 //! group order; `named(key)` looks one up by its exact key. Loaded assets
 //! are separate and do not appear in these catalogues.
 //!
 //! Each group lives in its own file (`general.rs`, `seasons.rs`, ...). To add a
-//! field preset, add one entry to the block for its group:
+//! Scatter preset, add one entry to the block for its group:
 //!
 //! ```text
-//! MY_FIELD { name: "My field", description: "What it looks like." } => PlantField { /* ... */ };
+//! MY_SCATTER { name: "My scatter", description: "What it looks like." } => PlantScatter { /* ... */ };
 //! ```
 //!
 //! A plant preset is the same, with a `PlantParams` after the arrow, in a
-//! `plant_preset_group!` block. Then run `BLESS_PRESETS=1 cargo test` to write
-//! the shipped files from the constants. The group arrays, `all()`, `named()`
-//! and the embedded preset assets all come from these blocks, so no other file
-//! needs a preset list.
+//! `plant_preset_group!` block. A preset's key is its constant's name in lower
+//! case (`MY_SCATTER` is `my_scatter`). Then add its shipped file to
+//! `assets/plants` or `assets/scatters`, written with `to_yaml(None)`: a test
+//! fails until every constant has a file that reads back equal to it. The
+//! group arrays, `all()`, `named()` and the embedded preset assets all come
+//! from these blocks, so no other file needs a preset list.
 
 use std::borrow::Cow;
 
@@ -24,22 +26,23 @@ use bevy::color::Color;
 use bevy::math::Vec2;
 use bevy::reflect::Reflect;
 
-use crate::api::{PlantField, PlantGround};
+use crate::api::{PlantGround, PlantScatter};
 use crate::look::{
-    FieldPlant, GroundTint, PlantAccent, PlantArrangement, PlantBranches, PlantParams,
-    PlantSegment, PlantVariation,
+    GroundTint, PlantAccent, PlantArrangement, PlantBranches, PlantParams, PlantSegment,
+    PlantVariation, ScatterPlant,
 };
 
 /// A named plant preset, ready to add to a field.
 ///
 /// Every built-in plant is a constant here and on [`PlantParams`], with the same
 /// name: `PlantPreset::FERN.plant == PlantParams::FERN`. Mix them into a field
-/// with [`FieldPlant::new`]. A `.plant.ron` file loads as one of these, keyed
-/// by its filename without the `.plant.ron` extension.
+/// with [`ScatterPlant::new`]. A `.plant.yml` file loads as one of these, keyed
+/// by its filename without the `.plant.yml` extension.
 #[derive(Asset, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Debug, PartialEq)]
 pub struct PlantPreset {
-    /// The constant's name, such as `"FERN"`, or a loaded file's stem.
+    /// The constant's name in lower case, such as `"fern"`, or a loaded
+    /// file's name without its extension.
     pub key: Cow<'static, str>,
     /// A short display name, such as `"Fern"`.
     pub name: Cow<'static, str>,
@@ -52,29 +55,55 @@ pub struct PlantPreset {
     pub plant: PlantParams,
 }
 
-/// A named, ready-made field: its plants, density, variation and colours.
+/// A named, ready-made [`PlantScatter`]: its plants, density, variation and
+/// colours.
 ///
-/// Spawn one with [`PlantField::from_preset`], which gives it a size. The
-/// built-in preset's field has size 0, flat ground and no density map. A
-/// `.field.ron` file loads as one of these, keyed by its filename without
-/// that extension.
+/// Spawn one with [`PlantScatter::from_preset`], which gives it a size. The
+/// built-in preset's Scatter has size 0, flat ground and no density map. A
+/// `.plant_scatter.yml` file loads as one of these, keyed by its filename
+/// without that extension.
 #[derive(Asset, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Debug, PartialEq)]
-pub struct FieldPreset {
-    /// The constant's name, such as `"MEADOW"`, or a loaded file's stem.
+pub struct PlantScatterPreset {
+    /// The constant's name in lower case, such as `"meadow"`, or a loaded
+    /// file's name without its extension.
     pub key: Cow<'static, str>,
     /// A short display name, such as `"Meadow"`.
     pub name: Cow<'static, str>,
-    /// What the field looks like, in a sentence or two.
+    /// What the Scatter looks like, in a sentence or two.
     pub description: Cow<'static, str>,
     /// The group it is listed under, such as `"General"`, or `"File"` for a
     /// loaded file.
     pub group: Cow<'static, str>,
-    /// The field, with size 0.
-    pub field: PlantField,
+    /// The Scatter, with size 0.
+    pub plant_scatter: PlantScatter,
 }
 
-/// Declares field presets and their catalogue group from one list.
+/// The ASCII lower-case bytes of `name`, which must be `N` bytes long: a
+/// preset constant's name made into its key.
+const fn lower_case<const N: usize>(name: &str) -> [u8; N] {
+    let bytes = name.as_bytes();
+    let mut lower = [0; N];
+    let mut i = 0;
+    while i < N {
+        lower[i] = bytes[i].to_ascii_lowercase();
+        i += 1;
+    }
+    lower
+}
+
+/// The key of the preset constant named `$name`: the name in lower case.
+macro_rules! preset_key {
+    ($name:ident) => {{
+        const KEY: [u8; stringify!($name).len()] = crate::presets::lower_case(stringify!($name));
+        match std::str::from_utf8(&KEY) {
+            Ok(key) => key,
+            Err(_) => panic!("a constant's name is ASCII"),
+        }
+    }};
+}
+
+/// Declares Scatter presets and their catalogue group from one list.
 /// The description also supplies each constant's rustdoc, so it must stay
 /// in sync with the shipped preset files.
 macro_rules! preset_group {
@@ -87,15 +116,15 @@ macro_rules! preset_group {
             )*
         }
     ) => {
-        impl FieldPreset {
+        impl PlantScatterPreset {
             $(
                 #[doc = $description]
                 pub const $key: Self = Self {
-                    key: Cow::Borrowed(stringify!($key)),
+                    key: Cow::Borrowed(preset_key!($key)),
                     name: Cow::Borrowed($name),
                     description: Cow::Borrowed($description),
                     group: Cow::Borrowed($group_name),
-                    field: $value,
+                    plant_scatter: $value,
                 };
             )*
 
@@ -105,7 +134,7 @@ macro_rules! preset_group {
             ];
         }
 
-        pub(crate) const PRESETS: &[FieldPreset] = &FieldPreset::$group;
+        pub(crate) const PRESETS: &[PlantScatterPreset] = &PlantScatterPreset::$group;
     };
     (@count) => { 0 };
     (@count $head:ident $($tail:ident)*) => {
@@ -136,7 +165,7 @@ macro_rules! plant_preset_group {
             $(
                 #[doc = $description]
                 pub const $key: Self = Self {
-                    key: Cow::Borrowed(stringify!($key)),
+                    key: Cow::Borrowed(preset_key!($key)),
                     name: Cow::Borrowed($name),
                     description: Cow::Borrowed($description),
                     group: Cow::Borrowed($group_name),
@@ -166,8 +195,8 @@ mod toon;
 mod understory;
 mod wild;
 
-impl FieldPreset {
-    /// Built-in field presets grouped for browsing.
+impl PlantScatterPreset {
+    /// Built-in Scatter presets grouped for browsing.
     ///
     /// Groups and their presets appear in the same order as [`Self::all`].
     pub const GROUPS: &'static [&'static [Self]] = &[
@@ -182,16 +211,16 @@ impl FieldPreset {
         toon::PRESETS,
     ];
 
-    /// Lists every built-in field preset in group order.
+    /// Lists every built-in Scatter preset in group order.
     ///
     /// Uses [`Self::GROUPS`]. Presets loaded from files are not included.
     pub fn all() -> impl Iterator<Item = &'static Self> {
         Self::GROUPS.iter().flat_map(|group| group.iter())
     }
 
-    /// Finds a built-in field preset by its exact key.
+    /// Finds a built-in Scatter preset by its exact key.
     ///
-    /// For example, `"MEADOW"` matches; a display name or lower-case spelling
+    /// For example, `"meadow"` matches; a display name or upper-case spelling
     /// does not. Returns `None` for unknown keys, including loaded file assets.
     #[must_use]
     pub fn named(key: &str) -> Option<&'static Self> {
@@ -219,7 +248,7 @@ impl PlantPreset {
 
     /// Finds a built-in plant preset by its exact key.
     ///
-    /// For example, `"FERN"` matches; a display name or lower-case spelling
+    /// For example, `"fern"` matches; a display name or upper-case spelling
     /// does not. Returns `None` for unknown keys, including loaded file assets.
     #[must_use]
     pub fn named(key: &str) -> Option<&'static Self> {
@@ -227,12 +256,13 @@ impl PlantPreset {
     }
 }
 
-/// A field preset's settings that most presets share: size 0, flat ground, no
-/// density map and full wind.
-const FIELD_BASE: PlantField = PlantField {
+/// A Scatter preset's settings that most presets share: size 0, flat ground,
+/// no density map, full wind and seed 0.
+const SCATTER_BASE: PlantScatter = PlantScatter {
     size: Vec2::ZERO,
     ground: PlantGround::Flat,
     density_map: None,
+    default_seed: 0,
     wind_scale: 1.0,
     plants: Cow::Borrowed(&[]),
     density_scale: 1.0,

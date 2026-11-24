@@ -7,16 +7,16 @@ use crate::params::{Group, Section, number, toggle};
 /// Key for Field Size, which controls the preview area on both plant tabs.
 const FIELD_SIZE: &str = "fieldSize";
 
-/// Key for Grove Size, which controls the ground the Tree Grove tab's grove
-/// grows on.
+/// Key for Scatter Size, which controls the ground the Tree Scatter tab's
+/// trees grow on.
 const GROVE_SIZE: &str = "groveSize";
 
 /// Key for the Wind switch.
 const WIND: &str = "wind";
 
 /// Lists shared environment controls that do not apply to the selected tab.
-/// Field Size shows only on the plant tabs and Grove Size only on the Tree
-/// Grove tab, since each sizes only that tab's preview. Wind is hidden on
+/// Field Size shows only on the plant tabs and Scatter Size only on the Tree
+/// Scatter tab, since each sizes only that tab's preview. Wind is hidden on
 /// Clumps, which always shows still air.
 pub fn hidden_keys(mode: SceneMode) -> &'static [&'static str] {
     match mode {
@@ -64,7 +64,7 @@ pub fn sections() -> Vec<Section<EnvironmentSettings>> {
             number!(
                 EnvironmentSettings,
                 GROVE_SIZE,
-                "Grove Size",
+                "Scatter Size",
                 (crate::grove::SIZE_RANGE.0, crate::grove::SIZE_RANGE.1, 1.0),
                 |e| e.grove_size
             )

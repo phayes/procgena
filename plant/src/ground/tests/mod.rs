@@ -8,7 +8,7 @@ use bevy::prelude::Plane3d;
 use bevy::transform::components::{GlobalTransform, Transform};
 
 use super::*;
-use crate::fields::{FieldTables, plugin};
+use crate::scatters::{FieldTables, plugin};
 
 /// A square of `size` centred on the origin, rising from 0 at −X to
 /// `rise` at +X: its height at `x` is `rise * (x / size.x + 0.5)`.
@@ -162,7 +162,7 @@ fn app() -> App {
 fn spawn(app: &mut App, ground: PlantGround, transform: Transform) -> Entity {
     app.world_mut()
         .spawn((
-            PlantField {
+            PlantScatter {
                 size: Vec2::splat(32.0),
                 ground,
                 ..Default::default()
@@ -233,7 +233,10 @@ fn a_field_on_a_mesh_stands_on_it_and_is_baked_again_only_when_the_mesh_changes(
     assert!((tables.chunks[1].bounds.w - 4.0).abs() < 0.2);
 
     // So is a new cell size.
-    app.world_mut().get_mut::<PlantField>(field).unwrap().ground = PlantGround::Mesh {
+    app.world_mut()
+        .get_mut::<PlantScatter>(field)
+        .unwrap()
+        .ground = PlantGround::Mesh {
         mesh: hill,
         cell_size: 1.0,
     };
@@ -241,7 +244,10 @@ fn a_field_on_a_mesh_stands_on_it_and_is_baked_again_only_when_the_mesh_changes(
     assert_eq!(tables.fields[0].map_sizes.zw(), UVec2::splat(32));
 
     // A field off the mesh lets its bake go.
-    app.world_mut().get_mut::<PlantField>(field).unwrap().ground = PlantGround::Flat;
+    app.world_mut()
+        .get_mut::<PlantScatter>(field)
+        .unwrap()
+        .ground = PlantGround::Flat;
     let tables = update(&mut app);
     assert_eq!(bakes(&app), 0);
     assert!(tables.heights.is_empty());

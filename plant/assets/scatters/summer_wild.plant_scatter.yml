@@ -1,0 +1,138 @@
+# The `summer_wild` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Summer wild
+description: "Summer grass gone wild: tufts and bare spots, blades that twist and droop, yellower patches, dry tips, seed heads, broad leaves and a few flowers."
+group: Wild
+plant_scatter:
+  variation:
+    patch_color:
+    - 0.56
+    - 0.58
+    - 0.22
+    patch_amount: 0.45
+    dry_tips: 0.2
+    dead_share: 0.04
+    bare_share: 0.06
+  ground_tint:
+    amount: 0.0
+  plants:
+  - plant: seed_heads
+    density_scale: 0.1
+    clustering: 0.3
+  - plant: broad_leaf
+    density_scale: 0.12
+    clustering: 0.6
+  - plant: white_flowers
+    density_scale: 0.04
+    clustering: 0.8
+  - plant: yellow_flowers
+    density_scale: 0.02
+    clustering: 0.8
+  - plant:
+      default_seed: 0
+      density: 31.6
+      height:
+      - 0.7
+      - 1.3
+      width: 0.04
+      lean: 0.2
+      stems_per_plant: 1
+      root_occlusion: 0.65
+      translucency: 0.6
+      specular: 0.0
+      head_length: 0.0
+      head_width: 0.03
+      head_color:
+      - 0.85
+      - 0.8
+      - 0.6
+      tufts: 0.35
+      tuft_size: 0.6
+      segment:
+        profile: 0.0
+        stiffness: 0.25
+        droop: 0.25
+        twist: 0.15
+        fold: 0.3
+        root_color:
+        - 0.05
+        - 0.11
+        - 0.03
+        tip_color:
+        - 0.34
+        - 0.56
+        - 0.14
+      levels:
+      - count: 0
+        arrangement: opposite
+        attachment_start: 0.0
+        length: 0.0
+        length_envelope: 0.5
+        width: 0.0
+        angle: 0.0
+        spread: 0.0
+        segment:
+          profile: 0.0
+          stiffness: 0.5
+          droop: 0.0
+          twist: 0.0
+          fold: 0.0
+          root_color:
+          - 0.06
+          - 0.13
+          - 0.03
+          tip_color:
+          - 0.38
+          - 0.55
+          - 0.16
+      - count: 0
+        arrangement: opposite
+        attachment_start: 0.0
+        length: 0.0
+        length_envelope: 0.5
+        width: 0.0
+        angle: 0.0
+        spread: 0.0
+        segment:
+          profile: 0.0
+          stiffness: 0.5
+          droop: 0.0
+          twist: 0.0
+          fold: 0.0
+          root_color:
+          - 0.06
+          - 0.13
+          - 0.03
+          tip_color:
+          - 0.38
+          - 0.55
+          - 0.16
+      accent:
+        share: 0.0
+        height:
+        - 0.3
+        - 0.6
+        width: 0.02
+        lean: 0.15
+        translucency: 0.6
+        head_length: 0.0
+        head_width: 0.03
+        head_color:
+        - 0.85
+        - 0.8
+        - 0.6
+        segment:
+          profile: 0.0
+          stiffness: 0.3
+          droop: 0.0
+          twist: 0.0
+          fold: 0.0
+          root_color:
+          - 0.06
+          - 0.13
+          - 0.03
+          tip_color:
+          - 0.38
+          - 0.55
+          - 0.16

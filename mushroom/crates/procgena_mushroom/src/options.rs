@@ -1,8 +1,8 @@
 //! Settings for a mushroom's shape, colours, grouping and mesh detail.
 //!
 //! Start with [`MushroomOptions::default()`], a [`crate::MushroomPreset`], or
-//! a partial JSON object loaded with [`MushroomOptions::from_json`]. Creating
-//! a [`crate::Mushroom`] validates the settings; call
+//! a `.mushroom.yml` file read with [`crate::MushroomPreset::from_yaml`].
+//! Creating a [`crate::Mushroom`] validates the settings; call
 //! [`MushroomOptions::validate`] to check edits before that.
 
 use std::fmt;
@@ -34,20 +34,21 @@ pub const MAX_SEGMENTS: u32 = 256;
 /// multiples of the cap or stem, as each field says, so a mushroom keeps its
 /// proportions when you change its size.
 ///
-/// Setting fields or parsing JSON does not check the values. Call
+/// Setting fields does not check the values. Call
 /// [`validate`](Self::validate), or create a [`crate::Mushroom`], which
 /// checks them for you.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MushroomOptions {
-    /// Number that picks the random details: surface bumps, rim waves, wart
-    /// positions, the annulus's ragged edge, and where the members of a
-    /// cluster stand. The same seed and settings always give the same
-    /// mushroom; change it for a variation.
+    /// Number that picks the random details of a mushroom built on its own:
+    /// surface bumps, rim waves, wart positions, the annulus's ragged edge,
+    /// and where the members of a cluster stand. The same seed and settings
+    /// always give the same mushroom; change it for a variation.
     ///
     /// It is left out of the options hash ([`pool`](Self::pool)). A
     /// [`crate::MushroomScatter`] doesn't use it: its variants are seeded
     /// from their specimen ids.
-    pub seed: u32,
+    pub default_seed: u32,
     /// Cap diameter in metres. Must be positive. Defaults to 0.08 (8 cm).
     pub size: f32,
     /// Cap outline and surface.
@@ -73,6 +74,7 @@ pub struct MushroomOptions {
 
 /// Settings for the cap's outline and surface.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapOptions {
     /// Side-view outline, such as a rounded dome or a funnel.
     pub family: CapFamily,
@@ -105,6 +107,7 @@ pub struct CapOptions {
 /// The underside is only built at solid detail levels; open levels show the
 /// cap's top surface alone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UndersideOptions {
     /// Thickness of the cap at its rim, as a fraction of the cap radius,
     /// from 0 through 0.5. 0 lets the underside meet the top in a sharp edge.
@@ -123,6 +126,7 @@ pub struct UndersideOptions {
 /// Settings for the stem above the ground. Its foot is set by
 /// [`BulbOptions`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StemOptions {
     /// Stem height as a multiple of the cap diameter. Must be positive.
     pub height: f32,
@@ -164,6 +168,7 @@ pub struct StemOptions {
 /// hangs below it, so a mushroom placed on a surface looks rooted, and one
 /// lifted off the ground has no hole underneath.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BulbOptions {
     /// Whether the stem is closed underneath by a rounded bottom below the
     /// ground. Turn it off for mushrooms planted in a landscape, where the
@@ -189,6 +194,7 @@ pub struct BulbOptions {
 /// The annulus is built as a single sheet with no thickness, so it is cheap
 /// and never closed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnnulusOptions {
     /// Whether the mushroom has an annulus.
     pub enabled: bool,
@@ -213,6 +219,7 @@ pub struct AnnulusOptions {
 /// by [`crate::export`], meshes paint them into the cap's vertex colours;
 /// see [`MushroomDetail::paint_warts`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WartOptions {
     /// Roughly how many warts cover the cap, from 0 (none) up to
     /// [`MAX_WARTS`]. Warts never overlap, so fewer may fit on a small or
@@ -239,6 +246,7 @@ pub struct WartOptions {
 /// multiply with any texture. Gill lines, warts and the cap pattern are not
 /// in the mesh: a renderer such as `procgena_mushroom_bevy` draws them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialOptions {
     /// Cap colour at the top centre.
     pub cap_centre: String,
@@ -320,7 +328,7 @@ pub enum Pattern {
 impl Default for MushroomOptions {
     fn default() -> Self {
         Self {
-            seed: 1,
+            default_seed: 1,
             size: 0.08,
             cap: CapOptions::default(),
             underside: UndersideOptions::default(),
@@ -440,7 +448,7 @@ impl Default for MaterialOptions {
 /// A setting with a value outside its allowed range.
 ///
 /// Every variant names the setting by its path in the options, such as
-/// `"cap.lobes"`, so you can show it to a user or find it in a JSON file.
+/// `"cap.lobes"`, so you can show it to a user or find it in a preset file.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum OptionsError {
@@ -652,32 +660,6 @@ impl MushroomOptions {
         self.detail.validate()
     }
 
-    /// Reads options from JSON, using the default for every setting the JSON
-    /// leaves out.
-    ///
-    /// Nested objects may also be partial: `{"seed": 7, "cap": {"lobes": 5}}`
-    /// changes only those two settings. Names this crate doesn't know, such
-    /// as misspellings, are ignored and the setting keeps its default.
-    /// Values are not range-checked here; call [`validate`](Self::validate).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for malformed JSON, JSON that is not an object, or a
-    /// value of the wrong type, such as `{"seed": "12"}`. `null` does not
-    /// mean "use the default" and is rejected for numbers.
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        let source: serde_json::Value = serde_json::from_str(json)?;
-        let mut merged = serde_json::to_value(Self::default())?;
-        merge_json(&mut merged, source);
-        serde_json::from_value(merged)
-    }
-
-    /// Returns every setting, including those at their defaults, as indented
-    /// JSON that [`from_json`](Self::from_json) reads back.
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("mushroom options always serialize to JSON")
-    }
-
     /// Cap radius in metres: half of [`size`](Self::size).
     pub fn cap_radius(&self) -> f32 {
         self.size * 0.5
@@ -713,25 +695,6 @@ impl MushroomOptions {
             .map(|&[r, y]| Vec2::new(r, y * self.cap.height))
             .collect();
         Profile::new(&points, sharp).length() * self.cap_radius()
-    }
-}
-
-/// Copies supplied JSON values over the defaults in `target`. Objects merge
-/// recursively; arrays and other values replace the whole slot.
-fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
-    use serde_json::Value;
-    match (target, source) {
-        (Value::Object(target), Value::Object(source)) => {
-            for (key, value) in source {
-                match target.get_mut(&key) {
-                    Some(slot) => merge_json(slot, value),
-                    None => {
-                        target.insert(key, value);
-                    }
-                }
-            }
-        }
-        (target, source) => *target = source,
     }
 }
 

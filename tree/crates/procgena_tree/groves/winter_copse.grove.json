@@ -1,7 +1,0 @@
-{
-  "seed": 8,
-  "trees": [
-    { "tree": "spring_pussy_willow", "densityScale": 0.1, "clustering": 0.5 },
-    { "tree": "winter_thicket", "densityScale": 0.8 }
-  ]
-}

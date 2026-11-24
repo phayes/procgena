@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FieldPlant, FieldPreset, GroundTint, PlantArrangement, PlantBranches, PlantField,
-    PlantParams, PlantPreset, PlantSegment, PlantVariation, Vec2,
+    Color, Cow, GroundTint, PlantArrangement, PlantBranches, PlantParams, PlantPreset,
+    PlantScatter, PlantScatterPreset, PlantSegment, PlantVariation, ScatterPlant, Vec2,
 };
 
 // Each matching field preset grows the named plant in clumps, with moss
@@ -446,31 +446,33 @@ UNDERSTORY "Understory" {
 }
 
 /// Clusters a plant among the moss, at `density_scale` of its own density.
-const fn over_moss(plant: &PlantParams, density_scale: f32) -> FieldPlant {
-    FieldPlant::new(*plant).scaled(density_scale).clustered(0.6)
+const fn over_moss(plant: &PlantParams, density_scale: f32) -> ScatterPlant {
+    ScatterPlant::new(*plant)
+        .scaled(density_scale)
+        .clustered(0.6)
 }
 
 /// Moss under shrubs: 120 plants per square metre, sparser than a moss
 /// carpet, clustered to leave gaps for the plant listed after it.
-const fn moss_around(clustering: f32) -> FieldPlant {
-    FieldPlant::new(PlantParams::MOSS)
+const fn moss_around(clustering: f32) -> ScatterPlant {
+    ScatterPlant::new(PlantParams::MOSS)
         .scaled(0.6)
         .clustered(clustering)
 }
 
 /// A moss base with bare patches, shared by the understory presets, leaving
 /// room for larger plants.
-const UNDER_MOSS: PlantField = PlantField {
+const UNDER_MOSS: PlantScatter = PlantScatter {
     density_scale: 1.0,
     variation: PlantVariation {
         bare_share: 0.12,
-        ..FieldPreset::FOREST_MOSS.field.variation
+        ..PlantScatterPreset::FOREST_MOSS.plant_scatter.variation
     },
     ground_tint: GroundTint {
         amount: 0.4,
-        ..FieldPreset::FOREST_MOSS.field.ground_tint
+        ..PlantScatterPreset::FOREST_MOSS.plant_scatter.ground_tint
     },
-    ..FieldPreset::FOREST_MOSS.field
+    ..PlantScatterPreset::FOREST_MOSS.plant_scatter
 };
 
 preset_group! {
@@ -482,11 +484,11 @@ UNDERSTORY "Understory" {
         name: "Salal",
         description: "Salal thickets above moss.\n\n\
                       Glossy leaves form dense clumps among the ground cover.",
-    } => PlantField {
+    } => PlantScatter {
         // Moss fills the gaps between salal clumps.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(PlantParams::SALAL),
+            ScatterPlant::new(PlantParams::SALAL),
         ]),
         ..UNDER_MOSS
     };
@@ -494,11 +496,11 @@ UNDERSTORY "Understory" {
         name: "Saplings",
         description: "Scattered young trees above moss.\n\n\
                       Sparse sapling clumps leave the ground cover visible.",
-    } => PlantField {
+    } => PlantScatter {
         // Mostly moss, with small groups of young trees.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(PlantParams::SAPLING),
+            ScatterPlant::new(PlantParams::SAPLING),
         ]),
         ..UNDER_MOSS
     };
@@ -506,11 +508,11 @@ UNDERSTORY "Understory" {
         name: "Huckleberry",
         description: "Airy red huckleberry bushes above moss.\n\n\
                       Loose clumps add taller foliage without hiding all the ground cover.",
-    } => PlantField {
+    } => PlantScatter {
         // Moss leaves room for sparse groups of huckleberry bushes.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(PlantParams::HUCKLEBERRY),
+            ScatterPlant::new(PlantParams::HUCKLEBERRY),
         ]),
         ..UNDER_MOSS
     };
@@ -518,11 +520,11 @@ UNDERSTORY "Understory" {
         name: "Oregon grape",
         description: "Low Oregon grape patches above moss.\n\n\
                       Glossy, paired leaflets form broad clumps close to the ground.",
-    } => PlantField {
+    } => PlantScatter {
         // Moss grows between patches of low Oregon grape shrubs.
         plants: Cow::Borrowed(&[
             moss_around(0.6),
-            FieldPlant::new(PlantParams::OREGON_GRAPE),
+            ScatterPlant::new(PlantParams::OREGON_GRAPE),
         ]),
         ..UNDER_MOSS
     };
@@ -530,11 +532,11 @@ UNDERSTORY "Understory" {
         name: "Nettles",
         description: "Dense nettle beds above moss.\n\n\
                       Strong clustering leaves gaps between groups of upright stems.",
-    } => PlantField {
+    } => PlantScatter {
         // Strong clustering gathers nettles into beds, with moss between them.
         plants: Cow::Borrowed(&[
             moss_around(0.85),
-            FieldPlant::new(PlantParams::NETTLE),
+            ScatterPlant::new(PlantParams::NETTLE),
         ]),
         ..UNDER_MOSS
     };
@@ -542,11 +544,11 @@ UNDERSTORY "Understory" {
         name: "Mature bracken",
         description: "Loose stands of head-high bracken above moss.\n\n\
                       Broad fronds provide a tall layer of forest ground cover.",
-    } => PlantField {
+    } => PlantScatter {
         // Moss surrounds loose groups of tall bracken ferns.
         plants: Cow::Borrowed(&[
             moss_around(0.5),
-            FieldPlant::new(PlantParams::MATURE_BRACKEN),
+            ScatterPlant::new(PlantParams::MATURE_BRACKEN),
         ]),
         ..UNDER_MOSS
     };
@@ -555,11 +557,11 @@ UNDERSTORY "Understory" {
         description: "Bramble thickets of arching canes above moss.\n\n\
                       Canes loop out from each crown and back into the ground, in tangled \
                       clumps.",
-    } => PlantField {
+    } => PlantScatter {
         // Widely spaced bramble plants spread their arching stems over the moss.
         plants: Cow::Borrowed(&[
             moss_around(0.75),
-            FieldPlant::new(PlantParams::BRAMBLE),
+            ScatterPlant::new(PlantParams::BRAMBLE),
         ]),
         ..UNDER_MOSS
     };
@@ -568,7 +570,7 @@ UNDERSTORY "Understory" {
         description: "Mixed forest shrubs and ferns above moss and fallen leaves.\n\n\
                       Combines all understory plants in clumps, with leaf litter between \
                       them.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
             // Together about 3 shrubs and ferns per square metre before thinning.
             over_moss(&PlantParams::FERN, 0.3),
@@ -578,10 +580,10 @@ UNDERSTORY "Understory" {
             over_moss(&PlantParams::SAPLING, 0.4),
             over_moss(&PlantParams::MATURE_BRACKEN, 0.1),
             over_moss(&PlantParams::NETTLE, 0.1),
-            FieldPlant::new(PlantParams::LEAF_LITTER)
+            ScatterPlant::new(PlantParams::LEAF_LITTER)
                 .scaled(0.25)
                 .clustered(0.35),
-            FieldPlant::new(PlantParams::MOSS).scaled(0.55),
+            ScatterPlant::new(PlantParams::MOSS).scaled(0.55),
         ]),
         ..UNDER_MOSS
     };

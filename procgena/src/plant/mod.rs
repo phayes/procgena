@@ -1,33 +1,52 @@
-//! Edit one plant independently of the Plant Field tab's plant mix.
+//! Edit one plant independently of the Plant Scatter tab's plant mix.
 //!
 //! Start from a preset or load a file, then adjust the plant's settings.
-//! The same controls also customise individual plants in the Plant Field tab.
+//! The same controls also customise individual plants in the Plant Scatter tab.
 
 pub mod editor;
 pub mod params;
 
-use procgena_plant::prelude::PlantParams;
+use std::borrow::Cow;
+use std::path::Path;
+
+use procgena_core::preset::FILE_GROUP;
+use procgena_plant::prelude::{PlantParams, PlantPreset};
+
+use crate::export::{Done, file_key, shown_name, write_file};
 
 /// The plant preset shown when the app starts, by its key.
-pub const START_PRESET: &str = "MEADOW_GRASS";
+pub const START_PRESET: &str = "meadow_grass";
 
-/// Reads a plant from a saved file's text.
+/// Reads a plant from the text of a `.plant.yml` preset file.
 ///
-/// Text beginning with `{` is read as JSON; everything else is read as RON.
-/// Returns a readable error if parsing or validation fails.
+/// Returns a readable error if the text is not a plant file or a setting is
+/// out of range.
 pub fn read_plant(text: &str) -> Result<PlantParams, String> {
-    let read = if text.trim_start().starts_with('{') {
-        PlantParams::from_json(text)
-    } else {
-        PlantParams::from_ron(text)
+    PlantParams::from_yaml(text).map_err(|error| format!("Not a plant: {error}"))
+}
+
+/// Writes `plant` to `path` as a `.plant.yml` preset file that names `base`
+/// as its base and holds only the settings that differ from it. The file's
+/// name is its key, as [`file_key`] reads it.
+pub fn save_plant_preset(
+    plant: PlantParams,
+    base: &PlantPreset,
+    path: &Path,
+) -> Result<Done, String> {
+    let key = file_key(path, "plant");
+    let preset = PlantPreset {
+        key: Cow::Owned(key.clone()),
+        name: Cow::Owned(key),
+        description: Cow::Borrowed(""),
+        group: Cow::Borrowed(FILE_GROUP),
+        plant,
     };
-    read.map_err(|error| format!("Not a plant: {error}"))
+    write_file(path, preset.to_yaml(Some(base)).as_bytes())?;
+    Ok(Done::new(format!("Saved {}", shown_name(path))))
 }
 
 #[cfg(test)]
 mod tests {
-    use procgena_plant::prelude::PlantPreset;
-
     use super::*;
 
     #[test]
@@ -41,10 +60,11 @@ mod tests {
     }
 
     #[test]
-    fn plants_are_read_from_ron_or_json() {
+    fn plants_are_read_from_preset_files() {
         let plant = PlantParams::CLOVER;
-        assert_eq!(read_plant(&plant.to_ron()), Ok(plant));
-        assert_eq!(read_plant(&plant.to_json()), Ok(plant));
+        assert_eq!(read_plant(&plant.to_yaml()), Ok(plant));
+        let based = PlantPreset::CLOVER.to_yaml(Some(&PlantPreset::FERN));
+        assert_eq!(read_plant(&based), Ok(plant));
         assert!(read_plant("not a plant").is_err());
     }
 }

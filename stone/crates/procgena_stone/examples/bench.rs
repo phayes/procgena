@@ -28,7 +28,7 @@ fn main() {
             let mut triangles = 0;
             for seed in SEEDS {
                 let options = StoneOptions {
-                    seed,
+                    default_seed: seed,
                     ..StoneOptions::default()
                 };
                 let field = StoneField::new(&options).expect("default options are valid");

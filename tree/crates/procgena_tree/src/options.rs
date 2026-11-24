@@ -1,8 +1,7 @@
 //! Settings for tree shape, leaves, bark, and guide wires for branch growth.
 //!
-//! Use [`TreeOptions::default()`] as a starting point, or load a full or partial
-//! ez-tree JSON object with [`TreeOptions::from_json`]. JSON support is always
-//! available; no Cargo feature is needed.
+//! Use [`TreeOptions::default()`] or a [`crate::TreePreset`] as a starting
+//! point, or read a `.tree.yml` file with [`crate::TreePreset::from_yaml`].
 
 use std::fmt;
 use std::ops::{Index, IndexMut};
@@ -19,22 +18,19 @@ pub const MAX_LEVELS: u32 = 3;
 /// example, `options.branch.length[0] = 1.2` sets the trunk length to 1.2 metres.
 /// All lengths are in metres. These settings do not generate or draw a tree yet.
 ///
-/// Use [`from_json`](Self::from_json) to load JSON in ez-tree's format that may
-/// omit settings. Lengths are read as metres, so ez-tree's own files, which use
-/// a unit of about 10 cm, give trees 10 times too large:
-/// missing fields, including nested fields, keep their defaults. Deserializing
-/// directly with serde requires every field. Use [`to_json`](Self::to_json) to
-/// write all settings as JSON.
+/// The settings follow ez-tree's, written in snake case. Deserializing
+/// directly with serde requires every field; a `.tree.yml` preset file read
+/// with [`crate::TreePreset::from_yaml`] gives only what differs from a base.
 ///
 /// Bark and leaf texture identifiers are included, but texture objects are not.
 /// Applications must supply the textures themselves.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct TreeOptions {
-    /// Starting value for repeatable random choices. Change it to request a
-    /// different tree shape while keeping the other settings.
-    #[serde(deserialize_with = "deserialize_js_int32")]
-    pub seed: i32,
+    /// Starting value for repeatable random choices when the tree is built
+    /// on its own. Change it to request a different tree shape while keeping
+    /// the other settings. A tree in a Scatter takes its seed from there.
+    pub default_seed: i32,
     /// Branching style: broadleaf or conifer-like.
     #[serde(rename = "type")]
     pub tree_type: TreeType,
@@ -97,9 +93,9 @@ pub enum BarkUvMode {
 /// level. For example, `options.branch.length[0]` is the trunk length, and
 /// `options.branch.length[1]` is the length setting for branches on the trunk.
 ///
-/// JSON uses an object such as `{"0":20,"1":20,"2":10,"3":1}`, rather than an
-/// array. Direct serde deserialization requires all four keys. When loading
-/// options with [`TreeOptions::from_json`], omitted levels keep their defaults.
+/// Files use a map such as `{"0": 20, "1": 20, "2": 10, "3": 1}`, rather than
+/// a list. Direct serde deserialization requires all four keys. In a
+/// `.tree.yml` preset file, omitted levels keep their base's values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct PerLevel<T>(pub [T; 4]);
 
@@ -125,7 +121,7 @@ impl<T> IndexMut<usize> for PerLevel<T> {
 
 /// Colour, shading, and texture settings for the trunk and branches.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct BarkOptions {
     /// Texture-set identifier, such as `"Bark001"`, for the application to resolve.
     /// Setting this field does not load any textures.
@@ -155,7 +151,7 @@ pub struct BarkOptions {
 /// up to [`levels`](Self::levels). Entries for unused levels have no effect.
 /// With more than one [`stems`](Self::stems), every stem is a level-0 trunk.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct BranchOptions {
     /// Number of branching steps above the trunk: 0 means trunk only.
     /// Must not exceed [`MAX_LEVELS`]; checked by [`TreeOptions::validate`].
@@ -226,7 +222,7 @@ pub struct GrowthForce {
 
 /// Settings for where leaves appear and how they are drawn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct LeafOptions {
     /// Texture identifier, such as `"oak"`, for the application to resolve.
     /// Setting this field does not load a texture.
@@ -266,7 +262,7 @@ pub struct LeafOptions {
 
 /// A flat grid of guide wires that can bend nearby branches toward it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct TrellisOptions {
     /// Enable the trellis influence on branch growth.
     pub enabled: bool,
@@ -291,7 +287,7 @@ pub struct TrellisOptions {
 
 /// Settings for the pull toward the nearest trellis wire.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct TrellisForce {
     /// Base strength of the pull; zero disables it.
     pub strength: f32,
@@ -310,7 +306,7 @@ pub struct TrellisForce {
 /// can hold one or several items. Shape, maturity, and cluster stalk colour
 /// control the resulting surfaces.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct FruitOptions {
     /// Where fruit grow, how many clusters appear, and their size and direction.
     pub placement: ClusterPlacement,
@@ -333,7 +329,7 @@ pub struct FruitOptions {
 /// can hold one or several items. Shape, maturity, and cluster stalk colour
 /// control the resulting surfaces.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct FlowerOptions {
     /// Where flowers grow, how many clusters appear, and their size and direction.
     pub placement: ClusterPlacement,
@@ -350,7 +346,7 @@ pub struct FlowerOptions {
 
 /// Controls where fruit or flower clusters appear, their size, and their direction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct ClusterPlacement {
     /// First branch level allowed to carry clusters: 0 includes the trunk,
     /// 1 starts with branches growing from it, and so on. Deeper levels are
@@ -407,9 +403,11 @@ pub enum Facing {
 /// An *item* is one fruit or flower. The *axis* is the main stem supporting
 /// a cluster. Lengths and radii use the same units as the tree.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct ClusterShape {
-    /// Pattern used to arrange fruit or flowers in the cluster.
+    /// Pattern used to arrange fruit or flowers in the cluster. Files call it
+    /// `arrangement`.
+    #[serde(rename = "arrangement")]
     pub kind: ClusterKind,
     /// Base number of fruit or flowers per cluster; must be at least 1.
     /// [`ClusterKind::Single`] always produces exactly one.
@@ -482,7 +480,7 @@ pub enum ClusterKind {
 /// values written as `0xRRGGBB`. Fruit in catkin clusters have no individual
 /// stems, so their stem settings have no effect.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct FruitShape {
     /// Height relative to width: 1 is round, below 1 is flattened, and above 1
     /// is elongated. Must be finite and greater than zero.
@@ -530,7 +528,7 @@ pub struct FruitShape {
 /// values written as `0xRRGGBB`. Catkin flowers are rounded bumps and use
 /// only `petal_color`, `bud_color`, and `fade_color` from these settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct FlowerShape {
     /// Petals in each ring around the flower's centre; must be at least 1.
     pub petal_count: u32,
@@ -770,7 +768,7 @@ pub enum OptionsError {
     },
     /// A stem, fruit, or flower setting failed a range or finiteness check.
     InvalidSetting {
-        /// Setting name using JSON field names, for example `"fruit.maturity"`.
+        /// Setting name using file field names, for example `"fruit.maturity"`.
         field: String,
         /// Description of the accepted value, for example `"between 0 and 1"`.
         requirement: &'static str,
@@ -833,7 +831,7 @@ impl TreeOptions {
         v.check(self.branch.stems >= 1, "stems", "at least 1")?;
         v.check(
             (0.0..=90.0).contains(&self.branch.stem_angle),
-            "stemAngle",
+            "stem_angle",
             "between 0 and 90",
         )?;
 
@@ -867,19 +865,19 @@ impl FruitOptions {
             "shape.elongation",
             "a finite value above 0",
         )?;
-        v.unit(s.top_dimple, "shape.topDimple")?;
-        v.unit(s.bottom_taper, "shape.bottomTaper")?;
+        v.unit(s.top_dimple, "shape.top_dimple")?;
+        v.unit(s.bottom_taper, "shape.bottom_taper")?;
         v.check(
             (0.0..1.0).contains(&s.lobe_depth),
-            "shape.lobeDepth",
+            "shape.lobe_depth",
             "at least 0 and below 1",
         )?;
         v.check(s.segments >= 3, "shape.segments", "at least 3")?;
         v.check(s.rings >= 2, "shape.rings", "at least 2")?;
-        v.non_negative(s.stem_length, "shape.stemLength")?;
-        v.non_negative(s.stem_radius, "shape.stemRadius")?;
-        v.unit(s.stem_curve, "shape.stemCurve")?;
-        v.unit(s.blush_amount, "shape.blushAmount")
+        v.non_negative(s.stem_length, "shape.stem_length")?;
+        v.non_negative(s.stem_radius, "shape.stem_radius")?;
+        v.unit(s.stem_curve, "shape.stem_curve")?;
+        v.unit(s.blush_amount, "shape.blush_amount")
     }
 }
 
@@ -893,15 +891,15 @@ impl FlowerOptions {
 
         // Check petal counts, dimensions, and shape controls.
         let s = &self.shape;
-        v.check(s.petal_count >= 1, "shape.petalCount", "at least 1")?;
+        v.check(s.petal_count >= 1, "shape.petal_count", "at least 1")?;
         v.check(s.rings >= 1, "shape.rings", "at least 1")?;
-        v.non_negative(s.petal_length, "shape.petalLength")?;
-        v.non_negative(s.petal_width, "shape.petalWidth")?;
+        v.non_negative(s.petal_length, "shape.petal_length")?;
+        v.non_negative(s.petal_width, "shape.petal_width")?;
         v.unit(s.cup, "shape.cup")?;
         v.unit(s.curl, "shape.curl")?;
         v.unit(s.notch, "shape.notch")?;
-        v.check(s.petal_segments >= 1, "shape.petalSegments", "at least 1")?;
-        v.non_negative(s.center_size, "shape.centerSize")
+        v.check(s.petal_segments >= 1, "shape.petal_segments", "at least 1")?;
+        v.non_negative(s.center_size, "shape.center_size")
     }
 }
 
@@ -949,109 +947,29 @@ impl Checker {
         self.unit(placement.tips, "placement.tips")?;
         self.non_negative(placement.density, "placement.density")?;
         self.unit(placement.start, "placement.start")?;
-        self.non_negative(placement.facing_jitter, "placement.facingJitter")?;
+        self.non_negative(placement.facing_jitter, "placement.facing_jitter")?;
         self.non_negative(placement.size, "placement.size")?;
-        self.unit(placement.size_variance, "placement.sizeVariance")?;
+        self.unit(placement.size_variance, "placement.size_variance")?;
 
         // Check item counts and the dimensions and bends of supporting stalks.
         self.check(cluster.items >= 1, "cluster.items", "at least 1")?;
-        self.unit(cluster.items_variance, "cluster.itemsVariance")?;
+        self.unit(cluster.items_variance, "cluster.items_variance")?;
         self.non_negative(cluster.spread, "cluster.spread")?;
-        self.non_negative(cluster.axis_length, "cluster.axisLength")?;
+        self.non_negative(cluster.axis_length, "cluster.axis_length")?;
         self.unit(cluster.droop, "cluster.droop")?;
         self.unit(cluster.taper, "cluster.taper")?;
-        self.check(cluster.side_stalks >= 1, "cluster.sideStalks", "at least 1")?;
-        self.non_negative(cluster.side_length, "cluster.sideLength")?;
-        self.non_negative(cluster.stalk_length, "cluster.stalkLength")?;
-        self.non_negative(cluster.stalk_radius, "cluster.stalkRadius")
+        self.check(cluster.side_stalks >= 1, "cluster.side_stalks", "at least 1")?;
+        self.non_negative(cluster.side_length, "cluster.side_length")?;
+        self.non_negative(cluster.stalk_length, "cluster.stalk_length")?;
+        self.non_negative(cluster.stalk_radius, "cluster.stalk_radius")
     }
-}
-
-// ---------------------------------------------------------------------------
-// JSON support
-
-impl TreeOptions {
-    /// Reads a full or partial ez-tree options object from JSON.
-    ///
-    /// The settings match ez-tree's, but the tree they grow does not: this
-    /// crate draws its own random numbers, so the same seed gives a different
-    /// shape than in ez-tree.
-    ///
-    /// Missing fields keep their defaults, including nested fields. For example,
-    /// `{"branch":{"length":{"0":12}}}` changes only the trunk length.
-    /// Unknown fields are ignored. Numeric seeds are read as `f64`, truncated
-    /// toward zero, and wrapped into the `i32` range, as in JavaScript.
-    ///
-    /// A non-object root returns the defaults. An object supplied for a scalar
-    /// field is ignored, so `{"seed":{}}` also keeps the default seed.
-    ///
-    /// The result is not validated; call [`validate`](Self::validate) to check it.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for malformed JSON, numbers outside the supported JSON
-    /// range, or incompatible values remaining after defaults are merged, such
-    /// as `{"seed":"12"}` or `{"type":"palm"}`.
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        // Merge supplied settings into defaults so omitted nested fields also
-        // have values before deserializing the complete options object.
-        let source: serde_json::Value = serde_json::from_str(json)?;
-        let mut merged = serde_json::to_value(Self::default())?;
-        merge_json(&mut merged, source);
-        serde_json::from_value(merged)
-    }
-
-    /// Writes all settings as indented JSON using ez-tree field names.
-    ///
-    /// Does not validate the settings. Non-finite floats become `null`, which
-    /// cannot be read back as numeric settings. Texture objects are not included.
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("tree options always serialize to JSON")
-    }
-}
-
-/// Overlays known source keys onto the default object, merging nested objects.
-/// Unknown keys and object-to-scalar replacements are ignored. Non-object values
-/// replace their slots directly and are type-checked during deserialization.
-pub(crate) fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
-    use serde_json::Value;
-
-    let (Value::Object(target), Value::Object(source)) = (target, source) else {
-        return;
-    };
-    for (key, value) in source {
-        let Some(slot) = target.get_mut(&key) else {
-            continue;
-        };
-        if value.is_object() {
-            merge_json(slot, value);
-        } else {
-            *slot = value;
-        }
-    }
-}
-
-/// Reads a numeric seed as `f64`, then applies JavaScript's signed 32-bit conversion.
-fn deserialize_js_int32<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<i32, D::Error> {
-    f64::deserialize(deserializer).map(js_to_int32)
-}
-
-/// Truncates toward zero and wraps modulo 2^32 into the signed `i32` range.
-/// NaN and infinities become zero, matching JavaScript's `ToInt32` operation.
-fn js_to_int32(x: f64) -> i32 {
-    if !x.is_finite() {
-        return 0;
-    }
-    x.trunc().rem_euclid(4_294_967_296.0) as u32 as i32
 }
 
 mod per_level_serde {
     use std::fmt;
     use std::marker::PhantomData;
 
-    use serde::de::{Error, IgnoredAny, MapAccess, Visitor};
+    use serde::de::{Error, MapAccess, Visitor};
     use serde::ser::SerializeMap;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -1071,9 +989,8 @@ mod per_level_serde {
 
     /// Reads per-level values from an object with keys `"0"`, `"1"`, `"2"`, and `"3"`.
     ///
-    /// All four keys are required; extra keys are ignored. To load tree options
-    /// with only some levels specified, use [`super::TreeOptions::from_json`],
-    /// which fills omitted levels from the defaults before deserializing.
+    /// All four keys are required, and any other key is an error. A `.tree.yml`
+    /// preset file may give only some levels: the others come from its base.
     impl<'de, T: Deserialize<'de>> Deserialize<'de> for PerLevel<T> {
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             deserializer.deserialize_map(PerLevelVisitor(PhantomData))
@@ -1090,14 +1007,12 @@ mod per_level_serde {
         }
 
         fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            // Read recognised level keys and discard values for all other keys.
+            // Read the level keys; any other key is an error.
             let mut slots: [Option<T>; 4] = [None, None, None, None];
             while let Some(key) = map.next_key::<String>()? {
                 match KEYS.iter().position(|k| *k == key) {
                     Some(level) => slots[level] = Some(map.next_value()?),
-                    None => {
-                        map.next_value::<IgnoredAny>()?;
-                    }
+                    None => return Err(A::Error::unknown_field(&key, &KEYS)),
                 }
             }
 
@@ -1165,38 +1080,5 @@ mod serde_vec {
             let super::Xyz { x, y, z } = super::Xyz::deserialize(deserializer)?;
             Ok(Vec3::new(x, y, z))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn js_to_int32_matches_javascript() {
-        assert_eq!(js_to_int32(0.0), 0);
-        assert_eq!(js_to_int32(-0.0), 0);
-        assert_eq!(js_to_int32(2.7), 2);
-        assert_eq!(js_to_int32(-2.7), -2);
-        assert_eq!(js_to_int32(2_147_483_647.0), i32::MAX);
-        assert_eq!(js_to_int32(2_147_483_648.0), i32::MIN);
-        assert_eq!(js_to_int32(-2_147_483_649.0), i32::MAX);
-        assert_eq!(js_to_int32(3_000_000_000.0), -1_294_967_296);
-        assert_eq!(js_to_int32(4_294_967_301.0), 5);
-        assert_eq!(js_to_int32(1e10), 1_410_065_408);
-        assert_eq!(js_to_int32(f64::NAN), 0);
-        assert_eq!(js_to_int32(f64::INFINITY), 0);
-    }
-
-    #[test]
-    fn merge_follows_ez_tree_copy() {
-        use serde_json::json;
-
-        let mut target = json!({"a": 1, "b": {"x": 1, "y": 2}, "c": 3});
-        merge_json(
-            &mut target,
-            json!({"a": 5, "b": {"y": 9, "unknown": 1}, "c": {"x": 1}, "d": 4}),
-        );
-        assert_eq!(target, json!({"a": 5, "b": {"x": 1, "y": 9}, "c": 3}));
     }
 }

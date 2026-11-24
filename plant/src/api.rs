@@ -18,20 +18,21 @@ use bevy::platform::collections::HashSet;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::Transform;
+use serde::{Deserialize, Serialize};
 
 use crate::{PlantSettings, PlantShadows};
 
 pub use crate::look::{
-    FieldPlant, GroundTint, MAX_PLANTS, PlantAccent, PlantArrangement, PlantBranches,
-    PlantMeshSize, PlantParams, PlantSegment, PlantVariation,
+    GroundTint, MAX_PLANTS, PlantAccent, PlantArrangement, PlantBranches, PlantMeshSize,
+    PlantParams, PlantSegment, PlantVariation, ScatterPlant,
 };
-pub use crate::presets::{FieldPreset, PlantPreset};
+pub use crate::presets::{PlantPreset, PlantScatterPreset};
 
 /// One area of grass.
 ///
 /// The field is a rectangle of `size` metres centred on its [`Transform`]'s
 /// translation, lying in the XZ plane; the translation's Y is the ground level
-/// for [`PlantField::ground`] = [`PlantGround::Flat`].
+/// for [`PlantScatter::ground`] = [`PlantGround::Flat`].
 ///
 /// A field follows the conventions of Bevy's other renderables:
 /// - **Scale:** the rectangle is `size` times the transform's X and Z scale,
@@ -56,9 +57,9 @@ pub use crate::presets::{FieldPreset, PlantPreset};
 /// # use bevy::prelude::*;
 /// # use procgena_plant::prelude::*;
 /// # fn setup(mut commands: Commands) {
-/// commands.spawn(PlantField {
+/// commands.spawn(PlantScatter {
 ///     density_scale: 0.75,
-///     ..PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0))
+///     ..PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(64.0))
 /// });
 /// # }
 /// ```
@@ -66,10 +67,20 @@ pub use crate::presets::{FieldPreset, PlantPreset};
 /// Change the component to update the field at runtime. Appearance edits,
 /// such as changing a colour, reuse the existing ground and density data,
 /// making them suitable for sliders and gradual seasonal changes.
-#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+///
+/// With serde, a Scatter reads and writes the same settings as the
+/// `plant_scatter:` part of a `.plant_scatter.yml` file. Its size, ground and
+/// density map are left out, so a deserialized Scatter has size 0, flat
+/// ground and no density map: set them afterwards. Settings that are missing
+/// come from [`PlantScatter::default`], and a value out of range is an error.
+#[derive(Component, Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform, Visibility)]
-pub struct PlantField {
+#[serde(
+    try_from = "crate::files::PlantScatterFile",
+    into = "crate::files::PlantScatterFile"
+)]
+pub struct PlantScatter {
     /// Width (X) and depth (Z) of the field, in metres, before the
     /// transform's scale.
     pub size: Vec2,
@@ -80,25 +91,31 @@ pub struct PlantField {
     /// density everywhere. The first row of the image is the field's own −Z
     /// edge.
     pub density_map: Option<Handle<Image>>,
+    /// The seed used when this Scatter is built on its own, rather than
+    /// inside a larger level that gives it a seed.
+    ///
+    /// Not used yet: plants are placed from their position alone, so
+    /// changing it changes nothing that is drawn.
+    pub default_seed: u32,
     /// Scales wind movement for every plant: 0 is still, 0.3 is sheltered,
     /// and values above 1 give stronger movement. Negative values act as 0.
     /// Gusts still follow the shared [`PlantWind`](crate::PlantWind), so
     /// neighbouring fields sway in step even with different strengths.
     pub wind_scale: f32,
     /// The plants that grow here, each at its own density times its
-    /// [`density_scale`](FieldPlant::density_scale). See [`FieldPlant`] for
+    /// [`density_scale`](ScatterPlant::density_scale). See [`ScatterPlant`] for
     /// how they mix. An empty list, or one whose densities are all 0, draws
     /// nothing. Only the first [`MAX_PLANTS`] entries are used; the rest are
     /// left out and counted in [`TableStats`](crate::TableStats).
     ///
-    /// Build a list with [`PlantField::with_plants`], or in a constant with
+    /// Build a list with [`PlantScatter::with_plants`], or in a constant with
     /// `Cow::Borrowed(&[...])`.
-    pub plants: Cow<'static, [FieldPlant]>,
+    pub plants: Cow<'static, [ScatterPlant]>,
     /// Multiplies every plant entry's density, keeping the same proportions of plants.
     ///
-    /// Use 1 to keep each entry's [`FieldPlant::density`], 0.5 for half as
+    /// Use 1 to keep each entry's [`ScatterPlant::density`], 0.5 for half as
     /// many plants, or 0 for an empty field. Negative values act as 0.
-    /// Each entry's own scale still applies. See [`PlantField::density`]
+    /// Each entry's own scale still applies. See [`PlantScatter::density`]
     /// for the total plants per square metre.
     pub density_scale: f32,
     /// How the field varies across its area.
@@ -112,35 +129,35 @@ pub struct PlantField {
     pub toon_bands: u32,
 }
 
-impl Default for PlantField {
-    /// The [`FieldPreset::MEADOW`] field, 0 metres across.
+impl Default for PlantScatter {
+    /// The [`PlantScatterPreset::MEADOW`] field, 0 metres across.
     fn default() -> Self {
-        FieldPreset::MEADOW.field
+        PlantScatterPreset::MEADOW.plant_scatter
     }
 }
 
-impl PlantField {
+impl PlantScatter {
     /// Creates a field of the given size and plants.
     ///
     /// `size` gives the width and depth in metres. Other settings come from
-    /// [`FieldPreset::MEADOW`]. This example grows ferns at half their own
+    /// [`PlantScatterPreset::MEADOW`]. This example grows ferns at half their own
     /// density, grouped into patches, over moss at its own density:
     ///
     /// ```
     /// # use bevy::prelude::*;
     /// # use procgena_plant::prelude::*;
     /// # fn setup(mut commands: Commands) {
-    /// commands.spawn(PlantField::new(
+    /// commands.spawn(PlantScatter::new(
     ///     Vec2::splat(16.0),
     ///     vec![
-    ///         FieldPlant::new(PlantParams::FERN).scaled(0.5).clustered(0.5),
-    ///         FieldPlant::new(PlantParams::MOSS),
+    ///         ScatterPlant::new(PlantParams::FERN).scaled(0.5).clustered(0.5),
+    ///         ScatterPlant::new(PlantParams::MOSS),
     ///     ],
     /// ));
     /// # }
     /// ```
     #[must_use]
-    pub fn new(size: Vec2, plants: impl Into<Cow<'static, [FieldPlant]>>) -> Self {
+    pub fn new(size: Vec2, plants: impl Into<Cow<'static, [ScatterPlant]>>) -> Self {
         Self {
             size,
             plants: plants.into(),
@@ -148,23 +165,23 @@ impl PlantField {
         }
     }
 
-    /// Copies a field preset and sets its width and depth in metres.
+    /// Copies a Scatter preset and sets its width and depth in metres.
     ///
-    /// All other settings are copied from `preset.field`. Built-in presets
+    /// All other settings are copied from `preset.plant_scatter`. Built-in presets
     /// use flat ground and no density map:
     ///
     /// ```
     /// # use bevy::prelude::*;
     /// # use procgena_plant::prelude::*;
     /// # fn setup(mut commands: Commands) {
-    /// commands.spawn(PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(64.0)));
+    /// commands.spawn(PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(64.0)));
     /// # }
     /// ```
     #[must_use]
-    pub fn from_preset(preset: &FieldPreset, size: Vec2) -> Self {
+    pub fn from_preset(preset: &PlantScatterPreset, size: Vec2) -> Self {
         Self {
             size,
-            ..preset.field.clone()
+            ..preset.plant_scatter.clone()
         }
     }
 
@@ -180,7 +197,7 @@ impl PlantField {
             .plants
             .iter()
             .take(MAX_PLANTS)
-            .map(FieldPlant::density)
+            .map(ScatterPlant::density)
             .sum();
         plants * self.density_scale.max(0.0)
     }
@@ -188,7 +205,7 @@ impl PlantField {
     /// Returns approximate spacing between plant roots.
     ///
     /// The result is in metres: `1 / sqrt(density)`, using
-    /// [`PlantField::density`] before masks and thinning. Individual gaps
+    /// [`PlantScatter::density`] before masks and thinning. Individual gaps
     /// vary with tufting and density masks. An empty field returns a very
     /// large finite value rather than infinity.
     #[must_use]
@@ -221,7 +238,7 @@ impl PlantField {
             .plants
             .iter()
             .take(MAX_PLANTS)
-            .map(FieldPlant::density)
+            .map(ScatterPlant::density)
             .sum();
         if unscaled <= 0.0 {
             return self;
@@ -234,9 +251,9 @@ impl PlantField {
 
     /// Replaces the plants that grow in this field.
     ///
-    /// See [`FieldPlant`] for how their densities mix.
+    /// See [`ScatterPlant`] for how their densities mix.
     #[must_use]
-    pub fn with_plants(self, plants: impl Into<Cow<'static, [FieldPlant]>>) -> Self {
+    pub fn with_plants(self, plants: impl Into<Cow<'static, [ScatterPlant]>>) -> Self {
         Self {
             plants: plants.into(),
             ..self
@@ -251,7 +268,7 @@ impl PlantField {
     /// [`PlantGround::Mesh`]. It is called once at the centre of each cell
     /// of `cell_size` metres (at most 4096 cells per side) and the heights
     /// go into a heightmap added to `images`, so nothing runs per frame; set
-    /// [`size`](PlantField::size) first.
+    /// [`size`](PlantScatter::size) first.
     ///
     /// - **The point** is in metres from the field's centre along its X and
     ///   Z, before the transform's scale. For a field neither turned nor
@@ -269,7 +286,7 @@ impl PlantField {
     ///     3.0 * (point.x * 0.07).sin() * (point.y * 0.05).cos()
     /// }
     /// commands.spawn(
-    ///     PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
+    ///     PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(256.0))
     ///         .with_ground_from_fn(&mut images, 0.5, hills),
     /// );
     /// # }
@@ -306,9 +323,9 @@ impl PlantField {
     ///
     /// Called once at the centre of each cell of `cell_size` metres (at most
     /// 4096 cells per side), at the same points as
-    /// [`PlantField::with_ground_from_fn`], so the two can read the same
+    /// [`PlantScatter::with_ground_from_fn`], so the two can read the same
     /// terrain. The densities go into a mask added to `images` and set as
-    /// [`density_map`](PlantField::density_map), at full blade height; a
+    /// [`density_map`](PlantScatter::density_map), at full blade height; a
     /// `NaN` is 0. The mask can be edited afterwards like any other (see
     /// [`PlantEdit`](crate::PlantEdit)).
     ///
@@ -319,7 +336,7 @@ impl PlantField {
     /// # fn island(point: Vec2) -> f32 { 10.0 - point.length() * 0.1 }
     /// const SEA_LEVEL: f32 = 0.0;
     /// commands.spawn(
-    ///     PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(256.0))
+    ///     PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(256.0))
     ///         .with_ground_from_fn(&mut images, 0.5, island)
     ///         // Nothing below the tide line, and thinning up the beach.
     ///         .with_density_from_fn(&mut images, 0.5, |point| {

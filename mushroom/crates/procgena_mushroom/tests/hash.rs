@@ -19,7 +19,7 @@ fn hashes_are_pinned() {
     // FNV-1a of "mushroom.generator.kind", checked by hand.
     assert_eq!(GENERATOR_KIND.salt(), 0x93d1_50bc);
     assert_eq!(hash(&MushroomOptions::default()), 0x51e3_65fa_2708_f856);
-    // In the order of `MushroomPreset::ALL`.
+    // In the order of `MushroomPreset::all()`.
     let pinned: [u64; 11] = [
         0x1d5c_8771_b967_fedb, // Fly agaric
         0xce23_c528_4586_9a83, // Porcini
@@ -33,8 +33,9 @@ fn hashes_are_pinned() {
         0x5d5d_dfd0_6eb9_efc6, // Storybook
         0x31de_f8e5_14c8_df28, // Fairy ring
     ];
-    for (preset, value) in MushroomPreset::ALL.into_iter().zip(pinned) {
-        assert_eq!(hash(&preset.options()), value, "{}", preset.name());
+    assert_eq!(MushroomPreset::all().count(), pinned.len());
+    for (preset, value) in MushroomPreset::all().zip(pinned) {
+        assert_eq!(hash(&preset.mushroom), value, "{}", preset.name);
     }
     // The seed of slot 0 of the default pool in a World (or scatter) seeded
     // with 1.
@@ -44,9 +45,10 @@ fn hashes_are_pinned() {
 
 #[test]
 fn every_preset_has_its_own_pool() {
-    for (i, a) in MushroomPreset::ALL.iter().enumerate() {
-        for b in &MushroomPreset::ALL[i + 1..] {
-            assert_ne!(a.options().pool(), b.options().pool(), "{a:?} {b:?}");
+    let all: Vec<_> = MushroomPreset::all().collect();
+    for (i, a) in all.iter().enumerate() {
+        for b in &all[i + 1..] {
+            assert_ne!(a.mushroom.pool(), b.mushroom.pool(), "{} {}", a.key, b.key);
         }
     }
 }
@@ -55,7 +57,7 @@ fn every_preset_has_its_own_pool() {
 fn seed_and_detail_are_left_out() {
     let base = MushroomOptions::default();
     let mut other = base.clone();
-    other.seed = 99;
+    other.default_seed = 99;
     other.detail = MushroomDetail::FLAT;
     assert_eq!(base.pool(), other.pool());
 }
@@ -188,32 +190,33 @@ fn every_field_changes_the_hash() {
 fn equal_body_ids_mean_equal_bodies() {
     let host = Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(2.0, 8))]);
     let scatter_options = ScatterOptions::default();
-    for preset in [MushroomPreset::Enoki, MushroomPreset::Porcini] {
-        let mut options = preset.options();
+    for preset in [MushroomPreset::enoki(), MushroomPreset::porcini()] {
+        let mut options = preset.mushroom.clone();
         let scatter = MushroomScatter::on(&host, &options, &scatter_options).unwrap();
         // The scatter's slot-0 specimen, grown on its own from its seed.
-        options.seed = SpecimenId::new(scatter_options.seed, options.pool(), 0).seed();
+        options.default_seed =
+            SpecimenId::new(scatter_options.default_seed, options.pool(), 0).seed();
         let mushroom = Mushroom::new(options).unwrap();
         for body in mushroom.bodies() {
             let twin = scatter
                 .bodies()
                 .iter()
                 .find(|b| b.id() == body.id())
-                .unwrap_or_else(|| panic!("{}: no matching body", preset.name()));
-            assert_eq!(twin.options(), body.options(), "{}", preset.name());
+                .unwrap_or_else(|| panic!("{}: no matching body", preset.name));
+            assert_eq!(twin.options(), body.options(), "{}", preset.name);
         }
     }
 }
 
 #[test]
 fn a_mushroom_is_shaped_from_its_own_seed() {
-    let options = MushroomPreset::Enoki.options();
+    let options = MushroomPreset::enoki().mushroom.clone();
     assert!(options.cluster.stems > 1);
     let mushroom = Mushroom::new(options.clone()).unwrap();
     for (i, body) in mushroom.bodies().iter().enumerate() {
         let id = BodyId {
             pool: options.pool(),
-            seed: options.seed,
+            seed: options.default_seed,
             index: i as u32,
         };
         assert_eq!(body.id(), id);
@@ -226,9 +229,9 @@ fn a_mushroom_is_shaped_from_its_own_seed() {
 #[test]
 fn a_scatter_seeds_its_variants_from_specimen_ids() {
     let host = Specimen::single(vec![Part::new([tags::GROUND], SurfaceMesh::ground(2.0, 8))]);
-    let options = MushroomPreset::Porcini.options();
+    let options = MushroomPreset::porcini().mushroom.clone();
     let scatter_options = ScatterOptions {
-        seed: 7,
+        default_seed: 7,
         ..ScatterOptions::default()
     };
     let scatter = MushroomScatter::on(&host, &options, &scatter_options).unwrap();
@@ -236,11 +239,11 @@ fn a_scatter_seeds_its_variants_from_specimen_ids() {
     for (slot, body) in scatter.bodies().iter().enumerate() {
         let seed = SpecimenId::new(7, options.pool(), slot as u32).seed();
         assert_eq!(body.id().seed, seed);
-        assert_eq!(body.options().seed, seed);
+        assert_eq!(body.options().default_seed, seed);
     }
     // The mushroom's own seed plays no part.
     let mut reseeded = options.clone();
-    reseeded.seed += 1;
+    reseeded.default_seed += 1;
     let again = MushroomScatter::on(&host, &reseeded, &scatter_options).unwrap();
     let ids = |s: &MushroomScatter| s.bodies().iter().map(|b| b.id()).collect::<Vec<_>>();
     assert_eq!(ids(&again), ids(&scatter));

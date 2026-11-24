@@ -31,7 +31,7 @@
 //!
 //! let generator = GpuStoneGenerator::new(device);
 //! let requests: Vec<_> = (0..4)
-//!     .map(|seed| GpuStoneRequest::new(StoneOptions { seed, ..StoneOptions::default() }, 96))
+//!     .map(|seed| GpuStoneRequest::new(StoneOptions { default_seed: seed, ..StoneOptions::default() }, 96))
 //!     .collect();
 //! let mut encoder = device.create_command_encoder(&Default::default());
 //! let batch = generator.encode(device, &mut encoder, &requests)?;

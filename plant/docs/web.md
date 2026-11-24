@@ -7,12 +7,12 @@ tested, and how fast it is.
 
 The web demo is a meadow with a quality
 switch, every preset, and a panel with every public setting of the crate:
-`PlantSettings`, the meadow's `PlantField` with its plants, the wind, far
+`PlantSettings`, the meadow's `PlantScatter` with its plants, the wind, far
 grass, the field's regrowth, an interactor, `PlantCamera`, a `PlantBrush` the
 left mouse button paints with, and the debug view. The panel is built from
 the types' `Reflect` data, field docs included, so a new field appears in it
 without a change to the page; each section shows its settings as the Rust
-to paste into a game (and the field as a `.field.ron`), and the page keeps
+to paste into a game (and the Scatter as a `.plant_scatter.yml`), and the page keeps
 the changes in its address, so a link shares them. Its source is
 [`web/`](../web/).
 
@@ -32,7 +32,7 @@ bevy = { version = "0.20", features = ["webgpu"] }
   and `PlantSupport` is `NoComputeShaders`; the rest of the scene renders.
 - **Bevy's `file_watcher` does not build for wasm** (it is a
   `compile_error!`), so turn it on for native targets only if you use it to
-  reload `.field.ron` and `.plant.ron` files.
+  reload `.plant_scatter.yml` and `.plant.yml` files.
 - **WebGPU needs a secure context:** HTTPS, or `http://localhost`. A page
   served over a LAN address gets no WebGPU.
 - **The wasm is large.** The demo is 18.2 MiB (5.3 MiB gzipped) with the

@@ -8,7 +8,7 @@ use procgena_tree::{
 /// Returns settings for a small broadleaf tree with two fruit clusters on
 /// each branch at level 2 or deeper.
 fn fruiting() -> TreeOptions {
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     options.fruit.placement.count = 2;
     options.fruit.placement.min_level = 2;
     options
@@ -61,18 +61,18 @@ fn assert_well_formed(clusters: &[SkeletonCluster]) {
 
 #[test]
 fn ez_tree_presets_grow_no_fruit_or_flowers() {
-    for preset in TreePreset::EZ_TREE {
-        let skeleton = Skeleton::generate(&preset.options()).unwrap();
-        assert!(skeleton.fruit.is_empty(), "{}", preset.name());
-        assert!(skeleton.flowers.is_empty(), "{}", preset.name());
+    for preset in TreePreset::ez_tree() {
+        let skeleton = Skeleton::generate(&preset.tree).unwrap();
+        assert!(skeleton.fruit.is_empty(), "{}", preset.name);
+        assert!(skeleton.flowers.is_empty(), "{}", preset.name);
     }
 }
 
 #[test]
 fn fruit_and_flowers_leave_branches_and_leaves_unchanged() {
-    let plain = Skeleton::generate(&TreePreset::OakMedium.options()).unwrap();
+    let plain = Skeleton::generate(&TreePreset::oak_medium().tree).unwrap();
 
-    let mut options = TreePreset::OakMedium.options();
+    let mut options = TreePreset::oak_medium().tree.clone();
     options.fruit.placement.count = 3;
     options.flowers.placement.tips = 1.0;
     let decorated = Skeleton::generate(&options).unwrap();
@@ -103,7 +103,7 @@ fn clusters_are_repeatable_and_follow_the_seed() {
     assert_eq!(a, Skeleton::generate(&options).unwrap());
 
     let mut reseeded = options.clone();
-    reseeded.seed += 1;
+    reseeded.default_seed += 1;
     assert_ne!(a.fruit, Skeleton::generate(&reseeded).unwrap().fruit);
 }
 
@@ -145,7 +145,7 @@ fn side_clusters_start_on_the_branch_surface() {
 #[test]
 fn tips_grow_only_on_branch_ends_without_a_continuation() {
     // Only the deepest branches of a deciduous tree have tips without continuations.
-    let mut options = TreePreset::AshSmall.options();
+    let mut options = TreePreset::ash_small().tree.clone();
     options.flowers.placement.tips = 1.0;
     options.flowers.placement.min_level = 0;
     let skeleton = grow(&options);
@@ -164,7 +164,7 @@ fn tips_grow_only_on_branch_ends_without_a_continuation() {
     }
 
     // Evergreen branches have no tip continuations, so every eligible level can flower.
-    let mut options = TreePreset::PineSmall.options();
+    let mut options = TreePreset::pine_small().tree.clone();
     assert_eq!(options.tree_type, TreeType::Evergreen);
     options.flowers.placement.tips = 1.0;
     options.flowers.placement.min_level = 1;
@@ -175,7 +175,7 @@ fn tips_grow_only_on_branch_ends_without_a_continuation() {
 
 #[test]
 fn tip_chance_thins_out_tip_clusters() {
-    let mut options = TreePreset::OakMedium.options();
+    let mut options = TreePreset::oak_medium().tree.clone();
     options.flowers.placement.tips = 0.3;
     let skeleton = grow(&options);
     let levels = options.branch.levels;

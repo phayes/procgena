@@ -683,7 +683,7 @@ fn long_branches_raise_a_plant_above_its_stem_but_within_its_reach() {
     let levels = level_entries(&plant);
     assert!(top > plant.height.y, "top {top}");
     assert!(
-        top <= plant.height.y * crate::fields::reach_factor(&levels),
+        top <= plant.height.y * crate::scatters::reach_factor(&levels),
         "top {top}"
     );
 }

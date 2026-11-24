@@ -28,7 +28,7 @@ pub struct StoneEdited {
 #[derive(Component)]
 pub struct StoneEditor {
     /// The preset last chosen.
-    preset: StonePreset,
+    preset: &'static StonePreset,
     /// The panel holding the edited options.
     panel: Entity,
     /// Picks seeds for Random Seed.
@@ -36,10 +36,15 @@ pub struct StoneEditor {
 }
 
 impl StoneEditor {
-    /// Suggests a file name without an extension from the chosen preset, in
-    /// lowercase with underscores, such as `river_stone`.
+    /// Suggests a file name without an extension from the chosen preset: its
+    /// key, such as `river_stone`.
     pub fn file_stem(&self) -> String {
-        self.preset.name().to_lowercase().replace(' ', "_")
+        self.preset.key.to_string()
+    }
+
+    /// The preset last chosen, which saved files name as their base.
+    pub fn preset(&self) -> &'static StonePreset {
+        self.preset
     }
 
     /// The panel entity holding the edited [`StoneOptions`].
@@ -64,10 +69,11 @@ impl Plugin for StoneEditorPlugin {
 
 /// Spawns the rock editor, showing [`START_PRESET`], as the last child of `parent`.
 pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity) {
-    let names = StonePreset::ALL.map(StonePreset::name);
-    let selected = StonePreset::ALL.iter().position(|p| *p == START_PRESET);
-    let options = START_PRESET.options();
-    let seed = i64::from(options.seed);
+    let names: Vec<String> = StonePreset::all().map(|p| p.name.to_string()).collect();
+    let selected = StonePreset::all().position(|p| p.key == START_PRESET);
+    let start = StonePreset::named(START_PRESET).expect("the start preset is built in");
+    let options = start.stone.clone();
+    let seed = i64::from(options.default_seed);
 
     // Preset, seed, and the seed button, above the panel.
     let preset: Box<dyn Scene> = Box::new(bsn! {
@@ -119,7 +125,7 @@ pub fn spawn_stone_editor(commands: &mut Commands, parent: Entity) {
             commands.trigger(StoneEdited { reframe: false });
         });
     commands.entity(editor).insert(StoneEditor {
-        preset: START_PRESET,
+        preset: start,
         panel,
         rng: Rng::new(std::process::id()),
     });
@@ -162,12 +168,18 @@ fn choose_preset(
     let Some(preset) = rows
         .get(change.value)
         .ok()
-        .and_then(|index| StonePreset::ALL.get(index.0))
+        .and_then(|index| StonePreset::all().nth(index.0))
     else {
         return;
     };
-    editor.preset = *preset;
-    replace(preset.options(), true, &editor, &mut panels, &mut commands);
+    editor.preset = preset;
+    replace(
+        preset.stone.clone(),
+        true,
+        &editor,
+        &mut panels,
+        &mut commands,
+    );
 }
 
 /// Uses a typed seed.
@@ -181,11 +193,11 @@ fn type_seed(
         return;
     };
     // Ignore echoes of the seed already in use.
-    if panel.value().seed == seed {
+    if panel.value().default_seed == seed {
         return;
     }
     let mut options = panel.value().clone();
-    options.seed = seed;
+    options.default_seed = seed;
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
@@ -200,7 +212,7 @@ fn random_seed(
         return;
     };
     let mut options = panel.value().clone();
-    options.seed = editor.rng.next_u32() % 65536;
+    options.default_seed = editor.rng.next_u32() % 65536;
     replace(options, false, &editor, &mut panels, &mut commands);
 }
 
@@ -214,7 +226,7 @@ fn show_seed(
     let Ok(panel) = panels.get(editor.panel) else {
         return;
     };
-    let seed = NumberInputValue::I64(i64::from(panel.value().seed));
+    let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
     for (field, shown) in &fields {
         if *shown != seed {
             commands.entity(field).insert(seed);

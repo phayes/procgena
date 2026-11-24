@@ -233,14 +233,16 @@ mod tests {
     fn keys_are_unique_and_presets_sit_within_the_limits() {
         let params = params();
         keys_are_unique(&params);
-        for preset in ClumpPreset::ALL {
-            let settings = super::super::settings(super::super::START_SUBJECT.settings(), preset);
+        for preset in ClumpPreset::all() {
+            let settings =
+                super::super::settings(super::super::Subject::start().settings(), preset);
             for param in &params {
                 if let Control::Number { min, max, get, .. } = &param.control {
                     let value = get(&settings);
                     assert!(
                         (*min..=*max).contains(&value),
-                        "{preset:?} {} = {value}",
+                        "{} {} = {value}",
+                        preset.key,
                         param.key
                     );
                 }

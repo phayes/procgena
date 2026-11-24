@@ -39,6 +39,7 @@ pub enum ClusterLayout {
 
 /// Settings for a [`ClusterLayout::FairyRing`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FairyRingOptions {
     /// Radius of the circle as a multiple of the cap diameter, from 1
     /// through 200. Real fairy rings are often several metres across.
@@ -68,6 +69,7 @@ impl Default for FairyRingOptions {
 /// options describe. With more, each member is a slightly different copy:
 /// the [`crate::Mushroom`] is then the whole group.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ClusterOptions {
     /// How many mushrooms grow together, from 1 (a single mushroom) up to
     /// [`MAX_STEMS`]. A member that can't find room is left out, so a
@@ -193,8 +195,8 @@ pub(crate) fn make_bodies(
         .map(|i| {
             let mut o = base.clone();
             o.cluster = ClusterOptions::default();
-            o.seed = body_seed(specimen_seed, i);
-            let mut rng = Rng::new(seed_for(o.seed, CLUSTER_VARIATION));
+            o.default_seed = body_seed(specimen_seed, i);
+            let mut rng = Rng::new(seed_for(o.default_seed, CLUSTER_VARIATION));
             if i > 0 {
                 o.stem.height *= rng.jitter(0.2);
                 o.cap.height *= rng.jitter(0.1);

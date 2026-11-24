@@ -1,5 +1,6 @@
-//! Save and reload dead wood settings as JSON, or export the current piece
-//! as a GLB or OBJ model for use in another 3D tool.
+//! Save and reload dead wood settings as `.deadwood.yml` preset files, or
+//! export the current piece as a GLB or OBJ model for use in another 3D
+//! tool.
 //!
 //! Each function does the work after the user has chosen a file. Pass copies
 //! of the settings taken when the user asked, so later edits do not change a
@@ -13,9 +14,13 @@ use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use procgena_deadwood::export::{gltf, obj};
-use procgena_deadwood::{DeadwoodDetail, DeadwoodMesh, DeadwoodOptions, Piece, default_lod};
+use procgena_deadwood::{
+    DeadwoodDetail, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, Piece, default_lod,
+};
 
-use super::{Done, FileOps, chosen_stem, shown_name, write_file, write_files};
+use super::{
+    Done, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file, write_files,
+};
 use crate::deadwood::editor::{DeadwoodEditor, load_deadwood};
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
 
@@ -79,11 +84,11 @@ pub fn spawn_deadwood_export(commands: &mut Commands, parent: Entity) {
             Children [
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
                 Children [
-                    @FeathersButton { @caption: bsn! { @caption("Save JSON…") } }
-                    on(save_deadwood_json)
+                    @FeathersButton { @caption: bsn! { @caption("Save Preset…") } }
+                    on(save_deadwood_preset)
                     --
-                    @FeathersButton { @caption: bsn! { @caption("Load JSON…") } }
-                    on(load_deadwood_json)
+                    @FeathersButton { @caption: bsn! { @caption("Load Preset…") } }
+                    on(load_deadwood_preset)
                 ]
                 --
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
@@ -111,8 +116,9 @@ fn snapshot(
     Some((options, editor.file_stem(), settings))
 }
 
-/// Saves the dead wood settings as JSON.
-fn save_deadwood_json(
+/// Saves the dead wood settings as a `.deadwood.yml` preset file based on
+/// the chosen preset.
+fn save_deadwood_preset(
     _: On<Activate>,
     editor: Single<&DeadwoodEditor>,
     panels: Query<&ParamPanel<DeadwoodOptions>>,
@@ -120,14 +126,16 @@ fn save_deadwood_json(
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {
-        files.save(&format!("{stem}.json"), move |path| {
-            save_json(&options, path)
+        let base = editor.preset();
+        files.save(&format!("{stem}.deadwood.yml"), move |path| {
+            save_preset(options, base, path)
         });
     }
 }
 
-/// Loads dead wood settings from JSON into the editor.
-fn load_deadwood_json(_: On<Activate>, mut files: FileOps) {
+/// Loads dead wood settings from a `.deadwood.yml` preset file into the
+/// editor.
+fn load_deadwood_preset(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let options = read_options(text)?;
         world
@@ -167,21 +175,11 @@ fn export_deadwood_obj(
     }
 }
 
-/// Writes `options` to `path` as JSON.
-pub fn save_json(options: &DeadwoodOptions, path: &Path) -> Result<Done, String> {
-    write_file(path, options.to_json().as_bytes())?;
-    Ok(Done::new(format!("Saved {}", shown_name(path))))
-}
-
-/// Parses JSON dead wood settings and checks their values. Returns a
-/// readable error for malformed JSON or invalid settings.
+/// Reads the dead wood settings of a `.deadwood.yml` preset file and checks
+/// their values. Returns a readable error for text that isn't a dead wood
+/// preset file or for invalid settings.
 pub fn read_options(text: &str) -> Result<DeadwoodOptions, String> {
-    let options = DeadwoodOptions::from_json(text)
-        .map_err(|error| format!("Not dead wood settings: {error}"))?;
-    options
-        .validate()
-        .map_err(|error| format!("These dead wood settings cannot be used: {error}"))?;
-    Ok(options)
+    read_preset::<DeadwoodPreset>(text, "dead wood")
 }
 
 /// Builds the meshes to export: the full mesh, then, with `detail_levels`,
@@ -261,14 +259,14 @@ mod tests {
 
     #[test]
     fn loading_checks_the_settings() {
-        assert!(read_options(&DeadwoodOptions::default().to_json()).is_ok());
+        assert!(read_options("base: windthrow_log\n").is_ok());
         assert!(
-            read_options("not json")
+            read_options("deadwood: [not settings]\n")
                 .unwrap_err()
                 .starts_with("Not dead wood settings")
         );
-        let error = read_options(r#"{"length": -1}"#).unwrap_err();
-        assert!(error.contains("cannot be used"), "{error}");
+        let error = read_options("deadwood:\n  length: -1\n").unwrap_err();
+        assert!(error.contains("length"), "{error}");
     }
 
     #[test]

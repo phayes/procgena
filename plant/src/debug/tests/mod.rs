@@ -26,7 +26,7 @@ fn camera_at(position: Vec3, forward: Vec3, orthographic: bool) -> TrampleView {
         PlantSettings::HIGH.radius,
     )
 }
-use crate::api::{PlantField, PlantGround};
+use crate::api::{PlantGround, PlantScatter};
 
 /// An app with the plugin's tables, and fields visible as Bevy's
 /// visibility propagation would leave them.
@@ -36,11 +36,11 @@ fn app() -> App {
         .init_asset::<Image>()
         .init_asset::<bevy::mesh::Mesh>()
         .init_resource::<PlantSettings>()
-        .add_plugins(crate::fields::plugin);
+        .add_plugins(crate::scatters::plugin);
     app
 }
 
-fn spawn(app: &mut App, field: PlantField, transform: Transform, visible: bool) {
+fn spawn(app: &mut App, field: PlantScatter, transform: Transform, visible: bool) {
     let mut entity = app
         .world_mut()
         .spawn((field, GlobalTransform::from(transform)));
@@ -74,7 +74,7 @@ fn rects(shapes: &[Shape]) -> Vec<(Vec2, Vec2, f32, Color)> {
 #[test]
 fn a_field_is_drawn_where_the_tables_have_it_scale_and_visibility_included() {
     let mut app = app();
-    let field = || PlantField {
+    let field = || PlantScatter {
         size: Vec2::splat(32.0),
         ..Default::default()
     };
@@ -123,7 +123,7 @@ fn a_heightmap_field_also_shows_its_highest_ground() {
         ));
     spawn(
         &mut app,
-        PlantField {
+        PlantScatter {
             size: Vec2::splat(16.0),
             ground: PlantGround::Heightmap {
                 image,
@@ -145,7 +145,7 @@ fn chunks_are_the_squares_the_gpu_culls_and_the_cap_holds() {
     let mut app = app();
     spawn(
         &mut app,
-        PlantField {
+        PlantScatter {
             size: Vec2::splat(32.0),
             ..Default::default()
         },
@@ -215,7 +215,7 @@ fn a_trample_window_is_where_the_renderer_puts_it() {
     let mut app = app();
     spawn(
         &mut app,
-        PlantField {
+        PlantScatter {
             size: Vec2::splat(400.0),
             ..Default::default()
         },
@@ -293,7 +293,7 @@ fn the_toggles_decide_what_is_shown() {
     let mut app = app();
     spawn(
         &mut app,
-        PlantField {
+        PlantScatter {
             size: Vec2::splat(32.0),
             ..Default::default()
         },
@@ -417,7 +417,7 @@ fn the_plugin_runs_and_the_resource_is_reflected() {
         .add_systems(Update, || ());
     spawn(
         &mut app,
-        PlantField {
+        PlantScatter {
             size: Vec2::splat(16.0),
             ..Default::default()
         },

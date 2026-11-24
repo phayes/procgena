@@ -119,7 +119,7 @@ own mask:
 
 ```rust
 commands.spawn((
-    PlantField::from_preset(&FieldPreset::LAWN, Vec2::splat(64.0)),
+    PlantScatter::from_preset(&PlantScatterPreset::LAWN, Vec2::splat(64.0)),
     // Mowed lawn is back to full height in about a minute; paths never close.
     PlantRegrowth { density_rate: 0.0, height_rate: 0.015 },
 ));
@@ -154,7 +154,7 @@ A `PlantSample` has:
 
 | Field | Meaning |
 | --- | --- |
-| `field` | The field's entity: read its `PlantField` for its plants, to pick a footstep sound |
+| `field` | The field's entity: read its `PlantScatter` for its plants, to pick a footstep sound |
 | `density` | How much of the field's grass grows here, 0 to 1: the mask, edits and the field's bare patches; 0 where the ground has a hole (past a mesh's edge, or a height function's `NaN`) |
 | `blades_per_m2` | The field's density times `density` |
 | `height_scale` | The mask's height with edits: below 1 where it was mowed |
@@ -173,7 +173,7 @@ There is no burn op: burning is a clear plus what the game shows. A fire is a
 `PlantBrush` with a rate (or edits of strength below 1, spreading as the
 game's fire spreads), and the flames, smoke and embers are the game's
 particles. For charred stubble, lay a second field of
-`FieldPreset::BURNT_REGROWTH` over the first, cleared everywhere at the start,
+`PlantScatterPreset::BURNT_REGROWTH` over the first, cleared everywhere at the start,
 and paint it in where the fire clears the living grass:
 
 ```rust

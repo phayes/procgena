@@ -846,9 +846,8 @@ mod tests {
     }
 
     fn presets() -> Vec<(String, DeadwoodOptions)> {
-        DeadwoodPreset::ALL
-            .into_iter()
-            .map(|p| (p.name().to_owned(), p.options()))
+        DeadwoodPreset::all()
+            .map(|p| (p.name.to_string(), p.deadwood.clone()))
             .collect()
     }
 

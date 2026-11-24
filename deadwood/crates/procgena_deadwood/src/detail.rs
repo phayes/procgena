@@ -19,6 +19,7 @@ pub const DEFAULT_LOD_SIZE: f32 = 0.45;
 
 /// How detailed one mesh of a piece is.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeadwoodDetail {
     /// Number of sides around the main stem, from 3 up to [`MAX_SEGMENTS`].
     /// Thinner branches, stubs and roots get fewer, but at least 3.
@@ -44,17 +45,17 @@ pub struct DeadwoodDetail {
     pub ribbon_radius: f32,
     /// Draws every stem kept, the main stem included, as a flat strip, with
     /// no ends. For the farthest level, where a piece is only a few pixels
-    /// across. Defaults to false in JSON.
+    /// across. Defaults to false in a file.
     #[serde(default)]
     pub strip_all: bool,
     /// Share of the piece's leaf sprays (see [`crate::LeafOptions`]) to
     /// draw, from 0 (none) through 1 (all). Lower shares keep a subset of
-    /// the sprays a higher share keeps. Defaults to 1 in JSON.
+    /// the sprays a higher share keeps. Defaults to 1 in a file.
     #[serde(default = "all_leaves")]
     pub leaf_share: f32,
 }
 
-/// Default for [`DeadwoodDetail::leaf_share`] in JSON.
+/// Default for [`DeadwoodDetail::leaf_share`] in a file.
 fn all_leaves() -> f32 {
     1.0
 }

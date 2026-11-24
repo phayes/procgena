@@ -8,7 +8,7 @@ const MESHERS: [Mesher; 2] = [Mesher::MarchingCubes, Mesher::DualContouring];
 
 fn field(seed: u32) -> StoneField {
     StoneField::new(&StoneOptions {
-        seed,
+        default_seed: seed,
         ..StoneOptions::default()
     })
     .unwrap()

@@ -36,8 +36,8 @@ fn main_size(piece: &Piece) -> SizeClass {
 
 #[test]
 fn logs_and_branches_rest_on_the_ground() {
-    for preset in DeadwoodPreset::ALL {
-        let piece = Piece::from_preset(preset);
+    for preset in DeadwoodPreset::all() {
+        let piece = Piece::from_preset(preset).unwrap();
         if piece.options().kind == PieceKind::Stump {
             continue;
         }
@@ -50,20 +50,20 @@ fn logs_and_branches_rest_on_the_ground() {
         assert!(
             main_lo > -tolerance,
             "{}: main stem lowest {main_lo}",
-            preset.name()
+            preset.name
         );
         assert!(
             main_lo.abs() < tolerance || all_lo.abs() < tolerance,
             "{}: floats, main {main_lo}, all {all_lo}",
-            preset.name()
+            preset.name
         );
-        assert!(piece.placement().burial >= 0.0);
+        assert!(piece.pose().burial >= 0.0);
     }
 }
 
 #[test]
 fn stiff_wood_stays_above_the_ground() {
-    let mut o = DeadwoodPreset::WindthrowLog.options();
+    let mut o = DeadwoodPreset::windthrow_log().deadwood.clone();
     o.decay = 0.0;
     let piece = Piece::new(o).unwrap();
     let low = lowest(&piece.mesh_with_detail(&DeadwoodDetail::FULL));
@@ -121,13 +121,16 @@ fn decay_flattens_and_lowers() {
         ..Default::default()
     })
     .unwrap();
-    assert!(rotten.placement().burial > 0.25 * rotten.options().diameter);
+    assert!(rotten.pose().burial > 0.25 * rotten.options().diameter);
 }
 
 #[test]
 fn every_level_shares_the_resting_position() {
-    for preset in [DeadwoodPreset::WindthrowLog, DeadwoodPreset::FallenLimb] {
-        let piece = Piece::from_preset(preset);
+    for preset in [
+        DeadwoodPreset::windthrow_log(),
+        DeadwoodPreset::fallen_limb(),
+    ] {
+        let piece = Piece::from_preset(preset).unwrap();
         let size = main_size(&piece);
         let (round, strips): (Vec<_>, Vec<_>) = DeadwoodDetail::PRESETS
             .iter()
@@ -149,19 +152,19 @@ fn every_level_shares_the_resting_position() {
             assert!(
                 (low - full_lowest).abs() < tolerance,
                 "{}: strips rest at {low}, round stems at {full_lowest}",
-                preset.name()
+                preset.name
             );
         }
         for r in &ranges[1..] {
             assert!(
                 (r.0 - ranges[0].0).abs() < tolerance,
                 "{}: {ranges:?}",
-                preset.name()
+                preset.name
             );
             assert!(
                 (r.1 - ranges[0].1).abs() < tolerance,
                 "{}: {ranges:?}",
-                preset.name()
+                preset.name
             );
         }
     }
@@ -207,41 +210,37 @@ fn without_settling_the_log_keeps_its_direction() {
 #[test]
 fn stumps_stand_in_the_ground() {
     for preset in [
-        DeadwoodPreset::FelledStump,
-        DeadwoodPreset::NotchedStump,
-        DeadwoodPreset::SnappedStump,
-        DeadwoodPreset::RottenStump,
+        DeadwoodPreset::felled_stump(),
+        DeadwoodPreset::notched_stump(),
+        DeadwoodPreset::snapped_stump(),
+        DeadwoodPreset::rotten_stump(),
     ] {
-        let piece = Piece::from_preset(preset);
+        let piece = Piece::from_preset(preset).unwrap();
         let o = piece.options();
         let mesh = piece.mesh_with_detail(&DeadwoodDetail::FULL);
         let (lo, hi) = y_range(&mesh, SizeClass::Trunk);
         assert!(
             lo < -0.5 * o.roots.depth * o.diameter,
             "{}: base {lo}",
-            preset.name()
+            preset.name
         );
         let reach = o.ends.tip.reach(o.tip_radius());
         assert!(
             (hi - o.length).abs() <= reach + 0.1 * o.length,
             "{}: top {hi}",
-            preset.name()
+            preset.name
         );
         if o.roots.count > 0 {
             let (root_lo, _) = y_range(&mesh, SizeClass::Branch);
-            assert!(
-                root_lo < 0.0,
-                "{}: roots don't reach the soil",
-                preset.name()
-            );
+            assert!(root_lo < 0.0, "{}: roots don't reach the soil", preset.name);
         }
-        assert_eq!(piece.placement().burial, 0.0);
+        assert_eq!(piece.pose().burial, 0.0);
     }
 }
 
 #[test]
 fn stump_flare_widens_the_base() {
-    let piece = Piece::from_preset(DeadwoodPreset::NotchedStump);
+    let piece = Piece::from_preset(DeadwoodPreset::notched_stump()).unwrap();
     let o = piece.options();
     let mesh = piece.mesh_with_detail(&DeadwoodDetail::FULL);
     let part = mesh

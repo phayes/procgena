@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantField, PlantParams,
-    PlantSegment, Vec2,
+    Color, Cow, GroundTint, PlantParams, PlantScatter, PlantScatterPreset, PlantSegment,
+    SCATTER_BASE, ScatterPlant, Vec2,
 };
 
 preset_group! {
@@ -9,16 +9,16 @@ GENERAL "General" {
     MEADOW {
         name: "Meadow",
         description: "Fresh green, soft, mixed heights. The default for temperate worlds.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::MEADOW_GRASS)]),
-        ..FIELD_BASE
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams::MEADOW_GRASS)]),
+        ..SCATTER_BASE
     };
     TALL_PRAIRIE {
         name: "Tall prairie",
         description: "Deep green to straw tips, loose and flowing. For hiding in grass and \
                       dramatic wind.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams {
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams {
             density: 40.0,
             height: Vec2::new(0.8, 1.4),
             width: 0.025,
@@ -36,26 +36,26 @@ GENERAL "General" {
         })]),
         ground_tint: GroundTint {
             amount: 0.2,
-            ..FIELD_BASE.ground_tint
+            ..SCATTER_BASE.ground_tint
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     WHEAT {
         name: "Wheat",
         description: "Golden, dense, stiff stems with a sheen. Farmland.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::WHEAT)]),
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams::WHEAT)]),
         ground_tint: GroundTint {
             amount: 0.15,
-            ..FIELD_BASE.ground_tint
+            ..SCATTER_BASE.ground_tint
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     DRY_SAVANNA {
         name: "Dry savanna",
         description: "Yellow-brown, sparse and stiff. Arid and late-summer biomes.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams {
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams {
             density: 25.0,
             height: Vec2::new(0.5, 1.0),
             width: 0.02,
@@ -75,24 +75,24 @@ GENERAL "General" {
             color: Color::srgb(0.42, 0.33, 0.20),
             amount: 0.3,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     LAWN {
         name: "Lawn",
         description: "Uniform, short and dense. Gardens, towns, sports fields.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::LAWN_GRASS)]),
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams::LAWN_GRASS)]),
         ground_tint: GroundTint {
             amount: 0.0,
-            ..FIELD_BASE.ground_tint
+            ..SCATTER_BASE.ground_tint
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     STYLIZED {
         name: "Stylised",
         description: "Flat toon bands, wide blades and no specular, for non-photoreal art.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams {
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams {
             density: 30.0,
             height: Vec2::new(0.4, 0.8),
             width: 0.06,
@@ -110,10 +110,10 @@ GENERAL "General" {
         })]),
         ground_tint: GroundTint {
             amount: 0.0,
-            ..FIELD_BASE.ground_tint
+            ..SCATTER_BASE.ground_tint
         },
         toon_bands: 3,
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
 }
 }

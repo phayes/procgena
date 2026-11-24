@@ -68,7 +68,7 @@ use super::resources::{
 };
 use super::view::{DRAW_ARGS_SIZE, MAX_BUCKETS, PlantViewBindGroups, PlantViewBuffers};
 use crate::api::{NoPlants, PlantCamera};
-use crate::fields::LookFeatures;
+use crate::scatters::LookFeatures;
 
 /// A grass draw pipeline's key: the view's, plus the optional look terms
 /// enabled by any field, plus the choice of unbranched or branched geometry.

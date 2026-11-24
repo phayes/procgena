@@ -147,12 +147,8 @@ pub fn steeper_than(s: &GroundSample, max_degrees: f32) -> bool {
 /// It says how copies are put down, not what they look like, so it is not
 /// part of any options hash or specimen id. Assets declare their usual
 /// placement, and a Scatter may override it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(default)
-)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Placement {
     /// How far the piece tilts towards the ground's slope, from 0 (it stays
     /// upright, like a tree or a mushroom) to 1 (it lies along the ground,
@@ -184,12 +180,8 @@ impl Default for Placement {
 }
 
 /// What a placed piece rests on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "lowercase")
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Rest {
     /// The piece's lowest contact meets the lowest ground under its
     /// footprint, so nothing floats; on a slope its uphill side sinks in.

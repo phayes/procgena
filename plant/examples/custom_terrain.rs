@@ -28,7 +28,9 @@ fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "procgena_plant: custom terrain material");
     app.add_plugins((PlantPlugins, MaterialPlugin::<Terrain>::default()))
-        .insert_resource(TerrainPlants(FarPlants::new(&FieldPreset::MEADOW.field)))
+        .insert_resource(TerrainPlants(FarPlants::new(
+            &PlantScatterPreset::MEADOW.plant_scatter,
+        )))
         .add_systems(Startup, setup)
         .add_systems(Update, follow_the_plants.after(PlantWindSystems::Sample))
         .run();
@@ -117,8 +119,8 @@ fn setup(
             }),
         ),
     ));
-    commands.spawn(PlantField::from_preset(
-        &FieldPreset::MEADOW,
+    commands.spawn(PlantScatter::from_preset(
+        &PlantScatterPreset::MEADOW,
         Vec2::splat(400.0),
     ));
 }

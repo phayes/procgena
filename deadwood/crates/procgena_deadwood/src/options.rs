@@ -2,8 +2,8 @@
 //! colours and mesh detail.
 //!
 //! Start with [`DeadwoodOptions::default()`], a [`crate::DeadwoodPreset`], or
-//! a partial JSON object loaded with [`DeadwoodOptions::from_json`]. Creating
-//! a [`crate::Piece`] validates the settings; call
+//! a `.deadwood.yml` file read with [`crate::DeadwoodPreset::from_yaml`].
+//! Creating a [`crate::Piece`] validates the settings; call
 //! [`DeadwoodOptions::validate`] to check edits before that.
 
 use std::fmt;
@@ -64,15 +64,20 @@ pub enum PieceKind {
 /// multiples of the piece's diameter or radius, so presets keep their
 /// proportions when you change the size.
 ///
-/// Setting fields or parsing JSON does not check the values. Call
+/// Setting fields does not check the values. Call
 /// [`validate`](Self::validate), or create a [`crate::Piece`], which checks
 /// them for you.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeadwoodOptions {
-    /// Number that picks the random details. The same seed and settings
-    /// always give the same piece; change it for a variation.
-    pub seed: u32,
-    /// Log, branch or stump.
+    /// Number that picks the random details of a piece built on its own.
+    /// The same seed and settings always give the same piece; change it for
+    /// a variation. A piece in a [`crate::StickScatter`] takes its seed from
+    /// the scatter instead.
+    pub default_seed: u32,
+    /// Log, branch or stump. Files call it `piece`, since `kind` names the
+    /// kind of an end.
+    #[serde(rename = "piece")]
     pub kind: PieceKind,
     /// How decayed the wood is, from 0 through [`MAX_DECAY`].
     ///
@@ -128,6 +133,7 @@ pub struct DeadwoodOptions {
 
 /// Bends, bumps and flattening of the main stem.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShapeOptions {
     /// How far the middle of the stem bows sideways, as a fraction of its
     /// length, from 0 (straight) through 0.5.
@@ -160,6 +166,7 @@ pub struct ShapeOptions {
 /// doesn't fit a very short stem becomes a flat saw cut. The options keep
 /// the values given.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EndsOptions {
     /// The base end: the thick end of a log or branch. Stumps ignore it,
     /// since their base is under the ground.
@@ -170,20 +177,20 @@ pub struct EndsOptions {
 
 /// The shape of one end of a stem.
 ///
-/// In JSON, an end is an object with a `"kind"` field, such as
-/// `{"kind": "saw", "tilt": 10}`. With [`DeadwoodOptions::from_json`], the
-/// "defaults in JSON" noted on each field apply when the JSON gives an end a
-/// different kind from the default end and leaves that field out. If the
-/// JSON names the same kind as the default end, a field left out keeps the
-/// default end's value instead. For example, the default base is a saw cut
-/// tilted 6°, so `{"ends": {"base": {"kind": "saw"}}}` keeps the 6° tilt.
+/// In a `.deadwood.yml` file, an end is a group with a `kind` setting, such
+/// as `{ kind: saw, tilt: 10 }`. The "defaults in a file" noted on each
+/// field apply when the file gives an end a different kind from the base's
+/// end and leaves that field out. If the file names the same kind as the
+/// base's end, a field left out keeps the base end's value instead. For
+/// example, the default base is a saw cut tilted 6°, so
+/// `ends: { base: { kind: saw } }` keeps the 6° tilt.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EndKind {
     /// A flat saw cut, showing the growth rings in the cut face.
     Saw {
         /// Angle of the cut away from square (straight across the stem), in
-        /// degrees, from 0 through 45. Defaults to 0 in JSON.
+        /// degrees, from 0 through 45. Defaults to 0 in a file.
         #[serde(default)]
         tilt: f32,
     },
@@ -192,34 +199,34 @@ pub enum EndKind {
     /// strip of uncut wood (the hinge) tore as the tree fell.
     Chainsaw {
         /// Angle of the cut away from square, in degrees, from 0 through 30.
-        /// Defaults to 0 in JSON.
+        /// Defaults to 0 in a file.
         #[serde(default)]
         tilt: f32,
         /// Height of the step as a fraction of the diameter, from 0 through
-        /// 0.3. Defaults to 0.1 in JSON.
+        /// 0.3. Defaults to 0.1 in a file.
         #[serde(default = "default_step")]
         step: f32,
     },
     /// An axe cut: two faces meeting in a ridge, like a wedge.
     Axe {
         /// Angle between the two faces, in degrees, from 30 through 150.
-        /// Smaller angles give a longer, sharper point. Defaults to 60 in
-        /// JSON.
+        /// Smaller angles give a longer, sharper point. Defaults to 60 in a
+        /// file.
         #[serde(default = "default_axe_angle")]
         angle: f32,
     },
     /// A snapped, jagged break with splinters.
     Snapped {
         /// How rough the break is, as a fraction of the diameter, from 0
-        /// through 1. Defaults to 0.35 in JSON.
+        /// through 1. Defaults to 0.35 in a file.
         #[serde(default = "default_jaggedness")]
         jaggedness: f32,
         /// Number of long splinters sticking out of the break, from 0 up to
-        /// [`MAX_SPLINTERS`]. Defaults to 6 in JSON.
+        /// [`MAX_SPLINTERS`]. Defaults to 6 in a file.
         #[serde(default = "default_splinters")]
         splinters: u32,
         /// How much the break slants to one side, from 0 (even) through 1.
-        /// Defaults to 0.4 in JSON.
+        /// Defaults to 0.4 in a file.
         #[serde(default = "default_one_sided")]
         one_sided: f32,
     },
@@ -229,6 +236,7 @@ pub enum EndKind {
 
 /// Short broken-off branches sticking out of the main stem.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StubOptions {
     /// Stubs per metre of main stem, from 0 (none) through
     /// [`MAX_STUBS_PER_METRE`].
@@ -248,6 +256,7 @@ pub struct StubOptions {
 
 /// Side branches and twigs of a fallen [`PieceKind::Branch`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BranchingOptions {
     /// How many levels of side branches grow on each other, from 0 (a bare
     /// stick) through [`MAX_LEVELS`]. Twigs come on top of these.
@@ -279,6 +288,7 @@ pub struct BranchingOptions {
 
 /// Bark thickness, peeling and cracks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BarkOptions {
     /// Bark thickness as a fraction of the radius, from 0.01 through 0.3.
     /// Where bark has peeled off, the surface sinks by this much.
@@ -299,6 +309,7 @@ pub struct BarkOptions {
 
 /// A hollow core, as left by rot inside an old log or stump.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HollowOptions {
     /// Whether the piece is hollow. Branches are never hollow.
     pub enabled: bool,
@@ -320,6 +331,7 @@ pub struct HollowOptions {
 
 /// The flared base and surface roots of a stump.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RootOptions {
     /// How much wider the stump is at the ground than higher up, as a
     /// fraction of its radius, from 0 through 2.
@@ -361,6 +373,7 @@ pub struct RootOptions {
 /// settles, and aren't part of [`crate::Piece::specimen`], so nothing grows
 /// on them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LeafOptions {
     /// Number of sprays per metre of the main stem's visible length, from 0
     /// (no leaves, the default) through [`MAX_SPRAYS_PER_METRE`]. Sprays
@@ -414,6 +427,7 @@ pub struct LeafOptions {
 /// the usual sRGB colour space, as in image editors. They end up in the mesh
 /// as per-vertex colours, which renderers multiply with any texture.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialOptions {
     /// Bark colour of freshly fallen wood.
     pub bark: String,
@@ -447,6 +461,7 @@ pub struct MaterialOptions {
 
 /// How a piece comes to rest on the ground.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SettleOptions {
     /// Turns the piece onto a stable resting position, as if dropped on flat
     /// ground, so it lies on its stubs, branches or bumps. When false, the
@@ -460,7 +475,7 @@ pub struct SettleOptions {
     /// Suggested burial depth as a fraction of the diameter, from 0 through
     /// 0.5. `None` takes it from decay: none until class 3.5, up to 0.3 at
     /// class 5. The depth is only reported, in
-    /// [`crate::Placement::burial`]; lower the piece by it to sink it.
+    /// [`crate::RestingPose::burial`]; lower the piece by it to sink it.
     /// Stumps ignore it and always report 0.
     pub burial: Option<f32>,
 }
@@ -468,7 +483,7 @@ pub struct SettleOptions {
 impl Default for DeadwoodOptions {
     fn default() -> Self {
         Self {
-            seed: 1,
+            default_seed: 1,
             kind: PieceKind::Log,
             decay: 1.0,
             length: 3.0,
@@ -883,31 +898,6 @@ impl DeadwoodOptions {
         self.detail.validate()
     }
 
-    /// Reads options from JSON, filling anything left out with the
-    /// defaults. Nested objects merge field by field, so
-    /// `{"bark": {"cracks": 0.8}}` changes only the crack depth. An end that
-    /// names a different `kind` from the default replaces it whole; see
-    /// [`EndKind`].
-    ///
-    /// The values are not checked; see [`validate`](Self::validate).
-    ///
-    /// # Errors
-    ///
-    /// Returns the parse error if the text is not valid JSON or a value has
-    /// the wrong type.
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        let source: serde_json::Value = serde_json::from_str(json)?;
-        let mut merged = serde_json::to_value(Self::default())?;
-        merge_json(&mut merged, source);
-        serde_json::from_value(merged)
-    }
-
-    /// Returns every setting, including those at their defaults, as indented
-    /// JSON that [`from_json`](Self::from_json) reads back.
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("deadwood options always serialize to JSON")
-    }
-
     /// Radius at the base of the main stem, in metres.
     pub fn base_radius(&self) -> f32 {
         self.diameter * 0.5
@@ -1006,27 +996,27 @@ impl EndKind {
     }
 }
 
-/// JSON default for [`EndKind::Chainsaw`]'s `step`.
+/// File default for [`EndKind::Chainsaw`]'s `step`.
 fn default_step() -> f32 {
     0.1
 }
 
-/// JSON default for [`EndKind::Axe`]'s `angle`.
+/// File default for [`EndKind::Axe`]'s `angle`.
 fn default_axe_angle() -> f32 {
     60.0
 }
 
-/// JSON default for [`EndKind::Snapped`]'s `jaggedness`.
+/// File default for [`EndKind::Snapped`]'s `jaggedness`.
 fn default_jaggedness() -> f32 {
     0.35
 }
 
-/// JSON default for [`EndKind::Snapped`]'s `splinters`.
+/// File default for [`EndKind::Snapped`]'s `splinters`.
 fn default_splinters() -> u32 {
     6
 }
 
-/// JSON default for [`EndKind::Snapped`]'s `one_sided`.
+/// File default for [`EndKind::Snapped`]'s `one_sided`.
 fn default_one_sided() -> f32 {
     0.4
 }
@@ -1037,37 +1027,6 @@ pub(crate) const SNAP_BASE: f32 = 0.5;
 /// Largest splinter height, as a multiple of a break's jaggedness times the
 /// diameter.
 pub(crate) const SNAP_SPIKE: f32 = 1.5;
-
-/// Copies the JSON values in `source` over the defaults in `target`.
-/// Objects merge key by key, all the way down; arrays and other values
-/// replace the old value whole.
-///
-/// An object whose `kind` differs from the one in `target`, such as a
-/// saw-cut end replacing a snapped one, replaces it whole, so the old kind's
-/// fields don't carry over. An object with the same `kind` merges as usual.
-fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
-    use serde_json::Value;
-    match (target, source) {
-        (Value::Object(target), Value::Object(source))
-            if source
-                .get("kind")
-                .is_some_and(|k| Some(k) != target.get("kind")) =>
-        {
-            *target = source;
-        }
-        (Value::Object(target), Value::Object(source)) => {
-            for (key, value) in source {
-                match target.get_mut(&key) {
-                    Some(slot) => merge_json(slot, value),
-                    None => {
-                        target.insert(key, value);
-                    }
-                }
-            }
-        }
-        (target, source) => *target = source,
-    }
-}
 
 /// Checks that whole number `value` of setting `field` is in `min..=max`.
 pub(crate) fn int_range(
@@ -1146,28 +1105,36 @@ fn optional_within(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DeadwoodPreset;
 
     #[test]
     fn defaults_are_valid() {
         DeadwoodOptions::default().validate().unwrap();
     }
 
-    #[test]
-    fn json_merges_over_defaults() {
-        let o = DeadwoodOptions::from_json(r#"{"bark": {"cracks": 0.8}, "decay": 3}"#).unwrap();
-        assert_eq!(o.bark.cracks, 0.8);
-        assert_eq!(o.decay, 3.0);
-        assert_eq!(o.bark.thickness, BarkOptions::default().thickness);
-        assert_eq!(DeadwoodOptions::from_json(&o.to_json()).unwrap(), o);
+    /// Reads the options of a `.deadwood.yml` file with no base.
+    fn read(text: &str) -> Result<DeadwoodOptions, procgena_core::preset::PresetFileError> {
+        DeadwoodPreset::from_yaml("test", text).map(|preset| preset.deadwood)
     }
 
     #[test]
-    fn json_can_switch_end_kind() {
-        let o = DeadwoodOptions::from_json(r#"{"ends": {"tip": {"kind": "saw"}}}"#).unwrap();
+    fn a_partial_file_keeps_nested_defaults() {
+        let o = read("deadwood:\n  bark:\n    cracks: 0.8\n  decay: 3\n").unwrap();
+        assert_eq!(o.bark.cracks, 0.8);
+        assert_eq!(o.decay, 3.0);
+        assert_eq!(o.bark.thickness, BarkOptions::default().thickness);
+        let preset = DeadwoodPreset {
+            deadwood: o.clone(),
+            ..DeadwoodPreset::fresh_cut_log().clone()
+        };
+        assert_eq!(read(&preset.to_yaml(None)).unwrap(), o);
+    }
+
+    #[test]
+    fn a_file_can_switch_end_kind() {
+        let o = read("deadwood:\n  ends:\n    tip: { kind: saw }\n").unwrap();
         assert_eq!(o.ends.tip, EndKind::Saw { tilt: 0.0 });
-        let o =
-            DeadwoodOptions::from_json(r#"{"ends": {"tip": {"kind": "snapped", "splinters": 2}}}"#)
-                .unwrap();
+        let o = read("deadwood:\n  ends:\n    tip: { kind: snapped, splinters: 2 }\n").unwrap();
         assert_eq!(
             o.ends.tip,
             EndKind::Snapped {
@@ -1177,6 +1144,57 @@ mod tests {
             }
         );
         o.validate().unwrap();
+        // The same kind as the base's end keeps the base end's values.
+        let o = read("deadwood:\n  ends:\n    base: { kind: saw }\n").unwrap();
+        assert_eq!(o.ends.base, EndKind::Saw { tilt: 6.0 });
+    }
+
+    #[test]
+    fn a_file_can_switch_piece_and_keep_the_rest_of_its_base() {
+        let base = DeadwoodPreset::fresh_cut_log();
+        let o = read("base: fresh_cut_log\ndeadwood:\n  piece: stump\n").unwrap();
+        assert_eq!(o.kind, PieceKind::Stump);
+        assert_eq!(o.decay, base.deadwood.decay);
+        assert_eq!(o.ends, base.deadwood.ends);
+    }
+
+    #[test]
+    fn a_file_changes_its_base_and_optional_settings() {
+        let o =
+            read("base: fresh_cut_log\ndeadwood:\n  material:\n    bark: \"#102030\"\n").unwrap();
+        assert_eq!(o.material.bark, "#102030");
+        assert_eq!(o.decay, 0.5);
+        let o = read("deadwood:\n  shape:\n    ovality: 0.3\n").unwrap();
+        assert_eq!(o.shape.ovality, Some(0.3));
+    }
+
+    #[test]
+    fn a_file_rejects_unknown_names() {
+        for text in [
+            "deadwood:\n  seed: 7\n",
+            "deadwood:\n  bark:\n    note: 1\n",
+            "deadwood:\n  ends:\n    tip: { kind: saw, bogus: 1 }\n",
+            "deadwood:\n  detail:\n    bogus: 1\n",
+            "tags: [a]\n",
+        ] {
+            assert!(read(text).is_err(), "accepted {text}");
+        }
+    }
+
+    #[test]
+    fn a_file_rejects_bad_values() {
+        for text in [
+            "deadwood:\n  default_seed: twelve\n",
+            "deadwood:\n  default_seed: -1\n",
+            "deadwood:\n  ends:\n    tip: { kind: sawn }\n",
+            "deadwood:\n  bark: 3\n",
+            "[1, 2]\n",
+            "deadwood: {default_seed: 1\n",
+            "deadwood:\n  decay: 9.0\n",
+            "deadwood:\n  material:\n    rot: brown\n",
+        ] {
+            assert!(read(text).is_err(), "accepted {text}");
+        }
     }
 
     #[test]

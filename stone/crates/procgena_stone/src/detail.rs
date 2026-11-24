@@ -14,6 +14,7 @@ use crate::material::TextureSize;
 /// Level of detail (LOD) lets an application draw simpler meshes for distant
 /// rocks. This crate builds the meshes; the renderer decides when to switch.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DetailLevel {
     /// Number of sampling cells along each axis, from [`crate::MIN_RESOLUTION`]
     /// through [`crate::MAX_RESOLUTION`]. Doubling it needs about eight times

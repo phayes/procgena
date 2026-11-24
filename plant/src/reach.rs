@@ -22,7 +22,7 @@ use bevy::time::{Real, Time};
 use bevy::transform::components::GlobalTransform;
 
 use crate::api::{NoPlants, PlantCamera};
-use crate::fields::{FieldTables, layer_mask};
+use crate::scatters::{FieldTables, layer_mask};
 use crate::{PlantSettings, PlantSystems};
 
 /// How long a camera must see fields and reach none before the warning.

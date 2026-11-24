@@ -41,11 +41,11 @@ fn branched(table: &[u32; BUCKET_TABLE_WORDS], buckets: usize) -> Vec<(u32, u32)
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_a_busy_shape_gets_the_slots_an_even_split_would_withhold() {
     // Mix a common plant shape with a rare one to create uneven storage demand.
-    let field = PlantField::new(
+    let field = PlantScatter::new(
         Vec2::ZERO,
         vec![
-            FieldPlant::new(leaflets(6)).scaled(0.05),
-            FieldPlant::new(leaflets(12)).scaled(0.95),
+            ScatterPlant::new(leaflets(6)).scaled(0.05),
+            ScatterPlant::new(leaflets(12)).scaled(0.95),
         ],
     )
     .with_density(3.0);
@@ -112,7 +112,7 @@ fn gpu_more_buckets_than_lanes_are_all_counted_and_drawn() {
     let world = app.world_mut();
     for n in 1..=SHAPES {
         world.spawn((
-            PlantField::new(Vec2::new(70.0, 50.0), vec![FieldPlant::new(leaflets(n))])
+            PlantScatter::new(Vec2::new(70.0, 50.0), vec![ScatterPlant::new(leaflets(n))])
                 .with_density(0.1),
             Transform::from_xyz(3.0, 0.5, -4.0),
         ));

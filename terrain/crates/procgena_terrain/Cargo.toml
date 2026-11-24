@@ -13,9 +13,9 @@ rayon = ["dep:rayon"]
 
 [dependencies]
 glam = { workspace = true }
+procgena_core = { path = "../../../core/crates/procgena_core" }
 rayon = { workspace = true, optional = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true

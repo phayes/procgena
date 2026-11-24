@@ -17,7 +17,7 @@ use crate::api::PlantCamera;
 /// `max_interactors` also reallocates each camera's buffers, once.
 ///
 /// Start from a tier and change what you want, as with
-/// [`PlantField`](crate::PlantField) and [`PlantWind`](crate::PlantWind):
+/// [`PlantScatter`](crate::PlantScatter) and [`PlantWind`](crate::PlantWind):
 ///
 /// ```no_run
 /// # use bevy::prelude::*;

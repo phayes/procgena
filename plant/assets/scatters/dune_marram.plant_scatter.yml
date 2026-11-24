@@ -1,0 +1,26 @@
+# The `dune_marram` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Dune marram
+description: "Coastal dune grass: blue-grey, rolled, waxy blades in separate clumps on open sand, like marram on the Curonian Spit."
+group: Biomes
+plant_scatter:
+  variation:
+    patch_color:
+    - 0.7
+    - 0.66
+    - 0.48
+    patch_amount: 0.25
+    patch_size: 6.0
+    dry_tips: 0.35
+    dead_share: 0.1
+    bare_share: 0.4
+    bare_patch_size: 4.0
+  ground_tint:
+    color:
+    - 0.78
+    - 0.7
+    - 0.52
+    amount: 0.55
+  plants:
+  - plant: marram

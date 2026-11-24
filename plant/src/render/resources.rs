@@ -31,8 +31,8 @@ use super::view::{
 };
 use crate::PlantSettings;
 use crate::edit::PatchList;
-use crate::fields::FieldTables;
 use crate::gpu_layout::{ChunkGpu, FieldGpu, MAX_BRANCHED_CLASSES, NO_MAP};
+use crate::scatters::FieldTables;
 use crate::shader_model::{self, GUST_SIZE, ShapeClass, gust_noise};
 use crate::wind::PlantWindFrame;
 
@@ -431,7 +431,7 @@ fn upload_tables(
     if let Some(bytes) = platform::scene_too_large(tables.masks.len(), tables.heights.len(), limit)
     {
         warn!(
-            "procgena_plant: the density masks and heightmaps of every PlantField take {bytes} \
+            "procgena_plant: the density masks and heightmaps of every PlantScatter take {bytes} \
              bytes together, and a storage binding on this GPU holds {limit}; no grass is \
              drawn. Use fewer or smaller masks and heightmaps."
         );

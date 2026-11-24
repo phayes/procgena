@@ -10,9 +10,9 @@ use bevy::math::{Quat, Vec3};
 use bevy::time::TimeUpdateStrategy;
 
 use super::*;
-use crate::api::{FieldPlant, PlantAccent, PlantParams};
-use crate::fields::MaskKey;
-use crate::presets::FieldPreset;
+use crate::api::{PlantAccent, PlantParams, ScatterPlant};
+use crate::presets::PlantScatterPreset;
+use crate::scatters::MaskKey;
 
 /// Every entity is visible: these tests do not hide fields, except where
 /// they say so.
@@ -43,7 +43,7 @@ fn app() -> App {
             PostUpdate,
             visible.in_set(VisibilitySystems::VisibilityPropagate),
         )
-        .add_plugins(crate::fields::plugin);
+        .add_plugins(crate::scatters::plugin);
     app
 }
 
@@ -51,7 +51,7 @@ fn app() -> App {
 fn spawn(app: &mut App, size: f32, mask: Option<Handle<Image>>) -> Entity {
     app.world_mut()
         .spawn((
-            PlantField {
+            PlantScatter {
                 size: Vec2::splat(size),
                 density_map: mask,
                 ..Default::default()
@@ -244,10 +244,11 @@ fn the_gpu_always_holds_exactly_the_edited_masks() {
     let b = spawn(&mut app, 20.0, Some(second));
     let c = spawn(&mut app, 16.0, None);
     let height_map = mask(&mut app, 8, 128, 0);
-    app.world_mut().get_mut::<PlantField>(c).unwrap().ground = crate::api::PlantGround::Heightmap {
-        image: height_map,
-        height_scale: 2.0,
-    };
+    app.world_mut().get_mut::<PlantScatter>(c).unwrap().ground =
+        crate::api::PlantGround::Heightmap {
+            image: height_map,
+            height_scale: 2.0,
+        };
     for _ in 0..2 {
         app.update();
         gpu.frame(&app);
@@ -272,7 +273,7 @@ fn the_gpu_always_holds_exactly_the_edited_masks() {
     // A colour change rewrites entries only, and keeps the old masks.
     step(&mut app, &mut gpu, "a colour change", &|app| {
         app.world_mut()
-            .get_mut::<PlantField>(a)
+            .get_mut::<PlantScatter>(a)
             .unwrap()
             .plants
             .to_mut()[0]
@@ -448,7 +449,7 @@ fn a_turned_field_is_edited_where_it_lies() {
     let mut app = app();
     let field = spawn(&mut app, 0.0, None);
     // 40 × 8 m, turned a quarter: it runs along Z.
-    app.world_mut().get_mut::<PlantField>(field).unwrap().size = Vec2::new(40.0, 8.0);
+    app.world_mut().get_mut::<PlantScatter>(field).unwrap().size = Vec2::new(40.0, 8.0);
     *app.world_mut().get_mut::<GlobalTransform>(field).unwrap() = GlobalTransform::from(
         Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
     );
@@ -542,7 +543,7 @@ fn a_new_density_map_starts_the_field_again() {
     );
     let other = mask(&mut app, 32, 100, 255);
     app.world_mut()
-        .get_mut::<PlantField>(field)
+        .get_mut::<PlantScatter>(field)
         .unwrap()
         .density_map = Some(other);
     settle(&mut app);
@@ -720,9 +721,9 @@ fn the_sampler_reads_what_each_field_grows() {
     let image = mask(&mut app, 16, 255, 128);
     let meadow = spawn(&mut app, 16.0, Some(image));
     let tall = spawn(&mut app, 4.0, None);
-    let prairie = FieldPreset::TALL_PRAIRIE.field;
+    let prairie = PlantScatterPreset::TALL_PRAIRIE.plant_scatter;
     app.world_mut().entity_mut(tall).insert((
-        PlantField {
+        PlantScatter {
             size: Vec2::splat(4.0),
             density_scale: 0.5,
             ..prairie.clone()
@@ -743,7 +744,9 @@ fn the_sampler_reads_what_each_field_grows() {
     assert!((sampled.height_scale - 128.0 / 255.0).abs() < 1e-6);
     let typical = f32::midpoint(meadow_blade.height.x, meadow_blade.height.y);
     assert!((sampled.height - typical * 128.0 / 255.0).abs() < 1e-5);
-    assert!((sampled.blades_per_m2 - FieldPreset::MEADOW.field.density()).abs() < 1e-3);
+    assert!(
+        (sampled.blades_per_m2 - PlantScatterPreset::MEADOW.plant_scatter.density()).abs() < 1e-3
+    );
 
     // Where the two overlap, the taller grass is the answer, and both are
     // there to read.
@@ -784,7 +787,7 @@ fn the_sampler_reads_what_each_field_grows() {
 fn the_sampler_sees_bare_patches() {
     let mut app = app();
     let field = spawn(&mut app, 32.0, None);
-    let mut patchy = app.world_mut().get_mut::<PlantField>(field).unwrap();
+    let mut patchy = app.world_mut().get_mut::<PlantScatter>(field).unwrap();
     patchy.variation.bare_share = 0.5;
     patchy.variation.bare_patch_size = 2.0;
     settle(&mut app);
@@ -810,8 +813,14 @@ fn the_sampler_height_is_the_mean_of_the_plants_by_density() {
         height: Vec2::new(0.2, 0.6),
         ..PlantParams::MEADOW_GRASS
     };
-    app.world_mut().get_mut::<PlantField>(field).unwrap().plants =
-        vec![FieldPlant::new(tall), FieldPlant::new(short).scaled(3.0)].into();
+    app.world_mut()
+        .get_mut::<PlantScatter>(field)
+        .unwrap()
+        .plants = vec![
+        ScatterPlant::new(tall),
+        ScatterPlant::new(short).scaled(3.0),
+    ]
+    .into();
     settle(&mut app);
     let sampled = sample(&mut app, Vec2::ZERO).unwrap();
     let expected = 0.25 * 2.0 + 0.75 * 0.4;
@@ -832,8 +841,14 @@ fn the_sampler_height_is_the_mean_of_the_plants_by_density() {
         },
         ..short
     };
-    app.world_mut().get_mut::<PlantField>(field).unwrap().plants =
-        vec![FieldPlant::new(tall), FieldPlant::new(accented).scaled(3.0)].into();
+    app.world_mut()
+        .get_mut::<PlantScatter>(field)
+        .unwrap()
+        .plants = vec![
+        ScatterPlant::new(tall),
+        ScatterPlant::new(accented).scaled(3.0),
+    ]
+    .into();
     settle(&mut app);
     let sampled = sample(&mut app, Vec2::ZERO).unwrap();
     let expected = 0.25 * 2.0 + 0.75 * (0.5 * 0.4 + 0.5 * 4.0);
@@ -1111,7 +1126,7 @@ fn a_box_brush_with_a_rate_works_where_it_stands() {
 fn the_sampler_finds_no_plants_where_the_ground_has_a_hole() {
     let mut app = app();
     let world = app.world_mut();
-    let field = PlantField {
+    let field = PlantScatter {
         size: Vec2::splat(32.0),
         ..Default::default()
     }

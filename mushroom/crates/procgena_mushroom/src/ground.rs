@@ -51,9 +51,10 @@ impl MushroomScatter {
     ///
     /// Copies are drawn from [`ScatterOptions::specimens`] different
     /// specimens, each seeded from its [`SpecimenId`] with `input.seed` as
-    /// the World seed. Neither [`ScatterOptions::seed`] nor the mushroom's
-    /// own seed is used. Each copy gets its own turn and size, and every
-    /// member of a cluster is set on the ground at its own spot with
+    /// the World seed. Neither [`ScatterOptions::default_seed`] nor the
+    /// mushroom's own [`default_seed`](MushroomOptions::default_seed) is
+    /// used. Each copy gets its own turn and size, and every member of a
+    /// cluster is set on the ground at its own spot with
     /// [`ScatterOptions::placement`], or the species'
     /// [`ground_placement`](MushroomOptions::ground_placement) (upright,
     /// resting on the lowest ground under its stem). A member with no ground
@@ -94,7 +95,7 @@ impl MushroomScatter {
         let specimens = (0..options.specimens)
             .map(|slot| {
                 Mushroom::new(MushroomOptions {
-                    seed: SpecimenId::new(input.seed, pool, slot).seed(),
+                    default_seed: SpecimenId::new(input.seed, pool, slot).seed(),
                     ..mushroom.clone()
                 })
             })

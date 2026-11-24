@@ -1,0 +1,12 @@
+# A built-in TreeScatterPreset. Copy it, change what you like, and read it
+# with TreeScatterPreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Cedar Grove
+description: Cedars with a few pines and clumps of evergreen bushes.
+group: Conifer
+tree_scatter:
+  default_seed: 5
+  trees:
+    - { tree: bush_3, density_scale: 0.1, clustering: 0.5, variants: 3 }
+    - { tree: pine_medium, density_scale: 0.15, clustering: 0.4 }
+    - { tree: cedar, density_scale: 0.8 }

@@ -58,7 +58,7 @@ fn assert_same_copy(a: &MushroomCopy, b: Option<&&MushroomCopy>) {
 
 #[test]
 fn copies_fill_the_area_at_about_the_density() {
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     let s = scatter(&porcini, &options(), &rolling, DVec2::ZERO, 10.0, 4);
     let n = s.copies().len() as f32;
     assert!((150.0..450.0).contains(&n), "{n} copies on 100 m²");
@@ -70,7 +70,7 @@ fn copies_fill_the_area_at_about_the_density() {
 
 #[test]
 fn a_larger_area_keeps_the_copies_already_there() {
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     let small = scatter(&porcini, &options(), &rolling, DVec2::ZERO, 6.0, 4);
     let large = scatter(&porcini, &options(), &rolling, DVec2::ZERO, 12.0, 4);
     let large = by_cell(&large);
@@ -82,7 +82,7 @@ fn a_larger_area_keeps_the_copies_already_there() {
 
 #[test]
 fn less_density_or_a_mask_only_removes_copies() {
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     let full = scatter(&porcini, &options(), &rolling, DVec2::ZERO, 10.0, 4);
     let full_cells = by_cell(&full);
 
@@ -116,7 +116,7 @@ fn a_patchy_mask_only_removes_copies_even_when_crowded() {
         ..options()
     };
     let mask = |p: DVec2| (0.5 + 0.5 * (7.0 * p.x).sin() * (5.0 * p.y).cos()) as f32;
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     for seed in [1, 2, 3, 4, 5] {
         let full = scatter(&porcini, &crowded, &rolling, DVec2::ZERO, 8.0, seed);
         let full_cells = by_cell(&full);
@@ -132,7 +132,7 @@ fn a_patchy_mask_only_removes_copies_even_when_crowded() {
 
 #[test]
 fn the_species_placement_is_the_default_and_a_scatter_can_override_it() {
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     let default = porcini.ground_placement();
     assert_eq!(
         default,
@@ -192,7 +192,7 @@ fn a_non_finite_area_is_refused() {
         1,
     );
     let err =
-        MushroomScatter::new(&MushroomPreset::Porcini.options(), &options(), &input).unwrap_err();
+        MushroomScatter::new(&MushroomPreset::porcini().mushroom, &options(), &input).unwrap_err();
     assert!(matches!(err, ScatterError::TooLarge { .. }));
 }
 
@@ -201,7 +201,7 @@ fn steep_ground_is_left_bare() {
     // Flat for x < 0, a slope of about 63° for x > 0, steeper than the
     // default 50° limit.
     let ground = |p: DVec2| (2.0 * p.x.max(0.0)) as f32;
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     assert!(options().max_slope < 63.0);
     let s = scatter(&porcini, &options(), &ground, DVec2::ZERO, 10.0, 4);
     assert!(!s.copies().is_empty());
@@ -213,7 +213,7 @@ fn a_far_centre_gives_the_same_layout() {
     // Ground that moves with the area, so both see the same shape.
     let far = DVec2::new(1.0e6, -3.0e6);
     let shifted = move |p: DVec2| rolling(p - far);
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     let here = scatter(&porcini, &options(), &rolling, DVec2::ZERO, 8.0, 4);
     let there = scatter(&porcini, &options(), &shifted, far, 8.0, 4);
     assert_eq!(here.copies().len(), there.copies().len());
@@ -225,7 +225,7 @@ fn a_far_centre_gives_the_same_layout() {
 
 #[test]
 fn each_member_stands_on_its_own_ground() {
-    let ring = MushroomPreset::FairyRing.options();
+    let ring = MushroomPreset::fairy_ring().mushroom.clone();
     let opts = ScatterOptions {
         density: 0.05,
         min_spacing: 3.0,
@@ -267,7 +267,7 @@ fn each_member_stands_on_its_own_ground() {
 fn a_member_without_ground_is_dropped_alone() {
     // No ground for x > 1: a ring centred near there loses part of itself.
     let ground = |p: DVec2| if p.x > 1.0 { f32::NAN } else { 0.0 };
-    let ring = MushroomPreset::FairyRing.options();
+    let ring = MushroomPreset::fairy_ring().mushroom.clone();
     let opts = ScatterOptions {
         density: 0.2,
         min_spacing: 1.0,
@@ -295,7 +295,7 @@ fn a_member_without_ground_is_dropped_alone() {
 
 #[test]
 fn specimens_come_from_the_input_seed() {
-    let porcini = MushroomPreset::Porcini.options();
+    let porcini = MushroomPreset::porcini().mushroom.clone();
     let opts = options();
     let s = scatter(&porcini, &opts, &rolling, DVec2::ZERO, 6.0, 11);
     assert_eq!(s.bodies().len(), opts.specimens as usize);
@@ -304,7 +304,7 @@ fn specimens_come_from_the_input_seed() {
         assert_eq!(body.id().seed, seed);
         // The same as that specimen grown on its own.
         let alone = Mushroom::new(MushroomOptions {
-            seed,
+            default_seed: seed,
             ..porcini.clone()
         })
         .unwrap();
@@ -312,9 +312,9 @@ fn specimens_come_from_the_input_seed() {
     }
     // Neither the options' seed nor the mushroom's seed takes part.
     let mut other = porcini.clone();
-    other.seed += 5;
+    other.default_seed += 5;
     let reseeded = ScatterOptions {
-        seed: opts.seed + 5,
+        default_seed: opts.default_seed + 5,
         ..opts.clone()
     };
     let again = scatter(&other, &reseeded, &rolling, DVec2::ZERO, 6.0, 11);
@@ -330,6 +330,6 @@ fn an_oversized_area_is_refused() {
         1,
     );
     let err =
-        MushroomScatter::new(&MushroomPreset::Porcini.options(), &options(), &input).unwrap_err();
+        MushroomScatter::new(&MushroomPreset::porcini().mushroom, &options(), &input).unwrap_err();
     assert!(matches!(err, ScatterError::TooLarge { .. }));
 }

@@ -116,7 +116,8 @@ fn build(
         root: Root::default(),
         bin: Vec::new(),
     };
-    let extras = format!("{{\"mushroomOptions\":{}}}", options.to_json());
+    let options_json = serde_json::to_string(options).map_err(GltfError::Json)?;
+    let extras = format!("{{\"mushroomOptions\":{options_json}}}");
     b.root.asset = json::Asset {
         generator: Some(format!("procgena_mushroom {}", env!("CARGO_PKG_VERSION"))),
         extras: Some(RawValue::from_string(extras).map_err(GltfError::Json)?),

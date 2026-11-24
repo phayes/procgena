@@ -1,5 +1,5 @@
-//! The Plant Field tab's controls: preset, one row per plant, and the
-//! field's shared appearance.
+//! The Plant Scatter tab's controls: preset, one row per plant, and the
+//! Scatter's shared appearance.
 
 use bevy::ecs::system::SystemParam;
 use bevy::feathers::constants::icons;
@@ -12,12 +12,15 @@ use bevy::scene::Scene;
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_plant::MAX_PLANTS;
-use procgena_plant::prelude::{FieldPlant, FieldPreset, PlantField, PlantParams, PlantPreset};
+use procgena_plant::prelude::{
+    PlantParams, PlantPreset, PlantScatter, PlantScatterPreset, ScatterPlant,
+};
 
 use super::{
     ADDED_PLANT, CUSTOM, START_PRESET, choice_of, params, per_m2_text, read_field, row_statuses,
+    save_field_preset,
 };
-use crate::export::{Done, FileOps, shown_name, write_file};
+use crate::export::{Done, FileOps};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
 use crate::plant::read_plant;
 use crate::ui::{SelectOptions, labelled_row};
@@ -26,9 +29,11 @@ use crate::ui::{SelectOptions, labelled_row};
 #[derive(Event, Debug)]
 pub struct FieldEdited;
 
-/// The field editor's state. There is one, on the Plant Field tab.
+/// The Plant Scatter editor's state. There is one, on the Plant Scatter tab.
 #[derive(Component)]
 pub struct FieldEditor {
+    /// The preset last chosen, which saved files name as their base.
+    preset: &'static PlantScatterPreset,
     /// The panel holding the field's shared settings.
     panel: Entity,
     /// The node whose children are the [`PlantRow`]s, in the field's order.
@@ -39,7 +44,7 @@ pub struct FieldEditor {
 /// buttons to edit or remove it, above its density settings.
 #[derive(Component)]
 struct PlantRow {
-    /// The panel holding the row's [`FieldPlant`].
+    /// The panel holding the row's [`ScatterPlant`].
     share: Entity,
     /// The panel with every setting of the plant, once it has been shown.
     plant: Option<Entity>,
@@ -77,8 +82,8 @@ pub struct FieldEditorPlugin;
 impl Plugin for FieldEditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            ParamPanelPlugin::<PlantField>::default(),
-            ParamPanelPlugin::<FieldPlant>::default(),
+            ParamPanelPlugin::<PlantScatter>::default(),
+            ParamPanelPlugin::<ScatterPlant>::default(),
         ))
         .add_systems(
             Update,
@@ -93,17 +98,17 @@ pub struct FieldReader<'w, 's> {
     editors: Query<'w, 's, &'static FieldEditor>,
     children: Query<'w, 's, &'static Children>,
     rows: Query<'w, 's, &'static PlantRow>,
-    shares: Query<'w, 's, &'static ParamPanel<FieldPlant>>,
-    fields: Query<'w, 's, &'static ParamPanel<PlantField>>,
+    shares: Query<'w, 's, &'static ParamPanel<ScatterPlant>>,
+    fields: Query<'w, 's, &'static ParamPanel<PlantScatter>>,
 }
 
 impl FieldReader<'_, '_> {
     /// The edited field: its plants, in row order, with its shared settings.
     /// `None` before the editor is spawned.
-    pub fn field(&self) -> Option<PlantField> {
+    pub fn field(&self) -> Option<PlantScatter> {
         let editor = self.editors.single().ok()?;
         let field = self.fields.get(editor.panel).ok()?;
-        let plants: Vec<FieldPlant> = self
+        let plants: Vec<ScatterPlant> = self
             .children
             .get(editor.list)
             .into_iter()
@@ -112,30 +117,44 @@ impl FieldReader<'_, '_> {
             .filter_map(|row| self.shares.get(row.share).ok())
             .map(|share| *share.value())
             .collect();
-        Some(PlantField {
+        Some(PlantScatter {
             plants: plants.into(),
             ..field.value().clone()
         })
     }
+
+    /// The Plant Scatter preset last chosen, which saved files name as their
+    /// base. `None` before the editor is spawned.
+    pub fn preset(&self) -> Option<&'static PlantScatterPreset> {
+        Some(self.editors.single().ok()?.preset)
+    }
+}
+
+/// The Plant Scatter preset shown when the studio opens.
+///
+/// # Panics
+///
+/// Panics if [`START_PRESET`] names no Plant Scatter preset.
+pub fn start_preset() -> &'static PlantScatterPreset {
+    PlantScatterPreset::named(START_PRESET).expect("START_PRESET names a Plant Scatter preset")
 }
 
 /// The field shown when the studio opens.
 ///
 /// # Panics
 ///
-/// Panics if [`START_PRESET`] names no field preset.
-pub fn start_field() -> PlantField {
-    FieldPreset::named(START_PRESET)
-        .expect("START_PRESET names a field preset")
-        .field
-        .clone()
+/// Panics if [`START_PRESET`] names no Plant Scatter preset.
+pub fn start_field() -> PlantScatter {
+    start_preset().plant_scatter.clone()
 }
 
 /// Spawns the field editor, showing [`START_PRESET`], as the last child of `parent`.
 pub fn spawn_field_editor(commands: &mut Commands, parent: Entity) {
     let field = start_field();
-    let names: Vec<String> = FieldPreset::all().map(|p| p.name.to_string()).collect();
-    let selected = FieldPreset::all().position(|p| p.key == START_PRESET);
+    let names: Vec<String> = PlantScatterPreset::all()
+        .map(|p| p.name.to_string())
+        .collect();
+    let selected = PlantScatterPreset::all().position(|p| p.key == START_PRESET);
     let preset: Box<dyn Scene> = Box::new(bsn! {
         @FeathersSelect { @options: list_rows_from_strings(names, selected) }
         Node { flex_grow: 1.0 }
@@ -186,17 +205,21 @@ pub fn spawn_field_editor(commands: &mut Commands, parent: Entity) {
         .observe(|_: On<ParamsChanged>, mut commands: Commands| {
             commands.trigger(FieldEdited);
         });
-    commands.entity(editor).insert(FieldEditor { panel, list });
+    commands.entity(editor).insert(FieldEditor {
+        preset: start_preset(),
+        panel,
+        list,
+    });
 
     // Saving and loading, below the settings.
     commands
         .spawn_scene(bsn! {
             Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
             Children [
-                @FeathersButton { @caption: bsn! { @caption("Save Field…") } }
+                @FeathersButton { @caption: bsn! { @caption("Save Preset…") } }
                 on(save_field)
                 --
-                @FeathersButton { @caption: bsn! { @caption("Load Field…") } }
+                @FeathersButton { @caption: bsn! { @caption("Load Preset…") } }
                 on(load_field_file)
             ]
         })
@@ -204,7 +227,7 @@ pub fn spawn_field_editor(commands: &mut Commands, parent: Entity) {
 }
 
 /// Spawns a row showing `entry` as the last child of `list` and returns it.
-fn spawn_row(commands: &mut Commands, list: Entity, entry: FieldPlant) -> Entity {
+fn spawn_row(commands: &mut Commands, list: Entity, entry: ScatterPlant) -> Entity {
     let names: Vec<String> = PlantPreset::all()
         .map(|p| p.name.to_string())
         .chain([CUSTOM.to_string()])
@@ -284,22 +307,24 @@ fn row_of(
         .find(|ancestor| rows.contains(*ancestor))
 }
 
-/// Replaces every row and the shared settings with the chosen field preset's.
+/// Replaces every row and the shared settings with the chosen Plant Scatter
+/// preset's.
 fn choose_field_preset(
     change: On<ValueChange<Entity>>,
     options: Query<&OptionIndex>,
-    editor: Single<&FieldEditor>,
+    mut editor: Single<&mut FieldEditor>,
     children: Query<&Children>,
-    mut fields: Query<&mut ParamPanel<PlantField>>,
+    mut fields: Query<&mut ParamPanel<PlantScatter>>,
     mut commands: Commands,
 ) {
     if let Some(preset) = options
         .get(change.value)
         .ok()
-        .and_then(|index| FieldPreset::all().nth(index.0))
+        .and_then(|index| PlantScatterPreset::all().nth(index.0))
     {
+        editor.preset = preset;
         show_field(
-            &preset.field,
+            &preset.plant_scatter,
             &editor,
             &children,
             &mut fields,
@@ -311,10 +336,10 @@ fn choose_field_preset(
 /// Shows a loaded field in the editor, replacing every row. The preset picker
 /// keeps its choice. Run it with `World::run_system_cached_with`.
 pub fn load_field(
-    In(field): In<PlantField>,
+    In(field): In<PlantScatter>,
     editor: Single<&FieldEditor>,
     children: Query<&Children>,
-    mut fields: Query<&mut ParamPanel<PlantField>>,
+    mut fields: Query<&mut ParamPanel<PlantScatter>>,
     mut commands: Commands,
 ) {
     show_field(&field, &editor, &children, &mut fields, &mut commands);
@@ -323,10 +348,10 @@ pub fn load_field(
 /// Replaces every row and the shared settings with `field`'s, and triggers
 /// [`FieldEdited`].
 fn show_field(
-    field: &PlantField,
+    field: &PlantScatter,
     editor: &FieldEditor,
     children: &Query<&Children>,
-    fields: &mut Query<&mut ParamPanel<PlantField>>,
+    fields: &mut Query<&mut ParamPanel<PlantScatter>>,
     commands: &mut Commands,
 ) {
     for row in children.get(editor.list).into_iter().flatten() {
@@ -341,32 +366,29 @@ fn show_field(
     commands.trigger(FieldEdited);
 }
 
-/// Saves the field as JSON, or as a `.field.ron` file when the chosen name
-/// ends in `.ron`.
+/// Saves the Plant Scatter as a `.plant_scatter.yml` preset file based on the
+/// chosen preset.
 fn save_field(_: On<Activate>, reader: FieldReader, mut files: FileOps) {
-    let Some(field) = reader.field() else {
+    let (Some(field), Some(base)) = (reader.field(), reader.preset()) else {
         return;
     };
-    files.save("field.json", move |path| {
-        let ron = path.extension().is_some_and(|ext| ext == "ron");
-        let text = if ron { field.to_ron() } else { field.to_json() };
-        write_file(path, text.as_bytes())?;
-        Ok(Done::new(format!("Saved {}", shown_name(path))))
+    files.save(&format!("{}.plant_scatter.yml", base.key), move |path| {
+        save_field_preset(field, base, path)
     });
 }
 
-/// Loads a field file into the editor.
+/// Loads a `.plant_scatter.yml` preset file into the editor.
 fn load_field_file(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let field = read_field(text)?;
         world
             .run_system_cached_with(load_field, field)
-            .map_err(|error| format!("Cannot show the field: {error}"))?;
-        Ok(Done::new("Loaded the field"))
+            .map_err(|error| format!("Cannot show the Plant Scatter: {error}"))?;
+        Ok(Done::new("Loaded the Plant Scatter"))
     });
 }
 
-/// Loads a plant file into the row whose button was pressed.
+/// Loads a `.plant.yml` preset file into the row whose button was pressed.
 fn load_row_plant(
     activate: On<Activate>,
     parents: Query<&ChildOf>,
@@ -389,7 +411,7 @@ fn load_row_plant(
 fn set_row_plant(
     In((row, plant)): In<(Entity, PlantParams)>,
     rows: Query<&PlantRow>,
-    mut shares: Query<&mut ParamPanel<FieldPlant>>,
+    mut shares: Query<&mut ParamPanel<ScatterPlant>>,
     mut plants: Query<&mut ParamPanel<PlantParams>>,
     mut commands: Commands,
 ) {
@@ -397,7 +419,7 @@ fn set_row_plant(
         return;
     };
     if let Ok(mut share) = shares.get_mut(row.share) {
-        let entry = FieldPlant {
+        let entry = ScatterPlant {
             plant,
             ..*share.value()
         };
@@ -467,7 +489,7 @@ fn choose_plant_preset(
     options: Query<&OptionIndex>,
     parents: Query<&ChildOf>,
     mut rows: Query<&mut PlantRow>,
-    mut shares: Query<&mut ParamPanel<FieldPlant>>,
+    mut shares: Query<&mut ParamPanel<ScatterPlant>>,
     mut plants: Query<&mut ParamPanel<PlantParams>>,
     mut commands: Commands,
 ) {
@@ -489,7 +511,7 @@ fn choose_plant_preset(
         // The picker also reports choices made to match the plant; ignore those.
         Some(preset) if preset.plant == current => {}
         Some(preset) => {
-            let entry = FieldPlant {
+            let entry = ScatterPlant {
                 plant: preset.plant,
                 ..*share.value()
             };
@@ -509,9 +531,9 @@ fn choose_plant_preset(
 fn refresh_rows(
     editors: Query<&FieldEditor>,
     children: Query<&Children>,
-    fields: Query<&ParamPanel<PlantField>>,
+    fields: Query<&ParamPanel<PlantScatter>>,
     mut rows: Query<&mut PlantRow>,
-    mut shares: Query<&mut ParamPanel<FieldPlant>>,
+    mut shares: Query<&mut ParamPanel<ScatterPlant>>,
 ) {
     let Ok(editor) = editors.single() else {
         return;
@@ -563,7 +585,7 @@ fn show_row_parts(
     editors: Query<&FieldEditor>,
     children: Query<&Children>,
     rows: Query<&PlantRow>,
-    shares: Query<&ParamPanel<FieldPlant>>,
+    shares: Query<&ParamPanel<ScatterPlant>>,
     parts: Query<(Entity, &RowPart)>,
     parents: Query<&ChildOf>,
     adders: Query<Entity, With<AddPlant>>,
@@ -582,7 +604,7 @@ fn show_row_parts(
         .flatten()
         .copied()
         .collect();
-    let densities: Vec<f32> = field.plants.iter().map(FieldPlant::density).collect();
+    let densities: Vec<f32> = field.plants.iter().map(ScatterPlant::density).collect();
     let statuses = row_statuses(&densities, field.density_scale);
     let set_disabled = |commands: &mut Commands, entity: Entity, off: bool| {
         if disabled.get(entity).is_ok_and(|was| was != off) {
@@ -645,7 +667,7 @@ fn show_row_parts(
 /// is custom, creating them the first time.
 fn show_plant_settings(
     mut rows: Query<(Entity, &mut PlantRow)>,
-    shares: Query<&ParamPanel<FieldPlant>>,
+    shares: Query<&ParamPanel<ScatterPlant>>,
     parents: Query<&ChildOf>,
     mut nodes: Query<&mut Node>,
     mut commands: Commands,
@@ -710,7 +732,7 @@ fn edit_row_plant(
     parents: Query<&ChildOf>,
     rows: Query<&PlantRow>,
     plants: Query<&ParamPanel<PlantParams>>,
-    mut shares: Query<&mut ParamPanel<FieldPlant>>,
+    mut shares: Query<&mut ParamPanel<ScatterPlant>>,
     mut commands: Commands,
 ) {
     let row = parents
@@ -720,7 +742,7 @@ fn edit_row_plant(
         return;
     };
     if let Ok(mut share) = shares.get_mut(row.share) {
-        let entry = FieldPlant {
+        let entry = ScatterPlant {
             plant: *plant.value(),
             ..*share.value()
         };
@@ -760,7 +782,7 @@ mod tests {
     #[ignore = "needs a GPU"]
     fn plant_rows_can_be_added_customised_and_removed() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        studio.click("Plant Field").unwrap();
+        studio.click("Plant Scatter").unwrap();
         assert_eq!(buttons(&mut studio, RowPart::Remove).len(), 1);
         assert!(
             buttons(&mut studio, RowPart::Remove)[0].1,

@@ -1,7 +1,8 @@
 //! Settings for a rock's shape, roughness, world size, and mesh detail.
 //!
-//! Start with [`StoneOptions::default()`] or load a partial JSON object with
-//! [`StoneOptions::from_json`]. Creating a [`crate::Stone`] validates the settings;
+//! Start with [`StoneOptions::default()`], a [`crate::StonePreset`], or a
+//! `.stone.yml` file read with [`crate::StonePreset::from_yaml`]. Creating a
+//! [`crate::Stone`] validates the settings;
 //! use [`StoneOptions::validate`] to check edits before generating a rock.
 
 use std::fmt;
@@ -26,18 +27,21 @@ pub const MAX_OCTAVES: u32 = 8;
 
 /// Settings used to generate a repeatable rock shape and mesh.
 ///
-/// Reuse the same settings to reproduce a rock, or change [`seed`](Self::seed)
-/// for a variation. Start with [`Self::default()`] and edit fields, or load a
-/// partial JSON object with [`from_json`](Self::from_json).
+/// Reuse the same settings to reproduce a rock, or change
+/// [`default_seed`](Self::default_seed) for a variation. Start with
+/// [`Self::default()`] or a [`crate::StonePreset`] and edit fields.
 ///
 /// Floating-point settings must be finite and within their documented ranges.
-/// Assigning fields or parsing JSON does not validate them; call
+/// Assigning fields does not validate them; call
 /// [`validate`](Self::validate) or create a [`crate::Stone`] to check them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StoneOptions {
-    /// Seed for the shape and surface pattern. Reusing a seed with the same settings
-    /// reproduces the same field.
-    pub seed: u32,
+    /// Seed for the shape and surface pattern of a rock built on its own.
+    /// Reusing a seed with the same settings reproduces the same field. A
+    /// rock in a Scatter or pool takes its seed from there instead (see
+    /// [`variant`](Self::variant)).
+    pub default_seed: u32,
     /// The rock's width: the width of the containing cube, in metres. Must be
     /// finite and positive.
     /// [`crate::StoneField`] uses a unit-width cube and does not apply this scale.
@@ -65,6 +69,7 @@ pub struct StoneOptions {
 /// Placement lifts the rock to `y = 0` without changing its shape. Ground
 /// contact is approximate; see [`crate::StonePlacement`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlacementOptions {
     /// Turns the rock onto an estimated resting side, as if dropped onto flat
     /// ground. Defaults to true. Set false to keep its generated orientation,
@@ -91,6 +96,7 @@ pub struct PlacementOptions {
 /// -1 to 1 on each axis before stretching. Large cutting spheres can leave
 /// nearly flat facets. All floating-point settings must be finite.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CarveOptions {
     /// Number of cuts, from 0 through [`MAX_CARVE_STEPS`]. Zero leaves the starting
     /// sphere uncut; surface roughness still applies.
@@ -123,6 +129,7 @@ pub struct CarveOptions {
 
 /// Settings for surface roughness. All floating-point values must be finite.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SurfaceOptions {
     /// Strength of the inward surface displacement; must be zero or positive.
     /// Zero disables roughness. This is a strength factor, not a distance in metres.
@@ -137,12 +144,13 @@ pub struct SurfaceOptions {
 
 /// Controls how a rock surface is approximated by triangles and how much detail is captured.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MeshOptions {
     /// Surface-to-triangle conversion method; see [`Mesher`] for the tradeoffs.
     pub mesher: Mesher,
     /// Mesh levels to build, most detailed first: a preset such as
-    /// [`StoneDetail::MEDIUM`] (the default) or your own levels. In JSON, an
-    /// array of levels that replaces the whole default list.
+    /// [`StoneDetail::MEDIUM`] (the default) or your own levels. In a file,
+    /// a list of levels that replaces the whole list.
     pub detail: StoneDetail,
 }
 
@@ -151,6 +159,7 @@ pub struct MeshOptions {
 /// Textures are projected onto the rock along its three axes, so meshes need
 /// no texture coordinates. All floating-point values must be finite.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialOptions {
     /// Name of the texture set, usually one of [`crate::TEXTURE_SETS`]. Use
     /// [`crate::texture_path`] to find its images. The name is not validated.
@@ -173,8 +182,8 @@ pub struct MaterialOptions {
 /// Methods for approximating a rock surface with triangles.
 ///
 /// Both generate outward surface normals. Resolution affects how much detail
-/// is captured, and small features can disappear. JSON names are
-/// `"marching_cubes"` and `"dual_contouring"`.
+/// is captured, and small features can disappear. Files name them
+/// `marching_cubes` and `dual_contouring`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mesher {
@@ -193,7 +202,7 @@ pub enum Mesher {
 impl Default for StoneOptions {
     fn default() -> Self {
         Self {
-            seed: 880,
+            default_seed: 880,
             scale: 2.5,
             stretch: [1.0, 1.0, 1.0],
             placement: PlacementOptions::default(),
@@ -481,7 +490,7 @@ impl StoneOptions {
     /// from these settings, in a World seeded with `world_seed`.
     ///
     /// The set is a pool: these settings plus `stretch_jitter`, whatever
-    /// their own [`seed`](Self::seed). Slot `slot`'s seed is the
+    /// their own [`default_seed`](Self::default_seed). Slot `slot`'s seed is the
     /// [`SpecimenId`] seed of that pool and slot in `world_seed`'s World, so
     /// every World grows its own shapes, and each slot's shape is the same
     /// wherever it is used in one World. A set built on its own, outside any
@@ -494,9 +503,9 @@ impl StoneOptions {
     pub fn variant(&self, world_seed: u32, slot: u32, stretch_jitter: f32) -> StoneOptions {
         let pool = PoolId::new(STONE_KIND, OptionsHash::of(&(self, stretch_jitter)));
         let mut options = self.clone();
-        options.seed = SpecimenId::new(world_seed, pool, slot).seed();
+        options.default_seed = SpecimenId::new(world_seed, pool, slot).seed();
         for (axis, stretch) in options.stretch.iter_mut().enumerate() {
-            *stretch *= 1.0 - stretch_jitter * unit_hash(options.seed, axis as u32);
+            *stretch *= 1.0 - stretch_jitter * unit_hash(options.default_seed, axis as u32);
         }
         options
     }
@@ -514,88 +523,27 @@ fn unit_hash(seed: u32, axis: u32) -> f32 {
     (x >> 8) as f32 / (1u32 << 24) as f32
 }
 
-// ---------------------------------------------------------------------------
-// JSON support
-
-impl StoneOptions {
-    /// Loads a full or partial JSON options object, filling omitted settings with defaults.
-    ///
-    /// Nested objects may also be partial: `{"seed": 7, "mesh": {"mesher": "dual_contouring"}}`
-    /// changes only those two settings. Arrays such as `stretch` and
-    /// `mesh.detail` must be supplied in full. Use `"marching_cubes"` or `"dual_contouring"` for `mesh.mesher`.
-    ///
-    /// Names this crate does not use are ignored, so the JSON can carry your
-    /// own metadata alongside the settings. Such names are not kept: they are
-    /// missing from [`to_json`](Self::to_json). A misspelled setting name is
-    /// also ignored, leaving that setting at its default.
-    ///
-    /// Successful parsing does not check setting ranges. Call
-    /// [`validate`](Self::validate), or pass the result to [`crate::StoneField::new`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for malformed JSON, a non-object root, or incompatible
-    /// values. For example, `{"seed": "12"}` supplies a string where an integer
-    /// is required; `null` does not mean “use the default”.
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        // Fill omitted settings from defaults, then let deserialization reject
-        // values of the wrong type.
-        let source: serde_json::Value = serde_json::from_str(json)?;
-        let mut merged = serde_json::to_value(Self::default())?;
-        merge_json(&mut merged, source);
-        serde_json::from_value(merged)
-    }
-
-    /// Returns all settings as indented JSON, including settings at their defaults.
-    ///
-    /// This does not validate the settings. Finite values can be read back with
-    /// [`from_json`](Self::from_json). NaN and infinities become `null`, which
-    /// `from_json` rejects for numeric settings.
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("stone options always serialize to JSON")
-    }
-}
-
-/// Copies supplied JSON values over the defaults in `target`.
-///
-/// Objects merge recursively; arrays and other values replace the whole slot.
-/// Incompatible values are retained so deserialization can report them instead
-/// of silently using defaults.
-fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
-    use serde_json::Value;
-
-    match (target, source) {
-        (Value::Object(target), Value::Object(source)) => {
-            for (key, value) in source {
-                match target.get_mut(&key) {
-                    Some(slot) => merge_json(slot, value),
-                    None => {
-                        target.insert(key, value);
-                    }
-                }
-            }
-        }
-        (target, source) => *target = source,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TextureSize;
+    use crate::{StonePreset, TextureSize};
 
     #[test]
     fn defaults_are_valid() {
         assert_eq!(StoneOptions::default().validate(), Ok(()));
     }
 
+    /// Reads the options of a `.stone.yml` file with no base.
+    fn read(text: &str) -> Result<StoneOptions, procgena_core::preset::PresetFileError> {
+        StonePreset::from_yaml("test", text).map(|preset| preset.stone)
+    }
+
     #[test]
-    fn partial_json_keeps_nested_defaults() {
+    fn a_partial_file_keeps_nested_defaults() {
         let options =
-            StoneOptions::from_json(r#"{"seed": 7, "mesh": {"mesher": "dual_contouring"}}"#)
-                .unwrap();
+            read("stone:\n  default_seed: 7\n  mesh:\n    mesher: dual_contouring\n").unwrap();
         let mut expected = StoneOptions {
-            seed: 7,
+            default_seed: 7,
             ..StoneOptions::default()
         };
         expected.mesh.mesher = Mesher::DualContouring;
@@ -603,11 +551,10 @@ mod tests {
     }
 
     #[test]
-    fn json_detail_replaces_the_whole_list() {
-        let options = StoneOptions::from_json(
-            r#"{"mesh": {"detail": [
-                {"resolution": 64, "distance": 0.0, "hysteresis": 0.1, "texture_size": "2k"}
-            ]}}"#,
+    fn a_file_detail_replaces_the_whole_list() {
+        let options = read(
+            "stone:\n  mesh:\n    detail:\n      - { resolution: 64, distance: 0.0, \
+             hysteresis: 0.1, texture_size: 2k }\n",
         )
         .unwrap();
         let expected = StoneDetail::new(vec![DetailLevel {
@@ -617,10 +564,6 @@ mod tests {
             texture_size: TextureSize::Size2k,
         }]);
         assert_eq!(options.mesh.detail, expected);
-        assert_eq!(
-            StoneOptions::from_json(&options.to_json()).unwrap(),
-            options
-        );
     }
 
     #[test]
@@ -638,46 +581,48 @@ mod tests {
     }
 
     #[test]
-    fn json_round_trips() {
+    fn a_file_round_trips() {
         let mut options = StoneOptions {
-            seed: 12345,
+            default_seed: 12345,
             stretch: [1.0, 0.5, 0.75],
             ..StoneOptions::default()
         };
         options.mesh.mesher = Mesher::DualContouring;
         options.surface.octaves = 3;
         options.material.texture = "lichen_rock_02".to_owned();
-        let json = options.to_json();
-        assert!(json.contains(r#""mesher": "dual_contouring""#));
-        assert!(json.contains(r#""texture": "lichen_rock_02""#));
-        assert_eq!(StoneOptions::from_json(&json).unwrap(), options);
-    }
-
-    #[test]
-    fn json_ignores_unknown_names() {
-        let options = StoneOptions::from_json(
-            r#"{"seed": 7, "name": "boulder", "tags": ["a"], "carve": {"note": {"x": 1}}}"#,
-        )
-        .unwrap();
-        let expected = StoneOptions {
-            seed: 7,
-            ..StoneOptions::default()
+        let preset = StonePreset {
+            stone: options.clone(),
+            ..StonePreset::boulder().clone()
         };
-        assert_eq!(options, expected);
-        assert!(!options.to_json().contains("boulder"));
+        let text = preset.to_yaml(None);
+        assert!(text.contains("mesher: dual_contouring"), "{text}");
+        assert!(text.contains("texture: lichen_rock_02"), "{text}");
+        assert_eq!(read(&text).unwrap(), options);
     }
 
     #[test]
-    fn json_rejects_bad_values() {
-        for json in [
-            r#"{"seed": "12"}"#,
-            r#"{"seed": -1}"#,
-            r#"{"mesh": {"mesher": "voxels"}}"#,
-            r#"{"carve": 3}"#,
-            r#"[1, 2]"#,
-            r#"{"seed": 1"#,
+    fn a_file_rejects_unknown_names() {
+        for text in [
+            "stone:\n  name: boulder\n",
+            "stone:\n  carve:\n    note: 1\n",
+            "tags: [a]\n",
         ] {
-            assert!(StoneOptions::from_json(json).is_err(), "accepted {json}");
+            assert!(read(text).is_err(), "accepted {text}");
+        }
+    }
+
+    #[test]
+    fn a_file_rejects_bad_values() {
+        for text in [
+            "stone:\n  default_seed: twelve\n",
+            "stone:\n  default_seed: -1\n",
+            "stone:\n  mesh:\n    mesher: voxels\n",
+            "stone:\n  carve: 3\n",
+            "[1, 2]\n",
+            "stone: {default_seed: 1\n",
+            "stone:\n  scale: 0.0\n",
+        ] {
+            assert!(read(text).is_err(), "accepted {text}");
         }
     }
 

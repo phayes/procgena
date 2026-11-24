@@ -177,18 +177,18 @@ fn compression_from(name: &str) -> TextureCompression {
 
 #[test]
 fn every_preset_texture_kind_is_provided() {
-    for preset in TreePreset::ALL {
-        let options = preset.options();
+    for preset in TreePreset::all() {
+        let options = &preset.tree;
         assert!(
             BARK_KINDS.contains(&options.bark.kind.as_str()),
             "{}: {}",
-            preset.name(),
+            preset.name,
             options.bark.kind
         );
         assert!(
             LEAF_KINDS.contains(&options.leaves.kind.as_str()),
             "{}: {}",
-            preset.name(),
+            preset.name,
             options.leaves.kind
         );
     }

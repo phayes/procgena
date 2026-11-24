@@ -17,7 +17,7 @@ All lengths are in metres, Y is up, and a mushroom's stem base sits at the origi
 ```rust
 use procgena_mushroom::{Mushroom, MushroomDetail, MushroomPreset};
 
-let mushroom = Mushroom::from_preset(MushroomPreset::FlyAgaric);
+let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
 let close = mushroom.mesh(); // the detail in the options: full by default
 let far = mushroom.mesh_with_detail(&MushroomDetail::FLAT).unwrap();
 println!("{} vs {} triangles", close.triangle_count(), far.triangle_count());
@@ -25,18 +25,20 @@ println!("{} vs {} triangles", close.triangle_count(), far.triangle_count());
 
 A mesh holds positions, normals, texture coordinates, tangents and per-vertex
 colours. Presets include fly agaric, porcini, chanterelle, parasol, liberty cap,
-shaggy ink cap, button, enoki, puffball and a storybook toadstool
-(`MushroomPreset::ALL`).
+shaggy ink cap, button, enoki, puffball, a storybook toadstool and a fairy ring
+(`MushroomPreset::all()`). Each has a function named by its key, such as
+`MushroomPreset::shaggy_ink_cap()`, and `MushroomPreset::named("shaggy_ink_cap")`
+looks one up by key.
 
-To change one, edit its options. The same options and seed always give the same
-mushroom.
+To change one, edit a copy of its options. The same options and
+`default_seed` always give the same mushroom.
 
 ```rust
 use procgena_mushroom::{CapFamily, Mushroom, MushroomPreset};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = MushroomPreset::Button.options();
-    options.seed = 7;
+    let mut options = MushroomPreset::button().mushroom.clone();
+    options.default_seed = 7;
     options.size = 0.06; // cap diameter in metres
     options.cap.family = CapFamily::Umbonate;
     options.warts.count = 40;
@@ -46,8 +48,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Options also load from JSON, which may leave settings out to use their defaults:
-`Mushroom::from_json(r#"{"cap": {"lobes": 5, "lobe_depth": 0.1}}"#)`.
+Presets also load from `.mushroom.yml` files, which name a built-in preset as
+their `base` and give only the settings that differ (without a `base`, missing
+settings use their defaults). Colours start with `#`, so quote them:
+
+```yaml
+base: button
+mushroom:
+  cap:
+    lobes: 5
+    lobe_depth: 0.1
+  material:
+    cap_centre: "#c09060"
+```
+
+Read one with `MushroomPreset::from_yaml(key, text)`, and write one with
+`preset.to_yaml(Some(base))`.
 
 ### What you can shape
 
@@ -94,7 +110,7 @@ A cluster is part of the mushroom's own options:
 use procgena_mushroom::{ClusterLayout, Mushroom, MushroomPreset};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = MushroomPreset::Button.options();
+    let mut options = MushroomPreset::button().mushroom.clone();
     options.cluster.stems = 30;
     options.cluster.layout = ClusterLayout::FairyRing;
     let ring = Mushroom::new(options)?;
@@ -140,12 +156,13 @@ use procgena_mushroom_bevy::{MushroomParams, MushroomPlugin};
 App::new()
     .add_plugins((DefaultPlugins, MushroomPlugin::default()))
     .add_systems(Startup, |mut commands: Commands| {
-        commands.spawn(MushroomParams::preset(MushroomPreset::FlyAgaric));
+        commands.spawn(MushroomParams::preset(MushroomPreset::fly_agaric()));
     })
     .run();
 ```
 
-Spawn `MushroomParams` for one mushroom (or cluster), or
+Spawn `MushroomParams` for one mushroom (or cluster), loaded from a
+`.mushroom.yml` file with `MushroomParams::Asset`, or
 `MushroomScatterParams` as a child of an entity with a `GeneratedSpecimen` (such as
 a rock from `procgena_stone_bevy`). Mushrooms are built in the background and
 appear as `MushroomPart` children, one or two per level, switched by Bevy's

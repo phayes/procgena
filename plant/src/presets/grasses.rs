@@ -7,6 +7,7 @@ GRASSES "Grasses" {
         name: "Meadow grass",
         description: "Fresh green, soft blades of mixed heights. The default plant.",
     } => PlantParams {
+        default_seed: 0,
         density: 60.0,
         height: Vec2::new(0.3, 0.6),
         width: 0.02,

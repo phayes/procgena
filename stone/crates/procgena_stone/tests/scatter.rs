@@ -12,12 +12,12 @@ use procgena_stone::{
 
 /// Rocks and pebbles, two shapes each, evenly spread.
 fn options() -> StoneScatterOptions {
-    let mut rocks = StoneClass::new(StonePreset::RiverStone.options(), 0.1, 1.5);
+    let mut rocks = StoneClass::new(StonePreset::river_stone().stone.clone(), 0.1, 1.5);
     rocks.variants = 2;
-    let mut pebbles = StoneClass::new(StonePreset::Pebble.options(), 1.0, 0.3);
+    let mut pebbles = StoneClass::new(StonePreset::pebble().stone.clone(), 1.0, 0.3);
     pebbles.variants = 2;
     StoneScatterOptions {
-        seed: 0,
+        default_seed: 0,
         classes: vec![rocks, pebbles],
     }
 }
@@ -90,12 +90,12 @@ fn stones_of_a_class_keep_their_spacing() {
 
 /// Pebbles in clusters of 2 to 5 within 0.4 m, spots 1.5 m apart.
 fn clustered() -> StoneScatterOptions {
-    let mut pebbles = StoneClass::new(StonePreset::Pebble.options(), 0.2, 1.5);
+    let mut pebbles = StoneClass::new(StonePreset::pebble().stone.clone(), 0.2, 1.5);
     pebbles.variants = 2;
     pebbles.members = [2, 5];
     pebbles.cluster_radius = 0.4;
     StoneScatterOptions {
-        seed: 0,
+        default_seed: 0,
         classes: vec![pebbles],
     }
 }
@@ -409,7 +409,10 @@ fn variants_match_the_class_settings_in_the_inputs_world() {
     // Another World grows other shapes from the same settings.
     let input = ScatterInput::new(&FlatGround, area(DVec2::ZERO, 8.0), 8);
     let other = StoneScatter::new(&o, &input).unwrap();
-    assert_ne!(other.variant(0, 0).seed, stones.variant(0, 0).seed);
+    assert_ne!(
+        other.variant(0, 0).default_seed,
+        stones.variant(0, 0).default_seed
+    );
 }
 
 #[test]
@@ -430,7 +433,7 @@ fn bad_settings_are_named() {
     assert!(StoneScatter::new(&o, &input).is_err());
 
     let o = StoneScatterOptions {
-        seed: 0,
+        default_seed: 0,
         classes: vec![options().classes[0].clone(); 9],
     };
     assert_eq!(

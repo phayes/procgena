@@ -1,7 +1,7 @@
 //! Explore biome, fantasy, toon and forest presets on matching terrain.
 //! Fly around each plot to inspect plants up close, from sand and snow to
 //! forest floor and seabed. With file watching enabled, saving its
-//! `.field.ron` file in `assets/fields` updates the plot live.
+//! `.plant_scatter.yml` file in `assets/scatters` updates the plot live.
 //! A person walks a circle in each plot, trampling a trail.
 //!
 //! Tab and Shift+Tab fly to the next and previous plot; G switches between
@@ -13,9 +13,9 @@
 //!
 //! ```text
 //! cargo run --release --example gallery
-//! cargo run --release --example gallery -- --plot KELP_BED
-//! cargo run --release --example gallery -- --plot SALAL --eye-level
-//! cargo run --release --example gallery -- --plot PAMPAS --fixed-time --screenshot shots/gallery_pampas.png
+//! cargo run --release --example gallery -- --plot kelp_bed
+//! cargo run --release --example gallery -- --plot salal --eye-level
+//! cargo run --release --example gallery -- --plot pampas --fixed-time --screenshot shots/gallery_pampas.png
 //! ```
 
 mod common;
@@ -31,106 +31,106 @@ use procgena_plant::prelude::*;
 /// one line on what to look for.
 const PLOTS: [(&str, &str); 28] = [
     (
-        "COTTON_BOG",
+        "cotton_bog",
         "Sedge tussocks on red sphagnum, cotton grass, dark pools",
     ),
     (
-        "REED_MARSH",
+        "reed_marsh",
         "Reeds over your head in standing water, with cattails",
     ),
-    ("DUNE_MARRAM", "Blue-grey marram in clumps on open sand"),
+    ("dune_marram", "Blue-grey marram in clumps on open sand"),
     (
-        "RYE_AND_CORNFLOWERS",
+        "rye_and_cornflowers",
         "Ripening rye with blue cornflowers and red poppies",
     ),
     (
-        "PAMPAS",
+        "pampas",
         "Fountains of arching leaves under tall cream plumes",
     ),
-    ("SPINIFEX", "Stiff, needle-thin hummocks on bare red earth"),
+    ("spinifex", "Stiff, needle-thin hummocks on bare red earth"),
     (
-        "ELEPHANT_GRASS",
+        "elephant_grass",
         "A translucent wall twice as tall as a person",
     ),
     (
-        "FROSTED_MEADOW",
+        "frosted_meadow",
         "Stiff, glinting frosted blades growing out of snow",
     ),
     (
-        "BURNT_REGROWTH",
+        "burnt_regrowth",
         "Charcoal stubble in ash, with new green shoots",
     ),
     (
-        "LAVENDER",
+        "lavender",
         "Lavender bushes planted in rows by a density mask",
     ),
     (
-        "CRYSTAL_SPIRES",
+        "crystal_spires",
         "Faceted, glassy crystal clusters that barely sway",
     ),
     (
-        "CORKSCREW_ALIEN",
+        "corkscrew_alien",
         "Ribbons twisted two full turns, two-band toon light",
     ),
     (
-        "KELP_BED",
+        "kelp_bed",
         "Kelp ribbons and seagrass on the seabed, in a slow current",
     ),
     (
-        "BLIGHTED",
+        "blighted",
         "Corrupted violet grass, sickly patches, bone-white heads",
     ),
     (
-        "CEL_FIELD",
+        "cel_field",
         "Cel-shaded chunky tufts with red and white flowers",
     ),
     (
-        "COZY_PASTEL",
+        "cozy_pastel",
         "Soft pastel mint grass and flowers, four toon bands",
     ),
     (
-        "FOREST_FERNS",
+        "forest_ferns",
         "Crowns of arching fern fronds over broad leaves and clover",
     ),
     (
-        "FOREST_FLOOR",
+        "forest_floor",
         "Moss with clumps of ferns, fallen leaves and clover",
     ),
     (
-        "FOREST_BRACKEN",
+        "forest_bracken",
         "Rust-coloured autumn bracken over fallen leaves",
     ),
     (
-        "SALAL",
+        "salal",
         "Arching salal stems, glossy leathery leaves on side shoots",
     ),
     (
-        "MATURE_BRACKEN",
+        "mature_bracken",
         "Head-high bracken: tall bare stalks under wide, flopping fronds",
     ),
     (
-        "SAPLING",
+        "sapling",
         "Young broadleaf trees: arching stems, leaves of three leaflets",
     ),
     (
-        "HUCKLEBERRY",
+        "huckleberry",
         "Airy bright green twigs of small oval leaves",
     ),
-    ("OREGON_GRAPE", "Low, glossy, holly-like leaflets in pairs"),
+    ("oregon_grape", "Low, glossy, holly-like leaflets in pairs"),
     (
-        "NETTLE",
+        "nettle",
         "Nettle beds, leaf pairs each a quarter turn from the last",
     ),
     (
-        "BRAMBLE",
+        "bramble",
         "Brown canes looping back into the ground, leaf clusters on side shoots",
     ),
     (
-        "FOREST_UNDERSTORY",
+        "forest_understory",
         "Every understory bush and ferns together, over moss",
     ),
     (
-        "BROOM",
+        "broom",
         "Broom bushes: brown trunks under tall, upright green rods",
     ),
 ];
@@ -246,7 +246,7 @@ fn main() {
             pick_wind,
             toggle_shadows,
             walk,
-            common::follow_field_files,
+            common::follow_scatter_files,
             (follow_wind, place_labels, update_hud).after(fly_to_plot),
         ),
     )
@@ -314,15 +314,13 @@ fn setup(
             Vec2::splat(PLOT),
         );
         // The preset's own field until its file has loaded.
-        let preset = FieldPreset::named(name).expect("every plot is a field preset");
+        let preset = PlantScatterPreset::named(name).expect("every plot is a field preset");
         commands.spawn((
-            PlantField {
+            PlantScatter {
                 density_map,
-                ..PlantField::from_preset(preset, Vec2::splat(PLOT))
+                ..PlantScatter::from_preset(preset, Vec2::splat(PLOT))
             },
-            common::FieldFile(
-                assets.load(format!("fields/{}.field.ron", name.to_ascii_lowercase())),
-            ),
+            common::ScatterFile(assets.load(format!("scatters/{name}.plant_scatter.yml"))),
             Transform::from_translation(center),
         ));
         // A 1.8 m person, for scale, trampling a trail.

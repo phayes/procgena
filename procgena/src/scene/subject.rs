@@ -25,16 +25,16 @@ use procgena_mushroom::{Mushroom, MushroomOptions};
 use procgena_mushroom_bevy::{
     MushroomFinished, MushroomGenerating, MushroomMaterial, MushroomParams, MushroomPart,
 };
-use procgena_plant::prelude::{PlantField, PlantGround, PlantSettings};
+use procgena_plant::prelude::{PlantGround, PlantScatter, PlantSettings};
 use procgena_stone::StoneOptions;
 use procgena_stone_bevy::{
     StoneEmbedDepth, StoneFinished, StoneGenerating, StoneMaterial, StoneParams, StonePart,
 };
-use procgena_tree::{TreeGrove, TreeOptions};
+use procgena_tree::{TreeOptions, TreeScatter};
 use procgena_tree_bevy::{
-    TreeFinished, TreeGenerating, TreeGroveAssets, TreeGroveFinished, TreeGroveGenerating,
-    TreeGroveParams, TreeGroveStats, TreeLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
-    default_tree_lod,
+    TreeFinished, TreeGenerating, TreeLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
+    TreeScatterAssets, TreeScatterFinished, TreeScatterGenerating, TreeScatterParams,
+    TreeScatterStats, default_tree_lod,
 };
 
 /// Camera distances at which each tree detail level starts, nearest first.
@@ -93,7 +93,7 @@ pub(crate) struct SceneState {
     /// Camera view restored when returning to mushroom mode.
     mushroom_view: OrbitCamera,
     /// The grove, retained while another mode is shown.
-    grove: Arc<TreeGrove>,
+    grove: Arc<TreeScatter>,
     /// Camera view restored when returning to grove mode.
     grove_view: OrbitCamera,
     /// Dead wood settings, retained while another mode is shown.
@@ -141,7 +141,7 @@ type Generating = Or<(
     With<TreeGenerating>,
     With<StoneGenerating>,
     With<MushroomGenerating>,
-    With<TreeGroveGenerating>,
+    With<TreeScatterGenerating>,
     With<DeadwoodGenerating>,
 )>;
 
@@ -442,8 +442,8 @@ fn spawn_subject(
 
 /// Creates the preview with the current plants and appearance.
 /// The field is a flat square with sides of `size` metres and no density map.
-fn grass_field(state: &SceneState, size: f32) -> PlantField {
-    PlantField {
+fn grass_field(state: &SceneState, size: f32) -> PlantScatter {
+    PlantScatter {
         size: Vec2::splat(size),
         ground: PlantGround::default(),
         density_map: None,
@@ -467,8 +467,8 @@ fn spawn_deadwood(commands: &mut Commands, settings: &DeadwoodSettings) -> Entit
 
 /// The grove component for `grove` on a square of flat ground `size` metres
 /// across, centred on the origin.
-fn grove_params(grove: &TreeGrove, size: f32) -> TreeGroveParams {
-    TreeGroveParams::new(grove.clone(), Vec2::splat(size))
+fn grove_params(grove: &TreeScatter, size: f32) -> TreeScatterParams {
+    TreeScatterParams::new(grove.clone(), Vec2::splat(size))
 }
 
 /// Applies every [`ViewerCommand`] received this frame, in order, and renders
@@ -707,7 +707,7 @@ pub(crate) fn render_while_loading(
     generating: Query<(), Generating>,
     baking: Query<(), PendingImpostor>,
     parts: Query<&MeshMaterial3d<TreeMaterial>, With<TreePart>>,
-    groves: Query<&TreeGroveAssets>,
+    groves: Query<&TreeScatterAssets>,
     materials: Res<Assets<TreeMaterial>>,
     stone_parts: Query<&MeshMaterial3d<StoneMaterial>, With<StonePart>>,
     stone_materials: Res<Assets<StoneMaterial>>,
@@ -1046,7 +1046,7 @@ pub(crate) fn report_deadwood_lod(
 /// shapes generating, then their impostors baking.
 pub(crate) fn report_grove_progress(
     mut state: ResMut<SceneState>,
-    groves: Query<(Option<&TreeGroveAssets>, Has<TreeGroveGenerating>)>,
+    groves: Query<(Option<&TreeScatterAssets>, Has<TreeScatterGenerating>)>,
     baking: Query<(), PendingImpostor>,
     mut events: MessageWriter<ViewerEvent>,
 ) {
@@ -1056,7 +1056,7 @@ pub(crate) fn report_grove_progress(
     let Ok((assets, generating)) = groves.get(state.subject) else {
         return;
     };
-    let variants = assets.map(TreeGroveAssets::variants).unwrap_or_default();
+    let variants = assets.map(TreeScatterAssets::variants).unwrap_or_default();
     let generated = variants.iter().filter(|v| v.is_ready()).count();
 
     // A generated shape that has no impostor yet is waiting for its bake,
@@ -1168,10 +1168,10 @@ fn add_tree_parts<'a>(
 /// Reports the shown grove's tree count and size once a build ends, or why
 /// it could not be built.
 pub(crate) fn report_grove(
-    event: On<TreeGroveFinished>,
+    event: On<TreeScatterFinished>,
     state: Res<SceneState>,
     mut events: MessageWriter<ViewerEvent>,
-    groves: Query<&TreeGroveStats>,
+    groves: Query<&TreeScatterStats>,
 ) {
     if state.mode != SceneMode::Grove || event.entity != state.subject {
         return;

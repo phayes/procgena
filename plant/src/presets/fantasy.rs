@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantAccent, PlantBranches,
-    PlantField, PlantParams, PlantSegment, PlantVariation, Vec2,
+    Color, Cow, GroundTint, PlantAccent, PlantBranches, PlantParams, PlantScatter,
+    PlantScatterPreset, PlantSegment, PlantVariation, SCATTER_BASE, ScatterPlant, Vec2,
 };
 
 /// A crystal facet: stiff, glassy blue, folded into a sharp V.
@@ -33,8 +33,8 @@ FANTASY "Fantasy" {
         name: "Crystal spires",
         description: "Clusters of glassy crystal shards that barely move in the wind: \
                       folded into sharp V-shaped facets, fully translucent and glossy.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(
             PlantParams {
                 density: 30.0,
                 height: Vec2::new(0.3, 1.0),
@@ -74,16 +74,17 @@ FANTASY "Fantasy" {
             color: Color::srgb(0.10, 0.10, 0.14),
             amount: 0.4,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     CORKSCREW_ALIEN {
         name: "Corkscrew alien",
         description: "Wide violet-to-cyan ribbons, each twisted two full turns, with magenta \
                       seed pods among them. Flat two-band toon shading.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
+                    default_seed: 0,
                     density: 1.12,
                     height: Vec2::new(0.5, 1.2),
                     width: 0.02,
@@ -111,7 +112,7 @@ FANTASY "Fantasy" {
                 },
             )
             .clustered(0.7),
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 12.88,
                     height: Vec2::new(0.6, 1.3),
@@ -137,25 +138,26 @@ FANTASY "Fantasy" {
             patch_color: Color::srgb(0.55, 0.20, 0.95),
             patch_amount: 0.4,
             patch_size: 8.0,
-            ..FIELD_BASE.variation
+            ..SCATTER_BASE.variation
         },
         ground_tint: GroundTint {
             color: Color::srgb(0.10, 0.05, 0.14),
             amount: 0.4,
         },
         toon_bands: 2,
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     KELP_BED {
         name: "Kelp bed",
         description: "A kelp bed: long, soft, translucent ribbons rising from holdfasts on \
                       the sand, some with a float, and seagrass between them. Give the level \
                       a slow wind with lively sway, and it moves like a current.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
             // Seagrass.
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
+                    default_seed: 0,
                     density: 4.9,
                     height: Vec2::new(0.2, 0.5),
                     width: 0.015,
@@ -184,7 +186,7 @@ FANTASY "Fantasy" {
             )
             .clustered(0.6),
             // Kelp occupies about 65% of the planting positions; 15% use float accents.
-            FieldPlant::new(
+            ScatterPlant::new(
                 PlantParams {
                     density: 9.1,
                     height: Vec2::new(1.4, 3.0),
@@ -225,14 +227,14 @@ FANTASY "Fantasy" {
             color: Color::srgb(0.42, 0.40, 0.30),
             amount: 0.4,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     BLIGHTED {
         name: "Blighted",
         description: "Corrupted land: bruised violet blades that twist and hang, sickly green \
                       patches, dead stalks, and pale bone-white seed heads.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(
             PlantParams {
                 density: 45.0,
                 height: Vec2::new(0.4, 1.0),
@@ -288,7 +290,7 @@ FANTASY "Fantasy" {
             color: Color::srgb(0.08, 0.06, 0.08),
             amount: 0.5,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
 }
 }

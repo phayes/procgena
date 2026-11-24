@@ -3,12 +3,12 @@
 
 use procgena_core::LodLevel;
 use procgena_tree::{
-    LodDetail, OptionsError, Skeleton, Tree, TreeError, TreeOptions, TreePreset, default_lod,
+    LodDetail, OptionsError, PresetFileError, Skeleton, Tree, TreeOptions, TreePreset, default_lod,
 };
 
 #[test]
 fn new_combines_skeleton_and_full_detail_mesh() {
-    let options = TreePreset::OakSmall.options();
+    let options = TreePreset::oak_small().tree.clone();
     let tree = Tree::new(options.clone()).unwrap();
 
     let skeleton = Skeleton::generate(&options).unwrap();
@@ -28,7 +28,7 @@ fn new_combines_skeleton_and_full_detail_mesh() {
 
 #[test]
 fn lod_meshes_are_sorted_by_distance_and_reuse_the_skeleton() {
-    let tree = Tree::from_preset(TreePreset::AspenSmall);
+    let tree = Tree::from_preset(TreePreset::aspen_small()).unwrap();
 
     // Supply levels in reverse distance order to check sorting. Give the extra
     // level at distance 10 different leaf detail so the two tied levels can be
@@ -54,23 +54,28 @@ fn lod_meshes_are_sorted_by_distance_and_reuse_the_skeleton() {
 
 #[test]
 fn lod_meshes_accepts_no_levels() {
-    let tree = Tree::from_preset(TreePreset::Bush1);
+    let tree = Tree::from_preset(TreePreset::bush_1()).unwrap();
     assert!(tree.lod_meshes(&[] as &[LodLevel<LodDetail>]).is_empty());
 }
 
 #[test]
 fn every_preset_builds() {
-    for preset in TreePreset::ALL {
-        let tree = Tree::from_preset(preset);
-        assert!(tree.triangle_count() > 0, "{}", preset.name());
+    for preset in TreePreset::all() {
+        let tree = Tree::from_preset(preset).unwrap();
+        assert!(tree.triangle_count() > 0, "{}", preset.name);
     }
 }
 
 #[test]
-fn from_json_merges_onto_defaults() {
-    let tree = Tree::from_json(r#"{ "seed": 7, "branch": { "levels": 1 } }"#).unwrap();
+fn a_preset_file_without_a_base_merges_onto_defaults() {
+    let preset = TreePreset::from_yaml(
+        "test",
+        "tree:\n  default_seed: 7\n  branch: { levels: 1 }\n",
+    )
+    .unwrap();
+    let tree = Tree::from_preset(&preset).unwrap();
     let mut expected = TreeOptions {
-        seed: 7,
+        default_seed: 7,
         ..TreeOptions::default()
     };
     expected.branch.levels = 1;
@@ -78,17 +83,20 @@ fn from_json_merges_onto_defaults() {
 }
 
 #[test]
-fn from_json_reports_each_kind_of_error() {
-    let err = Tree::from_json("not json").unwrap_err();
-    assert!(matches!(err, TreeError::Json(_)), "{err:?}");
+fn preset_files_and_presets_report_each_kind_of_error() {
+    let err = TreePreset::from_yaml("test", "tree: {").unwrap_err();
+    assert!(matches!(err, PresetFileError::Yaml { .. }), "{err:?}");
 
-    let err = Tree::from_json(r#"{ "branch": { "levels": 4 } }"#).unwrap_err();
+    let err = TreePreset::from_yaml("test", "tree:\n  branch: { levels: 4 }\n").unwrap_err();
     assert!(
-        matches!(
-            err,
-            TreeError::Options(OptionsError::TooManyLevels { levels: 4 })
-        ),
+        matches!(&err, PresetFileError::Invalid { message } if message.contains("branch.levels is 4")),
         "{err:?}"
     );
-    assert!(std::error::Error::source(&err).is_some());
+
+    let mut preset = TreePreset::oak_small().clone();
+    preset.tree.branch.levels = 4;
+    assert_eq!(
+        Tree::from_preset(&preset),
+        Err(OptionsError::TooManyLevels { levels: 4 })
+    );
 }

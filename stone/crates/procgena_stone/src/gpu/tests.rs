@@ -245,7 +245,7 @@ fn check_mesh(out: &Readback, i: usize, request: &GpuStoneRequest) -> SurfaceDif
     let (mesher, resolution) = (options.mesh.mesher, request.resolution);
     let what = format!(
         "{mesher:?} R={resolution} seed {} (request {i})",
-        options.seed
+        options.default_seed
     );
     let gpu = gpu_mesh(out, i, &what);
     let field = StoneField::new(options).unwrap();
@@ -396,7 +396,7 @@ fn parity_options(mesher: Mesher) -> Vec<StoneOptions> {
     (0..20)
         .map(|seed| {
             let mut options = StoneOptions {
-                seed,
+                default_seed: seed,
                 ..StoneOptions::default()
             };
             if seed % 5 == 4 {
@@ -519,7 +519,10 @@ fn gpu_placement_matches_cpu() {
 
     let cell = 1.0 / crate::placement::ANALYSIS_RESOLUTION as f32;
     for (k, options) in shapes.iter().enumerate() {
-        let what = format!("seed {} settle {}", options.seed, options.placement.settle);
+        let what = format!(
+            "seed {} settle {}",
+            options.default_seed, options.placement.settle
+        );
         let field = StoneField::new(options).unwrap();
         let cpu = crate::StonePlacement::new(&field, &options.placement);
         let (rotation, translation, embed) = out.placement(2 * k);
@@ -697,7 +700,7 @@ fn estimate_covers_typical_rocks() {
         for variant in variants {
             for seed in 0..6 {
                 let mut options = StoneOptions {
-                    seed,
+                    default_seed: seed,
                     ..StoneOptions::default()
                 };
                 variant(&mut options);

@@ -1,0 +1,77 @@
+# The `bracken` plant preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Bracken
+description: |-
+  Rust-coloured bracken with tall, upright fronds.
+
+  The longest leaflets sit near the base, giving the dying fern a broad lower outline.
+group: Ground cover
+plant:
+  density: 4.0
+  height:
+  - 0.6
+  - 1.1
+  width: 0.009
+  lean: 0.35
+  stems_per_plant: 4
+  translucency: 0.35
+  specular: 0.2
+  segment:
+    stiffness: 0.4
+    droop: 0.45
+    twist: 0.04
+    fold: 0.25
+    root_color:
+    - 0.2
+    - 0.11
+    - 0.05
+    tip_color:
+    - 0.42
+    - 0.24
+    - 0.1
+  levels:
+  - count: 24
+    arrangement: opposite
+    attachment_start: 0.3
+    length: 0.34
+    length_envelope: 0.15
+    width: 0.2
+    angle: 0.3
+    spread: 0.0
+    segment:
+      profile: 0.3
+      stiffness: 0.5
+      droop: 0.35
+      twist: 0.0
+      fold: 0.15
+      root_color:
+      - 0.3
+      - 0.15
+      - 0.06
+      tip_color:
+      - 0.58
+      - 0.32
+      - 0.12
+  - count: 0
+    arrangement: opposite
+    attachment_start: 0.0
+    length: 0.0
+    length_envelope: 0.5
+    width: 0.0
+    angle: 0.0
+    spread: 0.0
+    segment:
+      profile: 0.0
+      stiffness: 0.5
+      droop: 0.0
+      twist: 0.0
+      fold: 0.0
+      root_color:
+      - 0.06
+      - 0.13
+      - 0.03
+      tip_color:
+      - 0.38
+      - 0.55
+      - 0.16

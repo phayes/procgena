@@ -22,9 +22,9 @@ use crate::{
 ///
 /// The default keeps all branch sections and leaves at their original size and detail.
 /// Increase the strides or reduce `segment_factor` to create a simpler mesh for distant trees.
-/// JSON uses ez-tree's `LODDetail` field names; omitted fields use their defaults.
+/// When deserialized, omitted fields use their defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, deny_unknown_fields)]
 pub struct LodDetail {
     /// Keep every Nth circular slice along each branch, starting at its base.
     /// The base and tip are always kept. For example, 2 skips every other interior slice.
@@ -73,7 +73,6 @@ pub struct LodDetail {
     /// This selects the number of squares; [`leaf_billboard`](Self::leaf_billboard)
     /// controls camera-facing rotation. With rotation enabled, the second square
     /// of [`Billboard::Double`] is stored in [`BillboardCull::leaves`].
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub billboard: Option<Billboard>,
     /// Enable camera-facing leaf cards in renderers that support billboards.
     /// `None` (the default) leaves cards at fixed orientations.
@@ -87,7 +86,6 @@ pub struct LodDetail {
     /// show the card's back when the normal faces away from the camera.
     /// Renderers that ignore billboard data draw the stored cards at their
     /// fixed orientations and [`leaf_scale`](Self::leaf_scale) size.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub leaf_billboard: Option<BillboardMode>,
     /// Scale the camera-facing card relative to the original leaf size.
     /// Used only with [`leaf_billboard`](Self::leaf_billboard), independently of
@@ -1755,7 +1753,7 @@ mod tests {
 
     #[test]
     fn lod_detail_reads_partial_json() {
-        let detail: LodDetail = serde_json::from_str(r#"{"leafStride": 2}"#).unwrap();
+        let detail: LodDetail = serde_json::from_str(r#"{"leaf_stride": 2}"#).unwrap();
         assert_eq!(
             detail,
             LodDetail {

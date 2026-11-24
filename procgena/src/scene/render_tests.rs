@@ -8,7 +8,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 
 use procgena_impostor::ImpostorBakeCamera;
-use procgena_tree_bevy::{TreeGroveAssets, TreeGroveParams};
+use procgena_tree_bevy::{TreeScatterAssets, TreeScatterParams};
 
 use super::headless_scene::{Frame, HeadlessScene};
 use super::protocol::ClumpBuildError;
@@ -183,8 +183,8 @@ fn change_tree(options: procgena_tree::TreeOptions, lod: Option<usize>) -> Viewe
 
 /// Options for a differently shaped tree that is not cached yet.
 fn new_tree() -> procgena_tree::TreeOptions {
-    let mut options = procgena_tree::TreePreset::OakMedium.options();
-    options.seed += 1;
+    let mut options = procgena_tree::TreePreset::oak_medium().tree.clone();
+    options.default_seed += 1;
     options
 }
 
@@ -206,7 +206,7 @@ fn changing_the_tree_at_a_chosen_detail_level_never_shows_an_empty_frame() {
 #[test]
 #[ignore = "needs a GPU"]
 fn rejected_tree_options_keep_the_shown_tree() {
-    let mut options = procgena_tree::TreePreset::OakMedium.options();
+    let mut options = procgena_tree::TreePreset::oak_medium().tree.clone();
     options.branch.sections[0] = 0;
     let built = change_tree(options, None);
     assert!(matches!(built, ViewerEvent::TreeBuilt(Err(_))), "{built:?}");
@@ -391,10 +391,10 @@ fn mushroom_event(scene: &mut HeadlessScene) -> ViewerEvent {
 }
 
 /// What a scene in mushroom mode showing `preset`, with wind off, starts with.
-fn mushroom_start(preset: procgena_mushroom::MushroomPreset) -> SceneStart {
+fn mushroom_start(preset: &procgena_mushroom::MushroomPreset) -> SceneStart {
     SceneStart {
         mode: SceneMode::Mushroom,
-        mushroom: Arc::new(preset.options()),
+        mushroom: Arc::new(preset.mushroom.clone()),
         environment: EnvironmentSettings {
             wind: false,
             ..default()
@@ -404,7 +404,7 @@ fn mushroom_start(preset: procgena_mushroom::MushroomPreset) -> SceneStart {
 }
 
 /// Starts mushroom mode showing `preset`, with wind off.
-fn start_mushroom(preset: procgena_mushroom::MushroomPreset) -> HeadlessScene {
+fn start_mushroom(preset: &procgena_mushroom::MushroomPreset) -> HeadlessScene {
     HeadlessScene::new(mushroom_start(preset), SIZE)
 }
 
@@ -413,7 +413,7 @@ fn start_mushroom(preset: procgena_mushroom::MushroomPreset) -> HeadlessScene {
 #[test]
 #[ignore = "needs a GPU"]
 fn idle_mushroom_mode_draws_the_textured_mushroom() {
-    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::FlyAgaric);
+    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::fly_agaric());
     assert_fly_agaric_is_textured(&mut scene);
 }
 
@@ -433,7 +433,7 @@ fn idle_deadwood_mode_draws_the_textured_log() {
     let log = |piece| Arc::new(super::DeadwoodSettings { piece, ..default() });
     let start = SceneStart {
         mode: SceneMode::Deadwood,
-        deadwood: log(DeadwoodPreset::FreshCutLog.options()),
+        deadwood: log(DeadwoodPreset::fresh_cut_log().deadwood.clone()),
         environment: EnvironmentSettings {
             wind: false,
             ..default()
@@ -448,7 +448,7 @@ fn idle_deadwood_mode_draws_the_textured_log() {
     let textured = scene.settled_frame();
 
     // The same log without textures looks different.
-    let mut plain = DeadwoodPreset::FreshCutLog.options();
+    let mut plain = DeadwoodPreset::fresh_cut_log().deadwood.clone();
     plain.material.bark_texture = None;
     plain.material.end_texture = None;
     scene.send(ViewerCommand::SetDeadwood(log(plain)));
@@ -488,7 +488,7 @@ fn deadwood_mode_grows_moss_and_shows_scatters() {
     use super::{DeadwoodSettings, DeadwoodView};
 
     let bare = DeadwoodSettings {
-        piece: DeadwoodPreset::WindthrowLog.options(),
+        piece: DeadwoodPreset::windthrow_log().deadwood.clone(),
         ..default()
     };
     let start = SceneStart {
@@ -515,7 +515,7 @@ fn deadwood_mode_grows_moss_and_shows_scatters() {
     };
     let before = moss(&scene.settled_frame());
     scene.send(ViewerCommand::SetDeadwood(Arc::new(DeadwoodSettings {
-        cover: Some(ClumpPreset::MossCushions),
+        cover: Some(ClumpPreset::moss_cushions()),
         ..bare.clone()
     })));
     // The moss grows in the background with no build event, so keep
@@ -617,7 +617,7 @@ fn assert_fly_agaric_is_textured(scene: &mut HeadlessScene) {
     );
 
     // The same mushroom without its texture looks different on the cap.
-    let mut plain = MushroomPreset::FlyAgaric.options();
+    let mut plain = MushroomPreset::fly_agaric().mushroom.clone();
     plain.material.cap_texture = None;
     scene.send(ViewerCommand::SetMushroom(Arc::new(plain)));
     assert!(matches!(
@@ -662,7 +662,7 @@ fn mushroom_levels_shown(scene: &mut HeadlessScene) -> Vec<Option<usize>> {
 #[test]
 #[ignore = "needs a GPU"]
 fn every_chosen_mushroom_level_is_drawn_and_reported() {
-    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::FlyAgaric);
+    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::fly_agaric());
     assert!(matches!(
         mushroom_event(&mut scene),
         ViewerEvent::MushroomBuilt(Ok(_))
@@ -704,7 +704,7 @@ fn every_chosen_mushroom_level_is_drawn_and_reported() {
 #[test]
 #[ignore = "needs a GPU"]
 fn rejected_mushroom_options_keep_the_shown_mushroom() {
-    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::FlyAgaric);
+    let mut scene = start_mushroom(procgena_mushroom::MushroomPreset::fly_agaric());
     assert!(matches!(
         mushroom_event(&mut scene),
         ViewerEvent::MushroomBuilt(Ok(_))
@@ -713,7 +713,9 @@ fn rejected_mushroom_options_keep_the_shown_mushroom() {
 
     let options = procgena_mushroom::MushroomOptions {
         size: -1.0,
-        ..procgena_mushroom::MushroomPreset::FlyAgaric.options()
+        ..procgena_mushroom::MushroomPreset::fly_agaric()
+            .mushroom
+            .clone()
     };
     scene.send(ViewerCommand::SetMushroom(Arc::new(options)));
     let built = mushroom_event(&mut scene);
@@ -754,7 +756,9 @@ fn clump_mode_grows_a_clump_on_a_rock_and_on_a_tree() {
 
     // A tree subject is built, then grows its own clump.
     let mut settings = ClumpSettings {
-        subject: ClumpSubject::Tree(Arc::new(procgena_tree::TreePreset::OakMedium.options())),
+        subject: ClumpSubject::Tree(Arc::new(
+            procgena_tree::TreePreset::oak_medium().tree.clone(),
+        )),
         ..default()
     };
     settings.clump.mesh.edge_length = 0.1;
@@ -781,7 +785,7 @@ fn only_the_latest_clump_settings_are_shown() {
     // Two quick edits: the first build's result is dropped.
     let mut settings = ClumpSettings::default();
     for seed in [1, 2] {
-        settings.clump.seed = seed;
+        settings.clump.default_seed = seed;
         scene.send(ViewerCommand::SetClump(Arc::new(settings.clone())));
         scene.update();
     }
@@ -873,7 +877,7 @@ fn grove_impostors_bake_without_the_scene_camera_touching_the_bake_cameras() {
     scene.settle();
     assert!(bake_cameras(&mut scene).is_empty());
     let world = scene.world_mut();
-    let mut groves = world.query::<&TreeGroveAssets>();
+    let mut groves = world.query::<&TreeScatterAssets>();
     let grove = groves.single(world).unwrap();
     assert!(!grove.variants().is_empty());
     assert!(
@@ -905,7 +909,7 @@ fn grove_view_at(scene: &mut HeadlessScene, distance: f32) -> (Frame, f32) {
     let with_grove = scene.settled_frame();
 
     let world = scene.world_mut();
-    let mut groves = world.query_filtered::<Entity, With<TreeGroveParams>>();
+    let mut groves = world.query_filtered::<Entity, With<TreeScatterParams>>();
     let grove = groves.single(world).unwrap();
     world.despawn(grove);
     request_frames(world);
@@ -965,7 +969,7 @@ fn far_groves_are_drawn_as_impostors() {
     // Every tree shape has its impostor.
     let mut scene = start_far_grove(true);
     let world = scene.world_mut();
-    let mut groves = world.query::<&TreeGroveAssets>();
+    let mut groves = world.query::<&TreeScatterAssets>();
     let grove = groves.single(world).unwrap();
     assert!(
         grove.variants().iter().all(|v| v.has_impostor()),

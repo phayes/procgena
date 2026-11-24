@@ -1,7 +1,0 @@
-{
-  "seed": 6,
-  "variation": { "scaleJitter": 0.08, "lean": 1, "maxSlope": 20 },
-  "trees": [
-    { "tree": "apple", "density": 150, "spacing": 3.0 }
-  ]
-}

@@ -1,0 +1,12 @@
+# A built-in TreeScatterPreset. Copy it, change what you like, and read it
+# with TreeScatterPreset::from_yaml, or name it as the `base` of your own
+# file and give only what differs.
+name: Aspen Stand
+description: Aspens of three sizes, the young ones in dense clumps.
+group: Woodland
+tree_scatter:
+  default_seed: 2
+  trees:
+    - { tree: aspen_small, density_scale: 0.3, clustering: 0.5 }
+    - { tree: aspen_large, density_scale: 0.4 }
+    - { tree: aspen_medium, density_scale: 0.6 }

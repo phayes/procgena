@@ -71,11 +71,11 @@ fn assert_well_formed(b: &MeshBuffers, name: &str) {
 
 #[test]
 fn every_preset_meshes_cleanly_at_every_detail() {
-    for preset in DeadwoodPreset::ALL {
-        let piece = Piece::from_preset(preset);
+    for preset in DeadwoodPreset::all() {
+        let piece = Piece::from_preset(preset).unwrap();
         for detail in details() {
             let mesh = piece.mesh_with_detail(&detail);
-            let name = format!("{} {}", preset.name(), detail.sides);
+            let name = format!("{} {}", preset.name, detail.sides);
             // A strips-only level draws everything as strips; the others
             // keep at least the round main stem.
             if detail.strip_all {
@@ -123,7 +123,7 @@ fn every_end_kind_closes_solid_and_hollow() {
             Some([true, true]),
         ] {
             let mut o = DeadwoodOptions {
-                seed: 40 + k as u32,
+                default_seed: 40 + k as u32,
                 ends: EndsOptions {
                     base: kinds[(k + 2) % kinds.len()],
                     tip,
@@ -215,19 +215,23 @@ fn blind_hollow_never_breaks_through_the_far_end() {
 
 #[test]
 fn same_options_give_the_same_mesh() {
-    let a = Piece::from_preset(DeadwoodPreset::FallenLimb).mesh();
-    let b = Piece::from_preset(DeadwoodPreset::FallenLimb).mesh();
+    let a = Piece::from_preset(DeadwoodPreset::fallen_limb())
+        .unwrap()
+        .mesh();
+    let b = Piece::from_preset(DeadwoodPreset::fallen_limb())
+        .unwrap()
+        .mesh();
     assert_eq!(a, b);
-    let mut o = DeadwoodPreset::FallenLimb.options();
-    o.seed += 1;
+    let mut o = DeadwoodPreset::fallen_limb().deadwood.clone();
+    o.default_seed += 1;
     let c = Piece::new(o).unwrap().mesh();
     assert_ne!(a, c);
 }
 
 #[test]
 fn coarser_levels_have_fewer_triangles() {
-    for preset in DeadwoodPreset::ALL {
-        let piece = Piece::from_preset(preset);
+    for preset in DeadwoodPreset::all() {
+        let piece = Piece::from_preset(preset).unwrap();
         let counts: Vec<usize> = piece
             .lod_meshes(&default_lod())
             .unwrap()
@@ -237,14 +241,14 @@ fn coarser_levels_have_fewer_triangles() {
         assert!(
             counts.windows(2).all(|w| w[1] < w[0]),
             "{}: {counts:?}",
-            preset.name()
+            preset.name
         );
     }
 }
 
 #[test]
 fn coarse_levels_drop_and_flatten_thin_stems() {
-    let piece = Piece::from_preset(DeadwoodPreset::FallenLimb);
+    let piece = Piece::from_preset(DeadwoodPreset::fallen_limb()).unwrap();
     let full = piece.mesh_with_detail(&DeadwoodDetail::FULL);
     let low = piece.mesh_with_detail(&DeadwoodDetail::LOW);
     assert!(full.ribbons.is_none());
@@ -254,7 +258,7 @@ fn coarse_levels_drop_and_flatten_thin_stems() {
 
 #[test]
 fn branches_have_side_branches_and_logs_do_not() {
-    let limb = Piece::from_preset(DeadwoodPreset::FallenLimb);
+    let limb = Piece::from_preset(DeadwoodPreset::fallen_limb()).unwrap();
     assert_eq!(limb.options().kind, PieceKind::Branch);
     assert!(limb.stem_count() > 5);
     let log = Piece::new(DeadwoodOptions {

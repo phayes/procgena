@@ -70,7 +70,7 @@ struct Offscreen(Handle<Image>);
 #[derive(Resource)]
 struct Scene {
     /// The one preset to show, from `--preset`, or `None` for all.
-    preset: Option<DeadwoodPreset>,
+    preset: Option<&'static DeadwoodPreset>,
     /// Angle around the target in degrees, from `--orbit`.
     orbit: f32,
     /// The one scatter to show, from `--scatter`, and the width of its
@@ -94,10 +94,7 @@ fn main() {
     };
     let has = |flag: &str| args.iter().any(|a| a == flag);
     let preset = value("--preset").map(|name| {
-        DeadwoodPreset::ALL
-            .into_iter()
-            .find(|p| p.name().to_lowercase().replace(' ', "_") == name)
-            .unwrap_or_else(|| panic!("no preset called {name:?}"))
+        DeadwoodPreset::named(&name).unwrap_or_else(|| panic!("no preset called {name:?}"))
     });
 
     // `--flat` uses only the cheapest detail, drawn out to 200 m.
@@ -242,7 +239,7 @@ fn setup(
         (Vec3::ZERO, Vec3::new(0.0, 0.45, 1.0), distance)
     } else if let Some(preset) = scene.preset {
         commands.spawn(DeadwoodParams::preset(preset));
-        let o = preset.options();
+        let o = &preset.deadwood;
         let (d, l) = (o.diameter, o.length);
         match (o.kind == PieceKind::Stump, scene.closeup) {
             // Stumps: from above, to see the top.
@@ -275,9 +272,7 @@ fn setup(
                 Vec3::X * SPACING,
             ),
         ] {
-            let presets = DeadwoodPreset::ALL
-                .into_iter()
-                .filter(|p| p.options().kind == kind);
+            let presets = DeadwoodPreset::all().filter(|p| p.deadwood.kind == kind);
             for (i, preset) in presets.enumerate() {
                 commands.spawn((
                     DeadwoodParams::preset(preset),

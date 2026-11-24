@@ -2,7 +2,7 @@
 
 Everything a game needs is in `procgena_plant::prelude`. Every item also has
 rustdoc (`cargo doc --open --features debug,rapier,avian`); this page is the
-map. The plant and field settings are in [Plants and fields](fields.md#reference), the far-grass
+map. The plant and field settings are in [Plants and Scatters](scatters.md#reference), the far-grass
 material in [Fields, terrain and visibility](terrain.md#keep-the-grass-colour-past-the-last-blade).
 
 ## Plugins and settings
@@ -24,7 +24,7 @@ material in [Fields, terrain and visibility](terrain.md#keep-the-grass-colour-pa
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `PlantField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass, turned with the transform's rotation about Y. `size: Vec2` (metres, X and Z, times the transform's scale), `ground: PlantGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier), `wind_scale` (how far the wind moves it), and what grows there: `plants` (a list of `FieldPlant`), `density_scale` (on every plant's density; `density()` gives the plants per m²), `variation`, `ground_tint` and `toon_bands`; see [Plants and fields](fields.md#reference). `PlantField::from_preset(&FieldPreset::MEADOW, size)` starts from a preset and `PlantField::new(size, plants)` from a list of plants; `.with_ground_from_fn(&mut images, cell_size, height)` and `.with_density_from_fn(&mut images, cell_size, density)` sample a function once into a heightmap or a mask, for terrain built from code |
+| `PlantScatter` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass, turned with the transform's rotation about Y. `size: Vec2` (metres, X and Z, times the transform's scale), `ground: PlantGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier), `wind_scale` (how far the wind moves it), and what grows there: `plants` (a list of `ScatterPlant`), `density_scale` (on every plant's density; `density()` gives the plants per m²), `variation`, `ground_tint` and `toon_bands`; see [Plants and Scatters](scatters.md#reference). `PlantScatter::from_preset(&PlantScatterPreset::MEADOW, size)` starts from a preset and `PlantScatter::new(size, plants)` from a list of plants; `.with_ground_from_fn(&mut images, cell_size, height)` and `.with_density_from_fn(&mut images, cell_size, density)` sample a function once into a heightmap or a mask, for terrain built from code |
 | `PlantGround` | Enum | `Flat` (default; at the field's height), `Heightmap { image, height_scale }`, or `Mesh { mesh, cell_size }`: the top of a mesh, drawn with the field's transform, baked once into a heightmap. `PlantGround::mesh(handle)` bakes at 0.5 m |
 | `PlantInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to `PlantSettings::max_interactor_radius`, 2 by default), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground). One disc; add a `PlantInteractorFootprint` for one large object |
 | `PlantInteractorSpread` | Component (requires `PlantInteractor`) | Extra disc centres in the interactor's local space, for a few separate contacts (feet, wheels); each disc pushes away from its own centre. `covering_aabb(center, half_extents, max_radius)` covers a local AABB with at most 32 discs |
@@ -61,17 +61,17 @@ See [Editing and reading the grass](editing.md).
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `PlantParams` | Struct (`Copy`) | What one plant looks like, and its own `density` (plants per m²): height, width, lean, `stems_per_plant`, its own `segment`, two `levels` of branches, head, lighting, `tufts` and `tuft_size`, and its `accent`; see [Plants and fields](fields.md#reference). `mesh_size(lod, &settings)` gives the vertices and triangles one plant draws at a level of detail |
+| `PlantParams` | Struct (`Copy`) | What one plant looks like, and its own `density` (plants per m²): height, width, lean, `stems_per_plant`, its own `segment`, two `levels` of branches, head, lighting, `tufts` and `tuft_size`, and its `accent`; see [Plants and Scatters](scatters.md#reference). `mesh_size(lod, &settings)` gives the vertices and triangles one plant draws at a level of detail |
 | `PlantMeshSize` | Struct (`Copy`) | `vertices` and `triangles`, returned by `PlantParams::mesh_size` |
-| `PlantAccent` | Struct (`Copy`) | A share of a plant's stems that grow differently, in place of its own stems: `share`, `height`, `width`, `lean`, `translucency`, `segment` and a head; `NONE` is off; see [Accents](fields.md#accents) |
-| `FieldPlant` | Struct (`Copy`) | One plant of a field: a `PlantParams`, a `density_scale` on the plant's own density, and `clustering`. `FieldPlant::new(plant)`, `.scaled(density_scale)`, `.clustered(amount)`, `density()` |
+| `PlantAccent` | Struct (`Copy`) | A share of a plant's stems that grow differently, in place of its own stems: `share`, `height`, `width`, `lean`, `translucency`, `segment` and a head; `NONE` is off; see [Accents](scatters.md#accents) |
+| `ScatterPlant` | Struct (`Copy`) | One plant of a field: a `PlantParams`, a `density_scale` on the plant's own density, and `clustering`. `ScatterPlant::new(plant)`, `.scaled(density_scale)`, `.clustered(amount)`, `density()` |
 | `PlantSegment` | Struct (`Copy`) | One tapered, curved strip of a plant: `profile`, `stiffness`, `droop`, `twist`, `fold`, `root_color`, `tip_color` |
-| `PlantBranches` | Struct (`Copy`) | A level of smaller segments along a parent: `count`, `arrangement`, `attachment_start`, `length`, `length_envelope`, `width`, `angle`, `spread`, `segment`; `NONE` is off; see [Plants that branch](fields.md#plants-that-branch) |
+| `PlantBranches` | Struct (`Copy`) | A level of smaller segments along a parent: `count`, `arrangement`, `attachment_start`, `length`, `length_envelope`, `width`, `angle`, `spread`, `segment`; `NONE` is off; see [Plants that branch](scatters.md#plants-that-branch) |
 | `PlantArrangement` | Enum | How a level's children sit along their parent: `Opposite` (in pairs) or `Alternate` |
-| `PlantVariation`, `GroundTint` | Structs | The field's variation and ground tint, inside `PlantField` |
+| `PlantVariation`, `GroundTint` | Structs | The field's variation and ground tint, inside `PlantScatter` |
 | `MAX_PLANTS` | Constant | 16: the plants a field grows at most |
-| `FieldPreset` | Asset | A named field: `key`, `name`, `description`, `group` and `field`. Each built-in preset is a constant (`FieldPreset::MEADOW`); `GROUPS`, `all()` and `named(key)` list them. A `.field.ron` file loads as one; see [Presets](presets.md) |
-| `PlantPreset` | Asset | A named plant: `key`, `name`, `description`, `group` and `plant`. Each built-in preset is a constant (`PlantPreset::FERN`, the same plant as `PlantParams::FERN`); `GROUPS`, `all()` and `named(key)` list them. A `.plant.ron` file loads as one |
-| `PlantFilePlugin` | Plugin | Registers the loaders, and every preset as `embedded://procgena_plant/fields/<key>.field.ron` and `embedded://procgena_plant/plants/<key>.plant.ron`. Part of `PlantPlugins` |
-| `PlantFieldLoader`, `PlantParamsLoader` | Asset loaders | Load `.field.ron` as a `FieldPreset` and `.plant.ron` as a `PlantPreset`, keyed by the file's name |
-| `PlantFileError` | Enum | `Io`, `Parse { line, column, message }`, `UnknownField`, `UnknownPlant`, `Invalid`: why a file could not be read |
+| `PlantScatterPreset` | Asset | A named Scatter: `key` (lower case, such as `"meadow"`), `name`, `description`, `group` and `plant_scatter`. Each built-in preset is a constant (`PlantScatterPreset::MEADOW`); `GROUPS`, `all()` and `named(key)` list them. `from_yaml(key, text)` reads a `.plant_scatter.yml` file and `to_yaml(base)` writes one; see [Presets](presets.md) |
+| `PlantPreset` | Asset | A named plant: `key` (lower case, such as `"fern"`), `name`, `description`, `group` and `plant`. Each built-in preset is a constant (`PlantPreset::FERN`, the same plant as `PlantParams::FERN`); `GROUPS`, `all()` and `named(key)` list them. `from_yaml(key, text)` reads a `.plant.yml` file and `to_yaml(base)` writes one |
+| `PlantFilePlugin` | Plugin | Registers the loaders, and every preset as `embedded://procgena_plant/scatters/<key>.plant_scatter.yml` and `embedded://procgena_plant/plants/<key>.plant.yml`. Part of `PlantPlugins` |
+| `PlantScatterLoader`, `PlantParamsLoader` | Asset loaders | Load `.plant_scatter.yml` as a `PlantScatterPreset` and `.plant.yml` as a `PlantPreset`, keyed by the file's name |
+| `PlantFileError` | Enum | `Io`, `File(PresetFileError)` (not YAML, with its line and column, or an unknown or mistyped setting, named by its path), `UnknownScatter`, `UnknownPlant`, `Invalid`: why a file could not be read |

@@ -1,5 +1,5 @@
-//! Save and load tree settings as JSON, and export the tree as a GLB or OBJ
-//! model for other 3D tools.
+//! Save and load tree settings as `.tree.yml` preset files, and export the
+//! tree as a GLB or OBJ model for other 3D tools.
 //!
 //! Each function does the work after the user has chosen a file. Pass copies
 //! of the settings taken when the user asked, so later edits do not change a
@@ -11,11 +11,14 @@ use bevy::feathers::controls::FeathersButton;
 use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
-use procgena_tree::{TextureSize, TreeOptions};
+use procgena_tree::{TextureSize, TreeOptions, TreePreset};
 
 use super::images::{ImageStore, fetch_images};
 use super::tree::{self as model, ModelSettings};
-use super::{Done, ExportImages, FileOps, chosen_stem, shown_name, write_file, write_files};
+use super::{
+    Done, ExportImages, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file,
+    write_files,
+};
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, choice, spawn_param_panel, toggle};
 use crate::tree::editor::{TreeEditor, load_tree};
 
@@ -55,11 +58,11 @@ pub fn spawn_tree_export(commands: &mut Commands, parent: Entity) {
             Children [
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
                 Children [
-                    @FeathersButton { @caption: bsn! { @caption("Save JSON…") } }
-                    on(save_tree_json)
+                    @FeathersButton { @caption: bsn! { @caption("Save Preset…") } }
+                    on(save_tree_preset)
                     --
-                    @FeathersButton { @caption: bsn! { @caption("Load JSON…") } }
-                    on(load_tree_json)
+                    @FeathersButton { @caption: bsn! { @caption("Load Preset…") } }
+                    on(load_tree_preset)
                 ]
                 --
                 Node { display: Display::Flex, column_gap: px(6), flex_shrink: 0.0 }
@@ -87,8 +90,9 @@ fn snapshot(
     Some((options, editor.file_stem(), settings))
 }
 
-/// Saves the tree settings as JSON.
-fn save_tree_json(
+/// Saves the tree settings as a `.tree.yml` preset file based on the chosen
+/// preset.
+fn save_tree_preset(
     _: On<Activate>,
     editor: Single<&TreeEditor>,
     panels: Query<&ParamPanel<TreeOptions>>,
@@ -96,14 +100,15 @@ fn save_tree_json(
     mut files: FileOps,
 ) {
     if let Some((options, stem, _)) = snapshot(&editor, &panels, &settings) {
-        files.save(&format!("{stem}.json"), move |path| {
-            save_json(&options, path)
+        let base = editor.preset();
+        files.save(&format!("{stem}.tree.yml"), move |path| {
+            save_preset(options, base, path)
         });
     }
 }
 
-/// Loads tree settings from JSON into the editor.
-fn load_tree_json(_: On<Activate>, mut files: FileOps) {
+/// Loads tree settings from a `.tree.yml` preset file into the editor.
+fn load_tree_preset(_: On<Activate>, mut files: FileOps) {
     files.open(|text, world| {
         let options = read_options(text)?;
         world
@@ -147,15 +152,10 @@ fn export_tree_obj(
     }
 }
 
-/// Writes `options` to `path` as JSON.
-pub fn save_json(options: &TreeOptions, path: &Path) -> Result<Done, String> {
-    write_file(path, options.to_json().as_bytes())?;
-    Ok(Done::new(format!("Saved {}", shown_name(path))))
-}
-
-/// Parses JSON tree settings, returning a readable error if they are not tree settings.
+/// Reads the tree settings of a `.tree.yml` preset file. Returns a readable
+/// error for text that isn't a tree preset file or holds invalid settings.
 pub fn read_options(text: &str) -> Result<TreeOptions, String> {
-    TreeOptions::from_json(text).map_err(|error| format!("Not tree settings: {error}"))
+    read_preset::<TreePreset>(text, "tree")
 }
 
 /// Builds the tree and writes it to `path` as a GLB model.

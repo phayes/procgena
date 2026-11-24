@@ -5,6 +5,55 @@ break the API; each breaking change below says what to write instead.
 
 ## Unreleased
 
+### Scatters, YAML preset files and `default_seed`
+
+A field of plants is now a Scatter, as in every procgena generator, and
+preset files are YAML in the layout every generator shares: a `base`, a
+`name`, a `description`, a `group`, and the settings under the file's kind.
+
+**Breaking, and what to write instead**
+
+| Before | Now |
+|--------|-----|
+| `PlantField` | `PlantScatter` |
+| `FieldPlant` | `ScatterPlant` |
+| `FieldPreset` | `PlantScatterPreset` |
+| `FieldPreset::field` | `PlantScatterPreset::plant_scatter` |
+| `PlantFieldLoader` | `PlantScatterLoader` |
+| `PlantFileError::UnknownField` | `PlantFileError::UnknownScatter` |
+| `PlantFileError::Parse { line, column, message }` | `PlantFileError::File(PresetFileError)`: YAML errors give the line and column in their message, and setting errors name the setting's path, such as `plant.segment.tip_colour` |
+| Preset keys `"FERN"`, `"MEADOW"` | `"fern"`, `"meadow"`: the constant's name in lower case. The constants keep their names (`PlantPreset::FERN`) |
+| `.plant.ron` files | `.plant.yml` files, with the settings under `plant:` |
+| `.field.ron` files | `.plant_scatter.yml` files, with the settings under `plant_scatter:` |
+| `ground_color`, `ground_tint` in a field file | `ground_tint: { color, amount }` |
+| `patch_color`, `patch_amount`, `patch_size`, `dry_tips`, `dead_share`, `bare_share`, `bare_patch_size` in a field file | the same settings under `variation:` |
+| `arrangement: Opposite` / `Alternate` in a file | `arrangement: opposite` / `alternate` |
+| `PlantParams::from_ron`, `to_ron`, `from_json`, `to_json` | `PlantParams::from_yaml`, `to_yaml`, or serde |
+| `PlantField::from_ron`, `to_ron`, `from_json`, `to_json` | `PlantScatter::from_yaml`, `to_yaml`, or serde |
+| `PlantPreset::from_ron(key, text)`, `to_ron()` | `PlantPreset::from_yaml(key, text)`, `to_yaml(base)` |
+| `FieldPreset::from_ron(key, text)`, `to_ron()` | `PlantScatterPreset::from_yaml(key, text)`, `to_yaml(base)` |
+| `assets/fields`, `embedded://procgena_plant/fields/<key>.field.ron` | `assets/scatters`, `embedded://procgena_plant/scatters/<key>.plant_scatter.yml` |
+| `embedded://procgena_plant/plants/<key>.plant.ron` | `embedded://procgena_plant/plants/<key>.plant.yml` |
+| `docs/fields.md`, `--example fields` | `docs/scatters.md`, `--example scatters` |
+| `BLESS_PRESETS=1 cargo test` | Tests check the shipped files and the preset table in `docs/presets.md` against the constants; write a new preset's file with `to_yaml(None)` |
+| A struct literal of `PlantParams` or `PlantScatter` | Add `default_seed: 0`, or end it with `..default()` |
+
+**Added**
+
+- `PlantParams::default_seed` and `PlantScatter::default_seed`: the seed used
+  when the item is built on its own. Nothing reads them yet, so they change
+  nothing drawn. Files read and write them like any setting.
+- Serde `Serialize` and `Deserialize` on `PlantParams`, `PlantScatter`,
+  `PlantSegment`, `PlantBranches`, `PlantAccent`, `PlantArrangement`,
+  `ScatterPlant`, `PlantVariation` and `GroundTint`, with the same settings
+  as the files. A deserialized `PlantScatter` has size 0, flat ground and no
+  density map.
+- A preset file may set its `group`; a loaded preset keeps it.
+- `PlantPreset::to_yaml(Some(base))` and `PlantScatterPreset::to_yaml(Some(base))`
+  write only what differs from `base`.
+
+### The crate renamed
+
 The crate is now `procgena_plant`, part of the procgena workspace, and every
 `Grass` type is renamed to match. The rest of this section was written before
 the rename and uses the old names; read them through this table.

@@ -256,7 +256,8 @@ fn build(
     };
 
     // Store the supplied generation settings so applications can recover them later.
-    let extras = format!("{{\"stoneOptions\":{}}}", options.to_json());
+    let options_json = serde_json::to_string(options).map_err(GltfError::Json)?;
+    let extras = format!("{{\"stoneOptions\":{options_json}}}");
     b.root.asset = json::Asset {
         generator: Some(format!("procgena_stone {}", env!("CARGO_PKG_VERSION"))),
         extras: Some(RawValue::from_string(extras).map_err(GltfError::Json)?),

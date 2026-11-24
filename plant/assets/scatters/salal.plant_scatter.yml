@@ -1,0 +1,32 @@
+# The `salal` Scatter preset as a file. Copy it, edit it, and load it with
+# `asset_server.load("path/to/copy.plant_scatter.yml")`. Every setting is
+# optional: a missing one comes from `base`, a built-in preset's key.
+name: Salal
+description: |-
+  Salal thickets above moss.
+
+  Glossy leaves form dense clumps among the ground cover.
+group: Understory
+plant_scatter:
+  variation:
+    patch_color:
+    - 0.2
+    - 0.34
+    - 0.15
+    patch_amount: 0.35
+    patch_size: 3.0
+    dry_tips: 0.05
+    dead_share: 0.02
+    bare_share: 0.12
+    bare_patch_size: 1.2
+  ground_tint:
+    color:
+    - 0.12
+    - 0.09
+    - 0.05
+    amount: 0.4
+  plants:
+  - plant: moss
+    density_scale: 0.6
+    clustering: 0.6
+  - plant: salal

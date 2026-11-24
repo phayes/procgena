@@ -7,6 +7,7 @@ use std::fmt;
 use glam::{Affine3A, DVec2, Vec2, Vec3, Vec3Swizzles};
 use procgena_core::hash::{pcg3d, unit_float};
 use procgena_core::scatter::{Footprint, Placement, ScatterInput, place, steeper_than};
+use serde::{Deserialize, Serialize};
 
 use crate::field::StoneField;
 use crate::options::{OptionsError, StoneOptions};
@@ -47,7 +48,8 @@ pub const MAX_CLUSTER_MEMBERS: u32 = 16;
 
 /// One kind of stone in a [`StoneScatterOptions`], such as boulders or
 /// pebbles: its shapes, how many there are and how they lie.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StoneClass {
     /// The shape settings every variant starts from. Variant `v` uses
     /// [`StoneOptions::variant`]`(world_seed, v, stretch_jitter)`, with the
@@ -250,12 +252,13 @@ impl StoneClass {
 }
 
 /// Settings for a [`StoneScatter`]: the classes of stone it spreads.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StoneScatterOptions {
     /// The seed to pass in [`ScatterInput::seed`] when this scatter is
     /// built on its own, such as in a viewer. [`StoneScatter::new`] uses the
     /// input's seed, not this one.
-    pub seed: u32,
+    pub default_seed: u32,
     /// The kinds of stone, at most [`MAX_STONE_CLASSES`]. Earlier classes
     /// claim their ground first: a stone is left out where it would overlap
     /// a stone of an earlier class. List the largest stones first.
@@ -266,16 +269,16 @@ impl StoneScatterOptions {
     /// A few large boulders, sparse rocks and many pebbles in small clusters,
     /// gathered in patches.
     pub fn boulder_field() -> Self {
-        let mut boulders = StoneClass::new(StonePreset::Boulder.options(), 0.004, 6.0);
+        let mut boulders = StoneClass::new(StonePreset::boulder().stone.clone(), 0.004, 6.0);
         boulders.variants = 6;
         boulders.size = [0.6, 1.3];
         boulders.max_slope = 30.0;
         boulders.patchiness = 0.4;
         boulders.patch_size = 30.0;
-        let mut rocks = StoneClass::new(StonePreset::RiverStone.options(), 0.03, 1.5);
+        let mut rocks = StoneClass::new(StonePreset::river_stone().stone.clone(), 0.03, 1.5);
         rocks.patchiness = 0.3;
         rocks.patch_size = 12.0;
-        let mut pebbles = StoneClass::new(StonePreset::Pebble.options(), 0.25, 0.6);
+        let mut pebbles = StoneClass::new(StonePreset::pebble().stone.clone(), 0.25, 0.6);
         pebbles.members = [1, 5];
         pebbles.cluster_radius = 0.3;
         pebbles.size = [0.6, 1.6];
@@ -283,7 +286,7 @@ impl StoneScatterOptions {
         pebbles.patchiness = 0.5;
         pebbles.patch_size = 4.0;
         Self {
-            seed: 0,
+            default_seed: 0,
             classes: vec![boulders, rocks, pebbles],
         }
     }

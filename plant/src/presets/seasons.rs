@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantField, PlantParams,
-    PlantSegment,
+    Color, Cow, GroundTint, PlantParams, PlantScatter, PlantScatterPreset, PlantSegment,
+    SCATTER_BASE, ScatterPlant,
 };
 
 /// The summer grass gone brown: stiffer and less translucent.
@@ -24,23 +24,23 @@ SEASONS "Seasons" {
     SUMMER_TALL {
         name: "Summer tall",
         description: "Tall green summer grass.",
-    } => PlantField {
+    } => PlantScatter {
         // Sheen and ground tint stay off to keep the preset's look; games can
         // turn either on.
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::SUMMER_TALL_GRASS)]),
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams::SUMMER_TALL_GRASS)]),
         ground_tint: GroundTint {
             amount: 0.0,
-            ..FIELD_BASE.ground_tint
+            ..SCATTER_BASE.ground_tint
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     AUTUMN_TALL {
         name: "Autumn tall",
         description: "Tall brown autumn grass: the summer field gone dry, so stiffer and \
                       less translucent.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(AUTUMN_TALL_GRASS)]),
-        ..Self::SUMMER_TALL.field
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(AUTUMN_TALL_GRASS)]),
+        ..Self::SUMMER_TALL.plant_scatter
     };
 }
 }

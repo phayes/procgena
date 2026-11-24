@@ -34,7 +34,7 @@ pub const TREE_KIND: GeneratorKind = GeneratorKind::from_key("tree.generator.kin
 pub struct TreeCacheKey {
     /// The pool of the settings, without their seed.
     pub pool: PoolId,
-    /// The seed the tree is grown from, [`TreeOptions::seed`].
+    /// The seed the tree is grown from, [`TreeOptions::default_seed`].
     pub seed: i32,
 }
 
@@ -55,7 +55,8 @@ impl ContentHash for TreeCacheKey {
 }
 
 impl TreeOptions {
-    /// The content hash of these settings, leaving out [`seed`](Self::seed).
+    /// The content hash of these settings, leaving out
+    /// [`default_seed`](Self::default_seed).
     ///
     /// Every other setting counts, including colours and texture names.
     /// `0.0` and `-0.0` hash the same, as do all NaNs. Different settings
@@ -64,9 +65,9 @@ impl TreeOptions {
     /// ```
     /// use procgena_tree::TreePreset;
     ///
-    /// let a = TreePreset::OakSmall.options();
+    /// let a = TreePreset::oak_small().tree.clone();
     /// let mut b = a.clone();
-    /// b.seed += 1;
+    /// b.default_seed += 1;
     /// assert_eq!(a.options_hash(), b.options_hash());
     /// b.leaves.count += 1;
     /// assert_ne!(a.options_hash(), b.options_hash());
@@ -84,27 +85,28 @@ impl TreeOptions {
     /// Specimen `slot` of this pool in a World with seed `world_seed`.
     ///
     /// Its [`SpecimenId::seed`] is the seed that specimen grows from. A tree
-    /// built on its own uses its [`seed`](Self::seed) as the World seed.
+    /// built on its own uses its [`default_seed`](Self::default_seed) as the
+    /// World seed.
     pub fn specimen_id(&self, world_seed: u32, slot: u32) -> SpecimenId {
         SpecimenId::new(world_seed, self.pool_id(), slot)
     }
 
     /// The key of the shape these settings grow: their pool and their
-    /// [`seed`](Self::seed).
+    /// [`default_seed`](Self::default_seed).
     ///
     /// ```
     /// use procgena_tree::TreePreset;
     ///
-    /// let a = TreePreset::OakSmall.options();
+    /// let a = TreePreset::oak_small().tree.clone();
     /// let mut b = a.clone();
     /// assert_eq!(a.cache_key(), b.cache_key());
-    /// b.seed += 1;
+    /// b.default_seed += 1;
     /// assert_ne!(a.cache_key(), b.cache_key());
     /// ```
     pub fn cache_key(&self) -> TreeCacheKey {
         TreeCacheKey {
             pool: self.pool_id(),
-            seed: self.seed,
+            seed: self.default_seed,
         }
     }
 }
@@ -173,7 +175,7 @@ impl<T: ContentHash> ContentHash for PerLevel<T> {
 impl ContentHash for TreeOptions {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
-            seed: _,
+            default_seed: _,
             tree_type,
             bark,
             branch,

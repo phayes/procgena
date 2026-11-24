@@ -111,7 +111,7 @@ fn setup(
 
     // The battlefield: shortened meadow over the whole map, and the
     // ground fading to its colour past the last blade.
-    let mut field = PlantField::from_preset(&FieldPreset::MEADOW, Vec2::splat(MAP));
+    let mut field = PlantScatter::from_preset(&PlantScatterPreset::MEADOW, Vec2::splat(MAP));
     field.plants.to_mut().iter_mut().for_each(|entry| {
         entry.plant.height *= 0.6;
         entry.plant.accent.height *= 0.6;

@@ -1,16 +1,18 @@
 use super::*;
-use crate::api::PlantField;
+use crate::api::PlantScatter;
 use crate::presets::PlantPreset;
 
 /// Returns the last plant in a preset's mix, used here as its background plant.
 /// List position alone does not imply the largest weight.
-fn main_plant(field: &PlantField) -> &PlantParams {
+fn main_plant(field: &PlantScatter) -> &PlantParams {
     &field.plants.last().expect("a preset grows a plant").plant
 }
 
 #[test]
 fn spacing_and_density_describe_the_same_field() {
-    let field = FieldPreset::SUMMER_TALL.field.with_spacing(0.2);
+    let field = PlantScatterPreset::SUMMER_TALL
+        .plant_scatter
+        .with_spacing(0.2);
     assert!((field.density() - 25.0).abs() < 1e-3);
     assert!((field.spacing() - 0.2).abs() < 1e-6);
     let field = field.with_density(100.0);
@@ -19,24 +21,29 @@ fn spacing_and_density_describe_the_same_field() {
 
 #[test]
 fn every_season_preset_is_tall_and_valid() {
-    for preset in &FieldPreset::SEASONS {
-        let plant = main_plant(&preset.field);
+    for preset in &PlantScatterPreset::SEASONS {
+        let plant = main_plant(&preset.plant_scatter);
         assert!(plant.height.x > 0.0 && plant.height.x < plant.height.y);
         assert!(plant.height.y >= 1.0, "tall grass reaches at least 1 m");
-        assert!(preset.field.density() > 0.0 && plant.width > 0.0);
+        assert!(preset.plant_scatter.density() > 0.0 && plant.width > 0.0);
         assert!((0.0..=1.0).contains(&plant.translucency));
     }
 }
 
 #[test]
 fn summer_is_green_and_autumn_is_brown() {
-    let rgb = |preset: &FieldPreset| main_plant(&preset.field).segment.tip_color.to_srgba();
-    let summer = rgb(&FieldPreset::SUMMER_TALL);
+    let rgb = |preset: &PlantScatterPreset| {
+        main_plant(&preset.plant_scatter)
+            .segment
+            .tip_color
+            .to_srgba()
+    };
+    let summer = rgb(&PlantScatterPreset::SUMMER_TALL);
     assert!(
         summer.green > summer.red && summer.green > summer.blue,
         "{summer:?}"
     );
-    let autumn = rgb(&FieldPreset::AUTUMN_TALL);
+    let autumn = rgb(&PlantScatterPreset::AUTUMN_TALL);
     assert!(
         autumn.red > autumn.green && autumn.green > autumn.blue,
         "{autumn:?}"
@@ -44,8 +51,8 @@ fn summer_is_green_and_autumn_is_brown() {
     // The two seasons are one field, so they mix and blend: the same blade
     // sizes and density.
     let (summer, autumn) = (
-        &FieldPreset::SUMMER_TALL.field,
-        &FieldPreset::AUTUMN_TALL.field,
+        &PlantScatterPreset::SUMMER_TALL.plant_scatter,
+        &PlantScatterPreset::AUTUMN_TALL.plant_scatter,
     );
     assert_eq!(main_plant(summer).height, main_plant(autumn).height);
     assert_eq!(main_plant(summer).width, main_plant(autumn).width);
@@ -95,18 +102,18 @@ fn assert_valid_plant(plant: &PlantParams, name: &str) {
 
 #[test]
 fn every_preset_is_valid_and_looks_like_no_other() {
-    let fields: Vec<_> = FieldPreset::all().collect();
+    let fields: Vec<_> = PlantScatterPreset::all().collect();
     for preset in &fields {
-        for entry in preset.field.plants.iter() {
+        for entry in preset.plant_scatter.plants.iter() {
             assert_valid_plant(&entry.plant, &preset.key);
         }
-        assert!(preset.field.density() > 0.0, "{}", preset.key);
+        assert!(preset.plant_scatter.density() > 0.0, "{}", preset.key);
     }
     // No two presets are the same field.
     for (index, preset) in fields.iter().enumerate() {
         for other in &fields[index + 1..] {
             assert_ne!(
-                preset.field, other.field,
+                preset.plant_scatter, other.plant_scatter,
                 "{} and {}",
                 preset.key, other.key
             );
@@ -132,41 +139,41 @@ fn the_new_looks_push_what_the_meadows_leave_alone() {
     // Each of these is in the set because it uses a setting harder than any
     // general preset does; keep it that way when tuning them.
     // A preset, why it is in the set, and the setting that shows it.
-    type Push = (&'static str, &'static str, fn(&PlantField) -> bool);
+    type Push = (&'static str, &'static str, fn(&PlantScatter) -> bool);
     let pushes: [Push; 11] = [
-        ("CORKSCREW_ALIEN", "ribbons twist", |f| {
+        ("corkscrew_alien", "ribbons twist", |f| {
             main_plant(f).segment.twist >= 1.5
         }),
-        ("CRYSTAL_SPIRES", "crystal barely moves", |f| {
+        ("crystal_spires", "crystal barely moves", |f| {
             main_plant(f).segment.stiffness >= 0.95
         }),
-        ("CRYSTAL_SPIRES", "crystal is faceted", |f| {
+        ("crystal_spires", "crystal is faceted", |f| {
             main_plant(f).segment.fold >= 0.95
         }),
-        ("KELP_BED", "kelp has no stiffness", |f| {
+        ("kelp_bed", "kelp has no stiffness", |f| {
             main_plant(f).segment.stiffness <= 0.05
         }),
-        ("PAMPAS", "tufts become fountains", |f| {
+        ("pampas", "tufts become fountains", |f| {
             main_plant(f).tufts >= 1.0 && main_plant(f).segment.droop >= 0.85
         }),
-        ("SPINIFEX", "hummocks splay out", |f| {
+        ("spinifex", "hummocks splay out", |f| {
             main_plant(f).lean >= 0.8 && main_plant(f).tufts >= 1.0
         }),
-        ("DUNE_MARRAM", "mostly sand", |f| {
+        ("dune_marram", "mostly sand", |f| {
             f.variation.bare_share >= 0.4
         }),
-        ("ELEPHANT_GRASS", "taller than a person", |f| {
+        ("elephant_grass", "taller than a person", |f| {
             main_plant(f).height.x >= 2.0
         }),
-        ("REED_MARSH", "over your head", |f| {
+        ("reed_marsh", "over your head", |f| {
             main_plant(f).height.y >= 1.8
         }),
-        ("CEL_FIELD", "two bands", |f| f.toon_bands == 2),
-        ("COZY_PASTEL", "toon", |f| f.toon_bands > 0),
+        ("cel_field", "two bands", |f| f.toon_bands == 2),
+        ("cozy_pastel", "toon", |f| f.toon_bands > 0),
     ];
     for (name, why, holds) in pushes {
-        let preset = FieldPreset::named(name).expect("a preset");
-        assert!(holds(&preset.field), "{name}: {why}");
+        let preset = PlantScatterPreset::named(name).expect("a preset");
+        assert!(holds(&preset.plant_scatter), "{name}: {why}");
     }
     let value = |color: Color| {
         let c = color.to_srgba();
@@ -174,27 +181,30 @@ fn the_new_looks_push_what_the_meadows_leave_alone() {
     };
     assert!(
         value(
-            main_plant(&FieldPreset::BURNT_REGROWTH.field)
+            main_plant(&PlantScatterPreset::BURNT_REGROWTH.plant_scatter)
                 .segment
                 .tip_color
         ) < 0.15,
         "charcoal"
     );
-    let frost = main_plant(&FieldPreset::FROSTED_MEADOW.field)
+    let frost = main_plant(&PlantScatterPreset::FROSTED_MEADOW.plant_scatter)
         .segment
         .tip_color
         .to_srgba();
     assert!(frost.red > 0.75 && frost.blue > 0.75, "near white");
     let cornflower = PlantParams::CORNFLOWER.head_color.to_srgba();
     assert!(cornflower.blue > cornflower.red && cornflower.blue > cornflower.green);
-    let grows = |field: &PlantField, plant: PlantParams| {
+    let grows = |field: &PlantScatter, plant: PlantParams| {
         field.plants.iter().any(|entry| entry.plant == plant)
     };
     assert!(grows(
-        &FieldPreset::COTTON_BOG.field,
+        &PlantScatterPreset::COTTON_BOG.plant_scatter,
         PlantParams::COTTON_GRASS
     ));
-    assert!(grows(&FieldPreset::REED_MARSH.field, PlantParams::CATTAIL));
+    assert!(grows(
+        &PlantScatterPreset::REED_MARSH.plant_scatter,
+        PlantParams::CATTAIL
+    ));
 }
 
 #[test]
@@ -207,21 +217,34 @@ fn nested_struct_updates_work_in_constants() {
         },
         ..PlantParams::MEADOW_GRASS
     };
-    const DRY_FIELD: PlantField = PlantField {
+    const DRY_FIELD: PlantScatter = PlantScatter {
         density_scale: 0.2,
-        ..FieldPreset::MEADOW.field
+        ..PlantScatterPreset::MEADOW.plant_scatter
     };
     assert_eq!(DRY.height, PlantParams::MEADOW_GRASS.height);
     assert_ne!(
         DRY.segment.tip_color,
         PlantParams::MEADOW_GRASS.segment.tip_color
     );
-    assert_eq!(DRY_FIELD.variation, FieldPreset::MEADOW.field.variation);
-    assert_eq!(DRY_FIELD.ground_tint, FieldPreset::MEADOW.field.ground_tint);
-    assert_ne!(DRY_FIELD, FieldPreset::MEADOW.field, "fields compare");
+    assert_eq!(
+        DRY_FIELD.variation,
+        PlantScatterPreset::MEADOW.plant_scatter.variation
+    );
+    assert_eq!(
+        DRY_FIELD.ground_tint,
+        PlantScatterPreset::MEADOW.plant_scatter.ground_tint
+    );
+    assert_ne!(
+        DRY_FIELD,
+        PlantScatterPreset::MEADOW.plant_scatter,
+        "fields compare"
+    );
 
     // Defaults should reproduce meadow plants with branching disabled.
-    assert_eq!(PlantField::default(), FieldPreset::MEADOW.field);
+    assert_eq!(
+        PlantScatter::default(),
+        PlantScatterPreset::MEADOW.plant_scatter
+    );
     assert_eq!(PlantParams::default(), PlantParams::MEADOW_GRASS);
     assert_eq!(PlantSegment::default(), PlantParams::MEADOW_GRASS.segment);
     assert_eq!(PlantBranches::default(), PlantBranches::NONE);
@@ -229,12 +252,15 @@ fn nested_struct_updates_work_in_constants() {
     assert_eq!(PlantArrangement::default(), PlantArrangement::Opposite);
     assert_eq!(
         PlantVariation::default(),
-        FieldPreset::MEADOW.field.variation
+        PlantScatterPreset::MEADOW.plant_scatter.variation
     );
-    assert_eq!(GroundTint::default(), FieldPreset::MEADOW.field.ground_tint);
     assert_eq!(
-        FieldPlant::default(),
-        FieldPlant::new(PlantParams::MEADOW_GRASS)
+        GroundTint::default(),
+        PlantScatterPreset::MEADOW.plant_scatter.ground_tint
+    );
+    assert_eq!(
+        ScatterPlant::default(),
+        ScatterPlant::new(PlantParams::MEADOW_GRASS)
     );
 }
 
@@ -242,28 +268,28 @@ fn nested_struct_updates_work_in_constants() {
 fn the_forest_presets_are_short_wide_and_mixed() {
     // The group holds each forest field once, in order.
     let listed = [
-        FieldPreset::FOREST_MOSS,
-        FieldPreset::FOREST_FERNS,
-        FieldPreset::FOREST_FLOOR,
-        FieldPreset::FOREST_BRACKEN,
+        PlantScatterPreset::FOREST_MOSS,
+        PlantScatterPreset::FOREST_FERNS,
+        PlantScatterPreset::FOREST_FLOOR,
+        PlantScatterPreset::FOREST_BRACKEN,
     ];
-    for (preset, group) in listed.iter().zip(&FieldPreset::FOREST) {
+    for (preset, group) in listed.iter().zip(&PlantScatterPreset::FOREST) {
         let name = &preset.key;
         assert_eq!(preset, group, "{name}");
-        assert!(preset.field.density() > 0.0, "{name}");
-        let plant = main_plant(&preset.field);
+        assert!(preset.plant_scatter.density() > 0.0, "{name}");
+        let plant = main_plant(&preset.plant_scatter);
         assert!(plant.height.y >= plant.height.x, "{name}");
         assert!(plant.width > 0.02, "{name}: forest plants are wide");
     }
 
     // Moss is a carpet: very short, wide, dense, and only moss.
-    let moss = &FieldPreset::FOREST_MOSS.field;
+    let moss = &PlantScatterPreset::FOREST_MOSS.plant_scatter;
     assert!(main_plant(moss).height.y <= 0.1, "moss stays low");
     assert!(
         main_plant(moss).width > main_plant(moss).height.y * 0.3,
         "moss is broad"
     );
-    assert!(moss.density() > FieldPreset::LAWN.field.density() * 0.5);
+    assert!(moss.density() > PlantScatterPreset::LAWN.plant_scatter.density() * 0.5);
     assert_eq!(moss.plants.len(), 1);
 
     // Each fern frond has one level of leaflets and no second-level branches.
@@ -274,7 +300,7 @@ fn the_forest_presets_are_short_wide_and_mixed() {
     }
     // Fern mixes should contain about one to two ferns per square metre; the full
     // forest-floor mix includes all its ground-cover plants.
-    let ferns_per_m2 = |field: &PlantField, fern: PlantParams| {
+    let ferns_per_m2 = |field: &PlantScatter, fern: PlantParams| {
         field
             .plants
             .iter()
@@ -283,23 +309,23 @@ fn the_forest_presets_are_short_wide_and_mixed() {
             .sum::<f32>()
     };
     for (preset, fern) in [
-        (FieldPreset::FOREST_FERNS, PlantParams::FERN),
-        (FieldPreset::FOREST_FLOOR, PlantParams::FERN),
-        (FieldPreset::FOREST_BRACKEN, PlantParams::BRACKEN),
+        (PlantScatterPreset::FOREST_FERNS, PlantParams::FERN),
+        (PlantScatterPreset::FOREST_FLOOR, PlantParams::FERN),
+        (PlantScatterPreset::FOREST_BRACKEN, PlantParams::BRACKEN),
     ] {
-        let density = ferns_per_m2(&preset.field, fern);
+        let density = ferns_per_m2(&preset.plant_scatter, fern);
         assert!((1.0..=2.0).contains(&density), "{density} ferns per m²");
     }
     assert!(
-        FieldPreset::FOREST_FERNS
-            .field
+        PlantScatterPreset::FOREST_FERNS
+            .plant_scatter
             .plants
             .iter()
             .any(|entry| entry.clustering >= 0.7)
     );
     assert!(
-        FieldPreset::FOREST_FLOOR
-            .field
+        PlantScatterPreset::FOREST_FLOOR
+            .plant_scatter
             .plants
             .iter()
             .any(|entry| entry.plant == PlantParams::LEAF_LITTER)
@@ -311,15 +337,15 @@ fn the_forest_presets_are_short_wide_and_mixed() {
 #[test]
 fn a_field_plant_picks_whole_plants() {
     // Densities count whole plants rather than individual stems.
-    let wild = &FieldPreset::SUMMER_WILD.field.plants;
+    let wild = &PlantScatterPreset::SUMMER_WILD.plant_scatter.plants;
     assert_eq!(wild[0].plant, PlantParams::SEED_HEADS);
     assert_eq!(wild[0].density_scale, 0.1);
-    let entry = FieldPlant::new(PlantParams::CLOVER)
+    let entry = ScatterPlant::new(PlantParams::CLOVER)
         .scaled(0.2)
         .clustered(0.5);
     assert_eq!((entry.density_scale, entry.clustering), (0.2, 0.5));
     assert_eq!(entry.plant, PlantParams::CLOVER);
-    assert_eq!(FieldPlant::new(PlantParams::CLOVER).density_scale, 1.0);
+    assert_eq!(ScatterPlant::new(PlantParams::CLOVER).density_scale, 1.0);
 }
 
 #[test]
@@ -332,13 +358,16 @@ fn a_field_grows_each_plant_at_its_density_times_both_scales() {
         density: 80.0,
         ..PlantParams::MOSS
     };
-    let field = PlantField::new(
+    let field = PlantScatter::new(
         Vec2::ZERO,
-        vec![FieldPlant::new(sparse).scaled(0.5), FieldPlant::new(dense)],
+        vec![
+            ScatterPlant::new(sparse).scaled(0.5),
+            ScatterPlant::new(dense),
+        ],
     );
     assert_eq!(field.plants[0].density(), 1.0);
     assert_eq!(field.density(), 81.0);
-    let half = PlantField {
+    let half = PlantScatter {
         density_scale: 0.5,
         ..field.clone()
     };
@@ -351,8 +380,8 @@ fn a_field_grows_each_plant_at_its_density_times_both_scales() {
 
     // Negative scales count as nothing, and a field with nothing growing
     // keeps its scale.
-    assert_eq!(FieldPlant::new(sparse).scaled(-1.0).density(), 0.0);
-    let bare = PlantField::new(Vec2::ZERO, vec![FieldPlant::new(sparse).scaled(0.0)]);
+    assert_eq!(ScatterPlant::new(sparse).scaled(-1.0).density(), 0.0);
+    let bare = PlantScatter::new(Vec2::ZERO, vec![ScatterPlant::new(sparse).scaled(0.0)]);
     assert_eq!(bare.clone().with_density(10.0), bare);
 }
 

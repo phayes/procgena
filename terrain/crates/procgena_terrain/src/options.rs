@@ -24,18 +24,19 @@ pub const MAX_RIVER_DENSITY: f32 = 20.0;
 
 /// Settings for one terrain generator. All lengths and heights are in metres.
 ///
-/// Every field has a default, so JSON may name only the settings it changes
-/// (see [`from_json`](Self::from_json)). Call [`validate`](Self::validate)
-/// before use; the generator does this for you.
+/// Start with [`Self::default()`] or a [`crate::TerrainPreset`], or read a
+/// `.terrain.yml` file with [`crate::TerrainPreset::from_yaml`]. Call
+/// [`validate`](Self::validate) before use; the generator does this for you.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TerrainOptions {
-    /// Seed for every random choice: the world's seed. The same seed and
-    /// settings always give the same terrain. Give neighbouring terrains
-    /// the same seed so they share their noise and join more naturally; a
-    /// different seed gives unrelated ground that the border has to bend
-    /// further to join.
-    pub seed: u32,
+    /// The World seed used when this Terrain is built on its own. Every
+    /// random choice comes from it, so the same seed and settings always
+    /// give the same terrain. Give neighbouring terrains the same seed so
+    /// they share their noise and join more naturally; a different seed
+    /// gives unrelated ground that the border has to bend further to join.
+    /// A Terrain built as part of a Biome takes the World's seed instead.
+    pub default_seed: u32,
     /// The shape of the land before any features are cut into it.
     pub base: BaseOptions,
     /// How this terrain meets its neighbours along region borders.
@@ -505,78 +506,66 @@ impl TerrainOptions {
         )?;
         Ok(())
     }
-
-    /// Reads settings from JSON. Settings left out keep their defaults, at
-    /// any depth: `{"base": {"hills": {"height": 20}}}` changes only the hill
-    /// height. Unknown setting names are an error.
-    ///
-    /// This does not validate the values; see [`validate`](Self::validate).
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        let source: serde_json::Value = serde_json::from_str(json)?;
-        let mut merged = serde_json::to_value(Self::default())?;
-        merge_json(&mut merged, source);
-        serde_json::from_value(merged)
-    }
-
-    /// Returns all settings as indented JSON, including settings at their
-    /// defaults.
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("terrain options always serialize to JSON")
-    }
-}
-
-/// Copies supplied JSON values over the defaults in `target`. Objects merge
-/// recursively; anything else replaces the whole value.
-fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
-    use serde_json::Value;
-    match (target, source) {
-        (Value::Object(target), Value::Object(source)) => {
-            for (key, value) in source {
-                match target.get_mut(&key) {
-                    Some(slot) => merge_json(slot, value),
-                    None => {
-                        target.insert(key, value);
-                    }
-                }
-            }
-        }
-        (target, source) => *target = source,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TerrainPreset;
 
     #[test]
     fn defaults_are_valid() {
         assert_eq!(TerrainOptions::default().validate(), Ok(()));
     }
 
-    #[test]
-    fn json_round_trips() {
-        let mut options = TerrainOptions {
-            seed: 9,
-            ..TerrainOptions::default()
-        };
-        options.base.mountains.height = 600.0;
-        assert_eq!(
-            TerrainOptions::from_json(&options.to_json()).unwrap(),
-            options
-        );
+    /// Reads the options of a `.terrain.yml` file with no base.
+    fn read(text: &str) -> Result<TerrainOptions, procgena_core::preset::PresetFileError> {
+        TerrainPreset::from_yaml("test", text).map(|preset| preset.terrain)
     }
 
     #[test]
-    fn partial_json_keeps_other_defaults() {
-        let options = TerrainOptions::from_json(r#"{"base": {"hills": {"height": 20}}}"#).unwrap();
+    fn a_file_round_trips() {
+        let mut options = TerrainOptions {
+            default_seed: 9,
+            ..TerrainOptions::default()
+        };
+        options.base.mountains.height = 600.0;
+        let preset = TerrainPreset {
+            terrain: options.clone(),
+            ..TerrainPreset::plains().clone()
+        };
+        assert_eq!(read(&preset.to_yaml(None)).unwrap(), options);
+    }
+
+    #[test]
+    fn a_partial_file_keeps_other_defaults() {
+        let options = read("terrain:\n  base:\n    hills:\n      height: 20\n").unwrap();
         let mut expected = TerrainOptions::default();
         expected.base.hills.height = 20.0;
         assert_eq!(options, expected);
     }
 
     #[test]
-    fn unknown_names_are_rejected() {
-        assert!(TerrainOptions::from_json(r#"{"base": {"hils": {}}}"#).is_err());
+    fn a_file_rejects_unknown_names() {
+        for text in [
+            "terrain:\n  base:\n    hils: {}\n",
+            "terrain:\n  seed: 3\n",
+            "tags: [a]\n",
+        ] {
+            assert!(read(text).is_err(), "accepted {text}");
+        }
+    }
+
+    #[test]
+    fn a_file_rejects_bad_values() {
+        for text in [
+            "terrain:\n  default_seed: -1\n",
+            "terrain:\n  base:\n    hills: 3\n",
+            "terrain:\n  base:\n    erosion: -1.0\n",
+            "terrain: {default_seed: 1\n",
+        ] {
+            assert!(read(text).is_err(), "accepted {text}");
+        }
     }
 
     #[test]

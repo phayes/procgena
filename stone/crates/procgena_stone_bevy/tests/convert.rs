@@ -16,7 +16,7 @@ fn float3(mesh: &Mesh, id: impl Into<bevy::mesh::MeshVertexAttributeId>) -> Vec<
 #[test]
 fn stone_mesh_keeps_vertices_and_triangles() {
     let mut options = StoneOptions {
-        seed: 4,
+        default_seed: 4,
         ..StoneOptions::default()
     };
     options.mesh.detail = StoneDetail::single(24, TextureSize::Size512);

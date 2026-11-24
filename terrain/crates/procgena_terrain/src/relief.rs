@@ -65,10 +65,10 @@ pub(crate) fn layer_spreads(base: &BaseOptions) -> LayerSpreads {
 
 impl Relief {
     /// Prepares the relief for `options`, which must be valid. Every layer
-    /// takes its seed from `options.seed` and its role, so terrains with the
-    /// same seed share their noise.
+    /// takes its seed from `options.default_seed` and its role, so terrains
+    /// with the same seed share their noise.
     pub(crate) fn new(options: &TerrainOptions) -> Self {
-        let seed = options.seed;
+        let seed = options.default_seed;
         let base = options.base.clone();
         Self {
             mask_threshold: mask_threshold(1.0 - base.mountains.coverage),
@@ -255,9 +255,9 @@ mod tests {
 
     #[test]
     fn relief_repeats_and_follows_seed() {
-        let mut options = TerrainPreset::RollingHills.options();
+        let mut options = TerrainPreset::rolling_hills().terrain.clone();
         let a = Relief::new(&options);
-        options.seed = 1;
+        options.default_seed = 1;
         let b = Relief::new(&options);
         let p = DVec2::new(123.4, -567.8);
         assert_eq!(a.height(p), a.height(p));
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn mountain_coverage_means_area() {
-        let mut options = TerrainPreset::Mountains.options();
+        let mut options = TerrainPreset::mountains().terrain.clone();
         options.base.mountains.coverage = 0.3;
         let relief = Relief::new(&options);
         let wavelength = f64::from(options.base.mountains.wavelength) * RANGE_SCALE;

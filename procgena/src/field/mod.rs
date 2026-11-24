@@ -1,23 +1,31 @@
-//! Compose a field from plants and adjust its shared appearance.
+//! Compose a Plant Scatter from plants and adjust its shared appearance.
 //!
-//! The Plant Field tab starts from a field preset. Each row controls one
-//! plant's appearance, density multiplier and grouping into patches. Each
-//! plant has a natural density in plants per square metre; the row's
-//! multiplier and the field's multiplier both scale that density.
+//! The Plant Scatter tab starts from a Plant Scatter preset. Each row
+//! controls one plant's appearance, density multiplier and grouping into
+//! patches. Each plant has a natural density in plants per square metre;
+//! the row's multiplier and the Scatter's multiplier both scale that density.
 
 pub mod editor;
 pub mod params;
 
-use procgena_plant::prelude::{FieldPlant, PlantField, PlantParams, PlantPreset};
+use std::borrow::Cow;
+use std::path::Path;
 
-/// The field preset shown when the app starts, by its key.
-pub const START_PRESET: &str = "MEADOW";
+use procgena_core::preset::FILE_GROUP;
+use procgena_plant::prelude::{
+    PlantParams, PlantPreset, PlantScatter, PlantScatterPreset, ScatterPlant,
+};
+
+use crate::export::{Done, file_key, shown_name, write_file};
+
+/// The Plant Scatter preset shown when the app starts, by its key.
+pub const START_PRESET: &str = "meadow";
 
 /// Clover added by `+ Add Plant`, at 10% of its natural density.
 ///
-/// The field's density scale also applies. Its percentage of the mix depends
-/// on the densities of the other entries.
-pub const ADDED_PLANT: FieldPlant = FieldPlant::new(PlantParams::CLOVER).scaled(0.1);
+/// The Scatter's density scale also applies. Its percentage of the mix
+/// depends on the densities of the other entries.
+pub const ADDED_PLANT: ScatterPlant = ScatterPlant::new(PlantParams::CLOVER).scaled(0.1);
 
 /// Picker label for a plant whose settings match no built-in preset.
 pub const CUSTOM: &str = "Custom";
@@ -56,16 +64,33 @@ pub fn row_statuses(densities: &[f32], field_scale: f32) -> Vec<RowStatus> {
         .collect()
 }
 
-/// Reads field settings from JSON or RON text.
-/// Text beginning with `{` is read as JSON; everything else is read as RON.
-/// Returns a readable error if parsing or validation fails.
-pub fn read_field(text: &str) -> Result<PlantField, String> {
-    let read = if text.trim_start().starts_with('{') {
-        PlantField::from_json(text)
-    } else {
-        PlantField::from_ron(text)
+/// Reads Plant Scatter settings from the text of a `.plant_scatter.yml`
+/// preset file. The result has size 0, flat ground and no density map.
+/// Returns a readable error if the text is not a Plant Scatter file or a
+/// setting is out of range.
+pub fn read_field(text: &str) -> Result<PlantScatter, String> {
+    PlantScatter::from_yaml(text).map_err(|error| format!("Not a Plant Scatter: {error}"))
+}
+
+/// Writes `field`'s plants and look to `path` as a `.plant_scatter.yml`
+/// preset file that names `base` as its base and holds only the settings
+/// that differ from it. Size, ground and density map are not written. The
+/// file's name is its key, as [`file_key`] reads it.
+pub fn save_field_preset(
+    field: PlantScatter,
+    base: &PlantScatterPreset,
+    path: &Path,
+) -> Result<Done, String> {
+    let key = file_key(path, "plant_scatter");
+    let preset = PlantScatterPreset {
+        key: Cow::Owned(key.clone()),
+        name: Cow::Owned(key),
+        description: Cow::Borrowed(""),
+        group: Cow::Borrowed(FILE_GROUP),
+        plant_scatter: field,
     };
-    read.map_err(|error| format!("Not a plant field: {error}"))
+    write_file(path, preset.to_yaml(Some(base)).as_bytes())?;
+    Ok(Done::new(format!("Saved {}", shown_name(path))))
 }
 
 /// Plants per square metre as a row shows them, with fewer decimals the
@@ -83,7 +108,7 @@ pub fn per_m2_text(per_m2: f32) -> String {
 
 /// Returns each entry's fraction of the total density for the row percentages.
 ///
-/// Pass non-negative densities from `FieldPlant::density`. Returns all zeros
+/// Pass non-negative densities from `ScatterPlant::density`. Returns all zeros
 /// when the total is zero.
 fn shares(densities: &[f32]) -> Vec<f32> {
     let total: f32 = densities.iter().sum();
@@ -106,18 +131,18 @@ pub fn choice_of(plant: &PlantParams) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use procgena_plant::prelude::FieldPreset;
-
     use super::*;
 
     #[test]
     fn preset_names_are_unique_and_the_start_preset_exists() {
-        let mut names: Vec<_> = FieldPreset::all().map(|p| p.name.to_string()).collect();
+        let mut names: Vec<_> = PlantScatterPreset::all()
+            .map(|p| p.name.to_string())
+            .collect();
         let count = names.len();
         names.sort();
         names.dedup();
         assert_eq!(names.len(), count);
-        assert!(FieldPreset::named(START_PRESET).is_some());
+        assert!(PlantScatterPreset::named(START_PRESET).is_some());
         assert!(PlantPreset::all().all(|p| p.name != CUSTOM));
     }
 
@@ -157,10 +182,12 @@ mod tests {
     }
 
     #[test]
-    fn fields_are_read_from_json_or_ron() {
-        let field = FieldPreset::SUMMER_WILD.field.clone();
-        assert_eq!(read_field(&field.to_json()), Ok(field.clone()));
-        assert_eq!(read_field(&field.to_ron()), Ok(field));
+    fn fields_are_read_from_preset_files() {
+        let preset = PlantScatterPreset::SUMMER_WILD;
+        let field = preset.plant_scatter.clone();
+        assert_eq!(read_field(&field.to_yaml()), Ok(field.clone()));
+        let based = preset.to_yaml(Some(&PlantScatterPreset::MEADOW));
+        assert_eq!(read_field(&based), Ok(field));
         assert!(read_field("not a field").is_err());
     }
 }

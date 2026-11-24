@@ -1,6 +1,6 @@
 use super::{
-    Color, Cow, FIELD_BASE, FieldPlant, FieldPreset, GroundTint, PlantField, PlantParams,
-    PlantSegment, PlantVariation,
+    Color, Cow, GroundTint, PlantParams, PlantScatter, PlantScatterPreset, PlantSegment,
+    PlantVariation, SCATTER_BASE, ScatterPlant,
 };
 
 preset_group! {
@@ -9,8 +9,8 @@ FOREST "Forest" {
     FOREST_MOSS {
         name: "Forest moss",
         description: "A dense carpet of very short, wide moss, in dark patches.",
-    } => PlantField {
-        plants: Cow::Borrowed(&[FieldPlant::new(PlantParams::MOSS)]),
+    } => PlantScatter {
+        plants: Cow::Borrowed(&[ScatterPlant::new(PlantParams::MOSS)]),
         density_scale: 1.1,
         variation: PlantVariation {
             patch_color: Color::srgb(0.20, 0.34, 0.15),
@@ -25,22 +25,22 @@ FOREST "Forest" {
             color: Color::srgb(0.12, 0.09, 0.05),
             amount: 0.35,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     FOREST_FERNS {
         name: "Forest ferns",
         description: "Arching fern crowns above broad leaves and clover.\n\n\
                       Sparse ferns leave space for the lower ground cover.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
             // About 1.7 ferns per square metre before thinning.
-            FieldPlant::new(PlantParams::FERN)
+            ScatterPlant::new(PlantParams::FERN)
                 .scaled(0.84)
                 .clustered(0.5),
-            FieldPlant::new(PlantParams::CLOVER)
+            ScatterPlant::new(PlantParams::CLOVER)
                 .scaled(0.056)
                 .clustered(0.8),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 density: 20.72,
                 tufts: 0.3,
                 tuft_size: 0.6,
@@ -60,28 +60,28 @@ FOREST "Forest" {
             color: Color::srgb(0.12, 0.09, 0.05),
             amount: 0.3,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
     FOREST_FLOOR {
         name: "Forest floor",
         description: "The whole floor as one field: moss, clumps of ferns, fallen leaves, \
                       clover and broad leaves among them.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
             // About 1.4 ferns per square metre, grouped in patches.
-            FieldPlant::new(PlantParams::FERN)
+            ScatterPlant::new(PlantParams::FERN)
                 .scaled(0.7)
                 .clustered(0.55),
-            FieldPlant::new(PlantParams::LEAF_LITTER)
+            ScatterPlant::new(PlantParams::LEAF_LITTER)
                 .scaled(0.35)
                 .clustered(0.35),
-            FieldPlant::new(PlantParams::CLOVER)
+            ScatterPlant::new(PlantParams::CLOVER)
                 .scaled(0.084)
                 .clustered(0.7),
-            FieldPlant::new(PlantParams::BROAD_LEAF)
+            ScatterPlant::new(PlantParams::BROAD_LEAF)
                 .scaled(0.35)
                 .clustered(0.6),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 density: 109.2,
                 tufts: 0.35,
                 tuft_size: 0.45,
@@ -94,24 +94,24 @@ FOREST "Forest" {
             patch_amount: 0.45,
             bare_share: 0.08,
             bare_patch_size: 1.5,
-            ..FieldPreset::FOREST_MOSS.field.variation
+            ..PlantScatterPreset::FOREST_MOSS.plant_scatter.variation
         },
         ground_tint: GroundTint {
             amount: 0.4,
-            ..FieldPreset::FOREST_MOSS.field.ground_tint
+            ..PlantScatterPreset::FOREST_MOSS.plant_scatter.ground_tint
         },
-        ..FieldPreset::FOREST_MOSS.field
+        ..PlantScatterPreset::FOREST_MOSS.plant_scatter
     };
     FOREST_BRACKEN {
         name: "Forest bracken",
         description: "Bracken in its autumn colour: rusty fern fronds over fallen leaves.",
-    } => PlantField {
+    } => PlantScatter {
         plants: Cow::Borrowed(&[
             // About 1.7 bracken plants per square metre before thinning.
-            FieldPlant::new(PlantParams::BRACKEN)
+            ScatterPlant::new(PlantParams::BRACKEN)
                 .scaled(0.42)
                 .clustered(0.5),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 translucency: 0.3,
                 segment: PlantSegment {
                     root_color: Color::srgb(0.14, 0.08, 0.03),
@@ -122,7 +122,7 @@ FOREST "Forest" {
             })
             .scaled(0.144)
             .clustered(0.6),
-            FieldPlant::new(PlantParams {
+            ScatterPlant::new(PlantParams {
                 density: 19.44,
                 tufts: 0.45,
                 tuft_size: 0.7,
@@ -142,7 +142,7 @@ FOREST "Forest" {
             color: Color::srgb(0.15, 0.10, 0.06),
             amount: 0.35,
         },
-        ..FIELD_BASE
+        ..SCATTER_BASE
     };
 }
 }

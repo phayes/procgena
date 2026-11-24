@@ -6,8 +6,8 @@ use procgena_deadwood::export::{gltf::to_glb, obj::to_obj};
 use procgena_deadwood::{DeadwoodPreset, Piece, default_lod};
 
 /// Builds `preset` and its meshes at every default level of detail.
-fn meshes(preset: DeadwoodPreset) -> (Piece, Vec<procgena_deadwood::DeadwoodMesh>) {
-    let piece = Piece::from_preset(preset);
+fn meshes(preset: &DeadwoodPreset) -> (Piece, Vec<procgena_deadwood::DeadwoodMesh>) {
+    let piece = Piece::from_preset(preset).unwrap();
     let meshes = piece
         .lod_meshes(&default_lod())
         .unwrap()
@@ -19,7 +19,7 @@ fn meshes(preset: DeadwoodPreset) -> (Piece, Vec<procgena_deadwood::DeadwoodMesh
 
 #[test]
 fn glb_has_one_node_per_level_and_wood_values() {
-    let (piece, meshes) = meshes(DeadwoodPreset::FallenLimb);
+    let (piece, meshes) = meshes(DeadwoodPreset::fallen_limb());
     let glb = to_glb(&meshes, piece.options()).unwrap();
     let doc = gltf::Gltf::from_slice(&glb).unwrap();
     let names: Vec<_> = doc
@@ -41,7 +41,7 @@ fn glb_has_one_node_per_level_and_wood_values() {
 
 #[test]
 fn strips_get_a_two_sided_material() {
-    let (piece, meshes) = meshes(DeadwoodPreset::FallenLimb);
+    let (piece, meshes) = meshes(DeadwoodPreset::fallen_limb());
     assert!(meshes.iter().any(|m| m.ribbons.is_some()));
     let glb = to_glb(&meshes, piece.options()).unwrap();
     let doc = gltf::Gltf::from_slice(&glb).unwrap();
@@ -54,7 +54,7 @@ fn strips_get_a_two_sided_material() {
 
 #[test]
 fn obj_has_one_object_per_level() {
-    let (piece, meshes) = meshes(DeadwoodPreset::HollowLog);
+    let (piece, meshes) = meshes(DeadwoodPreset::hollow_log());
     let files = to_obj(&meshes, piece.options(), "log.mtl");
     let objects = files.obj.lines().filter(|l| l.starts_with("o ")).count();
     assert_eq!(objects, meshes.len());

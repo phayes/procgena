@@ -68,10 +68,10 @@ pub struct StonePool {
 
 impl StonePool {
     /// Creates a pool of `variants` shapes from `options`, with no stretch
-    /// jitter, used on its own: its World seed is `options.seed`.
+    /// jitter, used on its own: its World seed is `options.default_seed`.
     pub fn new(options: StoneOptions, variants: u32) -> Self {
         Self {
-            world_seed: options.seed,
+            world_seed: options.default_seed,
             options,
             variants,
             stretch_jitter: 0.0,
@@ -369,8 +369,11 @@ mod tests {
         let mut seeds = std::collections::HashSet::new();
         for v in 0..8 {
             let options = pool.variant_options(v);
-            assert!(seeds.insert(options.seed), "variant {v} repeats a seed");
-            assert_eq!(options, base.variant(base.seed, v, 0.3));
+            assert!(
+                seeds.insert(options.default_seed),
+                "variant {v} repeats a seed"
+            );
+            assert_eq!(options, base.variant(base.default_seed, v, 0.3));
             for (stretch, original) in options.stretch.iter().zip(base.stretch) {
                 assert!(*stretch <= original && *stretch > original * 0.7 - 1e-6);
             }
