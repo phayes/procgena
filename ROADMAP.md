@@ -324,6 +324,13 @@ goldens, which have no baseline on this machine).
   lakes in G3, as the user decided.
 - **Needs:** M0.
 - **Done when:** the Phase 2.8 exit measurements are recorded.
+- **Status (2026-11-24): done, as a first cut.** Valleys were already
+  built. Drainage area (per region, carried along rivers) and the
+  steady-state stream-power profile are built as measurements, and the
+  exit measurements are in plan.md ("As built in G1"). No height changed.
+  Left for the user: river levels, widths and types from drainage area
+  (stream-power levels would cut up to 176 m deeper in mountains, so they
+  need lakes or ground that conforms to the river first).
 
 #### G2: Terrain as `Ground`
 
@@ -334,6 +341,14 @@ goldens, which have no baseline on this machine).
 - **Done when:** a grove planted directly on a `Terrain` matches its
   analytic slope against central differences, and the seam suites still
   pass.
+- **Status (2026-11-24): done.** `Terrain` implements `Ground`
+  (`Terrain::sample`, `Terrain::gradient`), `HeightField::sample` and
+  `HeightTile::gradients` carry the gradient. Analytic through relief
+  (noise derivatives, erosion through the noise's second derivatives),
+  fade, border bending and carving; the border's and fade's pulls are
+  differenced 0.5 m apart in f64. Heights are bit-identical to before.
+  Test `tests/ground.rs` (`a_grove_on_a_terrain_matches_its_slope`): worst
+  error 1.1e-3 against central differences over 4 m spans.
 
 #### G3: Terrain Phases 3 and 4
 
@@ -352,6 +367,13 @@ goldens, which have no baseline on this machine).
   macro cells added only if step 2's benchmarks call for them (decided
   2026-11-23, see
   [terrain/features_plan_review.md](terrain/features_plan_review.md)).
+- **Status (2026-11-24):** steps 1 and 2 are built, with results
+  unchanged: one feature type and index, stable ids, a river trace shared
+  by offers and build, roads as a stage of their own
+  (`Terrain::with_roads`), one sample path (`Terrain::query`), and cold
+  and warm benchmarks (plan.md, "Terrain features"). Roads are most of a
+  cold region plan (p95 1.6 s); without them p95 is about 0.4 s. Phase
+  3's landforms and Phase 4 are next.
 
 #### G4: Terrain labels (Phase 5)
 

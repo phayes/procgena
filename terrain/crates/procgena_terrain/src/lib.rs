@@ -82,7 +82,11 @@ mod border;
 mod calibration;
 mod carve;
 mod converge;
+// Measurements only, for now: see the module's own documentation.
+#[cfg(test)]
+mod drainage;
 mod elevation;
+mod feature;
 mod graph;
 mod grid;
 mod gully;
@@ -97,9 +101,6 @@ mod relief;
 mod river;
 mod road;
 mod seam;
-// SPIKE (Phase 2.8): test-only measurements; delete after review.
-#[cfg(test)]
-mod spike_erosion;
 mod stitch;
 mod terrain;
 mod warp;
@@ -111,6 +112,7 @@ pub use converge::{
     blend_weights, relief_meeting_is_valid, relief_target,
 };
 pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
+pub use feature::{FeatureId, FeatureShape, TerrainFeature};
 pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };
@@ -133,6 +135,8 @@ pub use seam::{
     negotiate, negotiate_corner, sample_count,
 };
 pub use stitch::{RegionSpec, StitchError, StitchedWorld};
-pub use terrain::{HeightField, HeightTile, Terrain, TerrainError, TerrainGenerator};
+pub use terrain::{
+    HeightField, HeightTile, RiverTrace, Terrain, TerrainError, TerrainGenerator, TerrainSample,
+};
 pub use warp::{BorderWarp, BorderWarpError, MIN_WARP_WAVELENGTH, warp_borders};
 pub use world::{DEFAULT_CACHE, TerrainSource, WorldError, WorldTerrain, WorldTerrainOptions};

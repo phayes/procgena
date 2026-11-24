@@ -390,6 +390,28 @@ fn water_lies_where_the_owners_rivers_run() {
 }
 
 #[test]
+fn the_slope_is_the_owners_own() {
+    let world = world(Land::Curved);
+    let mut checked = 0;
+    for id in patch(&world) {
+        let terrain = world.terrain(id).unwrap();
+        for river in terrain.rivers() {
+            for &q in river.points.iter().step_by(7) {
+                let p = q + DVec2::new(13.0, -9.0);
+                if world.region_at(p) != id {
+                    continue;
+                }
+                let sample = procgena_core::Ground::sample(&world, p);
+                assert_eq!(sample, terrain.sample(p), "at {p}");
+                assert_eq!(procgena_core::Ground::gradient(&world, p), sample.gradient);
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0, "the patch should have rivers");
+}
+
+#[test]
 fn the_owner_is_the_graphs_region() {
     let world = world(Land::Flat);
     for k in 0..400 {
