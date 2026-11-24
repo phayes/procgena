@@ -1326,7 +1326,8 @@ Each rule says what every asset does, and which crates have to change.
      copy's world size (mushroom does this today).
    - One transition: dither, the same in every render pass, from one shared
      shader module.
-   - Every asset names its far form (strips, billboard leaves, a card), and
+   - Every asset names its far form (strips, billboard leaves, a card, a
+     flat cap plus ribbon, or a far ground material: `FarForm`), and
      its last level drops shadows where it should.
    - **Attached assets own their levels.** Fruit and flowers are their own
      asset (decided by the user, superseding the cluster-card plan of
