@@ -4,12 +4,13 @@
 
 use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
-use procgena_core::SpecimenId;
+use procgena_core::{ContentHasher, SpecimenId};
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial,
     ImpostorQuad, ImpostorRequest, Impostors, ViewCoverage,
 };
 
+use crate::clusters::TreeClusters;
 use crate::material::{TreeMaterial, bake_copy};
 use crate::spawn::{
     CacheState, Generated, SpawnSettings, TreeCache, TreeGenerating, TreeKey, TreePart,
@@ -64,7 +65,12 @@ pub(crate) fn request_impostors(
         if impostor.baked_level >= generated.level_count() {
             continue;
         }
-        let impostor_key = tree_key(cache.specimen_id(key), impostor, &settings);
+        let impostor_key = tree_key(
+            cache.specimen_id(key),
+            impostor,
+            &settings,
+            &cluster_specimens(&generated.clusters),
+        );
         let ready = impostors
             .request(&mut commands, impostor_key, || {
                 tree_request(impostor_key, &generated, impostor, &mut materials)
@@ -82,25 +88,48 @@ pub(crate) fn request_impostors(
     }
 }
 
+/// The fruit and flower specimens a tree draws, one list per kind of
+/// cluster it grows, in slot order.
+fn cluster_specimens(clusters: &[TreeClusters]) -> Vec<Vec<SpecimenId>> {
+    clusters
+        .iter()
+        .map(|clusters| clusters.specimens.iter().map(|s| s.id).collect())
+        .collect()
+}
+
 /// The impostor key of tree specimen `specimen`, baked with `impostor`'s
 /// settings from its baked level's detail and textures, and this crate's
-/// version.
+/// version. `clusters` names the fruit and flower specimens it grows (see
+/// [`cluster_specimens`]): the tree's own specimen id leaves out which
+/// fruit pool, seed and number of slots they come from, and the bake shows
+/// them.
 fn tree_key(
     specimen: SpecimenId,
     impostor: ImpostorLevel,
     settings: &SpawnSettings,
+    clusters: &[Vec<SpecimenId>],
 ) -> ImpostorKey {
     let level = format!("{:?}", settings.lod.levels.get(impostor.baked_level));
     let textures = format!(
         "{:?} {:?}",
         settings.texture_root, settings.texture_compression
     );
+    let mut fruit = ContentHasher::new();
+    fruit.write_usize(clusters.len());
+    for specimens in clusters {
+        fruit.write_usize(specimens.len());
+        for id in specimens {
+            fruit.write(id);
+        }
+    }
+    let fruit = fruit.finish().to_le_bytes();
     ImpostorKey::specimen(
         specimen,
         impostor.bake,
         &[
             level.as_bytes(),
             textures.as_bytes(),
+            &fruit,
             env!("CARGO_PKG_VERSION").as_bytes(),
         ],
     )
@@ -341,5 +370,49 @@ mod tests {
 
         let single = cache.request(&std::sync::Arc::new(species.tree.clone()), &settings);
         assert_eq!(cache.specimen_id(single), single.interim_specimen_id());
+    }
+
+    /// The fruit a tree grows is part of its impostor's key: its number of
+    /// slots and its seed leave the tree's own specimen id alone, but the
+    /// bake shows them.
+    #[test]
+    fn the_fruit_a_tree_grows_changes_its_impostor_key() {
+        let settings = settings(&[(0.0, 0.0)], Some(default_tree_impostor()));
+        let apple = procgena_tree::TreePreset::apple().tree.clone();
+        let ids = |options: &procgena_tree::TreeOptions| -> Vec<Vec<SpecimenId>> {
+            let tree = procgena_tree::Tree::new(options.clone()).unwrap();
+            let skeleton = tree.skeleton();
+            let (_, slots) = skeleton.clusters(procgena_tree::ClusterPart::Fruit);
+            vec![slots.iter().map(|fruit| fruit.id()).collect()]
+        };
+        let key = |options: &procgena_tree::TreeOptions| {
+            let specimen = SpecimenId::new(options.default_seed as u32, options.pool_id(), 0);
+            tree_key(specimen, default_tree_impostor(), &settings, &ids(options))
+        };
+
+        let mut more_slots = apple.clone();
+        more_slots.fruit.as_mut().unwrap().default_slots += 1;
+        let mut other_seed = apple.clone();
+        other_seed.fruit.as_mut().unwrap().fruit.default_seed += 1;
+        for other in [&more_slots, &other_seed] {
+            assert_eq!(apple.pool_id(), other.pool_id());
+            assert_ne!(key(&apple), key(other));
+        }
+        assert_eq!(key(&apple), key(&apple.clone()));
+        assert_ne!(
+            tree_key(
+                SpecimenId::new(0, apple.pool_id(), 0),
+                default_tree_impostor(),
+                &settings,
+                &[]
+            ),
+            tree_key(
+                SpecimenId::new(0, apple.pool_id(), 0),
+                default_tree_impostor(),
+                &settings,
+                &[Vec::new()]
+            ),
+            "a tree without clusters differs from one whose clusters have no slots"
+        );
     }
 }
