@@ -1277,8 +1277,8 @@ where the details are.
        which removes most of the far camera's 1.5 ms (no look change);
     3. smaller cull entries, saving memory more than time.
 
-    Recommendation: do 2 now. Do 1 after before/after screenshots, and
-    fold it into IX planning, since thinning is a far-form choice.
+    **Decided by the user (2026-11-24):** all three wait for the
+    impostor and LOD sweep (IX), so nobody picks them up early.
     Details: [fruit/plan.md](fruit/plan.md), "Measured".
 28. **Ground look choices (GM0).** GM0 picked the ground material
     colours, the bare terrain's layer order, and the pine forest floor's

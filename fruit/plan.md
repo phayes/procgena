@@ -875,7 +875,8 @@ What the numbers say:
   threads themselves: one per row of every tree in every view (about 5.9
   million a frame here), each searching for its host and reading its
   state, even for trees the host step skipped.
-- **Proposed next steps**, in order of payoff:
+- **Possible next steps, deferred by the user (2026-11-24) to the full
+  impostor and LOD sweep**, in order of payoff:
   1. Draw fewer catkins. The near frame's 266,000 are counted over the
      camera and its four shadow views together (the bench doesn't split
      them yet), and fruit levels 0 and 1 cast shadows. Letting only level
