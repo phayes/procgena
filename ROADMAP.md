@@ -1076,16 +1076,15 @@ where the details are.
       bare-terrain look, Biome base ground, Ecotope layers); the model
       first, then colours, then textures; CPU weight textures per chunk;
       G4 split into G4a (Measures) and G4b (labels).
-    - *Proposed, not decided (the question was interrupted):*
-      - Ground never feeds placement; Scatter density rules get the same
-        condition types instead.
-      - Heights in ground rules are written at scale 1 and scale with the
-        World's `vertical` (D5), rather than relative to the relief.
-      - Textures at 1024 px by default and 2048 at High and Ultra, at
-        most 24 resident (about 96 MB and 384 MB); waits on item 18.
-    - *Needed by:* GM0 starts on the first two as proposed (the height
-      one touches the `Height` condition and the default snow layer), so
-      a different answer is cheap only before GM0; GM2 for the budget.
+    - *Also decided 2026-11-24:* ground never feeds placement (Scatter
+      density rules get the same condition types instead); a rule's height
+      is an enum, either absolute (scaling with the World's `vertical`) or
+      relative to the region's relief; texture defaults go well down,
+      with a 128 px version of every material baked too, and full
+      resolution an opt-in level ("level 1 is the default for everything,
+      level 0 optional").
+    - *Still open:* exact texture sizes per level and the resident cap,
+      in GM2 with the machines from item 18.
     - *Also open:* the level-ring seam in the weight textures (GM1), and
       where plant's far colour function lives (before GM5, with the
       plant-align lane).

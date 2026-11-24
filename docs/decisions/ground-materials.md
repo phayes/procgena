@@ -1,8 +1,8 @@
 # Ground materials: Ecotope-owned, driven by terrain measures and labels
 
-Status: **planned with the user on 2026-11-24.** The four choices under
-"Decisions" are the user's. Everything marked "proposed, not decided"
-is a recommendation still waiting for the user (see "Open questions").
+Status: **planned with the user on 2026-11-24.** The choices under
+"Decisions" are the user's. Anything still marked "proposed, not
+decided" is a recommendation waiting for the user (see "Open questions").
 No code was changed or run.
 
 Written from ARCHITECTURE.md ("3. Ecotope", "4. Biome and Terrain",
@@ -46,7 +46,7 @@ and labels", "Bevy design", Phases 5, 8 and 10),
   edge. Far chunks store a premixed colour instead. Textures are drawing
   only: they may be provisional (roads not routed yet) and coarse.
 - **Scatters shape the ground; the ground never feeds placement**
-  (proposed, not decided). Beyond a Scatter's place range, and at coarse
+  (decided). Beyond a Scatter's place range, and at coarse
   chunk levels, its influence comes from its density field, not its
   copies.
 - **Measures before labels** (decided: split G4). G4a adds water
@@ -70,8 +70,9 @@ and labels", "Bevy design", Phases 5, 8 and 10),
   function lives, so the terrain crate needn't depend on plant, is open
   with the plant-align lane.
 - **Scale (D5):** texture tiling, chunk texels, and distances to roads and
-  water never scale. Heights in rules scale with the World's `vertical`
-  (proposed, not decided). Noise patch sizes stay open with D5 question 5.
+  water never scale. A rule's height is either absolute, scaling with
+  the World's `vertical`, or relative to the region's relief, which never
+  scales (decided: an enum with both). Noise patch sizes stay open with D5 question 5.
 
 ## The design
 
@@ -178,7 +179,7 @@ Reach = Metres(f32) | Footprint(f32)   // multiple of the copy's footprint radiu
   exists the far influence is the Scatter's density option times coverage.
   The look may change slightly between the two; that is drawing, not
   placement.
-- **One direction** (proposed, not decided): ground layers never feed a
+- **One direction** (decided): ground layers never feed a
   Scatter's density or mask. The same `Condition` types are offered to
   Scatter density rules, so "mud within 3 m of water" and "no grass within
   3 m of water" read the same numbers without a loop.
@@ -323,10 +324,12 @@ ground(p) = Σ c_i · over(B ∪ E_i)  +  (1 − Σ c_i) · over(B)
   `TextureCompression`; ground is its first user that loads into arrays.
 - **Budget arithmetic:** one material is three maps at 1 byte per texel
   (BC7, BC5) with mips (× 4/3): 1024² × 3 × 4/3 ≈ 4 MB; 2048² ≈ 16 MB;
-  512² ≈ 1 MB. Proposed, not decided: 1024 by default, 2048 at High and
-  Ultra, at most 24 resident materials (≈ 96 MB at 1K, ≈ 384 MB at 2K),
-  with a validation warning when the Biomes in view name more. Which
-  machines set the budget is ROADMAP item 18.
+  512² ≈ 1 MB; 128² ≈ 0.07 MB. The first proposal (1024 by default) was
+  rejected by the user as far too high: defaults go well down, a 128 px
+  version of every material is baked too, and full resolution is an
+  opt-in level (decision 7). Exact sizes and the resident cap, with a
+  validation warning when the Biomes in view name more, are set in GM2
+  with the machines from ROADMAP item 18.
 - Texture sets are CC0 only, as in every other `textures.yml`.
 
 ### Scale (D5)
@@ -377,36 +380,37 @@ The user, 2026-11-24:
    store a premixed colour; a GPU port only if it's too slow.
 4. **Split G4.** G4a, Measures on `Terrain::query`, lands first; G4b,
    `Landform` and `Flags`, later.
+5. **The ground never feeds placement** (2026-11-24). Scatters shape the
+   ground; ground layers never feed a Scatter's density or mask. Scatter
+   density rules get the same condition types instead.
+6. **Heights in rules: both forms, as an enum** (2026-11-24). A rule's
+   height is either absolute (written at scale 1, multiplied by the
+   World's `vertical`, like Terrain presets) or relative to the region's
+   relief (0 valley floor, 1 highest peak, never scaled), whichever the
+   author wants to say.
+7. **Texture defaults go well down** (2026-11-24). 1024 px is far too high
+   a default. Bake a small 128 px version of every material as well. The
+   user's direction: **detail level 1 is the default for everything, with
+   level 0 (full detail) optional**, so full-resolution textures are an
+   opt-in. The exact sizes per level and the resident cap are set in GM2,
+   with the machines from ROADMAP item 18.
 
 ## Open questions
 
-Proposed answers are recommendations, not decisions. The user hasn't seen
-the first three yet; the question that asked them was interrupted.
-
-1. **Can ground feed placement?** Proposed: no. Scatters shape the ground;
-   the ground never feeds a Scatter. Scatter density rules get the same
-   condition types instead. The alternative lets a Scatter read the
-   ground computed from layers and Scatters above it, which ties ground
-   evaluation into the placement order and chunk margins.
-2. **Heights under World scale.** Proposed: heights in rules are written
-   at scale 1 and multiplied by `vertical`, like Terrain presets. The
-   alternative is heights relative to the region's relief (0 valley floor,
-   1 highest peak), which never need scaling but move with every Terrain.
-3. **Texture budget.** Proposed: 1024 px by default, 2048 at High and
-   Ultra, at most 24 resident materials (≈ 96 MB and ≈ 384 MB). Waits on
-   which machines count (ROADMAP item 18).
-4. **Noise patch sizes under scale.** With D5 question 5 (Ecotope
+1. **Exact texture sizes** per detail level and the number of resident
+   materials (see decision 7), in GM2.
+2. **Noise patch sizes under scale.** With D5 question 5 (Ecotope
    geometry), decided in C3 and B1.
-5. **Order bands.** The numbers proposed above (soils, litter, terrain
+3. **Order bands.** The numbers proposed above (soils, litter, terrain
    surfaces, weather) are a starting point, to settle with the first Biome.
-6. **May an Ecotope switch off or replace a Biome base layer** (no snow
+4. **May an Ecotope switch off or replace a Biome base layer** (no snow
    under a dense canopy)? Not needed for GM0; settle in GM4.
-7. **Texture distance and the 8-material cap.** Level 3 and 8 are
+5. **Texture distance and the 8-material cap.** Level 3 and 8 are
    starting points; GM1 and GM2 measure them on the triple-junction scene.
-8. **The level-ring seam** in the weight textures (see "Chunk weight
+6. **The level-ring seam** in the weight textures (see "Chunk weight
    textures"): accept it or have the coarser chunk read its finer
    neighbour's edge. GM1.
-9. **Where `plant_far_color` lives** (`procgena_core_bevy`, or a hook the
+7. **Where `plant_far_color` lives** (`procgena_core_bevy`, or a hook the
    terrain material offers): with the plant-align lane, before GM5.
 
 ## What changes where
