@@ -484,6 +484,12 @@ goldens, which have no baseline on this machine).
   Lower-priority Scatters avoid higher ones only as far as today's masks
   in allow it. The adapters are thrown away when C2 lands.
 - **Needs:** C1, F3, B0 (the crate). Not C2, not the terrain.
+- **Status (2026-11-24):** built. `Ecotope`, `EcotopePreset`
+  (`pine_forest_floor.ecotope.yml`) and `Ecotope::place` in
+  `procgena_biome`; adapters in `src/ecotope/scatters.rs`;
+  `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. Plant
+  is left out: it is a Bevy crate placed on the GPU, with no `Ground` and
+  no seed, so it joins in C3 after R3. The viewer draws without textures.
 - **Done when:** a "pine forest floor" Ecotope preset loads from a
   `.ecotope.yml` file and draws trees, boulders, logs and mushrooms on a
   `HeightGrid` in a viewer or studio tab, with each Scatter keyed and

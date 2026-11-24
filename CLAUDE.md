@@ -61,7 +61,8 @@ cargo test -p <package> --doc
 | `stone/` | `procgena_stone_bevy`| Feature `gpu`                                                             |
 | `tree/`  | `procgena_tree`      | Features `export-obj`, `export-gltf`. One file per area in `tests/`.     |
 | `tree/`  | `procgena_tree_bevy` | Feature `gltf`                                                            |
-| `biome/` | `procgena_biome`     | Engine-free. Biomes and Ecotopes share this crate. Empty Biomes for now (one Terrain, no Ecotopes); tests in `tests/empty_biomes.rs`. |
+| `biome/` | `procgena_biome`     | Engine-free. Biomes and Ecotopes share this crate. Empty Biomes for now (one Terrain, no Ecotopes); tests in `tests/empty_biomes.rs`. The early Ecotope (`src/ecotope*`) calls the tree, stone, deadwood and mushroom core crates through one adapter module (`src/ecotope/scatters.rs`); tests in `tests/ecotopes.rs` (they place real stones, so allow a few seconds). |
+| `biome/` | `procgena_biome_bevy` | Draws a placed Ecotope with each asset's Bevy crate. Headless spawn test in `src/lib.rs`. `--example viewer -- --headless --screenshot <png>` (also `--preset`, `--file`, `--seed`, `--size`, `--eye`, `--target`) draws the pine forest floor without textures. |
 | `clump/` | `procgena_clump`     |                                                                           |
 | `clump/` | `procgena_clump_bevy`| Headless lifecycle tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders; download textures first with `uv run --project tools textures download clump`. |
 | `deadwood/` | `procgena_deadwood` | Features `export-obj`, `export-gltf`. One file per area in `tests/`. `--example export` writes every preset as GLB/OBJ to `target/procgena_deadwood_export/`. |

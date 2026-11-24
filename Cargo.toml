@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "biome/crates/procgena_biome",
+    "biome/crates/procgena_biome_bevy",
     "clump/crates/procgena_clump",
     "clump/crates/procgena_clump_bevy",
     "core/crates/procgena_core",

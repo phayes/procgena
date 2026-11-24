@@ -280,7 +280,22 @@ for ground cover. Two Scatters of one Ecotope with the same priority are a
 validation error. A differences file adds a Scatter with its key and
 number, without restating the others.
 
-**Status.** New.
+**Status.** Early version built (roadmap C3a): `Ecotope` in
+`procgena_biome`, drawn by `procgena_biome_bevy`. It holds tree, stone,
+dead wood and mushroom Scatters by `ChildKey` in a map, so a `.ecotope.yml`
+differences file adds or changes one Scatter without restating the
+others. Each Scatter is seeded with `child_seed(ecotope seed,
+"ecotope.child.scatter", key)`, the kind key D3 named (it keeps that name
+although the Ecotope lives in `procgena_biome`, not a `procgena_ecotope`
+crate). Duplicate priorities and keys that share a salt are validation
+errors. Masks chain as far as today's mask-in inputs allow: each Scatter
+leaves footprints (a disc for trees, stones and mushrooms, a capsule for
+dead wood, widened by a per-Scatter `clearance`), and every lower Scatter's
+mask is 0 inside them, checked only at each candidate's centre. The
+calls into each Scatter are one adapter per kind in
+`procgena_biome/src/ecotope/scatters.rs`, to be replaced by the `Scatter`
+trait in C3. Plant is not in it yet: `procgena_plant` is a Bevy crate
+placed on the GPU with no `Ground`.
 
 ### 4. Biome and Terrain
 
@@ -351,9 +366,9 @@ always built through the same path, with or without cover.
 **Status.** Started: `procgena_biome` has empty Biomes (one Terrain by
 preset or inline, an Ecotope rule list that is always empty) and a
 default empty Biome preset per Terrain preset. The Ecotope lives in the
-same crate, and an early, Terrain-unaware version of it comes next (roadmap
-C3a). Ecotope rules, border noise and the border negotiation are still to
-come.
+same crate; an early, Terrain-unaware version of it is built (roadmap
+C3a), but Biomes don't hold Ecotopes yet. Ecotope rules, border noise and
+the border negotiation are still to come.
 
 #### 4.2 Terrain
 
@@ -1508,7 +1523,10 @@ it starts.
   a Bevy part that draws one Ecotope over a patch of ground. An early
   version comes before the `Scatter` trait (roadmap C3a): it runs on any
   `Ground`, knows nothing of Terrain, and calls today's Scatters through
-  their `ScatterInput`.
+  their `ScatterInput`. The early version is built (keys, priorities,
+  seeds, presets, centre-only mask chaining, the Bevy view); still to do
+  are the `Scatter` trait in place of its adapters, the documented
+  priority bands, exact exclusion, plant, and a studio tab (C3).
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
   conforming, for Ecotopes meeting inside a Biome and across Biome
   borders, including one merged priority order (a sort by `priority`,
