@@ -5,6 +5,13 @@
 //! number within that cell. It stays the same when chunks load in another
 //! order, when other Scatters are added, and after a reload, so it is what
 //! edits, picking and promotion use.
+//!
+//! An [`Address`] goes further, into the copy's structure: a copy address
+//! followed by up to four [`PartStep`]s, such as `fruit 17 / item 2`, each
+//! pinned to the specimen it counts parts of.
+
+use crate::SpecimenId;
+use crate::hash::salt;
 
 /// Names one region of a World: the region whose Biome placed a copy.
 ///
@@ -103,11 +110,156 @@ impl CopyAddress {
             scatter: self.scatter,
         }
     }
+
+    /// The address of this copy as a whole, with no part steps.
+    pub const fn whole(self) -> Address {
+        Address::new(self)
+    }
+}
+
+/// The most part steps an [`Address`] holds.
+pub const MAX_PART_STEPS: usize = 4;
+
+/// One step into a specimen's structure, such as `fruit 17` on a tree or
+/// `item 2` on a fruit cluster, pinned to the specimen it indexes.
+///
+/// `index` counts the specimen's structure, not its mesh, so a step names
+/// the same part at every level of detail. If the specimen at that point
+/// of a path is no longer `pin` (its pool's budget or its options
+/// changed), the step and every step after it no longer apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PartStep {
+    /// The salt of the part kind's frozen code key, such as
+    /// `"tree.part.fruit"`; see [`PartStep::kind_of`].
+    pub kind: u32,
+    /// The part's number within its kind on the specimen.
+    pub index: u32,
+    /// The specimen whose structure `index` counts.
+    pub pin: SpecimenId,
+}
+
+impl PartStep {
+    /// Part `index` of kind `kind` (a code key such as `"fruit.part.item"`)
+    /// on the specimen `pin`.
+    pub const fn new(kind: &str, index: u32, pin: SpecimenId) -> Self {
+        Self {
+            kind: Self::kind_of(kind),
+            index,
+            pin,
+        }
+    }
+
+    /// The salt that names part kind `key` in a step. Each asset has one
+    /// frozen key per kind of part, such as `"tree.part.fruit"`.
+    pub const fn kind_of(key: &str) -> u32 {
+        salt(key)
+    }
+}
+
+/// Names a copy, or a part of one: a [`CopyAddress`] followed by up to
+/// [`MAX_PART_STEPS`] part steps, such as
+/// `(orchard, apples, cell (4031, -77) #0) / fruit 17 / item 2`.
+///
+/// Addresses compare and sort by the copy first, then by the steps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Address {
+    /// The copy the path starts from.
+    pub copy: CopyAddress,
+    len: u8,
+    parts: [Option<PartStep>; MAX_PART_STEPS],
+}
+
+impl Address {
+    /// The copy `copy` as a whole.
+    pub const fn new(copy: CopyAddress) -> Self {
+        Self {
+            copy,
+            len: 0,
+            parts: [None; MAX_PART_STEPS],
+        }
+    }
+
+    /// This address followed by `step`, or `None` when it already holds
+    /// [`MAX_PART_STEPS`] steps.
+    #[must_use]
+    pub const fn then(mut self, step: PartStep) -> Option<Self> {
+        if self.len as usize == MAX_PART_STEPS {
+            return None;
+        }
+        self.parts[self.len as usize] = Some(step);
+        self.len += 1;
+        Some(self)
+    }
+
+    /// The part steps, in order from the copy inward.
+    pub fn parts(&self) -> impl ExactSizeIterator<Item = PartStep> + '_ {
+        self.parts[..self.len as usize]
+            .iter()
+            .map(|step| step.expect("steps below len are set"))
+    }
+
+    /// The address with its last step removed, or `None` for a whole copy.
+    #[must_use]
+    pub const fn parent(mut self) -> Option<Self> {
+        if self.len == 0 {
+            return None;
+        }
+        self.len -= 1;
+        self.parts[self.len as usize] = None;
+        Some(self)
+    }
+}
+
+impl From<CopyAddress> for Address {
+    fn from(copy: CopyAddress) -> Self {
+        Self::new(copy)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{GeneratorKind, OptionsHash, PoolId};
+
+    fn pin(slot: u32) -> SpecimenId {
+        let kind = GeneratorKind::from_key("tree.generator.kind");
+        SpecimenId::new(1, PoolId::new(kind, OptionsHash(7)), slot)
+    }
+
+    #[test]
+    fn part_paths_compose_onto_a_copy() {
+        let copy = AddressPrefix::ALONE.copy(CellId::new(4031, -77), 0);
+        let fruit = PartStep::new("tree.part.fruit", 17, pin(0));
+        let item = PartStep::new("fruit.part.item", 2, pin(1));
+        let address = copy.whole().then(fruit).unwrap().then(item).unwrap();
+        assert_eq!(address.copy, copy);
+        assert_eq!(address.parts().collect::<Vec<_>>(), [fruit, item]);
+        assert_eq!(address.parent().unwrap().parts().len(), 1);
+        assert_eq!(address.parent().unwrap().parent(), Some(copy.whole()));
+        assert_eq!(copy.whole().parent(), None);
+        assert_eq!(fruit.kind, crate::hash::salt("tree.part.fruit"));
+    }
+
+    #[test]
+    fn a_path_holds_at_most_four_steps() {
+        let step = PartStep::new("tree.part.fruit", 0, pin(0));
+        let mut address = Address::from(CopyAddress::default());
+        for _ in 0..MAX_PART_STEPS {
+            address = address.then(step).unwrap();
+        }
+        assert_eq!(address.then(step), None);
+    }
+
+    #[test]
+    fn addresses_with_parts_sort_after_their_copy() {
+        let copy = CopyAddress::default();
+        let part = copy
+            .whole()
+            .then(PartStep::new("tree.part.fruit", 0, pin(0)))
+            .unwrap();
+        assert!(copy.whole() < part);
+        assert_ne!(copy.whole(), part);
+    }
 
     #[test]
     fn cells_pack_both_signs_without_collisions() {
