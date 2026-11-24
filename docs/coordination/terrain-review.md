@@ -7,6 +7,8 @@ https://claude.ai/artifact/A34crTYs6dkUce3qx1QYLo
 Tick an item, or note a change, as you go. Remove this file once the review
 is done.
 
+**Signed off by the user on 2026-11-23:** "Terrains look good."
+
 ## A. Results to look at
 
 1. **Phases 1–2.8** are built and marked "review pending" in the phase
@@ -132,6 +134,17 @@ bends, because the old soft distance was short there.
     from seed 30 (its two rivers no longer both cross) to seed 217, the only
     seed of 300 whose closest pair of mountain rivers is under 195 m apart
     (159 m) with both joining a plains river; the test is unchanged.
+
+## D3. Warped borders (W3)
+
+23. **Default warp size, 100 m amplitude over an 800 m wavelength.** Look
+    at the [warped-borders page](https://claude.ai/artifact/MnyNRz76okUhAmkH7RprXu):
+    the triple junction and the two-terrain world, straight and warped,
+    side by side. Do the wiggles look the right size? The largest allowed
+    at 800 m is about 134 m.
+24. **Warped worlds slow the features suite past 5 minutes** (heights cost
+    4–6× on warped fixtures). Accepted until the performance sweep; shared
+    border nodes along an edge come before W4 to cut this.
 
 ## E. Housekeeping
 

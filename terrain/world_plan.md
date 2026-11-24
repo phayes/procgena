@@ -324,7 +324,8 @@ impl HeightField for WorldTerrain { … }
 | W1 | E: options, calibration, slope bound (tilt and bumps included), no sea-level field (E's zero is sea level); `Terrain` adds E; the plane-shift check on negotiation and a seam test on curved E (a bump across the border, noise on); existing tests pass on E = 0 and on a sloped E. **Deferred to W4:** making the preset offsets equal (today 20 / 50 / 120 m), as a separate commit with the border figures re-recorded, after the user's terrain review. **Exit test:** measure the river crossing rate on a sloped E (built: 65 in 300 tilted towards the plains, against 24 flat; see "W1 as built") | terrain 2.5 |
 | W2 | Region graph: staggered jittered lattice, Voronoi polygons, short-edge collapse, corner incidence, owner lookup; purity, tiling and window-size tests | — (in parallel with W1) |
 | W3 | Border segment index in `Terrain`; border warp (subdivided, noise-displaced edges); no-crossing check. **Exit test:** the existing border, crack and feature suites pass on warped fixtures | W2 |
-| W4 | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source | W1, W3 |
+| W3b | Border nodes shared along a whole edge instead of per piece (see "Before W4") | W3 |
+| W4 | `WorldTerrain`: `TerrainSource`, region cache, on-demand builds, `height`, `water_level`, `HeightField`; seam tests on lattice worlds with a closure source | W1, W3b |
 | W5 | Moved to the World crate: selector fields, Biome rules and pins, with empty Biomes (milestones B0 and W0 in ROADMAP.md) | — |
 | W6 | Image example of a large world; drainage measurement. Built on W4 with a closure source; redone through the World once W0 exists | W4 |
 
@@ -484,7 +485,52 @@ impl HeightField for WorldTerrain { … }
   and bends, at most 2.7 m.
 - **Seeds:** the neighbouring-rivers test moved from seed 30 to 217;
   `RIVER_SEEDS` are unchanged.
-- **Still to do:** the border warp itself and its tests.
+- **Still to do:** done; see "W3 as built: border warp".
+
+### W3 as built: border warp (2026-11-23)
+
+- **What it does** (`src/warp.rs`): each straight polygon side between
+  two corners becomes a wiggly polyline with a point every eighth of a
+  wavelength. The offset is amplitude × noise, faded to zero over half a
+  wavelength at each corner, so corners stay put. The noise seed comes
+  from the world seed and the two corner positions, taken in a fixed
+  order, so both regions on a side get identical bits.
+- **Bounds per side:** the amplitude is cut down where a side meets
+  another at a sharp corner (half the room the corner's angle leaves over
+  the fade) or runs close to another side (half the gap above the minimum
+  edge length). Neighbouring regions compute the same bound. On the
+  region-graph tests 21 to 39 edges in about 360 are held under half
+  amplitude, and none to zero.
+- **Settings:** `BorderWarp { amplitude, wavelength }`, default
+  100 m / 800 m. Checked: wavelength at least 260 m (four feature
+  clearances) and a border slope of at most 1, which allows up to about
+  134 m at 800 m. `RegionGraphOptions::warp` warps lattice graphs;
+  `warp_borders` warps a designer's polygons.
+- **Cost:** per height, warped against straight (machine loaded, so
+  rough): 6.1× for two terrains (74 pieces against 14), 4.1× at the triple
+  junction (147 against 19). The features suite with warped worlds takes
+  over 5 minutes; accepted until the performance sweep.
+- **Tests:** warped polylines are identical on both sides and stay within
+  their amplitude and slope; sides at a sharp corner don't cross; the two
+  sides of a thin strip stay apart; held-back edges are counted (the last
+  three checked by breaking the bounds). The seam, crack and feature
+  suites run on four warped worlds (flat, tilted, curved and unrelated
+  seeds, 130 m / 800 m). The warped seam test measures slope changes over
+  0.5 m steps, because f32 height noise (about 0.5 mm at 109 m) swamps
+  shorter steps; the differences are second order, since first-order ones
+  read curvature as a kink on steep ground (0.079 on mountains at slope 2,
+  where the two sides agree exactly). A control seam with a slope kink
+  1.1× the 0.05 limit fails at that step.
+- **Follow-up:** keep the height path in f64 until the final cast, so the
+  seam test can go back to short steps.
+
+### Before W4: shared border nodes along an edge
+
+The border pull anchors its target nodes per straight piece, so a warped
+edge pays for every piece. Share the nodes along a whole edge (one set
+per polygon side, interpolated along its polyline) to bring warped cost
+back towards straight. Do this as its own task before W4, with the seam
+and feature suites on warped worlds as the check.
 
 ## Open questions
 
