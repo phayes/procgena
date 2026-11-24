@@ -15,7 +15,7 @@ docs = ["bevy/reflect_documentation"]
 
 [dependencies]
 # `debug` for `PlantDebug`, which the panel turns on.
-procgena_plant = { path = "..", features = ["debug"] }
+procgena_plant_bevy = { path = "../crates/procgena_plant_bevy", features = ["debug"] }
 # Only what the demo draws: no audio, gamepads, scenes, picking, text or UI,
 # each of which would add to the download. `tonemapping_luts` is the default
 # camera's tonemapper (its tables are zstd-compressed KTX2, and `zstd_rust`

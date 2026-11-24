@@ -198,7 +198,7 @@ commands.spawn((
   Seen from above, the soil shows between the blades more than from the
   side: a soil close to the roots' colour keeps the field green.
 
-[`examples/rts_camera.rs`](../examples/rts_camera.rs) is an 800 m map with
+[`examples/rts_camera.rs`](../crates/procgena_plant_bevy/examples/rts_camera.rs) is an 800 m map with
 tanks under such a camera; F switches `radius_from_ground` off to compare.
 Its costs on an NVIDIA T1200 laptop GPU at 1920 × 1080, High, `MEADOW` at
 0.6 height, pitched 35° to 55° below the horizon:

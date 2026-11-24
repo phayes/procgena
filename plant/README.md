@@ -73,21 +73,25 @@ All 40 field presets are in docs/presets.md.
 
 ## Installation
 
-Add the crate next to Bevy in your game's `Cargo.toml`:
+Plant comes as two crates: `procgena_plant_bevy` draws the grass in Bevy,
+and `procgena_plant` holds the plant and Scatter settings, presets and their
+files with no game engine. A game adds the Bevy crate, which re-exports
+every settings type. Neither is published on crates.io yet, so take them by
+path or git from the procgena repository:
 
 ```toml
 [dependencies]
 bevy = "0.20"
-procgena_plant = "0.20.6"
+procgena_plant_bevy = { path = "procgena/plant/crates/procgena_plant_bevy" }
 ```
 
-| Bevy | procgena_plant |
+| Bevy | procgena_plant_bevy |
 | --- | --- |
 | 0.20 | 0.20 |
 
 Requirements:
 
-- **Bevy 0.20.** procgena_plant accepts any Bevy 0.20.x (it is tested on 0.20.0)
+- **Bevy 0.20.** procgena_plant_bevy accepts any Bevy 0.20.x (it is tested on 0.20.0)
   and enables only `bevy_asset`, `bevy_log`, `bevy_render`,
   `bevy_core_pipeline` and `bevy_pbr`, all of which `DefaultPlugins` games
   already have. Adding it never changes how Bevy is compiled for your game.
@@ -120,7 +124,7 @@ For the browser, turn on Bevy's `webgpu` feature for wasm:
 bevy = { version = "0.20", features = ["webgpu"] }
 ```
 
-`examples/webgpu_minimal.rs` is the quick start
+`crates/procgena_plant_bevy/examples/webgpu_minimal.rs` is the quick start
 below, ready for the browser: a canvas that fills the page, a lower quality
 tier on the web, and a message on screen if the device cannot draw grass.
 Grass costs more in a browser than natively on the same GPU, so start a tier
@@ -130,12 +134,12 @@ browsers tested, what a device needs, and frame times per tier.
 ## Quick start
 
 Add `PlantPlugins` after `DefaultPlugins`, and spawn a `PlantScatter`. This whole
-program is `examples/minimal.rs`; `cargo run --release
---example minimal` runs it:
+program is `crates/procgena_plant_bevy/examples/minimal.rs`; `cargo run
+--release -p procgena_plant_bevy --example minimal` runs it:
 
 ```rust
 use bevy::prelude::*;
-use procgena_plant::prelude::*;
+use procgena_plant_bevy::prelude::*;
 
 fn main() {
     App::new()
@@ -229,7 +233,7 @@ strip. It follows the body's scale and rotation, and a disabled collider or
 a sensor flattens nothing.
 
 ```toml
-procgena_plant = { version = "0.20.6", features = ["rapier"] } # or "avian"
+procgena_plant_bevy = { path = "procgena/plant/crates/procgena_plant_bevy", features = ["rapier"] } # or "avian"
 ```
 
 | Engine | Feature | Built against | Examples |
@@ -377,7 +381,7 @@ every idea that was tried, kept or dropped.
   Stats, debugging and tooling,
   Running in the browser
 - API overview: every public type on one page. Everything a
-  game needs is in `procgena_plant::prelude`, and every item has rustdoc.
+  game needs is in `procgena_plant_bevy::prelude`, and every item has rustdoc.
 - How it works: what makes it fast, and what makes it look
   like grass.
 - Performance notes and Testing.
@@ -386,10 +390,10 @@ every idea that was tried, kept or dropped.
 
 ## Roadmap
 
-procgena_plant is part of procgena. Its next steps (a split into an
-engine-free core and a Bevy crate, a CPU path, seeds, copy ids and the
-`PlantScatter` rename) are in `ROADMAP.md` at the root of the procgena
-repository.
+procgena_plant is part of procgena. Its staged plan for joining procgena's
+shared contract (Ecotopes, seeds, World-anchored placement, the shared
+`Scatter` contract, then a CPU path and export) is in `alignment_plan.md`
+in this folder.
 
 ## License
 

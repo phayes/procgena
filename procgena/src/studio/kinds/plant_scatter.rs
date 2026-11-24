@@ -2,7 +2,7 @@
 //! preset.
 
 use bevy::prelude::*;
-use procgena_plant::prelude::PlantScatterPreset;
+use procgena_plant_bevy::prelude::PlantScatterPreset;
 
 use super::{Kind, RegisterKind, entries};
 use crate::field::editor::{FieldEdited, FieldEditorPlugin, FieldReader, spawn_field_editor};

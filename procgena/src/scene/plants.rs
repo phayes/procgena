@@ -1,7 +1,9 @@
 //! Plants subject: a square field of grass and plants.
 
 use bevy::prelude::*;
-use procgena_plant::prelude::{PlantGround, PlantScatter, PlantScatterPreset, PlantSettings};
+use procgena_plant_bevy::prelude::{
+    PlantScatter, PlantScatterOptions, PlantScatterPreset, PlantSettings,
+};
 
 use super::environment::EnvironmentSettings;
 use super::orbit::{OrbitCamera, OrbitLimits};
@@ -21,7 +23,7 @@ pub struct FieldSettings {
     /// The scene supplies size, flat ground and no density map, ignoring
     /// those parts of this value. Keep values within procgena_plant's documented
     /// ranges; assigning the component does not run file-loader validation.
-    pub field: PlantScatter,
+    pub field: PlantScatterOptions,
 }
 
 impl Default for FieldSettings {
@@ -89,12 +91,7 @@ impl Subject for PlantsSubject {
 /// The field to draw: a flat square with sides of `size` metres and no
 /// density map.
 fn grass_field(settings: &FieldSettings, size: f32) -> PlantScatter {
-    PlantScatter {
-        size: Vec2::splat(size),
-        ground: PlantGround::default(),
-        density_map: None,
-        ..settings.field.clone()
-    }
+    PlantScatter::with_options(Vec2::splat(size), settings.field.clone())
 }
 
 /// Adds the plants subject.

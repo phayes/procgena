@@ -1,9 +1,11 @@
-"""Checks that the crate builds with no warnings in every feature set.
+"""Checks that the plant crates build with no warnings in every feature set.
 
     python tools/plant/lint.py
 
-Runs clippy, with warnings as errors, on the library alone for each feature
-set a game can build it with, then on every target with all features. The
+Runs clippy, with warnings as errors, on procgena_plant_bevy's library alone
+for each feature set a game can build it with, then on every target with all
+features. The engine-free procgena_plant is linted with and without its
+`reflect` feature. The
 library alone matters: tests and examples turn on `debug` through the
 dev-dependency on this crate, so code that only `debug` or the tests use
 looks used to `--all-targets` and dead to a game. `-D warnings` goes to
@@ -20,10 +22,14 @@ import shutil
 import subprocess
 import sys
 
-# The procgena_plant package. This script lives in <workspace>/tools/plant/.
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "plant")
+# The procgena_plant_bevy package, so a bare `--lib` means it. This script
+# lives in <workspace>/tools/plant/.
+WORKSPACE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.join(WORKSPACE, "plant", "crates", "procgena_plant_bevy")
 
 RUNS = [
+    ["-p", "procgena_plant", "--lib", "--no-default-features"],
+    ["-p", "procgena_plant", "--all-targets", "--all-features"],
     ["--lib"],
     ["--lib", "--features", "debug"],
     ["--lib", "--features", "rapier"],

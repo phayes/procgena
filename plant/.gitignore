@@ -1,4 +1,6 @@
 /target
+# What the examples write next to the Bevy crate (golden captures, benches).
+/crates/procgena_plant_bevy/target
 /shots
 __pycache__/
 /target-trace

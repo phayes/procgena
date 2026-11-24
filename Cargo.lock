@@ -5372,7 +5372,7 @@ dependencies = [
  "procgena_impostor",
  "procgena_mushroom",
  "procgena_mushroom_bevy",
- "procgena_plant",
+ "procgena_plant_bevy",
  "procgena_stone",
  "procgena_stone_bevy",
  "procgena_terrain",
@@ -5550,6 +5550,17 @@ dependencies = [
 name = "procgena_plant"
 version = "0.20.6"
 dependencies = [
+ "bevy_reflect",
+ "glam 0.33.12",
+ "procgena_core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "procgena_plant_bevy"
+version = "0.20.6"
+dependencies = [
  "avian3d",
  "bevy",
  "bevy_rapier3d",
@@ -5557,6 +5568,7 @@ dependencies = [
  "image",
  "procgena_core",
  "procgena_plant",
+ "procgena_plant_bevy",
  "proptest",
  "serde",
  "serde_json",
@@ -5568,7 +5580,7 @@ name = "procgena_plant_web"
 version = "0.0.0"
 dependencies = [
  "bevy",
- "procgena_plant",
+ "procgena_plant_bevy",
  "wasm-bindgen",
 ]
 

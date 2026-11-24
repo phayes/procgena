@@ -3,19 +3,19 @@
 //!
 //! Plant shape and colour controls are shared with the Plant tab.
 
-use procgena_plant::prelude::{GroundTint, PlantScatter, PlantVariation, ScatterPlant};
+use procgena_plant_bevy::prelude::{GroundTint, PlantScatterOptions, PlantVariation, ScatterPlant};
 
 use crate::params::{Group, Section, count, number, srgb};
 
 /// The Scatter's own settings, in display order. Its plants are edited
 /// separately, one row each.
-pub fn sections() -> Vec<Section<PlantScatter>> {
+pub fn sections() -> Vec<Section<PlantScatterOptions>> {
     vec![
         Section {
             title: "Variation",
             groups: vec![variation().lift(
                 "variation",
-                |f: &PlantScatter| &f.variation,
+                |f: &PlantScatterOptions| &f.variation,
                 |f| &mut f.variation,
             )],
         },
@@ -25,7 +25,7 @@ pub fn sections() -> Vec<Section<PlantScatter>> {
                 field(),
                 ground_tint().lift(
                     "ground_tint",
-                    |f: &PlantScatter| &f.ground_tint,
+                    |f: &PlantScatterOptions| &f.ground_tint,
                     |f| &mut f.ground_tint,
                 ),
             ],
@@ -60,25 +60,30 @@ pub fn share_sections() -> Vec<Section<ScatterPlant>> {
     }]
 }
 
-fn field() -> Group<PlantScatter> {
+fn field() -> Group<PlantScatterOptions> {
     Group::plain(vec![
         // Multiply all entry densities together without changing the plant proportions.
         number!(
-            PlantScatter,
+            PlantScatterOptions,
             "density_scale",
             "Scatter Density ×",
             (0.0, 2.0, 0.01),
             |f| f.density_scale
         ),
         number!(
-            PlantScatter,
+            PlantScatterOptions,
             "wind_scale",
             "Wind Scale",
             (0.0, 2.0, 0.01),
             |f| f.wind_scale
         ),
-        count!(PlantScatter, "toon_bands", "Toon Bands", (0, 8), |f| f
-            .toon_bands),
+        count!(
+            PlantScatterOptions,
+            "toon_bands",
+            "Toon Bands",
+            (0, 8),
+            |f| f.toon_bands
+        ),
     ])
 }
 
@@ -151,12 +156,12 @@ fn ground_tint() -> Group<GroundTint> {
 
 #[cfg(test)]
 mod tests {
-    use procgena_plant::prelude::PlantScatterPreset;
+    use procgena_plant_bevy::prelude::PlantScatterPreset;
 
     use super::*;
     use crate::params::{Param, checks};
 
-    fn field_params() -> Vec<Param<PlantScatter>> {
+    fn field_params() -> Vec<Param<PlantScatterOptions>> {
         params_of(sections())
     }
 
@@ -173,14 +178,14 @@ mod tests {
     }
 
     /// Each Plant Scatter preset, named so test failures identify it.
-    fn fields() -> Vec<(String, PlantScatter)> {
+    fn fields() -> Vec<(String, PlantScatterOptions)> {
         PlantScatterPreset::all()
             .map(|preset| (preset.key.to_string(), preset.plant_scatter.clone()))
             .collect()
     }
 
     /// The presets, plus a Scatter that hides every setting that can be hidden.
-    fn varied_fields() -> Vec<(String, PlantScatter)> {
+    fn varied_fields() -> Vec<(String, PlantScatterOptions)> {
         let mut cases = fields();
         let mut even = PlantScatterPreset::MEADOW.plant_scatter;
         even.variation.patch_amount = 0.0;
@@ -206,8 +211,8 @@ mod tests {
     }
 
     /// Checks `field` the way a `.plant_scatter.yml` file is checked.
-    fn file_accepts(field: PlantScatter) -> Result<(), String> {
-        PlantScatter::from_yaml(&field.to_yaml())
+    fn file_accepts(field: PlantScatterOptions) -> Result<(), String> {
+        PlantScatterOptions::from_yaml(&field.to_yaml())
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -229,8 +234,9 @@ mod tests {
         checks::range_ends_are_valid(&field_params(), &fields(), file_accepts);
 
         // A plant's share is checked in a Scatter holding only that plant.
-        let alone =
-            |entry: ScatterPlant| file_accepts(PlantScatter::new(Default::default(), vec![entry]));
+        let alone = |entry: ScatterPlant| {
+            file_accepts(PlantScatterOptions::default().with_plants(vec![entry]))
+        };
         checks::range_ends_are_valid(&share_params(), &shares(), alone);
     }
 

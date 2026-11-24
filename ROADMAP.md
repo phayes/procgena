@@ -1337,10 +1337,12 @@ where the details are.
 ### Looks of work already built (wave 5)
 
 7. **Plant goldens.** None of the 48 golden images has a baseline for this
-   machine (there is no `plant/tests/golden/apple-m1-max/` folder), so
+   machine (there is no
+   `plant/crates/procgena_plant_bevy/tests/golden/apple-m1-max/` folder), so
    `cargo run --example golden` fails in every full suite. Only the user
    blesses goldens: run `cargo run --example golden -- --bless` from
-   `plant/` once the look in `target/golden/` is accepted.
+   `plant/crates/procgena_plant_bevy/` once the look in `target/golden/`
+   is accepted.
 8. **Stone placement on one lattice (C2).** Every stone class (boulders,
    rocks, pebbles) now shares one World lattice of small cells, and each
    cell picks its class, so that each stone has one stable address (D3).

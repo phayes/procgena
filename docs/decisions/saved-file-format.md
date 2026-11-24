@@ -10,13 +10,14 @@ pattern", "Bringing your own assets"),
 project folder", "Documents and the edit model", "The texture library",
 "Stages", open question 1), [ground-materials](ground-materials.md)
 (texture sizes, level 1 as the default), `procgena_core::preset`,
-`procgena_core::seed`, `plant/src/files.rs`, `procgena_tree/src/scatter.rs`
-and `scatter/file.rs`, `procgena_biome/src/ecotope/file.rs`,
-`tree/textures.yml`, the `bevy_asset` 0.20.1 source, `Cargo.lock`,
-crates.io (2026-11-24), and the sources linked under "Why zip".
+`procgena_core::seed`, `plant/crates/procgena_plant/src/files.rs`,
+`procgena_tree/src/scatter.rs` and `scatter/file.rs`,
+`procgena_biome/src/ecotope/file.rs`, `tree/textures.yml`, the `bevy_asset`
+0.20.1 source, `Cargo.lock`, crates.io (2026-11-24), and the sources linked
+under "Why zip".
 
 One correction to the first brief: plant no longer has `.plant.ron` or
-`.field.ron` files. `plant/src/files.rs` reads `.plant.yml` and
+`.field.ron` files. `plant/crates/procgena_plant/src/files.rs` reads `.plant.yml` and
 `.plant_scatter.yml` through `procgena_core::preset`, like every other
 kind.
 

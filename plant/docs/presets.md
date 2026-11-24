@@ -4,9 +4,9 @@ procgena_plant ships 40 field presets, from lawn to prairie to wildflower meadow
 forest-floor moss and ferns, understory bushes, a Baltic bog, a reed marsh, dunes, pampas,
 spinifex, frost, kelp, crystal and cel-shaded fields, and 26 plant presets to
 build your own from. Each Scatter preset is a `const` on `PlantScatterPreset` and a
-`.plant_scatter.yml` file in [`assets/scatters`](../assets/scatters); each
+`.plant_scatter.yml` file in [`assets/scatters`](../crates/procgena_plant/assets/scatters); each
 plant preset a `const` on `PlantPreset` (and the same plant on `PlantParams`)
-and a `.plant.yml` file in [`assets/plants`](../assets/plants).
+and a `.plant.yml` file in [`assets/plants`](../crates/procgena_plant/assets/plants).
 [Plants and Scatters](scatters.md) shows how to change one or load one from a
 file.
 
@@ -162,7 +162,7 @@ its own range and the top its highest point.
 
 ## Adding a preset to the crate
 
-Every preset is declared once, in [`src/presets/`](../src/presets), one file
+Every preset is declared once, in [`src/presets/`](../crates/procgena_plant/src/presets), one file
 per group. Adding one is a single entry in the `preset_group!` block (Scatter
 presets) or `plant_preset_group!` block (plant presets) for its group: the
 constant, its key, name, group and description, the group array, the list
