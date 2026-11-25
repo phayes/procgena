@@ -1908,6 +1908,60 @@ summary below is for ordering.
   `procgena/src/studio/`, so up to three lanes run at once; the plan's
   "Running them in parallel" gives the waves.
 
+### Documentation
+
+#### DS: Documentation clean-up (high priority)
+
+Asked for by the user 2026-11-25. The sweep in
+[docs/coordination/doc-sweep-2026-11-25.md](docs/coordination/doc-sweep-2026-11-25.md)
+(taken at `5a061d9`) found about 200 places where documents contradict
+each other, keep superseded decisions, or report stale status. Every
+document is treated by its class:
+
+- **Evergreen** (ARCHITECTURE.md, ROADMAP.md, CLAUDE.md, READMEs, and
+  reference docs such as `tree/docs/scatters.md` and `plant/docs/`):
+  corrected in place, so they describe only the current design and
+  current status, with no history.
+- **Obsolete plans** for finished work (for example
+  `tree/PLAN-tree-grove.md`, `tree/fruit_flower_plan.md`, and the port
+  plans): deleted. Anything still relevant (open follow-ups,
+  measurements, unbuilt items) moves first to ROADMAP or to the crate's
+  evergreen doc. Git keeps the history.
+- **Decision records** (`docs/decisions/`): kept as the record of why.
+  Each gets a status banner at the top (decided, or superseded by a
+  named milestone or decision) and its open-question lists marked as
+  answered. The bodies are not rewritten.
+- **Live plans** (`terrain/plan.md`, `terrain/edit_cache_plan.md`,
+  `procgena/studio_plan.md`, `fruit/plan.md`): the current design is kept
+  and corrected. Dated build logs and the sketches their "As built"
+  sections replaced are cut down or deleted.
+- **Coordination notes** (`docs/coordination/`): deleted once acted on,
+  with leftovers moved to ROADMAP. That includes `terrain-review.md` and,
+  at the end, the sweep report itself.
+
+- **Covers:**
+  - the user's answers to the sweep's "needs your decision" items
+    first, since many fixes depend on them;
+  - then the evergreen fixes, the deletions, banners and plan trims;
+  - two rules added to CLAUDE.md, so drift doesn't come back. First,
+    status lives only in ROADMAP, and other documents link to it rather
+    than restating it. Second, a decision that supersedes another
+    updates or bans every echo of the earlier one in the same change;
+  - one list of milestone and step IDs in ROADMAP, with local step
+    names prefixed so they no longer collide (for example world_plan's
+    W1–W6, and fruit's B1, D1 and D2).
+- **Needs:** nothing. It edits ARCHITECTURE.md, ROADMAP.md and
+  CLAUDE.md, so one agent at a time, and the agent re-checks the sweep's
+  line numbers against current master before editing.
+- **Done when:**
+  - the sweep's decision items are answered;
+  - every finding is fixed, or marked as intentionally kept;
+  - a link check over every `.md` file passes;
+  - a grep for the retired names (`procgena_mesh`, `GeneratedObject`,
+    `TreeGrove`, `PlantField`, `.grove.json`, `.field.ron`) finds them
+    only in decision records and the changelog;
+  - the sweep report is deleted.
+
 ### Later
 
 - TODO "Modifiers pushed down" (a Biome's snow line, an Ecotope's
@@ -2328,6 +2382,9 @@ Done (2026-11-24): items 10, 15 and 16 above.
 
 ### Follow-ups noted, no decision needed
 
+- **High priority: documentation clean-up (milestone DS).** Work through
+  [docs/coordination/doc-sweep-2026-11-25.md](docs/coordination/doc-sweep-2026-11-25.md),
+  starting with its decision items.
 - **High priority: A/B test plant P3** (the user, 2026-11-25). P3 (grass
   blades on a World-fixed grid, chosen by seed alone) merged to master
   at `2180527`; the last commit before it is `2180527^1`. Compare the
