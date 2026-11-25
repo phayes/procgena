@@ -1801,6 +1801,40 @@ Read from the code, not measured; profile first.
 - **Done when:** a profile says where river time goes, and the chosen
   speed-ups land with the seam, feature and shipped suites passing.
 
+#### TE7: Intermediate terrain detail levels
+
+Asked for by the user 2026-11-25: in the viewer, near ground shows large
+triangles, and far ground shown up close looks blurry. More intermediate
+coarseness is wanted. The terrain is a function that can be sampled at
+any spacing, so any level of detail can be generated; the costs are in
+features and paint.
+
+- **Today** (read from the code): chunk level `L` has 1 m × 2^L cells
+  and starts at 64 m × 2^L (`chunk_lod`), so every level starts with a
+  cell about 1/64 of the view distance across, roughly 30 px on a 1440 px
+  screen at 45°, shrinking to about 15 px before the next level. Features
+  have only two tiers: `Rough` (no roads, from `ROUGH_FROM` = level 3,
+  about 512 m in the studio) and `Fine`. Ground paint (weights) is a
+  fixed number of texels per chunk.
+- **To investigate:**
+  - switch chunk levels by size on screen, as IX does for assets, aiming
+    for a few pixels per cell; measure triangle count and frame time,
+    since moving the switches out multiplies the chunks at the finer
+    levels;
+  - geomorphing between levels so switches don't pop;
+  - an intermediate feature tier between `Rough` and `Fine` (for example
+    roads on a coarse route, rivers without gully detail), so mid-range
+    ground isn't missing features or waiting for the fine build;
+  - progressive refinement while loading: coarse, then intermediate,
+    then fine, so a far chunk shown up close sharpens in steps;
+  - ground paint resolution per level, matching the mesh.
+- **Needs:** TE2 (first picture fast) overlaps on progressive loading;
+  TE5 and TE6 make the fine tier cheaper, which reduces how long coarse
+  ground is seen up close.
+- **Done when:** near and mid-range ground shows no large triangles and
+  no blurry close-up ground once loaded, frame time is measured against
+  today, and the switches between levels don't pop.
+
 #### GPU1: Relief preview on the GPU
 
 - **Covers:**
