@@ -128,6 +128,12 @@ fn tree_scatter_settings_fit_their_presets() {
 }
 
 #[test]
+fn terrain_settings_fit_their_presets() {
+    // A road's narrowest width must stay at most its width.
+    check_kind::<procgena_terrain::TerrainPreset>(&crate::terrain::META, &none, Ends::NotTried);
+}
+
+#[test]
 fn fruit_and_flower_edits_keep_the_items_kind() {
     // Each kind's settings edit only its own kind of item.
     for (kind, cases) in [
@@ -187,6 +193,7 @@ fn every_setting_has_a_tooltip_and_a_part() {
     check_tooltips_and_parts::<FlowerPreset>(&crate::fruit::FLOWER_META, &none);
     check_tooltips_and_parts::<procgena_tree::TreePreset>(&crate::tree::META, &crate::tree::custom);
     check_tooltips_and_parts::<procgena_tree::TreeScatterPreset>(&crate::grove::META, &none);
+    check_tooltips_and_parts::<procgena_terrain::TerrainPreset>(&crate::terrain::META, &none);
 }
 
 #[test]

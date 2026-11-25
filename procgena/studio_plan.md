@@ -949,8 +949,8 @@ own folders.
   Every user edit triggers `InspectorEdited { document, edits, is_final }`
   (nested panels, such as a tree Scatter's species rows, don't yet).
 - **Still hand-written:** plant, plant Scatter and Ecotope (their metadata
-  comes later), Terrain (switches after GM1 merges), the environment, the
-  export panels and studio-only view panels (dead wood's View and Cover).
+  comes later), the environment, the export panels and studio-only view
+  panels (dead wood's View and Cover, the Terrain's Show).
   The stone, dead wood and mushroom specs remain only for the Ecotope's
   embedded panels.
 
