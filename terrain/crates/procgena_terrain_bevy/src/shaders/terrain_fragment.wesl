@@ -44,6 +44,7 @@ struct TerrainSurface {
     fade: vec4<f32>,
     tint: vec4<f32>,
     border: f32,
+    overlay: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> surface: TerrainSurface;
@@ -55,6 +56,8 @@ struct TerrainSurface {
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var array_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(107) var normal_array: texture_2d_array<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(108) var orh_array: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(109) var overlay: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(110) var overlay_sampler: sampler;
 
 /// Below this weight a material is not sampled.
 const MIN_WEIGHT: f32 = 0.02;
@@ -243,8 +246,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         normal = normalize(mix(normal, normalize(t_normal), detail_near));
     }
 
-    // Debug: tint by chunk level, and darken a line along chunk borders.
+    // Debug: tint by chunk level, cover with the overlay image, and darken a
+    // line along chunk borders. The overlay's UVs, like the weights', run
+    // from its first texel's centre to its last's.
     colour = mix(colour, surface.tint.rgb, surface.tint.w);
+    let overlay_size = vec2<f32>(textureDimensions(overlay));
+    let overlay_at = (uv * (overlay_size - 1.0) + 0.5) / overlay_size;
+    let cover = textureSample(overlay, overlay_sampler, overlay_at);
+    colour = mix(colour, cover.rgb, surface.overlay * cover.a);
     if surface.border > 0.0 {
         let cell = fract(position.xz / surface.border + 0.5) - 0.5;
         let width = fwidth(position.xz / surface.border) * 1.5;

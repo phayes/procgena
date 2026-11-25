@@ -837,6 +837,41 @@ shows both what a game gets and level 0 where it is switched on.
   colours per copy, Scatter footprints and masks (the Ecotope already
   computes footprints), terrain chunk borders and levels (the terrain
   viewer has `--borders` and `--levels`), bounds, and normals.
+- **As built: the segmentation overlay** (ST7a's first overlay). An
+  Overlay picker on the view frame's bar, shown while the subject offers
+  overlays: Regions, Landform (G4b's labels), Ground materials, Slope,
+  Curvature, Height above water, Water distance and Road distance on
+  terrain; Ground materials
+  on an Ecotope's ground patch. A legend over the bottom-left of the
+  view gives the colours, the cost per chunk and the value under the
+  pointer. Scripts use `overlay-off` and `overlay-<label>` (such as
+  `overlay-slope`, `overlay-ground-materials`).
+  - Drawn by `procgena_terrain_bevy`'s `TerrainOverlay`: an image mixed
+    over a chunk's (or patch's) terrain material, at bindings 109 and
+    110 (GM2's texture arrays hold 105 to 108). The ground's own look
+    is unchanged while no overlay is drawn.
+  - Sampled on the CPU in the background per chunk, at the chunk's own
+    tier, kept per chunk and family (regions, labels, ground, measures), so
+    switching between measures only recolours. Dropped when the terrain
+    changes. Code: `procgena/src/scene/overlay/`, `studio/overlays.rs`.
+  - Cost per chunk, dev build, rolling hills, a busy machine (86
+    chunks): regions 37 ms (65² region lookups); ground materials 213
+    ms (33² sites painted); measures 398 ms (33² measure queries, shared
+    by all five measures). Ecotope ground 0.3 ms (read from the patch's
+    weights).
+  - Landform colours each texel by `Terrain::annotate`'s landform, read
+    at the chunk's tier; the readout adds its flags. Its cost per chunk is shown in the
+    legend; it was not measured here.
+  - Not yet: Biome types per region (once the World drives terrain);
+    region ids drawn in the view (today only in the readout).
+  - **Follow-ups:**
+    1. Move the chunk Levels and Borders toggles from the terrain
+       Inspector's Show section onto the view frame's overlays.
+    2. A `TerrainStream` constructor that shares its `WorldTerrain`
+       (`Arc`), so the studio doesn't repeat `TerrainStream::world`'s
+       setup to give the overlay the same world.
+    3. Sample the Ecotope overlay at its patch weights' own size (0.5 m)
+       rather than 33² texels (about 1.5 m).
 - **Stats** (ST7a): triangles and draw calls (Bevy's render
   diagnostics), copies per Scatter, specimens per pool, build time per
   document, bake times and queue length from the capture service.

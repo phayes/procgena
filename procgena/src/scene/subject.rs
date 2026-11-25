@@ -257,6 +257,11 @@ impl SceneState {
     pub fn generation(&self) -> u64 {
         self.shown.as_ref().map_or(0, |shown| shown.generation)
     }
+
+    /// The entity showing the subject, whatever its kind, if one is shown.
+    pub fn shown_entity(&self) -> Option<Entity> {
+        self.shown.as_ref().map(|shown| shown.entity)
+    }
 }
 
 /// The detail asked for with [`ViewerCommand::SetDetail`].
@@ -456,6 +461,11 @@ fn apply_command(world: &mut World, state: &mut SceneState, command: ViewerComma
         }
         ViewerCommand::SetDetail(detail) => {
             world.resource_mut::<ChosenDetail>().0 = detail;
+        }
+        ViewerCommand::SetOverlay(overlay) => {
+            world
+                .resource_mut::<super::overlay::ChosenOverlay>()
+                .set_if_neq(super::overlay::ChosenOverlay(overlay));
         }
         ViewerCommand::ResetCamera => {
             if let Some(shown) = &state.shown

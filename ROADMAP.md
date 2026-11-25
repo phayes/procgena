@@ -2184,6 +2184,21 @@ Done (2026-11-24): items 10, 15 and 16 above.
   `ObjectTags` to `SpecimenTags` in clump_bevy; a shared candidate-loop
   helper for Scatters (C2).
 - `tree/tests/export_images.rs` needs `required-features`.
+- Segmentation overlay (ST7a; see `procgena/studio_plan.md`):
+  - move the chunk Levels and Borders toggles from the terrain
+    Inspector onto the view frame's overlays;
+  - add a `TerrainStream::world_shared` that takes an `Arc<WorldTerrain>`,
+    so the studio no longer repeats `TerrainStream::world`'s setup to
+    share the world with the overlay;
+  - sample the Ecotope overlay at its patch weights' own size (0.5 m)
+    instead of 33² texels;
+  - draw region ids (and later Biome types) in the view, not only in the
+    hover readout;
+  - check by eye that the overlay lines up with drawn roads on terrain
+    chunks (the start camera has none in reach, and fog hides far views);
+  - take a Landform shot and record its cost per chunk;
+  - the Codex comment pass (Codex was out of credits; the item list is
+    in the overlay worker's report, `seg-overlay-report.md`).
 - Long term: keep comments and layout when the studio updates a preset
   file. Decided by the user on 2026-11-24: for now, writing a preset is
   lossy for comments (a full rewrite through serde). The ST2 spike
