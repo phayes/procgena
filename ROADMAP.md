@@ -1333,6 +1333,17 @@ label-chosen material.
 - **Done when:** the pine forest floor and a cliff draw with real
   textures, memory matches the plan's arithmetic, and far ground samples
   no textures.
+- **Status (2026-11-24): done.**
+  - The pine and the oak and maple forest floors draw with CC0 textures:
+    soil, needles, moss, fresh and decayed leaf litter. Cliffs are
+    triplanar rock.
+  - 6 sets at 512 px measure 6.3 MB, matching the arithmetic. Textures
+    stop at 140 m, and chunk levels 3 and up never read them.
+  - The studio's Ecotope editor edits ground layers.
+  - Left for later: premixed far chunks, a resident cap, and moving clump
+    and stone onto the shared loader.
+  - The `gs://ze_textures/terrain/` upload is the user's.
+  - See "As built: GM2" and decisions 12 and 13 in the plan.
 
 #### GM3: Ground on measures and labels, and the Biome base ground
 

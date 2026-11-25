@@ -21,6 +21,10 @@
 //!   rough tier only, without roads;
 //! - `--levels`, `--borders`: start with chunk levels tinted, or chunk
 //!   borders drawn;
+//! - `--textures`: draw the ground with its texture sets, read from
+//!   `terrain/assets/textures` (download them first with
+//!   `uv run --project tools textures download terrain --sizes 128,512,1k`);
+//!   without it the ground has flat colours;
 //! - `--screenshot <file.png>`: save an image once every chunk is drawn,
 //!   then exit;
 //! - `--headless`: with `--screenshot`, render a 1280 × 720 image without
@@ -42,7 +46,7 @@ use procgena_terrain::{
     Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions, chunk_lod,
 };
 use procgena_terrain_bevy::{
-    TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream, TerrainViewer, TerrainWater,
+    GroundTextureSettings, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream, TerrainViewer, TerrainWater,
 };
 
 /// Frames to wait after every chunk is drawn before a screenshot, so
@@ -136,10 +140,19 @@ fn main() {
         !headless || has("--screenshot"),
         "--headless needs --screenshot <file.png>"
     );
+    // Assets are read from the workspace, where the ground textures live.
+    let defaults = DefaultPlugins.set(AssetPlugin {
+        file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
+        ..default()
+    });
     let mut app = App::new();
+    app.insert_resource(GroundTextureSettings {
+        root: has("--textures").then(|| "terrain/assets/textures".to_owned()),
+        ..default()
+    });
     if headless {
         app.add_plugins((
-            DefaultPlugins
+            defaults
                 .set(WindowPlugin {
                     primary_window: None,
                     exit_condition: ExitCondition::DontExit,
@@ -149,7 +162,7 @@ fn main() {
             ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(1.0 / 60.0)),
         ));
     } else {
-        app.add_plugins((DefaultPlugins, FreeCameraPlugin));
+        app.add_plugins((defaults, FreeCameraPlugin));
     }
     app.add_plugins(plugin)
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
