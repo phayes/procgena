@@ -54,6 +54,7 @@
 //!     .run();
 //! ```
 
+pub mod gpu_ground;
 mod material;
 mod overlay;
 mod progress;
@@ -213,11 +214,15 @@ pub struct TerrainMaterialPlugin;
 impl Plugin for TerrainMaterialPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/terrain_fragment.wesl");
-        app.add_plugins((LodPlugin, MaterialPlugin::<TerrainMaterial>::default()))
-            .init_resource::<GroundTextureSettings>()
-            .init_resource::<GroundTextures>()
-            .add_systems(Update, textures::load_ground_textures)
-            .add_systems(PostUpdate, overlay::apply_overlays);
+        app.add_plugins((
+            LodPlugin,
+            MaterialPlugin::<TerrainMaterial>::default(),
+            gpu_ground::GroundComputePlugin,
+        ))
+        .init_resource::<GroundTextureSettings>()
+        .init_resource::<GroundTextures>()
+        .add_systems(Update, textures::load_ground_textures)
+        .add_systems(PostUpdate, overlay::apply_overlays);
     }
 }
 
@@ -390,23 +395,52 @@ pub(crate) struct ChunkRead {
     /// The palette and texel count; the drawing settings are filled in
     /// when the chunk is drawn.
     surface: TerrainSurface,
+    gpu_paint: Option<Arc<gpu_ground::GpuGroundPaint>>,
 }
 
 impl ChunkRead {
     /// Reads chunk `key` of `source` at `tier`, and paints its ground with
     /// `painter`.
+    #[cfg(test)]
     pub(crate) fn read(
         source: &(impl TerrainSource + ?Sized),
         painter: &(impl GroundPainter + ?Sized),
         key: ChunkKey,
         tier: FeatureTier,
     ) -> Result<Self, ChunkError> {
+        Self::read_with_gpu(source, painter, key, tier, false)
+    }
+
+    fn read_with_gpu(
+        source: &(impl TerrainSource + ?Sized),
+        painter: &(impl GroundPainter + ?Sized),
+        key: ChunkKey,
+        tier: FeatureTier,
+        gpu: bool,
+    ) -> Result<Self, ChunkError> {
         let samples = ChunkSamples::sample(source, key, tier)?;
+        if let Some(stack) = painter
+            .layer_stack()
+            .filter(|s| gpu && gpu_ground::GpuGroundPaint::supported(s))
+        {
+            let grid = Arc::new(procgena_terrain::ground::GroundGrid::chunk(
+                source, key, tier,
+            )?);
+            let (paint, surface) =
+                gpu_ground::GpuGroundPaint::prepare(stack, grid, key).expect("supported stack");
+            return Ok(Self {
+                samples,
+                images: paint.images(),
+                surface,
+                gpu_paint: Some(paint),
+            });
+        }
         let weights = GroundWeights::chunk(painter, source, key, tier)?;
         Ok(Self {
             samples,
             images: weight_images(&weights),
             surface: TerrainSurface::new(&weights, painter.catalogue()),
+            gpu_paint: None,
         })
     }
 
@@ -426,6 +460,7 @@ impl ChunkRead {
                 .clone()
                 .map(|image| weights_part(&image, from, key)),
             surface: parent.surface,
+            gpu_paint: parent.gpu_paint.as_ref().map(|p| p.part(key)),
         }
     }
 }
@@ -547,6 +582,7 @@ fn chunk_material(
         normal: None,
         orh: None,
         overlay: Handle::default(),
+        gpu_paint: read.gpu_paint.clone(),
     };
     let (textures, texture_settings) = textures;
     extension.set_textures(textures.arrays(), texture_settings, level < TEXTURE_LEVELS);
@@ -611,6 +647,7 @@ fn reset_streams(
 #[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn stream_chunks(
     mut commands: Commands,
+    gpu: Option<Res<gpu_ground::Enabled>>,
     settings: Res<TerrainSettings>,
     quality: Res<LodQuality>,
     debug: Res<TerrainDebug>,
@@ -723,8 +760,10 @@ fn stream_chunks(
             state.stream.start(key);
             let ground = Arc::clone(&source.source);
             let painter = Arc::clone(&source.ground);
-            let task = AsyncComputeTaskPool::get()
-                .spawn(async move { ChunkRead::read(&*ground, &*painter, key, tier) });
+            let use_gpu = gpu.as_ref().is_some_and(|g| g.0);
+            let task = AsyncComputeTaskPool::get().spawn(async move {
+                ChunkRead::read_with_gpu(&*ground, &*painter, key, tier, use_gpu)
+            });
             state.tasks.push((key, state.stream.generation, task));
         }
 

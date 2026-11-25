@@ -63,6 +63,9 @@ pub struct TerrainExtension {
     #[texture(109)]
     #[sampler(110)]
     pub overlay: Handle<Image>,
+    /// Pending GPU generation of the weight images, retained for device uploads.
+    #[reflect(ignore)]
+    pub gpu_paint: Option<std::sync::Arc<crate::gpu_ground::GpuGroundPaint>>,
 }
 
 impl TerrainExtension {
@@ -86,6 +89,7 @@ impl TerrainExtension {
             normal: None,
             orh: None,
             overlay: Handle::default(),
+            gpu_paint: None,
         };
         if let Some((textures, settings)) = textures {
             extension.set_textures(textures.arrays(), settings, true);
@@ -191,12 +195,20 @@ impl TerrainSurface {
     /// count, with the default variation, no fade or debug drawing, and no
     /// textures until [`TerrainExtension::set_textures`] gives some.
     pub fn new(weights: &GroundWeights, catalogue: &MaterialCatalogue) -> Self {
+        Self::from_palette(weights.size(), weights.palette(), catalogue)
+    }
+
+    pub(crate) fn from_palette(
+        size: UVec2,
+        palette: &[procgena_terrain::ground::MaterialId],
+        catalogue: &MaterialCatalogue,
+    ) -> Self {
         let list = ground_textures();
         let mut surface = Self {
-            texels: weights.size().as_vec2(),
+            texels: size.as_vec2(),
             ..default()
         };
-        for (slot, &id) in weights.palette().iter().enumerate() {
+        for (slot, &id) in palette.iter().enumerate() {
             let material = catalogue.get(id).1;
             surface.palette[slot] = Vec3::from(material.colour).extend(material.roughness);
 

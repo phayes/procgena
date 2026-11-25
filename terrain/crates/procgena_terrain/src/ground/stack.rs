@@ -338,6 +338,13 @@ impl GroundOverlay {
 /// neighbouring chunks agree at their shared edge, and chunks built in any
 /// order agree.
 pub trait GroundPainter: Sync {
+    /// The complete layer stack, when this painter is exactly that stack.
+    /// Renderers may use it to accelerate painting. Custom painters keep
+    /// the default unless evaluating this stack reproduces `paint`.
+    fn layer_stack(&self) -> Option<&GroundStack> {
+        None
+    }
+
     /// The catalogue the mixes' material ids are from.
     fn catalogue(&self) -> &MaterialCatalogue;
 
@@ -347,6 +354,10 @@ pub trait GroundPainter: Sync {
 }
 
 impl GroundPainter for GroundStack {
+    fn layer_stack(&self) -> Option<&GroundStack> {
+        Some(self)
+    }
+
     fn catalogue(&self) -> &MaterialCatalogue {
         &self.catalogue
     }
