@@ -1738,6 +1738,37 @@ against ARCHITECTURE's "up to about a second" plan budget.
   under a second in release, with the seam, feature and shipped suites
   passing and the new road look accepted.
 
+#### TE6: River speed, to investigate
+
+Asked for by the user 2026-11-25. Rivers look like the opposite of
+roads: their planning is probably cheap and their carving is the cost.
+Read from the code, not measured; profile first.
+
+- **Likely costs, largest first:**
+  1. carving per height read: a valley reaches up to 300 m from the
+     water, so a large share of all samples (chunks, overlays, labels,
+     measures) finds nearby river segments and works out the valley
+     profile, bank, gully grooves and smooth blends between rivers, on
+     top of the border pulls in the same read, and more again with
+     slope;
+  2. the second pass over the 25 m grid with blended heights
+     (`with_heights(base)`), about 10,000 full height reads;
+  3. hollow escapes, a priority flood of up to 4,096 cells per hollow;
+  4. the downhill walk itself, which is cheap.
+- **Speed-ups to investigate:**
+  - bake the river carving per region once, as a height-change grid at
+    2–4 m near rivers, and look it up instead of recomputing per sample
+    (a natural fit for the GPU and the TE3 edit cache);
+  - tighter feature-index lookups, and skip the gully and groove work
+    outside the valley floor;
+  - check whether neighbours' river traces are kept across regions
+    while agreeing crossings; cache them if each region traces about
+    seven times.
+- **Needs:** nothing blocking; keeps to the river and carve files, so it
+  can run beside TE5 if they agree on `plan.rs`.
+- **Done when:** a profile says where river time goes, and the chosen
+  speed-ups land with the seam, feature and shipped suites passing.
+
 #### GPU1: Relief preview on the GPU
 
 - **Covers:**
