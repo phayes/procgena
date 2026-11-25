@@ -1006,6 +1006,16 @@ go to the few copies near the camera.
     use them in tree, dead wood and mushroom. Grass's
     `GroundMaterial` is not a ribbon form and stays for now (see the
     plant open item in the planning talk).
+    Settled further by the user the same day:
+    - **At most one lower mesh level** (revisit if needed), and every
+      asset kind has one: mushrooms and small dead wood pass through
+      their simple geometry too, just quickly, since the switch is by
+      size on screen.
+    - **The preset carries only its `game_level` detail.** The lower
+      mesh level is derived from it by a default rule, not listed in
+      the preset.
+    - **One table, not many:** the shared LOD type shrinks from up to 8
+      levels to these three steps.
   - **Levels switch by size on screen, not by metres.** Thresholds are
     in on-screen size, so copy size, field of view and resolution are
     handled together; the quality level moves the thresholds. This
