@@ -33,8 +33,15 @@ cache. The "before" build is master at `94f835a`.
 
 - **Cold placement is unchanged** (about 1.2 s, mostly measuring stone
   shapes on the CPU).
-- **The logs edit still builds dead wood once per copy.** That is ED's
-  next item.
+- **Dead wood once per variant** (ED, built next). The Ecotope's logs now
+  build each variant once and draw every copy through the shared
+  instanced renderer (`DeadwoodPlacedParams`).
+  - *Effect:* 3 builds instead of 17, and no entity per log (85 fewer
+    mesh entities). The look is unchanged.
+  - *Wall times:* measured back to back at a load of about 200, the log
+    and pine edits stayed within noise (0.55 → 0.66 s and 0.54 → 0.74
+    s). The saving is CPU (about 0.5–0.8 s of build work, from the
+    profile), which this loaded machine hides.
 - **"Everything drawn" for pooled stones counts their impostor bakes.**
   The GPU meshes themselves are not timed separately; they take
   milliseconds.
