@@ -481,7 +481,7 @@ fn material_colour(id: MaterialId, catalogue: &MaterialCatalogue) -> [u8; 3] {
     // other one lighter, so neighbours in the catalogue differ twice over.
     let count = catalogue.len().max(1) as f32;
     let index = f32::from(id.0);
-    let lightness = if id.0 % 2 == 0 { 0.45 } else { 0.68 };
+    let lightness = if id.0.is_multiple_of(2) { 0.45 } else { 0.68 };
     hsl((index / count).fract(), 0.75, lightness)
 }
 
