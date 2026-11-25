@@ -164,7 +164,7 @@ flowchart TD
     TE3b["TE3b Chunk reuse by footprint"]
     TE4a["TE4a Relief bands"]
     TE4b["TE4b Per-tier border negotiation"]
-    TE5["TE5 Faster road search"]
+    TE5["TE5 Road planning revamp"]
     GPU1["GPU1 Relief preview on the GPU"]
     GPU2["GPU2 Ground weights on the GPU"]
 
@@ -1684,14 +1684,44 @@ that name). TE4 is built as two steps; this is the first.
     edit keeps the convergence;
   - the seam, crack and feature suites hold at both tiers.
 
-#### TE5: Faster road search
+#### TE5: Road planning revamp
 
-- **Covers:**
-  - Profile and speed up road routing, about 5 s per near region against
-    ARCHITECTURE's "up to about a second" plan budget.
-  - If still over: a fixed search budget per region with a deterministic
-    fallback.
-  - Macro cells are decided with D4, not here.
+Decided by the user 2026-11-25: a complete revamp of road planning,
+choosing speed over perfection. Roads take about 5 s per near region
+against ARCHITECTURE's "up to about a second" plan budget.
+
+- **Where the time likely goes** (read from the code, not measured):
+  - the 8 m road grid: about 100,000 cells for a 2 km region, each
+    reading the ground height and the road grades, around 200,000
+    expensive height reads before any search;
+  - the A* search over cell × entry direction (about 900,000 states),
+    run once per road start and rerun up to 8 times for refused joins
+    and 8 more for crowded legs, plus a full-grid distance pass per
+    start;
+  - `level_on_roads`, a linear scan over every road point, called inside
+    the search for each network cell reached;
+  - fresh ground samples (centre and both edges) along every attempt.
+  Carving roads into the ground is a per-height-read cost through the
+  feature index, not the multi-second lump.
+- **Research first, then choose for speed.** Compare a few approaches on
+  build time, determinism and how the roads look, and pick the fastest
+  that looks acceptable. Candidates:
+  - coarse-to-fine: route on a coarse grid (32–64 m), then refine only in
+    a corridor around that route;
+  - hierarchical pathfinding (HPA*-style) over region sub-cells;
+  - a road skeleton first (a spanning tree over crossings and the hub,
+    shaped by slope), then local fitting to the ground;
+  - heights and grades for the plan read from one pass over the region's
+    height grid, not a full height read per cell;
+  - no reruns: grade and crowding handled inside one search or by local
+    repair;
+  - a GPU path, in line with the GPU-everywhere goal.
+  Whatever is chosen keeps roads deterministic per region, keeps border
+  crossings agreed with neighbours (the ports), and stays within the
+  plan budget. Roads may look different: the user judges the new look
+  before it lands.
+- **Also:** if still over budget, a fixed search budget per region with
+  a deterministic fallback. Macro cells are decided with D4, not here.
   - The per-point border cost: the convergence fade and the border pulls
     are 78–86% of every height read (measured 2026-11-24). Ways to cut
     it:
@@ -1703,8 +1733,10 @@ that name). TE4 is built as two steps; this is the first.
   files, and should land before TE4b, which also edits the road planning.
   That is a file-sharing order, not a dependency, so it has no arrow in
   the graph.
-- **Done when:** a near region's roads fit the plan budget in release,
-  with roads bit-identical, or their change reported and accepted.
+- **Done when:** a written comparison of the candidates is accepted by
+  the user, and a near region's roads (all of road planning) take well
+  under a second in release, with the seam, feature and shipped suites
+  passing and the new road look accepted.
 
 #### GPU1: Relief preview on the GPU
 
