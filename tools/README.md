@@ -46,8 +46,10 @@ To add or change textures, edit the project's `textures.yml`, then:
 files you place there yourself; the comments in each `textures.yml` say where
 each comes from.
 
-Every surface set comes in three sizes (512, 1k and 2k pixels on the long side)
-and every texture in two formats, both with mipmaps and Zstandard compression:
+Every surface set comes in three sizes (512, 1k and 2k pixels on the long side),
+unless the project's `textures.yml` lists its own `sizes` (from 128, 256, 512,
+1k and 2k; `terrain` uses 128, 512 and 1k). Every texture comes in two
+formats, both with mipmaps and Zstandard compression:
 
 - `bc7` — read directly by GPUs that support BC7, which is most desktops.
 - `uastc` — Basis Universal; the loader converts it for the GPU it runs on (in
