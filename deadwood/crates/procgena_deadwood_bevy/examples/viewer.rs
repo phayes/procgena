@@ -7,7 +7,8 @@
 //!
 //! Move with the free camera: W, A, S and D to fly, E and Q for up and down,
 //! and the mouse to look around while the right button is held (or after
-//! pressing M). Move away to watch pieces switch to simpler detail levels.
+//! pressing M). Move away to watch pieces switch to their lower mesh and
+//! then to their impostor.
 //!
 //! Options:
 //!
@@ -18,7 +19,8 @@
 //! - `--closeup`: start close to what the camera looks at;
 //! - `--distance <metres>`: start this far from what the camera looks at;
 //! - `--orbit <degrees>`: start the camera turned around what it looks at;
-//! - `--flat`: draw everything at the cheapest detail at every distance;
+//! - `--no-impostors`: draw each piece's lower mesh until it is culled
+//!   instead of switching to its impostor;
 //! - `--no-textures`: use vertex colours instead of bark images;
 //! - `--screenshot <file.png>`: save an image once everything has been
 //!   generated, then exit;
@@ -40,10 +42,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core_bevy::instanced::InstancedScatter;
-use procgena_deadwood::{
-    DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, DeadwoodPreset, LodLevel, PieceKind,
-    ScatterOptions, default_lod,
-};
+use procgena_deadwood::{DeadwoodPreset, PieceKind, ScatterOptions};
 use procgena_deadwood_bevy::{
     DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPlugin, DeadwoodScatterParams,
     ScatterGround,
@@ -98,17 +97,6 @@ fn main() {
         DeadwoodPreset::named(&name).unwrap_or_else(|| panic!("no preset called {name:?}"))
     });
 
-    // `--flat` uses only the cheapest detail, drawn out to 200 m.
-    let lod = if has("--flat") {
-        DeadwoodLod::new(
-            DEFAULT_LOD_SIZE,
-            vec![LodLevel::new(0.0, 0.1, DeadwoodDetail::LOW)],
-        )
-        .with_cull(200.0)
-    } else {
-        default_lod()
-    };
-
     // Read bark and end-grain images from the repository's dead wood
     // assets when they are there; otherwise every piece uses vertex colours.
     let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../deadwood/assets");
@@ -123,10 +111,11 @@ fn main() {
     if !textured {
         info!("no textures; run `uv run --project tools textures download deadwood`");
     }
+    let plugin_defaults = DeadwoodPlugin::default();
     let plugin = DeadwoodPlugin {
-        lod,
+        impostor: plugin_defaults.impostor.filter(|_| !has("--no-impostors")),
         texture_root: textured.then(|| "textures".to_owned()),
-        ..DeadwoodPlugin::default()
+        ..plugin_defaults
     };
     // With `--headless`, run without a window on a fixed 60 Hz loop.
     let headless = has("--headless");

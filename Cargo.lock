@@ -5492,6 +5492,7 @@ dependencies = [
  "procgena_core",
  "procgena_core_bevy",
  "procgena_deadwood",
+ "procgena_impostor",
  "procgena_specimen",
 ]
 

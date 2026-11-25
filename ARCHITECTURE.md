@@ -1482,12 +1482,14 @@ Each rule says what every asset does, and which crates have to change.
    - **Without an impostor** (still baking, or turned off), the lower mesh
      is drawn until the cull.
    - Status: the chain types are in `procgena_core::chain` (IX Step 1), and
-     stone draws through them (IX Step 2; its GPU pool through a private
-     translation to the old table until the renderer moves, Step 4).
-     Mushroom draws through them too (IX Step 3): a single mushroom or
-     cluster switches and bakes its impostor as a whole, and a scatter
-     bakes one impostor per body, through the shared renderer with
-     `procgena_core_bevy::instanced::chain_lod`. The
+     stone draws through them (IX Step 2; its GPU pool through
+     `procgena_core_bevy::instanced::chain_lod`, a translation to the old
+     table until the renderer moves, Step 4). Mushroom draws through them
+     too (IX Step 3): a single mushroom or cluster switches and bakes its
+     impostor as a whole, and a scatter bakes one impostor per body,
+     through the shared renderer with `chain_lod`. So does dead wood (IX
+     Step 3): each piece, and each variant of a stick scatter, is sized by
+     its game-level mesh's real bounding sphere. The
      other assets still use the older metre table (`Lod`, `LodLevel`,
      `LevelForm`, `FarForm`) until each moves across; the old types are
      deleted when the last asset moves. The bullets below describe the
@@ -1976,8 +1978,8 @@ it starts.
   `ImpostorKey` is a `SpecimenId` (or a pool's part) plus per-bake
   `BakeSettings`; `Impostors::request` bakes each key once and keeps it
   with a shared material; `ImpostorLevel` places the impostor as the last
-  `LevelForm::Impostor` level. Tree, stone and mushroom use it (mushroom
-  since IX Step 3); under IX every kind ends in an impostor. Assets built on their own, and grove and
+  `LevelForm::Impostor` level. Tree, stone, mushroom and dead wood use it
+  (mushroom and dead wood since IX Step 3); under IX every kind ends in an impostor. Assets built on their own, and grove and
   pool variants today, key their impostor by `SpecimenId(seed, pool, 0)`
   with their own build seed; passing the real slot id is I2's. Still to
   do: baking ahead per Ecotope (I2), and impostors in the shared renderer

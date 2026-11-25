@@ -10,6 +10,7 @@
 use std::fmt;
 
 use glam::{Affine3A, DVec2, Mat3, Quat, Vec2, Vec3};
+use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_core::hash::seed_for;
 use procgena_core::scatter::lattice::{self, Fixed2};
 use procgena_core::scatter::{
@@ -20,7 +21,6 @@ use procgena_core::{CellId, CopyAddress, Quality, SpecimenId};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh};
 use serde::{Deserialize, Serialize};
 
-use crate::detail::{DeadwoodLod, default_lod};
 use crate::options::{DeadwoodOptions, OptionsError, PieceKind, int_range, positive, within};
 use crate::piece::Piece;
 use crate::presets::DeadwoodPreset;
@@ -475,42 +475,36 @@ impl StickScatter {
         &self.instances
     }
 
-    /// Bakes every placed copy into one [`Specimen`], with one level per
-    /// level of `lod`. Each level holds one part per set of tags, with every
+    /// Bakes every placed copy into one [`Specimen`], with the two levels of
+    /// [`Piece::specimen`]: every copy's game-level mesh, then every copy's
+    /// lower mesh. Each level holds one part per set of tags, with every
     /// copy's mesh merged in. Strips are left out, as in [`Piece::specimen`].
-    ///
-    /// # Errors
-    ///
-    /// Returns the first problem with `lod`; see [`crate::validate_lod`].
+    /// The lower level starts where the largest variant's does.
     ///
     /// # Panics
     ///
     /// Panics if a variant's mesh needs more vertices than fit in a 32-bit
     /// index.
-    pub fn specimen(&self, lod: &DeadwoodLod) -> Result<Specimen, OptionsError> {
-        let per_variant: Vec<Specimen> = self
-            .variants
+    pub fn specimen(&self) -> Specimen {
+        let per_variant: Vec<Specimen> = self.variants.iter().map(Piece::specimen).collect();
+        let lower_start = per_variant
             .iter()
-            .map(|v| v.specimen(lod))
-            .collect::<Result<_, _>>()?;
-        let levels = lod
-            .levels
-            .iter()
+            .map(|s| s.levels[1].start)
+            .fold(0.0, f32::max);
+        let levels = [0.0, lower_start]
+            .into_iter()
             .enumerate()
-            .map(|(l, level)| {
+            .map(|(l, start)| {
                 let mut parts: Vec<Part> = Vec::new();
                 for inst in &self.instances {
                     for part in &per_variant[inst.variant as usize].levels[l].parts {
                         merge_part(&mut parts, part, &inst.transform);
                     }
                 }
-                Level {
-                    start: level.distance,
-                    parts,
-                }
+                Level { start, parts }
             })
             .collect();
-        Ok(Specimen { levels })
+        Specimen { levels }
     }
 }
 
@@ -642,10 +636,12 @@ impl Scatter for StickScatter {
     }
 
     fn draw_range(&self) -> f32 {
-        // The default detail levels' cull distance, for the longest piece.
-        let lod = default_lod();
+        // Where the default chain stops drawing the longest piece, measured
+        // by its length or diameter, about its bounding sphere's diameter.
         let longest = self.options.length[1].max(self.options.diameter[1]);
-        lod.cull_distance.unwrap_or(f32::INFINITY) * lod.factor(longest, Quality::High)
+        let factor = DistanceChain::factor(longest, ViewScale::DEFAULT);
+        let [.., impostor] = DistanceChain::DEFAULT.ranges(factor, Quality::High);
+        impostor.fade_out.end
     }
 
     fn slots(&self, world_seed: u32) -> Vec<ScatterSlot> {

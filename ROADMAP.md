@@ -1221,8 +1221,12 @@ go to the few copies near the camera.
     (`chain_lod`); the billboard and flat-cap forms are gone. See the
     plan's "As built (mushroom)". Left: a headless screenshot check
     across the chain, and cluster specimens inside scatters.
-  - **Step 3, next:** dead wood (coordinate with the ED worker first: it
-    is making dead wood build once per copy), tree (presets
+  - **Step 3, dead wood built** on branch `claude/project-thread-4vtiyy`:
+    `DeadwoodOptions::game_level` (default `HIGH`), game level → lower
+    mesh → impostor for single pieces and stick scatters, sized by each
+    game-level mesh's real bounding sphere; `STRIP` and `strip_all` are
+    gone. See the plan's "As built (Step 3, dead wood)".
+  - **Step 3, next:** tree (presets
     default to level 0 as `game_level`; gains a `game_level` on
     `TreeOptions`, which touches ST2's presets), fruit; each drops its
     ribbon far forms. The last kind deletes the old `Lod`, `LodLevel`,

@@ -23,6 +23,7 @@ use procgena_deadwood::{
     DeadwoodOptions, END_TEXTURE_SETS, LeafMap, TextureCompression, TextureMap, TextureSize,
     bark_texture_path, end_texture_path, leaf_texture_path,
 };
+use procgena_impostor::BakeOutput;
 
 use crate::mesh::{ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT};
 
@@ -91,6 +92,10 @@ pub struct DeadwoodExtension {
     #[texture(109)]
     #[sampler(110)]
     pub end_normal: Option<Handle<Image>>,
+    /// What a bake copy of the material draws instead of lit colour; see
+    /// [`bake_copy`]. Ordinary materials draw lit colour.
+    #[reflect(ignore)]
+    pub bake: BakeOutput,
 }
 
 /// Ring, crack, grain and bark settings, laid out as the shaders expect.
@@ -136,13 +141,18 @@ pub struct DeadwoodKey {
     /// Whether the pipeline draws scattered sticks through the shared
     /// instanced renderer.
     pub(crate) instanced: bool,
+    /// What a bake copy draws instead of lit colour.
+    pub(crate) bake: BakeOutput,
 }
 
 impl From<&DeadwoodExtension> for DeadwoodKey {
-    fn from(_: &DeadwoodExtension) -> Self {
+    fn from(extension: &DeadwoodExtension) -> Self {
         // Materials are drawn as single pieces; the instanced renderer asks
         // for its pipelines with `instanced` set.
-        Self { instanced: false }
+        Self {
+            instanced: false,
+            bake: extension.bake,
+        }
     }
 }
 
@@ -192,6 +202,21 @@ impl MaterialExtension for DeadwoodExtension {
                 .attributes
                 .extend(billboard.attributes);
             descriptor.vertex.shader_defs.push("BILLBOARD".into());
+        }
+
+        // Bake copies write the unlit base colour or the normal in the
+        // forward pass instead of lit colour.
+        let prepass = descriptor
+            .vertex
+            .shader_defs
+            .contains(&"PREPASS_PIPELINE".into());
+        let define = match key.bind_group_data.bake {
+            BakeOutput::None => None,
+            BakeOutput::Albedo => Some("BAKE_ALBEDO"),
+            BakeOutput::Normal => Some("BAKE_NORMAL"),
+        };
+        if let (Some(define), false, Some(fragment)) = (define, prepass, &mut descriptor.fragment) {
+            fragment.shader_defs.push(define.into());
         }
         Ok(())
     }
@@ -461,8 +486,18 @@ pub fn deadwood_material(
         bark_roughness: bark.map(|b| b.roughness.clone()),
         end_color: end.map(|e| e.color.clone()),
         end_normal: end.map(|e| e.normal.clone()),
+        bake: BakeOutput::None,
     };
     DeadwoodMaterial { base, extension }
+}
+
+/// A copy of `material` for an impostor bake, drawing `output` (the
+/// unlit base colour, or the surface normal) instead of lit colour. See
+/// [`procgena_impostor`] for how bakes use it.
+pub fn bake_copy(material: &DeadwoodMaterial, output: BakeOutput) -> DeadwoodMaterial {
+    let mut copy = material.clone();
+    copy.extension.bake = output;
+    copy
 }
 
 /// Returns 0 below `a`, 1 above `b`, and a smooth blend between.

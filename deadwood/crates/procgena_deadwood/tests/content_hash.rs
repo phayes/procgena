@@ -87,7 +87,7 @@ fn seed_and_detail_leave_the_hash_alone() {
     let o = DeadwoodOptions::default();
     let mut changed = o.clone();
     changed.default_seed = o.default_seed.wrapping_add(1);
-    changed.detail = DeadwoodDetail::STRIP;
+    changed.game_level = DeadwoodDetail::LOW;
     assert_eq!(OptionsHash::of(&o), OptionsHash::of(&changed));
 }
 

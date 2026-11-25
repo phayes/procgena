@@ -60,7 +60,7 @@ impl ScatterOptions {
 
 /// Writes every setting that shapes or colours the piece. Leaves out
 /// [`DeadwoodOptions::default_seed`], which picks a specimen within the pool
-/// these options name, and [`DeadwoodOptions::detail`], which only changes
+/// these options name, and [`DeadwoodOptions::game_level`], which only changes
 /// how finely the same piece is meshed.
 impl ContentHash for DeadwoodOptions {
     fn content_hash(&self, h: &mut ContentHasher) {
@@ -81,7 +81,7 @@ impl ContentHash for DeadwoodOptions {
             leaves,
             material,
             settle,
-            detail: _,
+            game_level: _,
         } = self;
         kind.content_hash(h);
         h.write_f32(*decay);
@@ -356,7 +356,6 @@ impl ContentHash for DeadwoodDetail {
             cap_rings,
             min_radius,
             ribbon_radius,
-            strip_all,
             leaf_share,
         } = self;
         h.write_u32(*sides);
@@ -364,7 +363,6 @@ impl ContentHash for DeadwoodDetail {
         h.write_u32(*cap_rings);
         h.write_f32(*min_radius);
         h.write_f32(*ribbon_radius);
-        h.write_bool(*strip_all);
         h.write_f32(*leaf_share);
     }
 }
