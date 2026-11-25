@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::scene::Scene;
 use bevy::ui_widgets::Activate;
 
-use super::documents::{CloseDocument, Document, Selection};
+use super::documents::{CloseDocument, Document, DocumentSettings, Selection};
 use super::kinds::Kinds;
 use super::layout::InspectorTitle;
 
@@ -137,25 +137,30 @@ fn close_clicked(activate: On<Activate>, buttons: Query<&CloseButton>, mut comma
 }
 
 /// Titles the Inspector with the selected document's name and key, such as
-/// `Oak Medium (oak_medium) · built-in`.
+/// `Oak Medium (oak_medium) · built-in`, ending with ` · unsaved` while it
+/// has unsaved changes.
 fn show_title(
     selection: Res<Selection>,
-    documents: Query<&Document>,
+    documents: Query<(&Document, Option<&DocumentSettings>)>,
     mut title: Single<&mut Text, With<InspectorTitle>>,
 ) {
-    if !selection.is_changed() {
-        return;
-    }
     let text = selection
         .document
         .and_then(|document| documents.get(document).ok())
-        .map_or_else(String::new, |document| {
+        .map_or_else(String::new, |(document, state)| {
+            let unsaved = if state.is_some_and(DocumentSettings::is_unsaved) {
+                " · unsaved"
+            } else {
+                ""
+            };
             format!(
-                "{} ({}) · {}",
+                "{} ({}) · {}{unsaved}",
                 document.name,
                 document.key,
                 document.origin.label()
             )
         });
-    title.0 = text;
+    if title.0 != text {
+        title.0 = text;
+    }
 }

@@ -1097,15 +1097,37 @@ impl Registry {
     /// The built-in preset at the root of the `base` chain of `document`,
     /// the project file `key`, if the chain ends in one.
     fn root_builtin<P: Preset>(&self, key: &str, document: &Document) -> Option<&'static P> {
+        P::named(&self.chain_root(P::KIND, key, document)?)
+    }
+
+    /// The key of the built-in preset that the preset of kind `kind` named
+    /// by `reference` is written over, through its whole `base` chain: the
+    /// preset itself for a built-in one. `None` for a reference that names
+    /// no single preset, and for a project preset whose chain ends without
+    /// a built-in base or loops.
+    #[must_use]
+    pub fn builtin_root(&self, kind: &str, reference: &str) -> Option<String> {
+        match self.find(kind, reference).ok()? {
+            (Layer::BuiltIn, key) => Some(key),
+            (Layer::Project, key) => {
+                let document = &self.project_preset(kind, &key)?.document;
+                self.chain_root(kind, &key, document)
+            }
+        }
+    }
+
+    /// The key of the built-in preset at the root of the `base` chain of
+    /// `document`, the project file `key` of kind `kind`.
+    fn chain_root(&self, kind: &str, key: &str, document: &Document) -> Option<String> {
         let mut file = key.to_owned();
         let mut base = document.base.clone();
         let mut steps = 0;
         while let Some(reference) = base {
-            let (layer, found) = self.find_base(P::KIND, &reference, &file).ok()?;
+            let (layer, found) = self.find_base(kind, &reference, &file).ok()?;
             match layer {
-                Layer::BuiltIn => return P::named(&found),
+                Layer::BuiltIn => return Some(found),
                 Layer::Project => {
-                    base = self.project_preset(P::KIND, &found)?.document.base.clone();
+                    base = self.project_preset(kind, &found)?.document.base.clone();
                     file = found;
                 }
             }
@@ -1116,6 +1138,20 @@ impl Registry {
             }
         }
         None
+    }
+
+    /// The `base` a new project file named `new_key` of kind `kind` writes
+    /// to be written over the preset `key` in `layer`: the bare key when
+    /// that file would read it back as that preset, and otherwise the key
+    /// with its layer's namespace, such as `builtin:pine_small` when the
+    /// project has its own `pine_small`.
+    #[must_use]
+    pub fn base_for(&self, kind: &str, new_key: &str, layer: Layer, key: &str) -> String {
+        let target = Ok((layer, key.to_owned()));
+        if self.find_in(kind, key, Some(Layer::Project), Some(new_key)) == target {
+            return key.to_owned();
+        }
+        self.qualified(layer, key)
     }
 
     /// The preset of type `P` that `reference` names (see [`Reference`]):

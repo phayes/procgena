@@ -5,8 +5,8 @@
 
 use bevy::prelude::*;
 
-use super::documents::{CloseDocument, Document, Selection};
-use crate::scene::ViewerCommand;
+use super::documents::{CloseDocument, Document, Selection, save};
+use crate::scene::{CameraMode, ViewerCommand};
 
 /// One named command.
 #[derive(Clone, Copy)]
@@ -85,6 +85,28 @@ impl Plugin for CommandsPlugin {
                 },
             },
             StudioCommand {
+                name: "orbit-camera",
+                description: "Orbits the camera around the point in front of it.",
+                run: |world| {
+                    world.write_message(ViewerCommand::SetCameraMode(CameraMode::Orbit));
+                },
+            },
+            StudioCommand {
+                name: "fly-camera",
+                description: "Flies the camera with WASD, Space and Shift.",
+                run: |world| {
+                    world.write_message(ViewerCommand::SetCameraMode(CameraMode::Fly));
+                },
+            },
+            StudioCommand {
+                name: "toggle-camera-mode",
+                description: "Switches the camera between orbiting and flying.",
+                run: |world| {
+                    let mode = super::camera::toggled(*world.resource::<CameraMode>());
+                    world.write_message(ViewerCommand::SetCameraMode(mode));
+                },
+            },
+            StudioCommand {
                 name: "close-document",
                 description: "Closes the selected document.",
                 run: |world| {
@@ -102,6 +124,31 @@ impl Plugin for CommandsPlugin {
                 name: "previous-document",
                 description: "Selects the document opened before the selected one.",
                 run: |world| step_document(world, -1),
+            },
+            StudioCommand {
+                name: "undo",
+                description: "Undoes the selected document's last change.",
+                run: save::undo_selected,
+            },
+            StudioCommand {
+                name: "redo",
+                description: "Redoes the selected document's last undone change.",
+                run: save::redo_selected,
+            },
+            StudioCommand {
+                name: "save",
+                description: "Saves the selected document; a built-in preset is saved as new.",
+                run: save::save,
+            },
+            StudioCommand {
+                name: "save-as-new",
+                description: "Asks for a key and saves the selected document as a new preset.",
+                run: save::save_as_new,
+            },
+            StudioCommand {
+                name: "reset-to-base",
+                description: "Sets the selected document back to the preset it is written over.",
+                run: save::reset_to_base,
             },
         ] {
             commands.register(command);
@@ -160,9 +207,7 @@ pub fn select_path(world: &mut World, path: &str) -> Result<(), String> {
         let ids: Vec<&str> = kinds.iter().map(|kind| kind.id).collect();
         return Err(format!("no kind {kind:?}; there are {}", ids.join(", ")));
     };
-    if !(kind.presets)().iter().any(|preset| preset.key == key) {
-        return Err(format!("no {} preset {key:?}", kind.id));
-    }
+    super::documents::can_open(kind, key, world.resource::<super::project::Presets>())?;
     world.trigger(super::OpenDocument {
         kind: kind.id,
         key: key.to_owned(),

@@ -30,6 +30,7 @@ pub fn register(app: &mut App) {
             start: crate::grove::START_PRESET,
             spawn_editor: spawn_grove_editor,
             show,
+            settings: None,
             detail_levels: &[],
             hidden_environment: crate::environment::TREE_SCATTER,
             status_line: status::grove_line,

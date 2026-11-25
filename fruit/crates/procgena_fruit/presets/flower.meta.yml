@@ -1,0 +1,241 @@
+# What tools that edit flower presets show for each setting. Kept in step
+# with FruitOptions by tests/meta.rs. Fruit presets share the options and
+# have fruit.meta.yml.
+kind: flower
+name: Flower
+description: "A flower cluster, such as a single bloom, a spray of blossom or a catkin, grown on trees."
+parts:
+  cluster:
+    name: Cluster
+    description: "How the flowers are arranged and the stalks that carry them."
+  flower:
+    name: Flower
+    description: "Each flower's petals, centre and colours."
+    tags: [flower]
+sections:
+  - title: Cluster
+    part: cluster
+    settings: [facing, size, size_variance, maturity]
+    groups:
+      - title: Arrangement
+        settings: [cluster.arrangement, cluster.items, cluster.items_variance, cluster.spread, cluster.axis_length, cluster.droop, cluster.taper, cluster.side_stalks, cluster.side_length, cluster.stalk_length, cluster.stalk_radius, cluster.stalk_color]
+  - title: Flower
+    part: flower
+    groups:
+      - title: Petals
+        shown_if: "cluster.arrangement != catkin"
+        settings: [item.petal_count, item.rings, item.petal_length, item.petal_width, item.cup, item.curl, item.notch, item.petal_segments, item.center_size]
+      - title: Colour
+        settings: [item.petal_color, item.base_color, item.center_color, item.bud_color, item.fade_color]
+  - title: Variation
+    part: cluster
+    settings: [variation.maturity_spread, variation.hue_spread, variation.blush_spread, variation.shape_jitter, variation.stem_curve_jitter]
+conditions:
+  several: "cluster.arrangement != single"
+  main_stem: "cluster.arrangement in [raceme, panicle, catkin]"
+settings:
+  default_seed:
+    label: Seed
+    description: "The seed of a cluster built on its own."
+    hidden: true
+  facing:
+    label: Facing
+    description: "Which way the cluster faces on its branch: hanging down, pointing up, or straight out."
+    choices:
+      - { value: hang, label: Hang }
+      - { value: up, label: Up }
+      - { value: outward, label: Outward }
+  size:
+    label: Size
+    description: "How big each flower is, in metres, before it varies."
+    range: [0.005, 0.5]
+    step: 0.005
+    scale: exponential
+    revive: 0.1
+  size_variance:
+    label: Size Variance
+    description: "How much sizes vary, from all the same at 0. At 0.2 they range from 80% to 120%."
+    range: [0, 1]
+    step: 0.01
+  maturity:
+    label: Bloom
+    description: "How far the flowers have opened: a closed bud at 0, fully open at 0.5, faded at 1."
+    range: [0, 1]
+    step: 0.01
+  cluster.arrangement:
+    label: Kind
+    description: "How the items are arranged: one alone, fanned from a point, along a stem, in a branching bunch, or packed along a catkin."
+    choices:
+      - { value: single, label: Single }
+      - { value: umbel, label: Umbel }
+      - { value: raceme, label: Raceme }
+      - { value: panicle, label: Panicle }
+      - { value: catkin, label: Catkin }
+  cluster.items:
+    label: Items
+    description: "How many items each cluster has."
+    range: [1, 60]
+    step: 1
+    shown_if: "@several"
+    revive: 6
+  cluster.items_variance:
+    label: Items Variance
+    description: "How much the number of items varies from cluster to cluster."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@several"
+  cluster.spread:
+    label: Spread
+    description: "How far stalks fan out, in degrees. For a catkin, how far the items themselves turn."
+    range: [0, 90]
+    step: 1
+    shown_if: "@several"
+    revive: 30
+  cluster.axis_length:
+    label: Axis Length
+    description: "How long the main stem is, in metres."
+    range: [0, 1]
+    step: 0.005
+    shown_if: "@main_stem"
+    revive: 0.2
+  cluster.droop:
+    label: Droop
+    description: "How much the main stem and side stems bend toward the ground."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@main_stem"
+  cluster.taper:
+    label: Taper
+    description: "How much smaller items get toward the main stem's tip."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@main_stem"
+  cluster.side_stalks:
+    label: Side Stalks
+    description: "How many side stems a branching bunch has."
+    range: [1, 12]
+    step: 1
+    shown_if: "cluster.arrangement == panicle"
+  cluster.side_length:
+    label: Side Length
+    description: "How long each side stem is, compared with the main stem."
+    range: [0, 2]
+    step: 0.01
+    shown_if: "cluster.arrangement == panicle"
+    revive: 0.4
+  cluster.stalk_length:
+    label: Stalk Length
+    description: "How long each item's own stalk is, in metres. For a catkin, its bare stem before the items begin."
+    range: [0, 0.3]
+    step: 0.001
+    scale: exponential
+  cluster.stalk_radius:
+    label: Stalk Radius
+    description: "How thick the stalks and stems are, in metres."
+    range: [0, 0.02]
+    step: 0.0005
+    scale: exponential
+    shown_if: "!(cluster.arrangement in [single, umbel]) || cluster.stalk_length > 0"
+    revive: 0.003
+  cluster.stalk_color:
+    label: Stalk Colour
+    description: "The colour of the stalks and stems."
+    color: true
+    shown_if: "!(cluster.arrangement in [single, umbel]) || cluster.stalk_length > 0"
+  item.kind:
+    label: Item
+    description: "Whether the items are fruit or flowers."
+    hidden: true
+  item.petal_count:
+    label: Petals
+    description: "How many petals each ring has."
+    range: [1, 20]
+    step: 1
+  item.rings:
+    label: Rings
+    description: "How many layers of petals surround the centre."
+    range: [1, 6]
+    step: 1
+  item.petal_length:
+    label: Petal Length
+    description: "How long the petals are, compared with the flower."
+    range: [0, 2]
+    step: 0.01
+    revive: 0.5
+  item.petal_width:
+    label: Petal Width
+    description: "How wide the petals are, compared with the flower."
+    range: [0, 1.5]
+    step: 0.01
+    revive: 0.35
+  item.cup:
+    label: Cup
+    description: "How much the petals curve up into a cup."
+    range: [0, 1]
+    step: 0.01
+  item.curl:
+    label: Curl
+    description: "How much the petal tips curl back."
+    range: [0, 1]
+    step: 0.01
+  item.notch:
+    label: Notch
+    description: "How deep the notch at each petal's tip is."
+    range: [0, 1]
+    step: 0.01
+  item.petal_segments:
+    label: Petal Segments
+    description: "How many pieces each petal is built from. More give smoother curves."
+    range: [1, 12]
+    step: 1
+  item.center_size:
+    label: Centre Size
+    description: "How big the flower's centre is. At 0 there is none."
+    range: [0, 1]
+    step: 0.01
+  item.petal_color:
+    label: Petal
+    description: "The colour of the petals' tips. A catkin's bumps use it too."
+    color: true
+  item.base_color:
+    label: Petal Base
+    description: "The colour of the petals where they meet the centre."
+    color: true
+  item.center_color:
+    label: Centre
+    description: "The colour of the flower's centre."
+    color: true
+    shown_if: "item.center_size > 0"
+  item.bud_color:
+    label: Bud
+    description: "The colour of a closed bud."
+    color: true
+  item.fade_color:
+    label: Faded
+    description: "The colour a flower fades to as it finishes."
+    color: true
+  variation.maturity_spread:
+    label: Maturity Spread
+    description: "How much the bloom varies from flower to flower."
+    range: [0, 1]
+    step: 0.01
+  variation.hue_spread:
+    label: Hue Spread
+    description: "How much the colour's hue varies from flower to flower."
+    range: [0, 1]
+    step: 0.01
+  variation.blush_spread:
+    label: Blush Spread
+    description: "How much the blush varies from item to item. Flowers have no blush."
+    range: [0, 1]
+    step: 0.01
+  variation.shape_jitter:
+    label: Shape Jitter
+    description: "How much each flower's shape varies."
+    range: [0, 1]
+    step: 0.01
+  variation.stem_curve_jitter:
+    label: Stem Curve Jitter
+    description: "How much each item's stem bend varies."
+    range: [0, 1]
+    step: 0.01

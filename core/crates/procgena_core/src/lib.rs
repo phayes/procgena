@@ -24,6 +24,8 @@
 //! - [`choose_slot`]: which specimen of a pool a placed copy draws.
 //! - [`preset`]: named, ready-made options in catalogues, and `.<kind>.yml`
 //!   preset files that name a base preset and give only what differs.
+//! - [`meta`]: each kind's names, parts and settings metadata, read from
+//!   `<kind>.meta.yml` files, for tools that edit presets.
 //!
 //! This crate uses no game engine. Code about one generated specimen's
 //! shape belongs in `procgena_specimen`, which builds on this crate.
@@ -33,6 +35,7 @@ mod content_hash;
 mod ground;
 pub mod hash;
 mod lod;
+pub mod meta;
 pub mod preset;
 mod quality;
 mod rng;

@@ -1,0 +1,155 @@
+# What tools that edit stone presets show for each setting. Kept in step
+# with StoneOptions by tests/meta.rs.
+kind: stone
+name: Stone
+description: "One rock: a ball carved by cuts, roughened, and textured."
+parts:
+  rock:
+    name: Rock
+    description: "The whole rock: its shape, surface and look."
+    tags: [rock]
+sections:
+  - title: Shape
+    part: rock
+    settings: [scale, stretch.0, stretch.1, stretch.2]
+  - title: Carving
+    part: rock
+    settings: [carve.steps, carve.smoothness, carve.base_radius, carve.radius_min, carve.radius_jitter, carve.depth, carve.blockiness]
+  - title: Placement
+    part: rock
+    settings: [placement.settle, placement.max_embed_fraction, placement.min_embed_fraction]
+  - title: Surface
+    part: rock
+    settings: [surface.displacement_scale, surface.displacement_spread, surface.octaves]
+  - title: Material
+    part: rock
+    settings: [material.texture, material.color, material.roughness, material.texture_size]
+  - title: Mesh
+    part: rock
+    settings: [mesh.mesher, mesh.detail]
+settings:
+  default_seed:
+    label: Seed
+    description: "The seed of a rock built on its own. A rock in a Scatter takes its seed from there."
+    hidden: true
+  scale:
+    label: Size
+    unit: m
+    description: "How wide the rock is."
+    range: [0.05, 10]
+    step: 0.05
+    scale: exponential
+  stretch.0:
+    label: Stretch X
+    description: "The rock's width from side to side, compared with its other sides. The longest side keeps the full size."
+    range: [0.1, 1]
+    step: 0.01
+  stretch.1:
+    label: Stretch Y
+    description: "The rock's height, compared with its other sides. Lower it for a flatter rock."
+    range: [0.1, 1]
+    step: 0.01
+  stretch.2:
+    label: Stretch Z
+    description: "The rock's depth from front to back, compared with its other sides."
+    range: [0.1, 1]
+    step: 0.01
+  carve.steps:
+    label: Cuts
+    description: "How many cuts shape the rock. With none it stays a rough ball."
+    range: [0, 72]
+    step: 1
+  carve.smoothness:
+    label: Edge Softness
+    description: "How rounded the edges between cuts are. Higher values soften edges and wear the rock down more."
+    range: [0.005, 0.5]
+    step: 0.005
+    scale: exponential
+  carve.base_radius:
+    label: Starting Radius
+    description: "The size of the ball the cuts start from. At 1 it touches the sides of the rock's box."
+    range: [0.3, 1]
+    step: 0.01
+  carve.radius_min:
+    label: Cut Distance
+    description: "How far each cut comes from. Distant cuts leave large, nearly flat faces."
+    range: [0.5, 10]
+    step: 0.1
+  carve.radius_jitter:
+    label: Cut Distance Variation
+    description: "How much the cut distance varies from cut to cut. At 0 every cut is the same size."
+    range: [0, 5]
+    step: 0.1
+  carve.depth:
+    label: Cut Depth
+    description: "How deep each cut goes. Too deep and a cut can remove the whole rock."
+    range: [0.1, 1.2]
+    step: 0.01
+  carve.blockiness:
+    label: Blockiness
+    description: "How much the cuts line up with the rock's sides. Higher values make a boxier rock."
+    range: [0, 1]
+    step: 0.01
+  placement.settle:
+    label: Settle
+    description: "Turns the rock onto the side it would rest on if dropped. Turn it off for standing stones."
+  placement.max_embed_fraction:
+    label: Max Embed
+    description: "The most of the rock's height that may be sunk into the ground."
+    range: [0.05, 1]
+    step: 0.01
+  placement.min_embed_fraction:
+    label: Min Embed
+    description: "The least of the rock's height that is sunk into the ground, so straight-sided rocks don't look set on top of it."
+    range: [0, 0.5]
+    step: 0.01
+  surface.displacement_scale:
+    label: Roughness Strength
+    description: "How deep the surface's bumps and pits are. At 0 the rock is smooth."
+    range: [0, 0.5]
+    step: 0.005
+  surface.displacement_spread:
+    label: Roughness Frequency
+    description: "How close together the bumps are. Higher values give smaller, finer detail."
+    range: [1, 30]
+    step: 0.5
+    scale: exponential
+  surface.octaves:
+    label: Roughness Layers
+    description: "How many layers of ever finer bumps are added. More layers take longer to build."
+    range: [1, 8]
+    step: 1
+  material.texture:
+    label: Texture
+    description: "The set of images that colours the rock."
+    choices: texture_sets
+  material.color:
+    label: Tint
+    description: "A colour the texture is multiplied by. White keeps the texture's own colours."
+    color: true
+  material.roughness:
+    label: Matte
+    description: "How rough the surface looks, from polished at 0 to fully matte at 1."
+    range: [0, 1]
+    step: 0.01
+  material.metallic:
+    label: Metallic
+    description: "How metallic the whole surface looks, from stone at 0 to bare metal at 1."
+    hidden: true
+  material.texture_size:
+    label: Texture Size
+    unit: m
+    description: "How much of the rock one repeat of the texture covers. Larger values make the texture's features larger."
+    range: [0.05, 5]
+    step: 0.05
+    scale: exponential
+  mesh.mesher:
+    label: Mesher
+    description: "How the surface is turned into triangles. Dual Contouring keeps sharper corners; Marching Cubes gives softer ones."
+    choices:
+      - { value: marching_cubes, label: Marching Cubes }
+      - { value: dual_contouring, label: Dual Contouring }
+  mesh.detail:
+    label: Detail
+    description: "How finely the rock is built at each distance. Higher detail looks better close up and takes longer to build."
+    choices: details

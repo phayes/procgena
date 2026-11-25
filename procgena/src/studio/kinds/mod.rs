@@ -19,6 +19,7 @@ mod tree_scatter;
 
 use bevy::prelude::*;
 
+use super::documents::history::EditorSettings;
 use super::status::BuildState;
 use crate::scene::Show;
 
@@ -53,6 +54,10 @@ pub struct Kind {
     /// What the scene shows for the editor `editor`, for the document whose
     /// id is given, or `None` before the editor is ready.
     pub show: fn(&mut World, Entity, u64) -> Option<Show>,
+    /// How documents read and set the settings the editor shows, for undo,
+    /// unsaved state, saving and opening project presets. `None` for kinds
+    /// that can't do these yet.
+    pub settings: Option<EditorSettings>,
     /// The names of the detail levels the Detail control can force, most
     /// detailed first, or none for kinds without levels.
     pub detail_levels: &'static [&'static str],

@@ -279,6 +279,7 @@ pub mod export;
 mod jiggle;
 mod material;
 mod mesh;
+mod meta;
 mod options;
 mod part;
 mod presets;
@@ -305,6 +306,7 @@ pub use mesh::{
     LOD_CULL_DISTANCE, LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh,
     default_lod,
 };
+pub use meta::{TREE_META, TREE_SCATTER_META, meta_choices};
 pub use options::{
     BarkOptions, BarkUvMode, Billboard, BranchOptions, GrowthForce, LeafOptions, MAX_LEVELS,
     OptionsError, PerLevel, TreeOptions, TreeType, TrellisForce, TrellisOptions,

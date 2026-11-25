@@ -1,0 +1,536 @@
+# What tools that edit tree presets show for each setting. Kept in step
+# with TreeOptions by tests/meta.rs.
+kind: tree
+name: Tree
+description: "One tree: trunk, branches, leaves, and optional fruit and flowers."
+parts:
+  bark:
+    name: Bark
+    description: "The bark texture and tint on the trunk and branches."
+    tags: [bark]
+  branch:
+    name: Branches
+    description: "The trunk and every level of branches: how many, how long and how they grow."
+    tags: [trunk, limb, branch]
+  leaf:
+    name: Leaves
+    description: "The leaves on the outermost branches."
+    tags: [leaf]
+  fruit:
+    name: Fruit
+    description: "Fruit clusters growing on the branches, from a fruit preset."
+    tags: [fruit]
+    attached: fruit
+  flower:
+    name: Flowers
+    description: "Flower clusters growing on the branches, from a flower preset."
+    tags: [flower]
+    attached: flower
+  trellis:
+    name: Trellis
+    description: "A wire grid that pulls branches toward it as they grow."
+
+# Branch level L grows when every level above it does: it is within the
+# tree's levels, and its parent grows side branches or (on deciduous trees)
+# continues at its tip. "side" levels grow side branches of their own
+# parent, so they use their own angle, start, radius and segments.
+conditions:
+  grows_0: "branch.levels >= 0"
+  grows_1: "branch.levels >= 1 && (type == deciduous || branch.children.0 > 0)"
+  grows_2: "@grows_1 && branch.levels >= 2 && (type == deciduous || branch.children.1 > 0)"
+  grows_3: "@grows_2 && branch.levels >= 3 && (type == deciduous || branch.children.2 > 0)"
+  side_0: "branch.levels >= 0"
+  side_1: "branch.levels >= 1 && branch.children.0 > 0"
+  side_2: "@grows_1 && branch.levels >= 2 && branch.children.1 > 0"
+  side_3: "@grows_2 && branch.levels >= 3 && branch.children.2 > 0"
+  children_0: "branch.levels > 0"
+  children_1: "branch.levels > 1 && @grows_1"
+  children_2: "branch.levels > 2 && @grows_2"
+  has_leaves: "leaves.count > 0 && ((branch.levels == 0) || (branch.levels == 1 && @grows_1) || (branch.levels == 2 && @grows_2) || (branch.levels == 3 && @grows_3))"
+  fruit_sides: "fruit.placement.count > 0 || fruit.placement.density > 0"
+  fruit_grows: "@fruit_sides || fruit.placement.tips > 0"
+  flowers_sides: "flowers.placement.count > 0 || flowers.placement.density > 0"
+  flowers_grows: "@flowers_sides || flowers.placement.tips > 0"
+
+sections:
+  - title: Bark
+    part: bark
+    settings: [bark.tint, bark.flat_shading, bark.textured]
+    groups:
+      - shown_if: bark.textured
+        settings: [bark.type, bark.texture_scale.x, bark.texture_scale.y, bark.uv_mode]
+  - title: Branches
+    part: branch
+    settings: [type, branch.levels, branch.stems, branch.stem_angle]
+    groups:
+      - title: Growth Direction
+        settings: [branch.force.strength]
+      - shown_if: "branch.force.strength != 0"
+        settings: [branch.force.direction.x, branch.force.direction.y, branch.force.direction.z]
+      - title: Trunk
+        settings: [branch.length.0, branch.radius.0, branch.gnarliness.0, branch.twist.0, branch.taper.0, branch.sections.0, branch.segments.0, branch.children.0]
+      - title: Level 1
+        settings: [branch.length.1, branch.radius.1, branch.angle.1, branch.start.1, branch.gnarliness.1, branch.twist.1, branch.taper.1, branch.sections.1, branch.segments.1, branch.children.1]
+      - title: Level 2
+        settings: [branch.length.2, branch.radius.2, branch.angle.2, branch.start.2, branch.gnarliness.2, branch.twist.2, branch.taper.2, branch.sections.2, branch.segments.2, branch.children.2]
+      - title: Level 3
+        settings: [branch.length.3, branch.radius.3, branch.angle.3, branch.start.3, branch.gnarliness.3, branch.twist.3, branch.taper.3, branch.sections.3, branch.segments.3]
+  - title: Leaves
+    part: leaf
+    settings: [leaves.count]
+    groups:
+      - shown_if: "@has_leaves"
+        settings: [leaves.start, leaves.angle, leaves.flatten]
+      - shown_if: "@has_leaves"
+        settings: [leaves.type, leaves.tint, leaves.billboard, leaves.size, leaves.size_variance, leaves.alpha_test, leaves.rounded_normals]
+  - title: Fruit
+    part: fruit
+    groups:
+      - custom: cluster_picker
+        settings: [fruit]
+      - title: Placement
+        settings: [fruit.placement.count, fruit.placement.density, fruit.placement.tips, fruit.placement.min_level, fruit.placement.start, fruit.placement.facing_jitter, fruit.placement.scale, fruit.placement.scale_variance, fruit.default_slots]
+  - title: Flowers
+    part: flower
+    groups:
+      - custom: cluster_picker
+        settings: [flowers]
+      - title: Placement
+        settings: [flowers.placement.count, flowers.placement.density, flowers.placement.tips, flowers.placement.min_level, flowers.placement.start, flowers.placement.facing_jitter, flowers.placement.scale, flowers.placement.scale_variance, flowers.default_slots]
+  - title: Trellis
+    part: trellis
+    settings: [trellis.enabled, trellis.visible]
+    groups:
+      - title: Position
+        shown_if: trellis.enabled
+        settings: [trellis.position.x, trellis.position.y, trellis.position.z]
+      - title: Dimensions
+        shown_if: trellis.enabled
+        settings: [trellis.width, trellis.height, trellis.spacing]
+      - title: Force
+        shown_if: trellis.enabled
+        settings: [trellis.force.strength, trellis.force.max_distance, trellis.force.falloff]
+      - title: Appearance
+        shown_if: "trellis.enabled && trellis.visible"
+        settings: [trellis.cylinder_radius, trellis.color]
+
+settings:
+  default_seed:
+    label: Seed
+    description: "The seed of a tree built on its own. A tree in a Scatter takes its seed from there."
+    hidden: true
+  type:
+    label: Tree Type
+    description: "Deciduous trees continue each branch at its tip and grow a leaf there; evergreen branches taper to a point."
+    choices:
+      - { value: deciduous, label: Deciduous }
+      - { value: evergreen, label: Evergreen }
+
+  # Bark
+  bark.tint:
+    label: Tint
+    description: "A colour the bark is multiplied by. White keeps the texture's own colours."
+    color: true
+  bark.flat_shading:
+    label: Flat Shading
+    description: "Shades the bark in flat facets instead of a smooth surface."
+  bark.textured:
+    label: Textured
+    description: "Draws the bark with a texture. Off, it is a plain colour."
+  bark.type:
+    label: Type
+    description: "The bark texture."
+    choices: bark_kinds
+  bark.texture_scale.x:
+    label: Texture Scale X
+    description: "How many times the bark texture repeats around the branches, per metre of branch radius."
+    range: [5, 200]
+    step: 1
+    scale: exponential
+  bark.texture_scale.y:
+    label: Texture Scale Y
+    description: "How far the bark texture is stretched along the branches."
+    range: [0.5, 20]
+    step: 0.1
+    scale: exponential
+  bark.uv_mode:
+    label: UV Mode
+    description: "How the bark images repeat along branches. Continuous is needed for bark normal maps."
+    choices:
+      - { value: mirrored, label: Mirrored }
+      - { value: continuous, label: Continuous }
+
+  # Branches
+  branch.levels:
+    label: Levels
+    description: "How many levels of branches grow above the trunk."
+    range: [0, 3]
+    step: 1
+  branch.stems:
+    label: Stems
+    description: "How many stems grow from the ground. Several make a multi-stemmed shrub."
+    range: [1, 40]
+    step: 1
+    scale: exponential
+  branch.stem_angle:
+    label: Stem Angle
+    unit: °
+    description: "How far the stems of a multi-stemmed shrub lean out from upright."
+    range: [0, 90]
+    step: 1
+    shown_if: "branch.stems > 1"
+    revive: 20
+  branch.force.strength:
+    label: Strength
+    description: "How strongly branches bend toward a direction as they grow. Below 0 they turn away; at 0 there is no pull. Thin branches bend more."
+    range: [-0.01, 0.01]
+    step: 0.0001
+    scale: exponential
+  branch.force.direction.x:
+    label: Direction X
+    description: "The direction branches bend toward, side to side."
+    range: [-1, 1]
+    step: 0.01
+  branch.force.direction.y:
+    label: Direction Y
+    description: "The direction branches bend toward, up and down. 1 pulls them upward."
+    range: [-1, 1]
+    step: 0.01
+  branch.force.direction.z:
+    label: Direction Z
+    description: "The direction branches bend toward, front to back."
+    range: [-1, 1]
+    step: 0.01
+  branch.length.*:
+    label: Length
+    description: "How long the branches of this level are, in metres."
+    range: [0, 10]
+    step: 0.01
+    scale: exponential
+    shown_if: "@grows_{index}"
+    revive: { from: "branch.length.{parent}", times: 0.6, min: 0.3 }
+  branch.radius.0:
+    label: Radius
+    description: "How thick the trunk is at its base, in metres."
+    range: [0.01, 0.5]
+    step: 0.001
+    scale: exponential
+  branch.radius.*:
+    label: Radius ×
+    description: "How thick the branches of this level are, compared with their parent."
+    range: [0.1, 5]
+    step: 0.01
+    scale: exponential
+    shown_if: "@side_{index}"
+    revive: 0.7
+  branch.angle.0:
+    label: Angle
+    description: "The trunk has no angle of its own."
+    hidden: true
+  branch.angle.*:
+    label: Angle
+    unit: °
+    description: "The angle between these branches and their parent."
+    range: [0, 180]
+    step: 1
+    shown_if: "@side_{index}"
+    revive: 45
+  branch.start.0:
+    label: Start Position
+    description: "The trunk has no start position of its own."
+    hidden: true
+  branch.start.*:
+    label: Start Position
+    description: "How far along their parent these branches start, from its base at 0 to its tip at 1."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@side_{index}"
+  branch.gnarliness.*:
+    label: Gnarliness
+    description: "How much the branches twist and kink at random. Below 0 they kink the other way."
+    range: [-0.5, 0.5]
+    step: 0.01
+    shown_if: "@grows_{index}"
+  branch.twist.*:
+    label: Twist
+    description: "How much the branches twist around their own length."
+    range: [-0.5, 0.5]
+    step: 0.01
+    shown_if: "@grows_{index}"
+  branch.taper.*:
+    label: Taper
+    description: "How much the branches narrow toward their tips. Evergreen branches always taper to a point."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "type == deciduous && @grows_{index}"
+    revive: { from: "branch.taper.{parent}", if_zero: 0.7 }
+  branch.sections.*:
+    label: Sections
+    description: "How many pieces each branch is built from along its length. More give smoother curves."
+    range: [1, 20]
+    step: 1
+    shown_if: "@side_{index}"
+  branch.segments.*:
+    label: Segments
+    description: "How many sides each branch has around it. More give rounder branches."
+    range: [3, 16]
+    step: 1
+    shown_if: "@side_{index}"
+  branch.children.0:
+    label: Children
+    description: "How many branches grow from the trunk."
+    range: [0, 100]
+    step: 1
+    scale: exponential
+    shown_if: "@children_0"
+    revive: 8
+  branch.children.3:
+    label: Children
+    description: "The deepest level grows no branches of its own."
+    hidden: true
+  branch.children.*:
+    label: Children
+    description: "How many branches grow from each branch of this level."
+    range: [0, 10]
+    step: 1
+    shown_if: "@children_{index}"
+    revive: 4
+  branch.flatten.*:
+    label: Flatten
+    description: "How much this level's branches spread out in flat layers."
+    hidden: true
+
+  # Leaves
+  leaves.count:
+    label: Count
+    description: "How many leaves grow along each outermost branch. At 0 the tree is bare."
+    range: [0, 100]
+    step: 1
+    scale: exponential
+  leaves.start:
+    label: Start
+    description: "How far along a branch leaves begin, from its base at 0 to its tip at 1."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "leaves.count > 0"
+  leaves.angle:
+    label: Angle
+    unit: °
+    description: "The angle between each leaf and its branch."
+    range: [0, 100]
+    step: 1
+    shown_if: "leaves.count > 0"
+    revive: 40
+  leaves.flatten:
+    label: Flatten
+    description: "How far leaves turn toward lying level and face up, like the flat sprays of a cedar."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "leaves.count > 0"
+  leaves.type:
+    label: Type
+    description: "The leaf texture."
+    choices: leaf_kinds
+  leaves.tint:
+    label: Tint
+    description: "A colour the leaves are multiplied by. White keeps the texture's own colours."
+    color: true
+  leaves.billboard:
+    label: Billboard
+    description: "Draws each leaf as one flat card, or two crossed cards that look fuller from the side."
+    choices:
+      - { value: single, label: Single }
+      - { value: double, label: Double }
+  leaves.size:
+    label: Size
+    unit: m
+    description: "How big each leaf is."
+    range: [0, 1]
+    step: 0.01
+    revive: 0.25
+  leaves.size_variance:
+    label: Size Variance
+    description: "How much leaf sizes vary. At 0.2 they range from 80% to 120%."
+    range: [0, 1]
+    step: 0.01
+  leaves.alpha_test:
+    label: Alpha Test
+    description: "How see-through a pixel of the leaf picture may be before it is cut away, which gives the card a leaf-shaped outline."
+    range: [0, 1]
+    step: 0.01
+  leaves.rounded_normals:
+    label: Rounded Normals
+    description: "Shades the leaves as one rounded canopy rather than separate flat cards."
+
+  # Fruit and flowers: which preset, then where it grows.
+  fruit:
+    label: Preset
+    description: "The fruit preset the tree grows, or none."
+  fruit.fruit:
+    label: Fruit
+    description: "The fruit preset the tree grows, by key."
+    ref: fruit
+    hidden: true
+  fruit.placement.count: &count
+    label: Per Branch
+    description: "How many clusters grow along each branch that can carry them."
+    range: [0, 20]
+    step: 1
+    scale: exponential
+  fruit.placement.density: &density
+    label: Per Metre
+    description: "Extra clusters for each metre of branch, so long branches carry more."
+    range: [0, 50]
+    step: 0.5
+    scale: exponential
+  fruit.placement.tips: &tips
+    label: Tip Chance
+    description: "The chance of a cluster at each branch tip that has no continuation."
+    range: [0, 1]
+    step: 0.01
+  fruit.placement.min_level: &min_level
+    label: From Level
+    description: "The first branch level that carries clusters: 0 includes the trunk. Deeper levels carry them too."
+    range: [0, 3]
+    step: 1
+    shown_if: "@fruit_grows"
+  fruit.placement.start: &start
+    label: Start
+    description: "How far along a branch side clusters begin, from its base at 0 to its tip at 1."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@fruit_grows && @fruit_sides"
+  fruit.placement.facing_jitter: &facing_jitter
+    label: Facing Jitter
+    unit: °
+    description: "The most each cluster tilts at random from the way its preset faces."
+    range: [0, 90]
+    step: 1
+    shown_if: "@fruit_grows"
+  fruit.placement.scale: &scale
+    label: Scale
+    description: "How big each cluster is compared with its preset: 0.5 halves it, stalks included."
+    range: [0.1, 4]
+    step: 0.01
+    scale: exponential
+    shown_if: "@fruit_grows"
+    revive: 1
+  fruit.placement.scale_variance: &scale_variance
+    label: Scale Variance
+    description: "How much cluster sizes vary. At 0.2 they range from 80% to 120%."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@fruit_grows"
+  fruit.default_slots: &slots
+    label: Distinct Clusters
+    description: "How many different clusters the tree draws from. More look less repetitive but cost more."
+    range: [1, 32]
+    step: 1
+    shown_if: "@fruit_grows"
+    revive: 6
+  flowers:
+    label: Preset
+    description: "The flower preset the tree grows, or none."
+  flowers.fruit:
+    label: Flowers
+    description: "The flower preset the tree grows, by key."
+    ref: flower
+    hidden: true
+  flowers.placement.count: *count
+  flowers.placement.density: *density
+  flowers.placement.tips: *tips
+  flowers.placement.min_level:
+    <<: *min_level
+    shown_if: "@flowers_grows"
+  flowers.placement.start:
+    <<: *start
+    shown_if: "@flowers_grows && @flowers_sides"
+  flowers.placement.facing_jitter:
+    <<: *facing_jitter
+    shown_if: "@flowers_grows"
+  flowers.placement.scale:
+    <<: *scale
+    shown_if: "@flowers_grows"
+  flowers.placement.scale_variance:
+    <<: *scale_variance
+    shown_if: "@flowers_grows"
+  flowers.default_slots:
+    <<: *slots
+    shown_if: "@flowers_grows"
+
+  # Trellis
+  trellis.enabled:
+    label: Enabled
+    description: "Turns the trellis on: its wires pull branches toward them as they grow."
+  trellis.visible:
+    label: Visible
+    description: "Draws the trellis wires. Off, they still pull the branches."
+    shown_if: trellis.enabled
+  trellis.position.x:
+    label: "X"
+    unit: m
+    description: "Where the bottom centre of the trellis stands, side to side."
+    range: [-2, 2]
+    step: 0.01
+  trellis.position.y:
+    label: "Y"
+    unit: m
+    description: "Where the bottom of the trellis stands, up and down."
+    range: [-1, 1]
+    step: 0.01
+  trellis.position.z:
+    label: "Z"
+    unit: m
+    description: "Where the trellis stands, front to back."
+    range: [-2, 2]
+    step: 0.01
+  trellis.width:
+    label: Width
+    unit: m
+    description: "How wide the trellis is."
+    range: [0.1, 5]
+    step: 0.05
+  trellis.height:
+    label: Height
+    unit: m
+    description: "How tall the trellis is."
+    range: [0.1, 5]
+    step: 0.05
+  trellis.spacing:
+    label: Spacing
+    unit: m
+    description: "The gap between neighbouring wires."
+    range: [0.05, 1]
+    step: 0.01
+    scale: exponential
+  trellis.force.strength:
+    label: Strength
+    description: "How strongly the wires pull the branches. At 0 there is no pull."
+    range: [0, 0.02]
+    step: 0.0001
+    scale: exponential
+  trellis.force.max_distance:
+    label: Max Distance
+    unit: m
+    description: "How far from a wire the pull reaches."
+    range: [0.05, 2]
+    step: 0.01
+    scale: exponential
+    shown_if: "trellis.force.strength > 0"
+  trellis.force.falloff:
+    label: Falloff
+    description: "How quickly the pull weakens away from a wire: 1 evenly, higher values faster."
+    range: [0.1, 3]
+    step: 0.1
+    shown_if: "trellis.force.strength > 0"
+  trellis.cylinder_radius:
+    label: Wire Radius
+    unit: m
+    description: "How thick the wires are drawn."
+    range: [0.001, 0.05]
+    step: 0.001
+    scale: exponential
+  trellis.color:
+    label: Colour
+    description: "The wires' colour."
+    color: true

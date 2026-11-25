@@ -6,7 +6,8 @@
 //! row's multiplier and the Scatter's multiplier both scale it.
 
 pub mod editor;
-pub mod params;
+
+use std::sync::LazyLock;
 
 use bevy::math::{DVec2, Vec2};
 use procgena_tree::{
@@ -15,6 +16,15 @@ use procgena_tree::{
 };
 
 use crate::export::read_preset;
+use crate::studio::inspector::MetaKind;
+
+/// The tree Scatter settings' metadata, from `tree_scatter.meta.yml`.
+pub static META: LazyLock<MetaKind> = LazyLock::new(|| {
+    MetaKind::new(
+        procgena_tree::TREE_SCATTER_META,
+        procgena_core::meta::ChoiceLists::new(),
+    )
+});
 
 /// The key of the tree Scatter preset opened first.
 pub const START_PRESET: &str = "oak_woodland";

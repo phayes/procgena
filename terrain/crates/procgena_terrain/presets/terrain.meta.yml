@@ -1,0 +1,197 @@
+# What tools that edit Terrain presets show for each setting. Kept in step
+# with TerrainOptions by tests/meta.rs.
+kind: terrain
+name: Terrain
+description: "The shape of the land in one region, with the rivers and roads cut into it."
+parts:
+  land:
+    name: Land
+    description: "The ground itself: its height, relief and how it meets neighbouring regions."
+    tags: [ground]
+  rivers:
+    name: Rivers
+    description: "Rivers that start in this terrain and flow downhill."
+  roads:
+    name: Roads
+    description: "Roads that link the region's border crossings."
+sections:
+  - title: Land
+    part: land
+    settings: [base.elevation, base.erosion]
+    groups:
+      - title: Swells
+        settings: [base.swells.height, base.swells.wavelength, base.swells.octaves, base.swells.roughness]
+      - title: Hills
+        settings: [base.hills.height, base.hills.wavelength, base.hills.octaves, base.hills.roughness]
+      - title: Mountains
+        settings: [base.mountains.height, base.mountains.wavelength, base.mountains.coverage, base.mountains.octaves]
+  - title: Rivers
+    part: rivers
+    settings: [features.rivers.density, features.rivers.spacing, features.rivers.width, features.rivers.depth, features.rivers.min_length]
+  - title: Roads
+    part: roads
+    settings: [features.roads.enabled, features.roads.width, features.roads.min_width, features.roads.grade, features.roads.max_grade]
+  - title: Borders
+    part: land
+    settings: [edges.stiffness, edges.margin, edges.roughness]
+settings:
+  default_seed:
+    label: Seed
+    description: "The World seed used when this Terrain is built on its own. Neighbours with the same seed join more naturally."
+    hidden: true
+  base.elevation:
+    label: Elevation
+    unit: m
+    description: "The land's average height above the World's elevation. May be below it."
+    range: [-500, 1500]
+    step: 1
+  base.erosion:
+    label: Erosion
+    description: "How worn the hills look. Higher values smooth the slopes, put detail in valleys and on crests, and lower the hills a little."
+    range: [0, 10]
+    step: 0.05
+  base.swells.height:
+    label: Height
+    unit: m
+    description: "How high the broad, gentle rises and dips are. 0 turns them off."
+    range: [0, 300]
+    step: 0.5
+    scale: exponential
+  base.swells.wavelength:
+    label: Wavelength
+    unit: m
+    description: "How far apart neighbouring swells are."
+    range: [100, 20000]
+    step: 10
+    scale: exponential
+  base.swells.octaves:
+    label: Octaves
+    description: "How many layers of ever finer detail the swells have. More layers cost more to build."
+    range: [1, 12]
+    step: 1
+  base.swells.roughness:
+    label: Roughness
+    description: "How strong each finer layer of detail is, from smooth at 0 to rough near 1."
+    range: [0, 0.95]
+    step: 0.01
+  base.hills.height:
+    label: Height
+    unit: m
+    description: "How high the hills are. Hills are smaller and steeper than swells. 0 turns them off."
+    range: [0, 300]
+    step: 0.5
+    scale: exponential
+  base.hills.wavelength:
+    label: Wavelength
+    unit: m
+    description: "How far apart neighbouring hills are."
+    range: [20, 5000]
+    step: 5
+    scale: exponential
+  base.hills.octaves:
+    label: Octaves
+    description: "How many layers of ever finer detail the hills have. More layers cost more to build."
+    range: [1, 12]
+    step: 1
+  base.hills.roughness:
+    label: Roughness
+    description: "How strong each finer layer of detail is, from smooth at 0 to rough near 1."
+    range: [0, 0.95]
+    step: 0.01
+  base.mountains.height:
+    label: Height
+    unit: m
+    description: "How high mountain peaks rise above the land around them. 0 turns mountains off."
+    range: [0, 3000]
+    step: 5
+  base.mountains.wavelength:
+    label: Wavelength
+    unit: m
+    description: "How far apart neighbouring ridges are. Whole ranges are about four times this size."
+    range: [200, 20000]
+    step: 10
+    scale: exponential
+  base.mountains.coverage:
+    label: Coverage
+    description: "How much of the land lies in mountain ranges, from none at 0 to all at 1."
+    range: [0, 1]
+    step: 0.01
+  base.mountains.octaves:
+    label: Octaves
+    description: "How many layers of ever finer ridges the mountains have."
+    range: [1, 12]
+    step: 1
+  features.rivers.density:
+    label: Sources per km²
+    description: "How many rivers start in each square kilometre. Rivers flowing in from neighbours come either way."
+    range: [0, 20]
+    step: 0.05
+  features.rivers.spacing:
+    label: Spacing
+    unit: m
+    description: "The least distance between two river sources."
+    range: [50, 5000]
+    step: 10
+    scale: exponential
+  features.rivers.width:
+    label: Width
+    unit: m
+    description: "How wide the rivers are."
+    range: [1, 40]
+    step: 0.5
+  features.rivers.depth:
+    label: Depth
+    unit: m
+    description: "How deep the river bed lies below the water."
+    range: [0.1, 10]
+    step: 0.1
+  features.rivers.min_length:
+    label: Shortest
+    unit: m
+    description: "Rivers shorter than this that end in a pond are left out."
+    range: [0, 3000]
+    step: 10
+  features.roads.enabled:
+    label: Roads
+    description: "Whether this terrain asks for roads across its borders. Roads a neighbour asks for are made either way."
+  features.roads.width:
+    label: Width
+    unit: m
+    description: "How wide the roads are."
+    range: [2, 40]
+    step: 0.5
+  features.roads.min_width:
+    label: Narrowest
+    unit: m
+    description: "How narrow a road may get where it cuts deep into the ground."
+    range: [1, 40]
+    step: 0.5
+  features.roads.grade:
+    label: Comfortable Grade
+    description: "The steepest slope roads climb comfortably, as rise over run. Steeper stretches are avoided much more strongly."
+    range: [0.01, 1]
+    step: 0.01
+  features.roads.max_grade:
+    label: Steepest Grade
+    description: "The steepest slope a road may climb at all, as rise over run."
+    range: [0.01, 1]
+    step: 0.01
+  edges.stiffness:
+    label: Stiffness
+    description: "How strongly this terrain keeps its own shape at a border, compared with its neighbour."
+    range: [0.05, 20]
+    step: 0.05
+    scale: exponential
+  edges.margin:
+    label: Margin
+    unit: m
+    description: "How far inside its region this terrain may bend to meet a border. Wider margins give gentler transitions."
+    range: [10, 2000]
+    step: 5
+    scale: exponential
+  edges.roughness:
+    label: Roughness
+    unit: m
+    description: "How high the small bumps added along a border are, so it doesn't look ruled."
+    range: [0, 20]
+    step: 0.1

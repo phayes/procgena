@@ -623,6 +623,32 @@ impl StoneScatter {
         })
     }
 
+    /// This Scatter's shapes with their stones placed over `input` instead,
+    /// as [`new`](Self::new) would place them with these options and a World
+    /// seed of [`world_seed`](Self::world_seed), without building the shapes
+    /// again.
+    ///
+    /// The input's seed sets where stones lie, not their shapes, so give the
+    /// input the World seed the shapes were built with when the result
+    /// should match `new`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoneScatterError::TooMany`] or
+    /// [`StoneScatterError::TooLarge`] as [`new`](Self::new) does.
+    pub fn placed_over(&self, input: &ScatterInput<'_>) -> Result<Self, StoneScatterError> {
+        let instances = self.stones(input)?;
+        Ok(Self {
+            instances,
+            ..self.clone()
+        })
+    }
+
+    /// The World seed the shapes were built with.
+    pub fn world_seed(&self) -> u32 {
+        self.world_seed
+    }
+
     /// The settings this Scatter was built from.
     pub fn options(&self) -> &StoneScatterOptions {
         &self.options

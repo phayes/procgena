@@ -6,11 +6,11 @@ use procgena_mushroom::{MushroomOptions, MushroomPreset};
 use super::{Kind, RegisterKind, entries};
 use crate::export::mushroom::spawn_mushroom_export;
 use crate::mushrooms::editor::{
-    MushroomEdited, MushroomEditor, MushroomEditorPlugin, spawn_mushroom_editor,
+    MushroomEdited, MushroomEditor, MushroomEditorPlugin, MushroomPanel, spawn_mushroom_editor,
 };
-use crate::params::ParamPanel;
 use crate::scene::{MushroomSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// The mushroom detail levels, most detailed first.
@@ -41,6 +41,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
+            settings: Some(settings_panel::<MushroomOptions>()),
             detail_levels: LEVELS,
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::leveled_line(state, "mushroom"),
@@ -50,16 +51,14 @@ pub fn register(app: &mut App) {
 /// The mushroom the editor `editor` holds.
 fn show(world: &mut World, editor: Entity, document: u64) -> Option<Show> {
     let panel = world.get::<MushroomEditor>(editor)?.panel();
-    let options = world
-        .get::<ParamPanel<MushroomOptions>>(panel)?
-        .value()
-        .clone();
+    let options = world.get::<MushroomPanel>(panel)?.value().options().clone();
     Some(Show::new::<MushroomSubject>(document, options))
 }
 
 #[cfg(test)]
 mod tests {
     use bevy::math::Vec2;
+    use procgena_mushroom::MushroomOptions;
 
     use super::*;
     use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
@@ -95,7 +94,7 @@ mod tests {
         studio.drag(Vec2::new(500.0, 400.0), Vec2::new(800.0, 300.0));
         let turned = camera(&mut studio);
         studio.click("Enoki").unwrap();
-        let options: MushroomOptions = studio.panel_value();
+        let options: MushroomOptions = studio.settings_value();
         assert_eq!(options, MushroomPreset::enoki().mushroom);
         assert!(
             lock(&sent)
@@ -111,7 +110,7 @@ mod tests {
 
         // Random Seed changes only the seed, and sends it.
         studio.click("Random Seed").unwrap();
-        let reseeded: MushroomOptions = studio.panel_value();
+        let reseeded: MushroomOptions = studio.settings_value();
         assert_ne!(reseeded.default_seed, options.default_seed);
         assert_eq!(
             MushroomOptions {

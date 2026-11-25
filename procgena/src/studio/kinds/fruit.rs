@@ -5,10 +5,12 @@ use bevy::prelude::*;
 use procgena_fruit::{FlowerPreset, FruitOptions, FruitPreset};
 
 use super::{Kind, RegisterKind, entries};
-use crate::fruit::editor::{FruitEdited, FruitEditor, FruitEditorPlugin, spawn_fruit_editor};
-use crate::params::ParamPanel;
+use crate::fruit::editor::{
+    FruitEdited, FruitEditor, FruitEditorPlugin, FruitPanel, spawn_fruit_editor,
+};
 use crate::scene::{FruitSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// Registers fruit, with the editor shared by fruit and flowers.
@@ -26,6 +28,7 @@ pub fn register_fruit(app: &mut App) {
             start: crate::fruit::START_FRUIT,
             spawn_editor: spawn_fruit_editor,
             show,
+            settings: Some(settings_panel::<FruitOptions>()),
             detail_levels: &[],
             hidden_environment: crate::environment::STILL_AIR,
             status_line: |state| status::object_line(state, "fruit"),
@@ -41,6 +44,7 @@ pub fn register_flower(app: &mut App) {
         start: crate::fruit::START_FLOWER,
         spawn_editor: spawn_fruit_editor,
         show,
+        settings: Some(settings_panel::<FruitOptions>()),
         detail_levels: &[],
         hidden_environment: crate::environment::STILL_AIR,
         status_line: |state| status::object_line(state, "flower"),
@@ -50,9 +54,6 @@ pub fn register_flower(app: &mut App) {
 /// The cluster the editor `editor` holds.
 fn show(world: &mut World, editor: Entity, document: u64) -> Option<Show> {
     let panel = world.get::<FruitEditor>(editor)?.panel();
-    let options = world
-        .get::<ParamPanel<FruitOptions>>(panel)?
-        .value()
-        .clone();
+    let options = world.get::<FruitPanel>(panel)?.value().options().clone();
     Some(Show::new::<FruitSubject>(document, options))
 }

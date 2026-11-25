@@ -51,7 +51,8 @@ fn changes_kind(
 ///
 /// Maps are compared key by key. Anything else that differs, a list
 /// included, is given whole. A map whose `kind` differs is given whole.
-/// Keys that `base` has and `value` lacks are not reported.
+/// Keys that `base` has and `value` lacks are not reported. Numbers that
+/// differ only in how they are written, such as `5` and `5.0`, are equal.
 #[must_use]
 pub fn diff(base: &Value, value: &Value) -> Option<Value> {
     match (base, value) {
@@ -68,7 +69,24 @@ pub fn diff(base: &Value, value: &Value) -> Option<Value> {
                 .collect();
             (!changed.is_empty()).then_some(Value::Object(changed))
         }
-        (base, value) => (base != value).then(|| value.clone()),
+        (base, value) => (!same(base, value)).then(|| value.clone()),
+    }
+}
+
+/// Whether `a` and `b` hold the same settings, counting numbers of equal
+/// value as equal however they are written.
+fn same(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => a == b || a.as_f64() == b.as_f64(),
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, a)| b.get(key).is_some_and(|b| same(a, b)))
+        }
+        (a, b) => a == b,
     }
 }
 

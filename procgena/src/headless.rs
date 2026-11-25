@@ -21,7 +21,8 @@
 //! | `click-at X Y` | Clicks at a point. |
 //! | `drag X1 Y1 X2 Y2` | Drags with the left button between two points. |
 //! | `scroll X Y LINES` | Turns the wheel at a point; positive scrolls up. |
-//! | `key KEY` | Presses a key: `Escape`, `Enter`, `Tab`, `Backspace` or a letter, optionally after `ctrl+` or `cmd+`. |
+//! | `key KEY` | Presses a key: `Escape`, `Enter`, `Tab`, `Backspace`, `Space`, `Shift` or a letter, optionally after `ctrl+` or `cmd+`. |
+//! | `hold KEYS SECONDS` | Holds keys named as for `key`, joined by `+` (such as `w+Space`), for a time, for example to fly the camera. |
 //! | `type TEXT` | Types `TEXT` into the focused text field. Click the field first. |
 //! | `hover X Y` | Moves the mouse to a point without clicking, for example to show a tooltip. |
 //! | `select PATH` | Selects a document as `KIND/KEY[/NODE…][#PART]`, such as `ecotope/pine_forest_floor`, opening it if needed. |
@@ -136,9 +137,22 @@ impl HeadlessStudio {
     /// Panics if Bevy cannot start its renderer, for example without a GPU,
     /// or if the studio does not become idle within two minutes.
     pub fn new(size: UVec2) -> Self {
+        Self::with_project(size, None)
+    }
+
+    /// Starts the studio like [`new`](Self::new), opening the project in
+    /// `project` (making one there if it has none), or no project.
+    ///
+    /// # Panics
+    ///
+    /// As for [`new`](Self::new).
+    pub fn with_project(size: UVec2, project: Option<PathBuf>) -> Self {
         let size = size.max(UVec2::ONE);
         let frames = FrameLog::default();
         let mut app = App::new();
+        if let Some(folder) = project {
+            app.insert_resource(crate::studio::project::ProjectFolder(folder));
+        }
         crate::scene::add_asset_sources(&mut app);
         app.add_plugins(headless_plugins());
         crate::add_studio(&mut app);
@@ -248,9 +262,35 @@ impl HeadlessStudio {
         shown_center(node, transform, visible, clip)
     }
 
-    /// The value of the only settings panel editing a `T` that is on
+    /// The options in the only Inspector panel editing a `T` that is on
     /// screen: the selected document's, since other documents' panels are
-    /// hidden.
+    /// hidden. For kinds whose Inspector is built from metadata.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless exactly one such panel is on screen.
+    #[cfg(test)]
+    pub fn settings_value<T>(&mut self) -> T
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let world = self.app.world_mut();
+        let mut panels = world.query::<(
+            &crate::params::ParamPanel<crate::studio::inspector::Settings<T>>,
+            &InheritedVisibility,
+        )>();
+        let shown: Vec<T> = panels
+            .iter(world)
+            .filter(|(_, visible)| visible.get())
+            .map(|(panel, _)| panel.value().options().clone())
+            .collect();
+        let [value] = <[T; 1]>::try_from(shown)
+            .unwrap_or_else(|shown| panic!("{} panels on screen edit this type", shown.len()));
+        value
+    }
+
+    /// The value of the one hand-written settings panel on screen that
+    /// edits a `T`, for kinds whose Inspector isn't built from metadata yet.
     ///
     /// # Panics
     ///
@@ -361,6 +401,23 @@ impl HeadlessStudio {
         let keys: Vec<KeyCode> = modifier.into_iter().chain([key]).collect();
         for &code in &keys {
             self.keyboard(code, ButtonState::Pressed);
+        }
+        for &code in keys.iter().rev() {
+            self.keyboard(code, ButtonState::Released);
+        }
+        self.settle();
+    }
+
+    /// Presses `keys` together, holds them for `duration`, drawing a frame
+    /// for every 1/60 s of it, then releases them and runs until idle.
+    /// Frames are counted from the first press.
+    pub fn hold(&mut self, keys: &[KeyCode], duration: Duration) {
+        let frames = (duration.as_secs_f64() / FRAME_TIME.as_secs_f64()).ceil() as usize;
+        for &code in keys {
+            self.keyboard(code, ButtonState::Pressed);
+        }
+        for _ in keys.len()..frames {
+            self.update();
         }
         for &code in keys.iter().rev() {
             self.keyboard(code, ButtonState::Released);
@@ -663,6 +720,8 @@ fn logical_key(code: KeyCode) -> Key {
         KeyCode::Enter => Key::Enter,
         KeyCode::Tab => Key::Tab,
         KeyCode::Backspace => Key::Backspace,
+        KeyCode::Space => Key::Space,
+        KeyCode::ShiftLeft => Key::Shift,
         KeyCode::ControlLeft => Key::Control,
         KeyCode::SuperLeft => Key::Super,
         _ => key_letter(code)
@@ -723,11 +782,24 @@ fn parse_key(text: &str) -> Result<(Option<KeyCode>, KeyCode), String> {
         Some((other, _)) => return Err(format!("unknown modifier {other:?}")),
         None => (None, text),
     };
-    let key = match name {
+    Ok((modifier, key_named(name)?))
+}
+
+/// Parses the keys held together in a `hold` command, such as `w` or `w+Space`.
+fn parse_held_keys(text: &str) -> Result<Vec<KeyCode>, String> {
+    text.split('+').map(key_named).collect()
+}
+
+/// The key a script names: `Escape`, `Enter`, `Tab`, `Backspace`, `Space`,
+/// `Shift` or a letter.
+fn key_named(name: &str) -> Result<KeyCode, String> {
+    Ok(match name {
         "Escape" => KeyCode::Escape,
         "Enter" => KeyCode::Enter,
         "Tab" => KeyCode::Tab,
         "Backspace" => KeyCode::Backspace,
+        "Space" => KeyCode::Space,
+        "Shift" => KeyCode::ShiftLeft,
         _ => {
             let mut chars = name.chars();
             let (Some(letter), None) = (chars.next(), chars.next()) else {
@@ -738,8 +810,7 @@ fn parse_key(text: &str) -> Result<(Option<KeyCode>, KeyCode), String> {
                 .get(index as usize)
                 .ok_or_else(|| format!("unknown key {name:?}"))?
         }
-    };
-    Ok((modifier, key))
+    })
 }
 
 /// Runs `procgena --headless <script>` when those are the arguments, returning
@@ -827,6 +898,14 @@ fn run_line(studio: &mut HeadlessStudio, line: &str) -> Result<(), String> {
             let (modifier, key) = parse_key(args)?;
             studio.key(modifier, key);
         }
+        "hold" => {
+            let (keys, seconds) = args.rsplit_once(' ').ok_or("expected KEYS SECONDS")?;
+            let [seconds] = numbers(seconds)?;
+            studio.hold(
+                &parse_held_keys(keys.trim())?,
+                Duration::from_secs_f32(seconds.max(0.0)),
+            );
+        }
         "type" => studio.type_text(args),
         "select" => studio.select(args)?,
         "command" => studio.command(args)?,
@@ -892,6 +971,12 @@ mod tests {
         );
         assert!(parse_key("alt+q").is_err());
         assert!(parse_key("F13").is_err());
+        assert_eq!(
+            parse_held_keys("w+Space"),
+            Ok(vec![KeyCode::KeyW, KeyCode::Space])
+        );
+        assert_eq!(parse_held_keys("Shift"), Ok(vec![KeyCode::ShiftLeft]));
+        assert!(parse_held_keys("w+").is_err());
     }
 
     #[test]
@@ -978,22 +1063,25 @@ mod tests {
     #[ignore = "needs a GPU"]
     fn two_trees_keep_their_own_settings_and_closing_one_selects_the_other() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        let oak = studio.panel_value::<procgena_tree::TreeOptions>();
+        let oak = studio.settings_value::<procgena_tree::TreeOptions>();
 
         // A second tree opens beside the first, with its own settings.
         studio.click("Aspen Small").unwrap();
-        let aspen = studio.panel_value::<procgena_tree::TreeOptions>();
+        let aspen = studio.settings_value::<procgena_tree::TreeOptions>();
         assert_eq!(aspen, procgena_tree::TreePreset::aspen_small().tree);
         studio.click("Random Seed").unwrap();
-        let reseeded = studio.panel_value::<procgena_tree::TreeOptions>();
+        let reseeded = studio.settings_value::<procgena_tree::TreeOptions>();
         assert_ne!(reseeded.default_seed, aspen.default_seed);
 
         // The first tree is as it was; opening its preset again selects it.
         studio.click("Oak Medium").unwrap();
         assert_eq!(selected(&mut studio).key, "oak_medium");
-        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), oak);
+        assert_eq!(studio.settings_value::<procgena_tree::TreeOptions>(), oak);
         studio.command("next-document").unwrap();
-        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), reseeded);
+        assert_eq!(
+            studio.settings_value::<procgena_tree::TreeOptions>(),
+            reseeded
+        );
 
         // The Outline lists them in the order they were opened.
         let oak = studio.find("Oak Medium · Trees").unwrap();
@@ -1168,10 +1256,20 @@ mod tests {
     fn the_wheel_scrolls_settings_taller_than_the_window() {
         // A tree's settings are far taller than this window. The settings
         // scroll under the Inspector's title, so follow one well below it.
+        // The Branches section sits below the part chip of the same name.
+        let section = |studio: &mut HeadlessStudio| {
+            studio
+                .texts()
+                .into_iter()
+                .filter(|shown| shown.text == "Branches")
+                .map(|shown| shown.center)
+                .max_by(|a, b| a.y.total_cmp(&b.y))
+                .expect("the Branches section is on screen")
+        };
         let mut studio = HeadlessStudio::new(UVec2::new(1440, 400));
-        let before = studio.find("Branches").unwrap();
+        let before = section(&mut studio);
         studio.scroll(Vec2::new(1250.0, 300.0), -3.0);
-        let after = studio.find("Branches").unwrap();
+        let after = section(&mut studio);
         assert!(after.y < before.y - 40.0, "{before} -> {after}");
     }
 

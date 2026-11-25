@@ -1,14 +1,25 @@
 //! Documents: the presets open in the studio, and which one is selected.
 //!
-//! A [`Document`] is one open preset. Its settings live in its editor in the
-//! Inspector; the document names the preset and keeps what the view frame
-//! shows for it. [`Selection`] says which document the Inspector, the view
-//! and the Outline show. Open one with [`OpenDocument`], close it with
+//! A [`Document`] is one open preset. Its editor in the Inspector shows its
+//! settings; the document names the preset, keeps its settings with their
+//! undo history ([`DocumentSettings`]), and keeps what the view frame shows
+//! for it. [`Selection`] says which document the Inspector, the view and
+//! the Outline show. Open one with [`OpenDocument`], close it with
 //! [`CloseDocument`], and select one by setting [`Selection::document`].
 
+#[cfg(test)]
+mod editing_tests;
+pub mod history;
+pub mod panels;
+pub mod save;
+
 use bevy::prelude::*;
+use procgena_core::preset::Layer;
+
+pub use history::DocumentSettings;
 
 use super::kinds::Kinds;
+use super::project::Presets;
 use crate::scene::{Detail, OrbitCamera, ViewerCommand, ViewportCamera};
 
 /// Where an open preset comes from.
@@ -16,6 +27,8 @@ use crate::scene::{Detail, OrbitCamera, ViewerCommand, ViewportCamera};
 pub enum Origin {
     /// One of the studio's built-in presets.
     BuiltIn,
+    /// A preset file in the open project.
+    Project,
 }
 
 impl Origin {
@@ -23,6 +36,15 @@ impl Origin {
     pub fn label(self) -> &'static str {
         match self {
             Self::BuiltIn => "built-in",
+            Self::Project => "project",
+        }
+    }
+
+    /// The registry layer of presets from here.
+    pub fn layer(self) -> Layer {
+        match self {
+            Self::BuiltIn => Layer::BuiltIn,
+            Self::Project => Layer::Project,
         }
     }
 }
@@ -138,7 +160,9 @@ pub struct InspectorPage;
 pub struct OpenDocument {
     /// The kind's id, such as `"tree"`.
     pub kind: &'static str,
-    /// The preset's key, such as `"oak_medium"`.
+    /// The preset's key, such as `"oak_medium"`, or a namespace and a key,
+    /// such as `builtin:oak_medium`, when the project has a preset with the
+    /// same key.
     pub key: String,
 }
 
@@ -162,7 +186,9 @@ pub struct DocumentsPlugin;
 
 impl Plugin for DocumentsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Selection>()
+        app.add_plugins((history::HistoryPlugin, save::SavePlugin))
+            .init_resource::<Presets>()
+            .init_resource::<Selection>()
             .init_resource::<Unsent>()
             .init_resource::<OpenedCount>()
             .add_observer(open_document)
@@ -172,34 +198,125 @@ impl Plugin for DocumentsPlugin {
     }
 }
 
+/// The preset an [`OpenDocument`] names, as found.
+struct Found {
+    origin: Origin,
+    key: String,
+    name: String,
+    /// The built-in preset the editor starts from.
+    start: String,
+    /// The settings to show once the editor is ready, when they aren't
+    /// the start preset's.
+    load: Option<serde_json::Value>,
+}
+
+/// Checks that [`OpenDocument`] can open the preset `reference` of `kind`.
+///
+/// # Errors
+///
+/// Says why not: no such preset, a key two layers share written without
+/// its namespace, or a project preset of a kind that can't open them yet.
+pub fn can_open(
+    kind: &super::kinds::Kind,
+    reference: &str,
+    presets: &Presets,
+) -> Result<(), String> {
+    find_preset(kind, reference, presets).map(|_| ())
+}
+
+/// Finds the preset `reference` of `kind`: in the registry for kinds it
+/// holds, and among the kind's built-in presets otherwise.
+fn find_preset(
+    kind: &super::kinds::Kind,
+    reference: &str,
+    presets: &Presets,
+) -> Result<Found, String> {
+    let registry = presets.registry();
+
+    // Kinds the registry doesn't hold open only their built-in presets.
+    if !registry.kinds().any(|id| id == kind.id) {
+        let entry = (kind.presets)()
+            .into_iter()
+            .find(|preset| preset.key == reference)
+            .ok_or_else(|| format!("no {} preset {reference}", kind.id))?;
+        return Ok(Found {
+            origin: Origin::BuiltIn,
+            start: entry.key.clone(),
+            key: entry.key,
+            name: entry.name,
+            load: None,
+        });
+    }
+
+    // The preset, its name, and what its editor starts from.
+    let (layer, key) = registry
+        .find(kind.id, reference)
+        .map_err(|error| error.to_string())?;
+    let name = registry
+        .entries(kind.id)
+        .into_iter()
+        .find(|entry| entry.layer == layer && entry.key == key)
+        .map_or_else(|| key.clone(), |entry| entry.name);
+    if layer == Layer::BuiltIn {
+        return Ok(Found {
+            origin: Origin::BuiltIn,
+            start: key.clone(),
+            key,
+            name,
+            load: None,
+        });
+    }
+    if kind.settings.is_none() {
+        return Err(format!(
+            "{} presets from the project can't be opened yet",
+            kind.label
+        ));
+    }
+    let settings = registry
+        .settings(kind.id, reference)
+        .map_err(|error| error.to_string())?;
+    let start = registry
+        .builtin_root(kind.id, reference)
+        .unwrap_or_else(|| kind.start.to_owned());
+    Ok(Found {
+        origin: Origin::Project,
+        key,
+        name,
+        start,
+        load: Some(settings),
+    })
+}
+
 /// Opens a preset, or selects it if it is open already.
+#[allow(clippy::too_many_arguments)]
 fn open_document(
     open: On<OpenDocument>,
     kinds: Res<Kinds>,
+    presets: Res<Presets>,
     documents: Query<(Entity, &Document)>,
     pages: Single<Entity, With<InspectorPages>>,
     mut selection: ResMut<Selection>,
     mut opened: ResMut<OpenedCount>,
     mut commands: Commands,
 ) {
-    let open_already = documents
-        .iter()
-        .find(|(_, document)| document.kind == open.kind && document.key == open.key);
-    if let Some((document, _)) = open_already {
-        select(&mut selection, document);
-        return;
-    }
     let Some(kind) = kinds.get(open.kind) else {
         error!("no kind {} to open {} with", open.kind, open.key);
         return;
     };
-    let Some(entry) = (kind.presets)()
-        .into_iter()
-        .find(|preset| preset.key == open.key)
-    else {
-        error!("no {} preset {}", open.kind, open.key);
-        return;
+    let found = match find_preset(kind, &open.key, &presets) {
+        Ok(found) => found,
+        Err(error) => {
+            error!("could not open {}: {error}", open.key);
+            return;
+        }
     };
+    let open_already = documents.iter().find(|(_, document)| {
+        document.kind == open.kind && document.origin == found.origin && document.key == found.key
+    });
+    if let Some((document, _)) = open_already {
+        select(&mut selection, document);
+        return;
+    }
 
     // A hidden page for the editor; selecting the document shows it. Hidden
     // pages are also invisible, so panels on screen can be told apart.
@@ -217,14 +334,14 @@ fn open_document(
             ChildOf(*pages),
         ))
         .id();
-    let editor = (kind.spawn_editor)(&mut commands, page, &open.key);
+    let editor = (kind.spawn_editor)(&mut commands, page, &found.start);
     commands.entity(editor).insert(Dormant);
     let document = commands
         .spawn(Document {
             kind: kind.id,
-            key: entry.key,
-            name: entry.name,
-            origin: Origin::BuiltIn,
+            key: found.key,
+            name: found.name,
+            origin: found.origin,
             page,
             editor,
             view: None,
@@ -232,6 +349,11 @@ fn open_document(
             opened: opened.0,
         })
         .id();
+    if let Some(value) = found.load {
+        commands
+            .entity(document)
+            .insert(history::PendingLoad(value));
+    }
     opened.0 += 1;
     select(&mut selection, document);
 }
