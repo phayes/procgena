@@ -1138,7 +1138,8 @@ only from the edited Scatter down" were built first; the rest follows.
     Scatter's prepared shapes by settings and seed.
   - Specimen caches survive a layer redraw. Today stone's prune drops all
     7 cached stones on an edit to the pines.
-  - Dead wood is built once per variant, not once per copy.
+  - Dead wood is built once per variant, not once per copy (built
+    2026-11-24: the Ecotope's logs draw through `DeadwoodPlacedParams`).
   - The render pipelines an Ecotope needs are warmed up when one opens.
     macOS compiles them synchronously, which stalls frames.
   - In the studio, impostors are baked only when they could be on screen.
