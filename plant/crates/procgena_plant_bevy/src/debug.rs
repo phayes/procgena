@@ -179,11 +179,12 @@ pub(crate) fn chunk_shapes(tables: &FieldTables, max: usize) -> Vec<Shape> {
         .iter()
         .take(max)
         .filter_map(|chunk| {
-            let field = tables.fields.get(chunk.ids.x as usize)?;
+            // A chunk of a field no longer in the table isn't drawn.
+            tables.fields.get(chunk.ids.x as usize)?;
             Some(Shape::Rect {
-                min: field.world_of(Vec2::new(chunk.bounds.x, chunk.bounds.y)),
+                min: Vec2::new(chunk.bounds.x, chunk.bounds.y),
                 size: Vec2::splat(CHUNK_SIZE),
-                along: field.x_axis(),
+                along: Vec2::X,
                 y: chunk.bounds.z,
                 color: css::DODGER_BLUE.into(),
             })

@@ -490,6 +490,76 @@ fn gpu_meshes_match_cpu() {
     }
 }
 
+/// The shapes an Ecotope's stone classes draw through a GPU pool: each
+/// variant of the boulder and river-stone presets, in one World, drawn in
+/// the pool's unit-cube units.
+fn ecotope_stone_options() -> Vec<StoneOptions> {
+    let world_seed = 11;
+    [
+        (crate::StonePreset::lichen_boulder(), 4),
+        (crate::StonePreset::river_stone(), 3),
+    ]
+    .into_iter()
+    .flat_map(|(preset, variants)| {
+        (0..variants).map(move |v| {
+            let mut options = preset.stone.variant(world_seed, v, 0.0);
+            options.scale = 1.0;
+            options
+        })
+    })
+    .collect()
+}
+
+#[test]
+#[ignore = "gpu: needs a GPU adapter"]
+fn gpu_ecotope_stones_match_cpu_at_every_level() {
+    let (device, queue) = device();
+    let generator = GpuStoneGenerator::new(&device);
+    let shapes = ecotope_stone_options();
+    let cell = 1.0 / crate::placement::ANALYSIS_RESOLUTION as f32;
+    for options in &shapes {
+        // Every detail level is the same surface as the CPU's, closed and
+        // facing outward.
+        let requests: Vec<GpuStoneRequest> = options
+            .mesh
+            .detail
+            .levels()
+            .iter()
+            .map(|level| GpuStoneRequest::new(options.clone(), level.resolution))
+            .collect();
+        let out = generate(&device, &queue, &generator, &requests);
+        check_meshes(&out, &requests);
+
+        // Every level rests the same way the CPU rests the rock.
+        let what = format!("seed {}", options.default_seed);
+        let field = StoneField::new(options).unwrap();
+        let cpu = crate::StonePlacement::new(&field, &options.placement);
+        for level in 0..requests.len() {
+            let (rotation, translation, embed) = out.placement(level);
+            let placed = |p: glam::Vec3| rotation * p + translation;
+            for p in [
+                glam::Vec3::X,
+                glam::Vec3::Y,
+                glam::Vec3::Z,
+                glam::Vec3::ZERO,
+            ] {
+                let p = p * 0.4;
+                let cpu_placed = cpu.field_position(placed(p));
+                assert!(
+                    cpu_placed.distance(p) < 0.5 * cell,
+                    "{what} level {level}: placements differ by {}",
+                    cpu_placed.distance(p)
+                );
+            }
+            assert!(
+                (embed - cpu.embed_depth()).abs() <= 2.0 * cell,
+                "{what} level {level}: embed {embed} vs {}",
+                cpu.embed_depth()
+            );
+        }
+    }
+}
+
 #[test]
 #[ignore = "gpu: needs a GPU adapter"]
 fn gpu_placement_matches_cpu() {

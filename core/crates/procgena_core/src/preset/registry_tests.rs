@@ -605,3 +605,62 @@ fn a_document_not_in_the_registry_reads_over_project_bases() {
     );
     assert_eq!(rock.weight, 900.0);
 }
+
+#[test]
+fn a_number_written_by_hand_as_a_whole_number_matches_its_float() {
+    // A hand-written base says `5`; the edited settings, read back from
+    // typed options, say `5.0`. Saving over the base writes nothing for it.
+    let mut registry = registry();
+    registry
+        .add("rock", "tall", "rock:\n  size: 5\n", None)
+        .unwrap();
+    let mut settings = registry.settings("rock", "tall").unwrap();
+    settings["size"] = serde_json::json!(5.0);
+    let copy = Document {
+        base: Some("tall".to_owned()),
+        settings: Some(settings),
+        ..Document::default()
+    };
+    assert_eq!(
+        registry.file_text("rock", "copy", &copy).unwrap(),
+        "base: tall\n"
+    );
+}
+
+#[test]
+fn a_chain_s_built_in_root_and_the_base_a_new_file_writes() {
+    let mut registry = registry();
+    registry.set_namespace("quarry").unwrap();
+    registry
+        .add("rock", "tall", "base: boulder\n", None)
+        .unwrap();
+    registry
+        .add("rock", "taller", "base: tall\n", None)
+        .unwrap();
+    registry.add("rock", "plain", "", None).unwrap();
+    registry
+        .add("rock", "pebble", "base: pebble\n", None)
+        .unwrap();
+
+    // The built-in at the root of each chain.
+    let root = |reference| registry.builtin_root("rock", reference);
+    assert_eq!(root("taller").as_deref(), Some("boulder"));
+    assert_eq!(root("builtin:boulder").as_deref(), Some("boulder"));
+    assert_eq!(root("quarry:pebble").as_deref(), Some("pebble"));
+    assert_eq!(root("plain"), None);
+    assert_eq!(root("nope"), None);
+
+    // A new file names its base bare unless the project would read the
+    // bare key as another preset.
+    let base = |layer, key| registry.base_for("rock", "copy", layer, key);
+    assert_eq!(base(Layer::Project, "tall"), "tall");
+    assert_eq!(base(Layer::BuiltIn, "boulder"), "boulder");
+    assert_eq!(base(Layer::BuiltIn, "pebble"), "builtin:pebble");
+    assert_eq!(base(Layer::Project, "pebble"), "pebble");
+    // Saving over itself, the bare key skips the file and means the
+    // built-in.
+    assert_eq!(
+        registry.base_for("rock", "pebble", Layer::BuiltIn, "pebble"),
+        "pebble"
+    );
+}

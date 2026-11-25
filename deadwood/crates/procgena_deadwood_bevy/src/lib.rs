@@ -8,7 +8,10 @@
 //! - [`DeadwoodParams`]: one log, branch or stump;
 //! - [`DeadwoodScatterParams`]: sticks and twigs spread over flat ground or
 //!   over the entity's parent, which must have a
-//!   [`procgena_specimen::GeneratedSpecimen`].
+//!   [`procgena_specimen::GeneratedSpecimen`];
+//! - [`DeadwoodPlacedParams`]: dead wood already placed by a
+//!   [`StickScatter`](procgena_deadwood::StickScatter), such as an Ecotope's
+//!   logs.
 //!
 //! Pieces are built on background threads, so they appear a moment after
 //! spawning. A single piece then gets a [`procgena_specimen::GeneratedSpecimen`],
@@ -89,7 +92,8 @@ pub use mesh::{
 };
 pub use spawn::{
     DeadwoodBuildError, DeadwoodFinished, DeadwoodGenerating, DeadwoodParams, DeadwoodPart,
-    DeadwoodPartKind, DeadwoodPose, DeadwoodPresetAsset, DeadwoodScatterParams, ScatterGround,
+    DeadwoodPartKind, DeadwoodPlacedParams, DeadwoodPose, DeadwoodPresetAsset,
+    DeadwoodScatterParams, ScatterGround,
 };
 
 use spawn::{DeadwoodCache, DeadwoodPresetLoader, SpawnSettings, TextureSettings};

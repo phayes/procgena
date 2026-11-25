@@ -7,10 +7,12 @@ numbers.
 
 ## How it is fast
 
-1. **Blades are computed, never stored.** Each field is cut into 16 m chunks
-   of 32 bytes each. A blade's position, height and colour come from a hash
-   of its chunk and index, so the same blade appears every frame with no
-   stored state. Memory grows with what is visible, not with the world.
+1. **Blades are computed, never stored.** Each field is covered by 16 m
+   chunks on a grid fixed to the World, 32 bytes each. A blade's position,
+   height and colour come from a hash of its World tile cell, its index and
+   the field's seed, so the same blade appears every frame with no stored
+   state, and fields that meet grow the blades one field would. Memory grows
+   with what is visible, not with the world.
 2. **The GPU decides what to draw.** Per camera, a compute pass culls chunks
    against the view and the grass radius. A second pass, one workgroup per
    visible chunk, generates the blades. Each blade passes a density test, a

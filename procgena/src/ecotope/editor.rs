@@ -1,5 +1,7 @@
 //! An Ecotope document's editor: seed, ground, one row per Scatter, the
-//! selected Scatter's settings, and saving and loading.
+//! selected Scatter's settings, the ground layers, and saving and loading.
+
+mod ground;
 
 use bevy::feathers::constants::icons;
 use bevy::feathers::controls::{
@@ -22,6 +24,7 @@ use procgena_mushroom::{
 };
 use procgena_plant_bevy::PlantScatterOptions;
 use procgena_stone::{StoneClass, StoneOptions, StonePreset};
+use procgena_terrain::ground::GroundLayer;
 
 use super::{
     EcotopeView, KINDS, add_scatter, file_text, kind_index, new_scatter, new_stone_class, params,
@@ -31,8 +34,11 @@ use crate::export::{Done, FileOps, file_key, shown_name, write_file};
 use crate::grove::editor::{GroveEdited, GroveReader, spawn_tree_scatter_editor};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, Section, spawn_param_panel};
 use crate::studio::Dormant;
+use crate::studio::documents::pickers::{PresetPicked, choice_of, preset_choices};
+use crate::studio::project::Presets;
 use crate::ui::toast::{ShowToast, ToastKind};
 use crate::ui::{LABEL_WIDTH, SelectOptions, labelled_row};
+use procgena_core::meta::SettingPath;
 
 /// Picker label for an asset whose settings match no built-in preset.
 const CUSTOM: &str = "Custom";
@@ -65,6 +71,12 @@ pub struct EcotopeEditor {
     detail: Entity,
     /// The tree Scatter editor shown for a selected tree Scatter.
     tree_editor: Option<Entity>,
+    /// The ground layer whose settings are shown, if any.
+    layer: Option<ChildKey>,
+    /// The node holding one row per ground layer.
+    ground_list: Entity,
+    /// The node holding the selected ground layer's settings.
+    ground_detail: Entity,
     /// Which parts must be spawned again from the edited Ecotope.
     stale: Stale,
     /// Picks seeds for Random Seed.
@@ -86,6 +98,9 @@ impl EcotopeEditor {
     /// part of the editor.
     fn show(&mut self, ecotope: Ecotope) {
         self.selected = ecotope.order().first().map(|(key, _)| (*key).clone());
+        self.layer = ground::layers_top_first(&ecotope)
+            .first()
+            .map(|(key, _)| (*key).clone());
         self.ecotope = ecotope;
         self.stale = Stale::all();
     }
@@ -96,6 +111,10 @@ impl EcotopeEditor {
 struct Stale {
     list: bool,
     detail: bool,
+    /// The ground layers' rows and the selected layer's settings.
+    ground: bool,
+    /// The ground layers' rows only.
+    ground_list: bool,
 }
 
 impl Stale {
@@ -103,6 +122,8 @@ impl Stale {
         Self {
             list: true,
             detail: true,
+            ground: true,
+            ground_list: true,
         }
     }
 }
@@ -240,6 +261,7 @@ impl Plugin for EcotopeEditorPlugin {
             ParamPanelPlugin::<StoneClass>::default(),
             ParamPanelPlugin::<DeadwoodScatterOptions>::default(),
             ParamPanelPlugin::<MushroomScatterOptions>::default(),
+            ParamPanelPlugin::<GroundLayer>::default(),
         ))
         .add_systems(Update, (rebuild, fill_key_field).chain())
         .add_systems(PostUpdate, (show_seed, show_asset_choices))
@@ -332,7 +354,10 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
             ]
         })
         .insert(ChildOf(editor));
-    let detail = commands.spawn((column, ChildOf(editor))).id();
+    let detail = commands.spawn((column.clone(), ChildOf(editor))).id();
+
+    // The ground layers, below the Scatters.
+    let (ground_list, ground_detail) = ground::spawn_section(commands, editor, &column);
 
     // Saving and loading, below the settings.
     commands
@@ -357,6 +382,9 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
         list,
         detail,
         tree_editor: None,
+        layer: None,
+        ground_list,
+        ground_detail,
         stale: Stale::default(),
         rng: Rng::new(std::process::id()),
     };
@@ -369,6 +397,7 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
 fn rebuild(
     mut editors: Query<&mut EcotopeEditor>,
     children: Query<&Children>,
+    presets: Res<Presets>,
     mut commands: Commands,
 ) {
     let clear = |commands: &mut Commands, node: Entity| {
@@ -377,10 +406,15 @@ fn rebuild(
         }
     };
     for mut editor in &mut editors {
-        if !(editor.stale.list || editor.stale.detail) {
-            continue;
-        }
         let stale = std::mem::take(&mut editor.stale);
+        if stale.ground {
+            clear(&mut commands, editor.ground_list);
+            clear(&mut commands, editor.ground_detail);
+            ground::spawn_layers(&mut commands, &editor, true);
+        } else if stale.ground_list {
+            clear(&mut commands, editor.ground_list);
+            ground::spawn_layers(&mut commands, &editor, false);
+        }
         if stale.list {
             clear(&mut commands, editor.list);
             for (key, scatter) in editor.ecotope.order() {
@@ -390,7 +424,7 @@ fn rebuild(
         }
         if stale.detail {
             clear(&mut commands, editor.detail);
-            editor.tree_editor = spawn_detail(&mut commands, &editor);
+            editor.tree_editor = spawn_detail(&mut commands, &editor, &presets);
         }
     }
 }
@@ -440,7 +474,11 @@ fn spawn_row(
 
 /// Spawns the selected Scatter's settings in the editor's detail node.
 /// Returns the tree Scatter editor, for a tree Scatter.
-fn spawn_detail(commands: &mut Commands, editor: &EcotopeEditor) -> Option<Entity> {
+fn spawn_detail(
+    commands: &mut Commands,
+    editor: &EcotopeEditor,
+    presets: &Presets,
+) -> Option<Entity> {
     let key = editor.selected.as_ref()?;
     let scatter = editor.ecotope.scatters.get(key)?;
     let detail = editor.detail;
@@ -526,7 +564,14 @@ fn spawn_detail(commands: &mut Commands, editor: &EcotopeEditor) -> Option<Entit
                         ]
                     })
                     .insert(ChildOf(detail));
-                spawn_asset_picker::<StonePreset>(commands, detail, "Stone", &class.stone, i);
+                spawn_asset_picker::<StonePreset>(
+                    commands,
+                    detail,
+                    "Stone",
+                    &class.stone,
+                    i,
+                    presets,
+                );
                 bound_panel(
                     commands,
                     detail,
@@ -555,7 +600,14 @@ fn spawn_detail(commands: &mut Commands, editor: &EcotopeEditor) -> Option<Entit
                 .insert(ChildOf(detail));
         }
         ScatterKind::Deadwood(options) => {
-            spawn_asset_picker::<DeadwoodPreset>(commands, detail, "Piece", &options.piece, 0);
+            spawn_asset_picker::<DeadwoodPreset>(
+                commands,
+                detail,
+                "Piece",
+                &options.piece,
+                0,
+                presets,
+            );
             bound_panel(
                 commands,
                 detail,
@@ -574,7 +626,7 @@ fn spawn_detail(commands: &mut Commands, editor: &EcotopeEditor) -> Option<Entit
             );
         }
         ScatterKind::Mushroom { mushroom, scatter } => {
-            spawn_asset_picker::<MushroomPreset>(commands, detail, "Species", mushroom, 0);
+            spawn_asset_picker::<MushroomPreset>(commands, detail, "Species", mushroom, 0, presets);
             bound_panel(
                 commands,
                 detail,
@@ -628,25 +680,28 @@ fn bound_panel<T: Stored>(
         .observe(store_panel::<T>);
 }
 
-/// Spawns a picker of `P`'s built-in presets, and Custom, showing which
-/// one `options` is, for the asset of the selected Scatter that `P` names:
-/// stone class `class`'s stone, the dead wood piece or the mushroom
-/// species.
+/// Spawns a picker of `P`'s presets, the project's and the built-in ones,
+/// and Custom, showing which one `options` is, for the asset of the
+/// selected Scatter that `P` names: stone class `class`'s stone, the dead
+/// wood piece or the mushroom species.
 fn spawn_asset_picker<P: Preset>(
     commands: &mut Commands,
     parent: Entity,
     label: &'static str,
     options: &P::Options,
     class: usize,
+    presets: &Presets,
 ) where
-    P::Options: PartialEq,
+    P::Options: PartialEq + Clone,
 {
     let part = asset_part::<P>(class);
-    let names: Vec<String> = P::all()
-        .map(|preset| preset.name().to_owned())
+    let choices = preset_choices::<P>(presets);
+    let chosen = choice_of(&choices, options);
+    let names: Vec<String> = choices
+        .into_iter()
+        .map(|choice| choice.name)
         .chain([CUSTOM.to_owned()])
         .collect();
-    let chosen = asset_choice::<P>(options);
     let picker: Box<dyn Scene> = Box::new(bsn! {
         @FeathersSelect { @options: list_rows_from_strings(names, Some(chosen)) }
         Node { flex_grow: 1.0, min_width: px(0) }
@@ -669,13 +724,23 @@ fn asset_part<P: Preset>(class: usize) -> Part {
 
 /// The picker index of the preset of `P` whose options equal `options`, or
 /// the Custom entry after them.
-fn asset_choice<P: Preset>(options: &P::Options) -> usize
+fn asset_choice<P: Preset>(options: &P::Options, presets: &Presets) -> usize
 where
-    P::Options: PartialEq,
+    P::Options: PartialEq + Clone,
 {
-    P::all()
-        .position(|preset| preset.options() == options)
-        .unwrap_or_else(|| P::all().count())
+    choice_of(&preset_choices::<P>(presets), options)
+}
+
+/// Where the asset a picker of `part` chooses sits in the settings of the
+/// Scatter `key`, such as `scatters.boulders.classes.0.stone`.
+fn asset_path(key: &ChildKey, part: Part) -> Option<SettingPath> {
+    let scatter = SettingPath::parse("scatters").child(key.as_str());
+    match part {
+        Part::ClassStone(i) => Some(scatter.child("classes").child(i.to_string()).child("stone")),
+        Part::Piece => Some(scatter.child("piece")),
+        Part::Species => Some(scatter.child("mushroom")),
+        _ => None,
+    }
 }
 
 /// Stores a panel's edited value in the selected Scatter.
@@ -710,6 +775,7 @@ fn show_asset_choices(
     children: Query<&Children>,
     pickers: Query<&AssetPicker>,
     selects: SelectOptions,
+    presets: Res<Presets>,
     mut commands: Commands,
 ) {
     for (editor_entity, editor) in &editors {
@@ -722,7 +788,7 @@ fn show_asset_choices(
         };
         for entity in children.iter_descendants(editor_entity) {
             if let Ok(picker) = pickers.get(entity) {
-                show_asset_choice(entity, picker, scatter, &selects, &mut commands);
+                show_asset_choice(entity, picker, scatter, &selects, &presets, &mut commands);
             }
         }
     }
@@ -735,18 +801,19 @@ fn show_asset_choice(
     picker: &AssetPicker,
     scatter: &EcotopeScatter,
     selects: &SelectOptions,
+    presets: &Presets,
     commands: &mut Commands,
 ) {
     let choice = match (picker.0, &scatter.scatter) {
         (Part::ClassStone(i), ScatterKind::Stone(options)) => options
             .classes
             .get(i)
-            .map(|class| asset_choice::<StonePreset>(&class.stone)),
+            .map(|class| asset_choice::<StonePreset>(&class.stone, presets)),
         (Part::Piece, ScatterKind::Deadwood(options)) => {
-            Some(asset_choice::<DeadwoodPreset>(&options.piece))
+            Some(asset_choice::<DeadwoodPreset>(&options.piece, presets))
         }
         (Part::Species, ScatterKind::Mushroom { mushroom, .. }) => {
-            Some(asset_choice::<MushroomPreset>(mushroom))
+            Some(asset_choice::<MushroomPreset>(mushroom, presets))
         }
         _ => None,
     };
@@ -985,10 +1052,11 @@ fn choose_asset(
     change: On<ValueChange<Entity>>,
     rows: Query<&OptionIndex>,
     pickers: Query<&AssetPicker>,
-    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
+    editor: Single<(Entity, &mut EcotopeEditor), Without<Dormant>>,
+    presets: Res<Presets>,
     mut commands: Commands,
 ) {
-    let mut editor = editor.into_inner();
+    let (entity, mut editor) = editor.into_inner();
     let (Ok(index), Ok(picker), Some(key)) = (
         rows.get(change.value),
         pickers.get(change.source),
@@ -999,39 +1067,47 @@ fn choose_asset(
     let Some(scatter) = editor.ecotope.scatters.get_mut(&key) else {
         return;
     };
-    let changed = match (picker.0, &mut scatter.scatter) {
+    let picked = match (picker.0, &mut scatter.scatter) {
         (Part::ClassStone(i), ScatterKind::Stone(options)) => options
             .classes
             .get_mut(i)
-            .is_some_and(|class| pick::<StonePreset>(index.0, &mut class.stone)),
+            .and_then(|class| pick::<StonePreset>(index.0, &mut class.stone, &presets)),
         (Part::Piece, ScatterKind::Deadwood(options)) => {
-            pick::<DeadwoodPreset>(index.0, &mut options.piece)
+            pick::<DeadwoodPreset>(index.0, &mut options.piece, &presets)
         }
         (Part::Species, ScatterKind::Mushroom { mushroom, .. }) => {
-            pick::<MushroomPreset>(index.0, mushroom)
+            pick::<MushroomPreset>(index.0, mushroom, &presets)
         }
-        _ => false,
+        _ => None,
     };
-    if changed {
-        // The asset's settings panel shows the new settings.
+    if let Some(reference) = picked {
+        // The asset's settings panel shows the new settings, and the
+        // document names the preset when it saves.
         editor.stale.detail = true;
         commands.trigger(EcotopeEdited { reframe: false });
+        if let Some(path) = asset_path(&key, picker.0) {
+            commands.trigger(PresetPicked {
+                editor: entity,
+                path,
+                reference,
+            });
+        }
     }
 }
 
-/// Sets `options` to the settings of `P`'s preset at `index`. Returns
-/// whether they changed; Custom, past the presets, changes nothing.
-fn pick<P: Preset>(index: usize, options: &mut P::Options) -> bool
+/// Sets `options` to the settings of `P`'s preset at `index` in the
+/// pickers' list, and returns the reference naming it when they changed.
+/// Custom, past the presets, changes nothing.
+fn pick<P: Preset>(index: usize, options: &mut P::Options, presets: &Presets) -> Option<String>
 where
     P::Options: PartialEq + Clone,
 {
-    match P::all().nth(index) {
-        Some(preset) if preset.options() != options => {
-            *options = preset.options().clone();
-            true
-        }
-        _ => false,
+    let choice = preset_choices::<P>(presets).into_iter().nth(index)?;
+    if &choice.options == options {
+        return None;
     }
+    *options = choice.options;
+    Some(choice.reference)
 }
 
 /// Adds a class of river stones to the selected stone Scatter.
@@ -1119,7 +1195,7 @@ fn load_ecotope_file(_: On<Activate>, mut files: FileOps) {
 /// Shows a loaded Ecotope in the selected Ecotope's editor, and fits the
 /// camera to it. The preset, and so the suggested file name, stays as it
 /// was. Run it with `World::run_system_cached_with`.
-fn load_ecotope(
+pub fn load_ecotope(
     In(ecotope): In<Ecotope>,
     editor: Single<&mut EcotopeEditor, Without<Dormant>>,
     mut commands: Commands,

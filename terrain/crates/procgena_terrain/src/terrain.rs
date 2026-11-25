@@ -12,6 +12,7 @@ use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
 use crate::feature::{FeatureId, FeatureTier, TerrainFeature};
 use crate::hash::{SEAM_DETAIL, salt};
+use crate::label::{Labels, Shape, Site, classify, principal_bends, shape_points};
 use crate::measure::{
     CURVATURE_STEP, MEASURE_REACH, Measures, SampleDetail, curvature_of, slope_of,
 };
@@ -23,6 +24,7 @@ use crate::region::{
     EdgeId, Region, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
 };
 use crate::relief::Relief;
+use crate::scale::WorldScale;
 use crate::seam::{
     CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
     relative_to, sample_count, smooth, smootherstep, smootherstep_slope,
@@ -84,6 +86,8 @@ pub struct Terrain {
     /// For each tier, in [`FeatureTier::ALL`] order, how far the features
     /// it adds move the ground (see [`Terrain::tier_difference`]).
     differences: [f32; FeatureTier::ALL.len()],
+    /// The world's scale, which the labels read shapes at.
+    scale: WorldScale,
 }
 
 /// One shared edge: the agreed profile and this terrain's own smoothed
@@ -535,6 +539,7 @@ impl TerrainGenerator {
             features: Features::default(),
             tier: FeatureTier::ALL[0],
             differences: [0.0; FeatureTier::ALL.len()],
+            scale: WorldScale::default(),
         };
 
         // Rivers and ponds, planned on the bent terrain.
@@ -605,6 +610,30 @@ impl Terrain {
     /// [`Fine`](FeatureTier::Fine) is the real ground.
     pub fn tier(&self) -> FeatureTier {
         self.tier
+    }
+
+    /// This terrain with its world's `scale`, which its
+    /// [`annotate`](Self::annotate) labels read shapes at. A terrain is
+    /// built at [scale 1](WorldScale::default). Every terrain of one world
+    /// must have the same scale, or labels jump at their borders.
+    ///
+    /// # Panics
+    ///
+    /// If either part of `scale` isn't finite and positive.
+    pub fn with_scale(mut self, scale: WorldScale) -> Self {
+        assert!(
+            scale.is_valid(),
+            "the scale must be finite and positive, not {} × {}",
+            scale.horizontal,
+            scale.vertical
+        );
+        self.scale = scale;
+        self
+    }
+
+    /// This terrain's world scale (see [`with_scale`](Self::with_scale)).
+    pub fn scale(&self) -> WorldScale {
+        self.scale
     }
 
     /// The most, in metres, this terrain's ground differs from the same
@@ -901,40 +930,69 @@ impl Terrain {
     ///   [`road_tags`](Self::road_tags) give;
     /// - from [`SampleDetail::Gradient`], how much the ground rises per
     ///   metre along x and z, as [`sample`](Self::sample) gives it;
-    /// - at [`SampleDetail::Measures`], the [`Measures`]: slope, curvature,
-    ///   and the nearby water and roads.
+    /// - from [`SampleDetail::Measures`], the [`Measures`]: slope,
+    ///   curvature, and the nearby water and roads;
+    /// - at [`SampleDetail::Labels`], the [`Labels`], as
+    ///   [`annotate`](Self::annotate) gives them.
     ///
     /// Cheaper than asking for each in turn. The gradient costs the most
     /// near borders, several times the height; the measures cost about four
-    /// heights more.
+    /// heights more, and the labels about eight more again.
     pub fn query(&self, p: DVec2, detail: SampleDetail) -> TerrainSample {
         let (carved, slope) = self.point(p, detail >= SampleDetail::Gradient);
         let gradient = slope.as_vec2();
-        let measures =
+        let measured =
             (detail >= SampleDetail::Measures).then(|| self.measures(p, carved.height, gradient));
+        let labels =
+            measured
+                .filter(|_| detail >= SampleDetail::Labels)
+                .map(|(measures, water_kind)| {
+                    let shape = Shape::at(self.scale);
+                    let around = shape_points(p, shape.step).map(|q| self.height(q));
+                    let site = Site {
+                        water: carved.water,
+                        tags: carved.tags,
+                        measures,
+                        water_kind,
+                        bends: principal_bends(carved.height, around, shape.step),
+                    };
+                    classify(&site, shape)
+                });
         TerrainSample {
             height: carved.height,
             gradient: (detail >= SampleDetail::Gradient).then_some(gradient),
             water: carved.water,
             tags: carved.tags,
-            measures,
+            measures: measured.map(|(measures, _)| measures),
+            labels,
         }
     }
 
+    /// The labels at `p` (x and z, metres): what kind of land it is, and
+    /// what else holds there. The same as [`query`](Self::query) gives at
+    /// [`SampleDetail::Labels`].
+    pub fn annotate(&self, p: DVec2) -> Labels {
+        self.query(p, SampleDetail::Labels)
+            .labels
+            .expect("a query at SampleDetail::Labels gives labels")
+    }
+
     /// The measures at `p`, where the carved ground is `height` high and
-    /// rises by `gradient`.
-    fn measures(&self, p: DVec2, height: f32, gradient: Vec2) -> Measures {
+    /// rises by `gradient`, and what the nearest water within their reach
+    /// is.
+    fn measures(&self, p: DVec2, height: f32, gradient: Vec2) -> (Measures, Option<FeatureKind>) {
         let reach = f64::from(MEASURE_REACH);
         let nearby = self.features.nearby(p, reach);
         let around = [DVec2::X, DVec2::NEG_X, DVec2::Y, DVec2::NEG_Y]
             .map(|axis| self.height(p + axis * CURVATURE_STEP));
-        Measures {
+        let measures = Measures {
             slope: slope_of(gradient),
             curvature: curvature_of(height, around),
             height_above_water: nearby.water_level.map(|level| height - level),
             water_distance: nearby.water_distance as f32,
             road_distance: nearby.road_distance as f32,
-        }
+        };
+        (measures, nearby.water_kind)
     }
 
     /// The ground's height at `p` with its gradient, the same as
@@ -1059,6 +1117,8 @@ pub struct TerrainSample {
     pub tags: RoadTags,
     /// The ground's measures, if asked for.
     pub measures: Option<Measures>,
+    /// The ground's labels, if asked for.
+    pub labels: Option<Labels>,
 }
 
 /// Anything with a ground height at every world position.
@@ -1127,6 +1187,24 @@ pub struct HeightTile {
     /// `None`. Each is the field's own gradient at that point (see
     /// [`HeightField::sample`]), not a difference of neighbouring samples.
     pub gradients: Option<Vec<Vec2>>,
+    /// The labels at each sample, in the same order as `heights`, for a
+    /// tile made by [`sample_labelled`](Self::sample_labelled); otherwise
+    /// `None`. A sample is `None` where the field has no labels (see
+    /// [`LabelField::annotate`]).
+    pub labels: Option<Vec<Option<Labels>>>,
+}
+
+/// Anything with [`Labels`] at every world position where it has ground.
+pub trait LabelField: HeightField {
+    /// The labels at world position `p` (x and z, metres), or `None` where
+    /// there is no ground.
+    fn annotate(&self, p: DVec2) -> Option<Labels>;
+}
+
+impl LabelField for Terrain {
+    fn annotate(&self, p: DVec2) -> Option<Labels> {
+        Some(Terrain::annotate(self, p))
+    }
 }
 
 impl HeightTile {
@@ -1138,7 +1216,15 @@ impl HeightTile {
         size: glam::UVec2,
         step: f64,
     ) -> Self {
-        Self::fill(field, origin, size, step, false)
+        let heights = Self::each(origin, size, step, |p| field.height(p));
+        Self {
+            origin,
+            step,
+            size,
+            heights,
+            gradients: None,
+            labels: None,
+        }
     }
 
     /// [`sample`](Self::sample), with the gradient at every sample too.
@@ -1150,48 +1236,58 @@ impl HeightTile {
         size: glam::UVec2,
         step: f64,
     ) -> Self {
-        Self::fill(field, origin, size, step, true)
-    }
-
-    /// Samples `field`, with gradients if `gradients`.
-    fn fill(
-        field: &impl HeightField,
-        origin: glam::I64Vec2,
-        size: glam::UVec2,
-        step: f64,
-        gradients: bool,
-    ) -> Self {
-        let row = |j: u32| -> Vec<GroundSample> {
-            let z = (origin.y + i64::from(j)) as f64 * step;
-            (0..size.x)
-                .map(|i| {
-                    let p = DVec2::new((origin.x + i64::from(i)) as f64 * step, z);
-                    if gradients {
-                        field.sample(p)
-                    } else {
-                        GroundSample {
-                            height: field.height(p),
-                            gradient: Vec2::ZERO,
-                        }
-                    }
-                })
-                .collect()
-        };
-        #[cfg(feature = "rayon")]
-        let rows: Vec<Vec<GroundSample>> = {
-            use rayon::prelude::*;
-            (0..size.y).into_par_iter().map(row).collect()
-        };
-        #[cfg(not(feature = "rayon"))]
-        let rows: Vec<Vec<GroundSample>> = (0..size.y).map(row).collect();
-        let samples = rows.concat();
+        let samples = Self::each(origin, size, step, |p| field.sample(p));
         Self {
             origin,
             step,
             size,
             heights: samples.iter().map(|s| s.height).collect(),
-            gradients: gradients.then(|| samples.iter().map(|s| s.gradient).collect()),
+            gradients: Some(samples.iter().map(|s| s.gradient).collect()),
+            labels: None,
         }
+    }
+
+    /// [`sample`](Self::sample), with the labels at every sample too. For
+    /// a [`Terrain`] this costs about ten times as much as the heights
+    /// alone.
+    pub fn sample_labelled(
+        field: &impl LabelField,
+        origin: glam::I64Vec2,
+        size: glam::UVec2,
+        step: f64,
+    ) -> Self {
+        let samples = Self::each(origin, size, step, |p| (field.height(p), field.annotate(p)));
+        Self {
+            origin,
+            step,
+            size,
+            heights: samples.iter().map(|s| s.0).collect(),
+            gradients: None,
+            labels: Some(samples.iter().map(|s| s.1).collect()),
+        }
+    }
+
+    /// `at` of every lattice point of the tile, row by row (x fastest).
+    fn each<T: Send>(
+        origin: glam::I64Vec2,
+        size: glam::UVec2,
+        step: f64,
+        at: impl Fn(DVec2) -> T + Sync,
+    ) -> Vec<T> {
+        let row = |j: u32| -> Vec<T> {
+            let z = (origin.y + i64::from(j)) as f64 * step;
+            (0..size.x)
+                .map(|i| at(DVec2::new((origin.x + i64::from(i)) as f64 * step, z)))
+                .collect()
+        };
+        #[cfg(feature = "rayon")]
+        let rows: Vec<Vec<T>> = {
+            use rayon::prelude::*;
+            (0..size.y).into_par_iter().map(row).collect()
+        };
+        #[cfg(not(feature = "rayon"))]
+        let rows: Vec<Vec<T>> = (0..size.y).map(row).collect();
+        rows.into_iter().flatten().collect()
     }
 
     /// The height at sample `(i, j)`.
@@ -1205,6 +1301,12 @@ impl HeightTile {
         let gradients = self.gradients.as_ref()?;
         Some(gradients[(j * self.size.x + i) as usize])
     }
+
+    /// The labels at sample `(i, j)`; `None` for a tile without labels, or
+    /// where the field has none.
+    pub fn labels(&self, i: u32, j: u32) -> Option<Labels> {
+        self.labels.as_ref()?[(j * self.size.x + i) as usize]
+    }
 }
 
 #[cfg(test)]
@@ -1212,7 +1314,7 @@ mod tests {
     use super::*;
     use crate::carve::FeatureKind;
     use crate::feature::FeatureShape;
-    use crate::{Convergence, Elevation, RegionSpec, StitchedWorld, TerrainPreset};
+    use crate::{Convergence, Elevation, RegionSpec, StitchedWorld, TerrainPreset, fixtures};
 
     /// Plains in the west and rolling hills in the east (hill seed 102),
     /// split by a bent border: the plains get rivers, a pond and roads.
@@ -1236,7 +1338,7 @@ mod tests {
                         (0.0, 1500.0),
                         (-2000.0, 1500.0),
                     ]),
-                    options: options(TerrainPreset::plains(), 102),
+                    options: options(fixtures::plains_medium(), 102),
                 },
                 RegionSpec {
                     id: RegionId(2),
@@ -1249,7 +1351,7 @@ mod tests {
                         (-200.0, 0.0),
                         (150.0, -700.0),
                     ]),
-                    options: options(TerrainPreset::rolling_hills(), 102),
+                    options: options(fixtures::rolling_hills_medium(), 102),
                 },
             ],
             &Convergence::default(),
@@ -1406,6 +1508,16 @@ mod tests {
             );
             let measures = measured.measures.expect("measures were asked for");
             assert_eq!(measures.slope, slope_of(sample.gradient));
+            assert_eq!(measured.labels, None);
+            let labelled = t.query(p, SampleDetail::Labels);
+            assert_eq!(
+                TerrainSample {
+                    labels: None,
+                    ..labelled
+                },
+                measured
+            );
+            assert_eq!(labelled.labels, Some(t.annotate(p)));
         }
     }
 }

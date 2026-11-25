@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// World is built. Anything placed by hand (E's bumps, pins), region sizes
 /// and border warp are in real metres and never scaled.
 ///
-/// Start from [`Self::default()`] (the medium scale class) or a
+/// Start from [`Self::default()`] (the medium-small scale class) or a
 /// [`WorldPreset`](crate::WorldPreset), or read a `.world.yml` file with
 /// [`WorldPreset::from_yaml`](crate::WorldPreset::from_yaml).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,8 +50,8 @@ pub struct WorldOptions {
 }
 
 impl Default for WorldOptions {
-    /// The medium scale class (scale 1): 4 km regions on today's Terrain
-    /// presets, with the built-in bare-land Biomes.
+    /// The Valheim-like medium-small scale class (scale 1): 2 km regions on
+    /// the built-in Terrain presets, with the built-in bare-land Biomes.
     fn default() -> Self {
         Self {
             seed: 0,
@@ -68,30 +68,11 @@ impl Default for WorldOptions {
 
 /// How much a World stretches its landscape against reference scale 1.
 ///
-/// The scale stretches what the World generates: `horizontal` multiplies
-/// every landscape wavelength (E's layers, the selector fields), and
-/// `vertical` every generated height (E's layers, the rules' elevation
-/// bounds). Slopes change by `vertical / horizontal`. Anything placed by
-/// hand, such as E's bumps and pins, stays in real metres, as do objects,
-/// road and river widths, chunks and level of detail.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorldScale {
-    /// The stretch of landscape lengths. Finite and positive.
-    pub horizontal: f64,
-    /// The stretch of landscape heights. Finite and positive.
-    pub vertical: f64,
-}
-
-impl Default for WorldScale {
-    /// Scale 1: today's lengths and heights.
-    fn default() -> Self {
-        Self {
-            horizontal: 1.0,
-            vertical: 1.0,
-        }
-    }
-}
+/// In a World, `horizontal` multiplies E's layer wavelengths and the
+/// selector fields, and `vertical` E's layer heights and the rules'
+/// elevation bounds. E's bumps and pins stay in real metres. Every region's
+/// Terrain gets the same scale.
+pub use procgena_terrain::WorldScale;
 
 /// The World's selector fields: smooth noise over the World that, with E,
 /// decides which Biome fills each region.
@@ -112,12 +93,12 @@ impl Default for SelectorFields {
     fn default() -> Self {
         Self {
             ruggedness: SelectorField {
-                wavelength: 12_000.0,
+                wavelength: 6_000.0,
                 octaves: 3,
                 roughness: 0.5,
             },
             moisture: SelectorField {
-                wavelength: 20_000.0,
+                wavelength: 10_000.0,
                 octaves: 3,
                 roughness: 0.5,
             },
@@ -192,19 +173,19 @@ impl Default for BiomeRules {
             rules: vec![
                 rule(
                     "mountains",
-                    FieldRange::at_least(150.0),
+                    FieldRange::at_least(75.0),
                     FieldRange::at_least(0.2),
                     FieldRange::ANY,
                 ),
                 rule(
                     "plains",
-                    FieldRange::at_least(150.0),
+                    FieldRange::at_least(75.0),
                     FieldRange::ANY,
                     FieldRange::below(-0.2),
                 ),
                 rule(
                     "rolling_hills",
-                    FieldRange::at_least(150.0),
+                    FieldRange::at_least(75.0),
                     FieldRange::ANY,
                     FieldRange::ANY,
                 ),
@@ -419,12 +400,7 @@ impl WorldOptions {
     /// keys are not checked here: a [`World`](crate::World) checks them
     /// against the Biomes it is given.
     pub fn validate(&self) -> Result<(), WorldOptionsError> {
-        let WorldScale {
-            horizontal,
-            vertical,
-        } = self.scale;
-        let positive = |v: f64| v.is_finite() && v > 0.0;
-        if !positive(horizontal) || !positive(vertical) {
+        if !self.scale.is_valid() {
             return Err(WorldOptionsError::Scale(self.scale));
         }
         self.regions

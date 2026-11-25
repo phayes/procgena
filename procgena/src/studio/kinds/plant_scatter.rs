@@ -31,6 +31,7 @@ pub fn register(app: &mut App) {
             start: crate::field::START_PRESET,
             spawn_editor: spawn_field_editor,
             show,
+            settings: None,
             detail_levels: super::plant::LEVELS,
             hidden_environment: crate::environment::PLANTS,
             status_line: status::plants_line,

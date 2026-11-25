@@ -399,7 +399,8 @@ turns two offers into an agreement, and each side conforms to the agreement
 within its own margin. A Biome border is negotiated in two steps:
 
 1. **Terrain**: WorldTerrain runs the terrain seam protocol between the two
-   Terrains.
+   Terrains, once per tier: rough always, finer only near the camera
+   (see "Border negotiation per tier" under 4.2).
 2. **Ecotopes**: the Ecotopes on either side agree how they blend across
    the border: how wide the blend is, and how each side's coverage fades
    into the other's, shaped by noise so the line doesn't show.
@@ -474,6 +475,47 @@ with volume only where a feature needs it (caves, overhangs), and rock
 outcrops are meshes the terrain builds and lays into the ground (review,
 "Decisions").
 
+**Border negotiation per tier** (decided 2026-11-24, user; parked
+2026-11-25 by the user, who may come back to it: until then borders are
+negotiated once, as today; design in
+[terrain/edit_cache_plan.md](terrain/edit_cache_plan.md), "Border
+negotiation per tier"). Borders are negotiated tier by tier, at the
+feature tiers' granularities, and far regions never settle their fine
+borders.
+
+- **Rough tier.**
+  - Neighbours agree only on the low-frequency shape (E and the relief's
+    low band) and on where rivers and roads cross the border.
+  - Crossings are fixed here and never move at finer tiers.
+  - River routes are decided here, graph-wide.
+  - The rough tier covers the whole view.
+- **Mid and fine tiers.**
+  - The relief's detail band, the carving, and the roads and rivers
+    themselves are negotiated only for regions near the camera and their
+    immediate ring.
+  - The detail agreement is negotiated on detail-band samples alone,
+    linearly, and pinned to zero at corners. A fine agreement is the
+    rough one plus the detail one.
+- **No popping.**
+  - A finer tier only adds band-limited detail.
+  - The relief's coarse form is exactly the low-pass of its fine form:
+    the low band is the first octaves of each relief layer, and no detail
+    octave may change it. So upgrading a region never moves what a
+    coarser tier decided.
+  - Carving, which is not band-limited, keeps the feature-tier rule
+    instead: a declared largest coarse-to-fine difference, covered by
+    skirts. That refinement is pending the user's confirmation, as
+    question 10 in the plan.
+- **Load-independent.**
+  - A region's fine border never depends on which neighbours are drawn
+    fine.
+  - Fine negotiation reads the neighbour's fine offers whenever it needs
+    them, so fine offers are built one ring wider than the regions drawn
+    fine.
+- **Mixed-tier borders.** Where a region drawn at one tier meets one drawn
+  at another, the seam gets a transition: a skirt, or the detail band
+  fading to zero, as chunks of different tiers do.
+
 **What it gets from above.**
 
 - From its Biome: its options.
@@ -492,7 +534,27 @@ meshes the ground as heightfield chunks on the shared chunk grid (64 m,
 doubling per level), with crack-free transitions between levels and a
 provisional (road-free) stage for far chunks; `procgena_terrain_bevy`
 streams them around the camera, and the studio has a Terrain tab. The
-planned `annotate` labels are not exposed yet.
+labels (`annotate`: a `Landform` and `Flags` per point, from
+`Measures` and the ground's shape read at the World's scale) are built,
+per point and per tile.
+
+**Labels at region borders** (decided by the user, 2026-11-25). Two
+terrains meet in height and slope along their shared border line, not
+past it: each terrain's own ground beyond the border differs from its
+neighbour's. So anything that reads the ground around a point near a
+border can differ a little from side to side.
+- Labels from water and roads (riverbed, pondbed, road), and every flag,
+  come from features both sides know, and agree exactly.
+- Shape labels (ridge, peak, valley, basin, and plain or slope where
+  those apply) read a stencil one shape step wide, so they may differ in
+  a thin strip along each border. On the medium test worlds they differ
+  at 2.9% of border points. The two sides' bends differ by 7% of the
+  threshold at p50 (80% at p99). The strip widens with the World's
+  horizontal scale, as the stencil does.
+- This is accepted, not fixed. Reading the neighbour's ground would make
+  labels near borders depend on a neighbour's plan, which Ecotope
+  border offers must not ("Plan", below). The Ecotope blend zone covers
+  the strip.
 
 ### 5. World
 
@@ -547,8 +609,11 @@ W1.
 It reaches into each Biome for that Biome's one Terrain, and this is step 1
 of every Biome border.
 It runs the terrain seam protocol across the region graph: offers, then
-agreements, then each Terrain conforms to its agreements. Rivers and roads
-cross borders through the ports those agreements set. Any other terrain
+agreements, then each Terrain conforms to its agreements. Since
+2026-11-24 the protocol runs once per tier: rough for every planned
+region, finer only near the camera (see "Border negotiation per tier"
+under 4.2). Rivers and roads cross borders through the ports those
+agreements set. Any other terrain
 feature either stays inside its region's border margin, crosses through
 an agreed port, or comes from a field both sides share. None needs its
 neighbour's full plan.
@@ -880,7 +945,8 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   planned in a ring one region wider than the view distance, and plans are
   cached on disk. Terrain seam offers depend only on their own region, so a
   far region's terrain needs only its neighbours' offers, never their
-  plans. Ecotope border offers must keep the same rule: built from their
+  plans. A far region needs only their **rough** offers; detail offers
+  are built only near the camera (decided 2026-11-24). Ecotope border offers must keep the same rule: built from their
   own Biome alone, never from labels that depend on a neighbour's plan.
 - **A Terrain's plan comes in stages**, each cached on its own: relief and
   seam offers, then its features in **tiers** from rough to fine. Each
@@ -894,6 +960,14 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   (`FeatureTier`, `WorldTerrain::terrain_tier`), with near chunks refined
   in the background and skirts sized by how far each tier moves the
   ground.
+- **Borders follow the tiers** (decided 2026-11-24): a far region
+  negotiates only its rough border (low-band relief and crossings), and
+  only regions near the camera and their ring negotiate detail. See
+  "Border negotiation per tier" under 4.2.
+- **Measured against the budget** (2026-11-24, release, studio view on
+  rolling hills): a region plan takes about 0.6–0.9 s, inside the "up to
+  about a second" above, but one near region's roads take about 5 s. The
+  plan (terrain/edit_cache_plan.md, TE5) speeds the road search first.
 - **Place.** Placement is decided per Scatter and per chunk. It needs the
   plan, the Ground and the masks from above, and never the drawn meshes.
 - **Draw.** Drawing picks a detail level per copy, as rule 2 says. An
@@ -1324,15 +1398,34 @@ Each rule says what every asset does, and which crates have to change.
    - Change: tree, deadwood and mushroom gain a GPU path; plant gains a
      production CPU path; clump's Bevy crate uses its existing GPU path.
      This is the largest item in this document.
-2. **One LOD model.**
-   - One shared type: detail levels by distance in metres, with hysteresis
-     and a cull distance, written for a reference size and scaled by each
-     copy's world size (mushroom does this today).
+2. **One LOD model** (reworked by IX, decided by the user 2026-11-25; see
+   [docs/decisions/IX-plan.md](docs/decisions/IX-plan.md)).
+   - **A preset is content; drawing is presentation.** A preset carries
+     its `game_level`: the one detail that is the object's real geometry,
+     which colliders, picking, CPU queries and impostor bakes read. Its
+     default is per kind (level 0 for trees, level 1 for the rest), and a
+     game cannot override it.
+   - **One chain for every kind** (`procgena_core::chain`): the
+     `game_level` mesh, one lower mesh derived from it by the kind's
+     default rule (`LowerDetail`), then an impostor baked from
+     `game_level`, until the copy is culled. Both meshes cast shadows;
+     impostors do not.
+   - **Steps switch by size on screen**: a copy's bounding-sphere
+     diameter as a share of the screen's height, with one
+     `DistanceChain` of thresholds for every kind, not on the preset (one
+     project default for now; Bevy hooks to change it come later). The
+     chain resolves to metre fade bands per view (`ViewScale`) and copy.
    - One transition: dither, the same in every render pass, from one shared
      shader module.
-   - Every asset names its far form (strips, billboard leaves, a card, a
-     flat cap plus ribbon, or a far ground material: `FarForm`), and
-     its last level drops shadows where it should.
+   - Ribbon far forms (strips, billboard leaves, cards, flat cap plus
+     ribbon) are dropped in favour of impostors; grass keeps its far
+     ground material (`FarForm::GroundMaterial`) for now.
+   - Status: the chain types are in `procgena_core::chain` (IX Step 1).
+     Assets still use the older metre table (`Lod`, `LodLevel`,
+     `LevelForm`, `FarForm`) until each moves across, stone first; the old
+     types are deleted when the last asset moves. The bullets below
+     describe the older model where they talk of levels, far forms and
+     metre distances.
    - **Attached assets own their levels.** Fruit and flowers are their own
      asset (decided by the user, superseding the cluster-card plan of
      2026-11-23): each cluster specimen has its own mesh levels, sized by
@@ -1354,9 +1447,12 @@ Each rule says what every asset does, and which crates have to change.
      full sphere) by default. Trees declare −45°, so they look right from
      below on a mountain slope.
    - One quality setting (`LOW`..`ULTRA`) that scales every asset's
-     distances together.
-   - Change: everyone. Tree gains size scaling; clump follows its host's
-     levels.
+     distances together: it divides the chain's size-on-screen thresholds,
+     and never changes a copy's `game_level`. Impostor views are sized for
+     the largest size on screen any quality shows, so one mipmapped bake
+     serves every quality.
+   - Change: everyone. Every kind moves to the chain (IX Steps 2–4);
+     clump follows its host's levels.
 3. **One content hash.** Every options type gets a stable content hash
    (tree's `tree_id` is the model: floats hashed by their bits, the same
    across runs and machines). Two hashes come from it, as "Specimen
@@ -1651,7 +1747,7 @@ it starts.
   a gradient grid in `HeightTile`. Built in G2 (2026-11-24): the border's
   and the fade's pulls (their soft distance and mixed targets) are taken
   by differences 0.5 m apart in f64; everything else is analytic.
-- [ ] **Terrain labels**: expose `annotate(x, z)` with `Landform`, `Flags`
+- [x] **Terrain labels**: expose `annotate(x, z)` with `Landform`, `Flags`
   and `Measures` (slope from the same gradient), which the Biome's Ecotope
   rules need.
 - [ ] **Scatters use it**: reject steep spots from the slope before any

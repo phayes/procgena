@@ -10,7 +10,9 @@ use procgena_biome::{Ecotope, EcotopeError, EcotopePlacement};
 use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
 use procgena_core::{ChildKey, Ground};
 use procgena_terrain::ground::GroundWeights;
-use procgena_terrain_bevy::{TerrainExtension, TerrainMaterial, TerrainMaterialPlugin};
+use procgena_terrain_bevy::{
+    GroundTextureSettings, GroundTextures, TerrainExtension, TerrainMaterial, TerrainMaterialPlugin,
+};
 
 use crate::ground::{
     EcotopeGroundPatch, EcotopeGroundWeights, GroundPatch, ground_mesh, patch_weights,
@@ -29,6 +31,12 @@ impl Plugin for EcotopePlugin {
             app.add_plugins(TerrainMaterialPlugin);
         }
         app.add_systems(Update, (start_placing, finish_placing).chain());
+        #[cfg(feature = "gpu")]
+        app.init_resource::<crate::stones::ClassPools>()
+            .add_systems(
+                Update,
+                crate::stones::spawn_pooled_stones.after(finish_placing),
+            );
     }
 }
 
@@ -174,17 +182,29 @@ struct Drawn {
     patch: Option<Entity>,
 }
 
+/// An Ecotope entity's params, the last placement started for it, what it
+/// draws now, and whether a placement is running.
+type PlacingState<'a> = (
+    Entity,
+    &'a EcotopeParams,
+    Option<&'a Requested>,
+    Option<&'a Drawn>,
+    Has<Placing>,
+);
+
 /// Starts placing every Ecotope whose params differ from the last placement
 /// started for it. A placement already running is let finish first, so an
 /// Ecotope edited every frame still updates.
-fn start_placing(
-    mut commands: Commands,
-    ecotopes: Query<(Entity, &EcotopeParams, Option<&Requested>, Has<Placing>)>,
-) {
-    for (entity, params, requested, placing) in &ecotopes {
+fn start_placing(mut commands: Commands, ecotopes: Query<PlacingState>) {
+    for (entity, params, requested, drawn, placing) in &ecotopes {
         if placing || requested.is_some_and(|r| r.0.same_as(params)) {
             continue;
         }
+        // Reuse what the drawing on screen placed, if it is over the same
+        // ground, so an edit places again only what it can change.
+        let previous = drawn
+            .filter(|drawn| drawn.params.same_ground(params))
+            .map(|drawn| drawn.placement.clone());
         let input = params.clone();
         let task = AsyncComputeTaskPool::get().spawn(async move {
             let started = Instant::now();
@@ -192,7 +212,10 @@ fn start_placing(
                 mask: input.coverage.as_deref(),
                 ..ScatterInput::new(&*input.ground, input.area, input.seed)
             };
-            let result = input.ecotope.place(&scatter_input);
+            let result = match &previous {
+                Some(previous) => input.ecotope.place_again(&scatter_input, previous),
+                None => input.ecotope.place(&scatter_input),
+            };
             let place_time = started.elapsed();
 
             // Paint the ground patch from the copies just placed.
@@ -226,6 +249,8 @@ fn finish_placing(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
+    textures: Res<GroundTextures>,
+    texture_settings: Res<GroundTextureSettings>,
 ) {
     for (entity, mut p, current, drawn) in &mut placing {
         let Some((result, place_time, ground)) = block_on(poll_once(&mut p.task)) else {
@@ -302,8 +327,12 @@ fn finish_placing(
                 ground_time = Some(time);
                 let (min, max, _) = settings.rectangle(params.area);
                 let mesh = ground_mesh(&*params.ground, min, max, settings.cell);
-                let extension =
-                    TerrainExtension::new(&weights, settings.base.catalogue(), &mut images);
+                let extension = TerrainExtension::new(
+                    &weights,
+                    settings.base.catalogue(),
+                    Some((&textures, &texture_settings)),
+                    &mut images,
+                );
                 let material = TerrainMaterial {
                     base: StandardMaterial {
                         reflectance: 0.2,
@@ -404,8 +433,11 @@ mod tests {
             MinimalPlugins,
             AssetPlugin::default(),
             bevy::mesh::MeshPlugin,
-            EcotopePlugin,
         ))
+        // The terrain material's shader modules load when the plugin is
+        // added, so shaders must be an asset type by then.
+        .init_asset::<bevy::shader::Shader>()
+        .add_plugins(EcotopePlugin)
         .init_asset::<Image>()
         .init_asset::<StandardMaterial>()
         .init_resource::<Finished>()
@@ -555,6 +587,89 @@ mod tests {
         });
         assert!(finish(&mut app, 4).is_err());
         assert_eq!(layers(&mut app, entity), after);
+    }
+
+    /// The placement drawn now by the Ecotope entity.
+    fn drawn(app: &App, entity: Entity) -> EcotopePlacement {
+        app.world().get::<Drawn>(entity).unwrap().placement.clone()
+    }
+
+    /// The keys of the layers of `new` that still hold the same copies as
+    /// `old`, not placed again.
+    fn kept(old: &EcotopePlacement, new: &EcotopePlacement) -> Vec<String> {
+        new.layers()
+            .iter()
+            .filter(|layer| {
+                old.get(layer.key().as_str())
+                    .is_some_and(|o| std::ptr::eq(o.copies(), layer.copies()))
+            })
+            .map(|layer| layer.key().to_string())
+            .collect()
+    }
+
+    /// Whether `placement` matches placing the entity's Ecotope afresh.
+    fn matches_fresh(app: &App, entity: Entity, placement: &EcotopePlacement) -> bool {
+        let params = app.world().get::<EcotopeParams>(entity).unwrap();
+        let input = ScatterInput::new(&*params.ground, params.area, params.seed);
+        let fresh = params.ecotope.place(&input).unwrap();
+        fresh.layers().len() == placement.layers().len()
+            && fresh.layers().iter().zip(placement.layers()).all(|(a, b)| {
+                a.key() == b.key()
+                    && a.copies().len() == b.copies().len()
+                    && a.footprints() == b.footprints()
+            })
+    }
+
+    #[test]
+    fn an_edit_places_again_only_the_scatters_it_can_move() {
+        let (mut app, entity) = app();
+        finish(&mut app, 1).expect("the preset places");
+        let first = drawn(&app, entity);
+
+        // Thinning the fly agarics keeps the placement of every Scatter
+        // above them, and places them and the undergrowth again.
+        edit(&mut app, entity, |ecotope| {
+            let key = ChildKey::from_static("fly_agarics");
+            let ScatterKind::Mushroom { scatter, .. } =
+                &mut ecotope.scatters.get_mut(&key).unwrap().scatter
+            else {
+                panic!("fly agarics are mushrooms");
+            };
+            scatter.density *= 0.5;
+        });
+        finish(&mut app, 2).expect("the edit places");
+        let second = drawn(&app, entity);
+        assert_eq!(
+            kept(&first, &second),
+            ["pines", "boulders", "logs", "porcini"]
+        );
+        assert!(matches_fresh(&app, entity, &second));
+
+        // Thinning the pines places everything again, and the result still
+        // matches a fresh placement, though the stones and logs reuse their
+        // shapes.
+        edit(&mut app, entity, |ecotope| {
+            let key = ChildKey::from_static("pines");
+            let ScatterKind::Tree(trees) = &mut ecotope.scatters.get_mut(&key).unwrap().scatter
+            else {
+                panic!("pines are trees");
+            };
+            trees.density_scale *= 0.9;
+        });
+        finish(&mut app, 3).expect("the edit places");
+        let third = drawn(&app, entity);
+        assert!(kept(&second, &third).is_empty());
+        assert!(matches_fresh(&app, entity, &third));
+
+        // A new seed places everything afresh.
+        let world = app.world_mut();
+        let mut params = world.get::<EcotopeParams>(entity).unwrap().clone();
+        params.seed += 1;
+        world.entity_mut(entity).insert(params);
+        finish(&mut app, 4).expect("the new seed places");
+        let fourth = drawn(&app, entity);
+        assert!(kept(&third, &fourth).is_empty());
+        assert!(matches_fresh(&app, entity, &fourth));
     }
 
     #[test]

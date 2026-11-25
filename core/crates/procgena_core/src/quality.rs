@@ -3,11 +3,15 @@
 /// How far detail reaches, from [`Low`](Self::Low) for weak machines to
 /// [`Ultra`](Self::Ultra) for strong ones.
 ///
-/// Every [`Lod`](crate::Lod) is written for [`High`](Self::High). The other
-/// tiers multiply all of its distances, the cull distance included, by
+/// Every [`DistanceChain`](crate::chain::DistanceChain) and
+/// [`Lod`](crate::Lod) is written for [`High`](Self::High). The other tiers
+/// multiply all of its distances, the cull included, by
 /// [`distance_scale`](Self::distance_scale), so every asset draws nearer or
-/// further together. The quality setting never changes which specimen a copy
-/// draws, only how far each detail level reaches.
+/// further together. For a chain this divides each size-on-screen
+/// threshold by the same factor: at [`Low`](Self::Low) a copy switches to
+/// its lower mesh while 2.5 times larger on screen than at `High`. The
+/// quality setting never changes which specimen a copy draws, nor its game
+/// level, only how far each step reaches.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]

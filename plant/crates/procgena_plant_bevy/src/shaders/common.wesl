@@ -9,6 +9,17 @@ const TAU: f32 = 6.283185307;
 /// `clock::TIME_PERIOD`.
 const TIME_PERIOD: f32 = 3600.0;
 const TILE_POINTS: u32 = 1024u;
+
+/// The parts a field's fill is counted in. Twin of
+/// `shader_model::FILL_PARTS`.
+const FILL_PARTS: u32 = 16777216u;
+
+/// Whether candidate `point` of its tile is placed, in a field with `fill`
+/// (`axis.z`) where its mask reads `mask` (0 to 255). Twin of
+/// `shader_model::is_placed`.
+fn is_placed(point: u32, fill: u32, mask: u32) -> bool {
+    return point * (FILL_PARTS / TILE_POINTS * 255u) < fill * mask;
+}
 const WIDTH_RANGE: f32 = 4.0;
 const LOD_VERTEX_STRIDE: u32 = 64u;
 /// Vertex-index space reserved per branched stem, limiting geometry to 1024 vertices.
@@ -201,6 +212,7 @@ struct Field {
     /// plants; w: stems sharing each root.
     access: vec4<u32>,
     /// x, y: the field's own X axis in world XZ; its Z axis is (-y, x).
+    /// z: the field's fill, a whole number of 1/`FILL_PARTS`.
     axis: vec4<f32>,
     /// x: accent share (0 disables it); y: offset from this entry to its
     /// accent entry. A relative offset stays valid when the field moves

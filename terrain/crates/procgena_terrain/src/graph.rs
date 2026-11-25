@@ -110,7 +110,7 @@ pub struct RegionGraphOptions {
 impl Default for RegionGraphOptions {
     fn default() -> Self {
         Self {
-            size: 4000.0,
+            size: 2000.0,
             jitter: 0.6,
             min_edge: MIN_EDGE,
             warp: BorderWarp::default(),

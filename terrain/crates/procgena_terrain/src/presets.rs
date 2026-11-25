@@ -44,20 +44,21 @@ procgena_core::catalogue! {
         } => plains();
         rolling_hills {
             name: "Rolling hills",
-            description: "Hills a few tens of metres high, with worn slopes.",
+            description: "Hills ten to twenty metres high, with worn slopes.",
         } => rolling_hills();
         mountains {
             name: "Mountains",
-            description: "Ridged mountain ranges up to about a kilometre above their foothills.",
+            description: "Ridged mountain ranges up to about 500 metres above their foothills.",
         } => mountains();
     }
 }
 
-/// A mountain layer that adds nothing.
-fn no_mountains() -> MountainLayer {
+/// A mountain layer that adds nothing, with ridges `wavelength` metres
+/// apart should its height be raised.
+pub(crate) fn no_mountains(wavelength: f32) -> MountainLayer {
     MountainLayer {
         height: 0.0,
-        wavelength: 1500.0,
+        wavelength,
         coverage: 0.0,
         octaves: 6,
     }
@@ -67,28 +68,28 @@ fn plains() -> TerrainOptions {
     TerrainOptions {
         default_seed: 0,
         base: BaseOptions {
-            elevation: 20.0,
+            elevation: 10.0,
             swells: NoiseLayer {
-                height: 6.0,
-                wavelength: 2000.0,
+                height: 3.0,
+                wavelength: 1000.0,
                 octaves: 3,
                 roughness: 0.4,
             },
             hills: NoiseLayer {
-                height: 1.5,
-                wavelength: 250.0,
+                height: 0.75,
+                wavelength: 125.0,
                 octaves: 5,
                 roughness: 0.5,
             },
-            mountains: no_mountains(),
+            mountains: no_mountains(750.0),
             erosion: 0.3,
         },
         edges: EdgeOptions {
             stiffness: 0.5,
-            margin: 250.0,
-            roughness: 0.5,
+            margin: 125.0,
+            roughness: 0.25,
         },
-        features: features(0.3, 8.0, 600.0, 0.06),
+        features: features(0.6, 8.0, 250.0, 300.0, 0.06),
     }
 }
 
@@ -96,28 +97,28 @@ fn rolling_hills() -> TerrainOptions {
     TerrainOptions {
         default_seed: 0,
         base: BaseOptions {
-            elevation: 50.0,
+            elevation: 25.0,
             swells: NoiseLayer {
-                height: 15.0,
-                wavelength: 1500.0,
+                height: 7.5,
+                wavelength: 750.0,
                 octaves: 3,
                 roughness: 0.45,
             },
             hills: NoiseLayer {
-                height: 25.0,
-                wavelength: 450.0,
+                height: 12.5,
+                wavelength: 225.0,
                 octaves: 6,
                 roughness: 0.5,
             },
-            mountains: no_mountains(),
+            mountains: no_mountains(750.0),
             erosion: 1.0,
         },
         edges: EdgeOptions {
             stiffness: 1.0,
-            margin: 250.0,
-            roughness: 2.0,
+            margin: 125.0,
+            roughness: 1.0,
         },
-        features: features(0.5, 5.0, 400.0, 0.1),
+        features: features(1.0, 5.0, 250.0, 200.0, 0.1),
     }
 }
 
@@ -125,22 +126,22 @@ fn mountains() -> TerrainOptions {
     TerrainOptions {
         default_seed: 0,
         base: BaseOptions {
-            elevation: 120.0,
+            elevation: 60.0,
             swells: NoiseLayer {
-                height: 40.0,
-                wavelength: 3000.0,
+                height: 20.0,
+                wavelength: 1500.0,
                 octaves: 3,
                 roughness: 0.45,
             },
             hills: NoiseLayer {
-                height: 30.0,
-                wavelength: 500.0,
+                height: 15.0,
+                wavelength: 250.0,
                 octaves: 6,
                 roughness: 0.5,
             },
             mountains: MountainLayer {
-                height: 900.0,
-                wavelength: 1800.0,
+                height: 350.0,
+                wavelength: 900.0,
                 coverage: 0.65,
                 octaves: 7,
             },
@@ -148,21 +149,29 @@ fn mountains() -> TerrainOptions {
         },
         edges: EdgeOptions {
             stiffness: 3.0,
-            margin: 500.0,
-            roughness: 5.0,
+            margin: 250.0,
+            roughness: 2.5,
         },
-        features: features(0.6, 4.0, 300.0, 0.14),
+        features: features(1.2, 4.0, 250.0, 150.0, 0.14),
     }
 }
 
-/// River and road settings: sources per km², river width (m), shortest
-/// river kept (m), and the steepest comfortable road grade. Roads may
-/// climb up to twice that grade, but never more than 0.25.
-fn features(density: f32, width: f32, min_length: f32, grade: f32) -> FeatureOptions {
+/// River and road settings: sources per km², river width (m), least
+/// distance between sources (m), shortest river kept (m), and the steepest
+/// comfortable road grade. Roads may climb up to twice that grade, but
+/// never more than 0.25.
+pub(crate) fn features(
+    density: f32,
+    width: f32,
+    spacing: f32,
+    min_length: f32,
+    grade: f32,
+) -> FeatureOptions {
     FeatureOptions {
         rivers: RiverOptions {
             density,
             width,
+            spacing,
             min_length,
             ..RiverOptions::default()
         },

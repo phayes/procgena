@@ -198,8 +198,8 @@ fn cold_region_planning() {
 fn warm_sampling() {
     eprintln!("Warm sampling, per call, in µs; load {}:", load());
     let (mut height, mut query, mut sample) = (Vec::new(), Vec::new(), Vec::new());
-    let mut measures = Vec::new();
-    let mut border = (Vec::new(), Vec::new(), Vec::new());
+    let (mut measures, mut labels) = (Vec::new(), Vec::new());
+    let mut border = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (_, world) in worlds() {
         for terrain in world.terrains() {
             for p in points_in(terrain, 4000) {
@@ -216,13 +216,18 @@ fn warm_sampling() {
                 let started = Instant::now();
                 std::hint::black_box(terrain.query(p, SampleDetail::Measures));
                 let m = started.elapsed().as_secs_f64() * 1e6;
+                let started = Instant::now();
+                std::hint::black_box(terrain.query(p, SampleDetail::Labels));
+                let l = started.elapsed().as_secs_f64() * 1e6;
                 height.push(h);
                 sample.push(s);
                 measures.push(m);
+                labels.push(l);
                 if near_border {
                     border.0.push(h);
                     border.1.push(s);
                     border.2.push(m);
+                    border.3.push(l);
                 }
             }
         }
@@ -231,9 +236,14 @@ fn warm_sampling() {
     eprintln!("  query, no gradient         {}", quantiles(&mut query));
     eprintln!("  sample (with gradient)     {}", quantiles(&mut sample));
     eprintln!("  query, with measures       {}", quantiles(&mut measures));
+    eprintln!("  query, with labels         {}", quantiles(&mut labels));
     eprintln!(
         "  measures, within 200 m of a border  {}",
         quantiles(&mut border.2)
+    );
+    eprintln!(
+        "  labels, within 200 m of a border  {}",
+        quantiles(&mut border.3)
     );
     eprintln!(
         "  height, within 200 m of a border  {}",
@@ -285,8 +295,8 @@ fn warm_tiles() {
 #[ignore]
 fn chunks() {
     use procgena_terrain::{
-        ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, TerrainPreset, Transitions,
-        WorldTerrain, WorldTerrainOptions,
+        ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, Transitions, WorldTerrain,
+        WorldTerrainOptions, fixtures,
     };
     use std::sync::Arc;
 
@@ -339,11 +349,11 @@ fn chunks() {
         let mut cold = Vec::new();
         for seed in 1..=4 {
             let source = |_: RegionId, _: DVec2, _: &Elevation| {
-                TerrainPreset::rolling_hills().terrain.clone()
+                fixtures::rolling_hills_medium().terrain.clone()
             };
             let options = WorldTerrainOptions {
                 seed,
-                ..WorldTerrainOptions::default()
+                ..fixtures::world_medium()
             };
             let world = WorldTerrain::new(options, Arc::new(source)).unwrap();
             let key = ChunkKey::containing(DVec2::new(300.0, -200.0), level);

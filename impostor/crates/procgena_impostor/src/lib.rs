@@ -60,6 +60,7 @@
 mod bake;
 mod batch;
 mod cache;
+mod frame;
 mod key;
 mod ktx2;
 mod layout;
@@ -84,6 +85,7 @@ pub use bake::{
     ImpostorRequest, Impostors,
 };
 pub use batch::{ImpostorBatch, ImpostorBatchFinished, ImpostorBatchProgress};
+pub use frame::{MAX_FRAME_SIZE, MIN_FRAME_SIZE, REFERENCE_SCREEN_HEIGHT, frame_size_for};
 pub use key::{BakeLayout, BakeSettings, ImpostorKey};
 pub use layout::{
     ViewCoverage, elevation_basis, elevation_direction, elevation_index, view_basis, view_cell,

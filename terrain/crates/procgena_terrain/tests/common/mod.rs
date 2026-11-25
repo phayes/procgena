@@ -5,7 +5,7 @@
 use glam::DVec2;
 use procgena_terrain::{
     BorderWarp, Convergence, Elevation, ElevationOptions, HeightBump, HeightField, NoiseLayer,
-    RegionId, RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset, warp_borders,
+    RegionId, RegionSpec, StitchedWorld, TerrainOptions, TerrainPreset, fixtures, warp_borders,
 };
 
 /// The largest height change between neighbouring samples along `path`
@@ -123,7 +123,7 @@ impl Config {
     pub fn elevation(self) -> Elevation {
         let flat = NoiseLayer {
             height: 0.0,
-            ..ElevationOptions::default().uplift
+            ..fixtures::elevation_medium().uplift
         };
         let options = match self.land {
             Land::Flat => return Elevation::flat(),
@@ -137,7 +137,7 @@ impl Config {
             Land::Curved => ElevationOptions {
                 max_slope: 0.1,
                 bumps: vec![BUMP],
-                ..ElevationOptions::default()
+                ..fixtures::elevation_medium()
             },
         };
         Elevation::new(options, 1).expect("test elevations are valid")
@@ -268,8 +268,8 @@ fn shifted(points: &[(f64, f64)], offset: DVec2) -> Vec<DVec2> {
 pub fn two_terrains(offset: DVec2, config: Config) -> StitchedWorld {
     two_regions_warped(
         offset,
-        preset(TerrainPreset::plains(), config.seed(1, 1)),
-        preset(TerrainPreset::mountains(), config.seed(1, 2)),
+        preset(fixtures::plains_medium(), config.seed(1, 1)),
+        preset(fixtures::mountains_medium(), config.seed(1, 2)),
         config.convergence(),
         &config.elevation(),
         config.warp,
@@ -354,8 +354,8 @@ pub const JOIN_SEEDS: [u32; 2] = [56, 65];
 pub fn hills_into_plains(seed: u32, config: Config) -> StitchedWorld {
     two_regions_warped(
         DVec2::ZERO,
-        preset(TerrainPreset::plains(), config.seed(seed, seed + 100)),
-        preset(TerrainPreset::rolling_hills(), seed),
+        preset(fixtures::plains_medium(), config.seed(seed, seed + 100)),
+        preset(fixtures::rolling_hills_medium(), seed),
         config.convergence(),
         &config.elevation(),
         config.warp,
@@ -379,9 +379,9 @@ pub const JUNCTION: (f64, f64) = (100.0, -50.0);
 pub fn triple_junction(config: Config) -> StitchedWorld {
     three_regions_warped(
         [
-            preset(TerrainPreset::plains(), config.seed(3, 3)),
-            preset(TerrainPreset::mountains(), config.seed(3, 4)),
-            preset(TerrainPreset::rolling_hills(), config.seed(3, 5)),
+            preset(fixtures::plains_medium(), config.seed(3, 3)),
+            preset(fixtures::mountains_medium(), config.seed(3, 4)),
+            preset(fixtures::rolling_hills_medium(), config.seed(3, 5)),
         ],
         config.convergence(),
         &config.elevation(),

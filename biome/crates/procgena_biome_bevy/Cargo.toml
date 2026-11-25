@@ -24,6 +24,11 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "bevy_pbr",
 ] }
 
+[features]
+# Draw stones through procgena_stone_bevy's GPU-generated pools instead of
+# one rock per copy built on the CPU.
+gpu = ["procgena_stone_bevy/gpu"]
+
 [dev-dependencies]
 bevy = { version = "0.20.1", features = ["free_camera"] }
 procgena_mushroom = { path = "../../../mushroom/crates/procgena_mushroom" }

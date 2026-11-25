@@ -158,6 +158,16 @@ flowchart TD
     GM4["GM4 Biome base ground and borders"]
     GM5["GM5 Far grass and forest tints"]
 
+    TE1["TE1 Stop wasted terrain work"]
+    TE2["TE2 Terrain preview first"]
+    TE3["TE3 Content-keyed stage cache"]
+    TE3b["TE3b Chunk reuse by footprint"]
+    TE4a["TE4a Relief bands"]
+    TE4b["TE4b Per-tier border negotiation"]
+    TE5["TE5 Faster road search"]
+    GPU1["GPU1 Relief preview on the GPU"]
+    GPU2["GPU2 Ground weights on the GPU"]
+
     D5{{"D5 World and Biome scale"}}
     G7["G7 Scale-aware terrain lengths"]
     IX["IX Impostor-heavy experiment"]
@@ -260,6 +270,18 @@ flowchart TD
     R3 --> GM5
     S1 --> GM5
 
+    G6 --> TE1
+    TE1 --> TE2
+    TE2 --> TE3
+    F2 --> TE3
+    TE3 --> TE3b
+    TE3 --> TE4a
+    TE4a --> TE4b
+    G6 --> TE5
+    TE2 --> GPU1
+    GM1 --> GPU2
+    G4 --> GPU2
+
     D5 --> G7
     D5 --> W0
     I1 --> IX
@@ -313,7 +335,7 @@ blocks. Until then, nothing that depends on it starts.
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
 | D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks; W0's image example is done (world_plan.md, "W0 image example": nothing in it argues against 4 km). Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
-| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Draft: the class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
+| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -493,6 +515,32 @@ goldens, which have no baseline on this machine).
   World-level follow-up). Tests in `tests/measures.rs`, images from
   `--example measures_dump`. The relief height (`GroundSite::relief_height`)
   is not filled: see the G4a report. G4b is next.
+- **Status (2026-11-25): G4b built.** `Terrain::annotate(p)` (and
+  `SampleDetail::Labels` on `query`, `WorldTerrain::annotate`, the
+  `LabelField` trait, `HeightTile::sample_labelled`) gives `Labels`: one
+  `Landform` (plain, slope, cliff, ridge, peak, valley, basin, riverbed,
+  pondbed, road, riverbank, shore), each with a name and a colour, and
+  `Flags` (underwater, river, pond, road, road bank, wet). Water and
+  roads come first, then cliffs (55°), banks, then shape from the
+  height's principal bends on a 3 × 3 stencil, then slope (20°). The
+  shape step and bend threshold follow the World's scale (12 m and
+  0.012 /m at scale 1, chosen by the user as 24 m and 0.006 /m on the
+  medium worlds): the World's `WorldScale` now reaches the terrain crate
+  (`WorldTerrainOptions::scale`, `Terrain::with_scale`), default 1. Labels
+  from water and roads, and the flags, agree exactly across borders;
+  shape labels may differ in a thin strip along borders (2.9% of border
+  points on the medium test worlds; accepted by the user 2026-11-25, see
+  ARCHITECTURE "4.2 Terrain"). No label needs relief height
+  (item 31). Hill, mountain and plateau labels (a 150 m relief ring)
+  would need the neighbours' ground at World level. Tests in
+  `tests/labels.rs`, images from `--example labels_dump`.
+- **Follow-up:** Gully label, separate from Valley by scale (user,
+  2026-11-25; parked). Tried briefly: a second, narrow stencil (4 m at
+  scale 1, 8 m at medium, to match the carved valley-wall gullies 40 m
+  and 20 m apart) concave past its own threshold, taking precedence over
+  the broad shape but not over water, roads, cliffs or banks. It costs 8
+  more heights per labelled sample. Not judged on maps or border numbers
+  before it was parked.
 
 #### G5: WorldTerrain (W1–W4)
 
@@ -559,13 +607,20 @@ From D5 (decided by the user 2026-11-24; see
   derived instead from the World's scale pair and the local size; noise
   octaves scaled with their wavelength; the border, seam and feature
   suites re-run at the small and large scale classes. Object sizes, road
-  and river widths, chunks, LOD and masks never scale.
+  and river widths, chunks, LOD and masks never scale. Terrain presets
+  are written at scale 1, the medium-small (Valheim) class since
+  2026-11-24; until G7 lands, the medium, large and real-life classes
+  build those Valheim-sized presets on their larger regions.
 - **Needs:** D5. Runs before or with W0.
 - **Churn:** it changes terrain results everywhere, so it runs in a wave
   where no other terrain work is in flight.
 - **Done when:** the seam and feature suites pass at the small, medium
   and large classes, and the region floor follows from scale (about
   1.4 km with today's fixed widths; see D5's "floor tension").
+- **Started in G4b (2026-11-25):** the scale pair now reaches the terrain
+  crate (`WorldScale` moved to `procgena_terrain` and re-exported by
+  `procgena_world`; `WorldTerrainOptions::scale`; `Terrain::scale`).
+  Only the labels read it so far.
 
 ### Bare worlds
 
@@ -959,12 +1014,143 @@ go to the few copies near the camera.
     [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)): a
     stone's level 0 is about 70% of its CPU build, so "level 1 by default"
     also shortens loads and edits if level 0 is built only on demand.
+- **Decided by the user (2026-11-25), ahead of the planning talk:**
+  - **The game level (`game_level`) is a setting of the preset** (named
+    by the user 2026-11-25; first called the "near level"). It is a style, and different kinds
+    of object may want different ones, so each preset says which built
+    level is the object's game level (level 1 by default; level 0
+    opt-in; tree presets default to level 0, the user, 2026-11-25). It
+    is more than the level drawn nearest the camera: it is
+    the shape the rest of the game uses, so physics colliders, picking,
+    CPU queries and impostor bakes all read it, and coarser levels exist
+    only for drawing at a distance.
+  - **The distance chain is not part of the preset** (the user,
+    2026-11-25): a preset says what the thing's shape and style are, not
+    how far away it is drawn. For now one default distance chain, from
+    the game level out to the impostor, is worked out and used,
+    scaled by the quality level; how a Bevy game hooks in to change it
+    comes later.
+  - **A game cannot override a preset's game level** (the user,
+    2026-11-25); a game that wants a different look uses different
+    presets.
+  - **The chain is `game_level` → a lower mesh level (if there is one)
+    → impostor** (the user, 2026-11-25). The ribbon-like far forms are
+    dropped in favour of impostors: `FarForm::Strips`,
+    `BillboardLeaves`, `Card` and `FlatCapRibbon`, and the levels that
+    use them in tree, dead wood and mushroom. Grass's
+    `GroundMaterial` is not a ribbon form and stays for now (see the
+    plant open item in the planning talk).
+    Settled further by the user the same day:
+    - **At most one lower mesh level** (revisit if needed), and every
+      asset kind has one: mushrooms and small dead wood pass through
+      their simple geometry too, just quickly, since the switch is by
+      size on screen. The switches are based on size on screen alone,
+      with the same thresholds for every kind; no kind has its own
+      switching rule.
+    - **The preset carries only its `game_level` detail.** The lower
+      mesh level is derived from it by a default rule, not listed in
+      the preset.
+    - **One table, not many:** the shared LOD type shrinks from up to 8
+      levels to these three steps.
+  - **Levels switch by size on screen, not by metres.** Thresholds are
+    in on-screen size, so copy size, field of view and resolution are
+    handled together; the quality level moves the thresholds. This
+    replaces size-scaled metre distances in the shared LOD type.
+  - **Impostors are baked from the game level**, not
+    always from level 0, so the fade from mesh to impostor keeps the same
+    detail and level 0 need not be built for a game that never draws it.
+  - **A cluster is just a specimen** (the user, 2026-11-25). There is no
+    separate cluster concept for drawing: a specimen may be one object
+    or a cluster of them, and it gets one impostor either way. Follow-up:
+    add cluster specimens to stones (today a `StoneScatter` class places
+    up to `MAX_CLUSTER_MEMBERS` separate stones per spot, which are
+    separate copies with their own impostors, not one specimen).
+  - **Impostors for clusters are expected to be the biggest win** (a
+    patch of stones, a ring of mushrooms, a stand of grass as one
+    impostor). Follow-up: give more objects clusters of their own (trees,
+    stones and others), so cluster impostors have more to work on.
+  - **The rest of the planning talk, settled 2026-11-25 (the user):**
+    - **Unit:** size on screen is a copy's largest dimension (its
+      bounding-sphere diameter, so fallen logs don't switch early) as a
+      fraction of the screen's height, so the chain is the same at any
+      resolution. Good enough to build on; follow-up: revisit the unit
+      after the experiment.
+    - **Impostor frames are baked once per preset**, sized for the
+      largest on-screen size any quality level can show (at
+      `Quality::Low`, where the impostor takes over soonest), with
+      mipmaps so higher quality levels sample a smaller copy. A quality
+      change never rebakes, and an impostor is never shown larger than
+      its frame. The experiment reports the memory cost against a
+      High-sized bake.
+    - **Build answers (2026-11-25):** terrain's chunk table moves into
+      `procgena_terrain` as its own type; `procgena_specimen` levels
+      drop their metre distances too; cull stays (about 3 px); the
+      proposed default thresholds are the starting point; stone keeps
+      its six resolutions with Medium Low as the default `game_level`;
+      new types land beside the old and the last asset step deletes the
+      old. Details: `docs/decisions/IX-plan.md`.
+    - **The conversion is one churn window**, after the current wave
+      lands, with no compatibility layer: the three-step `Lod` and a
+      default chain in the engine-free core first, then stone, then
+      dead wood, mushroom, tree and fruit, then the renderers and the
+      studio. The impostor experiment runs on the new model. Stone
+      cluster specimens are a separate follow-up after it.
+    - **Physics is deferred.** Colliders reading `game_level` are not
+      built now.
+    - **The studio** shows `game_level` by default. ST7b's viewing
+      distance becomes previewing the chain: pretend a distance, force
+      the lower mesh or the impostor, and read back which is drawn and
+      why.
+    - **Impostors bake while loading**, cached on disk by the preset's
+      content hash plus the impostor settings. The studio runs a
+      low-priority background task that pre-bakes the impostors of every
+      preset. Shipping pre-baked impostors with a game is a later option.
+    - **Grass is deferred**: it keeps its own thinning and far ground
+      colour for now.
+    - **Machine:** this Mac only, since there is no low-end machine.
+      Follow-up: a performance pass on other machines later.
+    - **Impostors cast no shadows and carry normals**, so their lighting
+      matches the mesh. Shadows and tree sway are later variants. The
+      experiment goes stones first, then dead wood and mushrooms, trees
+      last, judged by a blind side-by-side on the oak and maple forest,
+      the pine floor and one walk through a Valheim-scale World. The bar
+      for a new default (no visible difference, at least 20% less frame
+      time) is the coordinator's proposal, not yet confirmed by the user.
 - **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
   build; the planning step can start any time.
 - **Done when:** the plan is agreed with the user, the variants are
   built behind settings and measured on the agreed scenes and machines,
   and the results and the user's decision on defaults are recorded in
   the plan.
+
+#### IX2: Impostors that ignore the quality level (later)
+
+Asked for by the user 2026-11-25, as a later milestone, not part of the
+IX build. If impostors are good enough, they should look great at every
+quality level, so the quality level should not move where they take
+over.
+
+- **The idea:** IX's experiment finds the closest point X where an
+  impostor still looks right. Inside X a mesh is needed at every quality
+  level; beyond X the impostor looks right at every quality level. So
+  the impostor switch is fixed at X for all of them, and the quality
+  level moves only the lower-mesh switch and the cull point (and perhaps
+  cluster impostors later). The bake is then sized for X alone, which
+  removes the extra image memory of IX's bake sized for
+  `Quality::Low`.
+- **Covers:** experiments that find X per scene (and check whether one
+  X holds for every kind), quality scaling taken off `impostor_below`,
+  the bake size following X, and frame time on Low measured against
+  IX's results.
+- **Risk:** Low loses its biggest lever, pulling impostors closer. If Low
+  is then too slow, an opt-in "Low pulls impostors in" setting can
+  come back.
+- **Needs:** IX built and measured. IX's `DistanceChain` applies quality
+  scaling per threshold and sizes frames from a threshold, so this is a
+  small change.
+- **Done when:** X is measured on IX's scenes, the user has judged the
+  impostors at every quality level, and the decision is recorded in
+  `docs/decisions/IX-plan.md`.
 
 The next three milestones come from profiling the studio's Ecotope tab
 (2026-11-24, [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)).
@@ -977,16 +1163,21 @@ and lose cached stones.
 #### ED: Ecotope draw speed
 
 Real work in its own right, next to the GPU milestones, not instead of
-them.
+them. Split by the user (2026-11-24): its stone-cache fix and "re-place
+only from the edited Scatter down" were built first; the rest follows.
 
 - **Covers:**
   - Edits re-place only from the edited Scatter down, keeping each
     Scatter's prepared shapes by settings and seed.
   - Specimen caches survive a layer redraw. Today stone's prune drops all
     7 cached stones on an edit to the pines.
-  - Dead wood is built once per variant, not once per copy.
+  - Dead wood is built once per variant, not once per copy (built
+    2026-11-24: the Ecotope's logs draw through `DeadwoodPlacedParams`).
   - The render pipelines an Ecotope needs are warmed up when one opens.
-    macOS compiles them synchronously, which stalls frames.
+    macOS compiles them synchronously, which stalls frames. Deferred
+    (2026-11-24): with warm caches the stalls are 0.3–1.6 s and mostly
+    first compiles, so a warm-up would only move them; revisit after a
+    quiet windowed run.
   - In the studio, impostors are baked only when they could be on screen.
 - **Needs:** C3a. Its cache and dead wood parts touch only the asset
   Bevy crates. Its re-placing, warm-up and bake parts edit
@@ -999,7 +1190,8 @@ them.
 #### R3a: Stone GPU building in the Ecotope
 
 The first piece of R3, pulled forward because stones dominate the
-profile.
+profile. Decided by the user (2026-11-24): R3a goes ahead of the rest of
+R3.
 
 - **Covers:**
   - Ecotope stones are built by `procgena_stone`'s existing GPU mesher
@@ -1007,8 +1199,11 @@ profile.
     0's resolution, provisional).
   - They are drawn through `StonePool` on R2's renderer, instead of one
     entity per copy.
-  - The pool gains per-variant settings (each class's `StoneScatter`
-    variants) and an impostor level.
+  - One pool per stone class: the class's own settings in the Scatter's
+    World already give its variants, so the pool needs no per-variant
+    settings.
+  - The pool gains an impostor level, baked from the CPU-built baked
+    level.
   - `procgena_biome_bevy`'s stone layer spawns pooled stones.
   - The CPU path stays the reference.
   - The footprint measure stays on the CPU, kept across edits.
@@ -1175,6 +1370,17 @@ label-chosen material.
 - **Done when:** the pine forest floor and a cliff draw with real
   textures, memory matches the plan's arithmetic, and far ground samples
   no textures.
+- **Status (2026-11-24): done.**
+  - The pine and the oak and maple forest floors draw with CC0 textures:
+    soil, needles, moss, fresh and decayed leaf litter. Cliffs are
+    triplanar rock.
+  - 6 sets at 512 px measure 6.3 MB, matching the arithmetic. Textures
+    stop at 140 m, and chunk levels 3 and up never read them.
+  - The studio's Ecotope editor edits ground layers.
+  - Left for later: premixed far chunks, a resident cap, and moving clump
+    and stone onto the shared loader.
+  - The `gs://ze_textures/terrain/` upload is the user's.
+  - See "As built: GM2" and decisions 12 and 13 in the plan.
 
 #### GM3: Ground on measures and labels, and the Biome base ground
 
@@ -1206,7 +1412,203 @@ label-chosen material.
   and the last impostor, with no seam.
 
 A GPU port of the rules (GM6) is built only if GM1's measurements call
-for it.
+for it. The terrain editing plan measured ground weights at about 14× a
+chunk's height read on one thread, and the user decided (2026-11-24) to
+build that port early: it is GPU2 below.
+
+### Terrain editing track
+
+Planned with the user 2026-11-24 in
+[terrain/edit_cache_plan.md](terrain/edit_cache_plan.md) (all nine
+recommendations accepted).
+
+- **The problem:** today an edit in the studio's Terrain view rebuilds
+  the whole world. A cold build of the opening view is about 33 s of CPU
+  in release: 23 region plans, 9 region builds, roads in 2 regions and
+  86 chunks.
+- **The order:** stop wasted work first, then show a provisional
+  preview, then a content-keyed stage cache. Then border negotiation per
+  tier (TE4a and TE4b, decided 2026-11-24) and a faster road search
+  (TE5).
+- **The GPU:** it takes the per-point drawing work (ground weights and
+  the preview), never the plans.
+- **Names:** TE (terrain edits), to keep clear of S1 (Streaming).
+
+#### TE1: Stop wasted work
+
+- **Covers:**
+  - `WorldTerrain` takes a cancellation flag, checked between region
+    stages and chunk rows. A cancelled build is never cached. This meets
+    ARCHITECTURE's story 5.
+  - The stream sets the flag on reset.
+  - The studio sends ground-colour and debug changes to weights and
+    materials without making a new world.
+- **Needs:** G6 (merged). Best after GM1 merges, since both edit
+  `procgena_terrain_bevy` and the studio's terrain scene.
+- **Done when:**
+  - after an edit, no thread works on the old world beyond one chunk row;
+  - a cancelled world caches nothing and rebuilds bit-identically;
+  - a ground-only edit starts no region build.
+
+#### TE2: First picture fast
+
+- **Covers:**
+  - A provisional relief-only preview tier (each region's own relief plus
+    E, no borders or features), drawn right after an edit and never
+    queried.
+  - Nearest regions first.
+  - While editing, the centre region at full quality and the rest at the
+    preview tier.
+  - Studio only; the game never shows provisional land near the player.
+- **Needs:** TE1.
+- **Done when:**
+  - a `base.*` edit shows new land in under 1 s in release on an idle
+    machine;
+  - the centre region reaches full quality waiting on about 7 plans, not
+    23.
+
+#### TE3: Content-keyed stage cache
+
+- **Covers:**
+  - `ContentHash` for `TerrainOptions`, `ElevationOptions`,
+    `RegionGraphOptions` and `Convergence`. The world seed goes into the
+    key explicitly, since F2 leaves seeds out.
+  - Every `WorldTerrain` cache keyed by what its stage reads, and
+    `WorldTerrain::with_source` so the studio keeps the caches across
+    edits.
+  - Chunk keys in the stream.
+  - Only the last one or two versions kept per stage.
+- **Needs:** TE2, F2 (done).
+- **Done when:**
+  - undo and drag-back rebuild nothing, and a ground edit rebuilds
+    nothing;
+  - a per-field change test shows each stage's key changes whenever its
+    output does;
+  - cached and cold results are bit-identical;
+  - memory per cached entry is measured.
+
+#### TE3b: Chunk reuse by feature footprint
+
+- **Covers:** a chunk key from the relief and agreements it reads plus a
+  hash of the features within reach, so only chunks whose ground moved
+  are read again.
+- **Needs:** TE3.
+- **Done when:**
+  - a river-width edit re-reads only the chunks along the rivers;
+  - for every setting in the plan's probe, the kept chunks are
+    bit-identical to fresh reads.
+- **Note:** GPU3 (full heights on the GPU, later) would make this
+  unnecessary for drawing.
+
+#### TE4a: Relief bands
+
+**Parked (user, 2026-11-25), with TE4b.** The user may come back to
+per-tier negotiation; until then neither step is scheduled.
+
+Border negotiation per tier was decided by the user on 2026-11-24 (see
+ARCHITECTURE.md, "Border negotiation per tier", and the plan's section of
+that name). TE4 is built as two steps; this is the first.
+
+- **Covers:**
+  - Each relief layer in the presets gets a band cut: low-band octaves,
+    then detail octaves. The cut is a landscape length, so it scales
+    with D5.
+  - Low-band and detail evaluation paths.
+  - A test that detail octaves never change the low band. `fbm`'s
+    erosion and `ridged`'s weights already flow only from low octaves to
+    high.
+  - The rough tier draws the low band.
+  - Presets retuned where their look moves.
+- **Needs:** TE3.
+- **Done when:**
+  - on hills and mountains, rough-tier heights equal the fine relief's
+    low-band octaves bit for bit;
+  - far chunks read the low band only;
+  - the change in each preset's look is reported.
+
+#### TE4b: Per-tier border negotiation
+
+**Parked (user, 2026-11-25).** See TE4a.
+
+- **Covers:**
+  - Rough offers for every planned region: low band and E, plus the river
+    and road crossings, which are fixed at rough.
+  - Detail offers and agreements for the near regions and their ring
+    only. They are negotiated linearly on detail-band samples and pinned
+    to zero at corners.
+  - The Fine tier takes its own road settings, not those inside the
+    Rough terrain it clones.
+  - Mixed-tier borders get a skirt or a detail fade.
+  - River routes stay rough and graph-wide; only carving moves to mid and
+    fine.
+  - The rough, detail and port parts of the plan are cached on their own
+    (TE3's keys), with the Rough tier keyed on the rough agreement.
+  - This changes the seam protocol, as the user agreed.
+- **Needs:**
+  - TE4a;
+  - the user's answer to question 10 of the plan (exact low-pass for the
+    relief, bounded for carving).
+
+  TE5 should land first, since both edit the road planning. That is a
+  file-sharing order, with no arrow in the graph.
+- **Done when:**
+  - a region drawn fine beside a rough neighbour, then beside a fine
+    one, gives bit-identical heights (load independence);
+  - upgrading a region never moves its rough-tier heights;
+  - far regions build no detail offers;
+  - a `roads.width` edit keeps every rough plan, and a `rivers.width`
+    edit keeps the convergence;
+  - the seam, crack and feature suites hold at both tiers.
+
+#### TE5: Faster road search
+
+- **Covers:**
+  - Profile and speed up road routing, about 5 s per near region against
+    ARCHITECTURE's "up to about a second" plan budget.
+  - If still over: a fixed search budget per region with a deterministic
+    fallback.
+  - Macro cells are decided with D4, not here.
+  - The per-point border cost: the convergence fade and the border pulls
+    are 78–86% of every height read (measured 2026-11-24). Ways to cut
+    it:
+    - fewer border pieces;
+    - cheaper far-piece integrals;
+    - neighbours' relief evaluated only where its blend share is
+      non-zero.
+- **Needs:** G6 (merged). It runs beside TE1–TE3 if it keeps to the road
+  files, and should land before TE4b, which also edits the road planning.
+  That is a file-sharing order, not a dependency, so it has no arrow in
+  the graph.
+- **Done when:** a near region's roads fit the plan budget in release,
+  with roads bit-identical, or their change reported and accepted.
+
+#### GPU1: Relief preview on the GPU
+
+- **Covers:**
+  - TE2's preview tier as a compute shader: relief noise, the integer
+    hash and E.
+  - TE2's CPU path is its twin.
+  - Parity: heights within a few millimetres, discrete decisions
+    quantised, seams exact within one path, skirts between paths.
+- **Needs:** TE2.
+- **Done when:**
+  - CPU/GPU parity tests pass;
+  - a `base.*` edit previews the whole view in milliseconds (measured).
+
+#### GPU2: Ground weights on the GPU
+
+- **Covers:**
+  - GM0/GM1's layer stack and G4a's measures evaluated per texel on the
+    GPU from each chunk's heights, with the feature index as a buffer.
+  - The CPU painter stays the twin.
+  - Same parity rules as GPU1, with every layer choice quantised. The
+    CPU samples weights only for queries.
+- **Needs:** GM1, G4a. Built first of the two GPU steps if GM1 puts
+  weights on every drawn chunk.
+- **Done when:**
+  - parity tests pass;
+  - a ground-only edit redraws in one frame's work (measured);
+  - weights cost no CPU for drawing.
 
 ### Studio track
 
@@ -1259,6 +1661,30 @@ summary below is for ordering.
   wetness), after B1.
 - TODO "`MushroomGrowth` and `PlantGrowth`", after C1 moves mushrooms off
   their hosts, and after R3 for plants.
+- TODO "Should Scatter live inside the Ecotope?" (investigation, asked by
+  the user 2026-11-25). Today a Scatter is its own type (and the C3
+  `Scatter` trait), and a lower Scatter sees the copies above it only as
+  footprints that exclude it. The question is whether Scatters should
+  instead be layers of the Ecotope that can read the copies placed before
+  them as attractors too: a tuft of mushrooms around each stone, ferns
+  along fallen logs, litter under a crown. The gain the user is after is
+  fine control over the feel of an Ecotope: how its pieces gather and
+  relate, not only where each kind may go. Weigh that against:
+  - what it means for C3's `Scatter` trait and for a game using one
+    Scatter on its own;
+  - placement order, chunk independence and border negotiation when one
+    layer reads another's copies across a chunk edge;
+  - GPU everywhere: a layer waits only for the layers it reads. The user
+    suggests building the dependency graph of the layers, so independent
+    branches still run concurrently on the GPU and only real chains run
+    in sequence. ED's profiling found placing a whole Ecotope takes under
+    20 ms on the CPU, and building specimens (stones above all) is the
+    cost. Specimen pools don't depend on placement, so a chain delays
+    only the cheap placement step;
+  - overlap with the Ecotope's ground layers (`under: scatter`), which
+    already follow copies, and with `MushroomGrowth` and `PlantGrowth`.
+  Ends in a recommendation for the user, and an ARCHITECTURE change if
+  accepted.
 - Terrain follow-ups already listed in its plan: hub placement, river
   crossing cost for roads, clearings at points of interest (which become
   terrain stamps, X1), GPU road routing.
@@ -1279,6 +1705,7 @@ a cell run in order within the wave.
 | 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
 | 8 | ED; R3a → R3's remaining asset parts (wave 5 started R3; deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. ED's asset-cache and task-pool parts can start now; its `procgena_biome_bevy` and studio parts wait for GM1, plant P2 and ST1. R3a works in `stone/` plus one studio feature flag. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
+| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b (TE4a → TE4b parked by the user, 2026-11-25); TE5 beside them, landing before TE4b; GPU2 (after GM1 and G4a); GPU1 (after TE2) | The terrain editing track, decided 2026-11-24, with border negotiation per tier (TE4a, TE4b). TE4a also edits the presets and `noise.rs`/`relief.rs`. TE1–TE4b all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. TE1 waits for GM1 to merge, since both touch the Bevy crate and the scene. TE5 keeps to the road files and lands before TE4. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
 coordinator runs the full suite once per wave.
@@ -1355,7 +1782,8 @@ where the details are.
       - Real-life limits are recorded.
     - *Still open:*
       - The class numbers (pair, region size, Biome extent and E per
-        class), tuned with W0's image examples. W0 starts at scale 1.
+        class), tuned with W0's image examples. Scale 1 is the
+        medium-small (Valheim) class since 2026-11-24 (the user).
       - How low the region floor goes. With road and river widths fixed
         (the user's choice), the floor is about 1.4 km unless the 40 m
         bank reach also scales. If Minecraft-sized regions of about 1 km
@@ -1647,6 +2075,14 @@ Done (2026-11-24): items 10, 15 and 16 above.
 
 ### Follow-ups noted, no decision needed
 
+- **High priority: A/B test plant P3** (the user, 2026-11-25). P3 (grass
+  blades on a World-fixed grid, chosen by seed alone) merged to master
+  at `2180527`; the last commit before it is `2180527^1`. Compare the
+  two with `tools/plant/bench_ab.py` on a quiet machine, and the look
+  side by side. Not yet done for P3: the bench run (the user sets the
+  speed bar), golden blessing (no goldens for this Mac; the stored
+  NVIDIA, llvmpipe and WARP goldens are now stale), and the Codex
+  comment pass (list in the P3 worker's report).
 - Plant: implement core's `Preset` trait, and replace its `levels` list
   whole in files instead of merging it entry by entry (F3).
 - Private "grove" and "field" names left from the Scatter renames, and the

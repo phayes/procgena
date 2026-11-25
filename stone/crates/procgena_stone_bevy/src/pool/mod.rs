@@ -2,6 +2,7 @@
 //!
 //! Requires the `gpu` feature.
 
+mod impostor;
 mod render;
 
 use std::collections::HashMap;
@@ -10,13 +11,16 @@ use std::sync::Arc;
 
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::math::Affine3A;
+use bevy::pbr::StandardMaterialKey;
 use bevy::prelude::*;
+use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::transform::TransformSystems;
 use procgena_core::{OptionsHash, PoolId, SpecimenId};
 use procgena_core_bevy::instanced::{
     ExternalMeshId, InstancedCopy, InstancedMaterialPlugin, InstancedPart, InstancedScatter,
     InstancedSlot, PartMesh, SpecimenCache,
 };
+use procgena_impostor::{ImpostorMaterial, ImpostorPipelineKey};
 use procgena_stone::gpu::MAX_GPU_RESOLUTION;
 use procgena_stone::{OptionsError, STONE_KIND, StoneOptions};
 
@@ -208,6 +212,9 @@ pub(crate) fn external_mesh_id(version: u64, mesh: u32) -> ExternalMeshId {
     ExternalMeshId((version << 32) | u64::from(mesh))
 }
 
+/// The pipeline key of an [`ImpostorMaterial`].
+type ImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, ImpostorPipelineKey>;
+
 /// The entity drawing each pool's rocks.
 #[derive(Resource, Debug, Default)]
 struct PoolDrawers(HashMap<AssetId<StonePool>, Entity>);
@@ -222,17 +229,26 @@ pub(crate) struct StonePoolPlugin;
 
 impl Plugin for StonePoolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(
+        app.add_plugins((
             InstancedMaterialPlugin::<StoneMaterial, StoneMaterialKey>::new(|key| {
                 key.extension.instanced = true
             }),
-        )
+            // Pooled rocks draw their baked impostors as their last level.
+            InstancedMaterialPlugin::<ImpostorMaterial, ImpostorMaterialKey>::new(|key| {
+                key.extension.instanced = true
+            }),
+        ))
         .init_asset::<StonePool>()
         .init_resource::<PoolDefinitions>()
         .init_resource::<PoolDrawers>()
+        .init_resource::<impostor::PoolImpostors>()
         .add_systems(
             PostUpdate,
-            (update_definitions, collect_instances)
+            (
+                update_definitions,
+                impostor::bake_pool_impostors,
+                collect_instances,
+            )
                 .chain()
                 .after(TransformSystems::Propagate)
                 .after(VisibilitySystems::VisibilityPropagate),

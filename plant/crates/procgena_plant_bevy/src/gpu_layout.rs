@@ -102,7 +102,8 @@ pub(crate) struct FieldGpu {
     pub access: UVec4,
     /// x, y: the field's own X axis in world XZ, which turns with the field
     /// about Y; its Z axis is the perpendicular (`Vec2::perp`). Positions in
-    /// the field are along these axes from `min_corner`.
+    /// the field are along these axes from `min_corner`. z: the field's fill
+    /// (`shader_model::placement_fill`), a whole number.
     pub axis: Vec4,
     /// x: accent share (0 disables it); y: offset from this entry to its
     /// accent entry. A relative offset stays valid when the field moves
@@ -115,9 +116,10 @@ pub(crate) struct FieldGpu {
 /// One chunk. Mirrors `Chunk` in `common.wesl`: 32 bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Default, ShaderType)]
 pub(crate) struct ChunkGpu {
-    /// x, y: offset of the chunk's minimum corner inside its field, in metres;
-    /// z, w: lowest and highest ground in the chunk, world Y.
+    /// x, y: the chunk's minimum corner in world XZ, in metres;
+    /// z, w: lowest and highest ground of the field in the chunk, world Y.
     pub bounds: Vec4,
-    /// x: field index, y, z: chunk coordinates in the field.
+    /// x: field index; y, z: the World chunk's coordinates along X and Z,
+    /// as `i32` bits.
     pub ids: UVec4,
 }

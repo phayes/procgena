@@ -7,6 +7,7 @@ use super::{Kind, RegisterKind, entries};
 use crate::export::tree_panel::spawn_tree_export;
 use crate::scene::{Show, TreeSubject};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 use crate::tree::editor::{TreeEdited, TreeEditor, TreeEditorPlugin, TreePanel, spawn_tree_editor};
 
@@ -30,6 +31,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
+            settings: Some(settings_panel::<TreePreset>()),
             detail_levels: LEVELS,
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::leveled_line(state, "tree"),

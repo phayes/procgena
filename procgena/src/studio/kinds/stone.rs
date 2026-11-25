@@ -10,6 +10,7 @@ use crate::stones::editor::{
     StoneEdited, StoneEditor, StoneEditorPlugin, StonePanel, spawn_stone_editor,
 };
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// Registers stones.
@@ -31,6 +32,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
+            settings: Some(settings_panel::<StonePreset>()),
             detail_levels: &[],
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::object_line(state, "rock"),

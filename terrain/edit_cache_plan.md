@@ -20,7 +20,7 @@ Do not adopt `salsa` or `comemo`.
    edit (`procgena/src/scene/terrain.rs`, `TerrainSubject::update`), so
    every edit starts cold. A cold build and a one-setting edit took the
    same time (see "Measurements").
-2. **Cheap wins, no cache needed (stages S1 and S2 below):**
+2. **Cheap wins, no cache needed (stages TE1 and TE2 below):**
    - Show a preview of the edited land within about a second: the
      region's own relief, with no borders or features.
    - Cancel stale builds.
@@ -28,11 +28,11 @@ Do not adopt `salsa` or `comemo`.
    - Leave meshes alone when only ground colours change.
 
    These change what you wait for, not how much work there is.
-3. **Key each stage by what it reads (stage S3).**
+3. **Key each stage by what it reads (stage TE3).**
    - Give each `WorldTerrain` stage a content-hash key made from exactly
      the settings it reads, and keep the caches across edits.
    - On its own, this makes ground edits, undo and drag-back free.
-   - Making road, river and border edits cheaper also needs S4:
+   - Making road, river and border edits cheaper also needs TE4:
      - split the plan so port wishes are negotiated apart from the
        heights;
      - give the Fine tier its own road settings.
@@ -52,12 +52,12 @@ would add about as much again. A one-setting edit costs exactly the same.
     no Rough height and only a quarter of the near chunks, on hills and
     on mountains alike. A river-width edit moved 4 chunks in 177 on
     hills, and 38 on mountains.
-  - But a cache keyed on stage inputs alone (S3) saves nothing on these
+  - But a cache keyed on stage inputs alone (TE3) saves nothing on these
     edits. Each setting reaches the region plans (40% of the work)
     through the border offers or the convergence.
   - Keeping the plans takes two more steps:
-    - Move road and river port wishes into their own negotiation (S4).
-    - Key chunks by the features near them (S3b).
+    - Move road and river port wishes into their own negotiation (TE4).
+    - Key chunks by the features near them (TE3b).
 
     With both, expect up to about 25% saved on river edits and 65% on
     road edits (estimates).
@@ -88,6 +88,20 @@ preview and cancelling come first, and the cache second.
   region-stage cache.
 - Its biggest cost is rewriting the f64 border and carving maths in f32
   for WGSL (see "Terrain on the GPU").
+
+**What does border negotiation cost?** (asked 2026-11-24)
+
+- **The negotiation itself is free:** 106 calls, about 0.03% of a cold
+  build.
+- **The work around it is not:**
+  - the offers are 14–18% of a cold build without ground weights, or
+    9% with them;
+  - the bend is 3–4%, or 2% with weights;
+  - per point, the convergence fade and the border pulls are 78–86% of
+    every height read, so they dominate the sampling, the trace and the
+    offers too.
+- The border is the largest cost in terrain after the roads. Making it
+  cheaper is part of TE5.
 
 **Main limits.**
 
@@ -216,8 +230,9 @@ Notes:
   | region graph and warp | 3 ms | 0.4 ms |
 
   - Trace and offers dominate, and both grow steeply on mountains.
-  - **Convergence was not isolated.** Its cost is inside the plan's total,
-    which this run didn't time on its own.
+  - **Convergence** is isolated in "What border negotiation costs"
+    below. Its setup is free; its cost is paid per point, in every
+    height read.
   - A cached lookup costs 1 µs.
   - A whole cold Fine build of the centre region, with its ring of
     plans, took 26 s on hills and 87 s on mountains (both loaded). So
@@ -244,6 +259,101 @@ Notes:
   costs about a memcpy per chunk.
 - **Memory.** Peak resident memory of the dev run (two worlds, one after
   the other) was 213 MB.
+
+### What border negotiation costs
+
+- **How it was measured.** A last timing pass, release, one thread
+  (`RAYON_NUM_THREADS=1`), cold, opening view, ground weights on the
+  near level-2 chunks.
+- **Temporary timers** were put in `build_plan`, `build_roughest` and
+  `build_traced`. They were never committed. They split:
+  - convergence (`with_edge_targets`);
+  - the river trace;
+  - the offers;
+  - corner and edge negotiation (`negotiate_corner`, `negotiate`);
+  - the bend (seam profiles and their index, in `build_traced`);
+  - hydrology (rivers and ponds planned on the bent ground).
+- **Load.** It was 250–310, so read the shares. The idle-machine
+  seconds are about a quarter of the loaded ones.
+
+Share of the cold build's CPU work, without and with ground weights:
+
+| Step | Hills (s, loaded) | Hills: no weights / with | Mountains (s, loaded) | Mountains: no weights / with |
+|---|---|---|---|---|
+| Convergence setup (`with_edge_targets`, 23 calls) | < 0.01 | ~0% / ~0% | < 0.01 | ~0% / ~0% |
+| River trace (23) | 13.4 | 18.2% / 8.9% | 88.4 | 25.5% / 16.8% |
+| Offers (23) | 13.4 | 18.3% / 8.9% | 49.7 | 14.3% / 9.4% |
+| Negotiation, corners and edges (106 calls) | 0.02 | 0.03% / 0.01% | 0.08 | 0.02% / 0.02% |
+| Bend (9) | 3.0 | 4.1% / 2.0% | 11.6 | 3.3% / 2.2% |
+| Hydrology (9) | 3.1 | 4.2% / 2.0% | 20.2 | 5.8% / 3.8% |
+| Roads, Fine tier (2) | 21.8 | 29.7% / 14.5% | 104.1 | 30.0% / 19.7% |
+| Chunk sampling (86 chunks) | 18.6 | 25.4% / 12.4% | 73.1 | 21.1% / 13.8% |
+| Ground weights (near chunks: 24 on hills, 16 on mountains) | 77.3 | — / 51.3% | 180.6 | — / 34.2% |
+| **Total** | 73.3 / 150.6 | | 347.2 / 527.8 | |
+
+What the table says:
+
+- **Negotiation itself is free.** `negotiate` and `negotiate_corner` run
+  106 times and cost 0.02–0.08 s together. Convergence setup only
+  stores targets.
+- **The border's cost is everything that feeds and follows it:**
+  - The **offers** sample each edge's natural, inner and unfaded profiles
+    and the port wishes: 14–18% of a build without weights.
+  - The **bend** builds seam profiles: 3–4%.
+  - The **per-point fade and pulls** run inside every height read, in
+    sampling, the trace and the offers (see "Per point" below).
+- **Counted as border work** (offers, negotiation and bend): about **22%**
+  of a hills build without weights (11% with), and **18%** of a
+  mountains build (12% with). Add the per-point share of sampling below
+  for the total.
+- **The plan is the trace and the offers, about half each** on hills.
+  On mountains the trace is nearly two thirds of the plan. This replaces
+  the earlier, unreliable "a third each" guess.
+
+**Per point: the border is most of every height read.**
+
+- **How it was measured.** A second probe (release, best of five, about
+  128,000 points on a 10 m grid inside the centre region) timed four
+  ways of reading a height.
+- **Each read adds one step to the one before:**
+  - the unconverged relief;
+  - plus the convergence fade (`natural_height`);
+  - plus the border pulls (`uncarved_height`);
+  - plus carving (`height`).
+
+| Part of one height read | Hills (µs) | Hills share | Mountains (µs) | Mountains share |
+|---|---|---|---|---|
+| Relief noise (all octaves) | 1.1 | 3% | 6.1 | 4% |
+| Convergence fade | 12.2 | 32% | 72.3 | 47% |
+| Border pulls (bend) | 20.4 | 54% | 47.8 | 31% |
+| Carving (rivers, ponds, roads) | 4.0 | 11% | 26.9 | 18% |
+| **Full height** | **37.7** | | **153.2** | |
+
+- **The border is 78–86% of the cost of every height.** That counts the
+  fade towards neighbours' relief and the pulls towards the agreed
+  profiles.
+- Every sampled chunk, every river-trace step and every offer sample
+  pays it. So the border's true share of a cold build is far above the
+  22% of the plan steps counted above: most of the sampling, trace and
+  offers time is spent in the fade and the pulls.
+- **The relief noise itself is 3–4%.**
+- **The fade is 11–12× the cost of the noise it fades.**
+  - Within its reach it blends each point towards its neighbours' own
+    relief, so it evaluates several reliefs and the soft distance to the
+    border pieces.
+  - It already skips points it surely can't reach (`surely_beyond` in
+    `converge.rs`, as the pulls do). So the cost comes from how much of a
+    region lies within reach: the margin is 250 m on hills and 500 m on
+    mountains, times the blend's reach, on warped borders of many pieces.
+- Making the fade and the pulls cheaper is the biggest per-point
+  speed-up in sight. It belongs in TE5 beside the road search:
+  - fewer border pieces;
+  - cheaper far-piece integrals (world_plan W3b, "Left for later");
+  - or evaluating the neighbours' relief only where its blend share is
+    non-zero.
+- **Load.** It was about 250–300. The best-of-five times are steadier
+  than single runs, but still noisy: a first single run put carving
+  slightly negative.
 
 ### A one-setting edit
 
@@ -376,7 +486,7 @@ Reading the table:
     it.
     - But only once the Fine tier stops reading road settings from the
       Rough terrain it clones (see option (a)).
-  - Splitting port wishes out of the plan (stage S4) would keep the plans
+  - Splitting port wishes out of the plan (stage TE4) would keep the plans
     too.
 - **`rivers.*`** reads the trace, the offers and hydrology. Width changed
   no river line and only 4 chunks. The relief and convergence before it
@@ -430,11 +540,11 @@ is what makes any of this sound. Nothing here changes the rules.
 own", with cold and warm benchmarks) is where this work belongs.
 
 - The review notes that "W4's region cache is where the staged plans
-  live". S3 and S4 are the rest of step 2, and the measurements above
+  live". TE3 and TE4 are the rest of step 2, and the measurements above
   are its first cold benchmarks for the studio's view.
 
 **features_plan.md §9** says "exact seam agreements need the port
-offers". S4 keeps that rule:
+offers". TE4 keeps that rule:
 
 - Ports are still negotiated before any tier that carves them.
 - They are only negotiated apart from the heights, so a road setting
@@ -477,7 +587,7 @@ them across edits:
   - With that key, any change to a region's Fine build re-reads every
     Fine chunk of the region.
   - Keeping only the chunks whose ground did not move needs a finer key
-    (stage S3b): the region's relief and agreement key plus a hash of the
+    (stage TE3b): the region's relief and agreement key plus a hash of the
     features within reach of the chunk (`Terrain::features_within` over
     the chunk grown by the features' reach).
   - That is footprint diffing. It is its own piece of work, and its key
@@ -500,7 +610,7 @@ plan's inputs but not its offers then rebuilds the plan and keeps
 everything downstream. This is salsa's "backdating", done by hand where
 it pays.
 
-**What S3 alone saves** (stage keys only, no change to what the stages
+**What TE3 alone saves** (stage keys only, no change to what the stages
 read, chunks keyed by their region builds):
 
 | Edit | Rebuilt | Saved |
@@ -522,10 +632,10 @@ read, chunks keyed by their region builds):
   The Fine stage must take the road settings as its own input before the
   Rough tier can be kept.
 
-**With the changes in S3b and S4.**
+**With the changes in TE3b and TE4.**
 
-- S3b: chunk keys by feature footprint.
-- S4:
+- TE3b: chunk keys by feature footprint.
+- TE4:
   - The Fine stage takes the road settings as its own input.
   - Port wishes are negotiated apart from the height offers, so the
     relief, convergence and trace are stages of their own.
@@ -647,7 +757,7 @@ function evicts values, but not dependency metadata.
   coarse, so the cost is fine.
 
 **Verdict: no for now.** If key drift turns out to be a real source of
-bugs after S3, comemo's tracked-view idea is worth copying by hand (see
+bugs after TE3, comemo's tracked-view idea is worth copying by hand (see
 "Limits").
 
 ### (d) Others
@@ -667,6 +777,200 @@ bugs after S3, comemo's tracked-view idea is worth copying by hand (see
   layer. Not worth it for six stages. Revisit if Ecotopes, Scatters and
   Terrain all want the same machinery (ARCHITECTURE.md "Loading by
   chunk" has plan, place and draw stages that could share it).
+
+## Border negotiation per tier (decided 2026-11-24, user)
+
+**Parked (user, 2026-11-25).** The user may come back to this. TE4a and
+TE4b are on hold, and question 10 stays open until then. The rest of the
+plan does not depend on it.
+
+**The decision.** Borders are negotiated per tier, rough, then mid, then
+fine, at the feature tiers' granularities. Far regions never settle their
+fine borders.
+
+1. **Rough tier.**
+   - Neighbours agree only on the low-frequency shape (E and the broad
+     relief) and on where rivers and roads cross the border.
+   - It covers the whole view and is cheap.
+2. **Mid and fine tiers.** The detail band, the carving, and the roads
+   and rivers themselves are negotiated only for regions near the camera
+   and their immediate ring.
+3. **No popping.**
+   - Each finer tier only adds band-limited detail.
+   - The coarse result is exactly the low-pass of the fine one, so
+     upgrading a region never moves what a coarser tier decided.
+4. **Crossings fixed at rough.** Where rivers and roads cross borders is
+   decided at the rough tier. This is TE4's port-wish split, done per
+   tier.
+5. **Load-independent.**
+   - A region's fine border never depends on which neighbours are drawn
+     fine.
+   - Fine negotiation reads the neighbour's fine offers whenever it needs
+     them (the near ring only).
+6. **Mixed-tier borders** get a transition: a skirt, or the detail band
+   fading to zero, as chunks of different tiers do today.
+7. **River routes** stay a rough-tier, graph-wide decision. Only their
+   carving moves into the finer tiers.
+
+### What it demands of the relief: bands
+
+"The coarse result is exactly the low-pass of the fine one" can be met
+exactly, by construction, not by filtering:
+
+- **Every relief layer is an octave sum** (`noise.rs`: `fbm`, `ridged`).
+  - The low band is the first octaves of each layer, the detail band the
+    rest.
+  - Coarse is then the exact prefix of fine: the same numbers, not an
+    approximation.
+- **Erosion and ridges already flow one way.**
+  - `fbm`'s derivative damping divides each octave by the slope
+    gathered from the octaves **before** it.
+  - `ridged` weights each octave by the one before.
+  - So low octaves shape high ones and never the reverse. The prefix is
+    unchanged when detail octaves are added.
+  - Any later change that lets fine octaves feed back must be refused
+    by a test: for example domain warp of the low band by high octaves,
+    or erosion computed from the full gradient.
+- **The presets name the split.**
+  - Each `NoiseLayer` and the `MountainLayer` gets a band cut: the octaves
+    whose wavelength is at least the rough tier's cut-off.
+  - With a cut at about 225 m:
+
+    | Preset | Low-band octaves | Detail octaves | Detail amplitude (est.) |
+    |---|---|---|---|
+    | Rolling hills | 5 (swells 3; hills 450 and 225 m) | 4 (hills 112 m down to 14 m) | about 24% of the hill height, ±6 m |
+    | Mountains | 9 (swells 3; ridges 1800 to 225 m; hills 500 and 250 m) | 7 | about 11% of the ridge relief, about ±25 m |
+
+  - The detail amplitude is estimated from the octave gains (0.5 per
+    octave).
+  - A cut set in metres scales with D5's World scale like any other
+    landscape length.
+- **Results may move** (early repo). Today's rough tier is the full
+  relief. After the split, far land loses its fine relief, which is the
+  point.
+- **Everything else in the height must split too.**
+  - **The convergence fade** scales the relief towards the agreed
+    amplitude near borders. It is linear in the relief, so it applies to
+    each band alike, with a per-band target amplitude.
+  - **The border pulls** are linear in (agreed − own) profile. Rough
+    agreements bend the low band; fine agreements add a detail-band
+    correction negotiated on detail-band samples alone. So
+    `agreement(fine) = agreement(rough) + agreement(detail)`, never one
+    nonlinear negotiation of the sum.
+  - **Nonlinear steps** stay in the rough tier only: crossing levels
+    clamped for rivers and roads, and the corner pins. The detail band is
+    pinned to zero at corners. A three-way detail negotiation is
+    therefore never needed.
+- **Carving is not band-limited.**
+  - A riverbed or road cut has sharp banks, so "exact low-pass" can't
+    hold for features.
+  - Features keep today's rule instead (features_plan, "Feature tiers"):
+    each declares the largest height difference between its coarse and
+    fine forms, and skirts are sized by it.
+  - The relief bands are exact. The carving is bounded. This is a
+    refinement of point 3, and the user should confirm it (question 10).
+
+### Low band against detail in today's work
+
+- **Where the numbers come from.** Shares are from "What border
+  negotiation costs" (hills, without weights; mountains are similar).
+  Per-read costs are from its "Per point" table. These are estimates;
+  nothing here is built.
+- **The low band saves little per point.**
+  - The relief noise is only 3–4% of a height read, so dropping detail
+    octaves saves about 1–2%.
+  - A rough-tier read saves mostly the carving (11–18%).
+  - The fade and the pulls stay, and they are most of the cost. The
+    rough and detail agreements sum into one profile per edge, so pulls
+    are evaluated once, as today.
+  - So a far chunk read at rough costs about 85–88% of today's read.
+- **Most of the saving is in what far regions never build:**
+  - detail offers;
+  - detail bends;
+  - carving;
+  - roads (already fine only today).
+
+| Today's step | Share | Under per-tier borders (estimate) |
+|---|---|---|
+| River trace | 18% | ~18%. Rough for every planned region. It runs over the faded relief, and the fade, not the octaves, is its cost. |
+| Offers | 18% | ~11%. Rough offers for all 23 planned regions, sampled at a coarser step (×4 assumed): ~4.5%. Detail offers at today's step for the near ring only, about 9 regions: ~7%. |
+| Negotiation | ~0% | ~0%, run twice (rough and detail). |
+| Bend | 4% | ~4%. A rough bend everywhere; the detail bend near only. |
+| Hydrology | 4% | ~3%. Levels at rough; carving near only. |
+| Roads | 30% | 30%, unchanged: fine only, and only near regions. |
+| Chunk sampling | 25% | ~23%. The 24 near chunks read everything (7%); the 62 far chunks read at ~88% of today's cost (16%). |
+| **Total** | 100% | **~89%** |
+
+**Estimated effect on the studio's opening view:**
+
+- **The whole build drops by about a tenth.** Less than hoped: in this
+  view most planned regions border a near one, and roads, the largest
+  step, are near-only already.
+- **The first complete picture** (everything at rough) drops from about
+  70% of today's build to about 48%, roughly 1.5× sooner.
+- **The real wins are not in this view's seconds:**
+  - **No seams.** The rough picture is canonical-coarse, not
+    provisional. It is exactly the low-pass of the fine land, with no
+    seams and with the rivers' routes right. TE2's preview no longer has
+    to show steps at borders.
+  - **Wide views scale.** In a wide or fast-moving view (S1 streaming),
+    most regions are far and build nothing past rough. The saving then
+    grows with the share of far regions.
+  - **Edits to detail settings stop invalidating the rough tier** (see
+    TE3 below).
+- **Per-point border cost (fade and pulls)** is what decides how fast
+  any tier is. That is TE5's job, not this split's.
+
+### How it changes TE2 and TE4
+
+- **TE2.**
+  - The first picture after an edit becomes the **rough tier** itself:
+    low band plus rough borders, no seams.
+  - The relief-only preview stays as an instant first frame (GPU1 makes
+    it free), but stops being the main answer.
+  - The centre-region-first rule becomes "near regions get mid and fine
+    first", which per-tier borders give anyway.
+- **TE4** becomes the per-tier negotiation. It splits into:
+  - **TE4a, relief bands:**
+    - the band cut in the presets;
+    - low-band and detail evaluation paths;
+    - the one-way flow test;
+    - the rough tier draws the low band.
+  - **TE4b, per-tier negotiation:**
+    - rough offers with crossings;
+    - fine offers for the near ring;
+    - detail agreements pinned to zero at corners;
+    - the Fine tier taking its own road settings;
+    - mixed-tier transitions.
+- **TE3 gains a new saving.**
+  - Band keys split `base.*`: an edit to a detail octave (hill
+    roughness, octave count) no longer invalidates the rough tier.
+  - Land-shape edits that touch only the detail stop rebuilding every
+    region's rough plan.
+
+### Risks
+
+- **Look.** Splitting erosion and ridges by band changes how presets
+  look, and the presets need retuning. Results move (allowed in this
+  repo, reported).
+- **River routes over the low band** may run up detail-band bumps. The
+  carving must cut through up to the detail amplitude: about 6 m on
+  hills, 25 m on mountains (estimates). Otherwise rivers climb. Route
+  checks may not read the detail band, or routes would depend on the
+  fine tier.
+- **Detail at borders.**
+  - Pinning the detail band to zero at corners, and negotiating it
+    linearly along edges, is new seam maths.
+  - The seam, crack and feature suites must hold at both tiers, plus a
+    new test: a region drawn fine beside a neighbour drawn rough, then
+    both fine, gives bit-identical heights where they were both fine.
+- **More fine offers than fine regions.**
+  - Rule 5 means a near region's fine border reads its neighbours' fine
+    offers. Fine offers are therefore built one ring wider than the
+    fine regions: about 9 regions for the opening view's 2.
+  - That is the price of load independence.
+- **Two agreements per edge to cache** (rough, detail), each with its own
+  key. That is more keys to keep honest (see "Limits").
 
 ## Terrain on the GPU
 
@@ -777,13 +1081,13 @@ They cover different stages:
 
 | Work | Answer |
 |---|---|
-| Region plans: Plan, Rough, Fine (76%) | Cache (S3, S4) and a faster plan (S5). The GPU can't help. |
-| Chunk heights for drawing | GPU, once GPU3 lands. **S3b, chunk reuse by feature footprint, then becomes unnecessary for drawing.** Re-evaluating all 86 chunks on a GPU should take a few dispatches (an estimate), so diffing footprints wouldn't be worth its key-drift risk. Until GPU3, S3b is how feature edits avoid re-reading every chunk (question 7). |
+| Region plans: Plan, Rough, Fine (76%) | Cache (TE3, TE4) and a faster plan (TE5). The GPU can't help. |
+| Chunk heights for drawing | GPU, once GPU3 lands. **TE3b, chunk reuse by feature footprint, then becomes unnecessary for drawing.** Re-evaluating all 86 chunks on a GPU should take a few dispatches (an estimate), so diffing footprints wouldn't be worth its key-drift risk. Until GPU3, TE3b is how feature edits avoid re-reading every chunk (question 7). |
 | Chunk heights for colliders and queries (CPU) | A small CPU cache near the player. |
 | Ground weights and measures | GPU; ground edits need no cache at all. |
 | The preview after a land edit (W2) | GPU: the whole view, estimated at milliseconds against seconds on the CPU. |
 
-So the GPU would let us drop S3b and make W2 and W4 nearly free. The
+So the GPU would let us drop TE3b and make W2 and W4 nearly free. The
 region-stage cache is still needed: with the GPU, the plans become an
 even larger share of what an edit waits for.
 
@@ -838,7 +1142,7 @@ the web demo would keep the CPU path there.
     version plus the previous one or two per stage, and drop older
     versions when a new one lands. That bounds a drag at 2–3× one view
     (400–600 MB in this view), and still makes undo of the last edit
-    free. These are estimates; measure the per-entry size when S3 is
+    free. These are estimates; measure the per-entry size when TE3 is
     built.
 - **Stale results from drifted keys.** This is the main risk of (a).
   - A key that leaves out a field the stage reads (a new option, a
@@ -849,7 +1153,7 @@ the web demo would keep the CPU path there.
        rule), so a new field fails to compile until it is hashed.
     2. A test per stage changes each settings field one at a time, as
        the probe above does. It checks that a stage's key changes
-       **whenever its output changes**, and, for the stages S4 splits,
+       **whenever its output changes**, and, for the stages TE4 splits,
        that its output stays the same when the key does.
     3. A debug-build check recomputes a sample of cache hits and compares
        them bit for bit, off by default.
@@ -880,11 +1184,53 @@ the web demo would keep the CPU path there.
   content-keyed cache makes dragging back free, but only while the
   entries survive the LRU.
 
+## Decisions (user, 2026-11-24)
+
+The user accepted every recommendation in "Questions for the user":
+
+1. **Order:** TE1, then TE2, then TE3. TE4 and TE5 are decided after
+   TE3 is measured.
+2. **Provisional first picture:** yes, in the studio only. Own relief
+   only, with seams and no rivers or roads for a few seconds. The game
+   never shows provisional land near the player.
+3. **Seam protocol:** TE4 may change it, after TE3. Road and river port
+   wishes are negotiated apart from the heights, still before any tier
+   that carves them.
+4. **Studio view while editing:** the centre region at full quality, the
+   rest at the preview tier.
+5. **No salsa, no comemo.** Hand-written content keys. Revisit comemo's
+   tracked views only if key-drift bugs appear.
+6. **Road routing over budget:** first profile and speed it up (TE5);
+   then a fixed search budget with a deterministic fallback if still
+   over. Macro cells are decided with D4.
+7. **GPU start:** GPU2 (ground weights) and GPU1 (relief preview) early,
+   each after its CPU twin, with GPU2 first if GM1 puts weights on every
+   drawn chunk. TE3b is built on the CPU now. GPU3 comes later.
+8. **GPU parity:**
+   - heights within a few millimetres;
+   - every discrete decision quantised;
+   - seams exact within one path, and skirts between paths.
+9. **CPU sampling once the GPU draws:** only what queries, colliders and
+   explicit export need, never the whole drawn view.
+
+Later the same day the user added one more decision:
+
+- **Border negotiation happens per tier** (rough, mid, fine), and far
+  regions never settle their fine borders.
+- See "Border negotiation per tier". It reshapes TE2 and splits TE4
+  into TE4a and TE4b.
+- Question 10 asks one follow-up: whether the low-pass rule may be only
+  bounded, not exact, for carving.
+
+The stages are named TE1–TE5 (terrain edits) to keep clear of ROADMAP's
+S1 (Streaming). They are milestones in ROADMAP.md, "Terrain editing
+track".
+
 ## Staged build plan
 
 Each stage stands alone and is worth doing even if the next never comes.
 
-- **S1. Stop wasted work (W1 cancel, W4 ground-only edits).**
+- **TE1. Stop wasted work (W1 cancel, W4 ground-only edits).**
   - `WorldTerrain` takes a cancellation flag. The stream sets the flag on
     reset.
   - The studio sends ground and debug changes to weights and materials
@@ -893,7 +1239,7 @@ Each stage stands alone and is worth doing even if the next never comes.
     bit-identical; a ground edit triggers no region build.
   - Exit: after an edit, no thread works on the old world beyond one
     chunk row.
-- **S2. First picture fast (W2 preview, W3 nearest first).**
+- **TE2. First picture fast (W2 preview, W3 nearest first).**
   - A provisional relief-only tier drawn on edit, nearest regions first,
     then Rough and Fine.
   - While editing, only the centre region is brought to full quality
@@ -902,7 +1248,7 @@ Each stage stands alone and is worth doing even if the next never comes.
     in release, and the full view as today.
   - Needs a user decision on how a provisional seam may look (question
     2).
-- **S3. Content-keyed stage cache, kept across edits (option a).**
+- **TE3. Content-keyed stage cache, kept across edits (option a).**
   - `ContentHash` for the terrain and world options types.
   - Key every `WorldTerrain` cache by its inputs, and add the
     `WorldTerrain::with_source` swap. The studio calls it instead of
@@ -912,14 +1258,14 @@ Each stage stands alone and is worth doing even if the next never comes.
     bit-identical.
   - Exit: undo and drag-back rebuild nothing; a ground edit rebuilds
     nothing.
-- **S3b. Chunk keys by feature footprint.**
+- **TE3b. Chunk keys by feature footprint.**
   - A chunk's key covers the relief and agreements it reads, plus a hash
     of the features within reach of it.
   - Only chunks whose key changed are re-read.
   - Tests: for every probe setting, the chunks the key keeps are
     bit-identical to a fresh read.
   - Exit: a river-width edit re-reads only the chunks along the rivers.
-- **S4. Split the plan so feature edits are cheap.**
+- **TE4. Split the plan so feature edits are cheap.**
   - The Fine stage takes the road settings as its own input, not from
     the Rough terrain it clones.
   - Move road and river port wishes out of the height offers, if the
@@ -934,20 +1280,44 @@ Each stage stands alone and is worth doing even if the next never comes.
     (question 3), and the seam, crack and feature suites must hold.
   - Exit: a `roads.width` edit keeps every plan, and a `rivers.width`
     edit keeps the convergence.
-- **S5. Faster plan (W5).** A profiling pass on `build_plan` and roads,
-  in release. Independent of S1–S4.
+  - **Since the per-tier decision, TE4 is built as two steps** (see
+    "Border negotiation per tier"):
+    - **TE4a, relief bands.**
+      - A band cut per relief layer in the presets, and low-band and
+        detail evaluation paths.
+      - A test that detail octaves never change the low band.
+      - The rough tier draws the low band.
+      - Exit: on hills and mountains, the rough tier's heights equal the
+        fine relief's first octaves bit for bit.
+    - **TE4b, per-tier negotiation.**
+      - Rough offers with crossings for every planned region.
+      - Detail offers and agreements, pinned to zero at corners, for the
+        near ring only.
+      - The Fine tier takes its own road settings.
+      - Mixed-tier transitions.
+      - Exit:
+        - a region drawn fine beside a rough neighbour, then beside a
+          fine one, gives bit-identical heights;
+        - upgrading a region never moves its rough heights;
+        - far regions build no fine offers;
+        - the seam suites hold at both tiers.
+- **TE5. Faster plan (W5).** A profiling pass on `build_plan` and roads,
+  in release. Independent of TE1–TE4.
+  - Besides the road search, it targets the per-point border cost: the
+    convergence fade and the border pulls are 78–86% of every height
+    read (see "What border negotiation costs").
 
 ## Questions for the user
 
 1. **Which edits must feel fast?**
    - Context: the cache helps feature, ground and undo edits. It doesn't
-     help the land settings (`base.*`), which only the preview (S2) and
-     a faster plan (S5) help.
-   - Options: (a) land shape first: S1, S2, S5 before S3; (b) features
-     and ground first: S1, S3, S4; (c) both, in the order of the staged
+     help the land settings (`base.*`), which only the preview (TE2) and
+     a faster plan (TE5) help.
+   - Options: (a) land shape first: TE1, TE2, TE5 before TE3; (b) features
+     and ground first: TE1, TE3, TE4; (c) both, in the order of the staged
      plan.
-   - Recommendation: (c), S1 to S3 in order, with S4 and S5 decided
-     after S3 is measured.
+   - Recommendation: (c), TE1 to TE3 in order, with TE4 and TE5 decided
+     after TE3 is measured.
 2. **May the first picture after an edit be provisional?**
    - Context: W2 shows each region's own relief within a second. Borders
      then show steps, and rivers and roads are missing, until the real
@@ -957,19 +1327,19 @@ Each stage stands alone and is worth doing even if the next never comes.
      real build is ready (today).
    - Recommendation: (a) in the studio only. The game never shows
      provisional land near the player.
-3. **May S4 change the seam protocol?**
+3. **May TE4 change the seam protocol?**
    - Context:
      - Roads and rivers sit inside the border offers today, so a road
-       edit rebuilds every plan, and S3 alone saves nothing on it.
+       edit rebuilds every plan, and TE3 alone saves nothing on it.
      - Moving port wishes into their own negotiation, still settled
        before any tier that carves them (features_plan §9), makes road
        and river edits cheaper.
      - But it reopens the protocol that the seam, crack and feature
        suites guard.
-   - Options: (a) yes, after S3; (b) only after S3b, if feature edits
+   - Options: (a) yes, after TE3; (b) only after TE3b, if feature edits
      are still too slow then; (c) no.
-   - Recommendation: (a). S3 alone gives feature edits nothing, so
-     without S4 the cache helps only ground edits and undo.
+   - Recommendation: (a). TE3 alone gives feature edits nothing, so
+     without TE4 the cache helps only ground edits and undo.
 4. **How much land should the studio wait for?**
    - Context: the opening view (3000 m view distance) touches 9 regions
      and needs 23 region plans, because each region reads its
@@ -1005,13 +1375,13 @@ Each stage stands alone and is worth doing even if the next never comes.
      - Every road edit re-routes the roads whatever the cache, so this
        sets the floor for road edits.
    - Options:
-     - (a) profile and speed up the road search first (S5);
+     - (a) profile and speed up the road search first (TE5);
      - (b) a fixed search budget per region with a deterministic
        fallback (features_plan §9);
      - (c) macro cells now.
    - Recommendation: (a), then (b) if it is still over. Decide (c) with
      D4's region sizes.
-7. **Where should GPU terrain start, and does S3b wait for it?**
+7. **Where should GPU terrain start, and does TE3b wait for it?**
    - Context:
      - The GPU can take per-point work (preview relief, chunk heights,
        ground weights, measures) but not the plans, which are about 76%
@@ -1022,15 +1392,15 @@ Each stage stands alone and is worth doing even if the next never comes.
      - The preview (GPU1) is the smallest port and the biggest win for
        land edits.
      - Full height evaluation (GPU3) needs the f64 border and carving
-       maths rewritten in f32. Only GPU3 makes S3b (chunk reuse by
+       maths rewritten in f32. Only GPU3 makes TE3b (chunk reuse by
        footprint) unnecessary.
    - Options:
      - (a) GPU2 (weights) and GPU1 (preview) early, each after its CPU
-       twin; S3b on the CPU now; GPU3 later.
-     - (b) Skip S3b and go to GPU3 for all drawn terrain.
+       twin; TE3b on the CPU now; GPU3 later.
+     - (b) Skip TE3b and go to GPU3 for all drawn terrain.
      - (c) Keep terrain on the CPU for now.
    - Recommendation: (a). Do GPU2 first if GM1 puts weights on every
-     drawn chunk. S2's CPU preview is the twin GPU1 needs anyway.
+     drawn chunk. TE2's CPU preview is the twin GPU1 needs anyway.
 8. **What parity should GPU terrain promise?**
    - Context:
      - Float noise can't match bit for bit across CPU and GPU.
@@ -1054,3 +1424,19 @@ Each stage stands alone and is worth doing even if the next never comes.
        export.
    - Recommendation: (a), with export and tools asking the CPU path
      explicitly.
+10. **May "coarse is the exact low-pass of fine" be exact for the relief
+    but only bounded for carving?**
+    - Context:
+      - The relief can meet the rule exactly: the low band is the first
+        octaves of each layer, and erosion and ridges already flow only
+        from low octaves to high.
+      - Riverbeds and road cuts have sharp banks, so no coarse form is
+        their exact low-pass.
+    - Options:
+      - (a) Relief bands exact. Each feature declares its largest
+        coarse-to-fine height difference, as features_plan already
+        asks, and skirts cover it.
+      - (b) Make carving band-limited too: smooth valley shapes at
+        rough, sharp banks at fine. More work, and still not exact for
+        roads.
+    - Recommendation: (a).

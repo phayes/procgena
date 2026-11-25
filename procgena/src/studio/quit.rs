@@ -1,4 +1,5 @@
-//! Quitting: Escape asks first, Cmd+Q (Ctrl+Q elsewhere) quits at once.
+//! Quitting: Escape asks first; Cmd+Q (Ctrl+Q elsewhere) quits at once
+//! unless a document has unsaved changes, and then asks too.
 
 use bevy::feathers::controls::{
     ButtonVariant, FeathersButton, FeathersDialog, FeathersDialogBody, FeathersDialogFooter,
@@ -9,6 +10,8 @@ use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui_widgets::{Activate, ModalDialogBarrier, RequestClose};
+
+use super::documents::DocumentSettings;
 
 /// Marks the quit confirmation dialog.
 #[derive(Component, Default, Clone)]
@@ -23,7 +26,8 @@ impl Plugin for QuitPlugin {
     }
 }
 
-/// Quits on Cmd+Q or Ctrl+Q. On Escape, asks whether to quit, unless a dialog
+/// Quits on Cmd+Q or Ctrl+Q, asking first while a document has unsaved
+/// changes. On Escape, asks whether to quit, unless a dialog
 /// or menu is open (they close themselves) or a text field has focus (Escape
 /// leaves the field instead, so a second Escape asks).
 #[allow(clippy::too_many_arguments)]
@@ -33,6 +37,7 @@ fn quit_keys(
     dialogs: Query<(), With<ModalDialogBarrier>>,
     popups: Query<&Visibility, With<FeathersMenuPopup>>,
     text_fields: Query<(), With<EditableText>>,
+    unsaved: Query<&DocumentSettings>,
     mut menu_was_open: Local<bool>,
     mut exit: MessageWriter<AppExit>,
     mut commands: Commands,
@@ -50,7 +55,13 @@ fn quit_keys(
         KeyCode::ControlRight,
     ]);
     if command && keys.just_pressed(KeyCode::KeyQ) {
-        exit.write(AppExit::Success);
+        if unsaved.iter().any(DocumentSettings::is_unsaved) {
+            if dialogs.is_empty() {
+                commands.spawn_scene(quit_dialog());
+            }
+        } else {
+            exit.write(AppExit::Success);
+        }
         return;
     }
     if !keys.just_pressed(KeyCode::Escape) || !dialogs.is_empty() || menu_recently_open {

@@ -10,6 +10,7 @@ use crate::clump::editor::{
 };
 use crate::scene::{ClumpSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// Registers clumps.
@@ -27,6 +28,7 @@ pub fn register(app: &mut App) {
             start: crate::clump::START_PRESET,
             spawn_editor: spawn_clump_editor,
             show,
+            settings: Some(settings_panel::<ClumpPreset>()),
             detail_levels: &[],
             hidden_environment: crate::environment::STILL_AIR,
             status_line: |state| status::object_line(state, "clump"),

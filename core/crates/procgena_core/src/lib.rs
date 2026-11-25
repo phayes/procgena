@@ -13,8 +13,11 @@
 //! - [`Ground`]: the shape of the land things are scattered on, with its
 //!   height and slope at any World position. [`FlatGround`], closures and
 //!   [`HeightGrid`] are ready-made grounds.
-//! - [`Lod`]: an asset's levels of detail, scaled by each copy's size and
+//! - [`chain`]: how every asset kind is drawn: its game-level mesh, one
+//!   coarser mesh, then an impostor, switched by size on screen and scaled
 //!   by the [`Quality`] setting.
+//! - [`Lod`]: the older table of levels of detail by distance in metres,
+//!   still used by the assets that have not moved to [`chain`] yet.
 //! - [`scatter`]: the [`Scatter`](scatter::Scatter) trait, what every
 //!   Scatter takes as input, the shared integer placement rules on a
 //!   lattice fixed to the World, footprints and masks, and the shared rules
@@ -26,11 +29,15 @@
 //!   preset files that name a base preset and give only what differs.
 //! - [`meta`]: each kind's names, parts and settings metadata, read from
 //!   `<kind>.meta.yml` files, for tools that edit presets.
+//! - [`texture`]: the tiling texture sets each crate lists in its
+//!   `textures.yml`, their sizes and file paths, and a catalogue of
+//!   several lists.
 //!
 //! This crate uses no game engine. Code about one generated specimen's
 //! shape belongs in `procgena_specimen`, which builds on this crate.
 
 mod address;
+pub mod chain;
 mod content_hash;
 mod ground;
 pub mod hash;
@@ -43,6 +50,7 @@ pub mod scatter;
 mod seed;
 mod slot;
 mod specimen_id;
+pub mod texture;
 
 pub use address::{
     Address, AddressPrefix, CellId, CopyAddress, MAX_PART_STEPS, PartStep, RegionId,

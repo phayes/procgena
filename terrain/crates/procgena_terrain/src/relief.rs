@@ -350,15 +350,18 @@ mod tests {
     use crate::presets::TerrainPreset;
 
     /// Checks `relief`'s slope against central differences of its heights
-    /// 2 m either side of a grid of points, in x and in z: each difference
-    /// must match the slope averaged over the same span (Simpson's rule).
-    /// Mountain heights carry up to about 5e-3 m of f32 rounding, too much
-    /// for shorter spans, and it sets the tolerance. Spans across a sharp
-    /// crest, where the slope jumps between neighbouring samples, are
-    /// skipped: mountain ridges have them every few metres, so up to a
-    /// quarter of the spans.
-    fn assert_slope_matches(relief: &Relief, label: &str) {
-        const HALF: f64 = 2.0;
+    /// `half` metres either side of a grid of points, in x and in z: each
+    /// difference must match the slope averaged over the same span
+    /// (Simpson's rule). Spans across a sharp crest, where the slope jumps
+    /// between neighbouring samples, are skipped: mountain ridges have them
+    /// every few metres, so up to a quarter of the spans.
+    ///
+    /// `half` follows the preset's scale: 2 m for medium-scale presets,
+    /// whose mountain heights carry up to about 5e-3 m of f32 rounding (too
+    /// much for shorter spans, and it sets the tolerance), and 1 m for the
+    /// shipped presets at half that scale, whose ridges are twice as close
+    /// and whose rounding is half as large.
+    fn assert_slope_matches(relief: &Relief, half: f64, label: &str) {
         const STEPS: i32 = 128;
         let (mut skipped, mut total) = (0, 0);
         for i in 0..1600 {
@@ -370,7 +373,7 @@ mod tests {
                 total += 1;
                 let slopes: Vec<f64> = (0..=STEPS)
                     .map(|k| {
-                        let at = p + axis * HALF * (2.0 * f64::from(k) / f64::from(STEPS) - 1.0);
+                        let at = p + axis * half * (2.0 * f64::from(k) / f64::from(STEPS) - 1.0);
                         relief.slope(at).dot(axis)
                     })
                     .collect();
@@ -388,9 +391,9 @@ mod tests {
                     })
                     .sum::<f64>()
                     / (3.0 * f64::from(STEPS));
-                let difference = (f64::from(relief.height(p + axis * HALF))
-                    - f64::from(relief.height(p - axis * HALF)))
-                    / (2.0 * HALF);
+                let difference = (f64::from(relief.height(p + axis * half))
+                    - f64::from(relief.height(p - axis * half)))
+                    / (2.0 * half);
                 assert!(
                     (difference - mean).abs() < 4e-3 + 2e-3 * mean.abs(),
                     "{label} at {p} along {axis}: mean slope {mean} against {difference}"
@@ -405,12 +408,11 @@ mod tests {
 
     #[test]
     fn slopes_match_the_heights() {
-        for preset in [
-            TerrainPreset::plains(),
-            TerrainPreset::rolling_hills(),
-            TerrainPreset::mountains(),
-        ] {
-            assert_slope_matches(&Relief::new(&preset.terrain), &preset.name);
+        for preset in TerrainPreset::all() {
+            assert_slope_matches(&Relief::new(&preset.terrain), 1.0, &preset.name);
+        }
+        for preset in crate::fixtures::all() {
+            assert_slope_matches(&Relief::new(&preset.terrain), 2.0, &preset.name);
         }
     }
 

@@ -10,6 +10,7 @@ use crate::fruit::editor::{
 };
 use crate::scene::{FruitSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// Registers fruit, with the editor shared by fruit and flowers.
@@ -27,6 +28,7 @@ pub fn register_fruit(app: &mut App) {
             start: crate::fruit::START_FRUIT,
             spawn_editor: spawn_fruit_editor,
             show,
+            settings: Some(settings_panel::<FruitPreset>()),
             detail_levels: &[],
             hidden_environment: crate::environment::STILL_AIR,
             status_line: |state| status::object_line(state, "fruit"),
@@ -42,6 +44,7 @@ pub fn register_flower(app: &mut App) {
         start: crate::fruit::START_FLOWER,
         spawn_editor: spawn_fruit_editor,
         show,
+        settings: Some(settings_panel::<FlowerPreset>()),
         detail_levels: &[],
         hidden_environment: crate::environment::STILL_AIR,
         status_line: |state| status::object_line(state, "flower"),

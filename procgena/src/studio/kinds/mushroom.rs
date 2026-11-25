@@ -10,6 +10,7 @@ use crate::mushrooms::editor::{
 };
 use crate::scene::{MushroomSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// The mushroom detail levels, most detailed first.
@@ -40,6 +41,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
+            settings: Some(settings_panel::<MushroomPreset>()),
             detail_levels: LEVELS,
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::leveled_line(state, "mushroom"),
