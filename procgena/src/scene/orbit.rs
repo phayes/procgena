@@ -6,9 +6,10 @@ use super::viewport::{PointerButton, ViewportActivity, ViewportInput};
 use bevy::prelude::*;
 
 use super::environment::EnvironmentSettings;
+use super::fly::CameraMode;
 
 /// Radians of orbit per logical pixel dragged.
-const ORBIT_PER_PIXEL: f32 = 0.006;
+pub(crate) const ORBIT_PER_PIXEL: f32 = 0.006;
 /// Focus movement per logical pixel dragged, as a fraction of the camera distance.
 const PAN_PER_PIXEL: f32 = 0.0015;
 /// Zoom rate per logical pixel scrolled; each pixel scales the distance by `exp(-ZOOM_PER_PIXEL)`.
@@ -29,7 +30,9 @@ pub struct OrbitLimits {
 /// A camera orbiting a focus point. The camera entity's [`Transform`] follows it.
 ///
 /// Left-drag orbits, right-drag, middle-drag or Shift+left-drag pans, and
-/// scrolling zooms.
+/// scrolling zooms. In [`CameraMode::Fly`] it still holds the camera's
+/// pose, with the focus point straight ahead of the camera, but may tilt
+/// beyond [`limits`](Self::limits).
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct OrbitCamera {
     /// The point the camera looks at.
@@ -80,9 +83,37 @@ impl OrbitCamera {
     pub fn transform(&self) -> Transform {
         let rotation = self.rotation();
         Transform {
-            translation: self.focus + rotation * Vec3::new(0.0, 0.0, self.distance),
+            translation: self.eye(),
             rotation,
             ..default()
+        }
+    }
+
+    /// Where the camera is.
+    pub fn eye(&self) -> Vec3 {
+        self.focus + self.rotation() * Vec3::new(0.0, 0.0, self.distance)
+    }
+
+    /// Turns the camera in place to `yaw` and `pitch`, moving the focus
+    /// point around the camera instead of the camera around the focus
+    /// point. The pitch is kept just short of straight up or down, but not
+    /// within [`limits`](Self::limits).
+    pub fn look(&mut self, yaw: f32, pitch: f32) {
+        let eye = self.eye();
+        self.yaw = yaw.rem_euclid(std::f32::consts::TAU);
+        self.pitch = pitch.clamp(-MAX_PITCH, MAX_PITCH);
+        self.focus = eye - self.rotation() * Vec3::new(0.0, 0.0, self.distance);
+    }
+
+    /// Brings the pitch and distance back within [`limits`](Self::limits),
+    /// keeping the camera where it is and turning it as little as it must.
+    pub fn fit_limits_in_place(&mut self) {
+        let eye = self.eye();
+        let before = (self.distance, self.pitch);
+        self.clamp();
+        // A view already within its limits is left exactly as it was.
+        if (self.distance, self.pitch) != before {
+            self.focus = eye - self.rotation() * Vec3::new(0.0, 0.0, self.distance);
         }
     }
 
@@ -98,14 +129,20 @@ impl OrbitCamera {
     }
 }
 
-/// Applies pointer input and auto-rotation to every [`OrbitCamera`].
+/// Applies pointer input and auto-rotation to every [`OrbitCamera`], while
+/// the camera is in [`CameraMode::Orbit`].
 pub(crate) fn drive_orbit(
     mut input: MessageReader<ViewportInput>,
+    mode: Res<CameraMode>,
     settings: Res<EnvironmentSettings>,
     time: Res<Time>,
     mut cameras: Query<&mut OrbitCamera>,
 ) {
+    // Read the input in either mode, so none is left over for later.
     let inputs: Vec<ViewportInput> = input.read().copied().collect();
+    if *mode != CameraMode::Orbit {
+        return;
+    }
     for mut orbit in &mut cameras {
         // Pointer input.
         for event in &inputs {

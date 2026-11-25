@@ -14,6 +14,7 @@ use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 
 use super::environment::{EnvironmentSettings, sky_fog};
+use super::fly;
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{ViewerCommand, ViewerEvent};
 use super::terrain;
@@ -426,7 +427,7 @@ fn apply_command(world: &mut World, state: &mut SceneState, command: ViewerComma
             }
             let entity = (fns.spawn)(world, &*show.settings);
             let view = (fns.view)(world, &*show.settings);
-            set_camera(world, view);
+            fly::set_view(world, view);
             world.write_message(ViewerEvent::Building);
             state.generations += 1;
             state.shown = Some(Shown {
@@ -471,18 +472,11 @@ fn apply_command(world: &mut World, state: &mut SceneState, command: ViewerComma
                 && let Some(fns) = world.resource::<Subjects>().0.get(&shown.subject).copied()
             {
                 let view = (fns.view)(world, &*shown.settings);
-                set_camera(world, view);
+                fly::set_view(world, view);
             }
         }
-        ViewerCommand::SetCamera(view) => set_camera(world, view),
-    }
-}
-
-/// Points the scene camera with `view`.
-fn set_camera(world: &mut World, view: OrbitCamera) {
-    let mut cameras = world.query_filtered::<&mut OrbitCamera, With<ViewportCamera>>();
-    if let Ok(mut orbit) = cameras.single_mut(world) {
-        *orbit = view;
+        ViewerCommand::SetCamera(view) => fly::set_view(world, view),
+        ViewerCommand::SetCameraMode(mode) => fly::set_mode(world, mode),
     }
 }
 

@@ -1,4 +1,4 @@
-//! The 3D scene: environment, orbit camera, and one subject, such as a
+//! The 3D scene: environment, an orbiting or flying camera, and one subject, such as a
 //! tree, a plant field, a rock, a clump on a tree or rock, a mushroom, a
 //! fruit cluster, a grove, a piece of dead wood, an Ecotope or terrain.
 //!
@@ -17,6 +17,7 @@ mod clump;
 mod deadwood;
 mod ecotope;
 mod environment;
+mod fly;
 mod fruit;
 mod grove;
 #[cfg(any(test, debug_assertions))]
@@ -59,6 +60,7 @@ pub use clump::{ClumpHost, ClumpSettings, ClumpSubject};
 pub use deadwood::{DeadwoodSettings, DeadwoodSubject, DeadwoodView};
 pub use ecotope::{EcotopeGround, EcotopeSettings, EcotopeSubject};
 pub use environment::EnvironmentSettings;
+pub use fly::{CameraMode, FlySpeed, ViewKeys};
 pub use fruit::FruitSubject;
 pub use grove::GroveSubject;
 pub use mushroom::MushroomSubject;
@@ -196,6 +198,8 @@ impl Plugin for ScenePlugin {
         .init_resource::<subject::SceneState>()
         .init_resource::<subject::ChosenDetail>()
         .init_resource::<subject::SubjectLook>()
+        .init_resource::<CameraMode>()
+        .init_resource::<FlySpeed>()
         .add_message::<ViewerCommand>()
         .add_message::<ViewerEvent>();
 
@@ -224,7 +228,11 @@ impl Plugin for ScenePlugin {
         .add_systems(
             Update,
             (
-                (orbit::drive_orbit, environment::apply_environment),
+                (
+                    orbit::drive_orbit,
+                    fly::drive_fly,
+                    environment::apply_environment,
+                ),
                 orbit::follow_orbit,
                 render_while_baking,
                 (clump::show_clump, clump::show_deadwood_cover),

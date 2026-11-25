@@ -1,0 +1,252 @@
+# What tools that edit fruit presets show for each setting. Kept in step
+# with FruitOptions by tests/meta.rs. Flower presets share the options and
+# have flower.meta.yml.
+kind: fruit
+name: Fruit
+description: "A fruit cluster, such as an apple on its stalk, a bunch of cherries or grapes, grown on trees."
+parts:
+  cluster:
+    name: Cluster
+    description: "How the fruit are arranged and the stalks that carry them."
+  fruit:
+    name: Fruit
+    description: "Each fruit's shape, stem and colours."
+    tags: [fruit]
+sections:
+  - title: Cluster
+    part: cluster
+    settings: [facing, size, size_variance, maturity]
+    groups:
+      - title: Arrangement
+        settings: [cluster.arrangement, cluster.items, cluster.items_variance, cluster.spread, cluster.axis_length, cluster.droop, cluster.taper, cluster.side_stalks, cluster.side_length, cluster.stalk_length, cluster.stalk_radius, cluster.stalk_color]
+  - title: Fruit
+    part: fruit
+    groups:
+      - title: Shape
+        settings: [item.elongation, item.top_dimple, item.bottom_taper, item.lobes, item.lobe_depth, item.segments, item.rings, item.calyx]
+      - title: Stem
+        shown_if: "cluster.arrangement != catkin"
+        settings: [item.stem_length, item.stem_radius, item.stem_curve]
+      - title: Colour
+        settings: [item.color, item.unripe_color, item.blush_amount, item.blush_color]
+  - title: Variation
+    part: cluster
+    settings: [variation.maturity_spread, variation.hue_spread, variation.blush_spread, variation.shape_jitter, variation.stem_curve_jitter]
+conditions:
+  several: "cluster.arrangement != single"
+  main_stem: "cluster.arrangement in [raceme, panicle, catkin]"
+settings:
+  default_seed:
+    label: Seed
+    description: "The seed of a cluster built on its own."
+    hidden: true
+  facing:
+    label: Facing
+    description: "Which way the cluster faces on its branch: hanging down, pointing up, or straight out."
+    choices:
+      - { value: hang, label: Hang }
+      - { value: up, label: Up }
+      - { value: outward, label: Outward }
+  size:
+    label: Size
+    description: "How big each fruit is, in metres, before it varies."
+    range: [0.005, 0.5]
+    step: 0.005
+    scale: exponential
+    revive: 0.1
+  size_variance:
+    label: Size Variance
+    description: "How much sizes vary, from all the same at 0. At 0.2 they range from 80% to 120%."
+    range: [0, 1]
+    step: 0.01
+  maturity:
+    label: Ripeness
+    description: "How ripe the fruit are: unripe fruit are smaller, in their unripe colour and without blush."
+    range: [0, 1]
+    step: 0.01
+  cluster.arrangement:
+    label: Kind
+    description: "How the items are arranged: one alone, fanned from a point, along a stem, in a branching bunch, or packed along a catkin."
+    choices:
+      - { value: single, label: Single }
+      - { value: umbel, label: Umbel }
+      - { value: raceme, label: Raceme }
+      - { value: panicle, label: Panicle }
+      - { value: catkin, label: Catkin }
+  cluster.items:
+    label: Items
+    description: "How many items each cluster has."
+    range: [1, 60]
+    step: 1
+    shown_if: "@several"
+    revive: 6
+  cluster.items_variance:
+    label: Items Variance
+    description: "How much the number of items varies from cluster to cluster."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@several"
+  cluster.spread:
+    label: Spread
+    description: "How far stalks fan out, in degrees. For a catkin, how far the items themselves turn."
+    range: [0, 90]
+    step: 1
+    shown_if: "@several"
+    revive: 30
+  cluster.axis_length:
+    label: Axis Length
+    description: "How long the main stem is, in metres."
+    range: [0, 1]
+    step: 0.005
+    shown_if: "@main_stem"
+    revive: 0.2
+  cluster.droop:
+    label: Droop
+    description: "How much the main stem and side stems bend toward the ground."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@main_stem"
+  cluster.taper:
+    label: Taper
+    description: "How much smaller items get toward the main stem's tip."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "@main_stem"
+  cluster.side_stalks:
+    label: Side Stalks
+    description: "How many side stems a branching bunch has."
+    range: [1, 12]
+    step: 1
+    shown_if: "cluster.arrangement == panicle"
+  cluster.side_length:
+    label: Side Length
+    description: "How long each side stem is, compared with the main stem."
+    range: [0, 2]
+    step: 0.01
+    shown_if: "cluster.arrangement == panicle"
+    revive: 0.4
+  cluster.stalk_length:
+    label: Stalk Length
+    description: "How long each item's own stalk is, in metres. For a catkin, its bare stem before the items begin."
+    range: [0, 0.3]
+    step: 0.001
+    scale: exponential
+  cluster.stalk_radius:
+    label: Stalk Radius
+    description: "How thick the stalks and stems are, in metres."
+    range: [0, 0.02]
+    step: 0.0005
+    scale: exponential
+    shown_if: "!(cluster.arrangement in [single, umbel]) || cluster.stalk_length > 0"
+    revive: 0.003
+  cluster.stalk_color:
+    label: Stalk Colour
+    description: "The colour of the stalks and stems."
+    color: true
+    shown_if: "!(cluster.arrangement in [single, umbel]) || cluster.stalk_length > 0"
+  item.kind:
+    label: Item
+    description: "Whether the items are fruit or flowers."
+    hidden: true
+  item.elongation:
+    label: Elongation
+    description: "How tall the fruit is compared with its width: 1 is round, lower is flattened, higher is elongated."
+    range: [0.2, 3]
+    step: 0.01
+  item.top_dimple:
+    label: Top Dimple
+    description: "How deep the hollow around the stem is, like the dip in an apple."
+    range: [0, 1]
+    step: 0.01
+  item.bottom_taper:
+    label: Bottom Taper
+    description: "How much the fruit narrows at the end away from its stem."
+    range: [0, 1]
+    step: 0.01
+  item.lobes:
+    label: Lobes
+    description: "How many raised ribs run around the fruit. At 0 it is smooth."
+    range: [0, 12]
+    step: 1
+  item.lobe_depth:
+    label: Lobe Depth
+    description: "How strongly the ribs stand out."
+    range: [0, 0.95]
+    step: 0.01
+    shown_if: "item.lobes > 0"
+    revive: 0.3
+  item.segments:
+    label: Segments
+    description: "How many points go around the fruit. More give a smoother outline."
+    range: [3, 32]
+    step: 1
+  item.rings:
+    label: Rings
+    description: "How many rings of points run from stem to bottom."
+    range: [2, 24]
+    step: 1
+  item.calyx:
+    label: Calyx
+    description: "Shows the small remains of the flower at the end away from the stem."
+  item.stem_length:
+    label: Stem Length
+    description: "How long the fruit's own short stem is, compared with the fruit."
+    range: [0, 1]
+    step: 0.01
+  item.stem_radius:
+    label: Stem Radius
+    description: "How thick the fruit's own stem is, compared with the fruit."
+    range: [0, 0.2]
+    step: 0.005
+    scale: exponential
+    shown_if: "item.stem_length > 0"
+    revive: 0.03
+  item.stem_curve:
+    label: Stem Curve
+    description: "How much the fruit's stem bends."
+    range: [0, 1]
+    step: 0.01
+    shown_if: "item.stem_length > 0"
+  item.color:
+    label: Ripe
+    description: "The colour of ripe fruit."
+    color: true
+  item.unripe_color:
+    label: Unripe
+    description: "The colour of unripe fruit."
+    color: true
+  item.blush_amount:
+    label: Blush Amount
+    description: "How strong the blush is: a patch of contrasting colour on the skin."
+    range: [0, 1]
+    step: 0.01
+  item.blush_color:
+    label: Blush
+    description: "The colour of the blush."
+    color: true
+    shown_if: "item.blush_amount > 0"
+  variation.maturity_spread:
+    label: Maturity Spread
+    description: "How much ripeness varies from item to item."
+    range: [0, 1]
+    step: 0.01
+  variation.hue_spread:
+    label: Hue Spread
+    description: "How much the colour's hue varies from item to item."
+    range: [0, 1]
+    step: 0.01
+  variation.blush_spread:
+    label: Blush Spread
+    description: "How much the blush varies from item to item."
+    range: [0, 1]
+    step: 0.01
+  variation.shape_jitter:
+    label: Shape Jitter
+    description: "How much each item's shape varies."
+    range: [0, 1]
+    step: 0.01
+  variation.stem_curve_jitter:
+    label: Stem Curve Jitter
+    description: "How much each item's stem bend varies."
+    range: [0, 1]
+    step: 0.01

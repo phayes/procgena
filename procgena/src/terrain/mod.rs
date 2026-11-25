@@ -3,12 +3,22 @@
 //! settings in every region.
 
 pub mod editor;
-pub mod params;
+
+use std::sync::LazyLock;
 
 #[cfg(test)]
 use procgena_terrain::TerrainPreset;
 
 use crate::params::{Group, Section, toggle};
+use crate::studio::inspector::MetaKind;
+
+/// The terrain settings' metadata, from `terrain.meta.yml`.
+pub static META: LazyLock<MetaKind> = LazyLock::new(|| {
+    MetaKind::new(
+        procgena_terrain::TERRAIN_META,
+        procgena_core::meta::ChoiceLists::new(),
+    )
+});
 #[cfg(test)]
 use crate::scene::TerrainSettings;
 use crate::scene::TerrainShow;

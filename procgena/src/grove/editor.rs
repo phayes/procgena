@@ -18,13 +18,21 @@ use procgena_tree::{
 };
 
 use super::{
-    CUSTOM, RowStatus, added_tree, choice_of, custom_choice, params, per_ha_text, read_grove,
-    row_statuses,
+    CUSTOM, RowStatus, added_tree, choice_of, custom_choice, per_ha_text, read_grove, row_statuses,
 };
 use crate::export::{Done, FileOps, read_preset, save_preset};
-use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
+use crate::params::{Group, ParamPanel, ParamsChanged, Section, spawn_param_panel};
 use crate::studio::Dormant;
+use crate::studio::inspector::{
+    InspectorPlugin, NestedPanel, Settings, item_params, spawn_meta_panel,
+};
+use crate::tree::editor::TreePanel;
 use crate::ui::SelectOptions;
+
+/// The panel holding a tree Scatter's shared settings.
+pub type GrovePanel = ParamPanel<Settings<TreeScatter>>;
+/// The panel holding one species' share of a tree Scatter.
+type SharePanel = ParamPanel<Settings<ScatterTree>>;
 
 /// Triggered after any tree Scatter editor's Scatter changes. Read the
 /// selected tree Scatter document's with [`GroveReader::grove`], and any
@@ -88,8 +96,8 @@ pub struct GroveEditorPlugin;
 impl Plugin for GroveEditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            ParamPanelPlugin::<TreeScatter>::default(),
-            ParamPanelPlugin::<ScatterTree>::default(),
+            InspectorPlugin::<TreeScatter>::default(),
+            InspectorPlugin::<ScatterTree>::default(),
         ))
         .add_systems(
             Update,
@@ -104,8 +112,8 @@ pub struct GroveReader<'w, 's> {
     editors: Query<'w, 's, (Entity, &'static GroveEditor, Has<Dormant>)>,
     children: Query<'w, 's, &'static Children>,
     rows: Query<'w, 's, &'static SpeciesRow>,
-    shares: Query<'w, 's, &'static ParamPanel<ScatterTree>>,
-    groves: Query<'w, 's, &'static ParamPanel<TreeScatter>>,
+    shares: Query<'w, 's, &'static SharePanel>,
+    groves: Query<'w, 's, &'static GrovePanel>,
 }
 
 impl GroveReader<'_, '_> {
@@ -137,9 +145,9 @@ impl GroveReader<'_, '_> {
             .flatten()
             .filter_map(|row| self.rows.get(*row).ok())
             .filter_map(|row| self.shares.get(row.share).ok())
-            .map(|share| share.value().clone())
+            .map(|share| share.value().options().clone())
             .collect();
-        Some(panel.value().clone().with_trees(trees))
+        Some(panel.value().options().clone().with_trees(trees))
     }
 
     /// The preset of the selected tree Scatter document, which saved files
@@ -277,7 +285,14 @@ fn spawn_body(commands: &mut Commands, editor: Entity, grove: TreeScatter) -> (E
     // The Scatter's shared settings, with Scatter open. Its species live in
     // the rows.
     let shared = grove.with_trees(Vec::new());
-    let panel = spawn_param_panel(commands, editor, shared, params::sections(), &[0]);
+    let panel = spawn_meta_panel(
+        commands,
+        editor,
+        &super::META,
+        Settings::new(shared),
+        &[0],
+        &|_, _| Vec::new(),
+    );
     commands
         .entity(panel)
         .observe(|_: On<ParamsChanged>, mut commands: Commands| {
@@ -341,12 +356,14 @@ fn spawn_row(commands: &mut Commands, list: Entity, tree: ScatterTree) -> Entity
         .id();
 
     // The species' share settings, open.
-    let share = spawn_param_panel(commands, row, tree, params::share_sections(), &[0]);
-    commands
-        .entity(share)
-        .observe(|_: On<ParamsChanged>, mut commands: Commands| {
+    let share = Settings::new(tree);
+    let sections = share_sections(share.value());
+    let share = spawn_param_panel(commands, row, share, sections, &[0]);
+    commands.entity(share).insert(NestedPanel).observe(
+        |_: On<ParamsChanged>, mut commands: Commands| {
             commands.trigger(GroveEdited);
-        });
+        },
+    );
     commands.entity(row).insert(SpeciesRow {
         share,
         tree: None,
@@ -354,6 +371,28 @@ fn spawn_row(commands: &mut Commands, list: Entity, tree: ScatterTree) -> Entity
         takes_rest: false,
     });
     row
+}
+
+/// One species' share settings, `item`, laid out from the tree Scatter
+/// metadata's species list.
+fn share_sections(item: &serde_json::Value) -> Vec<Section<Settings<ScatterTree>>> {
+    let species = super::META
+        .meta
+        .sections
+        .iter()
+        .flat_map(|section| &section.groups)
+        .find(|group| group.custom.as_deref() == Some("species_list"))
+        .expect("tree_scatter.meta.yml has a species list");
+    let prefix = procgena_core::meta::SettingPath::parse("trees.0");
+    vec![Section {
+        title: "Share",
+        groups: vec![Group::plain(item_params(
+            &super::META,
+            species,
+            &prefix,
+            item,
+        ))],
+    }]
 }
 
 /// The row that `entity` belongs to.
@@ -374,7 +413,7 @@ pub fn load_grove(
     In(grove): In<TreeScatter>,
     editors: Query<&GroveEditor, Without<Dormant>>,
     children: Query<&Children>,
-    mut groves: Query<&mut ParamPanel<TreeScatter>>,
+    mut groves: Query<&mut GrovePanel>,
     mut commands: Commands,
 ) {
     if let Some(editor) = editors.iter().find(|editor| editor.preset.is_some()) {
@@ -388,7 +427,7 @@ fn show_grove(
     mut grove: TreeScatter,
     editor: &GroveEditor,
     children: &Query<&Children>,
-    groves: &mut Query<&mut ParamPanel<TreeScatter>>,
+    groves: &mut Query<&mut GrovePanel>,
     commands: &mut Commands,
 ) {
     for row in children.get(editor.list).into_iter().flatten() {
@@ -398,7 +437,7 @@ fn show_grove(
         spawn_row(commands, editor.list, tree);
     }
     if let Ok(mut panel) = groves.get_mut(editor.panel) {
-        panel.set_value(grove);
+        panel.set_value(Settings::new(grove));
     }
     commands.trigger(GroveEdited);
 }
@@ -450,8 +489,8 @@ fn load_row_tree(
 fn set_row_tree(
     In((row, tree)): In<(Entity, TreeOptions)>,
     rows: Query<&SpeciesRow>,
-    mut shares: Query<&mut ParamPanel<ScatterTree>>,
-    mut trees: Query<&mut ParamPanel<TreeOptions>>,
+    mut shares: Query<&mut SharePanel>,
+    mut trees: Query<&mut TreePanel>,
     mut commands: Commands,
 ) {
     let Ok(row) = rows.get(row) else {
@@ -460,12 +499,12 @@ fn set_row_tree(
     if let Ok(mut share) = shares.get_mut(row.share) {
         let entry = ScatterTree {
             tree: tree.clone(),
-            ..share.value().clone()
+            ..share.value().options().clone()
         };
-        share.set_value(entry);
+        share.set_value(Settings::new(entry));
     }
     if let Some(mut panel) = row.tree.and_then(|panel| trees.get_mut(panel).ok()) {
-        panel.set_value(tree);
+        panel.set_value(Settings::new(tree));
     }
     commands.trigger(GroveEdited);
 }
@@ -478,7 +517,7 @@ fn add_tree(
     editors: Query<&mut GroveEditor>,
     children: Query<&Children>,
     rows: Query<&SpeciesRow>,
-    shares: Query<&ParamPanel<ScatterTree>>,
+    shares: Query<&SharePanel>,
     mut commands: Commands,
 ) {
     let Some(editor) = editor_of(activate.event_target(), &parents, &editors)
@@ -501,7 +540,7 @@ fn add_tree(
         .iter()
         .filter_map(|row| rows.get(*row).ok())
         .filter_map(|row| shares.get(row.share).ok())
-        .map(|share| share.value().key.as_str().to_owned())
+        .map(|share| share.value().options().key.as_str().to_owned())
         .collect();
     let key = (1..)
         .map(|n| format!("added_{n}"))
@@ -567,8 +606,8 @@ fn choose_tree_preset(
     options: Query<&OptionIndex>,
     parents: Query<&ChildOf>,
     mut rows: Query<&mut SpeciesRow>,
-    mut shares: Query<&mut ParamPanel<ScatterTree>>,
-    mut trees: Query<&mut ParamPanel<TreeOptions>>,
+    mut shares: Query<&mut SharePanel>,
+    mut trees: Query<&mut TreePanel>,
     mut commands: Commands,
 ) {
     let Ok(choice) = options.get(change.value) else {
@@ -583,7 +622,7 @@ fn choose_tree_preset(
     let Ok(mut share) = shares.get_mut(row.share) else {
         return;
     };
-    let current = choice_of(share.value());
+    let current = choice_of(share.value().options());
 
     match TreePreset::all().nth(choice.0) {
         // The picker also reports choices made to match the tree; ignore those.
@@ -595,12 +634,12 @@ fn choose_tree_preset(
                 tree: fresh.tree,
                 density: fresh.density,
                 spacing: fresh.spacing,
-                ..share.value().clone()
+                ..share.value().options().clone()
             };
             if let Some(mut panel) = row.tree.and_then(|panel| trees.get_mut(panel).ok()) {
-                panel.set_value(entry.tree.clone());
+                panel.set_value(Settings::new(entry.tree.clone()));
             }
-            share.set_value(entry);
+            share.set_value(Settings::new(entry));
             commands.trigger(GroveEdited);
         }
         None if current == choice.0 => {}
@@ -613,7 +652,7 @@ fn refresh_rows(
     editors: Query<&GroveEditor>,
     children: Query<&Children>,
     mut rows: Query<&mut SpeciesRow>,
-    mut shares: Query<&mut ParamPanel<ScatterTree>>,
+    mut shares: Query<&mut SharePanel>,
 ) {
     for editor in &editors {
         refresh_editor_rows(editor, &children, &mut rows, &mut shares);
@@ -625,7 +664,7 @@ fn refresh_editor_rows(
     editor: &GroveEditor,
     children: &Query<&Children>,
     rows: &mut Query<&mut SpeciesRow>,
-    shares: &mut Query<&mut ParamPanel<ScatterTree>>,
+    shares: &mut Query<&mut SharePanel>,
 ) {
     let entities: Vec<Entity> = children
         .get(editor.list)
@@ -640,7 +679,7 @@ fn refresh_editor_rows(
             rows.get(*entity)
                 .ok()
                 .and_then(|row| shares.get(row.share).ok())
-                .map_or(0.0, |share| share.value().density())
+                .map_or(0.0, |share| share.value().options().density())
         })
         .collect();
     let rest = densities.iter().rposition(|density| *density > 0.0);
@@ -678,7 +717,7 @@ fn show_row_parts(
     editors: Query<(Entity, &GroveEditor)>,
     children: Query<&Children>,
     rows: Query<&SpeciesRow>,
-    shares: Query<&ParamPanel<ScatterTree>>,
+    shares: Query<&SharePanel>,
     parts: Query<(Entity, &RowPart)>,
     parents: Query<&ChildOf>,
     adders: Query<Entity, With<AddTree>>,
@@ -722,7 +761,7 @@ fn show_editor_row_parts<'a>(
     cache: &mut StatusCache,
     children: &Query<&Children>,
     rows: &Query<&SpeciesRow>,
-    shares: &Query<&ParamPanel<ScatterTree>>,
+    shares: &Query<&SharePanel>,
     parts: impl Iterator<Item = (Entity, &'a RowPart)>,
     parents: &Query<&ChildOf>,
     adders: impl Iterator<Item = Entity>,
@@ -769,7 +808,10 @@ fn show_editor_row_parts<'a>(
         let (Ok(row), Some(status)) = (rows.get(row_entities[at]), statuses.get(at)) else {
             continue;
         };
-        let Ok(choice) = shares.get(row.share).map(|share| choice_of(share.value())) else {
+        let Ok(choice) = shares
+            .get(row.share)
+            .map(|share| choice_of(share.value().options()))
+        else {
             continue;
         };
         let custom = choice == custom_choice();
@@ -805,13 +847,13 @@ fn show_editor_row_parts<'a>(
 /// custom, creating them the first time.
 fn show_tree_settings(
     mut rows: Query<(Entity, &mut SpeciesRow)>,
-    shares: Query<&ParamPanel<ScatterTree>>,
+    shares: Query<&SharePanel>,
     parents: Query<&ChildOf>,
     mut nodes: Query<&mut Node>,
     mut commands: Commands,
 ) {
     for (entity, mut row) in &mut rows {
-        let Ok(entry) = shares.get(row.share).map(ParamPanel::value) else {
+        let Ok(entry) = shares.get(row.share).map(|share| share.value().options()) else {
             continue;
         };
         let shown = row.customising || choice_of(entry) == custom_choice();
@@ -840,14 +882,18 @@ fn show_tree_settings(
                         ChildOf(entity),
                     ))
                     .id();
-                let panel = spawn_param_panel(
+                let panel = spawn_meta_panel(
                     &mut commands,
                     holder,
-                    entry.tree.clone(),
-                    crate::tree::params::sections(),
+                    &crate::tree::META,
+                    Settings::new(entry.tree.clone()),
                     &[],
+                    &crate::tree::custom,
                 );
-                commands.entity(panel).observe(edit_row_tree);
+                commands
+                    .entity(panel)
+                    .insert(NestedPanel)
+                    .observe(edit_row_tree);
                 commands
                     .spawn_scene(bsn! {
                         Node { flex_shrink: 0.0, margin: UiRect::top(px(4)) }
@@ -869,8 +915,8 @@ fn edit_row_tree(
     changed: On<ParamsChanged>,
     parents: Query<&ChildOf>,
     rows: Query<&SpeciesRow>,
-    trees: Query<&ParamPanel<TreeOptions>>,
-    mut shares: Query<&mut ParamPanel<ScatterTree>>,
+    trees: Query<&TreePanel>,
+    mut shares: Query<&mut SharePanel>,
     mut commands: Commands,
 ) {
     let row = parents
@@ -881,10 +927,10 @@ fn edit_row_tree(
     };
     if let Ok(mut share) = shares.get_mut(row.share) {
         let entry = ScatterTree {
-            tree: tree.value().clone(),
-            ..share.value().clone()
+            tree: tree.value().options().clone(),
+            ..share.value().options().clone()
         };
-        share.set_value(entry);
+        share.set_value(Settings::new(entry));
         commands.trigger(GroveEdited);
     }
 }
@@ -1047,12 +1093,12 @@ mod tests {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
         studio.click("Tree Scatter").unwrap();
         studio.click(&start_preset().name).unwrap();
-        studio.click("+ Add Tree").unwrap();
-        let saved = edited(&mut studio);
-
-        // The file buttons sit below the rows, so scroll down to them. The
-        // column stops at its end.
+        // The file buttons sit below the rows, so scroll down to them over
+        // the settings column, here where the Add Tree button starts out.
+        // The column stops at its end.
         let panel = studio.find("+ Add Tree").unwrap();
+        studio.click_at(panel);
+        let saved = edited(&mut studio);
         let scroll = |studio: &mut HeadlessStudio| studio.scroll(panel, -100.0);
 
         // Saving writes the Scatter; loading it into another document makes

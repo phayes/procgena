@@ -9,11 +9,15 @@ use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_deadwood::{DeadwoodOptions, DeadwoodPreset};
 
-use super::{DeadwoodShow, params, show_sections};
+use super::{DeadwoodShow, show_sections};
 use crate::params::{ParamPanel, ParamPanelPlugin, ParamsChanged, spawn_param_panel};
 use crate::scene::DeadwoodView;
 use crate::studio::Dormant;
+use crate::studio::inspector::{InspectorPlugin, Settings, edit_setting, spawn_meta_panel};
 use crate::ui::{LABEL_WIDTH, labelled_row};
+
+/// The panel holding a dead wood editor's piece settings.
+pub type DeadwoodPanel = ParamPanel<Settings<DeadwoodOptions>>;
 
 /// Triggered after the selected dead wood's settings change. Read them from
 /// the panels named by [`DeadwoodEditor::panel`] and
@@ -73,7 +77,7 @@ pub struct DeadwoodEditorPlugin;
 impl Plugin for DeadwoodEditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            ParamPanelPlugin::<DeadwoodOptions>::default(),
+            InspectorPlugin::<DeadwoodOptions>::default(),
             ParamPanelPlugin::<DeadwoodShow>::default(),
         ))
         .add_systems(PostUpdate, (show_seed, show_piece_settings));
@@ -135,7 +139,14 @@ pub fn spawn_deadwood_editor(commands: &mut Commands, parent: Entity, key: &str)
         show_sections(),
         &[0],
     );
-    let panel = spawn_param_panel(commands, editor, options, params::sections(), &[0]);
+    let panel = spawn_meta_panel(
+        commands,
+        editor,
+        &super::META,
+        Settings::new(options),
+        &[0],
+        &|_, _| Vec::new(),
+    );
     commands.entity(show_panel).observe(change_show);
     commands
         .entity(panel)
@@ -159,23 +170,12 @@ pub fn spawn_deadwood_editor(commands: &mut Commands, parent: Entity, key: &str)
 pub fn load_deadwood(
     In(options): In<DeadwoodOptions>,
     editor: Single<&DeadwoodEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<DeadwoodOptions>>,
+    mut panels: Query<&mut DeadwoodPanel>,
     mut commands: Commands,
 ) {
-    replace(options, true, &editor, &mut panels, &mut commands);
-}
-
-/// Shows `options` in the editor's controls and triggers [`DeadwoodEdited`].
-fn replace(
-    options: DeadwoodOptions,
-    reframe: bool,
-    editor: &DeadwoodEditor,
-    panels: &mut Query<&mut ParamPanel<DeadwoodOptions>>,
-    commands: &mut Commands,
-) {
     if let Ok(mut panel) = panels.get_mut(editor.panel) {
-        panel.set_value(options);
-        commands.trigger(DeadwoodEdited { reframe });
+        panel.set_value(Settings::new(options));
+        commands.trigger(DeadwoodEdited { reframe: true });
     }
 }
 
@@ -207,34 +207,35 @@ fn change_show(
 fn type_seed(
     change: On<ValueChange<i64>>,
     editor: Single<&DeadwoodEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<DeadwoodOptions>>,
+    mut panels: Query<&mut DeadwoodPanel>,
     mut commands: Commands,
 ) {
-    let (Ok(panel), Ok(seed)) = (panels.get(editor.panel), u32::try_from(change.value)) else {
-        return;
-    };
-    // Ignore echoes of the seed already in use.
-    if panel.value().default_seed == seed {
-        return;
+    if let Ok(seed) = u32::try_from(change.value) {
+        edit_setting(
+            &mut commands,
+            &mut panels,
+            editor.panel,
+            "default_seed",
+            seed.into(),
+        );
     }
-    let mut options = panel.value().clone();
-    options.default_seed = seed;
-    replace(options, false, &editor, &mut panels, &mut commands);
 }
 
 /// Picks a random seed.
 fn random_seed(
     _: On<Activate>,
     mut editor: Single<&mut DeadwoodEditor, Without<Dormant>>,
-    mut panels: Query<&mut ParamPanel<DeadwoodOptions>>,
+    mut panels: Query<&mut DeadwoodPanel>,
     mut commands: Commands,
 ) {
-    let Ok(panel) = panels.get(editor.panel) else {
-        return;
-    };
-    let mut options = panel.value().clone();
-    options.default_seed = editor.rng.next_u32() % 65536;
-    replace(options, false, &editor, &mut panels, &mut commands);
+    let seed = editor.rng.next_u32() % 65536;
+    edit_setting(
+        &mut commands,
+        &mut panels,
+        editor.panel,
+        "default_seed",
+        seed.into(),
+    );
 }
 
 /// Shows each editor's piece settings only while it shows a single piece;
@@ -262,7 +263,7 @@ fn show_piece_settings(
 /// Shows each piece's seed in its own seed field whenever it changes.
 fn show_seed(
     editors: Query<(Entity, &DeadwoodEditor)>,
-    panels: Query<&ParamPanel<DeadwoodOptions>, Changed<ParamPanel<DeadwoodOptions>>>,
+    panels: Query<&DeadwoodPanel, Changed<DeadwoodPanel>>,
     children: Query<&Children>,
     fields: Query<&NumberInputValue, With<DeadwoodSeed>>,
     mut commands: Commands,
@@ -271,7 +272,7 @@ fn show_seed(
         let Ok(panel) = panels.get(editor.panel) else {
             continue;
         };
-        let seed = NumberInputValue::I64(i64::from(panel.value().default_seed));
+        let seed = NumberInputValue::I64(i64::from(panel.value().options().default_seed));
         for field in children.iter_descendants(entity) {
             if fields.get(field).is_ok_and(|shown| *shown != seed) {
                 commands.entity(field).insert(seed);

@@ -21,7 +21,7 @@ use procgena_mushroom::{
 use super::{
     Done, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file, write_files,
 };
-use crate::mushrooms::editor::{MushroomEditor, load_mushroom};
+use crate::mushrooms::editor::{MushroomEditor, MushroomPanel, load_mushroom};
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
 use crate::studio::Dormant;
 
@@ -109,10 +109,10 @@ pub fn spawn_mushroom_export(commands: &mut Commands, parent: Entity) {
 /// copied so later edits do not change a save already under way.
 fn snapshot(
     editor: &MushroomEditor,
-    panels: &Query<&ParamPanel<MushroomOptions>>,
+    panels: &Query<&MushroomPanel>,
     settings: &ModelPanels,
 ) -> Option<(MushroomOptions, String, MushroomModelSettings)> {
-    let options = panels.get(editor.panel()).ok()?.value().clone();
+    let options = panels.get(editor.panel()).ok()?.value().options().clone();
     let settings = *settings
         .iter()
         .find(|(_, visible)| visible.get())?
@@ -137,7 +137,7 @@ type ModelPanels<'w, 's> = Query<
 fn save_mushroom_preset(
     _: On<Activate>,
     editor: Single<&MushroomEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<MushroomOptions>>,
+    panels: Query<&MushroomPanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {
@@ -165,7 +165,7 @@ fn load_mushroom_preset(_: On<Activate>, mut files: FileOps) {
 fn export_mushroom_glb(
     _: On<Activate>,
     editor: Single<&MushroomEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<MushroomOptions>>,
+    panels: Query<&MushroomPanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {
@@ -180,7 +180,7 @@ fn export_mushroom_glb(
 fn export_mushroom_obj(
     _: On<Activate>,
     editor: Single<&MushroomEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<MushroomOptions>>,
+    panels: Query<&MushroomPanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {

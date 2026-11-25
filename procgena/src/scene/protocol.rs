@@ -14,6 +14,7 @@ use procgena_tree_bevy::TreeScatterBuildError;
 
 use super::clump::ClumpBuildError;
 use super::environment::EnvironmentSettings;
+use super::fly::CameraMode;
 use super::orbit::OrbitCamera;
 use super::overlay::Overlay;
 use super::subject::{Detail, Show};
@@ -45,6 +46,10 @@ pub enum ViewerCommand {
     ResetCamera,
     /// Points the camera with this view, for example one saved earlier.
     SetCamera(OrbitCamera),
+    /// Switches between orbiting and flying; see [`CameraMode`]. The
+    /// camera keeps its place. The scene starts in [`CameraMode::Orbit`],
+    /// and showing, resetting or setting the camera keeps the mode.
+    SetCameraMode(CameraMode),
 }
 
 /// A notification from the scene to the host application, delivered as a Bevy
