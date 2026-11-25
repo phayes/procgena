@@ -452,19 +452,20 @@ fn deadwood_event(scene: &mut HeadlessScene) -> ViewerEvent {
     scene.next_event(|event| matches!(event, ViewerEvent::DeadwoodBuilt(_)))
 }
 
-/// Checks that a shown log builds every detail level and draws its bark and
-/// end-grain textures, and that a chosen detail level is reported.
+/// Checks that a shown log builds both of its meshes and draws its bark and
+/// end-grain textures, and that a chosen step is reported.
 #[test]
 #[ignore = "needs a GPU"]
 fn idle_scene_draws_the_textured_log() {
-    use procgena_deadwood::{DeadwoodPreset, default_lod};
+    use procgena_deadwood::DeadwoodPreset;
 
     let log = |piece| super::DeadwoodSettings { piece, ..default() };
     let mut scene = show::<DeadwoodSubject>(log(DeadwoodPreset::fresh_cut_log().deadwood.clone()));
     let ViewerEvent::DeadwoodBuilt(Ok(stats)) = deadwood_event(&mut scene) else {
         panic!("the log was not built");
     };
-    assert_eq!(stats.levels.len(), default_lod().levels.len());
+    // The game level and the lower mesh; the impostor is baked later.
+    assert_eq!(stats.levels.len(), 2);
     let textured = scene.settled_frame();
 
     // The same log without textures looks different.
@@ -488,11 +489,11 @@ fn idle_scene_draws_the_textured_log() {
         "only {differing} pixels changed without the textures"
     );
 
-    // Choosing the strips-only level shows and reports it.
-    scene.send(ViewerCommand::SetDetail(Detail::Level(3)));
+    // Choosing the lower mesh shows and reports it.
+    scene.send(ViewerCommand::SetDetail(Detail::Level(1)));
     let shown = scene.next_event(|event| matches!(event, ViewerEvent::DeadwoodLodShown(_)));
     assert!(
-        matches!(shown, ViewerEvent::DeadwoodLodShown(Some(3))),
+        matches!(shown, ViewerEvent::DeadwoodLodShown(Some(1))),
         "{shown:?}"
     );
 }

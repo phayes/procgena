@@ -16,8 +16,8 @@ use crate::studio::documents::DocumentEdited;
 use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
-/// The dead wood detail levels, most detailed first.
-pub const LEVELS: &[&str] = &["0 · Full", "1 · High", "2 · Low", "3 · Strips"];
+/// The steps of a dead wood piece's drawing chain, most detailed first.
+pub const LEVELS: &[&str] = &["0 · Game", "1 · Lower", "2 · Impostor"];
 
 /// Registers dead wood.
 pub fn register(app: &mut App) {

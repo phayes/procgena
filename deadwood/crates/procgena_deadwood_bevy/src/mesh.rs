@@ -134,9 +134,8 @@ mod tests {
 
     #[test]
     fn ribbon_bounds_hold_every_turned_vertex() {
-        let lod = procgena_deadwood::default_lod();
         let piece = Piece::from_preset(DeadwoodPreset::dead_branch()).unwrap();
-        let meshes = piece.lod_meshes(&lod).unwrap();
+        let meshes = piece.lod_meshes();
         let ribbons = meshes
             .iter()
             .find_map(|(_, m)| m.ribbons.as_ref())

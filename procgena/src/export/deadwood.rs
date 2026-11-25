@@ -14,9 +14,7 @@ use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use procgena_deadwood::export::{gltf, obj};
-use procgena_deadwood::{
-    DeadwoodDetail, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, Piece, default_lod,
-};
+use procgena_deadwood::{DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, Piece};
 
 use super::{
     Done, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file, write_files,
@@ -28,14 +26,14 @@ use crate::studio::Dormant;
 /// Selects whether an exported piece includes its simpler versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeadwoodModelSettings {
-    /// For GLB, includes every detail level after the most detailed one, as
-    /// separate objects. All of them are visible on import until the
-    /// receiving tool hides or switches them. OBJ exports ignore this.
+    /// For GLB, includes the lower mesh after the game-level one, as a
+    /// separate object. Both are visible on import until the receiving
+    /// tool hides or switches them. OBJ exports ignore this.
     pub detail_levels: bool,
 }
 
 impl Default for DeadwoodModelSettings {
-    /// Includes the simpler meshes in GLB exports.
+    /// Includes the lower mesh in GLB exports.
     fn default() -> Self {
         Self {
             detail_levels: true,
@@ -198,17 +196,16 @@ pub fn read_options(text: &str) -> Result<DeadwoodOptions, String> {
     read_preset::<DeadwoodPreset>(text, "dead wood")
 }
 
-/// Builds the meshes to export: the full mesh, then, with `detail_levels`,
-/// each simpler default level, sized for the piece.
+/// Builds the meshes to export: the piece's game-level mesh, then, with
+/// `detail_levels`, its lower mesh.
 fn meshes(options: &DeadwoodOptions, detail_levels: bool) -> Result<Vec<DeadwoodMesh>, String> {
     let piece =
         Piece::new(options.clone()).map_err(|error| format!("Cannot build this piece: {error}"))?;
     if !detail_levels {
-        return Ok(vec![piece.mesh_with_detail(&DeadwoodDetail::FULL)]);
+        return Ok(vec![piece.mesh()]);
     }
     Ok(piece
-        .lod_meshes(&default_lod())
-        .map_err(|error| error.to_string())?
+        .lod_meshes()
         .into_iter()
         .map(|(_, mesh)| mesh)
         .collect())
@@ -231,7 +228,7 @@ pub fn export_glb(
     )))
 }
 
-/// Builds the piece's full mesh and writes it to `path` as an OBJ model,
+/// Builds the piece's game-level mesh and writes it to `path` as an OBJ model,
 /// with its material file beside it. The material file is named after the
 /// chosen file, falling back to `suggested_stem`.
 pub fn export_obj(
@@ -288,8 +285,7 @@ mod tests {
     #[test]
     fn exports_have_every_level_when_asked() {
         let options = DeadwoodOptions::default();
-        let levels = default_lod().levels.len();
-        assert_eq!(meshes(&options, true).unwrap().len(), levels);
+        assert_eq!(meshes(&options, true).unwrap().len(), 2);
         assert_eq!(meshes(&options, false).unwrap().len(), 1);
         let path = std::env::temp_dir().join("procgena_deadwood_export_test.glb");
         export_glb(&options, &DeadwoodModelSettings::default(), &path).unwrap();

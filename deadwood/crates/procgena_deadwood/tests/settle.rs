@@ -132,29 +132,17 @@ fn every_level_shares_the_resting_position() {
     ] {
         let piece = Piece::from_preset(preset).unwrap();
         let size = main_size(&piece);
-        let (round, strips): (Vec<_>, Vec<_>) = DeadwoodDetail::PRESETS
+        let ranges: Vec<(f32, f32)> = DeadwoodDetail::PRESETS
             .iter()
-            .map(|(_, d)| *d)
-            .partition(|d| !d.strip_all);
-        let ranges: Vec<(f32, f32)> = round
-            .iter()
-            .map(|d| y_range(&piece.mesh_with_detail(d), size))
+            .map(|(_, d)| y_range(&piece.mesh_with_detail(d), size))
+            .chain(
+                piece
+                    .lod_meshes()
+                    .iter()
+                    .map(|(_, mesh)| y_range(mesh, size)),
+            )
             .collect();
         let tolerance = 0.15 * piece.options().diameter;
-
-        // Strips-only levels have no round stems; their strips, as laid
-        // out for shadows and export, rest as low as the round stems.
-        let full_lowest = lowest(&piece.mesh_with_detail(&round[0]));
-        for d in &strips {
-            let mesh = piece.mesh_with_detail(d);
-            let cull = &mesh.ribbons.as_ref().expect("strips").cull;
-            let low = cull.positions.iter().fold(f32::MAX, |lo, p| lo.min(p[1]));
-            assert!(
-                (low - full_lowest).abs() < tolerance,
-                "{}: strips rest at {low}, round stems at {full_lowest}",
-                preset.name
-            );
-        }
         for r in &ranges[1..] {
             assert!(
                 (r.0 - ranges[0].0).abs() < tolerance,

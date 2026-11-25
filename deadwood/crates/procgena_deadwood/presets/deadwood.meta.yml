@@ -535,7 +535,7 @@ settings:
     range: [0, 0.5]
     step: 0.01
     optional: 0
-  detail:
+  game_level:
     label: Detail
-    description: "The mesh detail used when the piece is built on its own."
+    description: "How finely the piece is built: its real shape, used up close and for its far-away picture."
     hidden: true
