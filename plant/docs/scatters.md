@@ -75,8 +75,8 @@ is read from its image once, and again only when that image changes (a 4096 by
 4096 mask takes milliseconds to read, once, not per frame). A change to a
 field's plants or look rewrites only that field's entries, and the chunks,
 masks and heightmaps are neither rebuilt nor uploaded again; a change to
-colours alone is cheaper still. Moving a field sideways rewrites only its
-entries. Setting a field to what it already was costs nothing.
+colours alone is cheaper still. Moving or turning a field rebuilds its
+chunks but reads no image again. Setting a field to what it already was costs nothing.
 `PlantStats::tables` counts it: `images_read`, `entries_rewritten`, `rebuilds`
 and the expensive `layout_rebuilds`.
 
@@ -554,7 +554,7 @@ Units are metres unless stated.
 | `plants` | The plants that grow there, a list of `ScatterPlant` (up to 16) |
 | `density_scale` | Multiplies every plant's density, 1 by default, keeping the mix |
 | `wind_scale` | How much the wind moves this field: 1 as the wind says, 0 still (in the lee of a wall) |
-| `default_seed` | The seed used when the Scatter is built on its own. Not used yet: changing it changes nothing drawn |
+| `default_seed` | Where the blades fall, used when the field's own `PlantScatter::seed` is `None`. Two fields with the same seed that overlap grow the same blades there |
 | `ground_tint` (`GroundTint`: `color`, `amount`) | Blend the lowest third of each blade toward the ground's colour, 0–1 |
 | `toon_bands` | Flat toon shading with this many bands; 0 is physically based |
 | `variation.patch_color`, `patch_amount`, `patch_size` | Large patches where blades drift toward another colour |

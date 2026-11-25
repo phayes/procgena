@@ -221,7 +221,12 @@ fn a_field_on_a_mesh_stands_on_it_and_is_baked_again_only_when_the_mesh_changes(
     let tables = update(&mut app);
     assert_eq!(bakes(&app), 1, "not baked again");
     assert_eq!(tables.fields[0].extent.z, 2.0);
-    assert!((tables.chunks[1].bounds.w - 16.0).abs() < 0.4);
+    let top = tables
+        .chunks
+        .iter()
+        .map(|chunk| chunk.bounds.w)
+        .fold(f32::MIN, f32::max);
+    assert!((top - 16.0).abs() < 0.4, "{top}");
 
     // A changed mesh is baked again, and the old bake let go.
     app.world_mut()
@@ -230,7 +235,12 @@ fn a_field_on_a_mesh_stands_on_it_and_is_baked_again_only_when_the_mesh_changes(
         .unwrap();
     let tables = update(&mut app);
     assert_eq!(bakes(&app), 1);
-    assert!((tables.chunks[1].bounds.w - 4.0).abs() < 0.2);
+    let top = tables
+        .chunks
+        .iter()
+        .map(|chunk| chunk.bounds.w)
+        .fold(f32::MIN, f32::max);
+    assert!((top - 4.0).abs() < 0.2, "{top}");
 
     // So is a new cell size.
     app.world_mut()

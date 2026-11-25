@@ -12,7 +12,8 @@
 //! the result at each blade's root.
 
 import package::shaders::common::{
-    Frame, View, Field, Chunk, ShapeTable, BladeData, TILE_POINTS, NO_MAP, NO_CLASS, WIDTH_RANGE, TAU,
+    Frame, View, Field, Chunk, ShapeTable, BladeData, TILE_POINTS, FILL_PARTS, NO_MAP, NO_CLASS, WIDTH_RANGE, TAU,
+    is_placed,
     MAX_BUCKETS, DRAW_ARGS_COUNT, class_stride, hash, hash2, unit, density_falloff, fade_falloff, height_thinning, select_lod,
     coverage_width, reach_factor, stem_facing, pack, trample_unpack, trample_slot, in_trample_window,
 };
@@ -29,7 +30,9 @@ const HOLE: f32 = -1e30;
 /// Every mask, two R8G8 texels per word, then every heightmap as `f32` bits.
 /// A field's `placement.w` already counts the mask words.
 @group(0) @binding(3) var<storage, read> scene: array<u32>;
-@group(0) @binding(4) var<storage, read> tile: array<vec2<f32>>;
+/// The blue-noise tile in fixed point: X in the low 16 bits, Z in the high
+/// 16, in 1/65536ths of the tile. Twin of `shader_model::quantised_tile`.
+@group(0) @binding(4) var<storage, read> tile: array<u32>;
 @group(0) @binding(5) var gust_texture: texture_2d<f32>;
 @group(0) @binding(6) var gust_sampler: sampler;
 @group(0) @binding(7) var<uniform> shapes: ShapeTable;
@@ -132,19 +135,6 @@ fn box_visible(lo: vec3<f32>, hi: vec3<f32>) -> bool {
     return true;
 }
 
-/// `v`, given along the field's own axes, in world XZ. Unturned it is `v`
-/// exactly. Twin of `scatters::turn`.
-fn field_turn(field: Field, v: vec2<f32>) -> vec2<f32> {
-    let x = field.axis.xy;
-    return x * v.x + vec2<f32>(-x.y, x.x) * v.y;
-}
-
-/// A point of the field, in metres along its axes from its minimum corner,
-/// in world XZ. Twin of `FieldGpu::world_of`.
-fn field_to_world(field: Field, local: vec2<f32>) -> vec2<f32> {
-    return field.min_corner.xz + field_turn(field, local);
-}
-
 @compute @workgroup_size(64)
 fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
     let index = id.x;
@@ -160,13 +150,10 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
     // Include branch reach in the culling bound so foliage remains visible beyond its
     // root.
     let tallest = field.min_corner.w;
-    // The chunk's square in world XZ, turned with its field, and the box
-    // around it. Unturned, the box is the square exactly.
-    let origin = field_to_world(field, chunk.bounds.xy);
-    let side_x = field_turn(field, vec2<f32>(frame.chunk_size, 0.0));
-    let side_z = field_turn(field, vec2<f32>(0.0, frame.chunk_size));
-    let low = origin + min(side_x, vec2<f32>(0.0)) + min(side_z, vec2<f32>(0.0));
-    let high = origin + max(side_x, vec2<f32>(0.0)) + max(side_z, vec2<f32>(0.0));
+    // The chunk's square in world XZ: chunks are on a grid fixed to the
+    // World, whichever way their field turns.
+    let low = chunk.bounds.xy;
+    let high = low + vec2<f32>(frame.chunk_size);
     // Tufts pull blades up to one and a half tuft spacings from where they
     // were placed; `variation.w` is the widest pull of any of the field's
     // tufted plants, or 0.
@@ -197,9 +184,9 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
         let thinning = select(density_falloff(view, d), fade_falloff(view, d), field.access.z != 0u);
         falloff = thinning * height_thinning(view);
     }
-    let tile_size = field.extent.w;
-    let candidate_density = f32(TILE_POINTS) / (tile_size * tile_size);
-    let keep = clamp(field.shape.w * view.density_scale * falloff / candidate_density, 0.0, 1.0);
+    // The most a chunk of the field can draw: its fill where its mask is
+    // full, thinned for this view.
+    let keep = clamp(field.axis.z / f32(FILL_PARTS) * view.density_scale * falloff, 0.0, 1.0);
     let cells = field.placement.y * field.placement.y;
     // Twin of `ChunkLayout::candidates_needed`.
     let needed = u32(ceil(keep * f32(TILE_POINTS))) * cells;
@@ -310,6 +297,33 @@ fn sample_mask(field: Field, uv: vec2<f32>) -> vec2<f32> {
     return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
 }
 
+/// The mask's density at `uv`, 0 to 255, blended from the four nearest
+/// texels in integer steps of 1/256: 255 for a field without a mask. Twin
+/// of `edit::mask_density`.
+fn mask_density(field: Field, uv: vec2<f32>) -> u32 {
+    if field.placement.z == NO_MAP {
+        return 255u;
+    }
+    let size = field.map_sizes.xy;
+    let p = clamp(uv * vec2<f32>(size) - 0.5, vec2<f32>(0.0), vec2<f32>(size) - 1.0);
+    let base = vec2<u32>(floor(p));
+    let w = vec2<u32>(fract(p) * 256.0);
+    let next = min(base + 1u, size - 1u);
+    let a = mask_byte(field, base.x, base.y);
+    let b = mask_byte(field, next.x, base.y);
+    let c = mask_byte(field, base.x, next.y);
+    let d = mask_byte(field, next.x, next.y);
+    let top = a * (256u - w.x) + b * w.x;
+    let bottom = c * (256u - w.x) + d * w.x;
+    return (top * (256u - w.y) + bottom * w.y + 32768u) >> 16u;
+}
+
+/// The density byte of mask texel (`x`, `y`).
+fn mask_byte(field: Field, x: u32, y: u32) -> u32 {
+    let texel = field.placement.z + y * field.map_sizes.x + x;
+    return (scene[texel / 2u] >> ((texel % 2u) * 16u)) & 0xffu;
+}
+
 fn mask_texel(field: Field, x: u32, y: u32) -> vec2<f32> {
     let texel = field.placement.z + y * field.map_sizes.x + x;
     let half = (scene[texel / 2u] >> ((texel % 2u) * 16u)) & 0xffffu;
@@ -361,22 +375,62 @@ struct Generated {
     push: vec2<f32>,
 }
 
+/// The World tile cell along one axis of tile `cell` in World chunk
+/// `chunk` (`i32` bits), with `tiles` tiles along the chunk's side. Twin of
+/// `mirror::world_tile`.
+fn world_tile(chunk: u32, tiles: u32, cell: u32) -> u32 {
+    return bitcast<u32>(bitcast<i32>(chunk) * i32(tiles) + i32(cell));
+}
+
+/// The position along one axis of a chunk of point `q` of tile copy `cell`.
+/// Twin of `shader_model::tile_position`.
+fn tile_position(cell: u32, q: u32, tile_size: f32) -> f32 {
+    return f32((cell << 16u) + q) * (tile_size / 65536.0);
+}
+
+/// A point of world XZ, in metres along the field's axes from its minimum
+/// corner. Twin of `FieldGpu::local_of`.
+fn world_to_field(field: Field, point: vec2<f32>) -> vec2<f32> {
+    let offset = point - field.min_corner.xz;
+    let x = field.axis.xy;
+    return vec2<f32>(dot(offset, x), dot(offset, vec2<f32>(-x.y, x.x)));
+}
+
 /// Candidate `index` of a visible chunk: twin of `mirror::candidate` followed
 /// by the tests a blade must pass to be drawn.
 fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     var out: Generated;
     out.keep = false;
 
+    // The candidate, on its World tile cell.
     let tiles = field.placement.y;
     let cells = tiles * tiles;
     let point = index / cells;
     let cell = index % cells;
-    let cell_hash = hash2(hash2(chunk.ids.y, chunk.ids.z), hash2(cell, field.placement.x));
-    let offset = vec2<f32>(unit(cell_hash), unit(hash(cell_hash)));
-    let p = fract(tile[point] + offset);
-    var local = chunk.bounds.xy + (vec2<f32>(f32(cell % tiles), f32(cell / tiles)) + p) * field.extent.w;
+    let cell_x = cell % tiles;
+    let cell_z = cell / tiles;
+    let cell_hash = hash2(
+        hash2(world_tile(chunk.ids.y, tiles, cell_x), world_tile(chunk.ids.z, tiles, cell_z)),
+        field.placement.x,
+    );
+    // Each tile copy is shifted by its own offset, in 1/65536ths of the
+    // tile and wrapping, and the position inside the chunk is exact.
+    let point_q = tile[point];
+    let qx = ((point_q & 0xffffu) + (cell_hash & 0xffffu)) & 0xffffu;
+    let qz = ((point_q >> 16u) + (cell_hash >> 16u)) & 0xffffu;
+    var at = chunk.bounds.xy + vec2<f32>(
+        tile_position(cell_x, qx, field.extent.w),
+        tile_position(cell_z, qz, field.extent.w),
+    );
     let rank = (f32(point) + 0.5) / f32(TILE_POINTS);
     let seed = hash2(cell_hash, point);
+
+    // The field owns the candidates in its rectangle, before any tuft pull,
+    // so fields that meet share their candidates out with none lost.
+    var local = world_to_field(field, at);
+    if any(local >= field.extent.xy) || any(local < vec2<f32>(0.0)) {
+        return out;
+    }
 
     // A field with tufted or branched plants picks the plant here, where the
     // root was placed: the tuft pull and the distance rule depend on it.
@@ -387,7 +441,7 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     var entry = chunk.ids.x;
     var look = field;
     if early {
-        entry = pick_plant(chunk.ids.x, field, seed, clump_of(field_to_world(field, local)));
+        entry = pick_plant(chunk.ids.x, field, seed, clump_of(at));
         look = fields[entry];
     }
     if early || field.mix.z < 1.5 {
@@ -399,17 +453,17 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     }
 
     // Tufts: the root moves part of the way to its tuft's centre, the tuft's
-    // own share of the plant's pull, so tufts differ in size.
+    // own share of the plant's pull, so tufts differ in size. Tufts are laid
+    // out in World space. A root pulled past the field's edge reads the
+    // field's mask and ground at the edge.
     var outward = vec2<f32>(0.0);
     if look.tufts.x > 0.0 {
         let size = look.tufts.y;
-        let q = (field.min_corner.xz + local) / size;
+        let q = at / size;
         let tuft = tuft_at(q);
         outward = q - tuft.xy;
-        local -= outward * min(look.tufts.x * (0.6 + 0.8 * tuft.z), 0.95) * size;
-    }
-    if any(local >= field.extent.xy) || any(local < vec2<f32>(0.0)) {
-        return out;
+        at -= outward * min(look.tufts.x * (0.6 + 0.8 * tuft.z), 0.95) * size;
+        local = world_to_field(field, at);
     }
 
     let mask = sample_mask(field, local / field.extent.xy);
@@ -417,7 +471,6 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     if ground < HOLE * 0.5 {
         return out;
     }
-    let at = field_to_world(field, local);
     let root = vec3<f32>(at.x, ground, at.y);
 
     let shape = look.access.y;
@@ -447,9 +500,16 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
         let threshold = field.tufts.z;
         bare = smoothstep(threshold - 0.05, threshold + 0.05, bare_noise(root.xz, field.tufts.w));
     }
-    let tile_size = field.extent.w;
-    let candidate_density = f32(TILE_POINTS) / (tile_size * tile_size);
-    let keep = clamp(field.shape.w * mask.x * bare * view.density_scale * falloff / candidate_density, 0.0, 1.0);
+    // Placement, in integers: whether the field grows this candidate at
+    // all. Then drawing: whether this view draws it, thinned by distance,
+    // quality and bare patches, in the same rank order.
+    let fill = u32(field.axis.z);
+    let mask_level = mask_density(field, local / field.extent.xy);
+    if !is_placed(point, fill, mask_level) {
+        return out;
+    }
+    let placed = f32(fill * mask_level) / f32(FILL_PARTS * 255u);
+    let keep = clamp(placed * bare * view.density_scale * falloff, 0.0, 1.0);
     if rank >= keep {
         return out;
     }
@@ -500,7 +560,7 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
         // Tufted blades lean out from the tuft's centre: the tighter the
         // tufts, the more of them.
         let random = vec2<f32>(sin(blade.facing * TAU), cos(blade.facing * TAU));
-        let away = mix(random, normalize(field_turn(field, outward)), min(look.tufts.x * 1.5, 1.0));
+        let away = mix(random, normalize(outward), min(look.tufts.x * 1.5, 1.0));
         if dot(away, away) > 1e-6 {
             blade.facing = fract(atan2(away.x, away.y) / TAU);
         }
