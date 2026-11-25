@@ -423,7 +423,7 @@ fn overlay_image(values: &AreaValues, overlay: Overlay, catalogue: &MaterialCata
     );
     image.sampler = ImageSampler::Descriptor(match overlay.family() {
         Family::Measures => ImageSamplerDescriptor::linear(),
-        Family::Regions | Family::Ground => ImageSamplerDescriptor::nearest(),
+        Family::Regions | Family::Ground | Family::Labels => ImageSamplerDescriptor::nearest(),
     });
     image
 }

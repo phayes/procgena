@@ -79,6 +79,7 @@ const OVERLAY_COMMANDS: [StudioCommand; Overlay::ALL.len()] = [
     overlay_command::<4>(),
     overlay_command::<5>(),
     overlay_command::<6>(),
+    overlay_command::<7>(),
 ];
 
 /// The command choosing the `I`th of [`Overlay::ALL`].
@@ -94,6 +95,7 @@ const fn overlay_command<const I: usize>() -> StudioCommand {
 /// overlay's label in lower case, words joined by hyphens.
 const OVERLAY_NAMES: [&str; Overlay::ALL.len()] = [
     "overlay-regions",
+    "overlay-landform",
     "overlay-ground-materials",
     "overlay-slope",
     "overlay-curvature",
@@ -466,6 +468,17 @@ mod tests {
                 .as_ref()
                 .is_some_and(|r| r.text.starts_with("region "))
         });
+        draw(&mut studio, Overlay::Landform);
+        wait_for(&mut studio, |status| {
+            status
+                .readout
+                .as_ref()
+                .is_some_and(|r| r.text.starts_with("landform "))
+        });
+        assert!(
+            studio.find("riverbed").is_ok(),
+            "the legend lists landforms"
+        );
 
         // Off hides the legend.
         studio.command("overlay-off").unwrap();

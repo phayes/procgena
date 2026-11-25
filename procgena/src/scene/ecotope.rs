@@ -15,7 +15,7 @@ use procgena_core::{FlatGround, Ground, HeightGrid};
 use procgena_terrain::ground::{
     GroundMix, GroundPainter, GroundSite, GroundSource, GroundStack, MaterialCatalogue, OnGround,
 };
-use procgena_terrain::{FeatureTier, Measures, RegionId};
+use procgena_terrain::{FeatureTier, Labels, Measures, RegionId};
 
 use super::environment::EnvironmentSettings;
 use super::orbit::{OrbitCamera, OrbitLimits};
@@ -208,6 +208,11 @@ impl OverlayGround for PatchGround {
 
     /// None: the Ecotope's ground has no water or roads to measure from.
     fn measures(&self, _: DVec2, _: FeatureTier) -> Option<Measures> {
+        None
+    }
+
+    /// None: labels come from a terrain, which the Ecotope's ground isn't.
+    fn labels(&self, _: DVec2, _: FeatureTier) -> Option<Labels> {
         None
     }
 }
