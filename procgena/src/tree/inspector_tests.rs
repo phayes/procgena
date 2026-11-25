@@ -131,14 +131,12 @@ fn flowering(kinds: (ClusterKind, ClusterKind)) -> TreeOptions {
     options
 }
 
-/// Builds the most detailed mesh, as the viewer does, or describes the
+/// Builds the game-level mesh, as the viewer does, or describes the
 /// error or panic.
 fn build(options: &TreeOptions) -> Result<procgena_tree::TreeMesh, String> {
     let built = std::panic::catch_unwind(|| {
         let skeleton = procgena_tree::Skeleton::generate(options)?;
-        Ok::<_, procgena_tree::OptionsError>(
-            skeleton.mesh(options, &procgena_tree::default_lod().levels[0].detail),
-        )
+        Ok::<_, procgena_tree::OptionsError>(skeleton.mesh(options, &options.game_level))
     });
     match built {
         Ok(Ok(mesh)) => Ok(mesh),
@@ -147,7 +145,7 @@ fn build(options: &TreeOptions) -> Result<procgena_tree::TreeMesh, String> {
     }
 }
 
-/// Builds the most detailed mesh and describes any error, panic, or
+/// Builds the game-level mesh and describes any error, panic, or
 /// non-finite vertex position.
 fn build_problem(options: &TreeOptions) -> Option<String> {
     let mesh = match build(options) {

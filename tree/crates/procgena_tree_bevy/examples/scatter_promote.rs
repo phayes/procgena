@@ -27,6 +27,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::{ExitCondition, PrimaryWindow};
 use bevy::winit::WinitPlugin;
+use procgena_core::chain::Step;
 use procgena_impostor::ImpostorBakeCamera;
 use procgena_tree::TreeScatterPreset;
 use procgena_tree_bevy::{
@@ -284,14 +285,14 @@ fn draw_promoted(
             continue;
         }
 
-        // Outline the tree's nearest detail level.
+        // Outline the tree's game-level mesh.
         let Ok((instances, assets)) = groves.get(promotion.grove) else {
             continue;
         };
         let Some(tree) = instances.get(&promotion.address) else {
             continue;
         };
-        let parts = assets.of(tree).parts().filter(|p| p.lod == 0);
+        let parts = assets.of(tree).parts().filter(|p| p.step == Step::Game);
         let Some((min, max)) = parts
             .map(|p| (Vec3::from(p.bounds.min()), Vec3::from(p.bounds.max())))
             .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))

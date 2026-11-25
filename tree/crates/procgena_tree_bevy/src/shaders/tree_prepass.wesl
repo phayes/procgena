@@ -5,7 +5,6 @@ import bevy_pbr::{
     render::{mesh_functions, view_transformations::position_world_to_clip},
 };
 import bevy_render::globals::Globals;
-import package::shaders::tree_billboard::{TurnedVertex, turn_billboard, turn_lit_billboard};
 import package::shaders::tree_wind::tree_wind_offset;
 import procgena_core_bevy::shaders::instanced::copy_wind_phase;
 @if(ATTACHED)
@@ -13,15 +12,9 @@ import procgena_core_bevy::shaders::instanced::{attached_position, attached_dire
 
 @group(0) @binding(1) var<uniform> globals: Globals;
 
-/// Wind controls and optional billboard rotation data added to Bevy’s vertex inputs.
+/// Wind controls added to Bevy’s vertex inputs.
 struct TreeVertex {
     @location(8) wind: vec4<f32>,
-    @if(BILLBOARD)
-    @location(9) billboard_pivot: vec4<f32>,
-    @if(BILLBOARD)
-    @location(10) billboard_axis: vec4<f32>,
-    @if(BILLBOARD_NORMAL)
-    @location(11) billboard_normal: vec3<f32>,
     /// For a grove tree: its index in the grove's mesh records, and its
     /// detail-level dither, as the bits of an `i32`. For fruit or flowers
     /// attached to a tree: the tree's record, and their own dither.
@@ -62,27 +55,6 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     wind = vec4<f32>(attached_wind(tree.attached_wind), tree.wind.w);
 }
 
-    // Rotate toward this pass’s view, including the light for a shadow pass,
-    // then apply wind movement.
-@if(BILLBOARD) {
-    let local_from_world = mesh_functions::get_local_from_world(index);
-    var turned: TurnedVertex;
-@if(BILLBOARD_NORMAL) {
-    turned = turn_lit_billboard(
-        tree.billboard_pivot,
-        tree.billboard_axis,
-        tree.billboard_normal,
-        local_from_world,
-    );
-}
-@if(!BILLBOARD_NORMAL) {
-    turned = turn_billboard(tree.billboard_pivot, tree.billboard_axis, local_from_world);
-}
-    rest = turned.position;
-@if(NORMAL_PREPASS_OR_DEFERRED_PREPASS)
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(turned.normal, index);
-}
-
     // Keep wind movement and world placement consistent with the visible render pass.
     let wind_phase = copy_wind_phase(index);
     let position = rest + tree_wind_offset(rest, wind, world_from_local, wind_phase, globals.time);
@@ -101,7 +73,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
 @if(VERTEX_UVS_B)
     out.uv_b = vertex.uv_b;
 @if(NORMAL_PREPASS_OR_DEFERRED_PREPASS) {
-@if(VERTEX_NORMALS && !BILLBOARD)
+@if(VERTEX_NORMALS)
     out.world_normal = mesh_functions::mesh_normal_local_to_world(normal, index);
 @if(VERTEX_TANGENTS) {
     var tangent = vertex.tangent;
@@ -117,8 +89,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
 @if(VERTEX_COLORS)
     out.color = vertex.color;
 
-    // Use the previous wind time for motion vectors. Billboard orientation
-    // still comes from the current frame, so these vectors omit its rotation.
+    // Use the previous wind time for motion vectors.
 @if(MOTION_VECTOR_PREPASS) {
     let previous_world_from_local = mesh_functions::get_previous_world_from_local(index);
     let previous = rest + tree_wind_offset(

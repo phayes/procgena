@@ -2,17 +2,14 @@
 #![cfg(all(feature = "export-obj", feature = "export-gltf"))]
 
 use procgena_fruit::export::{gltf, obj};
-use procgena_fruit::{Fruit, cluster_presets, default_lod};
+use procgena_fruit::{Fruit, cluster_presets};
 
 #[test]
 fn every_preset_exports_each_level() {
     for (key, options) in cluster_presets() {
         let fruit = Fruit::new(options.clone(), options.default_seed, 0).unwrap();
-        let meshes: Vec<_> = fruit
-            .lod_meshes(&default_lod())
-            .into_iter()
-            .map(|(_, m)| m)
-            .collect();
+        let chain = fruit.meshes();
+        let meshes = vec![chain.game, chain.lower];
 
         let files = obj::to_obj(&meshes, fruit.options(), "fruit.mtl");
         let objects = files.obj.lines().filter(|l| l.starts_with("o ")).count();

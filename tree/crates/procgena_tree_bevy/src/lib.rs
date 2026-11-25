@@ -241,45 +241,32 @@
 //!
 //! ## Choose mesh detail
 //!
-//! The plugin generates four mesh detail levels. Bevy fades to simpler meshes at
-//! camera distances of 10, 25 and 50 metres for a 10 m tree, and at
-//! distances in proportion for other heights: 5, 12.5 and 25 metres for a 5 m
-//! tree. Trees stop being drawn at 1.5 km for a 10 m tree, again in
-//! proportion. With a texture folder configured,
-//! the nearest level uses 1k bark textures and the next two use 512 textures.
-//! At the farthest level (LOD3), thin branches are omitted and the remaining branches
-//! use flat strips. With textures configured, those strips use a single colour
-//! approximating the bark texture, and fewer, larger leaf cards show clumps of leaves.
-//! These flat shapes, called billboards, turn toward the camera to help preserve the tree’s
-//! outline as the view changes. For shadow rendering, they turn toward the light.
-//! To see shadows at this distance, extend the directional light’s shadow cascades
-//! far enough to cover the trees.
-//! Set `TreePlugin::lod` when adding the plugin to choose mesh detail,
-//! switching distances, bark appearance and leaf images. For a single full-detail
-//! mesh with 2k bark textures, no distance switching and no impostor:
+//! Each tree's `TreeOptions::game_level` sets its real shape: the branch,
+//! leaf and fruit detail drawn while the tree is large on screen. A coarser
+//! lower mesh is derived from it, with fewer bark sections and leaf cards
+//! and open branch ends, and an impostor is baked from it. Which one is
+//! drawn depends on how large the tree looks on screen, the same for every
+//! kind of object (see `procgena_core::chain`); Bevy fades between them, and
+//! stops drawing the tree once it is a few pixels tall. Fruit and flowers
+//! switch by their own size until their tree's impostor takes over.
+//!
+//! For a lighter tree that keeps every second leaf card, and every second
+//! bark section, even when it is close:
 //!
 //! ```rust
-//! use procgena_core::{Lod, LodLevel};
-//! use procgena_tree::{LOD_REFERENCE_SIZE, LodDetail, TextureSize};
-//! use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLevel, TreePlugin};
+//! use procgena_tree::TreePreset;
+//! use procgena_tree_bevy::TreeParams;
 //!
-//! let level = TreeLevel {
-//!     detail: LodDetail::default(),
-//!     bark: BarkTexture::Textured(TextureSize::Size2k),
-//!     leaves: LeafTexture::Leaf,
-//! };
-//! let plugin = TreePlugin {
-//!     lod: Lod::new(LOD_REFERENCE_SIZE, vec![LodLevel::new(0.0, 0.0, level)]),
-//!     impostor: None,
-//!     ..Default::default()
-//! };
+//! let mut options = TreePreset::oak_small().tree.clone();
+//! options.game_level.leaf_stride = 2;
+//! options.game_level.section_stride = 2;
+//! let tree = TreeParams::new(options);
 //! ```
 //!
-//! The 2k bark textures are downloaded only with `--sizes 512,1k,2k`.
-//!
-//! No levels at all produce no bark or leaf meshes. Generated children have a
-//! `TreePart` component identifying their detail level and whether they draw bark,
-//! leaves, or a trellis wire.
+//! With a texture folder configured, the game-level mesh uses 1k bark
+//! textures and the lower mesh 512 ones. Generated children have a
+//! `TreePart` component naming the step they draw and whether they draw
+//! bark, leaves, fruit and flowers, the impostor, or a trellis wire.
 //!
 //! ## Try the viewer
 //!
@@ -301,53 +288,9 @@
 //! create materials with `bark_material` and `leaf_material`, and attach the mesh
 //! handles and `MeshMaterial3d<TreeMaterial>` to your entities. Keep `TreePlugin`
 //! installed to register shaders and synchronize wind settings.
-//!
-//! ## Load exported glTF trees
-//!
-//! Enable this crate's `gltf` feature to animate billboards in trees saved with
-//! `procgena_tree::export::gltf`. Billboards are flat shapes used for distant tree parts;
-//! this integration lets them turn toward the camera and move with the wind.
-//! Export with `GltfOptions::wind` enabled (the default).
-//!
-//! Register the tree's custom vertex attributes with Bevy's `GltfPlugin`, then add
-//! `TreePlugin` after Bevy's default plugins:
-//!
-//! ```rust,ignore
-//! use bevy::gltf::GltfPlugin;
-//! use bevy::prelude::*;
-//! use procgena_tree_bevy::{TreePlugin, add_tree_gltf_attributes};
-//!
-//! App::new().add_plugins((
-//!     DefaultPlugins.set(add_tree_gltf_attributes(GltfPlugin::default())),
-//!     TreePlugin::default(),
-//! ));
-//! ```
-//!
-//! Load and spawn the file's scene with Bevy's glTF loader. Eligible meshes under
-//! nodes tagged as billboards use `TreeMaterial` for wind and camera-facing rotation.
-//! Their crossed fallback shapes are removed once all meshes under the billboard
-//! node are converted. Bounds are updated to keep the rotating shapes visible;
-//! these bounds do not include wind movement. Other meshes keep their original
-//! materials, and converted billboard materials do not retain normal maps.
-//!
-//! Meshes keep their original shapes and materials if wind or billboard attributes
-//! are missing or unregistered, or if they use animation joints. Their fallback
-//! partners remain in the scene. Missing or unregistered attributes produce a
-//! warning; check both the export's wind setting and the plugin setup above.
-//!
-//! Try the example, which exports and loads a distant Apple tree by default:
-//!
-//! ```sh
-//! cargo run -p procgena_tree_bevy --example gltf_tree --features gltf
-//! ```
-//!
-//! To load your own file, append `-- path/to/tree.glb`. Hold the left mouse button
-//! to look around, and use WASD and Q/E to fly.
 
 mod clusters;
 mod fruit_impostor;
-#[cfg(feature = "gltf")]
-mod gltf;
 mod impostor;
 mod material;
 mod material_key;
@@ -365,14 +308,10 @@ use procgena_tree::{TextureCompression, WIND_WESL};
 pub use fruit_impostor::default_fruit_impostor;
 pub use impostor::default_tree_impostor;
 pub use material::{
-    BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform,
-    average_bark_material, bake_copy, bark_material, flower_material, fruit_material,
-    leaf_material, trellis_material,
+    BarkTextures, LeafTextures, TreeMaterial, WindExtension, WindKey, WindUniform, bake_copy,
+    bark_material, flower_material, fruit_material, leaf_material, trellis_material,
 };
-pub use mesh::{
-    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
-    ATTRIBUTE_WIND, bark_mesh, billboard_aabb, cluster_mesh, leaf_mesh,
-};
+pub use mesh::{ATTRIBUTE_WIND, bark_mesh, cluster_mesh, leaf_mesh};
 pub use scatter::{
     PlacedTree, PrepareTreeScatter, PromotedTree, TreeScatterAsset, TreeScatterAssets,
     TreeScatterBuildError, TreeScatterFinished, TreeScatterGenerating, TreeScatterGround,
@@ -381,17 +320,15 @@ pub use scatter::{
     TreeScatterVariant, tree_scatter_variants,
 };
 pub use spawn::{
-    BarkTexture, LeafTexture, TreeFinished, TreeGenerating, TreeLevel, TreeParams, TreePart,
-    TreePartKind, TreePresetAsset, default_tree_lod,
+    TreeFinished, TreeGenerating, TreeParams, TreePart, TreePartKind, TreePresetAsset,
 };
 pub use wind::Wind;
 
 use bevy::pbr::StandardMaterialKey;
 use bevy::render::combined_bind_group::CombinedBindGroupData;
-use procgena_core::Lod;
 use procgena_core_bevy::LodPlugin;
 use procgena_core_bevy::instanced::InstancedMaterialPlugin;
-use procgena_impostor::{ImpostorLevel, ImpostorMaterial, ImpostorPipelineKey, ImpostorPlugin};
+use procgena_impostor::{BakeSettings, ImpostorMaterial, ImpostorPipelineKey, ImpostorPlugin};
 
 /// The pipeline key of a [`TreeMaterial`].
 type TreeMaterialKey = CombinedBindGroupData<StandardMaterialKey, WindKey>;
@@ -402,9 +339,6 @@ type ImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, ImpostorPi
 /// The pipeline key of a [`FruitImpostorMaterial`].
 type FruitImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, FruitImpostorKey>;
 use fruit_impostor::{FruitImpostorKey, FruitImpostorMaterial};
-
-#[cfg(feature = "gltf")]
-pub use gltf::add_tree_gltf_attributes;
 
 use scatter::TreeScatterLoader;
 use spawn::{SpawnSettings, TreeCache, TreePresetLoader};
@@ -424,30 +358,18 @@ pub struct TreePlugin {
     /// Which texture files to load. Defaults to BC7; UASTC needs Bevy's
     /// `basis-universal` feature.
     pub texture_compression: TextureCompression,
-    /// The mesh and far-form levels, nearest first: each one's mesh detail,
-    /// switching distance in metres, and bark and leaf appearance. Defaults
-    /// to [`default_tree_lod`]. The distances, and the cull distance where
-    /// trees stop being drawn, are written for a tree the levels'
-    /// `reference_size` metres tall. Each tree scales them by its own height
-    /// times its `Transform`'s largest scale, and by the
-    /// [`LodQuality`](procgena_core_bevy::LodQuality) in use when its parts
-    /// are spawned. Supply one level and no cull distance to disable
-    /// distance switching, or no levels to produce no tree meshes.
-    ///
-    /// The levels must pass [`Lod::validate`], or adding the plugin panics.
-    pub lod: Lod<TreeLevel>,
-    /// Draws trees far away as baked impostors, as the last level after
-    /// [`lod`](Self::lod)'s, scaled by each tree's size as they are.
-    /// Defaults to [`default_tree_impostor`]. `None` draws the farthest mesh
-    /// level out to the cull distance.
-    pub impostor: Option<ImpostorLevel>,
-    /// Draws fruit and flower clusters far away as baked impostors, after
-    /// their own detail levels. Defaults to [`default_fruit_impostor`].
-    /// Clusters get their impostors together with their tree's, so this
-    /// has no effect when [`impostor`](Self::impostor) is `None`. `None`
-    /// draws each cluster's farthest level until the tree's impostor takes
-    /// over.
-    pub fruit_impostor: Option<ImpostorLevel>,
+    /// How trees' impostors are baked; trees are drawn as their impostor
+    /// when they are small on screen, the last step of the shared drawing
+    /// chain. Defaults to [`default_tree_impostor`]. `None` draws each
+    /// tree's lower mesh until it is culled.
+    pub impostor: Option<BakeSettings>,
+    /// How fruit and flower clusters' impostors are baked; a cluster is
+    /// drawn as its impostor when it is small on screen. Defaults to
+    /// [`default_fruit_impostor`]. Clusters get their impostors together
+    /// with their tree's, so this has no effect when
+    /// [`impostor`](Self::impostor) is `None`. `None` draws each cluster's
+    /// lower mesh until the tree's impostor takes over.
+    pub fruit_impostor: Option<BakeSettings>,
 }
 
 impl Default for TreePlugin {
@@ -455,7 +377,6 @@ impl Default for TreePlugin {
         Self {
             texture_root: Some("procgena_tree/textures".to_owned()),
             texture_compression: TextureCompression::Bc7,
-            lod: default_tree_lod(),
             impostor: Some(default_tree_impostor()),
             fruit_impostor: Some(default_fruit_impostor()),
         }
@@ -479,43 +400,18 @@ impl Plugin for TreePlugin {
         app.insert_resource(WindShader(wind_shader));
         load_shader_library!(app, "shaders/tree_wind_phase.wesl");
         load_shader_library!(app, "shaders/tree_wind.wesl");
-        load_shader_library!(app, "shaders/tree_billboard.wesl");
         embedded_asset!(app, "shaders/tree.wesl");
         embedded_asset!(app, "shaders/tree_prepass.wesl");
         load_shader_library!(app, "shaders/fruit_impostor_place.wesl");
         embedded_asset!(app, "shaders/fruit_impostor.wesl");
         embedded_asset!(app, "shaders/fruit_impostor_prepass.wesl");
 
-        // The mesh levels must be valid. The impostor, as the last level,
-        // must fit after them, or impostors are turned off.
-        if !self.lod.levels.is_empty()
-            && let Err(error) = self.lod.validate()
-        {
-            panic!("procgena_tree_bevy: invalid tree levels of detail: {error}");
-        }
-        let mut settings = SpawnSettings {
+        let settings = SpawnSettings {
             texture_root: self.texture_root.clone(),
             texture_compression: self.texture_compression,
-            lod: self.lod.clone(),
             impostor: self.impostor,
             fruit_impostor: self.fruit_impostor,
         };
-        if settings.impostor.is_some()
-            && let Err(error) = settings.draw_lod().validate()
-        {
-            error!(
-                "procgena_tree_bevy: tree impostors don't fit after the levels ({error}); impostors are off"
-            );
-            settings.impostor = None;
-        }
-        if let Some(fruit) = settings.fruit_impostor
-            && let Err(error) = clusters::cluster_lod(Some(fruit)).validate()
-        {
-            error!(
-                "procgena_tree_bevy: fruit impostors don't fit after the fruit levels ({error}); fruit impostors are off"
-            );
-            settings.fruit_impostor = None;
-        }
         let impostor = settings.impostor;
 
         // Impostors, unless the app added the plugin itself with settings
@@ -590,7 +486,5 @@ impl Plugin for TreePlugin {
                     .before(scatter::track_preparing),
             );
         }
-        #[cfg(feature = "gltf")]
-        gltf::register(app);
     }
 }

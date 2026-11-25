@@ -7,6 +7,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use bevy::shape::{Aabb3d, RayCast3d};
+use procgena_core::chain::Step;
 use procgena_specimen::{Specimen, TagFilter};
 use procgena_tree::CopyAddress;
 
@@ -25,7 +26,7 @@ use crate::spawn::{TreeParams, TreeWindPhase};
 ///
 /// The plugin then makes the entity a child of the grove and adds the
 /// tree's [`TreeParams`] and `Transform`. The tree is drawn with the same
-/// meshes, materials, detail levels and wind as the grove's copy, which
+/// meshes, materials, drawing steps and wind as the grove's copy, which
 /// stops drawing it once the entity's parts are spawned, so nothing visibly
 /// changes.
 ///
@@ -151,8 +152,8 @@ pub struct TreeScatterHit {
 /// Finds grove trees by ray, for picking them with the mouse, or near a
 /// point, for promoting the trees near a player.
 ///
-/// Rays are tested against the triangles of each tree's nearest detail
-/// level, at rest: a ray through a gap in a crown passes on, and wind sway
+/// Rays are tested against the triangles of each tree's game-level mesh,
+/// at rest: a ray through a gap in a crown passes on, and wind sway
 /// isn't taken into account. Trees whose variant hasn't finished generating
 /// are skipped.
 #[derive(SystemParam)]
@@ -228,7 +229,7 @@ impl TreeScatterTrees<'_, '_> {
     }
 }
 
-/// Each variant's bounds at its nearest detail level, in the tree's own
+/// Each variant's bounds at its game-level mesh, in the tree's own
 /// coordinates, or `None` if it has none yet.
 fn variant_bounds(assets: &TreeScatterAssets) -> Vec<Option<Aabb3d>> {
     assets
@@ -237,7 +238,7 @@ fn variant_bounds(assets: &TreeScatterAssets) -> Vec<Option<Aabb3d>> {
         .map(|variant| {
             variant
                 .parts()
-                .filter(|part| part.lod == 0)
+                .filter(|part| part.step == Step::Game)
                 .map(|part| Aabb3d::from(part.bounds))
                 .reduce(|a, b| Aabb3d {
                     min: a.min.min(b.min),
@@ -264,7 +265,7 @@ fn box_entry(ray: Ray3d, world_from_tree: &Affine3A, bounds: &Aabb3d) -> Option<
     Some(point.distance(ray.origin))
 }
 
-/// Where `ray` first meets a triangle of `specimen`'s nearest detail level
+/// Where `ray` first meets a triangle of `specimen`'s game-level mesh,
 /// placed by `world_from_tree`, as the distance along the ray and the point
 /// in the world.
 fn triangle_hit(

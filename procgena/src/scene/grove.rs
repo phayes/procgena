@@ -12,13 +12,18 @@ use super::environment::EnvironmentSettings;
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{BuildStats, GroveProgress, GroveStats, MeshSize, ViewerEvent};
 use super::subject::{Detail, SceneState, Subject};
-use super::tree::{IMPOSTOR_DISTANCE, lod_levels};
+use super::tree::{TREE_STEPS, impostor_distance};
 use super::viewport::ViewportActivity;
 use super::{AddSubject, Shown};
 
+/// The size, in metres, of a tall tree: its bounding-sphere diameter.
+pub(crate) const TALL_TREE: f32 = 25.0;
+
 /// The farthest the grove camera can always back away, in metres: far enough
-/// to see the trees drawn as impostors.
-const GROVE_FARTHEST: f32 = 1.25 * IMPOSTOR_DISTANCE;
+/// to see even tall trees drawn as impostors across a large grove.
+pub(crate) fn grove_farthest() -> f32 {
+    1.5 * impostor_distance(TALL_TREE)
+}
 
 /// A tree Scatter on a square of flat ground
 /// [`EnvironmentSettings::grove_size`] across.
@@ -27,7 +32,7 @@ const GROVE_FARTHEST: f32 = 1.25 * IMPOSTOR_DISTANCE;
 /// and shape stay, and the rest are added, removed or rebuilt.
 /// [`ViewerEvent::GroveBuilt`] reports each build and
 /// [`ViewerEvent::GroveProgress`] how far it has got. Each tree shows the
-/// detail level that suits its distance, whatever detail is chosen.
+/// step that suits its size on screen, whatever detail is chosen.
 pub struct GroveSubject;
 
 impl Subject for GroveSubject {
@@ -58,7 +63,7 @@ impl Subject for GroveSubject {
             limits: OrbitLimits {
                 // Far enough out to reach the impostors, and to see the
                 // whole grove.
-                distance: (2.0, (2.0 * size).max(GROVE_FARTHEST)),
+                distance: (2.0, (2.0 * size).max(grove_farthest())),
                 pitch: (-0.05, 1.5),
             },
         }
@@ -171,7 +176,7 @@ fn report_grove(
     }
     let result = event.result.clone().map(|()| {
         let stats = groves.get(event.entity).cloned().unwrap_or_default();
-        let mut levels = vec![MeshSize::default(); lod_levels().len()];
+        let mut levels = vec![MeshSize::default(); TREE_STEPS.len()];
         for (size, level) in levels.iter_mut().zip(&stats.levels) {
             size.vertices = level.vertices;
             size.triangles = level.triangles;

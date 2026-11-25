@@ -11,8 +11,9 @@ use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 use crate::tree::editor::{TreeEdited, TreeEditor, TreeEditorPlugin, TreePanel, spawn_tree_editor};
 
-/// The tree detail levels, most detailed first.
-pub const LEVELS: &[&str] = &["0 · Full", "1 · Medium", "2 · Low", "3 · Lowest"];
+/// The tree mesh steps that can be shown alone, game level first. The
+/// impostor follows them when the tree is small on screen.
+pub const LEVELS: &[&str] = &["0 · Game level", "1 · Lower mesh"];
 
 /// Registers trees.
 pub fn register(app: &mut App) {

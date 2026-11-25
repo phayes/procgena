@@ -8,7 +8,8 @@
 use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, PoolId, SpecimenId};
 
 use crate::{
-    ClusterKind, ClusterShape, Facing, FlowerShape, FruitOptions, FruitShape, ItemShape, Variation,
+    ClusterDetail, ClusterKind, ClusterShape, Facing, FlowerShape, FruitOptions, FruitShape,
+    ItemDetail, ItemShape, Variation,
 };
 
 /// The generator kind of every fruit and flower cluster: the first half of
@@ -63,7 +64,8 @@ fn cluster_kind_number(value: ClusterKind) -> u32 {
     }
 }
 
-/// Every setting except the seed.
+/// Every setting except the seed and the game level, which say how a
+/// cluster is drawn rather than what it is.
 impl ContentHash for FruitOptions {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
@@ -75,6 +77,7 @@ impl ContentHash for FruitOptions {
             item,
             maturity,
             variation,
+            game_level: _,
         } = self;
         hasher.write_u32(facing_number(*facing));
         hasher.write(cluster);
@@ -219,5 +222,28 @@ impl ContentHash for Variation {
         hasher.write_f32(*blush_spread);
         hasher.write_f32(*shape_jitter);
         hasher.write_f32(*stem_curve_jitter);
+    }
+}
+
+/// Every setting. Not part of a cluster's name; hash it when you also key
+/// meshes or impostors by the detail they were built at.
+impl ContentHash for ClusterDetail {
+    fn content_hash(&self, hasher: &mut ContentHasher) {
+        let Self {
+            item_detail,
+            item_stride,
+            item_scale,
+            stalks,
+            flat_item_size,
+        } = self;
+        hasher.write_u32(match item_detail {
+            ItemDetail::Full => 0,
+            ItemDetail::Simple => 1,
+            ItemDetail::Minimal => 2,
+        });
+        hasher.write_u32(*item_stride);
+        hasher.write_f32(*item_scale);
+        hasher.write_bool(*stalks);
+        hasher.write_f32(*flat_item_size);
     }
 }

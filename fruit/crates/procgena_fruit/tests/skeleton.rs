@@ -271,7 +271,7 @@ fn item_shape(options: &FruitOptions, slot: u32) -> Vec<Vec3> {
     let fruit = grow_slot(options, slot);
     let item = fruit.skeleton().items[0];
     let to_item = item.orientation.inverse();
-    let positions = fruit.mesh(&ClusterDetail::default()).positions;
+    let positions = fruit.mesh(&ClusterDetail::FULL).positions;
     let count = match &options.item {
         ItemShape::Fruit(shape) => ((shape.rings + 1) * (shape.segments + 1)) as usize,
         ItemShape::Flower(_) => positions.len(),

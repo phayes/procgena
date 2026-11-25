@@ -459,6 +459,43 @@ reported to the coordinator ready to merge.
      `--flat` became `--no-impostors`.
    - The studio shows the three steps as its detail levels; GLB export
      writes the game-level mesh and, with detail levels, the lower mesh.
+
+   **As built (Step 3, tree and fruit):**
+   - `TreeOptions::game_level: LodDetail` and `FruitOptions::game_level:
+     ClusterDetail` (the tree's defaults to full detail, as its level 0
+     was; the cluster's to `ClusterDetail::SIMPLE`); each
+     `Tree` and `Fruit` builds two meshes, `mesh()` and `lower_mesh()`.
+     `game_level` stays out of the options hashes (rule 3); it is in the
+     impostor bake keys and the single tree's cache key.
+   - The tree's lower rule: three times the section stride and half the
+     tube sides with open ends; every second leaf card, 1.3× larger, as
+     single fixed cards; every second fruit or flower cluster, 1.12×
+     larger. Leaves keep every second card, not every third as first
+     planned: every third lost too much of the crown's outline (the
+     silhouette test's average fell below 0.88). The cluster's lower rule:
+     one item detail step coarser, every second item 1.25× larger.
+   - Size measure: the game-level mesh's bounding-sphere diameter for
+     trees, `Fruit::size` for clusters.
+   - The ribbon far forms, camera-facing billboards and averaged bark are
+     gone, and with them `procgena_tree_bevy`'s `gltf` feature (it only
+     animated exported billboards). Exports hold the game-level mesh and,
+     optionally, the lower mesh.
+   - **Fruit has no cull of its own; the tree decides** (the user's choice,
+     2026-11-25). A cluster switches game → lower → its impostor by its own
+     size on screen, and is drawn until its tree's impostor takes over,
+     which shows it (rows carry only the tree's mesh steps). A 10 cm
+     cluster turns into its impostor at about 3 m.
+   - Bakes: trees 8 × 8 views covering down to −45°, clusters 6 × 6 views,
+     both 256-pixel frames (`frame_size_for(largest_impostor_size())`).
+     That is more memory than the old 10 × 128 tree bake and 6 × 32
+     cluster bake; Step 5 measures it.
+   - Groves draw through the shared renderer with
+     `procgena_core_bevy::instanced::chain_lod` (from the dead wood step),
+     each copy sized by its diameter. The old core types remain until the
+     last kind moves.
+   - The studio shows a tree's two mesh steps (the level picker offers
+     them), reports the step on screen from the parts' own ranges, and
+     sizes the grove camera from a 25 m tree's impostor distance.
 4. **Renderers and the studio.** `procgena_core_bevy`'s instanced renderer
    takes three steps and per-view bands; impostors bake from `game_level`,
    with normals and no shadows; the disk cache (key: preset content hash +
