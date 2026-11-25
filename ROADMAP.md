@@ -2118,6 +2118,17 @@ Done (2026-11-24): items 10, 15 and 16 above.
   speed bar), golden blessing (no goldens for this Mac; the stored
   NVIDIA, llvmpipe and WARP goldens are now stale), and the Codex
   comment pass (list in the P3 worker's report).
+- **Queued after IX (the user, 2026-11-25): far view in the Ecotope
+  editor.** An option to extend the Ecotope's far distance with many
+  chunks, or one very large patch, to judge frame time and the look of
+  many far-away assets drawn as impostors. This is FF0's measuring tool.
+- **Codex comment rewrites** are blocked until credits return; every
+  lane's list is in `docs/coordination/codex-comment-backlog.md`
+  (including G4b, GM2, ED, Valheim presets, ST2, the overlay and IX).
+- **The full workspace suite** (CLAUDE.md, "The full suite") has not
+  run since wave 5. Run it on a quiet machine: under load, two studio
+  GPU tests that reopen a project (`ecotopes_save_and_load` and the
+  detail-picker test) time out in a batch but pass alone.
 - Plant: implement core's `Preset` trait, and replace its `levels` list
   whole in files instead of merging it entry by entry (F3).
 - Private "grove" and "field" names left from the Scatter renames, and the
