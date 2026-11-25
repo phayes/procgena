@@ -1977,6 +1977,14 @@ Done (2026-11-24): items 10, 15 and 16 above.
 
 ### Follow-ups noted, no decision needed
 
+- **High priority: A/B test plant P3** (the user, 2026-11-25). P3 (grass
+  blades on a World-fixed grid, chosen by seed alone) merged to master
+  at `2180527`; the last commit before it is `2180527^1`. Compare the
+  two with `tools/plant/bench_ab.py` on a quiet machine, and the look
+  side by side. Not yet done for P3: the bench run (the user sets the
+  speed bar), golden blessing (no goldens for this Mac; the stored
+  NVIDIA, llvmpipe and WARP goldens are now stale), and the Codex
+  comment pass (list in the P3 worker's report).
 - Plant: implement core's `Preset` trait, and replace its `levels` list
   whole in files instead of merging it entry by entry (F3).
 - Private "grove" and "field" names left from the Scatter renames, and the
