@@ -24,7 +24,7 @@ use bevy::light::CascadeShadowConfigBuilder;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::render::view::Msaa;
-use procgena_plant::prelude::*;
+use procgena_plant_bevy::prelude::*;
 
 use tune::{Brush, Tuning};
 
@@ -136,7 +136,7 @@ fn meadow_field(preset: &PlantScatterPreset) -> PlantScatter {
 }
 
 /// Matches the meadow's distant ground shading to the field's plant colours.
-fn far_plants(field: &PlantScatter) -> FarPlants {
+fn far_plants(field: &PlantScatterOptions) -> FarPlants {
     let half = MEADOW * 0.5;
     FarPlants::new(field).with_area(Rect::new(-half, -half, half, half))
 }
@@ -191,7 +191,7 @@ fn setup(
             perceptual_roughness: 0.95,
             ..default()
         },
-        extension: far_plants(&field),
+        extension: far_plants(&field.options),
     });
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(2000.0, 2000.0))),
@@ -307,7 +307,7 @@ fn apply_requests(
     if let Some(preset) = name.filter(|name| *name != meadow.preset).and_then(preset) {
         let field = meadow_field(preset);
         if let Some(mut ground) = far_materials.get_mut(&meadow.ground) {
-            ground.extension = far_plants(&field);
+            ground.extension = far_plants(&field.options);
         }
         if let Ok(mut meadow_field) = fields.get_mut(meadow.field) {
             *meadow_field = field;

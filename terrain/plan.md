@@ -620,6 +620,39 @@ pub struct Annotation { landform: Landform, flags: Flags, measures: Measures, we
     noise (infinigen).
 - `annotate(x, z)` labels the top surface. `annotate_at(xyz)` labels any
   surface point, for overhang undersides and caves.
+- **Measures as built (G4a, 2026-11-24).** `Terrain::query(p,
+  SampleDetail::Measures)` gives `Measures { slope, curvature,
+  height_above_water, water_distance, road_distance }` (`#[non_exhaustive]`;
+  `relief`, `water_depth` and `gully` above are not built).
+  - `slope` is the sine of the angle, from G2's gradient, as ground rules
+    read it.
+  - `curvature` is the carved ground's height minus the mean of four
+    heights `CURVATURE_STEP` (4 m) away, over a quarter of the step
+    squared: positive convex, negative concave, per metre. Near borders
+    the stencil reads each terrain's own ground beyond the border; the two
+    sides differ by at most 0.0044 /m on the test worlds (slope by 0.0018).
+  - Water and road distance run from the water's or road surface's edge,
+    from the feature index, **capped at `MEASURE_REACH` = 40 m**
+    (`BANK_REACH`). The cap keeps the measures per region and exactly
+    equal on both sides of a border: a terrain's own features stay
+    `FEATURE_CLEARANCE` (65 m) from its borders, so their edges are at
+    least 45 m off, and crossing pieces are carved by both sides. The
+    index already lists every piece within `BANK_REACH` of its edge, so
+    no second index is needed.
+  - `height_above_water` is the height above the nearest water's surface,
+    mixed by inverse square distance with every river piece or pond
+    within 10 m of as near (`WATER_MIX`), and `None` beyond
+    `WATER_HEIGHT_REACH` (30 m = the reach less the mix band). That way
+    every surface that counts lies within the index's 40 m, so the
+    measure stays continuous and equal across borders. Mixing per piece,
+    not per river, keeps it continuous where a river comes back near
+    itself; the cost is that on steep rivers a point's surface can be a
+    few centimetres off its own (99.5% of water points within 25 cm on
+    the test worlds). Where waters at different levels meet, the mixed
+    surface can lie below the drawn one (the carve draws the higher).
+  - **Follow-up (World level):** a longer reach needs the neighbours'
+    features near the border, so it belongs to `WorldTerrain` (which can
+    read neighbouring regions), not to `Terrain`.
 - **Mesh output.**
   - Each vertex carries up to four `(label, weight)` pairs.
   - Triangles are grouped into `Part`s by primary landform. Each part is

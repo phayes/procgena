@@ -45,7 +45,7 @@ use procgena_impostor::{
     BakedImpostor, ImpostorLevel, ImpostorPlugin, ImpostorRequest, ImpostorSettings,
 };
 use procgena_mushroom_bevy::MushroomPlugin;
-use procgena_plant::prelude::PlantPlugins;
+use procgena_plant_bevy::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
 use procgena_tree::{LOD_REFERENCE_SIZE, TextureCompression};
 use procgena_tree_bevy::{TreePlugin, default_tree_impostor};

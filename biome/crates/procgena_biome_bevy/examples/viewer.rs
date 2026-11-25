@@ -43,13 +43,15 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_biome::{Ecotope, EcotopePreset, ScatterKind};
 use procgena_biome_bevy::{
-    EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, ground_mesh, rolling_hills,
+    EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, GroundPatch, rolling_hills,
 };
 use procgena_core::scatter::ScatterArea;
 use procgena_core::{Ground, HeightGrid};
 use procgena_deadwood_bevy::{DeadwoodGenerating, DeadwoodPart, DeadwoodPlugin};
 use procgena_mushroom_bevy::{MushroomGenerating, MushroomPart, MushroomPlugin};
+use procgena_plant_bevy::PlantPlugins;
 use procgena_stone_bevy::{StoneGenerating, StonePart, StonePlugin};
+use procgena_terrain::ground::GroundStack;
 use procgena_tree_bevy::{TreeGenerating, TreePart, TreePlugin};
 
 /// Frames to wait after generation finishes before a screenshot, so meshes
@@ -178,6 +180,7 @@ fn main() {
             texture_root: root("mushroom"),
             ..default()
         },
+        PlantPlugins,
         EcotopePlugin,
     ))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
@@ -213,19 +216,13 @@ fn plain_colours(ecotope: &mut Ecotope) {
                     class.stone.material.color = [0.12, 0.115, 0.1];
                 }
             }
-            ScatterKind::Deadwood(_) | ScatterKind::Mushroom { .. } => {}
+            ScatterKind::Deadwood(_) | ScatterKind::Mushroom { .. } | ScatterKind::Plant(_) => {}
         }
     }
 }
 
 /// Spawns the ground, the Ecotope to place, the camera and the light.
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    scene: Res<Scene>,
-) {
+fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, scene: Res<Scene>) {
     // The ground, sampled once into a grid a little wider than the patch.
     let half = f64::from(scene.size) * 0.5 + GROUND_MARGIN;
     let ground: Arc<dyn Ground> = Arc::new(HeightGrid::from_fn(
@@ -234,22 +231,9 @@ fn setup(
         GROUND_CELL,
         rolling_hills,
     ));
-    let mesh = ground_mesh(
-        &*ground,
-        DVec2::splat(-half),
-        DVec2::splat(half),
-        GROUND_CELL,
-    );
-    commands.spawn((
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.3, 0.26, 0.17),
-            perceptual_roughness: 1.0,
-            ..default()
-        })),
-    ));
 
-    // The Ecotope, placed in the background and drawn once placed.
+    // The Ecotope, placed in the background and drawn once placed, with
+    // its ground layers over bare terrain's look.
     commands
         .spawn(EcotopeParams {
             ecotope: Arc::new(scene.ecotope.clone()),
@@ -257,6 +241,11 @@ fn setup(
             ground,
             area: ScatterArea::new(DVec2::ZERO, Vec2::splat(scene.size)),
             coverage: None,
+            patch: Some(GroundPatch {
+                base: Arc::new(GroundStack::bare(scene.seed, 1.0)),
+                margin: GROUND_MARGIN,
+                cell: GROUND_CELL,
+            }),
         })
         .observe(log_placement);
 
@@ -298,7 +287,10 @@ fn setup(
 fn log_placement(finished: On<EcotopeFinished>, mut exit: MessageWriter<AppExit>) {
     match &finished.result {
         Ok(summary) => {
-            info!("placed in {:?}", summary.place_time);
+            info!(
+                "placed in {:?}, ground painted in {:?}",
+                summary.place_time, summary.ground_time
+            );
             for layer in &summary.layers {
                 info!(
                     "  {} (priority {}): {} copies",

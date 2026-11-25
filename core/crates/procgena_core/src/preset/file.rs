@@ -6,6 +6,7 @@ use serde::de::DeserializeOwned;
 use super::PresetFileError;
 use super::document::{Document, FILE_GROUP};
 use super::merge::{diff, from_value, merge, to_value};
+use super::registry::References;
 
 /// A named, ready-made set of options in a catalogue of built-in presets.
 ///
@@ -66,6 +67,14 @@ pub trait Preset: Sized + 'static {
     fn check(options: &Self::Options) -> Result<(), String> {
         let _ = options;
         Ok(())
+    }
+
+    /// How this kind's settings refer to presets of other kinds by key,
+    /// such as a Scatter naming its trees. A [`Registry`](super::Registry)
+    /// uses it to read presets that refer to project presets, and to answer
+    /// which presets use a preset. The default refers to nothing.
+    fn references() -> References {
+        References::NONE
     }
 }
 
@@ -133,7 +142,8 @@ pub fn read<P: Preset>(key: &str, text: &str) -> Result<P, PresetFileError> {
 /// With a `base`, the file names it and holds only the settings that
 /// differ from it; without one, only those that differ from the options'
 /// defaults. The key is not written: it is the file's name. The group is
-/// left out when it is [`FILE_GROUP`].
+/// left out when it is [`FILE_GROUP`]. The text is written afresh, so
+/// saving it over a file drops that file's comments and layout.
 #[must_use]
 pub fn write<P: Preset>(preset: &P, base: Option<&P>) -> String {
     let base_value = match base {

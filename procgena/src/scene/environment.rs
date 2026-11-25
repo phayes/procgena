@@ -4,7 +4,7 @@ use super::subject::SubjectLook;
 use super::viewport::ViewportActivity;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
-use procgena_plant::prelude::{PlantSun, PlantWind};
+use procgena_plant_bevy::prelude::{PlantSun, PlantWind};
 use procgena_tree::WindParams;
 use procgena_tree_bevy::Wind;
 

@@ -49,6 +49,9 @@ fn main() {
     }))
     // Sleep while nothing changes; the scene asks for frames when it needs them.
     .insert_resource(WinitSettings::desktop_app());
+    if let Some(folder) = studio::project::ProjectFolder::default_project() {
+        app.insert_resource(folder);
+    }
     add_studio(&mut app);
     app.run();
 }

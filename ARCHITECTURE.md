@@ -347,8 +347,10 @@ dead wood, widened by a per-Scatter `clearance`), and every lower Scatter's
 mask is 0 inside them, checked only at each candidate's centre. The
 calls into each Scatter are one adapter per kind in
 `procgena_biome/src/ecotope/scatters.rs`, to be replaced by the `Scatter`
-trait in C3. Plant is not in it yet: `procgena_plant` is a Bevy crate
-placed on the GPU with no `Ground`. `procgena_biome_bevy`'s
+trait in C3. A plant Scatter (plant's P2) is placed where it is drawn:
+its adapter bakes the ground and density over the area at 0.5 m, clears
+every texel a footprint above touches, and leaves no footprints of its
+own. `procgena_biome_bevy`'s
 `EcotopeParams` places an Ecotope in the background and, after an edit,
 draws again only the Scatters whose settings, seed or footprints above
 them changed. The studio's Ecotope tab edits an Ecotope over flat or
@@ -1419,7 +1421,7 @@ Each rule says what every asset does, and which crates have to change.
     level uses the same shape, so a Scatter, Ecotope or Biome preset reads
     like an asset preset. Every file is YAML, named
     `.<kind>.yml` (`.tree.yml`, `.stone.yml`, `.mushroom.yml` and so on), so
-    people can comment their presets. Files hold a `base` preset plus only
+    people can read and hand-edit their presets. Files hold a `base` preset plus only
     what differs. Serde on every public options type, Scatter options
     included. `default_seed` in every preset.
     - The shared code is `procgena_core::preset`: the `Preset` trait, the
@@ -1446,6 +1448,31 @@ Each rule says what every asset does, and which crates have to change.
       (2026-11-24) for tree, the tree Scatter, stone, clump, mushroom, dead
       wood, fruit, flower, terrain and World; plant, the plant Scatter and the
       Ecotope follow.
+    - **Writing is lossy for now** (user decision, 2026-11-24): saving
+      rewrites the whole file as `base` plus differences, in a stable
+      order, so hand-written comments and layout in an updated file are
+      lost. Keeping them is a long-term goal (`procgena/studio_plan.md`,
+      decision 5).
+    - **The registry** (`procgena_core::preset::Registry`, ST2): the
+      built-in catalogues of every registered kind, with a project's
+      files (`presets/<kind>/<key>.<kind>.yml`) over them. A project
+      preset may name another as its `base` (a loop is an error), and a
+      kind whose settings name other presets by key (tree Scatter,
+      Ecotope) gives a `References` through `catalogue!`'s `references:`,
+      so those references resolve through the registry. Built-in presets
+      refer only to built-in presets. The registry answers "used by".
+    - **Namespaced keys** (user decision, 2026-11-24): every layer has a
+      namespace, `builtin` (reserved) for the built-in presets and the
+      project's or bundle's `id` from its `procgena.yml`. References are
+      bare keys while only one layer has the key, and `namespace:key`
+      (`builtin:pine_small`, `my_forest:pine_small`) otherwise; a shared
+      key is reported as a problem. The namespace is never part of a
+      preset's key, so it never reaches child keys or seeds.
+    - **A reference resolves first in the namespace of the file that
+      wrote it** (user decision, 2026-11-24): names in a built-in file
+      always mean built-in presets, and a project file sees the project's
+      presets first; a bare key goes to the general lookup only when that
+      file's layer lacks it. A file's `base` never names the file itself.
 11. **Export everywhere.** Every asset and every Scatter exports OBJ and
     glTF from its CPU path.
     - Change: plant and clump; Scatters as a whole.

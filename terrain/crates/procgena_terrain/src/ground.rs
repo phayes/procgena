@@ -11,9 +11,9 @@
 //!   [`GroundStack::bare`] is the look of bare terrain.
 //! - A [`GroundOverlay`] holds layers laid in among a stack's, such as an
 //!   Ecotope's over its Biome's base ground.
-//! - [`ChunkWeights`] paints one terrain chunk with any [`GroundPainter`]:
-//!   a palette of up to [`PALETTE_SIZE`] materials and their weights at
-//!   every texel, for drawing.
+//! - [`GroundWeights`] paints one terrain chunk, or any rectangle, with any
+//!   [`GroundPainter`]: a palette of up to [`PALETTE_SIZE`] materials and
+//!   their weights at every texel, for drawing.
 //!
 //! The ground's look never feeds placement: Scatters may shape the ground,
 //! but nothing is placed from ground layers.
@@ -48,7 +48,7 @@ pub use layer::{Condition, GroundLayer, GroundNoise, HeightRule, Ramp, Reach, Sc
 pub use material::{GroundMaterial, MaterialCatalogue, MaterialId};
 pub use site::{GroundSite, GroundSource, OnGround, Water};
 pub use stack::{GroundMix, GroundOverlay, GroundPainter, GroundStack};
-pub use weights::{ChunkWeights, GROUND_TEXELS, PALETTE_SIZE};
+pub use weights::{GROUND_TEXELS, GroundWeights, PALETTE_SIZE};
 
 /// Why a catalogue or a stack of ground layers is invalid.
 #[derive(Debug, Clone, PartialEq)]

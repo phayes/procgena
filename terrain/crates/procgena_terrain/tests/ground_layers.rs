@@ -10,8 +10,8 @@ use common::{DEFAULT, RIVER_SEEDS, hills_into_plains};
 use glam::{DVec2, Vec2};
 use procgena_core::ChildKey;
 use procgena_terrain::ground::{
-    ChunkWeights, Condition, GROUND_TEXELS, GroundError, GroundLayer, GroundMaterial, GroundMix,
-    GroundNoise, GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack, HeightRule,
+    Condition, GROUND_TEXELS, GroundError, GroundLayer, GroundMaterial, GroundMix, GroundNoise,
+    GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack, GroundWeights, HeightRule,
     MaterialCatalogue, MaterialId, OnGround, PALETTE_SIZE, Ramp,
 };
 use procgena_terrain::{ChunkKey, FeatureTier, RoadTags, Terrain};
@@ -141,7 +141,7 @@ fn roads_and_riverbeds_show_on_a_terrain() {
 /// Every texel weight along the side of `weights` facing `side`, by
 /// material id: `(texel index along the side, material, weight)`.
 fn edge(
-    weights: &ChunkWeights,
+    weights: &GroundWeights,
     max_x: bool,
     catalogue: &MaterialCatalogue,
 ) -> Vec<(u32, MaterialId, u8)> {
@@ -163,8 +163,8 @@ fn neighbouring_chunks_agree_along_their_edge() {
     for level in [0, 1] {
         let west = ChunkKey::containing(road[road.len() / 2], level);
         let east = west.offset(1, 0);
-        let a = ChunkWeights::build(&bare, &plains, west, FeatureTier::Fine).unwrap();
-        let b = ChunkWeights::build(&bare, &plains, east, FeatureTier::Fine).unwrap();
+        let a = GroundWeights::chunk(&bare, &plains, west, FeatureTier::Fine).unwrap();
+        let b = GroundWeights::chunk(&bare, &plains, east, FeatureTier::Fine).unwrap();
         assert_eq!((a.dropped(), b.dropped()), (0, 0));
         assert!(
             a.palette().len() > 1,
@@ -211,7 +211,7 @@ fn blended_edges_agree_when_the_palettes_differ() {
     let stack = GroundStack::new(&layers, catalogue.clone(), "test.ground", 9, 1.0).unwrap();
     let rising = |p: DVec2| p.x as f32 * 0.01;
     let source = OnGround(&rising);
-    let build = |k| ChunkWeights::build(&stack, &source, k, FeatureTier::Fine).unwrap();
+    let build = |k| GroundWeights::chunk(&stack, &source, k, FeatureTier::Fine).unwrap();
     let dirt = catalogue.id("bare_dirt").unwrap();
 
     // Across an x edge: the west chunk has dirt, the east one doesn't.
@@ -256,9 +256,9 @@ fn chunks_are_the_same_whatever_order_they_are_built_in() {
         .collect();
     let build = |keys: &mut dyn Iterator<Item = &ChunkKey>| {
         let bare = GroundStack::bare(3, 1.0);
-        let mut built: BTreeMap<ChunkKey, ChunkWeights> = BTreeMap::new();
+        let mut built: BTreeMap<ChunkKey, GroundWeights> = BTreeMap::new();
         for &k in keys {
-            let weights = ChunkWeights::build(&bare, &plains, k, FeatureTier::Fine).unwrap();
+            let weights = GroundWeights::chunk(&bare, &plains, k, FeatureTier::Fine).unwrap();
             built.insert(k, weights);
         }
         built
@@ -291,7 +291,7 @@ fn a_chunk_keeps_its_eight_heaviest_materials() {
         )
     });
     let painter = Stripes(catalogue);
-    let weights = ChunkWeights::build(
+    let weights = GroundWeights::chunk(
         &painter,
         &OnGround(&procgena_core::FlatGround),
         ChunkKey::new(0, 0, 1),
@@ -373,4 +373,39 @@ fn invalid_stacks_are_refused() {
         ]),
         Err(GroundError::Layer { .. })
     ));
+}
+
+#[test]
+fn a_grid_over_a_chunk_paints_the_chunks_weights() {
+    let plains = plains();
+    let bare = GroundStack::bare(3, 1.0);
+    let road = &plains.roads()[0].points;
+    let key = ChunkKey::containing(road[road.len() / 2], 1);
+    let chunk = GroundWeights::chunk(&bare, &plains, key, FeatureTier::Fine).unwrap();
+    let grid = GroundWeights::grid(
+        &bare,
+        &plains,
+        key.min_corner(),
+        key.max_corner(),
+        glam::UVec2::splat(GROUND_TEXELS),
+        FeatureTier::Fine,
+    )
+    .unwrap();
+    assert_eq!(grid, chunk);
+
+    // A smaller grid of another shape, its corners on the rectangle's.
+    let (min, max) = (DVec2::new(3.0, -2.0), DVec2::new(13.0, 4.0));
+    let small = GroundWeights::grid(
+        &bare,
+        &OnGround(&procgena_core::FlatGround),
+        min,
+        max,
+        glam::UVec2::new(11, 4),
+        FeatureTier::Fine,
+    )
+    .unwrap();
+    assert_eq!(small.size(), glam::UVec2::new(11, 4));
+    assert_eq!(small.texels().len(), 44);
+    let grass = bare.catalogue().id("grass").unwrap();
+    assert_eq!(small.weight(10, 3, grass), 255);
 }

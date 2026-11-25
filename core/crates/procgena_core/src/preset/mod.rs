@@ -46,21 +46,40 @@
 //! [`catalogue!`](crate::catalogue) declares a crate's built-in presets and implements
 //! [`Preset`] for them. [`read`] turns a file's text into a preset, and
 //! [`write`](fn@write) turns a preset into a file's text, writing only what differs
-//! from a base.
+//! from a base. Writing always produces a fresh file: comments and layout
+//! in a file it replaces are lost.
 //! Formats that need more than this, such as Scatter files that refer to
 //! asset presets by key, build on [`Document`], [`merge`], [`to_value`],
 //! [`from_value`], [`diff`] and [`to_yaml`].
+//!
+//! # Projects
+//!
+//! A [`Registry`] holds the built-in presets of every registered kind and a
+//! project's own preset files, from a folder laid out as
+//! `presets/<kind>/<key>.<kind>.yml`. A project file's `base` may name
+//! another project preset, and its settings may refer to project presets
+//! by key, such as a Scatter's trees. A bare key works while one layer has
+//! it; when a project preset shares a built-in preset's key, references
+//! write a namespace too: `builtin:pine_small`, or the project's own, such
+//! as `my_forest:pine_small`.
 
 mod catalogue;
 mod document;
 mod error;
 mod file;
 mod merge;
+mod registry;
 
 pub use document::{Document, FILE_GROUP};
 pub use error::PresetFileError;
 pub use file::{Preset, PresetMeta, groups, read, write};
 pub use merge::{diff, from_value, merge, to_value, to_yaml};
+pub use registry::{
+    BUILTIN, Entry, Layer, PresetRef, Problem, ProjectPreset, Reference, ReferenceSlot, References,
+    Registry, Use, check_namespace, expand_slot, preset_path, slot_reference,
+};
 
+#[cfg(test)]
+mod registry_tests;
 #[cfg(test)]
 mod tests;

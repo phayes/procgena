@@ -460,6 +460,19 @@ goldens, which have no baseline on this machine).
   ground rules (GM3) and Biome rules can use them early. **G4b** adds
   `Landform`, `Flags` and labelled tiles. See
   [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
+- **Status (2026-11-24): G4a built.** `Terrain::query(p, SampleDetail)`
+  gives `Measures` at `SampleDetail::Measures`: slope (sine of the
+  angle, from G2's gradient), curvature (4 m stencil on the carved
+  ground), height above the nearby water (surfaces mixed by nearness),
+  and water and road distance from the feature index, capped at
+  `MEASURE_REACH` (40 m, `BANK_REACH`; height above water within
+  `WATER_HEIGHT_REACH`, 30 m). The cap keeps the measures per
+  region: every feature within 40 m of a border is known to both sides,
+  since own features stay `FEATURE_CLEARANCE` from borders and crossing
+  pieces are shared. Longer reaches need the neighbours' features (a
+  World-level follow-up). Tests in `tests/measures.rs`, images from
+  `--example measures_dump`. The relief height (`GroundSite::relief_height`)
+  is not filled: see the G4a report. G4b is next.
 
 #### G5: WorldTerrain (W1–W4)
 
@@ -649,9 +662,12 @@ From D5 (decided by the user 2026-11-24; see
 - **Status (2026-11-24):** built. `Ecotope`, `EcotopePreset`
   (`pine_forest_floor.ecotope.yml`) and `Ecotope::place` in
   `procgena_biome`; adapters in `src/ecotope/scatters.rs`;
-  `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. Plant
-  is left out: it is a Bevy crate placed on the GPU, with no `Ground` and
-  no seed, so it joins in C3 after R3. The viewer draws without textures.
+  `procgena_biome_bevy` with `spawn_ecotope` and a viewer example. The
+  viewer draws without textures. Plants joined in plant's P2
+  (2026-11-24, [plant/alignment_plan.md](plant/alignment_plan.md)): a
+  `plant` kind whose adapter bakes the ground and density at 0.5 m, with
+  the footprints above cleared as exact discs, drawn as one `PlantScatter`
+  per layer; the pine forest floor grows an undergrowth.
 - **Studio tab (wave 6, 2026-11-24):** built. The studio's Ecotope tab
   lists the built-in Ecotopes and loaded `.ecotope.yml` files, edits the
   seed and each Scatter by key (priority,
@@ -1025,6 +1041,14 @@ label-chosen material.
 - **Needs:** GM0 (G6 is merged).
 - **Done when:** headless screenshots of the terrain viewer and the
   Ecotope tab show ground colours, and the cost per chunk is recorded.
+- **Status (2026-11-24): done.** Terrain
+  chunks draw any painter's weights (bare terrain by default, with roads
+  and riverbeds), the Ecotope document draws its ground layers over a
+  patch, and the Terrain document shows the default stack. Painting costs
+  about 2.5 to 9 times a chunk's samples in dev. The user accepted the
+  look, the level-ring seam as it is, 0.5 m weights near the camera, and
+  the cost until GM2 and GM6. See "As built: GM1" and decisions 8 to 11
+  in the plan.
 
 #### GM2: Ground textures
 
@@ -1082,8 +1106,8 @@ summary below is for ordering.
 | Milestone | Covers | Needs |
 |---|---|---|
 | **ST0** Studio shell | Kind registry replacing the per-kind enumerations, documents, the new layout, environment and detail on the view frame, headless `type`/`hover`/`select`/`command` | The Fruit and Flower tabs (I1b) merged; runs alone in `procgena/src/` (churn window) |
-| **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips. **Status (2026-11-24): mostly built.** Core module, metadata for tree, tree Scatter, stone, clump, mushroom, dead wood, fruit, flower, terrain and World; the generated Inspector for every kind but Terrain (after GM1), plant, plant Scatter and Ecotope (later, with their metadata) | Core module, then per-crate workers beside ST0; studio half after ST0 |
-| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update keeping comments (`yamlpatch` + `yamlpath`), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
+| **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips. **Status (2026-11-24): mostly built.** Core module, metadata for tree, tree Scatter, stone, clump, mushroom, dead wood, fruit, flower, terrain and World; the generated Inspector for every kind but plant, plant Scatter and Ecotope (later, with their metadata) | Core module, then per-crate workers beside ST0; studio half after ST0 |
+| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update (whole-file rewrite, lossy for comments for now), namespaced keys (`builtin:` or the project/bundle id), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
 | **ST3** Library and Outline | Search, filters, shared selection, editing a referenced preset in context | ST1, ST2 |
 | **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
 | **ST5a** Picking by tags | CPU ray picks to parts, hover, highlight | ST3; R4 for Scatters other than trees |
@@ -1244,8 +1268,9 @@ where the details are.
       level 0 optional").
     - *Still open:* exact texture sizes per level and the resident cap,
       in GM2 with the machines from item 18.
-    - *Also open:* the level-ring seam in the weight textures (GM1), and
-      where plant's far colour function lives (before GM5, with the
+    - *Settled in GM1:* the level-ring seam in the weight textures stays
+      as it is.
+    - *Also open:* where plant's far colour function lives (before GM5, with the
       plant-align lane).
     - *Details:* [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),
       "Open questions".
@@ -1253,7 +1278,10 @@ where the details are.
     - *Decided by the user 2026-11-24:* Library, Outline, view frame and
       one Inspector replace the tabs; an outliner first, a diagram later;
       metadata in `<kind>.meta.yml` beside each crate's presets; a
-      project folder; updates keep comments (`yamlpatch` + `yamlpath`);
+      project folder; updates rewrite the whole file and lose comments for
+      now (keeping them is a long-term goal); namespaced keys
+      (`builtin` or the project/bundle id, bare when unambiguous;
+      `builtin` reserved);
       thumbnails cached, not committed; textures converted on import
       with `ctt` (BC7); one texture catalogue in `procgena_core`;
       viewing distance a requirement on IX; editing in context edits the
@@ -1261,7 +1289,8 @@ where the details are.
     - *Proposed, not decided:* the kind registry, document and selection
       model, the runtime preset registry and the `Preset` change, the
       capture service's home, and the "what is saved where" table.
-    - *Open:* key clashes between project and built-in presets, enum
+    - *Open:* whether a reference written in a built-in file always
+      means `builtin:` (see item 30), enum
       coverage in the metadata drift test, whether built-in thumbnails
       ship pre-rendered, where the capture module lives, Biome climate
       on the view frame, and the tree's Fruit chip.
@@ -1325,7 +1354,8 @@ where the details are.
       with its dependencies;
     - Open and Import are separate actions;
     - stored zip with a strict profile, named `.procgena`;
-    - qualify a key with its bundle only when a name is ambiguous;
+    - namespaced keys: `builtin:` or the project/bundle id, bare when
+      unambiguous, `builtin` reserved;
     - game loading, wasm, and the zip library are deferred to the build.
 
     The last three questions are also decided: Open unpacks into a new
@@ -1334,13 +1364,35 @@ where the details are.
     [docs/decisions/saved-file-format.md](docs/decisions/saved-file-format.md),
     "Questions for the user".
 
+30. **What a name inside a built-in preset means (ST2).** A project saves
+    its own `pine_small`. The built-in `pine_forest_floor` Ecotope says
+    `tree: pine_small`, meaning the built-in tree. A project Ecotope based
+    on `pine_forest_floor` inherits that line. Today the bare name is then
+    ambiguous (built-in or project), and you can't add the prefix because
+    the line lives in the built-in file. **Decided by the user
+    (2026-11-24):** a name resolves first in the namespace of the file it
+    was written in, so
+    names in built-in files always mean `builtin:`, and project files see
+    their own presets first. This needs the merge to remember which file
+    each line came from. The alternative is to keep it ambiguous and make
+    the user override the line in their own file.
+31. **Relief height for ground rules (G4a, for GM3).** A ground rule can
+    ask for height relative to the region's relief ("the top 20 % of this
+    region"). Nothing fills it yet. A per-region min/max scan is slow and
+    jumps at region borders. G4a suggests an analytic normalisation from
+    the terrain's own relief spreads, blended through the border fade. You
+    decide how it behaves at borders. Details:
+    [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
+
 ### Looks of work already built (wave 5)
 
 7. **Plant goldens.** None of the 48 golden images has a baseline for this
-   machine (there is no `plant/tests/golden/apple-m1-max/` folder), so
+   machine (there is no
+   `plant/crates/procgena_plant_bevy/tests/golden/apple-m1-max/` folder), so
    `cargo run --example golden` fails in every full suite. Only the user
    blesses goldens: run `cargo run --example golden -- --bless` from
-   `plant/` once the look in `target/golden/` is accepted.
+   `plant/crates/procgena_plant_bevy/` once the look in `target/golden/`
+   is accepted.
 8. **Stone placement on one lattice (C2).** Every stone class (boulders,
    rocks, pebbles) now shares one World lattice of small cells, and each
    cell picks its class, so that each stone has one stable address (D3).
@@ -1491,6 +1543,13 @@ Done (2026-11-24): items 10, 15 and 16 above.
   `ObjectTags` to `SpecimenTags` in clump_bevy; a shared candidate-loop
   helper for Scatters (C2).
 - `tree/tests/export_images.rs` needs `required-features`.
+- Long term: keep comments and layout when the studio updates a preset
+  file. Decided by the user on 2026-11-24: for now, writing a preset is
+  lossy for comments (a full rewrite through serde). The ST2 spike
+  compared `yamlpatch` + `yamlpath` (about 11 new crates, including C
+  builds through tree-sitter), `yaml-edit` (reported to misplace
+  comments), and our own patcher on `granit-parser` (no new crates).
+  The table is in `procgena/studio_plan.md`.
 - Long term, a possible optimisation: work on a `.procgena` bundle entirely
   inside the zip, with no unpacking to disk. Open would read through the
   mount source, and saves would rewrite the archive. A simpler middle step

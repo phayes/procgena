@@ -79,7 +79,7 @@ come from a shadow-casting `DirectionalLight`.
 Deferred grass matches forward grass closely. It approximates translucency
 less well, and toon bands are forward-only. Thin blades shimmer without
 anti-aliasing; TAA is recommended, and grass supplies exact motion vectors
-for it. The [`passes`](../examples/passes.rs) example shows each path.
+for it. The [`passes`](../crates/procgena_plant_bevy/examples/passes.rs) example shows each path.
 
 ## Branching plants
 

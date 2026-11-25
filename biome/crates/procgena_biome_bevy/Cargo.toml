@@ -11,7 +11,10 @@ procgena_biome = { path = "../procgena_biome" }
 procgena_core = { path = "../../../core/crates/procgena_core" }
 procgena_deadwood_bevy = { path = "../../../deadwood/crates/procgena_deadwood_bevy" }
 procgena_mushroom_bevy = { path = "../../../mushroom/crates/procgena_mushroom_bevy" }
+procgena_plant_bevy = { path = "../../../plant/crates/procgena_plant_bevy" }
 procgena_stone_bevy = { path = "../../../stone/crates/procgena_stone_bevy" }
+procgena_terrain = { path = "../../../terrain/crates/procgena_terrain" }
+procgena_terrain_bevy = { path = "../../../terrain/crates/procgena_terrain_bevy" }
 procgena_tree_bevy = { path = "../../../tree/crates/procgena_tree_bevy" }
 bevy = { version = "0.20.1", default-features = false, features = [
     "std",

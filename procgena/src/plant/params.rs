@@ -3,7 +3,7 @@
 //! Defines editable ranges and which controls appear when branches, heads,
 //! tufts or accents are enabled.
 
-use procgena_plant::prelude::{
+use procgena_plant_bevy::prelude::{
     PlantAccent, PlantArrangement, PlantBranches, PlantParams, PlantSegment,
 };
 
@@ -295,7 +295,7 @@ fn branches(title: &'static str) -> Group<PlantBranches> {
 #[cfg(test)]
 mod tests {
     use bevy::math::Vec2Swizzles;
-    use procgena_plant::prelude::{PlantPreset, PlantScatterPreset};
+    use procgena_plant_bevy::prelude::{PlantPreset, PlantScatterPreset};
 
     use super::*;
     use crate::params::checks;

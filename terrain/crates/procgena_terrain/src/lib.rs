@@ -95,6 +95,7 @@ mod grid;
 pub mod ground;
 mod gully;
 mod hash;
+mod measure;
 mod noise;
 mod options;
 mod plan;
@@ -126,6 +127,7 @@ pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };
 pub use hash::region_local_seed;
+pub use measure::{CURVATURE_STEP, MEASURE_REACH, Measures, SampleDetail, WATER_HEIGHT_REACH};
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,

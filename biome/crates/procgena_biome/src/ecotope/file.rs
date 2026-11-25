@@ -6,7 +6,10 @@
 //! that kind's defaults; a Scatter set to `null` is removed. Assets inside
 //! it (a stone class's `stone`, dead wood's `piece`, a mushroom Scatter's
 //! `mushroom`) name a built-in preset by key, or give settings laid over
-//! one (`{ base: <key>, ... }`) or over the asset's defaults.
+//! one (`{ base: <key>, ... }`) or over the asset's defaults. A plant
+//! Scatter's settings are those of a `.plant_scatter.yml` file's
+//! `plant_scatter:`, laid over the `meadow` preset, or over the plant
+//! Scatter preset its `base` names; its plants name plant presets by key.
 //!
 //! Ground layers are a map from key to settings in the same way: a file
 //! changes, adds or (with `null`) removes one layer without restating the
@@ -15,14 +18,18 @@
 use std::collections::BTreeMap;
 
 use procgena_core::ChildKey;
-use procgena_core::preset::{Preset, diff, from_value, merge, to_value};
+use procgena_core::preset::{
+    Preset, PresetFileError, ReferenceSlot, References, Registry, diff, expand_slot, from_value,
+    merge, slot_reference, to_value,
+};
 use procgena_deadwood::{DeadwoodPreset, ScatterOptions as DeadwoodScatterOptions};
 use procgena_mushroom::{
     MushroomOptions, MushroomPreset, ScatterOptions as MushroomScatterOptions,
 };
+use procgena_plant::{PlantScatterOptions, PlantScatterPreset};
 use procgena_stone::{StoneClass, StoneOptions, StonePreset, StoneScatterOptions};
 use procgena_terrain::ground::GroundLayer;
-use procgena_tree::TreeScatter;
+use procgena_tree::{TreeScatter, TreeScatterPreset};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
@@ -125,7 +132,7 @@ fn from_file(value: Value) -> Result<EcotopeScatter, String> {
         Some(Value::String(kind)) => kind,
         _ => {
             return Err(
-                "a Scatter must name its kind: tree, stone, deadwood or mushroom".to_owned(),
+                "a Scatter must name its kind: tree, stone, deadwood, mushroom or plant".to_owned(),
             );
         }
     };
@@ -175,9 +182,27 @@ fn from_file(value: Value) -> Result<EcotopeScatter, String> {
                 scatter: fill(&MushroomScatterOptions::default(), map)?,
             }
         }
+        "plant" => {
+            let base = match map.remove("base") {
+                Some(Value::String(key)) => PlantScatterPreset::named(&key)
+                    .ok_or_else(|| {
+                        let keys: Vec<&str> = PlantScatterPreset::all().map(|p| &*p.key).collect();
+                        format!(
+                            "base: unknown plant Scatter preset {key:?}; valid keys are {}",
+                            keys.join(", ")
+                        )
+                    })?
+                    .plant_scatter
+                    .clone(),
+                Some(_) => return Err("base must be a plant Scatter preset key".to_owned()),
+                None => PlantScatterOptions::default(),
+            };
+            ScatterKind::Plant(fill(&base, map)?)
+        }
         other => {
             return Err(format!(
-                "unknown kind {other:?}; a Scatter's kind is tree, stone, deadwood or mushroom"
+                "unknown kind {other:?}; a Scatter's kind is tree, stone, deadwood, mushroom \
+                 or plant"
             ));
         }
     };
@@ -275,6 +300,9 @@ fn to_file(scatter: &EcotopeScatter, short: bool) -> Value {
                 to_value(&MushroomScatterOptions::default()),
             )
         }
+        ScatterKind::Plant(options) => {
+            (to_value(options), to_value(&PlantScatterOptions::default()))
+        }
     };
     let written = if short {
         diff(&defaults, &settings)
@@ -361,6 +389,126 @@ fn resolve<P: Preset>(settings: &mut Value, field: &str) -> Result<(), String> {
             None => {}
         },
         _ => return Err(format!("{field} must be a {} preset key or a map", P::KIND)),
+    }
+    Ok(())
+}
+
+/// How an Ecotope's settings refer to asset presets: a tree Scatter's
+/// trees, a stone Scatter's classes' stones, dead wood's piece and a
+/// mushroom Scatter's mushroom.
+pub(crate) const REFERENCES: References = References {
+    slots: ecotope_slots,
+    expand: expand_ecotope,
+};
+
+/// Each Scatter in an Ecotope's settings with its key and kind. Scatters
+/// set to `null` and Scatters without a kind are left out.
+fn scatters(settings: &Value) -> impl Iterator<Item = (&String, &str, &Value)> {
+    settings
+        .get("scatters")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, scatter)| Some((key, scatter.get("kind")?.as_str()?, scatter)))
+}
+
+/// The asset preset references in an Ecotope's settings, at paths such as
+/// `scatters.pines.trees.0.tree` and `scatters.boulders.classes.1.stone`.
+fn ecotope_slots(settings: &Value) -> Vec<ReferenceSlot> {
+    let mut slots = Vec::new();
+    for (key, kind, scatter) in scatters(settings) {
+        // Each slot's path within the Scatter, and the kind it names.
+        let found: Vec<(String, &'static str, Option<&Value>)> = match kind {
+            "tree" => {
+                for tree in (TreeScatterPreset::references().slots)(scatter) {
+                    slots.push(ReferenceSlot {
+                        path: format!("scatters.{key}.{}", tree.path),
+                        ..tree
+                    });
+                }
+                Vec::new()
+            }
+            "stone" => {
+                let classes = scatter.get("classes").and_then(Value::as_array);
+                classes
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                    .map(|(i, class)| {
+                        (
+                            format!("classes.{i}.stone"),
+                            StonePreset::KIND,
+                            class.get("stone"),
+                        )
+                    })
+                    .collect()
+            }
+            "deadwood" => vec![(
+                "piece".to_owned(),
+                DeadwoodPreset::KIND,
+                scatter.get("piece"),
+            )],
+            "mushroom" => vec![(
+                "mushroom".to_owned(),
+                MushroomPreset::KIND,
+                scatter.get("mushroom"),
+            )],
+            _ => Vec::new(),
+        };
+
+        // Those that hold a reference.
+        for (path, kind, value) in found {
+            if let Some(reference) = value.and_then(slot_reference) {
+                slots.push(ReferenceSlot {
+                    path: format!("scatters.{key}.{path}"),
+                    kind,
+                    reference: reference.to_owned(),
+                });
+            }
+        }
+    }
+    slots
+}
+
+/// Replaces every asset preset reference in an Ecotope's settings with
+/// the settings it names, looked up in `registry`.
+fn expand_ecotope(settings: &mut Value, registry: &Registry) -> Result<(), PresetFileError> {
+    let Some(Value::Object(scatters)) = settings.get_mut("scatters") else {
+        return Ok(());
+    };
+    for (key, scatter) in scatters.iter_mut() {
+        let at = |path: &str| format!("scatters.{key}.{path}");
+        let kind = scatter
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        match kind {
+            "tree" => (TreeScatterPreset::references().expand)(scatter, registry)
+                .map_err(|error| error.at(&format!("scatters.{key}")))?,
+            "stone" => {
+                if let Some(Value::Array(classes)) = scatter.get_mut("classes") {
+                    for (i, class) in classes.iter_mut().enumerate() {
+                        if let Some(stone) = class.get_mut("stone") {
+                            expand_slot::<StonePreset>(stone, registry)
+                                .map_err(|error| error.at(&at(&format!("classes.{i}.stone"))))?;
+                        }
+                    }
+                }
+            }
+            "deadwood" => {
+                if let Some(piece) = scatter.get_mut("piece") {
+                    expand_slot::<DeadwoodPreset>(piece, registry)
+                        .map_err(|error| error.at(&at("piece")))?;
+                }
+            }
+            "mushroom" => {
+                if let Some(mushroom) = scatter.get_mut("mushroom") {
+                    expand_slot::<MushroomPreset>(mushroom, registry)
+                        .map_err(|error| error.at(&at("mushroom")))?;
+                }
+            }
+            _ => {}
+        }
     }
     Ok(())
 }

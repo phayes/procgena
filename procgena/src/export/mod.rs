@@ -399,7 +399,7 @@ mod tests {
 
     use crate::scene::{OrbitCamera, ViewportCamera};
     use bevy::math::Vec2;
-    use procgena_plant::prelude::{PlantParams, PlantScatter, ScatterPlant};
+    use procgena_plant_bevy::prelude::{PlantParams, PlantScatterOptions, ScatterPlant};
     use procgena_stone::StoneOptions;
     use procgena_tree::TreeOptions;
 
@@ -426,7 +426,7 @@ mod tests {
     }
 
     /// The field being edited.
-    fn field(studio: &mut HeadlessStudio) -> PlantScatter {
+    fn field(studio: &mut HeadlessStudio) -> PlantScatterOptions {
         let world = studio.app_mut().world_mut();
         world
             .run_system_cached(|reader: FieldReader| reader.field())

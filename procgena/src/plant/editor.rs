@@ -5,7 +5,7 @@ use bevy::feathers::controls::FeathersButton;
 use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
-use procgena_plant::prelude::{PlantParams, PlantPreset};
+use procgena_plant_bevy::prelude::{PlantParams, PlantPreset};
 
 use super::{params, read_plant, save_plant_preset};
 use crate::export::{Done, FileOps};

@@ -51,7 +51,8 @@ import tempfile
 import threading
 
 # The Cargo workspace (procgena), which owns Cargo.lock and target/, and the
-# procgena_plant package in it. This script lives in <workspace>/tools/plant/.
+# plant folder in it, which holds the demo's page. This script lives in
+# <workspace>/tools/plant/.
 WORKSPACE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = os.path.join(WORKSPACE, "plant")
 CARGO_TARGET = os.path.join(WORKSPACE, "target")

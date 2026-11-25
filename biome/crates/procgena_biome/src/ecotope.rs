@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 pub use footprints::{FootprintMask, Footprints};
 pub use ground::{EcotopeGround, GROUND_SEED_KIND};
 pub use presets::EcotopePreset;
-pub use scatters::{ScatterCopies, ScatterFailure, ScatterKind};
+pub use scatters::{PLANT_CELL, ScatterCopies, ScatterFailure, ScatterKind};
 
 /// The seed kind of a Scatter in an Ecotope: a Scatter keyed `key` in an
 /// Ecotope with seed `seed` is placed with
@@ -45,9 +45,10 @@ pub fn scatter_seed(ecotope_seed: u32, key: &ChildKey) -> u32 {
 /// where copies are placed, so a wide copy, such as a log, can still reach
 /// into a footprint above it.
 ///
-/// This is an early Ecotope: it holds tree, stone, dead wood and mushroom
-/// Scatters, runs on any [`Ground`](procgena_core::Ground), and knows
-/// nothing of Terrain.
+/// This is an early Ecotope: it holds tree, stone, dead wood, mushroom and
+/// plant Scatters, runs on any [`Ground`](procgena_core::Ground), and knows
+/// nothing of Terrain. A plant Scatter leaves no footprints, and clears
+/// every texel of [`PLANT_CELL`] metres that a footprint above it touches.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Ecotope {
@@ -251,7 +252,7 @@ impl Ecotope {
             // Place the Scatter and keep its footprints for those below.
             let (copies, footprints) = scatter
                 .scatter
-                .place(&scatter_input, scatter.clearance)
+                .place(&scatter_input, &above, scatter.clearance)
                 .map_err(|error| EcotopeError::Scatter {
                     key: key.clone(),
                     error,

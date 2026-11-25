@@ -10,9 +10,9 @@ use bevy::feathers::display::{caption, icon, label_small};
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::{Activate, ValueChange};
-use procgena_plant::MAX_PLANTS;
-use procgena_plant::prelude::{
-    PlantParams, PlantPreset, PlantScatter, PlantScatterPreset, ScatterPlant,
+use procgena_plant_bevy::MAX_PLANTS;
+use procgena_plant_bevy::prelude::{
+    PlantParams, PlantPreset, PlantScatterOptions, PlantScatterPreset, ScatterPlant,
 };
 
 use super::{
@@ -83,7 +83,7 @@ pub struct FieldEditorPlugin;
 impl Plugin for FieldEditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            ParamPanelPlugin::<PlantScatter>::default(),
+            ParamPanelPlugin::<PlantScatterOptions>::default(),
             ParamPanelPlugin::<ScatterPlant>::default(),
         ))
         .add_systems(
@@ -101,21 +101,21 @@ pub struct FieldReader<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     rows: Query<'w, 's, &'static PlantRow>,
     shares: Query<'w, 's, &'static ParamPanel<ScatterPlant>>,
-    fields: Query<'w, 's, &'static ParamPanel<PlantScatter>>,
+    fields: Query<'w, 's, &'static ParamPanel<PlantScatterOptions>>,
 }
 
 impl FieldReader<'_, '_> {
     /// The selected Plant Scatter's field: its plants, in row order, with
     /// its shared settings. `None` unless exactly one Plant Scatter editor
     /// is selected and ready.
-    pub fn field(&self) -> Option<PlantScatter> {
+    pub fn field(&self) -> Option<PlantScatterOptions> {
         self.field_of(self.selected.single().ok()?)
     }
 
     /// The field the Plant Scatter editor `editor` holds: its plants, in row
     /// order, with its shared settings. `None` if `editor` is not a Plant
     /// Scatter editor or is not ready yet.
-    pub fn field_of(&self, editor: Entity) -> Option<PlantScatter> {
+    pub fn field_of(&self, editor: Entity) -> Option<PlantScatterOptions> {
         let editor = self.editors.get(editor).ok()?;
         let field = self.fields.get(editor.panel).ok()?;
         let plants: Vec<ScatterPlant> = self
@@ -127,7 +127,7 @@ impl FieldReader<'_, '_> {
             .filter_map(|row| self.shares.get(row.share).ok())
             .map(|share| *share.value())
             .collect();
-        Some(PlantScatter {
+        Some(PlantScatterOptions {
             plants: plants.into(),
             ..field.value().clone()
         })
@@ -155,7 +155,7 @@ pub fn start_preset() -> &'static PlantScatterPreset {
 /// # Panics
 ///
 /// Panics if [`START_PRESET`] names no Plant Scatter preset.
-pub fn start_field() -> PlantScatter {
+pub fn start_field() -> PlantScatterOptions {
     start_preset().plant_scatter.clone()
 }
 
@@ -318,10 +318,10 @@ fn row_of(
 /// every row. The preset, and so the suggested file name, stays as it was.
 /// Run it with `World::run_system_cached_with`.
 pub fn load_field(
-    In(field): In<PlantScatter>,
+    In(field): In<PlantScatterOptions>,
     editor: Single<&FieldEditor, Without<Dormant>>,
     children: Query<&Children>,
-    mut fields: Query<&mut ParamPanel<PlantScatter>>,
+    mut fields: Query<&mut ParamPanel<PlantScatterOptions>>,
     mut commands: Commands,
 ) {
     show_field(&field, &editor, &children, &mut fields, &mut commands);
@@ -330,10 +330,10 @@ pub fn load_field(
 /// Replaces every row and the shared settings with `field`'s, and triggers
 /// [`FieldEdited`].
 fn show_field(
-    field: &PlantScatter,
+    field: &PlantScatterOptions,
     editor: &FieldEditor,
     children: &Query<&Children>,
-    fields: &mut Query<&mut ParamPanel<PlantScatter>>,
+    fields: &mut Query<&mut ParamPanel<PlantScatterOptions>>,
     commands: &mut Commands,
 ) {
     for row in children.get(editor.list).into_iter().flatten() {
@@ -514,7 +514,7 @@ fn choose_plant_preset(
 fn refresh_rows(
     editors: Query<&FieldEditor>,
     children: Query<&Children>,
-    fields: Query<&ParamPanel<PlantScatter>>,
+    fields: Query<&ParamPanel<PlantScatterOptions>>,
     mut rows: Query<&mut PlantRow>,
     mut shares: Query<&mut ParamPanel<ScatterPlant>>,
 ) {

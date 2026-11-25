@@ -61,8 +61,8 @@ cargo test -p <package> --doc
 | `stone/` | `procgena_stone_bevy`| Feature `gpu`                                                             |
 | `tree/`  | `procgena_tree`      | Features `export-obj`, `export-gltf`. One file per area in `tests/`. Depends on `procgena_fruit`; a fruit change rebuilds the tree. |
 | `tree/`  | `procgena_tree_bevy` | Feature `gltf`                                                            |
-| `biome/` | `procgena_biome`     | Engine-free. Biomes and Ecotopes share this crate. Empty Biomes for now (one Terrain, no Ecotopes); tests in `tests/empty_biomes.rs`. The early Ecotope (`src/ecotope*`) calls the tree, stone, deadwood and mushroom core crates through one adapter module (`src/ecotope/scatters.rs`); tests in `tests/ecotopes.rs` (they place real stones, so allow a few seconds). Its ground layers (`src/ecotope/ground.rs`): tests in `tests/ecotope_ground.rs`, and `--example ground_dump -- <dir>` writes a PPM of the pine forest floor's ground. |
-| `biome/` | `procgena_biome_bevy` | Draws a placed Ecotope with each asset's Bevy crate; `EcotopeParams` places in the background and redraws only changed Scatters. Headless tests in `src/lib.rs` and `src/placing.rs` (they place real stones, so allow a few seconds). `--example viewer -- --headless --screenshot <png>` (also `--preset`, `--file`, `--seed`, `--size`, `--eye`, `--target`) draws the pine forest floor without textures. |
+| `biome/` | `procgena_biome`     | Engine-free. Biomes and Ecotopes share this crate. Empty Biomes for now (one Terrain, no Ecotopes); tests in `tests/empty_biomes.rs`. The early Ecotope (`src/ecotope*`) calls the tree, stone, deadwood, mushroom and plant core crates (plant through `PlantScatterOptions::bake`) through one adapter module (`src/ecotope/scatters.rs`); tests in `tests/ecotopes.rs` (they place real stones, so allow a few seconds). Its ground layers (`src/ecotope/ground.rs`): tests in `tests/ecotope_ground.rs`, and `--example ground_dump -- <dir>` writes a PPM of the pine forest floor's ground. |
+| `biome/` | `procgena_biome_bevy` | Draws a placed Ecotope with each asset's Bevy crate; `EcotopeParams` places in the background and redraws only changed Scatters, and with a `GroundPatch` paints its ground layers with `procgena_terrain_bevy`'s material. Headless tests in `src/lib.rs` and `src/placing.rs` (they place real stones, so allow a few seconds). `--example viewer -- --headless --screenshot <png>` (also `--preset`, `--file`, `--seed`, `--size`, `--eye`, `--target`) draws the pine forest floor without textures. |
 | `world/` | `procgena_world`     | Engine-free. The World: options and scale-class presets (`.world.yml`), the Biome chosen per region from E, the selector fields and pins, region seeds, and the land through `WorldTerrain`. Tests in `tests/world.rs` (some build real regions, so allow half a minute). `--example large_world -- <dir>` (also `--seed`, `--preset`, `--span`, `--land`, `--size`) writes PPM maps of Biomes, E, ruggedness and moisture, and shaded land in the middle. |
 | `clump/` | `procgena_clump`     |                                                                           |
 | `clump/` | `procgena_clump_bevy`| Headless lifecycle tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders; download textures first with `uv run --project tools textures download clump`. |
@@ -76,10 +76,11 @@ cargo test -p <package> --doc
 | `specimen/` | `procgena_specimen` | Feature `bevy`. `Specimen`, levels, tags. Every generator depends on it, so a change rebuilds most of the workspace. |
 | `mushroom/` | `procgena_mushroom` | Features `export-obj`, `export-gltf`. One file per area in `tests/`.   |
 | `mushroom/` | `procgena_mushroom_bevy` | Headless spawn tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders (also `--preset <name>`, `--flat`). |
-| `plant/` | `procgena_plant`     | Features `debug`, `rapier`, `avian`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing it. |
+| `plant/` | `procgena_plant`     | Engine-free: plant and Scatter settings, presets and their YAML files. Feature `reflect` (Bevy's `Reflect` on every settings type). Also check it with `--no-default-features`. Read `plant/.claude/skills/procgena-plant-style/SKILL.md` before changing either plant crate. |
+| `plant/` | `procgena_plant_bevy`| Features `debug`, `rapier`, `avian`. The grass renderer, its WESL shaders and CPU mirror; examples and goldens live in this crate. `-- --ignored gpu` runs the readback tests. |
 | `plant/` | `procgena_plant_web` | Wasm demo                                                                 |
-| `terrain/` | `procgena_terrain` | Border tests in `tests/seams.rs`, rivers and roads in `tests/features.rs`, chunk meshes and their level transitions in `tests/chunks.rs`, ground materials and chunk weights (`src/ground*`) in `tests/ground_layers.rs`. `--example seam_spike -- <dir>` writes shaded images of joined regions; `--example ground_dump -- <dir>` a PPM of bare terrain's ground colours. |
-| `terrain/` | `procgena_terrain_bevy` | Streams terrain chunks around the camera. Headless streaming tests in `src/lib.rs`, swap logic in `src/stream.rs`. `--example viewer -- --headless --screenshot <png>` (also `--preset`, `--seed`, `--eye`, `--target`, `--view`, `--levels`, `--borders`, `--rough-from`); a cold world takes minutes to build in dev. |
+| `terrain/` | `procgena_terrain` | Border tests in `tests/seams.rs`, rivers and roads in `tests/features.rs`, chunk meshes and their level transitions in `tests/chunks.rs`, ground materials and chunk weights (`src/ground*`) in `tests/ground_layers.rs`, `Measures` (`src/measure.rs`, `Terrain::query`) in `tests/measures.rs` (about a minute). `--example seam_spike -- <dir>` writes shaded images of joined regions; `--example ground_dump -- <dir>` a PPM of bare terrain's ground colours; `--example measures_dump -- <dir>` PPMs of each measure; `--example ground_cost` (also `--preset`, `--seed`, `--chunks`) times ground weights per chunk level and measures the colour step between chunk levels. |
+| `terrain/` | `procgena_terrain_bevy` | Streams terrain chunks around the camera, each painted by the stream's `GroundPainter` into its own `TerrainMaterial` (weights in two textures, `src/shaders/terrain_fragment.wesl`). Headless streaming tests in `src/lib.rs`, swap logic in `src/stream.rs`. `--example viewer -- --headless --screenshot <png>` (also `--preset`, `--seed`, `--eye`, `--target`, `--view`, `--levels`, `--borders`, `--rough-from`); a cold world takes minutes to build in dev. |
 | `procgena/` | `procgena`        | Desktop studio app (binary). Its GPU tests are `#[ignore]`d: run with `-- --include-ignored`. Textures missing from `<project>/assets/textures/` are downloaded into the user's cache folder on first use, so the first run needs the network; `missing_textures_are_downloaded_and_drawn` always does. Use `cargo clippy -p procgena --all-targets --no-deps`. Kinds of preset register in `src/studio/kinds/` (one file each); the scene shows one `Subject` at a time (`src/scene/<subject>.rs`). The Ecotope document's GPU tests: `--bin procgena ecotope:: -- --include-ignored`. Headless scripts can `select KIND/KEY` and `command NAME`. |
 
 ### The comment-rewrite step
@@ -95,18 +96,20 @@ Wait until every worker has reported done before you start. Then run each
 step once, and send each failure to the worker that owns those files. Do not
 fix failures in files that a worker is still editing.
 
-The list comes from `.github/workflows/ci.yml`. CI checks only `plant/`, so
-the first three lines add the rest of the workspace.
+The list comes from `.github/workflows/ci.yml`. CI checks only the plant crates,
+so the first three lines add the rest of the workspace.
 
 1. `cargo fmt --all --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. `cargo test --workspace --all-features`
-4. From `plant/`: `python tools/lint.py`, `cargo test`,
+4. `python tools/plant/lint.py`; `cargo test -p procgena_plant` and
+   `cargo check -p procgena_plant --no-default-features`; then from
+   `plant/crates/procgena_plant_bevy/`: `cargo test`,
    `cargo test --features rapier`, `cargo test --features avian`, and
    `cargo test --example bench`
 5. `RUSTDOCFLAGS=-D warnings cargo doc --workspace --no-deps --all-features`
 6. `cargo machete`, `typos`, `cargo deny check`
-7. From `plant/`, if your machine supports these:
+7. From `plant/crates/procgena_plant_bevy/`, if your machine supports these:
    `cargo check --target wasm32-unknown-unknown --lib --examples`, the
    MSRV check `cargo +1.97.1 check --all-targets --all-features`, and the
    goldens with `cargo run --example golden`

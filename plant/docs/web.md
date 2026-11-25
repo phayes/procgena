@@ -42,7 +42,7 @@ bevy = { version = "0.20", features = ["webgpu"] }
   64.8 MiB with its function names stripped. [`tools/plant/web_demo.py`](../../tools/plant/web_demo.py) does every step and
   is a starting point for a game's own build.
 
-[`examples/webgpu_minimal.rs`](../examples/webgpu_minimal.rs) is the README's
+[`examples/webgpu_minimal.rs`](../crates/procgena_plant_bevy/examples/webgpu_minimal.rs) is the README's
 quick start with these choices made: a canvas that fills the page, `LOW` on
 the web, and a message on screen when the device cannot draw grass. Build it
 with `cargo build --release --target wasm32-unknown-unknown --example

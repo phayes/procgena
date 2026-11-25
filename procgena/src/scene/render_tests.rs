@@ -280,7 +280,7 @@ fn grass_after(command: ViewerCommand) -> f32 {
 #[ignore = "needs a GPU"]
 fn changed_plant_colours_are_drawn() {
     // Red blades, with no ground showing through or patches of other colours.
-    let red = Color::srgb(0.6, 0.05, 0.05);
+    let red = procgena_plant_bevy::Srgb::new(0.6, 0.05, 0.05);
     let mut settings = FieldSettings::default();
     let field = &mut settings.field;
     for entry in field.plants.to_mut() {

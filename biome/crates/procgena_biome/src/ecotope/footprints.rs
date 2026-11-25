@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{DVec2, Vec2};
-use procgena_core::scatter::Mask;
+use procgena_core::scatter::{Disc, Mask};
 use procgena_terrain::ground::{Ramp, Reach};
 
 /// Width of a lookup cell, in metres.
@@ -50,6 +50,30 @@ impl Shape {
         match self {
             Self::Disc { centre, radius } => (centre - radius, centre + radius),
             Self::Capsule { a, b, radius } => (a.min(b) - radius, a.max(b) + radius),
+        }
+    }
+
+    /// Adds discs that cover the shape to `out`, as World positions from
+    /// `origin`: the disc itself, or a chain along a capsule.
+    ///
+    /// A capsule's discs stand one radius apart along its length, each
+    /// widened so the chain covers the capsule's whole width between them.
+    fn cover(self, origin: DVec2, out: &mut procgena_core::scatter::Footprints) {
+        let at = |p: Vec2| origin + p.as_dvec2();
+        match self {
+            Self::Disc { centre, radius } => out.insert(Disc::new(at(centre), radius)),
+            Self::Capsule { a, b, radius } => {
+                if radius <= 0.0 {
+                    return;
+                }
+                let steps = (a.distance(b) / radius).ceil().max(1.0) as u32;
+                let spacing = a.distance(b) / steps as f32;
+                let widened = radius.hypot(0.5 * spacing);
+                for i in 0..=steps {
+                    let centre = a.lerp(b, i as f32 / steps as f32);
+                    out.insert(Disc::new(at(centre), widened));
+                }
+            }
         }
     }
 
@@ -184,6 +208,18 @@ impl FootprintMask {
     pub fn blocks(&self, p: DVec2) -> bool {
         self.above.iter().any(|footprints| footprints.contains(p))
     }
+
+    /// Discs covering every footprint the mask keeps out of, for a Scatter
+    /// that clears whole areas around them rather than testing points.
+    pub(crate) fn discs(&self) -> procgena_core::scatter::Footprints {
+        let mut discs = procgena_core::scatter::Footprints::new();
+        for footprints in &self.above {
+            for shape in &footprints.shapes {
+                shape.cover(footprints.origin, &mut discs);
+            }
+        }
+        discs
+    }
 }
 
 impl Mask for FootprintMask {
@@ -275,5 +311,45 @@ mod tests {
         assert_eq!(mask.density(DVec2::ZERO), 0.0);
         assert_eq!(mask.density(DVec2::new(10.0, 0.5)), 0.0);
         assert_eq!(mask.density(DVec2::new(5.0, 0.0)), 1.0);
+    }
+
+    #[test]
+    fn the_discs_cover_every_footprint_above() {
+        let mut shapes = Footprints::new(DVec2::new(5.0, -3.0));
+        shapes.insert(Shape::Disc {
+            centre: Vec2::new(1.0, 1.0),
+            radius: 0.3,
+        });
+        shapes.insert(Shape::Capsule {
+            a: Vec2::new(-2.0, 0.0),
+            b: Vec2::new(2.0, 1.5),
+            radius: 0.4,
+        });
+        let mask = FootprintMask::new(vec![Arc::new(shapes)]);
+        let discs = mask.discs();
+
+        // Every point inside a footprint is inside a disc, and points well
+        // clear of the footprints are in none.
+        let covered = |p: DVec2| {
+            discs
+                .discs()
+                .iter()
+                .any(|disc| disc.contains(procgena_core::scatter::lattice::Fixed2::from_world(p)))
+        };
+        for i in 0..200 {
+            for j in 0..120 {
+                let p = DVec2::new(2.0 + f64::from(i) * 0.03, -4.5 + f64::from(j) * 0.03);
+                if mask.blocks(p) {
+                    assert!(covered(p), "{p} is in a footprint but no disc");
+                }
+                let near = (0..10).any(|k| {
+                    let angle = f64::from(k) * std::f64::consts::TAU / 10.0;
+                    mask.blocks(p + DVec2::from_angle(angle) * 0.15)
+                });
+                if !near && !mask.blocks(p) {
+                    assert!(!covered(p), "{p} is well clear of every footprint");
+                }
+            }
+        }
     }
 }

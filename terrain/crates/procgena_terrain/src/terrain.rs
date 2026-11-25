@@ -12,6 +12,9 @@ use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
 use crate::elevation::Elevation;
 use crate::feature::{FeatureId, FeatureTier, TerrainFeature};
 use crate::hash::{SEAM_DETAIL, salt};
+use crate::measure::{
+    CURVATURE_STEP, MEASURE_REACH, Measures, SampleDetail, curvature_of, slope_of,
+};
 use crate::noise::{Octaves, fbm, fbm_gradient};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
@@ -890,21 +893,47 @@ impl Terrain {
         self.features.carve(p, base, slope.then_some(base_slope))
     }
 
-    /// Everything the terrain says about `p` (x and z, metres) at once:
-    /// the ground's height, its water and road tags, the same as
-    /// [`height`](Self::height), [`water_level`](Self::water_level) and
-    /// [`road_tags`](Self::road_tags) give, and with `gradient` how much
-    /// the ground rises per metre along x and z, as
-    /// [`sample`](Self::sample) gives it. Cheaper than asking for each in
-    /// turn; the gradient costs the most, near borders several times the
-    /// height.
-    pub fn query(&self, p: DVec2, gradient: bool) -> TerrainSample {
-        let (carved, slope) = self.point(p, gradient);
+    /// Everything the terrain says about `p` (x and z, metres) at once, as
+    /// far as `detail` asks:
+    ///
+    /// - always the ground's height, its water and road tags, the same as
+    ///   [`height`](Self::height), [`water_level`](Self::water_level) and
+    ///   [`road_tags`](Self::road_tags) give;
+    /// - from [`SampleDetail::Gradient`], how much the ground rises per
+    ///   metre along x and z, as [`sample`](Self::sample) gives it;
+    /// - at [`SampleDetail::Measures`], the [`Measures`]: slope, curvature,
+    ///   and the nearby water and roads.
+    ///
+    /// Cheaper than asking for each in turn. The gradient costs the most
+    /// near borders, several times the height; the measures cost about four
+    /// heights more.
+    pub fn query(&self, p: DVec2, detail: SampleDetail) -> TerrainSample {
+        let (carved, slope) = self.point(p, detail >= SampleDetail::Gradient);
+        let gradient = slope.as_vec2();
+        let measures =
+            (detail >= SampleDetail::Measures).then(|| self.measures(p, carved.height, gradient));
         TerrainSample {
             height: carved.height,
-            gradient: gradient.then(|| slope.as_vec2()),
+            gradient: (detail >= SampleDetail::Gradient).then_some(gradient),
             water: carved.water,
             tags: carved.tags,
+            measures,
+        }
+    }
+
+    /// The measures at `p`, where the carved ground is `height` high and
+    /// rises by `gradient`.
+    fn measures(&self, p: DVec2, height: f32, gradient: Vec2) -> Measures {
+        let reach = f64::from(MEASURE_REACH);
+        let nearby = self.features.nearby(p, reach);
+        let around = [DVec2::X, DVec2::NEG_X, DVec2::Y, DVec2::NEG_Y]
+            .map(|axis| self.height(p + axis * CURVATURE_STEP));
+        Measures {
+            slope: slope_of(gradient),
+            curvature: curvature_of(height, around),
+            height_above_water: nearby.water_level.map(|level| height - level),
+            water_distance: nearby.water_distance as f32,
+            road_distance: nearby.road_distance as f32,
         }
     }
 
@@ -1028,6 +1057,8 @@ pub struct TerrainSample {
     pub water: Option<f32>,
     /// What the roads made of the ground there (see [`RoadTags`]).
     pub tags: RoadTags,
+    /// The ground's measures, if asked for.
+    pub measures: Option<Measures>,
 }
 
 /// Anything with a ground height at every world position.
@@ -1351,16 +1382,30 @@ mod tests {
         let world = hills_into_plains();
         let t = &world.terrains()[0];
         for p in points().step_by(41) {
-            let plain = t.query(p, false);
-            let full = t.query(p, true);
+            let plain = t.query(p, SampleDetail::Height);
+            let full = t.query(p, SampleDetail::Gradient);
+            let measured = t.query(p, SampleDetail::Measures);
             let sample = t.sample(p);
             assert_eq!(plain.height.to_bits(), t.height(p).to_bits());
             assert_eq!(plain.water, t.water_level(p));
             assert_eq!(plain.tags, t.road_tags(p));
             assert_eq!(plain.gradient, None);
+            assert_eq!(plain.measures, None);
             assert_eq!(full.height, plain.height);
             assert_eq!(full.gradient, Some(sample.gradient));
+            assert_eq!(full.measures, None);
             assert_eq!(sample.height, plain.height);
+            assert_eq!(
+                (
+                    measured.height,
+                    measured.gradient,
+                    measured.water,
+                    measured.tags
+                ),
+                (full.height, full.gradient, full.water, full.tags)
+            );
+            let measures = measured.measures.expect("measures were asked for");
+            assert_eq!(measures.slope, slope_of(sample.gradient));
         }
     }
 }
