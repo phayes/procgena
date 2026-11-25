@@ -1437,6 +1437,17 @@ Each rule says what every asset does, and which crates have to change.
       Scatter, stone, deadwood, mushroom, clump and terrain. Biome presets
       have the shape but no files yet: `Biome` has no serde until B1/W0.
       Stone, stick and mushroom Scatters have serde but no presets yet.
+    - **Metadata beside the presets.** Each kind ships a
+      `presets/<kind>.meta.yml` (read by `procgena_core::meta`) giving its
+      name, parts, and each setting's label, description, unit, range,
+      conditions and revive value, and the crate exports it as a
+      `<KIND>_META` constant with any choice lists it names
+      (`meta_choices()`). A test in each crate (`tests/meta.rs`) keeps it in
+      step with the options: every setting has an entry, every entry a
+      setting. Tools build their settings panels from it. Done in ST1
+      (2026-11-24) for tree, the tree Scatter, stone, clump, mushroom, dead
+      wood, fruit, flower, terrain and World; plant, the plant Scatter and the
+      Ecotope follow.
     - **Writing is lossy for now** (user decision, 2026-11-24): saving
       rewrites the whole file as `base` plus differences, in a stable
       order, so hand-written comments and layout in an updated file are

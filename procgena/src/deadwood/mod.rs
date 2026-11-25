@@ -4,12 +4,25 @@
 //! moss grown on it, or a scatter of sticks.
 
 pub mod editor;
+/// Hand-written dead wood settings, still used by the Ecotope's dead wood
+/// Scatter panels until the Ecotope's Inspector is built from metadata.
 pub mod params;
+
+use std::sync::LazyLock;
 
 use procgena_clump::ClumpPreset;
 
 use crate::params::{Group, Section, choice};
 use crate::scene::{DeadwoodSettings, DeadwoodView};
+use crate::studio::inspector::MetaKind;
+
+/// The dead wood settings' metadata, from `deadwood.meta.yml`.
+pub static META: LazyLock<MetaKind> = LazyLock::new(|| {
+    MetaKind::new(
+        procgena_deadwood::DEADWOOD_META,
+        procgena_deadwood::meta_choices(),
+    )
+});
 
 /// The key of the dead wood preset opened when the studio starts on dead
 /// wood.

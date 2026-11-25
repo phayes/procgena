@@ -1,5 +1,6 @@
 //! Declarative descriptions of editable settings, independent of any widget.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 pub use crate::ui::SliderScale;
@@ -33,7 +34,7 @@ pub enum Control<T> {
     },
     /// One of a fixed list of named options, identified by index.
     Choice {
-        options: &'static [&'static str],
+        options: Cow<'static, [&'static str]>,
         get: Getter<T, usize>,
         set: Setter<T, usize>,
     },
@@ -53,6 +54,11 @@ pub struct Param<T> {
     /// For number settings, the value to use instead of a dead one (zero or
     /// the minimum) when an edit makes the setting appear; see [`revive`].
     pub revive: Option<Getter<T, f32>>,
+    /// What the setting does, shown as the row's tooltip, if anything.
+    pub description: Option<&'static str>,
+    /// The part of the asset the setting targets, such as `"leaf"`; the
+    /// panel can show only one part's settings. `None` for every part.
+    pub part: Option<&'static str>,
 }
 
 /// Settings shown together under an optional sub-heading.
@@ -68,6 +74,20 @@ pub struct Section<T> {
 }
 
 impl<T> Param<T> {
+    /// A setting edited by `control`, always shown, with no revive value,
+    /// description or part.
+    pub fn new(key: impl Into<String>, label: impl Into<String>, control: Control<T>) -> Self {
+        Self {
+            key: key.into(),
+            label: label.into(),
+            control,
+            shown: None,
+            revive: None,
+            description: None,
+            part: None,
+        }
+    }
+
     /// A number setting over `min..=max` in increments of `step`.
     pub fn number(
         key: impl Into<String>,
@@ -76,10 +96,10 @@ impl<T> Param<T> {
         get: impl Fn(&T) -> f32 + Send + Sync + 'static,
         set: impl Fn(&mut T, f32) + Send + Sync + 'static,
     ) -> Self {
-        Self {
-            key: key.into(),
-            label: label.into(),
-            control: Control::Number {
+        Self::new(
+            key,
+            label,
+            Control::Number {
                 min,
                 max,
                 step,
@@ -87,9 +107,7 @@ impl<T> Param<T> {
                 get: Arc::new(get),
                 set: Arc::new(set),
             },
-            shown: None,
-            revive: None,
-        }
+        )
     }
 
     /// A whole-number setting over `min..=max`.
@@ -116,16 +134,14 @@ impl<T> Param<T> {
         get: impl Fn(&T) -> bool + Send + Sync + 'static,
         set: impl Fn(&mut T, bool) + Send + Sync + 'static,
     ) -> Self {
-        Self {
-            key: key.into(),
-            label: label.into(),
-            control: Control::Toggle {
+        Self::new(
+            key,
+            label,
+            Control::Toggle {
                 get: Arc::new(get),
                 set: Arc::new(set),
             },
-            shown: None,
-            revive: None,
-        }
+        )
     }
 
     /// A colour setting stored as `0xRRGGBB`.
@@ -135,16 +151,14 @@ impl<T> Param<T> {
         get: impl Fn(&T) -> u32 + Send + Sync + 'static,
         set: impl Fn(&mut T, u32) + Send + Sync + 'static,
     ) -> Self {
-        Self {
-            key: key.into(),
-            label: label.into(),
-            control: Control::Color {
+        Self::new(
+            key,
+            label,
+            Control::Color {
                 get: Arc::new(get),
                 set: Arc::new(set),
             },
-            shown: None,
-            revive: None,
-        }
+        )
     }
 
     /// A choice between `options`, stored as an index into them.
@@ -155,17 +169,26 @@ impl<T> Param<T> {
         get: impl Fn(&T) -> usize + Send + Sync + 'static,
         set: impl Fn(&mut T, usize) + Send + Sync + 'static,
     ) -> Self {
-        Self {
-            key: key.into(),
-            label: label.into(),
-            control: Control::Choice {
+        Self::choice_of(key, label, Cow::Borrowed(options), get, set)
+    }
+
+    /// Like [`Param::choice`], with options worked out at run time.
+    pub fn choice_of(
+        key: impl Into<String>,
+        label: impl Into<String>,
+        options: Cow<'static, [&'static str]>,
+        get: impl Fn(&T) -> usize + Send + Sync + 'static,
+        set: impl Fn(&mut T, usize) + Send + Sync + 'static,
+    ) -> Self {
+        Self::new(
+            key,
+            label,
+            Control::Choice {
                 options,
                 get: Arc::new(get),
                 set: Arc::new(set),
             },
-            shown: None,
-            revive: None,
-        }
+        )
     }
 
     /// Shows the setting only while `when` holds, in addition to any
@@ -263,76 +286,6 @@ pub fn revive<T: Clone>(sections: &[Section<T>], before: &T, after: &mut T) -> b
     changed
 }
 
-impl<S: Sync + 'static> Param<S> {
-    /// Turns a setting of an `S` into a setting of a `T` that may contain an
-    /// `S`, such as a tree's optional fruit. `prefix` is prepended to the
-    /// key, separated by a dot. While `get` finds no `S`, the setting reads
-    /// from `absent`, writing it changes nothing, and it is hidden.
-    pub fn lift_option<T: 'static>(
-        self,
-        prefix: &str,
-        get: fn(&T) -> Option<&S>,
-        get_mut: fn(&mut T) -> Option<&mut S>,
-        absent: &'static S,
-    ) -> Param<T> {
-        let control = match self.control {
-            Control::Number {
-                min,
-                max,
-                step,
-                scale,
-                get: value,
-                set: write,
-            } => Control::Number {
-                min,
-                max,
-                step,
-                scale,
-                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
-                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
-            },
-            Control::Toggle {
-                get: value,
-                set: write,
-            } => Control::Toggle {
-                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
-                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
-            },
-            Control::Color {
-                get: value,
-                set: write,
-            } => Control::Color {
-                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
-                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
-            },
-            Control::Choice {
-                options,
-                get: value,
-                set: write,
-            } => Control::Choice {
-                options,
-                get: Arc::new(move |t| value(get(t).unwrap_or(absent))),
-                set: Arc::new(move |t, v| get_mut(t).into_iter().for_each(|s| write(s, v))),
-            },
-        };
-        let present: Getter<T, bool> = Arc::new(move |t| get(t).is_some());
-        let shown: Getter<T, bool> = match self.shown {
-            Some(shown) => Arc::new(move |t| get(t).is_some_and(|s| shown(s))),
-            None => present,
-        };
-        let revive = self.revive.map(|revive| -> Getter<T, f32> {
-            Arc::new(move |t| revive(get(t).unwrap_or(absent)))
-        });
-        Param {
-            key: format!("{prefix}.{}", self.key),
-            label: self.label,
-            control,
-            shown: Some(shown),
-            revive,
-        }
-    }
-}
-
 impl<S: 'static> Param<S> {
     /// Turns a setting of an `S` into a setting of a `T` that contains an `S`.
     /// `prefix` is prepended to the key, separated by a dot.
@@ -394,6 +347,8 @@ impl<S: 'static> Param<S> {
             control,
             shown,
             revive,
+            description: self.description,
+            part: self.part,
         }
     }
 }

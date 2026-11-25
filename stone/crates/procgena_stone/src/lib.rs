@@ -33,6 +33,9 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
+//! [`STONE_META`] describes every setting for tools that edit presets: its
+//! label, description, range and when it applies.
+//!
 //! The default `rayon` feature enables generation across multiple CPU threads.
 //! Disable default features for generation on the calling thread with the same
 //! mesh output.
@@ -86,6 +89,7 @@ pub mod gpu;
 mod grid;
 mod material;
 mod mesh;
+mod meta;
 mod noise;
 mod options;
 mod parallel;
@@ -102,6 +106,7 @@ pub use material::{
     ImageMap, TEXTURE_SETS, TextureCompression, TextureMap, TextureSize, image_path, texture_path,
 };
 pub use mesh::{StoneMesh, mesh_field};
+pub use meta::{STONE_META, meta_choices};
 pub use options::{
     CarveOptions, MAX_CARVE_STEPS, MAX_DETAIL_LEVELS, MAX_OCTAVES, MAX_RESOLUTION, MIN_RESOLUTION,
     MaterialOptions, MeshOptions, Mesher, OptionsError, PlacementOptions, StoneOptions,

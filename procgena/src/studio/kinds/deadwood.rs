@@ -2,12 +2,12 @@
 //! sticks, from a `.deadwood.yml` preset.
 
 use bevy::prelude::*;
-use procgena_deadwood::{DeadwoodOptions, DeadwoodPreset};
+use procgena_deadwood::DeadwoodPreset;
 
 use super::{Kind, RegisterKind, entries};
 use crate::deadwood::DeadwoodShow;
 use crate::deadwood::editor::{
-    DeadwoodEdited, DeadwoodEditor, DeadwoodEditorPlugin, spawn_deadwood_editor,
+    DeadwoodEdited, DeadwoodEditor, DeadwoodEditorPlugin, DeadwoodPanel, spawn_deadwood_editor,
 };
 use crate::export::deadwood::spawn_deadwood_export;
 use crate::params::ParamPanel;
@@ -47,10 +47,7 @@ pub fn register(app: &mut App) {
 fn show(world: &mut World, editor: Entity, document: u64) -> Option<Show> {
     let editor = world.get::<DeadwoodEditor>(editor)?;
     let (panel, show_panel) = (editor.panel(), editor.show_panel());
-    let piece = world
-        .get::<ParamPanel<DeadwoodOptions>>(panel)?
-        .value()
-        .clone();
+    let piece = world.get::<DeadwoodPanel>(panel)?.value().options().clone();
     let shown = *world.get::<ParamPanel<DeadwoodShow>>(show_panel)?.value();
     Some(Show::new::<DeadwoodSubject>(
         document,

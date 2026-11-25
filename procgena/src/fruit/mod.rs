@@ -3,10 +3,22 @@
 //! exports the cluster as a model.
 
 pub mod editor;
-pub mod params;
 
+use std::sync::LazyLock;
+
+use procgena_core::meta::ChoiceLists;
 #[cfg(test)]
 use procgena_fruit::{FruitOptions, FruitPreset};
+
+use crate::studio::inspector::MetaKind;
+
+/// The fruit settings' metadata, from `fruit.meta.yml`.
+pub static FRUIT_META: LazyLock<MetaKind> =
+    LazyLock::new(|| MetaKind::new(procgena_fruit::FRUIT_META, ChoiceLists::new()));
+
+/// The flower settings' metadata, from `flower.meta.yml`.
+pub static FLOWER_META: LazyLock<MetaKind> =
+    LazyLock::new(|| MetaKind::new(procgena_fruit::FLOWER_META, ChoiceLists::new()));
 
 /// The key of the fruit preset opened when fruit is the kind opened first.
 pub const START_FRUIT: &str = "apple";
