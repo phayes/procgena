@@ -53,11 +53,12 @@ procgena_core::catalogue! {
     }
 }
 
-/// A mountain layer that adds nothing.
-fn no_mountains() -> MountainLayer {
+/// A mountain layer that adds nothing, with ridges `wavelength` metres
+/// apart should its height be raised.
+pub(crate) fn no_mountains(wavelength: f32) -> MountainLayer {
     MountainLayer {
         height: 0.0,
-        wavelength: 1500.0,
+        wavelength,
         coverage: 0.0,
         octaves: 6,
     }
@@ -80,7 +81,7 @@ fn plains() -> TerrainOptions {
                 octaves: 5,
                 roughness: 0.5,
             },
-            mountains: no_mountains(),
+            mountains: no_mountains(1500.0),
             erosion: 0.3,
         },
         edges: EdgeOptions {
@@ -109,7 +110,7 @@ fn rolling_hills() -> TerrainOptions {
                 octaves: 6,
                 roughness: 0.5,
             },
-            mountains: no_mountains(),
+            mountains: no_mountains(1500.0),
             erosion: 1.0,
         },
         edges: EdgeOptions {
@@ -158,7 +159,7 @@ fn mountains() -> TerrainOptions {
 /// River and road settings: sources per km², river width (m), shortest
 /// river kept (m), and the steepest comfortable road grade. Roads may
 /// climb up to twice that grade, but never more than 0.25.
-fn features(density: f32, width: f32, min_length: f32, grade: f32) -> FeatureOptions {
+pub(crate) fn features(density: f32, width: f32, min_length: f32, grade: f32) -> FeatureOptions {
     FeatureOptions {
         rivers: RiverOptions {
             density,

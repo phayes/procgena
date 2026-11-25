@@ -405,11 +405,7 @@ mod tests {
 
     #[test]
     fn slopes_match_the_heights() {
-        for preset in [
-            TerrainPreset::plains(),
-            TerrainPreset::rolling_hills(),
-            TerrainPreset::mountains(),
-        ] {
+        for preset in TerrainPreset::all().chain(crate::fixtures::all()) {
             assert_slope_matches(&Relief::new(&preset.terrain), &preset.name);
         }
     }

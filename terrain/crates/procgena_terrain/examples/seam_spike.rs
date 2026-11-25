@@ -54,7 +54,7 @@ fn main() -> std::io::Result<()> {
     });
     let warp = match std::env::args().nth(3).as_deref() {
         None => None,
-        Some("warped") => Some(procgena_terrain::BorderWarp::default()),
+        Some("warped") => Some(procgena_terrain::fixtures::warp_medium()),
         Some(other) => panic!("the third argument may only be `warped`, not {other}"),
     };
     let config = common::Config {

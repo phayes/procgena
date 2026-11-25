@@ -563,7 +563,7 @@ mod tests {
     /// Two regions split by a bent border, as in the seam tests.
     fn two_specs() -> Vec<RegionSpec> {
         let points = |p: &[(f64, f64)]| p.iter().map(|&(x, z)| DVec2::new(x, z)).collect();
-        let options = crate::TerrainPreset::plains().terrain.clone();
+        let options = crate::fixtures::plains_medium().terrain.clone();
         vec![
             RegionSpec {
                 id: crate::RegionId(1),

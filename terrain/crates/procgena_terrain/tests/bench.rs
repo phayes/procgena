@@ -285,8 +285,8 @@ fn warm_tiles() {
 #[ignore]
 fn chunks() {
     use procgena_terrain::{
-        ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, TerrainPreset, Transitions,
-        WorldTerrain, WorldTerrainOptions,
+        ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, Transitions, WorldTerrain,
+        WorldTerrainOptions, fixtures,
     };
     use std::sync::Arc;
 
@@ -339,11 +339,11 @@ fn chunks() {
         let mut cold = Vec::new();
         for seed in 1..=4 {
             let source = |_: RegionId, _: DVec2, _: &Elevation| {
-                TerrainPreset::rolling_hills().terrain.clone()
+                fixtures::rolling_hills_medium().terrain.clone()
             };
             let options = WorldTerrainOptions {
                 seed,
-                ..WorldTerrainOptions::default()
+                ..fixtures::world_medium()
             };
             let world = WorldTerrain::new(options, Arc::new(source)).unwrap();
             let key = ChunkKey::containing(DVec2::new(300.0, -200.0), level);
