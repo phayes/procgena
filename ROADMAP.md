@@ -1839,9 +1839,14 @@ features and paint.
   and about 7 ms a frame before; 252 chunks, 2.2 M triangles and 10–13 ms
   after. `--cell-pixels` tries other targets (5 px: 3.9 M triangles;
   4 px: 6 M). **Left:** the camera's own field of view (today
-  `ViewScale::DEFAULT`, as for IX), geomorphing, paint resolution per
-  level, the middle feature tier (TE5's coarse road outline can feed it),
-  and progressive loading.
+  `ViewScale::DEFAULT`, as for IX), paint resolution per level, the
+  middle feature tier (TE5's coarse road outline can feed it), and
+  progressive loading. Geomorphing is wanted but deferred by the user
+  (2026-11-25). The plan: each vertex carries its height and normal on the
+  next coarser level, and the vertex shader blends the two by distance.
+  The blend must finish inside the level's hysteresis band, so a swap
+  shows no change, and must be worked out in world space, so
+  neighbouring chunks agree.
 - **Before** (read from the code): chunk level `L` has 1 m × 2^L cells
   and starts at 64 m × 2^L (`chunk_lod`), so every level starts with a
   cell about 1/64 of the view distance across, roughly 30 px on a 1440 px
