@@ -144,10 +144,10 @@ impl Default for RiverOptions {
     fn default() -> Self {
         Self {
             density: 0.4,
-            spacing: 500.0,
+            spacing: 250.0,
             width: 6.0,
             depth: 1.5,
-            min_length: 400.0,
+            min_length: 200.0,
         }
     }
 }
@@ -244,22 +244,22 @@ pub struct EdgeOptions {
 impl Default for BaseOptions {
     fn default() -> Self {
         Self {
-            elevation: 40.0,
+            elevation: 20.0,
             swells: NoiseLayer {
-                height: 12.0,
-                wavelength: 1500.0,
+                height: 6.0,
+                wavelength: 750.0,
                 octaves: 3,
                 roughness: 0.45,
             },
             hills: NoiseLayer {
-                height: 8.0,
-                wavelength: 300.0,
+                height: 4.0,
+                wavelength: 150.0,
                 octaves: 6,
                 roughness: 0.5,
             },
             mountains: MountainLayer {
                 height: 0.0,
-                wavelength: 1500.0,
+                wavelength: 750.0,
                 coverage: 0.4,
                 octaves: 6,
             },
@@ -272,8 +272,8 @@ impl Default for EdgeOptions {
     fn default() -> Self {
         Self {
             stiffness: 1.0,
-            margin: 200.0,
-            roughness: 2.0,
+            margin: 100.0,
+            roughness: 1.0,
         }
     }
 }

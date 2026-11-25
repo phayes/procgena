@@ -64,8 +64,8 @@ pub struct BorderWarp {
 impl Default for BorderWarp {
     fn default() -> Self {
         Self {
-            amplitude: 100.0,
-            wavelength: 800.0,
+            amplitude: 50.0,
+            wavelength: 400.0,
         }
     }
 }

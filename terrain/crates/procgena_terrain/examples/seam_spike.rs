@@ -5,31 +5,45 @@
 //! cargo run --release -p procgena_terrain --example seam_spike -- target/terrain_spike
 //! ```
 //!
-//! Each world is written twice as a binary PPM image: joined, with rivers,
-//! ponds and roads; and with each region's own unbent terrain, for
-//! comparison. An optional second argument sets the relief blend (0 to 1,
-//! default 0.5; see `Convergence::blend`). A third argument, `warped`,
-//! warps the borders with the default `BorderWarp`.
+//! Each test world is written twice as a binary PPM image: joined, with
+//! rivers, ponds and roads; and with each region's own unbent terrain, for
+//! comparison. These worlds use the medium-scale test fixtures. An
+//! optional second argument sets the relief blend (0 to 1, default 0.5;
+//! see `Convergence::blend`). A third argument, `warped`, warps the
+//! borders with the fixtures' border warp.
+//!
+//! With `shipped` as the third argument it instead writes the default
+//! world layout (2 km regions, the default warp and world elevation) with
+//! the shipped presets mixed region by region, for seeds 1 and 2. Images
+//! cover 4 km square either way.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use glam::{DVec2, I64Vec2, UVec2, Vec3};
-use procgena_terrain::{HeightField, HeightTile, StitchedWorld};
+use procgena_terrain::{
+    Elevation, HeightField, HeightTile, RegionId, StitchedWorld, TerrainPreset, WorldTerrain,
+    WorldTerrainOptions,
+};
 
 /// Image size in pixels, and metres per pixel.
 const PIXELS: u32 = 1000;
 const STEP: f64 = 4.0;
 
-/// Region tints, by position in the world's region list.
+/// Region tints, by position in the world's region list, or by preset.
 const TINTS: [Vec3; 3] = [
     Vec3::new(0.75, 0.9, 0.6),
     Vec3::new(0.85, 0.8, 0.95),
     Vec3::new(0.95, 0.85, 0.6),
 ];
+
+/// The colour of ground no terrain owns.
+const NO_OWNER: Vec3 = Vec3::splat(0.3);
 
 /// The world's terrains before bending: each region's own height.
 struct Unbent<'a>(&'a StitchedWorld);
@@ -55,7 +69,14 @@ fn main() -> std::io::Result<()> {
     let warp = match std::env::args().nth(3).as_deref() {
         None => None,
         Some("warped") => Some(procgena_terrain::fixtures::warp_medium()),
-        Some(other) => panic!("the third argument may only be `warped`, not {other}"),
+        Some("shipped") => {
+            for seed in [1, 2] {
+                write_shipped(&dir.join(format!("shipped_seed{seed}.ppm")), seed)?;
+            }
+            println!("wrote images to {}", dir.display());
+            return Ok(());
+        }
+        Some(other) => panic!("the third argument may be `warped` or `shipped`, not {other}"),
     };
     let config = common::Config {
         blend,
@@ -70,25 +91,79 @@ fn main() -> std::io::Result<()> {
             common::hills_into_plains(common::RIVER_SEEDS[0], config),
         ),
     ] {
-        write_relief(&dir.join(format!("{name}.ppm")), &world, &world, true)?;
+        let roads: Vec<Vec<DVec2>> = world
+            .terrains()
+            .iter()
+            .flat_map(|t| t.roads())
+            .map(|line| line.points.clone())
+            .collect();
+        let tint = |p: DVec2| {
+            let owner = world.owner(p);
+            let tint = owner
+                .and_then(|owner| world.terrains().iter().position(|t| std::ptr::eq(t, owner)))
+                .map_or(NO_OWNER, |k| TINTS[k % TINTS.len()]);
+            (tint, owner.and_then(|t| t.water_level(p)).is_some())
+        };
+        write_relief(&dir.join(format!("{name}.ppm")), &world, tint, &roads)?;
+        let unbent_tint = |p: DVec2| (tint(p).0, false);
         write_relief(
             &dir.join(format!("{name}_unbent.ppm")),
-            &world,
             &Unbent(&world),
-            false,
+            unbent_tint,
+            &[],
         )?;
     }
     println!("wrote images to {}", dir.display());
     Ok(())
 }
 
-/// Writes `field` as a shaded, region-tinted relief image. With `features`,
-/// water is drawn blue and roads dark grey.
+/// The shipped preset for `region`, by a hash of its id: its index in
+/// [`TerrainPreset::all`].
+fn preset_index(region: RegionId) -> usize {
+    let hash = region.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40;
+    hash as usize % TerrainPreset::all().count()
+}
+
+/// Writes the default world layout seeded with `seed`, each region with a
+/// shipped preset and tinted by it.
+fn write_shipped(path: &Path, seed: u32) -> std::io::Result<()> {
+    let presets: Vec<&TerrainPreset> = TerrainPreset::all().collect();
+    let source = move |region: RegionId, _: DVec2, _: &Elevation| {
+        presets[preset_index(region)].terrain.clone()
+    };
+    let options = WorldTerrainOptions {
+        seed,
+        ..WorldTerrainOptions::default()
+    };
+    let world = WorldTerrain::new(options, Arc::new(source)).expect("the default world is valid");
+
+    // Roads of every region the image touches, found on a 100 m grid.
+    let half = f64::from(PIXELS) * STEP / 2.0;
+    let regions: BTreeSet<RegionId> = (0..=40)
+        .flat_map(|j| (0..=40).map(move |i| (i, j)))
+        .map(|(i, j)| world.region_at(DVec2::new(f64::from(i), f64::from(j)) * 100.0 - half))
+        .collect();
+    let roads: Vec<Vec<DVec2>> = regions
+        .iter()
+        .flat_map(|&r| world.terrain(r).expect("regions build").roads().to_vec())
+        .map(|line| line.points)
+        .collect();
+
+    let tint = |p: DVec2| {
+        let tint = TINTS[preset_index(world.region_at(p)) % TINTS.len()];
+        (tint, world.water_level(p).is_some())
+    };
+    write_relief(path, &world, tint, &roads)
+}
+
+/// Writes `field` as a shaded relief image, tinted by `tint`, which gives
+/// each point's colour and whether it is under water (drawn blue). `roads`
+/// are drawn dark grey.
 fn write_relief(
     path: &Path,
-    world: &StitchedWorld,
     field: &impl HeightField,
-    features: bool,
+    tint: impl Fn(DVec2) -> (Vec3, bool),
+    roads: &[Vec<DVec2>],
 ) -> std::io::Result<()> {
     let half = i64::from(PIXELS / 2);
     let origin = I64Vec2::splat(-half);
@@ -103,16 +178,14 @@ fn write_relief(
 
     // Roads, drawn into a mask by walking each line.
     let mut road = vec![false; (PIXELS * PIXELS) as usize];
-    if features {
-        for line in world.terrains().iter().flat_map(|t| t.roads()) {
-            for w in line.points.windows(2) {
-                let steps = (w[0].distance(w[1]) / (STEP / 2.0)).ceil() as usize;
-                for k in 0..=steps {
-                    let q = (w[0].lerp(w[1], k as f64 / steps.max(1) as f64) / STEP).round();
-                    let (i, j) = (q.x as i64 - origin.x, q.y as i64 - origin.y);
-                    if (0..i64::from(PIXELS)).contains(&i) && (0..i64::from(PIXELS)).contains(&j) {
-                        road[(j * i64::from(PIXELS) + i) as usize] = true;
-                    }
+    for line in roads {
+        for w in line.windows(2) {
+            let steps = (w[0].distance(w[1]) / (STEP / 2.0)).ceil() as usize;
+            for k in 0..=steps {
+                let q = (w[0].lerp(w[1], k as f64 / steps.max(1) as f64) / STEP).round();
+                let (i, j) = (q.x as i64 - origin.x, q.y as i64 - origin.y);
+                if (0..i64::from(PIXELS)).contains(&i) && (0..i64::from(PIXELS)).contains(&j) {
+                    road[(j * i64::from(PIXELS) + i) as usize] = true;
                 }
             }
         }
@@ -132,14 +205,10 @@ fn write_relief(
             let normal = Vec3::new(-dx, 1.0, -dz).normalize();
             let shade = 0.25 + 0.75 * normal.dot(light).max(0.0);
 
-            // Tint by owning region, then water and roads.
-            let p = position(i, j);
-            let owner = world.owner(p);
-            let tint = owner
-                .and_then(|owner| world.terrains().iter().position(|t| std::ptr::eq(t, owner)))
-                .map_or(Vec3::splat(0.3), |k| TINTS[k % TINTS.len()]);
+            // Tint, then water and roads.
+            let (tint, wet) = tint(position(i, j));
             let mut colour = tint * shade;
-            if features && owner.and_then(|t| t.water_level(p)).is_some() {
+            if wet {
                 colour = Vec3::new(0.15, 0.35, 0.8) * (0.6 + 0.4 * shade);
             }
             if road[(j * PIXELS + i) as usize] {
