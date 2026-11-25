@@ -8,11 +8,13 @@ use std::sync::{Arc, Mutex};
 
 use common::{DEFAULT, RIVER_SEEDS, hills_into_plains};
 use glam::{DVec2, DVec3};
+use procgena_core::chain::ViewScale;
 use procgena_core::{Lod, LodLevel};
 use procgena_terrain::{
-    CHUNK_CELLS, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide, ChunkSource,
-    EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId, RegionProgress,
-    RegionStage, Terrain, Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod, fixtures,
+    CHUNK_CELLS, ChunkDetail, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide,
+    ChunkSource, EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId,
+    RegionProgress, RegionStage, Terrain, Transitions, WorldTerrain, WorldTerrainOptions,
+    chunk_lod, fixtures,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
@@ -261,11 +263,12 @@ fn the_usual_levels_fit_any_view_distance() {
     // the levels that start inside it.
     for (view, levels) in [
         (50.0, 1),
-        (150.0, 1),
-        (160.0, 2),
-        (3000.0, 6),
-        (4000.0, 6),
-        (6000.0, 7),
+        (300.0, 1),
+        (320.0, 2),
+        (3000.0, 5),
+        (4000.0, 5),
+        (6000.0, 6),
+        (12000.0, 7),
     ] {
         let lod = chunk_lod(view);
         assert_eq!(lod.levels.len(), levels, "view distance {view} m");
@@ -279,6 +282,40 @@ fn the_usual_levels_fit_any_view_distance() {
     endless.cull_distance = None;
     assert!(ChunkSelection::around(&endless, 1.0, &viewer, None).is_err());
     assert!(ChunkSelection::around(&chunk_lod(6000.0), 0.0, &viewer, None).is_err());
+}
+
+#[test]
+fn each_level_takes_over_at_its_size_on_screen() {
+    // Where a level takes over, one of its cells covers the detail's share
+    // of the screen, for any camera.
+    for view in [ViewScale::DEFAULT, ViewScale::perspective(0.4)] {
+        for cell_on_screen in [0.004, 0.01, 0.03] {
+            let detail = ChunkDetail {
+                cell_on_screen,
+                view,
+            };
+            let lod = detail.lod(1.0e6);
+            assert_eq!(lod.levels.len(), 7);
+            for (level, l) in lod.levels.iter().enumerate().skip(1) {
+                let cell = ChunkKey::new(0, 0, level as u8).step() as f32;
+                let on_screen = cell * view.get() / l.distance;
+                assert!(
+                    (on_screen - cell_on_screen).abs() < 1e-6,
+                    "level {level}: {on_screen} of the screen"
+                );
+            }
+        }
+    }
+    // A narrower field of view keeps each level farther out.
+    let wide = ChunkDetail::DEFAULT.lod(1.0e6);
+    let narrow = ChunkDetail {
+        view: ViewScale::perspective(0.4),
+        ..ChunkDetail::DEFAULT
+    }
+    .lod(1.0e6);
+    assert!(narrow.levels[1].distance > wide.levels[1].distance);
+    // The usual levels are the default detail's.
+    assert_eq!(chunk_lod(4000.0), ChunkDetail::default().lod(4000.0));
 }
 
 #[test]

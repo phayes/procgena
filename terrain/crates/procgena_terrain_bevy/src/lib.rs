@@ -812,7 +812,9 @@ mod tests {
 
     use bevy::asset::AssetPlugin;
     use bevy::time::TimeUpdateStrategy;
-    use procgena_terrain::{Boundary, Region, RegionId, TerrainGenerator, TerrainPreset};
+    use procgena_terrain::{
+        Boundary, ChunkDetail, Region, RegionId, TerrainGenerator, TerrainPreset,
+    };
 
     use super::*;
 
@@ -858,7 +860,13 @@ mod tests {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             16,
         )));
-        let plugin = TerrainPlugin::new(chunk_lod(300.0)).unwrap();
+        // Coarse levels (level 1 from 128 m), so a short view still spans
+        // two levels and few chunks.
+        let coarse = ChunkDetail {
+            cell_on_screen: 2.0 * ChunkDetail::DEFAULT.cell_on_screen,
+            ..ChunkDetail::DEFAULT
+        };
+        let plugin = TerrainPlugin::new(coarse.lod(300.0)).unwrap();
         // Only the streaming, not the material plugin, which needs a
         // renderer.
         app.insert_resource(TerrainSettings {

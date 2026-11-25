@@ -17,6 +17,9 @@
 //! - `--eye x y z` and `--target x y z`: where the camera starts and what it
 //!   looks at, with each `y` in metres above the ground there;
 //! - `--view <metres>`: the view distance (default 4000);
+//! - `--cell-pixels <n>`: the largest a terrain cell is drawn, in pixels of
+//!   a 720-pixel-high screen (default about 7); smaller is finer and
+//!   draws more triangles;
 //! - `--rough-from <level>`: draw chunk levels from this one up at the
 //!   rough tier only, without roads;
 //! - `--levels`, `--borders`: start with chunk levels tinted, or chunk
@@ -27,14 +30,20 @@
 //!   without it the ground has flat colours;
 //! - `--screenshot <file.png>`: save an image once every chunk is drawn,
 //!   then exit;
-//! - `--headless`: with `--screenshot`, render a 1280 × 720 image without
-//!   opening a window.
+//! - `--measure <frames>`: once every chunk is drawn, time this many frames
+//!   and print, per chunk level, the chunks and triangles drawn and how
+//!   wide one cell of the nearest and farthest chunk is on screen; then
+//!   exit (after the screenshot, with `--screenshot`). Frames are not
+//!   capped with `--headless`; in a window they are capped by vsync;
+//! - `--headless`: with `--screenshot` or `--measure`, render a
+//!   1280 × 720 image without opening a window.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
+use bevy::camera::primitives::Aabb;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
@@ -43,10 +52,11 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
 use procgena_terrain::{
-    Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions, chunk_lod,
+    ChunkDetail, ChunkKey, Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
-    GroundTextureSettings, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream, TerrainViewer, TerrainWater,
+    GroundTextureSettings, TerrainChunk, TerrainDebug, TerrainPlugin, TerrainProgress,
+    TerrainStream, TerrainViewer, TerrainWater,
 };
 
 /// Frames to wait after every chunk is drawn before a screenshot, so
@@ -59,6 +69,19 @@ const SCREENSHOT_TIMEOUT: f32 = 900.0;
 /// Where to save a screenshot, from `--screenshot <file.png>`.
 #[derive(Resource)]
 struct ScreenshotPath(Option<String>);
+
+/// Timing and detail figures, from `--measure <frames>`.
+#[derive(Resource)]
+struct Measure {
+    /// Frames to time.
+    frames: usize,
+    /// Each timed frame's length in seconds.
+    times: Vec<f32>,
+    /// Settled frames counted before timing starts.
+    settled: u32,
+    /// Whether the report is printed.
+    done: bool,
+}
 
 /// The image the camera draws into with `--headless`.
 #[derive(Resource)]
@@ -132,14 +155,32 @@ fn main() {
     let target = on_ground(vector("--target").unwrap_or(Vec3::new(900.0, 0.0, -300.0)));
 
     let view: f32 = value("--view").map_or(4000.0, |v| v.parse().expect("--view needs a number"));
-    let plugin = TerrainPlugin::new(chunk_lod(view)).expect("--view needs a positive distance");
+    // The chunk levels: the usual detail, or cells of `--cell-pixels` on a
+    // 720-pixel-high screen.
+    let detail = value("--cell-pixels").map_or(ChunkDetail::DEFAULT, |v| ChunkDetail {
+        cell_on_screen: v.parse::<f32>().expect("--cell-pixels needs a number") / 720.0,
+        ..ChunkDetail::DEFAULT
+    });
+    let plugin = TerrainPlugin::new(detail.lod(view)).expect("--view needs a positive distance");
 
-    // With `--headless`, run without a window on a fixed 60 Hz loop.
+    // With `--headless`, run without a window, on a fixed 60 Hz loop, or
+    // uncapped when measuring.
     let headless = has("--headless");
+    let measuring = value("--measure").map(|n| Measure {
+        frames: n.parse().expect("--measure needs a number of frames"),
+        times: Vec::new(),
+        settled: 0,
+        done: false,
+    });
     assert!(
-        !headless || has("--screenshot"),
-        "--headless needs --screenshot <file.png>"
+        !headless || has("--screenshot") || measuring.is_some(),
+        "--headless needs --screenshot <file.png> or --measure <frames>"
     );
+    let frame = if measuring.is_some() {
+        Duration::ZERO
+    } else {
+        Duration::from_secs_f64(1.0 / 60.0)
+    };
     // Assets are read from the workspace, where the ground textures live.
     let defaults = DefaultPlugins.set(AssetPlugin {
         file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
@@ -159,10 +200,13 @@ fn main() {
                     ..default()
                 })
                 .disable::<WinitPlugin>(),
-            ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(1.0 / 60.0)),
+            ScheduleRunnerPlugin::run_loop(frame),
         ));
     } else {
         app.add_plugins((defaults, FreeCameraPlugin));
+    }
+    if let Some(measuring) = measuring {
+        app.insert_resource(measuring);
     }
     app.add_plugins(plugin)
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
@@ -180,7 +224,7 @@ fn main() {
             headless,
         })
         .add_systems(Startup, setup)
-        .add_systems(Update, (water, toggle_debug, screenshot))
+        .add_systems(Update, (water, toggle_debug, measure, screenshot).chain())
         .run();
 }
 
@@ -267,19 +311,140 @@ fn toggle_debug(keys: Option<Res<ButtonInput<KeyCode>>>, mut debug: ResMut<Terra
     }
 }
 
-/// With `--screenshot`, saves one image once every chunk is drawn, then
-/// exits. Exits with an error if the terrain isn't drawn within
-/// [`SCREENSHOT_TIMEOUT`].
+/// One chunk level's figures in the `--measure` report.
+#[derive(Default)]
+struct LevelFigures {
+    chunks: usize,
+    triangles: usize,
+    /// The nearest point of the nearest and of the farthest chunk, in
+    /// metres from the camera.
+    nearest: f32,
+    farthest: f32,
+}
+
+/// With `--measure`, times frames once every chunk is drawn, then prints
+/// the report, and exits unless a screenshot is still to be taken.
+#[allow(clippy::too_many_arguments)]
+fn measure(
+    measure: Option<ResMut<Measure>>,
+    path: Res<ScreenshotPath>,
+    time: Res<Time<Real>>,
+    progress: Query<&TerrainProgress>,
+    chunks: Query<(&TerrainChunk, &Mesh3d, &GlobalTransform, &Aabb)>,
+    meshes: Res<Assets<Mesh>>,
+    camera: Query<(&GlobalTransform, &Projection, &Camera), With<TerrainViewer>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(mut measure) = measure else { return };
+    if measure.done {
+        return;
+    }
+
+    // Wait until every chunk is drawn and shaders are ready; start again if
+    // the terrain changes while timing.
+    if progress.is_empty() || !progress.iter().all(|p| p.settled && p.drawn > 0) {
+        measure.settled = 0;
+        measure.times.clear();
+        return;
+    }
+    if measure.settled < SETTLE_FRAMES {
+        measure.settled += 1;
+        return;
+    }
+    if measure.times.len() < measure.frames {
+        measure.times.push(time.delta_secs());
+        return;
+    }
+
+    // Chunks, triangles and distances per level.
+    let Ok((eye, projection, view)) = camera.single() else {
+        return;
+    };
+    let eye = eye.translation();
+    let mut levels: std::collections::BTreeMap<u8, LevelFigures> = default();
+    for (chunk, mesh, transform, aabb) in &chunks {
+        let triangles = meshes
+            .get(&mesh.0)
+            .and_then(|m| m.indices())
+            .map_or(0, |i| i.len() / 3);
+        let centre = transform.transform_point(Vec3::from(aabb.center));
+        let half = Vec3::from(aabb.half_extents);
+        let distance = (eye - eye.clamp(centre - half, centre + half)).length();
+        let row = levels.entry(chunk.key.level).or_insert(LevelFigures {
+            nearest: f32::INFINITY,
+            ..default()
+        });
+        row.chunks += 1;
+        row.triangles += triangles;
+        row.nearest = row.nearest.min(distance);
+        row.farthest = row.farthest.max(distance);
+    }
+
+    // How wide one cell is on screen at distance `d`, facing the camera.
+    let fov = match projection {
+        Projection::Perspective(p) => p.fov,
+        _ => panic!("--measure needs a perspective camera"),
+    };
+    let height = view.physical_viewport_size().map_or(720.0, |s| s.y as f32);
+    let pixels = |cell: f64, d: f32| cell as f32 * height / (2.0 * d.max(1.0) * (fov / 2.0).tan());
+
+    // The report.
+    println!(
+        "terrain measure: {height} px high, vertical fov {:.1}°",
+        fov.to_degrees()
+    );
+    println!("level  cell m  chunks  triangles  nearest m  farthest m  px/cell near  px/cell far");
+    let (mut chunks_all, mut triangles_all) = (0, 0);
+    for (level, row) in &levels {
+        let cell = ChunkKey::new(0, 0, *level).step();
+        println!(
+            "{level:>5}  {cell:>6}  {:>6}  {:>9}  {:>9.0}  {:>10.0}  {:>12.1}  {:>11.1}",
+            row.chunks,
+            row.triangles,
+            row.nearest,
+            row.farthest,
+            pixels(cell, row.nearest),
+            pixels(cell, row.farthest),
+        );
+        chunks_all += row.chunks;
+        triangles_all += row.triangles;
+    }
+    println!("total  {chunks_all} chunks, {triangles_all} triangles");
+    let mut times = measure.times.clone();
+    times.sort_by(f32::total_cmp);
+    let ms = |q: f32| 1000.0 * times[((times.len() - 1) as f32 * q).round() as usize];
+    let mean = 1000.0 * times.iter().sum::<f32>() / times.len() as f32;
+    println!(
+        "frames {}: mean {mean:.2} ms, median {:.2} ms, p95 {:.2} ms, max {:.2} ms",
+        times.len(),
+        ms(0.5),
+        ms(0.95),
+        ms(1.0)
+    );
+    measure.done = true;
+    if path.0.is_none() {
+        exit.write(AppExit::Success);
+    }
+}
+
+/// With `--screenshot`, saves one image once every chunk is drawn (and
+/// after `--measure` is done), then exits. Exits with an error if the
+/// terrain isn't drawn within [`SCREENSHOT_TIMEOUT`].
+#[allow(clippy::too_many_arguments)]
 fn screenshot(
     mut commands: Commands,
     path: Res<ScreenshotPath>,
     offscreen: Option<Res<Offscreen>>,
+    measure: Option<Res<Measure>>,
     time: Res<Time>,
     progress: Query<&TerrainProgress>,
     mut settled: Local<u32>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(path) = &path.0 else { return };
+    if measure.is_some_and(|m| !m.done) {
+        return;
+    }
     if !progress.iter().all(|p| p.settled && p.drawn > 0) || progress.is_empty() {
         *settled = 0;
         if time.elapsed_secs() > SCREENSHOT_TIMEOUT {

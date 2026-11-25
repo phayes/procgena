@@ -50,6 +50,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use glam::{DVec2, DVec3, Vec3};
+use procgena_core::chain::ViewScale;
 use procgena_core::{Lod, LodLevel};
 
 use crate::{FeatureTier, SampleDetail, Terrain, WorldTerrain};
@@ -932,25 +933,82 @@ pub struct WaterMesh {
 }
 
 /// The terrain's usual chunk levels, drawn out to `view_distance` metres:
-/// level 0 out to 128 m, and each level after that out to twice as far, up
-/// to level 6 (4 km chunks). Levels that would start too close to the view
-/// distance to be seen are left out, so any positive view distance gives
-/// levels [`ChunkSelection::around`] accepts.
-///
-/// Level `i` of the `Lod` is chunk level `i`: its distance is where that
-/// chunk level starts, and its cull distance is `view_distance`.
+/// [`ChunkDetail::DEFAULT`]'s levels (level 0 out to 256 m, and each level
+/// after that out to twice as far). See [`ChunkDetail::lod`].
 pub fn chunk_lod(view_distance: f32) -> Lod {
-    const HYSTERESIS: f32 = 0.1;
-    let mut levels = vec![LodLevel::new(0.0, HYSTERESIS, ())];
-    levels.extend(
-        (1..=6)
-            .map(|level| LodLevel::new(64.0 * f32::powi(2.0, level), HYSTERESIS, ()))
-            // A level must finish fading in before the ground fades out.
-            .take_while(|level| {
-                level.distance * (1.0 + HYSTERESIS) <= view_distance * (1.0 - HYSTERESIS)
-            }),
-    );
-    Lod::new(CHUNK_SIZE as f32, levels).with_cull(view_distance)
+    ChunkDetail::DEFAULT.lod(view_distance)
+}
+
+/// How fine the terrain looks on screen: which chunk level is drawn at
+/// each distance from the camera.
+///
+/// A chunk at level `L` is a grid of cells `2^L` metres across
+/// ([`ChunkKey::step`]). Each level takes over from the finer one before it
+/// where one of its cells, seen face on, covers
+/// [`cell_on_screen`](Self::cell_on_screen) of the screen's height. Past
+/// level 0, no cell is drawn larger than that, whatever the screen's
+/// resolution.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChunkDetail {
+    /// The largest share of the screen's height one cell covers, past
+    /// level 0. Smaller values draw finer ground and more triangles:
+    /// halving it draws about four times as many. Must be positive.
+    pub cell_on_screen: f32,
+    /// How large things look through the camera the terrain is drawn for.
+    pub view: ViewScale,
+}
+
+impl ChunkDetail {
+    /// The usual detail: with Bevy's default 45° field of view, a cell
+    /// covers at most about 7 pixels of a 720-pixel-high screen (14 of
+    /// 1440), and level `L` takes over at 128 m × 2^`L`.
+    pub const DEFAULT: Self = Self {
+        cell_on_screen: ViewScale::DEFAULT.get() / 128.0,
+        view: ViewScale::DEFAULT,
+    };
+
+    /// The chunk levels for this detail, drawn out to `view_distance`
+    /// metres, up to level 6 (4 km chunks). Levels that would start too
+    /// close to the view distance to be seen are left out, so any positive
+    /// view distance gives levels [`ChunkSelection::around`] accepts.
+    ///
+    /// Level `i` of the `Lod` is chunk level `i`: its distance is where that
+    /// chunk level starts, and its cull distance is `view_distance`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`cell_on_screen`](Self::cell_on_screen) isn't a positive
+    /// number.
+    pub fn lod(self, view_distance: f32) -> Lod {
+        const HYSTERESIS: f32 = 0.1;
+        assert!(
+            self.cell_on_screen.is_finite() && self.cell_on_screen > 0.0,
+            "a cell's share of the screen, {}, is not a positive number",
+            self.cell_on_screen
+        );
+
+        // Level `L` starts where one of its cells covers `cell_on_screen`.
+        let start = |level: u8| {
+            let cell = ChunkKey::size_at(level) / f64::from(CHUNK_CELLS);
+            cell as f32 * self.view.get() / self.cell_on_screen
+        };
+        let mut levels = vec![LodLevel::new(0.0, HYSTERESIS, ())];
+        levels.extend(
+            (1..=6)
+                .map(|level| LodLevel::new(start(level), HYSTERESIS, ()))
+                // A level must finish fading in before the ground fades out.
+                .take_while(|level| {
+                    level.distance * (1.0 + HYSTERESIS) <= view_distance * (1.0 - HYSTERESIS)
+                }),
+        );
+        Lod::new(CHUNK_SIZE as f32, levels).with_cull(view_distance)
+    }
+}
+
+impl Default for ChunkDetail {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
 }
 
 /// Why chunks could not be chosen.
