@@ -1477,6 +1477,22 @@ summary below is for ordering.
   wetness), after B1.
 - TODO "`MushroomGrowth` and `PlantGrowth`", after C1 moves mushrooms off
   their hosts, and after R3 for plants.
+- TODO "Should Scatter live inside the Ecotope?" (investigation, asked by
+  the user 2026-11-25). Today a Scatter is its own type (and the C3
+  `Scatter` trait), and a lower Scatter sees the copies above it only as
+  footprints that exclude it. The question is whether Scatters should
+  instead be layers of the Ecotope that can read the copies placed before
+  them as attractors too: a tuft of mushrooms around each stone, ferns
+  along fallen logs, litter under a crown. Weigh:
+  - what it means for C3's `Scatter` trait and for a game using one
+    Scatter on its own;
+  - placement order, chunk independence and border negotiation when one
+    layer reads another's copies across a chunk edge;
+  - GPU everywhere: dependent layers run in sequence, not concurrently;
+  - overlap with the Ecotope's ground layers (`under: scatter`), which
+    already follow copies, and with `MushroomGrowth` and `PlantGrowth`.
+  Ends in a recommendation for the user, and an ARCHITECTURE change if
+  accepted.
 - Terrain follow-ups already listed in its plan: hub placement, river
   crossing cost for roads, clearings at points of interest (which become
   terrain stamps, X1), GPU road routing.
