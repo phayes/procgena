@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from .cards import prepare_card, prepare_clump
-from .config import SIZES, Project, SurfaceSet
+from .config import Project, SurfaceSet
 from .util import ToolError, log, magick, require, run
 
 # Vulkan formats that tell the UASTC encoder what the PNG holds.
@@ -65,7 +65,7 @@ def convert_surface(project: Project, surface: SurfaceSet, src: Path, assets: Pa
         if not (src / f"{name}.jpg").is_file():
             raise ToolError(f"missing {src / name}.jpg; run `textures fetch {project.name}` first")
 
-    for size, px in SIZES:
+    for size, px in project.sizes:
         base = stage / f"{surface.id}-{size}"
         resize = ["-filter", "Lanczos", "-resize", f"{px}x{px}"]
 

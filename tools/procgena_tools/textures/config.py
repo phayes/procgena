@@ -14,8 +14,10 @@ WORKSPACE = Path(__file__).resolve().parents[3]
 BUCKET_URL = "https://storage.googleapis.com/ze_textures/"
 BUCKET_GS = "gs://ze_textures/"
 
-# Output sizes for surface textures: name and pixels per side.
-SIZES = (("512", 512), ("1k", 1024), ("2k", 2048))
+# Surface texture sizes a textures.yml may list: name and pixels per side.
+SIZE_PIXELS = {"128": 128, "256": 256, "512": 512, "1k": 1024, "2k": 2048}
+# Sizes written for projects whose textures.yml lists none.
+DEFAULT_SIZES = ("512", "1k", "2k")
 FORMATS = ("bc7", "uastc")
 LAYOUTS = ("orh", "roughness")
 SET_SOURCES = ("polyhaven", "ambientcg", "sharetextures", "texturecan", "manual")
@@ -91,6 +93,8 @@ class Project:
     prior_art: Path
     bucket: str
     layout: str
+    # Surface texture sizes to write, smallest first: name and pixels per side.
+    sizes: tuple[tuple[str, int], ...]
     sets: list[SurfaceSet]
     card_category: str | None
     clump_images: bool
@@ -152,6 +156,12 @@ def load(name: str, prior_art: Path | None = None) -> Project:
         raise ConfigError(f"{path}: layout must be one of {', '.join(LAYOUTS)}")
     bucket = _required(data, "bucket", path)
     default_category = data.get("category")
+    size_names = [str(n) for n in data.get("sizes") or DEFAULT_SIZES]
+    unknown_sizes = [n for n in size_names if n not in SIZE_PIXELS]
+    if unknown_sizes:
+        known = ", ".join(SIZE_PIXELS)
+        raise ConfigError(f"{path}: unknown sizes {', '.join(unknown_sizes)}; known sizes: {known}")
+    sizes = tuple(sorted({(n, SIZE_PIXELS[n]) for n in size_names}, key=lambda s: s[1]))
 
     # Read the surface sets.
     sets = []
@@ -219,6 +229,7 @@ def load(name: str, prior_art: Path | None = None) -> Project:
         prior_art=prior_art or root / "prior_art",
         bucket=bucket,
         layout=layout,
+        sizes=sizes,
         sets=sets,
         card_category=cards_data.get("category"),
         clump_images=bool(cards_data.get("clump_images", False)),

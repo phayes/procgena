@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
         "download ready-made KTX2 textures (or, with --images, export images) listed in the project's manifest",
     )
     p.add_argument("--images", action="store_true", help="download the JPEG/PNG export images instead")
-    p.add_argument("--sizes", default="512,1k", help="comma-separated surface sizes: 512, 1k, 2k (default 512,1k)")
+    p.add_argument("--sizes", default="512,1k", help="comma-separated surface sizes: 128, 256, 512, 1k, 2k, as the project lists them (default 512,1k)")
     p.add_argument("--formats", default="bc7,uastc", help="comma-separated formats: bc7, uastc (default both)")
     p.add_argument("--dest", type=Path, help="folder to save into (default <project>/assets/textures)")
     p.set_defaults(run=run_download)

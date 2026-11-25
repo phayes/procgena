@@ -45,7 +45,7 @@ use procgena_core::ChildKey;
 
 pub use bare::{BARE_SEED_KIND, bare_layers};
 pub use layer::{Condition, GroundLayer, GroundNoise, HeightRule, Ramp, Reach, ScatterInfluence};
-pub use material::{GroundMaterial, MaterialCatalogue, MaterialId};
+pub use material::{GroundMaterial, MaterialCatalogue, MaterialId, Projection, ground_textures};
 pub use site::{GroundSite, GroundSource, OnGround, Water};
 pub use stack::{GroundMix, GroundOverlay, GroundPainter, GroundStack};
 pub use weights::{GROUND_TEXELS, GroundWeights, PALETTE_SIZE};
@@ -54,7 +54,9 @@ pub use weights::{GROUND_TEXELS, GroundWeights, PALETTE_SIZE};
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum GroundError {
-    /// A material's colour or roughness is outside 0 to 1.
+    /// A material's colour, roughness or height blend is outside 0 to 1,
+    /// its tile isn't positive, or its texture isn't a ground texture with
+    /// an average colour.
     Material {
         /// The material's key.
         key: ChildKey,
@@ -109,7 +111,8 @@ impl fmt::Display for GroundError {
         match self {
             Self::Material { key } => write!(
                 f,
-                "material {key}: colour and roughness must be from 0 to 1"
+                "material {key}: colour, roughness and height blend must be from 0 to 1, \
+                 the tile more than 0, and the texture a ground texture with an average colour"
             ),
             Self::TooManyMaterials => write!(f, "a catalogue holds at most 65536 materials"),
             Self::Vertical => write!(f, "the vertical scale must be more than 0"),

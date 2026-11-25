@@ -7,6 +7,11 @@ transform's rotation about Y, and its mask and heightmap turn with it. Grass
 grows upright, so a tilt is left out, with one warning: for a slope, use a
 heightmap or a mesh.
 
+The blades themselves don't move or turn with the field. They sit on a grid
+fixed to the World, chosen by the field's seed, so a field that moves or
+turns shows the blades of the World's pattern under its new rectangle. Two
+fields with the same seed that meet grow the blades one field would.
+
 ## Grow grass on a heightmap, with a density mask
 
 ```rust

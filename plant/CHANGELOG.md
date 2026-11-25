@@ -5,6 +5,27 @@ break the API; each breaking change below says what to write instead.
 
 ## Unreleased
 
+### Blades on World cells
+
+Blades now sit on a grid fixed to the World, not to each field (see
+[`alignment_plan.md`](alignment_plan.md), stage P3). Every blade moves once,
+so every golden image changes.
+
+- One area of grass cut into several fields that meet grows exactly the
+  blades of the whole, tufts included. Two fields with the same seed that
+  overlap grow the same blades where they overlap.
+- Moving a field no longer carries its blades with it: the field uncovers
+  and covers blades of the World's pattern as it moves, and a turned field
+  keeps its turned outline, mask and heightmap but not turned blades. A
+  move or turn rebuilds the field's chunks, as resizing it always did.
+- A field's seed alone now chooses its blades; seed 0 no longer keeps the
+  old pattern.
+- Whether a blade grows is decided in whole numbers, so the CPU mirror and
+  the GPU agree on every blade of an unmasked field. Raising a mask or the
+  density only adds blades: it never moves one.
+- The blue-noise tiles per chunk are rounded up to a power of two (at most
+  256 per side), so a style may get a few more spare candidates than before.
+
 ### Plants in Ecotopes: a seed, a slope limit and a bake
 
 Plant Scatters can now grow in a procgena Ecotope (see

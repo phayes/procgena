@@ -233,26 +233,80 @@ impl Ecotope {
     /// large. The ground layers are not checked: they never change what is
     /// placed.
     pub fn place(&self, input: &ScatterInput<'_>) -> Result<EcotopePlacement, EcotopeError> {
+        self.place_reusing(input, None)
+    }
+
+    /// Places every Scatter as [`place`](Self::place) does, and gives the
+    /// same result, reusing what `previous` already placed where an edit
+    /// can't have changed it.
+    ///
+    /// `previous` must have been placed over the same ground, area and
+    /// coverage as `input`; with any other, the result is wrong. It may
+    /// come from a different Ecotope, such as this one before an edit, and
+    /// with a different seed.
+    ///
+    /// Scatters keep their copies, unplaced, from the top of the order down
+    /// to the first Scatter whose key, place in the order, settings or seed
+    /// changed. That Scatter and every one below it are placed again,
+    /// because the footprints above them may have moved. A stone or dead
+    /// wood Scatter placed again with unchanged settings and seed reuses
+    /// its shapes rather than building them again.
+    ///
+    /// # Errors
+    ///
+    /// As for [`place`](Self::place).
+    pub fn place_again(
+        &self,
+        input: &ScatterInput<'_>,
+        previous: &EcotopePlacement,
+    ) -> Result<EcotopePlacement, EcotopeError> {
+        self.place_reusing(input, Some(previous))
+    }
+
+    /// [`place`](Self::place), reusing `previous` as
+    /// [`place_again`](Self::place_again) describes.
+    fn place_reusing(
+        &self,
+        input: &ScatterInput<'_>,
+        previous: Option<&EcotopePlacement>,
+    ) -> Result<EcotopePlacement, EcotopeError> {
         self.validate_scatters()?;
         let mut layers: Vec<PlacedScatter> = Vec::with_capacity(self.scatters.len());
-        for (key, scatter) in self.order() {
+        let mut above_unchanged = previous.is_some_and(|p| p.seed == input.seed);
+        for (index, (key, scatter)) in self.order().into_iter().enumerate() {
+            let seed = scatter_seed(input.seed, key);
+            let earlier = previous.and_then(|p| p.get(key.as_str()));
+
+            // Keep the layer as it was while nothing above it changed.
+            let kept = previous
+                .and_then(|p| p.layers.get(index))
+                .filter(|old| above_unchanged && old.key == *key && old.settings == *scatter);
+            if let Some(kept) = kept {
+                layers.push(kept.clone());
+                continue;
+            }
+            above_unchanged = false;
+
             // The mask: the coverage, kept out of every footprint above.
             let above = FootprintMask::new(layers.iter().map(|l| l.footprints.clone()).collect());
             let mask = Covered {
                 coverage: input.mask,
                 above: &above,
             };
-            let seed = scatter_seed(input.seed, key);
             let scatter_input = ScatterInput {
                 mask: Some(&mask),
                 seed,
                 ..*input
             };
 
-            // Place the Scatter and keep its footprints for those below.
+            // Place the Scatter and keep its footprints for those below,
+            // reusing its shapes if its own settings and seed didn't change.
+            let prepared = earlier
+                .filter(|old| old.seed == seed && old.settings.scatter == scatter.scatter)
+                .map(|old| &*old.copies);
             let (copies, footprints) = scatter
                 .scatter
-                .place(&scatter_input, &above, scatter.clearance)
+                .place(&scatter_input, &above, scatter.clearance, prepared)
                 .map_err(|error| EcotopeError::Scatter {
                     key: key.clone(),
                     error,
@@ -261,7 +315,8 @@ impl Ecotope {
                 key: key.clone(),
                 priority: scatter.priority,
                 seed,
-                copies,
+                settings: scatter.clone(),
+                copies: Arc::new(copies),
                 footprints: Arc::new(footprints),
             });
         }
@@ -334,7 +389,9 @@ pub struct PlacedScatter {
     key: ChildKey,
     priority: u32,
     seed: u32,
-    copies: ScatterCopies,
+    /// The settings it was placed with.
+    settings: EcotopeScatter,
+    copies: Arc<ScatterCopies>,
     footprints: Arc<Footprints>,
 }
 

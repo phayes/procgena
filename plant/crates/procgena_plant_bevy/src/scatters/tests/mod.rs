@@ -434,8 +434,16 @@ fn a_field_is_as_big_as_its_size_times_its_scale() {
         entry.min_corner.truncate(),
         Vec3::new(10.0 - 32.0, 2.0, -6.0 - 8.0)
     );
-    assert_eq!(tables.chunks.len(), 4, "four chunks across, one deep");
-    assert!(tables.chunks.iter().all(|chunk| chunk.ids.z == 0));
+    // From X −22 to 42 and Z −14 to 2: five World chunks across (−32 to
+    // 48 m) and two deep (−16 to 16 m).
+    assert_eq!(tables.chunks.len(), 10, "five chunks across, two deep");
+    assert!(
+        tables
+            .chunks
+            .iter()
+            .all(|chunk| (-1..=0).contains(&(chunk.ids.z as i32))
+                && (-2..=2).contains(&(chunk.ids.y as i32)))
+    );
 }
 
 #[test]
@@ -998,7 +1006,7 @@ fn a_field_touched_without_a_change_uploads_nothing() {
 }
 
 #[test]
-fn moving_a_field_reads_no_image_and_a_sideways_move_uploads_no_layout() {
+fn moving_a_field_reads_no_image_and_keeps_its_masks() {
     let mut app = app();
     let (field, ..) = rich_field(&mut app);
     settle(&mut app);
@@ -1011,10 +1019,8 @@ fn moving_a_field_reads_no_image_and_a_sideways_move_uploads_no_layout() {
     let sideways = tables_now(&app);
     assert_eq!(stats(&app).images_read, reads);
     assert_eq!(sideways.version, before.version + 1);
-    assert_eq!(
-        sideways.structure_version, before.structure_version,
-        "chunk bounds are relative to the field, so a sideways move changes only its entries"
-    );
+    // Chunks are on the World grid, so a sideways move takes other chunks.
+    assert_eq!(sideways.structure_version, before.structure_version + 1);
     assert!(Arc::ptr_eq(&sideways.masks, &before.masks));
     assert_eq!(sideways.fields[0].min_corner.x, 40.0 - 16.0);
 
@@ -1687,19 +1693,17 @@ fn heights_draw_the_same_in_either_order() {
 }
 
 #[test]
-fn a_seed_moves_the_blades_and_seed_0_keeps_where_they_were() {
+fn a_field_is_placed_with_its_own_seed_wherever_it_is() {
     let mut app = app();
     let field = spawn_field(&mut app, ());
     settle(&mut app);
     let seed_of = |app: &App| tables_now(app).fields[0].placement.x;
-    let corner = tables_now(&app).fields[0].min_corner;
-    let by_position = shader_model::hash2(corner.x.to_bits(), corner.z.to_bits());
-    assert_eq!(seed_of(&app), by_position, "seed 0 is the corner's seed");
+    assert_eq!(seed_of(&app), 0, "the presets' default seed");
 
-    // The field's own seed is mixed in.
+    // The field's own seed.
     edit_field(&mut app, field, |field| field.seed = Some(5));
     app.update();
-    assert_eq!(seed_of(&app), by_position ^ 5);
+    assert_eq!(seed_of(&app), 5);
 
     // Without one, the options' default seed is used.
     edit_field(&mut app, field, |field| {
@@ -1707,5 +1711,11 @@ fn a_seed_moves_the_blades_and_seed_0_keeps_where_they_were() {
         field.options.default_seed = 7;
     });
     app.update();
-    assert_eq!(seed_of(&app), by_position ^ 7);
+    assert_eq!(seed_of(&app), 7);
+
+    // Moving the field keeps its seed: it is not drawn from where it is.
+    *app.world_mut().get_mut::<GlobalTransform>(field).unwrap() =
+        GlobalTransform::from_xyz(40.0, 0.0, -10.0);
+    app.update();
+    assert_eq!(seed_of(&app), 7);
 }

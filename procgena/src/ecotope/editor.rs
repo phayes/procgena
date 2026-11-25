@@ -1,5 +1,7 @@
 //! An Ecotope document's editor: seed, ground, one row per Scatter, the
-//! selected Scatter's settings, and saving and loading.
+//! selected Scatter's settings, the ground layers, and saving and loading.
+
+mod ground;
 
 use bevy::feathers::constants::icons;
 use bevy::feathers::controls::{
@@ -22,6 +24,7 @@ use procgena_mushroom::{
 };
 use procgena_plant_bevy::PlantScatterOptions;
 use procgena_stone::{StoneClass, StoneOptions, StonePreset};
+use procgena_terrain::ground::GroundLayer;
 
 use super::{
     EcotopeView, KINDS, add_scatter, file_text, kind_index, new_scatter, new_stone_class, params,
@@ -68,6 +71,12 @@ pub struct EcotopeEditor {
     detail: Entity,
     /// The tree Scatter editor shown for a selected tree Scatter.
     tree_editor: Option<Entity>,
+    /// The ground layer whose settings are shown, if any.
+    layer: Option<ChildKey>,
+    /// The node holding one row per ground layer.
+    ground_list: Entity,
+    /// The node holding the selected ground layer's settings.
+    ground_detail: Entity,
     /// Which parts must be spawned again from the edited Ecotope.
     stale: Stale,
     /// Picks seeds for Random Seed.
@@ -89,6 +98,9 @@ impl EcotopeEditor {
     /// part of the editor.
     fn show(&mut self, ecotope: Ecotope) {
         self.selected = ecotope.order().first().map(|(key, _)| (*key).clone());
+        self.layer = ground::layers_top_first(&ecotope)
+            .first()
+            .map(|(key, _)| (*key).clone());
         self.ecotope = ecotope;
         self.stale = Stale::all();
     }
@@ -99,6 +111,10 @@ impl EcotopeEditor {
 struct Stale {
     list: bool,
     detail: bool,
+    /// The ground layers' rows and the selected layer's settings.
+    ground: bool,
+    /// The ground layers' rows only.
+    ground_list: bool,
 }
 
 impl Stale {
@@ -106,6 +122,8 @@ impl Stale {
         Self {
             list: true,
             detail: true,
+            ground: true,
+            ground_list: true,
         }
     }
 }
@@ -243,6 +261,7 @@ impl Plugin for EcotopeEditorPlugin {
             ParamPanelPlugin::<StoneClass>::default(),
             ParamPanelPlugin::<DeadwoodScatterOptions>::default(),
             ParamPanelPlugin::<MushroomScatterOptions>::default(),
+            ParamPanelPlugin::<GroundLayer>::default(),
         ))
         .add_systems(Update, (rebuild, fill_key_field).chain())
         .add_systems(PostUpdate, (show_seed, show_asset_choices))
@@ -335,7 +354,10 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
             ]
         })
         .insert(ChildOf(editor));
-    let detail = commands.spawn((column, ChildOf(editor))).id();
+    let detail = commands.spawn((column.clone(), ChildOf(editor))).id();
+
+    // The ground layers, below the Scatters.
+    let (ground_list, ground_detail) = ground::spawn_section(commands, editor, &column);
 
     // Saving and loading, below the settings.
     commands
@@ -360,6 +382,9 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
         list,
         detail,
         tree_editor: None,
+        layer: None,
+        ground_list,
+        ground_detail,
         stale: Stale::default(),
         rng: Rng::new(std::process::id()),
     };
@@ -381,10 +406,15 @@ fn rebuild(
         }
     };
     for mut editor in &mut editors {
-        if !(editor.stale.list || editor.stale.detail) {
-            continue;
-        }
         let stale = std::mem::take(&mut editor.stale);
+        if stale.ground {
+            clear(&mut commands, editor.ground_list);
+            clear(&mut commands, editor.ground_detail);
+            ground::spawn_layers(&mut commands, &editor, true);
+        } else if stale.ground_list {
+            clear(&mut commands, editor.ground_list);
+            ground::spawn_layers(&mut commands, &editor, false);
+        }
         if stale.list {
             clear(&mut commands, editor.list);
             for (key, scatter) in editor.ecotope.order() {
