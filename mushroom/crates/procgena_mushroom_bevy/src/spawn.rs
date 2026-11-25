@@ -1,7 +1,7 @@
 //! Components that request mushrooms, and the systems that build them on
 //! background threads and draw them: a mushroom or cluster as child
-//! entities, one or two per detail level and member, and a scatter through
-//! the shared instanced renderer.
+//! entities, one per mesh step and member plus one impostor, and a scatter
+//! through the shared instanced renderer.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -10,35 +10,41 @@ use std::sync::Arc;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::Aabb;
-use bevy::camera::visibility::NoAutoAabb;
-use bevy::light::NotShadowCaster;
+use bevy::camera::visibility::VisibilityRange;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
+use procgena_core::chain::{DistanceChain, Lod, Step, ViewScale};
 use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
-use procgena_core::{ContentHasher, Ground, SpecimenId};
+use procgena_core::{ContentHasher, Ground, LodRange, Quality, SpecimenId, content_hash};
 use procgena_core_bevy::instanced::{
     InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, PartMesh, SpecimenCache,
+    chain_lod,
 };
 use procgena_core_bevy::{LodQuality, visibility_range};
+use procgena_impostor::BakeSettings;
 use procgena_mushroom::{
-    BodyId, BodyShape, Mushroom, MushroomBody, MushroomInstance, MushroomLod, MushroomOptions,
+    BodyId, Mushroom, MushroomBody, MushroomDetail, MushroomInstance, MushroomOptions,
     MushroomPreset, MushroomScatter, OptionsError, ScatterError, ScatterOptions,
     TextureCompression, TexturePart, TextureSize,
 };
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 
-use crate::material::{MushroomMaterial, TextureSet, billboard_material, mushroom_material};
-use crate::mesh::{billboard_aabb, billboard_mesh, mushroom_mesh};
+use crate::impostor::{BakedAs, ScatterImpostors, SingleImpostor, impostor_key};
+use crate::material::{MushroomMaterial, TextureSet, mushroom_material};
+use crate::mesh::mushroom_mesh;
 
 /// Asks for one mushroom, or a cluster of them, standing at the entity's
 /// position.
 ///
 /// Spawn it after adding [`MushroomPlugin`](crate::MushroomPlugin). The
 /// mushroom is built in the background and appears as [`MushroomPart`]
-/// children, one or two per detail level and member of a cluster (see
-/// [`MushroomOptions::cluster`]). Mushrooms with the same options share
+/// children: each member of a cluster (see [`MushroomOptions::cluster`]) at
+/// its game level and its lower mesh, and, once baked, one impostor of the
+/// whole mushroom or cluster. Which is drawn depends on how large the
+/// mushroom or cluster looks on screen, the same for every kind of object
+/// (see [`procgena_core::chain`]). Mushrooms with the same options share
 /// meshes and materials, so many identical ones are cheap.
 ///
 /// Once the parts appear, the entity also gets a [`GeneratedSpecimen`]
@@ -133,20 +139,18 @@ impl fmt::Debug for MushroomGroundScatterParams {
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct MushroomPresetAsset(pub MushroomPreset);
 
-/// Marks a child entity that draws one detail level of one mushroom of a
-/// single mushroom or cluster. The plugin spawns and removes these; don't
+/// Marks a child entity that draws one step of a single mushroom or
+/// cluster: one member's game-level or lower mesh, or the impostor of the
+/// whole mushroom or cluster. The plugin spawns and removes these; don't
 /// add them yourself. Scatters draw their mushrooms through an
 /// [`InstancedScatter`] instead.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MushroomPart {
-    /// Which mushroom: 0 for a single mushroom, or the member's or
-    /// instance's number in a cluster or scatter.
+    /// Which mushroom: 0 for a single mushroom, or the member's number in a
+    /// cluster. 0 for the impostor, which shows every member.
     pub instance: usize,
-    /// Detail level, from 0 for the nearest.
-    pub lod: usize,
-    /// True for shapes that turn toward the camera: a flat stem strip, or
-    /// the stem and cap triangles of a billboard level.
-    pub billboard: bool,
+    /// Which step of the drawing chain this part draws.
+    pub step: Step,
 }
 
 /// Present while a mushroom or scatter is being prepared, including while
@@ -239,10 +243,9 @@ impl AssetLoader for MushroomPresetLoader {
 /// The plugin's settings, for the build systems.
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct SpawnSettings {
-    /// Detail levels, already validated. Every body is meshed at each
-    /// level, and each part's distance band is scaled to its mushroom's
-    /// size and the [`LodQuality`].
-    pub lod: MushroomLod,
+    /// How impostors are baked, or `None` to draw each mushroom's lower
+    /// mesh until it is culled.
+    pub impostor: Option<BakeSettings>,
     /// Where to load cap textures from, or `None` for vertex colours only.
     pub textures: Option<TextureSettings>,
 }
@@ -353,59 +356,66 @@ struct Built {
     variants: Vec<BuiltVariant>,
     /// Where to draw copies of them.
     instances: Vec<MushroomInstance>,
-    /// The combined specimen for a mushroom or cluster; `None` for scatters.
-    specimen: Option<Specimen>,
+    /// What only a single mushroom or cluster has; `None` for scatters.
+    single: Option<BuiltSingle>,
     /// For a scatter, each variant's specimen id and its piece (its body's
     /// place among the specimen's bodies); empty for a mushroom or cluster.
     pieces: Vec<(SpecimenId, u32)>,
 }
 
-/// Names one body. Every body is meshed at the plugin's detail levels,
-/// which never change while the app runs, so bodies with equal ids share
-/// uploaded meshes.
-type BodyKey = BodyId;
+/// What a background build of a single mushroom or cluster produces besides
+/// its bodies' meshes.
+struct BuiltSingle {
+    /// The combined specimen, every member included.
+    specimen: Specimen,
+    /// The diameter of a sphere around every member, which sets how large
+    /// the mushroom or cluster looks on screen.
+    diameter: f32,
+    /// For each variant, the game-level meshes of every member drawn with it,
+    /// placed as in the cluster, for the impostor bake; `None` for a variant
+    /// with no triangles.
+    bake_meshes: Vec<Option<Mesh>>,
+    /// The specimen the impostor is baked for, and the hash of the game
+    /// level it is baked from.
+    impostor: (SpecimenId, u64),
+}
 
-/// One variant's meshes, one per detail level.
+/// Names one body meshed at one game level: its id, and the content hash of
+/// its game level. Bodies with equal keys share uploaded meshes.
+type BodyKey = (BodyId, u64);
+
+/// One variant's game-level and lower meshes.
 struct BuiltVariant {
     /// Which body this is.
     key: BodyKey,
     /// The variant's options.
     options: MushroomOptions,
-    /// One entry per detail level of [`SpawnSettings::lod`].
-    levels: Vec<BuiltLevel>,
-    /// A sphere around every level's meshes, as a centre and radius.
+    /// The game-level mesh, then the lower mesh.
+    levels: [BuiltLevel; 2],
+    /// A sphere around both meshes, as a centre and radius.
     bounds: (Vec3, f32),
+    /// The body's bounding diameter (see
+    /// [`MushroomBody::bounding_diameter`]), before a copy's scale.
+    diameter: f32,
 }
 
-/// One detail level's meshes.
+/// One mesh step's surfaces.
 struct BuiltLevel {
-    /// The surfaces, or `None` if the level has no triangles.
+    /// The surfaces, or `None` if the mesh has no triangles.
     surfaces: Option<Mesh>,
-    /// Camera-facing shapes and their bounds, for flat and billboard
-    /// levels.
-    billboard: Option<(Mesh, Aabb)>,
     /// True if the surfaces must be drawn two-sided.
     double_sided: bool,
-    /// True for a billboard level, drawn with vertex colours only.
-    plain: bool,
 }
 
 /// One variant's meshes and materials, after adding them to Bevy's assets.
 struct VariantAssets {
-    /// The variant's cap diameter in its own units, before an instance's
-    /// scale and the parent's scale, for scaling the detail levels.
-    size: f32,
-    /// One entry per detail level of [`SpawnSettings::lod`].
-    levels: Vec<LevelAssets>,
+    /// The game-level mesh, then the lower mesh.
+    levels: [LevelAssets; 2],
 }
 
-/// One detail level's mesh and material handles.
-struct LevelAssets {
-    /// The surfaces and their material.
-    surfaces: Option<(Handle<Mesh>, Handle<MushroomMaterial>)>,
-    /// Camera-facing shapes, their material and their bounds.
-    billboard: Option<(Handle<Mesh>, Handle<MushroomMaterial>, Aabb)>,
-}
+/// One mesh step's mesh and material handles: `None` if it has no
+/// triangles.
+type LevelAssets = Option<(Handle<Mesh>, Handle<MushroomMaterial>)>;
 
 /// Uploaded variants and materials, shared by every entity that needs the
 /// same ones.
@@ -414,9 +424,8 @@ pub(crate) struct MushroomCache {
     /// Variants by [`BuiltVariant::key`].
     variants: HashMap<BodyKey, Arc<VariantAssets>>,
     /// Materials by the content hash of their settings (see
-    /// [`material_hash`]), two-sidedness, and whether they draw vertex
-    /// colours only (for billboard levels).
-    materials: HashMap<(u64, bool, bool), Handle<MushroomMaterial>>,
+    /// [`material_hash`]) and two-sidedness.
+    materials: HashMap<(u64, bool), Handle<MushroomMaterial>>,
     /// Cap and stem texture images by part and set name, kept for reuse.
     texture_sets: HashMap<(TexturePart, String), TextureSet>,
 }
@@ -442,16 +451,19 @@ pub(crate) fn remove_mushrooms(
     for entity in removed {
         despawn_parts(&mut commands, children.get(entity).ok(), &parts);
         if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.remove::<(
-                MushroomGenerating,
-                Building,
-                Attempted,
-                GeneratedSpecimen,
-                InstancedScatter,
-            )>();
+            entity.remove::<(MushroomGenerating, Building, Attempted, Drawn)>();
         }
     }
 }
+
+/// What a finished build adds to a mushroom or scatter entity, besides its
+/// parts.
+type Drawn = (
+    GeneratedSpecimen,
+    InstancedScatter,
+    SingleImpostor,
+    ScatterImpostors,
+);
 
 /// Despawns the [`MushroomPart`]s among `kids`, leaving other children
 /// alone.
@@ -495,7 +507,6 @@ pub(crate) fn start_generation(
     transforms: TransformHelper,
     assets: Res<Assets<MushroomPresetAsset>>,
     parts: Query<(), With<MushroomPart>>,
-    settings: Res<SpawnSettings>,
 ) {
     // Work out what each entity needs.
     let mut wanted: Vec<(Entity, Wanted)> = Vec::new();
@@ -561,12 +572,9 @@ pub(crate) fn start_generation(
                 // on it.
                 if building.is_some() || attempted.is_some() {
                     despawn_parts(&mut commands, kids, &parts);
-                    commands.entity(entity).remove::<(
-                        Building,
-                        Attempted,
-                        GeneratedSpecimen,
-                        InstancedScatter,
-                    )>();
+                    commands
+                        .entity(entity)
+                        .remove::<(Building, Attempted, Drawn)>();
                 }
                 if !generating {
                     commands.entity(entity).insert(MushroomGenerating);
@@ -582,12 +590,7 @@ pub(crate) fn start_generation(
                 despawn_parts(&mut commands, kids, &parts);
                 commands
                     .entity(entity)
-                    .remove::<(
-                        Building,
-                        MushroomGenerating,
-                        GeneratedSpecimen,
-                        InstancedScatter,
-                    )>()
+                    .remove::<(Building, MushroomGenerating, Drawn)>()
                     .insert(Attempted(input));
                 commands.trigger(MushroomFinished {
                     entity,
@@ -597,9 +600,8 @@ pub(crate) fn start_generation(
             }
             Wanted::Build(input) => input,
         };
-        let lod = settings.lod.clone();
         let task_input = input.clone();
-        let task = AsyncComputeTaskPool::get().spawn(async move { build(&task_input, &lod) });
+        let task = AsyncComputeTaskPool::get().spawn(async move { build(&task_input) });
         commands
             .entity(entity)
             .remove::<GeneratedSpecimen>()
@@ -613,22 +615,32 @@ fn is_current(input: &Input, building: Option<&Building>, attempted: Option<&Att
     building.is_some_and(|b| b.input == *input) || attempted.is_some_and(|a| a.0 == *input)
 }
 
-/// Builds the meshes and placements for `input` at every level of `lod`.
-/// Runs on a background thread.
-fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> {
+/// Builds the meshes and placements for `input`, each body at its game
+/// level and its lower mesh. Runs on a background thread.
+fn build(input: &Input) -> Result<Built, MushroomBuildError> {
     match input {
         Input::Single(options) => {
             let mushroom = Mushroom::new((**options).clone())?;
             let variants = mushroom
                 .bodies()
                 .iter()
-                .map(|b| build_variant(b, lod))
+                .map(build_variant)
                 .collect::<Result<Vec<_>, _>>()?;
-            let specimen = mushroom.specimen(lod)?;
+            let options = mushroom.options();
+            let game = drawn_lod(options).game;
+            let single = BuiltSingle {
+                specimen: mushroom.specimen(),
+                diameter: mushroom.bounding_diameter(),
+                bake_meshes: placed_game_meshes(&variants, mushroom.members()),
+                impostor: (
+                    SpecimenId::new(options.default_seed, options.pool(), 0),
+                    content_hash(&game),
+                ),
+            };
             Ok(Built {
                 variants,
                 instances: mushroom.members().to_vec(),
-                specimen: Some(specimen),
+                single: Some(single),
                 pieces: Vec::new(),
             })
         }
@@ -653,7 +665,7 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             let variants = built
                 .bodies()
                 .iter()
-                .map(|b| build_variant(b, lod))
+                .map(build_variant)
                 .collect::<Result<Vec<_>, _>>()?;
             // The scatter grows slots 0, 1, … of the species' pool.
             let slots = species.cluster.variants;
@@ -665,7 +677,7 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             Ok(Built {
                 variants,
                 instances: built.instances().to_vec(),
-                specimen: None,
+                single: None,
                 pieces,
             })
         }
@@ -680,7 +692,7 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             let variants = built
                 .bodies()
                 .iter()
-                .map(|b| build_variant(b, lod))
+                .map(build_variant)
                 .collect::<Result<Vec<_>, _>>()?;
             // The scatter grows slots 0, 1, … of the mushroom's pool, in the
             // World of the input's seed.
@@ -693,7 +705,7 @@ fn build(input: &Input, lod: &MushroomLod) -> Result<Built, MushroomBuildError> 
             Ok(Built {
                 variants,
                 instances: built.instances().to_vec(),
-                specimen: None,
+                single: None,
                 pieces,
             })
         }
@@ -713,40 +725,73 @@ fn body_piece(body: BodyId, world_seed: u32, slots: u32) -> (SpecimenId, u32) {
     (SpecimenId::new(world_seed, body.pool, slot), body.index)
 }
 
-/// Meshes `body` at every level of `lod` and converts the meshes for Bevy.
-/// Warts are left out of the vertex colours, because the material draws
-/// them.
-fn build_variant(body: &MushroomBody, lod: &MushroomLod) -> Result<BuiltVariant, OptionsError> {
+/// The details a mushroom made from `options` is drawn at: its game level
+/// and lower mesh, with warts left out of the vertex colours, because the
+/// material draws them.
+fn drawn_lod(options: &MushroomOptions) -> Lod<MushroomDetail> {
+    options.game_level.lod().map(|detail| MushroomDetail {
+        paint_warts: false,
+        ..detail
+    })
+}
+
+/// Meshes `body` at its game level and its lower mesh, and converts the
+/// meshes for Bevy.
+fn build_variant(body: &MushroomBody) -> Result<BuiltVariant, OptionsError> {
     let options = body.options().clone();
-    let mut lod = lod.clone();
-    for level in &mut lod.levels {
-        level.detail.paint_warts = false;
-    }
-    let levels: Vec<BuiltLevel> = body
-        .lod_meshes(&lod)?
-        .into_iter()
-        .map(|(level, mesh)| BuiltLevel {
-            surfaces: (mesh.surfaces.triangle_count() > 0).then(|| mushroom_mesh(&mesh.surfaces)),
-            billboard: mesh
-                .billboard
-                .as_ref()
-                .map(|b| (billboard_mesh(b), billboard_aabb(b))),
-            double_sided: mesh.double_sided,
-            plain: level.detail.shape == BodyShape::Billboard,
-        })
-        .collect();
-    let bounds = sphere_around(levels.iter().flat_map(|level| {
-        let surfaces = level.surfaces.as_ref().and_then(mesh_box);
-        surfaces
-            .into_iter()
-            .chain(level.billboard.as_ref().map(|(_, aabb)| *aabb))
-    }));
+    let lod = drawn_lod(&options);
+    let levels = body.lod_meshes(&lod)?.map(|(_, mesh)| BuiltLevel {
+        surfaces: (mesh.surfaces.triangle_count() > 0).then(|| mushroom_mesh(&mesh.surfaces)),
+        double_sided: mesh.double_sided,
+    });
+    let bounds = sphere_around(
+        levels
+            .iter()
+            .filter_map(|level| level.surfaces.as_ref().and_then(mesh_box)),
+    );
     Ok(BuiltVariant {
-        key: body.id(),
+        key: (body.id(), content_hash(&lod.game)),
         options,
         levels,
         bounds,
+        diameter: body.bounding_diameter(),
     })
+}
+
+/// For each of `variants`, its game-level mesh copied to every member in
+/// `members` drawn with it, in one mesh; `None` for a variant with no
+/// triangles or no members.
+fn placed_game_meshes(
+    variants: &[BuiltVariant],
+    members: &[MushroomInstance],
+) -> Vec<Option<Mesh>> {
+    variants
+        .iter()
+        .enumerate()
+        .map(|(index, variant)| {
+            let game = variant.levels[Step::Game.index()].surfaces.as_ref()?;
+            let mut placed: Option<Mesh> = None;
+            for member in members.iter().filter(|m| m.variant as usize == index) {
+                let copy = game.clone().transformed_by(instance_transform(member));
+                match &mut placed {
+                    // Every copy comes from the same mesh, so they always
+                    // have the same attributes and merge.
+                    Some(mesh) => mesh.merge(&copy).ok()?,
+                    None => placed = Some(copy),
+                }
+            }
+            placed
+        })
+        .collect()
+}
+
+/// Where `instance` puts its mushroom, relative to its cluster or scatter.
+fn instance_transform(instance: &MushroomInstance) -> Transform {
+    Transform {
+        translation: instance.translation,
+        rotation: instance.rotation,
+        scale: Vec3::splat(instance.scale),
+    }
 }
 
 /// The box around `mesh`'s positions, or `None` if it has none.
@@ -805,10 +850,11 @@ pub(crate) fn finish_generation(
             .remove::<(Building, MushroomGenerating)>()
             .insert(Attempted(input.clone()));
 
-        let built = match result {
+        let mut built = match result {
             Ok(built) => built,
             Err(error) => {
                 error!("procgena_mushroom_bevy: cannot build mushrooms: {error}");
+                commands.entity(entity).remove::<Drawn>();
                 commands.trigger(MushroomFinished {
                     entity,
                     result: Err(error),
@@ -817,25 +863,30 @@ pub(crate) fn finish_generation(
             }
         };
 
-        // A scatter draws through the shared instanced renderer.
         let textures = (&*asset_server, settings.textures.as_ref());
-        if built.specimen.is_none() {
+        let Some(single) = built.single.take() else {
+            // A scatter draws through the shared instanced renderer, and
+            // waits for each body's impostor when impostors are on.
+            let game_levels: Vec<u64> = built.variants.iter().map(|v| v.key.1).collect();
             let mut uploads = (&mut *cache, &mut *meshes, &mut *materials, textures);
-            let scatter = scatter_draw(
-                built,
-                &settings.lod,
-                input.world_scale(),
-                &mut specimens,
-                &mut uploads,
-            );
-            commands.entity(entity).insert(scatter);
+            let scatter = scatter_draw(built, input.world_scale(), &mut specimens, &mut uploads);
+            let mut drawn = commands.entity(entity);
+            drawn.remove::<(GeneratedSpecimen, SingleImpostor, ScatterImpostors)>();
+            if let Some(bake) = settings.impostor {
+                drawn.insert(ScatterImpostors::new(
+                    &scatter.slots,
+                    &game_levels,
+                    bake,
+                    &settings,
+                ));
+            }
+            drawn.insert(scatter);
             commands.trigger(MushroomFinished {
                 entity,
                 result: Ok(()),
             });
             continue;
-        }
-        commands.entity(entity).remove::<InstancedScatter>();
+        };
 
         // Add each variant to Bevy's assets, reusing identical variants that
         // other entities already added.
@@ -845,74 +896,54 @@ pub(crate) fn finish_generation(
             .map(|v| upload(v, &mut cache, &mut meshes, &mut materials, textures))
             .collect();
 
-        // Spawn one child per mushroom and level (two for a flat level), each
-        // shown only within its own distance band, which grows with the
-        // mushroom's size in the world and with the quality setting.
-        let world_scale = input.world_scale();
+        // Spawn one child per member and mesh step. The whole mushroom or
+        // cluster switches together, by its size on screen, so every member
+        // shares the same bands. Until an impostor is drawn, the lower mesh
+        // is drawn on until the cull.
+        let chain = chain_ranges(single.diameter, quality.0);
+        let mesh_ranges = mesh_ranges(&chain);
         for (i, instance) in built.instances.iter().enumerate() {
             let variant = &variants[instance.variant as usize];
-            let size = variant.size * instance.scale * world_scale;
-            let ranges = settings.lod.ranges(settings.lod.factor(size, quality.0));
-            let transform = Transform {
-                translation: instance.translation,
-                rotation: instance.rotation,
-                scale: Vec3::splat(instance.scale),
-            };
-            let levels = variant.levels.iter().zip(&settings.lod.levels);
-            for (lod, ((level, lod_level), range)) in levels.zip(&ranges).enumerate() {
-                let range = visibility_range(range);
-                let mut spawned = Vec::with_capacity(2);
-                if let Some((mesh, material)) = &level.surfaces {
-                    let part = MushroomPart {
-                        instance: i,
-                        lod,
-                        billboard: false,
-                    };
-                    spawned.push(
-                        commands
-                            .spawn((
-                                part,
-                                Mesh3d(mesh.clone()),
-                                MeshMaterial3d(material.clone()),
-                                transform,
-                                range.clone(),
-                                ChildOf(entity),
-                            ))
-                            .id(),
-                    );
-                }
-                if let Some((mesh, material, aabb)) = &level.billboard {
-                    let part = MushroomPart {
-                        instance: i,
-                        lod,
-                        billboard: true,
-                    };
-                    spawned.push(
-                        commands
-                            .spawn((
-                                part,
-                                Mesh3d(mesh.clone()),
-                                MeshMaterial3d(material.clone()),
-                                transform,
-                                range.clone(),
-                                *aabb,
-                                NoAutoAabb,
-                                ChildOf(entity),
-                            ))
-                            .id(),
-                    );
-                }
-                if !lod_level.casts_shadows {
-                    for part in spawned {
-                        commands.entity(part).insert(NotShadowCaster);
-                    }
+            let transform = instance_transform(instance);
+            for (step, level) in [Step::Game, Step::Lower].into_iter().zip(&variant.levels) {
+                let Some((mesh, material)) = level else {
+                    continue;
+                };
+                let mut part = commands.spawn((
+                    MushroomPart { instance: i, step },
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(material.clone()),
+                    transform,
+                    ChildOf(entity),
+                ));
+                if let Some(range) = bevy_range(&mesh_ranges[step.index()]) {
+                    part.insert(range);
                 }
             }
         }
-        if let Some(specimen) = built.specimen {
-            commands
-                .entity(entity)
-                .insert(GeneratedSpecimen(Arc::new(specimen)));
+
+        let mut drawn = commands.entity(entity);
+        drawn
+            .remove::<(InstancedScatter, ScatterImpostors, SingleImpostor)>()
+            .insert(GeneratedSpecimen(Arc::new(single.specimen)));
+        if let Some(bake) = settings.impostor {
+            // Each variant's placed members bake with that variant's
+            // game-level material.
+            let parts = single
+                .bake_meshes
+                .into_iter()
+                .zip(&variants)
+                .filter_map(|(mesh, variant)| {
+                    let (_, material) = variant.levels[Step::Game.index()].as_ref()?;
+                    Some((mesh?, material.clone()))
+                })
+                .collect();
+            let (specimen, game_level) = single.impostor;
+            drawn.insert(SingleImpostor {
+                key: impostor_key(specimen, BakedAs::Single, game_level, bake, &settings),
+                parts,
+                ranges: chain,
+            });
         }
         commands.trigger(MushroomFinished {
             entity,
@@ -921,17 +952,43 @@ pub(crate) fn finish_generation(
     }
 }
 
+/// The fade bands of each step of the shared [`DistanceChain`], by
+/// [`Step::index`], for an object whose bounding diameter in the world is
+/// `diameter`, seen through a [`ViewScale::DEFAULT`] camera at `quality`.
+pub(crate) fn chain_ranges(diameter: f32, quality: Quality) -> [LodRange; 3] {
+    let factor = DistanceChain::factor(diameter, ViewScale::DEFAULT);
+    DistanceChain::DEFAULT.ranges(factor, quality)
+}
+
+/// The fade bands of the game-level and lower meshes with no impostor drawn:
+/// as in `chain`, but the lower mesh is drawn on until the cull, where the
+/// impostor would have ended.
+pub(crate) fn mesh_ranges(chain: &[LodRange; 3]) -> [LodRange; 2] {
+    let [game, lower, impostor] = chain.clone();
+    let lower = LodRange {
+        fade_in: lower.fade_in,
+        fade_out: impostor.fade_out,
+    };
+    [game, lower]
+}
+
+/// Bevy's visibility range for a step drawn over `range`, or `None` for a
+/// step drawn at every distance.
+pub(crate) fn bevy_range(range: &LodRange) -> Option<VisibilityRange> {
+    (!range.is_always()).then(|| visibility_range(range))
+}
+
 /// The asset server, and where to load textures from when they are wanted.
 type TextureSource<'a> = (&'a AssetServer, Option<&'a TextureSettings>);
 
 /// Builds the shared renderer's view of a built scatter: a slot per body,
-/// with its parts from `specimens` (uploading bodies that aren't cached yet
-/// with `uploads`), and a copy per mushroom. Each copy switches levels by
-/// its size in the world: the body's size times the copy's scale and
-/// `world_scale`, the parent's.
+/// with its game-level and lower parts from `specimens` (uploading bodies
+/// that aren't cached yet with `uploads`), and a copy per mushroom. Each
+/// copy switches steps by its size in the world: the body's bounding
+/// diameter times the copy's scale and `world_scale`, the parent's. Until a
+/// body's impostor is added, its lower mesh is drawn until the cull.
 fn scatter_draw(
     built: Built,
-    lod: &MushroomLod,
     world_scale: f32,
     specimens: &mut SpecimenCache,
     (cache, meshes, materials, textures): &mut (
@@ -941,23 +998,23 @@ fn scatter_draw(
         TextureSource,
     ),
 ) -> InstancedScatter {
-    let slot_lod = lod.clone().map_detail(|_| ());
+    let slot_lod = chain_lod(&DistanceChain::DEFAULT, false);
     let levels = slot_lod.levels.len() as u32;
-    let mut sizes = Vec::with_capacity(built.variants.len());
+    let mut diameters = Vec::with_capacity(built.variants.len());
     let slots: Vec<InstancedSlot> = built
         .variants
         .into_iter()
         .zip(&built.pieces)
         .map(|(variant, &(specimen, piece))| {
             let bounds = variant.bounds;
-            sizes.push(variant.options.size);
+            diameters.push(variant.diameter);
             let parts = specimens
                 .get_levels(specimen, piece, levels)
                 .unwrap_or_else(|| {
                     let assets = upload(variant, cache, meshes, materials, *textures);
                     let mut parts = Vec::new();
                     for (level, assets) in assets.levels.iter().enumerate() {
-                        let level_parts = level_parts(level as u32, assets);
+                        let level_parts = level_parts(level as u32, assets.as_ref());
                         specimens.insert(specimen, piece, level as u32, level_parts.clone());
                         parts.extend(level_parts);
                     }
@@ -977,13 +1034,8 @@ fn scatter_draw(
         .iter()
         .map(|instance| InstancedCopy {
             slot: instance.variant,
-            transform: Transform {
-                translation: instance.translation,
-                rotation: instance.rotation,
-                scale: Vec3::splat(instance.scale),
-            }
-            .compute_affine(),
-            size: sizes[instance.variant as usize] * instance.scale * world_scale,
+            transform: instance_transform(instance).compute_affine(),
+            size: diameters[instance.variant as usize] * instance.scale * world_scale,
             wind_phase: 0.0,
         })
         .collect();
@@ -993,19 +1045,14 @@ fn scatter_draw(
     }
 }
 
-/// One level's parts for the shared renderer: its surfaces and its
-/// camera-facing shapes, whichever the level has.
-fn level_parts(level: u32, assets: &LevelAssets) -> Vec<InstancedPart> {
-    let surfaces = assets
-        .surfaces
-        .iter()
-        .map(|(mesh, material)| (mesh, material));
-    let billboard = assets
-        .billboard
-        .iter()
-        .map(|(mesh, material, _)| (mesh, material));
-    surfaces
-        .chain(billboard)
+/// One mesh step's parts for the shared renderer: its surfaces, or nothing
+/// if the step has no triangles.
+fn level_parts(
+    level: u32,
+    assets: Option<&(Handle<Mesh>, Handle<MushroomMaterial>)>,
+) -> Vec<InstancedPart> {
+    assets
+        .into_iter()
         .map(|(mesh, material)| InstancedPart {
             level,
             mesh: PartMesh::Mesh(mesh.clone()),
@@ -1052,49 +1099,37 @@ fn upload(
 
     let o = &variant.options;
     let material_key = material_hash(o);
-    let mut material = |double_sided: bool, plain: bool| {
+    let mut material = |double_sided: bool| {
         cache
             .materials
-            .entry((material_key, double_sided, plain))
+            .entry((material_key, double_sided))
             .or_insert_with(|| {
-                materials.add(if plain {
-                    billboard_material(o)
-                } else {
-                    mushroom_material(o, double_sided, cap.as_ref(), stem.as_ref())
-                })
+                materials.add(mushroom_material(
+                    o,
+                    double_sided,
+                    cap.as_ref(),
+                    stem.as_ref(),
+                ))
             })
             .clone()
     };
-    let levels = variant
-        .levels
-        .into_iter()
-        .map(|level| LevelAssets {
-            surfaces: level
-                .surfaces
-                .map(|m| (meshes.add(m), material(level.double_sided, level.plain))),
-            billboard: level
-                .billboard
-                .map(|(m, aabb)| (meshes.add(m), material(true, level.plain), aabb)),
-        })
-        .collect();
-    let assets = Arc::new(VariantAssets {
-        size: variant.options.size,
-        levels,
+    let levels = variant.levels.map(|level| {
+        level
+            .surfaces
+            .map(|mesh| (meshes.add(mesh), material(level.double_sided)))
     });
+    let assets = Arc::new(VariantAssets { levels });
     cache.variants.insert(variant.key, assets.clone());
     assets
 }
 
 /// Returns the content hash of every setting in `o` that a mushroom's
-/// materials depend on: the material settings, the size, the stem's width
-/// (for flat stems), and the warts and cap outline (for warts). Mushrooms
-/// with equal hashes share materials.
+/// materials depend on: the material settings, the size, and the warts and
+/// cap outline (for warts). Mushrooms with equal hashes share materials.
 fn material_hash(o: &MushroomOptions) -> u64 {
     let mut h = ContentHasher::new();
     h.write(&o.material);
     h.write(&o.size);
-    h.write(&o.stem.radius);
-    h.write(&o.stem.base);
     h.write(&o.warts);
     h.write(&o.cap.family);
     h.write(&o.cap.height);
@@ -1143,24 +1178,16 @@ pub(crate) fn prune_cache(
         });
     let drawn: HashSet<AssetId<Mesh>> = parts.iter().map(|m| m.0.id()).chain(scattered).collect();
     cache.variants.retain(|_, v| {
-        v.levels.iter().any(|l| {
-            l.surfaces
-                .iter()
-                .map(|(m, _)| m.id())
-                .chain(l.billboard.iter().map(|(m, _, _)| m.id()))
-                .any(|id| drawn.contains(&id))
-        })
+        v.levels
+            .iter()
+            .flatten()
+            .any(|(mesh, _)| drawn.contains(&mesh.id()))
     });
     let used: HashSet<AssetId<MushroomMaterial>> = cache
         .variants
         .values()
-        .flat_map(|v| v.levels.iter())
-        .flat_map(|l| {
-            l.surfaces
-                .iter()
-                .map(|(_, m)| m.id())
-                .chain(l.billboard.iter().map(|(_, m, _)| m.id()))
-        })
+        .flat_map(|v| v.levels.iter().flatten())
+        .map(|(_, material)| material.id())
         .collect();
     cache.materials.retain(|_, m| used.contains(&m.id()));
 }
@@ -1170,12 +1197,11 @@ mod tests {
     use std::ops::Range;
     use std::time::{Duration, Instant};
 
-    use bevy::camera::visibility::VisibilityRange;
-    use procgena_core::Quality;
-    use procgena_mushroom::default_lod;
+    use bevy::light::NotShadowCaster;
     use procgena_specimen::{Part, SurfaceMesh, tags};
 
     use super::*;
+    use crate::default_mushroom_impostor;
 
     /// Results of every [`MushroomFinished`] event, in order.
     #[derive(Resource, Default)]
@@ -1199,7 +1225,9 @@ mod tests {
                     finished.0.push(event.result.clone());
                 },
             );
-        crate::add_systems(&mut app, default_lod());
+        // Impostors are on, but without the impostor plugin nothing bakes:
+        // mushrooms keep waiting for theirs.
+        crate::add_systems(&mut app, Some(default_mushroom_impostor()));
         app
     }
 
@@ -1228,7 +1256,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mushroom_gets_every_level_and_its_specimen() {
+    fn a_mushroom_gets_both_meshes_its_specimen_and_waits_for_its_impostor() {
         let mut app = app();
         let entity = app
             .world_mut()
@@ -1236,32 +1264,42 @@ mod tests {
             .id();
         run_until_finished(&mut app, entity);
 
-        let parts = parts(&mut app, entity);
-        let surfaces: Vec<usize> = parts
-            .iter()
-            .filter(|p| !p.billboard)
-            .map(|p| p.lod)
-            .collect();
-        let mut billboards: Vec<usize> = parts
-            .iter()
-            .filter(|p| p.billboard)
-            .map(|p| p.lod)
-            .collect();
-        billboards.sort();
-        // The flat level has a turning stem; the billboard level is turning
-        // shapes only.
-        assert_eq!(surfaces, [0, 1, 2, 3]);
-        assert_eq!(billboards, [3, 4]);
+        let steps: Vec<Step> = parts(&mut app, entity).iter().map(|p| p.step).collect();
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        assert!(steps.contains(&Step::Game) && steps.contains(&Step::Lower));
         assert!(app.world().entity(entity).contains::<GeneratedSpecimen>());
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
-        // Removing the request removes the parts and the specimen.
+        // The impostor is baked from the game-level mesh, with its material.
+        let waiting = app.world().entity(entity).get::<SingleImpostor>().unwrap();
+        assert_eq!(waiting.parts.len(), 1);
+
+        // Removing the request removes the parts, the specimen and the wait
+        // for the impostor.
         app.world_mut()
             .entity_mut(entity)
             .remove::<MushroomParams>();
         app.update();
         assert!(self::parts(&mut app, entity).is_empty());
         assert!(!app.world().entity(entity).contains::<GeneratedSpecimen>());
+        assert!(!app.world().entity(entity).contains::<SingleImpostor>());
+    }
+
+    #[test]
+    fn without_impostors_nothing_waits_for_one() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<Image>()
+            .init_asset::<MushroomMaterial>();
+        crate::add_systems(&mut app, None);
+        let entity = app
+            .world_mut()
+            .spawn(MushroomParams::preset(MushroomPreset::button()))
+            .id();
+        run_until_finished(&mut app, entity);
+        assert!(!parts(&mut app, entity).is_empty());
+        assert!(!app.world().entity(entity).contains::<SingleImpostor>());
     }
 
     #[test]
@@ -1366,6 +1404,21 @@ mod tests {
             parts(&mut app, entity).iter().map(|p| p.instance).collect();
         assert!(instances.len() >= 3, "{instances:?}");
         assert!(app.world().entity(entity).contains::<GeneratedSpecimen>());
+
+        // One impostor shows the whole cluster: it is baked from every
+        // member's game-level mesh.
+        let mut query = app
+            .world_mut()
+            .query::<(&MushroomPart, &Mesh3d, &ChildOf)>();
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let drawn: usize = query
+            .iter(app.world())
+            .filter(|(part, _, parent)| part.step == Step::Game && parent.parent() == entity)
+            .map(|(_, mesh, _)| meshes.get(&mesh.0).unwrap().count_vertices())
+            .sum();
+        let waiting = app.world().entity(entity).get::<SingleImpostor>().unwrap();
+        let baked: usize = waiting.parts.iter().map(|(m, _)| m.count_vertices()).sum();
+        assert_eq!(baked, drawn);
     }
 
     /// A host entity with a ground specimen, at `scale`.
@@ -1416,12 +1469,16 @@ mod tests {
                 slot.specimen.slot < u32::MAX,
                 "a body with no specimen slot"
             );
+            assert_eq!(slot.lod, chain_lod(&DistanceChain::DEFAULT, false));
             let levels = slot.lod.levels.len() as u32;
+            assert_eq!(levels, 2, "the game-level and lower meshes");
             assert_eq!(
                 cache.get_levels(slot.specimen, slot.piece, levels),
                 Some(slot.parts.clone())
             );
         }
+        // Each body waits for its impostor.
+        assert!(app.world().entity(entity).contains::<ScatterImpostors>());
 
         // Losing the host's specimen removes the mushrooms.
         app.world_mut()
@@ -1460,13 +1517,22 @@ mod tests {
         run_until_finished(&mut app, entity);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
-        // Every copy stands near the ground under it (sunk a little).
+        // Every copy stands near the ground under it (sunk a little), and
+        // switches steps by its body's bounding diameter at its scale.
         let copies = copies(&app, entity);
         assert!(!copies.is_empty());
-        for copy in &copies {
+        let built = MushroomScatter::new(
+            &params.mushroom,
+            &params.scatter,
+            &ScatterInput::new(&*ground, params.area, params.scatter.default_seed),
+        )
+        .unwrap();
+        for (copy, instance) in copies.iter().zip(built.instances()) {
             let t = Vec3::from(copy.transform.translation);
             let h = ground.height(bevy::math::DVec2::new(t.x.into(), t.z.into()));
             assert!((t.y - h).abs() < 0.05, "copy at {t} over ground {h}");
+            let body = &built.bodies()[instance.variant as usize];
+            assert_eq!(copy.size, body.bounding_diameter() * instance.scale);
         }
 
         // The same ground and settings don't rebuild; a new ground does.
@@ -1499,9 +1565,9 @@ mod tests {
         (range.start_margin.clone(), range.end_margin.clone())
     }
 
-    /// Each part under `entity` with its level, distance band and whether it
+    /// Each part under `entity` with its step, distance band and whether it
     /// casts shadows.
-    fn ranges(app: &mut App, entity: Entity) -> Vec<(usize, VisibilityRange, bool)> {
+    fn ranges(app: &mut App, entity: Entity) -> Vec<(Step, VisibilityRange, bool)> {
         let mut query = app.world_mut().query::<(
             &MushroomPart,
             &VisibilityRange,
@@ -1511,12 +1577,12 @@ mod tests {
         query
             .iter(app.world())
             .filter(|(.., parent)| parent.parent() == entity)
-            .map(|(part, range, shadowless, _)| (part.lod, range.clone(), !shadowless))
+            .map(|(part, range, shadowless, _)| (part.step, range.clone(), !shadowless))
             .collect()
     }
 
     #[test]
-    fn levels_hand_over_and_fade_out_at_the_cull_distance() {
+    fn steps_follow_the_chain_and_the_lower_mesh_fades_out_at_the_cull() {
         let mut app = app();
         let options = MushroomPreset::porcini().mushroom.clone();
         let entity = app
@@ -1525,24 +1591,26 @@ mod tests {
             .id();
         run_until_finished(&mut app, entity);
 
-        // Each part shows over its level's band, scaled to the mushroom's
-        // size, and only the card level drops its shadow.
-        let lod = default_lod();
-        let expected = lod.ranges(lod.factor(options.size, Quality::High));
+        // Each mesh shows over its step's band for the mushroom's size on
+        // screen, with the lower mesh drawn until the cull while no impostor
+        // is drawn, and both cast shadows.
+        let diameter = Mushroom::new(options).unwrap().bounding_diameter();
+        let chain = chain_ranges(diameter, Quality::High);
+        let expected = mesh_ranges(&chain);
         let parts = ranges(&mut app, entity);
-        assert!(!parts.is_empty());
-        for (level, range, shadows) in &parts {
-            let want = visibility_range(&expected[*level]);
-            assert_eq!(margins(range), margins(&want), "level {level}");
+        assert_eq!(parts.len(), 2);
+        for (step, range, shadows) in &parts {
+            let want = visibility_range(&expected[step.index()]);
+            assert_eq!(margins(range), margins(&want), "{step:?}");
             assert!(!range.use_aabb);
-            assert_eq!(*shadows, lod.levels[*level].casts_shadows, "level {level}");
+            assert!(*shadows, "{step:?}");
         }
-        assert!(parts.iter().any(|(level, ..)| *level == 4));
-        let last = &expected[4];
-        assert!(
-            last.fade_out
-                .contains(&(40.0 * lod.factor(options.size, Quality::High)))
-        );
+        assert_eq!(expected[1].fade_in, chain[1].fade_in);
+        assert_eq!(expected[1].fade_out, chain[2].fade_out);
+
+        // Once the impostor is drawn, the steps take the chain's own bands.
+        let waiting = app.world().entity(entity).get::<SingleImpostor>().unwrap();
+        assert_eq!(waiting.ranges, chain);
     }
 
     #[test]
@@ -1556,11 +1624,11 @@ mod tests {
             .id();
         run_until_finished(&mut app, entity);
 
-        let lod = default_lod();
-        let expected = lod.ranges(lod.factor(options.size, Quality::Low));
-        for (level, range, _) in ranges(&mut app, entity) {
-            let want = visibility_range(&expected[level]);
-            assert_eq!(margins(&range), margins(&want), "level {level}");
+        let diameter = Mushroom::new(options).unwrap().bounding_diameter();
+        let expected = mesh_ranges(&chain_ranges(diameter, Quality::Low));
+        for (step, range, _) in ranges(&mut app, entity) {
+            let want = visibility_range(&expected[step.index()]);
+            assert_eq!(margins(&range), margins(&want), "{step:?}");
         }
     }
 }

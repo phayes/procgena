@@ -1,6 +1,6 @@
-//! Coarse detail levels keep the full mesh's outline.
+//! Coarse details keep the full mesh's outline.
 //!
-//! Each level is drawn as a black-and-white mask, from the side and from
+//! Each detail is drawn as a black-and-white mask, from the side and from
 //! above, and compared with the full mesh's mask by "intersection over
 //! union": the area both cover divided by the area either covers. 1 means
 //! identical outlines.
@@ -11,19 +11,20 @@ use procgena_mushroom::{MushroomDetail, MushroomMesh, MushroomPreset};
 /// Mask resolution along each side.
 const GRID: usize = 96;
 
-/// Smallest acceptable overlap with the full mesh's outline, per level.
-const MIN_OVERLAP: [(&str, MushroomDetail, f32); 4] = [
-    ("high", MushroomDetail::HIGH, 0.9),
-    ("medium", MushroomDetail::MEDIUM, 0.8),
-    ("low", MushroomDetail::LOW, 0.7),
-    ("flat", MushroomDetail::FLAT, 0.6),
-];
+/// Smallest acceptable overlap with the full mesh's outline, per detail:
+/// the coarser named details, and the lower mesh of the default game level.
+fn min_overlap() -> [(&'static str, MushroomDetail, f32); 4] {
+    [
+        ("high", MushroomDetail::HIGH, 0.9),
+        ("medium", MushroomDetail::MEDIUM, 0.8),
+        ("low", MushroomDetail::LOW, 0.7),
+        ("lower", MushroomDetail::default().lod().lower, 0.7),
+    ]
+}
 
-/// A viewing direction and the two axes of the picture plane.
+/// A view's name and the two axes of its picture plane.
 struct View {
     name: &'static str,
-    /// Direction from the mushroom toward the viewer.
-    toward_viewer: Vec3,
     right: Vec3,
     up: Vec3,
 }
@@ -31,42 +32,24 @@ struct View {
 const VIEWS: [View; 2] = [
     View {
         name: "side",
-        toward_viewer: Vec3::Z,
         right: Vec3::X,
         up: Vec3::Y,
     },
     View {
         name: "top",
-        toward_viewer: Vec3::Y,
         right: Vec3::X,
         up: Vec3::NEG_Z,
     },
 ];
 
-/// Every triangle of `mesh` as seen in `view`, with camera-facing shapes
-/// turned to face the viewer as a renderer would.
+/// Every triangle of `mesh` as seen in `view`.
 fn triangles(mesh: &MushroomMesh, view: &View) -> Vec<[Vec2; 3]> {
     let project = |p: Vec3| Vec2::new(p.dot(view.right), p.dot(view.up));
-    let mut out = Vec::new();
     let b = &mesh.surfaces;
-    for t in b.indices.chunks(3) {
-        out.push([t[0], t[1], t[2]].map(|i| project(Vec3::from(b.positions[i as usize]))));
-    }
-    if let Some(billboard) = &mesh.billboard {
-        let turned: Vec<Vec3> = billboard
-            .billboards
-            .iter()
-            .map(|v| {
-                let axis = Vec3::from(v.axis);
-                let right = axis.cross(view.toward_viewer).normalize_or_zero();
-                Vec3::from(v.pivot) + right * v.offset[0] + axis * v.offset[1]
-            })
-            .collect();
-        for t in billboard.facing.indices.chunks(3) {
-            out.push([t[0], t[1], t[2]].map(|i| project(turned[i as usize])));
-        }
-    }
-    out
+    b.indices
+        .chunks(3)
+        .map(|t| [t[0], t[1], t[2]].map(|i| project(Vec3::from(b.positions[i as usize]))))
+        .collect()
 }
 
 /// Draws `tris` into a mask covering `min..max`.
@@ -122,7 +105,7 @@ fn coarse_levels_keep_the_outline() {
             let (min, max) = (min - margin, max + margin);
             let reference = mask(&full_tris, min, max);
 
-            for (name, detail, required) in MIN_OVERLAP {
+            for (name, detail, required) in min_overlap() {
                 let mesh = mushroom.mesh_with_detail(&detail).unwrap();
                 let score = overlap(&reference, &mask(&triangles(&mesh, view), min, max));
                 if score < required {
@@ -132,43 +115,6 @@ fn coarse_levels_keep_the_outline() {
                     ));
                 }
             }
-        }
-    }
-    assert!(
-        failures.is_empty(),
-        "outlines differ:\n{}",
-        failures.join("\n")
-    );
-}
-
-#[test]
-fn the_billboard_level_keeps_the_outline_from_the_side() {
-    // Two triangles can only suggest the outline, and only from the side,
-    // the way distant mushrooms are seen; from straight above the turned
-    // triangles are edge-on. A thin, bent stem, as on the liberty cap,
-    // fits a triangle worst, at a little over 0.4.
-    const REQUIRED: f32 = 0.4;
-    let side = &VIEWS[0];
-    let mut failures = Vec::new();
-    for preset in MushroomPreset::all() {
-        let mushroom = procgena_mushroom::Mushroom::from_preset(preset).unwrap();
-        let full = mushroom.mesh_with_detail(&MushroomDetail::FULL).unwrap();
-        let full_tris = triangles(&full, side);
-        let (min, max) = full_tris
-            .iter()
-            .flatten()
-            .fold((Vec2::MAX, Vec2::MIN), |(lo, hi), p| {
-                (lo.min(*p), hi.max(*p))
-            });
-        let margin = (max - min) * 0.05;
-        let (min, max) = (min - margin, max + margin);
-        let reference = mask(&full_tris, min, max);
-        let billboard = mushroom
-            .mesh_with_detail(&MushroomDetail::BILLBOARD)
-            .unwrap();
-        let score = overlap(&reference, &mask(&triangles(&billboard, side), min, max));
-        if score < REQUIRED {
-            failures.push(format!("{}: {score:.3} < {REQUIRED}", preset.name));
         }
     }
     assert!(

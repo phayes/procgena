@@ -10,10 +10,10 @@ use procgena_core::scatter::{
     DEFAULT_SPACING_ROUNDS, Disc, Footprint, Lattice, Rank, Reach, Scatter, ScatterCopy,
     ScatterInput, ScatterSlot, Spaced, keep_spaced, place, steeper_than,
 };
+use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_core::{CellId, Quality, SpecimenId};
 
 use crate::cluster::MushroomInstance;
-use crate::detail::default_lod;
 use crate::mushroom::Mushroom;
 use crate::options::MushroomOptions;
 use crate::rng::SCATTER_SITES;
@@ -353,13 +353,23 @@ impl Scatter for MushroomScatter {
     }
 
     fn draw_range(&self) -> f32 {
-        // The default detail levels' cull distance, for the largest copy.
+        // Where the default chain culls the largest copy of any member, at
+        // High quality through a default camera.
         let Some(ground) = &self.ground else {
             return 0.0;
         };
-        let lod = default_lod();
-        let size = ground.mushroom.size * ground.options.scale_max;
-        lod.cull_distance.unwrap_or(f32::INFINITY) * lod.factor(size, Quality::High)
+        let largest = ground
+            .specimens
+            .iter()
+            .flat_map(|specimen| {
+                specimen.members().iter().map(|m| {
+                    specimen.bodies()[m.variant as usize].bounding_diameter() * m.scale
+                })
+            })
+            .fold(0.0, f32::max)
+            * ground.options.scale_max;
+        let [_, _, cull] = DistanceChain::DEFAULT.thresholds(Quality::High);
+        DistanceChain::factor(largest, ViewScale::DEFAULT) / cull
     }
 
     fn slots(&self, world_seed: u32) -> Vec<ScatterSlot> {

@@ -5548,6 +5548,7 @@ dependencies = [
  "bevy",
  "procgena_core",
  "procgena_core_bevy",
+ "procgena_impostor",
  "procgena_mushroom",
  "procgena_specimen",
 ]
@@ -5572,7 +5573,6 @@ dependencies = [
  "bevy_rapier3d",
  "bytemuck",
  "image",
- "procgena_core",
  "procgena_plant",
  "procgena_plant_bevy",
  "proptest",
