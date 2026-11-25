@@ -403,7 +403,7 @@ mod tests {
     fn every_preset_makes_a_rock() {
         for preset in StonePreset::all() {
             let mut options = preset.stone.clone();
-            options.mesh.detail = crate::StoneDetail::single(32, crate::TextureSize::Size512);
+            options.mesh.game_level = crate::StoneDetail::new(32, crate::TextureSize::Size512);
             let stone = Stone::new(options).unwrap();
             assert!(
                 stone.mesh().triangle_count() > 100,

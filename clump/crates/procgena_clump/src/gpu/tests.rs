@@ -439,8 +439,8 @@ fn crevice() -> SurfaceMesh {
 /// A procgena_stone flat slab at `resolution` cells per axis.
 fn slab(resolution: u32) -> SurfaceMesh {
     let mut options = procgena_stone::StonePreset::flat_slab().stone.clone();
-    options.mesh.detail =
-        procgena_stone::StoneDetail::single(resolution, procgena_stone::TextureSize::Size1k);
+    options.mesh.game_level =
+        procgena_stone::StoneDetail::new(resolution, procgena_stone::TextureSize::Size1k);
     let stone = procgena_stone::Stone::new(options).unwrap();
     let mesh = stone.mesh();
     SurfaceMesh {

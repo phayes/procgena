@@ -985,8 +985,8 @@ mod tests {
     /// A procgena_stone rock as a surface mesh, at `resolution` cells per axis.
     fn stone(preset: &procgena_stone::StonePreset, resolution: u32) -> SurfaceMesh {
         let mut options = preset.stone.clone();
-        options.mesh.detail =
-            procgena_stone::StoneDetail::single(resolution, procgena_stone::TextureSize::Size1k);
+        options.mesh.game_level =
+            procgena_stone::StoneDetail::new(resolution, procgena_stone::TextureSize::Size1k);
         let stone = procgena_stone::Stone::new(options).unwrap();
         let mesh = stone.mesh();
         SurfaceMesh {

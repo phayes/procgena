@@ -12,7 +12,7 @@ fn stone() -> Stone {
         default_seed: 3,
         ..StoneOptions::default()
     };
-    options.mesh.detail = StoneDetail::single(24, TextureSize::Size512);
+    options.mesh.game_level = StoneDetail::new(24, TextureSize::Size512);
     Stone::new(options).unwrap()
 }
 

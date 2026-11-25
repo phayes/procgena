@@ -99,11 +99,12 @@ pub fn estimate_capacity(resolution: u32) -> (u32, u32) {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GpuStoneRequest {
     /// Rock settings, including the meshing method in [`StoneOptions::mesh`].
-    /// [`MeshOptions::detail`] is validated but not used; `resolution` sets the mesh detail.
+    /// [`MeshOptions::game_level`] is validated but not used; `resolution` sets the mesh detail.
     pub options: StoneOptions,
     /// Grid cells per axis for this mesh, from [`crate::MIN_RESOLUTION`]
-    /// through [`MAX_GPU_RESOLUTION`]. To build a detail level, pass its
-    /// [`DetailLevel::resolution`](crate::DetailLevel::resolution).
+    /// through [`MAX_GPU_RESOLUTION`]. To build the game-level or lower mesh,
+    /// pass that detail's [`StoneDetail::resolution`](crate::StoneDetail::resolution)
+    /// (see [`StoneDetail::lod`](crate::StoneDetail::lod)).
     pub resolution: u32,
     /// Vertices reserved for this mesh in the batch's vertex buffer.
     pub vertex_capacity: u32,

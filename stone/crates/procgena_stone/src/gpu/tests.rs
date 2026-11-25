@@ -518,12 +518,10 @@ fn gpu_ecotope_stones_match_cpu_at_every_level() {
     let shapes = ecotope_stone_options();
     let cell = 1.0 / crate::placement::ANALYSIS_RESOLUTION as f32;
     for options in &shapes {
-        // Every detail level is the same surface as the CPU's, closed and
-        // facing outward.
-        let requests: Vec<GpuStoneRequest> = options
-            .mesh
-            .detail
-            .levels()
+        // The game-level and lower meshes are the same surfaces as the CPU's,
+        // closed and facing outward.
+        let lod = options.mesh.game_level.lod();
+        let requests: Vec<GpuStoneRequest> = [lod.game, lod.lower]
             .iter()
             .map(|level| GpuStoneRequest::new(options.clone(), level.resolution))
             .collect();

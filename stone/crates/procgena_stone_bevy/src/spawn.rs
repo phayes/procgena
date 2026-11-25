@@ -1,4 +1,5 @@
-//! Generate rocks in background tasks and display their detail levels as child entities.
+//! Generate rocks in background tasks and display their game-level mesh,
+//! lower mesh and impostor as child entities.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -8,16 +9,16 @@ use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
 use procgena_core::{LodRange, PoolId, Quality, SpecimenId, content_hash};
 use procgena_core_bevy::{LodQuality, visibility_range};
-use procgena_impostor::ImpostorLevel;
+use procgena_impostor::BakeSettings;
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_stone::{
-    DetailLevel, OptionsError, Stone, StoneDetail, StoneOptions, StonePreset, TextureCompression,
-    TextureSize,
+    OptionsError, Stone, StoneDetail, StoneOptions, StonePreset, TextureCompression, TextureSize,
 };
 
-use crate::impostor::{StoneImpostorAssets, StoneImpostorShown, impostor_ranges};
+use crate::impostor::{StoneImpostorAssets, StoneImpostorShown};
 use crate::material::{StoneMaterial, StoneTextures, stone_material};
 use crate::mesh::stone_mesh;
 
@@ -25,7 +26,10 @@ use crate::mesh::stone_mesh;
 ///
 /// Add this component to an entity after installing [`StonePlugin`](crate::StonePlugin).
 /// The rock appears when background generation finishes, as one child entity
-/// per detail level. Rocks with identical options share meshes and materials.
+/// per drawing step: its game-level mesh, its lower mesh and, once baked, its
+/// impostor, each shown at the sizes on screen the shared
+/// [`DistanceChain`] gives it. Rocks with identical options share meshes and
+/// materials.
 ///
 /// The rock is lifted to approximately local `y = 0`. Enabling
 /// [`PlacementOptions::settle`](procgena_stone::PlacementOptions::settle) also turns
@@ -36,8 +40,9 @@ use crate::mesh::stone_mesh;
 /// Changing this component rebuilds the rock; removing it despawns the generated
 /// children and removes both components.
 ///
-/// [`MeshOptions::detail`](procgena_stone::MeshOptions::detail) sets each detail
-/// level's mesh resolution, switching distance and texture size.
+/// [`MeshOptions::game_level`](procgena_stone::MeshOptions::game_level) sets
+/// the game-level mesh's resolution and texture size; the lower mesh is
+/// derived from it.
 #[derive(Component, Debug, Clone, PartialEq)]
 #[require(Transform, Visibility)]
 pub enum StoneParams {
@@ -76,14 +81,13 @@ pub struct StonePresetAsset(pub StonePreset);
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct StoneEmbedDepth(pub f32);
 
-/// Identifies a generated child entity that draws one detail level of a [`StoneParams`].
+/// Identifies a generated child entity that draws one step of a
+/// [`StoneParams`]: its game-level mesh, its lower mesh, or, once shown (see
+/// [`StonePlugin::impostor`](crate::StonePlugin::impostor)), its impostor.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StonePart {
-    /// Index into the rock's [`MeshOptions::detail`](procgena_stone::MeshOptions::detail)
-    /// levels, starting at 0 for the nearest. A rock's impostor, once
-    /// shown (see [`StonePlugin::impostor`](crate::StonePlugin::impostor)),
-    /// is one more part, numbered one past the last level.
-    pub lod: usize,
+    /// Which step this part draws.
+    pub step: Step,
 }
 
 /// Reads and checks rock preset files with the `.stone.yml` extension.
@@ -125,11 +129,11 @@ impl AssetLoader for StonePresetLoader {
 pub(crate) struct SpawnSettings {
     pub texture_root: Option<String>,
     pub texture_compression: TextureCompression,
-    pub impostor: Option<ImpostorLevel>,
+    pub impostor: Option<BakeSettings>,
 }
 
 /// Names a rock's generated meshes: its pool and seed (which fix its shape
-/// and look) plus the hash of its detail levels (which fix its meshes).
+/// and look) plus the hash of its game level (which fixes its meshes).
 /// Entities with the same key reuse one [`Generated`] entry.
 #[derive(Component, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StoneKey {
@@ -150,7 +154,7 @@ impl StoneKey {
         SpecimenId::new(self.seed, self.pool, 0)
     }
 
-    /// The hash of the rock's detail levels.
+    /// The hash of the rock's game level.
     pub(crate) fn detail(&self) -> u64 {
         self.detail
     }
@@ -160,7 +164,7 @@ impl StoneKey {
         Self {
             pool: options.pool_id(),
             seed: options.default_seed,
-            detail: content_hash(&options.mesh.detail),
+            detail: content_hash(&options.mesh.game_level),
         }
     }
 }
@@ -187,17 +191,17 @@ pub struct StoneFinished {
     pub result: Result<(), OptionsError>,
 }
 
-/// A mesh produced by a background task for one detail level; absent when the
-/// level has no triangles.
+/// A mesh produced by a background task for one mesh step; absent when it
+/// has no triangles.
 struct LevelMesh {
-    level: DetailLevel,
+    level: StoneDetail,
     mesh: Option<Mesh>,
 }
 
-/// Background results: grounded meshes in detail-level order, plus
+/// Background results: the game-level and lower meshes, grounded, plus
 /// a burial suggestion scaled by the rock options but not an entity transform.
 struct GeneratedMeshes {
-    levels: Vec<LevelMesh>,
+    levels: [LevelMesh; 2],
     embed_depth: f32,
     /// The rock as a tagged specimen, for generators that grow on it.
     specimen: Arc<Specimen>,
@@ -206,22 +210,24 @@ struct GeneratedMeshes {
 /// Grounded meshes and burial depth, or the settings error that stopped generation.
 type TaskOutput = Result<GeneratedMeshes, OptionsError>;
 
-/// Mesh, material and camera-distance range for one detail level.
+/// Mesh, material and camera-distance range for one mesh step.
 pub(crate) struct LevelAssets {
-    /// Camera-distance limits; `None` means the sole detail level has no distance limit.
+    /// Camera-distance limits while the rock has no impostor; `None` means
+    /// the step has no distance limit.
     range: Option<VisibilityRange>,
-    /// Absent when this level has no triangles.
+    /// Absent when this step has no triangles.
     pub(crate) mesh: Option<Handle<Mesh>>,
-    /// Material for this level's texture size, shared by levels with the same size.
+    /// Material for this step's texture size, shared by steps with the same size.
     pub(crate) material: Handle<StoneMaterial>,
 }
 
-/// Meshes and materials reused by rocks with identical options, nearest level first.
+/// Meshes and materials reused by rocks with identical options: the
+/// game-level mesh, then the lower mesh.
 pub(crate) struct Generated {
-    pub(crate) levels: Vec<LevelAssets>,
-    /// Each level's fade bands, then the impostor's, as drawn once the
-    /// rock's impostor is baked; `None` when the rock has no impostor.
-    pub(crate) impostor_ranges: Option<Vec<LodRange>>,
+    pub(crate) levels: [LevelAssets; 2],
+    /// Each step's fade bands, by [`Step::index`], as drawn once the rock's
+    /// impostor is baked; `None` when the rock draws no impostor.
+    pub(crate) impostor_ranges: Option<[LodRange; 3]>,
     /// Suggested burial depth including option scale, before entity transform scaling.
     embed_depth: f32,
     /// The rock as a tagged specimen, shared by every rock with these options.
@@ -398,18 +404,15 @@ pub(crate) fn start_generation(
     }
 }
 
-/// Generates grounded meshes for each of `options.mesh.detail`'s levels, and
+/// Generates the grounded game-level and lower meshes of `options`, and
 /// a shared burial suggestion. Applies `options.scale` but does not bury meshes.
 /// Returns an error for invalid rock settings.
 fn generate(options: &StoneOptions) -> TaskOutput {
     let stone = Stone::new(options.clone())?;
-    let levels = stone
-        .levels()
-        .map(|(&level, mesh)| LevelMesh {
-            level,
-            mesh: (mesh.triangle_count() > 0).then(|| stone_mesh(mesh)),
-        })
-        .collect();
+    let levels = stone.levels().map(|(_, level, mesh)| LevelMesh {
+        level,
+        mesh: (mesh.triangle_count() > 0).then(|| stone_mesh(mesh)),
+    });
     Ok(GeneratedMeshes {
         levels,
         embed_depth: stone.embed_depth(),
@@ -448,15 +451,14 @@ pub(crate) fn finish_generation(
             }
         };
 
-        // Share matching materials across rocks and their distance-based detail
-        // levels. Match texture images, image resolution, colour, roughness and
-        // pattern scale. Reuse texture images; without a texture folder, use
-        // plain colours.
+        // Share matching materials across rocks and their two meshes. Match
+        // texture images, image resolution, colour, roughness and pattern
+        // scale. Reuse texture images; without a texture folder, use plain
+        // colours.
         let compression = settings.texture_compression;
-        let ranges = level_ranges(&options.mesh.detail, options.scale, quality.0);
-        let mut level_assets = Vec::with_capacity(levels.len());
-        for (l, range) in levels.into_iter().zip(ranges) {
-            let range = bevy_range(&range);
+        let [game, lower] = levels;
+        let [game_range, lower_range] = mesh_ranges(options, quality.0);
+        let level_assets = [(game, game_range), (lower, lower_range)].map(|(l, range)| {
             let size = l.level.texture_size;
             let set = &options.material.texture;
             let textured = settings.texture_root.is_some().then(|| (set.clone(), size));
@@ -473,15 +475,13 @@ pub(crate) fn finish_generation(
                 });
                 materials.add(stone_material(&options.material, textures.as_ref()))
             });
-            level_assets.push(LevelAssets {
-                range,
+            LevelAssets {
+                range: bevy_range(&range),
                 mesh: l.mesh.map(|m| meshes.add(m)),
                 material: material.clone(),
-            });
-        }
-        let impostor_ranges = settings.impostor.and_then(|impostor| {
-            impostor_ranges(&options.mesh.detail, options.scale, quality.0, impostor)
+            }
         });
+        let impostor_ranges = settings.impostor.map(|_| chain_ranges(options, quality.0));
         *entry = Entry::Ready(Arc::new(Generated {
             levels: level_assets,
             impostor_ranges,
@@ -491,11 +491,25 @@ pub(crate) fn finish_generation(
     }
 }
 
-/// Each of `detail`'s levels' fade bands, nearest first, for a rock `scale`
-/// metres across drawn at `quality`.
-pub(crate) fn level_ranges(detail: &StoneDetail, scale: f32, quality: Quality) -> Vec<LodRange> {
-    let lod = detail.lod();
-    lod.ranges(lod.factor(scale, quality))
+/// The fade bands of each step of the shared [`DistanceChain`], by
+/// [`Step::index`], for a rock built from `options` seen through a
+/// [`ViewScale::DEFAULT`] camera at `quality`. The rock's size on screen is
+/// measured by its [`bounding_diameter`](StoneOptions::bounding_diameter).
+pub(crate) fn chain_ranges(options: &StoneOptions, quality: Quality) -> [LodRange; 3] {
+    let factor = DistanceChain::factor(options.bounding_diameter(), ViewScale::DEFAULT);
+    DistanceChain::DEFAULT.ranges(factor, quality)
+}
+
+/// The fade bands of the game-level and lower meshes of a rock with no
+/// impostor: like [`chain_ranges`], but the lower mesh is drawn on until the
+/// cull, where the impostor would have ended.
+pub(crate) fn mesh_ranges(options: &StoneOptions, quality: Quality) -> [LodRange; 2] {
+    let [game, lower, impostor] = chain_ranges(options, quality);
+    let lower = LodRange {
+        fade_in: lower.fade_in,
+        fade_out: impostor.fade_out,
+    };
+    [game, lower]
 }
 
 /// Bevy's visibility range for a level drawn over `range`, or `None` for a
@@ -530,10 +544,10 @@ pub(crate) fn spawn_parts(
 }
 
 fn spawn_stone_parts(commands: &mut Commands, stone: Entity, generated: &Generated) {
-    for (lod, level) in generated.levels.iter().enumerate() {
+    for (step, level) in [Step::Game, Step::Lower].into_iter().zip(&generated.levels) {
         let Some(mesh) = &level.mesh else { continue };
         let mut part = commands.spawn((
-            StonePart { lod },
+            StonePart { step },
             Mesh3d(mesh.clone()),
             MeshMaterial3d(level.material.clone()),
             ChildOf(stone),
@@ -605,13 +619,11 @@ mod tests {
     #[derive(Resource, Default)]
     struct Finished(Vec<Result<(), OptionsError>>);
 
-    /// Default options with two small detail levels, so generation in tests is quick.
+    /// Default options with a small game level (and so a small lower mesh),
+    /// so generation in tests is quick.
     fn quick() -> StoneOptions {
         let mut options = StoneOptions::default();
-        options.mesh.detail = StoneDetail::new(vec![
-            DetailLevel::new(24, 0.0, TextureSize::Size512),
-            DetailLevel::new(12, 15.0, TextureSize::Size512),
-        ]);
+        options.mesh.game_level = StoneDetail::new(24, TextureSize::Size512);
         options
     }
 
@@ -664,17 +676,20 @@ mod tests {
         }
     }
 
-    /// Detail levels of the generated children of `stone`, sorted.
-    fn part_lods(app: &mut App, stone: Entity) -> Vec<usize> {
+    /// The steps of the generated children of `stone`, sorted.
+    fn part_lods(app: &mut App, stone: Entity) -> Vec<Step> {
         let mut parts = app.world_mut().query::<(&StonePart, &ChildOf)>();
-        let mut lods: Vec<usize> = parts
+        let mut steps: Vec<Step> = parts
             .iter(app.world())
             .filter(|(_, parent)| parent.parent() == stone)
-            .map(|(part, _)| part.lod)
+            .map(|(part, _)| part.step)
             .collect();
-        lods.sort_unstable();
-        lods
+        steps.sort_unstable();
+        steps
     }
+
+    /// Both mesh steps, as [`part_lods`] lists them.
+    const MESHES: [Step; 2] = [Step::Game, Step::Lower];
 
     #[test]
     fn generating_marker_lasts_until_parts_spawn() {
@@ -686,7 +701,7 @@ mod tests {
         assert!(part_lods(&mut app, stone).is_empty());
 
         update_until_finished(&mut app, stone);
-        assert_eq!(part_lods(&mut app, stone), [0, 1]);
+        assert_eq!(part_lods(&mut app, stone), MESHES);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
 
         // Touching the rock replaces its parts. The options are cached, so
@@ -697,7 +712,7 @@ mod tests {
             .set_changed();
         app.update();
         assert!(!app.world().entity(stone).contains::<StoneGenerating>());
-        assert_eq!(part_lods(&mut app, stone), [0, 1]);
+        assert_eq!(part_lods(&mut app, stone), MESHES);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(()), Ok(())]);
 
         // New options generate again.
@@ -711,17 +726,18 @@ mod tests {
         update_until_finished(&mut app, stone);
         assert_eq!(app.world().resource::<Finished>().0.len(), 3);
 
-        // A different detail set is a different rock: it generates its own levels.
+        // A different game level is a different rock: it generates its own
+        // meshes.
         let mut options = StoneOptions {
             default_seed: 7,
             ..quick()
         };
-        options.mesh.detail = StoneDetail::single(16, TextureSize::Size512);
+        options.mesh.game_level = StoneDetail::new(16, TextureSize::Size512);
         *app.world_mut().get_mut::<StoneParams>(stone).unwrap() = StoneParams::new(options);
         app.update();
         assert!(app.world().entity(stone).contains::<StoneGenerating>());
         update_until_finished(&mut app, stone);
-        assert_eq!(part_lods(&mut app, stone), [0]);
+        assert_eq!(part_lods(&mut app, stone), MESHES);
         assert_eq!(app.world().resource::<StoneCache>().stones.len(), 3);
     }
 
@@ -839,7 +855,7 @@ mod tests {
         };
 
         // Changing the random seed varies rock shape while preserving the
-        // shared material at every detail level.
+        // shared material on both meshes.
         let first = spawn(&mut app, quick());
         let second = spawn(
             &mut app,
@@ -903,7 +919,7 @@ mod tests {
         let preset = &assets.get(&handle).unwrap().0;
         assert_eq!(preset.stone, expected);
         assert_eq!(preset.key, "rock");
-        assert_eq!(part_lods(&mut app, stone), [0, 1, 2]);
+        assert_eq!(part_lods(&mut app, stone), MESHES);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
     }
 
@@ -928,35 +944,62 @@ mod tests {
         );
     }
 
+    /// How much of the screen's height a rock built from `options` covers,
+    /// `distance` metres from a default camera.
+    fn on_screen(options: &StoneOptions, distance: f32) -> f32 {
+        options.bounding_diameter() * ViewScale::DEFAULT.get() / distance
+    }
+
+    /// Whether `a` and `b` match to within a millionth of `b`.
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() <= b.abs() * 1e-6
+    }
+
     #[test]
-    fn detail_levels_hand_over_at_scaled_distances() {
-        let high = Quality::High;
-        let ranges: Vec<VisibilityRange> = level_ranges(&StoneDetail::MEDIUM, 2.5, high)
-            .iter()
-            .map(|r| bevy_range(r).unwrap())
-            .collect();
-        assert_eq!(ranges[0].start_margin, 0.0..0.0);
-        assert_eq!(ranges[0].end_margin, 14.25..15.75);
-        assert_eq!(ranges[1].start_margin, 14.25..15.75);
-        assert_eq!(ranges[1].end_margin, 38.0..42.0);
-        assert_eq!(ranges[2].start_margin, 38.0..42.0);
-        assert_eq!(ranges[2].end_margin.start, f32::INFINITY);
+    fn steps_hand_over_at_their_size_on_screen() {
+        let chain = DistanceChain::DEFAULT;
+        let options = StoneOptions::default();
+        let [game, lower, impostor] = chain_ranges(&options, Quality::High);
 
-        // A rock twice the default size switches twice as far away.
-        let large = level_ranges(&StoneDetail::MEDIUM, 5.0, high);
-        assert_eq!(large[0].fade_out, 28.5..31.5);
+        // The game level never fades in; each step fades out where the next
+        // fades in, at the middle of its band the rock covers the chain's
+        // threshold of the screen.
+        assert!(game.fade_in.end <= 0.0);
+        assert_eq!(game.fade_out, lower.fade_in);
+        assert_eq!(lower.fade_out, impostor.fade_in);
+        let middle = |band: &std::ops::Range<f32>| (band.start + band.end) / 2.0;
+        assert!(close(
+            on_screen(&options, middle(&lower.fade_in)),
+            chain.lower_below
+        ));
+        assert!(close(
+            on_screen(&options, middle(&impostor.fade_in)),
+            chain.impostor_below
+        ));
+        assert!(close(
+            on_screen(&options, middle(&impostor.fade_out)),
+            chain.cull_below
+        ));
 
-        // A lower quality switches nearer.
-        let low = level_ranges(&StoneDetail::MEDIUM, 2.5, Quality::Low);
-        let out = &low[0].fade_out;
-        assert!(
-            (out.start - 5.7).abs() < 1e-5 && (out.end - 6.3).abs() < 1e-5,
-            "{out:?}"
-        );
+        // A rock twice the size switches twice as far away, and a lower
+        // quality switches nearer.
+        let large = StoneOptions {
+            scale: 2.0 * options.scale,
+            ..options.clone()
+        };
+        let large = chain_ranges(&large, Quality::High);
+        assert!(close(large[1].fade_in.start, 2.0 * lower.fade_in.start));
+        let low = chain_ranges(&options, Quality::Low);
+        assert!(close(low[1].fade_in.start, 0.4 * lower.fade_in.start));
+    }
 
-        // A lone detail level must remain visible at every camera distance.
-        let single = StoneDetail::new(vec![StoneDetail::MEDIUM.levels()[0]]);
-        let single = level_ranges(&single, 2.5, high);
-        assert!(matches!(single[..], [ref r] if bevy_range(r).is_none()));
+    #[test]
+    fn without_an_impostor_the_lower_mesh_lasts_until_the_cull() {
+        let options = StoneOptions::default();
+        let [_, _, impostor] = chain_ranges(&options, Quality::High);
+        let [game, lower] = mesh_ranges(&options, Quality::High);
+        assert_eq!(game.fade_out, lower.fade_in);
+        assert_eq!(lower.fade_out, impostor.fade_out);
+        assert!(bevy_range(&lower).is_some());
     }
 }

@@ -654,8 +654,8 @@ mod tests {
     /// A procgena_stone flat slab meshed at a low resolution, as a surface mesh.
     fn low_detail_slab() -> SurfaceMesh {
         let mut options = procgena_stone::StonePreset::flat_slab().stone.clone();
-        options.mesh.detail =
-            procgena_stone::StoneDetail::single(48, procgena_stone::TextureSize::Size1k);
+        options.mesh.game_level =
+            procgena_stone::StoneDetail::new(48, procgena_stone::TextureSize::Size1k);
         let stone = procgena_stone::Stone::new(options).unwrap();
         let mesh = stone.mesh();
         SurfaceMesh {

@@ -51,7 +51,9 @@ worker or coordinator, waiting for a yes) or an **open question**.
   moves one kind across, and the old `Lod`/`LodLevel`/`LevelForm` and the
   ribbon `FarForm` variants are deleted in the step that moves their last
   user. That is ordering, not a compatibility layer: nothing converts
-  between old and new, and no asset keeps both.
+  between old and new except the private stone bridge (`renderer_lod` in
+  `procgena_stone_bevy`, see Step 2's "As built"), deleted in Step 4, and
+  no asset keeps both.
 - **Deferred (decided).** Physics colliders reading `game_level`; stone
   cluster specimens; more cluster specimens for other kinds; grass;
   impostor shadows and tree sway in impostors; Bevy hooks for a game's own
@@ -368,6 +370,36 @@ reported to the coordinator ready to merge.
    `LowerDetail for StoneDetail`; `procgena_stone_bevy` draws game →
    lower → impostor by size on screen, impostor baked from the game mesh.
    Stone preset YAML files change (`detail:` → `game_level:`).
+   **As built (Step 2):**
+   - `MeshOptions::game_level: StoneDetail` (`{ resolution, texture_size }`,
+     default `MEDIUM_LOW`); `DetailLevel`, `StoneLevel`,
+     `LOD_REFERENCE_SIZE` and `MAX_DETAIL_LEVELS` are gone. A `Stone`
+     always builds two meshes, `mesh()` and `lower_mesh()`.
+   - The lower rule: half the cells (at least `MIN_RESOLUTION`), one
+     texture size smaller (at least 512).
+   - `game_level` stays out of the options hash and so out of the pool id
+     and variant seeds (changing detail must not re-seed rocks; rule 3).
+     It is in the impostor bake key and the single rock's cache key.
+   - Size measure: `StoneOptions::bounding_diameter()`, the stretched
+     containing box's diagonal, used by single rocks and pools alike. On
+     the presets it is 1.5–1.9× the mesh's widest span (4.5× for `ore`),
+     so stones keep their meshes further than the plan's table says. Real
+     bounds don't exist yet: the GPU mesher's `bounding_radius` is the same
+     cube bound, and the pool culls with a fixed radius. Follow-up in
+     ROADMAP: real per-specimen bounding spheres on both paths.
+   - The specimen's lower level keeps `Level::start` until the last asset
+     step: the distance where the default chain switches to the lower mesh
+     at the default view and High quality.
+   - No impostor (still baking, or `StonePlugin { impostor: None }`): the
+     lower mesh is drawn until the cull. Impostors carry
+     `NotShadowCaster`; the default bake is 8 × 8 views of
+     `frame_size_for(DEFAULT.largest_impostor_size())` = 256 pixels.
+   - Pools draw through the shared instanced renderer, which still takes
+     the old metre `Lod`. Until Step 4, `procgena_stone_bevy`'s private
+     `renderer_lod` translates the chain into that table (exact at the
+     default 45° view, tested against `DistanceChain::ranges` at every
+     quality). This is the one temporary translation between old and new;
+     it goes when the renderer takes the chain.
 3. **Dead wood, mushroom, tree, fruit**, one at a time, each dropping its
    ribbon far forms and moving to the chain. The last one deletes the old
    core types and the ribbon `FarForm` variants (`GroundMaterial` stays,
@@ -377,7 +409,23 @@ reported to the coordinator ready to merge.
    with normals and no shadows; the disk cache (key: preset content hash +
    `BakeSettings`, which includes the frame size); the studio's
    low-priority background pre-bake; ST7b's chain preview. Studio edits
-   are coordinated with ST2.
+   are coordinated with ST2. "The preset content hash" in the IX
+   decision means the bake key: the specimen id plus the game level's hash
+   plus `BakeSettings`. Step 4 also deletes the stone bridge.
+   - **Bake only impostors that can be on screen** (from the ED worker,
+     2026-11-25; measured: a cold studio load of the 40 m Ecotope bakes 10
+     tree and 7 stone impostors, 3–4 s plus pipeline compiles, none of
+     which the orbit camera can ever show). A resource beside `LodQuality`
+     holds the farthest view distance (default unlimited; the studio sets
+     it from its orbit limits). Before requesting a bake, an asset asks a
+     shared gate whether the specimen's impostor step can be on screen:
+     its size on screen at the farthest view distance against
+     `impostor_below` at the current quality. A specimen held back draws
+     its lower mesh to the cull and asks again when the limit grows.
+     Disk-cached impostors still load when reachable. Test: a limit below
+     the impostor's start makes no request; raising it makes one. To
+     decide in Step 4: how the gate sits with the studio's background
+     pre-bake, which bypasses it on purpose.
 5. **The experiment** on the new model, recorded in this file.
 
 Where a renderer change is needed to keep an asset drawing in steps 2 and

@@ -5,8 +5,10 @@
 //! [Unity-Procedural-Rock-Generation](https://github.com/przemyslawzaworski/Unity-Procedural-Rock-Generation).
 //!
 //! Create a [`Stone`] for a mesh in metres, ready to use in your application.
-//! Choose a [`Mesher`] and a [`StoneDetail`] (a preset or your own levels) to
-//! balance surface detail and generation cost.
+//! Choose a [`Mesher`] and a game-level [`StoneDetail`] (a named detail or
+//! your own) to balance surface detail and generation cost. Each rock also
+//! gets a coarser lower mesh, derived from its game level, for renderers to
+//! draw when it is small on screen.
 //! For direct shape queries, use [`StoneField`]: its values are negative inside
 //! the rock, zero on the surface, and positive outside. Field coordinates use a
 //! unit-width cube, before the world scale is applied.
@@ -23,8 +25,7 @@
 //!      stone:\n  \
 //!        default_seed: 7\n  \
 //!        mesh:\n    \
-//!          detail:\n      \
-//!            - { resolution: 32, distance: 0.0, hysteresis: 0.0, texture_size: 1k }\n",
+//!          game_level: { resolution: 32, texture_size: 1k }\n",
 //! )?;
 //! let stone = Stone::from_preset(&preset)?;
 //! let mesh = stone.mesh();
@@ -48,8 +49,8 @@
 //! Export functions return strings or bytes for your application to save. Images
 //! are optional and must be supplied separately; glTF can also embed them.
 //!
-//! With `export-gltf` enabled, create GLB bytes containing a rock at several
-//! levels of detail (simpler meshes for distant viewing):
+//! With `export-gltf` enabled, create GLB bytes containing a rock's
+//! game-level and lower meshes:
 //!
 //! ```
 //! # #[cfg(feature = "export-gltf")]
@@ -58,9 +59,9 @@
 //! use procgena_stone::{Stone, StoneDetail, StoneOptions};
 //!
 //! let mut options = StoneOptions::default();
-//! options.mesh.detail = StoneDetail::LOW;
+//! options.mesh.game_level = StoneDetail::LOW;
 //! let stone = Stone::new(options)?;
-//! let meshes: Vec<_> = stone.levels().map(|(_, mesh)| mesh.clone()).collect();
+//! let meshes: Vec<_> = stone.levels().map(|(_, _, mesh)| mesh.clone()).to_vec();
 //! let glb = to_glb(&meshes, stone.options(), &GltfOptions::default())?;
 //! assert_eq!(&glb[..4], b"glTF");
 //! # Ok(())
@@ -69,8 +70,8 @@
 //! # fn main() {}
 //! ```
 //!
-//! The example above creates bytes in memory. Each detail level is included as
-//! a scene node; the receiving tool must select which one to show.
+//! The example above creates bytes in memory. Each mesh is included as a
+//! scene node; the receiving tool must select which one to show.
 //!
 //! To write sample OBJ, MTL, and GLB files to `target/procgena_stone_export` in this
 //! workspace, run:
@@ -100,7 +101,7 @@ pub mod shaders;
 mod stone;
 
 pub use content::STONE_KIND;
-pub use detail::{DetailLevel, LOD_REFERENCE_SIZE, StoneDetail, StoneLevel};
+pub use detail::StoneDetail;
 pub use field::{CarveSet, CarveSphere, StoneField};
 pub use material::{
     ImageMap, TEXTURE_SETS, TextureCompression, TextureMap, TextureSize, image_path, texture_path,
@@ -108,9 +109,8 @@ pub use material::{
 pub use mesh::{StoneMesh, mesh_field};
 pub use meta::{STONE_META, meta_choices};
 pub use options::{
-    CarveOptions, MAX_CARVE_STEPS, MAX_DETAIL_LEVELS, MAX_OCTAVES, MAX_RESOLUTION, MIN_RESOLUTION,
-    MaterialOptions, MeshOptions, Mesher, OptionsError, PlacementOptions, StoneOptions,
-    SurfaceOptions,
+    CarveOptions, MAX_CARVE_STEPS, MAX_OCTAVES, MAX_RESOLUTION, MIN_RESOLUTION, MaterialOptions,
+    MeshOptions, Mesher, OptionsError, PlacementOptions, StoneOptions, SurfaceOptions,
 };
 pub use placement::StonePlacement;
 pub use presets::StonePreset;

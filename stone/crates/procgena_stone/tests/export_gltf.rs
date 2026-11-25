@@ -7,21 +7,17 @@ use procgena_stone::export::gltf::{
     EmbeddedImage, GltfError, GltfOptions, GltfTextures, ImageFormat, to_glb, to_gltf,
 };
 use procgena_stone::{
-    DetailLevel, ImageMap, MaterialOptions, Stone, StoneDetail, StoneMesh, StoneOptions,
-    TextureSize,
+    ImageMap, MaterialOptions, Stone, StoneDetail, StoneMesh, StoneOptions, TextureSize,
 };
 
-/// Creates a small, repeatable rock for export checks, with two detail levels
-/// at 24 and 12 cells per axis.
+/// Creates a small, repeatable rock for export checks, with its game level at
+/// 24 cells per axis and its lower mesh at 12.
 fn stone() -> Stone {
     let mut options = StoneOptions {
         default_seed: 5,
         ..StoneOptions::default()
     };
-    options.mesh.detail = StoneDetail::new(vec![
-        DetailLevel::new(24, 0.0, TextureSize::Size512),
-        DetailLevel::new(12, 10.0, TextureSize::Size512),
-    ]);
+    options.mesh.game_level = StoneDetail::new(24, TextureSize::Size512);
     Stone::new(options).unwrap()
 }
 
@@ -190,7 +186,7 @@ fn settings_are_stored_in_the_file() {
 #[test]
 fn levels_of_detail_get_suffixed_names() {
     let stone = stone();
-    let meshes: Vec<StoneMesh> = stone.levels().map(|(_, m)| m.clone()).collect();
+    let meshes: Vec<StoneMesh> = stone.levels().map(|(_, _, m)| m.clone()).to_vec();
     let gltf = read(&to_glb(&meshes, stone.options(), &GltfOptions::default()).unwrap());
     let names: Vec<_> = gltf
         .meshes()

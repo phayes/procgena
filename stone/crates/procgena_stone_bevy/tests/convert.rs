@@ -19,7 +19,7 @@ fn stone_mesh_keeps_vertices_and_triangles() {
         default_seed: 4,
         ..StoneOptions::default()
     };
-    options.mesh.detail = StoneDetail::single(24, TextureSize::Size512);
+    options.mesh.game_level = StoneDetail::new(24, TextureSize::Size512);
     let stone = Stone::new(options).unwrap();
     let source = stone.mesh();
     let mesh = stone_mesh(source);

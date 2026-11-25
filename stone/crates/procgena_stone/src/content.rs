@@ -3,13 +3,14 @@
 //!
 //! A rock is named by its [`PoolId`] (the generator and the hash of every
 //! shape and look setting) plus the seed it is built from. Two rocks with
-//! equal names have the same shape. The detail levels are not part of the
-//! name; hash them with [`content_hash`](procgena_core::content_hash) when
-//! you also key meshes by them.
+//! equal names have the same shape. The game level
+//! ([`MeshOptions::game_level`]) is not part of the name; hash it with
+//! [`content_hash`](procgena_core::content_hash) when you also key meshes or
+//! impostors by it.
 
 use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, PoolId};
 
-use crate::detail::{DetailLevel, StoneDetail};
+use crate::detail::StoneDetail;
 use crate::material::TextureSize;
 use crate::options::{
     CarveOptions, MaterialOptions, MeshOptions, Mesher, PlacementOptions, StoneOptions,
@@ -21,14 +22,14 @@ pub const STONE_KIND: GeneratorKind = GeneratorKind::from_key("stone.generator.k
 
 impl StoneOptions {
     /// The pool these settings name: every rock built from them, whatever
-    /// its seed or detail levels.
+    /// its seed or game level.
     pub fn pool_id(&self) -> PoolId {
         PoolId::new(STONE_KIND, OptionsHash::of(self))
     }
 }
 
 /// Writes every setting that changes the rock's shape or look, leaving out
-/// the seed and the detail levels.
+/// the seed and the game level.
 impl ContentHash for StoneOptions {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
@@ -101,10 +102,13 @@ impl ContentHash for SurfaceOptions {
     }
 }
 
-/// Writes the mesher only: the detail levels are not part of a rock's name.
+/// Writes the mesher only: the game level is not part of a rock's name.
 impl ContentHash for MeshOptions {
     fn content_hash(&self, hasher: &mut ContentHasher) {
-        let Self { mesher, detail: _ } = self;
+        let Self {
+            mesher,
+            game_level: _,
+        } = self;
         hasher.write(mesher);
     }
 }
@@ -137,25 +141,14 @@ impl ContentHash for MaterialOptions {
     }
 }
 
-/// Writes every level.
-impl ContentHash for StoneDetail {
-    fn content_hash(&self, hasher: &mut ContentHasher) {
-        hasher.write(self.levels());
-    }
-}
-
 /// Writes every setting.
-impl ContentHash for DetailLevel {
+impl ContentHash for StoneDetail {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
             resolution,
-            distance,
-            hysteresis,
             texture_size,
         } = self;
         hasher.write_u32(*resolution);
-        hasher.write_f32(*distance);
-        hasher.write_f32(*hysteresis);
         hasher.write(texture_size);
     }
 }

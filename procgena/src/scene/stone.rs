@@ -18,9 +18,9 @@ use super::{AddSubject, Shown};
 ///
 /// A changed rock is rebuilt in the background and replaces the old one
 /// once ready; the old rock stays if the new settings are rejected.
-/// [`ViewerEvent::StoneBuilt`] reports each build. `options.mesh.detail`
-/// sets the rock's detail levels: each level's mesh resolution, switching
-/// distance and texture size.
+/// [`ViewerEvent::StoneBuilt`] reports each build, with the sizes of its
+/// game-level and lower meshes. `options.mesh.game_level` sets the rock's
+/// game-level resolution and texture size.
 pub struct StoneSubject;
 
 impl Subject for StoneSubject {
@@ -98,8 +98,8 @@ fn report_stone(
 }
 
 /// Sinks the built rock `rock` into the ground by its embed depth, and
-/// returns the size of each of its detail levels. Levels without a mesh
-/// count zero.
+/// returns the size of its game-level and lower meshes. Meshes that are not
+/// built count zero.
 pub(crate) fn settle_rock(
     commands: &mut Commands,
     rock: Entity,
@@ -111,13 +111,14 @@ pub(crate) fn settle_rock(
         return Vec::new();
     };
     let level_count = match stone {
-        StoneParams::Options(options) => options.mesh.detail.levels().len(),
+        StoneParams::Options(_) => 2,
         StoneParams::Asset(_) => 0,
     };
     let mut levels = vec![MeshSize::default(); level_count];
     let kids = kids.into_iter().flatten();
     for (part, mesh) in parts.iter_many(kids).flatten() {
-        let (Some(mesh), Some(size)) = (meshes.get(&mesh.0), levels.get_mut(part.lod)) else {
+        let size = levels.get_mut(part.step.index());
+        let (Some(mesh), Some(size)) = (meshes.get(&mesh.0), size) else {
             continue;
         };
         size.vertices = mesh.count_vertices();

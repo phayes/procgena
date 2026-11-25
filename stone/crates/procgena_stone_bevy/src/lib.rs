@@ -1,8 +1,8 @@
 //! # procgena_stone_bevy
 //!
 //! Display procedural rocks in Bevy with background generation, projected
-//! textures and distance-based mesh detail. Built on `procgena_stone`, this crate
-//! targets Bevy 0.20.1.
+//! textures, and a coarser mesh and an impostor for rocks that are small on
+//! screen. Built on `procgena_stone`, this crate targets Bevy 0.20.1.
 //!
 //! ## Display a rock
 //!
@@ -48,8 +48,9 @@
 //! ```
 //!
 //! The rock appears when background generation finishes, centred on its
-//! entity. Each detail level is spawned as a child entity. Rocks with
-//! identical options share meshes and materials.
+//! entity. Its game-level mesh, its lower mesh and, once baked, its impostor
+//! are spawned as child entities. Rocks with identical options share meshes
+//! and materials.
 //!
 //! With `texture_root: None`, rocks use [`MaterialOptions::color`],
 //! [`MaterialOptions::roughness`] and [`MaterialOptions::metallic`] alone. The default colour is white, so set
@@ -145,29 +146,28 @@
 //!
 //! ## Choose mesh detail
 //!
-//! Each rock's [`MeshOptions::detail`](procgena_stone::MeshOptions::detail) sets its
-//! detail levels: the mesh resolution, the camera distance where each level
-//! starts, and its texture size. Bevy fades between levels. Distances are for
-//! the default rock size of 2.5 m
-//! ([`StoneOptions::scale`](procgena_stone::StoneOptions::scale)); a rock twice that
-//! size switches twice as far away.
+//! Each rock's [`MeshOptions::game_level`](procgena_stone::MeshOptions::game_level)
+//! sets its real shape: the mesh resolution and texture size drawn while the
+//! rock is large on screen. A coarser lower mesh, with half the cells, is
+//! derived from it, and an impostor is baked from it. Which one is drawn
+//! depends on how large the rock looks on screen, the same for every kind of
+//! object (see [`procgena_core::chain`]); Bevy fades between them.
 //!
-//! The default, [`StoneDetail::MEDIUM`](procgena_stone::StoneDetail::MEDIUM), builds
-//! meshes at 96, 48 and 24 grid cells per axis, switching at 15 and 40 metres,
-//! with 1k textures up close and 512 farther away. Pick another preset
-//! (`LOW`, `HIGH`, `ULTRA`) or define your own levels. For a single 128-cell
-//! mesh with 2k textures and no distance switching:
+//! The default, [`StoneDetail::MEDIUM_LOW`](procgena_stone::StoneDetail::MEDIUM_LOW),
+//! builds the game level at 48 grid cells per axis with 512 textures. Pick
+//! another named detail (`LOW`, `MEDIUM`, `HIGH`, `ULTRA`) or your own. For
+//! a 128-cell rock with 2k textures:
 //!
 //! ```rust
 //! use procgena_stone::{StoneDetail, StoneOptions, TextureSize};
 //! use procgena_stone_bevy::StoneParams;
 //!
 //! let mut options = StoneOptions::default();
-//! options.mesh.detail = StoneDetail::single(128, TextureSize::Size2k);
+//! options.mesh.game_level = StoneDetail::new(128, TextureSize::Size2k);
 //! let rock = StoneParams::new(options);
 //! ```
 //!
-//! Generated children have a `StonePart` component identifying their detail level.
+//! Generated children have a `StonePart` component naming the step they draw.
 //!
 //! ## Draw thousands of rocks from a GPU stone pool
 //!
@@ -244,7 +244,7 @@ use bevy::prelude::*;
 use bevy::shader::load_shader_library;
 use procgena_core_bevy::LodPlugin;
 use procgena_core_bevy::instanced::InstancedPlugin;
-use procgena_impostor::{ImpostorLevel, ImpostorPlugin};
+use procgena_impostor::{BakeSettings, ImpostorPlugin};
 use procgena_stone::TextureCompression;
 
 pub use impostor::default_stone_impostor;
@@ -274,12 +274,11 @@ pub struct StonePlugin {
     /// Which texture files to load. Defaults to BC7; UASTC needs Bevy's
     /// `basis-universal` feature.
     pub texture_compression: TextureCompression,
-    /// Draws [`StoneParams`] rocks far away as baked impostors, as the last
-    /// level after each rock's own detail levels. Defaults to
-    /// [`default_stone_impostor`]. `None` draws each rock's farthest level
-    /// at every distance beyond. Rocks in a GPU stone pool have no
-    /// impostors yet.
-    pub impostor: Option<ImpostorLevel>,
+    /// How rocks' impostors are baked; rocks are drawn as their impostor
+    /// when small on screen, after their game-level and lower meshes.
+    /// Defaults to [`default_stone_impostor`]. `None` draws each rock's
+    /// lower mesh until the rock is culled.
+    pub impostor: Option<BakeSettings>,
 }
 
 impl Default for StonePlugin {

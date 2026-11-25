@@ -80,13 +80,11 @@ struct StatusReadback {
 impl RenderPool {
     fn new(definition: &PoolDefinition) -> Self {
         let pool = &definition.pool;
-        let levels = pool.options.mesh.detail.levels();
+        let levels = pool.mesh_levels();
         let requests = (0..pool.variants)
             .flat_map(|variant| {
                 let options = pool.variant_options(variant);
-                levels
-                    .iter()
-                    .map(move |level| GpuStoneRequest::new(options.clone(), level.resolution))
+                levels.map(move |level| GpuStoneRequest::new(options.clone(), level.resolution))
             })
             .collect();
         Self {
@@ -221,9 +219,9 @@ impl RenderPool {
         self.readback = Some(StatusReadback { state, bytes });
     }
 
-    /// Number of detail levels per variant.
+    /// Number of meshes per variant: the game-level and lower meshes.
     fn definition_levels(&self) -> usize {
-        self.definition.pool.options.mesh.detail.levels().len()
+        self.definition.pool.mesh_levels().len()
     }
 
     /// Stops drawing the pool after an error that more room cannot fix.

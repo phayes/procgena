@@ -1420,12 +1420,19 @@ Each rule says what every asset does, and which crates have to change.
    - Ribbon far forms (strips, billboard leaves, cards, flat cap plus
      ribbon) are dropped in favour of impostors; grass keeps its far
      ground material (`FarForm::GroundMaterial`) for now.
-   - Status: the chain types are in `procgena_core::chain` (IX Step 1).
-     Assets still use the older metre table (`Lod`, `LodLevel`,
-     `LevelForm`, `FarForm`) until each moves across, stone first; the old
-     types are deleted when the last asset moves. The bullets below
-     describe the older model where they talk of levels, far forms and
-     metre distances.
+   - **Impostors are keyed by the bake key**: the specimen id, the hash of
+     its `game_level` and the `BakeSettings`. This is what "the preset
+     content hash" in the IX decision means; `game_level` stays out of the
+     options hash (rule 3), so a detail change never re-seeds a pool.
+   - **Without an impostor** (still baking, or turned off), the lower mesh
+     is drawn until the cull.
+   - Status: the chain types are in `procgena_core::chain` (IX Step 1), and
+     stone draws through them (IX Step 2; its GPU pool through a private
+     translation to the old table until the renderer moves, Step 4). The
+     other assets still use the older metre table (`Lod`, `LodLevel`,
+     `LevelForm`, `FarForm`) until each moves across; the old types are
+     deleted when the last asset moves. The bullets below describe the
+     older model where they talk of levels, far forms and metre distances.
    - **Attached assets own their levels.** Fruit and flowers are their own
      asset (decided by the user, superseding the cluster-card plan of
      2026-11-23): each cluster specimen has its own mesh levels, sized by

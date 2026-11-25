@@ -26,7 +26,7 @@ sections:
     settings: [material.texture, material.color, material.roughness, material.texture_size]
   - title: Mesh
     part: rock
-    settings: [mesh.mesher, mesh.detail]
+    settings: [mesh.mesher, mesh.game_level]
 settings:
   default_seed:
     label: Seed
@@ -149,7 +149,7 @@ settings:
     choices:
       - { value: marching_cubes, label: Marching Cubes }
       - { value: dual_contouring, label: Dual Contouring }
-  mesh.detail:
+  mesh.game_level:
     label: Detail
-    description: "How finely the rock is built at each distance. Higher detail looks better close up and takes longer to build."
+    description: "How finely the rock is built: its real shape, used up close and for its far-away picture. Higher detail looks better close up and takes longer to build."
     choices: details

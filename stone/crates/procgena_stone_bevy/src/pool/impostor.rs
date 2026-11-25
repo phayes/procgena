@@ -1,9 +1,9 @@
 //! Impostors for pooled rocks: each variant of a [`StonePool`] is baked into
-//! an impostor and drawn far away as one quad, the last level of the
-//! variant's levels of detail, as single rocks are.
+//! an impostor from its game-level mesh and drawn as one quad when small on
+//! screen, the last step of the drawing chain, as single rocks are.
 //!
 //! The pool's own meshes never reach the CPU, so the bake draws the
-//! variant's baked level built on the CPU, the reference path, which the
+//! variant's game-level mesh built on the CPU, the reference path, which the
 //! GPU meshes match.
 
 use std::collections::HashMap;
@@ -11,13 +11,15 @@ use std::collections::HashMap;
 use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use procgena_core::chain::Step;
+use procgena_core::content_hash;
 use procgena_core_bevy::instanced::{InstancedPart, PartMesh};
 use procgena_impostor::{
-    BakeOutput, BakePart, ImpostorKey, ImpostorLevel, ImpostorQuad, ImpostorRequest, Impostors,
+    BakeOutput, BakePart, BakeSettings, ImpostorKey, ImpostorQuad, ImpostorRequest, Impostors,
 };
-use procgena_stone::{Stone, StoneDetail};
+use procgena_stone::Stone;
 
-use super::{PoolDefinitions, StonePool};
+use super::{PoolDefinitions, StonePool, renderer_lod};
 use crate::material::{StoneMaterial, bake_copy};
 use crate::mesh::stone_mesh;
 use crate::spawn::SpawnSettings;
@@ -30,9 +32,9 @@ pub(crate) struct PoolImpostors(HashMap<AssetId<StonePool>, (u64, Vec<VariantImp
 
 /// One pool variant on its way to an impostor.
 enum VariantImpostor {
-    /// Its baked level is being built on the CPU in the background.
+    /// Its game-level mesh is being built on the CPU in the background.
     Building(Task<Option<Mesh>>),
-    /// Its baked level is built, and its impostor asked for.
+    /// Its game-level mesh is built, and its impostor asked for.
     Baking(Handle<Mesh>),
     /// Its impostor is drawn as the slot's last level, or it has none.
     Done,
@@ -40,8 +42,8 @@ enum VariantImpostor {
 
 /// Starts, follows and finishes the impostor of every variant of every
 /// defined pool, and gives each finished one's slot an impostor level.
-/// Does nothing without an impostor level in the stone plugin's settings,
-/// or for pools whose levels leave no room for one.
+/// Does nothing without impostor bake settings in the stone plugin's
+/// settings.
 #[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 pub(crate) fn bake_pool_impostors(
     mut commands: Commands,
@@ -53,8 +55,7 @@ pub(crate) fn bake_pool_impostors(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StoneMaterial>>,
 ) {
-    let (Some(impostor), Some(mut impostors), Some(quad)) = (settings.impostor, impostors, quad)
-    else {
+    let (Some(bake), Some(mut impostors), Some(quad)) = (settings.impostor, impostors, quad) else {
         return;
     };
 
@@ -66,25 +67,21 @@ pub(crate) fn bake_pool_impostors(
             .is_some_and(|definition| definition.version == *version)
     });
 
-    // Start building each new pool's variants, if they draw an impostor.
+    // Start building each new pool's variants.
     let ids: Vec<AssetId<StonePool>> = definitions.pools.keys().copied().collect();
     for id in &ids {
         let definition = &definitions.pools[id];
         if state.0.contains_key(id) {
             continue;
         }
-        let variants = if impostor_lod(&definition.pool, impostor).is_some() {
-            (0..definition.pool.variants)
-                .map(|variant| {
-                    let pool = definition.pool.clone();
-                    let task = AsyncComputeTaskPool::get()
-                        .spawn(async move { baked_level_mesh(&pool, variant, impostor) });
-                    VariantImpostor::Building(task)
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let variants = (0..definition.pool.variants)
+            .map(|variant| {
+                let pool = definition.pool.clone();
+                let task =
+                    AsyncComputeTaskPool::get().spawn(async move { game_mesh(&pool, variant) });
+                VariantImpostor::Building(task)
+            })
+            .collect();
         state.0.insert(*id, (definition.version, variants));
     }
 
@@ -107,7 +104,7 @@ pub(crate) fn bake_pool_impostors(
                 continue;
             };
             let slot = &definition.slots[variant];
-            let key = variant_key(slot.specimen, impostor, &settings);
+            let key = variant_key(&definition.pool, slot.specimen, bake, &settings);
             let source = slot.parts[0].material.clone().typed::<StoneMaterial>();
             let ready = impostors
                 .request(&mut commands, key, || {
@@ -118,69 +115,51 @@ pub(crate) fn bake_pool_impostors(
                 continue;
             };
 
-            // The baked impostor becomes the slot's last level.
-            let lod = impostor_lod(&definition.pool, impostor)
-                .expect("only pools with room for an impostor bake one");
+            // The baked impostor becomes the slot's last level, and the lower
+            // mesh now ends where it takes over.
             let definition = definitions.pools.get_mut(id).expect("checked above");
             let mut slots = definition.slots.to_vec();
-            let levels = slots[variant].lod.levels.len() as u32;
             slots[variant].parts.push(InstancedPart {
-                level: levels,
+                level: Step::Impostor.index() as u32,
                 mesh: PartMesh::Mesh(quad.0.clone()),
                 material: material.untyped(),
             });
-            slots[variant].lod = lod;
+            slots[variant].lod = renderer_lod(true);
             definition.slots = slots.into();
             *step = VariantImpostor::Done;
         }
     }
 }
 
-/// The levels of `pool`'s variants with `impostor` as the last level, or
-/// `None` when they leave no room for it: there is no level to bake, or
-/// the farthest level reaches past the impostor's distance.
-fn impostor_lod(pool: &StonePool, impostor: ImpostorLevel) -> Option<procgena_core::Lod> {
-    let mut lod = pool.options.mesh.detail.lod().map_detail(Some);
-    if impostor.baked_level >= lod.levels.len() {
-        return None;
-    }
-    lod.levels.push(impostor.level(None));
-    lod.validate().ok()?;
-    Some(lod.map_detail(|_| ()))
-}
-
-/// The mesh of `pool`'s variant `variant` at `impostor`'s baked level,
-/// built on the CPU in the pool's unit-cube units, as the pool draws it;
-/// `None` if its settings are rejected.
-fn baked_level_mesh(pool: &StonePool, variant: u32, impostor: ImpostorLevel) -> Option<Mesh> {
+/// The game-level mesh of `pool`'s variant `variant`, built on the CPU in
+/// the pool's unit-cube units, as the pool draws it; `None` if its settings
+/// are rejected.
+fn game_mesh(pool: &StonePool, variant: u32) -> Option<Mesh> {
     let mut options = pool.variant_options(variant);
-    let level = options.mesh.detail.levels()[impostor.baked_level];
-    options.mesh.detail = StoneDetail::single(level.resolution, level.texture_size);
     options.scale = 1.0;
     let stone = Stone::new(options).ok()?;
-    let (_, mesh) = stone.levels().next()?;
-    Some(stone_mesh(mesh))
+    Some(stone_mesh(stone.mesh()))
 }
 
-/// The impostor key of a pool variant: its specimen, baked with
-/// `impostor`'s settings from its baked level, with the textures in use and
-/// this crate's version.
+/// The impostor key of a pool variant: its specimen, baked with `bake` from
+/// `pool`'s game level, with the textures in use and this crate's version.
 fn variant_key(
+    pool: &StonePool,
     specimen: procgena_core::SpecimenId,
-    impostor: ImpostorLevel,
+    bake: BakeSettings,
     settings: &SpawnSettings,
 ) -> ImpostorKey {
-    let level = (impostor.baked_level as u64).to_le_bytes();
+    let game_level = content_hash(&pool.options.mesh.game_level).to_le_bytes();
     let textures = format!(
         "{:?} {:?}",
         settings.texture_root, settings.texture_compression
     );
     ImpostorKey::specimen(
         specimen,
-        impostor.bake,
+        bake,
         &[
             b"pool",
-            &level,
+            &game_level,
             textures.as_bytes(),
             env!("CARGO_PKG_VERSION").as_bytes(),
         ],
