@@ -622,6 +622,51 @@ From D5 (decided by the user 2026-11-24; see
   `procgena_world`; `WorldTerrainOptions::scale`; `Terrain::scale`).
   Only the labels read it so far.
 
+#### RS: Region size and shape
+
+Decided by the user 2026-11-25. A Biome and its region are the same
+thing and change together, so the region size is the Biome area size.
+The goal is regions that can be smaller (about 1 km, so a 1 km² smallest
+Biome, against 4 km² today) and more varied in shape, set directly at
+the World level.
+
+- **Today:** `regions.size` is already a World setting, floored at
+  1.95 km. The floor is 5 × the minimum edge (390 m), and the minimum
+  edge does two jobs: it merges short borders away (shape), and it
+  guarantees room for a river or road crossing 195 m clear of each
+  corner (features). The 5× ratio is a guard chosen in W2, not measured.
+- **Decided:**
+  - **Merge as far as it goes.** Drop the 5× rule. Short borders merge
+    by a share of the region size, so merging scales with it. Settings
+    are refused only when an outline crosses itself or is degenerate (a
+    sliver), checked directly; a sweep test over size, jitter, warp and
+    seed finds the real limit. Regions losing borders or getting
+    irregular outlines is wanted.
+  - **Compound regions:** neighbouring cells join into one region where
+    a noise field says so, giving elongated, L- and C-shaped regions and
+    a mix of sizes. A joined region is one region and one Biome.
+  - **Stronger border warp:** larger amplitude and a second, longer
+    wavelength on the existing border wiggle, so borders meander,
+    limited only by the self-crossing check.
+  - **Rivers and roads on small regions:** revisit whether they can
+    cross smaller regions (for example, sizing the crossing clearance
+    from the widest river or road this World's presets make, not a fixed
+    worst case). Where they can't, they don't go there; that is
+    acceptable. Short borders simply carry no crossing.
+- **Also covers:**
+  - the fixed 500 m corner and road ramps and the border wiggle scaled
+    with region size (shared with G7);
+  - the World view's readout: the floor this World allows, and the
+    measured Biome areas in km² (smallest, median, largest) from the
+    Biome map;
+  - selector-field wavelengths set as "typical Biome area" in km².
+- **Needs:** nothing blocking; runs with or after G7, in a wave with no
+  other terrain work in flight (it changes results everywhere).
+- **Done when:** a World with 1 km regions builds with clean outlines,
+  the seam, feature and shipped suites pass on it, rivers and roads
+  either cross or avoid small regions without broken carving, and the
+  studio shows the measured Biome areas.
+
 ### Bare worlds
 
 #### B0: Empty Biomes
