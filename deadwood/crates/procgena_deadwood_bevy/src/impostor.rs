@@ -247,11 +247,9 @@ pub(crate) fn show_scatter_impostors(
         return;
     }
     for (drawn, mut scatter) in &mut scatters {
-        let impostor_level = Step::Impostor.index() as u32;
         let missing =
             |(slot, key): (&procgena_core_bevy::instanced::InstancedSlot, &VariantKey)| {
-                !slot.parts.iter().any(|part| part.level == impostor_level)
-                    && cache.impostors.contains_key(key)
+                !slot.impostor && cache.impostors.contains_key(key)
             };
         if !scatter.slots.iter().zip(&drawn.0).any(missing) {
             continue;

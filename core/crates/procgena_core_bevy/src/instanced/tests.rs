@@ -3,7 +3,8 @@ use std::sync::Arc;
 use bevy::asset::AssetPlugin;
 use bevy::prelude::*;
 use bevy::shader::{Shader, ShaderLoader};
-use procgena_core::{GeneratorKind, Lod, LodLevel, OptionsHash, PoolId, SpecimenId};
+use procgena_core::chain::{DistanceChain, Step};
+use procgena_core::{GeneratorKind, OptionsHash, PoolId, SpecimenId};
 
 use super::*;
 
@@ -29,7 +30,9 @@ fn slot(specimen: SpecimenId) -> InstancedSlot {
     InstancedSlot {
         specimen,
         piece: 0,
-        lod: Lod::new(1.0, vec![LodLevel::new(0.0, 0.1, ())]),
+        chain: DistanceChain::DEFAULT,
+        cull: true,
+        impostor: false,
         parts: Vec::new(),
         bounds: (Vec3::ZERO, 1.0),
     }
@@ -40,9 +43,9 @@ fn the_cache_keeps_used_specimens_and_drops_the_rest() {
     let mut app = app();
     {
         let mut cache = app.world_mut().resource_mut::<SpecimenCache>();
-        cache.insert(specimen(0), 0, 0, Vec::new());
-        cache.insert(specimen(0), 0, 1, Vec::new());
-        cache.insert(specimen(1), 0, 0, Vec::new());
+        cache.insert(specimen(0), 0, Step::Game, Vec::new());
+        cache.insert(specimen(0), 0, Step::Lower, Vec::new());
+        cache.insert(specimen(1), 0, Step::Game, Vec::new());
     }
     app.world_mut().spawn(InstancedScatter {
         slots: Arc::from([slot(specimen(0))]),
@@ -57,8 +60,9 @@ fn the_cache_keeps_used_specimens_and_drops_the_rest() {
     }
     let cache = app.world().resource::<SpecimenCache>();
     assert_eq!(cache.len(), 2);
-    assert!(cache.get_levels(specimen(0), 0, 2).is_some());
-    assert!(cache.get(specimen(1), 0, 0).is_none());
-    assert!(cache.get_levels(specimen(0), 0, 3).is_none());
-    assert!(cache.get_levels(specimen(0), 1, 1).is_none());
+    let meshes = [Step::Game, Step::Lower];
+    assert!(cache.get_steps(specimen(0), 0, meshes).is_some());
+    assert!(cache.get(specimen(1), 0, Step::Game).is_none());
+    assert!(cache.get_steps(specimen(0), 0, Step::ALL).is_none());
+    assert!(cache.get_steps(specimen(0), 1, [Step::Game]).is_none());
 }

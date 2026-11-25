@@ -1,6 +1,5 @@
 //! Check the tagged specimen a tree hands to other generators.
 
-use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_specimen::{Part, SurfaceMesh, TagSet, tags};
 use procgena_tree::{MeshPart, Tree, TreePreset};
 
@@ -20,17 +19,25 @@ fn shell_mesh(part: &Part, shell: std::ops::Range<u32>) -> SurfaceMesh {
 }
 
 #[test]
-fn the_lower_level_starts_where_the_chain_switches() {
+fn the_specimen_holds_the_game_level_then_the_lower_mesh() {
     let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
     let specimen = tree.specimen();
     specimen.validate().unwrap();
+    assert_eq!(specimen.levels.len(), 2);
 
+    // The lower mesh is the coarser one.
+    let triangles = |level: usize| -> usize {
+        specimen.levels[level]
+            .parts
+            .iter()
+            .map(Part::triangle_count)
+            .sum()
+    };
+    assert!(triangles(1) < triangles(0));
+
+    // The size the chain switches by covers the whole tree.
     let diameter = tree.mesh().bounding_diameter();
     assert!(diameter > tree.options().height_bound() * 0.5);
-    let factor = DistanceChain::factor(diameter, ViewScale::DEFAULT);
-    let lower = factor / DistanceChain::DEFAULT.lower_below;
-    let starts: Vec<f32> = specimen.levels.iter().map(|l| l.start).collect();
-    assert_eq!(starts, [0.0, lower]);
 }
 
 #[test]

@@ -280,21 +280,18 @@ impl Stream {
 #[cfg(test)]
 mod tests {
     use glam::DVec3;
-    use procgena_core::{Lod, LodLevel};
+    use procgena_terrain::ChunkLevels;
     use procgena_terrain::ground::{GroundSite, GroundSource, GroundStack};
 
     use super::*;
 
     /// Chunk levels switching at 96 and 192 m, drawn to 400 m.
-    fn lod() -> Lod {
-        let levels = [0.0, 96.0, 192.0]
-            .map(|d| LodLevel::new(d, 0.1, ()))
-            .to_vec();
-        Lod::new(64.0, levels).with_cull(400.0)
+    fn levels() -> ChunkLevels {
+        ChunkLevels::new([96.0, 192.0], 0.1, 400.0)
     }
 
     fn select(x: f64, previous: Option<&ChunkSelection>) -> ChunkSelection {
-        ChunkSelection::around(&lod(), 1.0, &[DVec3::new(x, 2.0, 0.0)], previous).unwrap()
+        ChunkSelection::around(&levels(), 1.0, &[DVec3::new(x, 2.0, 0.0)], previous).unwrap()
     }
 
     /// Reads every missing chunk as a hole.

@@ -27,7 +27,7 @@
 //! use glam::DVec3;
 //! use procgena_terrain::{
 //!     Boundary, ChunkSamples, ChunkSelection, FeatureTier, Region, RegionId, TerrainGenerator,
-//!     TerrainPreset, chunk_lod,
+//!     TerrainPreset, chunk_levels,
 //! };
 //!
 //! // One unbounded region of rolling hills.
@@ -36,8 +36,8 @@
 //!     .build(region, &[])?;
 //!
 //! // The chunks to draw for a viewer standing 2 m above the ground.
-//! let lod = chunk_lod(600.0);
-//! let chosen = ChunkSelection::around(&lod, 1.0, &[DVec3::new(0.0, 2.0, 0.0)], None)?;
+//! let levels = chunk_levels(600.0);
+//! let chosen = ChunkSelection::around(&levels, 1.0, &[DVec3::new(0.0, 2.0, 0.0)], None)?;
 //! let (key, transitions) = chosen.iter().next().unwrap();
 //!
 //! let samples = ChunkSamples::sample(&terrain, key, FeatureTier::Fine)?;
@@ -51,9 +51,8 @@ use std::fmt;
 
 use glam::{DVec2, DVec3, Vec3};
 use procgena_core::chain::ViewScale;
-use procgena_core::{Lod, LodLevel};
 
-use crate::{FeatureTier, SampleDetail, Terrain, WorldTerrain};
+use crate::{ChunkLevels, ChunkLevelsError, FeatureTier, SampleDetail, Terrain, WorldTerrain};
 
 /// Width in metres of a chunk at level 0. Each level up doubles it.
 pub const CHUNK_SIZE: f64 = 64.0;
@@ -934,9 +933,9 @@ pub struct WaterMesh {
 
 /// The terrain's usual chunk levels, drawn out to `view_distance` metres:
 /// [`ChunkDetail::DEFAULT`]'s levels (level 0 out to 256 m, and each level
-/// after that out to twice as far). See [`ChunkDetail::lod`].
-pub fn chunk_lod(view_distance: f32) -> Lod {
-    ChunkDetail::DEFAULT.lod(view_distance)
+/// after that out to twice as far). See [`ChunkDetail::levels`].
+pub fn chunk_levels(view_distance: f32) -> ChunkLevels {
+    ChunkDetail::DEFAULT.levels(view_distance)
 }
 
 /// How fine the terrain looks on screen: which chunk level is drawn at
@@ -972,14 +971,11 @@ impl ChunkDetail {
     /// close to the view distance to be seen are left out, so any positive
     /// view distance gives levels [`ChunkSelection::around`] accepts.
     ///
-    /// Level `i` of the `Lod` is chunk level `i`: its distance is where that
-    /// chunk level starts, and its cull distance is `view_distance`.
-    ///
     /// # Panics
     ///
     /// Panics if [`cell_on_screen`](Self::cell_on_screen) isn't a positive
     /// number.
-    pub fn lod(self, view_distance: f32) -> Lod {
+    pub fn levels(self, view_distance: f32) -> ChunkLevels {
         const HYSTERESIS: f32 = 0.1;
         assert!(
             self.cell_on_screen.is_finite() && self.cell_on_screen > 0.0,
@@ -992,16 +988,11 @@ impl ChunkDetail {
             let cell = ChunkKey::size_at(level) / f64::from(CHUNK_CELLS);
             cell as f32 * self.view.get() / self.cell_on_screen
         };
-        let mut levels = vec![LodLevel::new(0.0, HYSTERESIS, ())];
-        levels.extend(
-            (1..=6)
-                .map(|level| LodLevel::new(start(level), HYSTERESIS, ()))
-                // A level must finish fading in before the ground fades out.
-                .take_while(|level| {
-                    level.distance * (1.0 + HYSTERESIS) <= view_distance * (1.0 - HYSTERESIS)
-                }),
-        );
-        Lod::new(CHUNK_SIZE as f32, levels).with_cull(view_distance)
+        let starts = (1..=6)
+            .map(start)
+            // A level must finish switching in before the ground fades out.
+            .take_while(|&start| start * (1.0 + HYSTERESIS) <= view_distance * (1.0 - HYSTERESIS));
+        ChunkLevels::new(starts, HYSTERESIS, view_distance)
     }
 }
 
@@ -1015,12 +1006,8 @@ impl Default for ChunkDetail {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ChunkSelectionError {
-    /// The levels are not valid (see [`Lod::validate`]).
-    Lod(procgena_core::LodError),
-    /// The levels have no cull distance, so there is no end to the view.
-    NoCullDistance,
-    /// More levels than [`MAX_CHUNK_LEVEL`] allows.
-    TooManyLevels(usize),
+    /// The levels are not valid (see [`ChunkLevels::validate`]).
+    Levels(ChunkLevelsError),
     /// The factor is not a positive number.
     Factor(f32),
 }
@@ -1028,13 +1015,7 @@ pub enum ChunkSelectionError {
 impl fmt::Display for ChunkSelectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Lod(e) => write!(f, "invalid chunk levels: {e}"),
-            Self::NoCullDistance => write!(f, "the chunk levels need a cull distance"),
-            Self::TooManyLevels(n) => write!(
-                f,
-                "{n} chunk levels, but at most {} are allowed",
-                MAX_CHUNK_LEVEL as usize + 1
-            ),
+            Self::Levels(e) => write!(f, "invalid chunk levels: {e}"),
             Self::Factor(x) => write!(f, "the distance factor {x} is not positive"),
         }
     }
@@ -1053,11 +1034,10 @@ pub struct ChunkSelection {
 }
 
 impl ChunkSelection {
-    /// The chunks to draw around `viewers`, with chunk levels from `lod`
-    /// (see [`chunk_lod`]) scaled by `factor`.
+    /// The chunks to draw around `viewers`, with chunk levels from `levels`
+    /// (see [`chunk_levels`]) scaled by `factor`.
     ///
-    /// Level `i` of `lod` is chunk level `i`, and nothing is drawn past its
-    /// cull distance. A chunk is split into finer ones while its nearest
+    /// Nothing is drawn past the levels' view distance. A chunk is split into finer ones while its nearest
     /// point is closer to a viewer than where its own level starts. Each
     /// viewer is a position whose y is its height above the ground (not
     /// its absolute height), so a high viewer sees coarser chunks.
@@ -1071,26 +1051,20 @@ impl ChunkSelection {
     ///
     /// # Errors
     ///
-    /// If `lod` is invalid, has no cull distance or has more than
-    /// [`MAX_CHUNK_LEVEL`] + 1 levels, or `factor` isn't positive.
+    /// If `levels` is invalid (see [`ChunkLevels::validate`]), or `factor`
+    /// isn't positive.
     pub fn around(
-        lod: &Lod,
+        levels: &ChunkLevels,
         factor: f32,
         viewers: &[DVec3],
         previous: Option<&ChunkSelection>,
     ) -> Result<Self, ChunkSelectionError> {
-        lod.validate().map_err(ChunkSelectionError::Lod)?;
-        let cull = lod
-            .cull_distance
-            .ok_or(ChunkSelectionError::NoCullDistance)?;
-        if lod.levels.len() > MAX_CHUNK_LEVEL as usize + 1 {
-            return Err(ChunkSelectionError::TooManyLevels(lod.levels.len()));
-        }
+        levels.validate().map_err(ChunkSelectionError::Levels)?;
         if !(factor.is_finite() && factor > 0.0) {
             return Err(ChunkSelectionError::Factor(factor));
         }
-        let top = (lod.levels.len() - 1) as u8;
-        let reach = f64::from(cull * factor);
+        let top = (levels.levels.len() - 1) as u8;
+        let reach = f64::from(levels.view_distance * factor);
 
         // The distance from the nearest viewer to a chunk.
         let distance = |key: ChunkKey| -> f64 {
@@ -1117,8 +1091,8 @@ impl ChunkSelection {
             if key.level == 0 {
                 return false;
             }
-            let level = &lod.levels[usize::from(key.level)];
-            let start = f64::from(level.distance * factor);
+            let level = &levels.levels[usize::from(key.level)];
+            let start = f64::from(level.start * factor);
             let band = f64::from(level.hysteresis) * start;
             let threshold = match was_split(key) {
                 Some(true) => start + band,

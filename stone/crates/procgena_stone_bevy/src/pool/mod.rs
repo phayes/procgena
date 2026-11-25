@@ -16,11 +16,11 @@ use bevy::prelude::*;
 use bevy::render::RenderApp;
 use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::transform::TransformSystems;
-use procgena_core::chain::DistanceChain;
-use procgena_core::{Lod, OptionsHash, PoolId, SpecimenId};
+use procgena_core::chain::{DistanceChain, Step};
+use procgena_core::{OptionsHash, PoolId, SpecimenId};
 use procgena_core_bevy::instanced::{
     ExternalMeshId, InstancedCopy, InstancedMaterialPlugin, InstancedPart, InstancedScatter,
-    InstancedSlot, PartMesh, SpecimenCache, chain_lod,
+    InstancedSlot, PartMesh, SpecimenCache,
 };
 use procgena_impostor::{ImpostorMaterial, ImpostorPipelineKey};
 use procgena_stone::gpu::MAX_GPU_RESOLUTION;
@@ -434,17 +434,11 @@ fn pool_material(pool: &StonePool, textures: Option<&StoneTextures>) -> StoneMat
     stone_material(&material, textures)
 }
 
-/// The shared instanced renderer's level table for pooled rocks: the shared
-/// [`DistanceChain`]'s game-level mesh, lower mesh and, with `impostor`,
-/// impostor (see [`chain_lod`]). Each copy's [`InstancedCopy::size`] is its
-/// rock's bounding diameter.
-pub(crate) fn renderer_lod(impostor: bool) -> Lod {
-    chain_lod(&DistanceChain::DEFAULT, impostor)
-}
-
 /// One slot per variant of `pool`, defined at `version`, each drawing the
-/// variant's generated meshes with `material`. Caches each variant's parts
-/// by specimen and level.
+/// variant's generated meshes with `material` through the shared
+/// [`DistanceChain`]; each copy's [`InstancedCopy::size`] is its rock's
+/// bounding diameter. The impostor is added once baked. Caches each
+/// variant's parts by specimen and step.
 fn pool_slots(
     pool: &StonePool,
     version: u64,
@@ -452,7 +446,6 @@ fn pool_slots(
     cache: &mut SpecimenCache,
 ) -> Arc<[InstancedSlot]> {
     let options = &pool.options;
-    let lod = renderer_lod(false);
     let levels = pool.mesh_levels().len() as u32;
     let pool_id = PoolId::new(STONE_KIND, OptionsHash::of(&(options, pool.stretch_jitter)));
     (0..pool.variants)
@@ -460,18 +453,20 @@ fn pool_slots(
             let specimen = SpecimenId::new(pool.world_seed, pool_id, variant);
             let parts: Vec<InstancedPart> = (0..levels)
                 .map(|level| InstancedPart {
-                    level,
+                    step: Step::ALL[level as usize],
                     mesh: PartMesh::External(external_mesh_id(version, variant * levels + level)),
                     material: material.clone().untyped(),
                 })
                 .collect();
             for part in &parts {
-                cache.insert(specimen, 0, part.level, vec![part.clone()]);
+                cache.insert(specimen, 0, part.step, vec![part.clone()]);
             }
             InstancedSlot {
                 specimen,
                 piece: 0,
-                lod: lod.clone(),
+                chain: DistanceChain::DEFAULT,
+                cull: true,
+                impostor: false,
                 parts,
                 bounds: (Vec3::ZERO, UNPLACED_RADIUS),
             }

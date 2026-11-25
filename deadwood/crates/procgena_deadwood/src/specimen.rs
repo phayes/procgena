@@ -2,7 +2,7 @@
 //! generators use to hand meshes to each other, so that, for example, moss
 //! from `procgena_clump` can grow on a log.
 
-use procgena_core::chain::{DistanceChain, Step, ViewScale};
+use procgena_core::chain::Step;
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, TagSet, tags};
 
 use crate::limb::SizeClass;
@@ -51,32 +51,17 @@ impl Piece {
     }
 }
 
-/// Builds a [`Specimen`] from meshes made by [`Piece::lod_meshes`]. The
-/// lower level starts where the default
-/// [`DistanceChain`](procgena_core::chain::DistanceChain) switches to it for
-/// this piece (see [`lower_start`]).
+/// Builds a [`Specimen`] from meshes made by [`Piece::lod_meshes`]: the
+/// game-level mesh, then the lower mesh.
 pub fn specimen_from_meshes(meshes: &[(Step, DeadwoodMesh); 2]) -> Specimen {
-    let (_, radius) = meshes[0].1.bounding_sphere();
-    let starts = [0.0, lower_start(2.0 * radius)];
     Specimen {
         levels: meshes
             .iter()
-            .zip(starts)
-            .map(|((_, mesh), start)| Level {
-                start,
+            .map(|(_, mesh)| Level {
                 parts: mesh.specimen_parts(),
             })
             .collect(),
     }
-}
-
-/// The camera distance in metres where the default [`DistanceChain`]
-/// switches from the game-level mesh to the lower mesh, for a piece whose
-/// game-level mesh has a bounding sphere `diameter` metres across (see
-/// [`DeadwoodMesh::bounding_sphere`]), seen through a
-/// [`ViewScale::DEFAULT`] camera at High quality.
-pub fn lower_start(diameter: f32) -> f32 {
-    DistanceChain::factor(diameter, ViewScale::DEFAULT) / DistanceChain::DEFAULT.lower_below
 }
 
 /// Copies the vertices and triangles of `range` into a closed, tagged part,

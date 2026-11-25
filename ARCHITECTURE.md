@@ -1481,21 +1481,20 @@ Each rule says what every asset does, and which crates have to change.
      options hash (rule 3), so a detail change never re-seeds a pool.
    - **Without an impostor** (still baking, or turned off), the lower mesh
      is drawn until the cull.
-   - Status: the chain types are in `procgena_core::chain` (IX Step 1), and
-     stone draws through them (IX Step 2; its GPU pool through
-     `procgena_core_bevy::instanced::chain_lod`, a translation to the old
-     table until the renderer moves, Step 4). Mushroom draws through them
-     too (IX Step 3): a single mushroom or cluster switches and bakes its
-     impostor as a whole, and a scatter bakes one impostor per body,
-     through the shared renderer with `chain_lod`. So does dead wood (IX
-     Step 3): each piece, and each variant of a stick scatter, is sized by
-     its game-level mesh's real bounding sphere. So do trees and their
-     fruit and flowers (IX Step 3): clusters switch by their own size
-     until their tree's impostor takes over. The
-     other assets still use the older metre table (`Lod`, `LodLevel`,
-     `LevelForm`, `FarForm`) until each moves across; the old types are
-     deleted when the last asset moves. The bullets below describe the
-     older model where they talk of levels, far forms and metre distances.
+   - Status: the chain types are in `procgena_core::chain` (IX Step 1).
+     Stone (Step 2), mushroom, dead wood, trees and their fruit and
+     flowers (Step 3) draw through them: a single mushroom or cluster
+     switches and bakes its impostor as a whole, each dead wood piece and
+     stick-scatter variant is sized by its game-level mesh's bounding
+     sphere, and fruit clusters switch by their own size until their
+     tree's impostor takes over. The old metre table (`Lod`, `LodLevel`,
+     `LevelForm`, the ribbon `FarForm`s) and `procgena_specimen`'s
+     `Level::start` are deleted; terrain keeps its own metre chunk table
+     (`procgena_terrain::ChunkLevels`). The shared instanced renderer
+     takes each slot's `DistanceChain` and its parts by `Step` directly,
+     and works out the bands on the GPU for every view from that view's
+     field of view (Step 4). The bullets below describe the older model
+     where they talk of levels, far forms and metre distances.
    - **Attached assets own their levels.** Fruit and flowers are their own
      asset (decided by the user, superseding the cluster-card plan of
      2026-11-23): each cluster specimen has its own mesh levels, sized by
@@ -1945,22 +1944,19 @@ it starts.
   function, `N` and its overrides, stand subsets, and adoption.
   Today each Scatter sets its own variant count (`GroveTree::variants`,
   `StonePool`, `StickScatter`, mushroom clusters) with no World-wide cap.
-- [ ] **Shared LOD type, dither shader and quality setting**, adopted by
-  every asset. The shared pieces exist (R1): `Lod`, `LodLevel`,
-  `LevelForm`, `FarForm` and `Quality` in `procgena_core`, and the dither
-  shader, `LodQuality` and `visibility_range` in `procgena_core_bevy`.
-  Still to do: each asset adopts them.
+- [x] **Shared LOD type, dither shader and quality setting**, adopted by
+  every asset. Under IX the shared type is the chain
+  (`procgena_core::chain`: `Lod<D>`, `Step`, `DistanceChain`) with
+  `LodRange` and `Quality`, and the dither shader, `LodQuality` and
+  `visibility_range` in `procgena_core_bevy`. Stone, dead wood, mushroom,
+  tree and fruit use them; grass keeps its own path (rule 6).
 - [ ] **More draws on core's `Rng`**: add `jitter(amount)` (a value in
   `1 ± amount`) and `chance(p)` to `procgena_core::Rng`, and drop
   deadwood's local `RngExt` trait that adds them today. Check tree's and
   mushroom's random numbers for the same draws first.
-- [ ] **Content hash for the LOD types**: implement `ContentHash` for
-  `Lod<D: ContentHash>`, `LodLevel`, `LevelForm` and `FarForm` in
-  `procgena_core`, with a fixed number per form. This replaces
-  `procgena_deadwood_bevy`'s local `lod_hash` and `form_number`, which
-  panics on a far form it doesn't know because `FarForm` is
-  `#[non_exhaustive]`. Every asset's cache key can then hash its levels the
-  same way.
+- [x] **Content hash for the LOD types**: `chain::Lod<D: ContentHash>`
+  and `DistanceChain` implement `ContentHash`; the old level and form
+  types, and dead wood's local `lod_hash` and `form_number`, are gone.
 - [x] **Shared instanced renderer**, from stone's pool and tree's grove
   renderer; deadwood and mushroom move onto it. Done in R2:
   `procgena_core_bevy::instanced`, with `InstancedScatter` (slots and
@@ -1979,8 +1975,8 @@ it starts.
   per Ecotope instead of per grove. The first half is done (I1): an
   `ImpostorKey` is a `SpecimenId` (or a pool's part) plus per-bake
   `BakeSettings`; `Impostors::request` bakes each key once and keeps it
-  with a shared material; `ImpostorLevel` places the impostor as the last
-  `LevelForm::Impostor` level. Tree, stone, mushroom and dead wood use it
+  with a shared material, drawn as the chain's `Step::Impostor`. Tree,
+  stone, mushroom and dead wood use it
   (mushroom and dead wood since IX Step 3); under IX every kind ends in an impostor. Assets built on their own, and grove and
   pool variants today, key their impostor by `SpecimenId(seed, pool, 0)`
   with their own build seed; passing the real slot id is I2's. Still to
@@ -2016,8 +2012,8 @@ it starts.
     −90° (`SPHERE`) lays out the whole octahedron; any other value warps
     the angle from +Y so the declared cap fills the atlas, and 0°
     (`UPPER_HEMISPHERE`) is the old layout exactly. Coverage is declared
-    by each asset's impostor settings (`ImpostorLevel::bake`), not yet by
-    its preset files.
+    by each asset's impostor settings (its `BakeSettings`), not yet by its
+    preset files.
   - The hook is a material hook rather than an instanced variant: a
     host's own `MaterialExtension` binds the impostor at bindings 100–103,
     reuses the impostor fragment shaders, and calls `impostor_vertex` /

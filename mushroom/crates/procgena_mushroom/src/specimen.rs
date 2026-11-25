@@ -2,7 +2,7 @@
 //! generators use to hand meshes to each other, so that, for example, moss
 //! can grow on a mushroom.
 
-use procgena_core::chain::{DistanceChain, Step, ViewScale};
+use procgena_core::chain::Step;
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet, tags};
 
 use crate::mesh::{MeshBuffers, MushroomMesh, PartKind, PartRange};
@@ -36,33 +36,19 @@ impl Mushroom {
     /// lower mesh. Every member of a cluster is included, and parts of the
     /// same kind are merged, so each level has one cap part, one stem part,
     /// and so on.
-    ///
-    /// The lower level starts where the default [`DistanceChain`] switches
-    /// to it for this mushroom (by its
-    /// [`bounding_diameter`](Mushroom::bounding_diameter)), seen through a
-    /// [`ViewScale::DEFAULT`] camera at High quality.
     pub fn specimen(&self) -> Specimen {
-        specimen_from_meshes(&self.lod_meshes(), self.bounding_diameter())
+        specimen_from_meshes(&self.lod_meshes())
     }
 }
 
 /// Builds a [`Specimen`] from meshes you already made with
-/// [`Mushroom::lod_meshes`], without meshing again, for something
-/// `diameter` metres across (such as the mushroom's
-/// [`bounding_diameter`](Mushroom::bounding_diameter)). The lower level
-/// starts where the default [`DistanceChain`] switches to it, seen through
-/// a [`ViewScale::DEFAULT`] camera at High quality.
-pub fn specimen_from_meshes(meshes: &[(Step, MushroomMesh); 2], diameter: f32) -> Specimen {
-    let factor = DistanceChain::factor(diameter, ViewScale::DEFAULT);
-    let lower_start = factor / DistanceChain::DEFAULT.lower_below;
+/// [`Mushroom::lod_meshes`], without meshing again: the game-level mesh,
+/// then the lower mesh.
+pub fn specimen_from_meshes(meshes: &[(Step, MushroomMesh); 2]) -> Specimen {
     Specimen {
         levels: meshes
             .iter()
-            .map(|(step, mesh)| Level {
-                start: match step {
-                    Step::Game => 0.0,
-                    _ => lower_start,
-                },
+            .map(|(_, mesh)| Level {
                 parts: mesh.specimen_parts(),
             })
             .collect(),

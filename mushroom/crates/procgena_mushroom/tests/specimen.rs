@@ -1,8 +1,6 @@
 //! Specimens, clusters and scatter.
 
 use glam::Vec3;
-use procgena_core::Quality;
-use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_core::scatter::Placement;
 use procgena_mushroom::{
     ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomOptions, MushroomPreset,
@@ -16,12 +14,6 @@ fn specimen_has_the_game_level_and_the_lower_mesh_with_tags() {
     let specimen = mushroom.specimen();
     specimen.validate().unwrap();
     assert_eq!(specimen.levels.len(), 2);
-    let factor = DistanceChain::factor(mushroom.bounding_diameter(), ViewScale::DEFAULT);
-    let [lower_start, _, _] = DistanceChain::DEFAULT
-        .thresholds(Quality::High)
-        .map(|threshold| factor / threshold);
-    assert_eq!(specimen.levels[0].start, 0.0);
-    assert_eq!(specimen.levels[1].start, lower_start);
     for level in &specimen.levels {
         for part in &level.parts {
             assert!(part.tags.contains(&tags::MUSHROOM));

@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use procgena_core::{Lod, LodLevel, LodRange};
+use procgena_core::LodRange;
 use procgena_core_bevy::DITHER_WESL;
 use wesl::eval::Inputs;
 use wesl::resolver::VirtualResolver;
@@ -98,16 +98,15 @@ fn main() -> @location(0) vec4<i32> {{
 
 #[test]
 fn shader_dither_levels_match_rust() {
-    let lod = Lod::new(
-        1.0,
-        vec![
-            LodLevel::new(0.0, 0.0, ()),
-            LodLevel::new(10.0, 0.2, ()),
-            LodLevel::new(20.0, 0.1, ()),
-            LodLevel::new(40.0, 0.0, ()),
-        ],
-    )
-    .with_cull(80.0);
+    // Four steps: switching over 8–12 m and 18–22 m, at once at 40 m, and
+    // gone at once at 80 m.
+    let range = |fade_in, fade_out| LodRange { fade_in, fade_out };
+    let ranges = [
+        range(0.0..0.0, 8.0..12.0),
+        range(8.0..12.0, 18.0..22.0),
+        range(18.0..22.0, 40.0..40.0),
+        range(40.0..40.0, 80.0..80.0),
+    ];
     let mut distances = vec![
         0.0, 7.9, 8.0, 8.125, 9.0, 10.0, 11.0, 11.99, 12.0, 15.0, 18.0, 18.125, 20.0, 21.0, 21.99,
         22.0, 39.99, 40.0, 79.99, 80.0, 1e6,
@@ -115,7 +114,7 @@ fn shader_dither_levels_match_rust() {
     // Exact halves of a dither step, where rounding modes differ.
     distances.extend([8.0 + 4.0 * 0.5 / 16.0, 18.0 + 4.0 * 2.5 / 16.0]);
 
-    for (i, range) in lod.ranges(1.0).iter().enumerate() {
+    for (i, range) in ranges.iter().enumerate() {
         let rust: Vec<i32> = distances.iter().map(|&d| range.dither_level(d)).collect();
         for chunk in (0..distances.len()).collect::<Vec<_>>().chunks(4) {
             let picked: Vec<f32> = chunk.iter().map(|&j| distances[j]).collect();

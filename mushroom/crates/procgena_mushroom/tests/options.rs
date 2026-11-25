@@ -210,7 +210,10 @@ fn the_game_level_is_checked_with_the_options() {
 #[test]
 fn the_game_level_defaults_to_high_and_can_be_set_in_a_file() {
     assert_eq!(MushroomOptions::default().game_level, MushroomDetail::HIGH);
-    assert_eq!(read("base: porcini\n").unwrap().game_level, MushroomDetail::HIGH);
+    assert_eq!(
+        read("base: porcini\n").unwrap().game_level,
+        MushroomDetail::HIGH
+    );
     let full = read(
         "base: porcini\n\
          mushroom:\n  \
@@ -240,13 +243,13 @@ fn bigger_mushrooms_switch_further_away() {
     let ratio = big.bounding_diameter() / small.bounding_diameter();
     assert!((ratio - 4.0).abs() < 1e-3, "{ratio}");
 
-    // The lower level of a mushroom's specimen starts where the default
-    // chain switches to it.
-    let factor = DistanceChain::factor(big.bounding_diameter(), ViewScale::DEFAULT);
-    let [_, lower, _] = DistanceChain::DEFAULT.ranges(factor, Quality::High);
-    let specimen = big.specimen();
-    assert_eq!(specimen.levels.len(), 2);
-    assert_eq!(specimen.levels[0].start, 0.0);
-    let middle = (lower.fade_in.start + lower.fade_in.end) / 2.0;
-    assert!((specimen.levels[1].start - middle).abs() < 1e-4);
+    // The default chain switches each to its lower mesh in proportion to
+    // its size.
+    let lower_from = |mushroom: &Mushroom| {
+        let factor = DistanceChain::factor(mushroom.bounding_diameter(), ViewScale::DEFAULT);
+        let [_, lower, _] = DistanceChain::DEFAULT.ranges(factor, Quality::High);
+        lower.fade_in.start
+    };
+    let ratio = lower_from(&big) / lower_from(&small);
+    assert!((ratio - 4.0).abs() < 1e-3, "{ratio}");
 }

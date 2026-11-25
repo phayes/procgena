@@ -69,12 +69,12 @@ use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use glam::{DVec2, DVec3};
-use procgena_core::Lod;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::ground::{GroundPainter, GroundSource, GroundStack, GroundWeights};
 use procgena_terrain::{
-    ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSelectionError,
-    ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh, WorldTerrain, chunk_lod,
+    ChunkError, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
+    ChunkSelectionError, ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh,
+    WorldTerrain, chunk_levels,
 };
 
 pub use material::{DEFAULT_VARIATION, TerrainExtension, TerrainMaterial, TerrainSurface};
@@ -94,34 +94,34 @@ pub const DEFAULT_VIEW_DISTANCE: f32 = 4000.0;
 /// distance and the view distance.
 ///
 /// Make one with [`new`](Self::new), which checks the chunk levels, or use
-/// the default: [`chunk_lod`] drawn out to [`DEFAULT_VIEW_DISTANCE`].
+/// the default: [`chunk_levels`] drawn out to [`DEFAULT_VIEW_DISTANCE`].
 #[derive(Debug, Clone)]
 pub struct TerrainPlugin {
-    lod: Lod,
+    levels: ChunkLevels,
     variation: f32,
     max_reads: usize,
 }
 
 impl Default for TerrainPlugin {
     fn default() -> Self {
-        Self::new(chunk_lod(DEFAULT_VIEW_DISTANCE)).expect("the usual chunk levels are valid")
+        Self::new(chunk_levels(DEFAULT_VIEW_DISTANCE)).expect("the usual chunk levels are valid")
     }
 }
 
 impl TerrainPlugin {
-    /// The plugin drawing chunk levels `lod`: level `i` of the `Lod` is
-    /// chunk level `i`, and its cull distance is the view distance.
-    /// [`chunk_lod`] gives the usual levels for any view distance.
+    /// The plugin drawing chunk levels `levels`, out to their view
+    /// distance. [`chunk_levels`] gives the usual levels for any view
+    /// distance.
     ///
     /// # Errors
     ///
-    /// If `lod` can't choose chunks, for example because it has no cull
-    /// distance or its last level starts too close to it (see
+    /// If `levels` can't choose chunks, for example because its last level
+    /// starts too close to the view distance (see
     /// [`ChunkSelection::around`]).
-    pub fn new(lod: Lod) -> Result<Self, ChunkSelectionError> {
-        ChunkSelection::around(&lod, 1.0, &[], None)?;
+    pub fn new(levels: ChunkLevels) -> Result<Self, ChunkSelectionError> {
+        ChunkSelection::around(&levels, 1.0, &[], None)?;
         Ok(Self {
-            lod,
+            levels,
             variation: DEFAULT_VARIATION,
             max_reads: 4,
         })
@@ -142,8 +142,8 @@ impl TerrainPlugin {
     }
 
     /// The chunk levels.
-    pub fn lod(&self) -> &Lod {
-        &self.lod
+    pub fn levels(&self) -> &ChunkLevels {
+        &self.levels
     }
 }
 
@@ -154,7 +154,7 @@ impl Plugin for TerrainPlugin {
         }
         app.add_plugins(LodPlugin)
             .insert_resource(TerrainSettings {
-                lod: self.lod.clone(),
+                levels: self.levels.clone(),
                 variation: self.variation,
                 max_reads: self.max_reads,
             })
@@ -325,7 +325,7 @@ pub struct TerrainDebug {
 /// The plugin's settings.
 #[derive(Resource)]
 struct TerrainSettings {
-    lod: Lod,
+    levels: ChunkLevels,
     variation: f32,
     max_reads: usize,
 }
@@ -429,10 +429,8 @@ struct ChunkLook {
 
 impl ChunkLook {
     fn new(settings: &TerrainSettings, quality: &LodQuality, debug: TerrainDebug) -> Self {
-        let ranges = settings.lod.ranges(quality.0.distance_scale());
-        let fade = ranges.last().map_or(Vec4::ZERO, |last| {
-            Vec4::new(0.0, 0.0, last.fade_out.start, last.fade_out.end)
-        });
+        let fade_out = settings.levels.fade_out(quality.0.distance_scale());
+        let fade = Vec4::new(0.0, 0.0, fade_out.start, fade_out.end);
         Self {
             variation: settings.variation,
             fade,
@@ -553,7 +551,7 @@ fn stream_chunks(
 
         // The chunks wanted now.
         match ChunkSelection::around(
-            &settings.lod,
+            &settings.levels,
             factor,
             &positions,
             Some(&state.stream.target),
@@ -866,11 +864,11 @@ mod tests {
             cell_on_screen: 2.0 * ChunkDetail::DEFAULT.cell_on_screen,
             ..ChunkDetail::DEFAULT
         };
-        let plugin = TerrainPlugin::new(coarse.lod(300.0)).unwrap();
+        let plugin = TerrainPlugin::new(coarse.levels(300.0)).unwrap();
         // Only the streaming, not the material plugin, which needs a
         // renderer.
         app.insert_resource(TerrainSettings {
-            lod: plugin.lod.clone(),
+            levels: plugin.levels.clone(),
             variation: plugin.variation,
             max_reads: plugin.max_reads,
         })
@@ -901,16 +899,16 @@ mod tests {
 
     #[test]
     fn invalid_levels_are_refused_when_the_plugin_is_made() {
-        let lod = TerrainPlugin::default().lod().clone();
-        assert_eq!(lod.cull_distance, Some(DEFAULT_VIEW_DISTANCE));
+        let levels = TerrainPlugin::default().levels().clone();
+        assert_eq!(levels.view_distance, DEFAULT_VIEW_DISTANCE);
         // A view distance inside the last level's switching band.
-        let mut short = chunk_lod(6000.0);
-        short.cull_distance = Some(4000.0);
+        let mut short = chunk_levels(6000.0);
+        short.view_distance = 4000.0;
         assert!(TerrainPlugin::new(short).is_err());
-        let mut endless = chunk_lod(6000.0);
-        endless.cull_distance = None;
+        let mut endless = chunk_levels(6000.0);
+        endless.view_distance = f32::INFINITY;
         assert!(TerrainPlugin::new(endless).is_err());
-        assert!(TerrainPlugin::new(chunk_lod(4000.0)).is_ok());
+        assert!(TerrainPlugin::new(chunk_levels(4000.0)).is_ok());
     }
 
     #[test]

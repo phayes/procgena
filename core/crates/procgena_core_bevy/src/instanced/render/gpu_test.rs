@@ -1,7 +1,10 @@
 //! The instanced renderer on a real GPU.
 //!
 //! Renders headless frames and reads each view's draws back to check which
-//! copies it draws at which level, and that the instanced pipelines build.
+//! copies it draws at which step, and that the instanced pipelines build.
+//!
+//! Slots use [`DistanceChain::DEFAULT`], and copies are sized so that their
+//! lower mesh takes over at round distances (see [`size_switching_at`]).
 //! Needs a GPU, so the tests are ignored by default:
 //!
 //! ```text
@@ -22,13 +25,38 @@ use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_core::{GeneratorKind, Lod, LodLevel, OptionsHash, PoolId, SpecimenId};
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
+use procgena_core::{GeneratorKind, OptionsHash, PoolId, SpecimenId};
 
 use super::*;
 use crate::instanced::{
     InstancedCopy, InstancedPart, InstancedPlugin, InstancedScatter, InstancedSlot,
     InstancedStandardMaterial, PartMesh,
 };
+
+/// The size of a copy whose lower mesh takes over `distance` metres from a
+/// default camera at High quality, under [`DistanceChain::DEFAULT`]. Its
+/// impostor then takes over 2.5 times as far, and it is culled 50 times as
+/// far.
+fn size_switching_at(distance: f32) -> f32 {
+    distance * DistanceChain::DEFAULT.lower_below / ViewScale::DEFAULT.get()
+}
+
+/// Parts at each of `steps`, all drawing `mesh` with `material`.
+fn parts(
+    steps: &[Step],
+    mesh: &Handle<Mesh>,
+    material: &Handle<InstancedStandardMaterial>,
+) -> Vec<InstancedPart> {
+    steps
+        .iter()
+        .map(|&step| InstancedPart {
+            step,
+            mesh: PartMesh::Mesh(mesh.clone()),
+            material: material.clone().untyped(),
+        })
+        .collect()
+}
 
 /// Frames to wait for pipelines and culling.
 const MAX_FRAMES: usize = 600;
@@ -68,10 +96,10 @@ fn read_words(device: &RenderDevice, queue: &RenderQueue, source: &Buffer) -> Ve
 /// A headless app rendering to an image, with a camera at (0, 1.5, 0)
 /// looking down the negative z axis, a directional light shining forward
 /// and down, and one Scatter with a slot per position, each with one copy
-/// there. Every slot has two levels: up to 20 m, and beyond, fading over
-/// 18 to 22 m; the second level casts no shadows when `far_shadows` is
-/// false.
-fn headless_app(positions: &[Vec3], far_shadows: bool) -> App {
+/// there. Every slot has its game level up to 20 m and its lower mesh
+/// beyond, fading over 18 to 22 m. With `impostor`, slots also have an
+/// impostor part, taking over at 50 m (45 to 55 m).
+fn headless_app(positions: &[Vec3], impostor: bool) -> App {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -103,23 +131,21 @@ fn headless_app(positions: &[Vec3], far_shadows: bool) -> App {
     let material = world
         .resource_mut::<Assets<InstancedStandardMaterial>>()
         .add(InstancedStandardMaterial::default());
-    let mut far = LodLevel::new(20.0, 0.1, ());
-    far.casts_shadows = far_shadows;
-    let lod = Lod::new(1.0, vec![LodLevel::new(0.0, 0.1, ()), far]);
+    let steps: &[Step] = if impostor {
+        &Step::ALL
+    } else {
+        &[Step::Game, Step::Lower]
+    };
     let kind = GeneratorKind::from_key("procgena_core_bevy.test.kind");
     let pool = PoolId::new(kind, OptionsHash(1));
     let slots: Vec<InstancedSlot> = (0..positions.len() as u32)
         .map(|slot| InstancedSlot {
             specimen: SpecimenId::new(0, pool, slot),
             piece: 0,
-            lod: lod.clone(),
-            parts: (0..2)
-                .map(|level| InstancedPart {
-                    level,
-                    mesh: PartMesh::Mesh(mesh.clone()),
-                    material: material.clone().untyped(),
-                })
-                .collect(),
+            chain: DistanceChain::DEFAULT,
+            cull: true,
+            impostor,
+            parts: parts(steps, &mesh, &material),
             bounds: (Vec3::ZERO, 0.9),
         })
         .collect();
@@ -129,7 +155,7 @@ fn headless_app(positions: &[Vec3], far_shadows: bool) -> App {
         .map(|(slot, &position)| InstancedCopy {
             slot: slot as u32,
             transform: Affine3A::from_translation(position),
-            size: 1.0,
+            size: size_switching_at(20.0),
             wind_phase: 0.0,
         })
         .collect();
@@ -275,8 +301,9 @@ fn light_kinds(app: &mut App) -> HashMap<RetainedViewEntity, &'static str> {
         .collect()
 }
 
-/// The instance count of slot `slot`'s part at `level` (parts are listed
-/// by slot, then level).
+/// The instance count of slot `slot`'s part at `level`, the index of its
+/// step (parts are listed by slot, then step, two per slot; a slot with an
+/// impostor part must be the last).
 fn count(args: &[u32], slot: usize, level: usize) -> u32 {
     args[(slot * 2 + level) * DRAW_WORDS + INSTANCE_COUNT_WORD]
 }
@@ -295,7 +322,7 @@ fn gpu_views_draw_the_copies_they_see_at_the_right_levels() {
         Vec3::new(0.0, 0.0, 8.0),
         Vec3::new(0.0, 8.0, 4.0),
     ];
-    let mut app = headless_app(&positions, true);
+    let mut app = headless_app(&positions, false);
     run_until_drawn(&mut app);
     let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
     let mut views = view_draw_args(&mut app);
@@ -332,23 +359,45 @@ fn gpu_views_draw_the_copies_they_see_at_the_right_levels() {
 
 #[test]
 #[ignore = "needs a GPU"]
-fn gpu_levels_without_shadows_cast_none() {
-    // A far copy, drawn at the second level, which casts no shadows.
-    let mut app = headless_app(&[Vec3::new(0.0, 0.0, -40.0)], false);
+fn gpu_impostors_cast_no_shadows() {
+    // A far copy, drawn as its impostor, which casts no shadows.
+    let mut app = headless_app(&[Vec3::new(0.0, 0.0, -80.0)], true);
     run_until_drawn(&mut app);
     let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
     let mut views = view_draw_args(&mut app);
     let camera_args = views.remove(&camera).expect("the camera culled nothing");
-    assert_eq!(count(&camera_args, 0, 1), 1);
+    assert_eq!(count(&camera_args, 0, Step::Impostor.index()), 1);
     for args in views.values() {
-        assert_eq!(count(args, 0, 0) + count(args, 0, 1), 0);
+        let drawn: u32 = (0..3).map(|level| count(args, 0, level)).sum();
+        assert_eq!(drawn, 0);
     }
 }
 
 #[test]
 #[ignore = "needs a GPU"]
+fn gpu_narrow_lenses_keep_detail_further_away() {
+    // At 30 m the copy is past its 20 m switch through the default lens,
+    // but a lens a third as wide makes it look three times larger, so it
+    // keeps its game level (switching at 60 m).
+    let mut app = headless_app(&[Vec3::new(0.0, 0.0, -30.0)], false);
+    let world = app.world_mut();
+    let mut cameras = world.query_filtered::<&mut Projection, With<Camera3d>>();
+    let mut projection = cameras.single_mut(world).expect("one camera");
+    let Projection::Perspective(perspective) = &mut *projection else {
+        panic!("the test camera is perspective");
+    };
+    let narrow = 2.0 * ((perspective.fov * 0.5).tan() / 3.0).atan();
+    perspective.fov = narrow;
+    run_until_drawn(&mut app);
+    let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
+    let args = view_draw_args(&mut app).remove(&camera).expect("culled");
+    assert_eq!((count(&args, 0, 0), count(&args, 0, 1)), (1, 0));
+}
+
+#[test]
+#[ignore = "needs a GPU"]
 fn gpu_point_and_spot_lights_cull_their_own_shadow_views() {
-    let mut app = headless_app(&[Vec3::new(0.0, 0.0, -8.0)], true);
+    let mut app = headless_app(&[Vec3::new(0.0, 0.0, -8.0)], false);
     app.world_mut().spawn((
         PointLight {
             shadow_maps_enabled: true,
@@ -390,7 +439,7 @@ fn gpu_point_and_spot_lights_cull_their_own_shadow_views() {
 fn gpu_quality_scales_the_switch_distance() {
     // At 15 m the copy is at the first level at High quality, and at the
     // second at Low (switching at 20 × 0.4 = 8 m).
-    let mut app = headless_app(&[Vec3::new(0.0, 0.0, -15.0)], true);
+    let mut app = headless_app(&[Vec3::new(0.0, 0.0, -15.0)], false);
     app.insert_resource(crate::LodQuality(procgena_core::Quality::Low));
     run_until_drawn(&mut app);
     let camera = camera_view(app.sub_app_mut(RenderApp).world_mut()).expect("a camera");
@@ -398,32 +447,34 @@ fn gpu_quality_scales_the_switch_distance() {
     assert_eq!((count(&args, 0, 0), count(&args, 0, 1)), (0, 1));
 }
 
-/// The rows of `attached_app`'s host slot: two that every host level draws,
-/// and one only host level 0 draws.
+/// The rows of `attached_app`'s host slot: two that every host step draws,
+/// and one only the host's game level draws. Each switches to its lower
+/// mesh at 10 m.
 fn attached_rows() -> Vec<AttachedRow> {
-    let row = |position: Vec3, host_levels: u32| AttachedRow {
+    let row = |position: Vec3, host_steps: u32| AttachedRow {
         slot: 1,
         position,
         rotation: Quat::from_rotation_y(0.5),
         scale: 0.5,
-        size: 1.0,
+        size: size_switching_at(10.0),
         wind: Vec3::new(0.1, 0.2, 0.3),
-        host_levels,
+        host_steps,
     };
     vec![
-        row(Vec3::new(0.5, 0.5, 0.0), AttachedRow::ALL_LEVELS),
-        row(Vec3::new(-0.5, 0.5, 0.0), AttachedRow::ALL_LEVELS),
-        row(Vec3::new(0.0, 1.0, 0.0), 1),
+        row(Vec3::new(0.5, 0.5, 0.0), AttachedRow::ALL_STEPS),
+        row(Vec3::new(-0.5, 0.5, 0.0), AttachedRow::ALL_STEPS),
+        row(Vec3::new(0.0, 1.0, 0.0), AttachedRow::steps([Step::Game])),
     ]
 }
 
 /// A headless app like `headless_app`, whose camera also has a depth
-/// prepass, with one Scatter of two slots: slot 0, a host with the levels
+/// prepass, with one Scatter of two slots: slot 0, a host with the steps
 /// of `headless_app`, copied at `hosts`; and slot 1, drawn only by the rows
-/// of [`attached_rows`] on each host copy, with levels up to 10 m and
-/// beyond, fading over 9 to 11 m, and culled from `row_cull` if given.
+/// of [`attached_rows`] on each host copy, at its game level up to 10 m and
+/// its lower mesh beyond, fading over 9 to 11 m, and culled from
+/// `row_cull` metres if given (500 m otherwise).
 fn attached_app(hosts: &[Vec3], row_cull: Option<f32>) -> App {
-    let mut app = headless_app(&[], true);
+    let mut app = headless_app(&[], false);
     let world = app.world_mut();
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
@@ -433,42 +484,35 @@ fn attached_app(hosts: &[Vec3], row_cull: Option<f32>) -> App {
         .add(InstancedStandardMaterial::default());
     let kind = GeneratorKind::from_key("procgena_core_bevy.test.attached");
     let pool = PoolId::new(kind, OptionsHash(2));
-    let slot = |index: u32, lod: Lod| InstancedSlot {
+    let slot = |index: u32, chain: DistanceChain| InstancedSlot {
         specimen: SpecimenId::new(0, pool, index),
         piece: 0,
-        lod,
-        parts: (0..2)
-            .map(|level| InstancedPart {
-                level,
-                mesh: PartMesh::Mesh(mesh.clone()),
-                material: material.clone().untyped(),
-            })
-            .collect(),
+        chain,
+        cull: true,
+        impostor: false,
+        parts: parts(&[Step::Game, Step::Lower], &mesh, &material),
         bounds: (Vec3::ZERO, 0.4),
     };
-    let host_lod = Lod::new(
-        1.0,
-        vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(20.0, 0.1, ())],
-    );
-    let mut row_lod = Lod::new(
-        1.0,
-        vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(10.0, 0.1, ())],
-    );
+    let mut row_chain = DistanceChain::DEFAULT;
     if let Some(cull) = row_cull {
-        row_lod = row_lod.with_cull(cull);
+        // Rows are sized to switch at 10 m, so a threshold `t` falls at
+        // 10 × lower_below / t metres. The impostor's threshold sits
+        // halfway, so the bands stay apart.
+        row_chain.cull_below = 10.0 * row_chain.lower_below / cull;
+        row_chain.impostor_below = (row_chain.lower_below * row_chain.cull_below).sqrt();
     }
     let copies: Vec<InstancedCopy> = hosts
         .iter()
         .map(|&position| InstancedCopy {
             slot: 0,
             transform: Affine3A::from_translation(position),
-            size: 1.0,
+            size: size_switching_at(20.0),
             wind_phase: 0.0,
         })
         .collect();
     world.spawn((
         InstancedScatter {
-            slots: vec![slot(0, host_lod), slot(1, row_lod)].into(),
+            slots: vec![slot(0, DistanceChain::DEFAULT), slot(1, row_chain)].into(),
             copies: copies.into(),
         },
         InstancedAttached {
@@ -671,9 +715,9 @@ fn gpu_attached_rows_find_their_host_at_every_offset() {
         position: Vec3::new((i % 10) as f32 * 0.05, 0.5 + (i / 10) as f32 * 0.05, 0.0),
         rotation: Quat::from_rotation_y(i as f32 * 0.1),
         scale: 0.2,
-        size: 1.0,
+        size: size_switching_at(10.0),
         wind: Vec3::new(i as f32, 0.0, 0.0),
-        host_levels: AttachedRow::ALL_LEVELS,
+        host_steps: AttachedRow::ALL_STEPS,
     };
     let tables: Vec<Vec<AttachedRow>> = vec![
         vec![row(0)],
@@ -717,9 +761,10 @@ fn gpu_attached_rows_find_their_host_at_every_offset() {
 
 /// A headless app like `headless_app`, with one Scatter: host slots 0 to 3
 /// copied as `hosts` gives (slot, position), with `tables` as their rows,
-/// and slot 4, which the rows draw, with levels up to 10 m and beyond.
+/// and slot 4, which the rows draw. Hosts and rows sized as
+/// `size_switching_at(10.0)` switch to their lower mesh at 10 m.
 fn multi_host_app(hosts: &[(u32, Vec3)], tables: &[Vec<AttachedRow>]) -> App {
-    let mut app = headless_app(&[], true);
+    let mut app = headless_app(&[], false);
     let world = app.world_mut();
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
@@ -729,22 +774,14 @@ fn multi_host_app(hosts: &[(u32, Vec3)], tables: &[Vec<AttachedRow>]) -> App {
         .add(InstancedStandardMaterial::default());
     let kind = GeneratorKind::from_key("procgena_core_bevy.test.hosts");
     let pool = PoolId::new(kind, OptionsHash(3));
-    let lod = Lod::new(
-        1.0,
-        vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(10.0, 0.1, ())],
-    );
     let slots: Vec<InstancedSlot> = (0..5)
         .map(|index| InstancedSlot {
             specimen: SpecimenId::new(0, pool, index),
             piece: 0,
-            lod: lod.clone(),
-            parts: (0..2)
-                .map(|level| InstancedPart {
-                    level,
-                    mesh: PartMesh::Mesh(mesh.clone()),
-                    material: material.clone().untyped(),
-                })
-                .collect(),
+            chain: DistanceChain::DEFAULT,
+            cull: true,
+            impostor: false,
+            parts: parts(&[Step::Game, Step::Lower], &mesh, &material),
             bounds: (Vec3::ZERO, 0.2),
         })
         .collect();
@@ -753,7 +790,7 @@ fn multi_host_app(hosts: &[(u32, Vec3)], tables: &[Vec<AttachedRow>]) -> App {
         .map(|&(slot, position)| InstancedCopy {
             slot,
             transform: Affine3A::from_translation(position),
-            size: 1.0,
+            size: size_switching_at(10.0),
             wind_phase: 0.0,
         })
         .collect();

@@ -13,9 +13,9 @@
 //! Each impostor is named by an [`ImpostorKey`]: the
 //! [`SpecimenId`](procgena_core::SpecimenId) of what is baked, plus its
 //! [`BakeSettings`]. An asset that draws its specimens with an impostor as
-//! their farthest level asks for them through [`Impostors::request`], which
-//! bakes each key once and keeps it with a shared material, and places the
-//! impostor among its levels of detail with an [`ImpostorLevel`].
+//! the last step of their chain asks for them through
+//! [`Impostors::request`], which bakes each key once and keeps it with a
+//! shared material.
 //!
 //! Bake materials draw base colour or normals instead of lit colour.
 //! [`bake_standard`] makes them from a [`StandardMaterial`]; a generator
@@ -70,7 +70,6 @@ mod frame;
 mod key;
 mod ktx2;
 mod layout;
-mod level;
 mod material;
 mod mips;
 
@@ -97,7 +96,6 @@ pub use layout::{
     ViewCoverage, elevation_basis, elevation_direction, elevation_index, view_basis, view_cell,
     view_direction,
 };
-pub use level::ImpostorLevel;
 pub use material::{
     BAKE_SHADER, BakeExtension, BakeKey, BakeOutput, BakeStandardMaterial, IMPOSTOR_PREPASS_SHADER,
     IMPOSTOR_SHADER, INSTANCE_LOCATION, INSTANCE_SIZE, ImpostorExtension, ImpostorMaterial,

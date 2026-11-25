@@ -24,7 +24,7 @@ use procgena_core::{
 };
 use procgena_core_bevy::instanced::{
     InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, InstancedStandardMaterial,
-    PartMesh, SpecimenCache, chain_lod,
+    PartMesh, SpecimenCache,
 };
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_deadwood::{
@@ -1070,22 +1070,24 @@ fn scatter_draw(
             // since its impostor is baked from its game-level meshes.
             let materials = (&mut *materials.0, &mut *materials.1);
             let assets = upload(variant, cache, meshes, materials, *textures);
-            let levels = assets.levels.len() as u32;
+            let steps = Step::ALL.into_iter().zip(&assets.levels);
             let parts = specimens
-                .get_levels(specimen, 0, levels)
+                .get_steps(specimen, 0, steps.clone().map(|(step, _)| step))
                 .unwrap_or_else(|| {
                     let mut parts = Vec::new();
-                    for (level, assets) in assets.levels.iter().enumerate() {
-                        let level_parts = level_parts(level as u32, assets);
-                        specimens.insert(specimen, 0, level as u32, level_parts.clone());
-                        parts.extend(level_parts);
+                    for (step, assets) in steps {
+                        let step_parts = step_parts(step, assets);
+                        specimens.insert(specimen, 0, step, step_parts.clone());
+                        parts.extend(step_parts);
                     }
                     parts
                 });
             let slot = InstancedSlot {
                 specimen,
                 piece: 0,
-                lod: chain_lod(&DistanceChain::DEFAULT, false),
+                chain: DistanceChain::DEFAULT,
+                cull: true,
+                impostor: false,
                 parts,
                 bounds,
             };
@@ -1111,11 +1113,11 @@ fn scatter_draw(
     }
 }
 
-/// One level's parts for the shared renderer: round stems, strips and leaf
-/// cards, whichever the level has.
-fn level_parts(level: u32, assets: &LevelAssets) -> Vec<InstancedPart> {
+/// One mesh step's parts for the shared renderer: round stems, strips and
+/// leaf cards, whichever the step has.
+fn step_parts(step: Step, assets: &LevelAssets) -> Vec<InstancedPart> {
     let part = |mesh: &Handle<Mesh>, material: UntypedHandle| InstancedPart {
-        level,
+        step,
         mesh: PartMesh::Mesh(mesh.clone()),
         material,
     };
@@ -1139,16 +1141,15 @@ pub(crate) fn with_impostor(
     mut slot: InstancedSlot,
     impostor: &DeadwoodImpostorAssets,
 ) -> InstancedSlot {
-    let level = Step::Impostor.index() as u32;
-    if slot.parts.iter().any(|part| part.level == level) {
+    if slot.impostor {
         return slot;
     }
     slot.parts.push(InstancedPart {
-        level,
+        step: Step::Impostor,
         mesh: PartMesh::Mesh(impostor.quad.clone()),
         material: impostor.material.clone().untyped(),
     });
-    slot.lod = chain_lod(&DistanceChain::DEFAULT, true);
+    slot.impostor = true;
     slot
 }
 
@@ -1679,7 +1680,7 @@ mod tests {
 
         // Every variant is a slot drawing the chain's two meshes (no
         // impostor is baked without a renderer), cached by specimen and
-        // level. Each copy is sized by its variant's bounding sphere.
+        // step. Each copy is sized by its variant's bounding sphere.
         let drawn = app
             .world()
             .entity(entity)
@@ -1688,12 +1689,12 @@ mod tests {
         assert_eq!(drawn.slots.len(), scatter.variants as usize);
         let cache = app.world().resource::<SpecimenCache>();
         for slot in drawn.slots.iter() {
-            assert!(slot.parts.iter().any(|p| p.level == 0));
+            assert!(slot.parts.iter().any(|p| p.step == Step::Game));
             assert!(slot.bounds.1 > 0.0);
-            assert_eq!(slot.lod, chain_lod(&DistanceChain::DEFAULT, false));
-            let levels = slot.lod.levels.len() as u32;
+            assert_eq!(slot.chain, DistanceChain::DEFAULT);
+            assert!(!slot.impostor);
             assert_eq!(
-                cache.get_levels(slot.specimen, slot.piece, levels),
+                cache.get_steps(slot.specimen, slot.piece, [Step::Game, Step::Lower]),
                 Some(slot.parts.clone())
             );
         }
@@ -1736,7 +1737,7 @@ mod tests {
         let pool = scatter.variant_pool();
         for (v, slot) in drawn.slots.iter().enumerate() {
             assert_eq!(slot.specimen, SpecimenId::new(11, pool, v as u32));
-            assert!(slot.parts.iter().any(|p| p.level == 0));
+            assert!(slot.parts.iter().any(|p| p.step == Step::Game));
         }
         let placed = copies(&app, entity);
         assert_eq!(placed.len(), sticks.instances().len());
@@ -2000,18 +2001,17 @@ mod tests {
                 .clone()
         };
         for slot in slots(&app).iter() {
-            assert_eq!(slot.lod.levels.len(), 2);
-            assert!(slot.parts.iter().all(|p| p.level < 2));
+            assert!(!slot.impostor);
+            assert!(slot.parts.iter().all(|p| p.step.is_mesh()));
         }
 
         bake_every_variant(&mut app, entity);
         app.update();
         for slot in slots(&app).iter() {
-            slot.lod.validate().unwrap();
-            assert_eq!(slot.lod.levels.len(), 3);
-            assert!(!slot.lod.levels[2].casts_shadows);
-            let impostors = slot.parts.iter().filter(|p| p.level == 2).count();
-            assert_eq!(impostors, 1);
+            slot.chain.validate().unwrap();
+            assert!(slot.impostor);
+            let impostors = slot.parts.iter().filter(|p| p.step == Step::Impostor);
+            assert_eq!(impostors.count(), 1);
         }
     }
 }

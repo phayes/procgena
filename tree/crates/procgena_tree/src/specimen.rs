@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use procgena_core::chain::{DistanceChain, Lod, ViewScale};
+use procgena_core::chain::Lod;
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet, tags};
 
 use crate::mesh::{BranchSpan, LodDetail, MeshBuffers, TreeMesh};
@@ -14,7 +14,7 @@ impl Tree {
     /// Returns the tree as a tagged [`Specimen`] with two levels, its
     /// game-level mesh and its lower mesh, for generators that grow on it,
     /// such as procgena_clump. See [`TreeMesh::parts`] for the parts of each
-    /// level, and [`Skeleton::specimen`] for where the lower level starts.
+    /// level.
     pub fn specimen(&self) -> Specimen {
         let meshes = Lod {
             game: self.mesh().clone(),
@@ -28,27 +28,16 @@ impl Skeleton {
     /// Same as [`Tree::specimen`], for the `meshes` made from this skeleton
     /// with [`Skeleton::mesh`] at each detail of `lod`.
     ///
-    /// The lower level starts where the default [`DistanceChain`] switches
-    /// to it for this tree (sized by the game-level mesh's
-    /// [`bounding_diameter`](TreeMesh::bounding_diameter)), seen through a
-    /// [`ViewScale::DEFAULT`] camera at High quality.
-    ///
     /// # Panics
     ///
     /// Panics if a mesh was not made from this skeleton.
     pub fn specimen(&self, lod: &Lod<LodDetail>, meshes: &Lod<TreeMesh>) -> Specimen {
-        let factor = DistanceChain::factor(meshes.game.bounding_diameter(), ViewScale::DEFAULT);
-        let lower_start = factor / DistanceChain::DEFAULT.lower_below;
-        let levels = [
-            (0.0, &lod.game, &meshes.game),
-            (lower_start, &lod.lower, &meshes.lower),
-        ]
-        .into_iter()
-        .map(|(start, detail, mesh)| Level {
-            start,
-            parts: mesh.parts(self, detail),
-        })
-        .collect();
+        let levels = [(&lod.game, &meshes.game), (&lod.lower, &meshes.lower)]
+            .into_iter()
+            .map(|(detail, mesh)| Level {
+                parts: mesh.parts(self, detail),
+            })
+            .collect();
         Specimen { levels }
     }
 }

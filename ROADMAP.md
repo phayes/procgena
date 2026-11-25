@@ -947,9 +947,10 @@ that has one (rule 2).
 - **Status (2026-11-24):** built for the entity path. `ImpostorKey` comes
   from a `SpecimenId` plus `BakeSettings` (view count and size per bake);
   `Impostors::request` is the one bake path and cache, with a shared
-  material per key; `ImpostorLevel` is the shared impostor level, used by
-  `TreePlugin::impostor` and the new `StonePlugin::impostor` (80 m for a
-  2.5 m rock, scaled by size and quality). Stone's bake keeps its
+  material per key; `ImpostorLevel` was the shared impostor level (gone
+  with the old metre table under IX), used by `TreePlugin::impostor` and
+  the new `StonePlugin::impostor` (80 m for a 2.5 m rock, scaled by size
+  and quality). Stone's bake keeps its
   projected textures. Deadwood and mushroom gain none (see the TODO). Not
   built: impostors in stone's GPU pool (R2), per-pool bake caps (need `N`).
   View coverage was built with fruit step D1 (I1b): `ViewCoverage` in
@@ -1233,12 +1234,16 @@ go to the few copies near the camera.
     mesh → impostor for single pieces and stick scatters, sized by each
     game-level mesh's real bounding sphere; `STRIP` and `strip_all` are
     gone. See the plan's "As built (Step 3, dead wood)".
-  - **Step 3, next:** with every kind moved, delete the old `Lod`,
-    `LodLevel`, `LevelForm`, the ribbon `FarForm` variants and
-    `procgena_specimen::Level::start`, and move terrain's chunk table
-    into `procgena_terrain` (coordinated with its owner).
-  - **Step 4:** the instanced renderer takes the chain with per-view
-    bands (deleting the stone bridge); the disk cache keyed by the bake
+  - **Step 3, finished** on branch `claude/project-thread-acr6e5`: the old
+    `Lod`, `LodLevel`, `LevelForm`, `LodError`, the ribbon `FarForm`
+    variants, `ImpostorLevel` and `procgena_specimen::Level::start` are
+    deleted, and terrain's chunk table is `procgena_terrain::ChunkLevels`.
+    See the plan's "As built (end of Step 3)".
+  - **Step 4, renderer built** on the same branch: the instanced renderer
+    takes each slot's chain and stepped parts, with per-view bands from
+    each view's field of view; `chain_lod` and the stone bridge are gone.
+    See the plan's "As built (Step 4, the instanced renderer)".
+  - **Step 4, left:** the disk cache keyed by the bake
     key; the studio's low-priority background pre-bake; ST7b's chain
     preview; and the ED worker's gate that bakes only impostors that can
     be on screen (a farthest-view-distance resource beside `LodQuality`,
@@ -1860,8 +1865,9 @@ features and paint.
   shows no change, and must be worked out in world space, so
   neighbouring chunks agree.
 - **Before** (read from the code): chunk level `L` has 1 m × 2^L cells
-  and starts at 64 m × 2^L (`chunk_lod`), so every level starts with a
-  cell about 1/64 of the view distance across, roughly 30 px on a 1440 px
+  and starts at 64 m × 2^L (`chunk_lod`, now `chunk_levels`), so every
+  level starts with a cell about 1/64 of the view distance across,
+  roughly 30 px on a 1440 px
   screen at 45°, shrinking to about 15 px before the next level. Features
   have only two tiers: `Rough` (no roads, from `ROUGH_FROM` = level 3,
   about 512 m in the studio) and `Fine`. Ground paint (weights) is a
@@ -2376,12 +2382,12 @@ where the details are.
     - ~~*Far form names:*~~ **add both** (the user, 2026-11-24): a
       `FarForm` variant for mushroom's "flat cap plus ribbon" and one for
       plant's "far ground material". **Built (2026-11-24):**
-      `FarForm::FlatCapRibbon` and `FarForm::GroundMaterial`. Nothing uses
-      them yet: mushroom's FLAT level is still a `Mesh` level.
-    - *Still open:* in files, every detail level must spell out `form` and
-      `casts_shadows`. Default them to `Mesh` and `true`? Files would get
-      shorter and only unusual levels say anything; the cost is that a
-      missing value no longer errors. Recommended: default them.
+      `FarForm::FlatCapRibbon` and `FarForm::GroundMaterial`. Under IX,
+      `FlatCapRibbon` is gone with the other ribbon forms; only
+      `GroundMaterial` is left, unused for now.
+    - ~~*In files, every detail level must spell out `form` and
+      `casts_shadows`.*~~ Moot under IX: presets no longer hold detail
+      levels.
 16. ~~**Tree sizes for detail distances.**~~ Decided by the user
     2026-11-24: **by each tree's actual height**, the shared rule every
     other asset follows (distances written for a reference size, scaled by

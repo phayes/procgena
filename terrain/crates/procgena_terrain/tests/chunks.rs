@@ -9,21 +9,17 @@ use std::sync::{Arc, Mutex};
 use common::{DEFAULT, RIVER_SEEDS, hills_into_plains};
 use glam::{DVec2, DVec3};
 use procgena_core::chain::ViewScale;
-use procgena_core::{Lod, LodLevel};
 use procgena_terrain::{
-    CHUNK_CELLS, ChunkDetail, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide,
-    ChunkSource, EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId,
+    CHUNK_CELLS, ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
+    ChunkSide, ChunkSource, EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId,
     RegionProgress, RegionStage, Terrain, Transitions, WorldTerrain, WorldTerrainOptions,
-    chunk_lod, fixtures,
+    chunk_levels, fixtures,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
 /// 1000 m: small enough to mesh every chunk in a test.
-fn test_lod() -> Lod {
-    let levels = [0.0, 96.0, 192.0, 384.0]
-        .map(|d| LodLevel::new(d, 0.1, ()))
-        .to_vec();
-    Lod::new(64.0, levels).with_cull(1000.0)
+fn test_levels() -> ChunkLevels {
+    ChunkLevels::new([96.0, 192.0, 384.0], 0.1, 1000.0)
 }
 
 /// The plains of [`hills_into_plains`] with its roads, and the same
@@ -142,9 +138,8 @@ fn assert_watertight(selection: &ChunkSelection, meshes: &[ChunkMesh]) {
 
 #[test]
 fn chosen_chunks_tile_the_view_and_are_balanced() {
-    let lod = test_lod();
     let viewer = DVec3::new(130.0, 2.0, -70.0);
-    let selection = ChunkSelection::around(&lod, 1.0, &[viewer], None).unwrap();
+    let selection = ChunkSelection::around(&test_levels(), 1.0, &[viewer], None).unwrap();
     let levels: HashSet<u8> = selection.iter().map(|(k, _)| k.level).collect();
     assert_eq!(levels.len(), 4, "every level is used: {levels:?}");
 
@@ -214,45 +209,45 @@ fn chosen_chunks_tile_the_view_and_are_balanced() {
 
 #[test]
 fn a_viewer_high_above_the_ground_sees_coarser_chunks() {
-    let lod = test_lod();
-    let low = ChunkSelection::around(&lod, 1.0, &[DVec3::new(0.0, 2.0, 0.0)], None).unwrap();
-    let high = ChunkSelection::around(&lod, 1.0, &[DVec3::new(0.0, 300.0, 0.0)], None).unwrap();
+    let levels = test_levels();
+    let low = ChunkSelection::around(&levels, 1.0, &[DVec3::new(0.0, 2.0, 0.0)], None).unwrap();
+    let high = ChunkSelection::around(&levels, 1.0, &[DVec3::new(0.0, 300.0, 0.0)], None).unwrap();
     let finest = |s: &ChunkSelection| s.iter().map(|(k, _)| k.level).min().unwrap();
     assert_eq!(finest(&low), 0);
     // 300 m up, level 2 (from 192 m) is the finest.
     assert_eq!(finest(&high), 2);
     assert!(high.len() < low.len());
     // Lower quality pulls coarse chunks closer.
-    let coarse = ChunkSelection::around(&lod, 0.5, &[DVec3::new(0.0, 2.0, 0.0)], None).unwrap();
+    let coarse = ChunkSelection::around(&levels, 0.5, &[DVec3::new(0.0, 2.0, 0.0)], None).unwrap();
     assert!(coarse.len() < low.len());
-    // Beyond the cull distance nothing is drawn.
-    let gone = ChunkSelection::around(&lod, 1.0, &[DVec3::new(0.0, 1200.0, 0.0)], None).unwrap();
+    // Beyond the view distance nothing is drawn.
+    let gone = ChunkSelection::around(&levels, 1.0, &[DVec3::new(0.0, 1200.0, 0.0)], None).unwrap();
     assert!(gone.is_empty());
 }
 
 #[test]
 fn hysteresis_keeps_chunks_while_the_viewer_wavers() {
-    let lod = test_lod();
+    let levels = test_levels();
     // Level 1 starts at 96 m: from chunk (0, 0) at level 1 (0 to 128 m),
     // a viewer 95 m off its smallest x side wants it split, at 97 m not.
     let at = |x: f64| DVec3::new(x, 0.0, 64.0);
     let key = ChunkKey::new(0, 0, 1);
     let split = |s: &ChunkSelection| s.get(key).is_none();
 
-    let near = ChunkSelection::around(&lod, 1.0, &[at(-95.0)], None).unwrap();
-    let far = ChunkSelection::around(&lod, 1.0, &[at(-97.0)], None).unwrap();
+    let near = ChunkSelection::around(&levels, 1.0, &[at(-95.0)], None).unwrap();
+    let far = ChunkSelection::around(&levels, 1.0, &[at(-97.0)], None).unwrap();
     assert!(
         split(&near) && !split(&far),
         "without hysteresis, it switches at 96 m"
     );
 
     // With the last selection, 97 m keeps it split and 95 m keeps it whole.
-    let kept = ChunkSelection::around(&lod, 1.0, &[at(-97.0)], Some(&near)).unwrap();
+    let kept = ChunkSelection::around(&levels, 1.0, &[at(-97.0)], Some(&near)).unwrap();
     assert!(split(&kept));
-    let kept = ChunkSelection::around(&lod, 1.0, &[at(-95.0)], Some(&far)).unwrap();
+    let kept = ChunkSelection::around(&levels, 1.0, &[at(-95.0)], Some(&far)).unwrap();
     assert!(!split(&kept));
     // Well past the band, it switches.
-    let merged = ChunkSelection::around(&lod, 1.0, &[at(-110.0)], Some(&near)).unwrap();
+    let merged = ChunkSelection::around(&levels, 1.0, &[at(-110.0)], Some(&near)).unwrap();
     assert!(!split(&merged));
 }
 
@@ -261,7 +256,7 @@ fn the_usual_levels_fit_any_view_distance() {
     let viewer = [DVec3::ZERO];
     // Every view distance gives levels that can choose chunks, with only
     // the levels that start inside it.
-    for (view, levels) in [
+    for (view, count) in [
         (50.0, 1),
         (300.0, 1),
         (320.0, 2),
@@ -270,18 +265,18 @@ fn the_usual_levels_fit_any_view_distance() {
         (6000.0, 6),
         (12000.0, 7),
     ] {
-        let lod = chunk_lod(view);
-        assert_eq!(lod.levels.len(), levels, "view distance {view} m");
-        assert_eq!(lod.cull_distance, Some(view));
-        let selection = ChunkSelection::around(&lod, 1.0, &viewer, None).unwrap();
+        let levels = chunk_levels(view);
+        assert_eq!(levels.levels.len(), count, "view distance {view} m");
+        assert_eq!(levels.view_distance, view);
+        let selection = ChunkSelection::around(&levels, 1.0, &viewer, None).unwrap();
         assert!(!selection.is_empty());
     }
-    // Levels without a cull distance, or a factor that isn't positive, are
+    // Levels with no end to the view, or a factor that isn't positive, are
     // refused.
-    let mut endless = chunk_lod(6000.0);
-    endless.cull_distance = None;
+    let mut endless = chunk_levels(6000.0);
+    endless.view_distance = f32::INFINITY;
     assert!(ChunkSelection::around(&endless, 1.0, &viewer, None).is_err());
-    assert!(ChunkSelection::around(&chunk_lod(6000.0), 0.0, &viewer, None).is_err());
+    assert!(ChunkSelection::around(&chunk_levels(6000.0), 0.0, &viewer, None).is_err());
 }
 
 #[test]
@@ -294,11 +289,11 @@ fn each_level_takes_over_at_its_size_on_screen() {
                 cell_on_screen,
                 view,
             };
-            let lod = detail.lod(1.0e6);
-            assert_eq!(lod.levels.len(), 7);
-            for (level, l) in lod.levels.iter().enumerate().skip(1) {
+            let levels = detail.levels(1.0e6);
+            assert_eq!(levels.levels.len(), 7);
+            for (level, l) in levels.levels.iter().enumerate().skip(1) {
                 let cell = ChunkKey::new(0, 0, level as u8).step() as f32;
-                let on_screen = cell * view.get() / l.distance;
+                let on_screen = cell * view.get() / l.start;
                 assert!(
                     (on_screen - cell_on_screen).abs() < 1e-6,
                     "level {level}: {on_screen} of the screen"
@@ -307,15 +302,15 @@ fn each_level_takes_over_at_its_size_on_screen() {
         }
     }
     // A narrower field of view keeps each level farther out.
-    let wide = ChunkDetail::DEFAULT.lod(1.0e6);
+    let wide = ChunkDetail::DEFAULT.levels(1.0e6);
     let narrow = ChunkDetail {
         view: ViewScale::perspective(0.4),
         ..ChunkDetail::DEFAULT
     }
-    .lod(1.0e6);
-    assert!(narrow.levels[1].distance > wide.levels[1].distance);
+    .levels(1.0e6);
+    assert!(narrow.levels[1].start > wide.levels[1].start);
     // The usual levels are the default detail's.
-    assert_eq!(chunk_lod(4000.0), ChunkDetail::default().lod(4000.0));
+    assert_eq!(chunk_levels(4000.0), ChunkDetail::default().levels(4000.0));
 }
 
 #[test]
@@ -325,7 +320,7 @@ fn chunks_one_level_apart_join_without_cracks() {
     let road = &full.roads()[0].points;
     let p = road[road.len() / 2];
     let selection =
-        ChunkSelection::around(&test_lod(), 1.0, &[DVec3::new(p.x, 2.0, p.y)], None).unwrap();
+        ChunkSelection::around(&test_levels(), 1.0, &[DVec3::new(p.x, 2.0, p.y)], None).unwrap();
     assert!(selection.iter().any(|(_, t)| t != Transitions::NONE));
     let meshes = meshes(&full, &selection);
     assert_watertight(&selection, &meshes);
@@ -356,8 +351,8 @@ fn a_blend_draws_the_ready_chunks_and_keeps_the_rest_whole() {
     let road = &full.roads()[0].points;
     let p = road[road.len() / 2];
     let (from, to) = (DVec3::new(p.x, 2.0, p.y), DVec3::new(p.x + 250.0, 2.0, p.y));
-    let drawn = ChunkSelection::around(&test_lod(), 1.0, &[from], None).unwrap();
-    let target = ChunkSelection::around(&test_lod(), 1.0, &[to], Some(&drawn)).unwrap();
+    let drawn = ChunkSelection::around(&test_levels(), 1.0, &[from], None).unwrap();
+    let target = ChunkSelection::around(&test_levels(), 1.0, &[to], Some(&drawn)).unwrap();
     let viewer = DVec2::new(to.x, to.z);
 
     // With nothing ready the blend keeps what is drawn; with everything
