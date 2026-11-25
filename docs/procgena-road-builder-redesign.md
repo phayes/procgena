@@ -1,6 +1,6 @@
 # Procgena Road Builder — Algorithmic Redesign
 
-**Status:** Proposed greenfield technical design (revision 2; aligned with [Canonical TIN Architecture v4](procgena-canonical-tin-design-v4.md))  
+**Status:** Proposed greenfield technical design (revision 2; aligned with [Canonical TIN Architecture v4](procgena-canonical-tin-design.md)). Reviewed against the code 2026-11-25: see section 17 for corrections and open decisions. Scheduled as the RB milestones in [ROADMAP.md](../ROADMAP.md).  
 **Scope:** Regional road planning, engineering, deterministic computation and chunk-conforming terrain realization  
 **Baseline:** `4664649cc415c9c6b7e594f39fc617ae90adf8d3`
 
@@ -366,7 +366,8 @@ Set explicit quality tolerances before adopting approximate search. Target 10x e
 - [Parallel algorithms for off-road vehicle routing on the GPU](https://carmenta.com/knowledge/parallel-algorithms-for-off-road-vehicle-routing-on-the-gpu) — GPU graph propagation research. External speedup reports should not be interpreted as Procgena benchmarks.
 - [Optimal Path Maps on the GPU](https://pubmed.ncbi.nlm.nih.gov/30869623/) — further geometric wavefront research.
 
-- [Canonical TIN Architecture v4](procgena-canonical-tin-design-v4.md) — companion architecture, including deterministic GPU computation and chunk contracts.
+- [Galin et al., Procedural Generation of Roads (Eurographics 2010)](https://perso.liris.cnrs.fr/egalin/Articles/2010-roads.pdf) — the closest published prior art: weighted anisotropic shortest path on a grid with generalised move masks for curvature, slope, rivers and bridges, then excavation along the path. Its companion, [Authoring Hierarchical Road Networks (2011)](https://www.cs.purdue.edu/homes/bbenes/papers/Galin11CGF.pdf), covers network-level reuse and junctions. Local copies and the other downloaded references are indexed in `terrain/prior_art/canonical_tin_roads/INDEX.md` (git-ignored).
+- [Canonical TIN Architecture v4](procgena-canonical-tin-design.md) — companion architecture, including deterministic GPU computation and chunk contracts.
 - [Chunk geometry](https://github.com/phayes/procgena/blob/4664649cc415c9c6b7e594f39fc617ae90adf8d3/terrain/crates/procgena_terrain/src/chunk.rs), [streaming](https://github.com/phayes/procgena/blob/4664649cc415c9c6b7e594f39fc617ae90adf8d3/terrain/crates/procgena_terrain_bevy/src/stream.rs), [region contracts](https://github.com/phayes/procgena/blob/4664649cc415c9c6b7e594f39fc617ae90adf8d3/terrain/crates/procgena_terrain/src/region.rs) — integration reference.
 - [Terrain edit/cache plan](https://github.com/phayes/procgena/blob/4664649cc415c9c6b7e594f39fc617ae90adf8d3/terrain/edit_cache_plan.md) — existing profiling and stage cache context.
 
@@ -375,3 +376,30 @@ This proposal is based on static source inspection and algorithmic analysis, not
 ## 16. Conclusion
 
 The strongest architectural opportunity is to exploit the growing road network as a shared destination. An incremental anisotropic distance field can replace the repeated geometric Dijkstra heuristic, guide constrained search and sometimes supply a road candidate without full heading-aware A*. It also provides a natural path to GPU acceleration. Adaptive planning meshes and motion primitives may yield further gains, but remain benchmark-driven alternatives. The final canonical ground is a separate chunk-conforming TIN, realized from deterministic road profiles, feature breaklines and shared boundary contracts. The road graph remains independently authoritative for infrastructure semantics. The 10x target covers the integrated road-generation workload including its geometry and TIN integration; no speedup or cross-platform guarantee has yet been demonstrated.
+
+## 17. Review against the code (2026-11-25)
+
+Checked against `road.rs`, `plan.rs`, `terrain.rs`, the World presets, [ARCHITECTURE.md](../ARCHITECTURE.md) and [ROADMAP.md](../ROADMAP.md) at `a5b4131`. Sections 1–16 stand except where this section corrects them.
+
+### 17.1 Claims checked and confirmed
+
+- Section 2.1: `search()` allocates `cost: f64`, `run: f64` and `previous: usize` for `allowed.len() * 17` states (16 directions plus the start sentinel), fresh on every call, including every refused-join and crowding retry. 408 bytes per cell is correct.
+- Section 2.2: `network_distance()` is a full multi-source Dijkstra over plain step lengths, with only the last step onto the network discounted by `REUSE_COST`. It runs once per road start, outside the retry loop.
+- Section 5.1: the existing step cost depends only on `(cell, move)` plus whether a network cell is joinable. `run` affects only the joinable test. So a turn-free Dijkstra over *the same step costs*, with every network cell a zero-cost source and every entering step discounted, is already admissible. That is the simplest Stage 3 field and the strongest one that needs no new cost model.
+- Section 8: `grade_limited()` builds the interval `[high - 3t, low + t]` per interior point (`CUT_SHARE = 3`) and bisects 40 times. The pairwise condition is exact for a path: the levels form a system of difference constraints on a chain, and a chain has no cycles beyond pairs. So the O(n) prefix/suffix formula gives the bisection's limit, and Stage 5 should agree with it to within the bisection's last interval, before both are rounded to the `f32` levels the function returns.
+
+### 17.2 Corrections
+
+1. **Baseline.** The pinned commit already contains TE5 (landed 2026-11-25): a 16 m outline (`coarse_routes`) and 8 m routing within 48 m of it (`refined_routes`). TE5 measured a median of about 384 ms and a maximum of about 1.4 s per region in release, down from about 1.2 s and 2.8 s (`--example road_cost`, `terrain/roads_plan.md`). The 10× target is measured against this TE5 baseline, not the pre-TE5 search. Stage 0 starts from `road_cost` rather than new instrumentation.
+2. **Mid feature tier.** Since TE7 the terrain has three feature tiers: `Rough` (no roads), `Mid` (roads on the coarse outline) and `Fine`. The redesign must keep a cheap outline product for `Mid`. The natural candidate is the field-extracted candidate path before heading-aware refinement. It is provisional, like every non-Fine tier, and never authoritative.
+3. **World scale (D5).** Region size is a per-class World setting: 2 km (small and the default medium-small class), 4 km (medium), 8 km (large) and 16 km (real life). Road widths and grades never scale, but landscape lengths do. At 8 m cells a 16 km region is 4 M cells, 64 times the default. The benchmark corpus in section 14 must include every class, and memory and time targets are stated per class. The raster field's cost grows with region area, which is another reason to benchmark against the per-region plan budget ("up to about a second", ARCHITECTURE "Three stages").
+4. **Determinism needs deterministic source maths.** The cost model reads `ground()` and `grades()` from the analytic terrain. That terrain calls `std` transcendentals: `exp` in `relief.rs`, `ln`, `powf`, `asin` and `sin` in `converge.rs`, and `powf` and `atan2` in `border.rs`. These go to the platform's maths library, so quantising their results does not give cross-platform identity (section 11.1 says as much). Either authoritative paths use pinned pure-Rust maths (for example the `libm` crate, which needs the coordinator's sign-off as a new dependency), or the first deterministic profile is same-platform only. This is decision gate D6 in the roadmap.
+5. **Port order and parked tiered borders.** Crossings are negotiated in `plan.rs` ports and are fixed for a build. TE4a and TE4b (per-tier border negotiation) are parked. Nothing here depends on them, but if TE4b returns, crossings are fixed at the rough tier, and this plan's "negotiated regional crossing geometry" is that rough agreement.
+6. **Analytic terrain rule.** The project rule is that terrain generation stays analytic, or bounded per region: no iterated simulation (decided by the user 2026-11-24). Section 10.1's "hydrology" means today's bounded per-region drainage and river tracing, not a flow simulation.
+7. **Stage numbering.** The roadmap schedules sections 13's stages as milestones RB0–RB8. Stages 6–8 (canonical network, cross-sections, breaklines) are where this plan meets the TIN plan (roadmap CT milestones), and Stage 8 needs the TIN's edge contracts first.
+
+### 17.3 Open decisions (for the user, before the RB milestones they gate)
+
+- **D6a, deterministic profile.** Cross-platform bitwise (x86-64 and ARM64, pinned maths) or same-platform bitwise first? This affects Stage 1 and every hash test.
+- **Commit order.** Stable port order (today) is the default. Cheapest-first or road-class order is a separate, versioned policy (section 10.7).
+- **Crowded fallback.** Today a crowded route is kept when retries run out. Keep that, or report the port as unconnected (section 12)?

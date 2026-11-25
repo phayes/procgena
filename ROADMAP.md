@@ -62,6 +62,10 @@ asks.
   each touch every crate and rebuild most of the workspace. Each runs once,
   in a wave of its own, with everything that touches the same code
   batched into it.
+- **Canonical ground and roads** (2026-11-25): a road builder redesign
+  (RB) and a canonical, feature-constrained ground mesh (CT). The road
+  wins that need no new representation (RB0–RB3) start at once. The rest
+  waits on gate D6. The track stays off the spine.
 - **Open decisions** for the user, with their context, are listed under
   "For the user" at the end, most urgent first.
 
@@ -169,6 +173,20 @@ flowchart TD
     GPU2["GPU2 Ground weights on the GPU"]
 
     D5{{"D5 World and Biome scale"}}
+    D6{{"D6 Canonical ground: numeric profile, authority, region constraints"}}
+
+    RB0["RB0 Road baseline and corpus"]
+    RB1["RB1 Cheap road search wins"]
+    RB2["RB2 Shared reverse cost field"]
+    RB3["RB3 Linear-time vertical alignment"]
+    RB4["RB4 Canonical road network"]
+    RB5["RB5 Cross-sections, earthworks, bridges"]
+    CT0["CT0 Numeric profile, canonical mesh types"]
+    CT1["CT1 Chunk edge contracts, chunk CDT"]
+    CT2["CT2 Adaptive refinement"]
+    CT3["CT3 Rivers, ponds, stamps in the ground"]
+    CT4["CT4 Roads in the ground"]
+    CT5["CT5 TIN products and streaming"]
     G7["G7 Scale-aware terrain lengths"]
     IX["IX Impostor-heavy experiment"]
     ED["ED Ecotope draw speed"]
@@ -284,6 +302,22 @@ flowchart TD
 
     D5 --> G7
     D5 --> W0
+
+    TE5 --> RB0
+    RB0 --> RB1
+    RB1 --> RB2
+    RB2 --> RB4
+    RB3 --> RB4
+    D6 --> RB4
+    RB4 --> RB5
+    D5 --> D6
+    D6 --> CT0
+    CT0 --> CT1
+    CT1 --> CT2
+    CT2 --> CT3
+    CT3 --> CT4
+    RB5 --> CT4
+    CT4 --> CT5
     I1 --> IX
     I1b --> IX
     C3a --> ED
@@ -336,6 +370,7 @@ blocks. Until then, nothing that depends on it starts.
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
 | D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks; W0's image example is done (world_plan.md, "W0 image example": nothing in it argues against 4 km). Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
 | D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
+| D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | Details under "D6 (gate)" in the "Canonical ground and roads track", in TIN plan section 21 and road plan section 17. Not decided. |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -1766,6 +1801,9 @@ Measured and compared in `terrain/roads_plan.md` (timing with
     load.
   - The border-pull speed-ups below were kept out of TE5 by the user.
   - The outline is the coarse route TE7's middle tier can draw.
+  - Next: the road builder redesign (milestones RB0–RB3, then RB4 on, in
+    "Canonical ground and roads track") takes over from here, measured
+    against this result.
 
 Decided by the user 2026-11-25: a complete revamp of road planning,
 choosing speed over perfection. Roads take about 5 s per near region
@@ -1938,6 +1976,201 @@ features and paint.
   - a ground-only edit redraws in one frame's work (measured);
   - weights cost no CPU for drawing.
 
+### Canonical ground and roads track
+
+Asked for by the user 2026-11-25: implement
+[docs/procgena-road-builder-redesign.md](docs/procgena-road-builder-redesign.md)
+(RB) and
+[docs/procgena-canonical-tin-design.md](docs/procgena-canonical-tin-design.md)
+(CT). Both were reviewed against the code the same day. Each ends with
+a review section: the road plan's is section 17, the TIN plan's is
+section 21. ARCHITECTURE.md describes the direction under "Canonical
+ground and roads" (4.2).
+
+- **The goal.** Roads about 10× faster end to end than TE5's result
+  (about 384 ms median per 2 km region, release), at comparable quality.
+  Then a canonical, feature-constrained ground mesh in place of regular
+  height chunks.
+- **The order.** First the road wins that need no new representation
+  (RB0–RB3). These are not gated, and they replace TE5's "left over".
+  Then gate D6. Then the numeric profile and canonical mesh (CT0 onwards)
+  and the canonical road network (RB4 onwards). They meet at CT4 (roads
+  in the ground). GPU stages and research come last.
+- **CPU first.** Every stage has a CPU reference. GPU stages become
+  canonical only after bitwise parity. This is in line with the GPU
+  everywhere goal: the GPU work is scheduled, not dropped.
+- **Off the spine.** S1 (streaming) does not wait for CT. Whether S1's
+  World-wide streaming should stream canonical TIN chunks instead of
+  height chunks is a question for the user (see "For the user").
+
+#### D6 (gate): Canonical ground decisions
+
+Opened 2026-11-25 by the two plans' reviews. Decided with the user before
+CT0 and RB4.
+
+- **D6a, deterministic profile.** Cross-platform bitwise identity
+  (x86-64 and ARM64) needs pinned maths for every authoritative path: the
+  analytic terrain calls `exp`, `ln`, `powf`, `asin`, `sin` and `atan2`
+  from `std`. A same-platform profile first defers that.
+- **D6b, ground authority at a distance.** Options: the TIN everywhere;
+  `H*` everywhere; or `H*` for spots, masks, slope and labels with the TIN
+  for physical ground and near rest heights (the review recommends this
+  one). ARCHITECTURE open question 11.
+- **D6c, region borders as constraints.** Constrain chunk borders only,
+  and region borders only where a feature or material needs an edge (the
+  review's proposal). Or constrain every region border, as the plan
+  first said.
+- **D6d, coordinate units and range.** For example integer millimetres in
+  `i64` world space, with 32-bit chunk-local offsets. This follows from
+  D6a and the largest World class (16 km regions).
+
+#### RB0: Road baseline and benchmark corpus
+
+- **Covers:** road plan Stage 0. Extend `--example road_cost` into a
+  repeatable baseline: time per stage (grades, field, search, retries,
+  alignment), expanded states, peak memory, and the road quality measures
+  of section 14 under one evaluator, over a fixed corpus (flat, hills,
+  mountains, passes, rivers, crowded switchbacks). It covers every World
+  scale class.
+- **Needs:** nothing (TE5 landed).
+- **Done when:** two runs on a quiet machine give the same quality
+  numbers and timings within a stated noise band, and the corpus is
+  checked in.
+
+#### RB1: Cheap search wins
+
+- **Covers:** road plan Stage 2: cached step costs, turn successor lists,
+  search buffers reused across retries (generation stamps instead of
+  fresh 17-heading arrays), and join levels cached per network cell in
+  place of `level_on_roads`' linear scan.
+- **Needs:** RB0.
+- **Done when:** RB0's corpus shows the gain, routes change only where
+  ties are broken differently (each such test reported), and the seam,
+  feature and shipped suites pass.
+
+#### RB2: Shared reverse cost field
+
+- **Covers:** road plan Stages 3–4. An incremental reverse multi-source
+  field per region over the same step costs (turn-free, every network cell
+  a source, entering steps discounted) replaces `network_distance`. It is
+  updated by decreases as roads commit. Candidate extraction straight from
+  the field, heading-aware A* with the field as heuristic only when the
+  candidate fails, a Weighted A* sweep, and the `Mid` tier's outline from
+  the extracted candidates.
+- **Needs:** RB1.
+- **Done when:** the incremental field equals a full recompute on every
+  corpus case, the cost and quality trade-off of each weight is reported,
+  and failures are bounded and reported (no silent spin).
+
+#### RB3: Linear-time vertical alignment
+
+- **Covers:** road plan Stage 5: `grade_limited`'s 40-step bisection
+  replaced by the closed-form tolerance (prefix and suffix extrema), then
+  one band pass.
+- **Needs:** nothing. It touches `grade_limited` only, so it can run
+  beside RB1.
+- **Done when:** randomized tests agree with the bisection within its
+  last interval, and the existing level tests hold.
+
+#### CT0: Numeric profile and canonical mesh types
+
+- **Covers:** TIN milestone 1, and road plan Stage 1's shared encoding:
+  the numeric profile from D6a and D6d, canonical vertex, triangle and
+  constraint types, planar predicates (`robust` or the chosen
+  triangulator's), canonical serialization and stage hashes, and
+  deterministic sampling of `H*` on canonical probe addresses.
+- **Needs:** D6. New dependencies (a CDT crate, a hash such as BLAKE3,
+  maybe `libm`) go through the coordinator, with options and download
+  counts for the user.
+- **Done when:** exact plane tests pass, golden hashes are fixed, and
+  probe samples hash the same across thread counts (and across platforms
+  if D6a chose cross-platform).
+
+#### CT1: Chunk edge contracts and chunk triangulation
+
+- **Covers:** TIN milestone 2: chunk edge and corner contracts on lattice
+  addresses, one shared intersection resolver, and constrained
+  triangulation of a level-0 chunk against its locked contracts (plus
+  region patches if D6c keeps them).
+- **Needs:** CT0.
+- **Done when:** adjacent chunks built alone, in any order, share their
+  edges exactly, and randomized request orders give identical hashes.
+
+#### CT2: Adaptive refinement
+
+- **Covers:** TIN milestone 3: error-driven insertion with a stable
+  priority order, budgets and reported unmet tolerances, and the
+  tolerance profiles of section 7.
+- **Needs:** CT1.
+- **Done when:** height and gradient error and the triangle counts per
+  terrain class are measured against today's regular chunks at equal
+  error, and topology is stable under reordered probes.
+
+#### CT3: Rivers, ponds and stamps in the ground
+
+- **Covers:** TIN milestone 4: river thalwegs, beds, banks and shores,
+  pond shores and terrain stamps as constraints, and the composed surface
+  `H*`'s feature evaluators.
+- **Needs:** CT2. It shares the river and carve files with TE6, so they
+  agree on order.
+- **Done when:** every mandatory constraint is present as edges, the
+  feature suites' river checks pass on the TIN, and intersections are
+  resolved by the shared resolver.
+
+#### RB4: Canonical road network and alignments
+
+- **Covers:** road plan Stage 6: `RoadNetwork` with stable seed-derived
+  ids, line-and-arc horizontal alignments with minimum radius per class,
+  vertical profiles from RB3, explicit junction events, and canonical
+  hashing.
+- **Needs:** RB2, RB3, D6 (encodings).
+- **Done when:** network hashes are stable across runs and thread counts,
+  and grade and curvature limits hold on the fitted alignment.
+
+#### RB5: Cross-sections, earthworks and bridges
+
+- **Covers:** road plan Stage 7: cross-sections with daylight lines,
+  cut and fill volumes, bridge candidates and structures (decks separate
+  from the ground), and junction footprints.
+- **Needs:** RB4.
+- **Done when:** swept footprints are valid on the corpus, and bridge
+  clearance and river continuity hold.
+
+#### CT4: Roads in the ground
+
+- **Covers:** TIN milestone 5 and road plan Stage 8: road breaklines in
+  the chunk contracts and triangulation, junction perimeters, and
+  validation of the realized surface.
+- **Needs:** CT3, RB5.
+- **Done when:** independently realized chunks are watertight across
+  roads, grade, crossfall and width hold on the final mesh, and feature
+  hashes do not depend on chunk order.
+
+#### CT5: Products and streaming
+
+- **Covers:** TIN milestone 6: the chunk spatial index and `GroundSurface`
+  queries per D6b, render meshes and LODs, collision and height textures,
+  and `procgena_terrain_bevy` streaming TIN chunks (stand-ins and
+  provisional Rough and Mid tiers kept). Ground paint keeps its
+  chunk-space textures.
+- **Needs:** CT4.
+- **Done when:** mixed-level seams have no cracks, query throughput is
+  measured against today's analytic reads, and camera and LOD never
+  change a canonical hash.
+
+#### Later in the track
+
+- **CT6, GPU sampling and error probes** (TIN milestone 8), after CT2.
+- **RBG, GPU road cost field** (road Stage 9 and TIN milestone 9): integer
+  delta-stepping with exact parity to RB2's field, after RB2 and CT0.
+- **CT7, GPU-resident derived products** (TIN milestone 10), after CT5.
+- **RB7, portal graphs and motion primitives** (road Stage 10 and TIN
+  milestone 7): research, adopted only on measured benefit.
+- **CT8, hierarchical bisection and GPU CDT** (TIN milestone 11):
+  research. It also decides how geomorphing (TE7) works on a TIN.
+- **RB8 and CT9, conformance and integrated benchmarks** (road Stage 11):
+  the determinism matrix of TIN section 14.9 and the end-to-end gates.
+
 ### Studio track
 
 Planned with the user 2026-11-24 in
@@ -2089,6 +2322,8 @@ a cell run in order within the wave.
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 | TE (from wave 8) | TE1 → TE2 → TE3 → TE3b (TE4a → TE4b parked by the user, 2026-11-25); TE5 beside them, landing before TE4b; GPU2 (after GM1 and G4a); GPU1 (after TE2) | The terrain editing track, decided 2026-11-24, with border negotiation per tier (TE4a, TE4b). TE4a also edits the presets and `noise.rs`/`relief.rs`. TE1–TE4b all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. TE1 waits for GM1 to merge, since both touch the Bevy crate and the scene. TE5 keeps to the road files and lands before TE4. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
 
+| CR (from now) | RB0 → RB1 → RB2, with RB3 beside RB1; D6 with the user; then CT0 → CT1 → CT2 → CT3 and RB4 → RB5, meeting at CT4 → CT5 | The canonical ground and roads track (2026-11-25). RB0–RB3 keep to `road.rs`, the road example and their tests: RB1 and RB2 both edit `search`, so they run in order. RB3 touches only `grade_limited`. CT0–CT2 live in new modules, or a new crate if CT0 decides so (added to the workspace members only after its files exist). CT3 shares the river and carve files with TE6, and CT5 shares the Bevy stream with TE1–TE3, so those pairs run one at a time. |
+
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
 coordinator runs the full suite once per wave.
 
@@ -2223,6 +2458,25 @@ where the details are.
       ST4 for thumbnails and capture.
     - *Details:* [procgena/studio_plan.md](procgena/studio_plan.md),
       "Proposed, not decided" and "Open questions".
+32. **Canonical ground (D6).** This blocks CT0 and RB4. RB0–RB3 can start
+    now.
+    - *D6a, deterministic profile:* cross-platform bitwise (pinned maths
+      such as `libm` on every authoritative path, with a speed cost) or
+      same-platform first.
+    - *D6b, ground at a distance:* the TIN everywhere (every chunk in a
+      2 km place range realized), `H*` everywhere (the TIN only a
+      physical and render mesh), or `H*` for spots, masks, slope and labels
+      with the TIN for collision and near rest heights. The review
+      recommends the last.
+    - *D6c, region borders:* constrain chunk borders only (the review's
+      proposal, since terrains already meet in height and slope there), or
+      every region border too.
+    - *D6d, units:* for example integer millimetres in `i64`, with 32-bit
+      chunk-local offsets.
+    - *Also:* should S1's World-wide streaming wait for CT5 and stream TIN
+      chunks, or stream height chunks first and switch later?
+    - *Details:* TIN plan section 21, road plan section 17, ARCHITECTURE
+      open question 11.
 
 ### From wave 6 (W0, GM0, fruit B2)
 

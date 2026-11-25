@@ -1,6 +1,6 @@
 # Procgena: Canonical TIN Terrain Architecture
 
-**Status:** Proposed greenfield technical design (revision 4: deterministic GPU-accelerated world generation)  
+**Status:** Proposed greenfield technical design (revision 4: deterministic GPU-accelerated world generation). Reviewed against the code 2026-11-25: see section 21 for corrections and the open decisions (gate D6). Scheduled as the CT milestones in [ROADMAP.md](../ROADMAP.md).  
 **Scope:** Terrain generation, representation, feature integration, queries, streaming and derived runtime products
 
 ## 1. Executive summary
@@ -44,7 +44,7 @@ This is a greenfield architecture, not a migration plan. Performance and accurac
 | Representation | Role | Lifetime |
 |---|---|---|
 | Procedural source field | Base elevation, climate and material functions | Reconstructible from world configuration and seed |
-| Simulation grids | Hydrology, erosion, flow and other stencil computation | Temporary or cached intermediate |
+| Computation grids | Bounded per-region drainage, river tracing, routing rasters and other stencil computation (analytic or bounded per region; no iterated simulation) | Temporary or cached intermediate |
 | Semantic feature model | Road alignments, watercourses, cross-sections, seam contracts | Persistent generation data |
 | Preliminary TIN | Adaptive approximation of pre-road terrain; optional routing substrate | Intermediate |
 | Canonical TIN | Final authoritative piecewise-linear ground surface | Persistent or deterministically rebuildable level-0 chunk artifact |
@@ -54,7 +54,7 @@ The canonical mesh is authoritative for the generated ground, while the source f
 
 ```mermaid
 flowchart TD
-    A[World seed and continuous source fields] --> B[Regional hydrology and erosion]
+    A[World seed and continuous source fields] --> B[Regional drainage and river carving, bounded per region]
     B --> C[River and boundary feature geometry]
     C --> D[Preliminary adaptive terrain TIN]
     D --> E[Road network planning]
@@ -288,7 +288,7 @@ Keep canonical boundary samples fixed on the external perimeter of every indepen
 
 ### Chunk topology and ownership
 
-The inspected source at commit `4664649cc415c9c6b7e594f39fc617ae90adf8d3` separates irregular warped regions (nominal default 4 km, not a fixed final size) from square chunks (`CHUNK_SIZE = 64.0`, `CHUNK_CELLS = 64`). Each level doubles the chunk width and covers four children. Existing rendering spacing is 1 m at level 0, 2 m at level 1, and so on. `RegionEdge` already stores a canonical orientation and shared ID; `CornerId` identifies shared region corners. Use that design pattern for chunk edges.
+The inspected source at commit `4664649cc415c9c6b7e594f39fc617ae90adf8d3` separates irregular warped regions (2 km in the default medium-small World class; 2–16 km across the D5 scale classes, a per-class World setting) from square chunks (`CHUNK_SIZE = 64.0`, `CHUNK_CELLS = 64`). Each level doubles the chunk width and covers four children. Existing rendering spacing is 1 m at level 0, 2 m at level 1, and so on. `RegionEdge` already stores a canonical orientation and shared ID; `CornerId` identifies shared region corners. Use that design pattern for chunk edges.
 
 **Mandatory canonical invariant:** every level-0 chunk boundary is a continuous chain of mesh edges. No canonical triangle crosses it. Because the lattice is nested, higher-level boundaries are already represented; do not add redundant constraints. The constraint is topological, not a physical ridge or routing barrier.
 
@@ -342,7 +342,7 @@ A parent LOD may combine child geometry, unlock internal chunk edges, simplify u
 
 Parent stand-ins currently allow coarse terrain to be subdivided while finer reads are pending. Clip the derived parent at requested child boundaries using deterministic intersections, or cache parent subpatches; reuse identical split vertices on both sides. A stand-in is provisional rendering only, never authoritative collision or ground. Keep coverage while asynchronous requests complete, and invalidate stale stand-ins on generation changes.
 
-Rough/Fine tiers may change elevations and feature geometry, not just tessellation. The current independent upgrade mechanism must not assume an old and new boundary are identical. Either require identical seam geometry across tiers or coordinate adjacent swaps and transition geometry; verify mixed tiers at edges and corners. Provisional far terrain must be clearly distinguished from committed canonical Fine terrain. Physical terrain is never selected by camera LOD or silently replaced by Rough geometry.
+Rough/Mid/Fine feature tiers (`FeatureTier`; `Mid` draws roads on the coarse outline since TE7) may change elevations and feature geometry, not just tessellation. The current independent upgrade mechanism must not assume an old and new boundary are identical. Either require identical seam geometry across tiers or coordinate adjacent swaps and transition geometry; verify mixed tiers at edges and corners. Provisional far terrain must be clearly distinguished from committed canonical Fine terrain. Physical terrain is never selected by camera LOD or silently replaced by Rough geometry.
 
 ## 11. Spatial queries
 
@@ -399,7 +399,7 @@ Occasional terrain edits can identify affected chunks, update shared contracts w
 
 ## 13. Storage, performance and GPU strategy
 
-For a square 2 km region sampled every 2 m, a regular raster contains 1,002,001 height samples, consuming approximately 4.0 MB as f32 values. An interior triangulated mesh typically has approximately twice as many triangles as vertices. With 12 bytes per vertex and 12 bytes per triangle (three u32 indices), the simplified storage estimate is 36 bytes per vertex, excluding attributes, constraints and indices for queries.
+For a square 2 km region sampled every 2 m, a regular raster contains 1,002,001 height samples, consuming approximately 4.0 MB as f32 values. An interior triangulated mesh typically has approximately twice as many triangles as vertices. With 12 bytes per vertex (three 32-bit chunk-local values, the compact lossless encoding of section 5; the illustrative `i64` world encoding would be 24) and 12 bytes per triangle (three u32 indices), the simplified storage estimate is 36 bytes per vertex, excluding attributes, constraints and indices for queries.
 
 | Adaptive vertices | Approximate core mesh size | Comparison with 4.0 MB raster |
 |---:|---:|---|
@@ -419,7 +419,7 @@ For an infinite square lattice of width L and uniformly sampled edge segments of
 | Stage | Preferred starting implementation |
 |---|---|
 | Source height and gradient evaluation | Parallel CPU; GPU batching when source supports it |
-| Hydrology and erosion | Regular-grid GPU or parallel CPU |
+| Drainage and river carving (bounded per region) | Regular-grid GPU or parallel CPU |
 | Constraint intersection and CDT | CPU robust geometry |
 | Error probe evaluation | Batched CPU or GPU |
 | Refinement topology updates | CPU initially |
@@ -437,7 +437,7 @@ Design for GPU acceleration from the start, without requiring a GPU to build a w
 |---|---|---|
 | Region graph, feature negotiation, shared edge contracts | CPU | Parallel independent region tasks |
 | Height, slope, curvature and error probes | Parallel CPU reference | Batched deterministic WGPU kernels |
-| Hydrology, erosion and directional edge costs | CPU reference | Regular-grid compute with exact update semantics |
+| Drainage, carving and directional edge costs | CPU reference | Regular-grid compute with exact update semantics |
 | Constraint intersections and topology mutation | Robust CPU geometry | GPU CDT experiment with canonical equivalence |
 | Road distance propagation | CPU Dijkstra | Integer GPU delta-stepping |
 | Road turns, junctions, vertical alignment | CPU | Batched independent profile solves |
@@ -622,7 +622,7 @@ A GPU-compatible reverse distance field can remain deterministic. Compute fixed-
 | Boundary contracts | Pure shared computations; single-flight cache optional |
 | Canonical CDT | CPU initially, deterministic serial topology mutations per chunk |
 | Source/probe evaluation | Parallel CPU or verified deterministic GPU; fixed reduction semantics |
-| Hydrology and erosion | Deterministic updates, tie rules and boundary conditions; no unordered floating-point accumulation |
+| Drainage and carving | Deterministic updates, tie rules and boundary conditions; no unordered floating-point accumulation |
 | Road distance field | CPU baseline; integer GPU backend only after parity tests |
 | Rendering meshes and material textures | Derived from canonical data; visual-only variation permitted |
 | Placement, collision and gameplay navigation | Stable canonical inputs; deterministic outputs where they affect persistent world identity |
@@ -825,3 +825,59 @@ Adopt a chunk-conforming, feature-constrained adaptive TIN as the authoritative 
 **GPU decision:** retain a deterministic CPU reference; accelerate bulk computation using portable WGPU backends only after canonical parity is established; keep visual derived products GPU-resident. Treat hierarchical bisection and fully GPU CDT as research alternatives, not mandatory dependencies.
 
 The expected architectural benefit is feature fidelity and a unified ground representation without uniform high-resolution sampling. Memory and speed improvements are plausible but not guaranteed; no new Procgena benchmarks or full subsystem audit were performed for this proposal. The chunk architecture was reviewed at commit `4664649`; the design remains unimplemented. The numeric profile, quantization units, triangulator tie policy and cross-platform/GPU parity have not been verified; they are design requirements and prototype decisions, not established capabilities.
+
+## 21. Review against the code and the architecture (2026-11-25)
+
+Checked against `procgena_terrain` (`chunk.rs`, `chunk_levels.rs`, `region.rs`, `graph.rs`, `relief.rs`, `converge.rs`, `border.rs`), `procgena_terrain_bevy`'s `stream.rs`, the World presets, [ARCHITECTURE.md](../ARCHITECTURE.md) and [ROADMAP.md](../ROADMAP.md) at `a5b4131`. The small factual fixes are made inline above: region size, the Mid tier, the vertex encoding in the storage estimate, and "hydrology and erosion" reworded to the project's rule. This section lists what is left.
+
+### 21.1 Confirmed
+
+`CHUNK_SIZE = 64.0`, `CHUNK_CELLS = 64`, `ChunkKey`, `ChunkSelection`, `ChunkLevels`, `ChunkSamples::stand_in` and the regular-grid `Transitions` exist as described. `RegionEdge` and `CornerId` give canonical shared identities. The arithmetic in sections 10 and 13 checks out: the boundary density `(2L/d - 1)/L²`, the batch sample counts and sizes, and Amdahl's 1.30×.
+
+### 21.2 Gap: what is authoritative, and at what distance (decision D6b)
+
+This plan makes the canonical TIN the authoritative ground and realizes it lazily per level-0 chunk. ARCHITECTURE currently says the opposite in several places, and they conflict:
+
+- **Placement.** "Placement samples the true ground, the terrain's analytic height and slope, never a coarse chunk mesh", and placement never depends on distance. Big trees have a place range of about 2 km, so they are placed (and drawn as impostors) far beyond any simulation radius. If placement reads the TIN, every level-0 chunk within about 2 km must be canonically realized: roughly 3,000 chunks around the camera. That defeats lazy realization, and that is before larger World classes.
+- **Labels and measures.** `annotate` and `Measures` read stencils at landscape scale (shape steps of tens to hundreds of metres, growing with D5's horizontal scale). Biome rules and Ecotope choice read them for far regions too.
+- **Slope.** `Ground::gradient` feeds `max_slope` tests and the labels. A TIN gradient is constant per face, so slope-masked cover would show triangle facets and jump at edges.
+
+The plan already defines the composed target surface `H*` (section 8.4): base terrain plus carving plus engineered features, as a deterministic per-point function. The options are:
+
+- **(a) TIN everywhere.** Every query, including far placement, reads the realized canonical TIN. This is the purest model, but it is the most expensive. It makes realization cost scale with the largest place range.
+- **(b) `H*` everywhere.** `H*` stays the queryable ground: placement, labels, masks and slope. The TIN is a derived, error-bounded physical and render mesh. Collision then differs from the queried height by up to the TIN tolerance (5 cm on roads, up to 0.5 m on general terrain).
+- **(c) Split by role.** `H*` decides everything placement and labels decide: which spots exist, masks, slope tests and labels, all independent of distance. The physical surface (the canonical TIN where it is realized) gives the rest height of near copies, collision and gameplay ground. Far copies rest on `H*`, which is ARCHITECTURE's open question 9, which already exists. A copy's identity never includes its rest height.
+
+Option (c) keeps "placement does not depend on distance" and the analytic slope, and matches lazy realization. Its cost is two height answers in the near field that differ within the TIN tolerance, so a copy's height can settle when its chunk realizes. Not decided: the user chooses at D6.
+
+Whichever is chosen, `Ground::gradient` for placement should come from `H*` or from smoothed vertex normals, never raw face gradients. Section 11's `GroundSurface` sits beside `Ground`, not in place of it, unless (a) is chosen.
+
+### 21.3 Gap: region borders as mesh constraints (decision D6c)
+
+Section 10 makes every irregular region boundary a constraint and triangulates `R ∩ C` patches. The seam protocol already makes neighbouring terrains meet in height *and slope* along their border (ARCHITECTURE 4.2, "Labels at region borders"). So `H*` has no crease there, and a constraint adds nothing geometric. It still costs slivers where a warped border (up to 100 m wiggles over 800 m in the larger classes) cuts acute angles through chunks, plus the mixed-region aggregation and a region-chunk intersection resolver.
+
+Proposed: triangulate each level-0 chunk as a whole, and answer region ownership from the region graph (as today), not from triangles. Constrain a region border only where something needs an edge there: a material boundary or a feature ending at the border. Chunk boundaries stay mandatory constraints. If accepted, sections 10 ("Chunk topology and ownership"), 14.3 and the test corpus drop the `R ∩ C` patch work. Not decided: the user chooses at D6.
+
+### 21.4 Gap: deterministic source maths (decision D6a)
+
+`H*` is built from the existing analytic stack, and it calls `std` transcendentals: `exp` in `relief.rs`, `ln`, `powf`, `asin` and `sin` in `converge.rs`, and `powf` and `atan2` in `border.rs`. Their results come from the platform's maths library. Section 14.2 requires "no unspecified platform math for authoritative decisions", but does not say that today's source field violates it. The options are:
+
+- pinned pure-Rust maths (for example `libm`) on authoritative paths, with the speed cost measured;
+- or a same-platform-only first profile, with cross-platform bitwise identity deferred.
+
+The GPU kernels of section 13 face the same question, since WGSL's `exp` and `pow` are not exact. So exact GPU parity for any stage that evaluates `H*` needs either the same deterministic approximations implemented on both sides, or that stage kept off the canonical path.
+
+### 21.5 Fit with work already built or planned
+
+- **GPU1 and GPU2** (relief preview and ground weights on the GPU) use millimetre or 8-bit parity. They are visual-only products and stay valid under this plan (section 13.1). GPU3 (full heights on the GPU) would be canonical only under 21.4's exact rules.
+- **Feature tiers.** Only the Fine tier is canonical. Rough and Mid stay provisional and keep today's skirts and stand-ins. So chunk edge contracts exist for Fine chunks only, which removes most of section 10's Rough-to-Fine seam work. TE4a and TE4b (per-tier borders) are parked and are not needed.
+- **Ground paint.** `TerrainMaterial` paints from two weight textures in chunk space, sampled by chunk-local UV. Any triangulation can carry those UVs, so GM1, GM2 and GPU2 carry over unchanged. Only the vertex buffer changes.
+- **TE7.** Size-on-screen level switching carries over. Geomorphing (deferred) would need a per-vertex parent height, which a TIN parent with different topology does not give directly. Revisit it with section 13.5's bisection hierarchy, which does.
+- **TE3 and TE3b caches.** Section 14.7's dependency keys extend TE3's content-keyed stage cache. TE3b's feature-footprint chunk keys are the same idea as a canonical chunk's dependency key.
+- **Analytic rule.** The project rule (user, 2026-11-24) is that terrain stays analytic or bounded per region. Sections 3, 13 and 14.6 now say so.
+- **Edits.** ARCHITECTURE's stamps change the ground before placement. Under this plan they are features in `H*` (section 8.4), so they are constraints and the edit model in section 14.8 applies.
+- **D5 scale.** Feature tolerances are in metres and do not scale (road and river widths never scale). General-terrain refinement is error-driven, so larger, smoother landscapes refine less on their own.
+
+### 21.6 Milestone mapping
+
+Section 17 is scheduled in the roadmap as CT0–CT8, gated by D6. Milestones 7 and 9 here are the road plan's work, scheduled as RB7 and RBG.

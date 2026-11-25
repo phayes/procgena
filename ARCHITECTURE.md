@@ -516,6 +516,54 @@ borders.
   at another, the seam gets a transition: a skirt, or the detail band
   fading to zero, as chunks of different tiers do.
 
+**Canonical ground and roads** (proposed 2026-11-25; adopted as the
+direction by the user, details gated by D6). Two design documents set
+where the terrain's ground and roads are heading:
+[docs/procgena-canonical-tin-design.md](docs/procgena-canonical-tin-design.md)
+and
+[docs/procgena-road-builder-redesign.md](docs/procgena-road-builder-redesign.md).
+Each ends with a review against today's code.
+
+- **A canonical TIN.** The physical ground becomes a chunk-conforming,
+  feature-constrained adaptive triangulation (a constrained Delaunay
+  mesh), realized lazily per 64 m level-0 chunk. Large triangles cover
+  smooth land, and roads, river banks, cuttings and embankments are
+  explicit edges, so a narrow road no longer sets the resolution of a
+  whole region. Regular grids stay as computation tools and derived
+  textures.
+- **Plan by region, realize by chunk, render by LOD.** Regions still plan
+  (relief, rivers, roads, ports). Chunks realize ground from those plans
+  and from shared **chunk edge contracts**: one ordered list of boundary
+  vertices that both neighbouring chunks use, so independently built
+  chunks meet exactly. Render LODs are derived and never change the
+  canonical mesh.
+- **The composed target surface `H*`.** Base terrain plus carving plus
+  engineered features, as one deterministic function per point. The TIN
+  approximates it within a tolerance per feature (centimetres on roads,
+  decimetres on open land).
+- **Roads as a canonical network.** Roads are planned on the pre-road
+  surface with an incremental reverse cost field shared by every road of
+  a region, then fitted as explicit alignments (lines and arcs) with
+  vertical profiles, cross-sections and bridge structures. The ground
+  takes their breaklines; the road graph stays authoritative for road
+  semantics, and bridge decks are separate from the ground.
+- **Deterministic, CPU first.** The CPU path is the reference. A GPU
+  stage may decide canonical output only once it matches the reference
+  bit for bit. Canonical output never depends on request order, cache
+  state, threads or camera.
+- **Open (gate D6):**
+  - which deterministic profile comes first: cross-platform bitwise
+    (pinned maths) or same-platform;
+  - what is authoritative at a distance: the TIN everywhere, `H*`
+    everywhere, or `H*` for placement, labels and slope and the TIN for
+    physical ground and near rest heights (see "Placement does not depend
+    on distance");
+  - whether region borders are mesh constraints, or only chunk borders
+    are.
+
+  The current rules stay in force until D6 is decided: placement, labels
+  and slope read the analytic ground.
+
 **What it gets from above.**
 
 - From its Biome: its options.
@@ -1024,6 +1072,10 @@ placement never depends on chunk size, load tier or load order.
 - **Placement samples the true ground**, the terrain's analytic height and
   slope, never a coarse chunk mesh. So far copies can float above or sink
   into coarse terrain by that chunk's height error (open question 9).
+  With the canonical TIN (see "Canonical ground and roads" under 4.2),
+  "true ground" means the composed surface `H*` for spots, masks and
+  slope. Whether near rest heights come from the realized TIN is gate D6
+  (open question 11).
 - **Hooks never see distance or load tier.** Remove, replace and reserve
   edits apply at placement, out to the place range, and stamps change the
   ground before placement (story 6).
@@ -2097,6 +2149,34 @@ it starts.
   asset, Scatter, Ecotope and Terrain as a kind; Biome and World register
   as kinds when B1 and W1 bring their types.
 
+### Canonical ground and roads
+
+Designed in [docs/procgena-canonical-tin-design.md](docs/procgena-canonical-tin-design.md)
+and [docs/procgena-road-builder-redesign.md](docs/procgena-road-builder-redesign.md);
+scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
+
+- [ ] **Deterministic numeric profile**: canonical integer coordinates and
+  units, cost encodings, pinned maths for authoritative paths (or a
+  same-platform first profile), and canonical serialization with stage
+  hashes.
+- [ ] **Faster road planning on the existing grid**: cached step costs,
+  turn lists, reused search buffers, an incremental reverse cost field per
+  region in place of the per-road distance pass, and linear-time vertical
+  alignment in place of bisection.
+- [ ] **Canonical road network**: stable road, junction and structure
+  ids; line-and-arc alignments with vertical profiles; cross-sections,
+  earthworks and bridge candidates; breaklines for the ground.
+- [ ] **Canonical TIN chunks**: chunk edge contracts, constrained
+  triangulation and error-driven refinement per level-0 chunk, feature
+  composition (rivers, roads, stamps), then the products built from it:
+  render LODs, collision, height textures and spatial queries.
+- [ ] **GPU stages under parity**: batched sampling and error probes, and
+  an integer GPU road cost field, each canonical only after bitwise parity
+  with the CPU reference.
+- [ ] **Research, later**: adaptive portal graphs and variable-length
+  motion primitives for roads; hierarchical bisection and GPU CDT for
+  the ground.
+
 ### Later
 
 - [ ] **Modifiers pushed down**: higher levels (Biome, Ecotope) set
@@ -2168,3 +2248,16 @@ it starts.
     plus a part path, so the same choice covers it. A part edit such as a
     harvest hides that copy for that host copy only, and leaves the shared
     specimens and impostors alone.
+11. **What is the ground at a distance?** (gate D6, from the canonical
+    TIN design, 2026-11-25.) The TIN is realized per chunk, lazily, but
+    big trees are placed out to about 2 km and labels are read for far
+    regions. The options:
+    - read the TIN everywhere (realizing every chunk in the place range);
+    - read the composed surface `H*` everywhere (the TIN is then only a
+      physical and render mesh within a tolerance);
+    - read `H*` for spots, masks, slope and labels, and the realized TIN
+      for collision and near rest heights. Far copies rest on `H*`.
+
+    The third keeps placement independent of distance and fits lazy
+    realization, so it is the review's recommendation. Not decided. See
+    the TIN design's section 21.2.
