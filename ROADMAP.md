@@ -982,28 +982,28 @@ go to the few copies near the camera.
     stone's level 0 is about 70% of its CPU build, so "level 1 by default"
     also shortens loads and edits if level 0 is built only on demand.
 - **Decided by the user (2026-11-25), ahead of the planning talk:**
-  - **The true geometry is a setting of the preset** (working name;
-    first called the "near level"). It is a style, and different kinds
+  - **The game level (`game_level`) is a setting of the preset** (named
+    by the user 2026-11-25; first called the "near level"). It is a style, and different kinds
     of object may want different ones, so each preset says which built
-    level is the object's true geometry (level 1 by default; level 0
+    level is the object's game level (level 1 by default; level 0
     opt-in). It is more than the level drawn nearest the camera: it is
     the shape the rest of the game uses, so physics colliders, picking,
     CPU queries and impostor bakes all read it, and coarser levels exist
-    only for drawing at a distance. The final name is still to choose.
+    only for drawing at a distance.
   - **The distance chain is not part of the preset** (the user,
     2026-11-25): a preset says what the thing's shape and style are, not
     how far away it is drawn. For now one default distance chain, from
-    the true geometry out to the impostor, is worked out and used,
+    the game level out to the impostor, is worked out and used,
     scaled by the quality level; how a Bevy game hooks in to change it
     comes later.
-  - **A game cannot override a preset's true geometry** (the user,
+  - **A game cannot override a preset's game level** (the user,
     2026-11-25); a game that wants a different look uses different
     presets.
   - **Levels switch by size on screen, not by metres.** Thresholds are
     in on-screen size, so copy size, field of view and resolution are
     handled together; the quality level moves the thresholds. This
     replaces size-scaled metre distances in the shared LOD type.
-  - **Impostors are baked from the true geometry**, not
+  - **Impostors are baked from the game level**, not
     always from level 0, so the fade from mesh to impostor keeps the same
     detail and level 0 need not be built for a game that never draws it.
   - **Impostors for clusters are expected to be the biggest win** (a
