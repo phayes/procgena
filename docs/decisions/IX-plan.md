@@ -70,8 +70,10 @@ worker or coordinator, waiting for a yes) or an **open question**.
 From ROADMAP IX, the user, 2026-11-25:
 
 - **`game_level` is a setting of the preset.** It is a style: each preset
-  says which detail is its real geometry. Level 1 (today's second level)
-  is the default; level 0 is opt-in per preset. Colliders, picking, CPU
+  says which detail is its real geometry. The default is per kind
+  (the user, 2026-11-25): trees default to level 0 (full detail); every
+  other kind defaults to level 1 (today's second level), with level 0
+  opt-in per preset. Colliders, picking, CPU
   queries and impostor bakes all read it. Coarser geometry exists only for
   drawing far away.
 - **The preset carries only its `game_level` detail.** The lower mesh is
@@ -237,15 +239,26 @@ Each kind's preset gets a `game_level` field holding its detail type (it
 replaces `detail` where there is one). The kind implements
 `LowerDetail` for its detail type. The Bevy crate builds
 `Lod::from_game(options.game_level)`, builds those two meshes, bakes the
-impostor from `game_level`, and draws through the shared chain. Concrete
-first proposals (the experiment tunes them):
+impostor from `game_level`, and draws through the shared chain.
 
-| Kind | Today | `game_level` default (today's level 1) | Lower rule |
+**The default `game_level` is per kind** (decided: trees level 0, the
+rest level 1). Each kind says it in one place: the `Default` of its
+detail type, which the preset's `game_level` field uses when a preset
+file leaves it out (`#[serde(default)]`). So `LodDetail::default()` is
+full detail for trees, and `StoneDetail`, `DeadwoodDetail`,
+`MushroomDetail` and `ClusterDetail` default to today's level 1. Core
+adds no per-kind table; the chain and the lower rule stay the same for
+every kind. A tree's lower mesh is then derived from full detail, which
+is roughly today's "middle" or "far" level, not its "farthest".
+
+Concrete first proposals (the experiment tunes them):
+
+| Kind | Today | `game_level` default | Lower rule |
 |------|-------|------------------------------------------|------------|
 | Stone | `detail: StoneDetail`, a 3-level table | One `{ resolution, texture_size }`. The six names stay; see the question on their resolutions. | Half the resolution (at least `MIN_RESOLUTION`), texture one size smaller (at least 512) |
 | Dead wood | `detail: DeadwoodDetail` (used by `Piece::mesh`); LOD on `DeadwoodParams` | `HIGH` (16 sides, 1.2 per diameter, 3 cap rings) | Today's `LOW` scaled from the game detail: half the sides (at least 4), a third of the segments, 1 cap ring, `min_radius` and `ribbon_radius` × 4, half the leaf share. `strip_all` and `STRIP` go. |
 | Mushroom | `detail: MushroomDetail` (used by `Mushroom::mesh`); LOD on `MushroomParams` | `HIGH` (solid, 24/8 cap, 12/6 stem) | `Shell`, half of each count (at least 3 sides, 1 segment), no annulus. `BodyShape::Flat` and `Billboard` go with the ribbon forms. |
-| Tree | No detail on `TreeOptions`; `default_lod()` on `TreeParams` | New `game_level: LodDetail` on `TreeOptions`, default today's "middle" | Today's "far" relative to the game detail: section stride and leaf stride × 2, segment factor × 0.5, open ends, `fruit_distance` dropped (see fruit). `BranchShape::Ribbons` and camera-facing leaves go. |
+| Tree | No detail on `TreeOptions`; `default_lod()` on `TreeParams` | New `game_level: LodDetail` on `TreeOptions`, default today's "near" (level 0, full detail; decided) | Between today's "middle" and "far", relative to the game detail: section stride and leaf stride × 3, segment factor × 0.5, open ends, `fruit_distance` dropped (see fruit). `BranchShape::Ribbons` and camera-facing leaves go. |
 | Fruit | `default_lod()`, attached to trees | `ItemDetail::Simple` (today's level 1) | `Minimal` without flat items. Its chain ends where its host's impostor begins (`ranges_ending_at`), and the host's impostor already shows it. |
 
 Dead wood's `ribbon_radius` (thin twigs as camera-facing strips inside a
@@ -271,8 +284,9 @@ diameter, tree a height, dead wood `max(diameter, 0.15 × length)`).
 | Mushroom (8 cm) | 0.024 (4 m) | 0.0097 (10 m) | none (card at 18 m, 0.0054) | 0.0024 (40 m) |
 | Fruit (10 cm) | 0.015 (8 m) | | 0.006 (20 m) | host's |
 
-Under the new chain the game level is today's level 1, so "lower from"
-corresponds to today's second column and "impostor from" to the third.
+Under the new chain the game level is today's level 1 (level 0 for
+trees), so for every kind but trees "lower from" corresponds to today's
+second column and "impostor from" to the third.
 Trees switch at 5 to 20 times the size on screen of the small kinds today.
 One shared pair has to sit between them. **Proposed default:**
 `lower_below = 0.10`, `impostor_below = 0.04` (about 58 pixels on a
