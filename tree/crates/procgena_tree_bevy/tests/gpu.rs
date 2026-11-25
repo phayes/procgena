@@ -1,6 +1,6 @@
 //! Draws a grove through the shared instanced renderer on a real GPU and
-//! checks that every pipeline it needs compiles: the tree materials of every
-//! detail level, and the impostor beyond them once baked.
+//! checks that every pipeline it needs compiles: the tree materials of both
+//! mesh steps, and the impostor after them once baked.
 //!
 //! Needs a GPU, so it is ignored by default. Run it with:
 //!
@@ -19,9 +19,10 @@ use bevy::render::render_resource::{CachedPipelineState, PipelineCache, TextureF
 use bevy::tasks::tick_global_task_pools_on_main_thread;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
+use procgena_core::chain::Step;
 use procgena_core_bevy::instanced::InstancedScatter;
 use procgena_tree::{ScatterTree, TreePreset, TreeScatter};
-use procgena_tree_bevy::{TreePlugin, TreeScatterGenerating, TreeScatterParams, default_tree_lod};
+use procgena_tree_bevy::{TreePlugin, TreeScatterGenerating, TreeScatterParams};
 
 /// The longest the test waits for the grove, its impostors and shaders.
 const LIMIT: Duration = Duration::from_secs(300);
@@ -89,17 +90,17 @@ fn spawn_scene(app: &mut App) -> Entity {
         .id()
 }
 
-/// Whether every slot of `grove`'s scatter has its impostor level.
+/// Whether every slot of `grove`'s scatter has its impostor step.
 fn impostors_drawn(app: &mut App, grove: Entity) -> bool {
-    let mesh_levels = default_tree_lod().levels.len();
+    let impostor = Step::Impostor.index();
     app.world()
         .entity(grove)
         .get::<InstancedScatter>()
         .is_some_and(|scatter| {
             !scatter.copies.is_empty()
                 && scatter.slots.iter().all(|slot| {
-                    slot.lod.levels.len() == mesh_levels + 1
-                        && slot.parts.iter().any(|p| p.level as usize == mesh_levels)
+                    slot.lod.levels.len() == impostor + 1
+                        && slot.parts.iter().any(|p| p.level as usize == impostor)
                 })
         })
 }
@@ -132,16 +133,16 @@ fn run_until_settled(app: &mut App, grove: Entity) {
 
 #[test]
 #[ignore = "needs a GPU"]
-fn a_grove_draws_every_level_and_its_impostors() {
+fn a_grove_draws_every_step_and_its_impostors() {
     let mut app = headless_app();
     let grove = spawn_scene(&mut app);
     run_until_settled(&mut app, grove);
 
-    // Every slot draws parts at every mesh level, then its impostor.
+    // Every slot draws parts at both mesh steps, then its impostor.
     let scatter = app.world().entity(grove).get::<InstancedScatter>().unwrap();
-    let mesh_levels = default_tree_lod().levels.len() as u32;
+    let impostor = Step::Impostor.index() as u32;
     for slot in scatter.slots.iter() {
-        for level in 0..=mesh_levels {
+        for level in 0..=impostor {
             assert!(
                 slot.parts.iter().any(|p| p.level == level),
                 "a slot has no part at level {level}"

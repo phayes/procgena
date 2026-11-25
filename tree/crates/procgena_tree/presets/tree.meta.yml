@@ -113,6 +113,16 @@ sections:
       - title: Appearance
         shown_if: "trellis.enabled && trellis.visible"
         settings: [trellis.cylinder_radius, trellis.color]
+  # The detail settings target the part each one shapes, so the section
+  # names no part of its own.
+  - title: Detail
+    groups:
+      - title: Bark
+        settings: [game_level.section_stride, game_level.segment_factor, game_level.min_branch_radius, game_level.closed]
+      - title: Leaves
+        settings: [game_level.leaf_stride, game_level.leaf_scale, game_level.billboard]
+      - title: Fruit and Flowers
+        settings: [game_level.cluster_stride, game_level.cluster_scale]
 
 settings:
   default_seed:
@@ -534,3 +544,62 @@ settings:
     label: Colour
     description: "The wires' colour."
     color: true
+  game_level.section_stride:
+    label: Slice Stride
+    part: branch
+    description: "Builds every Nth slice along each branch, for the tree's real shape used up close and for its far-away picture. Farther away a coarser shape is drawn."
+    range: [1, 8]
+    step: 1
+  game_level.segment_factor:
+    label: Sides
+    part: branch
+    description: "Scales how many sides each branch tube has. Each branch keeps at least three."
+    range: [0.1, 1]
+    step: 0.05
+  game_level.min_branch_radius:
+    label: Thinnest Branch
+    part: branch
+    unit: m
+    description: "Leaves out branches thinner than this at their base. The trunk is always kept. 0 keeps every branch."
+    range: [0, 0.1]
+    step: 0.001
+  game_level.closed:
+    label: Closed Bark
+    part: branch
+    description: "Seals each branch tube into a watertight solid, for physics and volume."
+  game_level.leaf_stride:
+    label: Leaf Stride
+    part: leaf
+    description: "Builds every Nth leaf on each branch. 1 builds them all."
+    range: [1, 8]
+    step: 1
+  game_level.leaf_scale:
+    label: Leaf Scale
+    part: leaf
+    description: "Makes each built leaf larger, to fill the gaps a stride leaves."
+    range: [0.5, 3]
+    step: 0.05
+  game_level.billboard:
+    label: Leaf Cards
+    part: leaf
+    description: "Draws each leaf as one flat card or two crossed cards, or as the Leaves section says."
+    choices:
+      - { value: null, label: As Leaves }
+      - { value: single, label: Single }
+      - { value: double, label: Double }
+  game_level.cluster_stride:
+    label: Cluster Stride
+    part: fruit
+    description: "Builds every Nth fruit and flower cluster. 1 builds them all."
+    range: [1, 8]
+    step: 1
+  game_level.cluster_scale:
+    label: Cluster Scale
+    part: fruit
+    description: "Makes each built cluster larger, to fill the gaps a stride leaves."
+    range: [0.5, 3]
+    step: 0.05
+  game_level.lower_clusters:
+    label: Coarse Clusters
+    description: "Builds each fruit and flower cluster at its own coarser shape."
+    hidden: true

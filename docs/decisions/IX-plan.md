@@ -380,13 +380,16 @@ reported to the coordinator ready to merge.
    - `game_level` stays out of the options hash and so out of the pool id
      and variant seeds (changing detail must not re-seed rocks; rule 3).
      It is in the impostor bake key and the single rock's cache key.
-   - Size measure: `StoneOptions::bounding_diameter()`, the stretched
-     containing box's diagonal, used by single rocks and pools alike. On
-     the presets it is 1.5–1.9× the mesh's widest span (4.5× for `ore`),
-     so stones keep their meshes further than the plan's table says. Real
-     bounds don't exist yet: the GPU mesher's `bounding_radius` is the same
-     cube bound, and the pool culls with a fixed radius. Follow-up in
-     ROADMAP: real per-specimen bounding spheres on both paths.
+   - Size measure (real bounds, later on 2026-11-25): the game-level
+     mesh's axis-aligned bounding-box diagonal, the diameter of a sphere
+     centred on that box. Single rocks measure their CPU mesh
+     (`Stone::bounding_diameter`); the GPU mesher measures each pooled mesh
+     in a `measure_mc` / `measure_dc` pass into
+     `GpuStoneStatus::bounding_diameter`, which the render world reads back
+     and hands to the main world's copies (until then, the settings' bound
+     `StoneOptions::bounding_diameter()` stands in). On the presets it is
+     1.04–1.43× the mesh's widest span; the settings' bound was 1.5–1.9×
+     (4.5× for `ore`). The pool still culls with a fixed radius.
    - The specimen's lower level keeps `Level::start` until the last asset
      step: the distance where the default chain switches to the lower mesh
      at the default view and High quality.
@@ -456,6 +459,43 @@ reported to the coordinator ready to merge.
      `--flat` became `--no-impostors`.
    - The studio shows the three steps as its detail levels; GLB export
      writes the game-level mesh and, with detail levels, the lower mesh.
+
+   **As built (Step 3, tree and fruit):**
+   - `TreeOptions::game_level: LodDetail` and `FruitOptions::game_level:
+     ClusterDetail` (the tree's defaults to full detail, as its level 0
+     was; the cluster's to `ClusterDetail::SIMPLE`); each
+     `Tree` and `Fruit` builds two meshes, `mesh()` and `lower_mesh()`.
+     `game_level` stays out of the options hashes (rule 3); it is in the
+     impostor bake keys and the single tree's cache key.
+   - The tree's lower rule: three times the section stride and half the
+     tube sides with open ends; every second leaf card, 1.3× larger, as
+     single fixed cards; every second fruit or flower cluster, 1.12×
+     larger. Leaves keep every second card, not every third as first
+     planned: every third lost too much of the crown's outline (the
+     silhouette test's average fell below 0.88). The cluster's lower rule:
+     one item detail step coarser, every second item 1.25× larger.
+   - Size measure: the game-level mesh's bounding-sphere diameter for
+     trees, `Fruit::size` for clusters.
+   - The ribbon far forms, camera-facing billboards and averaged bark are
+     gone, and with them `procgena_tree_bevy`'s `gltf` feature (it only
+     animated exported billboards). Exports hold the game-level mesh and,
+     optionally, the lower mesh.
+   - **Fruit has no cull of its own; the tree decides** (the user's choice,
+     2026-11-25). A cluster switches game → lower → its impostor by its own
+     size on screen, and is drawn until its tree's impostor takes over,
+     which shows it (rows carry only the tree's mesh steps). A 10 cm
+     cluster turns into its impostor at about 3 m.
+   - Bakes: trees 8 × 8 views covering down to −45°, clusters 6 × 6 views,
+     both 256-pixel frames (`frame_size_for(largest_impostor_size())`).
+     That is more memory than the old 10 × 128 tree bake and 6 × 32
+     cluster bake; Step 5 measures it.
+   - Groves draw through the shared renderer with
+     `procgena_core_bevy::instanced::chain_lod` (from the dead wood step),
+     each copy sized by its diameter. The old core types remain until the
+     last kind moves.
+   - The studio shows a tree's two mesh steps (the level picker offers
+     them), reports the step on screen from the parts' own ranges, and
+     sizes the grove camera from a 25 m tree's impostor distance.
 4. **Renderers and the studio.** `procgena_core_bevy`'s instanced renderer
    takes three steps and per-view bands; impostors bake from `game_level`,
    with normals and no shadows; the disk cache (key: preset content hash +

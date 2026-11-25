@@ -137,8 +137,9 @@ pub fn record_events(mut events: MessageReader<ViewerEvent>, mut state: ResMut<B
                 state.build = BuildStatus::from_result(&built);
             }
             ViewerEvent::GroveProgress(progress) => state.grove_progress = *progress,
-            ViewerEvent::LodShown(level) => state.level = *level,
-            ViewerEvent::MushroomLodShown(level) | ViewerEvent::DeadwoodLodShown(level) => {
+            ViewerEvent::LodShown(level)
+            | ViewerEvent::MushroomLodShown(level)
+            | ViewerEvent::DeadwoodLodShown(level) => {
                 state.too_far = level.is_none();
                 if let Some(level) = level {
                     state.level = *level;

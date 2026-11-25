@@ -13,7 +13,7 @@ use bevy::scene::Scene;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::Rng;
 use procgena_fruit::export::{gltf, obj};
-use procgena_fruit::{FlowerPreset, Fruit, FruitMesh, FruitOptions, FruitPreset, default_lod};
+use procgena_fruit::{FlowerPreset, Fruit, FruitMesh, FruitOptions, FruitPreset};
 
 use crate::export::{
     Done, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file, write_files,
@@ -377,18 +377,15 @@ fn export_fruit_obj(
     }
 }
 
-/// Grows the cluster's first specimen and meshes it: every default level
-/// with `detail_levels`, else the full mesh alone.
+/// Grows the cluster's first specimen and meshes it: its game-level mesh,
+/// then with `detail_levels` its lower mesh.
 fn meshes(options: &FruitOptions, detail_levels: bool) -> Result<Vec<FruitMesh>, String> {
     let fruit = Fruit::new(options.clone(), options.default_seed, 0)
         .map_err(|error| format!("Cannot build this cluster: {error}"))?;
-    let mut meshes: Vec<FruitMesh> = fruit
-        .lod_meshes(&default_lod())
-        .into_iter()
-        .map(|(_, mesh)| mesh)
-        .collect();
-    if !detail_levels {
-        meshes.truncate(1);
+    let lod = fruit.meshes();
+    let mut meshes = vec![lod.game];
+    if detail_levels {
+        meshes.push(lod.lower);
     }
     Ok(meshes)
 }
@@ -446,12 +443,9 @@ mod tests {
     }
 
     #[test]
-    fn exports_have_every_level_when_asked() {
+    fn exports_have_the_lower_mesh_when_asked() {
         let options = start_options();
-        assert_eq!(
-            meshes(&options, true).unwrap().len(),
-            default_lod().levels.len()
-        );
+        assert_eq!(meshes(&options, true).unwrap().len(), 2);
         assert_eq!(meshes(&options, false).unwrap().len(), 1);
     }
 }

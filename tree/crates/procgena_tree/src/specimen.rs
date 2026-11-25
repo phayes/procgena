@@ -3,49 +3,52 @@
 
 use std::collections::BTreeMap;
 
+use procgena_core::chain::{DistanceChain, Lod, ViewScale};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet, tags};
 
-use procgena_core::LodLevel;
-
-use crate::mesh::{BranchShape, BranchSpan, LodDetail, MeshBuffers, TreeMesh};
+use crate::mesh::{BranchSpan, LodDetail, MeshBuffers, TreeMesh};
 use crate::skeleton::Skeleton;
 use crate::tree::Tree;
 
 impl Tree {
-    /// Returns the tree as a tagged [`Specimen`] with one detail level per entry
-    /// of `lods`, for generators that grow on it, such as procgena_clump.
-    ///
-    /// Pass the result of [`Tree::lod_meshes`], or any meshes made from this
-    /// tree with [`Tree::mesh_with_detail`], ordered by increasing distance.
-    /// The first level starts at distance 0 and each later one at its
-    /// [`LodLevel::distance`]. See [`TreeMesh::parts`] for the parts of each
-    /// level.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `lods` is empty, or if a mesh was not made from this tree.
-    pub fn specimen(&self, lods: &[(LodLevel<LodDetail>, TreeMesh)]) -> Specimen {
-        self.skeleton().specimen(lods)
+    /// Returns the tree as a tagged [`Specimen`] with two levels, its
+    /// game-level mesh and its lower mesh, for generators that grow on it,
+    /// such as procgena_clump. See [`TreeMesh::parts`] for the parts of each
+    /// level, and [`Skeleton::specimen`] for where the lower level starts.
+    pub fn specimen(&self) -> Specimen {
+        let meshes = Lod {
+            game: self.mesh().clone(),
+            lower: self.lower_mesh(),
+        };
+        self.skeleton().specimen(&self.lod(), &meshes)
     }
 }
 
 impl Skeleton {
-    /// Same as [`Tree::specimen`], for meshes made from this skeleton with
-    /// [`Skeleton::mesh`].
+    /// Same as [`Tree::specimen`], for the `meshes` made from this skeleton
+    /// with [`Skeleton::mesh`] at each detail of `lod`.
+    ///
+    /// The lower level starts where the default [`DistanceChain`] switches
+    /// to it for this tree (sized by the game-level mesh's
+    /// [`bounding_diameter`](TreeMesh::bounding_diameter)), seen through a
+    /// [`ViewScale::DEFAULT`] camera at High quality.
     ///
     /// # Panics
     ///
-    /// Panics if `lods` is empty, or if a mesh was not made from this skeleton.
-    pub fn specimen(&self, lods: &[(LodLevel<LodDetail>, TreeMesh)]) -> Specimen {
-        assert!(!lods.is_empty(), "a tree specimen needs at least one level");
-        let levels = lods
-            .iter()
-            .enumerate()
-            .map(|(i, (lod, mesh))| Level {
-                start: if i == 0 { 0.0 } else { lod.distance },
-                parts: mesh.parts(self, &lod.detail),
-            })
-            .collect();
+    /// Panics if a mesh was not made from this skeleton.
+    pub fn specimen(&self, lod: &Lod<LodDetail>, meshes: &Lod<TreeMesh>) -> Specimen {
+        let factor = DistanceChain::factor(meshes.game.bounding_diameter(), ViewScale::DEFAULT);
+        let lower_start = factor / DistanceChain::DEFAULT.lower_below;
+        let levels = [
+            (0.0, &lod.game, &meshes.game),
+            (lower_start, &lod.lower, &meshes.lower),
+        ]
+        .into_iter()
+        .map(|(start, detail, mesh)| Level {
+            start,
+            parts: mesh.parts(self, detail),
+        })
+        .collect();
         Specimen { levels }
     }
 }
@@ -68,9 +71,7 @@ impl TreeMesh {
     ///
     /// Leaves are one open part tagged `leaf` + `card`; fruit and flowers
     /// are tagged `fruit` and `flower`. Empty parts are left out, and so is
-    /// geometry without stored normals: ribbon bark
-    /// ([`BranchShape::Ribbons`]) and camera-facing fruit
-    /// ([`LodDetail::billboard_fruit`]).
+    /// geometry without stored normals.
     ///
     /// # Panics
     ///
@@ -82,7 +83,7 @@ impl TreeMesh {
         // Bark, one part per branch role.
         if has_normals(&self.branches) {
             let chains = chains(skeleton);
-            let closed = detail.closed && detail.branch_shape == BranchShape::Tube;
+            let closed = detail.closed;
             for role in [Role::Trunk, Role::Limb, Role::Branch] {
                 parts.extend(bark_part(self, &chains, role, closed));
             }

@@ -26,7 +26,7 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core_bevy::instanced::{ExternalMeshes, InstancedScatter};
-use procgena_stone::{StoneDetail, StoneOptions, TextureSize};
+use procgena_stone::{Stone, StoneDetail, StoneOptions, TextureSize};
 
 use super::pools::RenderPools;
 use crate::pool::external_mesh_id;
@@ -176,6 +176,39 @@ fn gpu_pool_lists_every_mesh_for_the_shared_renderer() {
             args[at + INDEX_COUNT_WORD] > 0,
             "mesh {mesh} has no triangles"
         );
+    }
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn gpu_pool_copies_take_the_size_the_gpu_measured() {
+    let positions = [Vec3::new(0.0, 0.0, -8.0), Vec3::new(2.0, 0.0, -8.0)];
+    let mut app = headless_app(&positions);
+    run_until_generated(&mut app);
+    // The main world takes the measured sizes on the next frame.
+    app.update();
+
+    // Each copy's size is its variant's game-level bounding diameter, as the
+    // CPU measures the same rock, to within two grid cells, and smaller than
+    // the bound of any rock from the pool's settings.
+    let pool = {
+        let pools = app.world().resource::<Assets<StonePool>>();
+        pools.iter().next().expect("a pool").1.clone()
+    };
+    let mut scatters = app.world_mut().query::<&InstancedScatter>();
+    let scatter = scatters.single(app.world()).expect("one pool drawer");
+    let cell = pool.options.scale / two_levels().resolution as f32;
+    for copy in scatter.copies.iter() {
+        let cpu = Stone::new(pool.variant_options(copy.slot))
+            .unwrap()
+            .bounding_diameter();
+        assert!(
+            (copy.size - cpu).abs() <= 2.0 * cell,
+            "variant {}: GPU size {} vs CPU {cpu}",
+            copy.slot,
+            copy.size
+        );
+        assert!(copy.size < pool.options.bounding_diameter());
     }
 }
 

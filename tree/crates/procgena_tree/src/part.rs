@@ -164,43 +164,6 @@ impl TreeMesh {
         }
         out
     }
-
-    /// Copies the selected part’s crossed fallback shapes from [`TreeMesh::billboard_cull`].
-    /// Use these when drawing fixed shapes; skip them when rotating the main billboards
-    /// toward the camera.
-    ///
-    /// Bark selections copy their fallback strips, and [`MeshPart::Leaves`]
-    /// copies [`BillboardCull::leaves`](crate::BillboardCull::leaves).
-    /// [`MeshPart::Fruit`], [`MeshPart::Flowers`] and selections without
-    /// crossed shapes return an empty part. [`PartMesh::source_vertices`]
-    /// indexes the matching fallback buffer, not the main mesh.
-    ///
-    /// # Panics
-    ///
-    /// May panic for invalid manually edited spans or indices, as with [`TreeMesh::part`].
-    pub fn billboard_cull_part(&self, part: MeshPart) -> PartMesh {
-        let cull = &self.billboard_cull;
-        let whole = match part {
-            MeshPart::Leaves => Some(&cull.leaves),
-            MeshPart::Fruit | MeshPart::Flowers => return PartMesh::default(),
-            MeshPart::Trunk | MeshPart::Branches | MeshPart::BranchLevel(_) => None,
-        };
-        if let Some(buffers) = whole {
-            return PartMesh {
-                buffers: buffers.clone(),
-                source_vertices: (0..buffers.next_index()).collect(),
-            };
-        }
-
-        let mut out = PartMesh::default();
-        for span in &self.branch_spans {
-            if part.includes_level(span.level) {
-                let (vertices, indices) = (span.cull_vertices.clone(), span.cull_indices.clone());
-                out.append(&cull.branches, vertices, indices);
-            }
-        }
-        out
-    }
 }
 
 impl PartMesh {
@@ -222,10 +185,7 @@ impl PartMesh {
             out.tangents.extend_from_slice(&source.tangents[v.clone()]);
         }
         if !source.wind.is_empty() {
-            out.wind.extend_from_slice(&source.wind[v.clone()]);
-        }
-        if !source.billboard.is_empty() {
-            out.billboard.extend_from_slice(&source.billboard[v]);
+            out.wind.extend_from_slice(&source.wind[v]);
         }
         self.source_vertices.extend(vertices.clone());
 

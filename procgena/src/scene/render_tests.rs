@@ -10,8 +10,9 @@ use bevy::prelude::*;
 use procgena_impostor::ImpostorBakeCamera;
 use procgena_tree_bevy::{TreeScatterAssets, TreeScatterParams};
 
+use super::grove::TALL_TREE;
 use super::headless_scene::{Frame, HeadlessScene};
-use super::tree::IMPOSTOR_DISTANCE;
+use super::tree::impostor_distance;
 use super::{
     ClumpBuildError, ClumpHost, ClumpSettings, ClumpSubject, DeadwoodSubject, Detail,
     EnvironmentSettings, FieldSettings, GroveProgress, GroveSubject, MushroomSubject, OrbitCamera,
@@ -97,12 +98,12 @@ fn idle_scene_draws_the_tree() {
     let mut scene = show::<TreeSubject>(oak());
     let frame = scene.settled_frame();
 
-    // The tree was built and reported, with every detail level.
+    // The tree was built and reported, with both mesh steps.
     let built = tree_event(&mut scene);
     let ViewerEvent::TreeBuilt(Ok(stats)) = built else {
         panic!("tree failed: {built:?}");
     };
-    assert_eq!(stats.levels.len(), super::lod_levels().len());
+    assert_eq!(stats.levels.len(), super::TREE_STEPS.len());
     for level in &stats.levels {
         assert!(level.vertices > 0 && level.triangles > 0, "{stats:?}");
     }
@@ -126,7 +127,7 @@ fn idle_scene_draws_the_tree() {
 #[test]
 #[ignore = "needs a GPU"]
 fn every_chosen_detail_level_draws_the_tree() {
-    for lod in 0..super::lod_levels().len() {
+    for lod in 0..super::TREE_STEPS.len() {
         let mut scene = show::<TreeSubject>(oak());
         scene.send(ViewerCommand::SetDetail(Detail::Level(lod)));
         let coverage = sky_coverage(&scene.settled_frame());
@@ -142,7 +143,11 @@ fn every_chosen_detail_level_draws_the_tree() {
             .into_iter()
             .filter(|event| matches!(event, ViewerEvent::LodShown(_)))
             .collect();
-        assert_eq!(shown.last(), Some(&ViewerEvent::LodShown(lod)), "{shown:?}");
+        assert_eq!(
+            shown.last(),
+            Some(&ViewerEvent::LodShown(Some(lod))),
+            "{shown:?}"
+        );
     }
 }
 
@@ -956,16 +961,16 @@ fn start_far_grove(impostors: bool) -> HeadlessScene {
 }
 
 /// Seen from beyond the impostor distance, the grove is drawn by its
-/// impostors alone, and covers about as much of the view as its farthest
-/// mesh level does from the same place.
+/// impostors alone, and covers about as much of the view as its lower
+/// meshes do from the same place.
 #[test]
 #[ignore = "needs a GPU"]
 fn far_groves_are_drawn_as_impostors() {
-    // Every tree is farther than where the meshes have faded out (110% of
-    // the impostor distance). Trees stand up to half the grove's diagonal
-    // from the point the camera orbits.
+    // Every tree, even a tall one, is farther than where its meshes have
+    // faded out (110% of its impostor distance). Trees stand up to half the
+    // grove's diagonal from the point the camera orbits.
     let reach = FAR_GROVE_SIZE * std::f32::consts::FRAC_1_SQRT_2 + 5.0;
-    let far = 1.1 * IMPOSTOR_DISTANCE + reach;
+    let far = 1.1 * impostor_distance(TALL_TREE) + reach;
 
     // Every tree shape has its impostor.
     let mut scene = start_far_grove(true);
@@ -987,7 +992,7 @@ fn far_groves_are_drawn_as_impostors() {
         covered * pixels
     );
 
-    // They, not the farthest mesh level, are what is drawn there: drawing
+    // They, not the lower meshes, are what is drawn there: drawing
     // the meshes instead changes a good part of the grove's pixels.
     let (meshes, _) = grove_view_at(&mut start_far_grove(false), far);
     let changed = changed_share(&impostors, &meshes);

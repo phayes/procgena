@@ -6,6 +6,7 @@ mod fruit;
 use std::f32::consts::TAU;
 
 use glam::{Quat, Vec3, Vec4};
+use procgena_core::chain::LowerDetail;
 use serde::{Deserialize, Serialize};
 
 use crate::skeleton::polyline_length;
@@ -72,7 +73,12 @@ impl FruitMesh {
     }
 }
 
-/// How much geometry a cluster mesh uses: one level of detail.
+/// How much geometry a cluster mesh uses.
+///
+/// A preset's [`FruitOptions::game_level`] is one of these: the cluster's
+/// real geometry. The coarser mesh drawn when the cluster is small on
+/// screen is derived from it ([`LowerDetail::lower`]). The default is
+/// [`SIMPLE`](Self::SIMPLE); [`FULL`](Self::FULL) is the most detailed.
 ///
 /// When deserialized, omitted fields use their defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -96,15 +102,45 @@ pub struct ClusterDetail {
     pub flat_item_size: f32,
 }
 
-impl Default for ClusterDetail {
+impl ClusterDetail {
     /// Full detail: every item and stalk, at full shape detail.
+    pub const FULL: Self = Self {
+        item_detail: ItemDetail::Full,
+        item_stride: 1,
+        item_scale: 1.0,
+        stalks: true,
+        flat_item_size: 0.0,
+    };
+
+    /// Every item and stalk, at [`ItemDetail::Simple`]: fewer sides, and no
+    /// calyx. The default game level.
+    pub const SIMPLE: Self = Self {
+        item_detail: ItemDetail::Simple,
+        ..Self::FULL
+    };
+}
+
+impl Default for ClusterDetail {
+    /// [`ClusterDetail::SIMPLE`], the default game level of every cluster.
     fn default() -> Self {
+        Self::SIMPLE
+    }
+}
+
+impl LowerDetail for ClusterDetail {
+    /// One [`ItemDetail`] step coarser (no coarser than
+    /// [`Minimal`](ItemDetail::Minimal)), every second kept item drawn 1.25
+    /// times as large, with the same stalks and flat items.
+    fn lower(&self) -> Self {
+        let item_detail = match self.item_detail {
+            ItemDetail::Full => ItemDetail::Simple,
+            ItemDetail::Simple | ItemDetail::Minimal => ItemDetail::Minimal,
+        };
         Self {
-            item_detail: ItemDetail::Full,
-            item_stride: 1,
-            item_scale: 1.0,
-            stalks: true,
-            flat_item_size: 0.0,
+            item_detail,
+            item_stride: self.item_stride.max(1) * 2,
+            item_scale: self.item_scale * 1.25,
+            ..*self
         }
     }
 }

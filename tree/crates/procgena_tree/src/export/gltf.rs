@@ -29,8 +29,8 @@ use super::{TextureMap, TextureRef, export_parts, scaled_bark_uvs};
 use procgena_fruit::FruitMaterial;
 
 use crate::{
-    BarkMaterial, BarkUvMode, BranchGrouping, BranchShape, LeafMaterial, MeshBuffers, MeshPart,
-    PartMesh, Rig, SkinWeights, TreeMesh, TreeOptions, leaf_has_normal_map,
+    BarkMaterial, BarkUvMode, BranchGrouping, LeafMaterial, MeshPart, PartMesh, Rig, SkinWeights,
+    TreeMesh, TreeOptions, leaf_has_normal_map,
 };
 
 /// Callback returning a texture image URI, or `None` to omit that map.
@@ -169,9 +169,9 @@ impl std::error::Error for GltfError {
 
 /// Returns binary `.glb` file contents for the supplied tree meshes.
 ///
-/// Pass at least one mesh, with the full-detail mesh first and simpler versions
-/// in decreasing detail order. [`Tree::lod_meshes`](crate::Tree::lod_meshes) can
-/// supply these versions. With multiple meshes, part names end in `_LOD0`,
+/// Pass at least one mesh, with the most detailed mesh first and simpler versions
+/// in decreasing detail order, such as [`Tree::mesh`](crate::Tree::mesh) and
+/// [`Tree::lower_mesh`](crate::Tree::lower_mesh). With multiple meshes, part names end in `_LOD0`,
 /// `_LOD1`, and so on. These names identify detail levels but do not configure
 /// distance-based switching; a viewer may display all versions at once.
 ///
@@ -214,8 +214,6 @@ pub fn to_glb(
 /// Wind attributes and joint assignments are optional. Bark texture
 /// coordinates already include the texture scale. Bark is opaque; leaves are
 /// visible from both sides and hide pixels below the configured alpha threshold.
-/// Meshes with [`BranchShape::Ribbons`] use the `bark_two_sided` material
-/// for bark, so the flat strips remain visible from either side.
 /// The bark roughness image supplies the green channel of glTF's combined
 /// metallic-roughness texture; a zero metallic factor keeps bark non-metallic.
 ///
@@ -226,42 +224,6 @@ pub fn to_glb(
 /// A supplied rig adds joints that can move the bark and leaves in another tool.
 /// It includes no animation clips. Fruit and flowers are not attached to these
 /// joints and remain in place when the joints move.
-///
-/// # Billboards
-///
-/// Camera-facing shapes require a renderer that reads the custom billboard data;
-/// ordinary glTF viewers draw their fixed stored positions. Parts with
-/// [`MeshBuffers::billboard`] omit `TANGENT`, and bark and fruit also omit
-/// `NORMAL`; leaves keep one `NORMAL` per card for lighting the turned card.
-/// They include:
-///
-/// - `_BILLBOARD_PIVOT`: a VEC4 containing `(pivot.x, pivot.y, pivot.z, offset[0])`.
-/// - `_BILLBOARD_AXIS`: a VEC4 containing `(axis.x, axis.y, axis.z, offset[1])`.
-///
-/// See [`BillboardVertex`](crate::BillboardVertex) for reconstructing positions.
-/// The node’s `extras` identifies the attributes, rotation mode and optional fallback:
-///
-/// ```json
-/// {"billboard": {"mode": "axis", "pivot": "_BILLBOARD_PIVOT", "axis": "_BILLBOARD_AXIS",
-///                "partner": "branches_LOD3_billboard_cull"}}
-/// ```
-///
-/// `mode` is `"axis"` for rotation around an axis or `"camera"` for full camera-facing
-/// rotation. When present, `partner` names a sibling node containing the crossed
-/// fallback shapes from [`TreeMesh::billboard_cull`]. Its name ends in
-/// `_billboard_cull`, and its extras are `{"billboard_cull": {"partner": "<part>"}}`.
-/// It shares the main part’s material and carries matching wind and joint data
-/// when those are exported.
-///
-/// Renderers that rotate billboards should skip these fallback nodes. Other viewers
-/// should draw both. Joint animation normally moves only `POSITION`; combining it
-/// with billboards requires the renderer to transform the custom pivots and axes too.
-/// In Bevy, enable `procgena_tree_bevy`’s `gltf` feature, configure `GltfPlugin` with
-/// `procgena_tree_bevy::add_tree_gltf_attributes`, and add `procgena_tree_bevy::TreePlugin`
-/// after it to animate these billboards when loading a scene. Export with wind
-/// data enabled; meshes using animation joints keep their original shapes.
-/// Successfully converted billboard nodes no longer need their fallback partners,
-/// which are removed from the loaded scene.
 ///
 /// # Errors
 ///
@@ -316,18 +278,6 @@ fn build(
     });
 
     let bark = b.bark_material(options);
-    // Give ribbon meshes a two-sided copy of the bark material, reusing its textures.
-    let has_ribbons = |mesh: &TreeMesh| {
-        mesh.branch_spans
-            .iter()
-            .any(|span| span.shape == BranchShape::Ribbons)
-    };
-    let two_sided_bark = meshes.iter().any(has_ribbons).then(|| {
-        let mut material = b.root.materials[bark.value()].clone();
-        material.name = Some("bark_two_sided".to_owned());
-        material.double_sided = true;
-        b.root.push(material)
-    });
     let leaves = b.leaf_material(options);
     // Add fruit and flower materials only if at least one exported mesh needs them.
     let has = |part: MeshPart| {
@@ -371,56 +321,24 @@ fn build(
                 MeshPart::Leaves => leaves,
                 MeshPart::Fruit => fruit.expect("fruit material exists for fruit parts"),
                 MeshPart::Flowers => flowers.expect("flower material exists for flower parts"),
-                MeshPart::Trunk | MeshPart::Branches | MeshPart::BranchLevel(_) => {
-                    match two_sided_bark.filter(|_| has_ribbons(mesh)) {
-                        Some(two_sided) => two_sided,
-                        None => bark,
-                    }
-                }
+                MeshPart::Trunk | MeshPart::Branches | MeshPart::BranchLevel(_) => bark,
             };
             // Attach only bark and leaves to animation joints; fruit and flowers remain fixed.
             let skinned = part.is_bark() || part.is_leaves();
-            let (main_skin, cull_skin) = match (weights.as_ref(), part) {
-                (Some(w), MeshPart::Leaves) => (Some(&w.leaves), Some(&w.leaves_billboard_cull)),
-                (Some(w), p) if p.is_bark() => {
-                    (Some(&w.branches), Some(&w.branches_billboard_cull))
-                }
-                _ => (None, None),
+            let part_skin = match (weights.as_ref(), part) {
+                (Some(w), MeshPart::Leaves) => Some(&w.leaves),
+                (Some(w), p) if p.is_bark() => Some(&w.branches),
+                _ => None,
             };
             let main = mesh.part(part);
-            let cull = mesh.billboard_cull_part(part);
-            let cull_name = format!("{name}_billboard_cull");
-            let partner = (!cull.buffers.indices.is_empty()).then_some(cull_name.as_str());
-            let extras = billboard_extras(&main.buffers, partner)?;
-
             let mesh_index =
-                b.part_mesh(&name, part, &main, options, main_skin, material, gltf.wind);
+                b.part_mesh(&name, part, &main, options, part_skin, material, gltf.wind);
             scene.push(b.root.push(json::Node {
                 name: Some(name.clone()),
                 mesh: Some(mesh_index),
                 skin: skin.filter(|_| skinned),
-                extras,
                 ..Default::default()
             }));
-
-            // Export crossed fallback shapes as sibling nodes. Their partner tags
-            // let renderers that rotate billboards identify and skip them.
-            if partner.is_some() {
-                let extras = format!(
-                    "{{\"billboard_cull\":{{\"partner\":{}}}}}",
-                    serde_json::Value::from(name.as_str())
-                );
-                let mesh_index = b.part_mesh(
-                    &cull_name, part, &cull, options, cull_skin, material, gltf.wind,
-                );
-                scene.push(b.root.push(json::Node {
-                    name: Some(cull_name),
-                    mesh: Some(mesh_index),
-                    skin: skin.filter(|_| skinned),
-                    extras: Some(RawValue::from_string(extras).map_err(GltfError::Json)?),
-                    ..Default::default()
-                }));
-            }
         }
     }
     let scene = b.root.push(json::Scene {
@@ -439,35 +357,6 @@ fn build(
         b.root.buffers[0].byte_length = USize64(b.bin.len() as u64);
     }
     Ok((b.root, b.bin))
-}
-
-/// Returns the billboard attribute names and rotation mode for node `extras`.
-/// Returns `None` without billboard data. If supplied, `partner` names the
-/// sibling node containing crossed fallback shapes.
-fn billboard_extras(
-    buffers: &MeshBuffers,
-    partner: Option<&str>,
-) -> Result<Option<Box<RawValue>>, GltfError> {
-    let Some(first) = buffers.billboard.first() else {
-        return Ok(None);
-    };
-    let mode = if first.axis == [0.0; 3] {
-        "camera"
-    } else {
-        "axis"
-    };
-    let mut billboard = serde_json::json!({
-        "mode": mode,
-        "pivot": "_BILLBOARD_PIVOT",
-        "axis": "_BILLBOARD_AXIS",
-    });
-    if let Some(partner) = partner {
-        billboard["partner"] = partner.into();
-    }
-    let extras = serde_json::json!({ "billboard": billboard }).to_string();
-    RawValue::from_string(extras)
-        .map(Some)
-        .map_err(GltfError::Json)
 }
 
 /// Packages scene JSON and optional binary data into a GLB file, checking total size.
@@ -608,7 +497,7 @@ impl Builder<'_> {
         };
         let uvs: Vec<[f32; 2]> = uvs.into_iter().map(|[u, v]| [u, 1.0 - v]).collect();
 
-        // Omit absent attributes. Flat-shaded bark and billboard bark and fruit have no normals,
+        // Omit absent attributes. Flat-shaded bark and buffers without normals get none,
         // so ordinary glTF viewers calculate face normals. Include tangents only
         // when normals are present.
         let smooth = (!part.is_bark() || !options.bark.flat_shading) && !buffers.normals.is_empty();
@@ -636,23 +525,6 @@ impl Builder<'_> {
         if wind && !buffers.wind.is_empty() {
             let accessor = self.floats(&buffers.wind, Type::Vec4);
             attributes.insert(Valid(Semantic::Extras("WIND".to_owned())), accessor);
-        }
-        // Store the pivot and horizontal offset in one VEC4, and the rotation axis
-        // and vertical offset in another, matching the billboard shader inputs.
-        if !buffers.billboard.is_empty() {
-            let (pivots, axes): (Vec<[f32; 4]>, Vec<[f32; 4]>) = buffers
-                .billboard
-                .iter()
-                .map(|b| {
-                    let [px, py, pz] = b.pivot;
-                    let [ax, ay, az] = b.axis;
-                    ([px, py, pz, b.offset[0]], [ax, ay, az, b.offset[1]])
-                })
-                .unzip();
-            let pivot = self.floats(&pivots, Type::Vec4);
-            attributes.insert(Valid(Semantic::Extras("BILLBOARD_PIVOT".to_owned())), pivot);
-            let axis = self.floats(&axes, Type::Vec4);
-            attributes.insert(Valid(Semantic::Extras("BILLBOARD_AXIS".to_owned())), axis);
         }
         // Preserve fruit and flower colours on each vertex, including opacity,
         // in the linear colour format required by glTF.

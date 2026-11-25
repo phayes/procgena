@@ -14,28 +14,27 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 use procgena_core::SpecimenId;
+use procgena_core::chain::{DistanceChain, Step};
 use procgena_core_bevy::instanced::attached_vertex;
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, IMPOSTOR_PREPASS_SHADER, IMPOSTOR_SHADER, Impostor,
-    ImpostorKey, ImpostorLevel, ImpostorRequest, ImpostorUniform,
+    ImpostorKey, ImpostorRequest, ImpostorUniform, frame_size_for,
 };
 use procgena_tree::ClusterPart;
-use procgena_tree::procgena_fruit::default_lod as fruit_lod;
 
 use crate::clusters::TreeClusters;
 use crate::material::{TreeMaterial, WindUniform, bake_copy};
 
-/// The impostor tree fruit and flower clusters use unless told otherwise:
-/// from 20 m for a cluster 10 cm across (scaled with each cluster's size,
-/// like its other levels), crossfading over 10% on each side, baked from
-/// fruit level 1 as 6 × 6 views of 32 pixels seen from every direction. It
-/// casts no shadows, like the fruit level before it. Set it on
-/// [`TreePlugin::fruit_impostor`](crate::TreePlugin::fruit_impostor).
-pub fn default_fruit_impostor() -> ImpostorLevel {
-    ImpostorLevel {
-        bake: BakeSettings::new(6, 32),
-        ..ImpostorLevel::new(20.0, 0.1, 1)
-    }
+/// How tree fruit and flower clusters' impostors are baked unless told
+/// otherwise: from each cluster's game-level mesh, as 6 × 6 views seen from
+/// every direction, each large enough for the biggest size on screen the
+/// shared [`DistanceChain`] shows an impostor at (256 pixels with the
+/// default chain). A cluster is drawn as its impostor when it is small on
+/// screen, until its tree's impostor takes over. It casts no shadows. Set it
+/// on [`TreePlugin::fruit_impostor`](crate::TreePlugin::fruit_impostor).
+pub fn default_fruit_impostor() -> BakeSettings {
+    let frame = frame_size_for(DistanceChain::DEFAULT.largest_impostor_size());
+    BakeSettings::new(6, frame)
 }
 
 /// Vertex shader of attached cluster impostors in the forward pass.
@@ -149,47 +148,40 @@ pub(crate) fn fruit_impostor_material(
 }
 
 /// The impostor key of cluster specimen `specimen`, one of a tree's
-/// `part` clusters, baked with `impostor`'s settings from its baked fruit
-/// level's detail, and this crate's version. The cluster's look on trees
-/// comes from the part's material, so the part is in the key.
+/// `part` clusters, baked with `bake` from its game level, whose hash is
+/// `detail`, and this crate's version. The cluster's look on trees comes
+/// from the part's material, so the part is in the key.
 pub(crate) fn fruit_key(
     specimen: SpecimenId,
     part: ClusterPart,
-    impostor: ImpostorLevel,
+    bake: BakeSettings,
+    detail: u64,
 ) -> ImpostorKey {
     let part = match part {
         ClusterPart::Fruit => "fruit",
         ClusterPart::Flowers => "flowers",
     };
-    let level = format!("{:?}", fruit_lod().levels.get(impostor.baked_level));
     ImpostorKey::specimen(
         specimen,
-        impostor.bake,
+        bake,
         &[
             part.as_bytes(),
-            level.as_bytes(),
+            &detail.to_le_bytes(),
             env!("CARGO_PKG_VERSION").as_bytes(),
         ],
     )
 }
 
 /// The impostor request for slot `slot` of `clusters` under key `key`: the
-/// specimen's mesh at `impostor`'s baked fruit level, with bake copies of
-/// the clusters' material. `None` when that level has no mesh or the
-/// material is missing.
+/// specimen's game-level mesh, with bake copies of the clusters' material.
+/// `None` when that mesh is empty or the material is missing.
 pub(crate) fn fruit_request(
     key: ImpostorKey,
     clusters: &TreeClusters,
     slot: usize,
-    impostor: ImpostorLevel,
     materials: &mut Assets<TreeMaterial>,
 ) -> Option<ImpostorRequest> {
-    let mesh = clusters
-        .specimens
-        .get(slot)?
-        .levels
-        .get(impostor.baked_level)?
-        .clone()?;
+    let mesh = clusters.specimens.get(slot)?.levels[Step::Game.index()].clone()?;
     let source = materials.get(&clusters.material)?.clone();
     let wait_for: Vec<UntypedAssetId> = source
         .base

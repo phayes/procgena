@@ -80,7 +80,7 @@ fn detail(item_detail: ItemDetail, item_stride: u32, item_scale: f32) -> Cluster
         item_detail,
         item_stride,
         item_scale,
-        ..ClusterDetail::default()
+        ..ClusterDetail::FULL
     }
 }
 
@@ -202,9 +202,9 @@ fn unripe_fruit_is_smaller_than_ripe_fruit() {
             .fold(0.0, f32::max)
     };
     options.maturity = 0.0;
-    let unripe = reach(mesh(&options, &ClusterDetail::default()));
+    let unripe = reach(mesh(&options, &ClusterDetail::FULL));
     options.maturity = 1.0;
-    let ripe = reach(mesh(&options, &ClusterDetail::default()));
+    let ripe = reach(mesh(&options, &ClusterDetail::FULL));
     // At maturity zero, every fruit dimension is 30% of its ripe value.
     assert!((unripe / ripe - 0.3).abs() < 1e-3, "{unripe} vs {ripe}");
 }
@@ -221,7 +221,7 @@ fn fruit_colour_ripens_from_unripe_to_ripe() {
     shape.calyx = false;
     for (maturity, expected) in [(0.0, [0.0, 1.0, 0.0, 1.0]), (1.0, [1.0, 0.0, 0.0, 1.0])] {
         options.maturity = maturity;
-        let mesh = mesh(&options, &ClusterDetail::default());
+        let mesh = mesh(&options, &ClusterDetail::FULL);
         assert!(!mesh.colors.is_empty());
         assert!(mesh.colors.iter().all(|c| *c == expected), "{maturity}");
     }
@@ -238,7 +238,7 @@ fn blush_colours_the_upper_side_of_ripe_fruit() {
     shape.blush_amount = 1.0;
     shape.stem_length = 0.0;
     shape.calyx = false;
-    let mesh = mesh(&options, &ClusterDetail::default());
+    let mesh = mesh(&options, &ClusterDetail::FULL);
 
     // Compare the skin at the most upward- and downward-facing vertices.
     let up = |i: &usize| -mesh.normals[*i][1];
@@ -264,7 +264,7 @@ fn lobes_change_the_outline() {
         shape.lobes = lobes;
         shape.lobe_depth = 0.4;
         let fruit = grow(&options);
-        let mesh = fruit.mesh(&ClusterDetail::default());
+        let mesh = fruit.mesh(&ClusterDetail::FULL);
 
         let item = fruit.skeleton().items[0];
         let to_local = item.orientation.inverse();
@@ -294,16 +294,16 @@ fn lobes_change_the_outline() {
 fn calyx_adds_one_triangle_per_sepal() {
     let mut options = fruit(ClusterKind::Umbel);
     fruit_shape(&mut options).calyx = false;
-    let without = mesh(&options, &ClusterDetail::default()).triangle_count();
+    let without = mesh(&options, &ClusterDetail::FULL).triangle_count();
     fruit_shape(&mut options).calyx = true;
-    let with = mesh(&options, &ClusterDetail::default()).triangle_count();
+    let with = mesh(&options, &ClusterDetail::FULL).triangle_count();
     assert_eq!(with - without, 5 * 5);
 }
 
 #[test]
 fn flutter_grows_along_the_stalks() {
     for options in [fruit(ClusterKind::Raceme), flowers(ClusterKind::Raceme)] {
-        let mesh = mesh(&options, &ClusterDetail::default());
+        let mesh = mesh(&options, &ClusterDetail::FULL);
         // Zero at the stem base, one at the farthest point.
         assert_eq!(mesh.flutter[0], 0.0);
         assert_eq!(mesh.flutter.iter().copied().fold(0.0, f32::max), 1.0);
@@ -314,9 +314,9 @@ fn flutter_grows_along_the_stalks() {
 fn a_bud_is_smaller_than_an_open_flower() {
     let mut options = bare_single(flowers(ClusterKind::Single));
     options.maturity = 0.0;
-    let bud = extent(&mesh(&options, &ClusterDetail::default()));
+    let bud = extent(&mesh(&options, &ClusterDetail::FULL));
     options.maturity = 0.5;
-    let open = extent(&mesh(&options, &ClusterDetail::default()));
+    let open = extent(&mesh(&options, &ClusterDetail::FULL));
     assert!(bud < 0.8 * open, "bud {bud}, open {open}");
 }
 
@@ -327,7 +327,7 @@ fn each_petal_is_a_separate_piece() {
     shape.petal_count = 5;
     shape.rings = 2;
     shape.center_size = 0.0;
-    assert_eq!(pieces(&mesh(&options, &ClusterDetail::default())), 10);
+    assert_eq!(pieces(&mesh(&options, &ClusterDetail::FULL)), 10);
 }
 
 #[test]
@@ -345,7 +345,7 @@ fn flower_colour_follows_bud_open_and_faded_stages() {
         (1.0, [0.0, 0.0, 1.0, 1.0]),
     ] {
         options.maturity = maturity;
-        let mesh = mesh(&options, &ClusterDetail::default());
+        let mesh = mesh(&options, &ClusterDetail::FULL);
         assert!(!mesh.colors.is_empty());
         assert!(mesh.colors.iter().all(|c| *c == expected), "{maturity}");
     }
@@ -358,7 +358,7 @@ fn faded_petals_droop_below_open_petals() {
         let mut options = bare_single(flowers(ClusterKind::Single));
         flower_shape(&mut options).center_size = 0.0;
         options.maturity = maturity;
-        let mesh = mesh(&options, &ClusterDetail::default());
+        let mesh = mesh(&options, &ClusterDetail::FULL);
         let sum: f32 = mesh.positions.iter().map(|p| p[1]).sum();
         sum / mesh.vertex_count() as f32
     };
@@ -390,8 +390,8 @@ fn catkins_ignore_petal_settings() {
         colours.dedup();
         colours
     };
-    let original = mesh(&options, &ClusterDetail::default());
-    let varied = mesh(&changed, &ClusterDetail::default());
+    let original = mesh(&options, &ClusterDetail::FULL);
+    let varied = mesh(&changed, &ClusterDetail::FULL);
     assert!(original.vertex_count() > 0);
     assert_eq!(original.triangle_count(), varied.triangle_count());
     assert_eq!(colours(&original), colours(&varied));
@@ -400,7 +400,7 @@ fn catkins_ignore_petal_settings() {
 #[test]
 fn a_single_flower_opens_above_its_attachment() {
     let options = bare_single(flowers(ClusterKind::Single));
-    let mesh = mesh(&options, &ClusterDetail::default());
+    let mesh = mesh(&options, &ClusterDetail::FULL);
     let lowest = mesh.positions.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
     assert!(lowest >= -1e-4, "{lowest} below the attachment");
 }
@@ -420,7 +420,7 @@ fn lower_detail_uses_fewer_triangles() {
 fn item_stride_drops_bare_stalks_and_keeps_flutter() {
     // A stride of two keeps items 0, 2 and 4 and their own stalks.
     for options in [fruit(ClusterKind::Umbel), flowers(ClusterKind::Umbel)] {
-        let all = mesh(&options, &ClusterDetail::default());
+        let all = mesh(&options, &ClusterDetail::FULL);
         let kept = mesh(&options, &detail(ItemDetail::Full, 2, 1.0));
         assert_eq!(all.vertex_count() * 3, kept.vertex_count() * 5);
     }
@@ -428,7 +428,7 @@ fn item_stride_drops_bare_stalks_and_keeps_flutter() {
     // Thinning keeps the flutter values of the geometry it keeps.
     for kind in KINDS {
         for options in [fruit(kind), flowers(kind)] {
-            let all = mesh(&options, &ClusterDetail::default());
+            let all = mesh(&options, &ClusterDetail::FULL);
             let kept = mesh(&options, &detail(ItemDetail::Simple, 2, 1.25));
             for f in &kept.flutter {
                 assert!(all.flutter.contains(f), "{kind:?}: new flutter {f}");
@@ -539,12 +539,12 @@ fn stalks_off_keeps_the_items_without_their_stalks() {
         ClusterKind::Panicle,
     ] {
         for options in [fruit(kind), flowers(kind)] {
-            let with = mesh(&options, &ClusterDetail::default());
+            let with = mesh(&options, &ClusterDetail::FULL);
             let without = mesh(
                 &options,
                 &ClusterDetail {
                     stalks: false,
-                    ..ClusterDetail::default()
+                    ..ClusterDetail::FULL
                 },
             );
             assert!(without.triangle_count() > 0, "{kind:?}");
@@ -560,7 +560,7 @@ fn flat(flat_item_size: f32) -> ClusterDetail {
         item_stride: 2,
         item_scale: 1.25,
         flat_item_size,
-        ..ClusterDetail::default()
+        ..ClusterDetail::FULL
     }
 }
 
@@ -660,7 +660,7 @@ fn flat_items_still_follow_item_scale() {
                 item_detail: ItemDetail::Minimal,
                 item_scale,
                 flat_item_size: 0.75,
-                ..ClusterDetail::default()
+                ..ClusterDetail::FULL
             };
             extent(&mesh(&options, &detail))
         };

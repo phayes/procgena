@@ -8,6 +8,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ClusterDetail;
+
 /// Settings for one fruit or flower cluster, such as an apple on its
 /// stalk, a dogwood bloom or a spray of willow catkins.
 ///
@@ -49,6 +51,15 @@ pub struct FruitOptions {
     /// pool differ. All zero (the default) makes every item alike apart
     /// from its size.
     pub variation: Variation,
+    /// The cluster's real geometry: the detail it is drawn at up close and
+    /// its impostor is baked from. A coarser mesh, derived from it, is drawn
+    /// when the cluster is small on screen. Defaults to
+    /// [`ClusterDetail::SIMPLE`] when left out.
+    ///
+    /// It is not part of the cluster's name ([`pool_id`](Self::pool_id)):
+    /// changing it changes how finely each cluster is built, not its shape.
+    #[serde(default)]
+    pub game_level: ClusterDetail,
 }
 
 /// The direction a cluster faces on its host, before the host's random tilt.
@@ -285,6 +296,7 @@ impl Default for FruitOptions {
             item: ItemShape::Fruit(FruitShape::default()),
             maturity: 1.0,
             variation: Variation::default(),
+            game_level: ClusterDetail::default(),
         }
     }
 }
@@ -453,7 +465,17 @@ impl FruitOptions {
         v.unit(s.hue_spread, "variation.hue_spread")?;
         v.unit(s.blush_spread, "variation.blush_spread")?;
         v.unit(s.shape_jitter, "variation.shape_jitter")?;
-        v.unit(s.stem_curve_jitter, "variation.stem_curve_jitter")
+        v.unit(s.stem_curve_jitter, "variation.stem_curve_jitter")?;
+
+        // The game level's detail.
+        let g = &self.game_level;
+        v.check(g.item_stride >= 1, "game_level.item_stride", "at least 1")?;
+        v.check(
+            g.item_scale > 0.0 && g.item_scale.is_finite(),
+            "game_level.item_scale",
+            "a finite value above 0",
+        )?;
+        v.non_negative(g.flat_item_size, "game_level.flat_item_size")
     }
 }
 

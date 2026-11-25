@@ -12,16 +12,23 @@
 //! one cluster can be drawn at many places on its host.
 //!
 //! ```
-//! use procgena_fruit::{Fruit, FruitPreset, default_lod};
+//! use procgena_fruit::{Fruit, FruitPreset};
 //!
 //! let catkins = Fruit::from_preset(FruitPreset::pussy_willow_catkin())?;
-//! let lod = default_lod();
-//! let factor = lod.factor(catkins.size(), procgena_core::Quality::High);
-//! for (level, mesh) in catkins.lod_meshes(&lod) {
-//!     println!("from {} m: {} triangles", level.distance * factor, mesh.triangle_count());
-//! }
+//! let meshes = catkins.meshes();
+//! println!("game level: {} triangles", meshes.game.triangle_count());
+//! println!("lower mesh: {} triangles", meshes.lower.triangle_count());
 //! # Ok::<(), procgena_fruit::OptionsError>(())
 //! ```
+//!
+//! ## Drawing
+//!
+//! A cluster's [`game_level`](FruitOptions::game_level) is its real
+//! geometry. Like every asset, it is drawn through the shared chain of
+//! `procgena_core::chain`: the game-level mesh, a coarser mesh derived from
+//! it, then a baked impostor, switching by the cluster's size on screen. A
+//! cluster on a host has no cull of its own: it is drawn until the host's
+//! impostor, which already shows it, takes over.
 //!
 //! ## Pools and slots
 //!
@@ -56,7 +63,6 @@ mod content_hash;
 #[cfg(any(feature = "export-obj", feature = "export-gltf"))]
 pub mod export;
 mod fruit;
-mod lod;
 mod material;
 mod mesh;
 mod options;
@@ -66,7 +72,6 @@ mod specimen;
 
 pub use content_hash::FRUIT_KIND;
 pub use fruit::{Fruit, FruitPart, ITEM_PART, STALK_PART};
-pub use lod::{FRUIT_LOD_REFERENCE_SIZE, FruitLod, default_lod};
 pub use material::FruitMaterial;
 pub use mesh::{ClusterDetail, FruitMesh, ItemDetail};
 pub use options::{

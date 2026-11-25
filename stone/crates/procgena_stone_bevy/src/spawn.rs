@@ -203,6 +203,8 @@ struct LevelMesh {
 struct GeneratedMeshes {
     levels: [LevelMesh; 2],
     embed_depth: f32,
+    /// The rock's size: its game-level mesh's bounding diameter in metres.
+    size: f32,
     /// The rock as a tagged specimen, for generators that grow on it.
     specimen: Arc<Specimen>,
 }
@@ -416,6 +418,7 @@ fn generate(options: &StoneOptions) -> TaskOutput {
     Ok(GeneratedMeshes {
         levels,
         embed_depth: stone.embed_depth(),
+        size: stone.bounding_diameter(),
         specimen: Arc::new(stone.specimen()),
     })
 }
@@ -441,6 +444,7 @@ pub(crate) fn finish_generation(
         let GeneratedMeshes {
             levels,
             embed_depth,
+            size,
             specimen,
         } = match output {
             Ok(generated) => generated,
@@ -457,7 +461,7 @@ pub(crate) fn finish_generation(
         // colours.
         let compression = settings.texture_compression;
         let [game, lower] = levels;
-        let [game_range, lower_range] = mesh_ranges(options, quality.0);
+        let [game_range, lower_range] = mesh_ranges(size, quality.0);
         let level_assets = [(game, game_range), (lower, lower_range)].map(|(l, range)| {
             let size = l.level.texture_size;
             let set = &options.material.texture;
@@ -481,7 +485,7 @@ pub(crate) fn finish_generation(
                 material: material.clone(),
             }
         });
-        let impostor_ranges = settings.impostor.map(|_| chain_ranges(options, quality.0));
+        let impostor_ranges = settings.impostor.map(|_| chain_ranges(size, quality.0));
         *entry = Entry::Ready(Arc::new(Generated {
             levels: level_assets,
             impostor_ranges,
@@ -492,19 +496,19 @@ pub(crate) fn finish_generation(
 }
 
 /// The fade bands of each step of the shared [`DistanceChain`], by
-/// [`Step::index`], for a rock built from `options` seen through a
-/// [`ViewScale::DEFAULT`] camera at `quality`. The rock's size on screen is
-/// measured by its [`bounding_diameter`](StoneOptions::bounding_diameter).
-pub(crate) fn chain_ranges(options: &StoneOptions, quality: Quality) -> [LodRange; 3] {
-    let factor = DistanceChain::factor(options.bounding_diameter(), ViewScale::DEFAULT);
+/// [`Step::index`], for a rock `size` metres across (its
+/// [`Stone::bounding_diameter`]) seen through a [`ViewScale::DEFAULT`]
+/// camera at `quality`.
+pub(crate) fn chain_ranges(size: f32, quality: Quality) -> [LodRange; 3] {
+    let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
     DistanceChain::DEFAULT.ranges(factor, quality)
 }
 
 /// The fade bands of the game-level and lower meshes of a rock with no
 /// impostor: like [`chain_ranges`], but the lower mesh is drawn on until the
 /// cull, where the impostor would have ended.
-pub(crate) fn mesh_ranges(options: &StoneOptions, quality: Quality) -> [LodRange; 2] {
-    let [game, lower, impostor] = chain_ranges(options, quality);
+pub(crate) fn mesh_ranges(size: f32, quality: Quality) -> [LodRange; 2] {
+    let [game, lower, impostor] = chain_ranges(size, quality);
     let lower = LodRange {
         fade_in: lower.fade_in,
         fade_out: impostor.fade_out,
@@ -944,10 +948,10 @@ mod tests {
         );
     }
 
-    /// How much of the screen's height a rock built from `options` covers,
+    /// How much of the screen's height a rock `size` metres across covers,
     /// `distance` metres from a default camera.
-    fn on_screen(options: &StoneOptions, distance: f32) -> f32 {
-        options.bounding_diameter() * ViewScale::DEFAULT.get() / distance
+    fn on_screen(size: f32, distance: f32) -> f32 {
+        size * ViewScale::DEFAULT.get() / distance
     }
 
     /// Whether `a` and `b` match to within a millionth of `b`.
@@ -958,8 +962,10 @@ mod tests {
     #[test]
     fn steps_hand_over_at_their_size_on_screen() {
         let chain = DistanceChain::DEFAULT;
-        let options = StoneOptions::default();
-        let [game, lower, impostor] = chain_ranges(&options, Quality::High);
+        let size = Stone::new(StoneOptions::default())
+            .unwrap()
+            .bounding_diameter();
+        let [game, lower, impostor] = chain_ranges(size, Quality::High);
 
         // The game level never fades in; each step fades out where the next
         // fades in, at the middle of its band the rock covers the chain's
@@ -969,35 +975,31 @@ mod tests {
         assert_eq!(lower.fade_out, impostor.fade_in);
         let middle = |band: &std::ops::Range<f32>| (band.start + band.end) / 2.0;
         assert!(close(
-            on_screen(&options, middle(&lower.fade_in)),
+            on_screen(size, middle(&lower.fade_in)),
             chain.lower_below
         ));
         assert!(close(
-            on_screen(&options, middle(&impostor.fade_in)),
+            on_screen(size, middle(&impostor.fade_in)),
             chain.impostor_below
         ));
         assert!(close(
-            on_screen(&options, middle(&impostor.fade_out)),
+            on_screen(size, middle(&impostor.fade_out)),
             chain.cull_below
         ));
 
         // A rock twice the size switches twice as far away, and a lower
         // quality switches nearer.
-        let large = StoneOptions {
-            scale: 2.0 * options.scale,
-            ..options.clone()
-        };
-        let large = chain_ranges(&large, Quality::High);
+        let large = chain_ranges(2.0 * size, Quality::High);
         assert!(close(large[1].fade_in.start, 2.0 * lower.fade_in.start));
-        let low = chain_ranges(&options, Quality::Low);
+        let low = chain_ranges(size, Quality::Low);
         assert!(close(low[1].fade_in.start, 0.4 * lower.fade_in.start));
     }
 
     #[test]
     fn without_an_impostor_the_lower_mesh_lasts_until_the_cull() {
-        let options = StoneOptions::default();
-        let [_, _, impostor] = chain_ranges(&options, Quality::High);
-        let [game, lower] = mesh_ranges(&options, Quality::High);
+        let size = 1.5;
+        let [_, _, impostor] = chain_ranges(size, Quality::High);
+        let [game, lower] = mesh_ranges(size, Quality::High);
         assert_eq!(game.fade_out, lower.fade_in);
         assert_eq!(lower.fade_out, impostor.fade_out);
         assert!(bevy_range(&lower).is_some());

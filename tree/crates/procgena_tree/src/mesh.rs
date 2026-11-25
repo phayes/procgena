@@ -1,13 +1,15 @@
 //! Build bark, leaf, fruit and flower triangle meshes from a [`Skeleton`].
 //!
-//! Levels of detail let an application use simpler meshes for distant trees.
-//! Choose the mesh detail with [`LodDetail`]; camera-based switching is up to the application.
+//! A tree's [`game_level`](TreeOptions::game_level) is its real geometry; a
+//! coarser mesh for small-on-screen trees is derived from it
+//! ([`LowerDetail::lower`]). Choose any other detail with [`LodDetail`];
+//! camera-based switching is up to the application.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 use std::ops::Range;
 
 use glam::{Quat, Vec3};
-use procgena_core::{FarForm, LevelForm, Lod, LodLevel};
+use procgena_core::chain::LowerDetail;
 use serde::{Deserialize, Serialize};
 
 use crate::compose::compose_clusters;
@@ -21,7 +23,8 @@ use crate::{
 /// Settings for the amount of geometry produced by [`Skeleton::mesh`].
 ///
 /// The default keeps all branch sections and leaves at their original size and detail.
-/// Increase the strides or reduce `segment_factor` to create a simpler mesh for distant trees.
+/// It is the default [`game_level`](TreeOptions::game_level) of every tree.
+/// Increase the strides or reduce `segment_factor` for a simpler mesh.
 /// When deserialized, omitted fields use their defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -32,19 +35,17 @@ pub struct LodDetail {
     pub section_stride: u32,
     /// Scale the number of sides used to draw tube branches. For example, 0.5
     /// roughly halves the side count. The result is rounded, with at least three
-    /// sides per branch. Has no effect on [`BranchShape::Ribbons`].
+    /// sides per branch.
     pub segment_factor: f32,
-    /// Branch surface: a round tube or two flat strips that cross at right angles.
-    pub branch_shape: BranchShape,
     /// Whether to close tube branches into watertight solids. When true, each
     /// branch is sealed at its base and tip, and a branch that carries on from
     /// its parent's tip joins it seamlessly instead, so the trunk and each limb
     /// form one closed, outward-facing shell. Side branches are separate shells
     /// that start inside their parent. Use closed bark for physics bodies,
     /// volume and mass, or voxelizing. When false, tubes are open at both ends.
-    /// Closed bark is reliable at the detail of the first two
-    /// [`default_lod`] levels, which enable it; the coarser levels turn it off
-    /// because their tubes may fold over themselves at sharp bends.
+    /// Closed bark is reliable at full detail and moderately simplified
+    /// detail; the lower mesh ([`LowerDetail::lower`]) turns it off because
+    /// its coarse tubes may fold over themselves at sharp bends.
     ///
     /// Each shell is closed once vertices at identical positions are merged:
     /// the texture seam and the join between a branch and its continuation repeat
@@ -52,7 +53,6 @@ pub struct LodDetail {
     /// positions before building a physics mesh that needs shared edges.
     /// Cap triangles reuse the end rings' vertices and lighting directions, so a
     /// visible end, such as a trunk base above ground, looks rounded rather than flat.
-    /// Has no effect on [`BranchShape::Ribbons`].
     pub closed: bool,
     /// Minimum branch radius at the base, in metres. Thinner branches are
     /// omitted, but the trunk is always kept. This does not affect leaf selection.
@@ -70,41 +70,18 @@ pub struct LodDetail {
     pub leaf_scale: f32,
     /// Choose one textured square per leaf or two crossed squares.
     /// `None` uses [`LeafOptions::billboard`](crate::LeafOptions::billboard).
-    /// This selects the number of squares; [`leaf_billboard`](Self::leaf_billboard)
-    /// controls camera-facing rotation. With rotation enabled, the second square
-    /// of [`Billboard::Double`] is stored in [`BillboardCull::leaves`].
     pub billboard: Option<Billboard>,
-    /// Enable camera-facing leaf cards in renderers that support billboards.
-    /// `None` (the default) leaves cards at fixed orientations.
-    ///
-    /// With `Some`, [`TreeMesh::leaves`] contains [`MeshBuffers::billboard`] data
-    /// and no tangents. Each card keeps one lighting normal for all its corners:
-    /// the leaf's face direction, or with
-    /// [`LeafOptions::rounded_normals`](crate::LeafOptions::rounded_normals), the
-    /// average of the rounded corner normals. Light the turned card with this
-    /// normal, so it shades like the fixed leaf it replaces under any light, and
-    /// show the card's back when the normal faces away from the camera.
-    /// Renderers that ignore billboard data draw the stored cards at their
-    /// fixed orientations and [`leaf_scale`](Self::leaf_scale) size.
-    pub leaf_billboard: Option<BillboardMode>,
-    /// Scale the camera-facing card relative to the original leaf size.
-    /// Used only with [`leaf_billboard`](Self::leaf_billboard), independently of
-    /// [`leaf_scale`](Self::leaf_scale). Both sizes keep the original leaf centre.
-    /// A card facing the camera can be smaller while still filling gaps in the canopy.
-    pub leaf_billboard_scale: f32,
     /// Keep every Nth fruit cluster and every Nth flower cluster, starting
     /// with cluster 0 in each skeleton list. Both 0 and 1 keep all clusters.
     pub cluster_stride: u32,
     /// Scale each kept cluster, stalks included. Values above 1 help fill
     /// the gaps left by skipped clusters.
     pub cluster_scale: f32,
-    /// The viewing distance, in metres, that [`TreeMesh::fruit`] and
-    /// [`TreeMesh::flowers`] are built for. Each kept cluster is drawn at
-    /// its own `procgena_fruit` level of detail for this distance
-    /// ([`procgena_fruit::default_lod`], scaled by the cluster's size), so
-    /// small clusters simplify sooner than large ones. Set it to the
-    /// distance this level starts at.
-    pub fruit_distance: f32,
+    /// Build each kept cluster in [`TreeMesh::fruit`] and [`TreeMesh::flowers`]
+    /// at its own lower mesh rather than its
+    /// [`game_level`](procgena_fruit::FruitOptions::game_level). The lower
+    /// mesh of a tree sets it.
+    pub lower_clusters: bool,
 }
 
 impl Default for LodDetail {
@@ -112,202 +89,60 @@ impl Default for LodDetail {
         Self {
             section_stride: 1,
             segment_factor: 1.0,
-            branch_shape: BranchShape::Tube,
             closed: true,
             min_branch_radius: 0.0,
             leaf_stride: 1,
             leaf_scale: 1.0,
             billboard: None,
-            leaf_billboard: None,
-            leaf_billboard_scale: 1.0,
             cluster_stride: 1,
             cluster_scale: 1.0,
-            fruit_distance: 0.0,
+            lower_clusters: false,
         }
     }
 }
 
-/// How a renderer should rotate a flat shape using [`MeshBuffers::billboard`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BillboardMode {
-    /// Rotate around a fixed direction, such as a branch or leaf stem.
-    /// The shape keeps its length and orientation along that axis.
-    Axis,
-    /// Face the camera, using the tree's +Y direction to keep the shape upright.
-    Camera,
-}
-
-/// Position data a renderer uses to turn one vertex of a flat shape toward the camera.
-/// All values are in tree coordinates. Stored mesh positions remain available for
-/// renderers that do not support billboards and may describe a different-sized shape.
-///
-/// Use a unit `to_camera` direction from `pivot` to the camera. For an orthographic
-/// view, use the direction opposite the camera's viewing direction. Reconstruct with:
-///
-/// ```text
-/// position = pivot + offset[0] * right + offset[1] * up
-/// ```
-///
-/// - For a nonzero `axis`, use `right = normalize(cross(axis, to_camera))` and `up = axis`.
-/// - For a zero `axis`, use `right = normalize(cross(Y, to_camera))` and
-///   `up = cross(to_camera, right)`, where `Y` is the tree's +Y direction.
-///
-/// If the cross product is zero, choose a perpendicular sideways direction instead
-/// of normalizing zero. The resulting triangle fronts should face the camera.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct BillboardVertex {
-    /// Point this vertex rotates around, in tree coordinates. Ribbon vertices at
-    /// different branch sections can have different pivots.
-    pub pivot: [f32; 3],
-    /// Unit-length rotation axis, or `[0.0; 3]` for full camera-facing rotation.
-    pub axis: [f32; 3],
-    /// Horizontal and vertical offsets from `pivot`, in metres, along the
-    /// reconstructed `right` and `up` directions described above.
-    pub offset: [f32; 2],
-}
-
-/// How branch surfaces are drawn in [`TreeMesh::branches`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BranchShape {
-    /// A round tube, closed or open at its ends according to [`LodDetail::closed`].
-    #[default]
-    Tube,
-    /// Two perpendicular flat strips following the branch, each as wide as its
-    /// diameter. Use these for distant trees and render both sides.
+impl LowerDetail for LodDetail {
+    /// The tree's coarser mesh, relative to the game level:
     ///
-    /// [`TreeMesh::branches`] holds the first strip with [`MeshBuffers::billboard`]
-    /// data and no normals or tangents. [`BillboardCull::branches`] holds the
-    /// second strip. Renderers that rotate the first strip toward the camera
-    /// should skip the second; other renderers should draw both.
-    Ribbons,
-}
+    /// - three times the section stride and half the tube sides, with open
+    ///   tube ends, since coarse tubes may fold over themselves at sharp
+    ///   bends;
+    /// - every second kept leaf, as a single card 1.3 times as large;
+    /// - every second kept fruit and flower cluster, 1.12 times as large,
+    ///   each built at its own lower mesh. Small clusters are kept too,
+    ///   since on some trees, such as Spring Pussy Willow, they make the
+    ///   canopy.
+    fn lower(&self) -> Self {
+        /// With the 1.25 times larger items of a cluster's own lower mesh,
+        /// kept cluster items are 1.4 times their size.
+        const CLUSTER_SCALE: f32 = 1.12;
 
-/// A tree's levels of detail: the shared [`Lod`] type, with the mesh
-/// settings of each level as its detail. Pass a level's `detail` to
-/// [`Skeleton::mesh`]. This crate does not track a camera: the application
-/// (or `procgena_tree_bevy`) switches levels using [`Lod::ranges`].
-pub type TreeLod = Lod<LodDetail>;
-
-/// The tree height, in metres, that [`default_lod`]'s distances are written
-/// for. A tree's own distances are these times its height (as built, times
-/// any scale it is placed with) over this size, so a 5 m tree switches at
-/// half the distances a 10 m one does.
-pub const LOD_REFERENCE_SIZE: f32 = 10.0;
-
-/// How far away, in metres, [`default_lod`] stops drawing a tree of
-/// [`LOD_REFERENCE_SIZE`]. Around this distance a tree is only a few pixels
-/// tall on screen.
-pub const LOD_CULL_DISTANCE: f32 = 1500.0;
-
-/// Returns four suggested detail levels at distances of 0, 10, 25 and 50
-/// metres, each fading in over 5% either side of its distance, for a tree
-/// [`LOD_REFERENCE_SIZE`] metres tall. The last is the tree's far form,
-/// [`FarForm::BillboardLeaves`]. Nothing is drawn beyond
-/// [`LOD_CULL_DISTANCE`]; a renderer with impostors puts its impostor level
-/// between the far form and the cull distance. The caller must select and
-/// switch meshes as the camera moves, scaling every distance by the tree's
-/// height ([`Lod::factor`]).
-///
-/// Only the levels at 0 and 10 m (LOD0 and LOD1) are for gameplay: their bark is
-/// [`closed`](LodDetail::closed) and suitable for physics, collision and volumes.
-/// The levels at 25 and 50 m (LOD2 and LOD3) are for drawing distant trees only.
-/// Their bark is open, and coarse tubes may fold over themselves at sharp bends.
-///
-/// Each level draws its fruit and flowers as seen from its own distance
-/// ([`LodDetail::fruit_distance`]): each cluster takes its own
-/// `procgena_fruit` level for that distance, so small clusters simplify
-/// sooner than large ones.
-///
-/// At 10 m, branches use fewer sections and sides, and every second leaf is kept
-/// at 1.25 times its size.
-/// At 25 m, branches simplify further; every second leaf uses a single card at
-/// 1.3 times its size.
-///
-/// At 50 m (LOD3), renderers supporting [`MeshBuffers::billboard`] can turn
-/// branch strips and leaf cards toward the camera:
-///
-/// - Branches use two-sided [`BranchShape::Ribbons`]. Branches with a base radius
-///   below 1.5 cm are omitted, except for the trunk.
-/// - Every fourth leaf is kept, counting back from each branch tip, including on
-///   omitted branches. Fixed fallback cards use 1.8 times the original size;
-///   camera-facing cards use 1.25 times.
-/// - Every second cluster of fruit and flowers is kept, at 1.12 times its
-///   size, so the clusters cover about as much as before. Small clusters
-///   are kept too, since on some trees, such as Spring Pussy Willow, they
-///   make the canopy.
-///
-/// Renderers that rotate billboards should skip [`TreeMesh::billboard_cull`].
-pub fn default_lod() -> TreeLod {
-    /// The farthest level keeps every second cluster; at this scale, with
-    /// the 1.25 times larger items of the cluster's own farthest level, its
-    /// items are 1.4 times their size.
-    const FARTHEST_CLUSTER_SCALE: f32 = 1.12;
-
-    let near = LodDetail::default();
-    let middle = LodDetail {
-        section_stride: 3,
-        segment_factor: 0.75,
-        leaf_stride: 2,
-        leaf_scale: 1.25,
-        billboard: None,
-        fruit_distance: 10.0,
-        ..LodDetail::default()
-    };
-    let far = LodDetail {
-        section_stride: 6,
-        segment_factor: 0.4,
-        closed: false,
-        leaf_stride: 2,
-        leaf_scale: 1.3,
-        billboard: Some(Billboard::Single),
-        fruit_distance: 25.0,
-        ..LodDetail::default()
-    };
-    let farthest = LodDetail {
-        section_stride: 8,
-        branch_shape: BranchShape::Ribbons,
-        closed: false,
-        min_branch_radius: 0.015,
-        leaf_stride: 4,
-        leaf_scale: 1.8,
-        billboard: Some(Billboard::Single),
-        leaf_billboard: Some(BillboardMode::Camera),
-        leaf_billboard_scale: 1.25,
-        cluster_stride: 2,
-        cluster_scale: FARTHEST_CLUSTER_SCALE,
-        fruit_distance: 50.0,
-        ..LodDetail::default()
-    };
-    Lod::new(
-        LOD_REFERENCE_SIZE,
-        vec![
-            LodLevel::new(0.0, 0.0, near),
-            LodLevel::new(10.0, 0.05, middle),
-            LodLevel::new(25.0, 0.05, far),
-            LodLevel::new(50.0, 0.05, farthest).with_form(LevelForm::Far(FarForm::BillboardLeaves)),
-        ],
-    )
-    .with_cull(LOD_CULL_DISTANCE)
+        Self {
+            section_stride: self.section_stride.max(1) * 3,
+            segment_factor: self.segment_factor * 0.5,
+            closed: false,
+            leaf_stride: self.leaf_stride.max(1) * 2,
+            leaf_scale: self.leaf_scale * 1.3,
+            billboard: Some(Billboard::Single),
+            cluster_stride: self.cluster_stride.max(1) * 2,
+            cluster_scale: self.cluster_scale * CLUSTER_SCALE,
+            lower_clusters: true,
+            ..*self
+        }
+    }
 }
 
 /// Vertex data and triangle indices for one mesh.
 ///
-/// Meshes from [`Skeleton::mesh`] have one texture-coordinate pair per position.
-/// Normals describe lighting directions. Billboard bark and fruit, and the bark
-/// and fruit [`BillboardCull`] buffers, omit normals, so the renderer must supply
-/// lighting directions; billboard leaves keep one normal per card. Billboard
-/// meshes have no tangents.
+/// Meshes from [`Skeleton::mesh`] have one texture-coordinate pair and one
+/// lighting direction (normal) per position.
 /// When editing buffers, keep populated vertex attributes in position order and
 /// ensure every triangle index refers to a valid position.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MeshBuffers {
     /// Vertex coordinates in the same coordinate system as the skeleton.
     pub positions: Vec<[f32; 3]>,
-    /// Unit lighting directions in position order. Billboard bark and fruit, and
-    /// their [`BillboardCull`] buffers, leave this empty; the renderer supplies
-    /// lighting. Billboard leaves have one normal per card, repeated at each corner.
+    /// Unit lighting directions in position order.
     pub normals: Vec<[f32; 3]>,
     /// Per-vertex texture coordinates `(u, v)`, in position order.
     /// Leaf coordinates cover 0 to 1; bark coordinates can exceed 1 for repeating textures.
@@ -348,13 +183,6 @@ pub struct MeshBuffers {
     /// multiply these by the material’s base colour when rendering. Bark and
     /// leaves have an empty buffer and use their textures instead.
     pub colors: Vec<[f32; 4]>,
-    /// Camera-facing position data, with one entry per position when present.
-    /// Populated for ribbon bark, [`LodDetail::leaf_billboard`] leaves and
-    /// [`LodDetail::billboard_fruit`] fruit. Such meshes omit
-    /// [`tangents`](Self::tangents), and bark and fruit also omit
-    /// [`normals`](Self::normals).
-    /// Renderers without billboard support can use the stored positions.
-    pub billboard: Vec<BillboardVertex>,
     /// Groups of three vertex indices, one group per triangle.
     /// Each index addresses `positions`, `normals`, and `uvs`. Vertices are ordered
     /// counter-clockwise when viewed from the front of a triangle.
@@ -379,26 +207,10 @@ impl MeshBuffers {
     }
 
     fn push(&mut self, position: Vec3, normal: Vec3, uv: [f32; 2], wind: [f32; 4]) {
-        self.push_unlit(position, uv, wind);
-        self.normals.push(normal.to_array());
-    }
-
-    /// Adds a vertex with texture coordinates and wind controls, but no normal.
-    /// Use for billboard shapes and their crossed fallback shapes.
-    pub(crate) fn push_unlit(&mut self, position: Vec3, uv: [f32; 2], wind: [f32; 4]) {
         self.positions.push(position.to_array());
+        self.normals.push(normal.to_array());
         self.uvs.push(uv);
         self.wind.push(wind);
-    }
-
-    /// Adds rotation data for the vertex just appended. Pass a unit `axis` for
-    /// rotation around that axis, or zero for full camera-facing rotation.
-    pub(crate) fn push_billboard(&mut self, pivot: Vec3, axis: Vec3, offset: [f32; 2]) {
-        self.billboard.push(BillboardVertex {
-            pivot: pivot.to_array(),
-            axis: axis.to_array(),
-            offset,
-        });
     }
 
     /// Appends a position, lighting normal, texture coordinates, wind values,
@@ -422,23 +234,20 @@ impl MeshBuffers {
 /// leaves; fruit and flowers retain their full detail.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TreeMesh {
-    /// All branches as tubes or ribbons, ready for a bark material. Tubes are
-    /// closed or open according to [`LodDetail::closed`].
+    /// All branches as tubes, ready for a bark material. Tubes are closed or
+    /// open according to [`LodDetail::closed`].
     pub branches: MeshBuffers,
     /// All leaves retained by the detail settings, ready for a leaf material.
     pub leaves: MeshBuffers,
-    /// The kept fruit clusters, each drawn at its own `procgena_fruit` level
-    /// for [`LodDetail::fruit_distance`] and moved into place, with
+    /// The kept fruit clusters, each built at its own
+    /// [`game_level`](procgena_fruit::FruitOptions::game_level) (or its lower
+    /// mesh with [`LodDetail::lower_clusters`]) and moved into place, with
     /// per-vertex colours. Empty if the tree grows no fruit. Render both
     /// sides, since stalk strips and flat fruit have no thickness.
     pub fruit: MeshBuffers,
     /// The kept flower clusters, as for [`fruit`](Self::fruit). Render both
     /// sides of petals, since they have no thickness.
     pub flowers: MeshBuffers,
-    /// Crossed fallback shapes for bark and leaves. Draw these alongside the
-    /// main buffers only when the renderer does not rotate billboards toward
-    /// the camera.
-    pub billboard_cull: BillboardCull,
     /// Buffer ranges for each skeleton branch, in the order of [`Skeleton::branches`].
     pub branch_spans: Vec<BranchSpan>,
     /// Buffer ranges for retained leaves, in the order of [`Skeleton::leaves`].
@@ -452,69 +261,46 @@ pub struct TreeMesh {
 }
 
 impl TreeMesh {
-    /// Returns the total vertex count, including duplicates and the fallback
-    /// shapes in [`billboard_cull`](Self::billboard_cull).
+    /// Returns the total vertex count, including duplicates.
     pub fn vertex_count(&self) -> usize {
         self.branches.vertex_count()
             + self.leaves.vertex_count()
             + self.fruit.vertex_count()
             + self.flowers.vertex_count()
-            + self.billboard_cull.vertex_count()
     }
 
-    /// Returns the total triangle count, including crossed fallback shapes.
-    /// Subtract [`BillboardCull::triangle_count`] when drawing camera-facing
-    /// billboards without those shapes. Incomplete trailing triangles in manually
-    /// edited buffers are not counted.
+    /// Returns the total triangle count. Incomplete trailing triangles in
+    /// manually edited buffers are not counted.
     pub fn triangle_count(&self) -> usize {
         self.branches.triangle_count()
             + self.leaves.triangle_count()
             + self.fruit.triangle_count()
             + self.flowers.triangle_count()
-            + self.billboard_cull.triangle_count()
+    }
+
+    /// The diameter, in metres, of a sphere holding every vertex: the
+    /// diagonal of the box around the bark, leaves, fruit and flowers. A
+    /// tree's size on screen is measured by it. 0 for an empty mesh.
+    pub fn bounding_diameter(&self) -> f32 {
+        let (min, max) = [&self.branches, &self.leaves, &self.fruit, &self.flowers]
+            .into_iter()
+            .flat_map(|buffers| &buffers.positions)
+            .map(|p| Vec3::from_array(*p))
+            .fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| (lo.min(p), hi.max(p)));
+        if min.cmple(max).all() {
+            min.distance(max)
+        } else {
+            0.0
+        }
     }
 }
 
-/// Fallback shapes perpendicular to the main billboards in a [`TreeMesh`].
+/// Identifies a skeleton branch and its ranges in the bark buffers.
 ///
-/// Draw these with the corresponding main buffers when billboard rotation is
-/// unavailable: crossed shapes help keep distant geometry visible from more angles.
-/// Renderers that rotate the main shapes toward the camera should skip these buffers.
-///
-/// These buffers contain positions, texture coordinates and wind data. Leaf
-/// cards also have normals, matching their main cards. None have tangents or
-/// billboard data. A buffer is empty when its part has no crossed pairs.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct BillboardCull {
-    /// Fallback bark strips for [`BranchShape::Ribbons`]. Locate each branch with
-    /// [`BranchSpan::cull_vertices`] and [`BranchSpan::cull_indices`].
-    pub branches: MeshBuffers,
-    /// Fallback leaf cards for [`Billboard::Double`] with
-    /// [`LodDetail::leaf_billboard`] enabled. Locate each card with
-    /// [`LeafSpan::cull_vertices`] and [`LeafSpan::cull_indices`].
-    pub leaves: MeshBuffers,
-}
-
-impl BillboardCull {
-    /// Returns the total fallback vertex count, including duplicate vertices.
-    pub fn vertex_count(&self) -> usize {
-        self.branches.vertex_count() + self.leaves.vertex_count()
-    }
-
-    /// Returns the total fallback triangle count, ignoring incomplete trailing
-    /// triangles in manually edited buffers.
-    pub fn triangle_count(&self) -> usize {
-        self.branches.triangle_count() + self.leaves.triangle_count()
-    }
-}
-
-/// Identifies a skeleton branch and its ranges in the main and fallback bark buffers.
-///
-/// Vertices are grouped by retained section, from base to tip. Each group has
-/// [`ring_vertices`](Self::ring_vertices) vertices. Tube groups form circular rings,
-/// with a repeated position at the texture seam. Ribbon groups contain two strip
-/// edges; matching groups in [`BillboardCull::branches`] form the fallback strip.
-/// Adjacent groups use `segments * 2` triangles per buffer.
+/// Vertices are grouped by retained section, from base to tip. Each group is
+/// a circular ring of [`ring_vertices`](Self::ring_vertices) vertices, with a
+/// repeated position at the texture seam. Adjacent rings use `segments * 2`
+/// triangles.
 ///
 /// [`LodDetail::closed`] tubes add triangles but no vertices. A tip that tapers
 /// to a point uses `segments` triangles for its last band instead, all meeting at
@@ -534,30 +320,17 @@ pub struct BranchSpan {
     /// Start-inclusive, end-exclusive range of entries in the bark index buffer.
     /// These are index-buffer offsets, not triangle numbers or vertex indices.
     pub indices: Range<u32>,
-    /// Vertex range for the fallback bark strip in [`BillboardCull::branches`],
-    /// including the start and excluding the end. Empty for tubes or omitted branches.
-    pub cull_vertices: Range<u32>,
-    /// Index-buffer entry range for the fallback strip in [`BillboardCull::branches`],
-    /// including the start and excluding the end. Empty for tubes or omitted branches.
-    pub cull_indices: Range<u32>,
-    /// Whether this branch uses a tube or crossed strips.
-    pub shape: BranchShape,
-    /// Number of sides around a tube, excluding the duplicated seam vertex.
-    /// Ribbon meshes use 1: one strip in each of the main and fallback buffers.
+    /// Number of sides around the tube, excluding the duplicated seam vertex.
     pub segments: u32,
     /// Retained section indices within the source branch, in ring order from base to tip.
     pub sections: Vec<usize>,
 }
 
 impl BranchSpan {
-    /// Returns the vertices per section in one buffer: `segments + 1` for tubes
-    /// or 2 for generated ribbons. An omitted branch reports the same layout
-    /// even though its ranges are empty.
+    /// Returns the vertices per section: `segments + 1`. An omitted branch
+    /// reports the same layout even though its ranges are empty.
     pub fn ring_vertices(&self) -> u32 {
-        match self.shape {
-            BranchShape::Tube => self.segments + 1,
-            BranchShape::Ribbons => self.segments * 2,
-        }
+        self.segments + 1
     }
 }
 
@@ -566,23 +339,13 @@ impl BranchSpan {
 pub struct LeafSpan {
     /// Source leaf index in [`Skeleton::leaves`], before any leaves were skipped.
     pub leaf: usize,
-    /// Start-inclusive, end-exclusive range in the main leaf vertex buffers.
-    /// A card uses 4 vertices. Crossed cards use 8, or 4 when
-    /// [`LodDetail::leaf_billboard`] puts the second card in [`BillboardCull::leaves`].
-    /// Camera-facing cards have no tangent entries.
+    /// Start-inclusive, end-exclusive range in the leaf vertex buffers.
+    /// A card uses 4 vertices; crossed cards use 8.
     pub vertices: Range<u32>,
-    /// Entry range in the main leaf index buffer, including the start and excluding
-    /// the end. Each card uses 6 entries (two triangles). These are buffer offsets,
-    /// not vertex indices; a separate fallback card is covered by `cull_indices`.
+    /// Entry range in the leaf index buffer, including the start and excluding
+    /// the end. Each card uses 6 entries (two triangles). These are buffer
+    /// offsets, not vertex indices.
     pub indices: Range<u32>,
-    /// Vertex range of the fallback card in [`BillboardCull::leaves`], including
-    /// the start and excluding the end. Empty unless [`Billboard::Double`] and
-    /// [`LodDetail::leaf_billboard`] are both enabled.
-    pub cull_vertices: Range<u32>,
-    /// Entry range in the [`BillboardCull::leaves`] index buffer, including the
-    /// start and excluding the end. Empty whenever
-    /// [`cull_vertices`](Self::cull_vertices) is empty.
-    pub cull_indices: Range<u32>,
 }
 
 /// Locates one kept cluster's fruit or flowers and supporting stalks in the
@@ -612,8 +375,8 @@ impl Skeleton {
     /// so their settings here are ignored; generate a new skeleton to change
     /// them.
     ///
-    /// Bark texture scale and UV mode, leaf billboard and normal settings also
-    /// affect the result. A billboard override in `detail` takes precedence.
+    /// Bark texture scale and UV mode, leaf card and normal settings also
+    /// affect the result. A card-count override in `detail` takes precedence.
     /// Use `detail` to reduce geometry for bark, leaves, fruit, and flowers.
     /// Each fruit or flower span identifies its original skeleton cluster,
     /// even when the detail settings skip other clusters.
@@ -621,7 +384,7 @@ impl Skeleton {
     /// and leave the skeleton unchanged.
     ///
     /// Settings are not validated here; pass validated options. With rounded
-    /// normals on double leaf billboards, one corner’s lighting direction flips
+    /// normals on double leaf cards, one corner’s lighting direction flips
     /// as the scaled leaf size passes 0.2 m; at exactly that size it uses the
     /// face normal.
     ///
@@ -636,9 +399,8 @@ impl Skeleton {
 
         let winds = branch_winds(self);
         let mut mesh = TreeMesh::default();
-        let cull = &mut mesh.billboard_cull;
 
-        // Decide each branch's surface, whether it is drawn, and which tube ends to seal.
+        // Decide each branch's side count, whether it is drawn, and which tube ends to seal.
         let shapes: Vec<Shape> = self
             .branches
             .iter()
@@ -654,10 +416,10 @@ impl Skeleton {
         for (index, branch) in self.branches.iter().enumerate() {
             let shape = shapes[index];
             let span = if !kept[index] {
-                culled_branch(&mesh.branches, &cull.branches, branch, index, shape)
+                culled_branch(&mesh.branches, branch, index, shape)
             } else {
                 mesh_branch(
-                    [&mut mesh.branches, &mut cull.branches],
+                    &mut mesh.branches,
                     branch,
                     index,
                     section_stride,
@@ -673,13 +435,11 @@ impl Skeleton {
             scale: detail.leaf_scale,
             billboard,
             rounded_normals: options.leaves.rounded_normals,
-            turn: detail.leaf_billboard,
-            turned_scale: detail.leaf_billboard_scale,
         };
         let kept = kept_leaves(&self.leaves, leaf_stride);
         for (index, leaf) in self.leaves.iter().enumerate().filter(|(i, _)| kept[*i]) {
             let span = mesh_leaf(
-                [&mut mesh.leaves, &mut cull.leaves],
+                &mut mesh.leaves,
                 leaf,
                 index,
                 &style,
@@ -706,31 +466,23 @@ impl Skeleton {
     }
 }
 
-/// Branch surface type and the number of sides or strips to generate.
+/// The number of sides of one branch's tube.
 #[derive(Debug, Clone, Copy)]
 struct Shape {
-    kind: BranchShape,
-    /// Number of tube sides or ribbon strips.
+    /// Number of tube sides.
     segments: u32,
 }
 
 impl Shape {
-    /// Selects the surface from `detail` and scales tube side counts, keeping at
-    /// least three sides. Ribbons always use two strips.
+    /// Scales the branch's side count by `detail`, keeping at least three
+    /// sides.
     fn new(detail: &LodDetail, branch: &SkeletonBranch) -> Self {
-        match detail.branch_shape {
-            // Tip continuations have the same original side count as their parent,
-            // so scaling both counts equally keeps their connecting rings aligned.
-            BranchShape::Tube => Self {
-                kind: BranchShape::Tube,
-                segments: (branch.segment_count as f32 * detail.segment_factor)
-                    .round()
-                    .max(3.0) as u32,
-            },
-            BranchShape::Ribbons => Self {
-                kind: BranchShape::Ribbons,
-                segments: 1,
-            },
+        // Tip continuations have the same original side count as their parent,
+        // so scaling both counts equally keeps their connecting rings aligned.
+        Self {
+            segments: (branch.segment_count as f32 * detail.segment_factor)
+                .round()
+                .max(3.0) as u32,
         }
     }
 }
@@ -749,9 +501,9 @@ struct Caps {
 /// `closed` false, no end is sealed. Otherwise every end of a kept tube is
 /// sealed, except where a kept child tube continues from its parent's tip
 /// with an identical ring: those two ends join without caps. `shapes` and
-/// `kept` hold each branch's surface and whether it is drawn.
+/// `kept` hold each branch's side count and whether it is drawn.
 fn tube_caps(skeleton: &Skeleton, shapes: &[Shape], kept: &[bool], closed: bool) -> Vec<Caps> {
-    let tube = |i: usize| kept[i] && shapes[i].kind == BranchShape::Tube;
+    let tube = |i: usize| kept[i];
     let mut caps: Vec<Caps> = (0..skeleton.branches.len())
         .map(|i| Caps {
             base: closed && tube(i),
@@ -783,40 +535,30 @@ fn tube_caps(skeleton: &Skeleton, shapes: &[Shape], kept: &[bool], closed: bool)
 }
 
 /// Returns an empty span for an omitted branch, keeping its source index and
-/// shape information. Both buffers remain unchanged.
+/// side count. The buffer remains unchanged.
 fn culled_branch(
     out: &MeshBuffers,
-    cull: &MeshBuffers,
     branch: &SkeletonBranch,
     index: usize,
     shape: Shape,
 ) -> BranchSpan {
-    let empty = |buffers: &MeshBuffers| {
-        let vertex = buffers.next_index();
-        let entry = index_range(buffers.indices.len(), buffers.indices.len());
-        (vertex..vertex, entry)
-    };
-    let ((vertices, indices), (cull_vertices, cull_indices)) = (empty(out), empty(cull));
+    let vertex = out.next_index();
     BranchSpan {
         branch: index,
         level: branch.level,
-        vertices,
-        indices,
-        cull_vertices,
-        cull_indices,
-        shape: shape.kind,
+        vertices: vertex..vertex,
+        indices: index_range(out.indices.len(), out.indices.len()),
         segments: shape.segments,
         sections: Vec::new(),
     }
 }
 
-/// Adds a branch to `out` and returns its ranges and retained section indices.
-/// Ribbons also add a perpendicular fallback strip to `cull`. Tubes seal the ends
-/// chosen in `caps`; ribbons ignore it. Pass a branch with at least one section,
-/// a nonzero `section_stride`, and wind data for its sections.
+/// Adds a branch's tube to `out` and returns its ranges and retained section
+/// indices, sealing the ends chosen in `caps`. Pass a branch with at least
+/// one section, a nonzero `section_stride`, and wind data for its sections.
 #[allow(clippy::too_many_arguments)]
 fn mesh_branch(
-    [out, cull]: [&mut MeshBuffers; 2],
+    out: &mut MeshBuffers,
     branch: &SkeletonBranch,
     index: usize,
     section_stride: usize,
@@ -839,7 +581,6 @@ fn mesh_branch(
     }
 
     let (first_vertex, first_index) = (out.next_index(), out.indices.len());
-    let (first_cull_vertex, first_cull_index) = (cull.next_index(), cull.indices.len());
     for (k, &s) in kept.iter().enumerate() {
         let section = &branch.sections[s];
         let v = match bark.uv_mode {
@@ -850,61 +591,42 @@ fn mesh_branch(
         };
         // Move all vertices at this section together, without leaf flutter.
         let ring_wind = [wind.bend[s], wind.weight[s], wind.phase, 0.0];
-        match shape.kind {
-            BranchShape::Tube => push_tube_ring(out, section, segments, wraps_x, v, ring_wind),
-            BranchShape::Ribbons => {
-                push_ribbon_ring([out, cull], section, wraps_x, v, ring_wind);
-            }
-        }
+        push_tube_ring(out, section, segments, wraps_x, v, ring_wind);
     }
 
-    // Join neighbouring sections with two triangles per tube side or per strip.
-    // The main and fallback ribbon strips have separate index buffers.
+    // Join neighbouring sections with two triangles per tube side.
     let span = BranchSpan {
         branch: index,
         level: branch.level,
         vertices: first_vertex..first_vertex,
         indices: 0..0,
-        cull_vertices: first_cull_vertex..first_cull_vertex,
-        cull_indices: 0..0,
-        shape: shape.kind,
         segments,
         sections: kept,
     };
     let ring = span.ring_vertices();
     let rings = span.sections.len() as u32;
-    match shape.kind {
-        BranchShape::Tube => {
-            let point_tip = caps.tip && branch.sections[last].radius == 0.0;
-            if point_tip && rings >= 2 {
-                // Close a tip that tapers to a point with one triangle per side.
-                connect_rings(out, first_vertex, rings - 1, ring, segments);
-                let previous = first_vertex + (rings - 2) * ring;
-                fan_to_point(out, previous, previous + ring, segments);
-            } else {
-                connect_rings(out, first_vertex, rings, ring, segments);
-            }
+    let point_tip = caps.tip && branch.sections[last].radius == 0.0;
+    if point_tip && rings >= 2 {
+        // Close a tip that tapers to a point with one triangle per side.
+        connect_rings(out, first_vertex, rings - 1, ring, segments);
+        let previous = first_vertex + (rings - 2) * ring;
+        fan_to_point(out, previous, previous + ring, segments);
+    } else {
+        connect_rings(out, first_vertex, rings, ring, segments);
+    }
 
-            // Seal open ends across their rings. Bases face away from the branch.
-            let tip_ring = first_vertex + (rings - 1) * ring;
-            if caps.base && branch.sections[0].radius > 0.0 {
-                cap_ring(out, first_vertex, segments, false);
-            }
-            if caps.tip && !point_tip {
-                cap_ring(out, tip_ring, segments, true);
-            }
-        }
-        BranchShape::Ribbons => {
-            connect_rings(out, first_vertex, rings, ring, segments);
-            connect_rings(cull, first_cull_vertex, rings, ring, segments);
-        }
+    // Seal open ends across their rings. Bases face away from the branch.
+    let tip_ring = first_vertex + (rings - 1) * ring;
+    if caps.base && branch.sections[0].radius > 0.0 {
+        cap_ring(out, first_vertex, segments, false);
+    }
+    if caps.tip && !point_tip {
+        cap_ring(out, tip_ring, segments, true);
     }
 
     BranchSpan {
         vertices: first_vertex..out.next_index(),
         indices: index_range(first_index, out.indices.len()),
-        cull_vertices: first_cull_vertex..cull.next_index(),
-        cull_indices: index_range(first_cull_index, cull.indices.len()),
         ..span
     }
 }
@@ -986,58 +708,22 @@ fn push_tube_ring(
     out.tangents.push(tangent.extend(-1.0).to_array());
 }
 
-/// Adds two edge vertices at this section to each ribbon buffer. The main and
-/// fallback strips cross along the section’s local X and Z directions and span
-/// the branch diameter. Each uses half of `wraps_x` texture repeats. Only the
-/// main strip gets data for camera-facing rotation around the branch.
-fn push_ribbon_ring(
-    [out, cull]: [&mut MeshBuffers; 2],
-    section: &Section,
-    wraps_x: f32,
-    v: f32,
-    ring_wind: [f32; 4],
-) {
-    let axis = (section.orientation * Vec3::Y).normalize();
-    for (k, width) in [Vec3::X, Vec3::Z].into_iter().enumerate() {
-        let across = (section.orientation * width).normalize();
-        for (side, u) in [(-1.0, 0.0), (1.0, wraps_x / 2.0)] {
-            let offset = side * section.radius;
-            let position = section.origin + across * offset;
-            if k == 0 {
-                out.push_unlit(position, [u, v], ring_wind);
-                // Reverse the offset so the rotated strip keeps its front toward the
-                // camera; viewed from local -Z, its right direction is local -X.
-                out.push_billboard(section.origin, axis, [-offset, 0.0]);
-            } else {
-                cull.push_unlit(position, [u, v], ring_wind);
-            }
-        }
-    }
-}
-
 /// Size, card count and lighting settings shared by the mesh’s leaves.
 struct LeafStyle {
-    /// Size multiplier for fixed fallback cards.
+    /// Size multiplier for the cards.
     scale: f32,
     /// One card or a pair crossed around the leaf stem.
     billboard: Billboard,
-    /// Whether cards use softened canopy lighting. Rotated cards use the
-    /// average of the rounded corner normals for the whole card.
+    /// Whether cards use softened canopy lighting.
     rounded_normals: bool,
-    /// Rotation mode for camera-facing cards; `None` keeps fixed cards.
-    turn: Option<BillboardMode>,
-    /// Size multiplier for camera-facing cards, independent of the stored size.
-    turned_scale: f32,
 }
 
-/// Adds one leaf card or a crossed pair and returns its buffer ranges, recording
-/// `index` as the source leaf. With rotation enabled in `style`, the first card
-/// goes into `out` with billboard data and the second, if present, into `cull`.
-/// Rotated cards have one normal per card and no tangents. Fixed cards all go
-/// into `out` with per-corner normals and tangents.
+/// Adds one leaf card or a crossed pair to `out` and returns its buffer
+/// ranges, recording `index` as the source leaf. Cards have per-corner normals
+/// and tangents.
 /// Pass attachment wind values as `[trunk_bend, branch_weight, branch_phase]`.
 fn mesh_leaf(
-    [out, cull]: [&mut MeshBuffers; 2],
+    out: &mut MeshBuffers,
     leaf: &SkeletonLeaf,
     index: usize,
     style: &LeafStyle,
@@ -1048,14 +734,13 @@ fn mesh_leaf(
     let half = leaf.size * style.scale / 2.0;
     let centre = leaf.size - half;
     let (first_vertex, first_index) = (out.next_index(), out.indices.len());
-    let (first_cull_vertex, first_cull_index) = (cull.next_index(), cull.indices.len());
 
     // Cross the second card at a right angle around the leaf stem.
     let turns: &[f32] = match style.billboard {
         Billboard::Single => &[0.0],
         Billboard::Double => &[0.0, FRAC_PI_2],
     };
-    for (k, &turn) in turns.iter().enumerate() {
+    for &turn in turns {
         let rotation = leaf.orientation * Quat::from_rotation_y(turn);
         let corners = [
             Vec3::new(-half, centre + half, 0.0),
@@ -1073,32 +758,6 @@ fn mesh_leaf(
         let uvs = [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]];
         // Apply flutter at the tip corners only; all corners still follow branch motion.
         let flutter = [1.0, 0.0, 0.0, 1.0];
-
-        // Billboard cards keep one lighting direction for the whole card: the
-        // leaf's face, or with rounded normals, the average of its rounded
-        // corner normals. Only the main card needs rotation data.
-        if let Some(mode) = style.turn {
-            let normal = if style.rounded_normals {
-                (face * LEAF_NORMAL_REFERENCE + tip * (leaf.size / 2.0)).normalize_or(face)
-            } else {
-                face
-            };
-            let target = if k == 0 { &mut *out } else { &mut *cull };
-            let i = target.next_index();
-            for (c, ((corner, uv), flutter)) in
-                corners.into_iter().zip(uvs).zip(flutter).enumerate()
-            {
-                target.push(corner, normal, uv, [wind[0], wind[1], wind[2], flutter]);
-                if k == 0 {
-                    let (pivot, axis, offset) = leaf_billboard(leaf, mode, style.turned_scale, c);
-                    target.push_billboard(pivot, axis, offset);
-                }
-            }
-            target
-                .indices
-                .extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
-            continue;
-        }
 
         let i = out.next_index();
         for ((corner, uv), flutter) in corners.into_iter().zip(uvs).zip(flutter) {
@@ -1128,36 +787,6 @@ fn mesh_leaf(
         leaf: index,
         vertices: first_vertex..out.next_index(),
         indices: index_range(first_index, out.indices.len()),
-        cull_vertices: first_cull_vertex..cull.next_index(),
-        cull_indices: index_range(first_cull_index, cull.indices.len()),
-    }
-}
-
-/// Returns rotation data for a leaf corner at `scale` times the original size.
-/// Corner indices are 0–3: top left, bottom left, bottom right, top right.
-/// Camera mode pivots at the centre; axis mode pivots at the stem base and
-/// rotates around the stem. Both preserve the original leaf centre.
-fn leaf_billboard(
-    leaf: &SkeletonLeaf,
-    mode: BillboardMode,
-    scale: f32,
-    corner: usize,
-) -> (Vec3, Vec3, [f32; 2]) {
-    let half = leaf.size * scale / 2.0;
-    let across = if corner < 2 { -half } else { half };
-    let along = if corner == 1 || corner == 2 {
-        -half
-    } else {
-        half
-    };
-    let tip = (leaf.orientation * Vec3::Y).normalize();
-    match mode {
-        BillboardMode::Camera => (
-            leaf.origin + tip * (leaf.size / 2.0),
-            Vec3::ZERO,
-            [across, along],
-        ),
-        BillboardMode::Axis => (leaf.origin, tip, [across, leaf.size / 2.0 + along]),
     }
 }
 
@@ -1244,25 +873,14 @@ mod tests {
         Shape::new(&detail, branch)
     }
 
-    /// Creates a two-strip ribbon shape for `branch`.
-    fn ribbons(branch: &SkeletonBranch) -> Shape {
-        let detail = LodDetail {
-            branch_shape: BranchShape::Ribbons,
-            ..LodDetail::default()
-        };
-        Shape::new(&detail, branch)
-    }
-
     #[test]
     fn stride_keeps_first_and_last_sections() {
         let branch = straight_branch(8, 4);
         let mirrored = bark(1.0, BarkUvMode::Mirrored);
         let mut out = MeshBuffers::default();
         let shape = tube(&branch, 1.0);
-        let mut cull = MeshBuffers::default();
-        let buffers = [&mut out, &mut cull];
         let span = mesh_branch(
-            buffers,
+            &mut out,
             &branch,
             0,
             3,
@@ -1281,9 +899,8 @@ mod tests {
         // A tip already selected by the stride must not be duplicated.
         let short = straight_branch(7, 4);
         let shape = tube(&short, 1.0);
-        let buffers = [&mut out, &mut cull];
         let span = mesh_branch(
-            buffers,
+            &mut out,
             &short,
             1,
             3,
@@ -1294,8 +911,6 @@ mod tests {
         );
         assert_eq!(span.sections, vec![0, 3, 6]);
         assert_eq!(span.vertices, 20..35);
-        // Tube branches must not add fallback ribbon geometry.
-        assert!(span.cull_vertices.is_empty() && cull.positions.is_empty());
         assert_eq!(out.tangents.len(), out.positions.len());
         assert_eq!(out.wind.len(), out.positions.len());
     }
@@ -1306,9 +921,8 @@ mod tests {
         let mirrored = bark(1.0, BarkUvMode::Mirrored);
         let branch = straight_branch(2, 5);
         let shape = tube(&branch, 0.1);
-        let buffers = [&mut out, &mut MeshBuffers::default()];
         let span = mesh_branch(
-            buffers,
+            &mut out,
             &branch,
             0,
             1,
@@ -1326,226 +940,6 @@ mod tests {
             scale,
             billboard,
             rounded_normals,
-            turn: None,
-            turned_scale: 1.0,
-        }
-    }
-
-    /// Reconstructs a vertex for a unit camera direction that is not parallel to
-    /// its rotation axis (or +Y for camera mode).
-    fn turned(b: &BillboardVertex, to_camera: Vec3) -> Vec3 {
-        let (pivot, axis) = (Vec3::from_array(b.pivot), Vec3::from_array(b.axis));
-        let (right, up) = if axis == Vec3::ZERO {
-            let right = Vec3::Y.cross(to_camera).normalize();
-            (right, to_camera.cross(right))
-        } else {
-            (axis.cross(to_camera).normalize(), axis)
-        };
-        pivot + right * b.offset[0] + up * b.offset[1]
-    }
-
-    /// Checks that reconstructed triangle fronts point toward the camera.
-    fn assert_turned_front_faces(buffers: &MeshBuffers, to_camera: Vec3) {
-        let p = |i: u32| turned(&buffers.billboard[i as usize], to_camera);
-        for tri in buffers.indices.chunks(3) {
-            let [a, b, c] = [p(tri[0]), p(tri[1]), p(tri[2])];
-            let facing = (b - a).cross(c - a);
-            assert!(facing.dot(to_camera) > 0.0, "{facing} vs {to_camera}");
-        }
-    }
-
-    /// Samples views around the tree, avoiding directions parallel to +Y.
-    fn camera_directions() -> Vec<Vec3> {
-        (0..12)
-            .map(|k| {
-                let angle = TAU * k as f32 / 12.0;
-                Vec3::new(angle.cos(), 0.4 * (k as f32 - 6.0) / 6.0, angle.sin()).normalize()
-            })
-            .collect()
-    }
-
-    /// Checks that ribbons have separate main and fallback strips with matching
-    /// texture and wind data, and that the main strip can face each sampled view.
-    #[test]
-    fn ribbons_are_two_crossed_strips() {
-        let branch = straight_branch(8, 6);
-        let (mut out, mut cull) = (MeshBuffers::default(), MeshBuffers::default());
-        let span = mesh_branch(
-            [&mut out, &mut cull],
-            &branch,
-            0,
-            3,
-            ribbons(&branch),
-            Caps::default(),
-            &bark(2.6, BarkUvMode::Mirrored),
-            &wind(&branch),
-        );
-
-        // Each retained section contributes two edges per strip; each gap
-        // between sections contributes two triangles per strip.
-        assert_eq!(span.shape, BranchShape::Ribbons);
-        assert_eq!((span.segments, span.ring_vertices()), (1, 2));
-        assert_eq!(span.sections, vec![0, 3, 6, 7]);
-        assert_eq!(
-            (span.vertices.clone(), span.cull_vertices.clone()),
-            (0..8, 0..8)
-        );
-        assert_eq!(
-            (span.indices.clone(), span.cull_indices.clone()),
-            (0..18, 0..18)
-        );
-        assert!(out.normals.is_empty() && out.tangents.is_empty());
-        assert!(cull.normals.is_empty() && cull.tangents.is_empty());
-        assert_eq!(out.billboard.len(), 8);
-        assert!(cull.billboard.is_empty());
-
-        // Both strips cross the branch centre and span its diameter. At a given
-        // section, their vertices must move together in the wind.
-        let p = |b: &MeshBuffers, i: usize| Vec3::from_array(b.positions[i]);
-        assert!(p(&out, 4).abs_diff_eq(Vec3::new(-1.0, 6.0, 0.0), 1e-6));
-        assert!(p(&out, 5).abs_diff_eq(Vec3::new(1.0, 6.0, 0.0), 1e-6));
-        assert!(p(&cull, 4).abs_diff_eq(Vec3::new(0.0, 6.0, -1.0), 1e-6));
-        assert!(p(&cull, 5).abs_diff_eq(Vec3::new(0.0, 6.0, 1.0), 1e-6));
-        assert_eq!(out.wind[4..6], [[0.6, 6.0, 0.5, 0.0]; 2]);
-        assert_eq!(cull.wind[4..6], [[0.6, 6.0, 0.5, 0.0]; 2]);
-
-        // Each strip covers half the tube’s texture width: 1.5 repeats here.
-        assert_eq!((out.uvs[0][0], out.uvs[1][0]), (0.0, 1.5));
-        assert_eq!((cull.uvs[0][0], cull.uvs[1][0]), (0.0, 1.5));
-
-        // The main strip pivots along the branch centreline. Looking from its
-        // stored front (-Z) must reproduce its stored vertex positions.
-        for (i, b) in out.billboard.iter().enumerate() {
-            let section = span.sections[i / 2] as f32;
-            assert_eq!(b.pivot, [0.0, section, 0.0]);
-            assert_eq!(b.axis, [0.0, 1.0, 0.0]);
-            assert!(
-                turned(b, Vec3::NEG_Z).abs_diff_eq(p(&out, i), 1e-6),
-                "vertex {i}"
-            );
-        }
-        for to_camera in camera_directions() {
-            assert_turned_front_faces(&out, to_camera);
-        }
-    }
-
-    /// Checks that camera-facing cards without rounded normals carry the leaf's
-    /// face direction at every corner.
-    #[test]
-    fn billboard_leaves_without_rounding_use_the_face_normal() {
-        let orientation = Quat::from_euler(glam::EulerRot::XYZ, 0.3, -0.7, 1.1);
-        let leaf = SkeletonLeaf {
-            parent: crate::Attachment {
-                branch: 0,
-                section: 0,
-                t: 0.0,
-            },
-            origin: Vec3::ZERO,
-            orientation,
-            size: 0.2,
-        };
-        let style = LeafStyle {
-            scale: 1.8,
-            billboard: Billboard::Single,
-            rounded_normals: false,
-            turn: Some(BillboardMode::Camera),
-            turned_scale: 1.25,
-        };
-        let mut out = MeshBuffers::default();
-        mesh_leaf(
-            [&mut out, &mut MeshBuffers::default()],
-            &leaf,
-            0,
-            &style,
-            [0.0; 3],
-        );
-        let face = orientation * Vec3::Z;
-        assert_eq!(out.normals.len(), 4);
-        for n in &out.normals {
-            assert!(Vec3::from_array(*n).abs_diff_eq(face, 1e-6), "{n:?}");
-        }
-    }
-
-    /// Checks both rotation modes and card counts: stored and camera-facing cards
-    /// use their own size multipliers. Stored cards keep the leaf's tip edge;
-    /// camera-facing cards turn about the original leaf centre.
-    #[test]
-    fn billboard_leaves_turn_around_the_leaf_centre() {
-        let orientation = Quat::from_euler(glam::EulerRot::XYZ, 0.3, -0.7, 1.1);
-        let leaf = SkeletonLeaf {
-            parent: crate::Attachment {
-                branch: 0,
-                section: 0,
-                t: 0.0,
-            },
-            origin: Vec3::new(0.1, 0.2, 0.3),
-            orientation,
-            size: 0.2,
-        };
-        let centre = leaf.origin + orientation * Vec3::Y * 0.1;
-        // A 1.8 times card (0.36 m) keeps the leaf's tip at 0.2 m, so its
-        // centre lies 0.2 - 0.18 = 0.02 m along the stem.
-        let stored_centre = leaf.origin + orientation * Vec3::Y * 0.02;
-        for mode in [BillboardMode::Camera, BillboardMode::Axis] {
-            for billboard in [Billboard::Single, Billboard::Double] {
-                let style = LeafStyle {
-                    scale: 1.8,
-                    billboard,
-                    rounded_normals: true,
-                    turn: Some(mode),
-                    turned_scale: 1.25,
-                };
-                let (mut out, mut cull) = (MeshBuffers::default(), MeshBuffers::default());
-                let span = mesh_leaf([&mut out, &mut cull], &leaf, 0, &style, [0.0; 3]);
-                let case = format!("{mode:?} {billboard:?}");
-
-                // Rotation data belongs to the main card; any crossed card is separate.
-                assert_eq!(span.vertices, 0..4, "{case}");
-                assert!(out.tangents.is_empty(), "{case}");
-                assert_eq!(out.billboard.len(), 4, "{case}");
-                let crossed = billboard == Billboard::Double;
-                assert_eq!(span.cull_vertices, 0..if crossed { 4 } else { 0 }, "{case}");
-                assert!(
-                    cull.billboard.is_empty() && cull.tangents.is_empty(),
-                    "{case}"
-                );
-
-                // Every corner of both cards carries the average rounded normal:
-                // the face tilted toward the tip by half the leaf size, measured
-                // against the 0.1 m rounding reference.
-                let face = orientation * Vec3::Z;
-                let expected = (face * 0.1 + orientation * Vec3::Y * 0.1).normalize();
-                assert_eq!(cull.normals.len(), cull.positions.len(), "{case}");
-                for n in out.normals.iter().chain(&cull.normals) {
-                    let n = Vec3::from_array(*n);
-                    assert!(n.abs_diff_eq(expected, 1e-5), "{case}: {n}");
-                }
-                assert_eq!(out.normals.len(), 4, "{case}");
-
-                // Fallback cards use the 1.8 size multiplier and keep the tip edge.
-                let stored: Vec<Vec3> = out.positions.iter().map(|&p| p.into()).collect();
-                let mean = stored.iter().sum::<Vec3>() / 4.0;
-                assert!(mean.abs_diff_eq(stored_centre, 1e-5), "{case}: {mean}");
-                assert!(
-                    (stored[1].distance(stored[2]) - 0.36).abs() < 1e-6,
-                    "{case}"
-                );
-                if crossed {
-                    let second = (0..4).map(|i| Vec3::from(cull.positions[i])).sum::<Vec3>();
-                    assert!((second / 4.0).abs_diff_eq(stored_centre, 1e-5), "{case}");
-                }
-
-                // Camera-facing cards use the independent 1.25 multiplier at the same centre.
-                for to_camera in camera_directions() {
-                    let corners: Vec<Vec3> =
-                        out.billboard.iter().map(|b| turned(b, to_camera)).collect();
-                    let mean = corners.iter().sum::<Vec3>() / 4.0;
-                    assert!(mean.abs_diff_eq(centre, 1e-5), "{case}: {mean}");
-                    let side = corners[1].distance(corners[2]);
-                    assert!((side - 0.25).abs() < 1e-6, "{case}: {side}");
-                    assert_turned_front_faces(&out, to_camera);
-                }
-            }
         }
     }
 
@@ -1556,7 +950,7 @@ mod tests {
         let ring_v = |mode| {
             let mut out = MeshBuffers::default();
             mesh_branch(
-                [&mut out, &mut MeshBuffers::default()],
+                &mut out,
                 &branch,
                 0,
                 3,
@@ -1582,7 +976,7 @@ mod tests {
         let mut out = MeshBuffers::default();
         let branch = straight_branch(2, 4);
         mesh_branch(
-            [&mut out, &mut MeshBuffers::default()],
+            &mut out,
             &branch,
             0,
             1,
@@ -1617,14 +1011,13 @@ mod tests {
         };
         let mut out = MeshBuffers::default();
         let span = mesh_leaf(
-            [&mut out, &mut MeshBuffers::default()],
+            &mut out,
             &leaf,
             7,
             &fixed_leaves(0.5, Billboard::Double, false),
             [0.2, 1.5, 0.25],
         );
         assert_eq!(span.vertices, 0..8);
-        assert!(span.cull_vertices.is_empty() && out.billboard.is_empty());
         // Both cards follow their branch attachment. Only the two tip corners
         // of each card receive flutter.
         assert_eq!(out.wind[0], [0.2, 1.5, 0.25, 1.0]);
@@ -1676,8 +1069,7 @@ mod tests {
                 for scale in [1.0, 2.0 / 1.5, 2.0] {
                     let mut out = MeshBuffers::default();
                     let style = fixed_leaves(scale, billboard, rounded);
-                    let buffers = [&mut out, &mut MeshBuffers::default()];
-                    mesh_leaf(buffers, &leaf, 0, &style, [0.0; 3]);
+                    mesh_leaf(&mut out, &leaf, 0, &style, [0.0; 3]);
                     assert_eq!(out.tangents.len(), out.positions.len());
                     for (t, n) in out.tangents.iter().zip(&out.normals) {
                         let (tangent, n) = (Vec3::from_slice(t), Vec3::from_array(*n));

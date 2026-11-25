@@ -3,7 +3,7 @@
 // One request describes one rock mesh. The passes for a request run in order:
 // `sample_field`; `count_mc` or `count_dc`; an exclusive prefix sum over the
 // counts (see scan.wesl); the mesher's emit passes; and `finish_mc` or
-// `finish_dc`. The resulting mesh describes the same surface as the CPU
+// `finish_dc`; then `measure_mc` or `measure_dc`. The resulting mesh describes the same surface as the CPU
 // mesher's output for the same settings; GPU rounding can change a few
 // vertices near the surface and the vertex order.
 
@@ -95,6 +95,12 @@ struct Status {
     translation: vec3<f32>,
     /// Suggested burial depth in unscaled units; not included in `translation`.
     embed_depth: f32,
+    /// Diagonal of the placed mesh's axis-aligned bounding box in unscaled
+    /// units, written by `measure_bounds`; zero for a mesh that overflowed
+    /// or has no vertices.
+    bounding_diameter: f32,
+    /// Unused; rounds the entry up to `STATUS_SIZE` (96) bytes.
+    padding: array<u32, 3>,
 }
 
 @group(0) @binding(0) var<uniform> request: Request;
@@ -301,7 +307,47 @@ fn write_result(overflow: u32, vertex_count: u32, index_count: u32, crossing_cou
         placement.rotation,
         placement.translation,
         placement.embed_depth,
+        0.0,
+        array<u32, 3>(),
     );
+}
+
+/// Each invocation's share of the bounding box in `measure_bounds`.
+var<workgroup> bounds_min: array<vec3<f32>, WORKGROUP_SIZE>;
+var<workgroup> bounds_max: array<vec3<f32>, WORKGROUP_SIZE>;
+
+/// Measures the placed mesh's axis-aligned bounding box and stores its
+/// diagonal in the request's status, the same measure as the CPU's
+/// `Stone::bounding_diameter`. Call from an entry point run after the
+/// mesher's finish pass, with one workgroup of `WORKGROUP_SIZE` invocations;
+/// `local` is the invocation's index in it.
+fn measure_bounds(local: u32) {
+    let result = status[request.request_index];
+    let count = select(0u, result.vertex_count, result.overflow == 0u);
+
+    // Each invocation covers every `WORKGROUP_SIZE`th vertex.
+    var low = vec3<f32>(3.4e38);
+    var high = vec3<f32>(-3.4e38);
+    for (var i = local; i < count; i += WORKGROUP_SIZE) {
+        let p = vertex_position(vertices[request.vertex_base + i]);
+        low = min(low, p);
+        high = max(high, p);
+    }
+    bounds_min[local] = low;
+    bounds_max[local] = high;
+    workgroupBarrier();
+
+    // Halve the number of boxes until one holds them all.
+    for (var stride = WORKGROUP_SIZE / 2u; stride > 0u; stride /= 2u) {
+        if local < stride {
+            bounds_min[local] = min(bounds_min[local], bounds_min[local + stride]);
+            bounds_max[local] = max(bounds_max[local], bounds_max[local + stride]);
+        }
+        workgroupBarrier();
+    }
+    if local == 0u && count > 0u {
+        status[request.request_index].bounding_diameter = length(bounds_max[0] - bounds_min[0]);
+    }
 }
 
 /// Samples the field at every grid point. Dispatch at least `sample_count()` items.

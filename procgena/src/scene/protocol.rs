@@ -89,10 +89,12 @@ pub enum ViewerEvent {
     /// detail level and build time on success, or why its settings were
     /// rejected. A rejected replacement leaves the previous piece visible.
     DeadwoodBuilt(Result<BuildStats, DeadwoodBuildError>),
-    /// The shown tree's detail level on screen changed, because of
-    /// [`ViewerCommand::SetDetail`] or because the camera moved. Also sent
+    /// The shown tree's step on screen changed, by its
+    /// [`Step::index`](procgena_core::chain::Step::index), because of
+    /// [`ViewerCommand::SetDetail`] or because the camera moved. `None`
+    /// means the camera is too far away for any step to be drawn. Also sent
     /// when a tree is shown.
-    LodShown(usize),
+    LodShown(Option<usize>),
     /// The shown mushroom's detail level on screen changed, because of
     /// [`ViewerCommand::SetDetail`] or because the camera moved. `None`
     /// means the camera is too far away for any level to be drawn. Also
