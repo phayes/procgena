@@ -1493,7 +1493,10 @@ summary below is for ordering.
   - GPU everywhere: a layer waits only for the layers it reads. The user
     suggests building the dependency graph of the layers, so independent
     branches still run concurrently on the GPU and only real chains run
-    in sequence;
+    in sequence. ED's profiling found placing a whole Ecotope takes under
+    20 ms on the CPU, and building specimens (stones above all) is the
+    cost. Specimen pools don't depend on placement, so a chain delays
+    only the cheap placement step;
   - overlap with the Ecotope's ground layers (`under: scatter`), which
     already follow copies, and with `MushroomGrowth` and `PlantGrowth`.
   Ends in a recommendation for the user, and an ARCHITECTURE change if
