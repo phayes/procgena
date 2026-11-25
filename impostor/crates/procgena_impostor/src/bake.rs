@@ -92,9 +92,16 @@ pub struct ImpostorRequest {
 /// A baked impostor: its two atlases and the bounds they were drawn over.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Impostor {
-    /// Base colour and coverage of every view.
+    /// Base colour and coverage of every view. Texels the object doesn't
+    /// cover have alpha 0 and the nearest covered texel's colour.
     pub albedo: Handle<Image>,
-    /// Normals of every view, each in its own view's camera space.
+    /// Normals and depth of every view. Normals are in the object's own
+    /// coordinates, encoded as `n * 0.5 + 0.5`, so every view stores them
+    /// alike. Alpha is the surface's depth across the bounding sphere,
+    /// towards that view's viewer: 0 at the sphere's far side, 0.5 at its
+    /// centre, 1 at its near side. Texels the object doesn't cover hold the
+    /// nearest covered texel's values, so filtering never pulls in
+    /// background.
     pub normal: Handle<Image>,
     /// Views along each side of the atlases.
     pub frames: u32,
@@ -503,6 +510,11 @@ fn bounding_sphere(parts: &[BakePart], meshes: &Assets<Mesh>) -> Option<(Vec3, f
     Some((center, radius))
 }
 
+/// How far the bake cameras' depth range reaches past the bounding sphere on
+/// each side, as a share of its radius. `bake_output.wesl` holds the same
+/// value.
+const DEPTH_MARGIN: f32 = 1.0 / 256.0;
+
 /// First render layer of the bake slots; slot `n` draws on layers
 /// `BAKE_LAYERS + 2n` (colour) and `BAKE_LAYERS + 2n + 1` (normals).
 const BAKE_LAYERS: usize = 24;
@@ -595,8 +607,11 @@ fn spawn_bake(
                     width: side,
                     height: side,
                 },
-                near: 0.0,
-                far: 4.0 * radius,
+                // The bounding sphere's depth, with a little room so that
+                // rounding never clips its nearest and farthest points. The
+                // bake shader turns this range back into the sphere's.
+                near: radius * (1.0 - DEPTH_MARGIN),
+                far: radius * (3.0 + DEPTH_MARGIN),
                 ..OrthographicProjection::default_3d()
             }),
             Transform::from_xyz(0.0, 0.0, 2.0 * radius).looking_to(Vec3::NEG_Z, Vec3::Y),

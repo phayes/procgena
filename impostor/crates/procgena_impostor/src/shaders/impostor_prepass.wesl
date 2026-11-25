@@ -1,14 +1,18 @@
-// Draws an impostor into depth, normal and shadow passes: the same quad as
-// the forward pass, cut out by the albedo atlas's alpha.
+// Draws an impostor into depth, normal and shadow passes: the same quad and
+// surface as the forward pass (see `surface.wesl`), cut out by the blended
+// views' coverage and written at their depth, so impostors meet the ground
+// and each other where their objects would, and cast shadows shaped like
+// their objects rather than like flat cards.
 //
 // The fragment shader also serves materials that place impostors with
 // their own vertex shader (see `vertex_prepass.wesl`).
 
 import bevy_pbr::{
-    prepass::io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
+    prepass::io::{Vertex, VertexOutput, decompress_vertex},
     render::{mesh_functions, pbr_functions},
 };
-import package::shaders::common::{Instance, albedo_atlas, atlas_sampler, impostor};
+import package::shaders::common::{Instance, impostor};
+import package::shaders::surface::{impostor_surface, surface_depth};
 import package::shaders::vertex_prepass::impostor_prepass_vertex;
 
 /// Places the quad's corner for this view (a light's view for shadows), for
@@ -48,36 +52,46 @@ fn vertex(in: Vertex, instance: Instance) -> VertexOutput {
     return out;
 }
 
+/// The prepass's output: Bevy's own targets, and the depth of the surface
+/// the impostor shows rather than of its flat quad.
+@if(PREPASS_FRAGMENT)
+struct ImpostorPrepassOutput {
+    @if(NORMAL_PREPASS)
+    @location(0) normal: vec4<f32>,
+    @if(MOTION_VECTOR_PREPASS)
+    @location(1) motion_vector: vec2<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
 @if(PREPASS_FRAGMENT)
 @fragment
-fn fragment(in: VertexOutput) -> FragmentOutput {
-    let albedo = textureSample(albedo_atlas, atlas_sampler, in.uv);
+fn fragment(in: VertexOutput) -> ImpostorPrepassOutput {
+    // Find the surface before discarding, while control flow is uniform.
+    let surface = impostor_surface(in.world_position.xyz, in.uv);
 @if(VISIBILITY_RANGE_DITHER)
     pbr_functions::visibility_range_dither(in.position, in.visibility_range_dither);
-    if albedo.a < 0.5 {
+    if surface.coverage < 0.5 {
         discard;
     }
 
-    // The prepass normal is the quad's own facing; the forward pass lights
-    // with the baked normals.
-    var out: FragmentOutput;
+    var out: ImpostorPrepassOutput;
 @if(NORMAL_PREPASS)
-    out.normal = vec4<f32>(normalize(in.world_normal) * 0.5 + 0.5, 1.0);
-@if(UNCLIPPED_DEPTH_ORTHO_EMULATION)
-    out.frag_depth = in.unclipped_depth;
+    out.normal = vec4<f32>(surface.world_normal * 0.5 + 0.5, 1.0);
 @if(MOTION_VECTOR_PREPASS)
     out.motion_vector = vec2<f32>(0.0);
+    out.depth = surface_depth(surface);
     return out;
 }
 
-// Depth or shadow only: cut out by the atlas, with nothing else to write.
+// Depth or shadow only: cut out by the atlas, at the surface's depth.
 @else
 @fragment
-fn fragment(in: VertexOutput) {
-    let albedo = textureSample(albedo_atlas, atlas_sampler, in.uv);
+fn fragment(in: VertexOutput) -> @builtin(frag_depth) f32 {
+    let surface = impostor_surface(in.world_position.xyz, in.uv);
 @if(VISIBILITY_RANGE_DITHER)
     pbr_functions::visibility_range_dither(in.position, in.visibility_range_dither);
-    if albedo.a < 0.5 {
+    if surface.coverage < 0.5 {
         discard;
     }
+    return surface_depth(surface);
 }
