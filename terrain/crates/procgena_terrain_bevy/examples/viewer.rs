@@ -35,6 +35,10 @@
 //!   wide one cell of the nearest and farthest chunk is on screen; then
 //!   exit (after the screenshot, with `--screenshot`). Frames are not
 //!   capped with `--headless`; in a window they are capped by vsync;
+//! - `--fly <m/s>` (with `--measure`; also `--fly-seconds <s>`, default
+//!   10): after measuring, fly straight ahead at the camera's height and
+//!   print how long coarse ground stayed under and near the camera; then
+//!   exit;
 //! - `--headless`: with `--screenshot` or `--measure`, render a
 //!   1280 × 720 image without opening a window.
 
@@ -51,6 +55,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
+use procgena_core::Lod;
 use procgena_terrain::{
     ChunkDetail, ChunkKey, Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions,
 };
@@ -81,6 +86,33 @@ struct Measure {
     settled: u32,
     /// Whether the report is printed.
     done: bool,
+}
+
+/// A flight after `--measure`, from `--fly <m/s>`: the camera moves
+/// straight ahead at a fixed height, and the report says how long coarse
+/// ground stays near it.
+#[derive(Resource)]
+struct Fly {
+    /// Metres a second.
+    speed: f32,
+    /// How long to fly, in seconds.
+    seconds: f32,
+    /// The chunk levels, to tell which drawn chunks are coarser than their
+    /// distance wants.
+    lod: Lod,
+    /// Seconds flown so far.
+    flown: f32,
+    /// Seconds with coarse ground (or none) under the camera, in all and
+    /// the longest stretch, and the current stretch.
+    coarse_underfoot: f32,
+    longest_coarse: f32,
+    coarse_now: f32,
+    /// Seconds since the drawn chunks last changed, and the longest such
+    /// gap.
+    since_change: f32,
+    longest_unchanged: f32,
+    /// Per frame: drawn chunks coarser than their distance wants.
+    too_coarse: Vec<usize>,
 }
 
 /// The image the camera draws into with `--headless`.
@@ -161,7 +193,25 @@ fn main() {
         cell_on_screen: v.parse::<f32>().expect("--cell-pixels needs a number") / 720.0,
         ..ChunkDetail::DEFAULT
     });
-    let plugin = TerrainPlugin::new(detail.lod(view)).expect("--view needs a positive distance");
+    let lod = detail.lod(view);
+    let plugin = TerrainPlugin::new(lod.clone()).expect("--view needs a positive distance");
+    let flight = value("--fly").map(|speed| Fly {
+        speed: speed.parse().expect("--fly needs a speed in m/s"),
+        seconds: value("--fly-seconds")
+            .map_or(10.0, |s| s.parse().expect("--fly-seconds needs a number")),
+        lod,
+        flown: 0.0,
+        coarse_underfoot: 0.0,
+        longest_coarse: 0.0,
+        coarse_now: 0.0,
+        since_change: 0.0,
+        longest_unchanged: 0.0,
+        too_coarse: Vec::new(),
+    });
+    assert!(
+        flight.is_none() || has("--measure"),
+        "--fly needs --measure <frames>"
+    );
 
     // With `--headless`, run without a window, on a fixed 60 Hz loop, or
     // uncapped when measuring.
@@ -208,6 +258,9 @@ fn main() {
     if let Some(measuring) = measuring {
         app.insert_resource(measuring);
     }
+    if let Some(flight) = flight {
+        app.insert_resource(flight);
+    }
     app.add_plugins(plugin)
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
         .insert_resource(TerrainDebug {
@@ -224,7 +277,10 @@ fn main() {
             headless,
         })
         .add_systems(Startup, setup)
-        .add_systems(Update, (water, toggle_debug, measure, screenshot).chain())
+        .add_systems(
+            Update,
+            (water, toggle_debug, measure, fly, screenshot).chain(),
+        )
         .run();
 }
 
@@ -333,8 +389,10 @@ fn measure(
     chunks: Query<(&TerrainChunk, &Mesh3d, &GlobalTransform, &Aabb)>,
     meshes: Res<Assets<Mesh>>,
     camera: Query<(&GlobalTransform, &Projection, &Camera), With<TerrainViewer>>,
+    fly: Option<Res<Fly>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    let flying = fly.is_some();
     let Some(mut measure) = measure else { return };
     if measure.done {
         return;
@@ -422,9 +480,106 @@ fn measure(
         ms(1.0)
     );
     measure.done = true;
-    if path.0.is_none() {
+    if path.0.is_none() && !flying {
         exit.write(AppExit::Success);
     }
+}
+
+/// With `--fly`, once `--measure` is done, moves the camera straight ahead
+/// each frame and keeps the flight's figures; prints them and exits when
+/// the flight ends.
+#[allow(clippy::too_many_arguments)]
+fn fly(
+    fly: Option<ResMut<Fly>>,
+    measure: Option<Res<Measure>>,
+    time: Res<Time<Real>>,
+    mut camera: Query<&mut Transform, With<TerrainViewer>>,
+    chunks: Query<(&TerrainChunk, &GlobalTransform, &Aabb)>,
+    added: Query<(), Added<TerrainChunk>>,
+    mut removed: RemovedComponents<TerrainChunk>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(mut fly) = fly else { return };
+    if !measure.is_some_and(|m| m.done) || fly.flown >= fly.seconds {
+        return;
+    }
+    let dt = time.delta_secs();
+    let Ok(mut transform) = camera.single_mut() else {
+        return;
+    };
+
+    // Move straight ahead, level.
+    let ahead = (transform.forward().as_vec3() * Vec3::new(1.0, 0.0, 1.0)).normalize_or_zero();
+    transform.translation += ahead * fly.speed * dt;
+    fly.flown += dt;
+    let eye = transform.translation;
+
+    // Coarse ground under the camera: no chunk there, or one coarser than
+    // level 0.
+    let under = ChunkKey::containing(DVec2::new(f64::from(eye.x), f64::from(eye.z)), 0);
+    let underfoot = chunks
+        .iter()
+        .map(|(c, _, _)| c.key)
+        .find(|k| k.level == 0 && *k == under);
+    if underfoot.is_none() {
+        fly.coarse_underfoot += dt;
+        fly.coarse_now += dt;
+        fly.longest_coarse = fly.longest_coarse.max(fly.coarse_now);
+    } else {
+        fly.coarse_now = 0.0;
+    }
+
+    // Time since the drawn chunks last changed.
+    let changed = !added.is_empty() || removed.read().count() > 0;
+    fly.since_change = if changed { 0.0 } else { fly.since_change + dt };
+    fly.longest_unchanged = fly.longest_unchanged.max(fly.since_change);
+
+    // Drawn chunks coarser than their distance wants, measured as chunks
+    // are chosen (across the ground, and the height above the chunk's
+    // middle), allowing for the levels' hysteresis.
+    let coarsest = |d: f64| {
+        fly.lod
+            .levels
+            .iter()
+            .rposition(|l| f64::from(l.distance * (1.0 - l.hysteresis)) <= d)
+            .unwrap_or(0)
+    };
+    let too_coarse = chunks
+        .iter()
+        .filter(|(chunk, transform, aabb)| {
+            let middle = transform.transform_point(Vec3::from(aabb.center)).y;
+            let across = chunk
+                .key
+                .distance_to(DVec2::new(f64::from(eye.x), f64::from(eye.z)));
+            let d = across.hypot(f64::from(eye.y - middle));
+            usize::from(chunk.key.level) > coarsest(d)
+        })
+        .count();
+    fly.too_coarse.push(too_coarse);
+
+    if fly.flown < fly.seconds {
+        return;
+    }
+
+    // The report.
+    let frames = fly.too_coarse.len();
+    let mean = fly.too_coarse.iter().sum::<usize>() as f32 / frames as f32;
+    let max = fly.too_coarse.iter().copied().max().unwrap_or(0);
+    println!(
+        "fly {} m/s for {:.1} s ({frames} frames, {:.0} m)",
+        fly.speed,
+        fly.flown,
+        fly.speed * fly.flown
+    );
+    println!(
+        "  coarse underfoot {:.1} s ({:.0}%), longest {:.2} s",
+        fly.coarse_underfoot,
+        100.0 * fly.coarse_underfoot / fly.flown,
+        fly.longest_coarse
+    );
+    println!("  longest without a change {:.2} s", fly.longest_unchanged);
+    println!("  chunks too coarse for their distance: mean {mean:.1}, max {max}");
+    exit.write(AppExit::Success);
 }
 
 /// With `--screenshot`, saves one image once every chunk is drawn (and

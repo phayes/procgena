@@ -16,9 +16,11 @@ pub(crate) type Read = Option<Arc<ChunkRead>>;
 
 /// One terrain's streaming state.
 ///
-/// The drawn chunks change all at once: a new selection replaces the drawn
-/// one only when every chunk in it has been read, so the drawn chunks
-/// always tile the ground and fit their neighbours. A drawn chunk read
+/// The drawn chunks follow the reads: each part of the ground is swapped
+/// to the wanted chunks once all of them there are read, and the drawn
+/// chunks always tile the ground and fit their neighbours (see
+/// [`ChunkSelection::blend`]). After a reset they change all at once, when
+/// the whole new selection is read. A drawn chunk read
 /// at an earlier feature tier than it wants can then be read again at its
 /// own tier and replaced on its own ([`upgrades`](Self::upgrades)), since
 /// that changes its heights but not the tiling.
@@ -211,19 +213,29 @@ impl Stream {
             .collect()
     }
 
-    /// The changes that draw the target, once every chunk of it is read;
-    /// `None` while some are still missing, or when nothing changes.
-    /// Samples no longer needed are dropped.
+    /// The changes that bring the drawn chunks closer to the target: every
+    /// part of the ground whose target chunks are all read is drawn from
+    /// them, and the rest keeps the chunks drawn there (see
+    /// [`ChunkSelection::blend`]). After a reset, nothing changes until the
+    /// whole target is read, so old and new ground are never drawn side by
+    /// side. `None` when nothing changes. Samples no longer needed are
+    /// dropped.
     pub(crate) fn swap(&mut self) -> Option<Swap> {
-        if self
-            .target
-            .iter()
-            .any(|(key, _)| !self.samples.contains_key(&key))
-        {
-            return None;
-        }
         let fresh = self.drawn_generation != self.generation;
-        if !fresh && self.drawn == self.target {
+        let next = if fresh {
+            let all_read = self
+                .target
+                .iter()
+                .all(|(key, _)| self.samples.contains_key(&key));
+            if !all_read {
+                return None;
+            }
+            self.target.clone()
+        } else {
+            self.target
+                .blend(&self.drawn, |key| self.samples.contains_key(&key))
+        };
+        if !fresh && self.drawn == next {
             return None;
         }
 
@@ -232,19 +244,22 @@ impl Stream {
         let remove = self
             .drawn
             .iter()
-            .filter(|&(key, t)| fresh || self.target.get(key) != Some(t))
+            .filter(|&(key, t)| fresh || next.get(key) != Some(t))
             .map(|(key, _)| key)
             .collect();
-        let add = self
-            .target
+        let add = next
             .iter()
             .filter(|&(key, t)| fresh || self.drawn.get(key) != Some(t))
             .map(|(key, t)| (key, t, self.samples[&key].clone()))
             .collect();
-        self.drawn = self.target.clone();
+        self.drawn = next;
         self.drawn_generation = self.generation;
-        self.samples
-            .retain(|key, _| self.drawn.get(*key).is_some() || self.reading.contains(key));
+        // Keep what is drawn, wanted or still coming.
+        self.samples.retain(|key, _| {
+            self.drawn.get(*key).is_some()
+                || self.target.get(*key).is_some()
+                || self.reading.contains(key)
+        });
         Some(Swap { remove, add })
     }
 
@@ -387,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn the_drawn_chunks_change_only_when_the_whole_target_is_read() {
+    fn the_drawn_chunks_follow_the_reads_nearest_first() {
         let mut stream = Stream::default();
         stream.retarget(select(0.0, None));
         let missing = stream.missing(&[DVec2::ZERO]);
@@ -395,18 +410,30 @@ mod tests {
         // The chunk under the viewer comes first.
         assert_eq!(missing[0].level, 0);
 
-        // Read all but one: nothing to swap yet.
+        // Read all but the farthest: the ground near the viewer is drawn
+        // already, but not all of it.
         for &key in &missing[..missing.len() - 1] {
             stream.start(key);
             stream.finish(key, 0, None);
         }
-        assert!(stream.swap().is_none());
+        let swap = stream.swap().unwrap();
+        assert!(swap.remove.is_empty());
+        assert!(swap.add.len() < stream.target.len());
+        assert!(stream.drawn.get(missing[0]).is_some());
+        assert!(
+            stream
+                .drawn
+                .iter()
+                .all(|(key, _)| stream.target.get(key).is_some())
+        );
+        assert!(!stream.is_settled());
+
+        // Read the last: the rest is drawn.
         let last = missing[missing.len() - 1];
         stream.start(last);
         stream.finish(last, 0, None);
-        let swap = stream.swap().unwrap();
-        assert!(swap.remove.is_empty());
-        assert_eq!(swap.add.len(), stream.target.len());
+        assert!(stream.swap().is_some());
+        assert_eq!(stream.drawn, stream.target);
         assert!(stream.is_settled());
         assert!(stream.swap().is_none());
 

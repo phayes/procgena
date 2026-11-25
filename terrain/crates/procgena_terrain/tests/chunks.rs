@@ -350,6 +350,49 @@ fn chunks_one_level_apart_join_without_cracks() {
 }
 
 #[test]
+fn a_blend_draws_the_ready_chunks_and_keeps_the_rest_whole() {
+    let (full, _) = plains();
+    // The viewer walks 250 m along x from a point on a road.
+    let road = &full.roads()[0].points;
+    let p = road[road.len() / 2];
+    let (from, to) = (DVec3::new(p.x, 2.0, p.y), DVec3::new(p.x + 250.0, 2.0, p.y));
+    let drawn = ChunkSelection::around(&test_lod(), 1.0, &[from], None).unwrap();
+    let target = ChunkSelection::around(&test_lod(), 1.0, &[to], Some(&drawn)).unwrap();
+    let viewer = DVec2::new(to.x, to.z);
+
+    // With nothing ready the blend keeps what is drawn; with everything
+    // ready it is the target.
+    let none = target.blend(&drawn, |_| false);
+    assert!(!none.is_empty());
+    assert!(none.iter().all(|(key, _)| drawn.get(key).is_some()));
+    assert_eq!(target.blend(&drawn, |_| true), target);
+
+    // Chunks are read nearest first. At every stage, each chunk of the
+    // blend is drawn already or is a ready chunk of the target; ground
+    // that both selections draw is drawn; and the chunks join without
+    // cracks.
+    for reach in [60.0, 150.0, 400.0, 800.0] {
+        let ready = |key: ChunkKey| key.distance_to(viewer) < reach;
+        let blend = target.blend(&drawn, ready);
+        for (key, _) in blend.iter() {
+            assert!(
+                drawn.get(key).is_some() || (target.get(key).is_some() && ready(key)),
+                "{key} is neither drawn nor ready"
+            );
+        }
+        for i in -30..=30 {
+            for j in -30..=30 {
+                let q = viewer + DVec2::new(f64::from(i), f64::from(j)) * 37.0;
+                if holder(&drawn, q).is_some() && holder(&target, q).is_some() {
+                    assert!(holder(&blend, q).is_some(), "nothing drawn at {q}");
+                }
+            }
+        }
+        assert_watertight(&blend, &meshes(&full, &blend));
+    }
+}
+
+#[test]
 fn a_chunk_without_finer_neighbours_is_a_plain_grid() {
     let (full, _) = plains();
     let samples = ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 1), FeatureTier::Fine).unwrap();
