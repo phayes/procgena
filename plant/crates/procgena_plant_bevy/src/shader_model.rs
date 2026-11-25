@@ -991,6 +991,27 @@ mod tests {
             let exact = (f64::from(cell) * 65536.0 + f64::from(q)) * f64::from(tile_size) / 65536.0;
             prop_assert_eq!(f64::from(tile_position(cell, q, tile_size)), exact);
         }
+
+        #[test]
+        fn more_mask_or_fill_never_removes_a_placed_candidate(
+            point in 0..TILE_POINTS,
+            fill in 0..=FILL_PARTS,
+            more_fill in 0..=FILL_PARTS,
+            mask in 0u32..=255,
+            more_mask in 0u32..=255,
+        ) {
+            // A candidate's position does not depend on the mask or fill, so
+            // raising either keeps every blade that was placed where it was.
+            let (fill, more_fill) = (fill.min(more_fill), fill.max(more_fill));
+            let (mask, more_mask) = (mask.min(more_mask), mask.max(more_mask));
+            if is_placed(point, fill, mask) {
+                prop_assert!(is_placed(point, more_fill, more_mask));
+            }
+            // A full field with a full mask places every candidate, and an
+            // empty mask none.
+            prop_assert!(is_placed(point, FILL_PARTS, 255));
+            prop_assert!(!is_placed(point, more_fill, 0));
+        }
     }
 
     #[test]

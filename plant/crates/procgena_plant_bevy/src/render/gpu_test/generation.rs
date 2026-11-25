@@ -1,5 +1,5 @@
 use super::*;
-use crate::{PlantAccent, PlantParams};
+use crate::{PlantAccent, PlantParams, PlantScatterOptions};
 
 /// Checks plant and accent proportions, and that accents follow their plant's tufts.
 /// Untufted clover provides a comparison with tufted grass and its 20% accent.
@@ -253,53 +253,83 @@ fn gpu_a_raised_camera_matches_the_cpu_mirror() {
     generation_matches_the_cpu_mirror_in(app, crate::PlantSettings::HIGH);
 }
 
-/// The same ground as one field or as two fields that meet grows the same
-/// blades, tufts and all: candidates sit on World cells, and each field owns
-/// the candidates in its own rectangle before any tuft pulls them.
+/// The same ground as one field, as two fields that meet, or as four grows
+/// the same blades, tufts and all: candidates sit on World cells, and each
+/// field owns the candidates in its own rectangle before any tuft pulls
+/// them.
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
-fn gpu_two_fields_that_meet_grow_the_blades_of_one() {
-    // Tufted grass, so roots are pulled across the seam.
+fn gpu_fields_that_meet_grow_the_blades_of_one() {
+    // Tufted grass, so roots are pulled across the seams.
     let options = PlantScatterPreset::SUMMER_WILD.plant_scatter.clone();
     assert!(options.plants.iter().any(|entry| entry.plant.tufts > 0.0));
-    let sorted = |mut roots: Vec<Vec3>| {
-        roots.sort_by(|a, b| a.to_array().partial_cmp(&b.to_array()).unwrap());
-        roots
-    };
 
     // One field, 70 by 50 m around (3, -4).
     let mut app = app_with_field(PlantScatter::with_options(Vec2::ZERO, options.clone()));
     wait_for_plants(&mut app);
-    let whole = sorted(gpu_roots(&mut app));
+    let whole = gpu_roots(&mut app);
+    assert!(whole.len() > 10_000, "the scene should place many blades");
 
-    // The same rectangle as two fields, 35 by 50 m each, side by side.
+    // The same rectangle as two fields side by side, then as four.
+    for (columns, rows) in [(2, 1), (2, 2)] {
+        split_harness(&mut app, &options, columns, rows);
+        for _ in 0..10 {
+            app.update();
+        }
+        let split = gpu_roots(&mut app);
+        assert_same_roots(&whole, &split, &format!("{columns} by {rows} fields"));
+    }
+}
+
+/// Cuts the harness's 70 by 50 m field around (3, -4) into `columns` by
+/// `rows` equal fields of `options`, replacing any other fields.
+fn split_harness(app: &mut App, options: &PlantScatterOptions, columns: u32, rows: u32) {
     let world = app.world_mut();
+    let size = Vec2::new(70.0 / columns as f32, 50.0 / rows as f32);
+    let centre = |column: u32, row: u32| {
+        let low = Vec2::new(3.0 - 35.0, -4.0 - 25.0);
+        let middle = low + (Vec2::new(column as f32, row as f32) + 0.5) * size;
+        Transform::from_xyz(middle.x, 0.5, middle.y)
+    };
+
+    // The harness keeps the first piece; every other field goes.
+    let mut fields = world.query_filtered::<Entity, With<PlantScatter>>();
+    let all: Vec<Entity> = fields.iter(world).collect();
+    for &entity in &all[1..] {
+        world.despawn(entity);
+    }
     let mut harness = world
         .query::<(&mut PlantScatter, &mut Transform)>()
         .single_mut(world)
         .expect("the harness's field");
-    harness.0.size = Vec2::new(35.0, 50.0);
-    *harness.1 = Transform::from_xyz(3.0 - 17.5, 0.5, -4.0);
-    world.spawn((
-        PlantScatter::with_options(Vec2::new(35.0, 50.0), options),
-        Transform::from_xyz(3.0 + 17.5, 0.5, -4.0),
-    ));
-    for _ in 0..10 {
-        app.update();
-    }
-    let split = sorted(gpu_roots(&mut app));
+    harness.0.size = size;
+    *harness.1 = centre(0, 0);
 
-    assert!(whole.len() > 10_000, "the scene should place many blades");
-    // Roots are read back packed to 16 bits around the view's instance
-    // origin, so the same root may read back a step apart: match each root
-    // with one within 5 mm.
+    // The other pieces.
+    for row in 0..rows {
+        for column in 0..columns {
+            if (column, row) != (0, 0) {
+                world.spawn((
+                    PlantScatter::with_options(size, options.clone()),
+                    centre(column, row),
+                ));
+            }
+        }
+    }
+}
+
+/// Asserts that `split` holds the same roots as `whole`. Roots are read
+/// back packed to 16 bits around the view's instance origin, so the same
+/// root may read back a step apart: each root is matched with one within
+/// 5 mm.
+fn assert_same_roots(whole: &[Vec3], split: &[Vec3], what: &str) {
     let cell = |r: Vec3| (r.xz() / 0.05).floor().as_ivec2();
     let mut buckets: HashMap<IVec2, Vec<Vec3>> = HashMap::default();
-    for &root in &split {
+    for &root in split {
         buckets.entry(cell(root)).or_default().push(root);
     }
     let mut unmatched = Vec::new();
-    for &root in &whole {
+    for &root in whole {
         let near = (-1..=1).flat_map(|dz| (-1..=1).map(move |dx| IVec2::new(dx, dz)));
         let found = near.into_iter().find_map(|d| {
             let bucket = buckets.get_mut(&(cell(root) + d))?;
@@ -312,10 +342,10 @@ fn gpu_two_fields_that_meet_grow_the_blades_of_one() {
             unmatched.push(root);
         }
     }
-    assert_eq!(split.len(), whole.len());
+    assert_eq!(split.len(), whole.len(), "{what}: blade count");
     assert!(
         unmatched.is_empty(),
-        "{} roots of the whole field are not in the split ones, such as {:?}",
+        "{what}: {} roots of the whole field are missing, such as {:?}",
         unmatched.len(),
         &unmatched[..unmatched.len().min(5)]
     );
