@@ -13,6 +13,7 @@ use bevy::scene::Scene;
 
 use super::camera::camera_controls;
 use super::documents::InspectorPages;
+use super::documents::save::header_buttons;
 use super::library::library;
 use super::outline::outline;
 use super::status::status_overlay;
@@ -103,8 +104,18 @@ fn inspector() -> impl Scene {
         }
         ThemeBackgroundColor(tokens::PANE_BODY_BG)
         Children [
-            Node { padding: px(10), flex_shrink: 0.0 }
-            Children [ @label("") InspectorTitle ]
+            Node {
+                padding: px(10),
+                flex_shrink: 0.0,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(6),
+            }
+            Children [
+                @label("") InspectorTitle
+                --
+                @header_buttons()
+            ]
             --
             Node {
                 flex_grow: 1.0,

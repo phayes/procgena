@@ -1,7 +1,7 @@
 //! Stones: one rock, from a `.stone.yml` preset.
 
 use bevy::prelude::*;
-use procgena_stone::StonePreset;
+use procgena_stone::{StoneOptions, StonePreset};
 
 use super::{Kind, RegisterKind, entries};
 use crate::export::stone_panel::spawn_stone_export;
@@ -10,6 +10,7 @@ use crate::stones::editor::{
     StoneEdited, StoneEditor, StoneEditorPlugin, StonePanel, spawn_stone_editor,
 };
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// Registers stones.
@@ -31,6 +32,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
+            settings: Some(settings_panel::<StoneOptions>()),
             detail_levels: &[],
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::object_line(state, "rock"),

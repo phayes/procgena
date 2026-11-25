@@ -348,14 +348,17 @@ fn the_plugin_opens_the_project_folder_given() {
     app.add_plugins((MinimalPlugins, ProjectPlugin))
         .insert_resource(ProjectFolder(root.clone()));
     app.update();
-    let project = app.world().resource::<OpenProject>();
-    assert_eq!(project.0.root(), root);
+    let presets = app.world().resource::<Presets>();
+    assert_eq!(presets.project().unwrap().root(), root);
     assert!(root.join(MANIFEST).is_file());
 
-    // Without a folder, no project opens.
+    // Without a folder, no project opens, and the built-in presets are
+    // still there.
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, ProjectPlugin));
     app.update();
-    assert!(app.world().get_resource::<OpenProject>().is_none());
+    let presets = app.world().resource::<Presets>();
+    assert!(presets.project().is_none());
+    assert!(!presets.registry().entries("tree").is_empty());
     std::fs::remove_dir_all(&root).unwrap();
 }

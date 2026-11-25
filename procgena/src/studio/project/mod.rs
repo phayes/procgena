@@ -466,30 +466,65 @@ impl ProjectFolder {
 const DEFAULT_ID: &str = "default";
 const DEFAULT_NAME: &str = "Default";
 
-/// The open project, if any.
+/// Every preset the studio can open: the open project's, if any, over the
+/// built-in ones.
 #[derive(Resource, Debug)]
-pub struct OpenProject(pub Project);
+pub struct Presets {
+    project: Option<Project>,
+    built_in: Registry,
+}
+
+impl Default for Presets {
+    fn default() -> Self {
+        Self {
+            project: None,
+            built_in: registry(),
+        }
+    }
+}
+
+impl Presets {
+    /// The open project, if any.
+    pub fn project(&self) -> Option<&Project> {
+        self.project.as_ref()
+    }
+
+    /// The open project, if any, to save into.
+    pub fn project_mut(&mut self) -> Option<&mut Project> {
+        self.project.as_mut()
+    }
+
+    /// Opens `project`, closing any other.
+    pub fn open(&mut self, project: Project) {
+        self.project = Some(project);
+    }
+
+    /// The registry to look presets up in: the open project's, or the
+    /// built-in presets alone.
+    pub fn registry(&self) -> &Registry {
+        self.project
+            .as_ref()
+            .map_or(&self.built_in, Project::registry)
+    }
+}
 
 /// How often the studio looks for preset files changed outside it.
 const RELOAD_EVERY: Duration = Duration::from_secs(1);
 
-/// Opens the project in [`ProjectFolder`] at start, and reloads its
-/// presets when their files change outside the studio.
+/// Keeps [`Presets`]: opens the project in [`ProjectFolder`] at start, and
+/// reloads its presets when their files change outside the studio.
 pub struct ProjectPlugin;
 
 impl Plugin for ProjectPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, open_project).add_systems(
-            Update,
-            reload_changed
-                .run_if(resource_exists::<OpenProject>)
-                .run_if(on_real_timer(RELOAD_EVERY)),
-        );
+        app.init_resource::<Presets>()
+            .add_systems(Startup, open_project)
+            .add_systems(Update, reload_changed.run_if(on_real_timer(RELOAD_EVERY)));
     }
 }
 
 /// Opens or makes the project in [`ProjectFolder`], if one is given.
-fn open_project(folder: Option<Res<ProjectFolder>>, mut commands: Commands) {
+fn open_project(folder: Option<Res<ProjectFolder>>, mut presets: ResMut<Presets>) {
     let Some(folder) = folder else {
         return;
     };
@@ -498,20 +533,23 @@ fn open_project(folder: Option<Res<ProjectFolder>>, mut commands: Commands) {
             for problem in project.problems() {
                 warn!("{problem}");
             }
-            commands.insert_resource(OpenProject(project));
+            presets.open(project);
         }
         Err(error) => error!("could not open the project: {error}"),
     }
 }
 
 /// Reloads the open project's presets when a file changed on disk.
-fn reload_changed(mut project: ResMut<OpenProject>) {
-    if !project.0.changed_on_disk() {
+fn reload_changed(mut presets: ResMut<Presets>) {
+    if !presets.project().is_some_and(Project::changed_on_disk) {
         return;
     }
-    match project.0.reload() {
+    let Some(project) = presets.project_mut() else {
+        return;
+    };
+    match project.reload() {
         Ok(()) => {
-            for problem in project.0.problems() {
+            for problem in project.problems() {
                 warn!("{problem}");
             }
         }

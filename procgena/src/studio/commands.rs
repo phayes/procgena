@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 
-use super::documents::{CloseDocument, Document, Selection};
+use super::documents::{CloseDocument, Document, Selection, save};
 use crate::scene::{CameraMode, ViewerCommand};
 
 /// One named command.
@@ -125,6 +125,31 @@ impl Plugin for CommandsPlugin {
                 description: "Selects the document opened before the selected one.",
                 run: |world| step_document(world, -1),
             },
+            StudioCommand {
+                name: "undo",
+                description: "Undoes the selected document's last change.",
+                run: save::undo_selected,
+            },
+            StudioCommand {
+                name: "redo",
+                description: "Redoes the selected document's last undone change.",
+                run: save::redo_selected,
+            },
+            StudioCommand {
+                name: "save",
+                description: "Saves the selected document; a built-in preset is saved as new.",
+                run: save::save,
+            },
+            StudioCommand {
+                name: "save-as-new",
+                description: "Asks for a key and saves the selected document as a new preset.",
+                run: save::save_as_new,
+            },
+            StudioCommand {
+                name: "reset-to-base",
+                description: "Sets the selected document back to the preset it is written over.",
+                run: save::reset_to_base,
+            },
         ] {
             commands.register(command);
         }
@@ -182,9 +207,7 @@ pub fn select_path(world: &mut World, path: &str) -> Result<(), String> {
         let ids: Vec<&str> = kinds.iter().map(|kind| kind.id).collect();
         return Err(format!("no kind {kind:?}; there are {}", ids.join(", ")));
     };
-    if !(kind.presets)().iter().any(|preset| preset.key == key) {
-        return Err(format!("no {} preset {key:?}", kind.id));
-    }
+    super::documents::can_open(kind, key, world.resource::<super::project::Presets>())?;
     world.trigger(super::OpenDocument {
         kind: kind.id,
         key: key.to_owned(),

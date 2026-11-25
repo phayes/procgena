@@ -27,6 +27,7 @@ pub fn register(app: &mut App) {
             start: crate::ecotope::START_PRESET,
             spawn_editor: spawn_ecotope_editor,
             show,
+            settings: None,
             detail_levels: &[],
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: status::ecotope_line,
