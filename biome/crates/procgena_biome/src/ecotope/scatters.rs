@@ -85,11 +85,16 @@ impl ScatterKind {
     /// `above` is the footprints of the Scatters above: `input`'s mask
     /// already keeps out of them, point by point, and a plant Scatter also
     /// clears every texel they touch.
+    ///
+    /// `prepared` is an earlier placement of these same settings with the
+    /// same seed, if there is one: stones and dead wood reuse its shapes
+    /// instead of building them again.
     pub(crate) fn place(
         &self,
         input: &ScatterInput<'_>,
         above: &FootprintMask,
         clearance: f32,
+        prepared: Option<&ScatterCopies>,
     ) -> Result<(ScatterCopies, Footprints), ScatterFailure> {
         let mut footprints = Footprints::new(input.area.centre);
         let copies = match self {
@@ -106,7 +111,11 @@ impl ScatterKind {
                 ScatterCopies::Tree(placed)
             }
             Self::Stone(options) => {
-                let placed = StoneScatter::new(options, input).map_err(ScatterFailure::Stone)?;
+                let placed = match prepared {
+                    Some(ScatterCopies::Stone(earlier)) => earlier.placed_over(input),
+                    _ => StoneScatter::new(options, input),
+                }
+                .map_err(ScatterFailure::Stone)?;
                 for stone in placed.instances() {
                     footprints.insert(Shape::Disc {
                         centre: stone.position.xz(),
@@ -116,7 +125,11 @@ impl ScatterKind {
                 ScatterCopies::Stone(placed)
             }
             Self::Deadwood(options) => {
-                let placed = StickScatter::new(options, input).map_err(ScatterFailure::Deadwood)?;
+                let placed = match prepared {
+                    Some(ScatterCopies::Deadwood(earlier)) => earlier.placed_over(input),
+                    _ => StickScatter::new(options, input),
+                }
+                .map_err(ScatterFailure::Deadwood)?;
                 let spans: Vec<Span> = placed.variants().iter().map(span_of).collect();
                 for copy in placed.instances() {
                     let span = spans[copy.variant as usize];

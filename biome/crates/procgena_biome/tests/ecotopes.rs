@@ -345,6 +345,85 @@ fn changing_one_scatter_never_moves_the_scatters_above_it() {
 }
 
 #[test]
+fn placing_again_after_an_edit_matches_placing_afresh_and_keeps_the_layers_above() {
+    let ground = ground();
+    let input = |seed| ScatterInput::new(&ground, area(), seed);
+    let ecotope = pine_floor();
+    let before = ecotope.place(&input(5)).unwrap();
+
+    // Each edit: what it changes, the Ecotope after it, and the Scatters
+    // above the first one it can move, which keep their copies.
+    let mut logs = ecotope.scatters[&key("logs")].clone();
+    logs.clearance += 0.2;
+    let mut pines = ecotope.scatters[&key("pines")].clone();
+    let ScatterKind::Tree(trees) = &mut pines.scatter else {
+        panic!("pines are trees");
+    };
+    trees.density_scale *= 0.8;
+    let mut boulders = ecotope.scatters[&key("boulders")].clone();
+    boulders.priority = 50;
+    let edits: [(&str, Ecotope, &[&str]); 3] = [
+        (
+            "logs' clearance",
+            ecotope.clone().with(key("logs"), logs),
+            &["pines", "boulders"],
+        ),
+        (
+            "pines' density",
+            ecotope.clone().with(key("pines"), pines),
+            &[],
+        ),
+        (
+            "boulders moved down the order",
+            ecotope.clone().with(key("boulders"), boulders),
+            &["pines"],
+        ),
+    ];
+
+    for (edited, after, expected_kept) in edits {
+        // Placing again gives what placing afresh gives.
+        let again = after.place_again(&input(5), &before).unwrap();
+        let fresh = after.place(&input(5)).unwrap();
+        let keys = |p: &procgena_biome::EcotopePlacement| -> Vec<String> {
+            p.layers().iter().map(|l| l.key().to_string()).collect()
+        };
+        assert_eq!(keys(&again), keys(&fresh), "{edited}");
+        for (a, f) in again.layers().iter().zip(fresh.layers()) {
+            assert_eq!(copies(a), copies(f), "{edited}: {}", a.key());
+            assert_eq!(a.footprints(), f.footprints(), "{edited}: {}", a.key());
+        }
+
+        // Only the layers above the first one the edit can move keep their
+        // copies as they were, unplaced.
+        let kept: Vec<&str> = again
+            .layers()
+            .iter()
+            .filter(|layer| {
+                let old = before.get(layer.key().as_str()).unwrap();
+                std::ptr::eq(old.copies(), layer.copies())
+            })
+            .map(|layer| layer.key().as_str())
+            .collect();
+        assert_eq!(kept, expected_kept, "{edited}");
+    }
+
+    // A new seed places every Scatter again.
+    let again = ecotope.place_again(&input(6), &before).unwrap();
+    for layer in again.layers() {
+        let old = before.get(layer.key().as_str()).unwrap();
+        assert!(
+            !std::ptr::eq(old.copies(), layer.copies()),
+            "{}",
+            layer.key()
+        );
+    }
+    let fresh = ecotope.place(&input(6)).unwrap();
+    for (a, f) in again.layers().iter().zip(fresh.layers()) {
+        assert_eq!(copies(a), copies(f), "{}", a.key());
+    }
+}
+
+#[test]
 fn a_scatter_keeps_its_copies_under_a_new_key_only_if_its_seed_is_kept() {
     // Renaming a key gives the Scatter a new seed, and moves its copies.
     let ecotope = pine_floor();

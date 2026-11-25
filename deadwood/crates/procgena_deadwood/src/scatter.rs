@@ -440,6 +440,24 @@ impl StickScatter {
         })
     }
 
+    /// This Scatter's variants with their copies placed over `input`
+    /// instead, without building the variants again.
+    ///
+    /// The variants keep the World seed they were built with. When that is
+    /// also `input`'s seed, the result matches [`new`](Self::new) with these
+    /// options and `input`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`sticks`](Self::sticks).
+    pub fn placed_over(&self, input: &ScatterInput<'_>) -> Result<Self, ScatterError> {
+        let instances = self.sticks(input)?;
+        Ok(Self {
+            instances,
+            ..self.clone()
+        })
+    }
+
     /// The distinct sticks. Each rests on flat ground at `y = 0`; mesh
     /// it with [`Piece::mesh`] or [`Piece::lod_meshes`] and place copies
     /// with each [`Instance::transform`].
