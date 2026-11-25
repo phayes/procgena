@@ -63,6 +63,9 @@ const MIN_WEIGHT: f32 = 0.02;
 const TRIPLANAR_BELOW: f32 = 0.85;
 /// The width of the height-blended edge between materials, in weight.
 const HEIGHT_BLEND_DEPTH: f32 = 0.25;
+/// Where the textures' occlusion starts to ease out, as a share of the
+/// distance where textures start to fade; it is gone by that distance.
+const AO_FADE_FROM: f32 = 0.4;
 
 /// One material's texture read at one point.
 struct GroundTexel {
@@ -227,7 +230,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         used = max(used, 1e-4);
         colour = mix(colour, t_colour / used * vary, near);
         roughness = mix(roughness, t_roughness / used, near);
-        occlusion = mix(1.0, t_occlusion / used, near);
+        // The textures' occlusion darkens them below their average colour,
+        // so it eases out before the textures fade into the flat colour.
+        let occlusion_near = 1.0 - smoothstep(
+            surface.texture_fade.x * AO_FADE_FROM,
+            surface.texture_fade.x,
+            distance,
+        );
+        occlusion = mix(1.0, t_occlusion / used, occlusion_near);
         normal = normalize(mix(normal, normalize(t_normal), near));
     }
 
