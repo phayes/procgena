@@ -63,9 +63,10 @@ const MIN_WEIGHT: f32 = 0.02;
 const TRIPLANAR_BELOW: f32 = 0.85;
 /// The width of the height-blended edge between materials, in weight.
 const HEIGHT_BLEND_DEPTH: f32 = 0.25;
-/// Where the textures' occlusion starts to ease out, as a share of the
-/// distance where textures start to fade; it is gone by that distance.
-const AO_FADE_FROM: f32 = 0.4;
+/// Where the textures' occlusion and normal-map detail start to ease out,
+/// as a share of the distance where textures start to fade; both are gone
+/// by that distance.
+const DETAIL_FADE_FROM: f32 = 0.4;
 
 /// One material's texture read at one point.
 struct GroundTexel {
@@ -230,15 +231,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         used = max(used, 1e-4);
         colour = mix(colour, t_colour / used * vary, near);
         roughness = mix(roughness, t_roughness / used, near);
-        // The textures' occlusion darkens them below their average colour,
-        // so it eases out before the textures fade into the flat colour.
-        let occlusion_near = 1.0 - smoothstep(
-            surface.texture_fade.x * AO_FADE_FROM,
+        // The textures' occlusion and normal-map bumps darken them below
+        // their average colour, so both ease out before the textures fade
+        // into the flat colour.
+        let detail_near = 1.0 - smoothstep(
+            surface.texture_fade.x * DETAIL_FADE_FROM,
             surface.texture_fade.x,
             distance,
         );
-        occlusion = mix(1.0, t_occlusion / used, occlusion_near);
-        normal = normalize(mix(normal, normalize(t_normal), near));
+        occlusion = mix(1.0, t_occlusion / used, detail_near);
+        normal = normalize(mix(normal, normalize(t_normal), detail_near));
     }
 
     // Debug: tint by chunk level, and darken a line along chunk borders.
