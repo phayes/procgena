@@ -4,14 +4,10 @@ use bevy::mesh::{Mesh, VertexAttributeValues};
 use bevy::prelude::*;
 use bevy::render::render_resource::encase::UniformBuffer;
 use bevy::render::render_resource::{Face, ShaderType};
-use procgena_tree::{
-    BarkMaterial, BarkUvMode, Tree, TreePreset, WindParams, bark_average_color, default_lod,
-};
+use procgena_tree::{BarkMaterial, BarkUvMode, Tree, TreePreset, WindParams};
 use procgena_tree_bevy::{
-    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT,
-    ATTRIBUTE_WIND, BarkTextures, LeafTextures, WindUniform, average_bark_material, bark_material,
-    bark_mesh, billboard_aabb, cluster_mesh, flower_material, fruit_material, leaf_material,
-    leaf_mesh,
+    ATTRIBUTE_WIND, BarkTextures, LeafTextures, WindUniform, bark_material, bark_mesh,
+    cluster_mesh, flower_material, fruit_material, leaf_material, leaf_mesh,
 };
 
 fn float2(mesh: &Mesh, id: impl Into<bevy::mesh::MeshVertexAttributeId>) -> Vec<[f32; 2]> {
@@ -164,37 +160,6 @@ fn bark_normal_map_needs_continuous_texture_coordinates() {
 }
 
 #[test]
-fn average_bark_material_tints_the_average_texture_colour() {
-    let mut bark = TreePreset::oak_small().tree.bark.clone();
-    let wind = WindParams::default();
-    let tint = BarkMaterial::new(&bark).base_color;
-    let average = bark_average_color(&bark.kind).unwrap();
-
-    // Textured bark uses the tint times the texture's average, with no images.
-    let material = average_bark_material(&bark, wind);
-    let expected: [f32; 3] = std::array::from_fn(|i| tint[i] * average[i]);
-    let [r, g, b] = expected;
-    assert_eq!(material.base.base_color, Color::linear_rgb(r, g, b));
-    assert!(material.base.base_color_texture.is_none());
-    assert!(material.base.normal_map_texture.is_none());
-    assert_eq!(material.extension.wind, WindUniform::from(wind));
-
-    // Untextured bark and unknown kinds fall back to the tint alone.
-    let [r, g, b] = tint;
-    bark.textured = false;
-    assert_eq!(
-        average_bark_material(&bark, wind).base.base_color,
-        Color::linear_rgb(r, g, b)
-    );
-    bark.textured = true;
-    bark.kind = "not_a_bark".to_owned();
-    assert_eq!(
-        average_bark_material(&bark, wind).base.base_color,
-        Color::linear_rgb(r, g, b)
-    );
-}
-
-#[test]
 fn leaves_draw_both_sides_and_cut_out_their_shape() {
     let mut leaves = TreePreset::oak_small().tree.leaves.clone();
     leaves.alpha_test = 0.4;
@@ -210,68 +175,6 @@ fn leaves_draw_both_sides_and_cut_out_their_shape() {
     let rounded = leaf_material(&leaves, None, WindParams::default());
     assert_eq!(rounded.base.cull_mode, None::<Face>);
     assert!(!rounded.base.double_sided);
-}
-
-/// Checks that LOD3 bark and leaf meshes retain both rotation attributes
-/// without normals, ignore bark flat shading, and provide bounds covering
-/// the sampled rotations.
-#[test]
-fn billboard_meshes_carry_their_turning_data() {
-    let mut options = TreePreset::apple().tree.clone();
-    options.bark.flat_shading = true;
-    let tree = Tree::new(options).unwrap();
-    let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
-    let converted = [
-        (
-            &mesh.branches,
-            bark_mesh(&mesh.branches, &tree.options().bark),
-        ),
-        (&mesh.leaves, leaf_mesh(&mesh.leaves)),
-    ];
-    for (buffers, bevy_mesh) in &converted {
-        assert!(!buffers.billboard.is_empty());
-        assert_eq!(bevy_mesh.count_vertices(), buffers.vertex_count());
-        assert!(!bevy_mesh.contains_attribute(Mesh::ATTRIBUTE_NORMAL));
-        assert!(!bevy_mesh.contains_attribute(Mesh::ATTRIBUTE_TANGENT));
-        // Leaf cards carry their lighting normal in the billboard normal attribute.
-        match bevy_mesh.attribute(ATTRIBUTE_BILLBOARD_NORMAL) {
-            Some(VertexAttributeValues::Float32x3(normals)) => {
-                assert_eq!(normals, &buffers.normals);
-                assert!(std::ptr::eq(*buffers, &mesh.leaves));
-            }
-            None => assert!(buffers.normals.is_empty()),
-            other => panic!("unexpected attribute {other:?}"),
-        }
-        let pivots = float4(bevy_mesh, ATTRIBUTE_BILLBOARD_PIVOT);
-        let axes = float4(bevy_mesh, ATTRIBUTE_BILLBOARD_AXIS);
-        for ((p, a), b) in pivots.iter().zip(&axes).zip(&buffers.billboard) {
-            assert_eq!(*p, [b.pivot[0], b.pivot[1], b.pivot[2], b.offset[0]]);
-            assert_eq!(*a, [b.axis[0], b.axis[1], b.axis[2], b.offset[1]]);
-        }
-
-        // Check that every sampled rotation stays within the supplied bounds.
-        let bounds = billboard_aabb(buffers).unwrap();
-        let (min, max) = (Vec3::from(bounds.min()), Vec3::from(bounds.max()));
-        for k in 0..8 {
-            let angle = std::f32::consts::TAU * k as f32 / 8.0;
-            let to_camera = Vec3::new(angle.cos(), 0.3, angle.sin()).normalize();
-            for b in &buffers.billboard {
-                let (pivot, axis) = (Vec3::from(b.pivot), Vec3::from(b.axis));
-                let (right, up) = if axis == Vec3::ZERO {
-                    let right = Vec3::Y.cross(to_camera).normalize();
-                    (right, to_camera.cross(right))
-                } else {
-                    (axis.cross(to_camera).normalize(), axis)
-                };
-                let p = pivot + right * b.offset[0] + up * b.offset[1];
-                assert!(
-                    p.cmpge(min - 1e-4).all() && p.cmple(max + 1e-4).all(),
-                    "{p}"
-                );
-            }
-        }
-    }
-    assert!(billboard_aabb(&tree.mesh().branches).is_none());
 }
 
 #[test]

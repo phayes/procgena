@@ -1,6 +1,6 @@
 //! Generate a tree from settings or a preset, and access its shape and meshes.
 
-use procgena_core::LodLevel;
+use procgena_core::chain::Lod;
 
 use crate::{
     LodDetail, OptionsError, Rig, RigError, RigOptions, Skeleton, TreeMesh, TreeOptions, TreePreset,
@@ -9,21 +9,22 @@ use crate::{
 /// A generated tree with settings, a branch and leaf layout, and triangles for rendering.
 ///
 /// Create a tree from custom [`TreeOptions`], a built-in [`TreePreset`], or JSON
-/// settings. Use [`Tree::mesh`] to access its full-detail geometry, or
-/// [`Tree::lod_meshes`] to create simpler versions that cost less to draw at a distance.
+/// settings. Use [`Tree::mesh`] to access its game-level geometry (its real
+/// shape, at [`TreeOptions::game_level`]), [`Tree::lower_mesh`] for the
+/// coarser mesh drawn when it is small on screen, or [`Tree::mesh_with_detail`]
+/// for any other detail.
 /// Your application supplies materials, textures, and rendering.
 ///
 /// To change the settings, clone [`Tree::options`], edit the clone, and pass it
 /// to [`Tree::new`] to generate a new tree.
 ///
-/// Generate an ash tree and check that its farthest-distance mesh uses fewer triangles:
+/// Generate an ash tree and check that its lower mesh uses fewer triangles:
 ///
 /// ```
-/// use procgena_tree::{Tree, TreePreset, default_lod};
+/// use procgena_tree::{Tree, TreePreset};
 ///
 /// let tree = Tree::from_preset(TreePreset::ash_small())?;
-/// let lods = tree.lod_meshes(&default_lod().levels);
-/// assert!(lods[2].1.triangle_count() < tree.triangle_count());
+/// assert!(tree.lower_mesh().triangle_count() < tree.triangle_count());
 /// # Ok::<(), procgena_tree::OptionsError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -34,7 +35,7 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// Generates a tree and its full-detail mesh from the supplied settings.
+    /// Generates a tree and its game-level mesh from the supplied settings.
     ///
     /// # Errors
     ///
@@ -44,7 +45,7 @@ impl Tree {
     /// dimensions, are not validated.
     pub fn new(options: TreeOptions) -> Result<Self, OptionsError> {
         let skeleton = Skeleton::generate(&options)?;
-        let mesh = skeleton.mesh(&options, &LodDetail::default());
+        let mesh = skeleton.mesh(&options, &options.game_level);
         Ok(Self {
             options,
             skeleton,
@@ -52,7 +53,7 @@ impl Tree {
         })
     }
 
-    /// Generates a tree and its full-detail mesh from a preset's settings.
+    /// Generates a tree and its game-level mesh from a preset's settings.
     ///
     /// # Errors
     ///
@@ -76,45 +77,38 @@ impl Tree {
         &self.skeleton
     }
 
-    /// Borrows the full-detail mesh, containing bark and leaf triangles for rendering.
+    /// Borrows the game-level mesh, containing bark, leaf, fruit and flower
+    /// triangles for rendering: the tree's real shape, built at
+    /// [`TreeOptions::game_level`].
     pub fn mesh(&self) -> &TreeMesh {
         &self.mesh
+    }
+
+    /// The details of the tree's two meshes: its
+    /// [`game_level`](TreeOptions::game_level), and the coarser detail derived
+    /// from it.
+    pub fn lod(&self) -> Lod<LodDetail> {
+        Lod::from_game(self.options.game_level)
+    }
+
+    /// Creates the tree's lower mesh: the coarser mesh drawn in place of the
+    /// game level when the tree is small on screen.
+    pub fn lower_mesh(&self) -> TreeMesh {
+        self.mesh_with_detail(&self.lod().lower)
     }
 
     /// Creates a mesh with the amount of branch and leaf detail specified by `detail`.
     ///
     /// Use [`LodDetail::default`] for full detail, or adjust it to simplify the
-    /// geometry for distant trees. The stored skeleton and full-detail mesh remain unchanged.
+    /// geometry. The stored skeleton and game-level mesh remain unchanged.
     pub fn mesh_with_detail(&self, detail: &LodDetail) -> TreeMesh {
         self.skeleton.mesh(&self.options, detail)
     }
 
-    /// Creates meshes for the supplied detail levels, ordered by increasing camera distance.
-    ///
-    /// Each result pairs a level with its mesh. Levels with equal distances
-    /// keep their input order; an empty slice returns an empty vector.
-    /// Your application decides when to switch meshes using [`LodLevel::distance`].
-    /// Pass `&default_lod().levels` to use the four standard levels of
-    /// [`default_lod`](crate::default_lod).
-    pub fn lod_meshes(
-        &self,
-        levels: &[LodLevel<LodDetail>],
-    ) -> Vec<(LodLevel<LodDetail>, TreeMesh)> {
-        let mut ordered = levels.to_vec();
-        ordered.sort_by(|a, b| a.distance.total_cmp(&b.distance));
-        ordered
-            .into_iter()
-            .map(|level| {
-                let mesh = self.mesh_with_detail(&level.detail);
-                (level, mesh)
-            })
-            .collect()
-    }
-
     /// Creates movable joints for this tree within the limits in `options`.
     ///
-    /// Call [`Rig::skin`] with [`Tree::mesh`] or a mesh from [`Tree::lod_meshes`]
-    /// to assign vertices to the joints. A renderer can then bend the tree by
+    /// Call [`Rig::skin`] with [`Tree::mesh`] or another mesh made from this
+    /// tree to assign vertices to the joints. A renderer can then bend the tree by
     /// moving those joints; this method does not create animation clips.
     ///
     /// # Errors
@@ -125,20 +119,20 @@ impl Tree {
         Rig::new(&self.skeleton, options)
     }
 
-    /// Returns the total number of vertices (points) in the full-detail bark and leaf meshes.
+    /// Returns the total number of vertices (points) in the game-level mesh.
     ///
     /// Duplicate points are counted separately.
     pub fn vertex_count(&self) -> usize {
         self.mesh.vertex_count()
     }
 
-    /// Returns the total number of triangles in the full-detail bark and leaf meshes.
+    /// Returns the total number of triangles in the game-level mesh.
     pub fn triangle_count(&self) -> usize {
         self.mesh.triangle_count()
     }
 
     /// Consumes the tree and returns its settings, branch and leaf layout, and
-    /// full-detail mesh, in that order, transferring ownership to the caller.
+    /// game-level mesh, in that order, transferring ownership to the caller.
     pub fn into_parts(self) -> (TreeOptions, Skeleton, TreeMesh) {
         (self.options, self.skeleton, self.mesh)
     }

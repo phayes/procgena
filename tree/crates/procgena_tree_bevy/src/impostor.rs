@@ -1,16 +1,18 @@
 //! Tree impostors: each generated tree is baked into an impostor (see
-//! [`procgena_impostor`]) and drawn as one quad, the last level of the
-//! tree's levels of detail.
+//! [`procgena_impostor`]) from its game-level mesh, and drawn as one quad
+//! when it is small on screen, the last step of the shared drawing chain.
 
 use std::collections::HashMap;
 
 use bevy::asset::UntypedAssetId;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use procgena_core::chain::{DistanceChain, Step};
 use procgena_core::{ContentHasher, SpecimenId};
 use procgena_core_bevy::LodQuality;
 use procgena_impostor::{
-    BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorLevel, ImpostorMaterial,
-    ImpostorQuad, ImpostorRequest, Impostors, ViewCoverage,
+    BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorMaterial, ImpostorQuad,
+    ImpostorRequest, Impostors, ViewCoverage, frame_size_for,
 };
 
 use crate::Wind;
@@ -21,27 +23,27 @@ use crate::fruit_impostor::{
 use crate::material::{TreeMaterial, WindUniform, bake_copy};
 use crate::spawn::{
     CacheState, Generated, SingleTree, SingleTreeClusters, SpawnSettings, TreeCache,
-    TreeGenerating, TreeKey, TreePart, TreePartKind, TreeWindPhase, part_range, spawn_clusters,
+    TreeGenerating, TreeKey, TreePart, TreePartKind, TreeWindPhase, chain_ranges, part_range,
+    spawn_clusters,
 };
 
-/// The impostor trees use unless told otherwise: from 120 m for a tree of
-/// the levels' reference height (60 m for one half as tall), crossfading
-/// over 10% on each side, baked from level 1 as 10 × 10 views of 128
-/// pixels covering viewers from straight above down to 45° below level.
-/// That covers looking up a hillside of up to about 40° at a tree; from
-/// further below, the tree shows its view from 45° below. Set it on
+/// How trees' impostors are baked unless told otherwise: 8 × 8 views
+/// covering viewers from straight above down to 45° below level, each large
+/// enough for the biggest size on screen the shared [`DistanceChain`] shows
+/// an impostor at (256 pixels with the default chain). Looking up a hillside
+/// of up to about 40° at a tree is covered; from further below, the tree
+/// shows its view from 45° below. Set it on
 /// [`TreePlugin::impostor`](crate::TreePlugin::impostor).
 ///
-/// Each distinct tree is baked once, in the background, the first time it
-/// is generated; until then its farthest mesh level is drawn at every
-/// distance beyond. To keep bakes between runs, or ship them, add
+/// Each distinct tree is baked once, from its game-level mesh with its fruit
+/// and flowers, in the background the first time it is generated; until
+/// then its lower mesh is drawn until the tree is culled. Impostors cast no
+/// shadows. To keep bakes between runs, or ship them, add
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`TreePlugin`](crate::TreePlugin).
-pub fn default_tree_impostor() -> ImpostorLevel {
-    ImpostorLevel {
-        bake: BakeSettings::new(10, 128).with_coverage(ViewCoverage::from_lowest_elevation(-45.0)),
-        ..ImpostorLevel::new(120.0, 0.1, 1)
-    }
+pub fn default_tree_impostor() -> BakeSettings {
+    let frame = frame_size_for(DistanceChain::DEFAULT.largest_impostor_size());
+    BakeSettings::new(8, frame).with_coverage(ViewCoverage::from_lowest_elevation(-45.0))
 }
 
 /// A tree's impostor, once baked, with the quad and material that draw it,
@@ -79,7 +81,7 @@ pub(crate) fn request_impostors(
     mut fruit_materials: ResMut<Assets<FruitImpostorMaterial>>,
     mut shared: ResMut<FruitImpostorMaterials>,
 ) {
-    let Some(impostor) = settings.impostor else {
+    let Some(bake) = settings.impostor else {
         return;
     };
     for (key, generated) in cache.ready_without_impostor() {
@@ -90,21 +92,18 @@ pub(crate) fn request_impostors(
         if let Some(fruit) = settings.fruit_impostor {
             for part in &generated.clusters {
                 for (slot, specimen) in part.specimens.iter().enumerate() {
-                    // A specimen with nothing at the baked level, or whose
-                    // material is gone, keeps its last mesh level.
-                    let bakeable = specimen
-                        .levels
-                        .get(fruit.baked_level)
-                        .is_some_and(Option::is_some)
+                    // A specimen with an empty game-level mesh, or whose
+                    // material is gone, keeps its lower mesh.
+                    let bakeable = specimen.levels[Step::Game.index()].is_some()
                         && materials.contains(&part.material);
                     if !bakeable {
                         continue;
                     }
-                    let fruit_key = fruit_key(specimen.id, part.part, fruit);
+                    let fruit_key = fruit_key(specimen.id, part.part, fruit, specimen.detail);
                     let ready = impostors
                         .request(&mut commands, fruit_key, || {
-                            fruit_request(fruit_key, part, slot, fruit, &mut materials)
-                                .expect("the specimen was checked to have a baked level")
+                            fruit_request(fruit_key, part, slot, &mut materials)
+                                .expect("the specimen was checked to have a game-level mesh")
                         })
                         .cloned();
                     let Some(ready) = ready else {
@@ -123,18 +122,16 @@ pub(crate) fn request_impostors(
                 }
             }
         }
-        if impostor.baked_level >= generated.level_count() {
-            continue;
-        }
         let impostor_key = tree_key(
             cache.specimen_id(key),
-            impostor,
+            bake,
+            key.detail(),
             &settings,
             &cluster_specimens(&generated.clusters),
         );
         let ready = impostors
             .request(&mut commands, impostor_key, || {
-                tree_request(impostor_key, &generated, impostor, &mut materials)
+                tree_request(impostor_key, &generated, &mut materials)
             })
             .cloned();
         let (Some(ready), Some(material)) = (ready, impostors.material(impostor_key)) else {
@@ -162,19 +159,19 @@ fn cluster_specimens(clusters: &[TreeClusters]) -> Vec<Vec<SpecimenId>> {
         .collect()
 }
 
-/// The impostor key of tree specimen `specimen`, baked with `impostor`'s
-/// settings from its baked level's detail and textures, and this crate's
-/// version. `clusters` names the fruit and flower specimens it grows (see
-/// [`cluster_specimens`]): the tree's own specimen id leaves out which
-/// fruit pool, seed and number of slots they come from, and the bake shows
-/// them.
+/// The impostor key of tree specimen `specimen`, baked with `bake` from its
+/// game level (whose hash, with its fruit's, is `detail`) and textures, and
+/// this crate's version. `clusters` names the fruit and flower specimens it
+/// grows (see [`cluster_specimens`]): the tree's own specimen id leaves out
+/// which fruit pool, seed and number of slots they come from, and the bake
+/// shows them.
 fn tree_key(
     specimen: SpecimenId,
-    impostor: ImpostorLevel,
+    bake: BakeSettings,
+    detail: u64,
     settings: &SpawnSettings,
     clusters: &[Vec<SpecimenId>],
 ) -> ImpostorKey {
-    let level = format!("{:?}", settings.lod.levels.get(impostor.baked_level));
     let textures = format!(
         "{:?} {:?}",
         settings.texture_root, settings.texture_compression
@@ -190,9 +187,9 @@ fn tree_key(
     let fruit = fruit.finish().to_le_bytes();
     ImpostorKey::specimen(
         specimen,
-        impostor.bake,
+        bake,
         &[
-            level.as_bytes(),
+            &detail.to_le_bytes(),
             textures.as_bytes(),
             &fruit,
             env!("CARGO_PKG_VERSION").as_bytes(),
@@ -201,19 +198,18 @@ fn tree_key(
 }
 
 /// The impostor request for the tree `generated` under impostor key `key`:
-/// its baked level's parts with still, unlit copies of their materials,
-/// waiting for those materials' textures.
+/// its game-level parts and clusters with still, unlit copies of their
+/// materials, waiting for those materials' textures.
 fn tree_request(
     key: ImpostorKey,
     generated: &Generated,
-    impostor: ImpostorLevel,
     materials: &mut Assets<TreeMaterial>,
 ) -> ImpostorRequest {
     let mut parts = Vec::new();
     let mut wait_for: Vec<UntypedAssetId> = Vec::new();
     let baked_parts = generated
         .parts()
-        .filter(|(lod, ..)| *lod == impostor.baked_level)
+        .filter(|(step, ..)| *step == Step::Game)
         .map(|(_, _, mesh, material)| (&mesh.mesh, material));
     let clusters = generated
         .baked_clusters
@@ -248,7 +244,7 @@ fn tree_request(
 }
 
 /// Gives every finished tree whose impostor is ready an impostor part, and
-/// ends its farthest mesh level where the impostor takes over.
+/// ends its lower mesh where the impostor takes over.
 #[expect(clippy::type_complexity, reason = "Bevy system parameters")]
 pub(crate) fn show_impostors(
     mut commands: Commands,
@@ -278,12 +274,10 @@ pub(crate) fn show_impostors(
             continue;
         };
         let copy = SingleTree::new(generated, transform, phase);
-        let Some(ranges) = settings.impostor_ranges(quality.0, copy.size) else {
-            continue;
-        };
+        let ranges = chain_ranges(copy.size, quality.0);
 
-        // Every mesh level takes its bands with the impostor as the last
-        // level: the farthest now fades out where the impostor fades in.
+        // Every mesh step takes its bands with the impostor as the last
+        // step: the lower mesh now fades out where the impostor fades in.
         // Clusters are rebuilt to stop where the impostor fades in.
         for child in children.into_iter().flatten() {
             let Ok(part) = parts.get(*child) else {
@@ -293,7 +287,7 @@ pub(crate) fn show_impostors(
                 TreePartKind::Trellis => {}
                 TreePartKind::Clusters => commands.entity(*child).despawn(),
                 _ => {
-                    if let Some(range) = part_range(&ranges[part.lod]) {
+                    if let Some(range) = part_range(&ranges[part.step.index()]) {
                         commands.entity(*child).insert(range);
                     }
                 }
@@ -305,16 +299,16 @@ pub(crate) fn show_impostors(
             copy,
         };
         spawn_clusters(&mut commands, tree, generated, &settings, clusters);
-        let lod = generated.level_count();
         let mut impostor = commands.spawn((
             TreePart {
-                lod,
+                step: Step::Impostor,
                 kind: TreePartKind::Impostor,
             },
             assets.impostor.bundle(&quad, assets.material.clone()),
+            NotShadowCaster,
             ChildOf(tree),
         ));
-        if let Some(range) = part_range(&ranges[lod]) {
+        if let Some(range) = part_range(&ranges[Step::Impostor.index()]) {
             impostor.insert(range);
         }
         commands.entity(tree).insert(ImpostorShown);
@@ -325,127 +319,33 @@ pub(crate) fn show_impostors(
 mod tests {
     use super::*;
 
-    use std::ops::Range;
-
-    use procgena_core::{Lod, LodLevel, Quality};
     use procgena_tree::TextureCompression;
 
-    use crate::default_tree_lod;
     use crate::fruit_impostor::default_fruit_impostor;
 
-    /// Spawn settings with `levels` (distance and hysteresis of each mesh
-    /// level, all with the default nearest level's materials) and
-    /// `impostor`.
-    fn settings(levels: &[(f32, f32)], impostor: Option<ImpostorLevel>) -> SpawnSettings {
-        let near = default_tree_lod().levels[0].detail;
-        let levels = levels
-            .iter()
-            .map(|&(distance, hysteresis)| LodLevel::new(distance, hysteresis, near))
-            .collect();
+    /// Spawn settings with the default tree and fruit impostors and no
+    /// texture folder.
+    fn settings() -> SpawnSettings {
         SpawnSettings {
             texture_root: None,
             texture_compression: TextureCompression::Bc7,
-            lod: Lod::new(10.0, levels),
-            impostor,
+            impostor: Some(default_tree_impostor()),
             fruit_impostor: Some(default_fruit_impostor()),
         }
     }
 
-    /// Each level's fade-in and fade-out bands for a tree of the levels'
-    /// reference size.
-    fn bands(settings: &SpawnSettings) -> Vec<(Range<f32>, Range<f32>)> {
-        let size = settings.lod.reference_size;
-        let ranges = settings.impostor_ranges(Quality::High, size).unwrap();
-        ranges
-            .into_iter()
-            .map(|r| (r.fade_in, r.fade_out))
-            .collect()
-    }
-
+    /// Both default bakes are large enough for the biggest size on screen
+    /// the shared chain shows an impostor at, at any quality.
     #[test]
-    fn the_impostor_takes_over_where_the_farthest_level_ends() {
-        let impostor = ImpostorLevel::new(100.0, 0.1, 0);
-
-        // The farthest level keeps its start and ends over the impostor's
-        // band; the impostor starts over the same band and never ends.
-        let two = settings(&[(0.0, 0.0), (20.0, 0.1)], Some(impostor));
-        two.draw_lod().validate().unwrap();
-        assert_eq!(
-            bands(&two),
-            vec![
-                (0.0..0.0, 18.0..22.0),
-                (18.0..22.0, 90.0..110.0),
-                (90.0..110.0, f32::INFINITY..f32::INFINITY),
-            ]
-        );
-
-        // A tree with a single level, drawn at every distance, now ends.
-        let one = settings(&[(0.0, 0.0)], Some(impostor));
-        assert_eq!(
-            bands(&one),
-            vec![
-                (0.0..0.0, 90.0..110.0),
-                (90.0..110.0, f32::INFINITY..f32::INFINITY),
-            ]
-        );
-        assert!(one.mesh_ranges(Quality::High, 10.0)[0].is_always());
-        assert!(
-            settings(&[(0.0, 0.0)], None)
-                .impostor_ranges(Quality::High, 10.0)
-                .is_none()
-        );
-    }
-
-    /// The default levels and impostor keep, for a tree of the reference
-    /// height, the bands trees had before they moved onto the shared levels
-    /// of detail, and end at the cull distance.
-    #[test]
-    fn default_levels_keep_their_bands() {
-        let settings = SpawnSettings {
-            texture_root: None,
-            texture_compression: TextureCompression::Bc7,
-            lod: default_tree_lod(),
-            impostor: Some(default_tree_impostor()),
-            fruit_impostor: Some(default_fruit_impostor()),
-        };
-        settings.draw_lod().validate().unwrap();
-        let mesh_bands = |size| -> Vec<_> {
-            settings
-                .mesh_ranges(Quality::High, size)
-                .into_iter()
-                .map(|r| (r.fade_in, r.fade_out))
-                .collect()
-        };
-        assert_eq!(
-            mesh_bands(10.0),
-            vec![
-                (0.0..0.0, 9.5..10.5),
-                (9.5..10.5, 23.75..26.25),
-                (23.75..26.25, 47.5..52.5),
-                (47.5..52.5, 1425.0..1575.0),
-            ]
-        );
-        assert_eq!(
-            bands(&settings),
-            vec![
-                (0.0..0.0, 9.5..10.5),
-                (9.5..10.5, 23.75..26.25),
-                (23.75..26.25, 47.5..52.5),
-                (47.5..52.5, 108.0..132.0),
-                (108.0..132.0, 1350.0..1650.0),
-            ]
-        );
-
-        // A tree half the reference height switches at half the distances.
-        assert_eq!(
-            mesh_bands(5.0),
-            vec![
-                (0.0..0.0, 4.75..5.25),
-                (4.75..5.25, 11.875..13.125),
-                (11.875..13.125, 23.75..26.25),
-                (23.75..26.25, 712.5..787.5),
-            ]
-        );
+    fn the_default_bakes_fit_the_largest_impostor_on_screen() {
+        let largest = DistanceChain::DEFAULT.largest_impostor_size();
+        for bake in [default_tree_impostor(), default_fruit_impostor()] {
+            assert_eq!(bake.frame_size, 256);
+            assert!(
+                bake.frame_size as f32
+                    >= largest * procgena_impostor::REFERENCE_SCREEN_HEIGHT as f32
+            );
+        }
     }
 
     /// A Scatter's trees are keyed by their real specimen ids; a tree built
@@ -453,7 +353,7 @@ mod tests {
     #[test]
     fn scatter_trees_key_their_impostors_by_their_real_specimens() {
         bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
-        let settings = settings(&[(0.0, 0.0)], Some(default_tree_impostor()));
+        let settings = settings();
         let species = procgena_tree::ScatterTree::new(procgena_tree::TreePreset::oak_small());
         let mut cache = TreeCache::default();
 
@@ -469,10 +369,11 @@ mod tests {
 
     /// The fruit a tree grows is part of its impostor's key: its number of
     /// slots and its seed leave the tree's own specimen id alone, but the
-    /// bake shows them.
+    /// bake shows them. So is the game level's detail.
     #[test]
     fn the_fruit_a_tree_grows_changes_its_impostor_key() {
-        let settings = settings(&[(0.0, 0.0)], Some(default_tree_impostor()));
+        let settings = settings();
+        let bake = default_tree_impostor();
         let apple = procgena_tree::TreePreset::apple().tree.clone();
         let ids = |options: &procgena_tree::TreeOptions| -> Vec<Vec<SpecimenId>> {
             let tree = procgena_tree::Tree::new(options.clone()).unwrap();
@@ -482,7 +383,7 @@ mod tests {
         };
         let key = |options: &procgena_tree::TreeOptions| {
             let specimen = SpecimenId::new(options.default_seed as u32, options.pool_id(), 0);
-            tree_key(specimen, default_tree_impostor(), &settings, &ids(options))
+            tree_key(specimen, bake, 0, &settings, &ids(options))
         };
 
         let mut more_slots = apple.clone();
@@ -494,20 +395,17 @@ mod tests {
             assert_ne!(key(&apple), key(other));
         }
         assert_eq!(key(&apple), key(&apple.clone()));
+
+        let bare = SpecimenId::new(0, apple.pool_id(), 0);
         assert_ne!(
-            tree_key(
-                SpecimenId::new(0, apple.pool_id(), 0),
-                default_tree_impostor(),
-                &settings,
-                &[]
-            ),
-            tree_key(
-                SpecimenId::new(0, apple.pool_id(), 0),
-                default_tree_impostor(),
-                &settings,
-                &[Vec::new()]
-            ),
+            tree_key(bare, bake, 0, &settings, &[]),
+            tree_key(bare, bake, 0, &settings, &[Vec::new()]),
             "a tree without clusters differs from one whose clusters have no slots"
+        );
+        assert_ne!(
+            tree_key(bare, bake, 0, &settings, &[]),
+            tree_key(bare, bake, 1, &settings, &[]),
+            "a different game level bakes differently"
         );
     }
 }

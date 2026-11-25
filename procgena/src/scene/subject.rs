@@ -233,13 +233,6 @@ pub struct SceneState {
 }
 
 impl SceneState {
-    /// Whether a subject of kind `S` is shown.
-    pub fn shows<S: Subject>(&self) -> bool {
-        self.shown
-            .as_ref()
-            .is_some_and(|shown| shown.subject == TypeId::of::<S>())
-    }
-
     /// The shown subject of kind `S` and its settings, if one is shown.
     pub fn get<S: Subject>(&self) -> Option<(&Shown, &S::Settings)> {
         let shown = self.shown.as_ref()?;

@@ -97,7 +97,7 @@ mod layout {
     /// Byte sizes of one `Vertex`, `DrawArgs`, and `Status` in `generate.wesl`.
     pub(crate) const VERTEX_SIZE: u64 = 24;
     pub(crate) const DRAW_ARGS_SIZE: u64 = 20;
-    pub(crate) const STATUS_SIZE: u64 = 80;
+    pub(crate) const STATUS_SIZE: u64 = 96;
 
     /// Number of 32-bit words reserved for shared placement analysis values.
     pub(crate) const PLACE_STATE_WORDS: u32 = 16;

@@ -14,8 +14,8 @@
 //! - `--textures`: use the repository's bark and leaf textures.
 //! - `--entities`: draw the same trees as one tree entity each instead of
 //!   through the grove, to compare the two.
-//! - `--no-impostor`: draw far trees with their farthest mesh level instead
-//!   of as impostors. Otherwise measuring starts once every variant's
+//! - `--no-impostor`: draw far trees with their lower mesh instead of as
+//!   impostors. Otherwise measuring starts once every variant's
 //!   impostor is baked.
 //! - `--cache <dir>`: keep baked impostors in this folder, and reuse them on
 //!   later runs.
@@ -48,8 +48,10 @@ use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::time::Real;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use procgena_impostor::{ImpostorBakeCamera, ImpostorLevel, ImpostorPlugin, ImpostorSettings};
-use procgena_tree::{TreeScatterPreset, default_lod};
+use procgena_core::Quality;
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
+use procgena_impostor::{BakeSettings, ImpostorBakeCamera, ImpostorPlugin, ImpostorSettings};
+use procgena_tree::TreeScatterPreset;
 use procgena_tree_bevy::{
     TreeParams, TreePlugin, TreeScatterAssets, TreeScatterFinished, TreeScatterInstances,
     TreeScatterParams, TreeScatterStats, default_tree_impostor,
@@ -72,8 +74,8 @@ struct Bench {
     csv: Option<String>,
     screenshot: Option<String>,
     entities: bool,
-    /// Where far trees switch to impostors, or `None` without them.
-    impostor: Option<ImpostorLevel>,
+    /// How trees' impostors are baked, or `None` without them.
+    impostor: Option<BakeSettings>,
 }
 
 /// The image the camera draws into.
@@ -371,42 +373,42 @@ fn record(
         )
         .unwrap();
     }
-    // Triangles drawn from the last frame's camera, per detail level, with
-    // each tree on the level its distance picks (ignoring crossfades and
-    // culling). An impostor is the level after the meshes, two triangles.
+    // Triangles drawn from the last frame's camera, per drawing step, with
+    // each tree on the step its size on screen picks (ignoring crossfades).
+    // An impostor is two triangles. The per-tree counts are each step's
+    // average over the grove.
     let eye = camera.translation();
-    let starts: Vec<f32> = default_lod().levels.iter().map(|l| l.distance).collect();
-    let impostor_distance = bench.impostor.map_or(f32::INFINITY, |i| i.distance);
-    for (instances, stats, _, transform) in &groves {
-        let mut per_tree: Vec<f64> = stats
-            .levels
-            .iter()
-            .map(|l| l.triangles as f64 / stats.trees.max(1) as f64)
-            .collect();
-        let impostor_level = per_tree.len();
-        per_tree.push(2.0);
-        let mut drawn = vec![0.0f64; per_tree.len()];
+    let chain = DistanceChain::DEFAULT;
+    for (instances, stats, assets, transform) in &groves {
+        let trees = stats.trees.max(1) as f64;
+        let per_tree = [
+            stats.levels[0].triangles as f64 / trees,
+            stats.levels[1].triangles as f64 / trees,
+            2.0,
+        ];
+        let mut drawn = [0.0f64; 3];
         for tree in instances.trees() {
+            let Some(diameter) = assets.of(tree).diameter() else {
+                continue;
+            };
+            let size = diameter * tree.transform.scale.abs().max_element();
+            let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
             let distance = transform
                 .transform_point(tree.transform.translation)
                 .distance(eye);
-            let level = if distance >= impostor_distance {
-                impostor_level
-            } else {
-                let level = starts.iter().rposition(|s| distance >= *s).unwrap_or(0);
-                level.min(impostor_level - 1)
+            let Some(mut step) = chain.step_at(distance, factor, Quality::High) else {
+                continue;
             };
-            drawn[level] += per_tree[level];
+            if step == Step::Impostor && bench.impostor.is_none() {
+                step = Step::Lower;
+            }
+            drawn[step.index()] += per_tree[step.index()];
         }
         let total: f64 = drawn.iter().sum();
         write!(summary, "\n  triangles  {:.2} M drawn", total / 1e6).unwrap();
-        for (level, triangles) in drawn.iter().enumerate() {
-            let name = if level == impostor_level {
-                "impostors".to_owned()
-            } else {
-                format!("level {level}")
-            };
-            write!(summary, ", {name} {:.1}%", 100.0 * triangles / total).unwrap();
+        for step in Step::ALL {
+            let share = 100.0 * drawn[step.index()] / total;
+            write!(summary, ", {} {share:.1}%", step.name()).unwrap();
         }
     }
     info!("{summary}");

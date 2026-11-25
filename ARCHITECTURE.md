@@ -1489,7 +1489,9 @@ Each rule says what every asset does, and which crates have to change.
      impostor as a whole, and a scatter bakes one impostor per body,
      through the shared renderer with `chain_lod`. So does dead wood (IX
      Step 3): each piece, and each variant of a stick scatter, is sized by
-     its game-level mesh's real bounding sphere. The
+     its game-level mesh's real bounding sphere. So do trees and their
+     fruit and flowers (IX Step 3): clusters switch by their own size
+     until their tree's impostor takes over. The
      other assets still use the older metre table (`Lod`, `LodLevel`,
      `LevelForm`, `FarForm`) until each moves across; the old types are
      deleted when the last asset moves. The bullets below describe the

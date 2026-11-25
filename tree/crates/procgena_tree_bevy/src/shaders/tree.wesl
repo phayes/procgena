@@ -6,21 +6,14 @@ import bevy_pbr::render::{
     mesh_view_bindings::globals,
     view_transformations::position_world_to_clip,
 };
-import package::shaders::tree_billboard::{TurnedVertex, turn_billboard, turn_lit_billboard};
 import package::shaders::tree_wind::tree_wind_offset;
 import procgena_core_bevy::shaders::instanced::copy_wind_phase;
 @if(ATTACHED)
 import procgena_core_bevy::shaders::instanced::{attached_position, attached_direction, attached_wind};
 
-/// Wind controls and optional billboard rotation data added to Bevy’s vertex inputs.
+/// Wind controls added to Bevy’s vertex inputs.
 struct TreeVertex {
     @location(8) wind: vec4<f32>,
-    @if(BILLBOARD)
-    @location(9) billboard_pivot: vec4<f32>,
-    @if(BILLBOARD)
-    @location(10) billboard_axis: vec4<f32>,
-    @if(BILLBOARD_NORMAL)
-    @location(11) billboard_normal: vec3<f32>,
     /// For a grove tree: its index in the grove's mesh records, and its
     /// detail-level dither, as the bits of an `i32`. For fruit or flowers
     /// attached to a tree: the tree's record, and their own dither.
@@ -61,25 +54,6 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     wind = vec4<f32>(attached_wind(tree.attached_wind), tree.wind.w);
 }
 
-    // Rotate billboards toward this view before adding wind movement.
-@if(BILLBOARD) {
-    let local_from_world = mesh_functions::get_local_from_world(index);
-    var turned: TurnedVertex;
-@if(BILLBOARD_NORMAL) {
-    turned = turn_lit_billboard(
-        tree.billboard_pivot,
-        tree.billboard_axis,
-        tree.billboard_normal,
-        local_from_world,
-    );
-}
-@if(!BILLBOARD_NORMAL) {
-    turned = turn_billboard(tree.billboard_pivot, tree.billboard_axis, local_from_world);
-}
-    position = turned.position;
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(turned.normal, index);
-}
-
     // Apply wind locally, then use the entity transform to place the vertex in
     // the world. The tree's wind phase is in its mesh record's tag, for grove
     // copies, single trees and attached fruit alike.
@@ -91,7 +65,7 @@ fn vertex(in: Vertex, tree: TreeVertex) -> VertexOutput {
     );
     out.position = position_world_to_clip(out.world_position.xyz);
 
-@if(VERTEX_NORMALS && !BILLBOARD)
+@if(VERTEX_NORMALS)
     out.world_normal = mesh_functions::mesh_normal_local_to_world(normal, index);
 @if(VERTEX_UVS_A)
     out.uv = vertex.uv;

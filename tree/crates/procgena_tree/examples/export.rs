@@ -7,11 +7,11 @@
 //! Files are saved in `OUT_DIR`, which defaults to `target/procgena_tree_export` in
 //! this workspace. Each preset produces:
 //!
-//! - `<preset>.obj` and `<preset>.mtl`: the full-detail model and its material
+//! - `<preset>.obj` and `<preset>.mtl`: the game-level model and its material
 //!   description. Available texture images are copied to `OUT_DIR/textures/`.
 //!   Keep these files together when moving or sharing the export.
-//! - `<preset>.glb`: one file with four mesh detail levels for different viewing
-//!   distances, available texture images and a rig of up to 64 joints for
+//! - `<preset>.glb`: one file with the game-level mesh and the coarser lower
+//!   mesh for farther viewing, available texture images and a rig of up to 64 joints for
 //!   animating bark and leaves. Animation
 //!   clips are not included, and fruit and flowers do not move with the joints.
 //!
@@ -21,7 +21,7 @@
 //! or download the images listed in its `images_manifest.json`. Missing images
 //! are omitted, leaving the material colours or surface settings in use.
 //!
-//! Some viewers display all three GLB detail levels together. Select one version,
+//! Some viewers display both GLB meshes together. Select one version,
 //! or configure the receiving tool to switch versions with viewing distance.
 
 use std::error::Error;
@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use procgena_tree::export::TextureRef;
 use procgena_tree::export::gltf::{EmbeddedImage, GltfOptions, GltfTextures, ImageFormat, to_glb};
 use procgena_tree::export::obj::{ObjOptions, to_obj};
-use procgena_tree::{RigOptions, TextureSize, Tree, TreePreset, default_lod};
+use procgena_tree::{RigOptions, TextureSize, Tree, TreePreset};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Use command-line folders when supplied, otherwise the workspace defaults.
@@ -103,13 +103,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         fs::write(out_dir.join(format!("{stem}.obj")), obj.obj)?;
         fs::write(out_dir.join(&mtl_name), obj.mtl)?;
 
-        // Include the default detail variants, shared joints, and available image bytes in GLB.
+        // Include the game-level and lower meshes, shared joints, and available
+        // image bytes in GLB.
         let rig = tree.rig(&RigOptions::default())?;
-        let meshes: Vec<_> = tree
-            .lod_meshes(&default_lod().levels)
-            .into_iter()
-            .map(|(_, mesh)| mesh)
-            .collect();
+        let meshes = [tree.mesh().clone(), tree.lower_mesh()];
         let glb = to_glb(
             &meshes,
             tree.options(),

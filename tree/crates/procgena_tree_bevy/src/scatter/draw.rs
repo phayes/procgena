@@ -1,7 +1,8 @@
 //! Draws groves through the shared instanced renderer of
 //! `procgena_core_bevy`: each grove entity gets an [`InstancedScatter`] with
-//! one slot per species variant (its detail levels, then its impostor once
-//! baked) and one copy per placed tree that isn't promoted, then one slot
+//! one slot per species variant (its game-level and lower meshes, then its
+//! impostor once baked) and one copy per placed tree that isn't promoted,
+//! each sized by its bounding-sphere diameter, then one slot
 //! per fruit or flower cluster specimen the variants show, drawn by the
 //! [`InstancedAttached`] rows of the variants' slots.
 
@@ -12,16 +13,18 @@ use std::sync::Arc;
 use bevy::camera::primitives::Aabb;
 use bevy::platform::hash::FixedHasher;
 use bevy::prelude::*;
-use procgena_core::{CopyAddress, Lod};
+use procgena_core::CopyAddress;
+use procgena_core::chain::{DistanceChain, Lod, Step};
 use procgena_core_bevy::instanced::{
     InstancedAttached, InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, PartMesh,
-    SpecimenCache,
+    SpecimenCache, chain_lod,
 };
+use procgena_tree::LodDetail;
 
 use super::promote::{PromotedAs, PromotedTree};
 use super::{TreeScatterAssets, TreeScatterInstances, TreeScatterVariant};
 use crate::clusters::{ClusterImpostors, grove_clusters};
-use crate::spawn::{SpawnSettings, TreeCache, TreeGenerating, tree_size};
+use crate::spawn::{SpawnSettings, TreeCache, TreeGenerating, copy_size};
 
 /// How much a variant's bounding sphere is enlarged to cover wind sway.
 const SWAY_ALLOWANCE: f32 = 1.15;
@@ -71,7 +74,7 @@ pub(crate) fn update_grove_draws(
     }
 
     // Rebuild what changed: the slots and rows when the variants did, the
-    // copies when the trees, their variants' heights or the promoted trees
+    // copies when the trees, their variants' sizes or the promoted trees
     // did.
     for (entity, instances, assets, current, current_rows, drawn) in &groves {
         let hide = hidden.remove(&entity).unwrap_or_default();
@@ -84,7 +87,7 @@ pub(crate) fn update_grove_draws(
             {
                 scatter.copies.clone()
             }
-            _ => grove_copies(&instances, &assets, &hide, settings.lod.reference_size),
+            _ => grove_copies(&instances, &assets, &hide),
         };
         let (slots, rows) = match current {
             Some((scatter, rows)) if !assets.is_changed() => (scatter.slots.clone(), rows.clone()),
@@ -105,24 +108,23 @@ pub(crate) fn update_grove_draws(
     }
 }
 
-/// One slot per variant of a grove: its parts at every level, and its
-/// impostor as one more level once baked. A variant that isn't ready has no
-/// parts and draws nothing. Each ready variant's parts are cached by its
-/// specimen and level. Then one slot per cluster specimen the variants
-/// show, and the variants' cluster rows.
+/// One slot per variant of a grove: its game-level and lower meshes, and
+/// its impostor as the last step once baked. A variant that isn't ready has
+/// no parts and draws nothing. Each ready variant's parts are cached by its
+/// specimen and step. Then one slot per cluster specimen the variants show,
+/// and the variants' cluster rows.
 fn grove_slots(
     assets: &TreeScatterAssets,
     settings: &SpawnSettings,
     cache: &TreeCache,
     specimens: &mut SpecimenCache,
 ) -> (Arc<[InstancedSlot]>, InstancedAttached) {
-    let mesh_levels = settings.lod.levels.len() as u32;
     let mut slots: Vec<InstancedSlot> = assets
         .variants()
         .iter()
         .map(|variant| {
             let specimen = cache.specimen_id(variant.key);
-            let (lod, parts) = variant_parts(variant, settings, mesh_levels);
+            let (lod, parts) = variant_parts(variant);
             if variant.is_ready() {
                 for level in 0..lod.levels.len() as u32 {
                     let at_level = parts.iter().filter(|p| p.level == level).cloned();
@@ -139,8 +141,8 @@ fn grove_slots(
         })
         .collect();
 
-    // The clusters, after the variants, drawn as impostors far away once
-    // their variant's impostors are baked.
+    // The clusters, after the variants, drawn as their impostors when small
+    // on screen once their variant's impostors are baked.
     let baked_variants: Vec<_> = assets
         .variants()
         .iter()
@@ -152,18 +154,20 @@ fn grove_slots(
         .map(|(id, impostor)| (*id, impostor.clone()))
         .collect();
     let impostors = baked_variants.first().and_then(|first| {
+        settings.fruit_impostor?;
         Some(ClusterImpostors {
-            level: settings.fruit_impostor?,
             quad: &first.quad,
             baked: &baked,
         })
     });
-    let (cluster_slots, tables) = grove_clusters(
-        assets.variants().iter().map(|variant| variant.clusters()),
-        &settings.lod.levels,
-        slots.len() as u32,
-        impostors,
-    );
+    // A variant that isn't ready has no clusters, so the details it is
+    // given don't matter; it keeps its place among the tables.
+    let unready = Lod::from_game(LodDetail::default());
+    let trees = assets
+        .variants()
+        .iter()
+        .map(|variant| variant.clusters().unwrap_or((&[], &unready)));
+    let (cluster_slots, tables) = grove_clusters(trees, slots.len() as u32, impostors);
     slots.extend(cluster_slots);
     (
         slots.into(),
@@ -173,37 +177,30 @@ fn grove_slots(
     )
 }
 
-/// A variant's detail levels and parts: its mesh levels, then its impostor
-/// once baked (until then, its farthest level is drawn at every distance
-/// beyond).
-fn variant_parts(
-    variant: &TreeScatterVariant,
-    settings: &SpawnSettings,
-    mesh_levels: u32,
-) -> (Lod, Vec<InstancedPart>) {
+/// A variant's level table and parts: the shared chain's game-level and
+/// lower meshes, then its impostor once baked (until then, its lower mesh
+/// is drawn until the cull).
+fn variant_parts(variant: &TreeScatterVariant) -> (procgena_core::Lod, Vec<InstancedPart>) {
     let mut parts: Vec<InstancedPart> = variant
         .parts()
         .map(|part| InstancedPart {
-            level: part.lod as u32,
+            level: part.step.index() as u32,
             mesh: PartMesh::Mesh(part.mesh.clone()),
             material: part.material.clone().untyped(),
         })
         .collect();
-    let lod = match variant.impostor() {
-        Some(impostor) => {
-            parts.push(InstancedPart {
-                level: mesh_levels,
-                mesh: PartMesh::Mesh(impostor.quad.clone()),
-                material: impostor.material.clone().untyped(),
-            });
-            settings.draw_lod().map_detail(|_| ())
-        }
-        None => settings.lod.clone().map_detail(|_| ()),
-    };
+    if let Some(impostor) = variant.impostor() {
+        parts.push(InstancedPart {
+            level: Step::Impostor.index() as u32,
+            mesh: PartMesh::Mesh(impostor.quad.clone()),
+            material: impostor.material.clone().untyped(),
+        });
+    }
+    let lod = chain_lod(&DistanceChain::DEFAULT, variant.impostor().is_some());
     (lod, parts)
 }
 
-/// A sphere around every part of `variant` at every level, enlarged for
+/// A sphere around every part of `variant` at both mesh steps, enlarged for
 /// wind sway, in the tree's own coordinates; a point at the origin before
 /// the variant is ready.
 fn variant_bounds(variant: &TreeScatterVariant) -> (Vec3, f32) {
@@ -219,14 +216,13 @@ fn variant_bounds(variant: &TreeScatterVariant) -> (Vec3, f32) {
 }
 
 /// One copy per tree of a grove, leaving out the trees at positions in
-/// `hidden`. Each copy's size is its variant's height times its scale; a
-/// variant not generated yet (which draws nothing) counts as `reference`
-/// metres tall.
+/// `hidden`. Each copy's size is its variant's diameter times its largest
+/// scale; a variant not generated yet, which draws nothing, counts as 1 m
+/// across.
 fn grove_copies(
     instances: &TreeScatterInstances,
     assets: &TreeScatterAssets,
     hidden: &HashSet<u32>,
-    reference: f32,
 ) -> std::sync::Arc<[InstancedCopy]> {
     instances
         .trees()
@@ -234,11 +230,11 @@ fn grove_copies(
         .enumerate()
         .filter(|(index, _)| !hidden.contains(&(*index as u32)))
         .map(|(_, tree)| {
-            let height = assets.of(tree).height().unwrap_or(reference);
+            let diameter = assets.of(tree).diameter().unwrap_or(1.0);
             InstancedCopy {
                 slot: tree.slot,
                 transform: tree.transform.compute_affine(),
-                size: tree_size(height, &tree.transform),
+                size: copy_size(diameter, &tree.transform),
                 wind_phase: wind_phase(&tree.address),
             }
         })

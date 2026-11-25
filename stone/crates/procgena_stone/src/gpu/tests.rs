@@ -79,6 +79,10 @@ struct Readback {
 /// Number of 32-bit words in one shader status entry, including padding.
 const STATUS_WORDS: usize = (STATUS_SIZE / 4) as usize;
 
+/// The words of a shader status entry that hold the shared placement: the
+/// padded rotation, the offset and the burial depth.
+const PLACEMENT_WORDS: std::ops::Range<usize> = 4..20;
+
 impl Readback {
     /// Returns mesh `i`'s ground rotation, unscaled offset, and suggested burial depth.
     fn placement(&self, i: usize) -> (glam::Mat3, glam::Vec3, f32) {
@@ -555,6 +559,30 @@ fn gpu_ecotope_stones_match_cpu_at_every_level() {
                 cpu.embed_depth()
             );
         }
+
+        // The game level's bounding diameter is its own placed vertices' box
+        // diagonal, and matches the CPU rock's within a grid cell.
+        let measured = out.status[0].bounding_diameter;
+        let range = out.ranges[0];
+        let placed = &out.vertices[range.vertex_base as usize * 6..]
+            [..out.status[0].vertex_count as usize * 6];
+        let (mut min, mut max) = (glam::Vec3::INFINITY, glam::Vec3::NEG_INFINITY);
+        for v in placed.as_chunks::<6>().0 {
+            let p = glam::Vec3::new(v[0], v[1], v[2]);
+            (min, max) = (min.min(p), max.max(p));
+        }
+        let diagonal = (max - min).length();
+        assert!(
+            (measured - diagonal).abs() <= 1e-5 * diagonal,
+            "{what}: measured {measured}, vertices span {diagonal}"
+        );
+        let cpu_rock = crate::Stone::new(options.clone()).unwrap();
+        let game_cell = 1.0 / lod.game.resolution as f32;
+        assert!(
+            (measured - cpu_rock.bounding_diameter()).abs() <= 2.0 * game_cell,
+            "{what}: GPU diameter {measured} vs CPU {}",
+            cpu_rock.bounding_diameter()
+        );
     }
 }
 
@@ -597,8 +625,8 @@ fn gpu_placement_matches_cpu() {
 
         // Changing mesh detail must preserve the exact shared placement values.
         assert_eq!(
-            out.status_floats[2 * k * STATUS_WORDS..][4..STATUS_WORDS],
-            out.status_floats[(2 * k + 1) * STATUS_WORDS..][4..STATUS_WORDS],
+            out.status_floats[2 * k * STATUS_WORDS..][PLACEMENT_WORDS],
+            out.status_floats[(2 * k + 1) * STATUS_WORDS..][PLACEMENT_WORDS],
             "{what}: detail levels placed differently"
         );
 
@@ -624,7 +652,6 @@ fn gpu_placement_matches_cpu() {
             cpu.embed_depth()
         );
         assert_eq!(out.status[2 * k].embed_depth, embed);
-        assert!((out.status[2 * k].bounding_radius - cpu.bounding_radius()).abs() < cell);
     }
 }
 
@@ -785,15 +812,17 @@ fn estimate_covers_typical_rocks() {
 
 #[test]
 fn status_decodes_overflow_bits_counts_and_placement() {
-    let entry = |overflow: u32, vertices: u32, indices: u32, translation: [f32; 3], embed: f32| {
+    let entry = |overflow: u32, vertices: u32, indices: u32, embed: f32, diameter: f32| {
         let mut words = vec![overflow, vertices, indices, 0];
         words.extend([0; 12]);
-        words.extend(translation.map(f32::to_bits));
+        words.extend([0.0, 0.3, 0.4].map(f32::to_bits));
         words.push(embed.to_bits());
+        words.push(diameter.to_bits());
+        words.extend([0; 3]);
         words
     };
-    let mut words = entry(0, 10, 60, [0.0, 0.3, 0.4], 0.25);
-    words.extend(entry(OVERFLOW_CROSSINGS, 5, 600, [0.0; 3], 0.0));
+    let mut words = entry(0, 10, 60, 0.25, 1.5);
+    words.extend(entry(OVERFLOW_CROSSINGS, 5, 600, 0.0, 0.0));
     words.push(0);
     let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
     let status = GpuStoneStatus::decode(&bytes);
@@ -801,6 +830,6 @@ fn status_decodes_overflow_bits_counts_and_placement() {
     assert!(status[0].fits());
     assert_eq!((status[0].vertex_count, status[0].index_count), (10, 60));
     assert_eq!(status[0].embed_depth, 0.25);
-    assert!((status[0].bounding_radius - (0.5 + 0.75f32.sqrt())).abs() < 1e-6);
+    assert_eq!(status[0].bounding_diameter, 1.5);
     assert!(!status[1].vertex_overflow && status[1].index_overflow);
 }

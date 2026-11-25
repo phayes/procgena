@@ -4,7 +4,6 @@
 use glam::{Mat4, Quat, Vec3};
 use procgena_tree::{
     MAX_RIG_JOINTS, MeshSkin, Rig, RigError, RigOptions, SkinWeights, Tree, TreeMesh, TreePreset,
-    default_lod,
 };
 
 /// Computes each joint's transform in tree coordinates, including its ancestors.
@@ -120,7 +119,7 @@ fn simpler_meshes_share_the_rig() {
         })
         .unwrap();
     assert!(rig.joint_count() > 64);
-    for (_, mesh) in tree.lod_meshes(&default_lod().levels) {
+    for mesh in [tree.mesh().clone(), tree.lower_mesh()] {
         let skin = rig.skin(&mesh);
         check_weights(
             &skin.branches,
@@ -128,31 +127,6 @@ fn simpler_meshes_share_the_rig() {
             rig.joint_count(),
         );
         check_rest_pose(&rig, &mesh, &skin);
-
-        // Fallback ribbon vertices must use the same section weights as the main strip.
-        let cull = &mesh.billboard_cull;
-        let joints = rig.joint_count();
-        check_weights(
-            &skin.branches_billboard_cull,
-            cull.branches.positions.len(),
-            joints,
-        );
-        check_weights(
-            &skin.leaves_billboard_cull,
-            cull.leaves.positions.len(),
-            joints,
-        );
-        for span in &mesh.branch_spans {
-            let (main, second) = (
-                span.vertices.start as usize,
-                span.cull_vertices.start as usize,
-            );
-            for k in 0..span.cull_vertices.len() {
-                let (a, b) = (&skin.branches, &skin.branches_billboard_cull);
-                assert_eq!(a.joints[main + k], b.joints[second + k]);
-                assert_eq!(a.weights[main + k], b.weights[second + k]);
-            }
-        }
     }
 }
 

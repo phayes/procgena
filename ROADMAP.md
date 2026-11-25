@@ -1210,10 +1210,17 @@ go to the few copies near the camera.
     single rocks and GPU pools drawn game level → lower mesh → impostor by
     size on screen, impostors baked from the game level, 256-pixel frames,
     no impostor shadows; the pool through the private `renderer_lod`
-    bridge. See Step 2's "As built" in the plan. Left of Step 2: a
-    headless screenshot check of a rock across the chain, the Codex
-    comment rewrite of Steps 1 and 2 (Codex was out of credits), and the
-    real-bounds follow-up below.
+    bridge. See Step 2's "As built" in the plan. Left of Step 2: the
+    Codex comment rewrite of Steps 1 and 2 (Codex was out of credits).
+    The headless screenshot of a rock across the chain and the real-bounds
+    follow-up below are done.
+  - **Step 3, tree and fruit built** on branch
+    `claude/project-thread-acr6e5`: `game_level` on `TreeOptions` and
+    `FruitOptions`, two meshes each, ribbons, billboards and the tree
+    crate's `gltf` feature gone, single trees, groves and clusters drawn
+    by size on screen, clusters until their tree's impostor takes over
+    (no cull of their own). See Step 3's "As built (tree and fruit)" in
+    the plan.
   - **Step 3, mushroom built** on branch `claude/project-thread-pe82qg`:
     `MushroomOptions::game_level` (default `HIGH`), a shell lower mesh,
     single mushrooms and clusters switched and baked as one specimen,
@@ -1226,34 +1233,38 @@ go to the few copies near the camera.
     mesh → impostor for single pieces and stick scatters, sized by each
     game-level mesh's real bounding sphere; `STRIP` and `strip_all` are
     gone. See the plan's "As built (Step 3, dead wood)".
-  - **Step 3, next:** tree (presets
-    default to level 0 as `game_level`; gains a `game_level` on
-    `TreeOptions`, which touches ST2's presets), fruit; each drops its
-    ribbon far forms. The last kind deletes the old `Lod`, `LodLevel`,
-    `LevelForm`, the ribbon `FarForm` variants and
-    `procgena_specimen::Level::start`, and terrain's chunk table moves
+  - **Step 3, next:** with every kind moved, delete the old `Lod`,
+    `LodLevel`, `LevelForm`, the ribbon `FarForm` variants and
+    `procgena_specimen::Level::start`, and move terrain's chunk table
     into `procgena_terrain` (coordinated with its owner).
   - **Step 4:** the instanced renderer takes the chain with per-view
     bands (deleting the stone bridge); the disk cache keyed by the bake
     key; the studio's low-priority background pre-bake; ST7b's chain
-    preview; and the ED worker's gate that bakes only impostors that can
-    be on screen (a farthest-view-distance resource beside `LodQuality`,
-    compared with `impostor_below` at the current quality; designed in the
-    plan's Step 4, including how it sits with the pre-bake).
+    preview. The ED worker's gate that bakes only impostors that can be
+    on screen was deferred by the user (2026-11-25); see the follow-up
+    below.
   - **Step 5:** the experiment, including the memory cost of Low-sized
     impostor frames against High-sized ones.
   - **Other TODOs:** the Codex comment rewrite for Steps 1–2; IX2 (the
     quality-independent impostor switch, later).
-- **Follow-up (from IX Step 2, 2026-11-25): real bounds for stones.** A
-  rock's size on screen is measured by `StoneOptions::bounding_diameter`,
-  the stretched containing box's diagonal, because neither the CPU nor the
-  GPU mesher reports a real bound (the GPU status's `bounding_radius` is
-  the same box bound, and the pool culls with a fixed radius). On the
-  presets it is 1.5–1.9 times the mesh's widest span (4.5 times for
-  `ore`), so stones keep their game-level mesh up to about twice as far as
-  they should. Replace it with each specimen's real bounding sphere, the
-  same on the CPU and GPU paths, before the stone measurements of the
-  experiment are taken as final.
+- **Follow-up (from IX Step 2, 2026-11-25): real bounds for stones.**
+  Done 2026-11-25: a rock's size on screen is now its game-level mesh's
+  bounding-box diagonal, measured on the CPU for single rocks
+  (`Stone::bounding_diameter`) and by a GPU pass for pooled rocks
+  (`GpuStoneStatus::bounding_diameter`, handed back to the pool's copies).
+  On the presets it is 1.04–1.43 times the mesh's widest span (it was
+  1.5–4.5 times). The pool still culls with a fixed radius.
+- **Follow-up TODO (deferred from IX Step 4 by the user, 2026-11-25):
+  bake only impostors that can be on screen.** A farthest-view-distance
+  resource beside `LodQuality` (default unlimited; the studio sets it from
+  its orbit limits), and a shared gate assets ask before requesting a
+  bake, so a viewer whose camera stays close (the studio's 40 m Ecotope
+  bakes 10 tree and 7 stone impostors it can never show) skips them.
+  Partial work, not merged: branch `claude/project-thread-r7ngjq` (core
+  resource, gate and `BakeAhead` marker; stone, dead wood and mushroom
+  wired; trees, fruit and the studio's limit not done). Design and what
+  was settled: `docs/decisions/IX-plan.md`, Step 4. It will need
+  rebasing onto the Step 4 renderer change.
 
 #### IX2: Impostors that ignore the quality level (later)
 

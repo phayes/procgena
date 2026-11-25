@@ -4,8 +4,8 @@
 
 import package::generate::{
     cell_case, crossing_count, crossing_id, crossing_vertex, crosses, is_cell, item_index,
-    place_vertex, sample_coords, sample_count, sample_index, write_result, OVERFLOW_INDICES,
-    OVERFLOW_VERTICES, WORKGROUP_SIZE, indices, prefix, request, vertices,
+    measure_bounds, place_vertex, sample_coords, sample_count, sample_index, write_result,
+    OVERFLOW_INDICES, OVERFLOW_VERTICES, WORKGROUP_SIZE, indices, prefix, request, vertices,
 };
 import package::tables::{MC_EDGE_AXES, MC_EDGE_OFFSETS};
 
@@ -108,4 +108,11 @@ fn finish_mc() {
         overflow |= OVERFLOW_INDICES;
     }
     write_result(overflow, totals.x, totals.y, 0u);
+}
+
+/// Measures the mesh's bounds into its status. Run after `finish_mc`;
+/// dispatch one workgroup.
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn measure_mc(@builtin(local_invocation_index) local: u32) {
+    measure_bounds(local);
 }
