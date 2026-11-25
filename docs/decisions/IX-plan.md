@@ -481,6 +481,32 @@ reported to the coordinator ready to merge.
      the impostor's start makes no request; raising it makes one. To
      decide in Step 4: how the gate sits with the studio's background
      pre-bake, which bypasses it on purpose.
+
+     **As built (the gate):**
+     - `procgena_core_bevy::FarthestViewDistance(f32)` (default
+       `UNLIMITED`, added by `LodPlugin`), the `ImpostorGate` system
+       parameter (`can_show(size)`) and the pure `impostor_can_show(size,
+       quality, farthest)`: true when the default chain's impostor, for a
+       copy `size` metres across seen through `ViewScale::DEFAULT`, starts
+       fading in no farther than `farthest`. Many copies sharing one
+       impostor ask with the smallest copy's size (mushroom scatters take
+       each body's smallest copy; stone pools and dead wood variants have
+       one size per variant).
+     - Held back means no `Impostors::request`, so neither a disk read nor
+       a bake; the asset keeps drawing its lower mesh to the cull and asks
+       again every frame, so a larger limit or a lower quality lets it
+       through. An impostor already in `Impostors` is used even when held
+       back.
+     - The pre-bake: it spawns each preset's asset entity hidden, so it
+       cannot use `ImpostorBatch`. It marks those entities
+       `procgena_core_bevy::BakeAhead`, and an asset treats a specimen as
+       reachable when any entity drawing it carries the marker. The studio
+       sets `FarthestViewDistance` from its orbit limits and raises it for
+       the chain preview (the studio thread's part).
+     - Wired into stone (single and pooled rocks), dead wood and mushroom
+       (singles and scatters). Trees and fruit follow once their Step 3
+       lands; a fruit cluster's impostor shows only while its tree is on a
+       mesh step, so its check uses the tree's impostor distance.
 5. **The experiment** on the new model, recorded in this file.
 
 Where a renderer change is needed to keep an asset drawing in steps 2 and

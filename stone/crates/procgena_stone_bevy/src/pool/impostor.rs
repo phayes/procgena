@@ -6,7 +6,7 @@
 //! variant's game-level mesh built on the CPU, the reference path, which the
 //! GPU meshes match.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::asset::UntypedAssetId;
 use bevy::prelude::*;
@@ -14,12 +14,13 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use procgena_core::chain::Step;
 use procgena_core::content_hash;
 use procgena_core_bevy::instanced::{InstancedPart, PartMesh};
+use procgena_core_bevy::{BakeAhead, ImpostorGate};
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, ImpostorKey, ImpostorQuad, ImpostorRequest, Impostors,
 };
 use procgena_stone::Stone;
 
-use super::{PoolDefinitions, StonePool, renderer_lod};
+use super::{PoolDefinitions, PoolSizes, PooledStone, StonePool, renderer_lod};
 use crate::material::{StoneMaterial, bake_copy};
 use crate::mesh::stone_mesh;
 use crate::spawn::SpawnSettings;
@@ -42,12 +43,17 @@ enum VariantImpostor {
 
 /// Starts, follows and finishes the impostor of every variant of every
 /// defined pool, and gives each finished one's slot an impostor level.
-/// Does nothing without impostor bake settings in the stone plugin's
-/// settings.
+/// A variant no camera can be far enough from to show its impostor (see
+/// [`ImpostorGate`]) waits, unless a rock drawing it is marked
+/// [`BakeAhead`], or its impostor is already baked. Does nothing without
+/// impostor bake settings in the stone plugin's settings.
 #[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 pub(crate) fn bake_pool_impostors(
     mut commands: Commands,
     settings: Res<SpawnSettings>,
+    gate: ImpostorGate,
+    sizes: Res<PoolSizes>,
+    ahead: Query<&PooledStone, With<BakeAhead>>,
     mut definitions: ResMut<PoolDefinitions>,
     mut state: ResMut<PoolImpostors>,
     impostors: Option<ResMut<Impostors>>,
@@ -86,6 +92,10 @@ pub(crate) fn bake_pool_impostors(
     }
 
     // Move each variant along, and give finished ones their impostor level.
+    let ahead: HashSet<(AssetId<StonePool>, u32)> = ahead
+        .iter()
+        .map(|stone| (stone.pool.id(), stone.variant))
+        .collect();
     for (id, (_, variants)) in &mut state.0 {
         for (variant, step) in variants.iter_mut().enumerate() {
             if let VariantImpostor::Building(task) = step {
@@ -106,11 +116,17 @@ pub(crate) fn bake_pool_impostors(
             let slot = &definition.slots[variant];
             let key = variant_key(&definition.pool, slot.specimen, bake, &settings);
             let source = slot.parts[0].material.clone().typed::<StoneMaterial>();
-            let ready = impostors
-                .request(&mut commands, key, || {
-                    bake_request(key, mesh.clone(), &source, &mut materials)
-                })
-                .is_some();
+            let reachable = gate.can_show(sizes.drawn(*id, definition, variant as u32))
+                || ahead.contains(&(*id, variant as u32));
+            let ready = if reachable {
+                impostors
+                    .request(&mut commands, key, || {
+                        bake_request(key, mesh.clone(), &source, &mut materials)
+                    })
+                    .is_some()
+            } else {
+                impostors.get(key).is_some()
+            };
             let Some(material) = impostors.material(key).filter(|_| ready).cloned() else {
                 continue;
             };

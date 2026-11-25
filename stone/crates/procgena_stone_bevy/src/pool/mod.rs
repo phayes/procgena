@@ -259,6 +259,14 @@ impl PoolSizes {
         }
         sizes.get(variant as usize).copied().flatten()
     }
+
+    /// The size copies of `variant` of the pool `id` are drawn at: its
+    /// measured size, or until the GPU has measured it, the bound of any
+    /// rock from the pool's settings.
+    fn drawn(&self, id: AssetId<StonePool>, definition: &PoolDefinition, variant: u32) -> f32 {
+        self.get(id, definition.version, variant)
+            .unwrap_or_else(|| definition.pool.options.bounding_diameter())
+    }
 }
 
 /// Takes the sizes the render world measured into [`PoolSizes`], keeping
@@ -519,13 +527,8 @@ fn collect_instances(
             }
             continue;
         }
-        let options = &definition.pool.options;
-        let scale = options.scale;
-        // Until the GPU has measured the variant, the bound of any rock from
-        // the pool's settings stands in for its size.
-        let size = sizes
-            .get(id, definition.version, stone.variant)
-            .unwrap_or_else(|| options.bounding_diameter());
+        let scale = definition.pool.options.scale;
+        let size = sizes.drawn(id, definition, stone.variant);
         pools.entry(id).or_default().push(InstancedCopy {
             slot: stone.variant,
             transform: transform.affine() * Affine3A::from_scale(Vec3::splat(scale)),

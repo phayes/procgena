@@ -2,10 +2,13 @@
 //! [`procgena_impostor`]) from its game-level mesh, and drawn as one quad
 //! when it is small on screen, the last step of the shared drawing chain.
 
+use std::collections::HashSet;
+
 use bevy::asset::UntypedAssetId;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use procgena_core::chain::{DistanceChain, Step};
+use procgena_core_bevy::{BakeAhead, ImpostorGate};
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, Impostor, ImpostorKey, ImpostorMaterial, ImpostorQuad,
     ImpostorRequest, Impostors, ViewCoverage, frame_size_for,
@@ -24,7 +27,10 @@ use crate::spawn::{
 ///
 /// Each distinct rock is baked once, from its game-level mesh, in the
 /// background the first time it is generated; until then its lower mesh is
-/// drawn until the rock is culled. Impostors cast no shadows. To keep bakes
+/// drawn until the rock is culled. A rock no camera can be far enough from
+/// to show its impostor (see
+/// [`FarthestViewDistance`](procgena_core_bevy::FarthestViewDistance)) is
+/// not baked until one can. Impostors cast no shadows. To keep bakes
 /// between runs, or ship them, add
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`StonePlugin`](crate::StonePlugin).
@@ -45,10 +51,14 @@ pub(crate) struct StoneImpostorAssets {
 pub(crate) struct StoneImpostorShown;
 
 /// Asks the shared impostor cache for the impostor of every generated rock
-/// that draws one, and keeps each one once it is baked.
+/// that draws one and can be far enough away to show it (see
+/// [`ImpostorGate`]), and keeps each one once it is baked. Rocks held back
+/// still take an impostor that is already baked.
 pub(crate) fn request_impostors(
     mut commands: Commands,
     settings: Res<SpawnSettings>,
+    gate: ImpostorGate,
+    ahead: Query<&StoneKey, With<BakeAhead>>,
     mut impostors: ResMut<Impostors>,
     mut cache: ResMut<StoneCache>,
     mut materials: ResMut<Assets<StoneMaterial>>,
@@ -56,13 +66,18 @@ pub(crate) fn request_impostors(
     let Some(bake) = settings.impostor else {
         return;
     };
+    let ahead: HashSet<&StoneKey> = ahead.iter().collect();
     for (key, generated) in cache.ready_without_impostor() {
         let impostor_key = stone_key(&key, bake, &settings);
-        let ready = impostors
-            .request(&mut commands, impostor_key, || {
-                stone_request(impostor_key, &generated, &mut materials)
-            })
-            .cloned();
+        let ready = if gate.can_show(generated.size) || ahead.contains(&key) {
+            impostors
+                .request(&mut commands, impostor_key, || {
+                    stone_request(impostor_key, &generated, &mut materials)
+                })
+                .cloned()
+        } else {
+            impostors.get(impostor_key).cloned()
+        };
         let (Some(ready), Some(material)) = (ready, impostors.material(impostor_key)) else {
             continue;
         };

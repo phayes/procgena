@@ -2,13 +2,15 @@
 //! [`procgena_impostor`]) from its game-level mesh, and drawn as one quad
 //! when it is small on screen, the last step of the shared drawing chain.
 
+use std::collections::HashSet;
+
 use bevy::asset::UntypedAssetId;
 use bevy::camera::visibility::VisibilityRange;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use procgena_core::chain::{DistanceChain, Step};
 use procgena_core_bevy::instanced::{InstancedScatter, InstancedStandardMaterial};
-use procgena_core_bevy::{LodQuality, visibility_range};
+use procgena_core_bevy::{BakeAhead, ImpostorGate, LodQuality, visibility_range};
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, BakeStandardMaterial, Impostor, ImpostorKey,
     ImpostorMaterial, ImpostorQuad, ImpostorRequest, Impostors, ViewCoverage, bake_standard,
@@ -31,7 +33,10 @@ use crate::spawn::{
 ///
 /// Each distinct piece is baked once, from its game-level mesh, in the
 /// background the first time it is built; until then its lower mesh is
-/// drawn until the piece is culled. Impostors cast no shadows. To keep
+/// drawn until the piece is culled. A piece no camera can be far enough
+/// from to show its impostor (see
+/// [`FarthestViewDistance`](procgena_core_bevy::FarthestViewDistance)) is
+/// not baked until one can. Impostors cast no shadows. To keep
 /// bakes between runs, or ship them, add
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`DeadwoodPlugin`](crate::DeadwoodPlugin).
@@ -50,11 +55,16 @@ pub(crate) struct DeadwoodImpostorAssets {
 }
 
 /// Asks the shared impostor cache for the impostor of every uploaded
-/// variant that has none yet, and keeps each one once it is baked.
+/// variant that has none yet and can be far enough away to show it (see
+/// [`ImpostorGate`]), or that an entity marked [`BakeAhead`] draws, and
+/// keeps each one once it is baked. Variants held back still take an
+/// impostor that is already baked.
 #[expect(clippy::too_many_arguments, reason = "Bevy system parameters")]
 pub(crate) fn request_impostors(
     mut commands: Commands,
     settings: Res<SpawnSettings>,
+    gate: ImpostorGate,
+    ahead: Query<&DrawnVariants, With<BakeAhead>>,
     quad: Res<ImpostorQuad>,
     mut impostors: ResMut<Impostors>,
     mut cache: ResMut<DeadwoodCache>,
@@ -71,19 +81,27 @@ pub(crate) fn request_impostors(
         .filter(|(key, _)| !cache.impostors.contains_key(key))
         .map(|(key, variant)| (*key, variant.clone()))
         .collect();
+    let ahead: HashSet<VariantKey> = ahead
+        .iter()
+        .flat_map(|drawn| drawn.0.iter().copied())
+        .collect();
     for (key, variant) in waiting {
         let impostor_key = variant_key(key, bake, &settings);
-        let ready = impostors
-            .request(&mut commands, impostor_key, || {
-                bake_request(
-                    impostor_key,
-                    &variant,
-                    &mut materials,
-                    &standard,
-                    &mut bake_materials,
-                )
-            })
-            .cloned();
+        let ready = if gate.can_show(variant.size) || ahead.contains(&key) {
+            impostors
+                .request(&mut commands, impostor_key, || {
+                    bake_request(
+                        impostor_key,
+                        &variant,
+                        &mut materials,
+                        &standard,
+                        &mut bake_materials,
+                    )
+                })
+                .cloned()
+        } else {
+            impostors.get(impostor_key).cloned()
+        };
         let (Some(ready), Some(material)) = (ready, impostors.material(impostor_key)) else {
             continue;
         };

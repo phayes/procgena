@@ -7,6 +7,9 @@
 //! - [`LodPlugin`] adds the dither shader module and the [`LodQuality`]
 //!   resource. Asset plugins add it themselves; adding it more than once is
 //!   harmless.
+//! - [`ImpostorGate`] tells assets whether an impostor can be on screen at
+//!   all, given the [`FarthestViewDistance`] a camera can be from what it
+//!   draws, so they skip bakes nobody will see.
 //! - [`visibility_range`] turns one level's [`LodRange`] into Bevy's
 //!   [`VisibilityRange`], for levels drawn as ordinary entities. Bevy then
 //!   fades them with the same dither pattern.
@@ -39,8 +42,11 @@
 //!     .run();
 //! ```
 
+mod gate;
 pub mod instanced;
 pub mod texture;
+
+pub use gate::{BakeAhead, FarthestViewDistance, ImpostorGate, impostor_can_show};
 
 use bevy::app::{App, Plugin};
 use bevy::camera::visibility::VisibilityRange;
@@ -80,17 +86,20 @@ pub const DITHER_WESL: &str = include_str!("shaders/dither.wesl");
 ///   surface normal with normal-map detail added.
 pub const TRIPLANAR_WESL: &str = include_str!("shaders/triplanar.wesl");
 
-/// Adds the dither shader module and the [`LodQuality`] resource.
+/// Adds the dither shader module and the [`LodQuality`] and
+/// [`FarthestViewDistance`] resources.
 ///
 /// Every asset plugin that fades levels adds it. It may be added any number
-/// of times; a [`LodQuality`] inserted before or after it is kept.
+/// of times; a [`LodQuality`] or [`FarthestViewDistance`] inserted before or
+/// after it is kept.
 pub struct LodPlugin;
 
 impl Plugin for LodPlugin {
     fn build(&self, app: &mut App) {
         load_shader_library!(app, "shaders/dither.wesl");
         load_shader_library!(app, "shaders/triplanar.wesl");
-        app.init_resource::<LodQuality>();
+        app.init_resource::<LodQuality>()
+            .init_resource::<FarthestViewDistance>();
     }
 
     fn is_unique(&self) -> bool {

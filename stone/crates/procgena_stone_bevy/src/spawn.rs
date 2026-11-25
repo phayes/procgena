@@ -230,6 +230,8 @@ pub(crate) struct Generated {
     /// Each step's fade bands, by [`Step::index`], as drawn once the rock's
     /// impostor is baked; `None` when the rock draws no impostor.
     pub(crate) impostor_ranges: Option<[LodRange; 3]>,
+    /// The rock's size: its game-level mesh's bounding diameter in metres.
+    pub(crate) size: f32,
     /// Suggested burial depth including option scale, before entity transform scaling.
     embed_depth: f32,
     /// The rock as a tagged specimen, shared by every rock with these options.
@@ -489,6 +491,7 @@ pub(crate) fn finish_generation(
         *entry = Entry::Ready(Arc::new(Generated {
             levels: level_assets,
             impostor_ranges,
+            size,
             embed_depth,
             specimen,
         }));
@@ -694,6 +697,79 @@ mod tests {
 
     /// Both mesh steps, as [`part_lods`] lists them.
     const MESHES: [Step; 2] = [Step::Game, Step::Lower];
+
+    /// Like [`spawn_app`], also asking for rocks' impostors, with cameras no
+    /// farther than `farthest` metres away. Nothing bakes them, so asking
+    /// leaves an [`ImpostorRequest`](procgena_impostor::ImpostorRequest)
+    /// entity behind.
+    fn impostor_app(farthest: f32) -> App {
+        let mut app = spawn_app();
+        app.insert_resource(SpawnSettings {
+            texture_root: None,
+            texture_compression: TextureCompression::Bc7,
+            impostor: Some(crate::default_stone_impostor()),
+        })
+        .insert_resource(procgena_core_bevy::FarthestViewDistance(farthest))
+        .init_resource::<procgena_impostor::Impostors>()
+        .add_systems(
+            Update,
+            crate::impostor::request_impostors.after(spawn_parts),
+        );
+        app
+    }
+
+    /// How many impostors have been asked for.
+    fn impostor_requests(app: &mut App) -> usize {
+        let mut requests = app
+            .world_mut()
+            .query::<&procgena_impostor::ImpostorRequest>();
+        requests.iter(app.world()).count()
+    }
+
+    /// The distance where `stone`'s impostor starts fading in, at High
+    /// quality.
+    fn impostor_start(app: &App, stone: Entity) -> f32 {
+        let key = app.world().get::<StoneKey>(stone).unwrap();
+        let Some(Entry::Ready(generated)) = app.world().resource::<StoneCache>().stones.get(key)
+        else {
+            panic!("the rock is not generated");
+        };
+        chain_ranges(generated.size, Quality::High)[Step::Impostor.index()]
+            .fade_in
+            .start
+    }
+
+    #[test]
+    fn impostors_wait_until_a_camera_can_be_far_enough_away() {
+        let mut app = impostor_app(0.0);
+        let stone = app.world_mut().spawn(StoneParams::new(quick())).id();
+        update_until_finished(&mut app, stone);
+        let start = impostor_start(&app, stone);
+
+        // Cameras stop just short of where the impostor starts.
+        app.insert_resource(procgena_core_bevy::FarthestViewDistance(start * 0.99));
+        app.update();
+        app.update();
+        assert_eq!(impostor_requests(&mut app), 0);
+
+        // Once they can reach it, it is asked for.
+        app.insert_resource(procgena_core_bevy::FarthestViewDistance(start));
+        app.update();
+        app.update();
+        assert_eq!(impostor_requests(&mut app), 1);
+    }
+
+    #[test]
+    fn rocks_marked_to_bake_ahead_ask_whatever_the_limit() {
+        let mut app = impostor_app(0.0);
+        let stone = app
+            .world_mut()
+            .spawn((StoneParams::new(quick()), procgena_core_bevy::BakeAhead))
+            .id();
+        update_until_finished(&mut app, stone);
+        app.update();
+        assert_eq!(impostor_requests(&mut app), 1);
+    }
 
     #[test]
     fn generating_marker_lasts_until_parts_spawn() {

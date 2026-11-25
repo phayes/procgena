@@ -11,6 +11,7 @@ use procgena_core::{LodRange, SpecimenId};
 use procgena_core_bevy::instanced::{
     InstancedPart, InstancedScatter, InstancedSlot, PartMesh, chain_lod,
 };
+use procgena_core_bevy::{BakeAhead, ImpostorGate};
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, ImpostorKey, ImpostorQuad, ImpostorRequest, Impostors,
     ViewCoverage, frame_size_for,
@@ -28,7 +29,10 @@ use crate::spawn::{MushroomPart, SpawnSettings, bevy_range};
 ///
 /// Each distinct mushroom or cluster, and each distinct body in a scatter,
 /// is baked once, from its game-level mesh, in the background the first time
-/// it is built; until then its lower mesh is drawn until it is culled.
+/// it is built; until then its lower mesh is drawn until it is culled. One
+/// no camera can be far enough from to show its impostor (see
+/// [`FarthestViewDistance`](procgena_core_bevy::FarthestViewDistance)) is
+/// not baked until one can.
 /// Impostors cast no shadows. To keep bakes between runs, or ship them, add
 /// [`ImpostorPlugin`](procgena_impostor::ImpostorPlugin) yourself with a
 /// cache folder before [`MushroomPlugin`](crate::MushroomPlugin).
@@ -83,6 +87,9 @@ pub(crate) struct SingleImpostor {
     /// For each variant, the game-level meshes of the members drawn with it,
     /// placed as in the cluster, with the material that draws them.
     pub(crate) parts: Vec<(Mesh, Handle<MushroomMaterial>)>,
+    /// The mushroom or cluster's size on screen: its bounding diameter in
+    /// metres.
+    pub(crate) size: f32,
     /// Each step's fade band by [`Step::index`], the impostor included.
     pub(crate) ranges: [LodRange; 3],
 }
@@ -124,31 +131,40 @@ impl ScatterImpostors {
 
 /// Asks the shared impostor cache for the impostor of every single mushroom
 /// or cluster waiting for one, and once it is baked, draws it after the
-/// lower mesh. Does nothing until the impostor plugin's resources exist.
+/// lower mesh. One no camera can be far enough from to show its impostor
+/// (see [`ImpostorGate`]) waits, unless it is marked [`BakeAhead`] or its
+/// impostor is already baked. Does nothing until the impostor plugin's
+/// resources exist.
+#[expect(clippy::too_many_arguments, reason = "Bevy system parameters")]
 pub(crate) fn show_single_impostors(
     mut commands: Commands,
+    gate: ImpostorGate,
     impostors: Option<ResMut<Impostors>>,
     quad: Option<Res<ImpostorQuad>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<MushroomMaterial>>,
-    singles: Query<(Entity, &SingleImpostor, Option<&Children>)>,
+    singles: Query<(Entity, &SingleImpostor, Option<&Children>, Has<BakeAhead>)>,
     parts: Query<&MushroomPart>,
 ) {
     let (Some(mut impostors), Some(quad)) = (impostors, quad) else {
         return;
     };
-    for (entity, waiting, children) in &singles {
+    for (entity, waiting, children, ahead) in &singles {
         let key = waiting.key;
-        let ready = impostors
-            .request(&mut commands, key, || {
-                let parts = waiting
-                    .parts
-                    .iter()
-                    .map(|(mesh, material)| (meshes.add(mesh.clone()), material.clone()))
-                    .collect();
-                bake_request(key, parts, &mut materials)
-            })
-            .cloned();
+        let ready = if ahead || gate.can_show(waiting.size) {
+            impostors
+                .request(&mut commands, key, || {
+                    let parts = waiting
+                        .parts
+                        .iter()
+                        .map(|(mesh, material)| (meshes.add(mesh.clone()), material.clone()))
+                        .collect();
+                    bake_request(key, parts, &mut materials)
+                })
+                .cloned()
+        } else {
+            impostors.get(key).cloned()
+        };
         let (Some(ready), Some(material)) = (ready, impostors.material(key).cloned()) else {
             continue;
         };
@@ -181,18 +197,35 @@ pub(crate) fn show_single_impostors(
 
 /// Asks the shared impostor cache for the impostor of every scattered body
 /// waiting for one, and once it is baked, adds it to the body's slot as its
-/// last level. Does nothing until the impostor plugin's resources exist.
+/// last level. A body whose smallest copy no camera can be far enough from
+/// to show its impostor (see [`ImpostorGate`]) waits, unless the scatter is
+/// marked [`BakeAhead`] or the impostor is already baked. Does nothing
+/// until the impostor plugin's resources exist.
 pub(crate) fn show_scatter_impostors(
     mut commands: Commands,
+    gate: ImpostorGate,
     impostors: Option<ResMut<Impostors>>,
     quad: Option<Res<ImpostorQuad>>,
     mut materials: ResMut<Assets<MushroomMaterial>>,
-    mut scatters: Query<(Entity, &mut InstancedScatter, &mut ScatterImpostors)>,
+    mut scatters: Query<(
+        Entity,
+        &mut InstancedScatter,
+        &mut ScatterImpostors,
+        Has<BakeAhead>,
+    )>,
 ) {
     let (Some(mut impostors), Some(quad)) = (impostors, quad) else {
         return;
     };
-    for (entity, mut scatter, mut pending) in &mut scatters {
+    for (entity, mut scatter, mut pending, ahead) in &mut scatters {
+        // Smaller copies reach their impostor sooner, so each body's
+        // smallest copy decides whether its impostor can be on screen.
+        let mut smallest = vec![f32::INFINITY; scatter.slots.len()];
+        for copy in scatter.copies.iter() {
+            if let Some(size) = smallest.get_mut(copy.slot as usize) {
+                *size = size.min(copy.size);
+            }
+        }
         let mut changed: Option<Vec<InstancedSlot>> = None;
         for (index, waiting) in pending.waiting.iter_mut().enumerate() {
             let Some(key) = *waiting else {
@@ -213,11 +246,16 @@ pub(crate) fn show_scatter_impostors(
                 continue;
             };
             let source = (mesh.clone(), material.clone().typed::<MushroomMaterial>());
-            let ready = impostors
-                .request(&mut commands, key, || {
-                    bake_request(key, vec![source], &mut materials)
-                })
-                .is_some();
+            // A body with no copies is never on screen.
+            let ready = if ahead || gate.can_show(smallest[index]) {
+                impostors
+                    .request(&mut commands, key, || {
+                        bake_request(key, vec![source], &mut materials)
+                    })
+                    .is_some()
+            } else {
+                impostors.get(key).is_some()
+            };
             let Some(material) = impostors.material(key).filter(|_| ready).cloned() else {
                 continue;
             };

@@ -942,6 +942,7 @@ pub(crate) fn finish_generation(
             drawn.insert(SingleImpostor {
                 key: impostor_key(specimen, BakedAs::Single, game_level, bake, &settings),
                 parts,
+                size: single.diameter,
                 ranges: chain,
             });
         }
