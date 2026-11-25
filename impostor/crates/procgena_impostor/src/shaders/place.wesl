@@ -18,7 +18,7 @@ struct ImpostorParams {
 }
 
 /// One corner of the quad for this view: where it is in the object's
-/// coordinates, where it samples the atlas, and the view's axes.
+/// coordinates, its quad position (see `quad_uv`), and the view's axes.
 struct Corner {
     position: vec3<f32>,
     uv: vec2<f32>,
@@ -27,7 +27,8 @@ struct Corner {
 
 /// Places quad corner `corner` (each of x and y is -1 or 1) of the impostor
 /// `params` describes, for the current view: facing the nearest baked view
-/// of the viewer, across the bounding sphere.
+/// of the viewer, across the bounding sphere and a margin (see
+/// `quad_margin`), since the fragment shader blends nearby views too.
 ///
 /// `local_from_world` takes world positions into the object's coordinates.
 /// `world_offset` is how far the object is drawn from where its transform
@@ -41,7 +42,8 @@ fn impostor_corner(
     world_offset: vec3<f32>,
 ) -> Corner {
     var to_view: vec3<f32>;
-    if view.clip_from_view[3][3] == 1.0 {
+    let orthographic = view.clip_from_view[3][3] == 1.0;
+    if orthographic {
         to_view = (local_from_world * vec4<f32>(view.world_from_view[2].xyz, 0.0)).xyz;
     } else {
         let eye = view.world_position - world_offset;
@@ -50,41 +52,55 @@ fn impostor_corner(
     let cell = view_cell(to_view, params.frames, params.lowest_elevation);
     let basis = view_basis(view_direction(cell, params.frames, params.lowest_elevation));
 
+    let across = corner * quad_margin(params.frames, length(to_view) / params.radius, orthographic);
     var out: Corner;
-    out.position = params.center + (basis[0] * corner.x + basis[1] * corner.y) * params.radius;
-
-    // In a shadow view, move the quad to the far side of the object from
-    // the light. Its shadow on other things lands in the same place, since
-    // it moves along the light's rays, but it no longer shadows the
-    // camera-facing quad, which stands through the object's middle.
-    if any(view.lod_view_world_position != view.world_position) {
-        out.position -= basis[2] * params.radius;
-    }
-    let in_cell = vec2<f32>(corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5);
-    out.uv = (vec2<f32>(cell) + in_cell) / f32(params.frames);
+    out.position = params.center + (basis[0] * across.x + basis[1] * across.y) * params.radius;
+    out.uv = quad_uv(cell, across);
     out.basis = basis;
     return out;
 }
 
-/// The axes of the baked view drawn at this fragment, in world space: right
-/// and up across the view's image, and back towards its viewer, as the
-/// columns of a matrix. `world_position` and `uv` are the fragment's
-/// interpolated world position and atlas position on an impostor quad.
+/// How far the quad reaches past the bounding sphere, as a share of its
+/// radius, for a viewer `distance` radii from the sphere's centre (ignored
+/// by `orthographic` views).
 ///
-/// Call it in uniform control flow, before any `discard`: it uses screen
-/// space derivatives.
-fn world_view_basis(world_position: vec3<f32>, uv: vec2<f32>) -> mat3x3<f32> {
-    // Solve for how the world position moves along the atlas's u and v.
-    let dp_x = dpdx(world_position);
-    let dp_y = dpdy(world_position);
-    let duv_x = dpdx(uv);
-    let duv_y = dpdy(uv);
-    let along_u = dp_x * duv_y.y - dp_y * duv_x.y;
-    let along_v = dp_y * duv_x.x - dp_x * duv_y.x;
-    let det = duv_x.x * duv_y.y - duv_x.y * duv_y.x;
-
-    // The atlas's u runs right across each view, and v runs down.
-    let right = normalize(along_u * sign(det));
-    let up = normalize(-along_v * sign(det));
-    return mat3x3<f32>(right, up, cross(right, up));
+/// The fragment shader shows the object as seen along each ray, not as the
+/// view the quad faces shows it, so the quad must cover the sphere as the
+/// viewer sees it. Blended views lie up to about one atlas cell's angle from
+/// the one the quad faces, which tilts the sphere's outline onto the quad
+/// by about that angle; a near viewer's rays also spread the sphere's near
+/// half outwards.
+fn quad_margin(frames: u32, distance: f32, orthographic: bool) -> f32 {
+    let tilt = 1.0 / cos(min(3.14159265 / f32(frames), 1.0));
+    var spread = 1.0;
+    if !orthographic {
+        // The sphere seen from `distance` radii away, through a plane
+        // through its centre; capped once the viewer is nearly inside it.
+        let sine = min(1.0 / max(distance, 1.0), 0.6);
+        spread = 1.0 / sqrt(1.0 - sine * sine);
+    }
+    return tilt * spread;
 }
+
+/// The quad position an impostor quad passes to its fragments: the atlas
+/// cell it faces, and where on that view's square it is, with -1 to 1
+/// spanning the bounding sphere, x to the right and y up. Both fit in one
+/// `vec2` that interpolates exactly across the quad, since the cell is the
+/// same at every corner; `quad_cell` and `quad_across` take it apart.
+fn quad_uv(cell: vec2<u32>, across: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(cell) * QUAD_CELL_STRIDE + QUAD_CELL_STRIDE * 0.5 + across;
+}
+
+/// The atlas cell of a quad position; see `quad_uv`.
+fn quad_cell(uv: vec2<f32>) -> vec2<u32> {
+    return vec2<u32>(max(floor(uv / QUAD_CELL_STRIDE), vec2<f32>(0.0)));
+}
+
+/// Where on the view's square a quad position is; see `quad_uv`.
+fn quad_across(uv: vec2<f32>) -> vec2<f32> {
+    return uv - vec2<f32>(quad_cell(uv)) * QUAD_CELL_STRIDE - QUAD_CELL_STRIDE * 0.5;
+}
+
+/// The room each cell has in a quad position, wider than any quad reaches
+/// (`quad_margin` is at most about 2.3).
+const QUAD_CELL_STRIDE: f32 = 8.0;

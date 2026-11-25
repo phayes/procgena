@@ -35,8 +35,6 @@ bytemuck = "1"
 # The engine-free settings, presets and files, with Bevy's `Reflect` on
 # them so scenes and inspectors can edit grass.
 procgena_plant = { path = "../procgena_plant", features = ["reflect"] }
-# `PresetFileError`, re-exported for `PlantFileError::File`.
-procgena_core = { path = "../../../core/crates/procgena_core" }
 # Optional physics bridges. `default-features = false` is deliberate: the
 # engines' defaults turn on `bevy_gizmos`, `bevy_picking` and other Bevy
 # features, and adding this crate must never change how Bevy is compiled for

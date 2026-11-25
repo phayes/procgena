@@ -395,15 +395,67 @@ reported to the coordinator ready to merge.
      `NotShadowCaster`; the default bake is 8 × 8 views of
      `frame_size_for(DEFAULT.largest_impostor_size())` = 256 pixels.
    - Pools draw through the shared instanced renderer, which still takes
-     the old metre `Lod`. Until Step 4, `procgena_stone_bevy`'s private
-     `renderer_lod` translates the chain into that table (exact at the
-     default 45° view, tested against `DistanceChain::ranges` at every
-     quality). This is the one temporary translation between old and new;
-     it goes when the renderer takes the chain.
+     the old metre `Lod`. Until Step 4, a bridge translates the chain into
+     that table (exact at the default 45° view, tested against
+     `DistanceChain::ranges` at every quality). It began as
+     `procgena_stone_bevy`'s private `renderer_lod`; in Step 3 it moved to
+     `procgena_core_bevy::instanced::chain_lod`, so every kind shares one
+     copy. This is the one temporary translation between old and new; it
+     goes when the renderer takes the chain.
 3. **Dead wood, mushroom, tree, fruit**, one at a time, each dropping its
    ribbon far forms and moving to the chain. The last one deletes the old
    core types and the ribbon `FarForm` variants (`GroundMaterial` stays,
    possibly moving to plant).
+   - **As built (mushroom):** `MushroomOptions::game_level`
+     (`MushroomDetail`, default `HIGH`, hidden in the editor) replaces
+     `detail`; `BodyShape` keeps `Solid` and `Shell`, and `FLAT`,
+     `BILLBOARD`, `MushroomLod`, `default_lod`, the billboard mesh and its
+     shader are gone. `MushroomDetail::lod` derives the lower mesh as
+     planned. Size on screen is `Mushroom::bounding_diameter` (and
+     `MushroomBody::bounding_diameter` per scattered body), the diagonal
+     of the core crate's bounds, as stone measures. A single mushroom or
+     cluster is one specimen: it switches as a whole and gets one
+     impostor, baked from every member's game-level mesh (one bake part
+     per body, members placed as in the cluster). A scatter bakes one
+     impostor per body and draws through the shared renderer with
+     `procgena_core_bevy::instanced::chain_lod` (shared with dead wood),
+     each copy's `size` its body's bounding diameter times its scale.
+     `MushroomPlugin::impostor` (default `default_mushroom_impostor()`,
+     the same 8 × 8, 256-pixel bake as stone) turns impostors off with
+     `None`, drawing the lower mesh to the cull. A ground scatter's draw
+     range is its largest body's cull distance at High. Clusters inside a
+     scatter still bake per body: cluster specimens in scatters wait for
+     the "cluster impostors" variant of the experiment.
+
+   **As built (Step 3, dead wood):**
+   - `DeadwoodOptions::game_level: DeadwoodDetail` replaces `detail`
+     (default `HIGH`; the named details are `FULL`, `HIGH` and `LOW`;
+     `STRIP` and `strip_all` are gone). `DeadwoodLod` is
+     `Lod<DeadwoodDetail>`; `default_lod`, `lod_size`, `size_factor` and
+     `DEFAULT_LOD_SIZE` are gone. The lower rule is the table's above.
+     `ribbon_radius` stays: thin twigs are still strips inside each mesh,
+     not a far form. Both details are still sized for the piece
+     (`sized_for`, radii scaled by `detail_size / 0.45`).
+   - Size measure: the game-level mesh's real bounding sphere
+     (`DeadwoodMesh::bounding_sphere`, box-centred, strips included at
+     their full turning reach). A scatter's copies each use their
+     variant's sphere.
+   - `Piece::lod_meshes()` returns the game and lower meshes;
+     `Piece::specimen()` and `StickScatter::specimen()` have two levels,
+     the lower one starting where the default chain switches at High
+     quality (`lower_start`).
+   - `procgena_deadwood_bevy`: single pieces draw `Game` and `Lower`
+     `DeadwoodPart`s (with a `step: Step`) and, once baked, an `Impostor`
+     part without shadows; scatters draw through the shared renderer with
+     `chain_lod`, gaining the impostor level as each variant bakes.
+     `DeadwoodPlugin::lod` is replaced by `impostor: Option<BakeSettings>`
+     (default `default_deadwood_impostor()`: 8 × 8 views, 256 pixels,
+     down to −45°). Bakes use bake copies of `DeadwoodMaterial`
+     (`bake_copy`) and of the leaf cards' standard material. The bake key
+     is the pool, seed, game level, textures and crate version. The viewer's
+     `--flat` became `--no-impostors`.
+   - The studio shows the three steps as its detail levels; GLB export
+     writes the game-level mesh and, with detail levels, the lower mesh.
 4. **Renderers and the studio.** `procgena_core_bevy`'s instanced renderer
    takes three steps and per-view bands; impostors bake from `game_level`,
    with normals and no shadows; the disk cache (key: preset content hash +

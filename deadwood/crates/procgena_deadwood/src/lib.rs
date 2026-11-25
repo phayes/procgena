@@ -1,5 +1,5 @@
 //! Procedural dead wood: fallen logs, fallen branches, sticks and stumps,
-//! resting on the ground at several levels of detail.
+//! resting on the ground, meshed at a chosen detail.
 //!
 //! Describe a piece with [`DeadwoodOptions`], or start from a
 //! [`DeadwoodPreset`] such as a log blown down by wind, then create a
@@ -15,11 +15,11 @@
 //! effects of decay also have their own setting that overrides it.
 //!
 //! ```
-//! use procgena_deadwood::{DeadwoodPreset, Piece, default_lod};
+//! use procgena_deadwood::{DeadwoodPreset, Piece};
 //!
 //! let log = Piece::from_preset(DeadwoodPreset::windthrow_log())?;
-//! for (level, mesh) in log.lod_meshes(&default_lod())? {
-//!     println!("from {} m: {} triangles", level.distance, mesh.triangle_count());
+//! for (step, mesh) in log.lod_meshes() {
+//!     println!("{}: {} triangles", step.name(), mesh.triangle_count());
 //! }
 //! # Ok::<(), procgena_deadwood::OptionsError>(())
 //! ```
@@ -47,11 +47,11 @@
 //! [`LeafOptions`] grows leafy shoots, ferns or shelf fungi out of the main
 //! stem, as see-through picture cards that a renderer textures.
 //!
-//! Distant objects don't need fine detail, so renderers swap in simpler
-//! meshes as the camera moves away; each of those is a "level of detail"
-//! (LOD). [`DeadwoodLod`], the shared [`procgena_core::Lod`] type, says
-//! which detail to use at which distance; [`default_lod`] gives the
-//! standard levels.
+//! A piece's [`game_level`](DeadwoodOptions::game_level) is its real
+//! shape, drawn near the camera. Small on screen, renderers draw a coarser
+//! mesh derived from it, then an impostor (a baked picture), following the
+//! shared [`procgena_core::chain::DistanceChain`]. [`DeadwoodDetail::lod`]
+//! gives both meshes' details, and [`Piece::lod_meshes`] builds them.
 //!
 //! Pieces rest on flat ground at `y = 0`, with Y up. Logs and branches turn
 //! onto a stable resting side, as if dropped; see [`RestingPose`]. Stumps
@@ -97,10 +97,7 @@ mod texture;
 
 pub use colour::{linear_from_hex, srgb_to_linear};
 pub use content_hash::DEADWOOD_KIND;
-pub use detail::{
-    DEFAULT_LOD_SIZE, DeadwoodDetail, DeadwoodLod, LodLevel, default_lod, lod_size, size_factor,
-    validate_lod,
-};
+pub use detail::{DETAIL_REFERENCE_SIZE, DeadwoodDetail, DeadwoodLod, detail_size};
 pub use limb::SizeClass;
 pub use mesh::{BillboardVertex, DeadwoodMesh, MeshBuffers, PartRange, Ribbons, Zone};
 pub use meta::{DEADWOOD_META, meta_choices};
@@ -119,7 +116,7 @@ pub use scatter::{
     ScatterOptions, StickScatter,
 };
 pub use settle::RestingPose;
-pub use specimen::specimen_from_meshes;
+pub use specimen::{lower_start, specimen_from_meshes};
 pub use texture::{
     BARK_TEXTURE_SETS, END_TEXTURE_SETS, LEAF_TEXTURE_SETS, LeafMap, TextureCompression,
     TextureMap, TextureSize, bark_texture_path, end_texture_path, leaf_texture_path,

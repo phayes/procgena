@@ -12,7 +12,7 @@ import bevy_pbr::{
         pbr_functions::alpha_discard,
     },
 };
-import package::shaders::mushroom_triplanar::{TriplanarSample, sample_flat, sample_triplanar};
+import package::shaders::mushroom_triplanar::sample_triplanar;
 
 @if(PREPASS_PIPELINE)
 import bevy_pbr::{
@@ -28,6 +28,9 @@ import bevy_pbr::render::{
 
 @if(VISIBILITY_RANGE_DITHER)
 import procgena_core_bevy::shaders::dither::dither_discard;
+
+@if(BAKE_NORMAL)
+import procgena_impostor::shaders::bake_output::baked_normal;
 
 /// Pattern, gill and wart settings; must match the Rust `MushroomSurface`.
 struct MushroomSurface {
@@ -52,8 +55,6 @@ struct MushroomSurface {
     stem_textured: u32,
     /// Mesh units of stem covered by one repeat of the stem images.
     stem_texture_size: f32,
-    /// Typical width of a flat stem, in mesh units.
-    stem_ribbon_width: f32,
     /// Wart colour in linear RGB, with 1 in alpha to draw warts, 0 for none.
     wart_colour: vec4<f32>,
     /// Typical distance between neighbouring wart centres, in mesh units.
@@ -283,33 +284,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let world_from_local = mesh_functions::get_world_from_local(in.instance_index);
         let local_from_world = mesh_functions::get_local_from_world(in.instance_index);
         let p = (local_from_world * vec4<f32>(in.world_position.xyz, 1.0)).xyz;
-        var stem: TriplanarSample;
-@if(BILLBOARD) {
-        // A flat stem turns to face the camera, so project along it: across
-        // its width and up the mushroom's height, which stay put as it turns.
-        let uv = vec2<f32>((in.uv.x - 0.5) * surface.stem_ribbon_width, -p.y) / surface.stem_texture_size;
-        stem = sample_flat(
-            stem_color_texture,
-            stem_sampler,
-            stem_normal_texture,
-            stem_sampler,
-            stem_orh_texture,
-            stem_sampler,
-            uv,
-            view.mip_bias,
-        );
-        // Bend the turned surface direction by the normal map, taking the
-        // image's top as the mushroom's up.
-        let n = normalize(pbr_input.world_normal);
-        let up = normalize(world_from_local[1].xyz);
-        let right = normalize(cross(up, n));
-        let top = cross(n, right);
-        pbr_input.N = normalize(right * stem.normal.x + top * stem.normal.y + n * stem.normal.z);
-}
-@if(!BILLBOARD) {
         let linear = mat3x3<f32>(world_from_local[0].xyz, world_from_local[1].xyz, world_from_local[2].xyz);
         let n = normalize(transpose(linear) * pbr_input.world_normal);
-        stem = sample_triplanar(
+        let stem = sample_triplanar(
             stem_color_texture,
             stem_sampler,
             stem_normal_texture,
@@ -322,7 +299,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             view.mip_bias,
         );
         pbr_input.N = normalize(mesh_functions::mesh_normal_local_to_world(stem.normal, in.instance_index));
-}
         colour = clamp(colour * stem.color / surface.stem_texture_average, vec3<f32>(0.0), vec3<f32>(1.0));
         pbr_input.material.perceptual_roughness *= stem.roughness;
         pbr_input.diffuse_occlusion *= stem.occlusion;
@@ -336,6 +312,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.alpha_cutoff,
         pbr_input.material.base_color,
     );
+
+    // Impostor bake copies draw the finished base colour, or the surface
+    // direction and depth the impostor crate's atlases store, instead of
+    // lit colour.
+@if(BAKE_ALBEDO) {
+    var baked: FragmentOutput;
+    baked.color = vec4<f32>(pbr_input.material.base_color.rgb, 1.0);
+    return baked;
+}
+@if(BAKE_NORMAL) {
+    var baked: FragmentOutput;
+    baked.color = baked_normal(pbr_input.N, in.position.z, in.instance_index);
+    return baked;
+}
     apply_decals(&pbr_input);
 
     // Deferred rendering stores the surface to light later; forward

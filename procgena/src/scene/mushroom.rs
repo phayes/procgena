@@ -1,5 +1,6 @@
 //! Mushroom subject: a single generated mushroom or cluster, with its
-//! detail levels.
+//! steps of the drawing chain (game level, lower mesh and impostor) as the
+//! detail levels to choose from.
 
 use std::sync::Arc;
 
@@ -27,9 +28,8 @@ const MUSHROOM_NEAREST: f32 = 0.15;
 /// A changed mushroom is rebuilt in the background and replaces the old one
 /// once ready; the old one stays if the new settings are rejected.
 /// [`ViewerEvent::MushroomBuilt`] reports each build, and
-/// [`ViewerEvent::MushroomLodShown`] the detail level on screen. The scene
-/// uses its own detail levels, scaled to the mushroom's size, and ignores
-/// `options.detail`.
+/// [`ViewerEvent::MushroomLodShown`] the step of the drawing chain on
+/// screen, by [`Step::index`](procgena_core::chain::Step::index).
 pub struct MushroomSubject;
 
 impl Subject for MushroomSubject {
@@ -96,7 +96,7 @@ pub(crate) fn apply_lod(
         show_level(
             &mut commands,
             entity,
-            part.lod,
+            part.step.index(),
             look.detail,
             visibility,
             ranges,
@@ -122,13 +122,15 @@ fn report_lod(
         return;
     };
 
-    // Each level's own distance range, from the shown mushroom's parts.
-    // Their ranges grow with the mushroom's size.
+    // Each step's own distance range, from the shown mushroom's parts.
+    // Their ranges grow with the mushroom's size on screen.
     let kids = children.get(shown.entity).into_iter().flatten();
     let ranges: Vec<(usize, &VisibilityRange)> = parts
         .iter_many(kids)
         .flatten()
-        .filter_map(|(part, range, saved)| Some((part.lod, saved.map(|s| &s.0).or(range)?)))
+        .filter_map(|(part, range, saved)| {
+            Some((part.step.index(), saved.map(|s| &s.0).or(range)?))
+        })
         .collect();
     if ranges.is_empty() {
         return;
@@ -167,19 +169,17 @@ fn report_mushroom(
         return;
     }
 
-    // Add up each level's parts: a flat level has a cap and a stem strip.
+    // Add up the game-level and lower meshes of every member of a cluster.
     let result = event.result.clone().map(|()| {
-        let mut levels: Vec<MeshSize> = Vec::new();
+        let mut levels = vec![MeshSize::default(); 2];
         let kids = children.get(event.entity).into_iter().flatten();
         for (part, mesh) in parts.iter_many(kids).flatten() {
-            let Some(mesh) = meshes.get(&mesh.0) else {
+            let size = levels.get_mut(part.step.index());
+            let (Some(mesh), Some(size)) = (meshes.get(&mesh.0), size) else {
                 continue;
             };
-            if levels.len() <= part.lod {
-                levels.resize(part.lod + 1, MeshSize::default());
-            }
-            levels[part.lod].vertices += mesh.count_vertices();
-            levels[part.lod].triangles += mesh.indices().map_or(0, |i| i.len() / 3);
+            size.vertices += mesh.count_vertices();
+            size.triangles += mesh.indices().map_or(0, |i| i.len() / 3);
         }
         BuildStats {
             levels,
@@ -214,6 +214,7 @@ fn render_while_loading(
 #[cfg(test)]
 mod tests {
     use bevy::ecs::system::RunSystemOnce;
+    use procgena_core::chain::Step;
 
     use super::super::subject::{Detail, every_distance};
     use super::*;
@@ -240,23 +241,27 @@ mod tests {
         let mut parts = world.query::<(&MushroomPart, &Visibility, Option<&VisibilityRange>)>();
         parts
             .iter(world)
-            .map(|(part, visibility, range)| (part.lod, *visibility, range.cloned()))
+            .map(|(part, visibility, range)| (part.step.index(), *visibility, range.cloned()))
             .collect()
     }
 
     #[test]
     fn a_chosen_mushroom_level_shows_alone_even_on_a_new_mushroom() {
-        // Two levels, the second with a stem strip as well as a cap.
+        // A two-member cluster's game-level and lower meshes, and the
+        // impostor of the whole cluster.
         let mut world = World::new();
-        let ranges = [range(0.0, 1.5), range(1.5, 25.0)];
+        let ranges = [range(0.0, 1.5), range(1.5, 10.0), range(10.0, 25.0)];
         let spawn_parts = |world: &mut World| {
-            for (lod, billboard) in [(0, false), (1, false), (1, true)] {
-                let part = MushroomPart {
-                    instance: 0,
-                    lod,
-                    billboard,
-                };
-                world.spawn((part, Visibility::Inherited, ranges[lod].clone()));
+            for (instance, step) in [
+                (0, Step::Game),
+                (0, Step::Lower),
+                (1, Step::Game),
+                (1, Step::Lower),
+                (0, Step::Impostor),
+            ] {
+                let part = MushroomPart { instance, step };
+                let range = ranges[step.index()].clone();
+                world.spawn((part, Visibility::Inherited, range));
             }
         };
         spawn_parts(&mut world);
@@ -277,7 +282,7 @@ mod tests {
         check(apply(&mut world, Detail::Level(1)));
         spawn_parts(&mut world);
         let parts = apply(&mut world, Detail::Level(1));
-        assert_eq!(parts.len(), 6);
+        assert_eq!(parts.len(), 10);
         check(parts);
 
         // Choosing another level gives level 1 its own range back.

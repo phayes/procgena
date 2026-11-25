@@ -3,7 +3,7 @@
 use glam::Vec3;
 use procgena_deadwood::{
     DeadwoodDetail, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, EndKind, EndsOptions,
-    HollowOptions, MeshBuffers, Piece, PieceKind, default_lod,
+    HollowOptions, MeshBuffers, Piece, PieceKind,
 };
 use procgena_specimen::Surface;
 
@@ -76,18 +76,8 @@ fn every_preset_meshes_cleanly_at_every_detail() {
         for detail in details() {
             let mesh = piece.mesh_with_detail(&detail);
             let name = format!("{} {}", preset.name, detail.sides);
-            // A strips-only level draws everything as strips; the others
-            // keep at least the round main stem.
-            if detail.strip_all {
-                assert_eq!(mesh.surfaces.triangle_count(), 0, "{name}");
-                let strips = mesh
-                    .ribbons
-                    .as_ref()
-                    .map_or(0, |r| r.strip.triangle_count());
-                assert!(strips > 0, "{name}: no strips");
-            } else {
-                assert!(mesh.surfaces.triangle_count() > 0, "{name}");
-            }
+            // Every detail keeps at least the round main stem.
+            assert!(mesh.surfaces.triangle_count() > 0, "{name}");
             assert_well_formed(&mesh.surfaces, &name);
             if let Some(r) = &mesh.ribbons {
                 assert_well_formed(&r.strip, &name);
@@ -233,8 +223,7 @@ fn coarser_levels_have_fewer_triangles() {
     for preset in DeadwoodPreset::all() {
         let piece = Piece::from_preset(preset).unwrap();
         let counts: Vec<usize> = piece
-            .lod_meshes(&default_lod())
-            .unwrap()
+            .lod_meshes()
             .iter()
             .map(|(_, m)| m.triangle_count())
             .collect();

@@ -1,7 +1,7 @@
 //! Components that request dead wood, and the systems that build it on
-//! background threads and draw it: a single piece as child entities, one or
-//! two per detail level, and a scatter through the shared instanced
-//! renderer.
+//! background threads and draw it: a single piece as child entities for its
+//! game-level mesh, its lower mesh and its impostor, and a scatter through
+//! the shared instanced renderer.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -11,27 +11,31 @@ use bevy::asset::UntypedHandle;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::Aabb;
-use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
-use bevy::light::NotShadowCaster;
+use bevy::camera::visibility::NoAutoAabb;
 use bevy::math::DVec2;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::transform::helper::TransformHelper;
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
 use procgena_core::scatter::{ScatterArea, ScatterInput};
-use procgena_core::{ContentHash, ContentHasher, FarForm, LevelForm, PoolId, Quality, SpecimenId};
+use procgena_core::{
+    ContentHash, ContentHasher, LodRange, PoolId, Quality, SpecimenId, content_hash,
+};
 use procgena_core_bevy::instanced::{
     InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, InstancedStandardMaterial,
-    PartMesh, SpecimenCache,
+    PartMesh, SpecimenCache, chain_lod,
 };
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_deadwood::{
-    DeadwoodLod, DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, FlatGround, Ground, HeightGrid,
-    LodLevel, OptionsError, Piece, RestingPose, ScatterError, ScatterOptions, StickScatter,
-    TextureCompression, TextureSize, lod_size, specimen_from_meshes,
+    DeadwoodMesh, DeadwoodOptions, DeadwoodPreset, FlatGround, Ground, HeightGrid, OptionsError,
+    Piece, RestingPose, ScatterError, ScatterOptions, StickScatter, TextureCompression,
+    TextureSize, specimen_from_meshes,
 };
+use procgena_impostor::BakeSettings;
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 
+use crate::impostor::DeadwoodImpostorAssets;
 use crate::material::{
     BarkTextures, DeadwoodMaterial, EndTextures, LeafTextures, deadwood_material, leaf_material,
 };
@@ -42,8 +46,9 @@ use crate::mesh::{deadwood_mesh, ribbon_aabb, ribbon_mesh};
 ///
 /// Spawn it after adding [`DeadwoodPlugin`](crate::DeadwoodPlugin). The
 /// piece is built in the background and appears as [`DeadwoodPart`]
-/// children, one or two per detail level. Pieces with the same options
-/// share meshes and materials, so many identical ones are cheap.
+/// children: its game-level mesh, its lower mesh and, once baked, its
+/// impostor. Pieces with the same options share meshes and materials, so
+/// many identical ones are cheap.
 ///
 /// The piece lies on flat ground at the entity's `y`. Once the parts
 /// appear, the entity also gets a [`DeadwoodPose`], whose
@@ -151,16 +156,16 @@ pub enum ScatterGround {
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct DeadwoodPresetAsset(pub DeadwoodPreset);
 
-/// Marks a child entity that draws one detail level of a single piece.
-/// The plugin spawns and removes these; don't add them yourself.
+/// Marks a child entity that draws one step of a single piece's drawing
+/// chain. The plugin spawns and removes these; don't add them yourself.
 /// Scatters draw their sticks through an [`InstancedScatter`] instead.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeadwoodPart {
     /// Which piece: 0 for a single piece, or the stick's number in a
     /// scatter.
     pub instance: usize,
-    /// Detail level, from 0 for the nearest.
-    pub lod: usize,
+    /// The step of the drawing chain the part belongs to.
+    pub step: Step,
     /// What the part draws.
     pub kind: DeadwoodPartKind,
 }
@@ -177,6 +182,9 @@ pub enum DeadwoodPartKind {
     /// [`leaf_material`](crate::leaf_material). Only drawn when the plugin
     /// loads textures.
     Leaves,
+    /// The piece's impostor: a quad showing the baked game-level mesh, which
+    /// casts no shadows.
+    Impostor,
 }
 
 /// Where a single piece came to rest, added to a [`DeadwoodParams`] entity
@@ -280,14 +288,13 @@ impl AssetLoader for DeadwoodPresetLoader {
 }
 
 /// The plugin's settings, for the build systems.
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct SpawnSettings {
-    /// Detail levels for a piece [`reference_size`](DeadwoodLod) across;
-    /// each piece scales them to its own size.
-    pub lod: DeadwoodLod,
     /// Where to load bark and end-grain textures from, or `None` for vertex
     /// colours and drawn rings only.
     pub textures: Option<TextureSettings>,
+    /// How impostors are baked, or `None` to draw no impostors.
+    pub impostor: Option<BakeSettings>,
 }
 
 /// Where and in what form to load bark and end-grain textures.
@@ -372,6 +379,18 @@ pub(crate) struct Building {
 #[derive(Component)]
 pub(crate) struct Attempted(Input);
 
+/// The variants a built piece or scatter draws, by slot (one for a single
+/// piece), so their impostors can be added once baked.
+#[derive(Component, Debug, Clone)]
+pub(crate) struct DrawnVariants(pub(crate) Vec<VariantKey>);
+
+/// On a single piece once its impostor part is spawned.
+#[derive(Component, Debug, Default)]
+pub(crate) struct DeadwoodImpostorShown;
+
+/// What an entity draws once built, removed with its parts.
+type DrawState = (InstancedScatter, DrawnVariants, DeadwoodImpostorShown);
+
 /// What a background build produces, before anything is handed to Bevy's
 /// asset storage.
 struct Built {
@@ -385,33 +404,46 @@ struct Built {
     specimens: Vec<SpecimenId>,
 }
 
-/// Names one built piece at one set of detail levels. Variants with the
-/// same key share uploaded meshes.
+/// Names one built piece at one game level. Variants with the same key
+/// share uploaded meshes and their impostor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct VariantKey {
+pub(crate) struct VariantKey {
     /// The pool of the piece's options.
-    pool: PoolId,
+    pub(crate) pool: PoolId,
     /// The seed the piece was shaped from.
-    seed: u32,
-    /// The hash of the piece's scaled detail levels (see [`lod_hash`]).
-    lod: u64,
+    pub(crate) seed: u32,
+    /// The content hash of the piece's game level, which the options' pool
+    /// leaves out.
+    pub(crate) game_level: u64,
 }
 
-/// One variant's meshes, one per detail level.
+impl VariantKey {
+    /// The key of the piece built from `options`.
+    fn of(options: &DeadwoodOptions) -> Self {
+        Self {
+            pool: options.pool_id(),
+            seed: options.default_seed,
+            game_level: content_hash(&options.game_level),
+        }
+    }
+}
+
+/// One variant's meshes: its game-level mesh, then its lower mesh.
 struct BuiltVariant {
-    /// Which piece and detail levels these meshes are.
+    /// Which piece and game level these meshes are.
     key: VariantKey,
     /// The variant's options.
     options: DeadwoodOptions,
-    /// Detail levels for a piece of the reference size.
-    lod: DeadwoodLod,
-    /// One entry per detail level.
+    /// One entry per mesh step, game level first.
     levels: Vec<BuiltLevel>,
-    /// A sphere around every level's meshes, as a centre and radius.
+    /// A sphere around both meshes, as a centre and radius, for culling.
     bounds: (Vec3, f32),
+    /// The diameter of the sphere around the game-level mesh: the piece's
+    /// size on screen for the drawing chain.
+    size: f32,
 }
 
-/// One detail level's meshes.
+/// One mesh step's meshes.
 struct BuiltLevel {
     /// The round stems, or `None` if the level has none.
     surfaces: Option<Mesh>,
@@ -422,25 +454,23 @@ struct BuiltLevel {
 }
 
 /// One variant's meshes and materials, after adding them to Bevy's assets.
-struct VariantAssets {
-    /// Detail levels for a piece of the reference size.
-    lod: DeadwoodLod,
-    /// The variant's size, from [`lod_size`], which scales `lod`'s
-    /// distances.
-    size: f32,
-    /// One entry per detail level.
-    levels: Vec<LevelAssets>,
+pub(crate) struct VariantAssets {
+    /// The diameter of the sphere around the game-level mesh, which scales
+    /// the drawing chain's distances.
+    pub(crate) size: f32,
+    /// One entry per mesh step, game level first.
+    pub(crate) levels: Vec<LevelAssets>,
 }
 
-/// One detail level's mesh and material handles.
-struct LevelAssets {
+/// One mesh step's mesh and material handles.
+pub(crate) struct LevelAssets {
     /// The round stems and their material.
-    surfaces: Option<(Handle<Mesh>, Handle<DeadwoodMaterial>)>,
+    pub(crate) surfaces: Option<(Handle<Mesh>, Handle<DeadwoodMaterial>)>,
     /// Flat strips, their material and their bounds.
-    ribbon: Option<(Handle<Mesh>, Handle<DeadwoodMaterial>, Aabb)>,
+    pub(crate) ribbon: Option<(Handle<Mesh>, Handle<DeadwoodMaterial>, Aabb)>,
     /// Leaf cards and their material, when the level has cards and
     /// textures are loaded.
-    leaves: Option<(Handle<Mesh>, Handle<InstancedStandardMaterial>)>,
+    pub(crate) leaves: Option<(Handle<Mesh>, Handle<InstancedStandardMaterial>)>,
 }
 
 /// Uploaded variants and materials, shared by every entity that needs the
@@ -448,7 +478,9 @@ struct LevelAssets {
 #[derive(Resource, Default)]
 pub(crate) struct DeadwoodCache {
     /// Variants by [`BuiltVariant::key`].
-    variants: HashMap<VariantKey, Arc<VariantAssets>>,
+    pub(crate) variants: HashMap<VariantKey, Arc<VariantAssets>>,
+    /// Each variant's impostor, once baked.
+    pub(crate) impostors: HashMap<VariantKey, DeadwoodImpostorAssets>,
     /// Materials by the hash of the options that affect them (see
     /// [`material_hash`]) and whether they are for strips.
     materials: HashMap<(u64, bool), Handle<DeadwoodMaterial>>,
@@ -487,7 +519,7 @@ pub(crate) fn remove_deadwood(
                 Attempted,
                 GeneratedSpecimen,
                 DeadwoodPose,
-                InstancedScatter,
+                DrawState,
             )>();
         }
     }
@@ -539,7 +571,6 @@ pub(crate) fn start_generation(
     transforms: TransformHelper,
     assets: Res<Assets<DeadwoodPresetAsset>>,
     parts: Query<(), With<DeadwoodPart>>,
-    settings: Res<SpawnSettings>,
 ) {
     // Work out what each entity needs.
     let mut wanted: Vec<(Entity, Wanted)> = Vec::new();
@@ -622,7 +653,7 @@ pub(crate) fn start_generation(
                         Attempted,
                         GeneratedSpecimen,
                         DeadwoodPose,
-                        InstancedScatter,
+                        DrawState,
                     )>();
                 }
                 if !generating {
@@ -644,7 +675,7 @@ pub(crate) fn start_generation(
                         DeadwoodGenerating,
                         GeneratedSpecimen,
                         DeadwoodPose,
-                        InstancedScatter,
+                        DrawState,
                     )>()
                     .insert(Attempted(input));
                 commands.trigger(DeadwoodFinished {
@@ -655,9 +686,8 @@ pub(crate) fn start_generation(
             }
             Wanted::Build(input) => input,
         };
-        let lod = settings.lod.clone();
         let task_input = input.clone();
-        let task = AsyncComputeTaskPool::get().spawn(async move { build(&task_input, &lod) });
+        let task = AsyncComputeTaskPool::get().spawn(async move { build(&task_input) });
         commands
             .entity(entity)
             .remove::<(GeneratedSpecimen, DeadwoodPose)>()
@@ -692,13 +722,12 @@ impl Ground for ScaledGround {
 }
 
 /// Builds the meshes and copy transforms for `input`. Runs on a background
-/// thread. `lod` is for a piece of
-/// [`DEFAULT_LOD_SIZE`](procgena_deadwood::DEFAULT_LOD_SIZE).
-fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> {
+/// thread.
+fn build(input: &Input) -> Result<Built, DeadwoodBuildError> {
     match input {
         Input::Single(options) => {
             let piece = Piece::new((**options).clone())?;
-            let (variant, meshes) = build_variant(&piece, lod)?;
+            let (variant, meshes) = build_variant(&piece);
             let specimen = specimen_from_meshes(&meshes);
             Ok(Built {
                 variants: vec![variant],
@@ -707,8 +736,8 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
                 specimens: Vec::new(),
             })
         }
-        Input::FlatScatter(scatter, size) => scatter_sticks(scatter, *size, &FlatGround, 1.0, lod),
-        Input::Placed(sticks, world_seed) => placed_sticks(sticks, *world_seed, lod),
+        Input::FlatScatter(scatter, size) => scatter_sticks(scatter, *size, &FlatGround, 1.0),
+        Input::Placed(sticks, world_seed) => Ok(placed_sticks(sticks, *world_seed)),
         Input::HostScatter {
             scatter,
             size,
@@ -727,7 +756,7 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
                 grid,
                 scale: *scale,
             };
-            scatter_sticks(scatter, *size, &ground, *scale, lod)
+            scatter_sticks(scatter, *size, &ground, *scale)
         }
     }
 }
@@ -741,16 +770,15 @@ fn scatter_sticks(
     size: Vec2,
     ground: &dyn Ground,
     scale: f32,
-    lod: &DeadwoodLod,
 ) -> Result<Built, DeadwoodBuildError> {
     let area = ScatterArea::new(DVec2::ZERO, size);
     let input = ScatterInput::new(ground, area, scatter.default_seed);
     let built = StickScatter::new(scatter, &input).map_err(DeadwoodBuildError::Scatter)?;
-    let variants = built
+    let variants: Vec<BuiltVariant> = built
         .variants()
         .iter()
-        .map(|piece| build_variant(piece, lod).map(|(variant, _)| variant))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|piece| build_variant(piece).0)
+        .collect();
     let shrink = Mat4::from_scale(Vec3::splat(1.0 / scale));
     let instances = built
         .instances()
@@ -776,16 +804,12 @@ fn scatter_sticks(
 /// Meshes each variant of the placed `sticks` once and lists every copy at
 /// its placed transform. Variant `v` is the specimen in slot `v` of the
 /// Scatter's variant pool, in the World seeded with `world_seed`.
-fn placed_sticks(
-    sticks: &StickScatter,
-    world_seed: u32,
-    lod: &DeadwoodLod,
-) -> Result<Built, DeadwoodBuildError> {
-    let variants = sticks
+fn placed_sticks(sticks: &StickScatter, world_seed: u32) -> Built {
+    let variants: Vec<BuiltVariant> = sticks
         .variants()
         .iter()
-        .map(|piece| build_variant(piece, lod).map(|(variant, _)| variant))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|piece| build_variant(piece).0)
+        .collect();
     let instances = sticks
         .instances()
         .iter()
@@ -795,23 +819,20 @@ fn placed_sticks(
     let specimens = (0..variants.len() as u32)
         .map(|v| SpecimenId::new(world_seed, pool, v))
         .collect();
-    Ok(Built {
+    Built {
         variants,
         instances,
         single: None,
         specimens,
-    })
+    }
 }
 
-/// Meshes `piece` at every level of `lod` (see [`Piece::lod_meshes`]) and
-/// converts the meshes for Bevy. Also returns the core meshes, for building
-/// the piece's specimen.
-fn build_variant(
-    piece: &Piece,
-    lod: &DeadwoodLod,
-) -> Result<(BuiltVariant, Vec<(LodLevel, DeadwoodMesh)>), OptionsError> {
+/// Meshes `piece` at its game level and lower mesh (see
+/// [`Piece::lod_meshes`]) and converts the meshes for Bevy. Also returns
+/// the core meshes, for building the piece's specimen.
+fn build_variant(piece: &Piece) -> (BuiltVariant, [(Step, DeadwoodMesh); 2]) {
     let options = piece.options().clone();
-    let meshes = piece.lod_meshes(lod)?;
+    let meshes = piece.lod_meshes();
     let levels: Vec<BuiltLevel> = meshes
         .iter()
         .map(|(_, mesh)| BuiltLevel {
@@ -831,21 +852,17 @@ fn build_variant(
             .flatten()
             .chain(level.ribbon.as_ref().map(|(_, aabb)| *aabb))
     }));
-    let key = VariantKey {
-        pool: options.pool_id(),
-        seed: options.default_seed,
-        lod: lod_hash(lod),
-    };
-    Ok((
+    let (_, game_radius) = meshes[0].1.bounding_sphere();
+    (
         BuiltVariant {
-            key,
+            key: VariantKey::of(&options),
             options,
-            lod: lod.clone(),
             levels,
             bounds,
+            size: 2.0 * game_radius,
         },
         meshes,
-    ))
+    )
 }
 
 /// The box around `mesh`'s positions, or `None` if it has none.
@@ -920,6 +937,11 @@ pub(crate) fn finish_generation(
 
         // A scatter draws through the shared instanced renderer.
         let textures = (&*asset_server, settings.textures.as_ref());
+        let keys: Vec<VariantKey> = built.variants.iter().map(|v| v.key).collect();
+        commands
+            .entity(entity)
+            .remove::<DeadwoodImpostorShown>()
+            .insert(DrawnVariants(keys));
         if built.single.is_none() {
             let materials = (&mut *materials, &mut *standard);
             let mut uploads = (&mut *cache, &mut *meshes, materials, textures);
@@ -944,23 +966,21 @@ pub(crate) fn finish_generation(
             })
             .collect();
 
-        // Spawn one child per level and kind of part (round stems, strips,
-        // leaf cards), each shown only within its own distance band, scaled
-        // by the piece's size and the quality setting.
-        let ranges: Vec<Vec<VisibilityRange>> = variants
-            .iter()
-            .map(|v| variant_ranges(&v.lod, v.size, quality.0))
-            .collect();
+        // Spawn one child per mesh step and kind of part (round stems,
+        // strips, leaf cards), each shown only within its own distance
+        // band, scaled by the piece's size and the quality setting. Until
+        // the piece's impostor is baked, the lower mesh is drawn until the
+        // cull; `show_impostors` then adds the impostor.
         for (i, (v, transform)) in built.instances.iter().enumerate() {
             let variant = &variants[*v as usize];
-            let ranges = &ranges[*v as usize];
-            for (lod, (level, range)) in variant.levels.iter().zip(ranges).enumerate() {
-                let shadows = variant.lod.levels[lod].casts_shadows;
+            let ranges = chain_ranges_without_impostor(variant.size, quality.0);
+            for ((step, level), range) in Step::ALL.into_iter().zip(&variant.levels).zip(ranges) {
+                let range = visibility_range(&range);
                 if let Some((mesh, material)) = &level.surfaces {
-                    let mut part = commands.spawn((
+                    commands.spawn((
                         DeadwoodPart {
                             instance: i,
-                            lod,
+                            step,
                             kind: DeadwoodPartKind::Wood,
                         },
                         Mesh3d(mesh.clone()),
@@ -969,15 +989,12 @@ pub(crate) fn finish_generation(
                         range.clone(),
                         ChildOf(entity),
                     ));
-                    if !shadows {
-                        part.insert(NotShadowCaster);
-                    }
                 }
                 if let Some((mesh, material, aabb)) = &level.ribbon {
-                    let mut part = commands.spawn((
+                    commands.spawn((
                         DeadwoodPart {
                             instance: i,
-                            lod,
+                            step,
                             kind: DeadwoodPartKind::Ribbon,
                         },
                         Mesh3d(mesh.clone()),
@@ -988,15 +1005,12 @@ pub(crate) fn finish_generation(
                         NoAutoAabb,
                         ChildOf(entity),
                     ));
-                    if !shadows {
-                        part.insert(NotShadowCaster);
-                    }
                 }
                 if let Some((mesh, material)) = &level.leaves {
                     commands.spawn((
                         DeadwoodPart {
                             instance: i,
-                            lod,
+                            step,
                             kind: DeadwoodPartKind::Leaves,
                         },
                         Mesh3d(mesh.clone()),
@@ -1030,8 +1044,9 @@ type MaterialAssets<'a> = (
 type TextureSource<'a> = (&'a AssetServer, Option<&'a TextureSettings>);
 
 /// Builds the shared renderer's view of a built scatter: a slot per
-/// variant, with its parts from `specimens` (uploading variants that aren't
-/// cached yet with `uploads`), and a copy per stick.
+/// variant, with its mesh parts from `specimens` (uploading variants that
+/// aren't cached yet with `uploads`) and its impostor once baked, and a
+/// copy per stick, sized by its variant's bounding diameter.
 fn scatter_draw(
     built: Built,
     specimens: &mut SpecimenCache,
@@ -1048,15 +1063,17 @@ fn scatter_draw(
         .into_iter()
         .zip(&built.specimens)
         .map(|(variant, &specimen)| {
-            let lod = variant.lod.clone().map_detail(|_| ());
-            let levels = lod.levels.len() as u32;
+            let key = variant.key;
             let bounds = variant.bounds;
-            sizes.push(lod_size(&variant.options));
+            sizes.push(variant.size);
+            // The variant is kept in the cache whether or not its parts are,
+            // since its impostor is baked from its game-level meshes.
+            let materials = (&mut *materials.0, &mut *materials.1);
+            let assets = upload(variant, cache, meshes, materials, *textures);
+            let levels = assets.levels.len() as u32;
             let parts = specimens
                 .get_levels(specimen, 0, levels)
                 .unwrap_or_else(|| {
-                    let materials = (&mut *materials.0, &mut *materials.1);
-                    let assets = upload(variant, cache, meshes, materials, *textures);
                     let mut parts = Vec::new();
                     for (level, assets) in assets.levels.iter().enumerate() {
                         let level_parts = level_parts(level as u32, assets);
@@ -1065,12 +1082,16 @@ fn scatter_draw(
                     }
                     parts
                 });
-            InstancedSlot {
+            let slot = InstancedSlot {
                 specimen,
                 piece: 0,
-                lod,
+                lod: chain_lod(&DistanceChain::DEFAULT, false),
                 parts,
                 bounds,
+            };
+            match cache.impostors.get(&key) {
+                Some(impostor) => with_impostor(slot, impostor),
+                None => slot,
             }
         })
         .collect();
@@ -1109,6 +1130,46 @@ fn level_parts(level: u32, assets: &LevelAssets) -> Vec<InstancedPart> {
         parts.push(part(mesh, material.clone().untyped()));
     }
     parts
+}
+
+/// `slot` drawing `impostor` as its last step: the impostor's quad becomes
+/// one more part, and the lower mesh now ends where the impostor takes
+/// over. A slot that already draws an impostor is returned as it is.
+pub(crate) fn with_impostor(
+    mut slot: InstancedSlot,
+    impostor: &DeadwoodImpostorAssets,
+) -> InstancedSlot {
+    let level = Step::Impostor.index() as u32;
+    if slot.parts.iter().any(|part| part.level == level) {
+        return slot;
+    }
+    slot.parts.push(InstancedPart {
+        level,
+        mesh: PartMesh::Mesh(impostor.quad.clone()),
+        material: impostor.material.clone().untyped(),
+    });
+    slot.lod = chain_lod(&DistanceChain::DEFAULT, true);
+    slot
+}
+
+/// Each step's fade bands, by [`Step::index`], for a piece whose game-level
+/// mesh has a bounding sphere `size` metres across, seen through a
+/// [`ViewScale::DEFAULT`] camera at `quality`.
+pub(crate) fn chain_ranges(size: f32, quality: Quality) -> [LodRange; 3] {
+    let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
+    DistanceChain::DEFAULT.ranges(factor, quality)
+}
+
+/// The fade bands of the two mesh steps of a piece drawn without an
+/// impostor: like [`chain_ranges`], but the lower mesh is drawn on until
+/// the cull, where the impostor would have ended.
+fn chain_ranges_without_impostor(size: f32, quality: Quality) -> [LodRange; 2] {
+    let [game, lower, impostor] = chain_ranges(size, quality);
+    let lower = LodRange {
+        fade_in: lower.fade_in,
+        fade_out: impostor.fade_out,
+    };
+    [game, lower]
 }
 
 /// Adds a variant's meshes and materials to Bevy's assets and returns their
@@ -1196,59 +1257,11 @@ fn upload(
         })
         .collect();
     let assets = Arc::new(VariantAssets {
-        size: lod_size(&variant.options),
-        lod: variant.lod,
+        size: variant.size,
         levels,
     });
     cache.variants.insert(variant.key, assets.clone());
     assets
-}
-
-/// Returns a hash of every setting of `lod`: its reference size, each
-/// level's distance, hysteresis, form, shadows and detail, then the cull
-/// distance.
-fn lod_hash(lod: &DeadwoodLod) -> u64 {
-    let DeadwoodLod {
-        reference_size,
-        levels,
-        cull_distance,
-    } = lod;
-    let mut h = ContentHasher::new();
-    h.write_f32(*reference_size);
-    h.write_usize(levels.len());
-    for LodLevel {
-        distance,
-        hysteresis,
-        form,
-        casts_shadows,
-        detail,
-    } in levels
-    {
-        h.write_f32(*distance);
-        h.write_f32(*hysteresis);
-        h.write_u32(form_number(*form));
-        h.write_bool(*casts_shadows);
-        detail.content_hash(&mut h);
-    }
-    cull_distance.content_hash(&mut h);
-    h.finish()
-}
-
-/// Numbers each level form for [`lod_hash`].
-///
-/// # Panics
-///
-/// Panics on a far form this crate doesn't know yet, so that a new form
-/// can't silently share a number with another.
-fn form_number(form: LevelForm) -> u32 {
-    match form {
-        LevelForm::Mesh => 0,
-        LevelForm::Far(FarForm::Strips) => 1,
-        LevelForm::Far(FarForm::BillboardLeaves) => 2,
-        LevelForm::Far(FarForm::Card) => 3,
-        LevelForm::Far(other) => panic!("no hash number for far form {other:?}"),
-        LevelForm::Impostor => 4,
-    }
 }
 
 /// Returns a hash of everything [`deadwood_material`] reads from `o`: the
@@ -1260,15 +1273,6 @@ fn material_hash(o: &DeadwoodOptions) -> u64 {
     h.write_f32(o.diameter);
     h.write_u32(o.default_seed);
     h.finish()
-}
-
-/// Returns the distance band to show each level of `lod` in, for a piece
-/// `size` metres across (see [`lod_size`]) drawn at `quality`.
-fn variant_ranges(lod: &DeadwoodLod, size: f32, quality: Quality) -> Vec<VisibilityRange> {
-    lod.ranges(lod.factor(size, quality))
-        .iter()
-        .map(visibility_range)
-        .collect()
 }
 
 /// Entities that draw many pieces through an [`InstancedScatter`].
@@ -1310,6 +1314,12 @@ pub(crate) fn prune_cache(
                 .any(|id| drawn.contains(&id))
         })
     });
+    let DeadwoodCache {
+        variants,
+        impostors,
+        ..
+    } = &mut *cache;
+    impostors.retain(|key, _| variants.contains_key(key));
     let used_leaves: HashSet<AssetId<InstancedStandardMaterial>> = cache
         .variants
         .values()
@@ -1337,7 +1347,8 @@ pub(crate) fn prune_cache(
 mod tests {
     use std::time::{Duration, Instant};
 
-    use procgena_deadwood::default_lod;
+    use bevy::camera::visibility::VisibilityRange;
+    use bevy::light::NotShadowCaster;
     use procgena_specimen::{Part, SurfaceMesh, tags};
 
     use super::*;
@@ -1366,7 +1377,7 @@ mod tests {
                     finished.0.push(event.result.clone());
                 },
             );
-        crate::add_systems(&mut app, default_lod());
+        crate::add_systems(&mut app);
         app
     }
 
@@ -1395,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn a_log_gets_every_level_its_specimen_and_pose() {
+    fn a_log_gets_both_meshes_its_specimen_and_pose() {
         let mut app = app();
         let entity = app
             .world_mut()
@@ -1403,30 +1414,26 @@ mod tests {
             .id();
         run_until_finished(&mut app, entity);
 
+        // Round stems at the game level and the lower mesh. Without a
+        // renderer no impostor is baked, so the lower mesh is drawn until
+        // the cull.
         let parts = parts(&mut app, entity);
-        let mut levels: Vec<usize> = parts
+        let mut steps: Vec<Step> = parts
             .iter()
             .filter(|p| p.kind == DeadwoodPartKind::Wood)
-            .map(|p| p.lod)
+            .map(|p| p.step)
             .collect();
-        levels.sort();
-        assert_eq!(levels, [0, 1, 2]);
-
-        // The last level is strips only, and casts no shadows.
+        steps.sort_by_key(|step| step.index());
+        assert_eq!(steps, [Step::Game, Step::Lower]);
         let mut query = app
             .world_mut()
-            .query::<(&DeadwoodPart, &ChildOf, Has<NotShadowCaster>)>();
-        for (part, parent, no_shadow) in query.iter(app.world()) {
-            if parent.parent() == entity {
-                assert_eq!(no_shadow, part.lod == 3, "{part:?}");
-            }
-        }
-        assert!(
-            parts
-                .iter()
-                .any(|p| p.kind == DeadwoodPartKind::Ribbon && p.lod == 3),
-            "{parts:?}"
-        );
+            .query::<(&DeadwoodPart, &ChildOf, &VisibilityRange)>();
+        let lower = query
+            .iter(app.world())
+            .find(|(part, parent, _)| parent.parent() == entity && part.step == Step::Lower)
+            .map(|(_, _, range)| range.clone())
+            .unwrap();
+        assert!(lower.end_margin.end > lower.start_margin.end * 10.0);
         assert!(app.world().entity(entity).contains::<GeneratedSpecimen>());
         let pose = app.world().get::<DeadwoodPose>(entity).unwrap();
         assert!(pose.0.burial > 0.0, "a rotten log suggests burial");
@@ -1478,7 +1485,7 @@ mod tests {
     }
 
     #[test]
-    fn a_branch_gets_flat_strips_at_a_distance() {
+    fn a_branch_gets_flat_strips() {
         let mut app = app();
         let entity = app
             .world_mut()
@@ -1493,7 +1500,7 @@ mod tests {
         assert!(
             parts
                 .iter()
-                .any(|p| p.kind == DeadwoodPartKind::Wood && p.lod == 0)
+                .any(|p| p.kind == DeadwoodPartKind::Wood && p.step == Step::Game)
         );
     }
 
@@ -1509,8 +1516,8 @@ mod tests {
         let parts = parts(&mut app, entity);
         assert!(!parts.iter().any(|p| p.kind == DeadwoodPartKind::Leaves));
 
-        // With textures, every level but the farthest gets leaf cards, all
-        // sharing one leaf material.
+        // With textures, both meshes get leaf cards, all sharing one leaf
+        // material.
         let mut app = self::app();
         app.world_mut().resource_mut::<SpawnSettings>().textures = Some(TextureSettings {
             root: "textures".to_owned(),
@@ -1527,16 +1534,16 @@ mod tests {
             &MeshMaterial3d<InstancedStandardMaterial>,
             &ChildOf,
         )>();
-        let leaves: Vec<(usize, Handle<InstancedStandardMaterial>)> = query
+        let leaves: Vec<(Step, Handle<InstancedStandardMaterial>)> = query
             .iter(app.world())
             .filter(|(p, _, parent)| {
                 parent.parent() == entity && p.kind == DeadwoodPartKind::Leaves
             })
-            .map(|(p, m, _)| (p.lod, m.0.clone()))
+            .map(|(p, m, _)| (p.step, m.0.clone()))
             .collect();
-        let mut levels: Vec<usize> = leaves.iter().map(|(lod, _)| *lod).collect();
-        levels.sort();
-        assert_eq!(levels, [0, 1, 2]);
+        let mut steps: Vec<Step> = leaves.iter().map(|(step, _)| *step).collect();
+        steps.sort_by_key(|step| step.index());
+        assert_eq!(steps, [Step::Game, Step::Lower]);
         assert!(leaves.iter().all(|(_, m)| *m == leaves[0].1));
         let materials = app.world().resource::<Assets<InstancedStandardMaterial>>();
         let material = &materials.get(&leaves[0].1).unwrap().base;
@@ -1670,8 +1677,9 @@ mod tests {
         assert!(parts(&mut app, entity).is_empty(), "no entity per stick");
         assert!(!app.world().entity(entity).contains::<GeneratedSpecimen>());
 
-        // Every variant is a slot with parts at every level that has
-        // meshes, cached by specimen and level.
+        // Every variant is a slot drawing the chain's two meshes (no
+        // impostor is baked without a renderer), cached by specimen and
+        // level. Each copy is sized by its variant's bounding sphere.
         let drawn = app
             .world()
             .entity(entity)
@@ -1682,10 +1690,18 @@ mod tests {
         for slot in drawn.slots.iter() {
             assert!(slot.parts.iter().any(|p| p.level == 0));
             assert!(slot.bounds.1 > 0.0);
+            assert_eq!(slot.lod, chain_lod(&DistanceChain::DEFAULT, false));
             let levels = slot.lod.levels.len() as u32;
             assert_eq!(
                 cache.get_levels(slot.specimen, slot.piece, levels),
                 Some(slot.parts.clone())
+            );
+        }
+        for copy in drawn.copies.iter() {
+            let bounds = drawn.slots[copy.slot as usize].bounds.1;
+            assert!(
+                copy.size > 0.0 && copy.size <= 2.0 * bounds * 1.001,
+                "{copy:?}"
             );
         }
     }
@@ -1840,23 +1856,162 @@ mod tests {
     }
 
     #[test]
-    fn levels_hand_over_and_fade_out_at_the_cull_distance() {
-        let lod = default_lod();
-        let cull = lod.cull_distance.unwrap();
-        // A piece twice the reference size, drawn at low quality.
-        let size = 2.0 * lod.reference_size;
-        let scale = 2.0 * Quality::Low.distance_scale();
-        let ranges = variant_ranges(&lod, size, Quality::Low);
-        assert_eq!(ranges.len(), lod.levels.len());
-        assert_eq!(ranges[0].start_margin, 0.0..0.0);
-        for pair in ranges.windows(2) {
-            assert_eq!(pair[0].end_margin, pair[1].start_margin);
+    fn steps_hand_over_by_size_on_screen() {
+        let chain = DistanceChain::DEFAULT;
+        // How much of the screen's height a piece `size` metres across
+        // covers `distance` metres away.
+        let on_screen = |size: f32, distance: f32| size * ViewScale::DEFAULT.get() / distance;
+        let middle = |r: &std::ops::Range<f32>| (r.start + r.end) / 2.0;
+        let close = |a: f32, b: f32| (a - b).abs() <= b * 1e-4;
+        let size = 3.0;
+        let [game, lower, impostor] = chain_ranges(size, Quality::High);
+        assert_eq!(game.fade_in, 0.0..0.0);
+        assert_eq!(game.fade_out, lower.fade_in);
+        assert_eq!(lower.fade_out, impostor.fade_in);
+        assert!(close(
+            on_screen(size, middle(&lower.fade_in)),
+            chain.lower_below
+        ));
+        assert!(close(
+            on_screen(size, middle(&impostor.fade_in)),
+            chain.impostor_below
+        ));
+        assert!(close(
+            on_screen(size, middle(&impostor.fade_out)),
+            chain.cull_below
+        ));
+
+        // A piece twice as large switches twice as far away, and lower
+        // quality switches sooner.
+        let large = chain_ranges(2.0 * size, Quality::High);
+        assert!(close(large[1].fade_in.end, 2.0 * lower.fade_in.end));
+        let low = chain_ranges(size, Quality::Low);
+        assert!(low[1].fade_in.end < lower.fade_in.end);
+
+        // Without an impostor, the lower mesh lasts until the cull.
+        let [_, without] = chain_ranges_without_impostor(size, Quality::High);
+        assert_eq!(without.fade_in, lower.fade_in);
+        assert_eq!(without.fade_out, impostor.fade_out);
+    }
+
+    /// A stand-in for a baked impostor, for testing what is drawn once one
+    /// is ready.
+    fn fake_impostor() -> crate::impostor::DeadwoodImpostorAssets {
+        crate::impostor::DeadwoodImpostorAssets {
+            impostor: procgena_impostor::Impostor {
+                albedo: Handle::default(),
+                normal: Handle::default(),
+                frames: 8,
+                coverage: procgena_impostor::ViewCoverage::default(),
+                center: Vec3::ZERO,
+                radius: 1.0,
+            },
+            quad: Handle::default(),
+            material: Handle::default(),
         }
+    }
+
+    /// Marks every variant `entity` draws as having a baked impostor.
+    fn bake_every_variant(app: &mut App, entity: Entity) {
+        let keys = app.world().get::<DrawnVariants>(entity).unwrap().0.clone();
+        let mut cache = app.world_mut().resource_mut::<DeadwoodCache>();
+        for key in keys {
+            cache.impostors.insert(key, fake_impostor());
+        }
+    }
+
+    #[test]
+    fn a_piece_draws_its_impostor_once_baked() {
+        let mut app = app();
+        app.insert_resource(procgena_impostor::ImpostorQuad(Handle::default()))
+            .add_systems(
+                Update,
+                crate::impostor::show_impostors.after(finish_generation),
+            );
+        let entity = app
+            .world_mut()
+            .spawn(DeadwoodParams::preset(DeadwoodPreset::windthrow_log()))
+            .id();
+        run_until_finished(&mut app, entity);
         assert!(
-            ranges[1]
-                .start_margin
-                .contains(&(lod.levels[1].distance * scale))
+            !parts(&mut app, entity)
+                .iter()
+                .any(|p| p.step == Step::Impostor)
         );
-        assert!(ranges.last().unwrap().end_margin.contains(&(cull * scale)));
+
+        bake_every_variant(&mut app, entity);
+        app.update();
+        let mut query = app.world_mut().query::<(
+            &DeadwoodPart,
+            &ChildOf,
+            &VisibilityRange,
+            Has<NotShadowCaster>,
+        )>();
+        let found: Vec<(DeadwoodPart, VisibilityRange, bool)> = query
+            .iter(app.world())
+            .filter(|(_, parent, ..)| parent.parent() == entity)
+            .map(|(part, _, range, no_shadow)| (*part, range.clone(), no_shadow))
+            .collect();
+        let (_, impostor, no_shadow) = found
+            .iter()
+            .find(|(part, ..)| part.kind == DeadwoodPartKind::Impostor)
+            .expect("an impostor part");
+        assert!(no_shadow, "impostors cast no shadows");
+        // The lower mesh now fades out where the impostor fades in, and
+        // the meshes still cast shadows.
+        for (part, range, no_shadow) in &found {
+            if part.step == Step::Lower {
+                assert_eq!(range.end_margin, impostor.start_margin);
+            }
+            if part.step != Step::Impostor {
+                assert!(!no_shadow, "{part:?}");
+            }
+        }
+        // Only one impostor, however long the app runs.
+        app.update();
+        let impostors = parts(&mut app, entity)
+            .iter()
+            .filter(|p| p.kind == DeadwoodPartKind::Impostor)
+            .count();
+        assert_eq!(impostors, 1);
+    }
+
+    #[test]
+    fn scatter_slots_take_their_impostors_once_baked() {
+        let mut app = app();
+        app.add_systems(
+            Update,
+            crate::impostor::show_scatter_impostors.after(finish_generation),
+        );
+        let entity = app
+            .world_mut()
+            .spawn(DeadwoodScatterParams {
+                scatter: ScatterOptions::kindling(),
+                size: Vec2::splat(4.0),
+                ground: ScatterGround::Flat,
+            })
+            .id();
+        run_until_finished(&mut app, entity);
+        let slots = |app: &App| {
+            app.world()
+                .get::<InstancedScatter>(entity)
+                .unwrap()
+                .slots
+                .clone()
+        };
+        for slot in slots(&app).iter() {
+            assert_eq!(slot.lod.levels.len(), 2);
+            assert!(slot.parts.iter().all(|p| p.level < 2));
+        }
+
+        bake_every_variant(&mut app, entity);
+        app.update();
+        for slot in slots(&app).iter() {
+            slot.lod.validate().unwrap();
+            assert_eq!(slot.lod.levels.len(), 3);
+            assert!(!slot.lod.levels[2].casts_shadows);
+            let impostors = slot.parts.iter().filter(|p| p.level == 2).count();
+            assert_eq!(impostors, 1);
+        }
     }
 }

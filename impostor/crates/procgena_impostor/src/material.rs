@@ -45,7 +45,9 @@ pub enum BakeOutput {
     None,
     /// The material's base colour, unlit, for the albedo atlas.
     Albedo,
-    /// The surface normal for the normal atlas, encoded as `n * 0.5 + 0.5`.
+    /// The surface normal and depth for the normal atlas: the normal in the
+    /// object's own coordinates, encoded as `n * 0.5 + 0.5`, and depth in
+    /// alpha (see [`Impostor::normal`](crate::Impostor::normal)).
     Normal,
 }
 
@@ -130,7 +132,8 @@ pub struct ImpostorExtension {
     #[texture(101)]
     #[sampler(102)]
     pub albedo: Handle<Image>,
-    /// Normals of every view, each in its own view's camera space.
+    /// Normals and depth of every view; see
+    /// [`Impostor::normal`](crate::Impostor::normal).
     #[texture(103)]
     pub normal: Handle<Image>,
 }

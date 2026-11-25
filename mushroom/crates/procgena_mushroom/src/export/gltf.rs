@@ -20,7 +20,7 @@ use json::validation::Checked::Valid;
 use json::validation::USize64;
 use json::{Index, Root};
 
-use super::{level_name, static_buffers};
+use super::level_name;
 use crate::mesh::{MeshBuffers, MushroomMesh};
 use crate::options::MushroomOptions;
 
@@ -138,12 +138,12 @@ fn build(
     let mut nodes = Vec::new();
     for (lod, mesh) in meshes.iter().enumerate() {
         let name = level_name(lod, meshes.len());
-        let material = if mesh.double_sided || mesh.billboard.is_some() {
+        let material = if mesh.double_sided {
             open
         } else {
             solid
         };
-        let index = b.mesh(&name, &static_buffers(mesh), material);
+        let index = b.mesh(&name, &mesh.surfaces, material);
         nodes.push(b.root.push(json::Node {
             name: Some(name),
             mesh: Some(index),

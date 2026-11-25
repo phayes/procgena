@@ -4,7 +4,9 @@
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use procgena_clump::ClumpPreset;
-use procgena_deadwood::{DeadwoodOptions, PieceKind, ScatterOptions, default_lod, size_factor};
+use procgena_core::Quality;
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
+use procgena_deadwood::{DeadwoodOptions, PieceKind, ScatterOptions};
 use procgena_deadwood_bevy::{
     DeadwoodFinished, DeadwoodGenerating, DeadwoodMaterial, DeadwoodParams, DeadwoodPart,
     DeadwoodScatterParams, ScatterGround,
@@ -54,9 +56,9 @@ pub enum DeadwoodView {
 /// ready, or stays if its settings are rejected; a changed view replaces it
 /// at once. A changed cover alone regrows only the cover.
 /// [`ViewerEvent::DeadwoodBuilt`] reports each piece built, and
-/// [`ViewerEvent::DeadwoodLodShown`] its detail level on screen. The scene
-/// uses its own detail levels, scaled to the piece's size, and ignores
-/// `piece.detail`.
+/// [`ViewerEvent::DeadwoodLodShown`] the step of its drawing chain on
+/// screen, numbered by [`Step::index`]: its game level, lower mesh or
+/// impostor.
 pub struct DeadwoodSubject;
 
 impl Subject for DeadwoodSubject {
@@ -138,8 +140,12 @@ fn piece_view(options: &DeadwoodOptions) -> OrbitCamera {
         (options.diameter, options.diameter)
     };
     let extent = options.length.max(width);
-    let lod = default_lod();
-    let cull = lod.cull_distance.expect("the default levels cull") * size_factor(&lod, options);
+    // The extent is close to the piece's bounding-sphere diameter, which
+    // sets where its drawing chain ends.
+    let factor = DistanceChain::factor(extent, ViewScale::DEFAULT);
+    let cull = DistanceChain::DEFAULT.ranges(factor, Quality::High)[Step::Impostor.index()]
+        .fade_out
+        .end;
     OrbitCamera {
         focus: Vec3::new(0.0, 0.5 * height, 0.0),
         yaw: 0.6,
@@ -170,7 +176,7 @@ pub(crate) fn apply_lod(
         show_level(
             &mut commands,
             entity,
-            part.lod,
+            part.step.index(),
             look.detail,
             visibility,
             ranges,
@@ -202,7 +208,9 @@ fn report_lod(
     let ranges: Vec<(usize, &VisibilityRange)> = parts
         .iter_many(kids)
         .flatten()
-        .filter_map(|(part, range, saved)| Some((part.lod, saved.map(|s| &s.0).or(range)?)))
+        .filter_map(|(part, range, saved)| {
+            Some((part.step.index(), saved.map(|s| &s.0).or(range)?))
+        })
         .collect();
     if ranges.is_empty() {
         return;
@@ -249,11 +257,16 @@ fn report_deadwood(
             let Some(mesh) = meshes.get(&mesh.0) else {
                 continue;
             };
-            if levels.len() <= part.lod {
-                levels.resize(part.lod + 1, MeshSize::default());
+            // Only the meshes count: an impostor is one quad.
+            if !part.step.is_mesh() {
+                continue;
             }
-            levels[part.lod].vertices += mesh.count_vertices();
-            levels[part.lod].triangles += mesh.indices().map_or(0, |i| i.len() / 3);
+            let level = part.step.index();
+            if levels.len() <= level {
+                levels.resize(level + 1, MeshSize::default());
+            }
+            levels[level].vertices += mesh.count_vertices();
+            levels[level].triangles += mesh.indices().map_or(0, |i| i.len() / 3);
         }
         BuildStats {
             levels,
