@@ -1,30 +1,30 @@
 //! Procedural mushrooms: single mushrooms, clusters, and mushrooms scattered
-//! over the ground or over other generators' surfaces, each at several
-//! levels of detail.
+//! over the ground or over other generators' surfaces.
 //!
 //! Describe a mushroom with [`MushroomOptions`], or start from a
 //! [`MushroomPreset`] such as a fly agaric, then create a [`Mushroom`]. Its
 //! cap and stem are smooth side-view outlines spun around a curved stem, so
-//! it can be meshed at any [`MushroomDetail`]: from closed, smooth meshes for
-//! close-ups down to two triangles that turn toward the camera, for drawing
-//! thousands at once.
+//! it can be meshed at any [`MushroomDetail`], from closed, smooth meshes
+//! for close-ups to coarse open ones.
 //!
-//! Distant objects don't need fine detail, so renderers swap in simpler
-//! meshes as the camera moves away; each of those is a "level of detail".
-//! A [`MushroomLod`], such as [`default_lod`], says which detail to use at
-//! which distance, and [`Lod::factor`](procgena_core::Lod::factor) scales
-//! the distances to suit the mushroom's size.
+//! Each mushroom's [`game_level`](MushroomOptions::game_level) is its real
+//! shape. Renderers draw a coarser mesh derived from it when the mushroom is
+//! small on screen, then an impostor baked from it, as every procgena asset
+//! does (see [`procgena_core::chain`]). [`Mushroom::lod_meshes`] builds the
+//! two meshes:
 //!
 //! ```
 //! use procgena_core::Quality;
-//! use procgena_mushroom::{Mushroom, MushroomPreset, default_lod};
+//! use procgena_core::chain::{DistanceChain, ViewScale};
+//! use procgena_mushroom::{Mushroom, MushroomPreset};
 //!
 //! let mushroom = Mushroom::from_preset(MushroomPreset::porcini()).unwrap();
-//! let lod = default_lod();
-//! let factor = lod.factor(mushroom.options().size, Quality::High);
-//! for (level, mesh) in mushroom.lod_meshes(&lod).unwrap() {
-//!     let from = level.distance * factor;
-//!     println!("from {from} m: {} triangles", mesh.triangle_count());
+//! let chain = DistanceChain::DEFAULT;
+//! let factor = DistanceChain::factor(mushroom.bounding_diameter(), ViewScale::DEFAULT);
+//! let ranges = chain.ranges(factor, Quality::High);
+//! for (step, mesh) in mushroom.lod_meshes() {
+//!     let until = ranges[step.index()].fade_out.end;
+//!     println!("{} until {until} m: {} triangles", step.name(), mesh.triangle_count());
 //! }
 //! ```
 //!
@@ -89,14 +89,9 @@ pub use cluster::{
     ClusterLayout, ClusterOptions, FairyRingOptions, MAX_STEMS, MAX_VARIANTS, MushroomInstance,
 };
 pub use colour::{linear_from_hex, srgb_to_linear};
-pub use detail::{
-    BodyShape, DEFAULT_LOD_SIZE, MushroomDetail, MushroomLod, MushroomLodLevel, default_lod,
-    validate_lod,
-};
+pub use detail::{BodyShape, MushroomDetail};
 pub use ground::MAX_CELLS;
-pub use mesh::{
-    BillboardMesh, BillboardVertex, MeshBuffers, MushroomMesh, PartKind, PartRange, Zone,
-};
+pub use mesh::{MeshBuffers, MushroomMesh, PartKind, PartRange, Zone};
 pub use meta::{MUSHROOM_META, meta_choices};
 pub use mushroom::{BodyId, Mushroom, MushroomBody};
 pub use options::{

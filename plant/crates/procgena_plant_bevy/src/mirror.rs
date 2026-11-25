@@ -16,9 +16,9 @@ use crate::render::view::MAX_BUCKETS;
 use crate::scatters::level_entries;
 
 use crate::shader_model::{
-    CHILD_ROWS, CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, GRANDCHILD_ROWS, GUST_SIZE,
-    PLANT_ROWS, TILE_POINTS, TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_noise, bare_threshold,
-    FILL_PARTS, best_candidate_tile, blue_noise_tile, clump_table, gust_noise, hash, hash2,
+    CHILD_ROWS, CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, FILL_PARTS, GRANDCHILD_ROWS,
+    GUST_SIZE, PLANT_ROWS, TILE_POINTS, TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_noise,
+    bare_threshold, best_candidate_tile, blue_noise_tile, clump_table, gust_noise, hash, hash2,
     lod_indices, quantised_tile, tile_position, toroidal_distance_squared, tuft_table, unit,
 };
 

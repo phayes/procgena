@@ -7,14 +7,12 @@
 //!
 //! Move with the free camera: W, A, S and D to fly, E and Q for up and down,
 //! and the mouse to look around while the right button is held (or after
-//! pressing M). Move away from the mushrooms to watch them switch to simpler
-//! detail levels.
+//! pressing M). Move away from the mushrooms to watch them switch to their
+//! cheaper lower mesh and then to their impostors.
 //!
 //! Add `--screenshot <file.png>` to save an image once everything has been
-//! generated, then exit. Add `--flat` to draw everything with open caps and
-//! camera-facing stem strips at every distance, `--billboard` to draw
-//! everything at the cheapest detail (one camera-facing triangle each for
-//! stem and cap),
+//! generated, then exit. Add `--no-impostors` to draw the lower mesh until
+//! each mushroom is culled,
 //! `--closeup` to start next to the enoki cluster instead of the preset row,
 //! `--preset <key>` (such as `porcini` or `fly_agaric`) to start next to one
 //! preset, and `--orbit <degrees>` to start the camera turned around what it
@@ -34,13 +32,12 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core::scatter::ScatterArea;
-use procgena_core::{Ground, HeightGrid, Lod, LodLevel};
+use procgena_core::{Ground, HeightGrid};
 use procgena_core_bevy::instanced::InstancedScatter;
-use procgena_mushroom::{
-    DEFAULT_LOD_SIZE, MushroomDetail, MushroomPreset, ScatterOptions, default_lod,
-};
+use procgena_mushroom::{MushroomPreset, ScatterOptions};
 use procgena_mushroom_bevy::{
     MushroomGenerating, MushroomGroundScatterParams, MushroomParams, MushroomPart, MushroomPlugin,
+    default_mushroom_impostor,
 };
 
 /// Frames to wait after generation finishes before a screenshot, so meshes
@@ -99,17 +96,6 @@ fn main() {
             .unwrap_or_else(|| panic!("no preset with key {key:?}"))
     });
 
-    // `--flat` and `--billboard` use only that one detail, drawn out to
-    // 100 m for an 8 cm cap.
-    let only =
-        |detail| Lod::new(DEFAULT_LOD_SIZE, vec![LodLevel::new(0.0, 0.1, detail)]).with_cull(100.0);
-    let lod = if args.iter().any(|a| a == "--flat") {
-        only(MushroomDetail::FLAT)
-    } else if args.iter().any(|a| a == "--billboard") {
-        only(MushroomDetail::BILLBOARD)
-    } else {
-        default_lod()
-    };
     // Read assets from the repository's `mushroom/assets`. The fly agaric's
     // cap texture is used when its files have been converted or downloaded
     // there; otherwise every mushroom uses vertex colours.
@@ -120,9 +106,10 @@ fn main() {
     if !textured {
         info!("no cap textures found; run `uv run --project tools textures download mushroom`");
     }
+    let impostors = !args.iter().any(|a| a == "--no-impostors");
     let plugin = MushroomPlugin {
-        lod,
         texture_root: textured.then(|| "textures".to_owned()),
+        impostor: impostors.then(default_mushroom_impostor),
         ..MushroomPlugin::default()
     };
     // With `--headless`, run without a window on a fixed 60 Hz loop.

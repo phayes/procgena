@@ -1,6 +1,6 @@
 //! Bevy plugin for [`procgena_mushroom`]: draws mushrooms, clusters and
-//! scattered mushrooms, switching to simpler meshes as the camera moves
-//! away.
+//! scattered mushrooms, switching to a cheaper mesh and then to an impostor
+//! as they get smaller on screen.
 //!
 //! Add [`MushroomPlugin`], then spawn entities with one of these
 //! components:
@@ -60,50 +60,60 @@
 //! file to load, and rebuilds when it changes if Bevy is watching asset
 //! files.
 //!
-//! Each single mushroom or cluster is drawn by [`MushroomPart`] child
-//! entities, one or two per detail level and member. Bevy's
-//! `VisibilityRange` shows each level only within its distance band,
-//! blending between neighbouring levels. A scatter's mushrooms are drawn
-//! instead by the shared instanced renderer of `procgena_core_bevy`, which
-//! fades them the same way, with no entity per mushroom. The bands come from
-//! [`MushroomPlugin::lod`], scaled by each mushroom's size and by the
-//! [`LodQuality`] setting when the mushroom
-//! is built, and the farthest level fades out at the cull distance. At the
-//! two farthest default levels, the stem, and then the cap too, are flat
-//! shapes that [`MushroomMaterial`] keeps turned toward the camera; levels
-//! that don't cast shadows, such as the default farthest one, get
-//! `NotShadowCaster`.
+//! ## What is drawn when
+//!
+//! Every mushroom is drawn along the shared drawing chain of
+//! [`procgena_core::chain`]: its game-level mesh
+//! ([`MushroomOptions::game_level`]) up close, a cheaper lower mesh further
+//! out, and an impostor when it is small on screen, until it is culled.
+//! Which one shows depends on how large the mushroom looks on screen, the
+//! same for every kind of object, and on the [`LodQuality`] setting when the
+//! mushroom is built. A single mushroom or cluster switches as a whole, by
+//! the size of the whole cluster.
+//!
+//! A single mushroom or cluster is drawn by [`MushroomPart`] child entities:
+//! one per member and mesh, and one impostor of the whole mushroom or
+//! cluster. Bevy's `VisibilityRange` blends between neighbouring steps. A
+//! scatter's mushrooms are drawn instead by the shared instanced renderer of
+//! `procgena_core_bevy`, which fades them the same way, with no entity per
+//! mushroom, and gives each different body its own impostor. Impostors are
+//! baked in the background the first time a mushroom is built (see
+//! [`default_mushroom_impostor`]); until then, and with
+//! [`MushroomPlugin::impostor`] set to `None`, the lower mesh is drawn until
+//! the mushroom is culled. Impostors cast no shadows.
 //!
 //! The material draws each mushroom's warts, gill lines and cap pattern, so
 //! they cost no triangles.
 //!
 //! To build your own entities, convert meshes with [`mushroom_mesh`] and
-//! [`billboard_mesh`], and create materials with [`mushroom_material`] and
-//! [`billboard_material`]. Keep the plugin installed, because it provides
-//! the shaders.
+//! create materials with [`mushroom_material`]. Keep the plugin installed,
+//! because it provides the shaders.
+//!
+//! [`MushroomOptions::game_level`]: procgena_mushroom::MushroomOptions::game_level
 
+mod impostor;
 mod material;
 mod mesh;
 mod spawn;
 
 use bevy::asset::embedded_asset;
-use bevy::pbr::MaterialPlugin;
+use bevy::pbr::{MaterialPlugin, StandardMaterialKey};
 use bevy::prelude::*;
+use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::shader::load_shader_library;
 use procgena_core_bevy::instanced::{InstancedMaterialPlugin, SpecimenCache};
 use procgena_core_bevy::{LodPlugin, LodQuality};
-use procgena_mushroom::{MushroomLod, TextureCompression, TextureSize, default_lod, validate_lod};
+use procgena_impostor::{BakeSettings, ImpostorMaterial, ImpostorPipelineKey, ImpostorPlugin};
+use procgena_mushroom::{TextureCompression, TextureSize};
 
+pub use impostor::default_mushroom_impostor;
 pub use material::{
-    MushroomExtension, MushroomKey, MushroomMaterial, MushroomSurface, TextureSet,
-    billboard_material, mushroom_material,
+    MushroomExtension, MushroomKey, MushroomMaterial, MushroomSurface, TextureSet, bake_copy,
+    mushroom_material,
 };
 
 use material::MushroomMaterialKey;
-pub use mesh::{
-    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT, billboard_aabb, billboard_mesh,
-    mushroom_mesh,
-};
+pub use mesh::mushroom_mesh;
 pub use spawn::{
     MushroomBuildError, MushroomFinished, MushroomGenerating, MushroomGroundScatterParams,
     MushroomParams, MushroomPart, MushroomPresetAsset, MushroomScatterParams,
@@ -111,25 +121,17 @@ pub use spawn::{
 
 use spawn::{MushroomCache, MushroomPresetLoader, SpawnSettings, TextureSettings};
 
+/// The key Bevy specializes impostor materials by, which the shared
+/// instanced renderer marks for drawn copies.
+type ImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, ImpostorPipelineKey>;
+
 /// Adds mushroom building and drawing, and loading of `.mushroom.yml`
 /// preset files, to a Bevy app. It also adds [`LodPlugin`], which holds the
-/// [`LodQuality`] setting and the shared dither shader.
-///
-/// # Panics
-///
-/// Adding the plugin panics if [`lod`](Self::lod) is invalid; see
-/// [`validate_lod`].
+/// [`LodQuality`] setting and the shared dither shader, and, while
+/// [`impostor`](Self::impostor) is set, [`ImpostorPlugin`] unless the app
+/// already has it.
 #[derive(Debug, Clone)]
 pub struct MushroomPlugin {
-    /// Detail levels, written for a cap of their
-    /// [`reference_size`](procgena_core::Lod::reference_size). Each mushroom
-    /// scales the distances by its size relative to that, by its size within
-    /// a cluster or scatter, and by the [`LodQuality`] when it is built.
-    /// Every mushroom uses these levels; [`MushroomOptions::detail`] is not
-    /// used by the plugin. Defaults to [`default_lod`].
-    ///
-    /// [`MushroomOptions::detail`]: procgena_mushroom::MushroomOptions::detail
-    pub lod: MushroomLod,
     /// Folder holding the `cap/` and `stem/` texture folders, relative to
     /// Bevy's asset folder, for mushrooms whose options name a
     /// [`cap_texture`](procgena_mushroom::MaterialOptions::cap_texture) or
@@ -148,30 +150,37 @@ pub struct MushroomPlugin {
     /// Which texture files to load. Defaults to BC7; UASTC needs Bevy's
     /// `basis-universal` feature.
     pub texture_compression: TextureCompression,
+    /// How mushrooms' impostors are baked; mushrooms are drawn as their
+    /// impostor when small on screen, after their game-level and lower
+    /// meshes. Defaults to [`default_mushroom_impostor`]. `None` draws each
+    /// mushroom's lower mesh until it is culled.
+    pub impostor: Option<BakeSettings>,
 }
 
 impl Default for MushroomPlugin {
     fn default() -> Self {
         Self {
-            lod: default_lod(),
             texture_root: Some("procgena_mushroom/textures".to_owned()),
             texture_size: TextureSize::Size1k,
             texture_compression: TextureCompression::Bc7,
+            impostor: Some(default_mushroom_impostor()),
         }
     }
 }
 
 impl Plugin for MushroomPlugin {
     fn build(&self, app: &mut App) {
-        load_shader_library!(app, "shaders/mushroom_billboard.wesl");
         load_shader_library!(app, "shaders/mushroom_triplanar.wesl");
         embedded_asset!(app, "shaders/mushroom_vertex.wesl");
         embedded_asset!(app, "shaders/mushroom_prepass.wesl");
         embedded_asset!(app, "shaders/mushroom_fragment.wesl");
 
-        if let Err(error) = validate_lod(&self.lod) {
-            panic!("MushroomPlugin::lod is invalid: {error}");
+        // Impostors, unless the app added the plugin itself with settings of
+        // its own.
+        if self.impostor.is_some() && !app.is_plugin_added::<ImpostorPlugin>() {
+            app.add_plugins(ImpostorPlugin::default());
         }
+
         app.add_plugins((
             LodPlugin,
             MaterialPlugin::<MushroomMaterial>::default(),
@@ -179,7 +188,17 @@ impl Plugin for MushroomPlugin {
                 key.extension.instanced = true;
             }),
         ));
-        add_systems(app, self.lod.clone());
+        if self.impostor.is_some() {
+            // Scattered mushrooms draw their baked impostors as their last
+            // level.
+            app.add_plugins(InstancedMaterialPlugin::<
+                ImpostorMaterial,
+                ImpostorMaterialKey,
+            >::new(|key| {
+                key.extension.instanced = true;
+            }));
+        }
+        add_systems(app, self.impostor);
         app.world_mut().resource_mut::<SpawnSettings>().textures =
             self.texture_root.clone().map(|root| TextureSettings {
                 root,
@@ -190,16 +209,17 @@ impl Plugin for MushroomPlugin {
 }
 
 /// Registers the preset file loader, the shared cache and the build
-/// systems, using detail levels `lod`, but nothing for drawing. The plugin
-/// and the tests (which run without a renderer) both use it.
-pub(crate) fn add_systems(app: &mut App, lod: MushroomLod) {
+/// systems, baking impostors with `impostor` when set, but nothing for
+/// drawing. The plugin and the tests (which run without a renderer) both
+/// use it. Impostors wait until the impostor plugin's resources exist.
+pub(crate) fn add_systems(app: &mut App, impostor: Option<BakeSettings>) {
     app.init_asset::<MushroomPresetAsset>()
         .register_asset_loader(MushroomPresetLoader)
         .init_resource::<MushroomCache>()
         .init_resource::<SpecimenCache>()
         .init_resource::<LodQuality>()
         .insert_resource(SpawnSettings {
-            lod,
+            impostor,
             textures: None,
         })
         .add_systems(
@@ -209,6 +229,8 @@ pub(crate) fn add_systems(app: &mut App, lod: MushroomLod) {
                 spawn::start_generation,
                 spawn::finish_generation,
                 spawn::prune_cache,
+                impostor::show_single_impostors,
+                impostor::show_scatter_impostors,
             )
                 .chain(),
         );

@@ -14,9 +14,7 @@ use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use procgena_mushroom::export::{gltf, obj};
-use procgena_mushroom::{
-    Mushroom, MushroomDetail, MushroomMesh, MushroomOptions, MushroomPreset, default_lod,
-};
+use procgena_mushroom::{Mushroom, MushroomMesh, MushroomOptions, MushroomPreset};
 
 use super::{
     Done, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file, write_files,
@@ -198,21 +196,16 @@ pub fn read_options(text: &str) -> Result<MushroomOptions, String> {
     read_preset::<MushroomPreset>(text, "mushroom")
 }
 
-/// Builds the meshes to export: the full mesh, then, with `detail_levels`,
-/// each simpler default level, with distances suited to the mushroom's size.
+/// Builds the meshes to export: the game-level mesh, then, with
+/// `detail_levels`, the cheaper lower mesh derived from it.
 fn meshes(options: &MushroomOptions, detail_levels: bool) -> Result<Vec<MushroomMesh>, String> {
     let mushroom = Mushroom::new(options.clone())
         .map_err(|error| format!("Cannot build this mushroom: {error}"))?;
     if !detail_levels {
-        let mesh = mushroom
-            .mesh_with_detail(&MushroomDetail::FULL)
-            .map_err(|error| error.to_string())?;
-        return Ok(vec![mesh]);
+        return Ok(vec![mushroom.mesh()]);
     }
-    let lod = default_lod();
     Ok(mushroom
-        .lod_meshes(&lod)
-        .map_err(|error| error.to_string())?
+        .lod_meshes()
         .into_iter()
         .map(|(_, mesh)| mesh)
         .collect())
@@ -292,10 +285,8 @@ mod tests {
     #[test]
     fn exports_have_every_level_when_asked() {
         let options = MushroomOptions::default();
-        assert_eq!(
-            meshes(&options, true).unwrap().len(),
-            default_lod().levels.len()
-        );
+        // The game-level and lower meshes.
+        assert_eq!(meshes(&options, true).unwrap().len(), 2);
         assert_eq!(meshes(&options, false).unwrap().len(), 1);
     }
 }

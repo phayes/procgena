@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 procgena_core = { path = "../../../core/crates/procgena_core" }
 procgena_core_bevy = { path = "../../../core/crates/procgena_core_bevy" }
+procgena_impostor = { path = "../../../impostor/crates/procgena_impostor" }
 procgena_mushroom = { path = "../procgena_mushroom" }
 procgena_specimen = { path = "../../../specimen/crates/procgena_specimen", features = ["bevy"] }
 bevy = { version = "0.20.1", default-features = false, features = [

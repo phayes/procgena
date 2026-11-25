@@ -8,7 +8,6 @@
 use std::fmt;
 
 use glam::Vec2;
-use procgena_core::LodError;
 use procgena_core::scatter::{Placement, Rest};
 use serde::{Deserialize, Serialize};
 
@@ -67,9 +66,14 @@ pub struct MushroomOptions {
     pub material: MaterialOptions,
     /// How many mushrooms grow together, and how they are arranged.
     pub cluster: ClusterOptions,
-    /// Mesh detail that [`crate::Mushroom::mesh`] uses. Other methods take
-    /// their detail as an argument.
-    pub detail: MushroomDetail,
+    /// The mushroom's real shape: the mesh detail the game uses for picking,
+    /// for growing other things on it, and for its impostor, and the one
+    /// [`crate::Mushroom::mesh`] builds. Renderers draw a coarser mesh
+    /// derived from it when the mushroom is small on screen (see
+    /// [`MushroomDetail::lod`]). Defaults to [`MushroomDetail::HIGH`]; a
+    /// preset file may leave it out.
+    #[serde(default)]
+    pub game_level: MushroomDetail,
 }
 
 /// Settings for the cap's outline and surface.
@@ -338,7 +342,7 @@ impl Default for MushroomOptions {
             warts: WartOptions::default(),
             material: MaterialOptions::default(),
             cluster: ClusterOptions::default(),
-            detail: MushroomDetail::FULL,
+            game_level: MushroomDetail::default(),
         }
     }
 }
@@ -502,9 +506,6 @@ pub enum OptionsError {
         /// The names the setting accepts.
         allowed: &'static [&'static str],
     },
-    /// The levels of a [`MushroomLod`](crate::MushroomLod) are invalid, for
-    /// example out of order or blending into each other.
-    Lod(LodError),
 }
 
 impl fmt::Display for OptionsError {
@@ -547,23 +548,15 @@ impl fmt::Display for OptionsError {
                 value,
                 allowed,
             } => write!(f, "{field} is {value:?}, but must be one of {allowed:?}"),
-            OptionsError::Lod(error) => write!(f, "invalid levels of detail: {error}"),
         }
     }
 }
 
-impl std::error::Error for OptionsError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            OptionsError::Lod(error) => Some(error),
-            _ => None,
-        }
-    }
-}
+impl std::error::Error for OptionsError {}
 
 impl MushroomOptions {
     /// Checks every setting, including [`cluster`](Self::cluster) and
-    /// [`detail`](Self::detail), against the range given in its
+    /// [`game_level`](Self::game_level), against the range given in its
     /// documentation.
     ///
     /// # Errors
@@ -657,7 +650,7 @@ impl MushroomOptions {
         positive("material.stem_texture_size", m.stem_texture_size)?;
 
         self.cluster.validate()?;
-        self.detail.validate()
+        self.game_level.validate()
     }
 
     /// Cap radius in metres: half of [`size`](Self::size).
