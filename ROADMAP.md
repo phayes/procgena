@@ -1065,8 +1065,9 @@ go to the few copies near the camera.
       matches the mesh. Shadows and tree sway are later variants. The
       experiment goes stones first, then dead wood and mushrooms, trees
       last, judged by a blind side-by-side on the oak and maple forest,
-      the pine floor and one walk through a Valheim-scale World, with a
-      bar of no visible difference and at least 20% less frame time.
+      the pine floor and one walk through a Valheim-scale World. The bar
+      for a new default (no visible difference, at least 20% less frame
+      time) is the coordinator's proposal, not yet confirmed by the user.
 - **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
   build; the planning step can start any time.
 - **Done when:** the plan is agreed with the user, the variants are
