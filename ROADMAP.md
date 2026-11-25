@@ -1025,6 +1025,12 @@ go to the few copies near the camera.
   - **Impostors are baked from the game level**, not
     always from level 0, so the fade from mesh to impostor keeps the same
     detail and level 0 need not be built for a game that never draws it.
+  - **A cluster is just a specimen** (the user, 2026-11-25). There is no
+    separate cluster concept for drawing: a specimen may be one object
+    or a cluster of them, and it gets one impostor either way. Follow-up:
+    add cluster specimens to stones (today a `StoneScatter` class places
+    up to `MAX_CLUSTER_MEMBERS` separate stones per spot, which are
+    separate copies with their own impostors, not one specimen).
   - **Impostors for clusters are expected to be the biggest win** (a
     patch of stones, a ring of mushrooms, a stand of grass as one
     impostor). Follow-up: give more objects clusters of their own (trees,
