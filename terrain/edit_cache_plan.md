@@ -1,8 +1,11 @@
 # Terrain edits: caching and incremental rebuilds
 
-A decision document, not a build log. It answers three questions the user
-asked: will a cache make terrain editing fast, what are its limits, and
-should we use something like `salsa`. Measured 2026-11-24 on master at
+A decision document, not a build log. It answers the user's questions:
+
+- will a cache make terrain editing fast;
+- what are its limits;
+- should we use something like `salsa`;
+- what would moving terrain work to the GPU gain. Measured 2026-11-24 on master at
 `6fbb193` (before G4a and GM1 merged).
 
 ## Bottom line
@@ -37,9 +40,10 @@ Do not adopt `salsa` or `comemo`.
 
 **Will it work?** In part, and the answer depends on the setting.
 
-Today a cold build of the studio's opening view takes about 40 s on one
-thread in release: 23 region plans, 9 region builds, roads in 2 regions
-and 86 chunks. A one-setting edit costs exactly the same.
+Today a cold build of the studio's opening view is about 33 s of CPU work
+in release (an idle-machine estimate): 23 region plans, 9 region builds,
+roads in 2 regions and 86 chunks. Ground weights for the near chunks
+would add about as much again. A one-setting edit costs exactly the same.
 
 - **Ground colours and debug drawing:** yes, nearly all the time is
   saved. Neither changes heights.
@@ -49,7 +53,7 @@ and 86 chunks. A one-setting edit costs exactly the same.
     on mountains alike. A river-width edit moved 4 chunks in 177 on
     hills, and 38 on mountains.
   - But a cache keyed on stage inputs alone (S3) saves nothing on these
-    edits. Each setting reaches the region plans (51% of the time)
+    edits. Each setting reaches the region plans (40% of the work)
     through the border offers or the convergence.
   - Keeping the plans takes two more steps:
     - Move road and river port wishes into their own negotiation (S4).
@@ -57,7 +61,7 @@ and 86 chunks. A one-setting edit costs exactly the same.
 
     With both, expect up to about 25% saved on river edits and 65% on
     road edits (estimates).
-  - Roads (27% of the time) are re-routed on every road edit whatever
+  - Roads (29% of the work) are re-routed on every road edit whatever
     the cache.
 - **Land shape (`base.*`) and the seed:** no. Every region's relief
   changes, so every later stage must run again. No cache, salsa
@@ -72,12 +76,13 @@ preview and cancelling come first, and the cache second.
 **And the GPU?**
 
 - It can take the per-point work:
-  - a relief preview of the whole view in a frame or two;
-  - chunk heights (9%);
-  - ground weights;
+  - a relief preview of the whole view, estimated at milliseconds;
+  - chunk heights (23% of the CPU work);
+  - ground weights (about as much again as the rest of the build, for
+    the near chunks alone);
   - measures.
 - It can't take the plans: the river trace, road routing and
-  negotiation, about 90% of a cold build. They are sequential and
+  negotiation, about 76% of a cold build without weights. They are sequential and
   graph-shaped, and the CPU needs them for queries anyway.
 - GPU drawing would make per-chunk caching unnecessary, but not the
   region-stage cache.
@@ -96,8 +101,11 @@ preview and cancelling come first, and the cache second.
   terrain. Nothing fails; the land is quietly wrong. The keys must be
   derived from what each stage reads, and tested by changing settings and
   comparing outputs.
-- Memory is small next to what is drawn. Floats are bit-exact today
-  because each stage is pure. A cache must never key on rounded values.
+- Memory: one view's regions took about 200 MB. Keyed by content, a
+  slider drag could pile up old versions to about 1 GB (an estimate), so
+  the cache must keep only the last one or two versions per stage.
+- Floats are bit-exact today because each stage is pure. A cache must
+  never key on rounded values.
 - The rule that terrain stays analytic is untouched. Caching stores the
   results of pure functions and changes no math.
 
@@ -116,16 +124,22 @@ preview and cancelling come first, and the cache second.
     (`coarse_first`), then levels below 3 again at Fine.
   - Region stage times come from `WorldTerrain::with_progress`.
 - Run in both the dev profile (`procgena_terrain` at opt-level 1,
-  dependencies at 3) and release. One thread, one cold run, then one edit
+  dependencies at 3) and release. One cold run, then one edit
   (`features.roads.width` + 1 m).
-- **The machine was loaded by other agents.** Load average was 84–245 on
-  10 cores.
-  - `/usr/bin/time` shows what share of a core each run got. The release
-    run got about 93% (81 s user in 87 s), so its wall times are close to
-    an idle machine's.
-  - The dev run got about 39% (94.6 s user in 244 s). Its wall times are
-    about 2.6× too long.
-  - The counts (regions, chunks, builds) don't depend on load.
+- **Threads.** The harness calls stages one at a time.
+  - But `procgena_terrain`'s default `rayon` feature samples a chunk's
+    rows in parallel, and region builds that start inside a chunk read
+    run inside those rows.
+  - So the first runs were partly parallel. A last release run with
+    `RAYON_NUM_THREADS=1` gives the true single-thread split of the work.
+    The shares below come from it.
+- **The machine was loaded by other agents.** Load average was 84–340 on
+  10 cores, so absolute wall times swing by up to 4× between runs.
+  - The shares within one run, and the counts (regions, chunks, builds),
+    are what to read.
+  - Absolute seconds below are scaled to an idle machine. The release
+    run that got 93% of a core (81 s of CPU for two builds and two warm
+    re-reads) sets the scale.
 
 ### Where a cold build's time goes
 
@@ -143,20 +157,34 @@ The 9 regions under the view need plans from 14 more regions round them:
 each build reads the plan of every region touching its corners. **Only 9
 of the 23 plans are for land that is drawn.**
 
-Time by stage, one thread. Release is the main column; dev is shown
-beside it for scale (loaded, so its wall times run long):
+CPU work by stage, release, one thread (`RAYON_NUM_THREADS=1`):
 
-| Stage | Release (s) | Share | Dev, loaded (s) | What it is |
+- "Loaded" is that run's measured seconds; its load was 290–340, so
+  they run long.
+- "Idle" scales the run to the release run that had a nearly free core.
+  It is an estimate.
+
+| Stage | Loaded (s) | Share | Idle, est. (s) | What it is |
 |---|---|---|---|---|
-| World, region graph, E, border warp | < 0.005 per region | ~0 | < 0.005 | `WorldTerrain::new`, `RegionGraph::region` |
-| Plan: settings, convergence, river trace, offers | 20.2 (23 × 0.88) | 51% | 73.4 | `build_plan` |
-| Rough: negotiate, bend, hydrology (rivers, ponds) | 4.6 (9 × 0.51) | 12% | 15.2 | `build_roughest`, without the nested plans |
-| Fine: roads | 10.8 (2 × 5.4) | 27% | 28.1 | `Terrain::with_tier(Fine)` |
-| Chunk sampling (warm, regions built) | 3.7 (86 × 43 ms) | 9% | 8.5 | `ChunkSamples::sample` |
-| Meshing | 0.02 | < 0.1% | 0.04 | `ChunkSamples::mesh` |
-| Ground weights (GM0), if every chunk had them | ~17 (est. from level 2) | +~43% on top | — | `ChunkWeights::build` |
+| World, region graph, E, border warp | < 0.005 per region | ~0 | ~0 | `WorldTerrain::new`, `RegionGraph::region` |
+| Plan: settings, convergence, river trace, offers | 55.4 (23 plans) | 40% | ~13 | `build_plan` |
+| Rough: negotiate, bend, hydrology (rivers, ponds) | 10.0 (9 regions) | 7% | ~2.3 | `build_roughest`, without the nested plans |
+| Fine: roads | 39.8 (2 regions) | 29% | ~9.5 | `Terrain::with_tier(Fine)` |
+| Chunk sampling (86 chunks) | 32.0 | 23% | ~7.8 | `ChunkSamples::sample` |
+| Meshing | 0.02 | < 0.1% | ~0 | `ChunkSamples::mesh` |
+| **Total, without ground weights** | **137.8** | | **~33** | |
+| Ground weights, 24 level-2 chunks | 176.6 (7.4 s a chunk) | +128% | ~42 | `ChunkWeights::build` |
+| Ground weights, all 86 chunks (est.) | ~630 | +~460% | ~150 | if every drawn chunk had them |
 | Upload to the GPU | not measured | — | — | Bevy `Mesh` creation and upload |
-| **Total, Rough pass + Fine pass** | **39.7** | | **124** | |
+
+Cross-check: the passes' wall time (85.5 + 52.2 s) equals the region
+stages (105.2 s) plus sampling (32.0 s) to within 0.6 s, so the split
+adds up.
+
+With rayon on (the default, and what the studio runs), the earlier
+release run spread sampling over cores: 39.7 s wall for the same build,
+with sampling only 9% of the **wall** time. The plans and roads did not
+get faster.
 
 Notes:
 
@@ -172,13 +200,11 @@ Notes:
   measured.
   - Once-locks make readers wait on one region's build.
   - The ring of plans must finish before the first Rough region.
-  - The roads of a near region take 5 s on one thread whatever else
-    runs.
+  - The roads of a near region take about 5 s whatever else runs.
   - The earlier "0.3 s per 10 km region" in `world_plan.md` predates
     border warp, convergence and the road rework.
 - **The Rough figure** is the hook's Rough total less the plans built
-  inside it: 24.8 − 20.2 s in release, 88.5 − 73.4 s in dev. Every plan
-  was built inside a Rough build.
+  inside it (65.4 − 55.4 s). Every plan was built inside a Rough build.
 - **Inside one plan** (the centre region, re-run on its converged
   generator, release, under heavy load):
 
@@ -196,15 +222,19 @@ Notes:
   - A whole cold Fine build of the centre region, with its ring of
     plans, took 26 s on hills and 87 s on mountains (both loaded). So
     mountains cost about 3× as much as the hills these numbers come from.
-- **Ground weights** (GM0's bare stack, level 2, the 24 near chunks, two
-  release runs):
-  - 307 and 500 ms a chunk, against 76 and 104 ms to read the same
-    chunk's heights in the same run: **4–5× a chunk read**, on top of
-    it.
-  - A weights chunk reads 129² points with gradients and measures; a
-    height read about 6,000 points.
-  - If every drawn chunk got weights, that adds about 17 s to the 39.7 s
-    cold build: **about 30% of the total**.
+- **Ground weights** (GM0's bare stack, level 2, the 24 near chunks):
+  - One thread: 7.4 s a chunk against 0.52 s to read the same chunk's
+    heights, in the same run. **About 14× a chunk read**, on top of it.
+  - With rayon the ratio was 4–5×, because weights spread over cores
+    better.
+  - A weights chunk reads 129² = 16,641 points, each with a gradient (more
+    height evaluations per point). A height read is about 6,000 points
+    without gradients.
+  - So weights for only the 24 near chunks cost about as much CPU as the
+    whole rest of the build. For every drawn chunk they would cost about
+    4.6× the rest of the build (an estimate).
+  - **Weights are the largest per-point cost in sight**, and the best
+    GPU candidate.
   - Weights need the built regions but nothing else, so a ground-only
     edit is pure weights work.
   - GM1, which draws the colours, is in progress; how many levels get
@@ -281,8 +311,8 @@ The probe:
 
 - Studio world, centre region.
 - Two presets: rolling hills (the studio's start), and mountains. The
-  same world seed, run in dev and again in release, with identical
-  results.
+  same world seed. Hills ran in dev and again in release, with the same
+  counts of changed chunks.
 - Its level-2 chunks (256 m) that lie wholly inside the region: 177 of
   them, up to the region's borders.
 - Each chunk's vertex heights are hashed at Rough and at Fine.
@@ -314,8 +344,8 @@ are the ground truth.
 
 **Most of the work an edit redoes today changes nothing.**
 
-- A road edit reruns every plan and every Rough build (63% of the time),
-  yet no Rough height moves. Only the roads (27%) and about a quarter of
+- A road edit reruns every plan and every Rough build (47% of the work),
+  yet no Rough height moves. Only the roads (29%) and about a quarter of
   the near chunks change.
 - A river-width edit moves 2% of the chunks on hills and 21% on
   mountains.
@@ -383,8 +413,9 @@ is what makes any of this sound. Nothing here changes the rules.
   dropped". Today they aren't (see "Stale builds are not stopped"). W1
   is a requirement the architecture already sets, not an extra.
 - **The Plan stage** is budgeted at "up to about a second" per region.
-  - Measured here in release, one thread, on rolling hills: the plan
-    takes about 0.9 s, but the roads of a near region take about 5.4 s.
+  - Measured here in release on rolling hills (idle-machine estimate):
+    a plan takes about 0.6–0.9 s, but the roads of one near region take
+    about 5 s.
   - That breaks the budget. It is the step-2 benchmark that
     [features_plan_review.md](features_plan_review.md), Conflict 4, set
     as the gate for macro cells.
@@ -413,19 +444,20 @@ offers". S4 keeps that rule:
 ## Options
 
 What each one saves, and what it costs. "Saves" is measured against the
-39.7 s release cold build above, whose shares are:
+cold build's CPU work above (single thread, without ground weights),
+whose shares are:
 
-- plans 51%;
-- Rough builds 12%;
-- roads 27%;
-- chunk sampling 9%.
+- plans 40%;
+- Rough builds 7%;
+- roads 29%;
+- chunk sampling 23%.
 
 ### Cheap wins (no cache)
 
 | Win | Saves | Costs |
 |---|---|---|
 | **W1. Cancel stale builds.** Pass a generation token or `Arc<AtomicBool>` into `WorldTerrain`. Check it between region stages and between chunk rows; a cancelled build returns an error that is never cached. | Wasted CPU after each edit: up to 4 threads × one region build. Mostly battery, plus a faster second edit during a drag. | Small. One flag check per stage. Results are unchanged, because a cancelled build is dropped, never stored. |
-| **W2. Relief-only preview tier.** A `FeatureTier::Preview` (or a separate preview source) that draws each region's **unconverged** relief plus E from its Settings alone, without plans or borders. Show it right after an edit, then swap in Rough and Fine as they land. | Time to the first picture of a `base.*` edit: from all 23 plans to sampling only, about 9% of the total (~4 s on one thread, ~1 s on four), or less if previewed at a coarser level. | Borders show seams for a few seconds, and rivers and roads are missing. A new tier for chunks and skirts. Must be marked provisional and never queried (features_plan §9, "Canonical terrain versus display LOD"). |
+| **W2. Relief-only preview tier.** A `FeatureTier::Preview` (or a separate preview source) that draws each region's **unconverged** relief plus E from its Settings alone, without plans or borders. Show it right after an edit, then swap in Rough and Fine as they land. | Time to the first picture of a `base.*` edit: from all 23 plans to sampling only: under 23% of the work (~8 s of CPU, spread over the cores by rayon), and much less for relief alone, without borders and carving, or less if previewed at a coarser level. | Borders show seams for a few seconds, and rivers and roads are missing. A new tier for chunks and skirts. Must be marked provisional and never queried (features_plan §9, "Canonical terrain versus display LOD"). |
 | **W3. Nearest region first.** Order region builds and reads by distance to the camera, and swap per region rather than waiting for the whole view. | The land under the camera arrives first. Today the swap waits for all 9 Rough regions. | Medium. `Stream` swaps the whole set on purpose, so cracks never show between old and new land. Per-region swaps need skirts or a fade at the boundary. |
 | **W4. Keep meshes on non-height edits.** Route ground-colour (GM) and debug changes to weights and materials only. Don't make a new world. | All of the land time for ground edits. | Small, once GM1's settings are in the editor. Separate the height settings from the paint settings in `TerrainSettings`. |
 | **W5. Faster plan.** Profile `build_plan` (convergence, trace, offers). The warped-border cost (W3b: 2.7× straight) and the per-region ring overhead are known. | Every edit, cold builds and the game too. | A performance sweep. Already a TODO in `world_plan.md`. |
@@ -502,13 +534,13 @@ read, chunks keyed by their region builds):
 | Edit | Rebuilt | Saved |
 |---|---|---|
 | `roads.*` | road port wishes and their negotiation, roads (Fine tier), the chunks near changed roads (about a quarter of the near ones in the probe) | plans, Rough and most sampling: up to ~65% |
-| `rivers.*` | trace, offers, hydrology, roads, the few chunks that moved | convergence (part of each plan) and most sampling: up to ~25% |
+| `rivers.*` | trace, offers, hydrology, roads, the few chunks that moved | convergence and most sampling: not estimated, since convergence was not timed on its own |
 | `edges.*` | offers, negotiation, Rough, roads; the border-band chunks | relief, convergence, trace and the inner chunks: hard to estimate until the plan is split |
 
 These "up to" figures assume each split stage costs what its share of
 today's plan costs. They are estimates, not measurements.
 
-Roads (27%) are rebuilt on every road edit under every option. Making a
+Roads (29%) are rebuilt on every road edit under every option. Making a
 road edit truly quick needs the road search itself to be cheaper (W5),
 or to be redone only near the roads that changed.
 
@@ -645,7 +677,8 @@ bugs after S3, comemo's tracked-view idea is worth copying by hand (see
   - ground weights;
   - G4a's measures;
   - a relief-only preview.
-- It cannot take the **planning**, which is about 90% of a cold build
+- It cannot take the **planning**, which is about 76% of a cold build
+  without weights
   today:
   - the river trace, road routing and border negotiation;
   - the convergence and offers that feed them.
@@ -655,20 +688,21 @@ bugs after S3, comemo's tracked-view idea is worth copying by hand (see
 
 ### Which stages could move
 
-Shares are of the 39.7 s release cold build of the studio view.
+Shares are of the cold build's single-thread CPU work, without ground
+weights (see "Measurements").
 
 | Stage | Share today | GPU? | What it would save | Why |
 |---|---|---|---|---|
-| Relief noise and E | inside plans and sampling | **Yes** | The preview tier (W2) for the whole view in a frame or two instead of ~4 s | Pure per-point noise over an integer lattice. This is the best fit of all. |
-| Chunk height sampling (relief, E, border pulls, carving) | 9% | Yes, with work | ~9% of a cold build, and most of a feature edit's re-read | Per point and analytic. But it reads per-region data (agreements, warped border pieces, the feature index), and the border and carving maths is written in f64 (see "Parity"). |
-| Normals and gradients | inside sampling | Yes | Part of the 9% | Analytic (G2) or central differences on the sampled grid. |
+| Relief noise and E | inside plans and sampling | **Yes** | The preview tier (W2) for the whole view, estimated at milliseconds instead of seconds on the CPU (not measured) | Pure per-point noise over an integer lattice. This is the best fit of all. |
+| Chunk height sampling (relief, E, border pulls, carving) | 23% | Yes, with work | ~23% of a cold build's CPU work, and most of a feature edit's re-read | Per point and analytic. But it reads per-region data (agreements, warped border pieces, the feature index), and the border and carving maths is written in f64 (see "Parity"). |
+| Normals and gradients | inside sampling | Yes | Part of the 23% | Analytic (G2) or central differences on the sampled grid. |
 | Meshing | < 0.1% | Yes, but pointless | ~0 | Could become a fixed grid mesh displaced by a height texture in the vertex shader. That removes the 18.4 MB of mesh uploads (a 67² f32 height texture is ~18 KB a chunk, against ~210 KB of mesh), which matters more than the meshing time. |
-| Ground weights (GM0/GM1) | about 30% of a build once every chunk has weights (measured at level 2) | **Yes** | A ground-only edit becomes one dispatch: near instant | Per texel, a layer stack over local measures, 8-bit output. |
+| Ground weights (GM0/GM1) | about 14× a chunk read; for the 24 near chunks alone, as much CPU as the rest of the build (measured at level 2) | **Yes, the biggest win** | The largest per-point cost in sight. A ground-only edit becomes a few dispatches, estimated near instant. | Per texel, a layer stack over local measures, 8-bit output. |
 | G4a measures (slope, curvature, water and road distance, height above water) | inside weights | Yes | With weights | Per point. Distances read the feature index as a buffer. |
-| Border negotiation | inside Rough (12%) | No | — | Small, per edge, and feeds the CPU's own builds. |
-| River trace | ~a third of each plan | No | — | Downhill tracing is sequential and graph-shaped. |
-| Road routing | 27% | No | — | A* over a cost grid. Its cost-grid heights (80–170 ms of it, measured earlier) could be batched on the GPU, but that needs readback into a CPU plan (see below). |
-| Convergence and offers | ~two thirds of each plan | No | — | They sample heights along edges, but only to feed negotiation on the CPU. |
+| Border negotiation | inside Rough (7%) | No | — | Small, per edge, and feeds the CPU's own builds. |
+| River trace | a large part of each plan (the split within a plan was not timed in one run) | No | — | Downhill tracing is sequential and graph-shaped. |
+| Road routing | 29% | No | — | A* over a cost grid. Its cost-grid heights (80–170 ms of it, measured earlier) could be batched on the GPU, but that needs readback into a CPU plan (see below). |
+| Convergence and offers | the rest of each plan | No | — | They sample heights along edges, but only to feed negotiation on the CPU. |
 | Building the feature index | inside Rough | No | — | Built from the plans on the CPU. **Reading** it on the GPU is fine: upload it as a bucketed buffer. |
 
 ### Why the plans stay on the CPU
@@ -707,6 +741,8 @@ Every GPU stage keeps its CPU twin, and parity tests hold the GPU to it
     tolerance, not to the bit.
   - A start: a few millimetres. f32 height noise is already about
     0.5 mm at 109 m (world_plan W3).
+  - Stone's CPU/GPU parity tests work the same way: placement is held
+    "within rounding tolerance", not to the bit.
 - **Integer parts stay exact.**
   - Lattice cells come from integer coordinates, and the hash (`pcg3d`)
     is 32-bit integer maths. Both port exactly.
@@ -741,11 +777,11 @@ They cover different stages:
 
 | Work | Answer |
 |---|---|
-| Region plans: Plan, Rough, Fine (90%) | Cache (S3, S4) and a faster plan (S5). The GPU can't help. |
-| Chunk heights for drawing | GPU. **S3b, chunk reuse by feature footprint, becomes unnecessary for drawing.** Re-evaluating all 86 chunks on a GPU is a few dispatches, so diffing footprints isn't worth its key-drift risk. |
+| Region plans: Plan, Rough, Fine (76%) | Cache (S3, S4) and a faster plan (S5). The GPU can't help. |
+| Chunk heights for drawing | GPU, once GPU3 lands. **S3b, chunk reuse by feature footprint, then becomes unnecessary for drawing.** Re-evaluating all 86 chunks on a GPU should take a few dispatches (an estimate), so diffing footprints wouldn't be worth its key-drift risk. Until GPU3, S3b is how feature edits avoid re-reading every chunk (question 7). |
 | Chunk heights for colliders and queries (CPU) | A small CPU cache near the player. |
 | Ground weights and measures | GPU; ground edits need no cache at all. |
-| The preview after a land edit (W2) | GPU: the whole view in a frame instead of ~4 s on the CPU. |
+| The preview after a land edit (W2) | GPU: the whole view, estimated at milliseconds against seconds on the CPU. |
 
 So the GPU would let us drop S3b and make W2 and W4 nearly free. The
 region-stage cache is still needed: with the GPU, the plans become an
@@ -768,7 +804,7 @@ value per effort:
    need the feature index as a buffer.
 3. **GPU3. GPU height evaluation.** Border pulls, convergence fade and
    carving, from per-region buffers. This is the f64-to-f32 rewrite, the
-   largest and riskiest step. It removes the 9% sampling tail and most
+   largest and riskiest step. It removes the 23% sampling share and most
    chunk uploads.
 
 **WebGPU and wasm.** Compute shaders need WebGPU. WebGL2 has none, so
@@ -787,12 +823,23 @@ the web demo would keep the CPU path there.
   - A built region holds its relief, river trace, offers and feature
     index. The default caches hold up to 64 Fine, 64 Rough, 256 plans and
     1024 settings.
-  - Keeping one earlier version of each (for undo or drag-back) at most
-    doubles that.
-  - Chunk samples are about 18 MB for the opening view. Keeping the last
-    set is cheap, and keeping many is not.
-  - Recommendation: keep the current bounds, keyed by content, so old
-    versions fall out by LRU naturally.
+  - **Measured:** the whole process peaked at 213 MB while building one
+    opening view (23 plans, 9 Rough, 2 Fine, 86 chunks of samples and
+    meshes). Its mesh data alone was 18.4 MB.
+  - **Estimated:** that is a few MB per cached stage entry, an upper
+    bound since the peak includes the chunks. If the caches filled to
+    their bounds (384 region entries), they would hold roughly 1–2 GB.
+  - Today a view uses a tenth of those bounds, so the bound never bites.
+  - With content keys, each settled edit of a drag adds a new set of
+    every stage it touches (about 200 MB for a land edit) until the LRU
+    evicts. A drag that settles five times could hold about 1 GB of old
+    versions.
+  - Recommendation: cap versions, not just entries. Keep the current
+    version plus the previous one or two per stage, and drop older
+    versions when a new one lands. That bounds a drag at 2–3× one view
+    (400–600 MB in this view), and still makes undo of the last edit
+    free. These are estimates; measure the per-entry size when S3 is
+    built.
 - **Stale results from drifted keys.** This is the main risk of (a).
   - A key that leaves out a field the stage reads (a new option, a
     neighbour's road grade, a constant moved into options) gives terrain
@@ -964,21 +1011,26 @@ Each stage stands alone and is worth doing even if the next never comes.
      - (c) macro cells now.
    - Recommendation: (a), then (b) if it is still over. Decide (c) with
      D4's region sizes.
-7. **Start GPU terrain with the preview tier?**
+7. **Where should GPU terrain start, and does S3b wait for it?**
    - Context:
      - The GPU can take per-point work (preview relief, chunk heights,
-       ground weights, measures) but not the plans, which are about 90%
+       ground weights, measures) but not the plans, which are about 76%
        of a cold build.
+     - Ground weights are the largest per-point cost measured. On one
+       thread, the near chunks' weights alone cost as much as the rest
+       of the build. GM1 decides how many chunks get them.
      - The preview (GPU1) is the smallest port and the biggest win for
-       land edits. Full height evaluation (GPU3) needs the f64 border
-       and carving maths rewritten in f32.
+       land edits.
+     - Full height evaluation (GPU3) needs the f64 border and carving
+       maths rewritten in f32. Only GPU3 makes S3b (chunk reuse by
+       footprint) unnecessary.
    - Options:
-     - (a) GPU1 after S2's CPU preview proves the idea, then GPU2;
-       GPU3 later.
-     - (b) Go straight to GPU3 for all drawn terrain.
+     - (a) GPU2 (weights) and GPU1 (preview) early, each after its CPU
+       twin; S3b on the CPU now; GPU3 later.
+     - (b) Skip S3b and go to GPU3 for all drawn terrain.
      - (c) Keep terrain on the CPU for now.
-   - Recommendation: (a). S2 is worth building on the CPU first: it is
-     the reference twin GPU1 needs anyway.
+   - Recommendation: (a). Do GPU2 first if GM1 puts weights on every
+     drawn chunk. S2's CPU preview is the twin GPU1 needs anyway.
 8. **What parity should GPU terrain promise?**
    - Context:
      - Float noise can't match bit for bit across CPU and GPU.
