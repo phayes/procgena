@@ -6,6 +6,7 @@ mod select;
 mod slider;
 mod tabs;
 pub mod toast;
+mod tooltip;
 
 use bevy::feathers::dark_theme::create_dark_theme;
 use bevy::feathers::theme::{ThemeProps, UiTheme};
@@ -17,6 +18,7 @@ pub use row::{LABEL_WIDTH, labelled_row};
 pub use select::SelectOptions;
 pub use slider::{ScaledSlider, SliderScale, scaled_slider};
 pub use tabs::{TabSelected, tab_bar};
+pub use tooltip::{Tooltip, TooltipPlugin};
 
 /// procgena's accent colour for selected and active controls: a leaf green.
 const ACCENT: Color = Color::hsl(100.0, 0.45, 0.45);

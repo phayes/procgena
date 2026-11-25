@@ -5,10 +5,12 @@ use bevy::prelude::*;
 use procgena_clump::ClumpPreset;
 
 use super::{Kind, RegisterKind, entries};
-use crate::clump::editor::{ClumpEdited, ClumpEditor, ClumpEditorPlugin, spawn_clump_editor};
-use crate::params::ParamPanel;
-use crate::scene::{ClumpSettings, ClumpSubject, Show};
+use crate::clump::editor::{
+    ClumpEdited, ClumpEditor, ClumpEditorPlugin, ClumpPanel, spawn_clump_editor,
+};
+use crate::scene::{ClumpSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// Registers clumps.
@@ -26,6 +28,7 @@ pub fn register(app: &mut App) {
             start: crate::clump::START_PRESET,
             spawn_editor: spawn_clump_editor,
             show,
+            settings: Some(settings_panel::<ClumpPreset>()),
             detail_levels: &[],
             hidden_environment: crate::environment::STILL_AIR,
             status_line: |state| status::object_line(state, "clump"),
@@ -34,11 +37,8 @@ pub fn register(app: &mut App) {
 
 /// The clump and subject the editor `editor` holds.
 fn show(world: &mut World, editor: Entity, document: u64) -> Option<Show> {
-    let panel = world.get::<ClumpEditor>(editor)?.panel();
-    let settings = world
-        .get::<ParamPanel<ClumpSettings>>(panel)?
-        .value()
-        .clone();
+    let editor = world.get::<ClumpEditor>(editor)?;
+    let settings = editor.settings(|panel| world.get::<ClumpPanel>(panel))?;
     Some(Show::new::<ClumpSubject>(document, settings))
 }
 
@@ -47,7 +47,18 @@ mod tests {
     use super::*;
     use crate::clump::{Subject, subject_seed};
     use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
-    use crate::scene::ViewerCommand;
+    use crate::scene::{ClumpSettings, ViewerCommand};
+    use crate::studio::Dormant;
+
+    /// The subject and clump of the selected clump document.
+    fn edited(studio: &mut HeadlessStudio) -> ClumpSettings {
+        let world = studio.app_mut().world_mut();
+        let mut editors = world.query_filtered::<&ClumpEditor, Without<Dormant>>();
+        let editor = editors.single(world).unwrap();
+        editor
+            .settings(|panel| world.get::<ClumpPanel>(panel))
+            .unwrap()
+    }
 
     /// The clump settings in the last `Show` of a clump among `commands`.
     fn last_clump(commands: &[ViewerCommand]) -> Option<ClumpSettings> {
@@ -64,11 +75,11 @@ mod tests {
         studio.click("Clumps").unwrap();
         studio.click("Fresh Snow Cap").unwrap();
         let sent = studio.record::<ViewerCommand>();
-        let start: ClumpSettings = studio.panel_value();
+        let start = edited(&mut studio);
 
         // Reroll Clump changes only the clump's seed, and sends it.
         studio.click("Reroll Clump").unwrap();
-        let reclumped: ClumpSettings = studio.panel_value();
+        let reclumped = edited(&mut studio);
         assert_ne!(reclumped.clump.default_seed, start.clump.default_seed);
         assert_eq!(reclumped.subject, start.subject);
         assert!(
@@ -79,7 +90,7 @@ mod tests {
 
         // Reroll Subject changes only the subject's seed, and sends it.
         studio.click("Reroll Subject").unwrap();
-        let resubjected: ClumpSettings = studio.panel_value();
+        let resubjected = edited(&mut studio);
         assert_ne!(
             subject_seed(&resubjected.subject),
             subject_seed(&start.subject)
@@ -90,10 +101,10 @@ mod tests {
         // Another clump preset opens on the start subject, and the first
         // keeps its edits.
         studio.click("Moss Patches").unwrap();
-        let moss: ClumpSettings = studio.panel_value();
+        let moss = edited(&mut studio);
         assert_eq!(moss.clump, ClumpPreset::moss_patches().clump);
         assert_eq!(moss.subject, Subject::start().settings());
         studio.click("Fresh Snow Cap").unwrap();
-        assert_eq!(studio.panel_value::<ClumpSettings>(), resubjected);
+        assert_eq!(edited(&mut studio), resubjected);
     }
 }

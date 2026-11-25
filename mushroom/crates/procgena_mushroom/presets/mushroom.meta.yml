@@ -1,0 +1,419 @@
+# What tools that edit mushroom presets show for each setting. Kept in
+# step with MushroomOptions by tests/meta.rs.
+kind: mushroom
+name: Mushroom
+description: "One mushroom, or a cluster of them: cap, stem, colours and how many grow together."
+parts:
+  cap:
+    name: Cap
+    description: "The cap: its outline, underside, warts, colours and pattern."
+    tags: [cap]
+  stem:
+    name: Stem
+    description: "The stem and its swollen foot."
+    tags: [stem]
+  annulus:
+    name: Annulus
+    description: "The thin skirt some species have around the stem."
+    tags: [annulus]
+  cluster:
+    name: Cluster
+    description: "How many mushrooms grow together, and how they are arranged."
+sections:
+  - title: Cap
+    part: cap
+    settings: [size, cap.family, cap.height, cap.lobes, cap.lobe_depth, cap.asymmetry, cap.tilt, cap.roughness, cap.roughness_scale]
+  - title: Underside
+    part: cap
+    settings: [underside.rim_thickness, underside.sag, underside.decurrent]
+  - title: Stem
+    part: stem
+    settings: [stem.height, stem.radius, stem.base, stem.collar, stem.lean, stem.curve, stem.upturn, stem.lean_direction, stem.roughness]
+  - title: Bulb
+    part: stem
+    settings: [bulb.size, bulb.height, bulb.closed]
+    groups:
+      - { shown_if: bulb.closed, settings: [bulb.depth] }
+  - title: Annulus
+    part: annulus
+    settings: [annulus.enabled]
+    groups:
+      - { shown_if: annulus.enabled, settings: [annulus.position, annulus.length, annulus.flare, annulus.raggedness] }
+  - title: Warts
+    part: cap
+    settings: [warts.count]
+    groups:
+      - { shown_if: "warts.count > 0", settings: [warts.size, warts.size_jitter, warts.height, warts.coverage] }
+  - title: Colours
+    part: cap
+    settings: [material.cap_centre, material.cap_rim, material.underside, material.stem_top, material.stem_base, material.annulus, material.wart, material.roughness]
+  - title: Gills
+    part: cap
+    settings: [material.gills]
+    groups:
+      - { shown_if: material.gills, settings: [material.gill_lines, material.gill_strength] }
+  - title: Pattern
+    part: cap
+    settings: [material.pattern]
+    groups:
+      - { shown_if: "material.pattern != none", settings: [material.pattern_colour, material.pattern_scale, material.pattern_strength] }
+  - title: Cap Texture
+    part: cap
+    settings: [material.cap_texture]
+    groups:
+      - { shown_if: material.cap_texture, settings: [material.cap_texture_size] }
+  - title: Stem Texture
+    part: stem
+    settings: [material.stem_texture]
+    groups:
+      - { shown_if: material.stem_texture, settings: [material.stem_texture_size] }
+  - title: Cluster
+    part: cluster
+    settings: [cluster.stems]
+    groups:
+      - { shown_if: "cluster.stems > 1", settings: [cluster.layout, cluster.size_variation, cluster.lean, cluster.sweep, cluster.spacing, cluster.variants] }
+      - { shown_if: "cluster.stems > 1 && cluster.layout == fairy_ring", settings: [cluster.fairy_ring.radius, cluster.fairy_ring.width, cluster.fairy_ring.arc] }
+settings:
+  default_seed:
+    label: Seed
+    description: "The seed of a mushroom built on its own: its bumps, rim waves, warts and where cluster members stand."
+    hidden: true
+  size:
+    label: Cap Width
+    unit: m
+    description: "How wide the cap is. Every other size follows it, so the mushroom keeps its proportions."
+    range: [0.005, 0.5]
+    step: 0.001
+    scale: exponential
+  cap.family:
+    label: Shape
+    description: "The cap's outline from the side, such as a rounded dome or a funnel."
+    choices:
+      - { value: campanulate, label: Bell }
+      - { value: conical, label: Cone }
+      - { value: convex, label: Dome }
+      - { value: depressed, label: Dipped }
+      - { value: flat, label: Flat }
+      - { value: infundibuliform, label: Funnel }
+      - { value: ovate, label: Egg }
+      - { value: umbilicate, label: Navel }
+      - { value: umbonate, label: Knob }
+      - { value: globe, label: Globe }
+  cap.height:
+    label: Height
+    description: "Makes the cap flatter below 1 or taller above 1."
+    range: [0.2, 3]
+    step: 0.01
+  cap.lobes:
+    label: Rim Waves
+    description: "How many gentle waves run around the rim. They show only with some Wave Depth."
+    range: [0, 12]
+    step: 1
+  cap.lobe_depth:
+    label: Wave Depth
+    description: "How deep the rim waves are, deepest at the rim and fading toward the centre."
+    range: [0, 0.5]
+    step: 0.01
+  cap.asymmetry:
+    label: Lopsidedness
+    description: "How lopsided the cap is. At 1 each side can be up to 30% wider or narrower than the others."
+    range: [0, 1]
+    step: 0.01
+  cap.tilt:
+    label: Tilt
+    unit: °
+    description: "How far the cap tips away from the stem. The direction comes from the seed."
+    range: [0, 45]
+    step: 0.5
+  cap.roughness:
+    label: Bumps
+    description: "How high the bumps on the cap are. At 0 it is smooth."
+    range: [0, 0.2]
+    step: 0.001
+  cap.roughness_scale:
+    label: Bump Count
+    description: "Roughly how many bumps fit across the cap."
+    range: [0.5, 40]
+    step: 0.5
+    scale: exponential
+  underside.rim_thickness:
+    label: Rim Thickness
+    description: "How thick the cap is at its rim. At 0 the underside meets the top in a sharp edge."
+    range: [0, 0.5]
+    step: 0.01
+  underside.sag:
+    label: Sag
+    description: "How far the underside bulges down. Below 0 it curves up into a hollow."
+    range: [-0.5, 0.5]
+    step: 0.01
+  underside.decurrent:
+    label: Runs Down Stem
+    description: "How far the underside runs down the stem, as on a chanterelle."
+    range: [0, 1]
+    step: 0.01
+  stem.height:
+    label: Height
+    description: "How tall the stem is, compared with the cap's width."
+    range: [0.05, 10]
+    step: 0.05
+    scale: exponential
+  stem.radius:
+    label: Thickness
+    description: "How thick the top of the stem is, compared with the cap's width."
+    range: [0.01, 0.4]
+    step: 0.005
+  stem.base:
+    label: Base Width
+    description: "How wide the stem is at the ground, compared with its top. Above 1 it widens downward."
+    range: [0.3, 3]
+    step: 0.05
+  stem.collar:
+    label: Collar
+    description: "How much the stem flares where it joins the cap."
+    range: [0, 1]
+    step: 0.01
+  stem.lean:
+    label: Lean
+    description: "How far the top of the stem leans sideways."
+    range: [0, 1]
+    step: 0.01
+  stem.curve:
+    label: Bend Near Top
+    description: "Where the lean happens: 1 gives a straight slanted stem, higher values keep the base upright and bend near the top."
+    range: [1, 4]
+    step: 0.05
+  stem.upturn:
+    label: Upturn
+    description: "How much a leaning stem turns back up near the top, so the cap faces upward again."
+    range: [0, 1]
+    step: 0.01
+  stem.lean_direction:
+    label: Lean Direction
+    unit: °
+    description: "Which way the stem leans. Members of a cluster lean their own way."
+    range: [0, 360]
+    step: 1
+  stem.roughness:
+    label: Bumps
+    description: "How high the bumps on the stem are. At 0 it is smooth."
+    range: [0, 0.3]
+    step: 0.005
+  bulb.closed:
+    label: Closed Bottom
+    description: "Closes the stem underneath with a rounded bottom below the ground. Turn it off for mushrooms planted in a landscape."
+  bulb.size:
+    label: Bulb
+    description: "How much the stem swells just above the ground. At 0 there is no bulb."
+    range: [0, 3]
+    step: 0.05
+  bulb.height:
+    label: Bulb Height
+    description: "How far up the stem the swelling reaches before narrowing back."
+    range: [0.01, 1]
+    step: 0.01
+  bulb.depth:
+    label: Bottom Depth
+    description: "How far the closed bottom reaches below the ground."
+    range: [0.05, 2]
+    step: 0.01
+  annulus.enabled:
+    label: Annulus
+    description: "Gives the mushroom a thin skirt around the stem, as on a fly agaric."
+  annulus.position:
+    label: Height on Stem
+    description: "Where on the stem the skirt hangs from, from low down to just under the cap."
+    range: [0.1, 1]
+    step: 0.01
+  annulus.length:
+    label: Length
+    description: "How far the skirt hangs down."
+    range: [0.01, 0.5]
+    step: 0.01
+  annulus.flare:
+    label: Flare
+    description: "How wide the skirt's lower edge spreads, from hugging the stem at 1."
+    range: [1, 4]
+    step: 0.05
+  annulus.raggedness:
+    label: Raggedness
+    description: "How torn the skirt's lower edge looks."
+    range: [0, 1]
+    step: 0.01
+  warts.count:
+    label: Count
+    description: "Roughly how many warts or scales cover the cap. Fewer may fit on a small or crowded cap."
+    range: [0, 400]
+    step: 1
+  warts.size:
+    label: Size
+    description: "How big each wart is, compared with the cap."
+    range: [0.005, 0.3]
+    step: 0.005
+  warts.size_jitter:
+    label: Size Variation
+    description: "How much wart sizes vary, from all the same at 0."
+    range: [0, 1]
+    step: 0.01
+  warts.height:
+    label: Raised
+    description: "How raised the warts look, from flat scales to pointed warts."
+    range: [0.05, 2]
+    step: 0.01
+  warts.coverage:
+    label: Coverage
+    description: "How much of the cap carries warts, from a patch on top to all the way to the rim."
+    range: [0.05, 1]
+    step: 0.01
+  material.cap_centre:
+    label: Cap Centre
+    description: "The cap's colour at its top centre. It blends into the rim colour."
+    color: true
+  material.cap_rim:
+    label: Cap Rim
+    description: "The cap's colour at its rim."
+    color: true
+  material.underside:
+    label: Underside
+    description: "The colour of the underside, where the gills are."
+    color: true
+  material.stem_top:
+    label: Stem Top
+    part: stem
+    description: "The stem's colour just under the cap."
+    color: true
+  material.stem_base:
+    label: Stem Base
+    part: stem
+    description: "The stem's colour at the ground. It blends into the top colour."
+    color: true
+  material.annulus:
+    label: Annulus
+    part: annulus
+    description: "The skirt's colour."
+    color: true
+  material.wart:
+    label: Warts
+    description: "The warts' colour."
+    color: true
+  material.roughness:
+    label: Matte
+    description: "How rough the surface looks, from glossy at 0 to matte at 1."
+    range: [0, 1]
+    step: 0.01
+  material.gills:
+    label: Gill Lines
+    description: "Draws thin lines on the underside, radiating from the stem. Turn it off for a smooth underside, like a bolete's pores."
+  material.gill_lines:
+    label: Count
+    description: "How many gill lines run around the underside."
+    range: [1, 256]
+    step: 1
+  material.gill_strength:
+    label: Strength
+    description: "How much the gill lines darken the underside."
+    range: [0, 1]
+    step: 0.01
+  material.pattern:
+    label: Pattern
+    description: "A pattern drawn on top of the cap: flecks, cracks or spots."
+    choices:
+      - { value: none, label: None }
+      - { value: speckle, label: Speckle }
+      - { value: cracks, label: Cracks }
+      - { value: spots, label: Spots }
+  material.pattern_colour:
+    label: Colour
+    description: "The pattern's colour."
+    color: true
+  material.pattern_scale:
+    label: Features Across Cap
+    description: "Roughly how many spots, cracked tiles or flecks fit across the cap."
+    range: [0.5, 60]
+    step: 0.5
+    scale: exponential
+  material.pattern_strength:
+    label: Strength
+    description: "How strongly the pattern's colour shows."
+    range: [0, 1]
+    step: 0.01
+  material.cap_texture:
+    label: Texture
+    description: "A set of images painted on top of the cap, replacing its colours and pattern there."
+    choices: cap_textures
+  material.cap_texture_size:
+    label: Repeat Width
+    unit: m
+    description: "How much of the cap one repeat of the texture covers."
+    range: [0.01, 1]
+    step: 0.005
+    scale: exponential
+  material.stem_texture:
+    label: Texture
+    description: "A set of images that adds surface detail to the stem while it keeps its colours."
+    choices: stem_textures
+  material.stem_texture_size:
+    label: Repeat Length
+    unit: m
+    description: "How much of the stem one repeat of the texture covers."
+    range: [0.005, 0.5]
+    step: 0.005
+    scale: exponential
+  cluster.stems:
+    label: Stems
+    description: "How many mushrooms grow together. One that can't find room is left out."
+    range: [1, 64]
+    step: 1
+  cluster.layout:
+    label: Layout
+    description: "How the mushrooms are arranged: a tuft around a centre, a row, or a wide fairy ring."
+    choices:
+      - { value: tuft, label: Tuft }
+      - { value: row, label: Row }
+      - { value: fairy_ring, label: Fairy Ring }
+  cluster.size_variation:
+    label: Size Variation
+    description: "How much smaller than full size members can be."
+    range: [0, 0.9]
+    step: 0.01
+  cluster.lean:
+    label: Lean
+    unit: °
+    description: "The most a member leans away from the cluster."
+    range: [0, 60]
+    step: 0.5
+  cluster.sweep:
+    label: Sweep Outward
+    description: "How far each stem bends away from the cluster's centre, so stems start close together and fan out."
+    range: [0, 1]
+    step: 0.01
+  cluster.spacing:
+    label: Spacing
+    description: "The smallest gap between members."
+    range: [0, 2]
+    step: 0.01
+  cluster.variants:
+    label: Variations
+    description: "How many different shapes the members are copies of. Fewer are cheaper to draw; more look less repetitive."
+    range: [1, 16]
+    step: 1
+  cluster.fairy_ring.radius:
+    label: Ring Radius
+    unit: caps
+    description: "How wide the ring is, in cap widths."
+    range: [1, 200]
+    step: 0.5
+    scale: exponential
+  cluster.fairy_ring.width:
+    label: Ring Width
+    description: "How far members stray from the circle."
+    range: [0, 0.5]
+    step: 0.01
+  cluster.fairy_ring.arc:
+    label: Ring Fullness
+    description: "How much of the circle carries mushrooms, from a short arc to the whole ring."
+    range: [0.05, 1]
+    step: 0.01
+  detail:
+    label: Detail
+    description: "The mesh detail used when the mushroom is built on its own."
+    hidden: true

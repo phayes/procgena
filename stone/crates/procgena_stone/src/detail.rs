@@ -48,7 +48,8 @@ impl DetailLevel {
 
 /// The detail levels to build for a rock, most detailed (nearest) first.
 ///
-/// Use one of the presets ([`LOW`](Self::LOW), [`MEDIUM`](Self::MEDIUM),
+/// Use one of the presets ([`ULTRA_LOW`](Self::ULTRA_LOW), [`LOW`](Self::LOW),
+/// [`MEDIUM_LOW`](Self::MEDIUM_LOW), [`MEDIUM`](Self::MEDIUM),
 /// [`HIGH`](Self::HIGH), [`ULTRA`](Self::ULTRA)) or define your own levels
 /// with [`new`](Self::new). The default is [`MEDIUM`](Self::MEDIUM).
 ///
@@ -72,8 +73,21 @@ impl DetailLevel {
 pub struct StoneDetail(Cow<'static, [DetailLevel]>);
 
 impl StoneDetail {
-    /// Fastest to build: 48, 24 and 12 cells, all with 512 textures.
+    /// Fastest to build, for rocks seen only from afar: 16, 12 and 8 cells,
+    /// all with 512 textures. Close up, rocks look visibly faceted.
+    pub const ULTRA_LOW: Self = Self::preset(&[
+        DetailLevel::new(16, 0.0, TextureSize::Size512),
+        DetailLevel::new(12, 15.0, TextureSize::Size512),
+        DetailLevel::new(8, 40.0, TextureSize::Size512),
+    ]);
+    /// 32, 16 and 8 cells, all with 512 textures.
     pub const LOW: Self = Self::preset(&[
+        DetailLevel::new(32, 0.0, TextureSize::Size512),
+        DetailLevel::new(16, 15.0, TextureSize::Size512),
+        DetailLevel::new(8, 40.0, TextureSize::Size512),
+    ]);
+    /// 48, 24 and 12 cells, all with 512 textures.
+    pub const MEDIUM_LOW: Self = Self::preset(&[
         DetailLevel::new(48, 0.0, TextureSize::Size512),
         DetailLevel::new(24, 15.0, TextureSize::Size512),
         DetailLevel::new(12, 40.0, TextureSize::Size512),
@@ -102,8 +116,10 @@ impl StoneDetail {
     ]);
 
     /// Every preset with a display name, least detailed first.
-    pub const PRESETS: [(&'static str, Self); 4] = [
+    pub const PRESETS: [(&'static str, Self); 6] = [
+        ("Ultra Low", Self::ULTRA_LOW),
         ("Low", Self::LOW),
+        ("Medium Low", Self::MEDIUM_LOW),
         ("Medium", Self::MEDIUM),
         ("High", Self::HIGH),
         ("Ultra", Self::ULTRA),

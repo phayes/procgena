@@ -8,6 +8,7 @@
 //! selected document.
 
 pub mod editor;
+mod ground_params;
 pub mod params;
 
 use procgena_biome::{Ecotope, EcotopeError, EcotopePreset, EcotopeScatter, ScatterKind};

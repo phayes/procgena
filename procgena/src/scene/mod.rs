@@ -53,7 +53,7 @@ use procgena_tree_bevy::{TreePlugin, default_tree_impostor};
 
 pub use assets::{
     CLUMP_TEXTURE_ROOT, DEADWOOD_TEXTURE_ROOT, MUSHROOM_TEXTURE_ROOT, STONE_TEXTURE_ROOT,
-    TREE_TEXTURE_ROOT, add_asset_sources,
+    TERRAIN_TEXTURE_ROOT, TREE_TEXTURE_ROOT, add_asset_sources,
 };
 pub use clump::{ClumpHost, ClumpSettings, ClumpSubject};
 pub use deadwood::{DeadwoodSettings, DeadwoodSubject, DeadwoodView};
@@ -98,6 +98,9 @@ pub use {
 pub struct ScenePlugin {
     /// Whether clumps load their textures; without them they are flat colours.
     clump_textures: bool,
+    /// Whether the ground loads its textures; without them it is drawn in
+    /// its materials' flat colours.
+    ground_textures: bool,
     /// Whether baked impostors are saved to and read from the user's cache
     /// folder; without it they are kept in memory only.
     impostor_cache: bool,
@@ -109,6 +112,7 @@ impl Default for ScenePlugin {
     fn default() -> Self {
         Self {
             clump_textures: true,
+            ground_textures: true,
             impostor_cache: true,
             impostors: true,
         }
@@ -137,6 +141,14 @@ impl ScenePlugin {
     #[cfg(test)]
     pub fn without_clump_textures(mut self) -> Self {
         self.clump_textures = false;
+        self
+    }
+
+    /// Draws the ground in its materials' flat colours, without textures,
+    /// so tests can recognise ground materials by colour.
+    #[cfg(test)]
+    pub fn without_ground_textures(mut self) -> Self {
+        self.ground_textures = false;
         self
     }
 }
@@ -192,6 +204,12 @@ impl Plugin for ScenePlugin {
             procgena_fruit_bevy::FruitPlugin,
             terrain::plugin(),
         ))
+        .insert_resource(procgena_terrain_bevy::GroundTextureSettings {
+            root: self
+                .ground_textures
+                .then(|| TERRAIN_TEXTURE_ROOT.to_owned()),
+            ..default()
+        })
         .init_resource::<EnvironmentSettings>()
         .init_resource::<subject::SceneState>()
         .init_resource::<subject::ChosenDetail>()

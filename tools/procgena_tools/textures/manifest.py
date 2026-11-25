@@ -7,10 +7,9 @@ import shutil
 from pathlib import Path
 
 from .cards import prepare_card
-from .config import BUCKET_GS, BUCKET_URL, FORMATS, SIZES, Project, SurfaceSet
+from .config import BUCKET_GS, BUCKET_URL, FORMATS, Project, SurfaceSet
 from .util import ToolError, file_hash, image_size, log, magick, require, run, write_json
 
-SIZE_NOTES = {name: f"fits within {px} x {px} pixels" for name, px in SIZES}
 FORMAT_NOTES = {
     "bc7": "BC7 with Zstandard compression, for GPUs that support BC7, commonly desktops",
     "uastc": "Basis Universal UASTC with Zstandard compression; the loader converts it to a format the GPU supports",
@@ -23,6 +22,11 @@ MAP_NOTES = {
     "roughness": "how matte the surface is, identical in R, G and B; load as linear data",
     "clump": "256 x 256 spray of leaves with transparency, for distant trees; load as sRGB",
 }
+
+
+def size_notes(project: Project) -> dict[str, str]:
+    """A note on each of the project's surface sizes, by size name."""
+    return {name: f"fits within {px} x {px} pixels" for name, px in project.sizes}
 
 
 def write_manifest(project: Project, sources: Path, assets: Path) -> None:
@@ -38,7 +42,7 @@ def write_manifest(project: Project, sources: Path, assets: Path) -> None:
     entries = []
     for surface in project.sets:
         files = []
-        for size, _ in SIZES:
+        for size, _ in project.sizes:
             for map_name in surface_maps:
                 for fmt in FORMATS:
                     rel = f"{surface.category}/{surface.id}-{size}-{map_name}-{fmt}.ktx2"
@@ -67,7 +71,7 @@ def write_manifest(project: Project, sources: Path, assets: Path) -> None:
         "version": 1,
         "baseUrl": f"{BUCKET_URL}{project.bucket}/",
         "pathPatterns": patterns,
-        "sizes": SIZE_NOTES,
+        "sizes": size_notes(project),
         "maps": {name: note for name, note in MAP_NOTES.items() if name in maps},
         "formats": FORMAT_NOTES,
         "assets": entries,
@@ -96,7 +100,7 @@ def write_images(project: Project, sources: Path, assets: Path) -> None:
             if not (src / f"{name}.jpg").is_file():
                 raise ToolError(f"missing {src / name}.jpg; run `textures fetch {project.name}` first")
         files = []
-        for size, px in SIZES:
+        for size, px in project.sizes:
             prefix = out / surface.category / f"{surface.id}-{size}"
             prefix.parent.mkdir(parents=True, exist_ok=True)
             for map_name in write_surface_images(project, src, prefix, px):
@@ -125,7 +129,7 @@ def write_images(project: Project, sources: Path, assets: Path) -> None:
         "version": 1,
         "baseUrl": f"{BUCKET_URL}{project.bucket}/images/",
         "pathPatterns": patterns,
-        "sizes": SIZE_NOTES,
+        "sizes": size_notes(project),
         "maps": {name: note for name, note in MAP_NOTES.items() if name in maps},
         "assets": entries,
     }

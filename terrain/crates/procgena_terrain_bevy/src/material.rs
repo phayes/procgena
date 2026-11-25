@@ -9,7 +9,12 @@ use bevy::render::render_resource::{
     AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat,
 };
 use bevy::shader::ShaderRef;
-use procgena_terrain::ground::{GroundWeights, MaterialCatalogue, PALETTE_SIZE};
+use procgena_core_bevy::texture::TextureArrays;
+use procgena_terrain::ground::{
+    GroundWeights, MaterialCatalogue, PALETTE_SIZE, Projection, ground_textures,
+};
+
+use crate::textures::{GroundTextureSettings, GroundTextures, texture_layer};
 
 /// Fragment shader for the main and deferred passes.
 pub(crate) const FRAGMENT_SHADER: &str =
@@ -39,23 +44,65 @@ pub struct TerrainExtension {
     #[texture(103)]
     #[sampler(104)]
     pub weights_high: Handle<Image>,
+    /// The ground textures' colour array, or `None` for flat colours. Set
+    /// with [`set_textures`](Self::set_textures).
+    #[texture(105, dimension = "2d_array")]
+    #[sampler(106)]
+    pub colour: Option<Handle<Image>>,
+    /// The ground textures' normal map array.
+    #[texture(107, dimension = "2d_array")]
+    pub normal: Option<Handle<Image>>,
+    /// The ground textures' packed occlusion, roughness and height array.
+    #[texture(108, dimension = "2d_array")]
+    pub orh: Option<Handle<Image>>,
 }
 
 impl TerrainExtension {
     /// The extension drawing `weights`, with their palette's colours and
     /// roughness from `catalogue` (the painter's), and the two weight
-    /// images added to `images`.
+    /// images added to `images`. It draws textures once the app's
+    /// [`GroundTextures`](crate::GroundTextures) have loaded, if
+    /// `textures` is given and set.
     pub fn new(
         weights: &GroundWeights,
         catalogue: &MaterialCatalogue,
+        textures: Option<(&GroundTextures, &GroundTextureSettings)>,
         images: &mut Assets<Image>,
     ) -> Self {
         let [low, high] = weight_images(weights);
-        Self {
+        let mut extension = Self {
             surface: TerrainSurface::new(weights, catalogue),
             weights_low: images.add(low),
             weights_high: images.add(high),
+            colour: None,
+            normal: None,
+            orh: None,
+        };
+        if let Some((textures, settings)) = textures {
+            extension.set_textures(textures.arrays(), settings, true);
         }
+        extension
+    }
+
+    /// Draws the ground with `arrays` within `settings`' texture distance,
+    /// if `textured`, or in flat colours otherwise or without arrays.
+    pub fn set_textures(
+        &mut self,
+        arrays: Option<&TextureArrays>,
+        settings: &GroundTextureSettings,
+        textured: bool,
+    ) {
+        let arrays = arrays.filter(|_| textured);
+        self.colour = arrays.map(|a| a.colour.clone());
+        self.normal = arrays.map(|a| a.normal.clone());
+        self.orh = arrays.map(|a| a.surface.clone());
+        let (start, end) = settings.distance;
+        self.surface.texture_fade = Vec4::new(
+            start,
+            end,
+            if arrays.is_some() { 1.0 } else { 0.0 },
+            if textured { 1.0 } else { 0.0 },
+        );
     }
 }
 
@@ -75,6 +122,18 @@ pub struct TerrainSurface {
     /// Each palette slot's material: its colour, and its roughness in `w`.
     /// Slots past the weights' palette are unused.
     pub palette: [Vec4; PALETTE_SIZE],
+    /// Each palette slot's texture: its layer in the texture arrays (−1
+    /// for none), metres per repeat inverted, 1 for triplanar projection
+    /// (0 for top), and the height blend from 0 to 1.
+    pub layers: [Vec4; PALETTE_SIZE],
+    /// Each palette slot's tint in `xyz`: its colour divided by its
+    /// texture's average colour, so the texture averages to the slot's
+    /// colour.
+    pub tints: [Vec4; PALETTE_SIZE],
+    /// Where textures stop: the fade's start and end in metres, then 1 if
+    /// the texture arrays are bound, and 1 if this material may draw
+    /// textures at all.
+    pub texture_fade: Vec4,
     /// The weights' texels along x and z.
     pub texels: Vec2,
     /// How much colours vary across the ground in patches, from 0 to 1.
@@ -100,6 +159,9 @@ impl Default for TerrainSurface {
     fn default() -> Self {
         Self {
             palette: [Vec4::ZERO; PALETTE_SIZE],
+            layers: [NO_TEXTURE; PALETTE_SIZE],
+            tints: [Vec4::ONE; PALETTE_SIZE],
+            texture_fade: Vec4::ZERO,
             texels: Vec2::ONE,
             variation: DEFAULT_VARIATION,
             fade: Vec4::new(0.0, 0.0, f32::INFINITY, f32::INFINITY),
@@ -110,22 +172,49 @@ impl Default for TerrainSurface {
 }
 
 impl TerrainSurface {
-    /// The surface drawing `weights`: their palette's colours and
-    /// roughness from `catalogue` (the painter's) and their texel count,
-    /// with the default variation and no fade or debug drawing.
+    /// The surface drawing `weights`: their palette's colours, roughness
+    /// and textures from `catalogue` (the painter's) and their texel
+    /// count, with the default variation, no fade or debug drawing, and no
+    /// textures until [`TerrainExtension::set_textures`] gives some.
     pub fn new(weights: &GroundWeights, catalogue: &MaterialCatalogue) -> Self {
-        let mut palette = [Vec4::ZERO; PALETTE_SIZE];
-        for (slot, &id) in weights.palette().iter().enumerate() {
-            let material = catalogue.get(id).1;
-            palette[slot] = Vec3::from(material.colour).extend(material.roughness);
-        }
-        Self {
-            palette,
+        let list = ground_textures();
+        let mut surface = Self {
             texels: weights.size().as_vec2(),
             ..default()
+        };
+        for (slot, &id) in weights.palette().iter().enumerate() {
+            let material = catalogue.get(id).1;
+            surface.palette[slot] = Vec3::from(material.colour).extend(material.roughness);
+
+            // The texture, tinted so it averages to the material's colour.
+            let Some(texture) = material.texture.as_deref() else {
+                continue;
+            };
+            let (Some(layer), Some(average)) = (
+                texture_layer(list, texture),
+                list.set(texture).and_then(|set| set.average),
+            ) else {
+                continue;
+            };
+            let triplanar = match material.projection {
+                Projection::Top => 0.0,
+                Projection::Triplanar => 1.0,
+            };
+            surface.layers[slot] = Vec4::new(
+                layer as f32,
+                1.0 / material.tile,
+                triplanar,
+                material.blend_height,
+            );
+            let average = Vec3::from(average).max(Vec3::splat(1e-3));
+            surface.tints[slot] = (Vec3::from(material.colour) / average).extend(1.0);
         }
+        surface
     }
 }
+
+/// A palette slot without a texture.
+const NO_TEXTURE: Vec4 = Vec4::new(-1.0, 1.0, 0.0, 0.0);
 
 /// How much colours vary across the ground by default.
 pub const DEFAULT_VARIATION: f32 = 0.3;

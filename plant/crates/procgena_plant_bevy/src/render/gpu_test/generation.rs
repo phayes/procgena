@@ -1,5 +1,5 @@
 use super::*;
-use crate::{PlantAccent, PlantParams};
+use crate::{PlantAccent, PlantParams, PlantScatterOptions};
 
 /// Checks plant and accent proportions, and that accents follow their plant's tufts.
 /// Untufted clover provides a comparison with tufted grass and its 20% accent.
@@ -250,5 +250,220 @@ fn gpu_a_raised_camera_matches_the_cpu_mirror() {
     wait_for_plants(&mut app);
     let (view, _) = view_after(&mut app, 1);
     assert_eq!(view.distance_offset, 40.0);
+    generation_matches_the_cpu_mirror_in(app, crate::PlantSettings::HIGH);
+}
+
+/// The same ground as one field, as two fields that meet, or as four grows
+/// the same blades, tufts and all: candidates sit on World cells, and each
+/// field owns the candidates in its own rectangle before any tuft pulls
+/// them.
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_fields_that_meet_grow_the_blades_of_one() {
+    // Tufted grass, so roots are pulled across the seams.
+    let options = PlantScatterPreset::SUMMER_WILD.plant_scatter.clone();
+    assert!(options.plants.iter().any(|entry| entry.plant.tufts > 0.0));
+
+    // One field, 70 by 50 m around (3, -4).
+    let mut app = app_with_field(PlantScatter::with_options(Vec2::ZERO, options.clone()));
+    wait_for_plants(&mut app);
+    let whole = gpu_roots(&mut app);
+    assert!(whole.len() > 10_000, "the scene should place many blades");
+
+    // The same rectangle as two fields side by side, then as four.
+    for (columns, rows) in [(2, 1), (2, 2)] {
+        split_harness(&mut app, &options, columns, rows);
+        for _ in 0..10 {
+            app.update();
+        }
+        let split = gpu_roots(&mut app);
+        assert_same_roots(&whole, &split, &format!("{columns} by {rows} fields"));
+    }
+}
+
+/// Cuts the harness's 70 by 50 m field around (3, -4) into `columns` by
+/// `rows` equal fields of `options`, replacing any other fields.
+fn split_harness(app: &mut App, options: &PlantScatterOptions, columns: u32, rows: u32) {
+    let world = app.world_mut();
+    let size = Vec2::new(70.0 / columns as f32, 50.0 / rows as f32);
+    let centre = |column: u32, row: u32| {
+        let low = Vec2::new(3.0 - 35.0, -4.0 - 25.0);
+        let middle = low + (Vec2::new(column as f32, row as f32) + 0.5) * size;
+        Transform::from_xyz(middle.x, 0.5, middle.y)
+    };
+
+    // The harness keeps the first piece; every other field goes.
+    let mut fields = world.query_filtered::<Entity, With<PlantScatter>>();
+    let all: Vec<Entity> = fields.iter(world).collect();
+    for &entity in &all[1..] {
+        world.despawn(entity);
+    }
+    let mut harness = world
+        .query::<(&mut PlantScatter, &mut Transform)>()
+        .single_mut(world)
+        .expect("the harness's field");
+    harness.0.size = size;
+    *harness.1 = centre(0, 0);
+
+    // The other pieces.
+    for row in 0..rows {
+        for column in 0..columns {
+            if (column, row) != (0, 0) {
+                world.spawn((
+                    PlantScatter::with_options(size, options.clone()),
+                    centre(column, row),
+                ));
+            }
+        }
+    }
+}
+
+/// Asserts that `split` holds the same roots as `whole`.
+fn assert_same_roots(whole: &[Vec3], split: &[Vec3], what: &str) {
+    let unmatched = missing_roots(whole, split);
+    assert_eq!(split.len(), whole.len(), "{what}: blade count");
+    assert!(
+        unmatched.is_empty(),
+        "{what}: {} roots of the whole field are missing, such as {:?}",
+        unmatched.len(),
+        &unmatched[..unmatched.len().min(5)]
+    );
+}
+
+/// The roots of `wanted` that `found` lacks. Roots are read back packed to
+/// 16 bits around the view's instance origin, so the same root may read back
+/// a step apart: each root is matched with one within 5 mm.
+fn missing_roots(wanted: &[Vec3], found: &[Vec3]) -> Vec<Vec3> {
+    let cell = |r: Vec3| (r.xz() / 0.05).floor().as_ivec2();
+    let mut buckets: HashMap<IVec2, Vec<Vec3>> = HashMap::default();
+    for &root in found {
+        buckets.entry(cell(root)).or_default().push(root);
+    }
+    let mut missing = Vec::new();
+    for &root in wanted {
+        let near = (-1..=1).flat_map(|dz| (-1..=1).map(move |dx| IVec2::new(dx, dz)));
+        let matched = near.into_iter().find_map(|d| {
+            let bucket = buckets.get_mut(&(cell(root) + d))?;
+            let at = bucket
+                .iter()
+                .position(|other| other.distance(root) < 0.005)?;
+            Some(bucket.swap_remove(at))
+        });
+        if matched.is_none() {
+            missing.push(root);
+        }
+    }
+    missing
+}
+
+/// A field turned about Y grows the blades of the World's pattern inside
+/// its turned rectangle: every root is one a larger, unturned field with the
+/// same seed grows there.
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_a_turned_field_grows_the_world_pattern() {
+    // A 120 m square around (3, -4), unturned.
+    let mut app = headless_app();
+    set_harness_size(&mut app, Vec2::splat(120.0));
+    wait_for_plants(&mut app);
+    let world_pattern = gpu_roots(&mut app);
+
+    // The 70 by 50 m field, turned.
+    set_harness_size(&mut app, Vec2::new(70.0, 50.0));
+    let world = app.world_mut();
+    let mut transform = world
+        .query_filtered::<&mut Transform, With<PlantScatter>>()
+        .single_mut(world)
+        .expect("the harness's field");
+    transform.rotation = Quat::from_rotation_y(0.6);
+    for _ in 0..10 {
+        app.update();
+    }
+    let turned = gpu_roots(&mut app);
+
+    assert!(turned.len() > 10_000, "the scene should place many blades");
+    let missing = missing_roots(&turned, &world_pattern);
+    assert!(
+        missing.is_empty(),
+        "{} roots of the turned field are not in the World's pattern, such as {:?}",
+        missing.len(),
+        &missing[..missing.len().min(5)]
+    );
+}
+
+fn set_harness_size(app: &mut App, size: Vec2) {
+    let world = app.world_mut();
+    let mut field = world
+        .query::<&mut PlantScatter>()
+        .single_mut(world)
+        .expect("the harness's field");
+    field.size = size;
+}
+
+/// A masked field places blade for blade as the CPU mirror does, and
+/// raising its mask only adds blades: every blade of the sparser mask stays
+/// where it was.
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_a_masked_field_matches_the_cpu_mirror_and_more_mask_only_adds_blades() {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension};
+
+    // A 16 by 16 mask whose density rises along X, from `low` to `low + 160`,
+    // with full height.
+    let gradient = |low: u8| {
+        let mut data = Vec::with_capacity(16 * 16 * 4);
+        for _z in 0..16 {
+            for x in 0..16u8 {
+                data.extend_from_slice(&[low + x * 10, 255, 0, 255]);
+            }
+        }
+        Image::new(
+            Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            data,
+            TextureFormat::Rgba8Unorm,
+            RenderAssetUsages::default(),
+        )
+    };
+    let set_mask = |app: &mut App, image: Image| {
+        let mask = app.world_mut().resource_mut::<Assets<Image>>().add(image);
+        let world = app.world_mut();
+        let mut field = world
+            .query::<&mut PlantScatter>()
+            .single_mut(world)
+            .expect("the harness's field");
+        field.density_map = Some(mask);
+    };
+
+    // The sparse mask, then a denser one.
+    let mut app = headless_app();
+    set_mask(&mut app, gradient(20));
+    wait_for_plants(&mut app);
+    let sparse = gpu_roots(&mut app);
+    set_mask(&mut app, gradient(90));
+    for _ in 0..10 {
+        app.update();
+    }
+    let dense = gpu_roots(&mut app);
+
+    assert!(sparse.len() > 1_000, "{} blades", sparse.len());
+    assert!(
+        dense.len() > sparse.len() * 3 / 2,
+        "{} against {}",
+        dense.len(),
+        sparse.len()
+    );
+    let moved = missing_roots(&sparse, &dense);
+    assert!(
+        moved.is_empty(),
+        "{} blades of the sparse mask are gone or moved, such as {:?}",
+        moved.len(),
+        &moved[..moved.len().min(5)]
+    );
     generation_matches_the_cpu_mirror_in(app, crate::PlantSettings::HIGH);
 }

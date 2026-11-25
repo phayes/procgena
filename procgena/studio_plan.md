@@ -208,6 +208,27 @@ Made by the user on 2026-11-24 in this planning session.
     preset that is open selects it. Each document keeps its own camera
     view.
 
+### Decided for ST1 (2026-11-24, asked by the ST1 worker)
+
+16. **Named conditions.** The "shown if" language gains parentheses, and
+    each metadata file a `conditions:` block of named conditions used as
+    `@name` (with `{index}` and `{parent}` allowed in the name, such as
+    `@grows_{index}`). Chains such as "every level above this one grows"
+    are written out once per level there, rather than growing the language.
+17. **Revive values as data:** a number, or
+    `{ from: <path>, times, min, if_zero }` for values taken from another
+    setting, such as a new branch level's length from its parent's.
+18. **The first metadata files were drafted by a throwaway dump** of the
+    hand-written specs (keys, labels, ranges, steps, scales, choice names).
+    Conditions, revives and descriptions were written by hand. The dump
+    was not committed.
+19. **Choices from Rust lists** (texture sets, stone detail levels, dead
+    wood end shapes) are named in the metadata file (`choices: bark_kinds`)
+    and supplied by the crate as `(label, value)` pairs in an engine-free
+    function. A choice of maps with a `kind` keeps that kind's settings
+    when the same kind is picked again. Only the tree's fruit and flower
+    preset picker stays a custom Inspector section.
+
 ### Proposed, not decided
 
 - The document edit model (`Value` and path edits, ST1 and ST2). The kind
@@ -940,6 +961,34 @@ own folders.
 - **Done when:** every crate's drift test passes; a headless script
   selects the tree's Leaves chip and finds only leaf settings, hovers one
   and shows its description; no hand-written spec remains.
+
+#### ST1 as built
+
+- **Core** (`procgena_core::meta`): `KindMeta` read from
+  `<kind>.meta.yml`; `SettingPath` (get and set on the settings tree) and
+  `Edit { path, old, new }`, shared with ST2; `*` patterns; the condition
+  language with named conditions; revive values; `optional: <start>` for
+  numbers that may be unset; groups that name a `custom` control; choice
+  lists a crate supplies (`ChoiceLists`); the Inspector `layout`; and
+  `assert_in_step` and `variants` for tests.
+- **Per crate:** `presets/<kind>.meta.yml`, a `<KIND>_META` constant, a
+  `meta_choices()` where the file names lists, and `tests/meta.rs`, for
+  tree, tree Scatter, stone, clump, mushroom, dead wood, fruit, flower,
+  terrain and World. Settings today's studio didn't show are `hidden`
+  entries.
+- **Studio** (`studio/inspector/`): a kind's panel edits `Settings<T>` (the
+  file-form settings tree plus the typed options read back with
+  `from_value`, about 70 µs per edit on a tree) laid out by `sections`
+  from the metadata, on the existing `params` panel, which gained tooltips,
+  a part filter, runtime choice labels and `is_final`. `spawn_meta_panel`
+  adds part chips that set `Selection::part` and open the part's sections.
+  Every user edit triggers `InspectorEdited { document, edits, is_final }`
+  (nested panels, such as a tree Scatter's species rows, don't yet).
+- **Still hand-written:** plant, plant Scatter and Ecotope (their metadata
+  comes later), the environment, the export panels and studio-only view
+  panels (dead wood's View and Cover, the Terrain's Show).
+  The stone, dead wood and mushroom specs remain only for the Ecotope's
+  embedded panels.
 
 ### ST2: Saving presets and the project folder
 

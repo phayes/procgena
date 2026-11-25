@@ -137,9 +137,22 @@ impl HeadlessStudio {
     /// Panics if Bevy cannot start its renderer, for example without a GPU,
     /// or if the studio does not become idle within two minutes.
     pub fn new(size: UVec2) -> Self {
+        Self::with_project(size, None)
+    }
+
+    /// Starts the studio like [`new`](Self::new), opening the project in
+    /// `project` (making one there if it has none), or no project.
+    ///
+    /// # Panics
+    ///
+    /// As for [`new`](Self::new).
+    pub fn with_project(size: UVec2, project: Option<PathBuf>) -> Self {
         let size = size.max(UVec2::ONE);
         let frames = FrameLog::default();
         let mut app = App::new();
+        if let Some(folder) = project {
+            app.insert_resource(crate::studio::project::ProjectFolder(folder));
+        }
         crate::scene::add_asset_sources(&mut app);
         app.add_plugins(headless_plugins());
         crate::add_studio(&mut app);
@@ -249,9 +262,35 @@ impl HeadlessStudio {
         shown_center(node, transform, visible, clip)
     }
 
-    /// The value of the only settings panel editing a `T` that is on
+    /// The options in the only Inspector panel editing a `T` that is on
     /// screen: the selected document's, since other documents' panels are
-    /// hidden.
+    /// hidden. For kinds whose Inspector is built from metadata.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless exactly one such panel is on screen.
+    #[cfg(test)]
+    pub fn settings_value<T>(&mut self) -> T
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let world = self.app.world_mut();
+        let mut panels = world.query::<(
+            &crate::params::ParamPanel<crate::studio::inspector::Settings<T>>,
+            &InheritedVisibility,
+        )>();
+        let shown: Vec<T> = panels
+            .iter(world)
+            .filter(|(_, visible)| visible.get())
+            .map(|(panel, _)| panel.value().options().clone())
+            .collect();
+        let [value] = <[T; 1]>::try_from(shown)
+            .unwrap_or_else(|shown| panic!("{} panels on screen edit this type", shown.len()));
+        value
+    }
+
+    /// The value of the one hand-written settings panel on screen that
+    /// edits a `T`, for kinds whose Inspector isn't built from metadata yet.
     ///
     /// # Panics
     ///
@@ -1024,22 +1063,25 @@ mod tests {
     #[ignore = "needs a GPU"]
     fn two_trees_keep_their_own_settings_and_closing_one_selects_the_other() {
         let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
-        let oak = studio.panel_value::<procgena_tree::TreeOptions>();
+        let oak = studio.settings_value::<procgena_tree::TreeOptions>();
 
         // A second tree opens beside the first, with its own settings.
         studio.click("Aspen Small").unwrap();
-        let aspen = studio.panel_value::<procgena_tree::TreeOptions>();
+        let aspen = studio.settings_value::<procgena_tree::TreeOptions>();
         assert_eq!(aspen, procgena_tree::TreePreset::aspen_small().tree);
         studio.click("Random Seed").unwrap();
-        let reseeded = studio.panel_value::<procgena_tree::TreeOptions>();
+        let reseeded = studio.settings_value::<procgena_tree::TreeOptions>();
         assert_ne!(reseeded.default_seed, aspen.default_seed);
 
         // The first tree is as it was; opening its preset again selects it.
         studio.click("Oak Medium").unwrap();
         assert_eq!(selected(&mut studio).key, "oak_medium");
-        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), oak);
+        assert_eq!(studio.settings_value::<procgena_tree::TreeOptions>(), oak);
         studio.command("next-document").unwrap();
-        assert_eq!(studio.panel_value::<procgena_tree::TreeOptions>(), reseeded);
+        assert_eq!(
+            studio.settings_value::<procgena_tree::TreeOptions>(),
+            reseeded
+        );
 
         // The Outline lists them in the order they were opened.
         let oak = studio.find("Oak Medium · Trees").unwrap();
@@ -1214,10 +1256,20 @@ mod tests {
     fn the_wheel_scrolls_settings_taller_than_the_window() {
         // A tree's settings are far taller than this window. The settings
         // scroll under the Inspector's title, so follow one well below it.
+        // The Branches section sits below the part chip of the same name.
+        let section = |studio: &mut HeadlessStudio| {
+            studio
+                .texts()
+                .into_iter()
+                .filter(|shown| shown.text == "Branches")
+                .map(|shown| shown.center)
+                .max_by(|a, b| a.y.total_cmp(&b.y))
+                .expect("the Branches section is on screen")
+        };
         let mut studio = HeadlessStudio::new(UVec2::new(1440, 400));
-        let before = studio.find("Branches").unwrap();
+        let before = section(&mut studio);
         studio.scroll(Vec2::new(1250.0, 300.0), -3.0);
-        let after = studio.find("Branches").unwrap();
+        let after = section(&mut studio);
         assert!(after.y < before.y - 40.0, "{before} -> {after}");
     }
 

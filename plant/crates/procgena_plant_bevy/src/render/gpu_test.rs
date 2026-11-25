@@ -33,7 +33,7 @@ use super::view::{
 use crate::PlantPlugin;
 use crate::PlantScatterPreset;
 use crate::PlantWind;
-use crate::gpu_layout::{FieldGpu, NO_CLASS};
+use crate::gpu_layout::{FieldGpu, NO_CLASS, NO_MAP};
 use crate::mirror;
 use crate::scatters::{CHUNK_SIZE, FieldTables};
 use crate::shader_model::{self, ChunkLayout, DistanceLod, TILE_POINTS};
@@ -187,6 +187,20 @@ fn quantize(value: f32, max: f32) -> u32 {
 /// CPU prediction for `generate.wesl` on a flat, single-species field without masks or
 /// shadow lights. Expands every surviving plant into its stems. Branched plants retain
 /// density until the final fade and do not receive thinning-related widening.
+/// The density `field`'s mask gives at `local`, 0 to 255, as placement
+/// reads it: 255 without a mask.
+fn mask_level(tables: &FieldTables, field: &FieldGpu, local: Vec2) -> u32 {
+    if field.placement.z == NO_MAP {
+        return 255;
+    }
+    crate::edit::mask_density(
+        &tables.masks,
+        field.placement.z,
+        field.map_sizes.xy(),
+        local / field.extent.xy(),
+    )
+}
+
 fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> {
     let lod_table = distance_lod_of(view);
     let camera = view.camera_position.truncate();
@@ -207,14 +221,9 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             }
         };
         let tallest = field.min_corner.w;
-        // The box around the chunk's square, turned with its field.
-        let corner = field.world_of(Vec2::new(chunk.bounds.x, chunk.bounds.y));
-        let (side_x, side_z) = (
-            field.x_axis() * CHUNK_SIZE,
-            field.x_axis().perp() * CHUNK_SIZE,
-        );
-        let low = corner + side_x.min(Vec2::ZERO) + side_z.min(Vec2::ZERO);
-        let high = corner + side_x.max(Vec2::ZERO) + side_z.max(Vec2::ZERO);
+        // The chunk's square on the World grid.
+        let low = Vec2::new(chunk.bounds.x, chunk.bounds.y);
+        let high = low + Vec2::splat(CHUNK_SIZE);
         let lo = Vec3::new(low.x - tallest, chunk.bounds.z, low.y - tallest);
         let hi = Vec3::new(high.x + tallest, chunk.bounds.w + tallest, high.y + tallest);
         if !box_visible(&view.planes, lo, hi) {
@@ -230,28 +239,32 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             tile_size: field.extent.w,
             candidate_density: TILE_POINTS as f32 / (field.extent.w * field.extent.w),
         };
-        let chunk_keep = mirror::keep_fraction(
-            field.shape.w,
-            view.density_scale * thin(nearest) * thinning,
-            &layout,
-        );
+        let fill = field.axis.z as u32;
+        let chunk_keep = mirror::keep_fraction(fill, view.density_scale * thin(nearest) * thinning);
         for index in 0..layout.candidates_needed(chunk_keep) {
             let candidate = mirror::candidate(
-                [chunk.ids.y, chunk.ids.z],
+                [chunk.ids.y as i32, chunk.ids.z as i32],
                 field.placement.x,
                 &layout,
                 index,
             );
-            let local = Vec2::new(chunk.bounds.x, chunk.bounds.y) + candidate.local;
-            if local.x >= field.extent.x || local.y >= field.extent.y {
+            let at = low + candidate.local;
+            // The field owns the candidates inside its rectangle.
+            let local = field.local_of(at);
+            if local.cmplt(Vec2::ZERO).any()
+                || local.x >= field.extent.x
+                || local.y >= field.extent.y
+            {
                 continue;
             }
-            let at = field.world_of(local);
             let root = Vec3::new(at.x, field.min_corner.y, at.y);
             let distance = root.distance(camera);
             let falloff = thin((distance - view.distance_offset).max(0.0)) * thinning;
-            if candidate.rank
-                >= mirror::keep_fraction(field.shape.w, view.density_scale * falloff, &layout)
+            // The scenes keep the mask's height channel full.
+            let mask = mask_level(tables, &field, local);
+            let scale = mask as f32 / 255.0 * view.density_scale * falloff;
+            if !shader_model::is_placed(candidate.point, fill, mask)
+                || candidate.rank >= mirror::keep_fraction(fill, scale)
             {
                 continue;
             }

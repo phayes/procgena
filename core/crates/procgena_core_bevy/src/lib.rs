@@ -13,6 +13,11 @@
 //! - Renderers that draw many copies themselves import
 //!   `procgena_core_bevy::shaders::dither` in their shaders (see
 //!   [`DITHER_WESL`]) to fade each copy in every pass, shadow maps included.
+//! - Shaders that texture by projection import
+//!   `procgena_core_bevy::shaders::triplanar` (see [`TRIPLANAR_WESL`]).
+//! - [`texture`] loads the texture sets of a
+//!   [`TextureList`](procgena_core::texture::TextureList) into texture
+//!   arrays, one layer per set.
 //!
 //! ```no_run
 //! use bevy::prelude::*;
@@ -35,6 +40,7 @@
 //! ```
 
 pub mod instanced;
+pub mod texture;
 
 use bevy::app::{App, Plugin};
 use bevy::camera::visibility::VisibilityRange;
@@ -60,6 +66,20 @@ use procgena_core::{LodRange, Quality};
 ///   fragment shader, exactly as Bevy's visibility-range dither does.
 pub const DITHER_WESL: &str = include_str!("shaders/dither.wesl");
 
+/// The source of the shared triplanar shader module, which [`LodPlugin`]
+/// adds as `procgena_core_bevy::shaders::triplanar`. It reads no textures,
+/// so it serves plain textures and texture arrays alike:
+///
+/// - `triplanar_uvs(p) -> TriplanarUvs`: the x, y and z projections'
+///   coordinates of `p`, a position divided by the texture's repeat length.
+/// - `triplanar_weights(n, heights) -> vec3<f32>`: how much of each
+///   projection to show, from the unit normal and each projection's height.
+/// - `unpack_normal(texel) -> vec3<f32>`: an OpenGL normal-map texel as a
+///   tangent-space direction.
+/// - `triplanar_normal(t_x, t_y, t_z, n, w)` and `top_normal(t_y, n)`: the
+///   surface normal with normal-map detail added.
+pub const TRIPLANAR_WESL: &str = include_str!("shaders/triplanar.wesl");
+
 /// Adds the dither shader module and the [`LodQuality`] resource.
 ///
 /// Every asset plugin that fades levels adds it. It may be added any number
@@ -69,6 +89,7 @@ pub struct LodPlugin;
 impl Plugin for LodPlugin {
     fn build(&self, app: &mut App) {
         load_shader_library!(app, "shaders/dither.wesl");
+        load_shader_library!(app, "shaders/triplanar.wesl");
         app.init_resource::<LodQuality>();
     }
 

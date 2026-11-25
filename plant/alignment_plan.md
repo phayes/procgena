@@ -261,6 +261,45 @@ blades of the whole.
 
 ### P3: World cells and integer placement
 
+- **Status (2026-11-24):** built; the golden bless waits for the user.
+  - Chunks are World chunks: `ChunkGpu.bounds.xy` is the chunk's World
+    corner and `ids.yz` its World chunk coordinates. A field covers the
+    World chunks its rectangle overlaps (turned or not), and owns a
+    candidate whose position before any tuft pull lies inside its
+    rectangle. Tufts are laid out in World space.
+  - A tile cell's hash is `hash2(hash2(world tile x, world tile z),
+    seed)`; the corner hash is gone, so the seed alone picks a field's
+    blades.
+  - Tiles per chunk side are rounded up to a power of two (at most 256),
+    so tile cells nest in the chunk and a cell's position is exact in
+    `f32`. The tile is stored as 16 + 16 bits per point (`quantised_tile`),
+    not the plan's 1/256 m fixed point: positions on the cell grid are
+    exact binary fractions, which gives the same agreement for less code.
+  - The placement test is whole numbers: `is_placed(point, fill, mask)`,
+    with the fill (in 1/2²⁴) worked out on the CPU and stored in
+    `FieldGpu.axis.z`, and the mask read with integer bilinear filtering
+    (`mask_density`, twin `edit::mask_density`).
+  - "Bit for bit" holds for the placement decision and the position
+    before any tuft pull, not for the whole readback. View thinning
+    (distance, LOD, `density_scale`), the tuft pull and the readback's
+    16-bit packing stay float. Measured: in all seven mirror scenes the
+    GPU and the mirror place the same number of blades, and at most one
+    blade per scene differs (a thinning edge). About 0.3% differ by one
+    16-bit step in the packed root, so the readback test keeps its
+    one-step position slack and its 1/500 tolerance.
+  - Tests: `gpu_fields_that_meet_grow_the_blades_of_one` (one field, two
+    and four abutting fields, tufted grass, across negative World chunks),
+    `gpu_a_masked_field_matches_the_cpu_mirror_and_more_mask_only_adds_blades`,
+    `gpu_a_turned_field_grows_the_world_pattern`,
+    `more_mask_or_fill_never_removes_a_placed_candidate`,
+    `tile_positions_are_exact`, and
+    `a_field_is_placed_with_its_own_seed_wherever_it_is`.
+  - Moving or turning a field now rebuilds its chunks and uncovers World
+    blades, rather than carrying its blades along.
+  - The `CopyAddress` is not written down as a type yet: a blade's
+    address is its World tile cell (`world_tile`) and tile point, as the
+    mirror's `candidate` computes it.
+
 - **Covers:**
   - ARCHITECTURE "World-anchored lattices" and "World-stable ids" for
     plant, and D2's integer contract for grass's candidate source.

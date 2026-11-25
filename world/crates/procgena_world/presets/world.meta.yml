@@ -1,0 +1,216 @@
+# What tools that edit World presets show for each setting. Kept in step
+# with WorldOptions by tests/meta.rs. The studio has no World kind yet.
+kind: world
+name: World
+description: "A whole World: its seed and scale, how it splits into regions, the land's elevation, and which Biome fills each region."
+parts:
+  regions:
+    name: Regions
+    description: "How the World is split into regions and how their borders wiggle."
+  land:
+    name: Land
+    description: "The World's elevation every region stands on, and how neighbouring terrains meet."
+  biomes:
+    name: Biomes
+    description: "The fields and rules that choose each region's Biome, and regions set by hand."
+sections:
+  - title: World
+    part: land
+    settings: [scale.horizontal, scale.vertical]
+  - title: Regions
+    part: regions
+    settings: [regions.size, regions.jitter, regions.min_edge]
+    groups:
+      - title: Borders
+        settings: [regions.warp.amplitude, regions.warp.wavelength]
+  - title: Elevation
+    part: land
+    settings: [elevation.max_slope, elevation.tilt.0, elevation.tilt.1]
+    groups:
+      - title: Continents
+        settings: [elevation.continents.height, elevation.continents.wavelength, elevation.continents.octaves, elevation.continents.roughness]
+      - title: Uplift
+        settings: [elevation.uplift.height, elevation.uplift.wavelength, elevation.uplift.octaves, elevation.uplift.roughness]
+  - title: Convergence
+    part: land
+    settings: [convergence.meeting, convergence.blend]
+  - title: Selector Fields
+    part: biomes
+    groups:
+      - title: Ruggedness
+        settings: [fields.ruggedness.wavelength, fields.ruggedness.octaves, fields.ruggedness.roughness]
+      - title: Moisture
+        settings: [fields.moisture.wavelength, fields.moisture.octaves, fields.moisture.roughness]
+  - title: Biomes
+    part: biomes
+    settings: [biomes.fallback]
+settings:
+  seed:
+    label: Seed
+    description: "Everything in the World comes from this number. The same seed and settings always give the same World."
+    hidden: true
+  scale.horizontal:
+    label: Horizontal Scale
+    description: "How much the landscape's lengths are stretched: hills, valleys and Biome areas. Objects, roads and rivers keep their size."
+    range: [0.1, 20]
+    step: 0.05
+    scale: exponential
+  scale.vertical:
+    label: Vertical Scale
+    description: "How much the landscape's heights are stretched."
+    range: [0.1, 20]
+    step: 0.05
+    scale: exponential
+  regions.size:
+    label: Region Size
+    unit: m
+    description: "About how wide each region is. Each region gets one Biome."
+    range: [250, 20000]
+    step: 50
+    scale: exponential
+  regions.jitter:
+    label: Irregularity
+    description: "How irregular the regions are, from a regular honeycomb at 0 to scattered shapes."
+    range: [0, 0.8]
+    step: 0.01
+  regions.min_edge:
+    label: Shortest Border
+    unit: m
+    description: "Borders shorter than this are merged away, so four or more regions meet at one corner."
+    range: [0, 2000]
+    step: 10
+  regions.warp.amplitude:
+    label: Wiggle
+    unit: m
+    description: "How far borders wander from straight lines between their corners. 0 keeps them straight."
+    range: [0, 2000]
+    step: 10
+  regions.warp.wavelength:
+    label: Wiggle Length
+    unit: m
+    description: "How long each of a border's wiggles is."
+    range: [50, 10000]
+    step: 10
+    scale: exponential
+  elevation.continents.height:
+    label: Height
+    unit: m
+    description: "How high land rises and how deep seas fall on the broadest scale. 0 turns continents off."
+    range: [0, 5000]
+    step: 10
+  elevation.continents.wavelength:
+    label: Wavelength
+    unit: m
+    description: "How far apart continents are, typically 50 to 200 km."
+    range: [1000, 400000]
+    step: 1000
+    scale: exponential
+  elevation.continents.octaves:
+    label: Octaves
+    description: "How many layers of ever finer detail the coastlines have."
+    range: [1, 12]
+    step: 1
+  elevation.continents.roughness:
+    label: Roughness
+    description: "How strong each finer layer of detail is, from smooth at 0 to rough near 1."
+    range: [0, 0.95]
+    step: 0.01
+  elevation.uplift.height:
+    label: Height
+    unit: m
+    description: "How high highlands rise above lowlands within the land. 0 turns uplift off."
+    range: [0, 5000]
+    step: 10
+  elevation.uplift.wavelength:
+    label: Wavelength
+    unit: m
+    description: "How far apart highlands are, typically 10 to 50 km."
+    range: [1000, 200000]
+    step: 500
+    scale: exponential
+  elevation.uplift.octaves:
+    label: Octaves
+    description: "How many layers of ever finer detail the highlands have."
+    range: [1, 12]
+    step: 1
+  elevation.uplift.roughness:
+    label: Roughness
+    description: "How strong each finer layer of detail is, from smooth at 0 to rough near 1."
+    range: [0, 0.95]
+    step: 0.01
+  elevation.tilt.0:
+    label: Tilt X
+    description: "A steady slope added everywhere, in metres of rise per metre along x. Best for test worlds."
+    range: [-0.1, 0.1]
+    step: 0.001
+  elevation.tilt.1:
+    label: Tilt Z
+    description: "A steady slope added everywhere, in metres of rise per metre along z."
+    range: [-0.1, 0.1]
+    step: 0.001
+  elevation.max_slope:
+    label: Steepest Slope
+    description: "The steepest the World's elevation may get anywhere, as rise over run."
+    range: [0.001, 1]
+    step: 0.001
+    scale: exponential
+  elevation.bumps:
+    label: Bumps
+    description: "Hand-placed rises and hollows of the land."
+    hidden: true
+  convergence.meeting:
+    label: Meeting
+    description: "How neighbouring terrains settle on a shared roughness at their border: lower values let the smoother side win."
+    range: [-10, 1]
+    step: 0.05
+  convergence.blend:
+    label: Blend
+    description: "How terrains meet their neighbours, from matching roughness at 0 to sharing exactly the same ground at the border at 1."
+    range: [0, 1]
+    step: 0.01
+  fields.ruggedness.wavelength:
+    label: Wavelength
+    unit: m
+    description: "How large areas of rugged or gentle land tend to be."
+    range: [1000, 200000]
+    step: 500
+    scale: exponential
+  fields.ruggedness.octaves:
+    label: Octaves
+    description: "How ragged the edges of rugged areas are."
+    range: [1, 12]
+    step: 1
+  fields.ruggedness.roughness:
+    label: Roughness
+    description: "How strong each finer layer of detail is, from smooth at 0 to rough near 1."
+    range: [0, 0.95]
+    step: 0.01
+  fields.moisture.wavelength:
+    label: Wavelength
+    unit: m
+    description: "How large wet and dry areas tend to be."
+    range: [1000, 200000]
+    step: 500
+    scale: exponential
+  fields.moisture.octaves:
+    label: Octaves
+    description: "How ragged the edges of wet and dry areas are."
+    range: [1, 12]
+    step: 1
+  fields.moisture.roughness:
+    label: Roughness
+    description: "How strong each finer layer of detail is, from smooth at 0 to rough near 1."
+    range: [0, 0.95]
+    step: 0.01
+  biomes.rules:
+    label: Rules
+    description: "Which Biome fills a region, by the elevation, ruggedness and moisture at its site. The first rule that fits wins."
+    hidden: true
+  biomes.fallback:
+    label: Fallback Biome
+    description: "The Biome for a region no rule fits."
+    ref: biome
+  pins:
+    label: Pins
+    description: "Regions whose Biome is set by hand, by a point in the region or by its id."
+    hidden: true

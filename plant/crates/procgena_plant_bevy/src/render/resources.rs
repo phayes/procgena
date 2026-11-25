@@ -312,13 +312,9 @@ pub(crate) fn init_shared(
     let mut shapes = UniformBuffer::from(table);
     shapes.write_buffer(&device, &queue);
 
-    let tile_points: Vec<[f32; 2]> = shader_model::blue_noise_tile()
-        .iter()
-        .map(Vec2::to_array)
-        .collect();
     let tile = device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("plant_blue_noise_tile"),
-        contents: bytemuck::cast_slice(&tile_points),
+        contents: bytemuck::cast_slice(shader_model::quantised_tile()),
         usage: BufferUsages::STORAGE,
     });
 

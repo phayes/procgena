@@ -6,6 +6,7 @@ use procgena_terrain::TerrainPreset;
 use super::{Kind, RegisterKind, entries};
 use crate::scene::{Show, TerrainSubject};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 use crate::terrain::editor::{
     TerrainEdited, TerrainEditor, TerrainEditorPlugin, spawn_terrain_editor,
@@ -26,6 +27,7 @@ pub fn register(app: &mut App) {
             start: crate::terrain::START_PRESET,
             spawn_editor: spawn_terrain_editor,
             show,
+            settings: Some(settings_panel::<TerrainPreset>()),
             detail_levels: &[],
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: status::terrain_line,
