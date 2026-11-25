@@ -104,7 +104,7 @@ pub trait LowerDetail: Sized {
 /// The two mesh details of one copy's chain, in the kind's own detail type
 /// `D`: the `game_level` detail and the coarser one after it. The third
 /// step, the impostor, is baked from `game`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Lod<D> {
     /// The preset's `game_level` detail: the object's real geometry.
     pub game: D,

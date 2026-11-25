@@ -327,11 +327,14 @@ One shared pair has to sit between them. **Proposed default:**
 |------------------|-----------------|---------------|---------|
 | Stone (2.5 m) | 30 m (today 40 m) | 75 m (today 80 m) | 1.5 km |
 | Tree (10 m) | 121 m (today 25 m) | 302 m (today 120 m) | 6 km |
-| Dead wood (0.45 m) | 5.4 m (today 25 m) | 14 m (today none) | 270 m |
+| Dead wood (a 3 m log, whose `lod_size` is today's 0.45 m reference; measured now by its ~3 m bounding sphere) | 36 m (today 25 m) | 91 m (today none) | 1.8 km |
+| Dead wood (a 0.45 m branch) | 5.4 m | 14 m | 270 m |
 | Mushroom (8 cm) | 1.0 m (today 4 m) | 2.4 m (today none) | 48 m |
 
-Small things reach their impostor much sooner than they reach any far
-form today; a 10 m tree keeps its meshes much further than today. If
+Small things (mushrooms, branches) reach their impostor much sooner than
+they reach any far form today; long logs, measured by their length now,
+keep their meshes somewhat further; a 10 m tree keeps its meshes much
+further than today. If
 trees need to switch sooner, that argues for different shared numbers
 or, against the decision, a per-kind rule; the experiment should show
 which. Its first measurement is this table at a few candidate pairs.
