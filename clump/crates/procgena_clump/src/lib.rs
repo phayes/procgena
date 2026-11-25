@@ -67,6 +67,12 @@ pub use options::{
     OptionsError, Placement, PlacementOptions, ShapeOptions,
 };
 pub use presets::ClumpPreset;
+
+/// The text of `clump.meta.yml`: the clump kind's name, parts, and each
+/// setting's label, description, range and conditions, for tools that edit
+/// clump presets. Read it with
+/// [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).
+pub const CLUMP_META: &str = include_str!("../presets/clump.meta.yml");
 pub use procgena_core::preset::PresetFileError;
 
 use field::ClumpField;

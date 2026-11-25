@@ -22,7 +22,7 @@ use bevy::ui_widgets::{SliderValue, ValueChange};
 
 use crate::params::spec::{Control, Param, Section, decimals, revive};
 use crate::params::{srgb_from_hex, srgb_to_hex};
-use crate::ui::{ScaledSlider, SelectOptions, labelled_row, scaled_slider};
+use crate::ui::{ScaledSlider, SelectOptions, Tooltip, labelled_row, scaled_slider};
 
 /// Height of number sliders in logical pixels; flatter than the feathers default of 24.
 const SLIDER_HEIGHT: f32 = 18.0;
@@ -33,9 +33,22 @@ pub struct ParamPanel<T: Send + Sync + 'static> {
     value: T,
     sections: Arc<Vec<Section<T>>>,
     hidden: HashSet<&'static str>,
+    part: Option<String>,
 }
 
 impl<T: Send + Sync + 'static> ParamPanel<T> {
+    /// A panel editing `value` with `sections`, without any controls, for
+    /// tests that drive it directly.
+    #[cfg(test)]
+    pub fn new(value: T, sections: Vec<Section<T>>) -> Self {
+        Self {
+            value,
+            sections: Arc::new(sections),
+            hidden: HashSet::new(),
+            part: None,
+        }
+    }
+
     /// The value being edited.
     pub fn value(&self) -> &T {
         &self.value
@@ -54,6 +67,20 @@ impl<T: Send + Sync + 'static> ParamPanel<T> {
         self.hidden = keys.into_iter().collect();
     }
 
+    /// Shows only the settings that target `part` (see [`Param::part`]), or
+    /// every setting for `None`. Sections left with no setting shown are
+    /// hidden whole.
+    pub fn set_part(&mut self, part: Option<String>) {
+        if self.part != part {
+            self.part = part;
+        }
+    }
+
+    /// The part whose settings the panel shows, or `None` for every part.
+    pub fn part(&self) -> Option<&str> {
+        self.part.as_deref()
+    }
+
     /// The setting at flat index `index`, counting every section's settings in order.
     fn param(&self, index: usize) -> Option<&Param<T>> {
         self.sections.iter().flat_map(Section::params).nth(index)
@@ -62,7 +89,12 @@ impl<T: Send + Sync + 'static> ParamPanel<T> {
     /// Whether the setting at flat index `index` is shown for the current value.
     fn shows(&self, index: usize) -> bool {
         self.param(index).is_some_and(|param| {
-            param.is_shown(&self.value) && !self.hidden.contains(param.key.as_str())
+            let in_part = match (self.part.as_deref(), param.part) {
+                (Some(wanted), Some(part)) => wanted == part,
+                (Some(_), None) => false,
+                (None, _) => true,
+            };
+            in_part && param.is_shown(&self.value) && !self.hidden.contains(param.key.as_str())
         })
     }
 }
@@ -72,6 +104,9 @@ impl<T: Send + Sync + 'static> ParamPanel<T> {
 pub struct ParamsChanged {
     /// The panel whose value changed.
     pub entity: Entity,
+    /// False while a slider is still being dragged, true for the last
+    /// change of a drag and for every other edit.
+    pub is_final: bool,
 }
 
 /// Marks a control entity with the flat index of the setting it edits.
@@ -98,6 +133,14 @@ struct GroupTitle {
 #[derive(Component, Default, Clone)]
 struct SectionBody;
 
+/// Marks a whole section, hidden when none of its `len` settings, starting
+/// at flat index `first`, is shown.
+#[derive(Component, Default, Clone)]
+struct SectionRows {
+    first: usize,
+    len: usize,
+}
+
 /// Registers the observers and systems that make `ParamPanel<T>` work.
 pub struct ParamPanelPlugin<T>(PhantomData<T>);
 
@@ -122,7 +165,8 @@ pub struct PanelWidgetsPlugin;
 
 impl Plugin for PanelWidgetsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_section_toggle)
+        app.add_plugins(crate::ui::TooltipPlugin)
+            .add_observer(on_section_toggle)
             .add_observer(on_header_click);
     }
 }
@@ -140,6 +184,7 @@ pub fn spawn_param_panel<T: Clone + PartialEq + Send + Sync + 'static>(
     let mut index = 0;
     let mut section_scenes: Vec<Box<dyn Scene>> = Vec::new();
     for (section_index, section) in sections.iter().enumerate() {
+        let first = index;
         let mut rows: Vec<Box<dyn Scene>> = Vec::new();
         for group in &section.groups {
             if let Some(title) = group.title {
@@ -154,6 +199,10 @@ pub fn spawn_param_panel<T: Clone + PartialEq + Send + Sync + 'static>(
             section.title,
             open.contains(&section_index),
             rows,
+            SectionRows {
+                first,
+                len: index - first,
+            },
         ));
     }
 
@@ -173,6 +222,7 @@ pub fn spawn_param_panel<T: Clone + PartialEq + Send + Sync + 'static>(
                 value,
                 sections: Arc::new(sections),
                 hidden: HashSet::new(),
+                part: None,
             },
             ChildOf(parent),
         ))
@@ -180,7 +230,13 @@ pub fn spawn_param_panel<T: Clone + PartialEq + Send + Sync + 'static>(
 }
 
 /// A collapsible section: a disclosure header over its rows.
-fn section_scene(title: &'static str, open: bool, rows: Vec<Box<dyn Scene>>) -> Box<dyn Scene> {
+fn section_scene(
+    title: &'static str,
+    open: bool,
+    rows: Vec<Box<dyn Scene>>,
+    range: SectionRows,
+) -> Box<dyn Scene> {
+    let SectionRows { first, len } = range;
     let toggle: Box<dyn Scene> = if open {
         Box::new(bsn! { @FeathersDisclosureToggle Checked })
     } else {
@@ -194,6 +250,7 @@ fn section_scene(title: &'static str, open: bool, rows: Vec<Box<dyn Scene>>) -> 
             flex_shrink: 0.0,
             row_gap: px(4),
         }
+        SectionRows { first: {first}, len: {len} }
         Children [
             Node {
                 display: Display::Flex,
@@ -238,9 +295,11 @@ fn group_title_scene(title: &'static str, first: usize, len: usize) -> Box<dyn S
 fn row_scene<T>(param: &Param<T>, value: &T, index: usize) -> Box<dyn Scene> {
     let text = param.label.clone();
     let control = control_scene(param, value, index);
+    let tip = param.description.unwrap_or_default();
     Box::new(bsn! {
         @labelled_row(text, control)
         ParamRow { index: {index} }
+        Tooltip({tip})
     })
 }
 
@@ -276,7 +335,7 @@ fn control_scene<T>(param: &Param<T>, value: &T, index: usize) -> Box<dyn Scene>
             }
         }
         Control::Choice { options, get, .. } => {
-            let options = *options;
+            let options = options.clone();
             let selected = get(value);
             Box::new(bsn! {
                 @FeathersSelect { @options: list_rows_from_strings(options.iter(), Some(selected)) }
@@ -306,14 +365,15 @@ fn owning_panel<T: Send + Sync + 'static>(
         .find(|ancestor| panels.contains(*ancestor))
 }
 
-/// Applies `edit` to the panel owning `source` and reports a change.
+/// Applies `edit` to the panel owning `source` and reports a change, final
+/// or not as `is_final` says.
 fn edit_panel<T: Clone + PartialEq + Send + Sync + 'static>(
     source: Entity,
     parents: &Query<&ChildOf>,
     panels: &mut Query<&mut ParamPanel<T>>,
     commands: &mut Commands,
     edit: impl FnOnce(&Control<T>, &mut T),
-    index: usize,
+    (index, is_final): (usize, bool),
 ) {
     let Some(panel_entity) = owning_panel(source, parents, panels) else {
         return;
@@ -334,6 +394,7 @@ fn edit_panel<T: Clone + PartialEq + Send + Sync + 'static>(
         panel.value = value;
         commands.trigger(ParamsChanged {
             entity: panel_entity,
+            is_final,
         });
     }
 }
@@ -360,7 +421,7 @@ fn on_number<T: Clone + PartialEq + Send + Sync + 'static>(
                 set(value, number);
             }
         },
-        control.index,
+        (control.index, change.is_final),
     );
 }
 
@@ -386,7 +447,7 @@ fn on_color<T: Clone + PartialEq + Send + Sync + 'static>(
                 set(value, hex);
             }
         },
-        control.index,
+        (control.index, change.is_final),
     );
 }
 
@@ -412,7 +473,7 @@ fn on_toggle<T: Clone + PartialEq + Send + Sync + 'static>(
                 set(value, checked);
             }
         },
-        control.index,
+        (control.index, change.is_final),
     );
 }
 
@@ -439,7 +500,7 @@ fn on_choice<T: Clone + PartialEq + Send + Sync + 'static>(
                 set(value, choice);
             }
         },
-        control.index,
+        (control.index, change.is_final),
     );
 }
 
@@ -509,7 +570,12 @@ fn set_shown(node: &mut Mut<Node>, shown: bool) {
 fn sync_panel<T: Send + Sync + 'static>(
     panels: Query<(Entity, &ParamPanel<T>), Changed<ParamPanel<T>>>,
     descendants: Query<&Children>,
-    mut nodes: Query<(&mut Node, Option<&ParamRow>, Option<&GroupTitle>)>,
+    mut nodes: Query<(
+        &mut Node,
+        Option<&ParamRow>,
+        Option<&GroupTitle>,
+        Option<&SectionRows>,
+    )>,
     controls: Query<(
         &ParamControl,
         Option<(&SliderValue, &ScaledSlider)>,
@@ -524,13 +590,19 @@ fn sync_panel<T: Send + Sync + 'static>(
     for (panel_entity, panel) in &panels {
         for entity in descendants.iter_descendants(panel_entity) {
             // Hide settings with no effect or hidden by key, and empty sub-headings.
-            if let Ok((mut node, row, title)) = nodes.get_mut(entity) {
+            if let Ok((mut node, row, title, section)) = nodes.get_mut(entity) {
                 if let Some(row) = row {
                     set_shown(&mut node, panel.shows(row.index));
                 }
                 if let Some(title) = title {
                     let any = (title.first..title.first + title.len).any(|i| panel.shows(i));
                     set_shown(&mut node, any);
+                }
+                // While one part is shown, sections with none of its
+                // settings are hidden whole.
+                if let Some(section) = section {
+                    let any = (section.first..section.first + section.len).any(|i| panel.shows(i));
+                    set_shown(&mut node, panel.part.is_none() || any);
                 }
             }
 
@@ -628,6 +700,7 @@ mod tests {
                 value: Demo::default(),
                 sections: Arc::new(sections()),
                 hidden: HashSet::new(),
+                part: None,
             })
             .id();
         let heading = world

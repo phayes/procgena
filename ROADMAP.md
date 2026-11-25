@@ -44,7 +44,16 @@ asks.
 - **The largest item is off the spine.** GPU *building* for tree, deadwood
   and mushroom (rule 1) can run at any time after the shared crates. GPU
   *placement* and masks (open question 1) is on the spine, as a research
-  gate.
+  gate (D2), then built as milestone GP after C3, ahead of streaming.
+- **The Ecotope profile sets the GPU order** (2026-11-24,
+  [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)). The goal
+  stays GPU everywhere. Stone building is about 94% of the CPU work
+  (provisional, measured on a loaded machine), and placing copies is under
+  20 ms in the studio. So the order is:
+  - ED (cheap Ecotope draw wins) and R3a (stone's existing GPU mesher)
+    first;
+  - then R3's deadwood, mushroom and tree;
+  - then GP, whose payoff comes with streaming.
 - **Decisions are gates.** Four gates (crate names, YAML crate and
   coordinates; GPU masks and chunk reach; stable keys and slot choice;
   region size and shape) block specific milestones (see "Decision gates"). Each sits just before
@@ -149,9 +158,22 @@ flowchart TD
     GM4["GM4 Biome base ground and borders"]
     GM5["GM5 Far grass and forest tints"]
 
+    TE1["TE1 Stop wasted terrain work"]
+    TE2["TE2 Terrain preview first"]
+    TE3["TE3 Content-keyed stage cache"]
+    TE3b["TE3b Chunk reuse by footprint"]
+    TE4a["TE4a Relief bands"]
+    TE4b["TE4b Per-tier border negotiation"]
+    TE5["TE5 Faster road search"]
+    GPU1["GPU1 Relief preview on the GPU"]
+    GPU2["GPU2 Ground weights on the GPU"]
+
     D5{{"D5 World and Biome scale"}}
     G7["G7 Scale-aware terrain lengths"]
     IX["IX Impostor-heavy experiment"]
+    ED["ED Ecotope draw speed"]
+    R3a["R3a Stone GPU building in the Ecotope"]
+    GP["GP GPU placement and masks"]
 
     ST0["ST0 Studio shell"]
     ST1["ST1 Settings metadata, Inspector"]
@@ -248,10 +270,30 @@ flowchart TD
     R3 --> GM5
     S1 --> GM5
 
+    G6 --> TE1
+    TE1 --> TE2
+    TE2 --> TE3
+    F2 --> TE3
+    TE3 --> TE3b
+    TE3 --> TE4a
+    TE4a --> TE4b
+    G6 --> TE5
+    TE2 --> GPU1
+    GM1 --> GPU2
+    G4 --> GPU2
+
     D5 --> G7
     D5 --> W0
     I1 --> IX
     I1b --> IX
+    C3a --> ED
+    R2 --> R3a
+    C2 --> GP
+    C3 --> GP
+    R2 --> GP
+    R3 -- "P3, P4" --> GP
+    D2 --> GP
+    GP --> S1
 
     I1b --> ST0
     ST0 --> ST1
@@ -642,7 +684,8 @@ From D5 (decided by the user 2026-11-24; see
 - **Status (2026-11-24):** built for tree, stone, deadwood and mushroom
   ([docs/decisions/C2-plan.md](docs/decisions/C2-plan.md)); plant joins in
   R3. Left: canopy shade as a density mask, part paths, `DrawHandle`, the
-  quantised slope byte and a per-Scatter `d` option, and a GPU path.
+  quantised slope byte and a per-Scatter `d` option, and a GPU path (now
+  milestone GP).
 
 #### C3a: Early Ecotope (moved forward, 2026-11-24)
 
@@ -934,12 +977,102 @@ go to the few copies near the camera.
     instanced renderer, plant's shader, fruit's detail check and the
     impostor level, plus a read-back of the level drawn. Milestone ST7b
     waits for it.
+  - **Build time as well as frame time** (added 2026-11-24 from
+    [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)): a
+    stone's level 0 is about 70% of its CPU build, so "level 1 by default"
+    also shortens loads and edits if level 0 is built only on demand.
 - **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
   build; the planning step can start any time.
 - **Done when:** the plan is agreed with the user, the variants are
   built behind settings and measured on the agreed scenes and machines,
   and the results and the user's decision on defaults are recorded in
   the plan.
+
+The next three milestones come from profiling the studio's Ecotope tab
+(2026-11-24, [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)).
+The goal is settled: GPU placement, masks and building for every Scatter.
+The profile sets the order. In the pine forest floor, placing copies costs
+under 20 ms of CPU. Building stones is about 94% of the CPU work, and the
+first view stalls on shader pipeline compiles. Edits re-place everything,
+and lose cached stones.
+
+#### ED: Ecotope draw speed
+
+Real work in its own right, next to the GPU milestones, not instead of
+them.
+
+- **Covers:**
+  - Edits re-place only from the edited Scatter down, keeping each
+    Scatter's prepared shapes by settings and seed.
+  - Specimen caches survive a layer redraw. Today stone's prune drops all
+    7 cached stones on an edit to the pines.
+  - Dead wood is built once per variant, not once per copy.
+  - The render pipelines an Ecotope needs are warmed up when one opens.
+    macOS compiles them synchronously, which stalls frames.
+  - In the studio, impostors are baked only when they could be on screen.
+- **Needs:** C3a. Its cache and dead wood parts touch only the asset
+  Bevy crates. Its re-placing, warm-up and bake parts edit
+  `procgena_biome_bevy` and the studio, so they wait for GM1, plant P2
+  and ST1.
+- **Done when:** on a quiet machine, a mushroom-only edit shows in under
+  0.3 s, an edit to the top Scatter rebuilds no unchanged specimen, and a
+  second open of an Ecotope in the same session has no frame over 100 ms.
+
+#### R3a: Stone GPU building in the Ecotope
+
+The first piece of R3, pulled forward because stones dominate the
+profile.
+
+- **Covers:**
+  - Ecotope stones are built by `procgena_stone`'s existing GPU mesher
+    (feature `gpu`; about 25–55× faster per rock than the CPU at level
+    0's resolution, provisional).
+  - They are drawn through `StonePool` on R2's renderer, instead of one
+    entity per copy.
+  - The pool gains per-variant settings (each class's `StoneScatter`
+    variants) and an impostor level.
+  - `procgena_biome_bevy`'s stone layer spawns pooled stones.
+  - The CPU path stays the reference.
+  - The footprint measure stays on the CPU, kept across edits.
+- **Needs:** R2. Its `procgena_biome_bevy` part waits for GM1 and plant
+  P2, as ED's does.
+- **Done when:** the pine forest floor's stones come from the GPU in the
+  studio, matching the CPU meshes within stone's parity tolerance.
+- **Then R3's other assets, in this order:** deadwood, mushroom, tree
+  (each cheap per variant today, but pools reach 256 specimens at World
+  scale). Plant's part follows its own plan.
+
+#### GP: GPU placement and masks
+
+- **Covers:** building D2's decided design ("Masks and placement" in
+  ARCHITECTURE.md):
+  - one placement model on a World-anchored lattice with `K_d` spacing;
+  - 8-bit mask textures per chunk, chained down the Ecotope, with exact
+    integer disc tests for hard exclusion;
+  - integer maths, so the CPU and the GPU agree bit for bit (the
+    quantised slope byte included);
+  - the CPU twin for queries, never reading back;
+  - window B streaming, with each chunk's Scatters in one compute pass,
+    so many Scatters run concurrently on the GPU.
+
+  It is C2's missing GPU path. Its first step is the timing runs D2
+  still owes, on a low-end integrated GPU and a discrete one.
+- **Why it isn't first:** in a 40 m studio patch, placement costs under
+  20 ms of CPU. Its payoff is at streaming scale: 0.74 ms per 64 m chunk
+  on the GPU, against about 10 ms for the unoptimised CPU twin, across
+  hundreds of chunks.
+- **Needs:**
+  - C3, whose CPU Ecotope is the twin;
+  - C2 and R2;
+  - plant P3 and P4 (in R3), so that grass joins the same mask chain;
+  - D2 (decided).
+- **Done when:**
+  - The pine forest floor, with grass, is placed on the GPU chunk by
+    chunk.
+  - It is bit-identical to the CPU twin in any build order, with
+    readback only in tests.
+  - It stays within D2's budget of 2 ms per chunk on an integrated GPU.
+- **Gates:** S1.
 
 ### Where the tracks meet
 
@@ -976,9 +1109,13 @@ go to the few copies near the camera.
   "Thinning at a distance" and "Far forest tint". Open question 9 is
   decided here.
 - **Needs:** W1, G6 (chunk grid and terrain streaming), R2 (renderer), I2
-  (impostors prepared per Ecotope ahead of view).
+  (impostors prepared per Ecotope ahead of view), GP (placement and masks
+  on the GPU, chunk by chunk).
 - **Can start earlier:** streaming one Biome over one Terrain needs only
   B1, G6, R2 and I2. World-wide region planning lands once W1 does.
+  Whether single-Biome streaming may start on CPU placement before GP is
+  open (question 4 in [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md);
+  the recommendation is yes).
 - **Done when:** the twelve user stories under "Loading by chunk" pass,
   as tests where they can be.
 
@@ -1091,7 +1228,203 @@ label-chosen material.
   and the last impostor, with no seam.
 
 A GPU port of the rules (GM6) is built only if GM1's measurements call
-for it.
+for it. The terrain editing plan measured ground weights at about 14× a
+chunk's height read on one thread, and the user decided (2026-11-24) to
+build that port early: it is GPU2 below.
+
+### Terrain editing track
+
+Planned with the user 2026-11-24 in
+[terrain/edit_cache_plan.md](terrain/edit_cache_plan.md) (all nine
+recommendations accepted).
+
+- **The problem:** today an edit in the studio's Terrain view rebuilds
+  the whole world. A cold build of the opening view is about 33 s of CPU
+  in release: 23 region plans, 9 region builds, roads in 2 regions and
+  86 chunks.
+- **The order:** stop wasted work first, then show a provisional
+  preview, then a content-keyed stage cache. Then border negotiation per
+  tier (TE4a and TE4b, decided 2026-11-24) and a faster road search
+  (TE5).
+- **The GPU:** it takes the per-point drawing work (ground weights and
+  the preview), never the plans.
+- **Names:** TE (terrain edits), to keep clear of S1 (Streaming).
+
+#### TE1: Stop wasted work
+
+- **Covers:**
+  - `WorldTerrain` takes a cancellation flag, checked between region
+    stages and chunk rows. A cancelled build is never cached. This meets
+    ARCHITECTURE's story 5.
+  - The stream sets the flag on reset.
+  - The studio sends ground-colour and debug changes to weights and
+    materials without making a new world.
+- **Needs:** G6 (merged). Best after GM1 merges, since both edit
+  `procgena_terrain_bevy` and the studio's terrain scene.
+- **Done when:**
+  - after an edit, no thread works on the old world beyond one chunk row;
+  - a cancelled world caches nothing and rebuilds bit-identically;
+  - a ground-only edit starts no region build.
+
+#### TE2: First picture fast
+
+- **Covers:**
+  - A provisional relief-only preview tier (each region's own relief plus
+    E, no borders or features), drawn right after an edit and never
+    queried.
+  - Nearest regions first.
+  - While editing, the centre region at full quality and the rest at the
+    preview tier.
+  - Studio only; the game never shows provisional land near the player.
+- **Needs:** TE1.
+- **Done when:**
+  - a `base.*` edit shows new land in under 1 s in release on an idle
+    machine;
+  - the centre region reaches full quality waiting on about 7 plans, not
+    23.
+
+#### TE3: Content-keyed stage cache
+
+- **Covers:**
+  - `ContentHash` for `TerrainOptions`, `ElevationOptions`,
+    `RegionGraphOptions` and `Convergence`. The world seed goes into the
+    key explicitly, since F2 leaves seeds out.
+  - Every `WorldTerrain` cache keyed by what its stage reads, and
+    `WorldTerrain::with_source` so the studio keeps the caches across
+    edits.
+  - Chunk keys in the stream.
+  - Only the last one or two versions kept per stage.
+- **Needs:** TE2, F2 (done).
+- **Done when:**
+  - undo and drag-back rebuild nothing, and a ground edit rebuilds
+    nothing;
+  - a per-field change test shows each stage's key changes whenever its
+    output does;
+  - cached and cold results are bit-identical;
+  - memory per cached entry is measured.
+
+#### TE3b: Chunk reuse by feature footprint
+
+- **Covers:** a chunk key from the relief and agreements it reads plus a
+  hash of the features within reach, so only chunks whose ground moved
+  are read again.
+- **Needs:** TE3.
+- **Done when:**
+  - a river-width edit re-reads only the chunks along the rivers;
+  - for every setting in the plan's probe, the kept chunks are
+    bit-identical to fresh reads.
+- **Note:** GPU3 (full heights on the GPU, later) would make this
+  unnecessary for drawing.
+
+#### TE4a: Relief bands
+
+**Parked (user, 2026-11-25), with TE4b.** The user may come back to
+per-tier negotiation; until then neither step is scheduled.
+
+Border negotiation per tier was decided by the user on 2026-11-24 (see
+ARCHITECTURE.md, "Border negotiation per tier", and the plan's section of
+that name). TE4 is built as two steps; this is the first.
+
+- **Covers:**
+  - Each relief layer in the presets gets a band cut: low-band octaves,
+    then detail octaves. The cut is a landscape length, so it scales
+    with D5.
+  - Low-band and detail evaluation paths.
+  - A test that detail octaves never change the low band. `fbm`'s
+    erosion and `ridged`'s weights already flow only from low octaves to
+    high.
+  - The rough tier draws the low band.
+  - Presets retuned where their look moves.
+- **Needs:** TE3.
+- **Done when:**
+  - on hills and mountains, rough-tier heights equal the fine relief's
+    low-band octaves bit for bit;
+  - far chunks read the low band only;
+  - the change in each preset's look is reported.
+
+#### TE4b: Per-tier border negotiation
+
+**Parked (user, 2026-11-25).** See TE4a.
+
+- **Covers:**
+  - Rough offers for every planned region: low band and E, plus the river
+    and road crossings, which are fixed at rough.
+  - Detail offers and agreements for the near regions and their ring
+    only. They are negotiated linearly on detail-band samples and pinned
+    to zero at corners.
+  - The Fine tier takes its own road settings, not those inside the
+    Rough terrain it clones.
+  - Mixed-tier borders get a skirt or a detail fade.
+  - River routes stay rough and graph-wide; only carving moves to mid and
+    fine.
+  - The rough, detail and port parts of the plan are cached on their own
+    (TE3's keys), with the Rough tier keyed on the rough agreement.
+  - This changes the seam protocol, as the user agreed.
+- **Needs:**
+  - TE4a;
+  - the user's answer to question 10 of the plan (exact low-pass for the
+    relief, bounded for carving).
+
+  TE5 should land first, since both edit the road planning. That is a
+  file-sharing order, with no arrow in the graph.
+- **Done when:**
+  - a region drawn fine beside a rough neighbour, then beside a fine
+    one, gives bit-identical heights (load independence);
+  - upgrading a region never moves its rough-tier heights;
+  - far regions build no detail offers;
+  - a `roads.width` edit keeps every rough plan, and a `rivers.width`
+    edit keeps the convergence;
+  - the seam, crack and feature suites hold at both tiers.
+
+#### TE5: Faster road search
+
+- **Covers:**
+  - Profile and speed up road routing, about 5 s per near region against
+    ARCHITECTURE's "up to about a second" plan budget.
+  - If still over: a fixed search budget per region with a deterministic
+    fallback.
+  - Macro cells are decided with D4, not here.
+  - The per-point border cost: the convergence fade and the border pulls
+    are 78–86% of every height read (measured 2026-11-24). Ways to cut
+    it:
+    - fewer border pieces;
+    - cheaper far-piece integrals;
+    - neighbours' relief evaluated only where its blend share is
+      non-zero.
+- **Needs:** G6 (merged). It runs beside TE1–TE3 if it keeps to the road
+  files, and should land before TE4b, which also edits the road planning.
+  That is a file-sharing order, not a dependency, so it has no arrow in
+  the graph.
+- **Done when:** a near region's roads fit the plan budget in release,
+  with roads bit-identical, or their change reported and accepted.
+
+#### GPU1: Relief preview on the GPU
+
+- **Covers:**
+  - TE2's preview tier as a compute shader: relief noise, the integer
+    hash and E.
+  - TE2's CPU path is its twin.
+  - Parity: heights within a few millimetres, discrete decisions
+    quantised, seams exact within one path, skirts between paths.
+- **Needs:** TE2.
+- **Done when:**
+  - CPU/GPU parity tests pass;
+  - a `base.*` edit previews the whole view in milliseconds (measured).
+
+#### GPU2: Ground weights on the GPU
+
+- **Covers:**
+  - GM0/GM1's layer stack and G4a's measures evaluated per texel on the
+    GPU from each chunk's heights, with the feature index as a buffer.
+  - The CPU painter stays the twin.
+  - Same parity rules as GPU1, with every layer choice quantised. The
+    CPU samples weights only for queries.
+- **Needs:** GM1, G4a. Built first of the two GPU steps if GM1 puts
+  weights on every drawn chunk.
+- **Done when:**
+  - parity tests pass;
+  - a ground-only edit redraws in one frame's work (measured);
+  - weights cost no CPU for drawing.
 
 ### Studio track
 
@@ -1106,7 +1439,7 @@ summary below is for ordering.
 | Milestone | Covers | Needs |
 |---|---|---|
 | **ST0** Studio shell | Kind registry replacing the per-kind enumerations, documents, the new layout, environment and detail on the view frame, headless `type`/`hover`/`select`/`command` | The Fruit and Flower tabs (I1b) merged; runs alone in `procgena/src/` (churn window) |
-| **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips | Core module, then per-crate workers beside ST0; studio half after ST0 |
+| **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips. **Status (2026-11-24): mostly built.** Core module, metadata for tree, tree Scatter, stone, clump, mushroom, dead wood, fruit, flower, terrain and World; the generated Inspector for every kind but plant, plant Scatter and Ecotope (later, with their metadata) | Core module, then per-crate workers beside ST0; studio half after ST0 |
 | **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update (whole-file rewrite, lossy for comments for now), namespaced keys (`builtin:` or the project/bundle id), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
 | **ST3** Library and Outline | Search, filters, shared selection, editing a referenced preset in context | ST1, ST2 |
 | **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
@@ -1162,8 +1495,9 @@ a cell run in order within the wave.
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
 | 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
-| 8 | W1; S1 (single Biome); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. |
+| 8 | ED; R3a → R3's remaining asset parts (wave 5 started R3; deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. ED's asset-cache and task-pool parts can start now; its `procgena_biome_bevy` and studio parts wait for GM1, plant P2 and ST1. R3a works in `stone/` plus one studio feature flag. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
+| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b (TE4a → TE4b parked by the user, 2026-11-25); TE5 beside them, landing before TE4b; GPU2 (after GM1 and G4a); GPU1 (after TE2) | The terrain editing track, decided 2026-11-24, with border negotiation per tier (TE4a, TE4b). TE4a also edits the presets and `noise.rs`/`relief.rs`. TE1–TE4b all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. TE1 waits for GM1 to merge, since both touch the Bevy crate and the scene. TE5 keeps to the road files and lands before TE4. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
 coordinator runs the full suite once per wave.

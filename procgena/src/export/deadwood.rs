@@ -21,7 +21,7 @@ use procgena_deadwood::{
 use super::{
     Done, FileOps, chosen_stem, read_preset, save_preset, shown_name, write_file, write_files,
 };
-use crate::deadwood::editor::{DeadwoodEditor, load_deadwood};
+use crate::deadwood::editor::{DeadwoodEditor, DeadwoodPanel, load_deadwood};
 use crate::params::{ParamPanel, ParamPanelPlugin, Section, spawn_param_panel, toggle};
 use crate::studio::Dormant;
 
@@ -109,10 +109,10 @@ pub fn spawn_deadwood_export(commands: &mut Commands, parent: Entity) {
 /// settings, copied so later edits do not change a save already under way.
 fn snapshot(
     editor: &DeadwoodEditor,
-    panels: &Query<&ParamPanel<DeadwoodOptions>>,
+    panels: &Query<&DeadwoodPanel>,
     settings: &ModelPanels,
 ) -> Option<(DeadwoodOptions, String, DeadwoodModelSettings)> {
-    let options = panels.get(editor.panel()).ok()?.value().clone();
+    let options = panels.get(editor.panel()).ok()?.value().options().clone();
     let settings = *settings
         .iter()
         .find(|(_, visible)| visible.get())?
@@ -137,7 +137,7 @@ type ModelPanels<'w, 's> = Query<
 fn save_deadwood_preset(
     _: On<Activate>,
     editor: Single<&DeadwoodEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<DeadwoodOptions>>,
+    panels: Query<&DeadwoodPanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {
@@ -165,7 +165,7 @@ fn load_deadwood_preset(_: On<Activate>, mut files: FileOps) {
 fn export_deadwood_glb(
     _: On<Activate>,
     editor: Single<&DeadwoodEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<DeadwoodOptions>>,
+    panels: Query<&DeadwoodPanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {
@@ -180,7 +180,7 @@ fn export_deadwood_glb(
 fn export_deadwood_obj(
     _: On<Activate>,
     editor: Single<&DeadwoodEditor, Without<Dormant>>,
-    panels: Query<&ParamPanel<DeadwoodOptions>>,
+    panels: Query<&DeadwoodPanel>,
     settings: ModelPanels,
     mut files: FileOps,
 ) {

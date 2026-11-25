@@ -74,5 +74,15 @@ pub use options::{
     OptionsError, Variation,
 };
 pub use presets::{FlowerPreset, FruitPreset, cluster_presets};
+
+/// The text of `fruit.meta.yml`: each fruit setting's label, description,
+/// range and conditions, for tools that edit fruit presets. Read it with
+/// [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).
+pub const FRUIT_META: &str = include_str!("../presets/fruit.meta.yml");
+
+/// The text of `flower.meta.yml`: each flower setting's label,
+/// description, range and conditions, for tools that edit flower presets.
+/// Read it with [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).
+pub const FLOWER_META: &str = include_str!("../presets/flower.meta.yml");
 pub use procgena_core::preset::PresetFileError;
 pub use skeleton::{ClusterItem, ClusterStalk, FruitSkeleton, ItemVariation};

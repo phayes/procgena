@@ -138,6 +138,10 @@ pub use ports::{
     FEATURE_CLEARANCE, INNER_DEPTHS, MAX_PORT_WIDTH, Port, PortKind, PortWish, Side, inner_depth,
 };
 pub use presets::TerrainPreset;
+/// The text of `terrain.meta.yml`: each Terrain setting's label,
+/// description and range, for tools that edit Terrain presets. Read it with
+/// [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).
+pub const TERRAIN_META: &str = include_str!("../presets/terrain.meta.yml");
 pub use procgena_core::preset::PresetFileError;
 pub use region::{
     Boundary, CornerId, EdgeId, Region, RegionCorner, RegionEdge, RegionError, RegionId, corner_id,

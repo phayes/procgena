@@ -1,13 +1,14 @@
 //! Stones: one rock, from a `.stone.yml` preset.
 
 use bevy::prelude::*;
-use procgena_stone::{StoneOptions, StonePreset};
+use procgena_stone::StonePreset;
 
 use super::{Kind, RegisterKind, entries};
 use crate::export::stone_panel::spawn_stone_export;
-use crate::params::ParamPanel;
 use crate::scene::{Show, StoneSubject};
-use crate::stones::editor::{StoneEdited, StoneEditor, StoneEditorPlugin, spawn_stone_editor};
+use crate::stones::editor::{
+    StoneEdited, StoneEditor, StoneEditorPlugin, StonePanel, spawn_stone_editor,
+};
 use crate::studio::documents::DocumentEdited;
 use crate::studio::status;
 
@@ -39,16 +40,14 @@ pub fn register(app: &mut App) {
 /// The rock the editor `editor` holds.
 fn show(world: &mut World, editor: Entity, document: u64) -> Option<Show> {
     let panel = world.get::<StoneEditor>(editor)?.panel();
-    let options = world
-        .get::<ParamPanel<StoneOptions>>(panel)?
-        .value()
-        .clone();
+    let options = world.get::<StonePanel>(panel)?.value().options().clone();
     Some(Show::new::<StoneSubject>(document, options))
 }
 
 #[cfg(test)]
 mod tests {
     use bevy::math::Vec2;
+    use procgena_stone::StoneOptions;
 
     use super::*;
     use crate::headless::{DEFAULT_SIZE, HeadlessStudio, lock};
@@ -79,7 +78,7 @@ mod tests {
         studio.drag(Vec2::new(500.0, 400.0), Vec2::new(800.0, 300.0));
         let turned = camera(&mut studio);
         studio.click("Ice Chunk").unwrap();
-        let options: StoneOptions = studio.panel_value();
+        let options: StoneOptions = studio.settings_value();
         assert_eq!(options, StonePreset::ice_chunk().stone);
         assert!(
             lock(&sent)
@@ -100,14 +99,14 @@ mod tests {
         studio.scroll(list, -5.0);
         assert_eq!(studio.find("Seed").unwrap(), seed_label);
         studio.click("Pebble").unwrap();
-        let options: StoneOptions = studio.panel_value();
+        let options: StoneOptions = studio.settings_value();
         assert_eq!(options, StonePreset::pebble().stone);
         assert_eq!(studio.find("Seed").unwrap(), seed_label);
 
         // Dragging across the seed field scrubs the seed.
         let field = studio.find(&options.default_seed.to_string()).unwrap();
         studio.drag(field, field + Vec2::new(120.0, 0.0));
-        let scrubbed: StoneOptions = studio.panel_value();
+        let scrubbed: StoneOptions = studio.settings_value();
         assert!(scrubbed.default_seed > options.default_seed);
         assert!(
             lock(&sent)

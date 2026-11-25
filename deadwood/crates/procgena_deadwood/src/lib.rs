@@ -84,6 +84,7 @@ pub mod export;
 mod leaves;
 mod limb;
 mod mesh;
+mod meta;
 mod options;
 mod piece;
 mod presets;
@@ -102,6 +103,7 @@ pub use detail::{
 };
 pub use limb::SizeClass;
 pub use mesh::{BillboardVertex, DeadwoodMesh, MeshBuffers, PartRange, Ribbons, Zone};
+pub use meta::{DEADWOOD_META, meta_choices};
 pub use options::{
     BarkOptions, BranchingOptions, DeadwoodOptions, EndKind, EndsOptions, HollowOptions,
     LeafOptions, MAX_CHILDREN, MAX_DECAY, MAX_END_SHARE, MAX_LEVELS, MAX_LOBES, MAX_ROOTS,

@@ -35,4 +35,9 @@ pub use options::{
     WorldOptionsError, WorldScale,
 };
 pub use presets::WorldPreset;
+
+/// The text of `world.meta.yml`: each World setting's label, description
+/// and range, for tools that edit World presets. Read it with
+/// [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).
+pub const WORLD_META: &str = include_str!("../presets/world.meta.yml");
 pub use world::{FieldValues, RegionBiome, World, WorldError};

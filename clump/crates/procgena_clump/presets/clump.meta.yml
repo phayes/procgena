@@ -1,0 +1,195 @@
+# What tools that edit clump presets show for each setting. Kept in step
+# with ClumpOptions by tests/meta.rs.
+kind: clump
+name: Clump
+description: "Material that gathers on a tree or rock, such as a snow cap, moss or burls."
+parts:
+  clump:
+    name: Clump
+    description: "The grown material: its shape, where it grows and how it looks."
+    tags: [clump]
+sections:
+  - title: Shape
+    part: clump
+    settings: [material.color, scale, shape.thickness, shape.sink, shape.max_slope, shape.min_support, shape.lumpiness, shape.lump_size, shape.neck]
+  - title: Placement
+    part: clump
+    settings: [placement.mode, placement.count, placement.radius, placement.size_variation, placement.min_spacing]
+  - title: Coverage
+    part: clump
+    settings: [mask.any_facing, mask.facing_min, mask.facing_full, mask.exposure_rays, mask.exposure_power]
+  - title: Direction
+    part: clump
+    settings: [directions.0.vector.0, directions.0.vector.1, directions.0.vector.2, directions.0.strength]
+  - title: Mesh
+    part: clump
+    settings: [mesh.edge_length, mesh.closed, mesh.strict]
+settings:
+  default_seed:
+    label: Seed
+    description: "The seed of a clump built on its own."
+    hidden: true
+  directions.0.vector.0:
+    label: Travel X
+    description: "Which way the material travels, side to side. Wind toward +X coats the sides facing -X."
+    range: [-1, 1]
+    step: 0.01
+  directions.0.vector.1:
+    label: Travel Y
+    description: "Which way the material travels, up and down. -1 is falling straight down, like snow."
+    range: [-1, 1]
+    step: 0.01
+  directions.0.vector.2:
+    label: Travel Z
+    description: "Which way the material travels, front to back."
+    range: [-1, 1]
+    step: 0.01
+  directions.0.strength:
+    label: Strength
+    description: "How much material arrives from this direction. 1 fully covers surfaces facing straight into it."
+    range: [0, 2]
+    step: 0.01
+  directions:
+    label: Directions
+    description: "Every direction material arrives from. The Inspector edits the first."
+    hidden: true
+  scale:
+    label: Scale
+    description: "Makes the whole clump bigger or smaller, multiplying every length here."
+    range: [0.1, 10]
+    step: 0.05
+    scale: exponential
+  mask.any_facing:
+    label: Any Facing
+    description: "Grows on every side of the surface, whichever way it faces, such as burls on a trunk."
+  mask.facing_min:
+    label: Facing Start
+    description: "How directly a surface must face the material before anything grows on it. -1 is facing away, 1 facing straight into it."
+    range: [-1, 1]
+    step: 0.01
+  mask.facing_full:
+    label: Facing Full
+    description: "How directly a surface must face the material to be fully covered."
+    range: [-1, 1]
+    step: 0.01
+  mask.exposure_rays:
+    label: Exposure Rays
+    description: "How carefully sheltered spots are found. Fewer rays build faster but give blockier edges; 0 treats every spot as open."
+    range: [0, 256]
+    step: 1
+    scale: exponential
+  mask.exposure_power:
+    label: Shelter Avoidance
+    description: "How strongly the clump keeps out of sheltered spots. At 0 shelter is ignored."
+    range: [0, 4]
+    step: 0.05
+  placement.mode:
+    label: Placement
+    description: "One continuous layer, like a snow cap, or separate rounded clumps, like moss cushions."
+    choices:
+      - { value: everywhere, label: Everywhere }
+      - { value: scatter, label: Scatter }
+  placement.count:
+    label: Count
+    description: "How many separate clumps grow. Fewer grow when there is no room at the spacing given."
+    range: [1, 200]
+    step: 1
+    scale: exponential
+  placement.radius:
+    label: Radius
+    unit: m
+    description: "How far a typical clump reaches from its centre to its edge."
+    range: [0.01, 2]
+    step: 0.01
+    scale: exponential
+  placement.size_variation:
+    label: Size Variation
+    description: "How much clump sizes vary, from all the same at 0 to anywhere up to twice the size at 1."
+    range: [0, 1]
+    step: 0.01
+  placement.min_spacing:
+    label: Min Spacing
+    unit: m
+    description: "The closest two clump centres may be. Twice the radius keeps clumps from touching."
+    range: [0, 5]
+    step: 0.01
+    scale: exponential
+  shape.thickness:
+    label: Thickness
+    unit: m
+    description: "How high the clump stands above the surface where it is fully grown, not counting lumps."
+    range: [0.005, 1]
+    step: 0.005
+    scale: exponential
+  shape.sink:
+    label: Edge Sink
+    unit: m
+    description: "How far the clump's edges sink below the surface, so no seam shows where it ends."
+    range: [0, 0.2]
+    step: 0.005
+  shape.max_slope:
+    label: Steepest Side
+    description: "How steep the clump's sides may be. 1 is 45 degrees; higher allows cliff-like edges."
+    range: [0.1, 5]
+    step: 0.05
+  shape.min_support:
+    label: Thinnest Support
+    unit: m
+    description: "The thinnest part of the surface a clump may grow on. Thinner twigs and lips stay bare."
+    range: [0, 0.5]
+    step: 0.005
+  shape.lumpiness:
+    label: Lumpiness
+    description: "How tall the rounded lumps on the clump are, from smooth at 0 to cushion-like at 1."
+    range: [0, 1]
+    step: 0.01
+  shape.lump_size:
+    label: Lump Size
+    unit: m
+    description: "How wide a typical lump is."
+    range: [0.01, 2]
+    step: 0.01
+    scale: exponential
+  shape.neck:
+    label: Neck
+    description: "How much a separate clump narrows where it meets the surface, from a flat dome to a ball on a stalk."
+    range: [0, 0.9]
+    step: 0.01
+  mesh.edge_length:
+    label: Triangle Size
+    unit: m
+    description: "How long the clump's triangle edges are. Halving it gives about four times the triangles."
+    range: [0.005, 0.5]
+    step: 0.005
+    scale: exponential
+  mesh.closed:
+    label: Closed Solid
+    description: "Closes the clump into a watertight solid with an underside, for physics or volume. Off, it is only its visible top."
+  mesh.strict:
+    label: No Crossings
+    description: "Makes sure no part of the clump passes through another, for tools that need a clean solid. Takes longer to build."
+  grows_on:
+    label: Grows On
+    description: "Which parts of the tree or rock the clump grows on, by their tags."
+    hidden: true
+  tags:
+    label: Tags
+    description: "The tags the clump's own part carries."
+    hidden: true
+  material.texture:
+    label: Texture
+    description: "The set of images that colours the clump, or none for a plain colour."
+    hidden: true
+  material.color:
+    label: Tint
+    description: "A colour the texture is multiplied by. Without a texture it is the clump's colour."
+    color: true
+  material.roughness:
+    label: Matte
+    description: "How rough the surface looks, from glossy at 0 to fully matte at 1."
+    hidden: true
+  material.texture_size:
+    label: Texture Size
+    unit: m
+    description: "How much of the clump one repeat of the texture covers."
+    hidden: true
