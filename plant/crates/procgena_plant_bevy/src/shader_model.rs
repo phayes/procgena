@@ -48,6 +48,31 @@ pub(crate) fn blue_noise_tile() -> &'static [Vec2] {
     TILE.get_or_init(|| best_candidate_tile(TILE_POINTS as usize, 12, 0x6b8a_3a00))
 }
 
+/// The blue-noise tile in fixed point, as the GPU reads it: each point's X
+/// in the low 16 bits and Z in the high 16, in 1/65536ths of the tile,
+/// wrapping. The WESL twin is the `tile` buffer.
+pub(crate) fn quantised_tile() -> &'static [u32] {
+    static TILE: OnceLock<Vec<u32>> = OnceLock::new();
+    TILE.get_or_init(|| {
+        let quantise = |v: f32| ((v * 65536.0).round() as u32) & 0xffff;
+        blue_noise_tile()
+            .iter()
+            .map(|p| quantise(p.x) | (quantise(p.y) << 16))
+            .collect()
+    })
+}
+
+/// The position along one axis of a chunk, in metres from its minimum
+/// corner, of point `q` (in 1/65536ths of a tile) of tile copy `cell`, with
+/// tiles `tile_size` metres across. With a power of two of tiles to a chunk
+/// side, the product is exact, so the CPU and the GPU agree bit for bit. The
+/// WESL twin is `tile_position`; the runtime CPU never places blades, so
+/// only the mirror uses it.
+#[cfg(test)]
+pub(crate) fn tile_position(cell: u32, q: u32, tile_size: f32) -> f32 {
+    ((cell << 16) + q) as f32 * (tile_size / 65536.0)
+}
+
 pub(crate) fn best_candidate_tile(count: usize, candidates: u32, seed: u32) -> Vec<Vec2> {
     let mut points: Vec<Vec2> = Vec::with_capacity(count);
     let mut rng = seed;
@@ -92,15 +117,26 @@ pub(crate) struct ChunkLayout {
     pub candidate_density: f32,
 }
 
+/// Most tile copies along a chunk's side. With at most 256, a position inside
+/// a chunk in 1/65536ths of a tile fits the 24 bits an `f32` holds exactly
+/// (see [`tile_position`]).
+pub(crate) const MAX_TILES_PER_SIDE: u32 = 256;
+
 impl ChunkLayout {
     /// The coarsest layout with at least `density` candidates per square
-    /// metre, never fewer than one tile per chunk. Rounding the tile count to
-    /// the nearest instead silently capped some styles: 45 blades per m²
-    /// drew 36. Spare candidates cost nothing, because a chunk only evaluates
-    /// the prefix it can keep.
+    /// metre, never fewer than one tile per chunk, with a power of two of
+    /// tiles along the chunk's side (at most [`MAX_TILES_PER_SIDE`]). Rounding
+    /// the tile count to the nearest instead silently capped some styles: 45
+    /// blades per m² drew 36. Spare candidates cost nothing, because a chunk
+    /// only evaluates the prefix it can keep. A power of two keeps a tile's
+    /// side an exact binary fraction of the chunk, so positions are exact on
+    /// the CPU and the GPU, and most changes of density keep the same tiles.
     pub(crate) fn for_density(chunk_size: f32, density: f32) -> Self {
         let ideal = chunk_size * (density.max(0.0) / TILE_POINTS as f32).sqrt();
-        let tiles_per_side = (ideal.ceil() as u32).max(1);
+        let tiles_per_side = (ideal.ceil() as u32)
+            .max(1)
+            .next_power_of_two()
+            .min(MAX_TILES_PER_SIDE);
         let tile_size = chunk_size / tiles_per_side as f32;
         Self {
             tiles_per_side,
@@ -905,6 +941,45 @@ mod tests {
             prop_assert!(layout.tile_size > 0.0);
             prop_assert!(layout.tiles_per_side >= 1);
             prop_assert!(layout.candidate_density > 0.0);
+        }
+
+        #[test]
+        fn chunk_tiles_are_a_power_of_two_with_enough_candidates(density in 0.0f32..100_000.0) {
+            let layout = ChunkLayout::for_density(16.0, density);
+            prop_assert!(layout.tiles_per_side.is_power_of_two());
+            prop_assert!(layout.tiles_per_side <= MAX_TILES_PER_SIDE);
+            prop_assert!(
+                layout.candidate_density >= density
+                    || layout.tiles_per_side == MAX_TILES_PER_SIDE
+            );
+        }
+
+        #[test]
+        fn tile_positions_are_exact(
+            tiles_log in 0u32..=8,
+            cell in 0u32..256,
+            q in 0u32..65536,
+        ) {
+            // The position is the exact binary fraction, with no rounding,
+            // so the GPU's `f32` arithmetic gives the same bits.
+            let tiles = 1 << tiles_log;
+            let cell = cell % tiles;
+            let tile_size = 16.0 / tiles as f32;
+            let exact = (f64::from(cell) * 65536.0 + f64::from(q)) * f64::from(tile_size) / 65536.0;
+            prop_assert_eq!(f64::from(tile_position(cell, q, tile_size)), exact);
+        }
+    }
+
+    #[test]
+    fn the_quantised_tile_is_the_tile_to_within_a_step() {
+        for (q, p) in quantised_tile().iter().zip(blue_noise_tile()) {
+            let x = f32::from((q & 0xffff) as u16) / 65536.0;
+            let z = f32::from((q >> 16) as u16) / 65536.0;
+            let near = |a: f32, b: f32| {
+                let d = (a - b).abs();
+                d.min(1.0 - d) <= 0.5 / 65536.0
+            };
+            assert!(near(x, p.x) && near(z, p.y), "{q:08x} against {p}");
         }
     }
 }

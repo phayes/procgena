@@ -19,7 +19,7 @@ use crate::shader_model::{
     CHILD_ROWS, CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, GRANDCHILD_ROWS, GUST_SIZE,
     PLANT_ROWS, TILE_POINTS, TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_noise, bare_threshold,
     best_candidate_tile, blue_noise_tile, clump_table, gust_noise, hash, hash2, lod_indices,
-    toroidal_distance_squared, tuft_table, unit,
+    quantised_tile, tile_position, toroidal_distance_squared, tuft_table, unit,
 };
 
 /// Vertical range an instance's root height can encode, in metres either side
@@ -104,10 +104,16 @@ pub(crate) fn candidate(
     );
     // Each tile copy is shifted by its own random offset (wrapping), so the
     // repetition of one tile across the field is not visible.
-    let offset = Vec2::new(unit(cell_hash), unit(hash(cell_hash)));
-    let p = (blue_noise_tile()[point as usize] + offset).fract();
+    // Each tile copy is shifted by its own offset, in 1/65536ths of the
+    // tile and wrapping.
+    let tile = quantised_tile()[point as usize];
+    let qx = ((tile & 0xffff) + (cell_hash & 0xffff)) & 0xffff;
+    let qz = ((tile >> 16) + (cell_hash >> 16)) & 0xffff;
     Candidate {
-        local: (Vec2::new(cell_x as f32, cell_z as f32) + p) * layout.tile_size,
+        local: Vec2::new(
+            tile_position(cell_x, qx, layout.tile_size),
+            tile_position(cell_z, qz, layout.tile_size),
+        ),
         rank: (point as f32 + 0.5) / TILE_POINTS as f32,
         seed: hash2(cell_hash, point),
     }

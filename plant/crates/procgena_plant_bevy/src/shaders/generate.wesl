@@ -29,7 +29,9 @@ const HOLE: f32 = -1e30;
 /// Every mask, two R8G8 texels per word, then every heightmap as `f32` bits.
 /// A field's `placement.w` already counts the mask words.
 @group(0) @binding(3) var<storage, read> scene: array<u32>;
-@group(0) @binding(4) var<storage, read> tile: array<vec2<f32>>;
+/// The blue-noise tile in fixed point: X in the low 16 bits, Z in the high
+/// 16, in 1/65536ths of the tile. Twin of `shader_model::quantised_tile`.
+@group(0) @binding(4) var<storage, read> tile: array<u32>;
 @group(0) @binding(5) var gust_texture: texture_2d<f32>;
 @group(0) @binding(6) var gust_sampler: sampler;
 @group(0) @binding(7) var<uniform> shapes: ShapeTable;
@@ -352,6 +354,12 @@ fn world_tile(chunk: u32, tiles: u32, cell: u32) -> u32 {
     return bitcast<u32>(bitcast<i32>(chunk) * i32(tiles) + i32(cell));
 }
 
+/// The position along one axis of a chunk of point `q` of tile copy `cell`.
+/// Twin of `shader_model::tile_position`.
+fn tile_position(cell: u32, q: u32, tile_size: f32) -> f32 {
+    return f32((cell << 16u) + q) * (tile_size / 65536.0);
+}
+
 /// A point of world XZ, in metres along the field's axes from its minimum
 /// corner. Twin of `FieldGpu::local_of`.
 fn world_to_field(field: Field, point: vec2<f32>) -> vec2<f32> {
@@ -377,9 +385,15 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
         hash2(world_tile(chunk.ids.y, tiles, cell_x), world_tile(chunk.ids.z, tiles, cell_z)),
         field.placement.x,
     );
-    let offset = vec2<f32>(unit(cell_hash), unit(hash(cell_hash)));
-    let p = fract(tile[point] + offset);
-    var at = chunk.bounds.xy + (vec2<f32>(f32(cell_x), f32(cell_z)) + p) * field.extent.w;
+    // Each tile copy is shifted by its own offset, in 1/65536ths of the
+    // tile and wrapping, and the position inside the chunk is exact.
+    let point_q = tile[point];
+    let qx = ((point_q & 0xffffu) + (cell_hash & 0xffffu)) & 0xffffu;
+    let qz = ((point_q >> 16u) + (cell_hash >> 16u)) & 0xffffu;
+    var at = chunk.bounds.xy + vec2<f32>(
+        tile_position(cell_x, qx, field.extent.w),
+        tile_position(cell_z, qz, field.extent.w),
+    );
     let rank = (f32(point) + 0.5) / f32(TILE_POINTS);
     let seed = hash2(cell_hash, point);
 
