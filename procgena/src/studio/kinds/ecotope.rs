@@ -7,7 +7,8 @@ use procgena_core::preset::{from_value, to_value};
 
 use super::{Kind, RegisterKind, entries};
 use crate::ecotope::editor::{
-    EcotopeEdited, EcotopeEditor, EcotopeEditorPlugin, load_ecotope, spawn_ecotope_editor,
+    EcotopeEdited, EcotopeEditor, EcotopeEditorPlugin, forward_tree_picks, load_ecotope,
+    spawn_ecotope_editor,
 };
 use crate::scene::{EcotopeSubject, Show};
 use crate::studio::documents::DocumentEdited;
@@ -23,6 +24,7 @@ pub fn register(app: &mut App) {
                 reframe: edited.reframe,
             });
         })
+        .add_observer(forward_tree_picks)
         .register_kind(Kind {
             id: "ecotope",
             label: "Ecotope",

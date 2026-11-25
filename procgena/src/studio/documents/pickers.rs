@@ -9,7 +9,6 @@ use procgena_core::preset::{Layer, Preset, Reference};
 use crate::studio::project::Presets;
 
 /// One preset a picker offers.
-#[derive(Debug, Clone)]
 pub struct PresetChoice<P: Preset> {
     /// The reference that names it, as a file writes it: the key, or the
     /// key with its namespace when the project and the built-in presets
@@ -54,6 +53,53 @@ where
             })
         })
         .collect()
+}
+
+/// The presets of type `P` pickers offer, kept as [`preset_choices`] gives
+/// them and refreshed whenever the project's presets change.
+#[derive(Resource)]
+pub struct Choices<P: Preset>(pub Vec<PresetChoice<P>>);
+
+impl<P: Preset> Choices<P>
+where
+    P::Options: Clone,
+{
+    /// The choices `presets` offers now.
+    pub fn of(presets: &Presets) -> Self {
+        Self(preset_choices(presets))
+    }
+}
+
+/// Keeps [`Choices<P>`] up to date. Add once for each `P` that pickers
+/// offer.
+pub struct ChoicesPlugin<P>(std::marker::PhantomData<P>);
+
+impl<P> Default for ChoicesPlugin<P> {
+    fn default() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+impl<P: Preset + Send + Sync> Plugin for ChoicesPlugin<P>
+where
+    P::Options: Clone + Send + Sync,
+{
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Presets>();
+        let choices = Choices::<P>::of(app.world().resource::<Presets>());
+        app.insert_resource(choices)
+            .add_systems(PreUpdate, refresh_choices::<P>);
+    }
+}
+
+/// Fills or refreshes [`Choices<P>`] when the presets change.
+fn refresh_choices<P: Preset + Send + Sync>(presets: Res<Presets>, mut commands: Commands)
+where
+    P::Options: Clone + Send + Sync,
+{
+    if presets.is_changed() {
+        commands.insert_resource(Choices::<P>::of(&presets));
+    }
 }
 
 /// The index in `choices` of the preset whose options equal `options`, or
