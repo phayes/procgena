@@ -19,7 +19,7 @@ use procgena_impostor::{
 };
 use procgena_stone::Stone;
 
-use super::{PoolDefinitions, StonePool, renderer_lod};
+use super::{PoolDefinitions, StonePool};
 use crate::material::{StoneMaterial, bake_copy};
 use crate::mesh::stone_mesh;
 use crate::spawn::SpawnSettings;
@@ -115,16 +115,16 @@ pub(crate) fn bake_pool_impostors(
                 continue;
             };
 
-            // The baked impostor becomes the slot's last level, and the lower
+            // The baked impostor becomes the slot's last step, and the lower
             // mesh now ends where it takes over.
             let definition = definitions.pools.get_mut(id).expect("checked above");
             let mut slots = definition.slots.to_vec();
             slots[variant].parts.push(InstancedPart {
-                level: Step::Impostor.index() as u32,
+                step: Step::Impostor,
                 mesh: PartMesh::Mesh(quad.0.clone()),
                 material: material.untyped(),
             });
-            slots[variant].lod = renderer_lod(true);
+            slots[variant].impostor = true;
             definition.slots = slots.into();
             *step = VariantImpostor::Done;
         }

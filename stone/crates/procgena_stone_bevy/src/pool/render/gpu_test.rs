@@ -25,6 +25,7 @@ use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
+use procgena_core::chain::Step;
 use procgena_core_bevy::instanced::{ExternalMeshes, InstancedScatter};
 use procgena_stone::{Stone, StoneDetail, StoneOptions, TextureSize};
 
@@ -271,14 +272,11 @@ fn gpu_pool_variants_gain_their_baked_impostor_as_the_last_level() {
     run_until_generated(&mut app);
 
     // Each variant's impostor is baked in the background, then drawn
-    // after its two mesh levels.
+    // after its two mesh steps.
     let impostor_level = |app: &mut App| {
         let mut scatters = app.world_mut().query::<&InstancedScatter>();
         let scatter = scatters.single(app.world()).expect("one pool drawer");
-        scatter
-            .slots
-            .iter()
-            .all(|slot| slot.lod.levels.len() == 3 && slot.parts.iter().any(|p| p.level == 2))
+        scatter.slots.iter().all(|slot| slot.impostor)
     };
     for _ in 0..MAX_FRAMES {
         if impostor_level(&mut app) {
@@ -290,12 +288,8 @@ fn gpu_pool_variants_gain_their_baked_impostor_as_the_last_level() {
     let mut scatters = app.world_mut().query::<&InstancedScatter>();
     let scatter = scatters.single(app.world()).expect("one pool drawer");
     for slot in scatter.slots.iter() {
-        assert_eq!(
-            slot.lod.levels[2].form,
-            procgena_core::LevelForm::Impostor,
-            "the last level is the impostor"
-        );
-        assert_eq!(slot.parts.iter().filter(|p| p.level == 2).count(), 1);
+        let steps: Vec<Step> = slot.parts.iter().map(|part| part.step).collect();
+        assert_eq!(steps, Step::ALL, "the mesh steps, then the impostor");
     }
 }
 

@@ -81,12 +81,12 @@ mod measure;
 
 pub use measure::{CullTimes, InstanceCounts, InstancedTimings, read_instance_counts};
 
+use super::chain::{slot_steps, view_scale_ratio};
 use super::material::{ATTACHED_SIZE, INSTANCE_SIZE, InstancedMaterials};
 use super::{
     AttachedRow, ExternalMeshId, InstancedAttached, InstancedScatter, InstancedSlot, PartMesh,
 };
 use crate::LodQuality;
-use procgena_core::LodRange;
 
 /// The passes a Scatter is drawn in.
 mod pass {
@@ -114,8 +114,6 @@ mod class {
 const DRAW_ARGS_SIZE: u64 = 20;
 /// Threads per workgroup in `instanced_cull.wesl`.
 const WORKGROUP_SIZE: u32 = 64;
-/// Most detail levels a slot can have; one shadow bit each.
-const MAX_LEVELS: usize = 32;
 
 /// The renderer's system sets in the render world's `Render` schedule.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -440,32 +438,33 @@ fn build_scatter(
     let world_from_scatter = extracted.world_from_scatter;
     let slots: &[InstancedSlot] = &scatter.slots;
 
-    // Each slot's levels: valid slots only, with their ranges and shadows.
+    // Each slot's steps, as levels indexed by `Step::index`: valid slots
+    // only, with their ranges and shadows.
     let mut gpu_slots = vec![GpuSlot::default(); slots.len()];
+    let mut slot_shadows = vec![0u32; slots.len()];
     let mut ranges = Vec::new();
     let mut levels = 1u32;
-    for (slot, gpu_slot) in slots.iter().zip(&mut gpu_slots) {
-        let count = slot.lod.levels.len();
-        if let Err(error) = slot.lod.validate() {
-            if !*warned {
-                *warned = true;
-                warn!("procgena_core_bevy: an instanced slot is not drawn: {error}");
+    for ((slot, gpu_slot), shadows) in slots.iter().zip(&mut gpu_slots).zip(&mut slot_shadows) {
+        let steps = match slot_steps(slot) {
+            Ok(steps) => steps,
+            Err(error) => {
+                if !*warned {
+                    *warned = true;
+                    warn!("procgena_core_bevy: an instanced slot is not drawn: {error}");
+                }
+                continue;
             }
-            continue;
-        }
-        if count > MAX_LEVELS {
-            continue;
-        }
+        };
+        let count = steps.len();
         gpu_slot.level_count = count as u32;
         gpu_slot.first_range = ranges.len() as u32;
-        gpu_slot.shadow_mask = slot
-            .lod
-            .levels
+        gpu_slot.shadow_mask = steps
             .iter()
             .enumerate()
-            .filter(|(_, level)| level.casts_shadows)
+            .filter(|(_, step)| step.casts_shadows)
             .fold(0, |mask, (l, _)| mask | (1 << l));
-        ranges.extend(slot.lod.ranges(1.0).iter().map(LodRange::to_vec4));
+        *shadows = gpu_slot.shadow_mask;
+        ranges.extend(steps.iter().map(|step| step.range.to_vec4()));
         levels = levels.max(count as u32);
     }
 
@@ -534,8 +533,7 @@ fn build_scatter(
         let world = world_from_scatter * copy.transform;
         records.push(copy_record(world, copy.wind_phase, metadata_index));
         let (center, radius) = slot.bounds;
-        let factor = copy.size / slot.lod.reference_size;
-        let origin = Vec3::from(world.translation).extend(factor);
+        let origin = Vec3::from(world.translation).extend(copy.size);
         copies.push(GpuCopy {
             sphere: world
                 .transform_point3a(Vec3A::from(center))
@@ -559,14 +557,15 @@ fn build_scatter(
             continue;
         }
         for part in &slot.parts {
-            if part.level >= gpu_slot.level_count {
+            let level = part.step.index() as u32;
+            if level >= gpu_slot.level_count {
                 continue;
             }
             let ranges = &ranges[gpu_slot.first_range as usize..][..gpu_slot.level_count as usize];
             let fades = ranges.len() > 1 || ranges.iter().any(|r| r.w < f32::MAX);
             let attached = is_attached[index];
             let entries = if attached { attached_count } else { copy_count };
-            part_lists.push(index as u32 * levels + part.level);
+            part_lists.push(index as u32 * levels + level);
             parts.push(GpuPart {
                 mesh: match &part.mesh {
                     PartMesh::Mesh(handle) => MeshRef::Asset(handle.id()),
@@ -574,10 +573,10 @@ fn build_scatter(
                 },
                 material: part.material.id(),
                 type_id: part.material.type_id(),
-                casts_shadows: slot.lod.levels[part.level as usize].casts_shadows,
+                casts_shadows: slot_shadows[index] & (1 << level) != 0,
                 dithers: fades,
                 attached,
-                list_start: part.level * entries + gpu_slot.start,
+                list_start: level * entries + gpu_slot.start,
                 list_len: gpu_slot.count,
             });
         }
@@ -726,7 +725,7 @@ fn build_tables(
                 continue;
             }
             let levels = slot_ranges(index);
-            let factor = row.size / slot.lod.reference_size;
+            let factor = row.size;
             let (center, radius) = slot.bounds;
             let center = row.position + row.rotation * (center * row.scale);
             let radius = radius * row.scale;
@@ -736,7 +735,7 @@ fn build_tables(
                 wind: row.wind.extend(factor),
                 sphere: center.extend(radius),
                 slot: row.slot,
-                host_levels: row.host_levels,
+                host_levels: row.host_steps,
             });
             low = low.min(center - radius);
             high = high.max(center + radius);
@@ -895,7 +894,7 @@ fn write_template_args(
 struct CullUniform {
     planes: [Vec4; 6],
     lod_origin: Vec4,
-    quality_scale: f32,
+    band_scale: f32,
     copy_count: u32,
     list_count: u32,
     part_count: u32,
@@ -1018,24 +1017,43 @@ impl ViewBuffers {
 #[derive(Resource, Default)]
 struct ScatterViews(HashMap<(RetainedViewEntity, MainEntity), ViewScatter>);
 
-/// How one view culls and picks detail levels.
+/// The camera a view picks steps for: shadow views pick them for a camera
+/// too, so shadows match what it draws.
+#[derive(Clone, Copy)]
+struct Eye {
+    /// Where steps are measured from.
+    origin: Vec3,
+    /// How much larger things look through the camera than through the
+    /// default lens (see `view_scale_ratio`).
+    view_scale: f32,
+}
+
+impl Eye {
+    fn of(camera: &ExtractedView) -> Self {
+        Self {
+            origin: camera.world_from_view.translation(),
+            view_scale: view_scale_ratio(&camera.clip_from_view),
+        }
+    }
+}
+
+/// How one view culls and picks steps.
 #[derive(Clone, Copy)]
 struct CullSpec {
     clip_from_world: Mat4,
-    /// Where detail levels are measured from: the camera.
-    lod_origin: Vec3,
+    eye: Eye,
     shadow: bool,
     /// Keep copies between a directional light and its shadow cascade.
     skip_near: bool,
 }
 
 impl CullSpec {
-    fn new(view: &ExtractedView, lod_origin: Vec3, shadow: bool, skip_near: bool) -> Self {
+    fn new(view: &ExtractedView, eye: Eye, shadow: bool, skip_near: bool) -> Self {
         Self {
             clip_from_world: view.clip_from_world.unwrap_or_else(|| {
                 view.clip_from_view * view.world_from_view.to_matrix().inverse()
             }),
-            lod_origin,
+            eye,
             shadow,
             skip_near,
         }
@@ -1110,12 +1128,12 @@ fn prepare_views(
     // Each camera, and the directional shadow cascades Bevy lists for it.
     let mut first_camera = None;
     for (camera, lights, layers) in &cameras {
-        let origin = camera.world_from_view.translation();
-        first_camera.get_or_insert(origin);
+        let eye = Eye::of(camera);
+        first_camera.get_or_insert(eye);
         let default_layers = RenderLayers::default();
         update(
             camera.retained_view_entity,
-            CullSpec::new(camera, origin, false, false),
+            CullSpec::new(camera, eye, false, false),
             Some(layers.unwrap_or(&default_layers)),
         );
         for &light in lights.map_or(&[][..], |l| l.lights.as_slice()) {
@@ -1123,21 +1141,21 @@ fn prepare_views(
                 let directional = matches!(kind, LightEntity::Directional { .. });
                 update(
                     view.retained_view_entity,
-                    CullSpec::new(view, origin, true, directional),
+                    CullSpec::new(view, eye, true, directional),
                     None,
                 );
             }
         }
     }
 
-    // Point and spot shadow views, which all cameras share, choose detail
-    // levels from the first camera.
-    if let Some(origin) = first_camera {
+    // Point and spot shadow views, which all cameras share, choose steps
+    // for the first camera.
+    if let Some(eye) = first_camera {
         for (view, kind) in &light_views {
             let directional = matches!(kind, LightEntity::Directional { .. });
             update(
                 view.retained_view_entity,
-                CullSpec::new(view, origin, true, directional),
+                CullSpec::new(view, eye, true, directional),
                 None,
             );
         }
@@ -1167,8 +1185,8 @@ fn update_view(
     }
     state.uniform.set(CullUniform {
         planes: frustum_planes(&spec.clip_from_world),
-        lod_origin: spec.lod_origin.extend(1.0),
-        quality_scale,
+        lod_origin: spec.eye.origin.extend(1.0),
+        band_scale: quality_scale * spec.eye.view_scale,
         copy_count: gpu.copy_count,
         list_count: size.lists,
         part_count: size.parts,

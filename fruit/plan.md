@@ -787,7 +787,8 @@ give fruit a GPU pass of its own. How the plan maps onto it:
   variant): the row's slot (fruit specimen), its place, turn and scale in
   host coordinates, its size for fruit levels, three wind floats (the
   branch sway `[trunk_bend, branch_weight, branch_phase]`), and
-  `host_levels`, a mask of the host levels that draw it. Rows are stored
+  `host_levels` (now `host_steps`, under IX), a mask of the host levels
+  that draw it. Rows are stored
   once per tree variant; nothing is stored per tree copy.
 - **The tree decides which clusters are drawn, through `host_levels`.**
   `cluster_stride` and `cluster_scale` become rows: a cluster kept at

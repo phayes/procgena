@@ -1227,10 +1227,11 @@ mod tests {
         let (_, fruit) = tree.skeleton().clusters(ClusterPart::Fruit);
         assert_eq!(scatter.slots.len(), 1 + fruit.len());
         assert!(scatter.slots[0].parts.is_empty());
-        assert_eq!(scatter.slots[0].lod.levels.len(), 2);
+        assert!(!scatter.slots[0].impostor);
+        assert!(scatter.slots[0].cull);
         for slot in &scatter.slots[1..] {
-            assert_eq!(slot.lod.levels.len(), 2, "fruit steps");
-            assert_eq!(slot.lod.cull_distance, None, "the tree decides");
+            assert!(!slot.impostor, "fruit steps");
+            assert!(!slot.cull, "the tree decides");
             assert!(!slot.parts.is_empty());
         }
         assert_eq!(scatter.copies.len(), 1);
@@ -1247,8 +1248,15 @@ mod tests {
             .count();
         assert!(kept < table.len());
         let rows = &attached.tables[0];
-        let game = rows.iter().filter(|row| row.host_levels == 0b01).count();
-        let lower = rows.iter().filter(|row| row.host_levels == 0b10).count();
+        let on = |step| procgena_core_bevy::instanced::AttachedRow::steps([step]);
+        let game = rows
+            .iter()
+            .filter(|row| row.host_steps == on(Step::Game))
+            .count();
+        let lower = rows
+            .iter()
+            .filter(|row| row.host_steps == on(Step::Lower))
+            .count();
         assert_eq!(game, table.len());
         assert_eq!(lower, kept);
         assert_eq!(rows.len(), game + lower, "no other masks");

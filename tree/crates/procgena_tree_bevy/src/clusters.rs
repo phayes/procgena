@@ -13,10 +13,10 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use procgena_core::chain::{self, DistanceChain, Step};
-use procgena_core::{Lod, SpecimenId, content_hash};
+use procgena_core::{SpecimenId, content_hash};
 use procgena_core_bevy::instanced::{
     AttachedRow, InstancedAttached, InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot,
-    PartMesh, chain_lod,
+    PartMesh,
 };
 use procgena_tree::procgena_fruit::Fruit;
 use procgena_tree::{ClusterPart, ClusterRow, LodDetail, Skeleton};
@@ -139,21 +139,13 @@ pub(crate) struct ClusterImpostors<'a> {
     pub(crate) baked: &'a HashMap<SpecimenId, FruitImpostor>,
 }
 
-/// The renderer's level table for a cluster slot: the shared
-/// [`DistanceChain`]'s game-level and lower meshes and, with `impostor`,
-/// its impostor (see [`chain_lod`]), with no cull of its own. The tree
-/// decides how far its clusters are drawn: they stop where the tree's
-/// impostor takes over, or at the tree's cull.
-pub(crate) fn cluster_lod(impostor: bool) -> Lod {
-    Lod {
-        cull_distance: None,
-        ..chain_lod(&DistanceChain::DEFAULT, impostor)
-    }
-}
-
 /// The instanced slot of one cluster specimen, drawn with `material` as its
 /// game-level and lower meshes, then as its impostor where `impostors` has
-/// one for it.
+/// one for it, through the shared [`DistanceChain`].
+///
+/// It has no cull of its own: the tree decides how far its clusters are
+/// drawn. They stop where the tree's impostor takes over (no row covers
+/// that step), or at the tree's cull.
 fn cluster_slot(
     specimen: &ClusterSpecimen<Handle<Mesh>>,
     material: &Handle<TreeMaterial>,
@@ -164,7 +156,7 @@ fn cluster_slot(
         .zip(&specimen.levels)
         .filter_map(|(step, mesh)| {
             Some(InstancedPart {
-                level: step.index() as u32,
+                step,
                 mesh: PartMesh::Mesh(mesh.clone()?),
                 material: material.clone().untyped(),
             })
@@ -173,7 +165,7 @@ fn cluster_slot(
     let impostor = impostors.and_then(|impostors| {
         let baked = impostors.baked.get(&specimen.id)?;
         parts.push(InstancedPart {
-            level: Step::Impostor.index() as u32,
+            step: Step::Impostor,
             mesh: PartMesh::Mesh(impostors.quad.clone()),
             material: baked.material.clone().untyped(),
         });
@@ -182,7 +174,9 @@ fn cluster_slot(
     InstancedSlot {
         specimen: specimen.id,
         piece: 0,
-        lod: cluster_lod(impostor.is_some()),
+        chain: DistanceChain::DEFAULT,
+        cull: false,
+        impostor: impostor.is_some(),
         parts,
         bounds: (Vec3::ZERO, specimen.radius * FLUTTER_ALLOWANCE),
     }
@@ -219,7 +213,7 @@ fn attached_rows(
 
         // One row per scale.
         let specimen = &clusters.specimens[row.slot as usize];
-        for (scale, host_levels) in scales {
+        for (scale, host_steps) in scales {
             let scale = row.scale * scale;
             rows.push(AttachedRow {
                 slot: slot_of[row.slot as usize],
@@ -228,7 +222,7 @@ fn attached_rows(
                 scale,
                 size: specimen.size * scale,
                 wind: Vec3::from_array(row.wind),
-                host_levels,
+                host_steps,
             });
         }
     }
@@ -271,7 +265,7 @@ pub(crate) fn grove_clusters<'a>(
 
 /// What a tree drawn on its own needs to draw its clusters: a Scatter of
 /// one copy of the tree (slot 0: the tree specimen `tree`, with no parts,
-/// carrying only the chain's level table, with the impostor once
+/// carrying only the chain's steps, with the impostor step once
 /// `impostor` is shown) with its cluster specimens as the other slots, and
 /// the rows. `tree_lod` gives the details of its two meshes, `bounds` a
 /// sphere around it, and `copy` its size and wind phase, so the clusters
@@ -293,7 +287,9 @@ pub(crate) fn single_tree_clusters(
     let host = InstancedSlot {
         specimen: tree,
         piece: 0,
-        lod: chain_lod(&DistanceChain::DEFAULT, impostor),
+        chain: DistanceChain::DEFAULT,
+        cull: true,
+        impostor,
         parts: Vec::new(),
         bounds,
     };
@@ -317,30 +313,66 @@ pub(crate) fn single_tree_clusters(
 
 #[cfg(test)]
 mod tests {
-    use procgena_core::LevelForm;
-
     use super::*;
 
-    /// A cluster slot draws the chain's steps, with the impostor last and
-    /// casting no shadows, and no cull of its own: its tree decides how far
-    /// it is drawn.
+    /// A specimen with both meshes, 10 cm across.
+    fn specimen(meshes: &mut Assets<Mesh>) -> ClusterSpecimen<Handle<Mesh>> {
+        let mut mesh = || Some(meshes.add(Cuboid::from_length(0.1)));
+        ClusterSpecimen {
+            id: SpecimenId::new(
+                1,
+                procgena_core::PoolId::new(
+                    procgena_core::GeneratorKind::from_key("procgena_tree_bevy.test.cluster"),
+                    procgena_core::OptionsHash(1),
+                ),
+                0,
+            ),
+            size: 0.1,
+            radius: 0.05,
+            detail: 0,
+            levels: [mesh(), mesh()],
+        }
+    }
+
+    /// A cluster slot draws the shared chain's steps, with its impostor
+    /// last once baked, and no cull of its own: its tree decides how far it
+    /// is drawn.
     #[test]
     fn a_cluster_slot_has_the_chain_without_a_cull() {
-        let without = cluster_lod(false);
-        let with = cluster_lod(true);
-        for lod in [&without, &with] {
-            lod.validate().unwrap();
-            assert_eq!(lod.cull_distance, None);
-        }
-        assert_eq!(without.levels.len(), 2);
-        assert_eq!(with.levels.len(), 3);
-        let impostor = with.levels.last().unwrap();
-        assert_eq!(impostor.form, LevelForm::Impostor);
-        assert!(!impostor.casts_shadows);
+        let mut meshes = Assets::<Mesh>::default();
+        let specimen = specimen(&mut meshes);
+        let material = Handle::<TreeMaterial>::default();
+        let quad = meshes.add(Rectangle::default());
+        let mut baked = HashMap::new();
 
-        // The steps switch where the shared chain does.
-        let chain = chain_lod(&DistanceChain::DEFAULT, true);
-        let distances = |lod: &Lod| lod.levels.iter().map(|l| l.distance).collect::<Vec<_>>();
-        assert_eq!(distances(&with), distances(&chain));
+        let without = cluster_slot(&specimen, &material, None);
+        let impostors = ClusterImpostors {
+            quad: &quad,
+            baked: &baked,
+        };
+        let unbaked = cluster_slot(&specimen, &material, Some(impostors));
+        let material_handle = Handle::default();
+        baked.insert(
+            specimen.id,
+            FruitImpostor {
+                material: material_handle,
+            },
+        );
+        let impostors = ClusterImpostors {
+            quad: &quad,
+            baked: &baked,
+        };
+        let with = cluster_slot(&specimen, &material, Some(impostors));
+
+        for slot in [&without, &unbaked, &with] {
+            assert_eq!(slot.chain, DistanceChain::DEFAULT);
+            assert!(!slot.cull, "the tree decides");
+        }
+        let steps = |slot: &InstancedSlot| slot.parts.iter().map(|p| p.step).collect::<Vec<_>>();
+        assert!(!without.impostor && !unbaked.impostor);
+        assert_eq!(steps(&without), [Step::Game, Step::Lower]);
+        assert_eq!(steps(&unbaked), [Step::Game, Step::Lower]);
+        assert!(with.impostor);
+        assert_eq!(steps(&with), Step::ALL);
     }
 }

@@ -55,9 +55,9 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
-use procgena_core::Lod;
 use procgena_terrain::{
-    ChunkDetail, ChunkKey, Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions,
+    ChunkDetail, ChunkKey, ChunkLevels, Elevation, RegionId, TerrainPreset, WorldTerrain,
+    WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
     GroundTextureSettings, TerrainChunk, TerrainDebug, TerrainPlugin, TerrainProgress,
@@ -99,7 +99,7 @@ struct Fly {
     seconds: f32,
     /// The chunk levels, to tell which drawn chunks are coarser than their
     /// distance wants.
-    lod: Lod,
+    levels: ChunkLevels,
     /// Seconds flown so far.
     flown: f32,
     /// Seconds with coarse ground (or none) under the camera, in all and
@@ -193,13 +193,13 @@ fn main() {
         cell_on_screen: v.parse::<f32>().expect("--cell-pixels needs a number") / 720.0,
         ..ChunkDetail::DEFAULT
     });
-    let lod = detail.lod(view);
-    let plugin = TerrainPlugin::new(lod.clone()).expect("--view needs a positive distance");
+    let levels = detail.levels(view);
+    let plugin = TerrainPlugin::new(levels.clone()).expect("--view needs a positive distance");
     let flight = value("--fly").map(|speed| Fly {
         speed: speed.parse().expect("--fly needs a speed in m/s"),
         seconds: value("--fly-seconds")
             .map_or(10.0, |s| s.parse().expect("--fly-seconds needs a number")),
-        lod,
+        levels,
         flown: 0.0,
         coarse_underfoot: 0.0,
         longest_coarse: 0.0,
@@ -538,10 +538,10 @@ fn fly(
     // are chosen (across the ground, and the height above the chunk's
     // middle), allowing for the levels' hysteresis.
     let coarsest = |d: f64| {
-        fly.lod
+        fly.levels
             .levels
             .iter()
-            .rposition(|l| f64::from(l.distance * (1.0 - l.hysteresis)) <= d)
+            .rposition(|l| f64::from(l.start * (1.0 - l.hysteresis)) <= d)
             .unwrap_or(0)
     };
     let too_coarse = chunks

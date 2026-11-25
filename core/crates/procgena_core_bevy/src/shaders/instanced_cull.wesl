@@ -17,8 +17,10 @@ struct CullView {
     /// Where detail levels are measured from, in `xyz`: the camera, also
     /// for its shadow views.
     lod_origin: vec4<f32>,
-    /// The quality setting's distance scale.
-    quality_scale: f32,
+    /// What every slot's bands are multiplied by, besides each copy's size:
+    /// the quality setting's distance scale times how much larger things
+    /// look through this view's camera than through the default lens.
+    band_scale: f32,
     copy_count: u32,
     list_count: u32,
     part_count: u32,
@@ -126,7 +128,7 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
 
     // Distance in the slot's reference metres.
     let distance = length(copy.origin.xyz - view.lod_origin.xyz)
-        / (copy.origin.w * view.quality_scale);
+        / (copy.origin.w * view.band_scale);
     if view.shadow == 1u {
         let last = ranges[slot.first_range + slot.level_count - 1u];
         if distance >= 0.5 * last.z + 0.5 * last.w {

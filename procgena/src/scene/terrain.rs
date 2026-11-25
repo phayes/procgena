@@ -7,7 +7,8 @@ use bevy::math::DVec2;
 use bevy::prelude::*;
 use procgena_terrain::ground::GroundStack;
 use procgena_terrain::{
-    Elevation, RegionId, TerrainOptions, WorldError, WorldTerrain, WorldTerrainOptions, chunk_lod,
+    Elevation, RegionId, TerrainOptions, WorldError, WorldTerrain, WorldTerrainOptions,
+    chunk_levels,
 };
 use procgena_terrain_bevy::{
     RegionTracker, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream,
@@ -48,7 +49,7 @@ pub struct TerrainShow {
 
 /// The terrain plugin, drawing out to [`VIEW_DISTANCE`].
 pub(crate) fn plugin() -> TerrainPlugin {
-    TerrainPlugin::new(chunk_lod(VIEW_DISTANCE)).expect("the view distance is positive")
+    TerrainPlugin::new(chunk_levels(VIEW_DISTANCE)).expect("the view distance is positive")
 }
 
 /// The ground for `settings`: an endless world of regions, each with the

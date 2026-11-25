@@ -17,7 +17,7 @@ use procgena_core::CopyAddress;
 use procgena_core::chain::{DistanceChain, Lod, Step};
 use procgena_core_bevy::instanced::{
     InstancedAttached, InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, PartMesh,
-    SpecimenCache, chain_lod,
+    SpecimenCache,
 };
 use procgena_tree::LodDetail;
 
@@ -124,17 +124,25 @@ fn grove_slots(
         .iter()
         .map(|variant| {
             let specimen = cache.specimen_id(variant.key);
-            let (lod, parts) = variant_parts(variant);
+            let parts = variant_parts(variant);
+            let impostor = variant.impostor().is_some();
             if variant.is_ready() {
-                for level in 0..lod.levels.len() as u32 {
-                    let at_level = parts.iter().filter(|p| p.level == level).cloned();
-                    specimens.insert(specimen, 0, level, at_level.collect());
+                let steps = if impostor {
+                    &Step::ALL[..]
+                } else {
+                    &Step::ALL[..2]
+                };
+                for &step in steps {
+                    let at_step = parts.iter().filter(|p| p.step == step).cloned();
+                    specimens.insert(specimen, 0, step, at_step.collect());
                 }
             }
             InstancedSlot {
                 specimen,
                 piece: 0,
-                lod,
+                chain: DistanceChain::DEFAULT,
+                cull: true,
+                impostor,
                 bounds: variant_bounds(variant),
                 parts,
             }
@@ -177,27 +185,25 @@ fn grove_slots(
     )
 }
 
-/// A variant's level table and parts: the shared chain's game-level and
-/// lower meshes, then its impostor once baked (until then, its lower mesh
-/// is drawn until the cull).
-fn variant_parts(variant: &TreeScatterVariant) -> (procgena_core::Lod, Vec<InstancedPart>) {
+/// A variant's parts: its game-level and lower meshes, then its impostor
+/// once baked (until then, its lower mesh is drawn until the cull).
+fn variant_parts(variant: &TreeScatterVariant) -> Vec<InstancedPart> {
     let mut parts: Vec<InstancedPart> = variant
         .parts()
         .map(|part| InstancedPart {
-            level: part.step.index() as u32,
+            step: part.step,
             mesh: PartMesh::Mesh(part.mesh.clone()),
             material: part.material.clone().untyped(),
         })
         .collect();
     if let Some(impostor) = variant.impostor() {
         parts.push(InstancedPart {
-            level: Step::Impostor.index() as u32,
+            step: Step::Impostor,
             mesh: PartMesh::Mesh(impostor.quad.clone()),
             material: impostor.material.clone().untyped(),
         });
     }
-    let lod = chain_lod(&DistanceChain::DEFAULT, variant.impostor().is_some());
-    (lod, parts)
+    parts
 }
 
 /// A sphere around every part of `variant` at both mesh steps, enlarged for

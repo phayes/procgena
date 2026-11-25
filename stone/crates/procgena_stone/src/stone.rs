@@ -1,7 +1,7 @@
 //! Creates a rock and provides access to its settings, shape, and triangle meshes.
 
 use glam::Vec3;
-use procgena_core::chain::{DistanceChain, Lod, Step, ViewScale};
+use procgena_core::chain::{Lod, Step};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, tags};
 
 use crate::detail::StoneDetail;
@@ -166,19 +166,13 @@ impl Stone {
     ///
     /// The specimen has two levels: the game-level mesh, then the lower
     /// mesh. Each holds a single part tagged [`tags::ROCK`], or no parts if
-    /// that mesh is empty. The lower level starts where the default
-    /// [`DistanceChain`] switches to it for this rock, seen through a
-    /// [`ViewScale::DEFAULT`] camera at High quality. A part is marked closed
-    /// only if its mesh is watertight; its shells are left unknown.
+    /// that mesh is empty. A part is marked closed only if its mesh is
+    /// watertight; its shells are left unknown.
     pub fn specimen(&self) -> Specimen {
-        let factor = DistanceChain::factor(self.bounding_diameter(), ViewScale::DEFAULT);
-        let lower_start = factor / DistanceChain::DEFAULT.lower_below;
         let levels = self
             .meshes
             .iter()
-            .zip([0.0, lower_start])
-            .map(|(mesh, start)| Level {
-                start,
+            .map(|mesh| Level {
                 parts: self.rock_part(mesh).into_iter().collect(),
             })
             .collect();
@@ -298,14 +292,6 @@ mod tests {
         let specimen = stone.specimen();
         specimen.validate().unwrap();
         assert_eq!(specimen.levels.len(), 2);
-
-        // The lower level starts where the default chain switches to it.
-        let factor = DistanceChain::factor(stone.bounding_diameter(), ViewScale::DEFAULT);
-        assert_eq!(specimen.levels[0].start, 0.0);
-        assert_eq!(
-            specimen.levels[1].start,
-            factor / DistanceChain::DEFAULT.lower_below
-        );
 
         // Each level is the matching mesh, as one watertight rock part.
         for (level, (_, _, mesh)) in specimen.levels.iter().zip(stone.levels()) {

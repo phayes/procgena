@@ -149,7 +149,7 @@ fn run_until_settled(app: &mut App, singles: usize) {
                 .query::<&InstancedScatter>()
                 .iter(world)
                 .flat_map(|scatter| scatter.slots.iter())
-                .any(|slot| slot.lod.levels.len() < Step::ALL.len());
+                .any(|slot| !slot.impostor);
         let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
         let compiling = cache.waiting_pipelines().next().is_some();
         settled = if building || baking || compiling {

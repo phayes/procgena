@@ -6,9 +6,9 @@ use std::fmt;
 use std::ops::Range;
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
+use procgena_core::chain::Step;
 use procgena_core::hash::{derive_seed, seed_for};
 use procgena_core::scatter::{Disc, Placement};
-use procgena_core::chain::Step;
 use procgena_core::{CopyAddress, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 use serde::{Deserialize, Serialize};
@@ -465,16 +465,14 @@ impl MushroomScatter {
     /// meshes and the lower meshes as its two levels, and parts of the same
     /// kind merged. This can be a large mesh; drawing
     /// [`instances`](Self::instances) is usually cheaper.
-    ///
-    /// The lower level starts where the default chain switches the largest
-    /// instance to its lower mesh, as for [`crate::Mushroom::specimen`].
     pub fn specimen(&self) -> Specimen {
         let meshes: Vec<[(Step, MushroomMesh); 2]> = self
             .bodies
             .iter()
             .map(|body| {
                 let lod = body.options().game_level.lod();
-                lod.meshes().map(|(step, detail)| (step, body.build(detail)))
+                lod.meshes()
+                    .map(|(step, detail)| (step, body.build(detail)))
             })
             .collect();
         let levels = [0, 1].map(|l| {
@@ -485,12 +483,7 @@ impl MushroomScatter {
                 .collect();
             (Step::ALL[l], combine(&placed))
         });
-        let largest = self
-            .instances
-            .iter()
-            .map(|i| self.bodies[i.variant as usize].bounding_diameter() * i.scale)
-            .fold(0.0, f32::max);
-        specimen_from_meshes(&levels, largest)
+        specimen_from_meshes(&levels)
     }
 }
 

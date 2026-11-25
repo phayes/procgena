@@ -1,8 +1,9 @@
 //! The shared Bevy runtime for procgena assets.
 //!
-//! Every asset fades between its levels of detail in the same way, and draws
-//! them as far as one quality setting allows. This crate holds the Bevy side
-//! of that; the levels themselves are [`procgena_core::Lod`].
+//! Every asset fades between the steps of its chain in the same way, and
+//! draws them as far as one quality setting allows. This crate holds the
+//! Bevy side of that; the chain itself is
+//! [`procgena_core::chain::DistanceChain`].
 //!
 //! - [`LodPlugin`] adds the dither shader module and the [`LodQuality`]
 //!   resource. Asset plugins add it themselves; adding it more than once is
@@ -21,13 +22,14 @@
 //!
 //! ```no_run
 //! use bevy::prelude::*;
-//! use procgena_core::{Lod, LodLevel, Quality};
+//! use procgena_core::Quality;
+//! use procgena_core::chain::{DistanceChain, ViewScale};
 //! use procgena_core_bevy::{LodPlugin, LodQuality, visibility_range};
 //!
 //! fn spawn(mut commands: Commands, quality: Res<LodQuality>) {
-//!     let lod = Lod::new(1.0, vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(10.0, 0.1, ())]);
-//!     // A copy 2 m across.
-//!     for range in lod.ranges(lod.factor(2.0, quality.0)) {
+//!     // A copy 2 m across, seen through the default camera.
+//!     let factor = DistanceChain::factor(2.0, ViewScale::DEFAULT);
+//!     for range in DistanceChain::DEFAULT.ranges(factor, quality.0) {
 //!         commands.spawn((Transform::default(), visibility_range(&range)));
 //!     }
 //! }
@@ -109,9 +111,10 @@ fn load_instanced_shaders(app: &mut App) {
 
 /// The quality setting every asset scales its drawing distances by.
 ///
-/// Change it from a settings menu; assets read it when they work out each
-/// copy's levels (see [`procgena_core::Lod::factor`]). Defaults to
-/// [`Quality::High`].
+/// Change it from a settings menu; assets read it when they work out where
+/// each copy's steps are drawn (see
+/// [`DistanceChain::ranges`](procgena_core::chain::DistanceChain::ranges)).
+/// Defaults to [`Quality::High`].
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LodQuality(pub Quality);
 
@@ -134,18 +137,20 @@ mod tests {
     use bevy::asset::{AssetPlugin, Assets};
     use bevy::prelude::*;
     use bevy::shader::{Shader, ShaderLoader};
-    use procgena_core::{Lod, LodLevel};
 
     use super::*;
 
     #[test]
     fn visibility_ranges_carry_the_fade_bands() {
-        let lod = Lod::new(
-            1.0,
-            vec![LodLevel::new(0.0, 0.1, ()), LodLevel::new(10.0, 0.1, ())],
-        )
-        .with_cull(40.0);
-        let ranges: Vec<_> = lod.ranges(2.0).iter().map(visibility_range).collect();
+        let near = LodRange {
+            fade_in: 0.0..0.0,
+            fade_out: 18.0..22.0,
+        };
+        let far = LodRange {
+            fade_in: 18.0..22.0,
+            fade_out: 72.0..88.0,
+        };
+        let ranges: Vec<_> = [near, far].iter().map(visibility_range).collect();
         assert_eq!(ranges[0].start_margin, 0.0..0.0);
         assert_eq!(ranges[0].end_margin, 18.0..22.0);
         assert_eq!(ranges[1].start_margin, 18.0..22.0);

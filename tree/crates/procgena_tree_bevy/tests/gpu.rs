@@ -92,15 +92,13 @@ fn spawn_scene(app: &mut App) -> Entity {
 
 /// Whether every slot of `grove`'s scatter has its impostor step.
 fn impostors_drawn(app: &mut App, grove: Entity) -> bool {
-    let impostor = Step::Impostor.index();
     app.world()
         .entity(grove)
         .get::<InstancedScatter>()
         .is_some_and(|scatter| {
             !scatter.copies.is_empty()
                 && scatter.slots.iter().all(|slot| {
-                    slot.lod.levels.len() == impostor + 1
-                        && slot.parts.iter().any(|p| p.level as usize == impostor)
+                    slot.impostor && slot.parts.iter().any(|p| p.step == Step::Impostor)
                 })
         })
 }
@@ -140,12 +138,11 @@ fn a_grove_draws_every_step_and_its_impostors() {
 
     // Every slot draws parts at both mesh steps, then its impostor.
     let scatter = app.world().entity(grove).get::<InstancedScatter>().unwrap();
-    let impostor = Step::Impostor.index() as u32;
     for slot in scatter.slots.iter() {
-        for level in 0..=impostor {
+        for step in Step::ALL {
             assert!(
-                slot.parts.iter().any(|p| p.level == level),
-                "a slot has no part at level {level}"
+                slot.parts.iter().any(|p| p.step == step),
+                "a slot has no part at step {step:?}"
             );
         }
     }

@@ -1,7 +1,7 @@
 //! Check the cluster's two meshes on the drawing chain: the game level and
 //! the coarser mesh derived from it.
 
-use procgena_core::chain::{DistanceChain, LowerDetail, ViewScale};
+use procgena_core::chain::LowerDetail;
 use procgena_fruit::{
     ClusterDetail, FlowerPreset, Fruit, FruitOptions, FruitPreset, ItemDetail, cluster_presets,
 };
@@ -55,7 +55,8 @@ fn a_cluster_specimen_has_its_two_meshes() {
     let specimen = fruit.specimen();
     assert_eq!(specimen.levels.len(), 2);
     assert!(specimen.levels.iter().all(|l| l.parts.len() == 1));
-    let factor = DistanceChain::factor(fruit.size(), ViewScale::DEFAULT);
-    let expected = factor / DistanceChain::DEFAULT.lower_below;
-    assert!((specimen.levels[1].start - expected).abs() < 1e-6);
+    let meshes = fruit.meshes();
+    for (level, mesh) in specimen.levels.iter().zip([&meshes.game, &meshes.lower]) {
+        assert_eq!(level.parts[0].mesh.indices, mesh.indices);
+    }
 }

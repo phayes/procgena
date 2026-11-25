@@ -479,7 +479,6 @@ impl StickScatter {
     /// [`Piece::specimen`]: every copy's game-level mesh, then every copy's
     /// lower mesh. Each level holds one part per set of tags, with every
     /// copy's mesh merged in. Strips are left out, as in [`Piece::specimen`].
-    /// The lower level starts where the largest variant's does.
     ///
     /// # Panics
     ///
@@ -487,21 +486,15 @@ impl StickScatter {
     /// index.
     pub fn specimen(&self) -> Specimen {
         let per_variant: Vec<Specimen> = self.variants.iter().map(Piece::specimen).collect();
-        let lower_start = per_variant
-            .iter()
-            .map(|s| s.levels[1].start)
-            .fold(0.0, f32::max);
-        let levels = [0.0, lower_start]
-            .into_iter()
-            .enumerate()
-            .map(|(l, start)| {
+        let levels = (0..2)
+            .map(|l| {
                 let mut parts: Vec<Part> = Vec::new();
                 for inst in &self.instances {
                     for part in &per_variant[inst.variant as usize].levels[l].parts {
                         merge_part(&mut parts, part, &inst.transform);
                     }
                 }
-                Level { start, parts }
+                Level { parts }
             })
             .collect();
         Specimen { levels }

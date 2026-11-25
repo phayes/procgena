@@ -64,12 +64,11 @@ impl Part {
     }
 }
 
-/// One detail level of a [`Specimen`].
+/// One detail level of a [`Specimen`]. Where each level is drawn is up to
+/// the asset's [`DistanceChain`](procgena_core::chain::DistanceChain), not
+/// the specimen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Level {
-    /// Camera distance in metres at which this level starts to be drawn.
-    /// 0 for the most detailed level.
-    pub start: f32,
     /// The level's parts.
     pub parts: Vec<Part>,
 }
@@ -81,7 +80,9 @@ pub struct Level {
 /// example, picks the parts tagged `rock` or `bark` with a [`TagFilter`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct Specimen {
-    /// Detail levels, most detailed first. Must hold at least one.
+    /// Detail levels, most detailed first. Must hold at least one. An
+    /// asset drawn through a chain holds its game-level mesh, then its
+    /// lower mesh.
     pub levels: Vec<Level>,
 }
 
@@ -89,31 +90,20 @@ impl Specimen {
     /// Creates a specimen with a single detail level made of `parts`.
     pub fn single(parts: Vec<Part>) -> Self {
         Self {
-            levels: vec![Level { start: 0.0, parts }],
+            levels: vec![Level { parts }],
         }
     }
 
     /// Checks that the specimen is well formed.
     ///
-    /// Returns the first problem found: no levels, a level start that is
-    /// negative, not finite or smaller than the one before it, a part whose
-    /// mesh is not a valid [`Surface`], or shells that don't follow the
-    /// rules on [`Part::shells`].
+    /// Returns the first problem found: no levels, a part whose mesh is not
+    /// a valid [`Surface`], or shells that don't follow the rules on
+    /// [`Part::shells`].
     pub fn validate(&self) -> Result<(), SpecimenError> {
         if self.levels.is_empty() {
             return Err(SpecimenError::NoLevels);
         }
-        let mut previous = 0.0;
         for (l, level) in self.levels.iter().enumerate() {
-            // Levels start at increasing distances.
-            if !level.start.is_finite() || level.start < previous {
-                return Err(SpecimenError::LevelStart {
-                    level: l,
-                    start: level.start,
-                });
-            }
-            previous = level.start;
-
             // Every part is a valid mesh with valid shells.
             for (p, part) in level.parts.iter().enumerate() {
                 if let Err(error) = part.surface() {
@@ -202,9 +192,6 @@ impl Specimen {
 pub enum SpecimenError {
     /// The specimen has no detail levels.
     NoLevels,
-    /// A level's start distance is negative, not finite, or smaller than
-    /// the previous level's.
-    LevelStart { level: usize, start: f32 },
     /// A part's mesh buffers are not a valid [`Surface`].
     Mesh {
         level: usize,
@@ -219,11 +206,6 @@ impl fmt::Display for SpecimenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoLevels => write!(f, "the specimen has no detail levels"),
-            Self::LevelStart { level, start } => write!(
-                f,
-                "level {level} starts at {start}, which is not a finite distance \
-                 at least as far as the level before"
-            ),
             Self::Mesh { level, part, error } => {
                 write!(f, "part {part} of level {level}: {error}")
             }
@@ -309,30 +291,6 @@ mod tests {
             Specimen { levels: vec![] }.validate(),
             Err(SpecimenError::NoLevels)
         );
-
-        // Levels must start at increasing, finite distances.
-        let mut far_first = tree();
-        far_first.levels.push(Level {
-            start: 20.0,
-            parts: vec![],
-        });
-        far_first.levels.push(Level {
-            start: 10.0,
-            parts: vec![],
-        });
-        assert_eq!(
-            far_first.validate(),
-            Err(SpecimenError::LevelStart {
-                level: 2,
-                start: 10.0
-            })
-        );
-        let mut nan = tree();
-        nan.levels[0].start = f32::NAN;
-        assert!(matches!(
-            nan.validate(),
-            Err(SpecimenError::LevelStart { level: 0, .. })
-        ));
 
         // A part must be a valid mesh.
         let mut empty = tree();
