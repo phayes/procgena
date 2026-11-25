@@ -1490,7 +1490,10 @@ summary below is for ordering.
     Scatter on its own;
   - placement order, chunk independence and border negotiation when one
     layer reads another's copies across a chunk edge;
-  - GPU everywhere: dependent layers run in sequence, not concurrently;
+  - GPU everywhere: a layer waits only for the layers it reads. The user
+    suggests building the dependency graph of the layers, so independent
+    branches still run concurrently on the GPU and only real chains run
+    in sequence;
   - overlap with the Ecotope's ground layers (`under: scatter`), which
     already follow copies, and with `MushroomGrowth` and `PlantGrowth`.
   Ends in a recommendation for the user, and an ARCHITECTURE change if
