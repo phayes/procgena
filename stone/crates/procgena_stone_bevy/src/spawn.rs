@@ -547,15 +547,33 @@ fn spawn_stone_parts(commands: &mut Commands, stone: Entity, generated: &Generat
 /// Removes unused rock generation entries and their unneeded materials.
 /// Their shapes and materials can be freed when nothing else references them.
 /// Texture images stay cached for reuse.
+///
+/// A rock spawned in the same frame as the rocks it replaces may not have
+/// its [`StoneKey`] yet, so the key its options will ask for counts as used
+/// too: replacing rocks with ones that look the same never generates them
+/// again.
 pub(crate) fn prune_cache(
     mut removed: RemovedComponents<StoneKey>,
     keys: Query<&StoneKey>,
+    unkeyed: Query<&StoneParams, Without<StoneKey>>,
+    options_assets: Res<Assets<StonePresetAsset>>,
     mut cache: ResMut<StoneCache>,
 ) {
     if removed.read().count() == 0 {
         return;
     }
-    let used: HashSet<&StoneKey> = keys.iter().collect();
+
+    // The keys in use, and those that rocks still waiting for one will use.
+    let mut used: HashSet<StoneKey> = keys.iter().cloned().collect();
+    for stone in &unkeyed {
+        let key = match stone {
+            StoneParams::Options(options) => Some(StoneKey::of(options)),
+            StoneParams::Asset(handle) => options_assets
+                .get(handle)
+                .map(|asset| StoneKey::of(&asset.0.stone)),
+        };
+        used.extend(key);
+    }
     cache.stones.retain(|key, _| used.contains(key));
     cache.impostors.retain(|key, _| used.contains(key));
 
@@ -734,6 +752,68 @@ mod tests {
         app.world_mut().entity_mut(stone).remove::<StoneParams>();
         app.update();
         assert!(!app.world().entity(stone).contains::<GeneratedSpecimen>());
+    }
+
+    /// The rock to replace, when [`replace_rock`] should replace it.
+    #[derive(Resource)]
+    struct Replace(Entity);
+
+    /// Despawns the rock in [`Replace`] and spawns one with the same options,
+    /// as an Ecotope does when it draws a Scatter again.
+    fn replace_rock(
+        mut commands: Commands,
+        replace: Option<Res<Replace>>,
+        stones: Query<&StoneParams>,
+    ) {
+        let Some(replace) = replace else {
+            return;
+        };
+        let params = stones.get(replace.0).unwrap().clone();
+        commands.entity(replace.0).despawn();
+        commands.spawn(params);
+        commands.remove_resource::<Replace>();
+    }
+
+    #[test]
+    fn replacing_a_rock_with_a_same_looking_one_keeps_its_cache_entry() {
+        // A rock is generated and cached.
+        let mut app = spawn_app();
+        app.add_systems(
+            Update,
+            (
+                replace_rock.after(start_generation).before(prune_cache),
+                prune_cache.after(spawn_parts),
+            ),
+        );
+        let stone = app.world_mut().spawn(StoneParams::new(quick())).id();
+        update_until_finished(&mut app, stone);
+        let key = app.world().get::<StoneKey>(stone).unwrap().clone();
+        let Some(Entry::Ready(before)) = app.world().resource::<StoneCache>().stones.get(&key)
+        else {
+            panic!("the rock is cached once generated");
+        };
+        let before = before.clone();
+
+        // It is replaced after this frame's keys were handed out and before
+        // the cache is pruned, so the new rock has no key yet when the old
+        // one's removal is seen.
+        app.insert_resource(Replace(stone));
+        app.update();
+        assert!(app.world().get_entity(stone).is_err());
+
+        // The new rock reuses the cached shapes instead of generating them
+        // again, and finishes in the next frame.
+        let Some(Entry::Ready(after)) = app.world().resource::<StoneCache>().stones.get(&key)
+        else {
+            panic!("the cache entry survives the replacement");
+        };
+        assert!(Arc::ptr_eq(&before, after));
+        app.update();
+        let mut waiting = app
+            .world_mut()
+            .query_filtered::<(), (With<StoneParams>, With<StoneGenerating>)>();
+        assert_eq!(waiting.iter(app.world()).count(), 0);
+        assert_eq!(app.world().resource::<Finished>().0.len(), 2);
     }
 
     /// Returns the distinct material identifiers used by a rock's child parts.
