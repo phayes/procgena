@@ -14,10 +14,14 @@ use crate::converge::{
 };
 use crate::elevation::Elevation;
 use crate::feature::FeatureTier;
+use crate::label::Labels;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{Boundary, CornerId, Region, RegionCorner, RegionEdge, RegionError, RegionId};
+use crate::scale::WorldScale;
 use crate::seam::{CornerAgreement, EdgeAgreement, SeamError, negotiate, negotiate_corner};
-use crate::terrain::{HeightField, RiverTrace, Terrain, TerrainError, TerrainGenerator};
+use crate::terrain::{
+    HeightField, LabelField, RiverTrace, Terrain, TerrainError, TerrainGenerator,
+};
 
 /// One region of a [`StitchedWorld`]: its polygon and terrain settings.
 #[derive(Debug, Clone)]
@@ -226,6 +230,21 @@ impl StitchedWorld {
         })
     }
 
+    /// This world with every terrain at `scale` (see
+    /// [`Terrain::with_scale`]). A world is built at scale 1.
+    ///
+    /// # Panics
+    ///
+    /// If either part of `scale` isn't finite and positive.
+    pub fn with_scale(mut self, scale: WorldScale) -> Self {
+        self.terrains = self
+            .terrains
+            .into_iter()
+            .map(|t| t.with_scale(scale))
+            .collect();
+        self
+    }
+
     /// Every shared edge's agreement, sorted by edge id.
     pub fn agreements(&self) -> &[EdgeAgreement] {
         &self.agreements
@@ -261,6 +280,13 @@ impl HeightField for StitchedWorld {
     /// The owning terrain's height at `p`, or NaN outside every region.
     fn height(&self, p: DVec2) -> f32 {
         self.owner(p).map_or(f32::NAN, |t| t.height(p))
+    }
+}
+
+impl LabelField for StitchedWorld {
+    /// The owning terrain's labels at `p`, or `None` outside every region.
+    fn annotate(&self, p: DVec2) -> Option<Labels> {
+        self.owner(p).map(|t| t.annotate(p))
     }
 }
 

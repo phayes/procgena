@@ -31,9 +31,12 @@ pub enum SampleDetail {
     /// Also the gradient: how much the ground rises per metre along x and
     /// z.
     Gradient,
-    /// Also the [`Measures`]. The costliest: about four more heights than
+    /// Also the [`Measures`]: about four more heights than
     /// [`Gradient`](Self::Gradient).
     Measures,
+    /// Also the [`Labels`](crate::Labels). The costliest: about eight more
+    /// heights than [`Measures`](Self::Measures).
+    Labels,
 }
 
 /// What the ground is like at one point, beyond its height (see
