@@ -56,6 +56,7 @@
 mod material;
 mod progress;
 mod stream;
+mod textures;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -78,6 +79,7 @@ pub use material::{DEFAULT_VARIATION, TerrainExtension, TerrainMaterial, Terrain
 
 use material::weight_images;
 pub use progress::RegionTracker;
+pub use textures::{GroundTextureSettings, GroundTextures, TEXTURE_LEVELS};
 
 use stream::{Read, Stream};
 
@@ -170,7 +172,10 @@ pub struct TerrainMaterialPlugin;
 impl Plugin for TerrainMaterialPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/terrain_fragment.wesl");
-        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default());
+        app.add_plugins((LodPlugin, MaterialPlugin::<TerrainMaterial>::default()))
+            .init_resource::<GroundTextureSettings>()
+            .init_resource::<GroundTextures>()
+            .add_systems(Update, textures::load_ground_textures);
     }
 }
 
@@ -446,27 +451,35 @@ impl ChunkLook {
     }
 }
 
-/// A chunk's material, drawing `read`'s ground at `level` with `look`.
+/// A chunk's material, drawing `read`'s ground at `level` with `look`,
+/// textured if `level` is near enough and `textures` have loaded.
 fn chunk_material(
     read: &ChunkRead,
     level: u8,
     look: &ChunkLook,
+    textures: (&GroundTextures, &GroundTextureSettings),
     images: &mut Assets<Image>,
     materials: &mut Assets<TerrainMaterial>,
 ) -> Handle<TerrainMaterial> {
     let [low, high] = read.images.clone();
     let mut surface = read.surface;
     look.apply(&mut surface, level);
+    let mut extension = TerrainExtension {
+        surface,
+        weights_low: images.add(low),
+        weights_high: images.add(high),
+        colour: None,
+        normal: None,
+        orh: None,
+    };
+    let (textures, texture_settings) = textures;
+    extension.set_textures(textures.arrays(), texture_settings, level < TEXTURE_LEVELS);
     materials.add(TerrainMaterial {
         base: StandardMaterial {
             reflectance: 0.2,
             ..default()
         },
-        extension: TerrainExtension {
-            surface,
-            weights_low: images.add(low),
-            weights_high: images.add(high),
-        },
+        extension,
     })
 }
 
@@ -499,6 +512,8 @@ fn stream_chunks(
     settings: Res<TerrainSettings>,
     quality: Res<LodQuality>,
     debug: Res<TerrainDebug>,
+    textures: Res<GroundTextures>,
+    texture_settings: Res<GroundTextureSettings>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -626,8 +641,14 @@ fn stream_chunks(
             let material = match state.materials.get(&key) {
                 Some((drawn, material)) if Arc::ptr_eq(drawn, &read) => material.clone(),
                 _ => {
-                    let material =
-                        chunk_material(&read, key.level, &look, &mut images, &mut materials);
+                    let material = chunk_material(
+                        &read,
+                        key.level,
+                        &look,
+                        (&textures, &texture_settings),
+                        &mut images,
+                        &mut materials,
+                    );
                     state
                         .materials
                         .insert(key, (Arc::clone(&read), material.clone()));
