@@ -25,10 +25,8 @@ domain). Attribution is not required but is given as a courtesy.
 | Id                     | Set                  | Author(s)                      | Source                                       |
 | ---------------------- | -------------------- | ------------------------------ | -------------------------------------------- |
 | `forrest_ground_03`    | Forest Ground 03     | Rob Tuytel                     | https://polyhaven.com/a/forrest_ground_03    |
-| `dry_decay_leaves`     | Dry Decay Leaves     | Amal Kumar                     | https://polyhaven.com/a/dry_decay_leaves     |
 | `leaves_forest_ground` | Leaves Forest Ground | Dario Barresi, Dimitrios Savva | https://polyhaven.com/a/leaves_forest_ground |
-| `forest_leaves_04`     | Forest Leaves 04     | Rob Tuytel                     | https://polyhaven.com/a/forest_leaves_04     |
-| `forest_leaves_02`     | Forest Leaves 02     | Rob Tuytel                     | https://polyhaven.com/a/forest_leaves_02     |
+| `dry_decay_leaves`     | Dry Decay Leaves     | Amal Kumar                     | https://polyhaven.com/a/dry_decay_leaves     |
 
 ## Moss
 

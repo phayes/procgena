@@ -103,6 +103,11 @@ ecotope:
     soil:
       material: forest_soil
       order: 100
+    old_leaves:
+      material: decayed_leaves
+      order: 300
+      opacity: 0.9
+      noise: { wavelength: 10.0, contrast: 1.5, threshold: 0.35 }
     moss:
       material: moss
       order: 320

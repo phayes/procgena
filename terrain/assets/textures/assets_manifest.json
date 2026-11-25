@@ -599,199 +599,6 @@
       ]
     },
     {
-      "id": "dry_decay_leaves",
-      "category": "litter",
-      "title": "Dry Decay Leaves",
-      "authors": [
-        "Amal Kumar"
-      ],
-      "source": "polyhaven",
-      "sourceUrl": "https://polyhaven.com/a/dry_decay_leaves",
-      "license": "CC0-1.0",
-      "files": [
-        {
-          "path": "litter/dry_decay_leaves-128-color-bc7.ktx2",
-          "size": "128",
-          "map": "color",
-          "format": "bc7",
-          "width": 128,
-          "height": 128,
-          "bytes": 21725,
-          "sha256": "66f15a8082c8c40937cbee73747201d1a3b44a18d0c0b882f816a2936b40f06e"
-        },
-        {
-          "path": "litter/dry_decay_leaves-128-color-uastc.ktx2",
-          "size": "128",
-          "map": "color",
-          "format": "uastc",
-          "width": 128,
-          "height": 128,
-          "bytes": 21123,
-          "sha256": "aba4c992d57d0042ce450b8582e742626e87a0d8b4cc2c5b076377ec85c73696"
-        },
-        {
-          "path": "litter/dry_decay_leaves-128-normal-bc7.ktx2",
-          "size": "128",
-          "map": "normal",
-          "format": "bc7",
-          "width": 128,
-          "height": 128,
-          "bytes": 21323,
-          "sha256": "02117bf80462a09a53141a4988bac68113eac948372ea632416bd47bb4802a01"
-        },
-        {
-          "path": "litter/dry_decay_leaves-128-normal-uastc.ktx2",
-          "size": "128",
-          "map": "normal",
-          "format": "uastc",
-          "width": 128,
-          "height": 128,
-          "bytes": 20857,
-          "sha256": "dd89160354fddcbee5973598122cb5512cd10f5479d9848da2f2dafd0cb0dbcc"
-        },
-        {
-          "path": "litter/dry_decay_leaves-128-orh-bc7.ktx2",
-          "size": "128",
-          "map": "orh",
-          "format": "bc7",
-          "width": 128,
-          "height": 128,
-          "bytes": 21928,
-          "sha256": "5062e20c7ec96aa7e47725f40097892459928d3e9617859a1a216e4427adcbb3"
-        },
-        {
-          "path": "litter/dry_decay_leaves-128-orh-uastc.ktx2",
-          "size": "128",
-          "map": "orh",
-          "format": "uastc",
-          "width": 128,
-          "height": 128,
-          "bytes": 20722,
-          "sha256": "6c4a48fbdbed69686dcd266816737d85b21bd8a091047edbc4524dd6cbbfe5db"
-        },
-        {
-          "path": "litter/dry_decay_leaves-512-color-bc7.ktx2",
-          "size": "512",
-          "map": "color",
-          "format": "bc7",
-          "width": 512,
-          "height": 512,
-          "bytes": 321322,
-          "sha256": "fc65bfedc939a30e105354233c90ed3ead91c3f1ba01bd2b95fa09bd89271ffd"
-        },
-        {
-          "path": "litter/dry_decay_leaves-512-color-uastc.ktx2",
-          "size": "512",
-          "map": "color",
-          "format": "uastc",
-          "width": 512,
-          "height": 512,
-          "bytes": 291932,
-          "sha256": "3c66e22d362bb167d703c2292d38927433814dd808b01de6889c8a7bccb21d81"
-        },
-        {
-          "path": "litter/dry_decay_leaves-512-normal-bc7.ktx2",
-          "size": "512",
-          "map": "normal",
-          "format": "bc7",
-          "width": 512,
-          "height": 512,
-          "bytes": 333065,
-          "sha256": "5c5486039554cb6d3a7488a2f469d293e5bdaac854ea76b5346607eada50fa48"
-        },
-        {
-          "path": "litter/dry_decay_leaves-512-normal-uastc.ktx2",
-          "size": "512",
-          "map": "normal",
-          "format": "uastc",
-          "width": 512,
-          "height": 512,
-          "bytes": 330792,
-          "sha256": "8316cdbc583589d002527cb5b0bf25d939decb52f37af17efbc86bdb41d6dbd0"
-        },
-        {
-          "path": "litter/dry_decay_leaves-512-orh-bc7.ktx2",
-          "size": "512",
-          "map": "orh",
-          "format": "bc7",
-          "width": 512,
-          "height": 512,
-          "bytes": 344500,
-          "sha256": "c28d593dee40a5a648acc26765b27fea4385c39a7ac26ba3cc277e7508ece403"
-        },
-        {
-          "path": "litter/dry_decay_leaves-512-orh-uastc.ktx2",
-          "size": "512",
-          "map": "orh",
-          "format": "uastc",
-          "width": 512,
-          "height": 512,
-          "bytes": 321489,
-          "sha256": "dc3a9de961b91f55c5ab396654442b1444753b52869eb84e3f41948d82c4f029"
-        },
-        {
-          "path": "litter/dry_decay_leaves-1k-color-bc7.ktx2",
-          "size": "1k",
-          "map": "color",
-          "format": "bc7",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1237853,
-          "sha256": "41f2c055f0d1f766049e44855ae15cf8f90b88165e60053d98d8d470acf09b24"
-        },
-        {
-          "path": "litter/dry_decay_leaves-1k-color-uastc.ktx2",
-          "size": "1k",
-          "map": "color",
-          "format": "uastc",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1090153,
-          "sha256": "7eb144e5412e8ffa78013094661f62b8aed1db4e8adbe3a9966e51554fe089a4"
-        },
-        {
-          "path": "litter/dry_decay_leaves-1k-normal-bc7.ktx2",
-          "size": "1k",
-          "map": "normal",
-          "format": "bc7",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1323389,
-          "sha256": "9cfdabec74acbdc5dc1a38785249bd3c77f72c82093bae7e4fbe6d6fa7ee0109"
-        },
-        {
-          "path": "litter/dry_decay_leaves-1k-normal-uastc.ktx2",
-          "size": "1k",
-          "map": "normal",
-          "format": "uastc",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1297170,
-          "sha256": "9440cdbfb5c4307944654d1390c2abf6e1175d9867f4b00b70006f5dde83d268"
-        },
-        {
-          "path": "litter/dry_decay_leaves-1k-orh-bc7.ktx2",
-          "size": "1k",
-          "map": "orh",
-          "format": "bc7",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1363682,
-          "sha256": "fb31bd594f878b59afbb5af5e8ee1197541b6dd99e22259cb013ef61c5960f91"
-        },
-        {
-          "path": "litter/dry_decay_leaves-1k-orh-uastc.ktx2",
-          "size": "1k",
-          "map": "orh",
-          "format": "uastc",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1291209,
-          "sha256": "820d65fd026af6592023c8a684367e9588180a91faebc226f7a16dfb63ac5296"
-        }
-      ]
-    },
-    {
       "id": "leaves_forest_ground",
       "category": "litter",
       "title": "Leaves Forest Ground",
@@ -986,388 +793,195 @@
       ]
     },
     {
-      "id": "forest_leaves_04",
+      "id": "dry_decay_leaves",
       "category": "litter",
-      "title": "Forest Leaves 04",
+      "title": "Dry Decay Leaves",
       "authors": [
-        "Rob Tuytel"
+        "Amal Kumar"
       ],
       "source": "polyhaven",
-      "sourceUrl": "https://polyhaven.com/a/forest_leaves_04",
+      "sourceUrl": "https://polyhaven.com/a/dry_decay_leaves",
       "license": "CC0-1.0",
       "files": [
         {
-          "path": "litter/forest_leaves_04-128-color-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-128-color-bc7.ktx2",
           "size": "128",
           "map": "color",
           "format": "bc7",
           "width": 128,
           "height": 128,
-          "bytes": 22308,
-          "sha256": "f0de7f72ea406e4684e40dd559aeee0856485690923e70ba7538031583a8d206"
+          "bytes": 21725,
+          "sha256": "66f15a8082c8c40937cbee73747201d1a3b44a18d0c0b882f816a2936b40f06e"
         },
         {
-          "path": "litter/forest_leaves_04-128-color-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-128-color-uastc.ktx2",
           "size": "128",
           "map": "color",
           "format": "uastc",
           "width": 128,
           "height": 128,
-          "bytes": 21871,
-          "sha256": "a8bb1bc87d4510a605d461b20056be66841baba762f0aa8477cf9651081fad1e"
+          "bytes": 21123,
+          "sha256": "aba4c992d57d0042ce450b8582e742626e87a0d8b4cc2c5b076377ec85c73696"
         },
         {
-          "path": "litter/forest_leaves_04-128-normal-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-128-normal-bc7.ktx2",
           "size": "128",
           "map": "normal",
           "format": "bc7",
           "width": 128,
           "height": 128,
-          "bytes": 21767,
-          "sha256": "bf4e42e88f3feaf9b1c6d2fac79850aa3b27f081a19b04fd2b3cc20cf74cebd0"
+          "bytes": 21323,
+          "sha256": "02117bf80462a09a53141a4988bac68113eac948372ea632416bd47bb4802a01"
         },
         {
-          "path": "litter/forest_leaves_04-128-normal-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-128-normal-uastc.ktx2",
           "size": "128",
           "map": "normal",
           "format": "uastc",
           "width": 128,
           "height": 128,
-          "bytes": 20865,
-          "sha256": "24f44a6c0341097ee95411c91f0b779fc06234442b463cd89366329115b3c8c7"
+          "bytes": 20857,
+          "sha256": "dd89160354fddcbee5973598122cb5512cd10f5479d9848da2f2dafd0cb0dbcc"
         },
         {
-          "path": "litter/forest_leaves_04-128-orh-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-128-orh-bc7.ktx2",
           "size": "128",
           "map": "orh",
           "format": "bc7",
           "width": 128,
           "height": 128,
-          "bytes": 22009,
-          "sha256": "a1e6ab76452c86eec70b50f2294799ae45df69bf59c62d7ae26f11bcbee7bc8a"
+          "bytes": 21928,
+          "sha256": "5062e20c7ec96aa7e47725f40097892459928d3e9617859a1a216e4427adcbb3"
         },
         {
-          "path": "litter/forest_leaves_04-128-orh-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-128-orh-uastc.ktx2",
           "size": "128",
           "map": "orh",
           "format": "uastc",
           "width": 128,
           "height": 128,
-          "bytes": 20968,
-          "sha256": "42e186ee81e4d1bdf9225be0997271568349040aef7b324d7336b5e1da3900c2"
+          "bytes": 20722,
+          "sha256": "6c4a48fbdbed69686dcd266816737d85b21bd8a091047edbc4524dd6cbbfe5db"
         },
         {
-          "path": "litter/forest_leaves_04-512-color-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-512-color-bc7.ktx2",
           "size": "512",
           "map": "color",
           "format": "bc7",
           "width": 512,
           "height": 512,
-          "bytes": 347670,
-          "sha256": "ac85d741abb050abee4083b4a296f1d90a25c700c442830f6d8676467480de12"
+          "bytes": 321322,
+          "sha256": "fc65bfedc939a30e105354233c90ed3ead91c3f1ba01bd2b95fa09bd89271ffd"
         },
         {
-          "path": "litter/forest_leaves_04-512-color-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-512-color-uastc.ktx2",
           "size": "512",
           "map": "color",
           "format": "uastc",
           "width": 512,
           "height": 512,
-          "bytes": 337502,
-          "sha256": "1958b8691f13165c9b1217f197930d41bee5238eea142031f50c7348b6cf7feb"
+          "bytes": 291932,
+          "sha256": "3c66e22d362bb167d703c2292d38927433814dd808b01de6889c8a7bccb21d81"
         },
         {
-          "path": "litter/forest_leaves_04-512-normal-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-512-normal-bc7.ktx2",
           "size": "512",
           "map": "normal",
           "format": "bc7",
           "width": 512,
           "height": 512,
-          "bytes": 344838,
-          "sha256": "9e01321a13ef5e6af7f3eb719294da2255062278ae1636c84246c5f6bff145a3"
+          "bytes": 333065,
+          "sha256": "5c5486039554cb6d3a7488a2f469d293e5bdaac854ea76b5346607eada50fa48"
         },
         {
-          "path": "litter/forest_leaves_04-512-normal-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-512-normal-uastc.ktx2",
           "size": "512",
           "map": "normal",
           "format": "uastc",
           "width": 512,
           "height": 512,
-          "bytes": 332168,
-          "sha256": "59e94be900fa33d81a9fdacbb5fbb48bf1727b0e18b5753fbdd2705d12f08918"
+          "bytes": 330792,
+          "sha256": "8316cdbc583589d002527cb5b0bf25d939decb52f37af17efbc86bdb41d6dbd0"
         },
         {
-          "path": "litter/forest_leaves_04-512-orh-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-512-orh-bc7.ktx2",
           "size": "512",
           "map": "orh",
           "format": "bc7",
           "width": 512,
           "height": 512,
-          "bytes": 344420,
-          "sha256": "14079116258d2b3d53136036ca6126906a63d42ba90315a5a049ed26d3bc4d9c"
+          "bytes": 344500,
+          "sha256": "c28d593dee40a5a648acc26765b27fea4385c39a7ac26ba3cc277e7508ece403"
         },
         {
-          "path": "litter/forest_leaves_04-512-orh-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-512-orh-uastc.ktx2",
           "size": "512",
           "map": "orh",
           "format": "uastc",
           "width": 512,
           "height": 512,
-          "bytes": 327843,
-          "sha256": "d505992f1afd8d67a49ee1d40dbbc470f153deb46d0f5783582632fa7e5a6a09"
+          "bytes": 321489,
+          "sha256": "dc3a9de961b91f55c5ab396654442b1444753b52869eb84e3f41948d82c4f029"
         },
         {
-          "path": "litter/forest_leaves_04-1k-color-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-1k-color-bc7.ktx2",
           "size": "1k",
           "map": "color",
           "format": "bc7",
           "width": 1024,
           "height": 1024,
-          "bytes": 1381151,
-          "sha256": "13c29329b318f7facc62be8dfa6d1127e97262a5217fff6a0fd473effaea0e41"
+          "bytes": 1237853,
+          "sha256": "41f2c055f0d1f766049e44855ae15cf8f90b88165e60053d98d8d470acf09b24"
         },
         {
-          "path": "litter/forest_leaves_04-1k-color-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-1k-color-uastc.ktx2",
           "size": "1k",
           "map": "color",
           "format": "uastc",
           "width": 1024,
           "height": 1024,
-          "bytes": 1344386,
-          "sha256": "b7f918e3b3160f0254868167b381cb91070905d41534deea86410346bfbc101a"
+          "bytes": 1090153,
+          "sha256": "7eb144e5412e8ffa78013094661f62b8aed1db4e8adbe3a9966e51554fe089a4"
         },
         {
-          "path": "litter/forest_leaves_04-1k-normal-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-1k-normal-bc7.ktx2",
           "size": "1k",
           "map": "normal",
           "format": "bc7",
           "width": 1024,
           "height": 1024,
-          "bytes": 1381654,
-          "sha256": "c78c44c9c581b3eb9b435ac217d65b2154b3d647d590102d0f426d03178d21c1"
+          "bytes": 1323389,
+          "sha256": "9cfdabec74acbdc5dc1a38785249bd3c77f72c82093bae7e4fbe6d6fa7ee0109"
         },
         {
-          "path": "litter/forest_leaves_04-1k-normal-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-1k-normal-uastc.ktx2",
           "size": "1k",
           "map": "normal",
           "format": "uastc",
           "width": 1024,
           "height": 1024,
-          "bytes": 1312774,
-          "sha256": "75217e3926a57c1754c998d43667d79f41e74ac71e65e8a65bf3dd681807ec03"
+          "bytes": 1297170,
+          "sha256": "9440cdbfb5c4307944654d1390c2abf6e1175d9867f4b00b70006f5dde83d268"
         },
         {
-          "path": "litter/forest_leaves_04-1k-orh-bc7.ktx2",
+          "path": "litter/dry_decay_leaves-1k-orh-bc7.ktx2",
           "size": "1k",
           "map": "orh",
           "format": "bc7",
           "width": 1024,
           "height": 1024,
-          "bytes": 1367840,
-          "sha256": "6208c9bbfb4e85e690fce6dc5011e517f7e6db36e7a33e2603820af20a2be154"
+          "bytes": 1363682,
+          "sha256": "fb31bd594f878b59afbb5af5e8ee1197541b6dd99e22259cb013ef61c5960f91"
         },
         {
-          "path": "litter/forest_leaves_04-1k-orh-uastc.ktx2",
+          "path": "litter/dry_decay_leaves-1k-orh-uastc.ktx2",
           "size": "1k",
           "map": "orh",
           "format": "uastc",
           "width": 1024,
           "height": 1024,
-          "bytes": 1303970,
-          "sha256": "4f4a8e8a264f74ef9ae516af120d305aff7c2b626838f525727e8431d00adaca"
-        }
-      ]
-    },
-    {
-      "id": "forest_leaves_02",
-      "category": "litter",
-      "title": "Forest Leaves 02",
-      "authors": [
-        "Rob Tuytel"
-      ],
-      "source": "polyhaven",
-      "sourceUrl": "https://polyhaven.com/a/forest_leaves_02",
-      "license": "CC0-1.0",
-      "files": [
-        {
-          "path": "litter/forest_leaves_02-128-color-bc7.ktx2",
-          "size": "128",
-          "map": "color",
-          "format": "bc7",
-          "width": 128,
-          "height": 128,
-          "bytes": 22308,
-          "sha256": "9af42cd5912a25f89dafd671d52a0ce1b826a59bda1bba8319897ddf7bdaeb63"
-        },
-        {
-          "path": "litter/forest_leaves_02-128-color-uastc.ktx2",
-          "size": "128",
-          "map": "color",
-          "format": "uastc",
-          "width": 128,
-          "height": 128,
-          "bytes": 21932,
-          "sha256": "cc34aec732beb3afe4e2ce4ab030fc52b1e49bc831ef02f79cfea4f02b72fad1"
-        },
-        {
-          "path": "litter/forest_leaves_02-128-normal-bc7.ktx2",
-          "size": "128",
-          "map": "normal",
-          "format": "bc7",
-          "width": 128,
-          "height": 128,
-          "bytes": 21832,
-          "sha256": "ad74f2f815d8387de68a1ad811e3fc152cc1533fe80f4e2e66752c216ebae687"
-        },
-        {
-          "path": "litter/forest_leaves_02-128-normal-uastc.ktx2",
-          "size": "128",
-          "map": "normal",
-          "format": "uastc",
-          "width": 128,
-          "height": 128,
-          "bytes": 20797,
-          "sha256": "8dbc139df732c7f32ffdcfe264e36cd7f3d98f86748906345d309fbdb908c5aa"
-        },
-        {
-          "path": "litter/forest_leaves_02-128-orh-bc7.ktx2",
-          "size": "128",
-          "map": "orh",
-          "format": "bc7",
-          "width": 128,
-          "height": 128,
-          "bytes": 21917,
-          "sha256": "dacf956a443767a36cc040e59a4845abf4867915b74c62554df961ab4750dde4"
-        },
-        {
-          "path": "litter/forest_leaves_02-128-orh-uastc.ktx2",
-          "size": "128",
-          "map": "orh",
-          "format": "uastc",
-          "width": 128,
-          "height": 128,
-          "bytes": 21413,
-          "sha256": "58d9d4f40d43ffa072756c1b90c017dcb21845c075a78b1cad1deca36c49d628"
-        },
-        {
-          "path": "litter/forest_leaves_02-512-color-bc7.ktx2",
-          "size": "512",
-          "map": "color",
-          "format": "bc7",
-          "width": 512,
-          "height": 512,
-          "bytes": 348544,
-          "sha256": "930632e232fc68b13627a228db69458465097b4a7a6970424d7db4e6ead6e9af"
-        },
-        {
-          "path": "litter/forest_leaves_02-512-color-uastc.ktx2",
-          "size": "512",
-          "map": "color",
-          "format": "uastc",
-          "width": 512,
-          "height": 512,
-          "bytes": 338064,
-          "sha256": "7e4a62b51e2679e6f4f774eb9cd86fcb0bf261a91998a9ce8a951601f2d3c3d2"
-        },
-        {
-          "path": "litter/forest_leaves_02-512-normal-bc7.ktx2",
-          "size": "512",
-          "map": "normal",
-          "format": "bc7",
-          "width": 512,
-          "height": 512,
-          "bytes": 344355,
-          "sha256": "3385d0fdb3c0cd5e224d0736e770fc38734597748c3116cbfc0dd3e6bd635783"
-        },
-        {
-          "path": "litter/forest_leaves_02-512-normal-uastc.ktx2",
-          "size": "512",
-          "map": "normal",
-          "format": "uastc",
-          "width": 512,
-          "height": 512,
-          "bytes": 330922,
-          "sha256": "db30bfbc0169c10da3732dc30e8e1137d11377e2b8831aca816317d90d36f2bd"
-        },
-        {
-          "path": "litter/forest_leaves_02-512-orh-bc7.ktx2",
-          "size": "512",
-          "map": "orh",
-          "format": "bc7",
-          "width": 512,
-          "height": 512,
-          "bytes": 339273,
-          "sha256": "7e4008466b0bbea4a24e56dc20a6d80a2053624cea114f798fccce27338ad9d1"
-        },
-        {
-          "path": "litter/forest_leaves_02-512-orh-uastc.ktx2",
-          "size": "512",
-          "map": "orh",
-          "format": "uastc",
-          "width": 512,
-          "height": 512,
-          "bytes": 331814,
-          "sha256": "197e5b95267a48c36becade79fbc06a7a65517f5b94eea2f92c3220dd55b5c5a"
-        },
-        {
-          "path": "litter/forest_leaves_02-1k-color-bc7.ktx2",
-          "size": "1k",
-          "map": "color",
-          "format": "bc7",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1380324,
-          "sha256": "4fb52dfd26f77001261c0ac8d34a962447933f91e5ea73c635ee5de47c127aeb"
-        },
-        {
-          "path": "litter/forest_leaves_02-1k-color-uastc.ktx2",
-          "size": "1k",
-          "map": "color",
-          "format": "uastc",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1346527,
-          "sha256": "1e92d908e16c9aecc5f63ffeb39d67ee0917ed52d8a917f350a0f1b10f99d826"
-        },
-        {
-          "path": "litter/forest_leaves_02-1k-normal-bc7.ktx2",
-          "size": "1k",
-          "map": "normal",
-          "format": "bc7",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1380075,
-          "sha256": "481ae8e87f82e22a2b73f4edb604c6d397fc566f93d5566ec5130fcb77885e92"
-        },
-        {
-          "path": "litter/forest_leaves_02-1k-normal-uastc.ktx2",
-          "size": "1k",
-          "map": "normal",
-          "format": "uastc",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1314963,
-          "sha256": "ce30430cae9d550ec4012f9b7331779050602e0de208703e06545b064d6e4c15"
-        },
-        {
-          "path": "litter/forest_leaves_02-1k-orh-bc7.ktx2",
-          "size": "1k",
-          "map": "orh",
-          "format": "bc7",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1334180,
-          "sha256": "3d1cc978a845dfbbf63ed6c3fd770408e039c68f0d8d57d221d6e6e0b3480edf"
-        },
-        {
-          "path": "litter/forest_leaves_02-1k-orh-uastc.ktx2",
-          "size": "1k",
-          "map": "orh",
-          "format": "uastc",
-          "width": 1024,
-          "height": 1024,
-          "bytes": 1331654,
-          "sha256": "29257443b5767920096841ee6a4fed950b807862c656bae6a5e916f3bfb75c60"
+          "bytes": 1291209,
+          "sha256": "820d65fd026af6592023c8a684367e9588180a91faebc226f7a16dfb63ac5296"
         }
       ]
     },

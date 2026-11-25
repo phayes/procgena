@@ -14,9 +14,10 @@ pub const MAX_ORDER: u32 = 1000;
 
 /// The materials a layer can be made of: the keys of the standard ground
 /// material catalogue, in its order.
-pub const MATERIALS: [&str; 11] = [
+pub const MATERIALS: [&str; 12] = [
     "bare_dirt",
     "cliff_rock",
+    "decayed_leaves",
     "forest_soil",
     "grass",
     "gravel_road",
@@ -93,7 +94,7 @@ fn material() -> Param<GroundLayer> {
                 .unwrap_or(0)
         },
         |l: &mut GroundLayer, index| {
-            if let Some(key) = MATERIALS.get(index).and_then(|m| ChildKey::new(m).ok()) {
+            if let Some(key) = MATERIALS.get(index).and_then(|m| ChildKey::new(*m).ok()) {
                 l.material = key;
             }
         },
@@ -104,7 +105,9 @@ fn material() -> Param<GroundLayer> {
 fn noise_params() -> Vec<Param<GroundLayer>> {
     let has = |l: &GroundLayer| l.noise.is_some();
     let read = |l: &GroundLayer| l.noise.unwrap_or_default();
-    let noise = |l: &mut GroundLayer| l.noise.get_or_insert_with(GroundNoise::default);
+    fn noise(l: &mut GroundLayer) -> &mut GroundNoise {
+        l.noise.get_or_insert_with(GroundNoise::default)
+    }
     vec![
         Param::toggle("noise", "Patchy", has, |l: &mut GroundLayer, on| {
             l.noise = on.then(|| l.noise.unwrap_or_default());

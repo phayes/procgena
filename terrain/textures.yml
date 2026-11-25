@@ -34,9 +34,6 @@ sets:
   - {id: mud_forest, category: soil, average: [0.0434, 0.0224, 0.0082]}
   - {id: forrest_ground_03, category: litter, average: [0.3564, 0.2351, 0.1481]}
   - {id: moss_002, category: moss, source: ambientcg, source_id: Moss002, average: [0.0761, 0.1419, 0.0116]}
-  # Leaf litter candidates, compared on the oak and maple forest floor.
-  - {id: dry_decay_leaves, category: litter, average: [0.1737, 0.0767, 0.0356]}
   - {id: leaves_forest_ground, category: litter, average: [0.2005, 0.1198, 0.0468]}
-  - {id: forest_leaves_04, category: litter, average: [0.2429, 0.1308, 0.0580]}
-  - {id: forest_leaves_02, category: litter, average: [0.2986, 0.1813, 0.0594]}
+  - {id: dry_decay_leaves, category: litter, average: [0.1737, 0.0767, 0.0356]}
   - {id: rock_face_03, category: rock, average: [0.2334, 0.1462, 0.0843]}

@@ -126,9 +126,10 @@ const STANDARD: &[(&str, [f32; 3], f32)] = &[
     ("gravel_road", [0.33, 0.3, 0.26], 0.9),
     ("riverbed", [0.17, 0.15, 0.12], 0.5),
     ("bare_dirt", [0.2, 0.13, 0.07], 0.95),
+    ("decayed_leaves", [0.1737, 0.0767, 0.0356], 0.9),
     ("forest_soil", [0.0434, 0.0224, 0.0082], 0.95),
     ("needle_litter", [0.3564, 0.2351, 0.1481], 0.9),
-    ("leaf_litter", [0.1737, 0.0767, 0.0356], 0.9),
+    ("leaf_litter", [0.2005, 0.1198, 0.0468], 0.9),
     ("moss", [0.0761, 0.1419, 0.0116], 0.95),
     ("mud", [0.09, 0.065, 0.04], 0.4),
 ];
@@ -139,7 +140,8 @@ const STANDARD_TEXTURES: &[(&str, &str, f32, Projection, f32)] = &[
     ("cliff_rock", "rock_face_03", 6.0, Projection::Triplanar, 0.5),
     ("forest_soil", "mud_forest", 3.0, Projection::Top, 0.3),
     ("needle_litter", "forrest_ground_03", 2.5, Projection::Top, 0.6),
-    ("leaf_litter", "dry_decay_leaves", 2.5, Projection::Top, 0.6),
+    ("leaf_litter", "leaves_forest_ground", 2.5, Projection::Top, 0.6),
+    ("decayed_leaves", "dry_decay_leaves", 2.5, Projection::Top, 0.4),
     ("moss", "moss_002", 2.0, Projection::Top, 0.5),
 ];
 
@@ -153,7 +155,8 @@ impl MaterialCatalogue {
 
     /// The built-in materials: `grass`, `cliff_rock` and `snow` (the
     /// colours of bare terrain), `gravel_road`, `riverbed`, `bare_dirt`,
-    /// `forest_soil`, `needle_litter`, `leaf_litter`, `moss` and `mud`.
+    /// `decayed_leaves`, `forest_soil`, `needle_litter`, `leaf_litter`,
+    /// `moss` and `mud`.
     /// Cliff rock and the forest floor's materials have textures.
     pub fn standard() -> Self {
         STANDARD
