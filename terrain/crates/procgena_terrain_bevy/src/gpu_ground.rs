@@ -137,10 +137,6 @@ impl GpuGroundPaint {
         ))
     }
 
-    pub(crate) fn supported(stack: &GroundStack) -> bool {
-        Program::new(stack).is_some()
-    }
-
     pub(crate) fn part(&self, key: ChunkKey) -> Arc<Self> {
         Arc::new(Self {
             grid: self.grid.clone(),
@@ -616,6 +612,8 @@ mod tests {
             1.0,
         )
         .unwrap();
-        assert!(!GpuGroundPaint::supported(&stack));
+        let key = ChunkKey::new(0, 0, 0);
+        let grid = Arc::new(GroundGrid::chunk(&Sites, key, FeatureTier::Fine).unwrap());
+        assert!(GpuGroundPaint::prepare(&stack, grid, key).is_none());
     }
 }

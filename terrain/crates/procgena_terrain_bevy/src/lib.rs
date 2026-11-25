@@ -437,7 +437,7 @@ impl ChunkRead {
         let key = samples.key();
         let prepared = painter
             .layer_stack()
-            .filter(|s| gpu && gpu_ground::GpuGroundPaint::supported(s))
+            .filter(|_| gpu)
             .and_then(|stack| gpu_ground::GpuGroundPaint::prepare(stack, grid.clone(), from));
         let (mut images, surface, gpu_paint) = if let Some((paint, surface)) = prepared {
             let paint = if from == key { paint } else { paint.part(key) };
