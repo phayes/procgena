@@ -7,6 +7,7 @@ use glam::{DVec2, IVec2};
 use procgena_biome::{Biome, BiomePreset, BiomeTerrain};
 use procgena_terrain::{
     ElevationOptions, FeatureTier, HeightField, NoiseLayer, RegionId, RegionKey, TerrainPreset,
+    fixtures,
 };
 use procgena_world::{
     BiomePin, BiomeRule, BiomeRules, FieldRange, World, WorldError, WorldOptions,
@@ -440,7 +441,40 @@ fn every_scale_class_builds_a_world() {
         let biome = world.biome_at(DVec2::new(100.0, 200.0));
         assert!(!biome.pinned, "{}", preset.key);
     }
-    assert_eq!(WorldPreset::medium().world, WorldOptions::default());
+    assert_eq!(WorldPreset::medium_small().world, WorldOptions::default());
+}
+
+#[test]
+fn the_default_is_valheim_sized_and_medium_keeps_the_old_land() {
+    // The default World builds E at Valheim scale, once: 200 m continents
+    // 75 km apart and 60 m uplands 20 km apart, on 2 km regions.
+    let default = WorldOptions::default();
+    let e = default.scaled_elevation();
+    assert_eq!(e, ElevationOptions::default());
+    assert_eq!(
+        (e.continents.height, e.continents.wavelength),
+        (200.0, 75_000.0)
+    );
+    assert_eq!((e.uplift.height, e.uplift.wavelength), (60.0, 20_000.0));
+    assert_eq!(default.regions.size, 2000.0);
+
+    // The medium class at scale 2 gives exactly the E, selector fields and
+    // rules of the earlier medium-scale default.
+    let medium = &WorldPreset::medium().world;
+    assert_eq!(medium.scaled_elevation(), fixtures::elevation_medium());
+    assert_eq!(medium.regions, fixtures::regions_medium());
+    let horizontal = medium.scale.horizontal;
+    let fields = &medium.fields;
+    assert_eq!(
+        f64::from(fields.ruggedness.wavelength) * horizontal,
+        12_000.0
+    );
+    assert_eq!(f64::from(fields.moisture.wavelength) * horizontal, 20_000.0);
+    let lowest = medium.biomes.rules[0]
+        .elevation
+        .min
+        .expect("mountains need high land");
+    assert_eq!(f64::from(lowest) * medium.scale.vertical, 150.0);
 }
 
 #[test]
@@ -481,7 +515,7 @@ fn world_files_round_trip() {
     // A file changes one value and keeps the rest of its base.
     let read = WorldPreset::from_yaml(
         "wider",
-        "base: medium\nworld:\n  scale:\n    horizontal: 2.0\n",
+        "base: medium_small\nworld:\n  scale:\n    horizontal: 2.0\n",
     )
     .expect("valid file");
     assert_eq!(read.world.scale.horizontal, 2.0);
@@ -491,7 +525,7 @@ fn world_files_round_trip() {
     // A file that makes E too steep is refused.
     let steep = WorldPreset::from_yaml(
         "taller",
-        "base: medium\nworld:\n  scale:\n    vertical: 2.0\n",
+        "base: medium_small\nworld:\n  scale:\n    vertical: 2.0\n",
     );
     assert!(steep.is_err());
 }

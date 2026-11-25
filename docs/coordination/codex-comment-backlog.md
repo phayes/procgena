@@ -576,6 +576,8 @@ lists its comments by file and item:
   `terrain/crates/procgena_terrain_bevy/src/shaders/terrain_fragment.wesl`.
 - **ED Ecotope draw** (`b9b2f40`, `78ae0a9`, `70f01ff`, `c9eb45e`):
   `ecotope-gpu-profile/comment-rewrite-queue.md`.
+- **Valheim-sized terrain presets** (`6574da4`, `e3976ec`):
+  `valheim-presets-report.md`.
 
 ## Lanes whose item lists were not saved (file level)
 

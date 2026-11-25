@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// World is built. Anything placed by hand (E's bumps, pins), region sizes
 /// and border warp are in real metres and never scaled.
 ///
-/// Start from [`Self::default()`] (the medium scale class) or a
+/// Start from [`Self::default()`] (the medium-small scale class) or a
 /// [`WorldPreset`](crate::WorldPreset), or read a `.world.yml` file with
 /// [`WorldPreset::from_yaml`](crate::WorldPreset::from_yaml).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,8 +50,8 @@ pub struct WorldOptions {
 }
 
 impl Default for WorldOptions {
-    /// The medium scale class (scale 1): 4 km regions on today's Terrain
-    /// presets, with the built-in bare-land Biomes.
+    /// The Valheim-like medium-small scale class (scale 1): 2 km regions on
+    /// the built-in Terrain presets, with the built-in bare-land Biomes.
     fn default() -> Self {
         Self {
             seed: 0,
@@ -93,12 +93,12 @@ impl Default for SelectorFields {
     fn default() -> Self {
         Self {
             ruggedness: SelectorField {
-                wavelength: 12_000.0,
+                wavelength: 6_000.0,
                 octaves: 3,
                 roughness: 0.5,
             },
             moisture: SelectorField {
-                wavelength: 20_000.0,
+                wavelength: 10_000.0,
                 octaves: 3,
                 roughness: 0.5,
             },
@@ -173,19 +173,19 @@ impl Default for BiomeRules {
             rules: vec![
                 rule(
                     "mountains",
-                    FieldRange::at_least(150.0),
+                    FieldRange::at_least(75.0),
                     FieldRange::at_least(0.2),
                     FieldRange::ANY,
                 ),
                 rule(
                     "plains",
-                    FieldRange::at_least(150.0),
+                    FieldRange::at_least(75.0),
                     FieldRange::ANY,
                     FieldRange::below(-0.2),
                 ),
                 rule(
                     "rolling_hills",
-                    FieldRange::at_least(150.0),
+                    FieldRange::at_least(75.0),
                     FieldRange::ANY,
                     FieldRange::ANY,
                 ),
