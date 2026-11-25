@@ -277,14 +277,20 @@ blades of the whole.
     exact binary fractions, which gives the same agreement for less code.
   - The placement test is whole numbers: `is_placed(point, fill, mask)`,
     with the fill (in 1/2²⁴) worked out on the CPU and stored in
-    `FieldGpu.axis.z`, and the mask read with integer bilinear filtering.
-    View thinning (distance, LOD, `density_scale`) stays a float test on
-    the same rank order, so the mirror-against-GPU readback test keeps its
-    1/500 tolerance for blades at a LOD band or the frustum edge. Placement
-    itself is exact for every field; a masked field agrees as far as the
-    mask's bilinear weights do, which are integer on both sides.
+    `FieldGpu.axis.z`, and the mask read with integer bilinear filtering
+    (`mask_density`, twin `edit::mask_density`).
+  - "Bit for bit" holds for the placement decision and the position
+    before any tuft pull, not for the whole readback. View thinning
+    (distance, LOD, `density_scale`), the tuft pull and the readback's
+    16-bit packing stay float. Measured: in all seven mirror scenes the
+    GPU and the mirror place the same number of blades, and at most one
+    blade per scene differs (a thinning edge). About 0.3% differ by one
+    16-bit step in the packed root, so the readback test keeps its
+    one-step position slack and its 1/500 tolerance.
   - Tests: `gpu_fields_that_meet_grow_the_blades_of_one` (one field, two
     and four abutting fields, tufted grass, across negative World chunks),
+    `gpu_a_masked_field_matches_the_cpu_mirror_and_more_mask_only_adds_blades`,
+    `gpu_a_turned_field_grows_the_world_pattern`,
     `more_mask_or_fill_never_removes_a_placed_candidate`,
     `tile_positions_are_exact`, and
     `a_field_is_placed_with_its_own_seed_wherever_it_is`.

@@ -75,8 +75,8 @@ is read from its image once, and again only when that image changes (a 4096 by
 4096 mask takes milliseconds to read, once, not per frame). A change to a
 field's plants or look rewrites only that field's entries, and the chunks,
 masks and heightmaps are neither rebuilt nor uploaded again; a change to
-colours alone is cheaper still. Moving a field sideways rewrites only its
-entries. Setting a field to what it already was costs nothing.
+colours alone is cheaper still. Moving or turning a field rebuilds its
+chunks but reads no image again. Setting a field to what it already was costs nothing.
 `PlantStats::tables` counts it: `images_read`, `entries_rewritten`, `rebuilds`
 and the expensive `layout_rebuilds`.
 
