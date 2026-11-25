@@ -115,9 +115,10 @@ pub(crate) struct FieldGpu {
 /// One chunk. Mirrors `Chunk` in `common.wesl`: 32 bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Default, ShaderType)]
 pub(crate) struct ChunkGpu {
-    /// x, y: offset of the chunk's minimum corner inside its field, in metres;
-    /// z, w: lowest and highest ground in the chunk, world Y.
+    /// x, y: the chunk's minimum corner in world XZ, in metres;
+    /// z, w: lowest and highest ground of the field in the chunk, world Y.
     pub bounds: Vec4,
-    /// x: field index, y, z: chunk coordinates in the field.
+    /// x: field index; y, z: the World chunk's coordinates along X and Z,
+    /// as `i32` bits.
     pub ids: UVec4,
 }

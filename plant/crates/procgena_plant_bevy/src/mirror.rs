@@ -74,14 +74,18 @@ impl ChunkLayout {
     }
 }
 
-/// Candidate `index` of chunk `chunk` in a field seeded with `field_seed`.
+/// Candidate `index` of World chunk `chunk` (its coordinates along X and Z)
+/// in a field seeded with `field_seed`.
 ///
 /// Candidates are numbered point-major: all tile copies' first point, then
 /// all their second point, and so on. Rank grows with the index, so a chunk
 /// that keeps only a fraction of its blades evaluates only a prefix of its
-/// candidates. The WESL twin is `candidate`.
+/// candidates. Each tile copy sits on a World tile cell, and its points come
+/// from that cell and the seed alone, so any field with the same seed and
+/// tile size places the same candidates there. The WESL twin is the start
+/// of `evaluate`.
 pub(crate) fn candidate(
-    chunk: [u32; 2],
+    chunk: [i32; 2],
     field_seed: u32,
     layout: &ChunkLayout,
     index: u32,
@@ -91,7 +95,13 @@ pub(crate) fn candidate(
     let cell = index % cells;
     let cell_x = cell % layout.tiles_per_side;
     let cell_z = cell / layout.tiles_per_side;
-    let cell_hash = hash2(hash2(chunk[0], chunk[1]), hash2(cell, field_seed));
+    let cell_hash = hash2(
+        hash2(
+            world_tile(chunk[0], layout.tiles_per_side, cell_x),
+            world_tile(chunk[1], layout.tiles_per_side, cell_z),
+        ),
+        field_seed,
+    );
     // Each tile copy is shifted by its own random offset (wrapping), so the
     // repetition of one tile across the field is not visible.
     let offset = Vec2::new(unit(cell_hash), unit(hash(cell_hash)));
@@ -101,6 +111,13 @@ pub(crate) fn candidate(
         rank: (point as f32 + 0.5) / TILE_POINTS as f32,
         seed: hash2(cell_hash, point),
     }
+}
+
+/// The World tile cell along one axis of tile `cell` in chunk `chunk`, with
+/// `tiles` tiles along the chunk's side, as the bits of an `i32`. The WESL
+/// twin is `world_tile`.
+pub(crate) fn world_tile(chunk: i32, tiles: u32, cell: u32) -> u32 {
+    chunk.wrapping_mul(tiles as i32).wrapping_add(cell as i32) as u32
 }
 
 /// The share of candidates to keep where the requested density is

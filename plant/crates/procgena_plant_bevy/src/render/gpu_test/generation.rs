@@ -252,3 +252,71 @@ fn gpu_a_raised_camera_matches_the_cpu_mirror() {
     assert_eq!(view.distance_offset, 40.0);
     generation_matches_the_cpu_mirror_in(app, crate::PlantSettings::HIGH);
 }
+
+/// The same ground as one field or as two fields that meet grows the same
+/// blades, tufts and all: candidates sit on World cells, and each field owns
+/// the candidates in its own rectangle before any tuft pulls them.
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_two_fields_that_meet_grow_the_blades_of_one() {
+    // Tufted grass, so roots are pulled across the seam.
+    let options = PlantScatterPreset::SUMMER_WILD.plant_scatter.clone();
+    assert!(options.plants.iter().any(|entry| entry.plant.tufts > 0.0));
+    let sorted = |mut roots: Vec<Vec3>| {
+        roots.sort_by(|a, b| a.to_array().partial_cmp(&b.to_array()).unwrap());
+        roots
+    };
+
+    // One field, 70 by 50 m around (3, -4).
+    let mut app = app_with_field(PlantScatter::with_options(Vec2::ZERO, options.clone()));
+    wait_for_plants(&mut app);
+    let whole = sorted(gpu_roots(&mut app));
+
+    // The same rectangle as two fields, 35 by 50 m each, side by side.
+    let world = app.world_mut();
+    let mut harness = world
+        .query::<(&mut PlantScatter, &mut Transform)>()
+        .single_mut(world)
+        .expect("the harness's field");
+    harness.0.size = Vec2::new(35.0, 50.0);
+    *harness.1 = Transform::from_xyz(3.0 - 17.5, 0.5, -4.0);
+    world.spawn((
+        PlantScatter::with_options(Vec2::new(35.0, 50.0), options),
+        Transform::from_xyz(3.0 + 17.5, 0.5, -4.0),
+    ));
+    for _ in 0..10 {
+        app.update();
+    }
+    let split = sorted(gpu_roots(&mut app));
+
+    assert!(whole.len() > 10_000, "the scene should place many blades");
+    // Roots are read back packed to 16 bits around the view's instance
+    // origin, so the same root may read back a step apart: match each root
+    // with one within 5 mm.
+    let cell = |r: Vec3| (r.xz() / 0.05).floor().as_ivec2();
+    let mut buckets: HashMap<IVec2, Vec<Vec3>> = HashMap::default();
+    for &root in &split {
+        buckets.entry(cell(root)).or_default().push(root);
+    }
+    let mut unmatched = Vec::new();
+    for &root in &whole {
+        let near = (-1..=1).flat_map(|dz| (-1..=1).map(move |dx| IVec2::new(dx, dz)));
+        let found = near.into_iter().find_map(|d| {
+            let bucket = buckets.get_mut(&(cell(root) + d))?;
+            let at = bucket
+                .iter()
+                .position(|other| other.distance(root) < 0.005)?;
+            Some(bucket.swap_remove(at))
+        });
+        if found.is_none() {
+            unmatched.push(root);
+        }
+    }
+    assert_eq!(split.len(), whole.len());
+    assert!(
+        unmatched.is_empty(),
+        "{} roots of the whole field are not in the split ones, such as {:?}",
+        unmatched.len(),
+        &unmatched[..unmatched.len().min(5)]
+    );
+}

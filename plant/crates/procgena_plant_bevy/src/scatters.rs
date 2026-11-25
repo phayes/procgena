@@ -16,7 +16,7 @@ use bevy::ecs::message::MessageReader;
 use bevy::ecs::prelude::*;
 use bevy::image::Image;
 use bevy::log::warn;
-use bevy::math::{EulerRot, Quat, UVec2, UVec4, Vec2, Vec3, Vec4};
+use bevy::math::{EulerRot, IVec2, Quat, UVec2, UVec4, Vec2, Vec3, Vec4};
 use bevy::platform::time::Instant;
 use bevy::transform::TransformSystems;
 use bevy::transform::components::GlobalTransform;
@@ -34,7 +34,8 @@ use crate::{
 use crate::{MAX_BRANCHES, MAX_PLANTS, MAX_STEMS_PER_PLANT};
 use crate::{PlantStats, PlantSystems};
 
-/// Side of a chunk, in metres.
+/// Side of a chunk, in metres. Chunks are squares on a grid fixed to the
+/// World origin, so a field's blades don't depend on where its edges are.
 ///
 /// One size for every view, because the chunk table is shared. T2 in the plan
 /// suggested 8 m chunks for orthographic views; per-blade frustum culling
@@ -55,15 +56,14 @@ impl FieldGpu {
     }
 
     /// A point of the field, in metres along its axes from its minimum
-    /// corner, in world XZ. Twin of `field_to_world` in `generate.wesl`.
-    /// Only the debug gizmos and the tests draw from the GPU table.
-    #[cfg(any(test, feature = "debug"))]
+    /// corner, in world XZ. Only the tests use it.
+    #[cfg(test)]
     pub(crate) fn world_of(&self, local: Vec2) -> Vec2 {
         Vec2::new(self.min_corner.x, self.min_corner.z) + turn(self.x_axis(), local)
     }
 
     /// The point of the field at `point` (world XZ), in metres along its axes
-    /// from its minimum corner.
+    /// from its minimum corner. The WESL twin is `world_to_field`.
     pub(crate) fn local_of(&self, point: Vec2) -> Vec2 {
         let axis = self.x_axis();
         let offset = point - Vec2::new(self.min_corner.x, self.min_corner.z);
@@ -95,6 +95,10 @@ pub(crate) struct FieldTables {
     /// The image of each heightmap in `heights`, in order.
     pub height_ids: Arc<Vec<AssetId<Image>>>,
     pub chunks: Arc<Vec<ChunkGpu>>,
+    /// Where each field's chunks start in `chunks`, in the order of `slots`,
+    /// then the number of chunks. Each field's chunks are in row order:
+    /// by World chunk Z, then X.
+    pub chunk_starts: Arc<Vec<u32>>,
     /// Every mask, two R8G8 texels per word, low half first.
     pub masks: Arc<Vec<u32>>,
     /// Every heightmap, one normalized height per texel.
@@ -111,18 +115,25 @@ impl FieldTables {
     /// field that holds it, or `None` outside every field. A flat field is
     /// exact; on a heightmap it is the top of the 16 m chunk.
     pub(crate) fn highest_ground_at(&self, point: Vec2) -> Option<f32> {
-        let mut first_chunk = 0usize;
-        for slot in self.slots.iter() {
+        let at = chunk_of(point);
+        for (i, slot) in self.slots.iter().enumerate() {
             let field = self.fields.get(slot.first)?;
             let size = Vec2::new(field.extent.x, field.extent.y);
-            let counts = (size / CHUNK_SIZE).ceil().as_uvec2().max(UVec2::ONE);
             let local = field.local_of(point);
-            if local.cmpge(Vec2::ZERO).all() && local.cmplt(size).all() {
-                let cell = (local / CHUNK_SIZE).as_uvec2().min(counts - UVec2::ONE);
-                let index = first_chunk + (cell.y * counts.x + cell.x) as usize;
-                return self.chunks.get(index).map(|chunk| chunk.bounds.w);
+            if !(local.cmpge(Vec2::ZERO).all() && local.cmplt(size).all()) {
+                continue;
             }
-            first_chunk += (counts.x * counts.y) as usize;
+            // The field's chunks are in row order, so search them for the
+            // World chunk holding the point.
+            let (start, end) = (
+                self.chunk_starts[i] as usize,
+                self.chunk_starts[i + 1] as usize,
+            );
+            let chunks = &self.chunks[start..end];
+            let key = |chunk: &ChunkGpu| (chunk.ids.z as i32, chunk.ids.y as i32);
+            if let Ok(found) = chunks.binary_search_by_key(&(at.y, at.x), key) {
+                return Some(chunks[found].bounds.w);
+            }
         }
         None
     }
@@ -213,7 +224,10 @@ impl FieldLook {
 #[derive(Debug, Clone, PartialEq)]
 struct ChunkKey {
     size: Vec2,
-    base: f32,
+    /// The field's minimum corner, which places its chunks on the World grid.
+    corner: Vec3,
+    /// The field's X axis in world XZ.
+    axis: Vec2,
     height: Option<(AssetId<Image>, f32)>,
     /// The index of the field's first entry, which its chunks point at.
     first: usize,
@@ -432,7 +446,7 @@ impl FieldFrame {
     }
 
     /// The point of the field at `point` (world XZ), in metres along its axes
-    /// from its minimum corner.
+    /// from its minimum corner. The WESL twin is `world_to_field`.
     pub(crate) fn local_of(&self, point: Vec2) -> Vec2 {
         let offset = point - self.corner;
         Vec2::new(offset.dot(self.axis), offset.dot(self.axis.perp()))
@@ -677,7 +691,8 @@ impl Plan<'_> {
     fn chunk_key(&self) -> ChunkKey {
         ChunkKey {
             size: self.input.placement.size,
-            base: self.input.placement.corner.y,
+            corner: self.input.placement.corner,
+            axis: self.input.placement.axis,
             height: self.input.height.map(|(id, _, scale)| (id, scale)),
             first: self.first,
         }
@@ -897,14 +912,15 @@ fn images_for(
     }
 }
 
-/// The chunks, kept (and the second value true) while no field resized, moved
-/// up or down, changed heightmap or shifted in the tables.
+/// The chunks and where each field's start, kept (and the last value true)
+/// while no field resized, moved, turned, changed heightmap or shifted in the
+/// tables.
 fn chunks_for(
     plans: &[Plan],
     old: &FieldTables,
     changed: &HashSet<AssetId<Image>>,
     cache: &mut PackedImages,
-) -> (Arc<Vec<ChunkGpu>>, bool) {
+) -> (Arc<Vec<ChunkGpu>>, Arc<Vec<u32>>, bool) {
     let same =
         old.slots.len() == plans.len()
             && old.slots.iter().zip(plans).all(|(slot, plan)| {
@@ -912,17 +928,20 @@ fn chunks_for(
             })
             && !plans.iter().any(|plan| plan.uses_height(changed));
     if same {
-        return (old.chunks.clone(), true);
+        return (old.chunks.clone(), old.chunk_starts.clone(), true);
     }
     let mut chunks = Vec::new();
+    let mut starts = Vec::with_capacity(plans.len() + 1);
     for plan in plans {
+        starts.push(chunks.len() as u32);
         let heights = plan
             .input
             .height
             .map(|(id, image, _)| cache.heights(id, image));
         field_chunks(plan, heights.as_ref().map(|h| h.as_slice()), &mut chunks);
     }
-    (Arc::new(chunks), false)
+    starts.push(chunks.len() as u32);
+    (Arc::new(chunks), Arc::new(starts), false)
 }
 
 /// The field table, with the slots that say what each entry was built from.
@@ -1024,7 +1043,7 @@ pub(crate) fn rebuild(
     cache.forget(&changed_images);
     let old = (*tables).clone();
     let (plans, dropped) = plan(&inputs);
-    let (chunks, chunks_same) = chunks_for(&plans, &old, &changed_images, &mut cache);
+    let (chunks, chunk_starts, chunks_same) = chunks_for(&plans, &old, &changed_images, &mut cache);
     let images = images_for(
         &plans,
         &old,
@@ -1071,6 +1090,7 @@ pub(crate) fn rebuild(
         fields: Arc::new(built.fields),
         slots: Arc::new(built.slots),
         chunks,
+        chunk_starts,
         masks: images.masks,
         heights: images.heights,
         mask_ids: images.mask_ids,
@@ -1264,12 +1284,10 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
     let field_entry = FieldGpu {
         min_corner: corner.extend(0.0),
         extent: Vec4::new(size.x, size.y, height_scale, layout.tile_size),
-        // The seed comes from where the field is, not from its entity, so
-        // the same field looks the same however the scene was spawned. The
-        // field's own seed is mixed in, and leaves the corner's seed as it
-        // is at 0.
+        // The field's seed alone: candidates sit on World cells, so fields
+        // with the same seed agree wherever they meet or overlap.
         placement: UVec4::new(
-            shader_model::hash2(corner.x.to_bits(), corner.z.to_bits()) ^ placement_seed(field),
+            placement_seed(field),
             layout.tiles_per_side,
             mask_offset,
             height_offset,
@@ -1374,22 +1392,74 @@ fn plant_entries(
 
 /// A field's chunks: the 16 m squares of it, each with the lowest and highest
 /// ground in it. `heights` is the field's heightmap, if it has one.
+/// Adds a field's chunks to `out`: every World chunk its rectangle overlaps,
+/// in row order (by Z, then X), with the lowest and highest ground of the
+/// part of the field inside it.
 fn field_chunks(plan: &Plan, heights: Option<&[f32]>, out: &mut Vec<ChunkGpu>) {
-    let Placement { size, corner, .. } = plan.input.placement;
+    let Placement {
+        size, corner, axis, ..
+    } = plan.input.placement;
     let height_scale = plan.input.height.map_or(0.0, |(_, _, scale)| scale);
     let height_size = plan
         .input
         .height
         .map_or(UVec2::ZERO, |(_, image, _)| image.size());
-    let counts = (size / CHUNK_SIZE).ceil().as_uvec2();
-    for chunk_z in 0..counts.y {
-        for chunk_x in 0..counts.x {
-            let local = Vec2::new(chunk_x as f32, chunk_z as f32) * CHUNK_SIZE;
+    let origin = Vec2::new(corner.x, corner.z);
+    let to_local = |point: Vec2| {
+        let offset = point - origin;
+        Vec2::new(offset.dot(axis), offset.dot(axis.perp()))
+    };
+
+    // The World chunks under the field's bounding box.
+    let corners = [
+        Vec2::ZERO,
+        Vec2::new(size.x, 0.0),
+        size,
+        Vec2::new(0.0, size.y),
+    ]
+    .map(|local| origin + turn(axis, local));
+    let low = corners.iter().copied().reduce(Vec2::min).unwrap_or(origin);
+    let high = corners.iter().copied().reduce(Vec2::max).unwrap_or(origin);
+    let (first, last) = (chunk_of(low), (high / CHUNK_SIZE).ceil().as_ivec2() - 1);
+
+    for chunk_z in first.y..=last.y {
+        for chunk_x in first.x..=last.x {
+            // The chunk's square seen along the field's axes, clipped to the
+            // field. Together with the bounding box above, this is an exact
+            // overlap test of the square and the turned rectangle.
+            let min = IVec2::new(chunk_x, chunk_z).as_vec2() * CHUNK_SIZE;
+            let square = [
+                min,
+                min + Vec2::new(CHUNK_SIZE, 0.0),
+                min + Vec2::splat(CHUNK_SIZE),
+                min + Vec2::new(0.0, CHUNK_SIZE),
+            ]
+            .map(to_local);
+            let inside_low = square
+                .iter()
+                .copied()
+                .reduce(Vec2::min)
+                .unwrap_or(Vec2::ZERO);
+            let inside_high = square
+                .iter()
+                .copied()
+                .reduce(Vec2::max)
+                .unwrap_or(Vec2::ZERO);
+            let (inside_low, inside_high) = (inside_low.max(Vec2::ZERO), inside_high.min(size));
+            if inside_low.x >= inside_high.x || inside_low.y >= inside_high.y {
+                continue;
+            }
+
+            // The ground's range over that part of the field.
             let (low, high) = match heights {
                 None => (corner.y, corner.y),
                 Some(heights) => {
-                    let (low, high) =
-                        height_range(heights, height_size, local / size, CHUNK_SIZE / size);
+                    let (low, high) = height_range(
+                        heights,
+                        height_size,
+                        inside_low / size,
+                        (inside_high - inside_low) / size,
+                    );
                     (
                         corner.y + low * height_scale,
                         corner.y + high * height_scale,
@@ -1397,11 +1467,17 @@ fn field_chunks(plan: &Plan, heights: Option<&[f32]>, out: &mut Vec<ChunkGpu>) {
                 }
             };
             out.push(ChunkGpu {
-                bounds: Vec4::new(local.x, local.y, low, high),
-                ids: UVec4::new(plan.first as u32, chunk_x, chunk_z, 0),
+                bounds: Vec4::new(min.x, min.y, low, high),
+                ids: UVec4::new(plan.first as u32, chunk_x as u32, chunk_z as u32, 0),
             });
         }
     }
+}
+
+/// The World chunk holding World point `point` (X, Z): chunks are
+/// [`CHUNK_SIZE`] squares on a grid fixed to the World origin.
+pub(crate) fn chunk_of(point: Vec2) -> IVec2 {
+    (point / CHUNK_SIZE).floor().as_ivec2()
 }
 
 /// The seed `field` is placed with: its own, or else its options' default.
@@ -1465,11 +1541,11 @@ fn tuft_spread(plants: &[ScatterPlant]) -> f32 {
 fn height_range(heights: &[f32], size: UVec2, uv_min: Vec2, uv_size: Vec2) -> (f32, f32) {
     let texels = size.as_vec2();
     let lo = ((uv_min * texels).floor().as_ivec2() - 1)
-        .max(bevy::math::IVec2::ZERO)
+        .max(IVec2::ZERO)
         .as_uvec2();
     let hi = (((uv_min + uv_size) * texels).ceil().as_ivec2() + 1)
         .min(size.as_ivec2() - 1)
-        .max(bevy::math::IVec2::ZERO)
+        .max(IVec2::ZERO)
         .as_uvec2();
     let mut range = (f32::MAX, f32::MIN);
     for y in lo.y..=hi.y {

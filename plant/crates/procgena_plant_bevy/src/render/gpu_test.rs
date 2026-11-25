@@ -207,14 +207,9 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             }
         };
         let tallest = field.min_corner.w;
-        // The box around the chunk's square, turned with its field.
-        let corner = field.world_of(Vec2::new(chunk.bounds.x, chunk.bounds.y));
-        let (side_x, side_z) = (
-            field.x_axis() * CHUNK_SIZE,
-            field.x_axis().perp() * CHUNK_SIZE,
-        );
-        let low = corner + side_x.min(Vec2::ZERO) + side_z.min(Vec2::ZERO);
-        let high = corner + side_x.max(Vec2::ZERO) + side_z.max(Vec2::ZERO);
+        // The chunk's square on the World grid.
+        let low = Vec2::new(chunk.bounds.x, chunk.bounds.y);
+        let high = low + Vec2::splat(CHUNK_SIZE);
         let lo = Vec3::new(low.x - tallest, chunk.bounds.z, low.y - tallest);
         let hi = Vec3::new(high.x + tallest, chunk.bounds.w + tallest, high.y + tallest);
         if !box_visible(&view.planes, lo, hi) {
@@ -237,16 +232,20 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
         );
         for index in 0..layout.candidates_needed(chunk_keep) {
             let candidate = mirror::candidate(
-                [chunk.ids.y, chunk.ids.z],
+                [chunk.ids.y as i32, chunk.ids.z as i32],
                 field.placement.x,
                 &layout,
                 index,
             );
-            let local = Vec2::new(chunk.bounds.x, chunk.bounds.y) + candidate.local;
-            if local.x >= field.extent.x || local.y >= field.extent.y {
+            let at = low + candidate.local;
+            // The field owns the candidates inside its rectangle.
+            let local = field.local_of(at);
+            if local.cmplt(Vec2::ZERO).any()
+                || local.x >= field.extent.x
+                || local.y >= field.extent.y
+            {
                 continue;
             }
-            let at = field.world_of(local);
             let root = Vec3::new(at.x, field.min_corner.y, at.y);
             let distance = root.distance(camera);
             let falloff = thin((distance - view.distance_offset).max(0.0)) * thinning;

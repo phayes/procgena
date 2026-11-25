@@ -150,7 +150,11 @@ fn chunk_height_at(tables: &FieldTables, point: Vec2) -> Option<f32> {
         let field = tables.fields.get(chunk.ids.x as usize)?;
         let low = Vec2::new(chunk.bounds.x, chunk.bounds.y);
         let local = field.local_of(point);
-        let inside = local.cmpge(low).all() && local.cmplt(low + Vec2::splat(CHUNK_SIZE)).all();
+        let size = Vec2::new(field.extent.x, field.extent.y);
+        let inside = point.cmpge(low).all()
+            && point.cmplt(low + Vec2::splat(CHUNK_SIZE)).all()
+            && local.cmpge(Vec2::ZERO).all()
+            && local.cmplt(size).all();
         inside.then(|| f32::midpoint(chunk.bounds.z, chunk.bounds.w))
     })
 }
