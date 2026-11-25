@@ -6,7 +6,7 @@
 
 use std::borrow::Cow;
 
-use procgena_terrain::RegionGraphOptions;
+use procgena_terrain::{BorderWarp, RegionGraphOptions};
 
 use crate::options::{WorldOptions, WorldScale};
 
@@ -15,8 +15,12 @@ use crate::options::{WorldOptions, WorldScale};
 /// The built-in presets are the scale classes, from Minecraft-like small
 /// worlds to real-life ones. They share the same elevation, selector
 /// fields and Biome rules at reference scale, and differ in their
-/// [`scale`](WorldOptions::scale) and region size. Their numbers are first
-/// drafts, to be tuned. Built-in presets use seed 0.
+/// [`scale`](WorldOptions::scale), region size and border warp. Reference
+/// scale 1 is the Valheim-like medium-small class, which is also
+/// [`WorldOptions::default`]. Terrain presets are not stretched by the
+/// scale yet, so the larger classes build Valheim-sized relief on their
+/// larger regions. Their numbers are first drafts, to be tuned. Built-in
+/// presets use seed 0.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorldPreset {
     /// The preset's key, such as `"medium"`, or a loaded file's name.
@@ -40,33 +44,40 @@ procgena_core::catalogue! {
     "Scale classes" {
         small {
             name: "Small",
-            description: "Minecraft-like: land at a quarter of reference scale, \
+            description: "Minecraft-like: land at half of reference scale, \
                 with the smallest regions today's terrain allows (2 km).",
-        } => class(0.25, 0.25, 2000.0);
+        } => class(0.5, 0.5, 2000.0, BorderWarp::default());
         medium_small {
             name: "Medium-small",
-            description: "Valheim-like: land at half of reference scale, with 2 km regions.",
-        } => class(0.5, 0.5, 2000.0);
+            description: "Valheim-like: reference scale, with 2 km regions. The default.",
+        } => class(1.0, 1.0, 2000.0, BorderWarp::default());
         medium {
             name: "Medium",
-            description: "Skyrim-like: reference scale, with 4 km regions.",
-        } => class(1.0, 1.0, 4000.0);
+            description: "Skyrim-like: twice reference scale, with 4 km regions.",
+        } => class(2.0, 2.0, 4000.0, WIDE_WARP);
         large {
             name: "Large",
-            description: "The largest open worlds: three times as wide and twice as high \
+            description: "The largest open worlds: six times as wide and four times as high \
                 as reference scale, with 8 km regions.",
-        } => class(3.0, 2.0, 8000.0);
+        } => class(6.0, 4.0, 8000.0, WIDE_WARP);
         real_life {
             name: "Real life",
-            description: "Earth-like: ten times as wide and four times as high as reference \
+            description: "Earth-like: twenty times as wide and eight times as high as reference \
                 scale, with 16 km regions. A stretch goal: rivers don't grow across regions yet.",
-        } => class(10.0, 4.0, 16_000.0);
+        } => class(20.0, 8.0, 16_000.0, WIDE_WARP);
     }
 }
 
+/// The border warp of the classes with regions of 4 km and more: up to
+/// 100 m over 800 m wiggles.
+const WIDE_WARP: BorderWarp = BorderWarp {
+    amplitude: 100.0,
+    wavelength: 800.0,
+};
+
 /// The default World at scale `horizontal` × `vertical`, with regions
-/// `size` metres across.
-fn class(horizontal: f64, vertical: f64, size: f64) -> WorldOptions {
+/// `size` metres across whose borders are warped by `warp`.
+fn class(horizontal: f64, vertical: f64, size: f64, warp: BorderWarp) -> WorldOptions {
     WorldOptions {
         scale: WorldScale {
             horizontal,
@@ -74,6 +85,7 @@ fn class(horizontal: f64, vertical: f64, size: f64) -> WorldOptions {
         },
         regions: RegionGraphOptions {
             size,
+            warp,
             ..RegionGraphOptions::default()
         },
         ..WorldOptions::default()

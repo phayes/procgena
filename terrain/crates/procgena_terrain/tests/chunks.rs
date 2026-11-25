@@ -12,7 +12,7 @@ use procgena_core::{Lod, LodLevel};
 use procgena_terrain::{
     CHUNK_CELLS, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide, ChunkSource,
     EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId, RegionProgress,
-    RegionStage, Terrain, TerrainPreset, Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod,
+    RegionStage, Terrain, Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod, fixtures,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
@@ -479,11 +479,11 @@ fn a_world_gives_provisional_and_canonical_chunks() {
         regions: RegionGraphOptions {
             size: 2000.0,
             min_edge: procgena_terrain::MIN_EDGE,
-            ..RegionGraphOptions::default()
+            ..fixtures::regions_medium()
         },
-        ..WorldTerrainOptions::default()
+        ..fixtures::world_medium()
     };
-    let source = |_: RegionId, _: DVec2, _: &Elevation| TerrainPreset::plains().terrain.clone();
+    let source = |_: RegionId, _: DVec2, _: &Elevation| fixtures::plains_medium().terrain.clone();
     let told: Arc<Mutex<Vec<RegionProgress>>> = Arc::default();
     let hook = {
         let told = Arc::clone(&told);

@@ -153,7 +153,7 @@ mod tests {
     use crate::carve::FeatureKind;
     use crate::region::{Boundary, RegionId};
     use crate::stitch::{RegionSpec, StitchedWorld};
-    use crate::{Convergence, Elevation, Terrain, TerrainPreset};
+    use crate::{Convergence, Elevation, Terrain, TerrainPreset, fixtures};
 
     /// A square of `half` metres either side of the origin.
     fn square(half: f64) -> Vec<DVec2> {
@@ -271,9 +271,9 @@ mod tests {
     #[ignore]
     fn measure_phase_2_8_exit() {
         for (name, preset) in [
-            ("plains", TerrainPreset::plains()),
-            ("rolling hills", TerrainPreset::rolling_hills()),
-            ("mountains", TerrainPreset::mountains()),
+            ("plains", fixtures::plains_medium()),
+            ("rolling hills", fixtures::rolling_hills_medium()),
+            ("mountains", fixtures::mountains_medium()),
         ] {
             let mut cuts: Vec<f64> = Vec::new();
             let mut extra: Vec<f64> = Vec::new();

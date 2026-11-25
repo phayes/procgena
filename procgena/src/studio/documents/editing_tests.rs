@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use bevy::math::Vec2;
 use procgena_tree::TreeOptions;
 
 use crate::headless::{DEFAULT_SIZE, HeadlessStudio};
@@ -231,6 +232,99 @@ fn ecotope_stone(
         panic!("{scatter:?} is not a stone Scatter");
     };
     stones.classes[class].stone.clone()
+}
+
+/// Clicks the rightmost visible `text`: in the Inspector, or a picker's
+/// list there, rather than the Library on the left.
+fn click_rightmost(studio: &mut HeadlessStudio, text: &str) {
+    let at = studio
+        .texts()
+        .into_iter()
+        .filter(|shown| shown.text == text)
+        .max_by(|a, b| a.center.x.total_cmp(&b.center.x))
+        .unwrap_or_else(|| panic!("no visible text {text:?}"))
+        .center;
+    studio.click_at(at);
+}
+
+/// The selected Ecotope document's tree species `index` of the Scatter
+/// `scatter`.
+fn ecotope_tree(
+    studio: &mut HeadlessStudio,
+    scatter: &'static str,
+    index: usize,
+) -> procgena_tree::TreeOptions {
+    let world = studio.app_mut().world_mut();
+    let document = world.resource::<super::Selection>().document.unwrap();
+    let editor = world.get::<super::Document>(document).unwrap().editor;
+    let ecotope = world
+        .get::<crate::ecotope::editor::EcotopeEditor>(editor)
+        .unwrap()
+        .ecotope();
+    let scatter = &ecotope.scatters[&procgena_core::ChildKey::from_static(scatter)];
+    let procgena_biome::ScatterKind::Tree(trees) = &scatter.scatter else {
+        panic!("{scatter:?} is not a tree Scatter");
+    };
+    trees.trees[index].tree.clone()
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_saved_tree_is_picked_in_an_ecotope_and_still_resolves_after_reopening() {
+    let folder = project_folder("picked_tree");
+    let mut studio = HeadlessStudio::with_project(DEFAULT_SIZE, Some(folder.clone()));
+
+    // A tree with its own seed, saved as new.
+    studio.select("tree/oak_medium").unwrap();
+    studio.click("Random Seed").unwrap();
+    studio.command("save-as-new").unwrap();
+    studio.click("Save preset").unwrap();
+    let tree: TreeOptions = studio.settings_value();
+
+    // Picked for the large maples, the second species of the oak and maple
+    // forest's canopy.
+    const MAPLE: &str = "Big Leaf Maple Large";
+    studio.select("ecotope/oak_maple_forest").unwrap();
+    // A ground layer shares the Scatter's name; the Scatter's row is the
+    // one that shows its species' pickers.
+    let rows: Vec<Vec2> = studio
+        .texts()
+        .into_iter()
+        .filter(|shown| shown.text == "canopy")
+        .map(|shown| shown.center)
+        .collect();
+    let maples = |studio: &mut HeadlessStudio| {
+        studio
+            .texts()
+            .iter()
+            .filter(|shown| shown.text == MAPLE)
+            .count()
+    };
+    // The Library lists the maple too; the canopy's picker makes two. The
+    // canopy may be selected already, as the first Scatter.
+    let shown = maples(&mut studio) > 1
+        || rows.into_iter().any(|row| {
+            studio.click_at(row);
+            maples(&mut studio) > 1
+        });
+    assert!(shown, "no canopy row shows its species");
+    click_rightmost(&mut studio, MAPLE);
+    click_rightmost(&mut studio, "oak_medium_2 · project");
+    assert_eq!(ecotope_tree(&mut studio, "canopy", 1), tree);
+
+    // Saved as a new Ecotope, which names the tree by its key.
+    studio.command("save").unwrap();
+    studio.click("Save preset").unwrap();
+    let text = preset_file(&folder, "ecotope", "oak_maple_forest_2");
+    assert!(text.contains("tree: oak_medium_2"), "{text}");
+    drop(studio);
+
+    // Reopened, the Ecotope still grows the saved tree.
+    let mut studio = HeadlessStudio::with_project(DEFAULT_SIZE, Some(folder.clone()));
+    studio.select("ecotope/oak_maple_forest_2").unwrap();
+    assert_eq!(ecotope_tree(&mut studio, "canopy", 1), tree);
+    assert!(!shows_unsaved(&mut studio));
+    std::fs::remove_dir_all(&folder).unwrap();
 }
 
 #[test]

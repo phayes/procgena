@@ -335,7 +335,7 @@ blocks. Until then, nothing that depends on it starts.
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
 | D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks; W0's image example is done (world_plan.md, "W0 image example": nothing in it argues against 4 km). Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
-| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Draft: the class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
+| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -607,7 +607,10 @@ From D5 (decided by the user 2026-11-24; see
   derived instead from the World's scale pair and the local size; noise
   octaves scaled with their wavelength; the border, seam and feature
   suites re-run at the small and large scale classes. Object sizes, road
-  and river widths, chunks, LOD and masks never scale.
+  and river widths, chunks, LOD and masks never scale. Terrain presets
+  are written at scale 1, the medium-small (Valheim) class since
+  2026-11-24; until G7 lands, the medium, large and real-life classes
+  build those Valheim-sized presets on their larger regions.
 - **Needs:** D5. Runs before or with W0.
 - **Churn:** it changes terrain results everywhere, so it runs in a wave
   where no other terrain work is in flight.
@@ -1189,6 +1192,41 @@ over.
 - **Needs:** IX built and measured. IX's `DistanceChain` applies quality
   scaling per threshold and sizes frames from a threshold, so this is a
   small change.
+
+#### FF: The far field, drawn to the horizon (later)
+
+Decided by the user 2026-11-25; the design is in ARCHITECTURE ("The far
+field: drawing to the horizon"). The target is the horizon. Beyond the
+specimen impostors, copies are drawn per grid tile, each level baked
+from the one below it: an impostor made of impostors. It replaces the
+grove impostors (I1b cluster cards and grove far forms).
+
+- **Chain beyond IX:** tile impostors on a grid lined up with terrain
+  chunks (128 m tiles merging four at a time), baked from the specimen
+  impostors of every copy in the tile; then a canopy height, colour and
+  normal layer per large tile; then the terrain chunk's far colour and
+  height out to the horizon.
+- **Decided:**
+  - the unit is a grid tile, not an Ecotope;
+  - each level bakes from the level below;
+  - switching is by size on screen;
+  - no shadows at all this far out (darkening under canopy is baked into
+    the terrain);
+  - normals are carried.
+- **Steps (proposed):**
+  1. **FF0, measure:** use the Ecotope editor's far-view option (queued
+     after IX) to count copies, frame time and memory at distance, and
+     to pick tile sizes and switch points.
+  2. **FF1, tile impostors:** GPU bake of a tile from its copies'
+     impostors, a few mostly low views per tile, a quadtree of tile
+     sizes, a cache keyed by the placing content and the tile.
+  3. **FF2, canopy layer:** a top-down height, colour and normal image
+     per large tile, drawn as a raised surface with skirts.
+  4. **FF3, into the terrain:** fold the canopy into the terrain's far
+     colour and height out to the horizon; remove the grove impostors.
+- **Deferred:** when a tile re-bakes (edits, seasons), likely a hook for
+  the game.
+- **Needs:** IX done (an impostor for every kind), and FF0's numbers.
 - **Done when:** X is measured on IX's scenes, the user has judged the
   impostors at every quality level, and the decision is recorded in
   `docs/decisions/IX-plan.md`.
@@ -1212,9 +1250,13 @@ only from the edited Scatter down" were built first; the rest follows.
     Scatter's prepared shapes by settings and seed.
   - Specimen caches survive a layer redraw. Today stone's prune drops all
     7 cached stones on an edit to the pines.
-  - Dead wood is built once per variant, not once per copy.
+  - Dead wood is built once per variant, not once per copy (built
+    2026-11-24: the Ecotope's logs draw through `DeadwoodPlacedParams`).
   - The render pipelines an Ecotope needs are warmed up when one opens.
-    macOS compiles them synchronously, which stalls frames.
+    macOS compiles them synchronously, which stalls frames. Deferred
+    (2026-11-24): with warm caches the stalls are 0.3–1.6 s and mostly
+    first compiles, so a warm-up would only move them; revisit after a
+    quiet windowed run.
   - In the studio, impostors are baked only when they could be on screen.
 - **Needs:** C3a. Its cache and dead wood parts touch only the asset
   Bevy crates. Its re-placing, warm-up and bake parts edit
@@ -1661,7 +1703,7 @@ summary below is for ordering.
 |---|---|---|
 | **ST0** Studio shell | Kind registry replacing the per-kind enumerations, documents, the new layout, environment and detail on the view frame, headless `type`/`hover`/`select`/`command` | The Fruit and Flower tabs (I1b) merged; runs alone in `procgena/src/` (churn window) |
 | **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips. **Status (2026-11-24): mostly built.** Core module, metadata for tree, tree Scatter, stone, clump, mushroom, dead wood, fruit, flower, terrain and World; the generated Inspector for every kind but plant, plant Scatter and Ecotope (later, with their metadata) | Core module, then per-crate workers beside ST0; studio half after ST0 |
-| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update (whole-file rewrite, lossy for comments for now), namespaced keys (`builtin:` or the project/bundle id), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
+| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update (whole-file rewrite, lossy for comments for now), namespaced keys (`builtin:` or the project/bundle id), undo, unsaved state, reset to base, used by. **Status (2026-11-25): built** (see the plan's "ST2 as built"): the registry, the project folder, documents with undo, redo and unsaved state, Save, Save as new with a key dialog, Reset to base, the Library and the Ecotope's and tree Scatter's preset pickers listing project presets, and saved presets picked in an Ecotope still resolving after reopening. **Left:** the per-setting "differs from base" mark and reset in the Inspector (ST1's Inspector), renaming an existing preset with its references, autosave, reloading open documents after outside edits, plant and plant Scatter (their presets aren't in the registry), the Biome's Terrain reference (waits for `.biome.yml`). **Follow-ups:** comment-keeping saves (long-term goal, plan decision 5); the full GPU suite is slow on a loaded machine (headless `settle` timeouts at load averages near 235) | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
 | **ST3** Library and Outline | Search, filters, shared selection, editing a referenced preset in context | ST1, ST2 |
 | **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
 | **ST5a** Picking by tags | CPU ray picks to parts, hover, highlight | ST3; R4 for Scatters other than trees |
@@ -1819,7 +1861,8 @@ where the details are.
       - Real-life limits are recorded.
     - *Still open:*
       - The class numbers (pair, region size, Biome extent and E per
-        class), tuned with W0's image examples. W0 starts at scale 1.
+        class), tuned with W0's image examples. Scale 1 is the
+        medium-small (Valheim) class since 2026-11-24 (the user).
       - How low the region floor goes. With road and river widths fixed
         (the user's choice), the floor is about 1.4 km unless the 40 m
         bank reach also scales. If Minecraft-sized regions of about 1 km
@@ -2119,6 +2162,17 @@ Done (2026-11-24): items 10, 15 and 16 above.
   speed bar), golden blessing (no goldens for this Mac; the stored
   NVIDIA, llvmpipe and WARP goldens are now stale), and the Codex
   comment pass (list in the P3 worker's report).
+- **Queued after IX (the user, 2026-11-25): far view in the Ecotope
+  editor.** An option to extend the Ecotope's far distance with many
+  chunks, or one very large patch, to judge frame time and the look of
+  many far-away assets drawn as impostors. This is FF0's measuring tool.
+- **Codex comment rewrites** are blocked until credits return; every
+  lane's list is in `docs/coordination/codex-comment-backlog.md`
+  (including G4b, GM2, ED, Valheim presets, ST2, the overlay and IX).
+- **The full workspace suite** (CLAUDE.md, "The full suite") has not
+  run since wave 5. Run it on a quiet machine: under load, two studio
+  GPU tests that reopen a project (`ecotopes_save_and_load` and the
+  detail-picker test) time out in a batch but pass alone.
 - Plant: implement core's `Preset` trait, and replace its `levels` list
   whole in files instead of merging it entry by entry (F3).
 - Private "grove" and "field" names left from the Scatter renames, and the

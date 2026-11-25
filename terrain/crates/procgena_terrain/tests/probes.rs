@@ -6,7 +6,7 @@ mod common;
 use common::{CONFIGS, Config, DEFAULT, TWO_REGION_BORDER, hills_into_plains, two_terrains};
 use glam::DVec2;
 use procgena_terrain::{
-    Elevation, ElevationOptions, FeatureLine, NoiseLayer, PortKind, StitchedWorld, TerrainPreset,
+    Elevation, ElevationOptions, FeatureLine, NoiseLayer, PortKind, StitchedWorld, fixtures,
 };
 
 /// Points along the two-region border, at most `spacing` metres apart.
@@ -148,7 +148,7 @@ fn river_crossings_on_a_slope() {
     let tilted = |tilt: DVec2| {
         let flat = NoiseLayer {
             height: 0.0,
-            ..ElevationOptions::default().uplift
+            ..fixtures::elevation_medium().uplift
         };
         let options = ElevationOptions {
             continents: flat.clone(),
@@ -168,8 +168,8 @@ fn river_crossings_on_a_slope() {
             .filter(|&s| {
                 let world = common::two_regions(
                     DVec2::ZERO,
-                    common::preset(TerrainPreset::plains(), s),
-                    common::preset(TerrainPreset::rolling_hills(), s),
+                    common::preset(fixtures::plains_medium(), s),
+                    common::preset(fixtures::rolling_hills_medium(), s),
                     DEFAULT.convergence(),
                     &elevation,
                 );
@@ -352,8 +352,8 @@ fn scene_dump() {
             "Mountain road close-up, seed 62 (blend 1)",
             common::two_regions(
                 DVec2::ZERO,
-                common::preset(TerrainPreset::plains(), 62),
-                common::preset(TerrainPreset::mountains(), 62),
+                common::preset(fixtures::plains_medium(), 62),
+                common::preset(fixtures::mountains_medium(), 62),
                 blend_1.convergence(),
                 &Elevation::flat(),
             ),

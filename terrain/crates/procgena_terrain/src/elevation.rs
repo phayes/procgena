@@ -72,18 +72,19 @@ pub struct HeightBump {
 }
 
 impl Default for ElevationOptions {
-    /// Gentle continents and uplands, no tilt and no bumps.
+    /// Gentle continents and uplands at Valheim-like scale (200 m over
+    /// 75 km and 60 m over 20 km), no tilt and no bumps.
     fn default() -> Self {
         Self {
             continents: NoiseLayer {
-                height: 400.0,
-                wavelength: 150_000.0,
+                height: 200.0,
+                wavelength: 75_000.0,
                 octaves: 2,
                 roughness: 0.4,
             },
             uplift: NoiseLayer {
-                height: 120.0,
-                wavelength: 40_000.0,
+                height: 60.0,
+                wavelength: 20_000.0,
                 octaves: 2,
                 roughness: 0.4,
             },

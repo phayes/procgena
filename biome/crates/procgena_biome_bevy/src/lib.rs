@@ -55,7 +55,7 @@ use bevy::prelude::*;
 use procgena_biome::{Ecotope, EcotopePlacement, FootprintMask, ScatterCopies, ScatterKind};
 use procgena_core::Ground;
 use procgena_core::scatter::{Mask, ScatterArea};
-use procgena_deadwood_bevy::DeadwoodParams;
+use procgena_deadwood_bevy::DeadwoodPlacedParams;
 use procgena_mushroom_bevy::MushroomGroundScatterParams;
 use procgena_plant_bevy::PlantScatter;
 #[cfg(not(feature = "gpu"))]
@@ -81,9 +81,10 @@ pub struct EcotopeRoot;
 
 /// Marks the entity that holds one Scatter of a drawn Ecotope. It stands at
 /// the centre of the area the Ecotope was placed over, at height 0. Its
-/// children are the Scatter's copies: one [`TreeParams`],
-/// [`StoneParams`](procgena_stone_bevy::StoneParams) or [`DeadwoodParams`]
-/// per copy, or one [`MushroomGroundScatterParams`] for the whole Scatter.
+/// children are the Scatter's copies: one [`TreeParams`] or
+/// [`StoneParams`](procgena_stone_bevy::StoneParams) per copy, or one
+/// [`DeadwoodPlacedParams`] or [`MushroomGroundScatterParams`] for the
+/// whole Scatter.
 ///
 /// With the `gpu` feature, stones are instead drawn through GPU-generated
 /// pools: one child per stone class, holding one
@@ -190,10 +191,14 @@ fn spawn_layer(
             }
         }
         (ScatterKind::Deadwood(_), ScatterCopies::Deadwood(wood)) => {
-            for copy in wood.instances() {
-                let options = wood.variants()[copy.variant as usize].options().clone();
-                commands.spawn((DeadwoodParams::new(options), at(&copy.transform)));
-            }
+            // Each variant meshed once, every copy drawn instanced.
+            commands.spawn((
+                DeadwoodPlacedParams {
+                    sticks: Arc::new(wood.clone()),
+                    world_seed: layer.seed(),
+                },
+                ChildOf(holder),
+            ));
         }
         (ScatterKind::Mushroom { mushroom, scatter }, ScatterCopies::Mushroom(_)) => {
             // Placed again by the mushroom crate, with the same input.
@@ -331,10 +336,9 @@ mod tests {
                     count(|w, e| w.get::<crate::stones::PooledClass>(e).is_some()),
                     placed.options().classes.len()
                 ),
-                ScatterCopies::Deadwood(_) => assert_eq!(
-                    count(|w, e| w.get::<DeadwoodParams>(e).is_some()),
-                    layer.copies().len()
-                ),
+                ScatterCopies::Deadwood(_) => {
+                    assert_eq!(count(|w, e| w.get::<DeadwoodPlacedParams>(e).is_some()), 1)
+                }
                 ScatterCopies::Plant(bake) => {
                     // One field over the area, from the bake, with the
                     // Scatter's seed.

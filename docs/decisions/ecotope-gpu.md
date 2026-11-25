@@ -33,8 +33,15 @@ cache. The "before" build is master at `94f835a`.
 
 - **Cold placement is unchanged** (about 1.2 s, mostly measuring stone
   shapes on the CPU).
-- **The logs edit still builds dead wood once per copy.** That is ED's
-  next item.
+- **Dead wood once per variant** (ED, built next). The Ecotope's logs now
+  build each variant once and draw every copy through the shared
+  instanced renderer (`DeadwoodPlacedParams`).
+  - *Effect:* 3 builds instead of 17, and no entity per log (85 fewer
+    mesh entities). The look is unchanged.
+  - *Wall times:* measured back to back at a load of about 200, the log
+    and pine edits stayed within noise (0.55 → 0.66 s and 0.54 → 0.74
+    s). The saving is CPU (about 0.5–0.8 s of build work, from the
+    profile), which this loaded machine hides.
 - **"Everything drawn" for pooled stones counts their impostor bakes.**
   The GPU meshes themselves are not timed separately; they take
   milliseconds.
@@ -319,6 +326,17 @@ replaces GP or the rest of R3.
      compiles them synchronously.
      - *Payoff:* the long first-view frames: none to tens of seconds
        (provisional). Check it against a windowed run.
+     - *Measured again after R3a (2026-11-24): not worth building now.*
+       Three runs in a row of the same build, with a warm impostor cache:
+       - the whole Ecotope loads in 1.7–4.4 s;
+       - its longest frames are 1.6 s on the first run and 0.3–0.6 s
+         after that.
+
+       So the long stalls were mostly first compiles, which Metal keeps
+       in its own shader cache across runs, made worse by other sessions
+       using the same compiler. A warm-up would move the remaining
+       stalls, not remove them. Revisit if a quiet, windowed run still
+       shows long frames on a warm cache.
   5. **Bake impostors only when needed.** In the studio, bake a
      specimen's impostor once its impostor level could be on screen at
      the current orbit limits (the 40 m patch never reaches the trees'

@@ -47,7 +47,7 @@ fn args() -> Args {
     let mut args = Args {
         dir: PathBuf::new(),
         seed: 0,
-        preset: "medium".to_owned(),
+        preset: "medium_small".to_owned(),
         span_km: 96.0,
         land_km: 12.0,
         centre_km: DVec2::ZERO,

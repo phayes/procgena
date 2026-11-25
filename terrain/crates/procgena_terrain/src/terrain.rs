@@ -1314,7 +1314,7 @@ mod tests {
     use super::*;
     use crate::carve::FeatureKind;
     use crate::feature::FeatureShape;
-    use crate::{Convergence, Elevation, RegionSpec, StitchedWorld, TerrainPreset};
+    use crate::{Convergence, Elevation, RegionSpec, StitchedWorld, TerrainPreset, fixtures};
 
     /// Plains in the west and rolling hills in the east (hill seed 102),
     /// split by a bent border: the plains get rivers, a pond and roads.
@@ -1338,7 +1338,7 @@ mod tests {
                         (0.0, 1500.0),
                         (-2000.0, 1500.0),
                     ]),
-                    options: options(TerrainPreset::plains(), 102),
+                    options: options(fixtures::plains_medium(), 102),
                 },
                 RegionSpec {
                     id: RegionId(2),
@@ -1351,7 +1351,7 @@ mod tests {
                         (-200.0, 0.0),
                         (150.0, -700.0),
                     ]),
-                    options: options(TerrainPreset::rolling_hills(), 102),
+                    options: options(fixtures::rolling_hills_medium(), 102),
                 },
             ],
             &Convergence::default(),
