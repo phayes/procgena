@@ -125,3 +125,148 @@ fn every_plain_kind_saves_an_unedited_built_in_as_its_base_alone() {
     }
     std::fs::remove_dir_all(&folder).unwrap();
 }
+
+/// Writes the project preset file `kind/key` in `folder`.
+fn write_preset(folder: &std::path::Path, kind: &str, key: &str, text: &str) {
+    let path = folder.join(format!("presets/{kind}/{key}.{kind}.yml"));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+/// Changes the selected document's default seed to `seed` through its
+/// kind's settings hook, as an edit in its editor would.
+fn set_seed(studio: &mut HeadlessStudio, seed: u32) {
+    let world = studio.app_mut().world_mut();
+    let document = world.resource::<super::Selection>().document.unwrap();
+    let found = world.get::<super::Document>(document).unwrap();
+    let (kind, editor) = (found.kind, found.editor);
+    let settings = world
+        .resource::<crate::studio::kinds::Kinds>()
+        .get(kind)
+        .unwrap()
+        .settings
+        .unwrap();
+    let mut value = (settings.value)(world, editor).unwrap();
+    value["default_seed"] = seed.into();
+    super::history::queue_load(world, document, value);
+    studio.settle();
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn scatters_and_ecotopes_keep_the_references_their_files_wrote() {
+    // A project tree, and a project tree Scatter and Ecotope that use it.
+    let folder = project_folder("references");
+    crate::studio::project::Project::create(&folder, "forest", "Forest").unwrap();
+    write_preset(
+        &folder,
+        "tree",
+        "tall_pine",
+        "base: pine_medium\ntree:\n  default_seed: 77\n",
+    );
+    write_preset(
+        &folder,
+        "tree_scatter",
+        "pine_belt",
+        "# By hand.\ntree_scatter:\n  trees:\n    - { tree: tall_pine, density_scale: 0.5 }\n",
+    );
+    write_preset(
+        &folder,
+        "ecotope",
+        "dark_forest",
+        "base: pine_forest_floor\necotope:\n  scatters:\n    pines:\n      trees:\n        \
+         - { tree: tall_pine }\n",
+    );
+    let mut studio = HeadlessStudio::with_project(DEFAULT_SIZE, Some(folder.clone()));
+
+    // Unedited built-ins save as their base alone.
+    for (kind, start) in [
+        ("tree_scatter", crate::grove::START_PRESET),
+        ("ecotope", crate::ecotope::START_PRESET),
+    ] {
+        studio.select(&format!("{kind}/{start}")).unwrap();
+        studio.command("save-as-new").unwrap();
+        if let Err(error) = studio.click("Save preset") {
+            let shown: Vec<String> = studio.texts().into_iter().map(|shown| shown.text).collect();
+            panic!("{kind}: {error}; shown: {shown:?}");
+        }
+        assert_eq!(
+            preset_file(&folder, kind, &format!("{start}_2")),
+            format!("base: {start}\n"),
+            "{kind}"
+        );
+    }
+
+    // Edited and saved, the project Scatter and Ecotope still name the
+    // project tree by its key.
+    for (kind, key) in [("tree_scatter", "pine_belt"), ("ecotope", "dark_forest")] {
+        studio.select(&format!("{kind}/{key}")).unwrap();
+        set_seed(&mut studio, 4242);
+        assert!(shows_unsaved(&mut studio), "{kind}");
+        studio.command("save").unwrap();
+        let text = preset_file(&folder, kind, key);
+        assert!(text.contains("default_seed: 4242"), "{kind}: {text}");
+        assert!(text.contains("tree: tall_pine"), "{kind}: {text}");
+        assert!(!shows_unsaved(&mut studio), "{kind}");
+    }
+    std::fs::remove_dir_all(&folder).unwrap();
+}
+
+/// The selected Ecotope document's stone class `class` of the Scatter
+/// `scatter`.
+fn ecotope_stone(
+    studio: &mut HeadlessStudio,
+    scatter: &'static str,
+    class: usize,
+) -> procgena_stone::StoneOptions {
+    let world = studio.app_mut().world_mut();
+    let document = world.resource::<super::Selection>().document.unwrap();
+    let editor = world.get::<super::Document>(document).unwrap().editor;
+    let ecotope = world
+        .get::<crate::ecotope::editor::EcotopeEditor>(editor)
+        .unwrap()
+        .ecotope();
+    let scatter = &ecotope.scatters[&procgena_core::ChildKey::from_static(scatter)];
+    let procgena_biome::ScatterKind::Stone(stones) = &scatter.scatter else {
+        panic!("{scatter:?} is not a stone Scatter");
+    };
+    stones.classes[class].stone.clone()
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_saved_stone_is_picked_in_an_ecotope_and_still_resolves_after_reopening() {
+    let folder = project_folder("picked");
+    let mut studio = HeadlessStudio::with_project(DEFAULT_SIZE, Some(folder.clone()));
+
+    // A stone with its own seed, saved as new.
+    studio.select("stone/boulder").unwrap();
+    studio.click("Random Seed").unwrap();
+    studio.command("save-as-new").unwrap();
+    studio.click("Save preset").unwrap();
+    let stone: procgena_stone::StoneOptions = studio.settings_value();
+    assert!(preset_file(&folder, "stone", "boulder_2").starts_with("base: boulder\n"));
+
+    // Picked for the first class of the oak and maple forest's boulders.
+    studio.select("ecotope/oak_maple_forest").unwrap();
+    studio.click("boulders").unwrap();
+    studio.click("Lichen Boulder").unwrap();
+    studio.click("boulder_2 · project").unwrap();
+    assert_eq!(ecotope_stone(&mut studio, "boulders", 0), stone);
+    assert!(shows_unsaved(&mut studio));
+
+    // Saved as a new Ecotope, which names the stone by its key.
+    studio.command("save").unwrap();
+    studio.click("Save preset").unwrap();
+    let text = preset_file(&folder, "ecotope", "oak_maple_forest_2");
+    assert!(text.starts_with("base: oak_maple_forest\n"), "{text}");
+    assert!(text.contains("stone: boulder_2"), "{text}");
+    drop(studio);
+
+    // Reopened, the Ecotope still grows the saved stone.
+    let mut studio = HeadlessStudio::with_project(DEFAULT_SIZE, Some(folder.clone()));
+    studio.select("ecotope/oak_maple_forest_2").unwrap();
+    assert_eq!(ecotope_stone(&mut studio, "boulders", 0), stone);
+    assert!(!shows_unsaved(&mut studio));
+    std::fs::remove_dir_all(&folder).unwrap();
+}

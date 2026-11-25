@@ -11,6 +11,7 @@
 mod editing_tests;
 pub mod history;
 pub mod panels;
+pub mod pickers;
 pub mod save;
 
 use bevy::prelude::*;
@@ -205,9 +206,8 @@ struct Found {
     name: String,
     /// The built-in preset the editor starts from.
     start: String,
-    /// The settings to show once the editor is ready, when they aren't
-    /// the start preset's.
-    load: Option<serde_json::Value>,
+    /// What the document's settings start with once the editor is ready.
+    pending: history::PendingLoad,
 }
 
 /// Checks that [`OpenDocument`] can open the preset `reference` of `kind`.
@@ -244,11 +244,11 @@ fn find_preset(
             start: entry.key.clone(),
             key: entry.key,
             name: entry.name,
-            load: None,
+            pending: history::PendingLoad::default(),
         });
     }
 
-    // The preset, its name, and what its editor starts from.
+    // The preset, its name, and its settings in file form.
     let (layer, key) = registry
         .find(kind.id, reference)
         .map_err(|error| error.to_string())?;
@@ -257,24 +257,31 @@ fn find_preset(
         .into_iter()
         .find(|entry| entry.layer == layer && entry.key == key)
         .map_or_else(|| key.clone(), |entry| entry.name);
+    let file = registry
+        .settings(kind.id, reference)
+        .map_err(|error| error.to_string())?;
+
+    // A built-in preset's editor starts with it; a project preset's starts
+    // from its built-in root and then shows its settings.
     if layer == Layer::BuiltIn {
         return Ok(Found {
             origin: Origin::BuiltIn,
             start: key.clone(),
             key,
             name,
-            load: None,
+            pending: history::PendingLoad {
+                load: None,
+                file: Some(file),
+            },
         });
     }
-    if kind.settings.is_none() {
+    let Some(settings) = kind.settings else {
         return Err(format!(
             "{} presets from the project can't be opened yet",
             kind.label
         ));
-    }
-    let settings = registry
-        .settings(kind.id, reference)
-        .map_err(|error| error.to_string())?;
+    };
+    let load = (settings.resolve)(registry, reference)?;
     let start = registry
         .builtin_root(kind.id, reference)
         .unwrap_or_else(|| kind.start.to_owned());
@@ -283,7 +290,10 @@ fn find_preset(
         key,
         name,
         start,
-        load: Some(settings),
+        pending: history::PendingLoad {
+            load: Some(load),
+            file: Some(file),
+        },
     })
 }
 
@@ -349,11 +359,7 @@ fn open_document(
             opened: opened.0,
         })
         .id();
-    if let Some(value) = found.load {
-        commands
-            .entity(document)
-            .insert(history::PendingLoad(value));
-    }
+    commands.entity(document).insert(found.pending);
     opened.0 += 1;
     select(&mut selection, document);
 }

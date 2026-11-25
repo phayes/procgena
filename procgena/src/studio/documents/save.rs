@@ -10,9 +10,9 @@ use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit};
 use bevy::ui_widgets::{Activate, RequestClose};
-use procgena_core::preset::{BUILTIN, Document as PresetFile, Reference};
+use procgena_core::preset::{BUILTIN, Document as PresetFile, Layer, Reference, Registry};
 
-use super::history::{DocumentSettings, Redo, Undo};
+use super::history::{DocumentSettings, Redo, Undo, queue_load};
 use super::{Document, Origin, Selection};
 use crate::studio::kinds::Kinds;
 use crate::studio::project::Presets;
@@ -189,25 +189,16 @@ pub fn save_as_new(world: &mut World) {
 /// written over: its file's base for a project preset, the preset itself
 /// for a built-in one. The change can be undone.
 pub fn reset_to_base(world: &mut World) {
-    let Some((_, found)) = selected(world) else {
+    let Some((document, found)) = selected(world) else {
         return;
     };
-    let result = base_settings(world, &found).and_then(|value| {
-        let load = world
-            .resource::<Kinds>()
-            .get(found.kind)
-            .and_then(|kind| kind.settings)
-            .ok_or("This kind of preset can't be reset yet.")?
-            .load;
-        load(world, found.editor, &value)
-    });
-    if let Err(error) = result {
-        report(world, Err(error));
+    match base_settings(world, &found) {
+        Ok(value) => queue_load(world, document, value),
+        Err(error) => report(world, Err(error)),
     }
 }
 
-/// The selected document's kind, key, origin and editor, if it can be
-/// saved.
+/// The selected document's kind, key and origin, if it can be saved.
 fn selected(world: &mut World) -> Option<(Entity, Found)> {
     let document = world.resource::<Selection>().document?;
     let found = world.get::<Document>(document)?;
@@ -215,7 +206,6 @@ fn selected(world: &mut World) -> Option<(Entity, Found)> {
         kind: found.kind,
         key: found.key.clone(),
         origin: found.origin,
-        editor: found.editor,
     };
     if world.get::<DocumentSettings>(document).is_none() {
         report(
@@ -232,28 +222,51 @@ struct Found {
     kind: &'static str,
     key: String,
     origin: Origin,
-    editor: Entity,
 }
 
 /// The full settings of the preset `found` is written over.
 fn base_settings(world: &World, found: &Found) -> Result<serde_json::Value, String> {
     let registry = world.resource::<Presets>().registry();
-    let result = match found.origin {
-        Origin::BuiltIn => {
-            registry.settings(found.kind, &Reference::qualified(BUILTIN, &found.key))
-        }
+    let resolve = world
+        .resource::<Kinds>()
+        .get(found.kind)
+        .and_then(|kind| kind.settings)
+        .ok_or("This kind of preset can't be reset yet.")?
+        .resolve;
+    let base = match found.origin {
+        Origin::BuiltIn => Reference::qualified(BUILTIN, &found.key),
         Origin::Project => {
             let file = registry
                 .project_preset(found.kind, &found.key)
                 .ok_or("The preset's file is gone.")?;
-            let base_only = PresetFile {
-                base: file.document.base.clone(),
-                ..PresetFile::default()
-            };
-            registry.document_settings(found.kind, &found.key, &base_only)
+            match &file.document.base {
+                Some(base) => base_reference(registry, found.kind, &found.key, base),
+                // Without a base, the base is the kind's defaults.
+                None => {
+                    return registry
+                        .document_settings(found.kind, &found.key, &PresetFile::default())
+                        .map_err(|error| error.to_string());
+                }
+            }
         }
     };
-    result.map_err(|error| error.to_string())
+    resolve(registry, &base)
+}
+
+/// The reference, as any lookup reads it, to the preset that the project
+/// file `key` of kind `kind` names as its `base`: a project file sees the
+/// project's presets first, but never itself.
+fn base_reference(registry: &Registry, kind: &str, key: &str, base: &str) -> String {
+    if base.contains(':') {
+        return base.to_owned();
+    }
+    if base != key && registry.project_preset(kind, base).is_some() {
+        return registry.namespace(Layer::Project).map_or_else(
+            || base.to_owned(),
+            |namespace| Reference::qualified(namespace, base),
+        );
+    }
+    Reference::qualified(BUILTIN, base)
 }
 
 /// Writes the project preset `found` again from the document's settings,
@@ -261,7 +274,7 @@ fn base_settings(world: &World, found: &Found) -> Result<serde_json::Value, Stri
 fn update(world: &mut World, document: Entity, found: &Found) -> Result<(), String> {
     let value = world
         .get::<DocumentSettings>(document)
-        .map(|state| state.value().clone())
+        .map(DocumentSettings::file_value)
         .ok_or("The document has no settings yet.")?;
     let mut presets = world.resource_mut::<Presets>();
     let project = presets.project_mut().ok_or("No project is open.")?;
@@ -272,14 +285,14 @@ fn update(world: &mut World, document: Entity, found: &Found) -> Result<(), Stri
         .document
         .clone();
     let file = PresetFile {
-        settings: Some(value),
+        settings: Some(value.clone()),
         ..file
     };
     project
         .update(found.kind, &found.key, &file)
         .map_err(|error| error.to_string())?;
     if let Some(mut state) = world.get_mut::<DocumentSettings>(document) {
-        state.mark_saved();
+        state.mark_saved(value);
     }
     Ok(())
 }
@@ -293,7 +306,7 @@ fn save_new(world: &mut World, document: Entity, key: &str) -> Result<(), String
     let (kind, from, layer) = (found.kind, found.key.clone(), found.origin.layer());
     let value = world
         .get::<DocumentSettings>(document)
-        .map(|state| state.value().clone())
+        .map(DocumentSettings::file_value)
         .ok_or("The document has no settings yet.")?;
 
     // The file, written over the preset shown.
@@ -302,7 +315,7 @@ fn save_new(world: &mut World, document: Entity, key: &str) -> Result<(), String
     let base = project.registry().base_for(kind, key, layer, &from);
     let file = PresetFile {
         base: Some(base),
-        settings: Some(value),
+        settings: Some(value.clone()),
         ..PresetFile::default()
     };
     project
@@ -316,7 +329,7 @@ fn save_new(world: &mut World, document: Entity, key: &str) -> Result<(), String
         found.origin = Origin::Project;
     }
     if let Some(mut state) = world.get_mut::<DocumentSettings>(document) {
-        state.mark_saved();
+        state.mark_saved(value);
     }
     Ok(())
 }

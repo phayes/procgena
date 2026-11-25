@@ -1,7 +1,7 @@
 //! Mushrooms: one cluster of mushrooms, from a `.mushroom.yml` preset.
 
 use bevy::prelude::*;
-use procgena_mushroom::{MushroomOptions, MushroomPreset};
+use procgena_mushroom::MushroomPreset;
 
 use super::{Kind, RegisterKind, entries};
 use crate::export::mushroom::spawn_mushroom_export;
@@ -41,7 +41,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
-            settings: Some(settings_panel::<MushroomOptions>()),
+            settings: Some(settings_panel::<MushroomPreset>()),
             detail_levels: LEVELS,
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::leveled_line(state, "mushroom"),

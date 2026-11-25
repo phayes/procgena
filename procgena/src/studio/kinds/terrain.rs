@@ -1,7 +1,7 @@
 //! Terrain: an endless world of land, from a `.terrain.yml` preset.
 
 use bevy::prelude::*;
-use procgena_terrain::{TerrainOptions, TerrainPreset};
+use procgena_terrain::TerrainPreset;
 
 use super::{Kind, RegisterKind, entries};
 use crate::scene::{Show, TerrainSubject};
@@ -27,7 +27,7 @@ pub fn register(app: &mut App) {
             start: crate::terrain::START_PRESET,
             spawn_editor: spawn_terrain_editor,
             show,
-            settings: Some(settings_panel::<TerrainOptions>()),
+            settings: Some(settings_panel::<TerrainPreset>()),
             detail_levels: &[],
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: status::terrain_line,

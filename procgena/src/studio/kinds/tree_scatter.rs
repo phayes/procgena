@@ -2,12 +2,17 @@
 //! preset.
 
 use bevy::prelude::*;
+use procgena_core::preset::{from_value, to_value};
 use procgena_tree::{TreeScatter, TreeScatterPreset};
 
 use super::{Kind, RegisterKind, entries};
-use crate::grove::editor::{GroveEdited, GroveEditorPlugin, GroveReader, spawn_grove_editor};
+use crate::grove::editor::{
+    GroveEdited, GroveEditorPlugin, GroveReader, load_grove, spawn_grove_editor,
+};
 use crate::scene::{GroveSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::history::EditorSettings;
+use crate::studio::documents::panels::resolved;
 use crate::studio::status;
 
 /// Registers tree Scatters.
@@ -30,7 +35,21 @@ pub fn register(app: &mut App) {
             start: crate::grove::START_PRESET,
             spawn_editor: spawn_grove_editor,
             show,
-            settings: None,
+            settings: Some(EditorSettings {
+                // Rows are spawned after the editor; it is ready once they are.
+                value: |world, editor| {
+                    let grove = world.run_system_cached_with(grove_of, editor).ok()??;
+                    (!grove.trees.is_empty()).then(|| to_value(&grove))
+                },
+                resolve: resolved::<TreeScatterPreset>,
+                load: |world, _, value| {
+                    let grove: TreeScatter =
+                        from_value(value.clone(), "").map_err(|error| error.to_string())?;
+                    world
+                        .run_system_cached_with(load_grove, grove)
+                        .map_err(|error| error.to_string())
+                },
+            }),
             detail_levels: &[],
             hidden_environment: crate::environment::TREE_SCATTER,
             status_line: status::grove_line,

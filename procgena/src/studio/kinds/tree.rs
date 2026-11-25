@@ -1,7 +1,7 @@
 //! Trees: one tree, from a `.tree.yml` preset.
 
 use bevy::prelude::*;
-use procgena_tree::{TreeOptions, TreePreset};
+use procgena_tree::TreePreset;
 
 use super::{Kind, RegisterKind, entries};
 use crate::export::tree_panel::spawn_tree_export;
@@ -31,7 +31,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
-            settings: Some(settings_panel::<TreeOptions>()),
+            settings: Some(settings_panel::<TreePreset>()),
             detail_levels: LEVELS,
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::leveled_line(state, "tree"),
