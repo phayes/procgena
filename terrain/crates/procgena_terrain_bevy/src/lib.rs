@@ -482,14 +482,22 @@ impl ChunkRead {
     /// If `key` is not inside `parent`'s chunk.
     pub(crate) fn stand_in(parent: &ChunkRead, key: ChunkKey) -> Self {
         let from = parent.samples.key();
-        Self {
-            samples: ChunkSamples::stand_in(&parent.samples, key),
-            images: parent
+        let gpu_paint = parent.gpu_paint.as_ref().map(|p| p.part(key));
+        // GPU weights are generated from the retained parent sites. The
+        // CPU images are only placeholders, so filtering them is wasted work.
+        let images = if let Some(paint) = &gpu_paint {
+            paint.images()
+        } else {
+            parent
                 .images
                 .clone()
-                .map(|image| weights_part(&image, from, key)),
+                .map(|image| weights_part(&image, from, key))
+        };
+        Self {
+            samples: ChunkSamples::stand_in(&parent.samples, key),
+            images,
             surface: parent.surface,
-            gpu_paint: parent.gpu_paint.as_ref().map(|p| p.part(key)),
+            gpu_paint,
             ground_grid: parent.ground_grid.clone(),
             ground_key: parent.ground_key,
         }
