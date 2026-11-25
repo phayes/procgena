@@ -1090,6 +1090,35 @@ go to the few copies near the camera.
   and the results and the user's decision on defaults are recorded in
   the plan.
 
+#### IX2: Impostors that ignore the quality level (later)
+
+Asked for by the user 2026-11-25, as a later milestone, not part of the
+IX build. If impostors are good enough, they should look great at every
+quality level, so the quality level should not move where they take
+over.
+
+- **The idea:** IX's experiment finds the closest point X where an
+  impostor still looks right. Inside X a mesh is needed at every quality
+  level; beyond X the impostor looks right at every quality level. So
+  the impostor switch is fixed at X for all of them, and the quality
+  level moves only the lower-mesh switch and the cull point (and perhaps
+  cluster impostors later). The bake is then sized for X alone, which
+  removes the extra image memory of IX's bake sized for
+  `Quality::Low`.
+- **Covers:** experiments that find X per scene (and check whether one
+  X holds for every kind), quality scaling taken off `impostor_below`,
+  the bake size following X, and frame time on Low measured against
+  IX's results.
+- **Risk:** Low loses its biggest lever, pulling impostors closer. If Low
+  is then too slow, an opt-in "Low pulls impostors in" setting can
+  come back.
+- **Needs:** IX built and measured. IX's `DistanceChain` applies quality
+  scaling per threshold and sizes frames from a threshold, so this is a
+  small change.
+- **Done when:** X is measured on IX's scenes, the user has judged the
+  impostors at every quality level, and the decision is recorded in
+  `docs/decisions/IX-plan.md`.
+
 The next three milestones come from profiling the studio's Ecotope tab
 (2026-11-24, [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)).
 The goal is settled: GPU placement, masks and building for every Scatter.
