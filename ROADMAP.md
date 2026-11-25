@@ -1240,10 +1240,9 @@ go to the few copies near the camera.
   - **Step 4:** the instanced renderer takes the chain with per-view
     bands (deleting the stone bridge); the disk cache keyed by the bake
     key; the studio's low-priority background pre-bake; ST7b's chain
-    preview; and the ED worker's gate that bakes only impostors that can
-    be on screen (a farthest-view-distance resource beside `LodQuality`,
-    compared with `impostor_below` at the current quality; designed in the
-    plan's Step 4, including how it sits with the pre-bake).
+    preview. The ED worker's gate that bakes only impostors that can be
+    on screen was deferred by the user (2026-11-25); see the follow-up
+    below.
   - **Step 5:** the experiment, including the memory cost of Low-sized
     impostor frames against High-sized ones.
   - **Other TODOs:** the Codex comment rewrite for Steps 1–2; IX2 (the
@@ -1255,6 +1254,17 @@ go to the few copies near the camera.
   (`GpuStoneStatus::bounding_diameter`, handed back to the pool's copies).
   On the presets it is 1.04–1.43 times the mesh's widest span (it was
   1.5–4.5 times). The pool still culls with a fixed radius.
+- **Follow-up TODO (deferred from IX Step 4 by the user, 2026-11-25):
+  bake only impostors that can be on screen.** A farthest-view-distance
+  resource beside `LodQuality` (default unlimited; the studio sets it from
+  its orbit limits), and a shared gate assets ask before requesting a
+  bake, so a viewer whose camera stays close (the studio's 40 m Ecotope
+  bakes 10 tree and 7 stone impostors it can never show) skips them.
+  Partial work, not merged: branch `claude/project-thread-r7ngjq` (core
+  resource, gate and `BakeAhead` marker; stone, dead wood and mushroom
+  wired; trees, fruit and the studio's limit not done). Design and what
+  was settled: `docs/decisions/IX-plan.md`, Step 4. It will need
+  rebasing onto the Step 4 renderer change.
 
 #### IX2: Impostors that ignore the quality level (later)
 
