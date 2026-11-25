@@ -1718,6 +1718,28 @@ that name). TE4 is built as two steps; this is the first.
 
 #### TE5: Road planning revamp
 
+**Status (2026-11-25): landed; the user accepted the new road look.**
+Measured and compared in `terrain/roads_plan.md` (timing with
+`--example road_cost`):
+
+- **Measurements:**
+  - Roads took a median of about 1.1 s per region in release, and up to
+    2.1 s.
+  - About 80% of that was reading heights and grades on the 8 m grid.
+    Most of each read is the border blending.
+  - The search, its reruns and `level_on_roads` were about 10%.
+- **The change:** roads are first outlined on a 16 m grid
+  (`road::coarse_routes`). They are then planned at 8 m only within 48 m of
+  that outline (`road::refined_routes`).
+- **Result:** about 3× faster. At the same machine load the median fell
+  from 1210 ms to 384 ms and the maximum from 2809 ms to 1431 ms. The
+  seam, feature and shipped suites pass.
+- **Left over:**
+  - The worst mountains regions are still around a second under heavy
+    load.
+  - The border-pull speed-ups below were kept out of TE5 by the user.
+  - The outline is the coarse route TE7's middle tier can draw.
+
 Decided by the user 2026-11-25: a complete revamp of road planning,
 choosing speed over perfection. Roads take about 5 s per near region
 against ARCHITECTURE's "up to about a second" plan budget.
@@ -1809,7 +1831,18 @@ coarseness is wanted. The terrain is a function that can be sampled at
 any spacing, so any level of detail can be generated; the costs are in
 features and paint.
 
-- **Today** (read from the code): chunk level `L` has 1 m × 2^L cells
+- **Status (2026-11-25):** levels now switch by size on screen
+  (`ChunkDetail`, the same rule as IX): level `L` takes over at
+  128 m × 2^L, so a cell is at most about 7 px of a 720 px screen (14 of
+  1440), at a cost of about 4× the triangles. Measured with the viewer's
+  `--measure` (720p, load average about 20): 64 chunks, 0.56 M triangles
+  and about 7 ms a frame before; 252 chunks, 2.2 M triangles and 10–13 ms
+  after. `--cell-pixels` tries other targets (5 px: 3.9 M triangles;
+  4 px: 6 M). **Left:** the camera's own field of view (today
+  `ViewScale::DEFAULT`, as for IX), geomorphing, paint resolution per
+  level, the middle feature tier (TE5's coarse road outline can feed it),
+  and progressive loading.
+- **Before** (read from the code): chunk level `L` has 1 m × 2^L cells
   and starts at 64 m × 2^L (`chunk_lod`), so every level starts with a
   cell about 1/64 of the view distance across, roughly 30 px on a 1440 px
   screen at 45°, shrinking to about 15 px before the next level. Features
