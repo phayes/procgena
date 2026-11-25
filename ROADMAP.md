@@ -1148,6 +1148,41 @@ over.
 - **Needs:** IX built and measured. IX's `DistanceChain` applies quality
   scaling per threshold and sizes frames from a threshold, so this is a
   small change.
+
+#### FF: The far field, drawn to the horizon (later)
+
+Decided by the user 2026-11-25; the design is in ARCHITECTURE ("The far
+field: drawing to the horizon"). The target is the horizon. Beyond the
+specimen impostors, copies are drawn per grid tile, each level baked
+from the one below it: an impostor made of impostors. It replaces the
+grove impostors (I1b cluster cards and grove far forms).
+
+- **Chain beyond IX:** tile impostors on a grid lined up with terrain
+  chunks (128 m tiles merging four at a time), baked from the specimen
+  impostors of every copy in the tile; then a canopy height, colour and
+  normal layer per large tile; then the terrain chunk's far colour and
+  height out to the horizon.
+- **Decided:**
+  - the unit is a grid tile, not an Ecotope;
+  - each level bakes from the level below;
+  - switching is by size on screen;
+  - no shadows at all this far out (darkening under canopy is baked into
+    the terrain);
+  - normals are carried.
+- **Steps (proposed):**
+  1. **FF0, measure:** use the Ecotope editor's far-view option (queued
+     after IX) to count copies, frame time and memory at distance, and
+     to pick tile sizes and switch points.
+  2. **FF1, tile impostors:** GPU bake of a tile from its copies'
+     impostors, a few mostly low views per tile, a quadtree of tile
+     sizes, a cache keyed by the placing content and the tile.
+  3. **FF2, canopy layer:** a top-down height, colour and normal image
+     per large tile, drawn as a raised surface with skirts.
+  4. **FF3, into the terrain:** fold the canopy into the terrain's far
+     colour and height out to the horizon; remove the grove impostors.
+- **Deferred:** when a tile re-bakes (edits, seasons), likely a hook for
+  the game.
+- **Needs:** IX done (an impostor for every kind), and FF0's numbers.
 - **Done when:** X is measured on IX's scenes, the user has judged the
   impostors at every quality level, and the decision is recorded in
   `docs/decisions/IX-plan.md`.
