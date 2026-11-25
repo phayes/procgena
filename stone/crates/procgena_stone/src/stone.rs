@@ -1,5 +1,6 @@
 //! Creates a rock and provides access to its settings, shape, and triangle meshes.
 
+use glam::Vec3;
 use procgena_core::chain::{DistanceChain, Lod, Step, ViewScale};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, tags};
 
@@ -121,6 +122,30 @@ impl Stone {
         &self.meshes[1]
     }
 
+    /// The diameter, in metres, of a sphere holding the rock's game-level
+    /// mesh: the diagonal of the mesh's axis-aligned bounding box, so the
+    /// sphere is centred on that box. Renderers measure the rock's size on
+    /// screen with it, to choose which mesh or impostor to draw. The GPU
+    /// mesher reports the same measure for pooled rocks
+    /// ([`GpuStoneStatus::bounding_diameter`](crate::gpu::GpuStoneStatus::bounding_diameter)).
+    ///
+    /// A rock whose game-level mesh is empty falls back to
+    /// [`StoneOptions::bounding_diameter`], the bound of any rock built from
+    /// its settings.
+    pub fn bounding_diameter(&self) -> f32 {
+        let positions = &self.meshes[0].positions;
+        if positions.is_empty() {
+            return self.options.bounding_diameter();
+        }
+        let mut min = Vec3::INFINITY;
+        let mut max = Vec3::NEG_INFINITY;
+        for &p in positions {
+            min = min.min(Vec3::from(p));
+            max = max.max(Vec3::from(p));
+        }
+        (max - min).length()
+    }
+
     /// The rock's game-level detail and the lower detail derived from it.
     pub fn lod(&self) -> Lod<StoneDetail> {
         self.options.mesh.game_level.lod()
@@ -146,7 +171,7 @@ impl Stone {
     /// [`ViewScale::DEFAULT`] camera at High quality. A part is marked closed
     /// only if its mesh is watertight; its shells are left unknown.
     pub fn specimen(&self) -> Specimen {
-        let factor = DistanceChain::factor(self.options.bounding_diameter(), ViewScale::DEFAULT);
+        let factor = DistanceChain::factor(self.bounding_diameter(), ViewScale::DEFAULT);
         let lower_start = factor / DistanceChain::DEFAULT.lower_below;
         let levels = self
             .meshes
@@ -275,7 +300,7 @@ mod tests {
         assert_eq!(specimen.levels.len(), 2);
 
         // The lower level starts where the default chain switches to it.
-        let factor = DistanceChain::factor(stone.options().bounding_diameter(), ViewScale::DEFAULT);
+        let factor = DistanceChain::factor(stone.bounding_diameter(), ViewScale::DEFAULT);
         assert_eq!(specimen.levels[0].start, 0.0);
         assert_eq!(
             specimen.levels[1].start,
@@ -295,11 +320,12 @@ mod tests {
         }
     }
 
-    /// Every preset's mesh fits inside its bounding diameter: no two of its
-    /// vertices are further apart. Prints how much larger the bound is than
-    /// the mesh's widest span.
+    /// Every preset's mesh fits inside both its rock's bounding diameter
+    /// and its settings' bound: no two of its vertices are further apart.
+    /// The rock's own measure, a box diagonal, is at most √3 times the
+    /// widest span. Prints how much larger each is than the widest span.
     #[test]
-    fn the_bounding_diameter_encloses_every_preset() {
+    fn the_bounding_diameters_enclose_every_preset() {
         for preset in crate::StonePreset::all() {
             let mut options = preset.stone.clone();
             options.mesh.game_level = StoneDetail::new(32, TextureSize::Size512);
@@ -312,8 +338,24 @@ mod tests {
                 }
             }
             let bound = stone.options().bounding_diameter();
+            let sphere = stone.bounding_diameter();
+            assert!(
+                span <= sphere,
+                "{}: span {span} > sphere {sphere}",
+                preset.key
+            );
             assert!(span <= bound, "{}: span {span} > bound {bound}", preset.key);
-            eprintln!("{}: bound / widest span = {:.2}", preset.key, bound / span);
+            assert!(
+                sphere <= 3f32.sqrt() * span,
+                "{}: sphere {sphere} > √3 × span {span}",
+                preset.key
+            );
+            eprintln!(
+                "{}: sphere / widest span = {:.2}, bound / widest span = {:.2}",
+                preset.key,
+                sphere / span,
+                bound / span
+            );
         }
     }
 
