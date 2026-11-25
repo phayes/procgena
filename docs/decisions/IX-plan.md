@@ -15,8 +15,8 @@ worker or coordinator, waiting for a yes) or an **open question**.
   kind. Every copy is drawn through one chain:
   `game_level` mesh → one lower mesh (derived from `game_level` by the
   kind's default rule) → impostor (baked from `game_level`). Steps switch
-  by size on screen alone (a copy's height as a fraction of the screen's
-  height), with the same thresholds for every kind; the quality setting
+  by size on screen alone (a copy's bounding-sphere diameter as a
+  fraction of the screen's height), with the same thresholds for every kind; the quality setting
   scales the thresholds. The chain is not on the preset: one project
   default for now, Bevy hooks to change it later. A game cannot override
   `game_level`.
@@ -25,24 +25,26 @@ worker or coordinator, waiting for a yes) or an **open question**.
   per-level metre distances and hysteresis on presets, and the up-to-8
   level table. `GroundMaterial` stays for grass, which keeps its own
   thinning for now.
-- **API changes (proposed).** In `procgena_core`:
-  - `Lod<D>` becomes `{ game: D, lower: D }`, built with
-    `Lod::from_game(game)` through a `LowerDetail` trait each kind
-    implements (its default rule).
+- **API changes (agreed 2026-11-25).** In `procgena_core::chain` (a new
+  module beside the old `lod`; see "Step order"):
+  - `Lod<D> { game: D, lower: D }`, built with `Lod::from_game(game)`
+    through a `LowerDetail` trait each kind implements (its default rule).
   - `Step { Game, Lower, Impostor }` replaces `LevelForm`.
   - `DistanceChain { lower_below, impostor_below, cull_below, hysteresis }`
     holds thresholds as fractions of screen height. `DistanceChain::DEFAULT`
-    is the project default.
-  - `ViewScale`, built from a camera's projection, turns a chain plus a
-    copy's height into today's metre `LodRange`s. The dither shader,
-    `LodRange`, `visibility_range` and the GPU fade code keep working in
-    metres, unchanged.
-  - `Quality::screen_scale` divides every threshold, so higher quality
+    is the project default (0.10, 0.04, 0.002, hysteresis 0.1).
+  - `ViewScale`, from a camera's field of view, and a copy's size (its
+    bounding-sphere diameter) turn a chain into today's metre `LodRange`s.
+    The dither shader, `LodRange`, `visibility_range` and the GPU fade code
+    keep working in metres, unchanged.
+  - `Quality::distance_scale` divides every threshold, so higher quality
     means smaller thresholds and detail kept further away.
-  - Impostor frame size is derived from where the impostor takes over
-    (`ImpostorFrame::for_chain`), at a reference screen height, rounded to
-    a power of two, and part of the bake key.
-- **Step order (decided; sequencing proposed).** Core first, then stone,
+  - Impostor frame size (`procgena_impostor::frame_size_for`) is sized for
+    the largest on-screen size any quality shows (`Quality::Low`), at a
+    reference screen height, rounded up to a power of two, clamped to
+    32–512, mipmapped, and part of the bake key. No rebake on a quality
+    change.
+- **Step order (decided).** Core first, then stone,
   then dead wood, mushroom, tree and fruit one at a time, then the
   renderers and the studio. To keep the workspace building after every
   step, Step 1 **adds** the new types beside the old ones, each asset step
@@ -59,11 +61,7 @@ worker or coordinator, waiting for a yes) or an **open question**.
   maple forest, the pine forest floor and one walk through a Valheim-scale
   World. The bar for a new default is **proposed, not confirmed**: no
   visible difference and at least 20% less frame time.
-- **Needs answers before Step 1** (see "Questions for the coordinator"):
-  where terrain's metre-based chunk table goes, whether
-  `procgena_specimen::Level::start` changes in Step 1, whether the chain
-  keeps a cull threshold, the default thresholds, and stone's default
-  detail name.
+- **Answered by the user (2026-11-25):** see "Answers" at the end.
 
 ## The model (decided)
 
@@ -82,8 +80,11 @@ From ROADMAP IX, the user, 2026-11-25:
   dead wood pass through their lower mesh too, just quickly.
 - **The distance chain is not on the preset.** One default for now,
   scaled by quality.
-- **Switching is by size on screen**, a copy's height over the screen's
-  height, the same thresholds for every kind. No kind has its own rule.
+- **Switching is by size on screen**, a copy's largest dimension (its
+  bounding-sphere diameter) over the screen's height, the same thresholds
+  for every kind. No kind has its own rule. (First decided as the copy's
+  height; changed by the user 2026-11-25 so fallen logs don't switch
+  early.)
 - **Impostors are baked from `game_level`**, carry normals (they do
   today) and cast no shadows. They bake while loading and are cached on
   disk, keyed by the preset's content hash plus the impostor settings.
@@ -97,7 +98,13 @@ From ROADMAP IX, the user, 2026-11-25:
 
 ## API (proposed)
 
-### `procgena_core::lod`
+### `procgena_core::chain`
+
+The new types live in a new module, `procgena_core::chain`, while the old
+`procgena_core::Lod` (in `lod`) still has users. Assets import
+`procgena_core::chain::{Lod, Step, DistanceChain, ...}`. When the last
+user of the old types moves, the old types go, and the crate root
+re-exports the new ones. `LodRange` stays in `lod` and is shared by both.
 
 ```rust
 /// One step of the drawing chain, nearest first.
@@ -138,17 +145,18 @@ hysteresis, forms or shadow flags. Which steps cast shadows is fixed:
 `Game` and `Lower` do, `Impostor` does not (decided: impostors cast no
 shadows).
 
-### `procgena_core::lod::DistanceChain`
+### `procgena_core::chain::DistanceChain`
 
 ```rust
-/// Where each step of the chain takes over, as a copy's height on screen
-/// over the screen's height, at Quality::High.
+/// Where each step of the chain takes over, as a copy's size on screen
+/// (its bounding-sphere diameter) over the screen's height, at
+/// Quality::High.
 pub struct DistanceChain {
     /// Below this size the lower mesh takes over from `game_level`.
     pub lower_below: f32,
     /// Below this size the impostor takes over from the lower mesh.
     pub impostor_below: f32,
-    /// Below this size nothing is drawn. (Open question: see below.)
+    /// Below this size nothing is drawn.
     pub cull_below: f32,
     /// Half the width of each cross-fade, as a share of the switching
     /// distance, from 0 up to but not including 1.
@@ -156,50 +164,56 @@ pub struct DistanceChain {
 }
 
 impl DistanceChain {
-    pub const DEFAULT: Self;
-    pub fn validate(&self) -> Result<(), LodError>;
+    pub const DEFAULT: Self; // 0.10, 0.04, 0.002, 0.1
+    pub fn validate(&self) -> Result<(), ChainError>;
+    /// size × view scale × quality.distance_scale(): multiply by it to turn
+    /// the chain's reference distances into metres for one copy.
+    pub fn factor(size: f32, view: ViewScale, quality: Quality) -> f32;
     /// The fade bands of each step, in metres from the camera, for a copy
-    /// `height` metres tall seen through `view` at `quality`. Index with
-    /// `Step as usize`.
-    pub fn ranges(&self, height: f32, view: ViewScale, quality: Quality) -> [LodRange; 3];
+    /// with `factor`. Index with `Step::index`.
+    pub fn ranges(&self, factor: f32) -> [LodRange; 3];
+    /// Like ranges, but ending where a host's impostor begins (fruit).
+    pub fn ranges_ending_at(&self, factor: f32, end: Range<f32>) -> Vec<LodRange>;
     /// The single step to draw `distance` metres away, or None past the
     /// cull; for shadow maps, picking and the studio's read-back.
-    pub fn step_at(&self, distance: f32, height: f32, view: ViewScale, quality: Quality) -> Option<Step>;
-    /// Like ranges, but ending where a host's impostor begins (fruit).
-    pub fn ranges_ending_at(&self, ..., end: Range<f32>) -> [LodRange; 3];
+    pub fn step_at(&self, distance: f32, factor: f32) -> Option<Step>;
+    /// The steps copies within `distances` and `factors` can be drawn at.
+    pub fn steps_touched(&self, distances: RangeInclusive<f32>, factors: RangeInclusive<f32>)
+        -> Option<RangeInclusive<Step>>;
     /// The largest share of the screen's height an impostor is ever drawn
-    /// at, fade band included: impostor_below × (1 + hysteresis) / screen_scale.
+    /// at, at `quality`, fade band included.
     pub fn impostor_max_size(&self, quality: Quality) -> f32;
 }
 
-/// How big one metre looks one metre from the camera, as a share of the
-/// screen's height: 1 / (2 tan(fov_y / 2)) for a perspective camera.
-pub struct ViewScale(pub f32);
+/// How big something looks on screen: a copy `s` metres across, `d` metres
+/// away, covers `s × scale / d` of the screen's height. For a perspective
+/// camera, 1 / (2 tan(fov_y / 2)).
+pub struct ViewScale(f32);
 impl ViewScale {
+    pub const DEFAULT: Self; // Bevy's default 45° field of view
     pub fn perspective(fov_y: f32) -> Self;
 }
 ```
 
-How it works: a copy `h` metres tall at `d` metres covers
-`h × k / d` of the screen, where `k` is the `ViewScale`. A threshold `t`
-is therefore the distance `h × k × screen_scale / t`. `ranges` turns the
-three thresholds into the same metre fade bands as today, so
+How it works: a copy `s` metres across at `d` metres covers `s × k / d`
+of the screen, where `k` is the `ViewScale`. A threshold `t` is therefore
+the distance `s × k × distance_scale / t`. `ranges` turns the three
+thresholds into the same metre fade bands as today, so
 `LodRange::dither_level`, `to_vec4`, the dither shader and
 `visibility_range` stay as they are, and the instanced renderer keeps
 passing per-slot bands scaled by each copy's size. What changes in the
 renderers is that the bands are computed per view from `k` and quality,
-for a 1 m tall copy, and multiplied by each copy's height on the GPU, as
-`InstancedCopy::size` is today.
+for a 1 m copy, and multiplied by each copy's bounding-sphere diameter on
+the GPU, as `InstancedCopy::size` is today.
 
 - **Several cameras:** each view has its own `k`. Shadow passes use the
   main view's bands, as today.
 - **Orthographic cameras** (the studio's camera modes): size on screen
   does not change with distance, so one step is chosen for the whole
-  view from the copy's height over the view's height. `ViewScale` grows
-  an `Orthographic { height }` case if the studio needs it; first use
-  decides.
+  view from the copy's size over the view's height. `ViewScale` grows
+  an orthographic case if the studio needs it; first use decides.
 - **`levels_touched`** (fruit's coarse per-host check) becomes
-  `steps_touched` over distance and height ranges, same idea.
+  `steps_touched` over distance and factor ranges, same idea.
 
 ### Quality
 
@@ -212,26 +226,32 @@ changes a copy's `game_level`.
 ### Impostor frame size
 
 An impostor is never shown larger than its frame (decided). The largest
-it is drawn is `impostor_max_size(quality)` of the screen's height. The
-frame covers the specimen's bounding sphere, so:
+it is drawn is `impostor_max_size(quality)` of the screen's height: where
+it starts fading in, `impostor_below / (distance_scale × (1 − hysteresis))`.
+The frame covers the specimen's bounding sphere, the same measure as the
+copy's size, so:
 
 ```rust
 // procgena_impostor
-impl BakeSettings {
-    /// Frame size for impostors drawn by `chain` at `quality`, for a screen
-    /// REFERENCE_SCREEN_HEIGHT pixels tall: the smallest power of two at
-    /// least that many pixels, from 32 to 512.
-    pub fn frame_for(chain: &DistanceChain, quality: Quality) -> u32;
-}
+/// Pixels along each side of one impostor view for impostors drawn by
+/// `chain`: enough for the largest size on screen any quality shows, on a
+/// screen REFERENCE_SCREEN_HEIGHT pixels tall, rounded up to a power of
+/// two, from 32 to 512.
+pub fn frame_size_for(chain: &DistanceChain) -> u32;
 pub const REFERENCE_SCREEN_HEIGHT: u32 = 1440;
 ```
 
-Proposed rule for quality changes: the frame follows the active quality,
-so lower quality (impostor shown larger) gets a larger frame. Changing
-quality rebakes in the background, and the disk cache keeps each frame
-size, so switching back is free. The alternative is to fix frames at
-High and let Low magnify impostors up to 2.5×, which breaks the decided
-rule; not recommended.
+**Decided (the user, 2026-11-25): one bake per preset**, sized for the
+largest on-screen size any quality can show (`Quality::Low`, where the
+impostor threshold is largest), with mipmaps so higher qualities sample a
+smaller mip. A quality change never rebakes, and an impostor is never
+shown larger than its frame. The frame size goes in the bake key
+(`BakeSettings::frame_size`, as today) but does not depend on the active
+quality. With the default chain: Low shows an impostor up to
+0.04 / (0.4 × 0.9) = 0.111 of the screen, 160 pixels, so frames are 256;
+a High-sized bake would be 0.044 × 1440 = 64 pixels, 64 frames. That is
+16 times the atlas memory per specimen (plus a third for mipmaps); the
+experiment reports it.
 
 ### How an asset declares `game_level` and derives its lower mesh
 
@@ -255,7 +275,7 @@ Concrete first proposals (the experiment tunes them):
 
 | Kind | Today | `game_level` default | Lower rule |
 |------|-------|------------------------------------------|------------|
-| Stone | `detail: StoneDetail`, a 3-level table | One `{ resolution, texture_size }`. The six names stay; see the question on their resolutions. | Half the resolution (at least `MIN_RESOLUTION`), texture one size smaller (at least 512) |
+| Stone | `detail: StoneDetail`, a 3-level table | One `{ resolution, texture_size }`. The six names keep their level-0 resolutions; the default is Medium Low (48, 512; decided). | Half the resolution (at least `MIN_RESOLUTION`), texture one size smaller (at least 512) |
 | Dead wood | `detail: DeadwoodDetail` (used by `Piece::mesh`); LOD on `DeadwoodParams` | `HIGH` (16 sides, 1.2 per diameter, 3 cap rings) | Today's `LOW` scaled from the game detail: half the sides (at least 4), a third of the segments, 1 cap ring, `min_radius` and `ribbon_radius` × 4, half the leaf share. `strip_all` and `STRIP` go. |
 | Mushroom | `detail: MushroomDetail` (used by `Mushroom::mesh`); LOD on `MushroomParams` | `HIGH` (solid, 24/8 cap, 12/6 stem) | `Shell`, half of each count (at least 3 sides, 1 segment), no annulus. `BodyShape::Flat` and `Billboard` go with the ribbon forms. |
 | Tree | No detail on `TreeOptions`; `default_lod()` on `TreeParams` | New `game_level: LodDetail` on `TreeOptions`, default today's "near" (level 0, full detail; decided) | Between today's "middle" and "far", relative to the game detail: section stride and leaf stride × 3, segment factor × 0.5, open ends, `fruit_distance` dropped (see fruit). `BranchShape::Ribbons` and camera-facing leaves go. |
@@ -306,15 +326,16 @@ trees need to switch sooner, that argues for different shared numbers
 or, against the decision, a per-kind rule; the experiment should show
 which. Its first measurement is this table at a few candidate pairs.
 
-### Height as the size measure
+### The size measure
 
-Decided: a copy's height on screen. Every kind measures its copy's height
-(bounding box extent along up, times the copy's scale). Flagged
-follow-up, not changed here: a fallen log's height is its diameter, so it
-would drop to its lower mesh and impostor far sooner than its length
-suggests. Today dead wood's `lod_size` uses `max(diameter, 0.15 ×
-length)` for exactly this. The ROADMAP already lists "revisit the unit
-after the experiment".
+Decided (the user, 2026-11-25, replacing "height"): a copy's largest
+dimension, its bounding-sphere diameter, as a share of the screen's
+height. Every kind measures it the same way: the diameter of the sphere
+around the specimen's game-level mesh, times the copy's scale. A fallen
+log therefore keeps its meshes as far as its length suggests, and dead
+wood's own `lod_size` (`max(diameter, 0.15 × length)`) goes. The same
+sphere is what an impostor frame covers. The ROADMAP still lists
+"revisit the unit after the experiment".
 
 ## Steps
 
@@ -323,9 +344,8 @@ reported to the coordinator ready to merge.
 
 0. **This plan**, and the API agreed.
 1. **Core.** Add `Step`, the new `Lod<D>`, `LowerDetail`, `DistanceChain`,
-   `ViewScale` and `Quality::screen_scale` (if a new name is wanted) to
-   `procgena_core`, with tests in `tests/lod.rs`. Add the frame-size rule
-   to `procgena_impostor`. The old `Lod`, `LodLevel`, `LevelForm` and
+   `ViewScale` and `ChainError` to `procgena_core::chain`, with tests in
+   `tests/chain.rs`. Add `frame_size_for` to `procgena_impostor`. The old `Lod`, `LodLevel`, `LevelForm` and
    `FarForm` stay until their last user moves (see Bottom line). Touches
    core only, but core rebuilds most of the workspace: the coordinator
    times it.
@@ -394,7 +414,9 @@ size unit.
 - "Loading by chunk" hangs the Scatter's draw range on the cull distance;
   see the cull question.
 
-## Questions for the coordinator
+## Questions asked (2026-11-24)
+
+Kept as asked; the answers follow.
 
 1. **Terrain's chunk levels.** `procgena_terrain::chunk` and
    `procgena_terrain_bevy` use core's metre `Lod`/`LodLevel` and
@@ -426,3 +448,29 @@ size unit.
    `FarForm` variants and metre distances"). Yes?
 7. **Impostor frames follow quality** (rebake on a quality change, each
    size cached) rather than fixed at High. Yes?
+
+## Answers (the user, 2026-11-25, through the coordinator)
+
+1. **Terrain's chunk table** moves into `procgena_terrain` as its own
+   type at the end of Step 3, coordinated with its owner then.
+2. **Yes:** metre distances leave `procgena_specimen`'s levels in the
+   same window, kind by kind.
+3. **Keep cull** (`cull_below` 0.002), and derive each Scatter's draw
+   range from its largest copy.
+4. **The default thresholds** (0.10, 0.04, 0.002, hysteresis 0.1) are
+   fine as the starting point.
+5. **Stone** keeps its six names' level-0 resolutions; the default
+   `game_level` is Medium Low (48).
+6. **Yes:** new types beside the old; the last asset step deletes the old
+   ones; the workspace builds after every step.
+7. **Changed:** one bake per preset, sized for the largest on-screen size
+   any quality can show (`Quality::Low`), with mipmaps so higher
+   qualities sample a smaller mip. No rebake on a quality change, never
+   shown larger than its frame, clamped to 32–512. The frame size is in
+   the bake key but does not depend on the active quality. The
+   experiment reports the memory cost against a High-sized bake.
+
+Also changed: a copy's size on screen is its largest dimension (its
+bounding-sphere diameter) over the screen's height, not its height, so
+fallen logs don't switch early. That replaces `InstancedCopy::size` as a
+height.
