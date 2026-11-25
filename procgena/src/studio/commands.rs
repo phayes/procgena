@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 
 use super::documents::{CloseDocument, Document, Selection};
-use crate::scene::ViewerCommand;
+use crate::scene::{CameraMode, ViewerCommand};
 
 /// One named command.
 #[derive(Clone, Copy)]
@@ -82,6 +82,28 @@ impl Plugin for CommandsPlugin {
                 description: "Fits the camera to the selected document.",
                 run: |world| {
                     world.write_message(ViewerCommand::ResetCamera);
+                },
+            },
+            StudioCommand {
+                name: "orbit-camera",
+                description: "Orbits the camera around the point in front of it.",
+                run: |world| {
+                    world.write_message(ViewerCommand::SetCameraMode(CameraMode::Orbit));
+                },
+            },
+            StudioCommand {
+                name: "fly-camera",
+                description: "Flies the camera with WASD, Space and Shift.",
+                run: |world| {
+                    world.write_message(ViewerCommand::SetCameraMode(CameraMode::Fly));
+                },
+            },
+            StudioCommand {
+                name: "toggle-camera-mode",
+                description: "Switches the camera between orbiting and flying.",
+                run: |world| {
+                    let mode = super::camera::toggled(*world.resource::<CameraMode>());
+                    world.write_message(ViewerCommand::SetCameraMode(mode));
                 },
             },
             StudioCommand {
