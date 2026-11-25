@@ -448,15 +448,34 @@ impl WorldTerrain {
     /// site first, whose outline holds it, or failing that (a point right
     /// on a border) the one whose border is nearest.
     fn owner(&self, p: DVec2) -> RegionKey {
-        let near = self.graph.cell_near(p);
-        let mut candidates: Vec<(f64, RegionKey)> = (-2..=2)
-            .flat_map(|dz| (-2..=2).map(move |dx| RegionKey(near.0 + IVec2::new(dx, dz))))
-            .map(|k| (self.graph.site(k).distance_squared(p), k))
-            .collect();
+        self.owner_using(p, &self.nearby_sites(self.graph.cell_near(p)), |key| {
+            self.region_of(key)
+        })
+    }
+
+    /// Sites considered by ownership, independent of the point within a
+    /// graph cell. A sampling batch can reuse them for nearby points.
+    fn nearby_sites(&self, near: RegionKey) -> [(DVec2, RegionKey); 25] {
+        std::array::from_fn(|i| {
+            let key = RegionKey(near.0 + IVec2::new((i % 5) as i32 - 2, (i / 5) as i32 - 2));
+            (self.graph.site(key), key)
+        })
+    }
+
+    /// The same ownership decision for individual and batched reads.
+    /// A batch supplies retained boundaries instead of locking the world
+    /// cache for every point. In particular, border ties stay unchanged.
+    fn owner_using(
+        &self,
+        p: DVec2,
+        sites: &[(DVec2, RegionKey); 25],
+        mut region: impl FnMut(RegionKey) -> Arc<Region>,
+    ) -> RegionKey {
+        let mut candidates = sites.map(|(site, key)| (site.distance_squared(p), key));
         candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         let mut nearest_border: Option<(f64, RegionKey)> = None;
         for (_, key) in candidates {
-            let boundary = &self.region_of(key).boundary;
+            let boundary = &region(key).boundary;
             if boundary.contains(p) {
                 return key;
             }
@@ -466,6 +485,50 @@ impl WorldTerrain {
             }
         }
         nearest_border.expect("there are candidates").1
+    }
+
+    /// Resolves ownership in small parallel batches, then holds each
+    /// terrain once while sampling all points. Failed regions remain
+    /// missing for the whole batch, just as in the point-at-a-time API.
+    pub(crate) fn sample_batch<T: Send>(
+        &self,
+        points: &[DVec2],
+        tier: FeatureTier,
+        sample: impl Fn(Option<&Terrain>, DVec2) -> T + Sync,
+    ) -> Vec<T> {
+        let batches: Vec<_> = points.chunks(256).collect();
+        let owners: Vec<RegionKey> = crate::batch::map(&batches, |points| {
+            let mut regions = HashMap::new();
+            let mut sites = HashMap::new();
+            points
+                .iter()
+                .map(|&p| {
+                    let near = self.graph.cell_near(p);
+                    let nearby = sites.entry(near).or_insert_with(|| self.nearby_sites(near));
+                    self.owner_using(p, nearby, |key| {
+                        regions
+                            .entry(key)
+                            .or_insert_with(|| self.region_of(key))
+                            .clone()
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .into_iter()
+        .flatten()
+        .collect();
+        let keys: Vec<_> = owners
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let terrains: HashMap<_, _> =
+            crate::batch::map(&keys, |&key| (key, self.terrain_tier(key.id(), tier).ok()))
+                .into_iter()
+                .collect();
+        let located: Vec<_> = points.iter().zip(&owners).collect();
+        crate::batch::map(&located, |&(p, key)| sample(terrains[key].as_deref(), *p))
     }
 
     /// Region `key` from the graph, kept.

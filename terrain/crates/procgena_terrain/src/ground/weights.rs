@@ -4,7 +4,6 @@
 use glam::{DVec2, UVec2};
 
 use super::{GroundMix, GroundPainter, GroundSource, MaterialCatalogue, MaterialId};
-use crate::chunk::rows;
 use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier};
 
 /// Texels along each side of a chunk's weights, at every level: one on
@@ -98,21 +97,21 @@ impl GroundWeights {
         tier: FeatureTier,
         point: impl Fn(u32, u32) -> DVec2 + Sync,
     ) -> Result<Self, ChunkError> {
-        // Paint every texel, row by row.
-        let row = |j: i64| -> Result<Vec<GroundMix>, ChunkError> {
-            (0..size.x)
-                .map(|i| {
-                    let p = point(i, j as u32);
-                    let site = source.site(p, tier);
-                    if site.height.is_finite() {
-                        Ok(painter.paint(p, &site))
-                    } else {
-                        Err(ChunkError::NoGround(p))
-                    }
-                })
-                .collect()
-        };
-        let mixes = rows(i64::from(size.y), row)?.concat();
+        // Resolve a world's regions once for the entire grid, retaining
+        // the original texel order for palette totals and quantisation.
+        let points: Vec<_> = (0..size.y)
+            .flat_map(|j| (0..size.x).map(move |i| (i, j)))
+            .map(|(i, j)| point(i, j))
+            .collect();
+        let sites = source.sites(&points, tier);
+        assert_eq!(sites.len(), points.len(), "one site per point");
+        for (p, site) in points.iter().zip(&sites) {
+            if !site.height.is_finite() {
+                return Err(ChunkError::NoGround(*p));
+            }
+        }
+        let located: Vec<_> = points.iter().zip(&sites).collect();
+        let mixes = crate::batch::map(&located, |&(p, site)| painter.paint(*p, site));
         Ok(Self::from_mixes(size, &mixes, painter.catalogue()))
     }
 

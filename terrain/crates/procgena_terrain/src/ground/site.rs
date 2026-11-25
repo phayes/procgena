@@ -137,6 +137,13 @@ pub trait GroundSource: Sync {
     /// with its features planned to `tier` where the source has tiers. Its
     /// height is NaN where there is no ground.
     fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite;
+
+    /// Sites in the order of `points`, with exactly the same values as
+    /// [`site`](Self::site). The default samples points independently;
+    /// worlds reuse their region boundaries and terrains for the batch.
+    fn sites(&self, points: &[DVec2], tier: FeatureTier) -> Vec<GroundSite> {
+        crate::batch::map(points, |&p| self.site(p, tier))
+    }
 }
 
 impl GroundSource for Terrain {
@@ -147,6 +154,15 @@ impl GroundSource for Terrain {
 }
 
 impl GroundSource for WorldTerrain {
+    fn sites(&self, points: &[DVec2], tier: FeatureTier) -> Vec<GroundSite> {
+        self.sample_batch(points, tier, |terrain, p| {
+            terrain.map_or_else(
+                || GroundSite::new(f32::NAN, Vec2::ZERO),
+                |terrain| terrain.site(p, tier),
+            )
+        })
+    }
+
     /// The ground of the region holding `p`, at `tier` (see
     /// [`WorldTerrain::terrain_tier`]). NaN height where the region can't
     /// be built.

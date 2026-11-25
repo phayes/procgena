@@ -84,6 +84,7 @@
 //! The default `rayon` feature samples tiles on several threads; the results
 //! are the same without it.
 
+mod batch;
 mod border;
 mod calibration;
 mod carve;

@@ -335,6 +335,13 @@ pub trait ChunkSource: Sync {
     /// [`tier`](Self::tier)).
     fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint;
 
+    /// Surfaces in the order of `points`, with exactly the same values as
+    /// [`surface`](Self::surface). Worlds reuse region boundaries and
+    /// terrains across the batch; other sources may use the default.
+    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
+        crate::batch::map(points, |&p| self.surface(p, tier))
+    }
+
     /// The tier [`surface`](Self::surface) gives when asked for `tier`.
     fn tier(&self, tier: FeatureTier) -> FeatureTier;
 
@@ -369,6 +376,18 @@ impl ChunkSource for Terrain {
 }
 
 impl ChunkSource for WorldTerrain {
+    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
+        self.sample_batch(points, tier, |terrain, p| {
+            terrain.map_or(
+                SurfacePoint {
+                    height: f32::NAN,
+                    water: None,
+                },
+                |terrain| terrain.surface(p, tier),
+            )
+        })
+    }
+
     /// The ground of the region holding `p` at `tier` (see
     /// [`WorldTerrain::terrain_tier`]). NaN heights where the region can't
     /// be built.
@@ -458,40 +477,39 @@ impl ChunkSamples {
         key: ChunkKey,
         tier: FeatureTier,
     ) -> Result<Self, ChunkError> {
-        let surface = |u: i64, v: i64| {
-            let p = key.half_point(u, v);
-            let point = source.surface(p, tier);
-            if point.height.is_finite() {
-                Ok(point)
-            } else {
-                Err(ChunkError::NoGround(p))
-            }
-        };
-
-        // The vertex lattice and its ring, row by row.
+        // Read the vertex lattice, normal ring and transition samples in
+        // one batch, so a world holds each needed terrain only once.
         let width = N + 3;
-        let row = |j: i64| -> Result<Vec<SurfacePoint>, ChunkError> {
-            (0..width)
-                .map(|i| surface(2 * (i - 1), 2 * (j - 1)))
-                .collect()
-        };
-        let grid = rows(width, row)?.concat();
-
-        // Three half-step rows along each side.
+        let mut points: Vec<_> = (0..width)
+            .flat_map(|j| (0..width).map(move |i| key.half_point(2 * (i - 1), 2 * (j - 1))))
+            .collect();
+        let grid_len = points.len();
+        let length = 2 * N + 3;
+        if key.level > 0 {
+            for side in ChunkSide::ALL {
+                for t in 0..3 {
+                    points.extend((0..length).map(|k| {
+                        let (u, v) = side_point(side, k - 1, t - 1);
+                        key.half_point(u, v)
+                    }));
+                }
+            }
+        }
+        let surfaces = source.surfaces(&points, tier);
+        assert_eq!(surfaces.len(), points.len(), "one surface per point");
+        for (p, surface) in points.iter().zip(&surfaces) {
+            if !surface.height.is_finite() {
+                return Err(ChunkError::NoGround(*p));
+            }
+        }
+        let mut surfaces = surfaces.into_iter();
+        let grid = surfaces.by_ref().take(grid_len).collect();
         let mut sides: [[Vec<SurfacePoint>; 3]; 4] = Default::default();
         if key.level > 0 {
-            let length = 2 * N + 3;
-            for (s, side) in ChunkSide::ALL.into_iter().enumerate() {
-                let row = |t: i64| -> Result<Vec<SurfacePoint>, ChunkError> {
-                    (0..length)
-                        .map(|k| {
-                            let (u, v) = side_point(side, k - 1, t - 1);
-                            surface(u, v)
-                        })
-                        .collect()
-                };
-                let [outside, on, inside] = rows(3, row)?.try_into().expect("three rows");
-                sides[s] = [outside, on, inside];
+            for side in &mut sides {
+                for row in side {
+                    *row = surfaces.by_ref().take(length as usize).collect();
+                }
             }
         }
 
@@ -794,22 +812,6 @@ impl VertexLayout {
             }
         }
         points
-    }
-}
-
-/// Builds `count` rows with `row`, in parallel with the `rayon` feature.
-pub(crate) fn rows<T: Send>(
-    count: i64,
-    row: impl Fn(i64) -> Result<T, ChunkError> + Sync,
-) -> Result<Vec<T>, ChunkError> {
-    #[cfg(feature = "rayon")]
-    {
-        use rayon::prelude::*;
-        (0..count).into_par_iter().map(&row).collect()
-    }
-    #[cfg(not(feature = "rayon"))]
-    {
-        (0..count).map(row).collect()
     }
 }
 

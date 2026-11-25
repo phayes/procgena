@@ -1,0 +1,126 @@
+//! Batched world reads preserve point ownership, sample order and drawing.
+
+use std::sync::Arc;
+
+use glam::{DVec2, Vec2};
+use procgena_terrain::ground::{GroundSite, GroundSource, GroundStack, GroundWeights};
+use procgena_terrain::{
+    ChunkError, ChunkKey, ChunkSamples, ChunkSide, ChunkSource, Elevation, FeatureTier, RegionId,
+    SurfacePoint, Transitions, WorldTerrain, fixtures,
+};
+
+/// Uses the trait defaults, deliberately doing a world lookup per point.
+struct Pointwise<'a>(&'a WorldTerrain);
+
+impl GroundSource for Pointwise<'_> {
+    fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
+        GroundSource::site(self.0, p, tier)
+    }
+}
+
+impl ChunkSource for Pointwise<'_> {
+    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+        self.0.surface(p, tier)
+    }
+    fn tier(&self, tier: FeatureTier) -> FeatureTier {
+        tier
+    }
+    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
+        self.0.tier_difference(min, max, from)
+    }
+}
+
+fn world() -> WorldTerrain {
+    WorldTerrain::new(
+        fixtures::world_medium(),
+        Arc::new(|id: RegionId, _: DVec2, _: &Elevation| {
+            if id.0.is_multiple_of(2) {
+                fixtures::plains_medium().terrain.clone()
+            } else {
+                fixtures::rolling_hills_medium().terrain.clone()
+            }
+        }),
+    )
+    .unwrap()
+}
+
+#[test]
+fn batches_match_individual_reads_on_warped_borders_and_corners() {
+    let world = world();
+    let region = world.region(world.region_at(DVec2::ZERO));
+    let mut points = vec![DVec2::ZERO, DVec2::new(-31.5, 12.0)];
+    for edge in &region.edges {
+        for &p in &edge.polyline {
+            points.extend([p, p + DVec2::splat(0.001), p - DVec2::splat(0.001)]);
+        }
+    }
+    let pointwise = Pointwise(&world);
+    for tier in FeatureTier::ALL {
+        assert_eq!(
+            world.surfaces(&points, tier),
+            pointwise.surfaces(&points, tier)
+        );
+        assert_eq!(world.sites(&points, tier), pointwise.sites(&points, tier));
+        points.reverse();
+    }
+    assert!(world.sites(&[], FeatureTier::Fine).is_empty());
+    assert!(world.surfaces(&[], FeatureTier::Fine).is_empty());
+}
+
+#[test]
+fn batch_meshes_and_paint_match_pointwise_across_a_region_border() {
+    let world = world();
+    let region = world.region(world.region_at(DVec2::ZERO));
+    let edge = &region.edges[0];
+    let key = ChunkKey::containing(edge.polyline[edge.polyline.len() / 2], 1);
+    let pointwise = Pointwise(&world);
+    let paint = GroundStack::bare(3, 1.0);
+    for tier in [FeatureTier::Rough, FeatureTier::Fine] {
+        let batch = ChunkSamples::sample(&world, key, tier).unwrap();
+        let single = ChunkSamples::sample(&pointwise, key, tier).unwrap();
+        for transitions in [
+            Transitions::NONE,
+            Transitions::NONE.with_side(ChunkSide::MinX),
+        ] {
+            assert_eq!(batch.mesh(transitions, 8.0), single.mesh(transitions, 8.0));
+        }
+        assert_eq!(
+            GroundWeights::chunk(&paint, &world, key, tier).unwrap(),
+            GroundWeights::chunk(&paint, &pointwise, key, tier).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn failed_regions_and_missing_ground_keep_their_error_behavior() {
+    let world = WorldTerrain::new(
+        fixtures::world_medium(),
+        Arc::new(|_: RegionId, _: DVec2, _: &Elevation| {
+            let mut options = fixtures::plains_medium().terrain.clone();
+            options.base.elevation = f32::NAN;
+            options
+        }),
+    )
+    .unwrap();
+    let points = [DVec2::ZERO, DVec2::new(-2.0, 3.0), DVec2::ZERO];
+    for mut site in world.sites(&points, FeatureTier::Fine) {
+        assert!(site.height.is_nan());
+        site.height = 0.0;
+        assert_eq!(site, GroundSite::new(0.0, Vec2::ZERO));
+    }
+    assert!(
+        world
+            .surfaces(&points, FeatureTier::Fine)
+            .iter()
+            .all(|s| s.height.is_nan() && s.water.is_none())
+    );
+    let key = ChunkKey::new(0, 0, 0);
+    assert!(matches!(
+        ChunkSamples::sample(&world, key, FeatureTier::Fine),
+        Err(ChunkError::NoGround(_))
+    ));
+    assert_eq!(
+        GroundWeights::chunk(&GroundStack::bare(0, 1.0), &world, key, FeatureTier::Fine),
+        Err(ChunkError::NoGround(DVec2::ZERO)),
+    );
+}
