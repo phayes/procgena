@@ -535,6 +535,21 @@ reported to the coordinator ready to merge.
      the impostor's start makes no request; raising it makes one. To
      decide in Step 4: how the gate sits with the studio's background
      pre-bake, which bypasses it on purpose.
+     **Deferred (the user, 2026-11-25):** not part of Step 4; a follow-up
+     TODO in ROADMAP.md (IX, "Follow-up: bake only impostors that can be
+     on screen"). Partial work is on branch `claude/project-thread-r7ngjq`:
+     `procgena_core_bevy::{FarthestViewDistance, ImpostorGate,
+     BakeAhead, impostor_can_show}`, wired into stone (single and pooled
+     rocks), dead wood and mushroom (singles and scatters), with stone
+     tests for the limit and the marker. Unfinished there: the tests were
+     not run past `procgena_core_bevy`'s own, and trees and fruit are not
+     wired. Settled while building it: the studio's pre-bake spawns hidden
+     asset entities rather than an `ImpostorBatch`, so it bypasses the gate
+     by marking them `BakeAhead`; held-back specimens still use an
+     impostor already in `Impostors`; a scatter asks with its smallest
+     copy's size; a tree's fruit impostors are requested only with the
+     tree's own impostor (they are drawn only while the tree is on a mesh
+     step), and `PrepareTreeScatter` would count as baking ahead.
 
    **As built (Step 4, the instanced renderer):**
    - An `InstancedSlot` holds its `DistanceChain`, `cull` (false for

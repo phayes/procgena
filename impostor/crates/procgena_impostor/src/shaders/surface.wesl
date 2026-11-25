@@ -1,6 +1,6 @@
 // The surface an impostor shows at one fragment of its quad: the three
-// baked views nearest the viewer, each projected onto the viewer's ray, and
-// blended, at the depth those views store. Shared by the forward and prepass
+// baked views nearest the viewer's ray, each marched along that ray to the
+// depth it stores, and blended there. Shared by the forward and prepass
 // shaders, so both find the same surface and write the same depth.
 //
 // The quad faces the nearest view, and each fragment's quad position says
@@ -83,22 +83,47 @@ fn impostor_surface(world_position: vec3<f32>, uv: vec2<f32>) -> ImpostorSurface
     let duv_x = vec2<f32>(da_x.x, -da_x.y) * (0.5 / f);
     let duv_y = vec2<f32>(da_y.x, -da_y.y) * (0.5 / f);
 
-    // The viewer's ray through the fragment, and the direction from the
-    // object towards the viewer, both in the object's coordinates.
+    // The viewer's ray through the fragment, in the object's coordinates.
     // Orthographic views, such as directional shadows, look along their own
     // axis.
     var ray: vec3<f32>;
-    var to_view: vec3<f32>;
     if view.clip_from_view[3][3] == 1.0 {
-        to_view = object_from_world * view.world_from_view[2].xyz;
-        ray = -normalize(to_view);
+        ray = -normalize(object_from_world * view.world_from_view[2].xyz);
     } else {
         ray = normalize(object_from_world * (world_position - view.world_position));
-        to_view = object_from_world * (view.world_position - world_center);
     }
 
-    // The three views around the viewer's direction, weighted by where it
-    // falls in the triangle between them.
+    var out: ImpostorSurface;
+    out.coverage = 0.0;
+    out.world_radius = radius * scale;
+    out.color = vec3<f32>(0.0);
+    out.world_normal = world_basis[2];
+    out.world_position = world_position;
+
+    // Where the ray is inside the bounding sphere, as distances along it
+    // from `on_quad`. A ray that misses the sphere misses the object.
+    let from_center = on_quad - center;
+    let middle = -dot(from_center, ray);
+    let reach = middle * middle - dot(from_center, from_center) + radius * radius;
+    if reach <= 0.0 {
+        return out;
+    }
+    let span = vec2<f32>(middle - sqrt(reach), middle + sqrt(reach));
+
+    // The atlas mip level the views are marched at, from how fast the quad
+    // crosses the atlas.
+    let atlas_size = f32(textureDimensions(normal_atlas).x);
+    let footprint = max(length(duv_x), length(duv_y)) * atlas_size;
+    let level = max(log2(max(footprint, 1e-8)), 0.0);
+
+    // The three views around the direction from the object towards the
+    // viewer, weighted by where it falls in the triangle between them. The
+    // whole object uses the same three, so their silhouettes agree across
+    // it; the march below still follows each fragment's own ray.
+    var to_view = -ray;
+    if view.clip_from_view[3][3] != 1.0 {
+        to_view = object_from_world * (view.world_position - world_center);
+    }
     let grid = view_grid(to_view, frames, impostor.lowest_elevation);
     let base = floor(grid);
     let t = grid - base;
@@ -120,7 +145,9 @@ fn impostor_surface(world_position: vec3<f32>, uv: vec2<f32>) -> ImpostorSurface
     var position = vec3<f32>(0.0);
     for (var i = 0u; i < 3u; i += 1u) {
         let corner = vec2<u32>(clamp(corners[i], vec2<f32>(0.0), vec2<f32>(f - 1.0)));
-        let seen = view_sample(corner, on_quad, ray, duv_x, duv_y);
+        let start = on_quad + ray * span.x;
+        let end = on_quad + ray * span.y;
+        let seen = view_sample(corner, start, end, level, duv_x, duv_y);
         let weight = weights[i] * seen.coverage;
         coverage += weight;
         color += weight * seen.color;
@@ -128,66 +155,167 @@ fn impostor_surface(world_position: vec3<f32>, uv: vec2<f32>) -> ImpostorSurface
         position += weight * seen.position;
     }
 
-    var out: ImpostorSurface;
     out.coverage = coverage;
-    out.world_radius = radius * scale;
     if coverage > 0.0 {
         out.color = color / coverage;
         out.world_normal = normalize(world_from_object * normal);
         out.world_position = world_center + world_from_object * (position / coverage - center) * scale;
-    } else {
-        out.color = vec3<f32>(0.0);
-        out.world_normal = world_basis[2];
-        out.world_position = world_position;
     }
     return out;
 }
 
-/// What the view in atlas cell `cell` shows along the viewer's `ray`
-/// through `on_quad`, both in the object's coordinates. `duv_x` and
-/// `duv_y` are the quad's atlas derivatives, which pick the mip level.
+/// What the view in atlas cell `cell` shows along the viewer's ray from
+/// `start` to `end`, where it enters and leaves the bounding sphere, in the
+/// object's coordinates. The view's depth is marched at mip `level`;
+/// `duv_x` and `duv_y` are the quad's atlas derivatives, which pick the mip
+/// level of the colour and normal at the surface found.
+///
+/// Each view stores only the surface nearest its own camera, as a height
+/// towards it. Finding where the ray first falls below that height lines
+/// the three blended views up on the same surface, which is what keeps
+/// their outlines from doubling.
 fn view_sample(
     cell: vec2<u32>,
-    on_quad: vec3<f32>,
-    ray: vec3<f32>,
+    start: vec3<f32>,
+    end: vec3<f32>,
+    level: f32,
     duv_x: vec2<f32>,
     duv_y: vec2<f32>,
 ) -> ViewSample {
     var out: ViewSample;
-    let radius = impostor.radius;
-    let center = impostor.center;
     let basis = view_basis(view_direction(cell, impostor.frames, impostor.lowest_elevation));
 
     // A view seen from nearly edge-on, or from behind, shows nothing.
-    let facing = dot(ray, basis[2]);
+    let facing = dot(normalize(end - start), basis[2]);
     if facing > -0.05 {
         return out;
     }
 
-    // Where the ray meets the view's plane through the centre. A ray that
-    // meets it outside the view's square misses the object.
-    let hit = on_quad + ray * (dot(center - on_quad, basis[2]) / facing);
-    let on_plane = square(hit, basis);
-    if any(abs(on_plane) > vec2<f32>(1.0)) {
+    // The ray across the view: where it is on the view's square, and its
+    // height towards the view's camera, -1 to 1 over the bounding sphere.
+    // Both change linearly along the ray, since the view is orthographic.
+    let entry = vec3<f32>(square(start, basis), height(start, basis));
+    let exit = vec3<f32>(square(end, basis), height(end, basis));
+
+    // Step about one texel at a time across the view, so thin parts aren't
+    // stepped over; far impostors march at a coarse mip in a few steps.
+    let view_texels = f32(textureDimensions(normal_atlas).x) / f32(impostor.frames) * exp2(-level);
+    let texels = length(exit.xy - entry.xy) * 0.5 * view_texels;
+    let steps = u32(clamp(ceil(texels), f32(MIN_STEPS), f32(MAX_STEPS)));
+
+    // Where the ray first comes down onto the stored surface inside the
+    // view's silhouette. Uncovered texels hold the depth of the nearest
+    // covered one, which is no surface at all, so the ray passes through
+    // them once it is below that depth.
+    //
+    // A ray that passes under that depth beside the silhouette and then
+    // crosses into it meets the side of the depth the view stores, not
+    // anything the view saw, so this view shows nothing there; the views on
+    // that side of the object show it instead.
+    var above = 0.0;
+    var hit = -1.0;
+    var beside = false;
+    for (var i = 0u; i <= steps; i += 1u) {
+        let s = f32(i) / f32(steps);
+        let point = mix(entry, exit, s);
+        if gap(cell, point, level) > 0.0 {
+            beside = false;
+            above = s;
+            continue;
+        }
+        if beside {
+            if covers(cell, point.xy, level) {
+                break;
+            }
+            continue;
+        }
+
+        // Coming down from above: find where the ray crosses the depth
+        // between the two steps, since a ray grazing the silhouette may
+        // cross it only briefly, then see whether the view saw the object
+        // there.
+        var crossing = s;
+        if i > 0u {
+            crossing = cross_depth(cell, entry, exit, above, s, level);
+        }
+        if covers(cell, mix(entry.xy, exit.xy, crossing), level) {
+            hit = crossing;
+            break;
+        }
+        beside = true;
+    }
+    if hit < 0.0 {
         return out;
     }
+    let s = hit;
 
-    // The view's texel there. It isn't moved by its depth (parallax
-    // mapping): one step of that smears silhouettes outwards, since texels
-    // just outside them hold the depth of the surface just inside. Blending
-    // nearby views hides the small offsets between them instead.
-    let at = cell_uv(cell, on_plane);
+    let at = cell_uv(cell, mix(entry.xy, exit.xy, s), level);
     let albedo = textureSampleGrad(albedo_atlas, atlas_sampler, at, duv_x, duv_y);
     let stored = textureSampleGrad(normal_atlas, atlas_sampler, at, duv_x, duv_y);
     out.color = albedo.rgb;
     out.coverage = albedo.a;
     out.normal = stored.xyz * 2.0 - 1.0;
-
-    // The surface is where the ray reaches the texel's depth, so the depth
-    // written matches what the fragment shows.
-    let height = (stored.a * 2.0 - 1.0) * radius;
-    out.position = hit + ray * (height / facing);
+    out.position = mix(start, end, s);
     return out;
+}
+
+/// Where, between `above` and `below` along the ray from `entry` to `exit`
+/// (see `view_sample`), the ray crosses the depth view `cell` stores, given
+/// that it is above it at `above` and not at `below`: the step is halved a
+/// few times, then the crossing taken on the straight line between its
+/// ends.
+fn cross_depth(
+    cell: vec2<u32>,
+    entry: vec3<f32>,
+    exit: vec3<f32>,
+    above: f32,
+    below: f32,
+    level: f32,
+) -> f32 {
+    var high = above;
+    var low = below;
+    for (var i = 0u; i < REFINE_STEPS; i += 1u) {
+        let middle = (high + low) * 0.5;
+        if gap(cell, mix(entry, exit, middle), level) <= 0.0 {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    let gap_high = gap(cell, mix(entry, exit, high), level);
+    let gap_low = gap(cell, mix(entry, exit, low), level);
+    return mix(high, low, clamp(gap_high / max(gap_high - gap_low, 1e-6), 0.0, 1.0));
+}
+
+/// How far a point on the ray, given as its place on the view's square and
+/// its height (see `view_sample`), is above the surface view `cell` stores
+/// there. Off the view's square nothing is stored, so the point is above it.
+fn gap(cell: vec2<u32>, point: vec3<f32>, level: f32) -> f32 {
+    if any(abs(point.xy) > vec2<f32>(1.0)) {
+        return 1.0;
+    }
+    let stored = textureSampleLevel(normal_atlas, atlas_sampler, cell_uv(cell, point.xy, level), level).a;
+    return point.z - (stored * 2.0 - 1.0);
+}
+
+/// Whether view `cell` saw the object at `across` on its square, at mip
+/// `level`: whether the texel there survives the impostor's cut-out.
+fn covers(cell: vec2<u32>, across: vec2<f32>, level: f32) -> bool {
+    let alpha = textureSampleLevel(albedo_atlas, atlas_sampler, cell_uv(cell, across, level), level).a;
+    return alpha >= 0.5;
+}
+
+/// The fewest and most steps `view_sample` marches each view in, and how
+/// many times it then halves the step that reached the surface.
+const MIN_STEPS: u32 = 6u;
+const MAX_STEPS: u32 = 16u;
+const REFINE_STEPS: u32 = 3u;
+
+/// The height of `point`, in the object's coordinates, towards the camera
+/// of the view with axes `basis`: -1 to 1 over the bounding sphere, as the
+/// normal atlas stores depth.
+fn height(point: vec3<f32>, basis: mat3x3<f32>) -> f32 {
+    return dot(point - impostor.center, basis[2]) / impostor.radius;
 }
 
 /// Where `point`, in the object's coordinates, lies across the view with
@@ -198,10 +326,16 @@ fn square(point: vec3<f32>, basis: mat3x3<f32>) -> vec2<f32> {
 }
 
 /// The atlas position in cell `cell` of `across`, a position across its
-/// view as `square` gives it.
-fn cell_uv(cell: vec2<u32>, across: vec2<f32>) -> vec2<f32> {
+/// view as `square` gives it, for sampling at mip `level`.
+///
+/// Positions are kept half a texel inside the cell at that level and the
+/// one above it, so filtering never reaches into the neighbouring view.
+fn cell_uv(cell: vec2<u32>, across: vec2<f32>, level: f32) -> vec2<f32> {
+    let frames = f32(impostor.frames);
+    let view_size = f32(textureDimensions(normal_atlas).x) / frames;
+    let inset = 0.5 * exp2(floor(level) + 1.0) / view_size;
     let in_cell = vec2<f32>(across.x * 0.5 + 0.5, 0.5 - across.y * 0.5);
-    return (vec2<f32>(cell) + in_cell) / f32(impostor.frames);
+    return (vec2<f32>(cell) + clamp(in_cell, vec2<f32>(inset), vec2<f32>(1.0 - inset))) / frames;
 }
 
 /// The depth to write for `surface` in the current view, for
