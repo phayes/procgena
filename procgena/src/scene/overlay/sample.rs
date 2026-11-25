@@ -301,10 +301,6 @@ impl OverlayGround for Terrain {
 pub struct AreaValues {
     /// The family sampled.
     pub family: Family,
-    /// The area's smallest corner (x and z, metres).
-    pub min: DVec2,
-    /// The area's side, in metres.
-    pub side: f64,
     /// Texels along each side.
     pub size: u32,
     /// The values, row by row along x; regions have a ring of one texel
@@ -340,8 +336,6 @@ impl AreaValues {
         }
         Self {
             family,
-            min,
-            side,
             size,
             values,
             cost: start.elapsed(),
@@ -522,7 +516,7 @@ mod tests {
     fn world() -> WorldTerrain {
         let options = WorldTerrainOptions {
             regions: RegionGraphOptions {
-                size: 600.0,
+                size: 2000.0,
                 min_edge: MIN_EDGE,
                 ..RegionGraphOptions::default()
             },
@@ -549,14 +543,14 @@ mod tests {
             Family::Regions,
             &world,
             &painter,
-            DVec2::splat(-600.0),
-            1200.0,
+            DVec2::splat(-2000.0),
+            4000.0,
             FeatureTier::Rough,
         );
         let colours = values.colours(Overlay::Regions, painter.catalogue());
         let outline = [OUTLINE[0], OUTLINE[1], OUTLINE[2], 255];
         let edges = colours.iter().filter(|&&c| c == outline).count();
-        assert!(edges > 0, "regions of 600 m meet in a 1200 m square");
+        assert!(edges > 0, "regions of 2 km meet in a 4 km square");
         assert!(edges < colours.len() / 4, "outlines are thin");
     }
 
@@ -592,7 +586,7 @@ mod tests {
         let world = world();
         let painter = GroundStack::bare(0, 1.0);
         let p = DVec2::new(-80.0, 140.0);
-        let site = world.site(p, FeatureTier::Fine);
+        let site = GroundSource::site(&world, p, FeatureTier::Fine);
         let mix = painter.paint(p, &site);
         let Value::Ground(Some(id)) =
             sample_point(Family::Ground, &world, &painter, p, FeatureTier::Fine)

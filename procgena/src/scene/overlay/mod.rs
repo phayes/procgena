@@ -22,7 +22,7 @@ use std::time::Duration;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::math::DVec2;
-use bevy::picking::events::{Move, Out, Pointer};
+use bevy::picking::events::{PointerLeave, PointerMove};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
@@ -425,7 +425,7 @@ fn overlay_image(values: &AreaValues, overlay: Overlay, catalogue: &MaterialCata
 
 /// Follows the pointer over the 3D view.
 fn track_pointer(
-    moved: On<Pointer<Move>>,
+    moved: On<PointerMove>,
     viewports: Query<(&ComputedNode, &UiGlobalTransform), With<SceneViewport>>,
     mut pointer: ResMut<OverlayPointer>,
 ) {
@@ -438,14 +438,14 @@ fn track_pointer(
         return;
     }
     let corner = transform.translation - size / 2.0;
-    let at = moved.pointer_location.position / node.inverse_scale_factor();
+    let at = moved.pointer.position / node.inverse_scale_factor();
     let fraction = (at - corner) / size;
     pointer.set_if_neq(OverlayPointer(Some(fraction)));
 }
 
 /// Forgets the pointer when it leaves the 3D view.
 fn lose_pointer(
-    out: On<Pointer<Out>>,
+    out: On<PointerLeave>,
     viewports: Query<(), With<SceneViewport>>,
     mut pointer: ResMut<OverlayPointer>,
 ) {

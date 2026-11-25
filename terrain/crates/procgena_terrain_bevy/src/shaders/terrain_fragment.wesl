@@ -35,6 +35,7 @@ struct TerrainSurface {
     fade: vec4<f32>,
     tint: vec4<f32>,
     border: f32,
+    overlay: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> surface: TerrainSurface;
@@ -42,6 +43,8 @@ struct TerrainSurface {
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var weights_low_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(103) var weights_high: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(104) var weights_high_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(105) var overlay: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(106) var overlay_sampler: sampler;
 
 /// A smooth value noise from 0 to 1, from world x and z.
 fn hash2(p: vec2<f32>) -> f32 {
@@ -93,8 +96,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let vary = 1.0 + surface.variation * (patches - 0.5) * 2.0;
     var colour = mixed.rgb * vary;
 
-    // Debug: tint by chunk level, and darken a line along chunk borders.
+    // Debug: tint by chunk level, cover with the overlay image, and darken a
+    // line along chunk borders. The overlay's UVs, like the weights', run
+    // from its first texel's centre to its last's.
     colour = mix(colour, surface.tint.rgb, surface.tint.w);
+    let overlay_size = vec2<f32>(textureDimensions(overlay));
+    let overlay_at = (uv * (overlay_size - 1.0) + 0.5) / overlay_size;
+    let cover = textureSample(overlay, overlay_sampler, overlay_at);
+    colour = mix(colour, cover.rgb, surface.overlay * cover.a);
     if surface.border > 0.0 {
         let cell = fract(position.xz / surface.border + 0.5) - 0.5;
         let width = fwidth(position.xz / surface.border) * 1.5;

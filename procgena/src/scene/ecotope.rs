@@ -7,14 +7,19 @@ use bevy::math::DVec2;
 use bevy::prelude::*;
 use procgena_biome::{Ecotope, EcotopePreset};
 use procgena_biome_bevy::{
-    EcotopeFinished, EcotopeGroundPatch, EcotopeParams, EcotopePlacing, GroundPatch, rolling_hills,
+    EcotopeFinished, EcotopeGroundPatch, EcotopeGroundWeights, EcotopeParams, EcotopePlacing,
+    GroundPatch, rolling_hills,
 };
 use procgena_core::scatter::ScatterArea;
 use procgena_core::{FlatGround, Ground, HeightGrid};
-use procgena_terrain::ground::GroundStack;
+use procgena_terrain::ground::{
+    GroundMix, GroundPainter, GroundSite, GroundSource, GroundStack, MaterialCatalogue, OnGround,
+};
+use procgena_terrain::{FeatureTier, Measures, RegionId};
 
 use super::environment::EnvironmentSettings;
 use super::orbit::{OrbitCamera, OrbitLimits};
+use super::overlay::{Overlay, OverlayArea, OverlayGround, OverlaySource};
 use super::protocol::ViewerEvent;
 use super::subject::{Detail, SceneState, Subject};
 use super::viewport::ViewportActivity;
@@ -149,8 +154,82 @@ fn base(settings: &EcotopeSettings) -> Arc<GroundStack> {
 /// Adds the Ecotope subject, the ground drawn under it, and its reports.
 pub(crate) fn plugin(app: &mut App) {
     app.add_subject::<EcotopeSubject>()
-        .add_systems(Update, (show_ground, render_while_placing))
+        .add_systems(Update, (show_ground, render_while_placing, offer_overlay))
         .add_observer(report_ecotope);
+}
+
+/// The overlays an Ecotope offers: its ground has one region and no water
+/// or roads, so only what it is made of.
+const ECOTOPE_OVERLAYS: [Overlay; 1] = [Overlay::Ground];
+
+/// Offers the ground overlay over each newly painted ground patch, read
+/// from the weights the patch is drawn with.
+fn offer_overlay(
+    mut commands: Commands,
+    patches: Query<(Entity, &EcotopeGroundWeights, &ChildOf), Changed<EcotopeGroundWeights>>,
+    params: Query<&EcotopeParams>,
+) {
+    for (patch, painted, parent) in &patches {
+        let Ok(params) = params.get(parent.parent()) else {
+            continue;
+        };
+        let ground = Arc::new(PatchGround(params.ground.clone()));
+        let painter = Arc::new(PatchPainter(painted.clone()));
+        commands
+            .entity(parent.parent())
+            .insert(OverlaySource::new(ground, painter, &ECOTOPE_OVERLAYS));
+        commands.entity(patch).insert(OverlayArea {
+            min: painted.min,
+            side: (painted.max - painted.min).max_element(),
+            tier: FeatureTier::Fine,
+        });
+    }
+}
+
+/// The ground under an Ecotope, for the overlay: one region, no water.
+struct PatchGround(Arc<dyn Ground>);
+
+impl GroundSource for PatchGround {
+    fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
+        OnGround(&*self.0).site(p, tier)
+    }
+}
+
+impl OverlayGround for PatchGround {
+    fn region(&self, _: DVec2) -> RegionId {
+        RegionId(0)
+    }
+
+    fn height(&self, p: DVec2, _: FeatureTier) -> f32 {
+        self.0.height(p)
+    }
+
+    /// None: the Ecotope's ground has no water or roads to measure from.
+    fn measures(&self, _: DVec2, _: FeatureTier) -> Option<Measures> {
+        None
+    }
+}
+
+/// The patch's painted ground as a painter: at each point, all of the
+/// material with the most weight at the nearest texel.
+struct PatchPainter(EcotopeGroundWeights);
+
+impl GroundPainter for PatchPainter {
+    fn catalogue(&self) -> &MaterialCatalogue {
+        &self.0.catalogue
+    }
+
+    fn paint(&self, p: DVec2, _: &GroundSite) -> GroundMix {
+        let weights = &self.0.weights;
+        let last = (weights.size() - 1).as_dvec2();
+        let t = ((p - self.0.min) / (self.0.max - self.0.min)).clamp(DVec2::ZERO, DVec2::ONE);
+        let texel = (t * last).round();
+        let at = weights.texel(texel.x as u32, texel.y as u32);
+        let slot = (0..weights.palette().len())
+            .max_by_key(|&k| (at[k], std::cmp::Reverse(k)))
+            .expect("painted ground has a material");
+        GroundMix::single(weights.palette()[slot])
+    }
 }
 
 /// The ground `settings` asks for, a little wider than its patch.

@@ -12,7 +12,7 @@ use procgena_biome::{Ecotope, EcotopePlacement};
 use procgena_core::Ground;
 use procgena_core::scatter::ScatterArea;
 use procgena_terrain::FeatureTier;
-use procgena_terrain::ground::{GroundStack, GroundWeights, OnGround};
+use procgena_terrain::ground::{GroundStack, GroundWeights, MaterialCatalogue, OnGround};
 
 /// How [`EcotopeParams`](crate::EcotopeParams) draws the ground under its
 /// Ecotope: a mesh of the ground over the area and a margin around it,
@@ -56,6 +56,22 @@ impl GroundPatch {
 #[derive(Component, Debug, Clone, Copy, Default)]
 #[require(Transform, Visibility)]
 pub struct EcotopeGroundPatch;
+
+/// The ground weights an [`EcotopeGroundPatch`] is drawn from, on the
+/// patch's entity: for tools that show or read what the ground is made of,
+/// such as a debug overlay. Replaced each time the patch is painted again.
+#[derive(Component, Debug, Clone)]
+pub struct EcotopeGroundWeights {
+    /// The weights, one texel on each vertex of the patch's mesh, its first
+    /// texel on `min` and its last on `max`.
+    pub weights: Arc<GroundWeights>,
+    /// The patch's smallest corner (World x and z, metres).
+    pub min: DVec2,
+    /// The patch's largest corner (World x and z, metres).
+    pub max: DVec2,
+    /// The catalogue the weights' material ids are from.
+    pub catalogue: Arc<MaterialCatalogue>,
+}
 
 /// The weights of `ecotope`'s ground over `patch` around `area` of
 /// `ground`, following the copies of `placement`, one texel on each vertex

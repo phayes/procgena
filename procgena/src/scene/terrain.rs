@@ -5,12 +5,16 @@ use std::sync::Arc;
 
 use bevy::math::DVec2;
 use bevy::prelude::*;
+use procgena_terrain::ground::GroundStack;
 use procgena_terrain::{
     Elevation, RegionId, TerrainOptions, WorldError, WorldTerrain, WorldTerrainOptions, chunk_lod,
 };
-use procgena_terrain_bevy::{TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream};
+use procgena_terrain_bevy::{
+    RegionTracker, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream,
+};
 
 use super::orbit::{OrbitCamera, OrbitLimits};
+use super::overlay::{Overlay, OverlaySource};
 use super::protocol::ViewerEvent;
 use super::subject::{SceneState, Subject};
 use super::viewport::ViewportActivity;
@@ -117,12 +121,20 @@ pub(crate) fn add_subject(app: &mut App) {
 }
 
 /// The stream drawing `world`, coloured with bare terrain's ground layers
-/// (grass, rock, snow, roads and riverbeds).
-fn stream(world: WorldTerrain) -> TerrainStream {
-    TerrainStream {
+/// (grass, rock, snow, roads and riverbeds), with its region builds
+/// counted, and the overlay's source of the same world, so the overlay
+/// reads the regions the stream has built.
+fn stream(world: WorldTerrain) -> (TerrainStream, OverlaySource) {
+    let tracker = RegionTracker::default();
+    let world = Arc::new(world.with_progress(tracker.hook()));
+    let ground = Arc::new(GroundStack::bare(world.options().seed, 1.0));
+    let stream = TerrainStream {
+        ground: ground.clone(),
         rough_from: Some(ROUGH_FROM),
-        ..TerrainStream::world(world)
-    }
+        regions: Some(tracker),
+        ..TerrainStream::new(world.clone())
+    };
+    (stream, OverlaySource::new(world, ground, &Overlay::ALL))
 }
 
 /// The starting camera view over `settings`' ground: from above, looking

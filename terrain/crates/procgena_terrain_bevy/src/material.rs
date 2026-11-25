@@ -39,6 +39,13 @@ pub struct TerrainExtension {
     #[texture(103)]
     #[sampler(104)]
     pub weights_high: Handle<Image>,
+    /// An image mixed over the ground by
+    /// [`TerrainSurface::overlay`], stretched across the mesh's UVs as the
+    /// weights are. Set from [`TerrainOverlay`](crate::TerrainOverlay);
+    /// the default image while there is none.
+    #[texture(105)]
+    #[sampler(106)]
+    pub overlay: Handle<Image>,
 }
 
 impl TerrainExtension {
@@ -55,6 +62,7 @@ impl TerrainExtension {
             surface: TerrainSurface::new(weights, catalogue),
             weights_low: images.add(low),
             weights_high: images.add(high),
+            overlay: Handle::default(),
         }
     }
 }
@@ -92,6 +100,10 @@ pub struct TerrainSurface {
     /// borders; 0 for none. Set by [`TerrainDebug`](crate::TerrainDebug)
     /// on terrain chunks.
     pub border: f32,
+    /// How strongly the overlay image covers the ground's colour, from 0
+    /// (not at all) to 1, times the image's alpha. Set from
+    /// [`TerrainOverlay`](crate::TerrainOverlay).
+    pub overlay: f32,
 }
 
 impl Default for TerrainSurface {
@@ -105,6 +117,7 @@ impl Default for TerrainSurface {
             fade: Vec4::new(0.0, 0.0, f32::INFINITY, f32::INFINITY),
             tint: Vec4::ZERO,
             border: 0.0,
+            overlay: 0.0,
         }
     }
 }

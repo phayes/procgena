@@ -262,36 +262,11 @@ fn show_legend(
             high,
             extra,
         } => {
-            let ramp = commands
-                .spawn((
-                    Node {
-                        display: Display::Flex,
-                        flex_direction: FlexDirection::Row,
-                        align_items: AlignItems::Center,
-                        column_gap: px(6),
-                    },
-                    ChildOf(colours),
-                ))
-                .id();
+            let ramp = commands.spawn((row_node(6.0), ChildOf(colours))).id();
             commands.spawn_scene(label_small(low)).insert(ChildOf(ramp));
-            let bar = commands
-                .spawn((
-                    Node {
-                        display: Display::Flex,
-                        flex_direction: FlexDirection::Row,
-                    },
-                    ChildOf(ramp),
-                ))
-                .id();
+            let bar = commands.spawn((row_node(0.0), ChildOf(ramp))).id();
             for colour in stops {
-                commands.spawn((
-                    Node {
-                        width: px(18),
-                        height: px(10),
-                    },
-                    BackgroundColor(Color::srgb_u8(colour[0], colour[1], colour[2])),
-                    ChildOf(bar),
-                ));
+                commands.spawn((swatch(colour, 18.0), ChildOf(bar)));
             }
             commands.spawn_scene(label_small(high)).insert(ChildOf(ramp));
             for (colour, text) in extra {
@@ -303,26 +278,32 @@ fn show_legend(
 
 /// One swatch of `colour` with `text` beside it, under `parent`.
 fn swatch_row(commands: &mut Commands, parent: Entity, colour: [u8; 3], text: String) {
-    let row = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                column_gap: px(6),
-            },
-            ChildOf(parent),
-        ))
-        .id();
-    commands.spawn((
+    let row = commands.spawn((row_node(6.0), ChildOf(parent))).id();
+    commands.spawn((swatch(colour, 10.0), ChildOf(row)));
+    commands.spawn_scene(label_small(text)).insert(ChildOf(row));
+}
+
+/// A row of the legend, its items centred and `gap` pixels apart.
+fn row_node(gap: f32) -> Node {
+    Node {
+        display: Display::Flex,
+        flex_direction: FlexDirection::Row,
+        align_items: AlignItems::Center,
+        column_gap: px(gap),
+        ..default()
+    }
+}
+
+/// A block of `colour`, `width` pixels wide and 10 high.
+fn swatch(colour: [u8; 3], width: f32) -> (Node, BackgroundColor) {
+    (
         Node {
-            width: px(10),
+            width: px(width),
             height: px(10),
+            ..default()
         },
         BackgroundColor(Color::srgb_u8(colour[0], colour[1], colour[2])),
-        ChildOf(row),
-    ));
-    commands.spawn_scene(label_small(text)).insert(ChildOf(row));
+    )
 }
 
 /// The legend's text under the colours: what sampling `overlay` costs per
@@ -355,12 +336,97 @@ pub fn info_text(status: &OverlayStatus, overlay: Overlay) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
+    use crate::headless::{DEFAULT_SIZE, HeadlessStudio};
+    use crate::scene::SceneViewport;
+    use crate::studio::status::BuildState;
 
     #[test]
     fn every_overlay_has_its_own_command() {
         for (overlay, name) in Overlay::ALL.iter().zip(OVERLAY_NAMES) {
             assert_eq!(name, format!("overlay-{}", overlay.id()));
         }
+    }
+
+    /// Runs `studio` until `done` holds of the overlay's status, for at
+    /// most two minutes.
+    fn wait_for(studio: &mut HeadlessStudio, done: impl Fn(&OverlayStatus) -> bool) {
+        let start = Instant::now();
+        while !done(studio.app_mut().world().resource::<OverlayStatus>()) {
+            assert!(start.elapsed() < Duration::from_secs(120), "the overlay didn't settle");
+            studio.wait(Duration::from_millis(250));
+        }
+    }
+
+    /// Runs `studio` until the terrain is drawn and `overlay` is drawn over
+    /// all of it.
+    fn draw(studio: &mut HeadlessStudio, overlay: Overlay) {
+        studio
+            .command(&format!("overlay-{}", overlay.id()))
+            .unwrap();
+        let start = Instant::now();
+        loop {
+            studio.wait(Duration::from_millis(250));
+            let world = studio.app_mut().world();
+            let settled = world
+                .resource::<BuildState>()
+                .terrain
+                .is_some_and(|progress| progress.settled);
+            let status = world.resource::<OverlayStatus>();
+            if settled && status.drawn == Some(overlay) && status.pending == 0 {
+                return;
+            }
+            assert!(start.elapsed() < Duration::from_secs(600), "the terrain didn't settle");
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn scripts_switch_overlays_and_the_pointer_reads_the_ground() {
+        let mut studio = HeadlessStudio::new(DEFAULT_SIZE);
+        studio.select("terrain/rolling_hills").unwrap();
+        wait_for(&mut studio, |status| status.offered == Overlay::ALL);
+        assert!(studio.find("Overlay").is_ok(), "the control is shown");
+
+        // Slope, with its legend and cost.
+        draw(&mut studio, Overlay::Slope);
+        let titled = studio.texts().iter().filter(|t| t.text == "Slope").count();
+        assert_eq!(titled, 2, "the picker and the legend's title name it");
+        assert!(studio.shows_text_starting("Cost: "));
+
+        // Pointing at the middle of the view reads the slope there.
+        let world = studio.app_mut().world_mut();
+        let viewport = world
+            .query_filtered::<Entity, With<SceneViewport>>()
+            .single(world)
+            .unwrap();
+        let middle = studio.center_of(viewport).unwrap();
+        studio.hover(middle);
+        wait_for(&mut studio, |status| status.readout.is_some());
+        let readout = studio
+            .app_mut()
+            .world()
+            .resource::<OverlayStatus>()
+            .readout
+            .clone()
+            .unwrap();
+        assert!(readout.text.starts_with("slope "), "{}", readout.text);
+        assert!(studio.shows_text_starting("Under the pointer: slope "));
+
+        // Other overlays read the same point their own way.
+        draw(&mut studio, Overlay::Regions);
+        wait_for(&mut studio, |status| {
+            status
+                .readout
+                .as_ref()
+                .is_some_and(|r| r.text.starts_with("region "))
+        });
+
+        // Off hides the legend.
+        studio.command("overlay-off").unwrap();
+        wait_for(&mut studio, |status| status.drawn.is_none());
+        assert!(!studio.shows_text_starting("Cost: "));
     }
 }

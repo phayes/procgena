@@ -63,7 +63,7 @@ pub use fruit::FruitSubject;
 pub use grove::GroveSubject;
 pub use mushroom::MushroomSubject;
 pub use orbit::OrbitCamera;
-pub use overlay::{FamilyCost, Legend, Overlay, OverlayStatus, Readout};
+pub use overlay::{Legend, Overlay, OverlayStatus};
 pub use plants::{FieldSettings, PlantsSubject};
 pub use protocol::{BuildStats, GroveProgress, ViewerCommand, ViewerEvent};
 pub use stone::StoneSubject;

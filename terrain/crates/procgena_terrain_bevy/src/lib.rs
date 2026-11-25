@@ -27,6 +27,7 @@
 //! Add your own water material to those entities.
 //!
 //! [`TerrainDebug`] tints each chunk by its level and draws chunk borders.
+//! A [`TerrainOverlay`] on a chunk draws an image of your own over it.
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -54,6 +55,7 @@
 //! ```
 
 mod material;
+mod overlay;
 mod progress;
 mod stream;
 
@@ -75,6 +77,7 @@ use procgena_terrain::{
 };
 
 pub use material::{DEFAULT_VARIATION, TerrainExtension, TerrainMaterial, TerrainSurface};
+pub use overlay::TerrainOverlay;
 
 use material::weight_images;
 pub use progress::RegionTracker;
@@ -170,7 +173,8 @@ pub struct TerrainMaterialPlugin;
 impl Plugin for TerrainMaterialPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/terrain_fragment.wesl");
-        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default());
+        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default())
+            .add_systems(PostUpdate, overlay::apply_overlays);
     }
 }
 
@@ -466,6 +470,7 @@ fn chunk_material(
             surface,
             weights_low: images.add(low),
             weights_high: images.add(high),
+            overlay: Handle::default(),
         },
     })
 }
