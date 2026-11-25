@@ -1141,7 +1141,10 @@ only from the edited Scatter down" were built first; the rest follows.
   - Dead wood is built once per variant, not once per copy (built
     2026-11-24: the Ecotope's logs draw through `DeadwoodPlacedParams`).
   - The render pipelines an Ecotope needs are warmed up when one opens.
-    macOS compiles them synchronously, which stalls frames.
+    macOS compiles them synchronously, which stalls frames. Deferred
+    (2026-11-24): with warm caches the stalls are 0.3–1.6 s and mostly
+    first compiles, so a warm-up would only move them; revisit after a
+    quiet windowed run.
   - In the studio, impostors are baked only when they could be on screen.
 - **Needs:** C3a. Its cache and dead wood parts touch only the asset
   Bevy crates. Its re-placing, warm-up and bake parts edit
