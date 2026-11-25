@@ -1483,7 +1483,9 @@ summary below is for ordering.
   footprints that exclude it. The question is whether Scatters should
   instead be layers of the Ecotope that can read the copies placed before
   them as attractors too: a tuft of mushrooms around each stone, ferns
-  along fallen logs, litter under a crown. Weigh:
+  along fallen logs, litter under a crown. The gain the user is after is
+  fine control over the feel of an Ecotope: how its pieces gather and
+  relate, not only where each kind may go. Weigh that against:
   - what it means for C3's `Scatter` trait and for a game using one
     Scatter on its own;
   - placement order, chunk independence and border negotiation when one
