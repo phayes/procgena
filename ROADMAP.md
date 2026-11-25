@@ -999,6 +999,13 @@ go to the few copies near the camera.
   - **A game cannot override a preset's game level** (the user,
     2026-11-25); a game that wants a different look uses different
     presets.
+  - **The chain is `game_level` → a lower mesh level (if there is one)
+    → impostor** (the user, 2026-11-25). The ribbon-like far forms are
+    dropped in favour of impostors: `FarForm::Strips`,
+    `BillboardLeaves`, `Card` and `FlatCapRibbon`, and the levels that
+    use them in tree, dead wood and mushroom. Grass's
+    `GroundMaterial` is not a ribbon form and stays for now (see the
+    plant open item in the planning talk).
   - **Levels switch by size on screen, not by metres.** Thresholds are
     in on-screen size, so copy size, field of view and resolution are
     handled together; the quality level moves the thresholds. This
