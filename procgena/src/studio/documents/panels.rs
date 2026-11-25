@@ -2,7 +2,7 @@
 //! Inspector panel of [`Settings<T>`].
 
 use bevy::prelude::*;
-use procgena_core::preset::from_value;
+use procgena_core::preset::{Preset, Registry, from_value, to_value};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -11,22 +11,37 @@ use super::history::EditorSettings;
 use crate::params::{ParamPanel, ParamsChanged};
 use crate::studio::inspector::{NestedPanel, Settings};
 
-/// The [`EditorSettings`] of an editor that keeps its preset's options `T`
-/// in a panel of [`Settings<T>`] somewhere inside it, not marked
+/// The [`EditorSettings`] of an editor that keeps the options of preset
+/// type `P` in a panel of [`Settings`] somewhere inside it, not marked
 /// [`NestedPanel`]. Loading settings shows them in that panel and tells
 /// the editor with [`ParamsChanged`], as a user edit would.
-pub fn settings_panel<T>() -> EditorSettings
+pub fn settings_panel<P>() -> EditorSettings
 where
-    T: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + 'static,
+    P: Preset,
+    P::Options: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + 'static,
 {
     EditorSettings {
-        value: panel_value::<T>,
-        load: load_panel::<T>,
+        value: panel_value::<P::Options>,
+        resolve: resolved::<P>,
+        load: load_panel::<P::Options>,
     }
 }
 
+/// The settings of the preset of type `P` that `reference` names in
+/// `registry`, as an editor reads them: its options, written out.
+///
+/// # Errors
+///
+/// Fails when the reference names no preset that reads.
+pub fn resolved<P: Preset>(registry: &Registry, reference: &str) -> Result<Value, String> {
+    let preset = registry
+        .resolve::<P>(reference)
+        .map_err(|error| error.to_string())?;
+    Ok(to_value(preset.options()))
+}
+
 /// The settings in `editor`'s panel of `Settings<T>`.
-fn panel_value<T>(world: &World, editor: Entity) -> Option<Value>
+fn panel_value<T>(world: &mut World, editor: Entity) -> Option<Value>
 where
     T: Send + Sync + 'static,
 {

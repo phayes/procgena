@@ -2,14 +2,17 @@
 //! of ground, from a `.ecotope.yml` preset.
 
 use bevy::prelude::*;
-use procgena_biome::EcotopePreset;
+use procgena_biome::{Ecotope, EcotopePreset};
+use procgena_core::preset::{from_value, to_value};
 
 use super::{Kind, RegisterKind, entries};
 use crate::ecotope::editor::{
-    EcotopeEdited, EcotopeEditor, EcotopeEditorPlugin, spawn_ecotope_editor,
+    EcotopeEdited, EcotopeEditor, EcotopeEditorPlugin, load_ecotope, spawn_ecotope_editor,
 };
 use crate::scene::{EcotopeSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::history::EditorSettings;
+use crate::studio::documents::panels::resolved;
 use crate::studio::status;
 
 /// Registers Ecotopes.
@@ -27,7 +30,20 @@ pub fn register(app: &mut App) {
             start: crate::ecotope::START_PRESET,
             spawn_editor: spawn_ecotope_editor,
             show,
-            settings: None,
+            settings: Some(EditorSettings {
+                value: |world, editor| {
+                    let ecotope = world.get::<EcotopeEditor>(editor)?.ecotope();
+                    Some(to_value(ecotope))
+                },
+                resolve: resolved::<EcotopePreset>,
+                load: |world, _, value| {
+                    let ecotope: Ecotope =
+                        from_value(value.clone(), "").map_err(|error| error.to_string())?;
+                    world
+                        .run_system_cached_with(load_ecotope, ecotope)
+                        .map_err(|error| error.to_string())
+                },
+            }),
             detail_levels: &[],
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: status::ecotope_line,
