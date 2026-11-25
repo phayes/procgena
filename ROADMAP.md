@@ -1148,6 +1148,41 @@ over.
 - **Needs:** IX built and measured. IX's `DistanceChain` applies quality
   scaling per threshold and sizes frames from a threshold, so this is a
   small change.
+
+#### FF: The far field, drawn to the horizon (later)
+
+Decided by the user 2026-11-25; the design is in ARCHITECTURE ("The far
+field: drawing to the horizon"). The target is the horizon. Beyond the
+specimen impostors, copies are drawn per grid tile, each level baked
+from the one below it: an impostor made of impostors. It replaces the
+grove impostors (I1b cluster cards and grove far forms).
+
+- **Chain beyond IX:** tile impostors on a grid lined up with terrain
+  chunks (128 m tiles merging four at a time), baked from the specimen
+  impostors of every copy in the tile; then a canopy height, colour and
+  normal layer per large tile; then the terrain chunk's far colour and
+  height out to the horizon.
+- **Decided:**
+  - the unit is a grid tile, not an Ecotope;
+  - each level bakes from the level below;
+  - switching is by size on screen;
+  - no shadows at all this far out (darkening under canopy is baked into
+    the terrain);
+  - normals are carried.
+- **Steps (proposed):**
+  1. **FF0, measure:** use the Ecotope editor's far-view option (queued
+     after IX) to count copies, frame time and memory at distance, and
+     to pick tile sizes and switch points.
+  2. **FF1, tile impostors:** GPU bake of a tile from its copies'
+     impostors, a few mostly low views per tile, a quadtree of tile
+     sizes, a cache keyed by the placing content and the tile.
+  3. **FF2, canopy layer:** a top-down height, colour and normal image
+     per large tile, drawn as a raised surface with skirts.
+  4. **FF3, into the terrain:** fold the canopy into the terrain's far
+     colour and height out to the horizon; remove the grove impostors.
+- **Deferred:** when a tile re-bakes (edits, seasons), likely a hook for
+  the game.
+- **Needs:** IX done (an impostor for every kind), and FF0's numbers.
 - **Done when:** X is measured on IX's scenes, the user has judged the
   impostors at every quality level, and the decision is recorded in
   `docs/decisions/IX-plan.md`.
@@ -1624,7 +1659,7 @@ summary below is for ordering.
 |---|---|---|
 | **ST0** Studio shell | Kind registry replacing the per-kind enumerations, documents, the new layout, environment and detail on the view frame, headless `type`/`hover`/`select`/`command` | The Fruit and Flower tabs (I1b) merged; runs alone in `procgena/src/` (churn window) |
 | **ST1** Metadata | `procgena_core::meta`, a `<kind>.meta.yml` and drift test per crate, the generated Inspector with parts and tooltips. **Status (2026-11-24): mostly built.** Core module, metadata for tree, tree Scatter, stone, clump, mushroom, dead wood, fruit, flower, terrain and World; the generated Inspector for every kind but plant, plant Scatter and Ecotope (later, with their metadata) | Core module, then per-crate workers beside ST0; studio half after ST0 |
-| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update (whole-file rewrite, lossy for comments for now), namespaced keys (`builtin:` or the project/bundle id), undo, unsaved state, reset to base, used by | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
+| **ST2** Saving presets | Runtime preset registry (user bases, references resolved through it), project folder, Save as new and Update (whole-file rewrite, lossy for comments for now), namespaced keys (`builtin:` or the project/bundle id), undo, unsaved state, reset to base, used by. **Status (2026-11-25): built** (see the plan's "ST2 as built"): the registry, the project folder, documents with undo, redo and unsaved state, Save, Save as new with a key dialog, Reset to base, the Library and the Ecotope's and tree Scatter's preset pickers listing project presets, and saved presets picked in an Ecotope still resolving after reopening. **Left:** the per-setting "differs from base" mark and reset in the Inspector (ST1's Inspector), renaming an existing preset with its references, autosave, reloading open documents after outside edits, plant and plant Scatter (their presets aren't in the registry), the Biome's Terrain reference (waits for `.biome.yml`). **Follow-ups:** comment-keeping saves (long-term goal, plan decision 5); the full GPU suite is slow on a loaded machine (headless `settle` timeouts at load averages near 235) | Registry beside ST0; studio half after ST0; new dependency through the coordinator |
 | **ST3** Library and Outline | Search, filters, shared selection, editing a referenced preset in context | ST1, ST2 |
 | **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
 | **ST5a** Picking by tags | CPU ray picks to parts, hover, highlight | ST3; R4 for Scatters other than trees |
@@ -2083,6 +2118,17 @@ Done (2026-11-24): items 10, 15 and 16 above.
   speed bar), golden blessing (no goldens for this Mac; the stored
   NVIDIA, llvmpipe and WARP goldens are now stale), and the Codex
   comment pass (list in the P3 worker's report).
+- **Queued after IX (the user, 2026-11-25): far view in the Ecotope
+  editor.** An option to extend the Ecotope's far distance with many
+  chunks, or one very large patch, to judge frame time and the look of
+  many far-away assets drawn as impostors. This is FF0's measuring tool.
+- **Codex comment rewrites** are blocked until credits return; every
+  lane's list is in `docs/coordination/codex-comment-backlog.md`
+  (including G4b, GM2, ED, Valheim presets, ST2, the overlay and IX).
+- **The full workspace suite** (CLAUDE.md, "The full suite") has not
+  run since wave 5. Run it on a quiet machine: under load, two studio
+  GPU tests that reopen a project (`ecotopes_save_and_load` and the
+  detail-picker test) time out in a batch but pass alone.
 - Plant: implement core's `Preset` trait, and replace its `levels` list
   whole in files instead of merging it entry by entry (F3).
 - Private "grove" and "field" names left from the Scatter renames, and the

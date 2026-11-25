@@ -23,11 +23,14 @@ use super::{
 use crate::export::{Done, FileOps, read_preset, save_preset};
 use crate::params::{Group, ParamPanel, ParamsChanged, Section, spawn_param_panel};
 use crate::studio::Dormant;
+use crate::studio::documents::pickers::{Choices, ChoicesPlugin, PresetPicked};
 use crate::studio::inspector::{
     InspectorPlugin, NestedPanel, Settings, item_params, spawn_meta_panel,
 };
+use crate::studio::project::Presets;
 use crate::tree::editor::TreePanel;
 use crate::ui::SelectOptions;
+use procgena_core::meta::SettingPath;
 
 /// The panel holding a tree Scatter's shared settings.
 pub type GrovePanel = ParamPanel<Settings<TreeScatter>>;
@@ -99,9 +102,16 @@ impl Plugin for GroveEditorPlugin {
             InspectorPlugin::<TreeScatter>::default(),
             InspectorPlugin::<ScatterTree>::default(),
         ))
+        .add_plugins(ChoicesPlugin::<TreePreset>::default())
         .add_systems(
             Update,
-            (refresh_rows, show_row_parts, show_tree_settings).chain(),
+            (
+                spawn_pending_rows,
+                refresh_rows,
+                show_row_parts,
+                show_tree_settings,
+            )
+                .chain(),
         );
     }
 }
@@ -278,9 +288,9 @@ fn spawn_body(commands: &mut Commands, editor: Entity, grove: TreeScatter) -> (E
             ]
         })
         .insert(ChildOf(editor));
-    for tree in &grove.trees {
-        spawn_row(commands, list, tree.clone());
-    }
+    commands
+        .entity(list)
+        .insert(PendingRows(grove.trees.clone()));
 
     // The Scatter's shared settings, with Scatter open. Its species live in
     // the rows.
@@ -301,13 +311,40 @@ fn spawn_body(commands: &mut Commands, editor: Entity, grove: TreeScatter) -> (E
     (panel, list)
 }
 
+/// Species rows a list shows once the tree presets its pickers offer are
+/// at hand.
+#[derive(Component, Debug)]
+struct PendingRows(Vec<ScatterTree>);
+
+/// Spawns the pending rows of each list.
+fn spawn_pending_rows(
+    lists: Query<(Entity, &PendingRows)>,
+    choices: Res<Choices<TreePreset>>,
+    mut commands: Commands,
+) {
+    for (list, PendingRows(trees)) in &lists {
+        for tree in trees {
+            spawn_row(&mut commands, list, tree.clone(), &choices);
+        }
+        commands.entity(list).remove::<PendingRows>();
+    }
+}
+
 /// Spawns a row showing `tree` as the last child of `list` and returns it.
-fn spawn_row(commands: &mut Commands, list: Entity, tree: ScatterTree) -> Entity {
-    let names: Vec<String> = TreePreset::all()
-        .map(|p| p.name.to_string())
+/// Its picker offers `choices`, and Custom.
+fn spawn_row(
+    commands: &mut Commands,
+    list: Entity,
+    tree: ScatterTree,
+    choices: &Choices<TreePreset>,
+) -> Entity {
+    let names: Vec<String> = choices
+        .0
+        .iter()
+        .map(|choice| choice.name.clone())
         .chain([CUSTOM.to_string()])
         .collect();
-    let selected = choice_of(&tree);
+    let selected = choice_of(&tree, choices);
     let row = commands
         .spawn_scene(bsn! {
             Node {
@@ -433,9 +470,9 @@ fn show_grove(
     for row in children.get(editor.list).into_iter().flatten() {
         commands.entity(*row).despawn();
     }
-    for tree in std::mem::take(&mut grove.trees) {
-        spawn_row(commands, editor.list, tree);
-    }
+    commands
+        .entity(editor.list)
+        .insert(PendingRows(std::mem::take(&mut grove.trees)));
     if let Ok(mut panel) = groves.get_mut(editor.panel) {
         panel.set_value(Settings::new(grove));
     }
@@ -511,6 +548,7 @@ fn set_row_tree(
 
 /// Adds [`added_tree`] before the last row, unless the Scatter has
 /// [`MAX_SCATTER_TREES`] species.
+#[allow(clippy::too_many_arguments)]
 fn add_tree(
     activate: On<Activate>,
     parents: Query<&ChildOf>,
@@ -518,6 +556,7 @@ fn add_tree(
     children: Query<&Children>,
     rows: Query<&SpeciesRow>,
     shares: Query<&SharePanel>,
+    choices: Res<Choices<TreePreset>>,
     mut commands: Commands,
 ) {
     let Some(editor) = editor_of(activate.event_target(), &parents, &editors)
@@ -554,6 +593,7 @@ fn add_tree(
             key,
             ..added_tree()
         },
+        &choices,
     );
     commands
         .entity(editor.list)
@@ -608,6 +648,10 @@ fn choose_tree_preset(
     mut rows: Query<&mut SpeciesRow>,
     mut shares: Query<&mut SharePanel>,
     mut trees: Query<&mut TreePanel>,
+    editors: Query<&mut GroveEditor>,
+    children: Query<&Children>,
+    choices: Res<Choices<TreePreset>>,
+    presets: Res<Presets>,
     mut commands: Commands,
 ) {
     let Ok(choice) = options.get(change.value) else {
@@ -622,14 +666,18 @@ fn choose_tree_preset(
     let Ok(mut share) = shares.get_mut(row.share) else {
         return;
     };
-    let current = choice_of(share.value().options());
+    let current = choice_of(share.value().options(), &choices);
 
-    match TreePreset::all().nth(choice.0) {
+    match choices.0.get(choice.0) {
         // The picker also reports choices made to match the tree; ignore those.
         Some(_) if current == choice.0 => {}
-        Some(preset) => {
+        Some(picked) => {
+            let Ok(preset) = presets.registry().resolve::<TreePreset>(&picked.reference) else {
+                return;
+            };
+
             // The preset's tree, density and spacing; the row keeps the rest.
-            let fresh = ScatterTree::new(preset);
+            let fresh = ScatterTree::new(&preset);
             let entry = ScatterTree {
                 tree: fresh.tree,
                 density: fresh.density,
@@ -641,6 +689,22 @@ fn choose_tree_preset(
             }
             share.set_value(Settings::new(entry));
             commands.trigger(GroveEdited);
+
+            // The document names the picked tree when it saves.
+            let editor = editor_of(entity, &parents, &editors);
+            let index = editor
+                .and_then(|editor| editors.get(editor).ok())
+                .and_then(|editor| children.get(editor.list).ok())
+                .and_then(|rows| rows.iter().position(|row| row == entity));
+            if let (Some(editor), Some(index)) = (editor, index) {
+                commands.trigger(PresetPicked {
+                    editor,
+                    path: SettingPath::parse("trees")
+                        .child(index.to_string())
+                        .child("tree"),
+                    reference: picked.reference.clone(),
+                });
+            }
         }
         None if current == choice.0 => {}
         None => row.customising = true,
@@ -725,6 +789,7 @@ fn show_row_parts(
     mut variants: Query<&mut ButtonVariant>,
     disabled: Query<Has<InteractionDisabled>>,
     selects: SelectOptions,
+    choices: Res<Choices<TreePreset>>,
     mut caches: Local<HashMap<Entity, StatusCache>>,
     mut commands: Commands,
 ) {
@@ -748,6 +813,7 @@ fn show_row_parts(
             &mut variants,
             &disabled,
             &selects,
+            &choices,
             &mut commands,
         );
     }
@@ -769,6 +835,7 @@ fn show_editor_row_parts<'a>(
     variants: &mut Query<&mut ButtonVariant>,
     disabled: &Query<Has<InteractionDisabled>>,
     selects: &SelectOptions,
+    choices: &Choices<TreePreset>,
     commands: &mut Commands,
 ) {
     // Place the Scatter again only when it changed.
@@ -810,11 +877,11 @@ fn show_editor_row_parts<'a>(
         };
         let Ok(choice) = shares
             .get(row.share)
-            .map(|share| choice_of(share.value().options()))
+            .map(|share| choice_of(share.value().options(), choices))
         else {
             continue;
         };
-        let custom = choice == custom_choice();
+        let custom = choice == custom_choice(choices);
 
         match part {
             RowPart::Preset => selects.select(commands, entity, choice),
@@ -850,13 +917,14 @@ fn show_tree_settings(
     shares: Query<&SharePanel>,
     parents: Query<&ChildOf>,
     mut nodes: Query<&mut Node>,
+    choices: Res<Choices<TreePreset>>,
     mut commands: Commands,
 ) {
     for (entity, mut row) in &mut rows {
         let Ok(entry) = shares.get(row.share).map(|share| share.value().options()) else {
             continue;
         };
-        let shown = row.customising || choice_of(entry) == custom_choice();
+        let shown = row.customising || choice_of(entry, &choices) == custom_choice(&choices);
         match row.tree {
             Some(panel) => {
                 // Show or hide the settings together with their Load Tree button.

@@ -846,6 +846,33 @@ fn edit_tree_scatter(
     }
 }
 
+/// Passes a preset picked in an Ecotope's embedded tree Scatter editor on
+/// as picked in the Ecotope, at the selected Scatter's path.
+pub fn forward_tree_picks(
+    picked: On<PresetPicked>,
+    editors: Query<(Entity, &EcotopeEditor)>,
+    mut commands: Commands,
+) {
+    let Some((entity, editor)) = editors
+        .iter()
+        .find(|(_, editor)| editor.tree_editor == Some(picked.editor))
+    else {
+        return;
+    };
+    let Some(key) = &editor.selected else {
+        return;
+    };
+    let mut path = SettingPath::parse("scatters").child(key.as_str());
+    for segment in picked.path.segments() {
+        path = path.child(segment.clone());
+    }
+    commands.trigger(PresetPicked {
+        editor: entity,
+        path,
+        reference: picked.reference.clone(),
+    });
+}
+
 /// Uses a typed seed.
 fn type_seed(
     change: On<ValueChange<i64>>,

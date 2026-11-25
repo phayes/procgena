@@ -1136,6 +1136,61 @@ integrated GPU and on a discrete GPU is still owed.
   (linked under "Specimen budget") are worth reading before the Ecotope
   crate is designed; how its layers depend on each other was not checked.
 
+## The far field: drawing to the horizon
+
+Decided by the user 2026-11-25. The goal is to draw placed assets all the
+way to the horizon. IX's chain (game level, one lower mesh, an impostor
+per specimen) ends where drawing every copy's impostor costs too much.
+Beyond that, copies are drawn in groups, one tile at a time, and each
+level is baked from the level before it: an impostor made of impostors.
+
+**The chain, nearest first:**
+
+1. **Mesh:** the preset's `game_level`, then one lower mesh (IX).
+2. **Specimen impostor:** one per specimen, drawn per copy (IX).
+3. **Tile impostor:** one per tile of 128–512 m, baked by drawing the
+   step 2 impostors of every copy placed in the tile.
+4. **Canopy layer:** per large tile, a small top-down height, colour and
+   normal image, drawn as a raised surface with skirts down its sides.
+5. **Terrain far colour:** at the horizon the canopy folds into the
+   terrain chunk's far colour and height (GM1's far colour, extended).
+
+**Rules:**
+
+- **The unit is a fixed grid tile, not an Ecotope.** Tiles line up with
+  terrain chunks and merge four at a time (128 m, 256 m, 512 m, ...). A
+  tile bakes every copy placed in it, whatever Ecotope or Biome placed
+  it. Ecotopes vary in size, cross region borders and can cover
+  kilometres, so a per-Ecotope impostor would have no fixed size and
+  would rebuild whole on any change.
+- **Each level bakes from the level below it.** At the distance where a
+  tile takes over, one of its texels already covers more ground than a
+  texel of any specimen impostor, so baking from impostors loses nothing
+  visible. It also keeps colours equal across the switch, with no pop,
+  and keeps a bake cheap: a few thousand cards per tile, drawn on the
+  GPU with no readback.
+- **Switching is by size on screen**, the same rule as IX, per tile.
+- **Tile impostors see a few, mostly low views.** A distant tile is wide
+  and low and never seen from below, so it needs far fewer frames than a
+  specimen impostor.
+- **The far levels are height maps, not octahedral impostors.** A forest
+  tile is hundreds of metres wide and about 25 m tall, so octahedral
+  frames would waste most of their texels, and at 512² per image a 2 km
+  region of 128 m tiles would need about half a gigabyte. A canopy image
+  costs kilobytes per tile and joins seamlessly with its neighbours.
+- **No shadows.** Tile impostors, canopy layers and the terrain far
+  colour cast none. Darkening under the canopy is baked into the terrain
+  instead.
+- **Normals are carried**, as for specimen impostors, so lighting matches
+  across switches and time of day needs no re-bake.
+
+**Deferred:** when a tile re-bakes (edits, seasons). Likely a hook for
+the game; see "Edits: what happens in a game".
+
+**Prior art:** Unreal's HLOD layers (above) and Serious Sam 4's forest
+splatted into the terrain beyond its impostors are the same idea; this
+chain bakes each level from the one below instead of from meshes.
+
 ## Extensibility
 
 Users bring their own assets from the Scatter level up, and every level

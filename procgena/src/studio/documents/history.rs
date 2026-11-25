@@ -336,20 +336,28 @@ fn start_settings(world: &mut World) {
         {
             continue;
         }
-        let pending = world
+        let mut pending = world
             .entity_mut(entity)
             .take::<PendingLoad>()
             .unwrap_or_default();
-        if let Some(value) = &pending.load
-            && let Err(error) = (settings.load)(world, editor, value)
+        if let Some(value) = pending.load.take()
+            && let Err(error) = (settings.load)(world, editor, &value)
         {
             error!("could not show the preset's settings: {error}");
         }
-        if let Some(value) = (settings.value)(world, editor) {
-            let file = pending.file.unwrap_or_else(|| value.clone());
-            world
-                .entity_mut(entity)
-                .insert(DocumentSettings::new(value, file));
+
+        // Some editors show loaded settings a frame later; keep the file
+        // form until they do.
+        match (settings.value)(world, editor) {
+            Some(value) => {
+                let file = pending.file.unwrap_or_else(|| value.clone());
+                world
+                    .entity_mut(entity)
+                    .insert(DocumentSettings::new(value, file));
+            }
+            None => {
+                world.entity_mut(entity).insert(pending);
+            }
         }
     }
 }

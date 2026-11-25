@@ -16,6 +16,7 @@ use procgena_tree::{
 };
 
 use crate::export::read_preset;
+use crate::studio::documents::pickers::{self, Choices};
 use crate::studio::inspector::MetaKind;
 
 /// The tree Scatter settings' metadata, from `tree_scatter.meta.yml`.
@@ -133,17 +134,17 @@ pub fn per_ha_text(per_ha: f32) -> String {
     format!("{per_ha:.0}/ha")
 }
 
-/// Finds the picker option whose preset exactly matches `tree`'s settings.
-/// Returns the trailing [`CUSTOM`] option when no preset matches.
-pub fn choice_of(tree: &ScatterTree) -> usize {
-    TreePreset::all()
-        .position(|preset| preset.tree == tree.tree)
-        .unwrap_or_else(custom_choice)
+/// Finds the picker option among `choices` whose preset exactly matches
+/// `tree`'s settings. Returns the trailing [`CUSTOM`] option when no preset
+/// matches.
+pub fn choice_of(tree: &ScatterTree, choices: &Choices<TreePreset>) -> usize {
+    pickers::choice_of(&choices.0, &tree.tree)
 }
 
-/// The picker option of [`CUSTOM`]: the one after every tree preset.
-pub fn custom_choice() -> usize {
-    TreePreset::all().count()
+/// The picker option of [`CUSTOM`]: the one after every preset in
+/// `choices`.
+pub fn custom_choice(choices: &Choices<TreePreset>) -> usize {
+    choices.0.len()
 }
 
 #[cfg(test)]
@@ -213,13 +214,15 @@ mod tests {
 
     #[test]
     fn a_tree_is_shown_as_its_preset_or_as_custom() {
+        let choices = Choices::<TreePreset>::of(&crate::studio::project::Presets::default());
         let pine = TreePreset::all()
             .position(|p| p.key == "pine_large")
             .unwrap();
         let mut tree = ScatterTree::new(TreePreset::pine_large());
-        assert_eq!(choice_of(&tree), pine);
+        assert_eq!(choice_of(&tree, &choices), pine);
         tree.tree.default_seed += 1;
-        assert_eq!(choice_of(&tree), TreePreset::all().count());
+        assert_eq!(choice_of(&tree, &choices), TreePreset::all().count());
+        assert_eq!(custom_choice(&choices), TreePreset::all().count());
         assert!(TreePreset::all().all(|p| p.name != CUSTOM));
     }
 
