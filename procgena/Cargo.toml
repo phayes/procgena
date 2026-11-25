@@ -38,7 +38,7 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "bevy_scene",
 ] }
 procgena_biome = { path = "../biome/crates/procgena_biome" }
-procgena_biome_bevy = { path = "../biome/crates/procgena_biome_bevy" }
+procgena_biome_bevy = { path = "../biome/crates/procgena_biome_bevy", features = ["gpu"] }
 procgena_core = { path = "../core/crates/procgena_core" }
 procgena_tree = { path = "../tree/crates/procgena_tree", features = ["export-obj", "export-gltf"] }
 procgena_tree_bevy = { path = "../tree/crates/procgena_tree_bevy" }

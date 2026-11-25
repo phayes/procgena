@@ -27,6 +27,12 @@ impl Plugin for EcotopePlugin {
             app.add_plugins(TerrainMaterialPlugin);
         }
         app.add_systems(Update, (start_placing, finish_placing).chain());
+        #[cfg(feature = "gpu")]
+        app.init_resource::<crate::stones::ClassPools>()
+            .add_systems(
+                Update,
+                crate::stones::spawn_pooled_stones.after(finish_placing),
+            );
     }
 }
 
