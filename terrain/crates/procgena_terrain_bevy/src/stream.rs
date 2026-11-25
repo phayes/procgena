@@ -244,7 +244,7 @@ impl Stream {
             let blend = self
                 .target
                 .blend(&self.drawn, |key| self.samples.contains_key(&key));
-            let stand_ins: HashMap<ChunkKey, Read> = blend
+            let mut stand_ins: HashMap<ChunkKey, Read> = blend
                 .stand_ins
                 .iter()
                 .map(|(&key, &from)| {
@@ -257,6 +257,14 @@ impl Stream {
                     (key, read)
                 })
                 .collect();
+            // A drawn stand-in the blend keeps as drawn stays one until it
+            // is read itself.
+            for (&key, read) in &self.stand_ins {
+                let kept = blend.selection.get(key).is_some() && !stand_ins.contains_key(&key);
+                if kept && !self.samples.contains_key(&key) {
+                    stand_ins.insert(key, read.clone());
+                }
+            }
             (blend.selection, stand_ins)
         };
         let same_stand_ins = self.stand_ins.len() == stand_ins.len()
@@ -521,6 +529,18 @@ mod tests {
             assert_eq!(read.samples.key(), *key);
         }
         assert!(stream.upgrades(&[viewer], |_| FeatureTier::Fine).is_empty());
+
+        // Reading a few more, one swap at a time, keeps the stand-ins not
+        // yet read, with their ground.
+        for key in stream.missing(&[viewer]).into_iter().take(6) {
+            read(&mut stream, key, FeatureTier::Fine);
+            if let Some(swap) = stream.swap() {
+                assert!(swap.add.iter().all(|(_, _, read)| read.is_some()));
+            }
+            for (key, _) in stream.drawn.iter() {
+                assert!(stream.read_of(key).is_some(), "{key} has no ground");
+            }
+        }
 
         // Reading the rest replaces every stand-in.
         for key in stream.missing(&[viewer]) {
