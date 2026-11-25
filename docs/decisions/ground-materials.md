@@ -54,6 +54,10 @@ and labels", "Bevy design", Phases 5, 8 and 10),
   `Terrain::query`; ground rules use them first. G4b adds `Landform` and
   `Flags`, and rules gain label conditions then. Before G4a, rules use
   slope and height from `Ground` and the water level from `query`.
+  G4b is built (2026-11-25): `Terrain::annotate` and
+  `query(p, SampleDetail::Labels)` give `Labels { landform, flags }`
+  (see terrain/plan.md, "Labels as built"); `GroundSite` doesn't carry
+  them yet, which is GM3's step.
 - **Colours first, textures after** (decided). First the engine-free
   model, evaluator and image dumps (GM0, needs nothing). Then flat colours
   in the terrain viewer and the Ecotope tab once G6 merges (GM1). Then real

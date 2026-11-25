@@ -68,30 +68,11 @@ impl Default for WorldOptions {
 
 /// How much a World stretches its landscape against reference scale 1.
 ///
-/// The scale stretches what the World generates: `horizontal` multiplies
-/// every landscape wavelength (E's layers, the selector fields), and
-/// `vertical` every generated height (E's layers, the rules' elevation
-/// bounds). Slopes change by `vertical / horizontal`. Anything placed by
-/// hand, such as E's bumps and pins, stays in real metres, as do objects,
-/// road and river widths, chunks and level of detail.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorldScale {
-    /// The stretch of landscape lengths. Finite and positive.
-    pub horizontal: f64,
-    /// The stretch of landscape heights. Finite and positive.
-    pub vertical: f64,
-}
-
-impl Default for WorldScale {
-    /// Scale 1: today's lengths and heights.
-    fn default() -> Self {
-        Self {
-            horizontal: 1.0,
-            vertical: 1.0,
-        }
-    }
-}
+/// In a World, `horizontal` multiplies E's layer wavelengths and the
+/// selector fields, and `vertical` E's layer heights and the rules'
+/// elevation bounds. E's bumps and pins stay in real metres. Every region's
+/// Terrain gets the same scale.
+pub use procgena_terrain::WorldScale;
 
 /// The World's selector fields: smooth noise over the World that, with E,
 /// decides which Biome fills each region.
@@ -419,12 +400,7 @@ impl WorldOptions {
     /// keys are not checked here: a [`World`](crate::World) checks them
     /// against the Biomes it is given.
     pub fn validate(&self) -> Result<(), WorldOptionsError> {
-        let WorldScale {
-            horizontal,
-            vertical,
-        } = self.scale;
-        let positive = |v: f64| v.is_finite() && v > 0.0;
-        if !positive(horizontal) || !positive(vertical) {
+        if !self.scale.is_valid() {
             return Err(WorldOptionsError::Scale(self.scale));
         }
         self.regions

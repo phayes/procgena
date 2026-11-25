@@ -234,6 +234,11 @@ pub(crate) struct Nearby {
     /// [`WATER_MIX`] of as near by the inverse square of their distance;
     /// `None` where no water is within the reach less [`WATER_MIX`].
     pub water_level: Option<f32>,
+    /// What the nearest water is, [`FeatureKind::River`] or
+    /// [`FeatureKind::Pond`]; `None` where no water is within the reach.
+    /// Where a river and a pond are equally near (a river inside the pond
+    /// it ends in), the pond.
+    pub water_kind: Option<FeatureKind>,
 }
 
 /// The closest point on a feature line's segment: distance to it and the
@@ -837,6 +842,7 @@ impl Features {
             water_distance: reach,
             road_distance: reach,
             water_level: None,
+            water_kind: None,
         };
         // Every piece within `reach` of `p` is listed at `p`: each piece's
         // box reaches at least `BANK_REACH` beyond its edge.
@@ -858,12 +864,20 @@ impl Features {
             Some((gap.max(0.0), level))
         };
 
-        // The nearest road and water.
+        // The nearest road and water. Equal gaps go to a pond, whatever
+        // order the pieces are listed in.
         for part in parts {
             if part.id.kind == FeatureKind::Road {
                 let (d, half_width, _, _) = self.road_at(part.index, part.segment, p);
                 nearby.road_distance = nearby.road_distance.min((d - half_width).max(0.0));
             } else if let Some((gap, _)) = water_at(part) {
+                let nearer = gap < nearby.water_distance
+                    || (gap == nearby.water_distance
+                        && nearby.water_kind.is_some()
+                        && part.id.kind == FeatureKind::Pond);
+                if nearer {
+                    nearby.water_kind = Some(part.id.kind);
+                }
                 nearby.water_distance = nearby.water_distance.min(gap);
             }
         }
@@ -1274,6 +1288,7 @@ mod tests {
         assert_eq!(wet.water_distance, 0.0);
         assert_eq!(wet.water_level, Some(9.5));
         assert_eq!(wet.road_distance, 30.0 - 1.0 - 3.0);
+        assert_eq!(wet.water_kind, Some(FeatureKind::River));
 
         // Between the two: each edge's distance.
         let between = near(50.0, 13.0);
@@ -1286,12 +1301,14 @@ mod tests {
         assert_eq!(far.water_distance, BANK_REACH);
         assert_eq!(far.road_distance, BANK_REACH);
         assert_eq!(far.water_level, None);
+        assert_eq!(far.water_kind, None);
 
         // Beside the pond, beyond the river's reach: its edge and its
         // surface.
         let pond_side = near(172.0, 0.0);
         assert!((pond_side.water_distance - 7.0).abs() < 1e-12);
         assert_eq!(pond_side.water_level, Some(4.0));
+        assert_eq!(pond_side.water_kind, Some(FeatureKind::Pond));
 
         // Between the river's end and the pond: the pond, 18 m further off
         // than the river (gaps 17 and 35 m), doesn't count; 6 m further

@@ -515,6 +515,32 @@ goldens, which have no baseline on this machine).
   World-level follow-up). Tests in `tests/measures.rs`, images from
   `--example measures_dump`. The relief height (`GroundSite::relief_height`)
   is not filled: see the G4a report. G4b is next.
+- **Status (2026-11-25): G4b built.** `Terrain::annotate(p)` (and
+  `SampleDetail::Labels` on `query`, `WorldTerrain::annotate`, the
+  `LabelField` trait, `HeightTile::sample_labelled`) gives `Labels`: one
+  `Landform` (plain, slope, cliff, ridge, peak, valley, basin, riverbed,
+  pondbed, road, riverbank, shore), each with a name and a colour, and
+  `Flags` (underwater, river, pond, road, road bank, wet). Water and
+  roads come first, then cliffs (55°), banks, then shape from the
+  height's principal bends on a 3 × 3 stencil, then slope (20°). The
+  shape step and bend threshold follow the World's scale (12 m and
+  0.012 /m at scale 1, chosen by the user as 24 m and 0.006 /m on the
+  medium worlds): the World's `WorldScale` now reaches the terrain crate
+  (`WorldTerrainOptions::scale`, `Terrain::with_scale`), default 1. Labels
+  from water and roads, and the flags, agree exactly across borders;
+  shape labels may differ in a thin strip along borders (2.9% of border
+  points on the medium test worlds; accepted by the user 2026-11-25, see
+  ARCHITECTURE "4.2 Terrain"). No label needs relief height
+  (item 31). Hill, mountain and plateau labels (a 150 m relief ring)
+  would need the neighbours' ground at World level. Tests in
+  `tests/labels.rs`, images from `--example labels_dump`.
+- **Follow-up:** Gully label, separate from Valley by scale (user,
+  2026-11-25; parked). Tried briefly: a second, narrow stencil (4 m at
+  scale 1, 8 m at medium, to match the carved valley-wall gullies 40 m
+  and 20 m apart) concave past its own threshold, taking precedence over
+  the broad shape but not over water, roads, cliffs or banks. It costs 8
+  more heights per labelled sample. Not judged on maps or border numbers
+  before it was parked.
 
 #### G5: WorldTerrain (W1–W4)
 
@@ -588,6 +614,10 @@ From D5 (decided by the user 2026-11-24; see
 - **Done when:** the seam and feature suites pass at the small, medium
   and large classes, and the region floor follows from scale (about
   1.4 km with today's fixed widths; see D5's "floor tension").
+- **Started in G4b (2026-11-25):** the scale pair now reaches the terrain
+  crate (`WorldScale` moved to `procgena_terrain` and re-exported by
+  `procgena_world`; `WorldTerrainOptions::scale`; `Terrain::scale`).
+  Only the labels read it so far.
 
 ### Bare worlds
 

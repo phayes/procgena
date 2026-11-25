@@ -304,6 +304,7 @@ impl World {
                 regions: options.regions,
                 convergence: options.convergence,
                 cache: DEFAULT_CACHE,
+                scale: options.scale,
             },
             Arc::new(source),
         )

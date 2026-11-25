@@ -534,7 +534,27 @@ meshes the ground as heightfield chunks on the shared chunk grid (64 m,
 doubling per level), with crack-free transitions between levels and a
 provisional (road-free) stage for far chunks; `procgena_terrain_bevy`
 streams them around the camera, and the studio has a Terrain tab. The
-planned `annotate` labels are not exposed yet.
+labels (`annotate`: a `Landform` and `Flags` per point, from
+`Measures` and the ground's shape read at the World's scale) are built,
+per point and per tile.
+
+**Labels at region borders** (decided by the user, 2026-11-25). Two
+terrains meet in height and slope along their shared border line, not
+past it: each terrain's own ground beyond the border differs from its
+neighbour's. So anything that reads the ground around a point near a
+border can differ a little from side to side.
+- Labels from water and roads (riverbed, pondbed, road), and every flag,
+  come from features both sides know, and agree exactly.
+- Shape labels (ridge, peak, valley, basin, and plain or slope where
+  those apply) read a stencil one shape step wide, so they may differ in
+  a thin strip along each border. On the medium test worlds they differ
+  at 2.9% of border points. The two sides' bends differ by 7% of the
+  threshold at p50 (80% at p99). The strip widens with the World's
+  horizontal scale, as the stencil does.
+- This is accepted, not fixed. Reading the neighbour's ground would make
+  labels near borders depend on a neighbour's plan, which Ecotope
+  border offers must not ("Plan", below). The Ecotope blend zone covers
+  the strip.
 
 ### 5. World
 
@@ -1705,7 +1725,7 @@ it starts.
   a gradient grid in `HeightTile`. Built in G2 (2026-11-24): the border's
   and the fade's pulls (their soft distance and mixed targets) are taken
   by differences 0.5 m apart in f64; everything else is analytic.
-- [ ] **Terrain labels**: expose `annotate(x, z)` with `Landform`, `Flags`
+- [x] **Terrain labels**: expose `annotate(x, z)` with `Landform`, `Flags`
   and `Measures` (slope from the same gradient), which the Biome's Ecotope
   rules need.
 - [ ] **Scatters use it**: reject steep spots from the slope before any
