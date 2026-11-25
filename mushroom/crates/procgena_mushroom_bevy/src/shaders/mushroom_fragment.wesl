@@ -29,6 +29,9 @@ import bevy_pbr::render::{
 @if(VISIBILITY_RANGE_DITHER)
 import procgena_core_bevy::shaders::dither::dither_discard;
 
+@if(BAKE_NORMAL)
+import procgena_impostor::shaders::bake_output::baked_normal;
+
 /// Pattern, gill and wart settings; must match the Rust `MushroomSurface`.
 struct MushroomSurface {
     /// Pattern colour in linear RGB, with its strength (0 to 1) in alpha.
@@ -310,9 +313,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.base_color,
     );
 
-    // Impostor bake copies draw the finished base colour or surface
-    // direction, fully opaque, instead of lit colour (the direction is in
-    // the bake view's camera space, which is world space for bake copies).
+    // Impostor bake copies draw the finished base colour, or the surface
+    // direction and depth the impostor crate's atlases store, instead of
+    // lit colour.
 @if(BAKE_ALBEDO) {
     var baked: FragmentOutput;
     baked.color = vec4<f32>(pbr_input.material.base_color.rgb, 1.0);
@@ -320,7 +323,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 }
 @if(BAKE_NORMAL) {
     var baked: FragmentOutput;
-    baked.color = vec4<f32>(normalize(pbr_input.N) * 0.5 + 0.5, 1.0);
+    baked.color = baked_normal(pbr_input.N, in.position.z, in.instance_index);
     return baked;
 }
     apply_decals(&pbr_input);
