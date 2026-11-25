@@ -693,6 +693,8 @@ never in project files.
 | Show ground | Environment panel | View frame |
 | Field size (plant), Scatter size (tree Scatter) | Environment panel, per tab | View frame ("preview area"): a Scatter's area comes from above, never from its preset |
 | Auto rotate, speed, reset camera | Camera overlay | View frame |
+| Camera mode (orbit or fly), flying speed | View frame bar | View frame, session only, one for the whole studio (not per document); see "Camera modes" |
+| Camera pose | Kept per open document | Session only (decision 15) |
 | Level of detail dropdowns (tree, mushroom, dead wood, plant) | Settings column | View frame: one "Detail" control (game default, level 0 preview, any level, impostor); see "Game default and level 0" |
 | Level 0 opt-in, per asset | — | **Preset**, if IX puts it in the asset's options |
 | Level 0 opt-in and quality, per game | — | **Project** (`procgena.yml` game profile), as IX decides |
@@ -707,6 +709,40 @@ selection, bookmarks, auto rotate), **Distance** (viewing distance,
 **Environment** (a popover: sun, wind, ground, preview area),
 **Overlays**. The readout below shows triangles, draw calls, the level
 drawn and build or bake progress.
+
+### Camera modes
+
+Built 2026-11-24 on Bevy alone (`scene/fly.rs`, `studio/camera.rs`).
+
+- **Orbit** is the camera as before. **Fly** moves with W, A, S and D
+  (level, whatever the pitch), Space rises and Shift drops, as in a
+  creative-mode game. The view frame's Orbit and Fly buttons, the `C`
+  key and the commands `orbit-camera`, `fly-camera` and
+  `toggle-camera-mode` switch between them.
+- **Looking** is a drag with any button over the 3D view, with no cursor
+  capture: Escape already asks before quitting, the panels stay usable
+  while flying, a captured cursor can't be driven headless, and a click
+  without a drag stays free for picking (ST5).
+- **Speed** is fitted to the view whenever flying starts or the camera is
+  set while flying (another subject, Reset Camera): half the orbit
+  distance per second, so a mushroom flies at centimetres and terrain at
+  hundreds of metres per second. The wheel scales it (1/100 to 100
+  times), and the scale is kept across subjects. The bar shows it.
+- **Keyboard focus:** keys fly only while no UI element has keyboard
+  focus, no dialog is open, and neither Ctrl nor Cmd is held. Clicking
+  the 3D view takes focus back, and clicking a camera control gives it
+  back at once.
+- **One pose for both:** `OrbitCamera` holds the pose in both modes; while
+  flying its focus point sits straight ahead at the orbit's distance.
+  Fly starts from the orbit's pose. Orbit starts around that point
+  ahead, keeping the camera where it is and tilting it only as far as
+  the subject's tilt limits need. Documents keep their own pose as
+  before.
+- **`PanOrbitCamera`** (proposed under "Bevy editor") would replace only
+  the orbit half. Bevy's `bevy_camera_controller` (a Bevy feature not
+  turned on here) has it and a `FreeCamera`, but neither shares a pose
+  between the two, guards keyboard focus, or fits the speed to the
+  subject, so adopting them buys little now.
 
 ### Viewing distance (requirement on IX)
 

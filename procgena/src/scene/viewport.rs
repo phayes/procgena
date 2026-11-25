@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use bevy::camera::RenderTarget;
 use bevy::input::mouse::MouseScrollUnit;
-use bevy::picking::events::{PointerDrag, PointerScroll};
+use bevy::input_focus::InputFocus;
+use bevy::picking::events::{PointerDrag, PointerPress, PointerScroll};
 use bevy::picking::pointer::PointerButton as PickingButton;
 use bevy::prelude::*;
 use bevy::render::render_resource::{PipelineCache, TextureFormat, TextureUsages};
@@ -28,7 +29,8 @@ pub struct ViewportCamera;
 /// Marks the UI node that shows the scene.
 ///
 /// Add it to one [`Node`]. The scene draws into that node at the node's size,
-/// and drags and scrolls over it move the camera.
+/// and drags and scrolls over it move the camera. Pressing it takes
+/// keyboard focus from any UI element, so keys fly the camera again.
 #[derive(Component, Default, Debug, Clone, Copy)]
 #[require(Node)]
 pub struct SceneViewport;
@@ -142,7 +144,8 @@ impl Plugin for ViewportPlugin {
             .add_systems(PostUpdate, (attach_camera, attach_viewport_node).chain())
             .add_systems(Last, request_redraws)
             .add_observer(drag_viewport)
-            .add_observer(scroll_viewport);
+            .add_observer(scroll_viewport)
+            .add_observer(press_viewport);
     }
 
     fn finish(&self, app: &mut App) {
@@ -221,6 +224,23 @@ fn drag_viewport(
         delta: drag.delta,
         shift: keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
     });
+}
+
+/// Takes keyboard focus away from any UI element when the [`SceneViewport`]
+/// node itself is pressed, so the keyboard flies the camera again.
+fn press_viewport(
+    press: On<PointerPress>,
+    nodes: Query<(), With<SceneViewport>>,
+    focus: Option<ResMut<InputFocus>>,
+) {
+    if press.entity != press.original_event_target() || !nodes.contains(press.entity) {
+        return;
+    }
+    if let Some(mut focus) = focus
+        && focus.get().is_some()
+    {
+        focus.clear();
+    }
 }
 
 /// Turns scrolling over the [`SceneViewport`] node into [`ViewportInput::Scroll`].
