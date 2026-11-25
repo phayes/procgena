@@ -2,7 +2,7 @@
 //! sticks, from a `.deadwood.yml` preset.
 
 use bevy::prelude::*;
-use procgena_deadwood::DeadwoodPreset;
+use procgena_deadwood::{DeadwoodOptions, DeadwoodPreset};
 
 use super::{Kind, RegisterKind, entries};
 use crate::deadwood::DeadwoodShow;
@@ -13,6 +13,7 @@ use crate::export::deadwood::spawn_deadwood_export;
 use crate::params::ParamPanel;
 use crate::scene::{DeadwoodSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
 /// The dead wood detail levels, most detailed first.
@@ -37,6 +38,7 @@ pub fn register(app: &mut App) {
                 editor
             },
             show,
+            settings: Some(settings_panel::<DeadwoodOptions>()),
             detail_levels: LEVELS,
             hidden_environment: crate::environment::SINGLE_OBJECT,
             status_line: |state| status::leveled_line(state, "dead wood"),

@@ -137,9 +137,22 @@ impl HeadlessStudio {
     /// Panics if Bevy cannot start its renderer, for example without a GPU,
     /// or if the studio does not become idle within two minutes.
     pub fn new(size: UVec2) -> Self {
+        Self::with_project(size, None)
+    }
+
+    /// Starts the studio like [`new`](Self::new), opening the project in
+    /// `project` (making one there if it has none), or no project.
+    ///
+    /// # Panics
+    ///
+    /// As for [`new`](Self::new).
+    pub fn with_project(size: UVec2, project: Option<PathBuf>) -> Self {
         let size = size.max(UVec2::ONE);
         let frames = FrameLog::default();
         let mut app = App::new();
+        if let Some(folder) = project {
+            app.insert_resource(crate::studio::project::ProjectFolder(folder));
+        }
         crate::scene::add_asset_sources(&mut app);
         app.add_plugins(headless_plugins());
         crate::add_studio(&mut app);
