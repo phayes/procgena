@@ -986,8 +986,11 @@ go to the few copies near the camera.
     different kinds of object may want a different near level, so each
     preset says which built level it draws nearest the camera (level 1
     by default; level 0 opt-in). The distance chain, from the near level
-    out to the impostor, is a separate setting that the quality level
-    scales. A game cannot override a preset's near level (the user,
+    out to the impostor, is not part of the preset (the user,
+    2026-11-25): a preset says what the thing's shape and style are, not
+    how far away it is drawn. For now one default distance chain is
+    worked out and used, scaled by the quality level; how a Bevy game
+    hooks in to change it comes later. A game cannot override a preset's near level (the user,
     2026-11-25); a game that wants a different look uses different
     presets.
   - **Levels switch by size on screen, not by metres.** Thresholds are
