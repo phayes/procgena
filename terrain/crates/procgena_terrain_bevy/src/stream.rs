@@ -61,6 +61,18 @@ pub(crate) struct Swap {
 }
 
 impl Stream {
+    /// Replaces paint-bearing reads without changing selection or geometry.
+    pub(crate) fn map_reads(&mut self, mut map: impl FnMut(&Arc<ChunkRead>) -> Arc<ChunkRead>) {
+        for read in self
+            .samples
+            .values_mut()
+            .chain(self.stand_ins.values_mut())
+            .flatten()
+        {
+            *read = map(read);
+        }
+    }
+
     /// Starts over with new ground: earlier reads are dropped, and the
     /// drawn chunks stay until the new ones are ready.
     pub(crate) fn reset(&mut self) {

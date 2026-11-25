@@ -72,7 +72,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use glam::{DVec2, DVec3};
 use procgena_core::chain::ViewScale;
 use procgena_core_bevy::{LodPlugin, LodQuality};
-use procgena_terrain::ground::{GroundPainter, GroundSource, GroundStack, GroundWeights};
+use procgena_terrain::ground::{GroundGrid, GroundPainter, GroundSource, GroundStack};
 use procgena_terrain::{
     ChunkDetail, ChunkError, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
     ChunkSelectionError, ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh,
@@ -236,8 +236,10 @@ impl<T: ChunkSource + GroundSource + Send + ?Sized> TerrainSource for T {}
 
 /// The ground a terrain is drawn from, and how.
 ///
-/// Changing it (or inserting a new one) reads every chunk again; the
-/// chunks drawn before stay until the new ones are ready.
+/// Replacing its source or tier policy reads every chunk again; the old
+/// chunks stay until replacements are ready. Changing only `ground` reuses
+/// retained sites and updates materials without reading or remeshing terrain.
+/// To signal changed contents of a source, replace its `Arc`.
 #[derive(Component, Clone)]
 #[require(Transform, Visibility, TerrainProgress)]
 pub struct TerrainStream {
@@ -396,6 +398,8 @@ pub(crate) struct ChunkRead {
     /// when the chunk is drawn.
     surface: TerrainSurface,
     gpu_paint: Option<Arc<gpu_ground::GpuGroundPaint>>,
+    ground_grid: Arc<GroundGrid>,
+    ground_key: ChunkKey,
 }
 
 impl ChunkRead {
@@ -419,29 +423,54 @@ impl ChunkRead {
         gpu: bool,
     ) -> Result<Self, ChunkError> {
         let samples = ChunkSamples::sample(source, key, tier)?;
-        if let Some(stack) = painter
+        let grid = Arc::new(GroundGrid::chunk(source, key, tier)?);
+        Ok(Self::paint(samples, grid, key, painter, gpu))
+    }
+
+    fn paint(
+        samples: ChunkSamples,
+        grid: Arc<GroundGrid>,
+        from: ChunkKey,
+        painter: &(impl GroundPainter + ?Sized),
+        gpu: bool,
+    ) -> Self {
+        let key = samples.key();
+        let prepared = painter
             .layer_stack()
             .filter(|s| gpu && gpu_ground::GpuGroundPaint::supported(s))
-        {
-            let grid = Arc::new(procgena_terrain::ground::GroundGrid::chunk(
-                source, key, tier,
-            )?);
-            let (paint, surface) =
-                gpu_ground::GpuGroundPaint::prepare(stack, grid, key).expect("supported stack");
-            return Ok(Self {
-                samples,
-                images: paint.images(),
-                surface,
-                gpu_paint: Some(paint),
-            });
+            .and_then(|stack| gpu_ground::GpuGroundPaint::prepare(stack, grid.clone(), from));
+        let (mut images, surface, gpu_paint) = if let Some((paint, surface)) = prepared {
+            let paint = if from == key { paint } else { paint.part(key) };
+            (paint.images(), surface, Some(paint))
+        } else {
+            let weights = grid.paint(painter);
+            (
+                weight_images(&weights),
+                TerrainSurface::new(&weights, painter.catalogue()),
+                None,
+            )
+        };
+        if from != key && gpu_paint.is_none() {
+            images = images.map(|image| weights_part(&image, from, key));
         }
-        let weights = GroundWeights::chunk(painter, source, key, tier)?;
-        Ok(Self {
+        Self {
             samples,
-            images: weight_images(&weights),
-            surface: TerrainSurface::new(&weights, painter.catalogue()),
-            gpu_paint: None,
-        })
+            images,
+            surface,
+            gpu_paint,
+            ground_grid: grid,
+            ground_key: from,
+        }
+    }
+
+    fn repaint(&self, painter: &(impl GroundPainter + ?Sized), gpu: bool) -> Self {
+        Self::paint(
+            self.samples.clone(),
+            self.ground_grid.clone(),
+            self.ground_key,
+            painter,
+            gpu,
+        )
     }
 
     /// A stand-in for chunk `key`, inside `parent`'s chunk: `parent`'s
@@ -461,6 +490,8 @@ impl ChunkRead {
                 .map(|image| weights_part(&image, from, key)),
             surface: parent.surface,
             gpu_paint: parent.gpu_paint.as_ref().map(|p| p.part(key)),
+            ground_grid: parent.ground_grid.clone(),
+            ground_key: parent.ground_key,
         }
     }
 }
@@ -473,7 +504,10 @@ type ReadTask = Task<Result<ChunkRead, ChunkError>>;
 struct StreamState {
     stream: Stream,
     /// Reads in flight: the chunk, its generation and the task.
-    tasks: Vec<(ChunkKey, u64, ReadTask)>,
+    tasks: Vec<(ChunkKey, u64, u64, ReadTask)>,
+    last: Option<TerrainStream>,
+    paint_revision: u64,
+    paint_dirty: bool,
     /// The entity drawing each chunk.
     entities: HashMap<ChunkKey, Entity>,
     /// Each drawn chunk's material, with the read it was made from, so a
@@ -629,13 +663,30 @@ fn reset_streams(
     for (entity, stream, state) in &mut streams {
         match state {
             None => {
-                commands.entity(entity).insert(StreamState::default());
+                commands.entity(entity).insert(StreamState {
+                    last: Some((*stream).clone()),
+                    ..default()
+                });
             }
             Some(mut state) if stream.is_changed() && !stream.is_added() => {
-                state.stream.reset();
-                state.tasks.clear();
-                state.failed = 0;
-                state.skirts.clear();
+                let same_ground = state.last.as_ref().is_some_and(|last| {
+                    Arc::ptr_eq(&last.source, &stream.source)
+                        && last.rough_from == stream.rough_from
+                        && last.mid_from == stream.mid_from
+                        && last.coarse_first == stream.coarse_first
+                });
+                if same_ground {
+                    if !Arc::ptr_eq(&state.last.as_ref().unwrap().ground, &stream.ground) {
+                        state.paint_revision += 1;
+                        state.paint_dirty = true;
+                    }
+                } else {
+                    state.stream.reset();
+                    state.tasks.clear();
+                    state.failed = 0;
+                    state.skirts.clear();
+                }
+                state.last = Some((*stream).clone());
             }
             Some(_) => {}
         }
@@ -669,6 +720,32 @@ fn stream_chunks(
     let look = ChunkLook::new(&settings, &quality, *debug);
     for (entity, source, transform, mut state, mut progress) in &mut streams {
         let state = &mut *state;
+        let use_gpu = gpu.as_ref().is_some_and(|g| g.0);
+        if state.paint_dirty {
+            let mut repainted = HashMap::new();
+            let mut repaint = |read: &Arc<ChunkRead>| -> Arc<ChunkRead> {
+                repainted
+                    .entry(Arc::as_ptr(read))
+                    .or_insert_with(|| Arc::new(read.repaint(&*source.ground, use_gpu)))
+                    .clone()
+            };
+            state.stream.map_reads(&mut repaint);
+            for (read, handle) in state.materials.values_mut() {
+                *read = repaint(read);
+                if let Some(mut material) = materials.get_mut(&*handle) {
+                    let extension = &mut material.extension;
+                    let [low, high] = read.images.clone();
+                    extension.weights_low = images.add(low);
+                    extension.weights_high = images.add(high);
+                    extension.gpu_paint = read.gpu_paint.clone();
+                    extension.surface.palette = read.surface.palette;
+                    extension.surface.layers = read.surface.layers;
+                    extension.surface.tints = read.surface.tints;
+                    extension.surface.texels = read.surface.texels;
+                }
+            }
+            state.paint_dirty = false;
+        }
 
         // The viewers in the stream's own frame, with their height above
         // the ground as far as the drawn chunks know it.
@@ -706,19 +783,23 @@ fn stream_chunks(
 
         // Collect finished reads.
         let mut finished = Vec::new();
-        state
-            .tasks
-            .retain_mut(|(key, generation, task)| match block_on(poll_once(task)) {
+        state.tasks.retain_mut(|(key, generation, revision, task)| {
+            match block_on(poll_once(task)) {
                 Some(result) => {
-                    finished.push((*key, *generation, result));
+                    finished.push((*key, *generation, *revision, result));
                     false
                 }
                 None => true,
-            });
-        for (key, generation, result) in finished {
+            }
+        });
+        for (key, generation, revision, result) in finished {
             let current = generation == state.stream.generation;
             let read: Read = match result {
-                Ok(read) => Some(Arc::new(read)),
+                Ok(read) => Some(Arc::new(if revision == state.paint_revision {
+                    read
+                } else {
+                    read.repaint(&*source.ground, use_gpu)
+                })),
                 // A failed upgrade keeps the ground already drawn.
                 Err(error) if current && state.stream.is_upgrade(key) => {
                     warn!("terrain {key} keeps its earlier tier: {error}");
@@ -764,7 +845,9 @@ fn stream_chunks(
             let task = AsyncComputeTaskPool::get().spawn(async move {
                 ChunkRead::read_with_gpu(&*ground, &*painter, key, tier, use_gpu)
             });
-            state.tasks.push((key, state.stream.generation, task));
+            state
+                .tasks
+                .push((key, state.stream.generation, state.paint_revision, task));
         }
 
         // Swap the drawn chunks once the whole new set is read; redraw
@@ -1089,6 +1172,103 @@ mod tests {
             app.world().resource::<TerrainSettings>().levels,
             fixed.levels
         );
+    }
+
+    #[test]
+    fn ground_edits_keep_geometry_and_do_not_sample() {
+        use procgena_terrain::{SurfacePoint, ground::GroundSite};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Counted(AtomicUsize);
+        impl ChunkSource for Counted {
+            fn surface(&self, _: DVec2, _: FeatureTier) -> SurfacePoint {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                SurfacePoint {
+                    height: 100.0,
+                    water: None,
+                }
+            }
+            fn tier(&self, tier: FeatureTier) -> FeatureTier {
+                tier
+            }
+            fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+                0.0
+            }
+        }
+        impl GroundSource for Counted {
+            fn site(&self, _: DVec2, _: FeatureTier) -> GroundSite {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                GroundSite::new(100.0, Vec2::ZERO)
+            }
+        }
+        let _streaming = streaming();
+        let mut app = app();
+        let source = Arc::new(Counted(AtomicUsize::new(0)));
+        let stream = app
+            .world_mut()
+            .spawn(TerrainStream::new(source.clone()))
+            .id();
+        app.world_mut()
+            .spawn((TerrainViewer, Transform::from_xyz(0.0, 140.0, 0.0)));
+        app.update();
+        assert!(
+            !app.world()
+                .get::<StreamState>(stream)
+                .unwrap()
+                .tasks
+                .is_empty()
+        );
+        // Change paint before any in-flight read can be collected.
+        app.world_mut()
+            .get_mut::<TerrainStream>(stream)
+            .unwrap()
+            .ground = Arc::new(GroundStack::bare(0, 0.1));
+        settle(&mut app, 2000);
+        for (read, _) in app
+            .world()
+            .get::<StreamState>(stream)
+            .unwrap()
+            .materials
+            .values()
+        {
+            let fresh = read.ground_grid.paint(&GroundStack::bare(0, 0.1));
+            assert_eq!(read.images[0].data, weight_images(&fresh)[0].data);
+        }
+        let count = source.0.load(Ordering::Relaxed);
+        let state = app.world().get::<StreamState>(stream).unwrap();
+        let entities = state.entities.clone();
+        let generation = state.stream.generation;
+        let old_weights: Vec<_> = state
+            .materials
+            .values()
+            .map(|(_, h)| {
+                app.world()
+                    .resource::<Assets<TerrainMaterial>>()
+                    .get(h)
+                    .unwrap()
+                    .extension
+                    .weights_low
+                    .id()
+            })
+            .collect();
+        app.world_mut()
+            .get_mut::<TerrainStream>(stream)
+            .unwrap()
+            .ground = Arc::new(GroundStack::bare(0, 1.0));
+        app.update();
+        assert_eq!(source.0.load(Ordering::Relaxed), count);
+        let state = app.world().get::<StreamState>(stream).unwrap();
+        assert_eq!(state.stream.generation, generation);
+        assert_eq!(state.entities, entities);
+        for (read, handle) in state.materials.values() {
+            let material = app
+                .world()
+                .resource::<Assets<TerrainMaterial>>()
+                .get(handle)
+                .unwrap();
+            assert!(!old_weights.contains(&material.extension.weights_low.id()));
+            let fresh = read.ground_grid.paint(&GroundStack::bare(0, 1.0));
+            assert_eq!(read.images[0].data, weight_images(&fresh)[0].data);
+        }
     }
 
     #[test]
