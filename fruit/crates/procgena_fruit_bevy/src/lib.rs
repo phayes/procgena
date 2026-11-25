@@ -4,9 +4,10 @@
 //! dogwood bloom or a spray of catkins, on their own.
 //!
 //! Add [`FruitPlugin`], then spawn an entity with [`FruitParams`]. The
-//! cluster is grown from its settings and drawn at each of its levels of
-//! detail, which fade into each other with distance. Its attachment point is
-//! at the entity's origin, and it faces the entity's local +Y.
+//! cluster is grown from its settings and drawn as its game-level mesh,
+//! then its lower mesh once it is small on screen (see
+//! `procgena_core::chain`); they fade into each other. Its attachment point
+//! is at the entity's origin, and it faces the entity's local +Y.
 //!
 //! ```no_run
 //! use bevy::prelude::*;

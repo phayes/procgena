@@ -41,15 +41,12 @@ mod viewport;
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
 use procgena_clump_bevy::ClumpPlugin;
-use procgena_core::Lod;
 use procgena_deadwood_bevy::DeadwoodPlugin;
-use procgena_impostor::{
-    BakedImpostor, ImpostorLevel, ImpostorPlugin, ImpostorRequest, ImpostorSettings,
-};
+use procgena_impostor::{BakedImpostor, ImpostorPlugin, ImpostorRequest, ImpostorSettings};
 use procgena_mushroom_bevy::MushroomPlugin;
 use procgena_plant_bevy::prelude::PlantPlugins;
 use procgena_stone_bevy::StonePlugin;
-use procgena_tree::{LOD_REFERENCE_SIZE, TextureCompression};
+use procgena_tree::TextureCompression;
 use procgena_tree_bevy::{TreePlugin, default_tree_impostor};
 
 pub use assets::{
@@ -85,7 +82,7 @@ pub use {
     clump::ClumpBuildError,
     protocol::MeshSize,
     subject::Subject,
-    tree::lod_levels,
+    tree::TREE_STEPS,
     viewport::{PointerButton, ViewportInput, ViewportTarget},
 };
 
@@ -172,12 +169,7 @@ impl Plugin for ScenePlugin {
             TreePlugin {
                 texture_root: Some(TREE_TEXTURE_ROOT.to_owned()),
                 texture_compression: TextureCompression::Bc7,
-                // The scene reports which of these levels is on screen.
-                lod: Lod::new(LOD_REFERENCE_SIZE, tree::lod_levels()),
-                impostor: self.impostors.then(|| ImpostorLevel {
-                    distance: tree::IMPOSTOR_DISTANCE,
-                    ..default_tree_impostor()
-                }),
+                impostor: self.impostors.then(default_tree_impostor),
                 ..default()
             },
             PlantPlugins,

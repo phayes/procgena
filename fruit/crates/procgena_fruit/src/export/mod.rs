@@ -2,7 +2,8 @@
 //! feature) and glTF (with the `export-gltf` feature).
 //!
 //! The functions return the file contents; your application saves them.
-//! Pass one mesh, or one per detail level from [`crate::Fruit::lod_meshes`].
+//! Pass one mesh, or the game-level and lower meshes from
+//! [`crate::Fruit::meshes`].
 //! Each mesh becomes a separate object named `fruit_LOD0`, `fruit_LOD1` and
 //! so on, or just `fruit` when there is only one. Surfaces are drawn from
 //! both sides, since petals, stalk strips and flat fruit have no thickness.

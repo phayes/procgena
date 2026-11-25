@@ -1,22 +1,25 @@
 //! One generated fruit or flower cluster: a specimen of a fruit pool.
 
-use procgena_core::{LodLevel, PartStep, SpecimenId};
+use procgena_core::chain::Lod;
+use procgena_core::{PartStep, SpecimenId};
 
 use crate::mesh::mesh_cluster;
 use crate::{
-    ClusterDetail, ClusterItem, ClusterStalk, FlowerPreset, FruitLod, FruitMesh, FruitOptions,
-    FruitPreset, FruitSkeleton, OptionsError,
+    ClusterDetail, ClusterItem, ClusterStalk, FlowerPreset, FruitMesh, FruitOptions, FruitPreset,
+    FruitSkeleton, OptionsError,
 };
 
 /// One fruit or flower cluster, grown from its settings and its
-/// [`SpecimenId`], ready to mesh at any level of detail.
+/// [`SpecimenId`], ready to mesh at any detail.
 ///
 /// ```
 /// use procgena_fruit::{ClusterDetail, Fruit, FruitPreset};
 ///
 /// let apple = Fruit::from_preset(FruitPreset::apple())?;
-/// let mesh = apple.mesh(&ClusterDetail::default());
-/// assert!(mesh.triangle_count() > 0);
+/// let meshes = apple.meshes();
+/// assert!(meshes.lower.triangle_count() < meshes.game.triangle_count());
+/// let full = apple.mesh(&ClusterDetail::FULL);
+/// assert!(full.triangle_count() > meshes.game.triangle_count());
 /// # Ok::<(), procgena_fruit::OptionsError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -91,19 +94,11 @@ impl Fruit {
         self.skeleton.radius()
     }
 
-    /// The cluster's size for choosing its level of detail: the diameter of
-    /// the ball [`radius`](Self::radius) describes. Pass it, times the
-    /// copy's scale, to [`Lod::factor`](procgena_core::Lod::factor).
+    /// The cluster's size on screen is measured by: the diameter of the
+    /// ball [`radius`](Self::radius) describes. Pass it, times the copy's
+    /// scale, to [`DistanceChain::factor`](procgena_core::chain::DistanceChain::factor).
     pub fn size(&self) -> f32 {
         2.0 * self.radius()
-    }
-
-    /// The factor that scales `lod`'s distances for a copy of this cluster
-    /// drawn at `scale` times its size, at `quality`. Pass it to
-    /// [`Lod::level_at`](procgena_core::Lod::level_at) or
-    /// [`Lod::ranges`](procgena_core::Lod::ranges).
-    pub fn lod_factor(&self, lod: &FruitLod, scale: f32, quality: procgena_core::Quality) -> f32 {
-        lod.factor(self.size() * scale, quality)
     }
 
     /// The cluster's mesh at `detail`, in the cluster frame.
@@ -111,12 +106,17 @@ impl Fruit {
         mesh_cluster(&self.skeleton, &self.options, detail)
     }
 
-    /// One mesh per level of `lod`, in level order, with its level.
-    pub fn lod_meshes(&self, lod: &FruitLod) -> Vec<(LodLevel<ClusterDetail>, FruitMesh)> {
-        lod.levels
-            .iter()
-            .map(|level| (*level, self.mesh(&level.detail)))
-            .collect()
+    /// The details of the cluster's two meshes: its
+    /// [`game_level`](FruitOptions::game_level), and the coarser detail
+    /// derived from it.
+    pub fn lod(&self) -> Lod<ClusterDetail> {
+        Lod::from_game(self.options.game_level)
+    }
+
+    /// The cluster's game-level mesh and its lower mesh, in the cluster
+    /// frame.
+    pub fn meshes(&self) -> Lod<FruitMesh> {
+        self.lod().map(|detail| self.mesh(&detail))
     }
 }
 

@@ -396,8 +396,9 @@ fn every_copy_of_a_tree_specimen_carries_the_same_fruit() {
 /// and names the same cluster whatever detail level draws it.
 #[test]
 fn a_part_path_resolves_to_a_fruit_item_on_every_level() {
+    use procgena_core::chain::LowerDetail;
     use procgena_tree::procgena_fruit::FruitPart;
-    use procgena_tree::{FRUIT_PART, default_lod};
+    use procgena_tree::{FRUIT_PART, LodDetail};
 
     let options = TreePreset::spring_pussy_willow().tree.clone();
     let skeleton = Skeleton::generate(&options).unwrap();
@@ -427,9 +428,10 @@ fn a_part_path_resolves_to_a_fruit_item_on_every_level() {
             .is_none()
     );
 
-    // Every level that keeps cluster 17 draws it from that same cluster.
-    for level in default_lod().levels {
-        let mesh = skeleton.mesh(&options, &level.detail);
+    // Both meshes draw each cluster they keep from that same cluster.
+    let game = LodDetail::default();
+    for detail in [game, game.lower()] {
+        let mesh = skeleton.mesh(&options, &detail);
         for span in &mesh.fruit_spans {
             assert!(
                 skeleton

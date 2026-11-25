@@ -173,7 +173,7 @@ mod tests {
     fn every_detail_level_can_be_chosen() {
         let kinds = kinds();
         let levels = |id| kinds.get(id).unwrap().detail_levels.len();
-        assert_eq!(levels("tree"), crate::scene::lod_levels().len());
+        assert_eq!(levels("tree"), crate::scene::TREE_STEPS.len());
         // The scene uses the mushroom and dead wood plugins' default levels.
         assert_eq!(
             levels("mushroom"),

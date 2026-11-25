@@ -1,34 +1,30 @@
 //! Describe a generated cluster as a tagged [`Specimen`].
 
-use procgena_core::LodLevel;
+use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, tags};
 
-use crate::{ClusterDetail, Fruit, FruitMesh};
+use crate::{Fruit, FruitMesh};
 
 impl Fruit {
-    /// The cluster as a tagged [`Specimen`] with one level per entry of
-    /// `lods`, such as the result of [`Fruit::lod_meshes`], ordered by
-    /// increasing distance. Each level has one open part tagged `fruit` or
-    /// `flower`, left out when the level has no triangles.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `lods` is empty.
-    pub fn specimen(&self, lods: &[(LodLevel<ClusterDetail>, FruitMesh)]) -> Specimen {
-        assert!(
-            !lods.is_empty(),
-            "a fruit specimen needs at least one level"
-        );
+    /// The cluster as a tagged [`Specimen`] with two levels: its game-level
+    /// mesh and its lower mesh ([`Fruit::meshes`]). Each level has one open
+    /// part tagged `fruit` or `flower`, left out when the level has no
+    /// triangles. The lower level starts where the default
+    /// [`DistanceChain`] switches to it for this cluster, seen through a
+    /// [`ViewScale::DEFAULT`] camera at High quality.
+    pub fn specimen(&self) -> Specimen {
         let tag = if self.options().item.is_fruit() {
             tags::FRUIT
         } else {
             tags::FLOWER
         };
-        let levels = lods
-            .iter()
-            .enumerate()
-            .map(|(i, (lod, mesh))| Level {
-                start: if i == 0 { 0.0 } else { lod.distance },
+        let factor = DistanceChain::factor(self.size(), ViewScale::DEFAULT);
+        let lower_start = factor / DistanceChain::DEFAULT.lower_below;
+        let meshes = self.meshes();
+        let levels = [(0.0, &meshes.game), (lower_start, &meshes.lower)]
+            .into_iter()
+            .map(|(start, mesh): (f32, &FruitMesh)| Level {
+                start,
                 parts: (!mesh.indices.is_empty())
                     .then(|| {
                         let surface = SurfaceMesh {

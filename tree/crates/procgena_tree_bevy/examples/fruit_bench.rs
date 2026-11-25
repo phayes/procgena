@@ -32,12 +32,13 @@ use bevy::tasks::tick_global_task_pools_on_main_thread;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core::ChildKey;
+use procgena_core::chain::Step;
 use procgena_core_bevy::instanced::{
     InstancedScatter, InstancedSlot, InstancedTimings, read_instance_counts,
 };
-use procgena_tree::{ScatterTree, TreePreset, TreeScatter, procgena_fruit};
+use procgena_tree::{ScatterTree, TreePreset, TreeScatter};
 use procgena_tree_bevy::{
-    TreePlugin, TreeScatterGenerating, TreeScatterInstances, TreeScatterParams, default_tree_lod,
+    TreePlugin, TreeScatterGenerating, TreeScatterInstances, TreeScatterParams,
 };
 
 /// Trees per hectare.
@@ -172,7 +173,7 @@ fn headless_app() -> App {
 /// and no pipeline has compiled for a while.
 fn wait_until_settled(app: &mut App, grove: Entity) {
     let deadline = Instant::now() + LIMIT;
-    let mesh_levels = default_tree_lod().levels.len();
+    let impostor = Step::Impostor.index();
     let mut settled = 0;
     while settled < 30 {
         assert!(Instant::now() < deadline, "the grove did not settle");
@@ -185,14 +186,12 @@ fn wait_until_settled(app: &mut App, grove: Entity) {
             .world()
             .get::<InstancedScatter>(grove)
             .is_some_and(|scatter| {
-                // Tree variants, not catkin clusters, which have levels of
-                // their own written for a cluster's size.
-                let is_tree = |slot: &&InstancedSlot| {
-                    slot.lod.reference_size != procgena_fruit::FRUIT_LOD_REFERENCE_SIZE
-                };
+                // Tree variants, not catkin clusters, which have no cull of
+                // their own: their tree decides how far they are drawn.
+                let is_tree = |slot: &&InstancedSlot| slot.lod.cull_distance.is_some();
                 let mut variants = scatter.slots.iter().filter(is_tree).peekable();
                 variants.peek().is_some()
-                    && variants.all(|slot| slot.lod.levels.len() == mesh_levels + 1)
+                    && variants.all(|slot| slot.lod.levels.len() == impostor + 1)
             });
         let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
         let compiling = cache.waiting_pipelines().next().is_some();

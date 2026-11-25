@@ -32,6 +32,9 @@ sections:
   - title: Variation
     part: cluster
     settings: [variation.maturity_spread, variation.hue_spread, variation.blush_spread, variation.shape_jitter, variation.stem_curve_jitter]
+  - title: Detail
+    part: cluster
+    settings: [game_level.item_detail, game_level.item_stride, game_level.item_scale, game_level.stalks, game_level.flat_item_size]
 conditions:
   several: "cluster.arrangement != single"
   main_stem: "cluster.arrangement in [raceme, panicle, catkin]"
@@ -250,3 +253,28 @@ settings:
     description: "How much each item's stem bend varies."
     range: [0, 1]
     step: 0.01
+  game_level.item_detail:
+    label: Detail
+    description: "How finely each item and stalk is built: its real shape, used up close and for its far-away picture. Farther away a coarser shape is drawn."
+    choices:
+      - { value: full, label: Full }
+      - { value: simple, label: Simple }
+      - { value: minimal, label: Minimal }
+  game_level.item_stride:
+    label: Item Stride
+    description: "Builds every Nth item only. 1 builds them all."
+    range: [1, 8]
+    step: 1
+  game_level.item_scale:
+    label: Item Scale
+    description: "Makes each built item larger, to fill the gaps a stride leaves."
+    range: [0.5, 3]
+    step: 0.05
+  game_level.stalks:
+    label: Stalks
+    description: "Builds the stalks that hold the items."
+  game_level.flat_item_size:
+    label: Flat Below
+    description: "Draws items smaller than this many metres as flat shapes. 0 builds every item in full."
+    range: [0, 0.2]
+    step: 0.005

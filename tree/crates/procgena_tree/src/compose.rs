@@ -2,8 +2,9 @@
 //! into place as one mesh.
 
 use glam::{Quat, Vec3};
-use procgena_core::{PartStep, Quality, SpecimenId};
-use procgena_fruit::{Fruit, FruitMesh, default_lod};
+use procgena_core::chain::Step;
+use procgena_core::{PartStep, SpecimenId};
+use procgena_fruit::{Fruit, FruitMesh};
 
 use crate::mesh::{ClusterSpan, LodDetail, MeshBuffers};
 use crate::wind::{BranchWind, branch_winds, wind_at};
@@ -57,9 +58,9 @@ impl Skeleton {
     }
 }
 
-/// Appends the clusters `detail` keeps to `out`, each at its own fruit level
-/// for [`LodDetail::fruit_distance`], and returns their spans in skeleton
-/// order. Clusters past the fruit levels' cull distance are left out.
+/// Appends the clusters `detail` keeps to `out`, each specimen at its game
+/// level, or at its lower mesh with [`LodDetail::lower_clusters`], and
+/// returns their spans in skeleton order.
 pub(crate) fn compose_clusters(
     out: &mut MeshBuffers,
     clusters: &[SkeletonCluster],
@@ -67,20 +68,21 @@ pub(crate) fn compose_clusters(
     winds: &[BranchWind],
     detail: &LodDetail,
 ) -> Vec<ClusterSpan> {
-    let lod = default_lod();
     let stride = detail.cluster_stride.max(1) as usize;
-    let mut meshes: Vec<Vec<Option<FruitMesh>>> = vec![vec![None; lod.levels.len()]; slots.len()];
+    let mut meshes: Vec<Option<FruitMesh>> = vec![None; slots.len()];
     let mut spans = Vec::with_capacity(clusters.len().div_ceil(stride));
     for (index, cluster) in clusters.iter().enumerate().step_by(stride) {
-        // The cluster's own level, from its size where it is drawn.
         let fruit = &slots[cluster.slot as usize];
         let scale = cluster.scale * detail.cluster_scale;
-        let factor = fruit.lod_factor(&lod, scale, Quality::High);
-        let Some(level) = lod.level_at(detail.fruit_distance, factor) else {
-            continue;
-        };
-        let mesh = meshes[cluster.slot as usize][level]
-            .get_or_insert_with(|| fruit.mesh(&lod.levels[level].detail));
+        let mesh = meshes[cluster.slot as usize].get_or_insert_with(|| {
+            let lod = fruit.lod();
+            let step = if detail.lower_clusters {
+                Step::Lower
+            } else {
+                Step::Game
+            };
+            fruit.mesh(lod.detail(step).expect("a mesh step"))
+        });
 
         // Move the specimen's mesh into place, with its branch's sway.
         let (first_vertex, first_index) = (out.next_index(), out.indices.len());

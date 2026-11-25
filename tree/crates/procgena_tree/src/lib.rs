@@ -89,31 +89,28 @@
 //!
 //! ## Create simpler meshes
 //!
-//! Generate several levels of detail (LOD) from the same tree. Your renderer chooses
-//! which mesh to show based on camera distance.
+//! A tree's `game_level` is its real geometry: the mesh detail it is drawn at
+//! up close, and the shape the rest of a game uses. Full detail is the
+//! default. A coarser lower mesh, derived from it, is drawn when the tree is
+//! small on screen, and an impostor after that; `procgena_tree_bevy` switches
+//! between them by the tree's size on screen.
 //!
 //! ```rust
-//! use procgena_tree::{Tree, TreePreset, default_lod};
+//! use procgena_tree::{Tree, TreePreset};
 //!
 //! let tree = Tree::from_preset(TreePreset::ash_small())?;
-//! for (level, mesh) in tree.lod_meshes(&default_lod().levels) {
-//!     println!(
-//!         "From distance {}: {} triangles",
-//!         level.distance,
-//!         mesh.triangle_count(),
-//!     );
-//! }
+//! println!("Game level: {} triangles", tree.triangle_count());
+//! println!("Lower mesh: {} triangles", tree.lower_mesh().triangle_count());
 //! # Ok::<(), procgena_tree::OptionsError>(())
 //! ```
 //!
-//! The four default levels use progressively simpler meshes at distances of 0, 10,
-//! 25 and 50 metres. To choose your own mesh detail, pass a `LodDetail` to
+//! To choose your own mesh detail, pass a `LodDetail` to
 //! `Tree::mesh_with_detail`.
 //!
-//! Only LOD0 and LOD1 are meant for gameplay. Their trunk and branches are closed,
-//! outward-facing solids (`LodDetail::closed`), suitable for physics, collision and
-//! volumes. LOD2 and LOD3 are for drawing distant trees only: their bark is open
-//! and simplified, so don't build colliders or volumes from them.
+//! The game level's trunk and branches are closed, outward-facing solids
+//! (`LodDetail::closed`), suitable for physics, collision and volumes. The
+//! lower mesh is for drawing small-on-screen trees only: its bark is open and
+//! simplified, so don't build colliders or volumes from it.
 //!
 //! If you only need branch shapes and leaf placements, use `Skeleton::generate`
 //! without building a mesh.
@@ -301,11 +298,7 @@ pub use material::{
     TextureSize, TrellisMaterial, bark_average_color, bark_texture_path, leaf_has_normal_map,
     leaf_texture_path,
 };
-pub use mesh::{
-    BillboardCull, BillboardMode, BillboardVertex, BranchShape, BranchSpan, ClusterSpan,
-    LOD_CULL_DISTANCE, LOD_REFERENCE_SIZE, LeafSpan, LodDetail, MeshBuffers, TreeLod, TreeMesh,
-    default_lod,
-};
+pub use mesh::{BranchSpan, ClusterSpan, LeafSpan, LodDetail, MeshBuffers, TreeMesh};
 pub use meta::{TREE_META, TREE_SCATTER_META, meta_choices};
 pub use options::{
     BarkOptions, BarkUvMode, Billboard, BranchOptions, GrowthForce, LeafOptions, MAX_LEVELS,

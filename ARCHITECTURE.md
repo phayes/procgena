@@ -1483,7 +1483,8 @@ Each rule says what every asset does, and which crates have to change.
      is drawn until the cull.
    - Status: the chain types are in `procgena_core::chain` (IX Step 1), and
      stone draws through them (IX Step 2; its GPU pool through a private
-     translation to the old table until the renderer moves, Step 4). The
+     translation to the old table until the renderer moves, Step 4), and
+     so do trees and their fruit and flowers (IX Step 3). The
      other assets still use the older metre table (`Lod`, `LodLevel`,
      `LevelForm`, `FarForm`) until each moves across; the old types are
      deleted when the last asset moves. The bullets below describe the

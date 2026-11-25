@@ -10,6 +10,7 @@ use std::ops::{Index, IndexMut};
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
+use crate::LodDetail;
 use crate::attached::AttachedFruit;
 
 /// Maximum value of [`BranchOptions::levels`]: three levels above the trunk.
@@ -53,6 +54,15 @@ pub struct TreeOptions {
     /// grows no flowers. Fruit and flowers grow from separate random
     /// streams, so changing one never moves the other.
     pub flowers: Option<AttachedFruit>,
+    /// The tree's real geometry: the mesh detail it is drawn at up close,
+    /// and its impostor is baked from. A coarser mesh, derived from it, is
+    /// drawn when the tree is small on screen. Defaults to full detail when
+    /// left out.
+    ///
+    /// It is not part of the tree's name ([`pool_id`](Self::pool_id)):
+    /// changing it changes how finely the tree is built, not its shape.
+    #[serde(default)]
+    pub game_level: LodDetail,
 }
 
 /// Branching styles used by ez-tree to shape the tree.
