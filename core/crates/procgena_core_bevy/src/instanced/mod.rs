@@ -25,6 +25,7 @@
 //! The renderer needs Bevy's render app. Without one (in headless apps with
 //! no renderer), [`InstancedPlugin`] only keeps the cache.
 
+mod chain;
 mod material;
 mod render;
 
@@ -40,6 +41,7 @@ use bevy::mesh::Mesh;
 use bevy::prelude::{Handle, Transform};
 use procgena_core::{Lod, SpecimenId};
 
+pub use chain::chain_lod;
 pub use material::{
     ATTACHED_SIZE, INSTANCE_LOCATION, INSTANCE_SIZE, INSTANCED_MESH_SHADER,
     INSTANCED_PREPASS_SHADER, InstancedMaterialPlugin, InstancedStandard, InstancedStandardKey,
