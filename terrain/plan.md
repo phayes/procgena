@@ -694,6 +694,11 @@ pub struct Annotation { landform: Landform, flags: Flags, measures: Measures, we
     150 m ring above) need the neighbours' ground near borders, so they
     belong to `WorldTerrain`. Bluff, Scree and Beach wait for those and
     for lakes. No label needs relief height (ROADMAP item 31).
+  - **Cost** (warm, per sample, `tests/bench.rs` `warm_sampling`, load
+    average about 244, so read the rows against each other): height
+    2.3 µs p50, gradient 8.5 µs, measures 16.7 µs, **labels 33.5 µs**
+    (p95 589 µs); labels within 200 m of a border 114 µs (measures there
+    60 µs). Labels cost about twice the measures: eight more heights.
   - Not built: `annotate_at` for caves and overhangs, label weights, and
     mesh parts by label (Phase 7).
 - **Mesh output.**
