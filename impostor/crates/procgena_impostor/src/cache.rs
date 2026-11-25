@@ -26,6 +26,7 @@ use bevy::tasks::{IoTaskPool, Task, block_on, poll_once};
 
 use crate::ImpostorSettings;
 use crate::bake::{Impostor, Impostors};
+use crate::dilate::dilate;
 use crate::key::ImpostorKey;
 use crate::ktx2::encode_bc7;
 use crate::material::ImpostorMaterial;
@@ -430,7 +431,8 @@ impl ImpostorWrites {
 }
 
 /// Starts finishing a bake: reads both atlases back from the GPU, then in
-/// the background makes their mip levels and, with a
+/// the background fills the texels around the object (see
+/// [`dilate`](crate::dilate)), makes their mip levels and, with a
 /// [`cache_dir`](ImpostorSettings::cache_dir), writes the files.
 /// [`finish_writes`] then keeps the impostor, with new images holding
 /// every mip level.
@@ -481,6 +483,13 @@ pub(crate) fn save(
                 };
                 let dir = settings.cache_dir.clone();
                 let task = IoTaskPool::get().spawn(async move {
+                    let mut stored = stored;
+                    dilate(
+                        &mut stored.albedo,
+                        &mut stored.normal,
+                        stored.size,
+                        stored.frames,
+                    );
                     let written = match dir {
                         Some(dir) => write(&dir, key, &stored),
                         None => Ok(()),

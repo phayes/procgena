@@ -12,6 +12,11 @@
 /// The alpha below which the impostor shaders discard a texel.
 const CUTOFF: f32 = 0.5;
 
+/// Whether an albedo texel with alpha `alpha` survives the cut-out.
+pub(crate) fn covers(alpha: u8) -> bool {
+    f32::from(alpha) / 255.0 >= CUTOFF
+}
+
 /// The smallest view, in pixels along a side, that gets a mip level.
 const MIN_VIEW: u32 = 8;
 
@@ -26,7 +31,7 @@ pub(crate) struct MipChains {
 /// Builds the mip levels of an impostor's atlases. `size` is the pixels
 /// along each side of the full-size atlases, which hold `frames × frames`
 /// square views; `albedo` (sRGB colour, alpha as coverage) and `normal`
-/// (normals packed into 0–1) must each be `size × size` RGBA pixels.
+/// (normals packed into 0–1, depth in alpha) must each be `size × size` RGBA pixels.
 ///
 /// Levels stop before a view would be smaller than 8 pixels, or would have
 /// an odd size. An atlas whose views can't be halved has the full-size
@@ -73,7 +78,7 @@ pub(crate) fn mip_chains(albedo: &[u8], normal: &[u8], size: u32, frames: u32) -
 }
 
 /// Halves a `size × size` colour and normal atlas pair, averaging each
-/// 2 × 2 block. Colour and normals are weighted by the colour's alpha.
+/// 2 × 2 block. Colour, normals and depth are weighted by the colour's alpha.
 fn halve(albedo: &[u8], normal: &[u8], size: u32) -> (Vec<u8>, Vec<u8>) {
     let half = size / 2;
     let mut small_albedo = Vec::with_capacity((half * half * 4) as usize);
@@ -114,8 +119,12 @@ fn halve(albedo: &[u8], normal: &[u8], size: u32) -> (Vec<u8>, Vec<u8>) {
                 let unit = if length > 0.0 { value / length } else { value };
                 small_normal.push(to_byte(unit * 0.5 + 0.5));
             }
-            let alpha: f32 = texels.iter().map(|&t| f32::from(normal[t + 3])).sum();
-            small_normal.push((alpha / 4.0).round() as u8);
+            // Coverage-weighted depth, so the background's depth never
+            // pulls edges towards the far side.
+            let depth: f32 = (0..4)
+                .map(|i| f32::from(normal[texels[i] + 3]) * weight(i))
+                .sum();
+            small_normal.push(depth.round().clamp(0.0, 255.0) as u8);
         }
     }
     (small_albedo, small_normal)

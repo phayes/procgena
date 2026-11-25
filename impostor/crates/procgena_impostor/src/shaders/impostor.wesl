@@ -1,20 +1,21 @@
 // Draws an impostor in the forward pass: one quad facing the nearest baked
-// view, coloured from the albedo atlas and lit with the normal atlas through
-// Bevy's own lighting.
+// view, showing the three nearest views blended (see `surface.wesl`), lit
+// with their normals through Bevy's own lighting and written at their
+// depth.
 //
 // The fragment shader also serves materials that place impostors with
 // their own vertex shader (see `vertex.wesl`): it needs only the bindings in
 // `common.wesl` and the forward pass's usual vertex output.
 
 import bevy_pbr::render::{
-    forward_io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
+    forward_io::{Vertex, VertexOutput, decompress_vertex},
     mesh_functions,
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
 };
-import package::shaders::common::{Instance, albedo_atlas, atlas_sampler, impostor, normal_atlas};
-import package::shaders::place::world_view_basis;
+import package::shaders::common::{Instance, impostor};
+import package::shaders::surface::{impostor_surface, view_depth};
 import package::shaders::vertex::impostor_vertex;
 
 /// Places the quad's corner for this view, for the mesh record `index`.
@@ -53,30 +54,37 @@ fn vertex(in: Vertex, instance: Instance) -> VertexOutput {
     return out;
 }
 
+/// The forward pass's output: lit colour, and the depth of the surface the
+/// impostor shows rather than of its flat quad.
+struct ImpostorFragmentOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
 @fragment
-fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
-    // Sample both atlases and find the view's axes before discarding, while
-    // control flow is uniform.
-    let albedo = textureSample(albedo_atlas, atlas_sampler, in.uv);
-    let baked_normal = textureSample(normal_atlas, atlas_sampler, in.uv).xyz * 2.0 - 1.0;
-    let basis = world_view_basis(in.world_position.xyz, in.uv);
+fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> ImpostorFragmentOutput {
+    // Find the surface before discarding, while control flow is uniform.
+    let surface = impostor_surface(in.world_position.xyz, in.uv);
 @if(VISIBILITY_RANGE_DITHER)
     pbr_functions::visibility_range_dither(in.position, in.visibility_range_dither);
-    if albedo.a < 0.5 {
+    if surface.coverage < 0.5 {
         discard;
     }
 
-    // The baked normal is in its view's camera space; turn it into the
-    // world with the view's axes.
-    let normal = normalize(basis * baked_normal);
-
-    // Light it as the material would be lit, with the atlas's colour.
-    var pbr_input = pbr_input_from_standard_material(in, is_front);
-    pbr_input.material.base_color = vec4<f32>(albedo.rgb * pbr_input.material.base_color.rgb, 1.0);
-    pbr_input.N = normal;
-    pbr_input.world_normal = normal;
-    var out: FragmentOutput;
+    // Light it as the material would be lit, with the atlas's colour, at
+    // the surface rather than on the quad, so it is shadowed where the
+    // object is.
+    var at_surface = in;
+    at_surface.world_position = vec4<f32>(surface.world_position, 1.0);
+    at_surface.world_normal = surface.world_normal;
+    var pbr_input = pbr_input_from_standard_material(at_surface, is_front);
+    pbr_input.material.base_color =
+        vec4<f32>(surface.color * pbr_input.material.base_color.rgb, 1.0);
+    pbr_input.N = surface.world_normal;
+    pbr_input.world_normal = surface.world_normal;
+    var out: ImpostorFragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+    out.depth = view_depth(surface.world_position);
     return out;
 }

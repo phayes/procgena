@@ -1,6 +1,8 @@
 //! Impostors for generated objects: an object drawn from many directions
-//! into two atlases (colour and normals), then drawn far away as one quad
-//! that shows the view nearest the camera, lit by the scene.
+//! into two atlases (colour, and normals with depth), then drawn far away as
+//! one quad that blends the three views nearest the camera, lit by the
+//! scene. Each texel is drawn at the depth of the surface it shows, so
+//! impostors meet the ground and cast shadows like the object would.
 //!
 //! Add [`ImpostorPlugin`], then spawn an [`ImpostorRequest`] naming the
 //! object's meshes and bake materials. The impostor is baked in the
@@ -18,7 +20,10 @@
 //! Bake materials draw base colour or normals instead of lit colour.
 //! [`bake_standard`] makes them from a [`StandardMaterial`]; a generator
 //! with its own material extension calls [`use_bake_shader`] from its
-//! `specialize` instead, keeping its vertex shader.
+//! `specialize` instead, keeping its vertex shader. A generator whose own
+//! fragment shader draws its bake copies writes the normal atlas with
+//! `baked_normal` from `procgena_impostor::shaders::bake_output`, so every
+//! atlas stores normals and depth the same way.
 //!
 //! Each bake declares which viewer elevations it covers, as a
 //! [`ViewCoverage`] in its [`BakeSettings`]: every direction by default.
@@ -60,6 +65,7 @@
 mod bake;
 mod batch;
 mod cache;
+mod dilate;
 mod frame;
 mod key;
 mod ktx2;
@@ -143,6 +149,8 @@ impl Plugin for ImpostorPlugin {
         load_shader_library!(app, "shaders/vertex.wesl");
         load_shader_library!(app, "shaders/vertex_prepass.wesl");
         load_shader_library!(app, "shaders/common.wesl");
+        load_shader_library!(app, "shaders/bake_output.wesl");
+        load_shader_library!(app, "shaders/surface.wesl");
         embedded_asset!(app, "shaders/impostor.wesl");
         embedded_asset!(app, "shaders/impostor_prepass.wesl");
         load_internal_asset!(app, BAKE_SHADER, "shaders/bake.wesl", Shader::from_wesl);
