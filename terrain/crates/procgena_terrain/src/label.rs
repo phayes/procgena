@@ -231,10 +231,12 @@ impl std::ops::BitOrAssign for Flags {
 
 /// The labels of one point (see [`Terrain::annotate`](crate::Terrain::annotate)).
 ///
-/// Labels that come from water and roads are the same on both sides of a
-/// border between two terrains. Those that come from slope and shape
-/// almost always are: they can differ only where a slope or bend lies
-/// within a hair of its threshold.
+/// On a border between two terrains, the labels that come from water and
+/// roads, and the flags, are the same on both sides. Those that come from
+/// slope and shape can differ in a thin strip along the border, because
+/// each terrain reads its own ground past it: the two terrains meet in
+/// height and slope on the border line, not beyond it. The strip widens
+/// with the world's horizontal scale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Labels {
     /// What kind of land the point is.

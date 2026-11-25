@@ -200,9 +200,8 @@ fn water_and_roads_get_their_labels() {
 
 /// The bends of `terrain` at `p` across its most convex and most concave
 /// directions, as the labels read them: second differences of the height
-/// at the shape step (see [`shape`]), worked out here on their own.
-fn bends(terrain: &Terrain, p: DVec2) -> [f32; 2] {
-    let (s, _) = shape();
+/// at step `s` (see [`shape`]), worked out here on their own.
+fn bends(terrain: &Terrain, p: DVec2, s: f64) -> [f32; 2] {
     let h = |x: f64, z: f64| f64::from(terrain.height(p + DVec2::new(x, z)));
     let xx = (h(s, 0.0) + h(-s, 0.0) - 2.0 * h(0.0, 0.0)) / (s * s);
     let zz = (h(0.0, s) + h(0.0, -s) - 2.0 * h(0.0, 0.0)) / (s * s);
@@ -212,49 +211,105 @@ fn bends(terrain: &Terrain, p: DVec2) -> [f32; 2] {
     [-(mean - spread) as f32, -(mean + spread) as f32]
 }
 
+/// The spacing, in metres, of the grid that [`hilltops_and_hollows`]
+/// searches.
+const GRID: f64 = 16.0;
+
+/// How many grid steps around a hilltop or hollow it must be the highest
+/// or lowest point.
+const WINDOW: i64 = 3;
+
+/// How far, in metres, a hilltop must stand above (or a hollow sink
+/// below) the mean of the eight grid points [`WINDOW`] steps around it.
+const PROMINENCE: f32 = 1.5;
+
+/// The hilltops and hollows of `terrain`, found on its own heights apart
+/// from the labels: grid points [`GRID`] apart, inside its region and
+/// clear of its border, that are the highest (or lowest) within
+/// [`WINDOW`] steps and stand out by [`PROMINENCE`].
+fn hilltops_and_hollows(terrain: &Terrain) -> (Vec<DVec2>, Vec<DVec2>) {
+    let procgena_terrain::Boundary::Polygon(corners) = &terrain.region().boundary else {
+        panic!("test regions have polygons");
+    };
+    let (lo, hi) = corners
+        .iter()
+        .fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), &q| {
+            (lo.min(q), hi.max(q))
+        });
+    let origin = (lo / GRID).floor().as_i64vec2();
+    let size = ((hi - lo) / GRID).ceil().as_uvec2() + UVec2::splat(2);
+    let tile = HeightTile::sample(terrain, origin, size, GRID);
+    let h = |i: i64, j: i64| tile.get(i as u32, j as u32);
+
+    let (mut tops, mut hollows) = (Vec::new(), Vec::new());
+    for j in WINDOW..i64::from(size.y) - WINDOW {
+        for i in WINDOW..i64::from(size.x) - WINDOW {
+            let p = (origin + I64Vec2::new(i, j)).as_dvec2() * GRID;
+            let boundary = &terrain.region().boundary;
+            if !boundary.contains(p) || boundary.distance_to_border(p) < 2.0 * GRID * WINDOW as f64
+            {
+                continue;
+            }
+            let centre = h(i, j);
+            let window = (-WINDOW..=WINDOW)
+                .flat_map(|dj| (-WINDOW..=WINDOW).map(move |di| (di, dj)))
+                .filter(|&d| d != (0, 0))
+                .map(|(di, dj)| h(i + di, j + dj));
+            let (low, high) = window.fold((f32::INFINITY, f32::NEG_INFINITY), |(l, u), v| {
+                (l.min(v), u.max(v))
+            });
+            let ring = [
+                (1, 0),
+                (-1, 0),
+                (0, 1),
+                (0, -1),
+                (1, 1),
+                (1, -1),
+                (-1, 1),
+                (-1, -1),
+            ];
+            let mean = ring
+                .iter()
+                .map(|&(di, dj)| h(i + di * WINDOW, j + dj * WINDOW))
+                .sum::<f32>()
+                / 8.0;
+            if centre > high && centre - mean >= PROMINENCE {
+                tops.push(p);
+            } else if centre < low && mean - centre >= PROMINENCE {
+                hollows.push(p);
+            }
+        }
+    }
+    (tops, hollows)
+}
+
 #[test]
 fn hilltops_and_hollows_get_their_labels() {
-    // Points higher or lower than all eight around them at the shape step,
-    // away from water and roads.
+    // The labels of hilltops and hollows found apart from the labels, away
+    // from water and roads.
     let mut tops = std::collections::BTreeMap::<Landform, usize>::new();
     let mut hollows = std::collections::BTreeMap::<Landform, usize>::new();
-    let mut shares = std::collections::BTreeMap::<(u64, Landform), usize>::new();
     for world in worlds() {
         for terrain in world.terrains() {
-            for p in points_in(terrain, 24.0) {
-                let (sample, labels) = labelled(terrain, p);
-                let m = sample.measures.expect("labels come with measures");
-                *shares
-                    .entry((terrain.region().id.0, labels.landform))
-                    .or_default() += 1;
-                if m.water_distance < MEASURE_REACH || m.road_distance < MEASURE_REACH {
-                    continue;
-                }
-                let around: Vec<f32> = [
-                    (1, 0),
-                    (-1, 0),
-                    (0, 1),
-                    (0, -1),
-                    (1, 1),
-                    (1, -1),
-                    (-1, 1),
-                    (-1, -1),
-                ]
-                .iter()
-                .map(|&(i, j)| terrain.height(p + DVec2::new(i as f64, j as f64) * shape().0))
-                .collect();
-                if around.iter().all(|&h| h < sample.height) {
-                    *tops.entry(labels.landform).or_default() += 1;
-                } else if around.iter().all(|&h| h > sample.height) {
-                    *hollows.entry(labels.landform).or_default() += 1;
+            let (found_tops, found_hollows) = hilltops_and_hollows(terrain);
+            for (points, counts) in [(found_tops, &mut tops), (found_hollows, &mut hollows)] {
+                for p in points {
+                    let (sample, labels) = labelled(terrain, p);
+                    let m = sample.measures.expect("labels come with measures");
+                    if m.water_distance < MEASURE_REACH || m.road_distance < MEASURE_REACH {
+                        continue;
+                    }
+                    *counts.entry(labels.landform).or_default() += 1;
                 }
             }
         }
     }
-    eprintln!("hilltops: {tops:?}\nhollows: {hollows:?}\nshares: {shares:?}");
+    eprintln!("hilltops: {tops:?}\nhollows: {hollows:?}");
 
-    // Hilltops are peaks or ridges, or plain where too gentle to bend by
-    // SHAPE_CURVATURE; never valleys or basins. Hollows the other way.
+    // Hilltops are mostly peaks or ridges and never valleys or basins;
+    // hollows the other way. Some are cliffs or slopes (a top on a steep
+    // flank), or plain where the shape is too broad to bend past the
+    // threshold.
     let count =
         |map: &std::collections::BTreeMap<Landform, usize>, l| map.get(&l).copied().unwrap_or(0);
     let all_tops: usize = tops.values().sum();
@@ -265,14 +320,22 @@ fn hilltops_and_hollows_get_their_labels() {
     );
     assert_eq!(
         count(&tops, Landform::Valley) + count(&tops, Landform::Basin),
-        0
+        0,
+        "{tops:?}"
     );
     assert_eq!(
         count(&hollows, Landform::Ridge) + count(&hollows, Landform::Peak),
-        0
+        0,
+        "{hollows:?}"
     );
-    assert!(count(&tops, Landform::Peak) + count(&tops, Landform::Ridge) > all_tops / 2);
-    assert!(count(&hollows, Landform::Basin) + count(&hollows, Landform::Valley) > all_hollows / 2);
+    assert!(
+        count(&tops, Landform::Peak) + count(&tops, Landform::Ridge) > all_tops / 2,
+        "{tops:?}"
+    );
+    assert!(
+        count(&hollows, Landform::Basin) + count(&hollows, Landform::Valley) > all_hollows / 2,
+        "{hollows:?}"
+    );
 }
 
 #[test]
@@ -332,31 +395,55 @@ fn straddles(a: f32, b: f32, t: f32, margin: f32) -> bool {
     (a.min(b) - margin..=a.max(b) + margin).contains(&t)
 }
 
+/// Whether `landform` comes from water or a road: the labels that must
+/// agree exactly on both sides of a border.
+fn from_water_or_road(landform: Landform) -> bool {
+    matches!(
+        landform,
+        Landform::Riverbed | Landform::Pondbed | Landform::Road
+    )
+}
+
 #[test]
 fn labels_agree_across_borders() {
+    // Each side of a border reads its own ground past the border, so shape
+    // labels may differ in a thin strip there (decided by the user,
+    // 2026-11-25). Water, road and flag labels must agree exactly.
     let (mut points, mut differ, mut near_features) = (0, 0, 0);
-    let mut worst_bend = 0.0f32;
+    let mut gaps = Vec::new();
+    let mut pairs = std::collections::BTreeMap::new();
+    let (step, bend) = shape();
     for (w, world) in worlds().iter().enumerate() {
         for (p, a, b) in border_points(world) {
             let ((sa, la), (sb, lb)) = (labelled(a, p), labelled(b, p));
             let (ma, mb) = (sa.measures.unwrap(), sb.measures.unwrap());
-            let (ba, bb) = (bends(a, p), bends(b, p));
+            let (ba, bb) = (bends(a, p, step), bends(b, p, step));
             points += 1;
             if ma.water_distance < MEASURE_REACH || ma.road_distance < MEASURE_REACH {
                 near_features += 1;
             }
-            worst_bend = worst_bend
-                .max((ba[0] - bb[0]).abs())
-                .max((ba[1] - bb[1]).abs());
+            gaps.push((ba[0] - bb[0]).abs().max((ba[1] - bb[1]).abs()));
+
+            // Everywhere: the same water, roads and flags, and the same
+            // landform wherever either side's comes from water or a road.
+            let here = format!("world {w}, {p}: {la:?} against {lb:?}");
+            assert_eq!(sa.water.is_some(), sb.water.is_some(), "{here}");
+            assert_eq!(sa.tags, sb.tags, "{here}");
+            assert_eq!(la.flags, lb.flags, "{here}");
+            if from_water_or_road(la.landform) || from_water_or_road(lb.landform) {
+                assert_eq!(la.landform, lb.landform, "{here}");
+            }
             if la == lb {
                 continue;
             }
 
-            // Labels may differ only where the two sides' values sit on
-            // either side of a threshold, or within a hair of it.
+            // Elsewhere labels may differ only where the two sides' values
+            // lie on either side of a threshold.
             differ += 1;
+            *pairs
+                .entry((la.landform.min(lb.landform), la.landform.max(lb.landform)))
+                .or_insert(0usize) += 1;
             let hair = 1e-3;
-            let (_, bend) = shape();
             let above = |h: Option<f32>| h.unwrap_or(f32::INFINITY);
             let (ha, hb) = (above(ma.height_above_water), above(mb.height_above_water));
             let explained = straddles(ma.slope, mb.slope, CLIFF_SLOPE, hair)
@@ -365,30 +452,37 @@ fn labels_agree_across_borders() {
                     straddles(ba[0], bb[0], t, hair * bend)
                         || straddles(ba[1], bb[1], t, hair * bend)
                 })
+                // A saddle as bent up as down: ridge or valley either way.
                 || (ba[0] + ba[1]).abs().min((bb[0] + bb[1]).abs()) < 1e-5
-                || straddles(ha, hb, BANK_HEIGHT, hair)
-                || straddles(ha, hb, WET_HEIGHT, hair)
-                || straddles(ma.water_distance, mb.water_distance, BANK_WIDTH, hair);
+                || straddles(ha, hb, BANK_HEIGHT, hair);
             assert!(
                 explained,
-                "world {w}, {p}: {la:?} against {lb:?}\n  {ma:?} bends {ba:?}\n  {mb:?} bends {bb:?}"
+                "{here}\n  {ma:?} bends {ba:?}\n  {mb:?} bends {bb:?}"
             );
-            // Water and road labels never differ.
-            assert_eq!(sa.water.is_some(), sb.water.is_some(), "world {w}, {p}");
-            assert_eq!(sa.tags, sb.tags, "world {w}, {p}");
         }
     }
+
+    // How far apart the two sides' bends are, against the threshold.
+    gaps.sort_by(f32::total_cmp);
+    let share = |q: f64| gaps[((gaps.len() - 1) as f64 * q) as usize] / bend;
+    let (p50, p99, most) = (share(0.5), share(0.99), share(1.0));
     eprintln!(
-        "labels differ at {differ} of {points} border points ({:.2}%), all at thresholds; {near_features} near water or roads; bends differ by at most {worst_bend} per metre",
+        "labels differ at {differ} of {points} border points ({:.2}%): {pairs:?}; {near_features} near water or roads; bend gap over the threshold p50 {p50:.3}, p99 {p99:.3}, max {most:.3}",
         percent(differ, points)
     );
     assert!(
         near_features > 50,
         "only {near_features} border points near features"
     );
+    // Measured 2026-11-25 at medium scale: 2.9% differ; gap p50 0.07,
+    // p99 0.80, max 1.53 of the threshold.
     assert!(
-        differ * 100 <= points,
+        differ * 20 <= points,
         "labels differ at {differ} of {points} border points"
+    );
+    assert!(
+        p50 < 0.15 && p99 < 1.0 && most < 2.0,
+        "bend gaps {p50} {p99} {most}"
     );
 }
 

@@ -2,7 +2,11 @@
 //!
 //! Procedural terrain for regions of a larger world. Each region gets one
 //! terrain type (plains, hills, mountains and so on), and neighbouring
-//! regions join without seams, whatever types they are.
+//! regions join without seams, whatever types they are: both meet in
+//! height and slope along their shared border. Past the border each
+//! region's ground is its own, so readings that look around a point near
+//! a border, such as curvature and shape labels, can differ a little from
+//! side to side.
 //!
 //! This is an early version. It makes ground heights, joins regions, and
 //! cuts in rivers, ponds and roads, including rivers and roads that cross

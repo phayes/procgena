@@ -4,7 +4,11 @@ A procedural terrain generator for Rust and Bevy. One generator makes one
 terrain type (plains, hills, mountains, badlands, coast, and so on) inside a
 region it is given. The region can be bounded or infinite. The terrain is
 built in chunks, labelled (underwater, road, cliff, bluff, beach and so on),
-and joins seamlessly with any other terrain generator on its border.
+and joins any other terrain generator on its border without a seam: both
+meet in height and slope along the border line. Past the border each
+terrain's own ground differs from its neighbour's, so anything that
+reads ground around a point near a border (curvature, shape labels) can
+differ a little from side to side.
 
 ## Bottom line
 
@@ -653,6 +657,45 @@ pub struct Annotation { landform: Landform, flags: Flags, measures: Measures, we
   - **Follow-up (World level):** a longer reach needs the neighbours'
     features near the border, so it belongs to `WorldTerrain` (which can
     read neighbouring regions), not to `Terrain`.
+- **Labels as built (G4b, 2026-11-25).** `Terrain::annotate(p)` and
+  `query(p, SampleDetail::Labels)` give `Labels { landform, flags }`
+  (`src/label.rs`). A smaller set than the sketch above, from what the
+  terrain has today:
+  - `Landform`: Plain, Slope, Cliff, Ridge, Peak, Valley, Basin,
+    Riverbed, Pondbed, Road, Riverbank, Shore, each with `name()` and
+    `colour()`. `Flags`: UNDERWATER, RIVER, POND, ROAD, ROAD_BANK, WET.
+  - **Order:** water covering the point (riverbed or pondbed, by the
+    nearest water's kind, a pond winning ties), the road surface, cliffs
+    (`CLIFF_SLOPE`, 55°, or a road bank tagged cliff or retaining wall),
+    banks and shores (within `BANK_WIDTH` 8 m of the water's edge and
+    `BANK_HEIGHT` 2 m of its surface), shape, slope (`STEEP_SLOPE`, 20°),
+    plain.
+  - **Shape** is read from the principal bends (eigenvalues of the
+    height's second differences) on a 3 × 3 stencil: a peak or basin
+    bends past the threshold both ways, a ridge or valley one way. Step
+    and threshold are `SHAPE_STEP` (12 m) and `SHAPE_CURVATURE`
+    (0.012 /m) at scale 1, times `horizontal` and `vertical /
+    horizontal²` at the World's `WorldScale`. The user picked 24 m and
+    0.006 /m on the medium worlds (scale 2 × 2) from three candidates.
+  - **The scale reaches the terrain:** `WorldScale` moved here from
+    `procgena_world`; `WorldTerrainOptions::scale` (default 1),
+    `Terrain::with_scale`, `StitchedWorld::with_scale`. Every terrain of
+    a world has the same one, so labels don't jump at borders.
+  - **Across borders:** labels from water and roads, and the flags, use
+    the 40 m measures and agree exactly. Slope and shape read each
+    terrain's own ground past the border, which matches the neighbour's
+    only on the border line (in height and slope), so shape labels can
+    differ in a thin strip there. On the medium test worlds they differ
+    at 2.9% of border points; the two sides' bends differ by 7% of the
+    threshold at p50, 80% at p99 and 153% at worst. The strip grows with
+    the horizontal scale, as the stencil does. Accepted by the user
+    (2026-11-25); `tests/labels.rs` bounds it.
+  - **Longer reach:** Hill, Mountain and Plateau by local relief (the
+    150 m ring above) need the neighbours' ground near borders, so they
+    belong to `WorldTerrain`. Bluff, Scree and Beach wait for those and
+    for lakes. No label needs relief height (ROADMAP item 31).
+  - Not built: `annotate_at` for caves and overhangs, label weights, and
+    mesh parts by label (Phase 7).
 - **Mesh output.**
   - Each vertex carries up to four `(label, weight)` pairs.
   - Triangles are grouped into `Part`s by primary landform. Each part is
