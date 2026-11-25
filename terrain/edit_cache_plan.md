@@ -1440,3 +1440,22 @@ Each stage stands alone and is worth doing even if the next never comes.
         rough, sharp banks at fine. More work, and still not exact for
         roads.
     - Recommendation: (a).
+
+
+Additional GPU Thoughts:
+
+Ground paint and material weights — probably the best first target.
+Each texel independently decides how much grass, rock, snow, road, or riverbed to show. Compute shaders could generate the weight textures directly. The important dependency is height, slope, and feature information: moving only the final blending calculation would leave much of today’s CPU cost intact.
+
+Base terrain height — the easiest starting point.
+Noise, hills, elevation, and bumps can be evaluated independently across a grid. This could give the studio a fast preview immediately after an edit, while complete regions finish planning.
+
+Full terrain height — feasible, but a larger port.
+The GPU can also evaluate border blending, river valleys, road cuts, and embankments. The CPU would upload the agreed borders and planned feature geometry; GPU threads would calculate their effects at each terrain sample.
+Planning a river’s route and carving an already-planned river are different workloads. The carving is much more naturally parallel.
+
+Normals, slopes, and other local measurements.
+These can be calculated alongside heights or from neighboring height samples. Using grid differences instead of today’s analytic gradients would need careful comparison, particularly around roads and sharp features.
+
+Mesh preparation and terrain detail transitions.
+We could keep reusable grid meshes on the GPU and displace their vertices using height textures. That avoids rebuilding and uploading full vertex buffers for each chunk. GPU terrain synthesis and reusable grids are established techniques; GPU-based geometry clipmaps demonstrate this approach.
