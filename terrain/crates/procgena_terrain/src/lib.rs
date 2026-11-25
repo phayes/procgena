@@ -2,7 +2,11 @@
 //!
 //! Procedural terrain for regions of a larger world. Each region gets one
 //! terrain type (plains, hills, mountains and so on), and neighbouring
-//! regions join without seams, whatever types they are.
+//! regions join without seams, whatever types they are: both meet in
+//! height and slope along their shared border. Past the border each
+//! region's ground is its own, so readings that look around a point near
+//! a border, such as curvature and shape labels, can differ a little from
+//! side to side.
 //!
 //! This is an early version. It makes ground heights, joins regions, and
 //! cuts in rivers, ponds and roads, including rivers and roads that cross
@@ -95,6 +99,7 @@ mod grid;
 pub mod ground;
 mod gully;
 mod hash;
+mod label;
 mod measure;
 mod noise;
 mod options;
@@ -105,6 +110,7 @@ mod region;
 mod relief;
 mod river;
 mod road;
+mod scale;
 mod seam;
 mod stitch;
 mod terrain;
@@ -127,6 +133,10 @@ pub use graph::{
     MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey,
 };
 pub use hash::region_local_seed;
+pub use label::{
+    BANK_HEIGHT, BANK_WIDTH, CLIFF_SLOPE, Flags, Labels, Landform, SHAPE_CURVATURE, SHAPE_STEP,
+    STEEP_SLOPE, WET_HEIGHT,
+};
 pub use measure::{CURVATURE_STEP, MEASURE_REACH, Measures, SampleDetail, WATER_HEIGHT_REACH};
 pub use noise::MAX_OCTAVES;
 pub use options::{
@@ -146,13 +156,15 @@ pub use procgena_core::preset::PresetFileError;
 pub use region::{
     Boundary, CornerId, EdgeId, Region, RegionCorner, RegionEdge, RegionError, RegionId, corner_id,
 };
+pub use scale::WorldScale;
 pub use seam::{
     CornerAgreement, CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, SeamError,
     negotiate, negotiate_corner, sample_count,
 };
 pub use stitch::{RegionSpec, StitchError, StitchedWorld};
 pub use terrain::{
-    HeightField, HeightTile, RiverTrace, Terrain, TerrainError, TerrainGenerator, TerrainSample,
+    HeightField, HeightTile, LabelField, RiverTrace, Terrain, TerrainError, TerrainGenerator,
+    TerrainSample,
 };
 pub use warp::{BorderWarp, BorderWarpError, MIN_WARP_WAVELENGTH, warp_borders};
 pub use world::{

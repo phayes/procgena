@@ -15,10 +15,14 @@ use crate::converge::{
 use crate::elevation::{Elevation, ElevationError, ElevationOptions};
 use crate::feature::FeatureTier;
 use crate::graph::{RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey};
+use crate::label::Labels;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{CornerId, EdgeId, Region, RegionId};
+use crate::scale::WorldScale;
 use crate::seam::{CornerAgreement, EdgeOffer, SeamError, negotiate, negotiate_corner};
-use crate::terrain::{HeightField, RiverTrace, Terrain, TerrainError, TerrainGenerator};
+use crate::terrain::{
+    HeightField, LabelField, RiverTrace, Terrain, TerrainError, TerrainGenerator,
+};
 
 /// The default [`WorldTerrainOptions::cache`]: how many built terrains a
 /// [`WorldTerrain`] keeps.
@@ -41,6 +45,9 @@ pub struct WorldTerrainOptions {
     /// dropped is built again, identically, when it is next needed. The
     /// smaller stages a build needs are kept in proportion.
     pub cache: usize,
+    /// How much the world stretches its landscape against reference scale
+    /// 1. Every region's terrain gets it (see [`Terrain::with_scale`]).
+    pub scale: WorldScale,
 }
 
 impl Default for WorldTerrainOptions {
@@ -51,6 +58,7 @@ impl Default for WorldTerrainOptions {
             regions: RegionGraphOptions::default(),
             convergence: Convergence::default(),
             cache: DEFAULT_CACHE,
+            scale: WorldScale::default(),
         }
     }
 }
@@ -103,6 +111,8 @@ pub enum WorldError {
     ReliefBlend(f32),
     /// The cache size is 0.
     Cache,
+    /// A part of the scale isn't finite and positive.
+    Scale(WorldScale),
     /// The source gave a region invalid settings.
     Options(RegionId, OptionsError),
     /// A region's terrain could not be built.
@@ -119,6 +129,11 @@ impl fmt::Display for WorldError {
             Self::ReliefMeeting(p) => write!(f, "relief meeting exponent {p} is above 1 or NaN"),
             Self::ReliefBlend(b) => write!(f, "relief blend {b} is outside 0 to 1"),
             Self::Cache => write!(f, "the cache must hold at least one terrain"),
+            Self::Scale(s) => write!(
+                f,
+                "the scale must be finite and positive, not {} × {}",
+                s.horizontal, s.vertical
+            ),
             Self::Options(id, e) => write!(f, "region {}: {e}", id.0),
             Self::Terrain(id, e) => write!(f, "region {}: {e}", id.0),
             Self::Seam(id, e) => write!(f, "a border of region {}: {e}", id.0),
@@ -264,7 +279,8 @@ impl WorldTerrain {
     /// If the elevation or region settings aren't valid, if
     /// `options.convergence` isn't (see
     /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid); the blend
-    /// must be from 0 to 1), or if `options.cache` is 0.
+    /// must be from 0 to 1), if `options.cache` is 0, or if
+    /// `options.scale` isn't finite and positive.
     pub fn new(
         options: WorldTerrainOptions,
         source: Arc<dyn TerrainSource>,
@@ -278,6 +294,9 @@ impl WorldTerrain {
         }
         if options.cache == 0 {
             return Err(WorldError::Cache);
+        }
+        if !options.scale.is_valid() {
+            return Err(WorldError::Scale(options.scale));
         }
         let elevation = Elevation::new(options.elevation.clone(), options.seed)
             .map_err(WorldError::Elevation)?;
@@ -414,6 +433,13 @@ impl WorldTerrain {
     /// built.
     pub fn water_level(&self, p: DVec2) -> Option<f32> {
         self.terrain_at(p).ok()?.water_level(p)
+    }
+
+    /// The labels at `p` (x and z, metres) from the region holding it (see
+    /// [`Terrain::annotate`]). `None` if that region's terrain can't be
+    /// built.
+    pub fn annotate(&self, p: DVec2) -> Option<Labels> {
+        Some(self.terrain_at(p).ok()?.annotate(p))
     }
 
     /// The region holding `p`: the first of the nearby regions, nearest
@@ -637,6 +663,7 @@ impl WorldTerrain {
         plan.generator
             .clone()
             .build_traced(Region::clone(region), &agreements, &plan.trace)
+            .map(|terrain| terrain.with_scale(self.options.scale))
             .map_err(|e| WorldError::Terrain(id, e))
     }
 }
@@ -650,6 +677,13 @@ impl HeightField for WorldTerrain {
     /// See [`Ground::sample`] for [`WorldTerrain`].
     fn sample(&self, p: DVec2) -> GroundSample {
         Ground::sample(self, p)
+    }
+}
+
+impl LabelField for WorldTerrain {
+    /// See [`WorldTerrain::annotate`].
+    fn annotate(&self, p: DVec2) -> Option<Labels> {
+        WorldTerrain::annotate(self, p)
     }
 }
 

@@ -11,6 +11,40 @@ other sessions' builds and studios, at a load average of 150–400, which
 inflates times by up to 3× from one run to the next. The **shares, counts
 and orderings** held in every run. A quiet rerun is owed (question 6).
 
+## Built so far (2026-11-24)
+
+Three pieces are built:
+
+- ED's stone-cache fix;
+- ED's "re-place only from the edited Scatter down";
+- R3a: the studio's Ecotope stones come from stone's GPU mesher through
+  one pool per class, with an impostor level.
+
+**Before and after.** These were measured back to back on the same
+machine, at a load of 80–130. Each run started with an empty impostor
+cache. The "before" build is master at `94f835a`.
+
+| | Before | After |
+|---|---:|---:|
+| Cold load, until the last bake is done | 33.5 s | 12.7 s |
+| Edit porcini: placing / everything drawn | 1,355 ms / 1.64 s | 5 ms / 0.22 s |
+| Edit logs: placing / everything drawn | 1,327 ms / 1.92 s | 152 ms / 0.62 s |
+| Edit pines: placing / everything drawn | 1,440 ms / 6.41 s | 52 ms / 0.85 s |
+
+- **Cold placement is unchanged** (about 1.2 s, mostly measuring stone
+  shapes on the CPU).
+- **The logs edit still builds dead wood once per copy.** That is ED's
+  next item.
+- **"Everything drawn" for pooled stones counts their impostor bakes.**
+  The GPU meshes themselves are not timed separately; they take
+  milliseconds.
+
+**Look:** pooled stones now cast a shadow on the ground, which the old
+per-copy rocks didn't show, and their shading differs slightly. Other
+copies are unchanged: 0.18% of the viewport changed, all of it at
+stones. The crops (`stone_look_before_after.png`) are in the session
+notes folder. This look change waits for the user's OK.
+
 ## Bottom line
 
 **Where the time goes.** Placing copies is almost free; building stones is
@@ -49,7 +83,7 @@ and the number of new render pipelines, not with the number of copies.
    GPU mesher already exists in `procgena_stone` (feature `gpu`). Its pool
    is about 25–55× faster per rock than the CPU at the resolutions stones
    use (provisional). The studio and the Ecotope don't use it yet. Using it
-   needs pool changes (per-variant settings, an impostor level) and
+   needs an impostor level in the pool and
    Ecotope wiring. This is the largest single win in the profile, and the
    first piece of "building everywhere on the GPU".
 3. **The rest of R3, in this order: deadwood, mushroom, tree, then
@@ -311,11 +345,15 @@ replaces GP or the rest of R3.
   - Ecotope stones are built by `procgena_stone`'s GPU mesher and drawn
     through `procgena_stone_bevy`'s pool (`StonePool`, feature `gpu`) on
     R2's renderer, instead of one `StoneParams` entity per copy.
-  - **The pool grows what the Ecotope needs:**
-    - per-variant settings, so each `StoneScatter` class's variants (its
-      own `variant(class, v)` options) are the pool's shapes, where today
-      a pool derives its variants from one shared setting;
-    - the impostor level (I1 left impostors in the pool unbuilt).
+  - **One pool per stone class.** A `StonePool` made of the class's stone
+    settings, variant count and stretch jitter, in the Scatter's World,
+    already gives exactly the class's variants (both call
+    `StoneOptions::variant`), so the pool needs no per-variant settings.
+    A test pins this.
+  - **The pool gains an impostor level** (I1 left impostors in the pool
+    unbuilt). Pool meshes never reach the CPU, so each variant's impostor
+    is baked from its baked level built on the CPU, the reference path,
+    in the background.
   - `procgena_biome_bevy`'s stone layer spawns pooled stones.
   - The studio enables `procgena_stone_bevy/gpu`.
   - The CPU path stays the reference for export, colliders and parity
@@ -402,27 +440,19 @@ R3's worker per asset stays. The profile only sets the order: **stone
 | IX | Its "level 1 by default" has a measured build payoff: a stone's level 0 is about 70% of its CPU build. Build level 0 only on demand, as an input to IX's planning. IX's measurements should include build time, not only frame time. |
 | S1 | Needs GP, besides I2 and R2. |
 
+## Decided (user, 2026-11-24)
+
+1. **ED is split, and its first parts start now.** ED item 2 (stone
+   caches survive a redraw) and item 1 (re-place only from the edited
+   Scatter down) were built first. The rest of ED (dead wood once per
+   variant, pipeline warm-up, impostors only when needed) follows.
+2. **R3a goes ahead of the rest of R3,** which then runs deadwood →
+   mushroom → tree.
+
 ## Questions for the user
 
-1. **Where ED goes in the waves.**
-   - *Context:* ED edits `procgena_biome_bevy` (GM1 and plant P2 are in
-     it now), each asset Bevy crate's cache, and the studio (ST1). Its
-     items are independent.
-   - *Options:*
-     - (a) one lane after GM1 and P2 land;
-     - (b) split it: the asset-cache items (2, 3) now, and the biome and
-       studio items (1, 4, 5) after GM1, P2 and ST1;
-     - (c) fold item 1 into C3 instead.
-   - *Recommendation:* (b). Items 2 and 3 touch no busy files, and fix
-     the worst edit and a cold-load waste.
-2. **R3a ahead of the rest of R3?**
-   - *Context:* stones are about 94% of the measured CPU work. Stone's
-     GPU mesher exists, but its pool needs per-variant settings and an
-     impostor level, and the Ecotope needs wiring to it.
-   - *Options:*
-     - (a) R3a first, then deadwood → mushroom → tree;
-     - (b) keep R3's four asset workers running in parallel as planned.
-   - *Recommendation:* (a). The other three are cheap per variant today.
+1. *(Decided above.)*
+2. *(Decided above.)*
 3. **Who moves Ecotope trees and logs onto R2's renderer?**
    - *Context:* the Ecotope draws them as one entity per copy (about
      1,400 mesh entities for 327 copies). R3a moves stones; mushrooms are

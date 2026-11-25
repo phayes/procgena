@@ -54,6 +54,10 @@ and labels", "Bevy design", Phases 5, 8 and 10),
   `Terrain::query`; ground rules use them first. G4b adds `Landform` and
   `Flags`, and rules gain label conditions then. Before G4a, rules use
   slope and height from `Ground` and the water level from `query`.
+  G4b is built (2026-11-25): `Terrain::annotate` and
+  `query(p, SampleDetail::Labels)` give `Labels { landform, flags }`
+  (see terrain/plan.md, "Labels as built"); `GroundSite` doesn't carry
+  them yet, which is GM3's step.
 - **Colours first, textures after** (decided). First the engine-free
   model, evaluator and image dumps (GM0, needs nothing). Then flat colours
   in the terrain viewer and the Ecotope tab once G6 merges (GM1). Then real
@@ -579,6 +583,108 @@ before and after shots in GM1's notes):
   Curvature from the chunk's own height grid would avoid the four extra
   heights if GM3 finds it too slow.
 
+## As built: GM2 (2026-11-24)
+
+**Texture lists** (`procgena_core::texture`):
+
+- `TextureList::from_yaml` reads a crate's `textures.yml`: layout, sizes,
+  sets with category and an optional `average` (linear RGB, from
+  `textures average-colors`), and `path(id, size, map, compression)`.
+- `size_for_level(n)` steps down from the largest size, so
+  `terrain/textures.yml`'s `sizes: ["128", "512", "1k"]` gives level 0 →
+  1k, level 1 → 512 (the default), level 2 → 128.
+- `TextureCatalogue` holds several lists by name.
+- **For ST6:** the studio builds one catalogue from every crate's list
+  (each crate exposes its own, as `procgena_terrain::ground::ground_textures`
+  does) plus the project's `textures/textures.yml`. Stone's
+  `TextureSize`/`TextureCompression` and the other crates' loaders are not
+  moved onto it yet.
+- The `textures` tool reads `sizes:` per project, so other projects keep
+  512, 1k and 2k.
+
+**Loader** (`procgena_core_bevy::texture`):
+
+- `TextureArrayLoad` loads every set's three maps as KTX2 files.
+- Once they are in, `stack_layers` builds one array per map, layer-major
+  with the files' mips, a repeating anisotropic sampler, and render-world
+  only. `TextureArrays::bytes` gives the GPU memory.
+- `shaders/triplanar.wesl` (added by `LodPlugin`) holds the projection
+  math, independent of texture type. Clump still has its own copy.
+
+**Catalogue:**
+
+- `GroundMaterial` gains `texture`, `tile` (metres, never scaled),
+  `projection` (`top` or `triplanar`) and `blend_height` (0 to 1).
+  `validate` checks that a texture is a ground set with an average.
+- Textured materials, with their sets:
+
+  | Material | Set | Tile | Notes |
+  |---|---|---|---|
+  | `forest_soil` | `mud_forest` | 3 m | |
+  | `needle_litter` | `forrest_ground_03` | 2.5 m | |
+  | `leaf_litter` (new) | `leaves_forest_ground` | 2.5 m | |
+  | `decayed_leaves` (new) | `dry_decay_leaves` | 2.5 m | |
+  | `moss` | `moss_002` | 2 m | |
+  | `cliff_rock` | `rock_face_03` | 6 m | triplanar |
+
+- All the sets are CC0 (Poly Haven and ambientCG; see
+  `terrain/assets/textures/LICENSE.md`). The forest materials' colours
+  became their textures' averages. Cliff rock keeps G6's grey.
+
+**Drawing** (`procgena_terrain_bevy`):
+
+- `GroundTextureSettings { root, level, compression, distance, budget }`.
+  The root is `None` by default, which draws flat colours.
+- `GroundTextures` loads every set in `terrain/textures.yml`. A set's layer
+  is its place in the list.
+- The material binds three array textures (105 to 108). Its surface adds,
+  per palette slot, the layer, 1/tile, projection and blend, and a tint of
+  colour ÷ average. It also adds `texture_fade`.
+- The shader reads each material with weight over 0.02. Flat ground
+  samples from above; triplanar materials add the sides where the normal's
+  y is under 0.85. Samples use `textureSampleGrad` with gradients taken
+  once.
+- Height blending scores `weight + blend × height`, keeps scores within
+  0.25 of the best, and mixes that with the plain weights by the strongest
+  blend.
+- Textures fade into the flat palette mix (the far colour) from 90 m to
+  140 m. Chunk levels from `TEXTURE_LEVELS` (3) up never bind the arrays,
+  so far ground reads no textures. Far chunks are not premixed yet: they
+  still blend 8 palette colours in the shader.
+- The budget warning compares the loaded arrays with 16 MB.
+- The studio registers `procgena_terrain://textures`; headless test scenes
+  keep flat colours. The biome viewer (`--textures`, `--texture-level`,
+  `--ground-texture <material>=<set>`) and the terrain viewer (`--textures`)
+  draw textures.
+
+**Memory**, measured from the loaded arrays against the arithmetic of
+"Textures and memory":
+
+| Sets | Size | Measured | Arithmetic |
+|---|---|---|---|
+| 8 | 512 | 8.4 MB | 8 × 1.05 MB |
+| 6 | 512 | 6.3 MB | 6 × 1.05 MB |
+
+**The oak and maple forest:** `old_leaves` (decayed leaves, order 300,
+everywhere in large patches), then moss (320), then `litter` (leaf litter,
+400, 6 m beyond each canopy tree's footprint), then dirt round boulders
+(450).
+
+**Studio editor:** the Ecotope editor has a ground-layers section below
+the Scatters. It lists the layers top first, and can add, remove and move
+them (by swapping orders). For the selected layer it edits material,
+order, opacity, patches, slope and height (absolute) bands, and the first
+Scatter it follows.
+
+**Not built:**
+
+- premixed far chunks;
+- a resident cap by what the Ecotopes in view name (all listed sets load);
+- the debug palette and layer views;
+- moving clump and stone onto the shared loader and triplanar module;
+- a second influence or a falloff `rise` in the editor;
+- a published `gs://ze_textures/terrain/` (the user uploads).
+
 ## Decisions
 
 The user, 2026-11-24:
@@ -619,11 +725,23 @@ The user, 2026-11-24:
     detail, for GM2, not the weights' texel size.
 11. **The painting cost stays as it is until GM2 and GM6** (2026-11-24):
     no cheaper site or coarser texels for now.
+12. **Ground texture sizes** (2026-11-24): 1k at level 0 (opt-in), 512
+    at level 1 (the default), and 128 at level 2.
+13. **Forest floor textures** (2026-11-24), chosen by the user from
+    contact sheets and in-engine shots:
+    - `mud_forest` for forest soil;
+    - `forrest_ground_03` for needles;
+    - `leaves_forest_ground` for leaf litter;
+    - `dry_decay_leaves` for a new `decayed_leaves` base under the oak
+      and maple litter;
+    - ambientCG `Moss002` for moss.
 
 ## Open questions
 
 1. **Exact texture sizes** per detail level and the number of resident
-   materials (see decision 7), in GM2.
+   materials (see decision 7), in GM2. **Sizes settled** (decision 12).
+   The resident cap stays open: today every listed set loads, with a
+   16 MB warning.
 2. **Noise patch sizes under scale.** With D5 question 5 (Ecotope
    geometry), decided in C3 and B1.
 3. **Order bands.** The numbers proposed above (soils, litter, terrain
