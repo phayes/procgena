@@ -80,7 +80,7 @@ use procgena_terrain::{
 pub use material::{DEFAULT_VARIATION, TerrainExtension, TerrainMaterial, TerrainSurface};
 pub use overlay::TerrainOverlay;
 
-use material::weight_images;
+use material::{weight_images, weights_part};
 pub use progress::RegionTracker;
 pub use textures::{GroundTextureSettings, GroundTextures, TEXTURE_LEVELS};
 
@@ -356,6 +356,25 @@ impl ChunkRead {
             images: weight_images(&weights),
             surface: TerrainSurface::new(&weights, painter.catalogue()),
         })
+    }
+
+    /// A stand-in for chunk `key`, inside `parent`'s chunk: `parent`'s
+    /// ground and paint drawn at `key`'s size (see
+    /// [`ChunkSamples::stand_in`]).
+    ///
+    /// # Panics
+    ///
+    /// If `key` is not inside `parent`'s chunk.
+    pub(crate) fn stand_in(parent: &ChunkRead, key: ChunkKey) -> Self {
+        let from = parent.samples.key();
+        Self {
+            samples: ChunkSamples::stand_in(&parent.samples, key),
+            images: parent
+                .images
+                .clone()
+                .map(|image| weights_part(&image, from, key)),
+            surface: parent.surface,
+        }
     }
 }
 

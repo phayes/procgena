@@ -16,11 +16,11 @@ pub(crate) type Read = Option<Arc<ChunkRead>>;
 
 /// One terrain's streaming state.
 ///
-/// The drawn chunks follow the reads: each part of the ground is swapped
-/// to the wanted chunks once all of them there are read, and the drawn
-/// chunks always tile the ground and fit their neighbours (see
-/// [`ChunkSelection::blend`]). After a reset they change all at once, when
-/// the whole new selection is read. A drawn chunk read
+/// The drawn chunks follow the reads: each wanted chunk is drawn once it
+/// is read, with drawn chunks too coarse to sit beside it split into
+/// stand-ins, and the drawn chunks always tile the ground and fit their
+/// neighbours (see [`ChunkSelection::blend`]). After a reset they change
+/// all at once, when the whole new selection is read. A drawn chunk read
 /// at an earlier feature tier than it wants can then be read again at its
 /// own tier and replaced on its own ([`upgrades`](Self::upgrades)), since
 /// that changes its heights but not the tiling.
@@ -43,6 +43,9 @@ pub(crate) struct Stream {
     /// Chunks whose upgrade read failed; they keep the ground they have
     /// and aren't tried again in this generation.
     no_upgrade: HashSet<ChunkKey>,
+    /// The drawn stand-ins: chunks drawn from a coarser chunk's ground
+    /// until they are read themselves.
+    stand_ins: HashMap<ChunkKey, Read>,
 }
 
 /// What to change in the drawn chunks.
@@ -149,14 +152,18 @@ impl Stream {
         self.drawn_generation == self.generation && self.drawn.get(key).is_some()
     }
 
-    /// The tier of the samples kept for `key`, if read.
+    /// The tier of the ground drawn, or kept, for `key`, if any.
     pub(crate) fn tier_of(&self, key: ChunkKey) -> Option<FeatureTier> {
-        Some(self.samples.get(&key)?.as_ref()?.samples.tier())
+        Some(self.read_of(key)?.samples.tier())
     }
 
-    /// The samples kept for `key`, if read.
+    /// The ground drawn for `key`: its stand-in if it is drawn as one, or
+    /// else its samples, if read.
     pub(crate) fn read_of(&self, key: ChunkKey) -> Read {
-        self.samples.get(&key)?.clone()
+        match self.stand_ins.get(&key) {
+            Some(read) => read.clone(),
+            None => self.samples.get(&key)?.clone(),
+        }
     }
 
     /// The drawn chunks that touch `key` along a side or at a corner, with
@@ -185,6 +192,7 @@ impl Stream {
             .map(|(key, _)| key)
             .filter(|&key| {
                 self.is_drawn(key)
+                    && !self.stand_ins.contains_key(&key)
                     && !self.reading.contains(&key)
                     && !self.no_upgrade.contains(&key)
                     && self.tier_of(key).is_some_and(|tier| tier < wanted(key))
@@ -213,16 +221,17 @@ impl Stream {
             .collect()
     }
 
-    /// The changes that bring the drawn chunks closer to the target: every
-    /// part of the ground whose target chunks are all read is drawn from
-    /// them, and the rest keeps the chunks drawn there (see
-    /// [`ChunkSelection::blend`]). After a reset, nothing changes until the
-    /// whole target is read, so old and new ground are never drawn side by
-    /// side. `None` when nothing changes. Samples no longer needed are
-    /// dropped.
+    /// The changes that bring the drawn chunks closer to the target: each
+    /// read target chunk is drawn, the rest keeps the chunks drawn there,
+    /// split into stand-ins where needed (see [`ChunkSelection::blend`]).
+    /// After a reset, nothing changes until the whole target is read, so
+    /// old and new ground are never drawn side by side. `None` when
+    /// nothing changes. Samples no longer needed are dropped.
     pub(crate) fn swap(&mut self) -> Option<Swap> {
+        // The chunks to draw next, and their stand-ins: kept if drawn as
+        // such already, or split from the ground drawn now.
         let fresh = self.drawn_generation != self.generation;
-        let next = if fresh {
+        let (next, stand_ins) = if fresh {
             let all_read = self
                 .target
                 .iter()
@@ -230,29 +239,56 @@ impl Stream {
             if !all_read {
                 return None;
             }
-            self.target.clone()
+            (self.target.clone(), HashMap::new())
         } else {
-            self.target
-                .blend(&self.drawn, |key| self.samples.contains_key(&key))
+            let blend = self
+                .target
+                .blend(&self.drawn, |key| self.samples.contains_key(&key));
+            let stand_ins: HashMap<ChunkKey, Read> = blend
+                .stand_ins
+                .iter()
+                .map(|(&key, &from)| {
+                    let read = match self.stand_ins.get(&key) {
+                        Some(kept) => kept.clone(),
+                        None => self
+                            .read_of(from)
+                            .map(|parent| Arc::new(ChunkRead::stand_in(&parent, key))),
+                    };
+                    (key, read)
+                })
+                .collect();
+            (blend.selection, stand_ins)
         };
-        if !fresh && self.drawn == next {
+        let same_stand_ins = self.stand_ins.len() == stand_ins.len()
+            && stand_ins.keys().all(|key| self.stand_ins.contains_key(key));
+        if !fresh && self.drawn == next && same_stand_ins {
             return None;
         }
 
-        // Chunks gone or changed go; chunks new or changed come. After a
-        // reset every chunk is new.
+        // Chunks gone or changed go; chunks new or changed come, a chunk
+        // that was or becomes a stand-in among them. After a reset every
+        // chunk is new.
+        let changed =
+            |key: ChunkKey| self.stand_ins.contains_key(&key) != stand_ins.contains_key(&key);
         let remove = self
             .drawn
             .iter()
-            .filter(|&(key, t)| fresh || next.get(key) != Some(t))
+            .filter(|&(key, t)| fresh || next.get(key) != Some(t) || changed(key))
             .map(|(key, _)| key)
             .collect();
         let add = next
             .iter()
-            .filter(|&(key, t)| fresh || self.drawn.get(key) != Some(t))
-            .map(|(key, t)| (key, t, self.samples[&key].clone()))
+            .filter(|&(key, t)| fresh || self.drawn.get(key) != Some(t) || changed(key))
+            .map(|(key, t)| {
+                let read = match stand_ins.get(&key) {
+                    Some(read) => read.clone(),
+                    None => self.samples[&key].clone(),
+                };
+                (key, t, read)
+            })
             .collect();
         self.drawn = next;
+        self.stand_ins = stand_ins;
         self.drawn_generation = self.generation;
         // Keep what is drawn, wanted or still coming.
         self.samples.retain(|key, _| {
@@ -449,6 +485,51 @@ mod tests {
         for (key, t, _) in &swap.add {
             assert_eq!(stream.drawn.get(*key), Some(*t));
         }
+    }
+
+    #[test]
+    fn coarse_ground_is_split_into_stand_ins_beside_new_chunks() {
+        let mut stream = Stream::default();
+        stream.retarget(select(0.0, None));
+        for key in stream.missing(&[DVec2::ZERO]) {
+            read(&mut stream, key, FeatureTier::Fine);
+        }
+        stream.swap().unwrap();
+
+        // Jump to ground drawn coarse, and read only the nearest chunks.
+        let viewer = DVec2::new(250.0, 0.0);
+        let under = ChunkKey::containing(viewer, 0);
+        assert!(stream.drawn.get(under).is_none());
+        stream.retarget(select(viewer.x, Some(&stream.target)));
+        let near: Vec<ChunkKey> = stream
+            .missing(&[viewer])
+            .into_iter()
+            .filter(|key| key.distance_to(viewer) < 100.0)
+            .collect();
+        for &key in &near {
+            read(&mut stream, key, FeatureTier::Fine);
+        }
+
+        // The ground under the viewer is drawn from its own read, beside
+        // stand-ins showing the coarse ground they were split from.
+        let swap = stream.swap().unwrap();
+        assert!(stream.drawn.get(under).is_some());
+        assert!(!stream.stand_ins.contains_key(&under));
+        assert!(!stream.stand_ins.is_empty());
+        for (key, _, read) in &swap.add {
+            let read = read.as_ref().expect("every chunk has ground");
+            assert_eq!(read.samples.key(), *key);
+        }
+        assert!(stream.upgrades(&[viewer], |_| FeatureTier::Fine).is_empty());
+
+        // Reading the rest replaces every stand-in.
+        for key in stream.missing(&[viewer]) {
+            read(&mut stream, key, FeatureTier::Fine);
+        }
+        stream.swap().unwrap();
+        assert_eq!(stream.drawn, stream.target);
+        assert!(stream.stand_ins.is_empty());
+        assert!(stream.is_settled());
     }
 
     #[test]

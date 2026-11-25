@@ -504,6 +504,28 @@ impl ChunkSamples {
         })
     }
 
+    /// Samples of chunk `key` that show the ground of `parent`, a coarser
+    /// chunk around it, exactly as `parent`'s own mesh shows it, with no
+    /// detail of its own: a stand-in that can be drawn beside finer chunks
+    /// until `key` itself is read. Its tier is `parent`'s.
+    ///
+    /// Where it meets a chunk read from the ground itself, its edge can
+    /// stand apart from that chunk's by as much as `parent`'s mesh differs
+    /// from the ground; a skirt covers that.
+    ///
+    /// # Panics
+    ///
+    /// If `key` is not a chunk inside `parent`'s chunk.
+    pub fn stand_in(parent: &ChunkSamples, key: ChunkKey) -> Self {
+        assert!(
+            key.level < parent.key.level && key.is_within(parent.key),
+            "{key} is not inside {}",
+            parent.key
+        );
+        Self::sample(&ParentSurface(parent), key, parent.tier)
+            .expect("a parent's samples cover the chunks inside it")
+    }
+
     /// The chunk these samples are of.
     pub fn key(&self) -> ChunkKey {
         self.key
@@ -1180,58 +1202,169 @@ impl ChunkSelection {
     /// The chunks to draw on the way from `drawn` to this selection, using
     /// only the chunks of this selection that `ready` says can be drawn.
     ///
-    /// Each part of the ground is drawn from this selection where all its
-    /// chunks there are ready, and from `drawn` elsewhere; where neither
-    /// can draw it, it is left out. Ground that only `drawn` covers is left
-    /// out. Like any selection, the result never overlaps itself, chunks
-    /// that touch are at most one level apart, and its transitions fit the
+    /// Each part of the ground is drawn from this selection where its
+    /// chunks there are ready, and from `drawn` elsewhere. Where a ready
+    /// chunk sits inside, or next to, a drawn chunk too coarse to sit
+    /// beside it, the drawn chunk is split into stand-ins: finer chunks
+    /// that show the same ground (see [`ChunkSamples::stand_in`]). Ground
+    /// that neither can draw, or that only `drawn` covers, is left out.
+    ///
+    /// Like any selection, the result never overlaps itself, chunks that
+    /// touch are at most one level apart, and its transitions fit the
     /// chunks it actually holds, so a chunk kept from `drawn` may need
     /// meshing again. With every chunk ready, it is this selection; with
     /// none ready, it is `drawn` within this selection's ground.
-    pub fn blend(&self, drawn: &ChunkSelection, ready: impl Fn(ChunkKey) -> bool) -> Self {
+    pub fn blend(&self, drawn: &ChunkSelection, ready: impl Fn(ChunkKey) -> bool) -> ChunkBlend {
         let target: BTreeSet<ChunkKey> = self.chunks.keys().copied().collect();
         let old: BTreeSet<ChunkKey> = drawn.chunks.keys().copied().collect();
 
         // The areas to fill: this selection's chunks, grouped under their
         // ancestors at the coarsest level either selection uses.
         let Some(top) = target.iter().chain(&old).map(|k| k.level).max() else {
-            return Self::default();
+            return ChunkBlend::default();
         };
         let roots: BTreeSet<ChunkKey> = target
             .iter()
             .map(|&k| ancestor_at(k, top).expect("no chunk is above the top level"))
             .collect();
 
-        // Fill each area, falling back to `drawn` where this selection's
-        // chunks meet `drawn`'s more than a level apart, until none do.
+        // Fill each area, then even out chunks more than a level apart:
+        // split a drawn chunk into stand-ins, or, where the coarse one is
+        // new, draw its area from `drawn` instead and fill again.
         let mut forced: BTreeSet<ChunkKey> = BTreeSet::new();
-        loop {
-            let mut picked: BTreeMap<ChunkKey, bool> = BTreeMap::new();
+        'fill: loop {
+            let mut picked: BTreeMap<ChunkKey, Source> = BTreeMap::new();
             for &root in &roots {
                 let mut out = Vec::new();
                 if pick(root, &target, &old, &ready, &forced, &mut out) {
                     picked.extend(out);
                 }
             }
-            let leaves: BTreeSet<ChunkKey> = picked.keys().copied().collect();
-            match unbalanced(&leaves) {
-                // Of two chunks too far apart, one is new: draw its area
-                // from `drawn` instead.
-                Some((a, b)) => {
-                    let new = if picked[&a] { a } else { b };
-                    debug_assert!(picked[&new], "the drawn chunks are balanced");
-                    forced.insert(new);
-                }
-                None => {
-                    let chunks = leaves
-                        .iter()
-                        .map(|&key| (key, transitions_of(key, &leaves)))
-                        .collect();
-                    return Self { chunks };
+            loop {
+                let leaves: BTreeSet<ChunkKey> = picked.keys().copied().collect();
+                let Some((_, coarse)) = unbalanced(&leaves) else {
+                    return ChunkBlend::new(&picked);
+                };
+                match picked[&coarse] {
+                    Source::Target => {
+                        forced.insert(coarse);
+                        continue 'fill;
+                    }
+                    Source::Drawn => split(&mut picked, coarse, coarse),
+                    Source::StandIn(from) => split(&mut picked, coarse, from),
                 }
             }
         }
     }
+}
+
+/// The surface of a chunk's mesh, at full detail and with no transitions,
+/// read as a [`ChunkSource`]: what a stand-in inside it samples. It reaches
+/// one step past the chunk's sides, as far as the chunk's samples go.
+struct ParentSurface<'a>(&'a ChunkSamples);
+
+impl ChunkSource for ParentSurface<'_> {
+    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+        let samples = self.0;
+
+        // The cell holding `p`, and where in it `p` lies, from 0 to 1.
+        let local = (p - samples.key.min_corner()) / samples.key.step();
+        let cell = local
+            .floor()
+            .clamp(DVec2::splat(-1.0), DVec2::splat(N as f64));
+        let (i, j) = (cell.x as i64, cell.y as i64);
+        let (fx, fz) = ((local.x - cell.x) as f32, (local.y - cell.y) as f32);
+        let corner = |di: i64, dj: i64| samples.at(2 * (i + di), 2 * (j + dj));
+        let [a, b, c, d] = [corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 1)];
+
+        // Each value across the triangle holding `p`, split along the
+        // diagonal `ChunkSamples::mesh` draws in this cell.
+        let across = |a: f32, b: f32, c: f32, d: f32| {
+            if (i + j).rem_euclid(2) == 0 {
+                if fz >= fx {
+                    a + fx * (c - d) + fz * (d - a)
+                } else {
+                    a + fx * (b - a) + fz * (c - b)
+                }
+            } else if fx + fz <= 1.0 {
+                a + fx * (b - a) + fz * (d - a)
+            } else {
+                c + (1.0 - fx) * (d - c) + (1.0 - fz) * (b - c)
+            }
+        };
+        let height = across(a.height, b.height, c.height, d.height);
+
+        // Water where a corner has some, with dry corners at the mean of
+        // the wet ones, as the mesh's water runs into the banks.
+        let wet: Vec<f32> = [a, b, c, d].iter().filter_map(|s| s.water).collect();
+        let water = (!wet.is_empty()).then(|| {
+            let mean = wet.iter().sum::<f32>() / wet.len() as f32;
+            let w = |s: SurfacePoint| s.water.unwrap_or(mean);
+            across(w(a), w(b), w(c), w(d))
+        });
+        SurfacePoint { height, water }
+    }
+
+    fn tier(&self, _: FeatureTier) -> FeatureTier {
+        self.0.tier
+    }
+
+    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+        0.0
+    }
+}
+
+/// The chunks to draw while moving between two selections, from
+/// [`ChunkSelection::blend`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ChunkBlend {
+    /// The chunks to draw, with their transitions.
+    pub selection: ChunkSelection,
+    /// The stand-ins among them, each with the drawn chunk it is split
+    /// from: build each with [`ChunkSamples::stand_in`] from that chunk's
+    /// samples.
+    pub stand_ins: BTreeMap<ChunkKey, ChunkKey>,
+}
+
+impl ChunkBlend {
+    /// The blend of the chunks `picked`.
+    fn new(picked: &BTreeMap<ChunkKey, Source>) -> Self {
+        let leaves: BTreeSet<ChunkKey> = picked.keys().copied().collect();
+        let chunks = leaves
+            .iter()
+            .map(|&key| (key, transitions_of(key, &leaves)))
+            .collect();
+        let stand_ins = picked
+            .iter()
+            .filter_map(|(&key, source)| match source {
+                Source::StandIn(from) => Some((key, *from)),
+                _ => None,
+            })
+            .collect();
+        Self {
+            selection: ChunkSelection { chunks },
+            stand_ins,
+        }
+    }
+}
+
+/// Where a chunk of a blend comes from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Source {
+    /// The selection being moved to.
+    Target,
+    /// The drawn selection.
+    Drawn,
+    /// A stand-in split from this drawn chunk.
+    StandIn(ChunkKey),
+}
+
+/// Replaces `key` in `picked` with its four children, as stand-ins split
+/// from the drawn chunk `from`.
+fn split(picked: &mut BTreeMap<ChunkKey, Source>, key: ChunkKey, from: ChunkKey) {
+    picked.remove(&key);
+    let children = key.children().expect("a chunk too coarse has children");
+    picked.extend(children.map(|c| (c, Source::StandIn(from))));
 }
 
 /// The chunk at `level` that holds `key`, or `key` itself at that level;
@@ -1244,54 +1377,60 @@ fn ancestor_at(key: ChunkKey, level: u8) -> Option<ChunkKey> {
     (at.level == level).then_some(at)
 }
 
-/// Adds to `out` the chunks that draw `node`, each marked `true` if it
-/// comes from `target` and `false` if from `old`, and returns whether
-/// `node` can be drawn. `target`'s chunks are used where all of them in a
-/// part of `node` are `ready` and that part isn't `forced`; `old`'s
-/// elsewhere. On `false`, `out` is left as it was.
+/// Adds to `out` the chunks that draw `node`, each with where it comes
+/// from, and returns whether `node` can be drawn. `target`'s chunks are
+/// used where they are `ready` and not `forced`, as long as some part of
+/// `node` uses them; `old`'s elsewhere, split into stand-ins where an
+/// `old` chunk is coarser than the part to fill. On `false`, `out` is
+/// left as it was.
 fn pick(
     node: ChunkKey,
     target: &BTreeSet<ChunkKey>,
     old: &BTreeSet<ChunkKey>,
     ready: &impl Fn(ChunkKey) -> bool,
     forced: &BTreeSet<ChunkKey>,
-    out: &mut Vec<(ChunkKey, bool)>,
+    out: &mut Vec<(ChunkKey, Source)>,
 ) -> bool {
     // From the target: the chunk itself, or its children each drawn as
-    // best they can.
+    // best they can, if any of them uses the target.
+    let mark = out.len();
     if !forced.contains(&node) {
         if target.contains(&node) {
             if ready(node) {
-                out.push((node, true));
+                out.push((node, Source::Target));
                 return true;
             }
         } else if let Some(children) = node.children() {
-            let mark = out.len();
-            if children
+            let all = children
                 .iter()
-                .all(|&c| pick(c, target, old, ready, forced, out))
-            {
+                .all(|&c| pick(c, target, old, ready, forced, out));
+            if all && out[mark..].iter().any(|(_, s)| *s == Source::Target) {
                 return true;
             }
             out.truncate(mark);
         }
     }
 
-    // From what is drawn.
-    let mark = out.len();
+    // From what is drawn: its chunks that make up `node`, or a stand-in
+    // split from the drawn chunk around it.
     if cover(node, old, out) {
         return true;
     }
     out.truncate(mark);
-    false
+    match covering(node, old) {
+        Some(from) => {
+            out.push((node, Source::StandIn(from)));
+            true
+        }
+        None => false,
+    }
 }
 
-/// Adds to `out` the chunks of `old` that make up exactly `node`, marked
-/// `false`, and returns whether they do. On `false`, `out` may hold some
-/// of them.
-fn cover(node: ChunkKey, old: &BTreeSet<ChunkKey>, out: &mut Vec<(ChunkKey, bool)>) -> bool {
+/// Adds to `out` the chunks of `old` that make up exactly `node`, and
+/// returns whether they do. On `false`, `out` may hold some of them.
+fn cover(node: ChunkKey, old: &BTreeSet<ChunkKey>, out: &mut Vec<(ChunkKey, Source)>) -> bool {
     if old.contains(&node) {
-        out.push((node, false));
+        out.push((node, Source::Drawn));
         return true;
     }
     node.children()

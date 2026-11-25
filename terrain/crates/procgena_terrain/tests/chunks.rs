@@ -363,32 +363,106 @@ fn a_blend_draws_the_ready_chunks_and_keeps_the_rest_whole() {
     // With nothing ready the blend keeps what is drawn; with everything
     // ready it is the target.
     let none = target.blend(&drawn, |_| false);
-    assert!(!none.is_empty());
-    assert!(none.iter().all(|(key, _)| drawn.get(key).is_some()));
-    assert_eq!(target.blend(&drawn, |_| true), target);
+    assert!(!none.selection.is_empty() && none.stand_ins.is_empty());
+    assert!(
+        none.selection
+            .iter()
+            .all(|(key, _)| drawn.get(key).is_some())
+    );
+    let all = target.blend(&drawn, |_| true);
+    assert_eq!(all.selection, target);
+    assert!(all.stand_ins.is_empty());
 
     // Chunks are read nearest first. At every stage, each chunk of the
-    // blend is drawn already or is a ready chunk of the target; ground
-    // that both selections draw is drawn; and the chunks join without
-    // cracks.
+    // blend is drawn already, a ready chunk of the target, or a stand-in
+    // inside a drawn chunk; ground that both selections draw is drawn;
+    // and the chunks join without cracks.
     for reach in [60.0, 150.0, 400.0, 800.0] {
         let ready = |key: ChunkKey| key.distance_to(viewer) < reach;
         let blend = target.blend(&drawn, ready);
-        for (key, _) in blend.iter() {
-            assert!(
-                drawn.get(key).is_some() || (target.get(key).is_some() && ready(key)),
-                "{key} is neither drawn nor ready"
-            );
+        for (key, _) in blend.selection.iter() {
+            match blend.stand_ins.get(&key) {
+                Some(&from) => {
+                    assert!(drawn.get(from).is_some(), "{key} stands in for {from}");
+                    assert!(key.is_within(from) && key != from);
+                }
+                None => assert!(
+                    drawn.get(key).is_some() || (target.get(key).is_some() && ready(key)),
+                    "{key} is neither drawn nor ready"
+                ),
+            }
         }
         for i in -30..=30 {
             for j in -30..=30 {
                 let q = viewer + DVec2::new(f64::from(i), f64::from(j)) * 37.0;
                 if holder(&drawn, q).is_some() && holder(&target, q).is_some() {
-                    assert!(holder(&blend, q).is_some(), "nothing drawn at {q}");
+                    assert!(
+                        holder(&blend.selection, q).is_some(),
+                        "nothing drawn at {q}"
+                    );
                 }
             }
         }
-        assert_watertight(&blend, &meshes(&full, &blend));
+        assert_watertight(&blend.selection, &meshes(&full, &blend.selection));
+    }
+
+    // Once the nearest ground is read, the target's finest chunk is drawn
+    // under the viewer, even though the chunk drawn there was coarser.
+    assert!(holder(&drawn, viewer).is_some_and(|k| k.level > 0));
+    let blend = target.blend(&drawn, |key| key.distance_to(viewer) < 150.0);
+    let under = holder(&blend.selection, viewer).unwrap();
+    assert_eq!(under.level, 0);
+    assert!(!blend.stand_ins.contains_key(&under));
+}
+
+#[test]
+fn a_stand_in_shows_its_parents_mesh() {
+    let (full, _) = plains();
+    let parent = ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 2), FeatureTier::Fine).unwrap();
+    let child = ChunkKey::new(-5, 5, 1);
+    let grandchild = ChunkKey::new(-9, 11, 0);
+    assert!(grandchild.is_within(child) && child.is_within(parent.key()));
+    let stand_in = ChunkSamples::stand_in(&parent, child);
+    assert_eq!(stand_in.key(), child);
+    assert_eq!(stand_in.tier(), parent.tier());
+
+    // Where its vertices fall on the parent's, it has the parent's
+    // heights; between them, it lies on the parent's triangles.
+    let n = CHUNK_CELLS;
+    let (oi, oj) = (n / 2, n / 2);
+    for j in 0..=n {
+        for i in 0..=n {
+            let h = stand_in.vertex(i, j).height;
+            if i % 2 == 0 && j % 2 == 0 {
+                assert_eq!(h, parent.vertex(oi + i / 2, oj + j / 2).height);
+            } else {
+                let (a, b) = (
+                    parent.vertex(oi + i / 2, oj + j / 2).height,
+                    parent.vertex(oi + i.div_ceil(2), oj + j.div_ceil(2)).height,
+                );
+                let (c, d) = (
+                    parent.vertex(oi + i.div_ceil(2), oj + j / 2).height,
+                    parent.vertex(oi + i / 2, oj + j.div_ceil(2)).height,
+                );
+                // On an edge or a diagonal: the mean of its two ends.
+                let ends = [(a + b) / 2.0, (c + d) / 2.0];
+                assert!(
+                    ends.iter().any(|e| (e - h).abs() < 1e-4),
+                    "({i}, {j}): {h} is not on the parent's mesh"
+                );
+            }
+        }
+    }
+
+    // A stand-in split from a stand-in shows the same ground as one split
+    // from the parent.
+    let from_parent = ChunkSamples::stand_in(&parent, grandchild);
+    let from_child = ChunkSamples::stand_in(&stand_in, grandchild);
+    for j in 0..=n {
+        for i in 0..=n {
+            let (a, b) = (from_parent.vertex(i, j), from_child.vertex(i, j));
+            assert!((a.height - b.height).abs() < 1e-3, "({i}, {j})");
+        }
     }
 }
 

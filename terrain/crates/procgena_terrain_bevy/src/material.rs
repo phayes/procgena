@@ -10,6 +10,7 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 use procgena_core_bevy::texture::TextureArrays;
+use procgena_terrain::ChunkKey;
 use procgena_terrain::ground::{
     GroundWeights, MaterialCatalogue, PALETTE_SIZE, Projection, ground_textures,
 };
@@ -261,10 +262,92 @@ pub(crate) fn weight_images(weights: &GroundWeights) -> [Image; 2] {
     [half(0), half(4)]
 }
 
+/// The part of `image`, one of the weight images of chunk `from`, that
+/// covers chunk `key` inside it, at the same number of texels: each texel
+/// blended from the four of `image` around it, as the GPU filters them.
+///
+/// # Panics
+///
+/// If `image` has no pixels on the CPU.
+pub(crate) fn weights_part(image: &Image, from: ChunkKey, key: ChunkKey) -> Image {
+    let (w, h) = (image.width() as usize, image.height() as usize);
+    let data = image
+        .data
+        .as_ref()
+        .expect("weight images keep their pixels");
+
+    // Where `key`'s texels fall in `from`'s, in texels.
+    let scale = (key.size() / from.size()) as f32;
+    let offset = ((key.min_corner() - from.min_corner()) / from.size()).as_vec2();
+    let texel =
+        |t: usize, n: usize, o: f32| (o + scale * t as f32 / (n - 1) as f32) * (n - 1) as f32;
+
+    // Each texel, blended from its four neighbours, channel by channel.
+    let mut part = Vec::with_capacity(data.len());
+    for j in 0..h {
+        let y = texel(j, h, offset.y);
+        let (y0, fy) = (y.floor() as usize, y.fract());
+        let y1 = (y0 + 1).min(h - 1);
+        for i in 0..w {
+            let x = texel(i, w, offset.x);
+            let (x0, fx) = (x.floor() as usize, x.fract());
+            let x1 = (x0 + 1).min(w - 1);
+            for c in 0..4 {
+                let at = |x: usize, y: usize| f32::from(data[(y * w + x) * 4 + c]);
+                let top = at(x0, y0) * (1.0 - fx) + at(x1, y0) * fx;
+                let bottom = at(x0, y1) * (1.0 - fx) + at(x1, y1) * fx;
+                part.push((top * (1.0 - fy) + bottom * fy).round() as u8);
+            }
+        }
+    }
+    let mut out = image.clone();
+    out.data = Some(part);
+    out
+}
+
 /// The debug tint of chunk level `level`: a colour that steps round the
 /// hue circle, so neighbouring levels differ.
 pub(crate) fn level_tint(level: u8) -> Vec3 {
     let hue = (f32::from(level) * 67.0) % 360.0;
     let colour = Color::hsl(hue, 0.85, 0.5).to_linear();
     Vec3::new(colour.red, colour.green, colour.blue)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_weights_part_is_the_parents_texels_stretched() {
+        // A parent whose first channel counts texels along x, and second
+        // along z.
+        let n = 129;
+        let data: Vec<u8> = (0..n * n)
+            .flat_map(|t| [(t % n) as u8, (t / n) as u8, 0, 255])
+            .collect();
+        let image = Image::new(
+            Extent3d {
+                width: n as u32,
+                height: n as u32,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            data,
+            TextureFormat::Rgba8Unorm,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+
+        // The child at the parent's larger x and smaller z: its texel
+        // `(i, j)` lies at the parent's `(64 + i / 2, j / 2)`.
+        let (parent, child) = (ChunkKey::new(0, 0, 1), ChunkKey::new(1, 0, 0));
+        let part = weights_part(&image, parent, child);
+        let pixels = part.data.as_ref().unwrap();
+        for (i, j) in [(0, 0), (1, 0), (128, 0), (0, 7), (37, 128), (128, 128)] {
+            let texel = &pixels[(j * n + i) * 4..][..4];
+            let expected = |x: f32| x.round() as u8;
+            assert_eq!(texel[0], expected(64.0 + i as f32 / 2.0), "x at ({i}, {j})");
+            assert_eq!(texel[1], expected(j as f32 / 2.0), "z at ({i}, {j})");
+            assert_eq!(texel[3], 255);
+        }
+    }
 }

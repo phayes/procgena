@@ -38,14 +38,17 @@
 //! - `--fly <m/s>` (with `--measure`; also `--fly-seconds <s>`, default
 //!   10): after measuring, fly straight ahead at the camera's height and
 //!   print how long coarse ground stayed under and near the camera; then
-//!   exit;
+//!   exit (with `--screenshot`, after an image taken at the end of the
+//!   flight, still moving);
+//! - `--reads <n>`: read up to `n` chunks at once, on `n` background
+//!   threads (by default 4 reads on Bevy's usual threads);
 //! - `--headless`: with `--screenshot` or `--measure`, render a
 //!   1280 × 720 image without opening a window.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use bevy::app::ScheduleRunnerPlugin;
+use bevy::app::{ScheduleRunnerPlugin, TaskPoolThreadAssignmentPolicy};
 use bevy::camera::RenderTarget;
 use bevy::camera::primitives::Aabb;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
@@ -194,7 +197,11 @@ fn main() {
         ..ChunkDetail::DEFAULT
     });
     let lod = detail.lod(view);
-    let plugin = TerrainPlugin::new(lod.clone()).expect("--view needs a positive distance");
+    let reads: Option<usize> = value("--reads").map(|n| n.parse().expect("--reads needs a number"));
+    let mut plugin = TerrainPlugin::new(lod.clone()).expect("--view needs a positive distance");
+    if let Some(reads) = reads {
+        plugin = plugin.with_max_reads(reads);
+    }
     let flight = value("--fly").map(|speed| Fly {
         speed: speed.parse().expect("--fly needs a speed in m/s"),
         seconds: value("--fly-seconds")
@@ -232,10 +239,25 @@ fn main() {
         Duration::from_secs_f64(1.0 / 60.0)
     };
     // Assets are read from the workspace, where the ground textures live.
-    let defaults = DefaultPlugins.set(AssetPlugin {
+    // With `--reads <n>`, read up to `n` chunks at once on `n` threads.
+    let mut defaults = DefaultPlugins.set(AssetPlugin {
         file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
         ..default()
     });
+    if let Some(reads) = reads {
+        defaults = defaults.set(TaskPoolPlugin {
+            task_pool_options: TaskPoolOptions {
+                async_compute: TaskPoolThreadAssignmentPolicy {
+                    min_threads: reads,
+                    max_threads: reads,
+                    percent: 1.0,
+                    on_thread_spawn: None,
+                    on_thread_destroy: None,
+                },
+                ..default()
+            },
+        });
+    }
     let mut app = App::new();
     app.insert_resource(GroundTextureSettings {
         root: has("--textures").then(|| "terrain/assets/textures".to_owned()),
@@ -497,8 +519,10 @@ fn fly(
     chunks: Query<(&TerrainChunk, &GlobalTransform, &Aabb)>,
     added: Query<(), Added<TerrainChunk>>,
     mut removed: RemovedComponents<TerrainChunk>,
+    path: Res<ScreenshotPath>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    let shooting = path.0.is_some();
     let Some(mut fly) = fly else { return };
     if !measure.is_some_and(|m| m.done) || fly.flown >= fly.seconds {
         return;
@@ -579,18 +603,22 @@ fn fly(
     );
     println!("  longest without a change {:.2} s", fly.longest_unchanged);
     println!("  chunks too coarse for their distance: mean {mean:.1}, max {max}");
-    exit.write(AppExit::Success);
+    if !shooting {
+        exit.write(AppExit::Success);
+    }
 }
 
 /// With `--screenshot`, saves one image once every chunk is drawn (and
-/// after `--measure` is done), then exits. Exits with an error if the
-/// terrain isn't drawn within [`SCREENSHOT_TIMEOUT`].
+/// after `--measure` is done), or at the end of a `--fly` flight, still
+/// moving; then exits. Exits with an error if the terrain isn't drawn
+/// within [`SCREENSHOT_TIMEOUT`].
 #[allow(clippy::too_many_arguments)]
 fn screenshot(
     mut commands: Commands,
     path: Res<ScreenshotPath>,
     offscreen: Option<Res<Offscreen>>,
     measure: Option<Res<Measure>>,
+    fly: Option<Res<Fly>>,
     time: Res<Time>,
     progress: Query<&TerrainProgress>,
     mut settled: Local<u32>,
@@ -600,17 +628,24 @@ fn screenshot(
     if measure.is_some_and(|m| !m.done) {
         return;
     }
-    if !progress.iter().all(|p| p.settled && p.drawn > 0) || progress.is_empty() {
+    if let Some(fly) = fly {
+        // At the end of the flight, once.
+        if fly.flown < fly.seconds || *settled > 0 {
+            return;
+        }
+        *settled = SETTLE_FRAMES;
+    } else if !progress.iter().all(|p| p.settled && p.drawn > 0) || progress.is_empty() {
         *settled = 0;
         if time.elapsed_secs() > SCREENSHOT_TIMEOUT {
             error!("screenshot failed: the terrain wasn't drawn in {SCREENSHOT_TIMEOUT} seconds");
             exit.write(AppExit::error());
         }
         return;
-    }
-    *settled += 1;
-    if *settled != SETTLE_FRAMES {
-        return;
+    } else {
+        *settled += 1;
+        if *settled != SETTLE_FRAMES {
+            return;
+        }
     }
     let target = match offscreen {
         Some(offscreen) => Screenshot::image(offscreen.0.clone()),
