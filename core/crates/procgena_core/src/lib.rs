@@ -24,6 +24,9 @@
 //! - [`choose_slot`]: which specimen of a pool a placed copy draws.
 //! - [`preset`]: named, ready-made options in catalogues, and `.<kind>.yml`
 //!   preset files that name a base preset and give only what differs.
+//! - [`texture`]: the tiling texture sets each crate lists in its
+//!   `textures.yml`, their sizes and file paths, and a catalogue of
+//!   several lists.
 //!
 //! This crate uses no game engine. Code about one generated specimen's
 //! shape belongs in `procgena_specimen`, which builds on this crate.
@@ -40,6 +43,7 @@ pub mod scatter;
 mod seed;
 mod slot;
 mod specimen_id;
+pub mod texture;
 
 pub use address::{
     Address, AddressPrefix, CellId, CopyAddress, MAX_PART_STEPS, PartStep, RegionId,
