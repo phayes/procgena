@@ -981,6 +981,25 @@ go to the few copies near the camera.
     [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)): a
     stone's level 0 is about 70% of its CPU build, so "level 1 by default"
     also shortens loads and edits if level 0 is built only on demand.
+- **Decided by the user (2026-11-25), ahead of the planning talk:**
+  - **The near level is a setting of the preset.** It is a style, and
+    different kinds of object may want a different near level, so each
+    preset says which built level it draws nearest the camera (level 1
+    by default; level 0 opt-in). The distance chain, from the near level
+    out to the impostor, is a separate setting that the quality level
+    scales. Whether a game can override a preset's near level is still
+    open.
+  - **Levels switch by size on screen, not by metres.** Thresholds are
+    in on-screen size, so copy size, field of view and resolution are
+    handled together; the quality level moves the thresholds. This
+    replaces size-scaled metre distances in the shared LOD type.
+  - **Impostors are baked from the level the game draws near**, not
+    always from level 0, so the fade from mesh to impostor keeps the same
+    detail and level 0 need not be built for a game that never draws it.
+  - **Impostors for clusters are expected to be the biggest win** (a
+    patch of stones, a ring of mushrooms, a stand of grass as one
+    impostor). Follow-up: give more objects clusters of their own (trees,
+    stones and others), so cluster impostors have more to work on.
 - **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
   build; the planning step can start any time.
 - **Done when:** the plan is agreed with the user, the variants are
