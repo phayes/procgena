@@ -24,6 +24,7 @@ use crate::region::{
     EdgeId, Region, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
 };
 use crate::relief::Relief;
+use crate::road::RouteStats;
 use crate::scale::WorldScale;
 use crate::seam::{
     CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
@@ -754,6 +755,21 @@ impl Terrain {
     /// borders.
     pub fn roads(&self) -> &[FeatureLine] {
         &self.features.roads
+    }
+
+    /// Diagnostics from planning this terrain's roads at `tier`: the
+    /// outline at [`Mid`](FeatureTier::Mid), the full roads at
+    /// [`Fine`](FeatureTier::Fine). `None` at [`Rough`](FeatureTier::Rough),
+    /// which has no roads, and at a tier the terrain hasn't reached.
+    pub fn road_stats(&self, tier: FeatureTier) -> Option<RouteStats> {
+        if tier > self.tier {
+            return None;
+        }
+        match tier {
+            FeatureTier::Rough => None,
+            FeatureTier::Mid => self.outline.as_ref().map(|o| o.roads.stats),
+            FeatureTier::Fine => self.roads.as_ref().map(|r| r.stats),
+        }
     }
 
     /// Every river, road and pond of the terrain, each with its id and its

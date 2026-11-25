@@ -370,7 +370,7 @@ blocks. Until then, nothing that depends on it starts.
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
 | D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks; W0's image example is done (world_plan.md, "W0 image example": nothing in it argues against 4 km). Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
 | D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | Nothing yet: W0 may start at scale 1, then gains the scale pair and class presets, and its image examples tune the class numbers. A new terrain task, "scale-aware lengths", which derives every fade, margin, ramp and clearance from scale and local size | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
-| D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | Details under "D6 (gate)" in the "Canonical ground and roads track", in TIN plan section 21 and road plan section 17. Not decided. |
+| D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | **Decided 2026-11-25:** same-platform bitwise first; `H*` for spots, masks, slope and labels with the TIN for collision and near rest heights; chunk borders only; integer millimetres (`i64` x/z, `i32` heights). Details under "D6 (gate)". |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -2005,8 +2005,13 @@ ground and roads" (4.2).
 
 #### D6 (gate): Canonical ground decisions
 
-Opened 2026-11-25 by the two plans' reviews. Decided with the user before
-CT0 and RB4.
+Opened 2026-11-25 by the two plans' reviews. **Decided with the user on
+2026-11-25:** D6a same-platform bitwise first (keep `std` maths; pinned
+maths later); D6b `H*` for spots, masks, slope and labels, the TIN for
+collision and near rest heights, far copies on `H*`; D6c chunk borders
+only; D6d integer millimetres, `i64` x/z and `i32` heights. CT0 uses
+spade 2.15 as the triangulator and the core `ContentHasher` for hashes,
+in a `tin` module of `procgena_terrain`.
 
 - **D6a, deterministic profile.** Cross-platform bitwise identity
   (x86-64 and ARM64) needs pinned maths for every authoritative path: the
@@ -2458,8 +2463,9 @@ where the details are.
       ST4 for thumbnails and capture.
     - *Details:* [procgena/studio_plan.md](procgena/studio_plan.md),
       "Proposed, not decided" and "Open questions".
-32. **Canonical ground (D6).** This blocks CT0 and RB4. RB0–RB3 can start
-    now.
+32. **Canonical ground (D6).** **Decided 2026-11-25:** same-platform
+    first, `H*` plus TIN split, chunk borders only, integer millimetres.
+    Only the S1 streaming question below stays open. The options were:
     - *D6a, deterministic profile:* cross-platform bitwise (pinned maths
       such as `libm` on every authoritative path, with a speed cost) or
       same-platform first.

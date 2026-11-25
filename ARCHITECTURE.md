@@ -551,18 +551,17 @@ Each ends with a review against today's code.
   stage may decide canonical output only once it matches the reference
   bit for bit. Canonical output never depends on request order, cache
   state, threads or camera.
-- **Open (gate D6):**
-  - which deterministic profile comes first: cross-platform bitwise
-    (pinned maths) or same-platform;
-  - what is authoritative at a distance: the TIN everywhere, `H*`
-    everywhere, or `H*` for placement, labels and slope and the TIN for
-    physical ground and near rest heights (see "Placement does not depend
-    on distance");
-  - whether region borders are mesh constraints, or only chunk borders
-    are.
-
-  The current rules stay in force until D6 is decided: placement, labels
-  and slope read the analytic ground.
+- **Decided (gate D6, 2026-11-25):**
+  - **Profile:** bitwise identical on one platform first. Cross-platform
+    identity (pinned maths) is a later milestone.
+  - **Authority:** `H*` decides spots, masks, slope and labels, at every
+    distance. The realized TIN gives collision and the rest heights of
+    near copies; far copies rest on `H*` (see "Placement does not depend
+    on distance").
+  - **Constraints:** only level-0 chunk borders are mesh constraints.
+    Region ownership comes from the region graph, not from triangles.
+  - **Units:** canonical integer millimetres, `i64` for x and z and
+    `i32` for heights.
 
 **What it gets from above.**
 
@@ -1074,8 +1073,10 @@ placement never depends on chunk size, load tier or load order.
   into coarse terrain by that chunk's height error (open question 9).
   With the canonical TIN (see "Canonical ground and roads" under 4.2),
   "true ground" means the composed surface `H*` for spots, masks and
-  slope. Whether near rest heights come from the realized TIN is gate D6
-  (open question 11).
+  slope at every distance. Near copies rest on the realized TIN where
+  their chunk is realized, so their height can settle within the TIN
+  tolerance; a copy's identity never includes its rest height (gate D6,
+  open question 11).
 - **Hooks never see distance or load tier.** Remove, replace and reserve
   edits apply at placement, out to the place range, and stamps change the
   ground before placement (story 6).
@@ -2259,5 +2260,5 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
       for collision and near rest heights. Far copies rest on `H*`.
 
     The third keeps placement independent of distance and fits lazy
-    realization, so it is the review's recommendation. Not decided. See
-    the TIN design's section 21.2.
+    realization, so it is the review's recommendation. **Decided
+    2026-11-25 (D6b): the third.** See the TIN design's section 21.2.

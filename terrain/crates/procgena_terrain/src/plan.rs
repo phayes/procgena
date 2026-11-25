@@ -17,7 +17,7 @@ use crate::region::{Boundary, Region, RegionEdge, point_at, segments};
 use crate::relief::Relief;
 use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
 use crate::road::{
-    RoadStart, Routes, along_mean, banks, coarse_routes, distance_along, refined_routes,
+    RoadStart, RouteStats, Routes, along_mean, banks, coarse_routes, distance_along, refined_routes,
 };
 use crate::seam::{EdgeAgreement, EdgeSample, smooth};
 
@@ -380,6 +380,8 @@ pub(crate) struct Roads {
     /// For each road, how steeply its banks start at each point.
     pub banks: Vec<Vec<f32>>,
     pub points_of_interest: Vec<PointOfInterest>,
+    /// What routing the roads took.
+    pub stats: RouteStats,
 }
 
 /// Plans the region's rivers and ponds after negotiation, from its own
@@ -665,12 +667,13 @@ pub(crate) fn road_outline(
     };
     let starts = road_starts(options, region, agreements);
     let grades = |p| relief.road_grades(p);
-    let Routes { roads, end } = coarse_routes(polygon, &starts, rivers, &grades, base);
+    let Routes { roads, end, stats } = coarse_routes(polygon, &starts, rivers, &grades, base);
     RoadOutline {
         roads: finish_roads(
             Routes {
                 roads: roads.clone(),
                 end,
+                stats,
             },
             region,
             agreements,
@@ -703,6 +706,7 @@ pub(crate) fn roads(
     let coarse = Routes {
         roads: outline.routes.clone(),
         end: outline.end,
+        stats: outline.roads.stats,
     };
     let fine = refined_routes(polygon, &coarse, ROAD_CELL, &starts, rivers, &grades, base);
     finish_roads(fine, region, agreements, base)
@@ -740,7 +744,11 @@ fn finish_roads(
     agreements: &[(usize, &EdgeAgreement)],
     base: &dyn Fn(DVec2) -> f32,
 ) -> Roads {
-    let Routes { mut roads, end } = routes;
+    let Routes {
+        mut roads,
+        end,
+        stats,
+    } = routes;
     let points_of_interest = end
         .map(|(position, level)| PointOfInterest {
             kind: PoiKind::RoadEnd,
@@ -771,6 +779,7 @@ fn finish_roads(
         roads,
         banks: road_banks,
         points_of_interest,
+        stats,
     }
 }
 

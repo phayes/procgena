@@ -292,7 +292,7 @@ The inspected source at commit `4664649cc415c9c6b7e594f39fc617ae90adf8d3` separa
 
 **Mandatory canonical invariant:** every level-0 chunk boundary is a continuous chain of mesh edges. No canonical triangle crosses it. Because the lattice is nested, higher-level boundaries are already represented; do not add redundant constraints. The constraint is topological, not a physical ridge or routing barrier.
 
-For each region R and base chunk C, triangulate the planar intersection R ∩ C. Handle multiple disconnected components and all feature intersections. A mixed-region chunk aggregates these patches, with consistent winding and welded shared edges or identical duplicated vertices. Region ownership remains independent of the chunk grid. Use a deterministic half-open ownership rule for exact boundary queries and stable feature/region IDs for semantics.
+*(Superseded by D6c, section 21.3: each level-0 chunk is triangulated as a whole and region borders are not constraints.)* For each region R and base chunk C, triangulate the planar intersection R ∩ C. Handle multiple disconnected components and all feature intersections. A mixed-region chunk aggregates these patches, with consistent winding and welded shared edges or identical duplicated vertices. Region ownership remains independent of the chunk grid. Use a deterministic half-open ownership rule for exact boundary queries and stable feature/region IDs for semantics.
 
 ### Chunk edge contract
 
@@ -848,7 +848,7 @@ The plan already defines the composed target surface `H*` (section 8.4): base te
 - **(b) `H*` everywhere.** `H*` stays the queryable ground: placement, labels, masks and slope. The TIN is a derived, error-bounded physical and render mesh. Collision then differs from the queried height by up to the TIN tolerance (5 cm on roads, up to 0.5 m on general terrain).
 - **(c) Split by role.** `H*` decides everything placement and labels decide: which spots exist, masks, slope tests and labels, all independent of distance. The physical surface (the canonical TIN where it is realized) gives the rest height of near copies, collision and gameplay ground. Far copies rest on `H*`, which is ARCHITECTURE's open question 9, which already exists. A copy's identity never includes its rest height.
 
-Option (c) keeps "placement does not depend on distance" and the analytic slope, and matches lazy realization. Its cost is two height answers in the near field that differ within the TIN tolerance, so a copy's height can settle when its chunk realizes. Not decided: the user chooses at D6.
+Option (c) keeps "placement does not depend on distance" and the analytic slope, and matches lazy realization. Its cost is two height answers in the near field that differ within the TIN tolerance, so a copy's height can settle when its chunk realizes. **Decided 2026-11-25: option (c).**
 
 Whichever is chosen, `Ground::gradient` for placement should come from `H*` or from smoothed vertex normals, never raw face gradients. Section 11's `GroundSurface` sits beside `Ground`, not in place of it, unless (a) is chosen.
 
@@ -856,7 +856,7 @@ Whichever is chosen, `Ground::gradient` for placement should come from `H*` or f
 
 Section 10 makes every irregular region boundary a constraint and triangulates `R ∩ C` patches. The seam protocol already makes neighbouring terrains meet in height *and slope* along their border (ARCHITECTURE 4.2, "Labels at region borders"). So `H*` has no crease there, and a constraint adds nothing geometric. It still costs slivers where a warped border (up to 100 m wiggles over 800 m in the larger classes) cuts acute angles through chunks, plus the mixed-region aggregation and a region-chunk intersection resolver.
 
-Proposed: triangulate each level-0 chunk as a whole, and answer region ownership from the region graph (as today), not from triangles. Constrain a region border only where something needs an edge there: a material boundary or a feature ending at the border. Chunk boundaries stay mandatory constraints. If accepted, sections 10 ("Chunk topology and ownership"), 14.3 and the test corpus drop the `R ∩ C` patch work. Not decided: the user chooses at D6.
+Proposed: triangulate each level-0 chunk as a whole, and answer region ownership from the region graph (as today), not from triangles. Constrain a region border only where something needs an edge there: a material boundary or a feature ending at the border. Chunk boundaries stay mandatory constraints. If accepted, sections 10 ("Chunk topology and ownership"), 14.3 and the test corpus drop the `R ∩ C` patch work. **Decided 2026-11-25: chunk borders only.** The `R ∩ C` patch work in section 10 is superseded.
 
 ### 21.4 Gap: deterministic source maths (decision D6a)
 
@@ -866,6 +866,8 @@ Proposed: triangulate each level-0 chunk as a whole, and answer region ownership
 - or a same-platform-only first profile, with cross-platform bitwise identity deferred.
 
 The GPU kernels of section 13 face the same question, since WGSL's `exp` and `pow` are not exact. So exact GPU parity for any stage that evaluates `H*` needs either the same deterministic approximations implemented on both sides, or that stage kept off the canonical path.
+
+**Decided 2026-11-25: same-platform bitwise first.** `std` maths stays; pinned maths for cross-platform identity is a later milestone. Coordinates are canonical integer millimetres (`i64` x/z, `i32` heights; D6d).
 
 ### 21.5 Fit with work already built or planned
 

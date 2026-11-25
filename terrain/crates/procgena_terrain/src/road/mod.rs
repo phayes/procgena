@@ -1,0 +1,718 @@
+//! Routing roads over a region's grid and setting their levels.
+
+mod level;
+mod quality;
+mod search;
+
+pub use quality::{RoadQuality, road_quality};
+
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use glam::DVec2;
+
+use crate::carve::{FeatureKind, FeatureLine, bank_for, chaikin};
+use crate::grid::Grid;
+use crate::options::RoadGrades;
+use crate::ports::FEATURE_CLEARANCE;
+use crate::seam::smootherstep;
+
+use level::{across_road, crowded, grade_limited, level_on_roads, smooth};
+use search::{Bridges, Terrain, network_distance, search, water};
+
+/// How many joins a road may find out of reach before it gives up.
+const MAX_REFUSED_JOINS: usize = 8;
+
+/// How far around a road point the ground's slope is measured, and how far
+/// along the road it is averaged, for the road's banks, in metres.
+const SLOPE_RADIUS: f64 = 20.0;
+
+/// Over how many metres from its start a road's banks ease in from the
+/// gentlest.
+const BANK_EASE: f64 = 80.0;
+
+/// How deep a road cuts, in metres, before it starts to narrow.
+const NARROW_FROM: f64 = 3.0;
+
+/// How deep a road cuts, in metres, where it is at its narrowest.
+const NARROW_TO: f64 = 10.0;
+
+/// How close two legs of one road may come, as a multiple of its width.
+const LEG_SPACING: f64 = 3.0;
+
+/// How many times a road is routed again around a place where its legs
+/// crowd each other, before it is kept as it is.
+const MAX_CROWDED_RETRIES: usize = 8;
+
+/// The cell size of the grid the road network is first outlined on, in
+/// metres.
+const COARSE_CELL: f64 = 16.0;
+
+/// How far a refined road may stray from its coarse outline, in metres.
+const CORRIDOR: f64 = 48.0;
+
+/// A road's start: the end of a border crossing on this side, and the road
+/// level there.
+pub(crate) struct RoadStart {
+    pub point: DVec2,
+    pub level: f32,
+    pub width: f32,
+    /// How narrow the road may get through deep cuttings.
+    pub min_width: f32,
+}
+
+/// The roads of a region, and where they end.
+pub(crate) struct Routes {
+    pub roads: Vec<FeatureLine>,
+    /// The hub every road leads to, and the road level there, if any road
+    /// reached it.
+    pub end: Option<(DVec2, f32)>,
+    /// What planning them took.
+    pub stats: RouteStats,
+}
+
+/// Diagnostics from planning one region's roads at one tier: how much work
+/// the route search did, and where the time went. For measuring the road
+/// builder only: the counts are the same on every run, the times are not,
+/// and neither changes the roads.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RouteStats {
+    /// Cells in the routing grid's bounding box.
+    pub grid_cells: usize,
+    /// Cells a road may pass through.
+    pub active_cells: usize,
+    /// Road starts: one per road crossing on the region's border.
+    pub starts: usize,
+    /// Starts that got no road.
+    pub unconnected: usize,
+    /// Route searches run, retries included.
+    pub searches: usize,
+    /// Search states queued, over every search.
+    pub states_pushed: u64,
+    /// Search states taken from the queue, over every search.
+    pub states_popped: u64,
+    /// Joins refused because the road couldn't reach the network's level.
+    pub refused_joins: usize,
+    /// Searches run again because a road's legs crowded each other.
+    pub crowded_retries: usize,
+    /// Roads kept although their legs crowd each other.
+    pub crowded_kept: usize,
+    /// The most memory one search held for its states, in bytes.
+    pub peak_state_bytes: usize,
+    /// Time spent building the routing grid: cells and ground heights.
+    pub grid_time: Duration,
+    /// Time spent on per-cell grades, water and bridges.
+    pub setup_time: Duration,
+    /// Time spent on the estimates of the cost still ahead.
+    pub field_time: Duration,
+    /// Time spent in route searches.
+    pub search_time: Duration,
+    /// Time spent setting road levels, widths and checking crowding.
+    pub level_time: Duration,
+}
+
+impl RouteStats {
+    /// The total time recorded.
+    pub fn total_time(&self) -> Duration {
+        self.grid_time + self.setup_time + self.field_time + self.search_time + self.level_time
+    }
+}
+
+/// Links every start to a hub near the middle of the region, or to a road
+/// already linked, over `grid` (heights of the bent terrain, which
+/// `ground` gives at any point). Roads cross `rivers` as seldom as they
+/// reasonably can, and `grades` gives the road grades at a point. Roads
+/// stay at least [`FEATURE_CLEARANCE`] from the border, apart from the
+/// straight first leg from each start.
+///
+/// The hub is the allowed cell nearest `hub_at` when given, otherwise a
+/// level cell near the middle of the region.
+pub(crate) fn route(
+    grid: &Grid,
+    starts: &[RoadStart],
+    rivers: &[FeatureLine],
+    hub_at: Option<DVec2>,
+    grades: &dyn Fn(DVec2) -> RoadGrades,
+    ground: &dyn Fn(DVec2) -> f32,
+) -> Routes {
+    let setup_started = Instant::now();
+    let allowed: Vec<bool> = (0..grid.heights.len())
+        .map(|i| grid.inside[i] && grid.clearance[i] > FEATURE_CLEARANCE)
+        .collect();
+    let mut stats = RouteStats {
+        grid_cells: allowed.len(),
+        active_cells: allowed.iter().filter(|&&a| a).count(),
+        starts: starts.len(),
+        ..RouteStats::default()
+    };
+    let hub = match hub_at {
+        Some(p) => nearest_allowed(grid, &allowed, p),
+        None => hub(grid, &allowed),
+    };
+    let Some(hub) = hub else {
+        stats.unconnected = starts.len();
+        return Routes {
+            roads: Vec::new(),
+            end: None,
+            stats,
+        };
+    };
+
+    // Grades are read only where a road may pass; the search never steps
+    // onto the other cells.
+    let unused = RoadGrades {
+        grade: 1.0,
+        max_grade: 1.0,
+    };
+    let cell_grades: Vec<RoadGrades> = (0..grid.heights.len())
+        .map(|i| {
+            if allowed[i] {
+                grades(grid.centre(i))
+            } else {
+                unused
+            }
+        })
+        .collect();
+    let river = water(grid, rivers);
+    let bridges = Bridges::new(grid, rivers);
+    let terrain = Terrain {
+        grid,
+        allowed: &allowed,
+        river: &river,
+        bridges: &bridges,
+        grades: &cell_grades,
+    };
+    stats.setup_time = setup_started.elapsed();
+
+    let mut network = vec![false; grid.heights.len()];
+    network[hub] = true;
+    let mut roads: Vec<FeatureLine> = Vec::new();
+    for start in starts {
+        let Some(first) = first_cell(grid, &allowed, start.point) else {
+            stats.unconnected += 1;
+            continue;
+        };
+        // Route, and set levels; a join that the smoothed road can't reach
+        // within its grade is refused, and the search runs again.
+        let lead_in =
+            start.point.distance(grid.centre(first)) * f64::from(grades(start.point).max_grade);
+        let mut refused: Vec<usize> = Vec::new();
+        let spacing = LEG_SPACING * f64::from(start.width);
+        let mut blocked = vec![false; grid.heights.len()];
+        let mut retries = 0;
+        let mut crowded_route = None;
+        let field_started = Instant::now();
+        let ahead = network_distance(grid, &network);
+        stats.field_time += field_started.elapsed();
+        let routed = loop {
+            if refused.len() > MAX_REFUSED_JOINS {
+                stats.crowded_kept += usize::from(crowded_route.is_some());
+                break crowded_route;
+            }
+            // The road may join the network only where it can reach the
+            // network's level at its steepest grade (with a little to spare
+            // for the smoothing).
+            let joinable = |cell: usize, reach: f64| {
+                !refused.contains(&cell)
+                    && level_on_roads(&roads, grid.centre(cell)).is_none_or(|level| {
+                        f64::from((level - start.level).abs()) <= 0.9 * (reach + lead_in)
+                    })
+            };
+            let search_started = Instant::now();
+            let found = search(
+                &terrain, &network, &ahead, &blocked, first, &joinable, &mut stats,
+            );
+            stats.search_time += search_started.elapsed();
+            let Some(cells) = found else {
+                stats.crowded_kept += usize::from(crowded_route.is_some());
+                break crowded_route;
+            };
+            let level_started = Instant::now();
+
+            // Points: the crossing end, then the route, smoothed.
+            let mut points = vec![start.point];
+            points.extend(cells.iter().map(|&c| grid.centre(c)));
+            let flat = vec![0.0; points.len()];
+            let (points, _) = chaikin(&points, &flat, 2);
+
+            // Levels: follow the smoothed ground, from the crossing's level
+            // to the network's level where the road joins it.
+            let heights: Vec<f32> = points.iter().map(|&p| ground(p)).collect();
+            let steepest: Vec<f64> = points
+                .iter()
+                .enumerate()
+                .map(|(i, &p)| {
+                    let middle = if i == 0 {
+                        p
+                    } else {
+                        p.lerp(points[i - 1], 0.5)
+                    };
+                    f64::from(grades(middle).max_grade)
+                })
+                .collect();
+            let join = *cells.last().expect("route has cells");
+            let end_level = level_on_roads(&roads, grid.centre(join));
+            let target = smooth(&heights);
+            let across = across_road(&points, &heights, f64::from(start.width) / 2.0, ground);
+            let Some(levels) =
+                grade_limited(&points, &across, &target, start.level, end_level, &steepest)
+            else {
+                stats.level_time += level_started.elapsed();
+                stats.refused_joins += 1;
+                refused.push(join);
+                continue;
+            };
+
+            // Where two legs crowd each other, route again around that
+            // place, keeping this route in case no other is found.
+            let crowding = crowded(&points, spacing);
+            stats.level_time += level_started.elapsed();
+            if crowding.is_empty() || retries >= MAX_CROWDED_RETRIES {
+                if !crowding.is_empty() {
+                    stats.crowded_kept += 1;
+                }
+                break Some((cells, points, levels, across));
+            }
+            for &j in &crowding {
+                block_around(grid, &mut blocked, points[j], 0.5 * spacing, first);
+            }
+            retries += 1;
+            stats.crowded_retries += 1;
+            crowded_route = Some((cells, points, levels, across));
+        };
+        let Some((cells, points, levels, across)) = routed else {
+            stats.unconnected += 1;
+            continue;
+        };
+        for &c in &cells {
+            network[c] = true;
+        }
+        let level_started = Instant::now();
+        roads.push(FeatureLine {
+            kind: FeatureKind::Road,
+            widths: widths(&points, &across, &levels, start.width, start.min_width),
+            points,
+            levels,
+            depth: 0.0,
+        });
+        stats.level_time += level_started.elapsed();
+    }
+    let end = level_on_roads(&roads, grid.centre(hub)).map(|level| (grid.centre(hub), level));
+    Routes { roads, end, stats }
+}
+
+/// Like [`route`], on a grid of [`COARSE_CELL`] metres over `polygon`: the
+/// road network in outline, cheap to plan, with the same starts and levels
+/// at the crossings. [`refined_routes`] follows it at full detail.
+pub(crate) fn coarse_routes(
+    polygon: &[DVec2],
+    starts: &[RoadStart],
+    rivers: &[FeatureLine],
+    grades: &dyn Fn(DVec2) -> RoadGrades,
+    ground: &dyn Fn(DVec2) -> f32,
+) -> Routes {
+    let started = Instant::now();
+    let grid = Grid::with_cell(polygon, ground, COARSE_CELL);
+    let grid_time = started.elapsed();
+    let mut routes = route(&grid, starts, rivers, None, grades, ground);
+    routes.stats.grid_time = grid_time;
+    routes
+}
+
+/// Like [`route`], on a grid of `cell` metres over `polygon` that covers
+/// only the ground within [`CORRIDOR`] metres of the `coarse` routes (see
+/// [`coarse_routes`], planned with the same arguments), with the same hub.
+/// Every refined road stays inside that corridor. With no coarse network
+/// there are no roads.
+pub(crate) fn refined_routes(
+    polygon: &[DVec2],
+    coarse: &Routes,
+    cell: f64,
+    starts: &[RoadStart],
+    rivers: &[FeatureLine],
+    grades: &dyn Fn(DVec2) -> RoadGrades,
+    ground: &dyn Fn(DVec2) -> f32,
+) -> Routes {
+    let Some((hub, _)) = coarse.end else {
+        return Routes {
+            roads: Vec::new(),
+            end: None,
+            stats: RouteStats {
+                starts: starts.len(),
+                unconnected: starts.len(),
+                ..RouteStats::default()
+            },
+        };
+    };
+    let started = Instant::now();
+    let corridor = Corridor::new(&coarse.roads, hub, CORRIDOR);
+    let grid = Grid::with_cell_where(polygon, ground, cell, |p| corridor.contains(p));
+    let grid_time = started.elapsed();
+    let mut routes = route(&grid, starts, rivers, Some(hub), grades, ground);
+    routes.stats.grid_time = grid_time;
+    routes
+}
+
+/// The ground within a set distance of some lines and a point, bucketed so
+/// a point is tested only against the segments nearby.
+struct Corridor {
+    /// Bucket size, the corridor's half-width.
+    reach: f64,
+    /// For each bucket, the segments that may lie within `reach` of a point
+    /// in it.
+    buckets: HashMap<(i64, i64), Vec<(DVec2, DVec2)>>,
+}
+
+impl Corridor {
+    /// The ground within `reach` metres of `lines` or of `point`.
+    fn new(lines: &[FeatureLine], point: DVec2, reach: f64) -> Self {
+        let mut corridor = Self {
+            reach,
+            buckets: HashMap::new(),
+        };
+        let segments = lines
+            .iter()
+            .flat_map(|l| l.points.windows(2).map(|w| (w[0], w[1])))
+            .chain(std::iter::once((point, point)));
+        for (a, b) in segments {
+            let (lo, hi) = (corridor.bucket(a.min(b)), corridor.bucket(a.max(b)));
+            for x in lo.0 - 1..=hi.0 + 1 {
+                for z in lo.1 - 1..=hi.1 + 1 {
+                    corridor.buckets.entry((x, z)).or_default().push((a, b));
+                }
+            }
+        }
+        corridor
+    }
+
+    /// The bucket holding `p`.
+    fn bucket(&self, p: DVec2) -> (i64, i64) {
+        let q = (p / self.reach).floor();
+        (q.x as i64, q.y as i64)
+    }
+
+    /// Whether `p` lies in the corridor.
+    fn contains(&self, p: DVec2) -> bool {
+        self.buckets.get(&self.bucket(p)).is_some_and(|segments| {
+            segments
+                .iter()
+                .any(|&(a, b)| distance_to_segment(p, a, b) <= self.reach)
+        })
+    }
+}
+
+/// The distance from `p` to the segment from `a` to `b`.
+fn distance_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+    let ab = b - a;
+    let t = ((p - a).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
+}
+
+/// How steeply a road along `points` has its banks start at each point, as
+/// rise over run (see [`bank_for`]), from the slope of `ground` around each
+/// point, averaged along the road. Over its first [`BANK_EASE`] metres the
+/// road eases in from the gentlest banks, which its crossing piece has.
+pub(crate) fn banks(points: &[DVec2], ground: &dyn Fn(DVec2) -> f32) -> Vec<f32> {
+    // The ground's slope around each point.
+    let slope: Vec<f64> = points
+        .iter()
+        .map(|&p| {
+            let (dx, dz) = (DVec2::new(SLOPE_RADIUS, 0.0), DVec2::new(0.0, SLOPE_RADIUS));
+            let gx = f64::from(ground(p + dx) - ground(p - dx)) / (2.0 * SLOPE_RADIUS);
+            let gz = f64::from(ground(p + dz) - ground(p - dz)) / (2.0 * SLOPE_RADIUS);
+            gx.hypot(gz)
+        })
+        .collect();
+
+    // Averaged along the road, then eased in from the start.
+    let gentle = bank_for(0.0);
+    eased(
+        points,
+        &along_mean(points, &slope, SLOPE_RADIUS),
+        |mean, ease| (gentle + (bank_for(mean) - gentle) * ease) as f32,
+    )
+}
+
+/// How wide a road along `points` is at each point: `width` where it
+/// cuts less than [`NARROW_FROM`] into the ground (the highest ground
+/// across it, `across[i].1`, above its level), narrowing to `min_width`
+/// where it cuts [`NARROW_TO`] or more, averaged over [`SLOPE_RADIUS`]
+/// along the road. Over its first [`BANK_EASE`] metres the road eases in
+/// from `width`, which its crossing piece has.
+pub(crate) fn widths(
+    points: &[DVec2],
+    across: &[(f32, f32)],
+    levels: &[f32],
+    width: f32,
+    min_width: f32,
+) -> Vec<f32> {
+    // How far towards the narrowest each point is.
+    let narrowing: Vec<f64> = across
+        .iter()
+        .zip(levels)
+        .map(|(&(_, high), &level)| {
+            let cut = f64::from(high - level);
+            smootherstep(((cut - NARROW_FROM) / (NARROW_TO - NARROW_FROM)).clamp(0.0, 1.0))
+        })
+        .collect();
+
+    // Averaged along the road, then eased in from the start.
+    let (width, min_width) = (f64::from(width), f64::from(min_width));
+    eased(
+        points,
+        &along_mean(points, &narrowing, SLOPE_RADIUS),
+        |mean, ease| (width + (min_width - width) * mean * ease) as f32,
+    )
+}
+
+/// The mean of `values` over the points of `points` within `radius` metres
+/// of each point, measured along the line.
+pub(crate) fn along_mean(points: &[DVec2], values: &[f64], radius: f64) -> Vec<f64> {
+    let along = distance_along(points);
+    let (mut lo, mut hi) = (0, 0);
+    (0..points.len())
+        .map(|i| {
+            while along[i] - along[lo] > radius {
+                lo += 1;
+            }
+            while hi + 1 < points.len() && along[hi + 1] - along[i] <= radius {
+                hi += 1;
+            }
+            values[lo..=hi].iter().sum::<f64>() / (hi - lo + 1) as f64
+        })
+        .collect()
+}
+
+/// `value(means[i], ease)` for each point of `points`, where `ease` rises
+/// smoothly from 0 at the line's start to 1 at [`BANK_EASE`] metres along
+/// it.
+fn eased(points: &[DVec2], means: &[f64], value: impl Fn(f64, f64) -> f32) -> Vec<f32> {
+    distance_along(points)
+        .iter()
+        .zip(means)
+        .map(|(&along, &mean)| value(mean, smootherstep((along / BANK_EASE).min(1.0))))
+        .collect()
+}
+
+/// The distance along `points` from the first point to each point.
+pub(crate) fn distance_along(points: &[DVec2]) -> Vec<f64> {
+    let mut along = vec![0.0f64; points.len()];
+    for i in 1..points.len() {
+        along[i] = along[i - 1] + points[i].distance(points[i - 1]);
+    }
+    along
+}
+
+/// Marks every cell within `radius` of `p` as `blocked`, except `keep`.
+fn block_around(grid: &Grid, blocked: &mut [bool], p: DVec2, radius: f64, keep: usize) {
+    let reach = (radius / grid.cell).ceil() as i64;
+    for dx in -reach..=reach {
+        for dz in -reach..=reach {
+            let q = p + DVec2::new(dx as f64, dz as f64) * grid.cell;
+            if let Some(c) = grid.cell_of(q)
+                && c != keep
+                && grid.centre(c).distance(p) <= radius
+            {
+                blocked[c] = true;
+            }
+        }
+    }
+}
+
+/// The flattest allowed cell near the middle of the region.
+fn hub(grid: &Grid, allowed: &[bool]) -> Option<usize> {
+    let cells: Vec<usize> = (0..allowed.len()).filter(|&i| allowed[i]).collect();
+    let middle = cells.iter().map(|&c| grid.centre(c)).sum::<DVec2>() / cells.len().max(1) as f64;
+    let size = (grid.width.max(grid.depth) as f64) * grid.cell;
+    cells.into_iter().min_by(|&a, &b| {
+        let score = |c: usize| {
+            let slope = grid
+                .neighbours(c)
+                .map(|(j, d)| (f64::from(grid.heights[j] - grid.heights[c]) / d).abs())
+                .fold(0.0, f64::max);
+            slope + 2.0 * grid.centre(c).distance(middle) / size
+        };
+        score(a).total_cmp(&score(b)).then(a.cmp(&b))
+    })
+}
+
+/// The first allowed cell going inward from a crossing end at `point`: the
+/// nearest allowed cell to it.
+fn first_cell(grid: &Grid, allowed: &[bool], point: DVec2) -> Option<usize> {
+    (0..allowed.len())
+        .filter(|&i| {
+            allowed[i] && grid.centre(i).distance(point) < 3.0 * grid.cell + FEATURE_CLEARANCE
+        })
+        .min_by(|&a, &b| {
+            grid.centre(a)
+                .distance(point)
+                .total_cmp(&grid.centre(b).distance(point))
+                .then(a.cmp(&b))
+        })
+}
+
+/// The allowed cell nearest `point`, if any cell is allowed.
+fn nearest_allowed(grid: &Grid, allowed: &[bool], point: DVec2) -> Option<usize> {
+    (0..allowed.len()).filter(|&i| allowed[i]).min_by(|&a, &b| {
+        grid.centre(a)
+            .distance(point)
+            .total_cmp(&grid.centre(b).distance(point))
+            .then(a.cmp(&b))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use search::segments_meet;
+
+    #[test]
+    fn roads_link_starts_within_their_grade() {
+        let polygon = [
+            DVec2::ZERO,
+            DVec2::new(2000.0, 0.0),
+            DVec2::new(2000.0, 2000.0),
+            DVec2::new(0.0, 2000.0),
+        ];
+        // A gentle slope with a steep hill in the middle.
+        let hill = DVec2::splat(1000.0);
+        let ground =
+            |p: DVec2| (0.01 * p.x + 80.0 * (-(p.distance(hill) / 200.0).powi(2)).exp()) as f32;
+        let grid = Grid::new(&polygon, ground);
+        let starts = [
+            RoadStart {
+                point: DVec2::new(1000.0, 70.0),
+                level: 10.0,
+                width: 6.0,
+                min_width: 4.0,
+            },
+            RoadStart {
+                point: DVec2::new(70.0, 1500.0),
+                level: 1.0,
+                width: 6.0,
+                min_width: 4.0,
+            },
+        ];
+        let grades = |_| RoadGrades {
+            grade: 0.04,
+            max_grade: 0.08,
+        };
+        let Routes { roads, end, .. } = route(&grid, &starts, &[], None, &grades, &ground);
+        assert_eq!(roads.len(), 2);
+        // The network ends at the hub, where the first road arrives.
+        let (hub, level) = end.expect("the roads reach the hub");
+        assert_eq!(*roads[0].points.last().unwrap(), hub);
+        assert_eq!(*roads[0].levels.last().unwrap(), level);
+        for road in &roads {
+            assert_eq!(
+                road.points[0],
+                starts[roads.iter().position(|r| r == road).unwrap()].point
+            );
+            for w in road.points.windows(2).zip(road.levels.windows(2)) {
+                let ((a, b), (la, lb)) = ((w.0[0], w.0[1]), (w.1[0], w.1[1]));
+                let grade = f64::from((lb - la).abs()) / a.distance(b);
+                assert!(grade <= 0.08 * 1.001, "grade {grade}");
+            }
+        }
+    }
+
+    /// A road over flat ground, 2 km square, from its south edge to the hub
+    /// in the middle, past `river`.
+    fn road_past(river: Vec<DVec2>) -> (FeatureLine, FeatureLine) {
+        let polygon = [
+            DVec2::ZERO,
+            DVec2::new(2000.0, 0.0),
+            DVec2::new(2000.0, 2000.0),
+            DVec2::new(0.0, 2000.0),
+        ];
+        let ground = |_: DVec2| 0.0;
+        let grid = Grid::with_cell(&polygon, ground, 8.0);
+        let river = FeatureLine {
+            kind: FeatureKind::River,
+            levels: vec![0.0; river.len()],
+            widths: vec![6.0; river.len()],
+            points: river,
+            depth: 1.0,
+        };
+        let start = RoadStart {
+            point: DVec2::new(1000.0, 70.0),
+            level: 0.0,
+            width: 6.0,
+            min_width: 4.0,
+        };
+        let grades = |_| RoadGrades {
+            grade: 0.04,
+            max_grade: 0.08,
+        };
+        let Routes { mut roads, .. } = route(
+            &grid,
+            &[start],
+            std::slice::from_ref(&river),
+            None,
+            &grades,
+            &ground,
+        );
+        assert_eq!(roads.len(), 1);
+        (roads.remove(0), river)
+    }
+
+    /// Where `road` crosses `river`: the angle between them there, in
+    /// degrees (90 is square), for each crossing.
+    fn crossing_angles(road: &FeatureLine, river: &FeatureLine) -> Vec<f64> {
+        let mut angles = Vec::new();
+        for a in road.points.windows(2) {
+            for b in river.points.windows(2) {
+                if segments_meet(a[0], a[1], b[0], b[1]) {
+                    let turn = (a[1] - a[0]).angle_to(b[1] - b[0]).abs().to_degrees();
+                    angles.push(if turn > 90.0 { 180.0 - turn } else { turn });
+                }
+            }
+        }
+        angles
+    }
+
+    #[test]
+    fn roads_go_round_a_river_bend_rather_than_cross_it_twice() {
+        // A river in from the west edge that bends back 1.2 km in, so both
+        // its arms lie between the road's start and the hub. Crossing both
+        // saves the road about 400 m; going round costs no bridge.
+        let mut river = vec![DVec2::new(0.0, 600.0), DVec2::new(1200.0, 600.0)];
+        river.extend((1..12).map(|i| {
+            let a = std::f64::consts::PI * (f64::from(i) / 12.0 - 0.5);
+            DVec2::new(1200.0, 700.0) + 100.0 * DVec2::new(a.cos(), a.sin())
+        }));
+        river.extend([DVec2::new(1200.0, 800.0), DVec2::new(0.0, 800.0)]);
+        let (road, river) = road_past(river);
+        assert_eq!(crossing_angles(&road, &river), Vec::<f64>::new());
+    }
+
+    #[test]
+    fn roads_cross_a_river_in_their_way_once_and_near_square() {
+        // A river from edge to edge, slanting across the road's way.
+        let (road, river) = road_past(vec![DVec2::new(0.0, 300.0), DVec2::new(2000.0, 700.0)]);
+        let angles = crossing_angles(&road, &river);
+        assert_eq!(angles.len(), 1, "crossings at {angles:?}°");
+        assert!(angles[0] > 60.0, "crosses at {}°", angles[0]);
+    }
+
+    #[test]
+    fn roads_narrow_through_deep_cuttings() {
+        // A level road, 400 m long: no cut over its first 200 m, then a 20 m
+        // cut. Full width (6 m) at the start and on the open stretch; the
+        // narrowest (4 m) well inside the cutting.
+        let points: Vec<DVec2> = (0..=40)
+            .map(|i| DVec2::new(10.0 * f64::from(i), 0.0))
+            .collect();
+        let across: Vec<(f32, f32)> = (0..=40)
+            .map(|i| if i < 20 { (0.0, 0.0) } else { (0.0, 20.0) })
+            .collect();
+        let levels = vec![0.0; points.len()];
+        let w = widths(&points, &across, &levels, 6.0, 4.0);
+        assert_eq!(w[0], 6.0);
+        assert_eq!(w[15], 6.0);
+        assert!((w[35] - 4.0).abs() < 1e-5, "inside the cutting: {}", w[35]);
+        // It narrows smoothly, never below the narrowest.
+        assert!(w.iter().all(|&x| (4.0..=6.0).contains(&x)));
+        assert!(w.windows(2).all(|p| p[1] <= p[0] + 1e-6));
+    }
+}

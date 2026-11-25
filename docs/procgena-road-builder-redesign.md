@@ -400,6 +400,6 @@ Checked against `road.rs`, `plan.rs`, `terrain.rs`, the World presets, [ARCHITEC
 
 ### 17.3 Open decisions (for the user, before the RB milestones they gate)
 
-- **D6a, deterministic profile.** Cross-platform bitwise (x86-64 and ARM64, pinned maths) or same-platform bitwise first? This affects Stage 1 and every hash test.
+- **D6a, deterministic profile.** Cross-platform bitwise (x86-64 and ARM64, pinned maths) or same-platform bitwise first? This affects Stage 1 and every hash test. **Decided 2026-11-25: same-platform first.**
 - **Commit order.** Stable port order (today) is the default. Cheapest-first or road-class order is a separate, versioned policy (section 10.7).
 - **Crowded fallback.** Today a crowded route is kept when retries run out. Keep that, or report the port as unconnected (section 12)?

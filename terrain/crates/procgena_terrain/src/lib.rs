@@ -152,6 +152,7 @@ pub use ports::{
     FEATURE_CLEARANCE, INNER_DEPTHS, MAX_PORT_WIDTH, Port, PortKind, PortWish, Side, inner_depth,
 };
 pub use presets::TerrainPreset;
+pub use road::{RoadQuality, RouteStats, road_quality};
 /// The text of `terrain.meta.yml`: each Terrain setting's label,
 /// description and range, for tools that edit Terrain presets. Read it with
 /// [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).
